@@ -71,7 +71,9 @@ public final class ControlCommandCoordinator {
         if let result = handleAppFocus(request) { return result }
         if let result = handleFeed(request) { return result }
         if let result = handleNotification(request) { return result }
+        if let result = handleLayout(request) { return result }
         if let result = handleWorkspaceGroup(request) { return result }
+        if let result = handleWorkspaceTodo(request) { return result }
         if let result = handlePane(request) { return result }
         if let result = handleCanvas(request) { return result }
         if let result = handleMobileHost(request) { return result }
@@ -87,6 +89,63 @@ public final class ControlCommandCoordinator {
         // handleSidebarV1 / handleBrowserPanelV1 are V1 string-command handlers;
         // the app's v1 dispatcher calls them directly with (command:args:).
         return nil
+    }
+
+    /// Runs one decoded request on the calling socket-worker thread if it is
+    /// a coordinator-owned worker-lane method (the tranche-D resolution
+    /// reads and the tranche-E sends); returns `nil` otherwise so the
+    /// app-side worker dispatch can fall through to its own cases (and
+    /// finally to its loud policy-without-handler backstop).
+    ///
+    /// Each body is `nonisolated`: pure parse and the JSON payload build/
+    /// encode run on the calling thread, and every main-actor touch —
+    /// known-ref refresh, routing resolution through the handle registry,
+    /// the context snapshot witness, and ref minting in payload order — is
+    /// one `controlResolveOnMain` hop. The same bodies serve the main-actor
+    /// `handle(_:)` dispatch, where the hop collapses inline, so both lanes
+    /// run identical code.
+    ///
+    /// - Parameters:
+    ///   - request: The decoded request envelope.
+    ///   - context: The live app seam (the app's composition owner, passed
+    ///     explicitly because the coordinator's `context` property is
+    ///     main-actor-isolated).
+    /// - Returns: The command result, or `nil` if not a coordinator-owned
+    ///   worker-lane method.
+    public nonisolated func handleSocketWorkerV2(
+        _ request: ControlRequest,
+        context: (any ControlCommandContext)?
+    ) -> ControlCallResult? {
+        switch request.method {
+        case "surface.list":
+            return surfaceList(request.params, context: context)
+        case "surface.current":
+            return surfaceCurrent(request.params, context: context)
+        case "workspace.list":
+            return workspaceList(request.params, context: context)
+        case "workspace.current":
+            return workspaceCurrent(request.params, context: context)
+        case "window.list":
+            return windowList(context: context)
+        case "window.current":
+            return windowCurrent(request.params, context: context)
+        case "window.displays":
+            return windowDisplays(context: context)
+        case "pane.list":
+            return paneList(request.params, context: context)
+        case "pane.surfaces":
+            return paneSurfaces(request.params, context: context)
+        case "system.identify":
+            return systemIdentify(request.params, context: context)
+        case "system.tree":
+            return systemTree(request.params, context: context)
+        case "surface.send_text":
+            return surfaceSendText(request.params, context: context)
+        case "surface.send_key":
+            return surfaceSendKey(request.params, context: context)
+        default:
+            return nil
+        }
     }
 
     // MARK: - Handle registry (shared ref minting)
@@ -129,8 +188,9 @@ public final class ControlCommandCoordinator {
     }
 
     /// A string as a JSON value, or JSON `null` when absent (the legacy
-    /// `v2OrNull` `NSNull` case).
-    func orNull(_ value: String?) -> JSONValue {
+    /// `v2OrNull` `NSNull` case). `nonisolated`: pure value mapping, used by
+    /// the worker-lane bodies' off-main payload shaping.
+    nonisolated func orNull(_ value: String?) -> JSONValue {
         guard let value else { return .null }
         return .string(value)
     }
@@ -139,7 +199,9 @@ public final class ControlCommandCoordinator {
 
     /// A trimmed, non-empty string param, or `nil` (matches legacy `v2String`:
     /// only a JSON string counts; whitespace-only is treated as absent).
-    func string(_ params: [String: JSONValue], _ key: String) -> String? {
+    /// `nonisolated`: pure param read, used by the worker-lane bodies'
+    /// off-main parse.
+    nonisolated func string(_ params: [String: JSONValue], _ key: String) -> String? {
         guard case .string(let raw)? = params[key] else { return nil }
         let trimmed = raw.trimmingCharacters(in: .whitespacesAndNewlines)
         return trimmed.isEmpty ? nil : trimmed

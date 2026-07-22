@@ -1,4 +1,5 @@
 import AppKit
+import CmuxBrowser
 import Foundation
 import WebKit
 
@@ -112,11 +113,11 @@ final class DiffCommentsBridge: NSObject, WKScriptMessageHandlerWithReply {
     }
 
     static func isTrustedDiffViewerFrame(_ frameInfo: WKFrameInfo) -> Bool {
-        guard frameInfo.isMainFrame,
-              let token = diffViewerToken(from: frameInfo.request.url) else {
-            return false
-        }
-        return CmuxDiffViewerURLSchemeHandler.shared.hasActiveSession(token: token)
+        frameInfo.isMainFrame && isTrustedDiffViewerURL(frameInfo.request.url)
+    }
+
+    static func isTrustedDiffViewerURL(_ url: URL?) -> Bool {
+        DiffViewerSessionTrustRegistry.shared.isTrustedDiffViewerURL(url)
     }
 
     /// Extracts the diff viewer session token from a live page URL. Unlike
@@ -267,5 +268,49 @@ final class DiffCommentsBridge: NSObject, WKScriptMessageHandlerWithReply {
             createdAt: now,
             updatedAt: now
         )
+    }
+}
+
+extension BrowserPanel {
+    func hasCurrentURL(_ expectedURL: String) -> Bool {
+        (webView.url ?? currentURL)?.absoluteString == expectedURL
+    }
+
+    func beginAutomationNavigationFromCLI(
+        _ url: String,
+        expectedURL: String? = nil
+    ) -> (ticket: BrowserAutomationNavigationTicket, targetURL: URL)? {
+        guard expectedURL.map(hasCurrentURL) != false else { return nil }
+        let targetURL: URL
+        if let internalURL = URL(string: url),
+           internalURL.scheme == CmuxDiffViewerURLSchemeHandler.scheme {
+            guard CmuxDiffViewerURLSchemeHandler.shared.allowsNavigation(to: internalURL) else { return nil }
+            targetURL = internalURL
+        } else {
+            guard let resolvedNavigation = resolveSmartNavigation(from: url) else { return nil }
+            targetURL = resolvedNavigation.url
+            return (
+                beginAutomationNavigation(
+                    to: targetURL,
+                    recordTypedNavigation: resolvedNavigation.recordTypedNavigation
+                ),
+                targetURL
+            )
+        }
+        return (beginAutomationNavigation(to: targetURL, recordTypedNavigation: false), targetURL)
+    }
+}
+
+extension CmuxDiffViewerURLSchemeHandler {
+    func allowsNavigation(to url: URL) -> Bool {
+        guard url.scheme == Self.scheme,
+              url.user == nil,
+              url.password == nil,
+              url.port == nil,
+              url.query == nil,
+              url.fragment == nil else {
+            return false
+        }
+        return registeredFile(for: url) != nil
     }
 }

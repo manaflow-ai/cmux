@@ -1,13 +1,22 @@
 #!/usr/bin/env python3
-"""Generate deterministic -only-testing arguments for cmuxTests shards."""
+"""Generate deterministic -only-testing arguments for cmuxTests shards.
+
+Shards are packed greedily by weight. Weights are measured milliseconds from
+scripts/ci/cmux-unit-test-timings.json when present (regenerate it with
+scripts/ci/generate_test_timings.py from a green main run's shard logs).
+Suites and methods missing from the manifest fall back to a per-test estimate,
+so new or renamed tests never break sharding — they just pack less precisely
+until the manifest is refreshed.
+"""
 
 from __future__ import annotations
 
 import argparse
 import hashlib
+import json
 import re
 import sys
-from dataclasses import dataclass
+from dataclasses import dataclass, replace
 from pathlib import Path
 
 
@@ -23,10 +32,31 @@ XCTEST_METHOD_RE = re.compile(
     r"func\s+(test[A-Za-z0-9_]*)\s*\("
 )
 LARGE_SUITE_METHOD_THRESHOLD = 40
+DEFAULT_TIMINGS_PATH = Path(__file__).resolve().parent / "cmux-unit-test-timings.json"
+FALLBACK_TEST_MS = 200
 FOCUSED_GATE_SELECTORS = {
     "cmuxTests/BrowserSystemProxyMirrorTests",
+    "cmuxTests/CLISSHSessionAttachAnchorTests",
     "cmuxTests/GhosttyOptionAsAltModsTests",
+    "cmuxTests/RemoteTmuxMirrorLayoutIdentityTests",
 }
+# BrowserDeveloperToolsVisibilityPersistenceTests reliably crash-restarts the
+# app host on CI runners (its detached-inspector tests kill the host mid-run;
+# see the "Restarting after unexpected exit" storms in app-host shard logs on
+# main and PR runs alike). Live-WKWebView navigation tests that run behind
+# that storm in the same shard time out with thrown errors, which count as
+# unexpected failures and fail the shard. Count-based packing happened to
+# keep the pair below apart; time-weighted packing co-located them and both
+# attempts of https://github.com/manaflow-ai/cmux/pull/7687 failed shard 3
+# the same way. Keep each group's suites on different shards.
+SEPARATED_SUITES: tuple[frozenset[str], ...] = (
+    frozenset(
+        {
+            "cmuxTests/BrowserDeveloperToolsVisibilityPersistenceTests",
+            "cmuxTests/BrowserSessionHistoryRestoreTests",
+        }
+    ),
+)
 
 
 @dataclass(frozen=True)
@@ -166,6 +196,67 @@ def discover_selectors(root: Path) -> list[TestSelector]:
     return sorted(selectors, key=lambda selector: selector.identifier)
 
 
+def load_timings(path: Path) -> dict | None:
+    if not path.is_file():
+        return None
+    try:
+        manifest = json.loads(path.read_text(encoding="utf-8"))
+    except (OSError, json.JSONDecodeError) as error:
+        print(f"Ignoring unreadable timings manifest {path}: {error}", file=sys.stderr)
+        return None
+    if (
+        not isinstance(manifest, dict)
+        or not isinstance(manifest.get("suites"), dict)
+        or not isinstance(manifest.get("methods"), dict)
+    ):
+        print(f"Ignoring malformed timings manifest {path}", file=sys.stderr)
+        return None
+    return manifest
+
+
+def reweight_selectors(
+    selectors: list[TestSelector], timings: dict | None
+) -> tuple[list[TestSelector], int]:
+    """Return selectors with weights in measured milliseconds.
+
+    Without a manifest every weight becomes test_count * FALLBACK_TEST_MS — a
+    constant scaling of the count weights, which packs identically to the old
+    count-based behavior. Returns (selectors, measured_count).
+    """
+    suites = timings.get("suites", {}) if timings else {}
+    methods = timings.get("methods", {}) if timings else {}
+    fallback_ms = timings.get("default_test_ms", FALLBACK_TEST_MS) if timings else FALLBACK_TEST_MS
+
+    methods_per_suite: dict[str, int] = {}
+    for selector in selectors:
+        parts = selector.identifier.split("/")
+        if len(parts) == 3:
+            methods_per_suite[parts[1]] = methods_per_suite.get(parts[1], 0) + 1
+
+    reweighted: list[TestSelector] = []
+    measured = 0
+    for selector in selectors:
+        parts = selector.identifier.split("/")
+        if len(parts) == 3:
+            _, suite, method = parts
+            ms = methods.get(f"{suite}/{method}")
+            if ms is None and suite in suites:
+                ms = suites[suite] / methods_per_suite[suite]
+            if ms is None:
+                ms = fallback_ms
+            else:
+                measured += 1
+        else:
+            suite = parts[1]
+            ms = suites.get(suite)
+            if ms is None:
+                ms = selector.weight * fallback_ms
+            else:
+                measured += 1
+        reweighted.append(replace(selector, weight=max(1, int(ms))))
+    return reweighted, measured
+
+
 def shard_selectors(
     selectors: list[TestSelector], shard_index: int, shard_total: int
 ) -> list[TestSelector]:
@@ -174,8 +265,15 @@ def shard_selectors(
     if shard_index < 1 or shard_index > shard_total:
         raise SystemExit("--shard-index must be between 1 and --shard-total")
 
+    group_by_suite: dict[str, int] = {}
+    for group_index, group in enumerate(SEPARATED_SUITES):
+        for suite in group:
+            group_by_suite[suite] = group_index
+
     buckets: list[list[TestSelector]] = [[] for _ in range(shard_total)]
     bucket_weights = [0 for _ in range(shard_total)]
+    # Which separated suites each bucket already holds, as (group, suite).
+    bucket_separated: list[set[tuple[int, str]]] = [set() for _ in range(shard_total)]
     ordered = sorted(
         selectors,
         key=lambda selector: (
@@ -185,7 +283,26 @@ def shard_selectors(
         ),
     )
     for selector in ordered:
-        bucket_index = min(range(shard_total), key=lambda index: (bucket_weights[index], index))
+        suite = "/".join(selector.identifier.split("/")[:2])
+        group_index = group_by_suite.get(suite)
+        candidates = list(range(shard_total))
+        if group_index is not None:
+            allowed = [
+                index
+                for index in candidates
+                if all(
+                    held_suite == suite
+                    for held_group, held_suite in bucket_separated[index]
+                    if held_group == group_index
+                )
+            ]
+            # With more group members than shards, separation is impossible;
+            # fall back to plain min-weight packing for the overflow.
+            if allowed:
+                candidates = allowed
+        bucket_index = min(candidates, key=lambda index: (bucket_weights[index], index))
+        if group_index is not None:
+            bucket_separated[bucket_index].add((group_index, suite))
         buckets[bucket_index].append(selector)
         bucket_weights[bucket_index] += selector.weight
 
@@ -208,16 +325,21 @@ def main() -> int:
     parser.add_argument("--output", type=Path)
     parser.add_argument("--list", action="store_true")
     parser.add_argument("--validate", action="store_true")
+    parser.add_argument("--timings", type=Path, default=DEFAULT_TIMINGS_PATH)
     args = parser.parse_args()
 
     selectors = discover_selectors(args.root)
+    timings = load_timings(args.timings)
+    selectors, measured = reweight_selectors(selectors, timings)
 
     if args.validate:
         suite_selectors = sum(1 for selector in selectors if selector.identifier.count("/") == 1)
         method_selectors = len(selectors) - suite_selectors
+        source = args.timings if timings else "none (count-based fallback)"
         print(
             f"Discovered {len(selectors)} cmuxTests selectors "
-            f"({suite_selectors} suites, {method_selectors} methods)"
+            f"({suite_selectors} suites, {method_selectors} methods); "
+            f"timings: {source}, {measured}/{len(selectors)} measured"
         )
         return 0
 
@@ -237,7 +359,7 @@ def main() -> int:
     total_weight = sum(selector.weight for selector in selected)
     print(
         f"Shard {args.shard_index}/{args.shard_total}: "
-        f"{len(selected)} selectors, weight {total_weight}, args {args.output}"
+        f"{len(selected)} selectors, est {total_weight / 60000:.1f} min serial, args {args.output}"
     )
     for selector in selected:
         print(f"  {selector.identifier} ({selector.weight}) {selector.path}:{selector.line}")

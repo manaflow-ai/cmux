@@ -1,4 +1,5 @@
 import Foundation
+import os
 import Testing
 @testable import CmuxTerminal
 
@@ -23,6 +24,37 @@ private actor FreedSurfaceRecorder {
         await withCheckedContinuation { continuation in
             continuations[count, default: []].append(continuation)
         }
+    }
+}
+
+private final class TeardownLifetimeRecorder: @unchecked Sendable {
+    let events: AsyncStream<String>
+    private let continuation: AsyncStream<String>.Continuation
+    private let recordedEvents = OSAllocatedUnfairLock(initialState: [String]())
+
+    init() {
+        (events, continuation) = AsyncStream.makeStream(of: String.self)
+    }
+
+    func record(_ event: String) {
+        recordedEvents.withLock { $0.append(event) }
+        continuation.yield(event)
+    }
+
+    func snapshot() -> [String] {
+        recordedEvents.withLock { $0 }
+    }
+}
+
+private final class LifetimeRecordingByteTeeLease: TerminalByteTeeLease, @unchecked Sendable {
+    private let recorder: TeardownLifetimeRecorder
+
+    init(recorder: TeardownLifetimeRecorder) {
+        self.recorder = recorder
+    }
+
+    func release() {
+        recorder.record("tee.release")
     }
 }
 
@@ -73,5 +105,31 @@ private actor FreedSurfaceRecorder {
 
         await recorder.waitForFreeCount(surfaces.count)
         #expect(await Set(recorder.freed) == Set(surfaces.map { UInt(bitPattern: $0) }))
+    }
+
+    @Test func byteTeeCallbackOwnerIsReleasedOnlyAfterNativeFreeReturns() async {
+        let coordinator = TerminalSurfaceRuntimeTeardownCoordinator()
+        let recorder = TeardownLifetimeRecorder()
+        let lease = LifetimeRecordingByteTeeLease(recorder: recorder)
+        let surface = UnsafeMutableRawPointer.allocate(byteCount: 8, alignment: 8)
+        defer { surface.deallocate() }
+
+        coordinator.enqueueRuntimeTeardown(
+            id: UUID(),
+            workspaceId: UUID(),
+            reason: "test.teeLifetime",
+            surface: surface,
+            callbackContext: nil,
+            manualIOContext: nil,
+            byteTeeLease: lease,
+            freeSurface: { _ in
+                recorder.record("surface.free")
+            }
+        )
+
+        for await event in recorder.events where event == "tee.release" {
+            break
+        }
+        #expect(recorder.snapshot() == ["surface.free", "tee.release"])
     }
 }

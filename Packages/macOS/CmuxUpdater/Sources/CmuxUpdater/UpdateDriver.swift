@@ -14,12 +14,15 @@ final class UpdateDriver: NSObject, @preconcurrency SPUUserDriver {
     let model: UpdateStateModel
     let log: any UpdateLogging
     private let clock: any UpdateClock
+    let infoFeedURLProvider: () -> String?
     /// Whether the running build is a cmux DEV/staging build that is not on the public release
     /// train. When `true`, the driver must never surface the public appcast's update pill (see
     /// ``UpdateController/isDevLikeBundleIdentifier(_:)``).
     let isDevLikeBundle: Bool
     /// Host actions the driver delegates upward. Held weak; set by ``UpdateController``.
     weak var actionDelegate: (any UpdateActionDelegate)?
+    /// Causal lifecycle signals consumed by ``UpdateController``.
+    weak var eventDelegate: (any UpdateDriverEventDelegate)?
 
     private let minimumCheckDuration: TimeInterval = UpdateTiming.minimumCheckDisplayDuration
     private let checkTimeoutDuration: TimeInterval = UpdateTiming.checkTimeoutDuration
@@ -28,10 +31,19 @@ final class UpdateDriver: NSObject, @preconcurrency SPUUserDriver {
     private var checkTimeoutTask: Task<Void, Never>?
     private(set) var lastFeedURLString: String?
 
-    init(model: UpdateStateModel, log: any UpdateLogging, clock: any UpdateClock, isDevLikeBundle: Bool = false) {
+    init(
+        model: UpdateStateModel,
+        log: any UpdateLogging,
+        clock: any UpdateClock,
+        isDevLikeBundle: Bool = false,
+        infoFeedURLProvider: @escaping () -> String? = {
+            Bundle.main.object(forInfoDictionaryKey: "SUFeedURL") as? String
+        }
+    ) {
         self.model = model
         self.log = log
         self.clock = clock
+        self.infoFeedURLProvider = infoFeedURLProvider
         self.isDevLikeBundle = isDevLikeBundle
         super.init()
     }
@@ -66,7 +78,11 @@ final class UpdateDriver: NSObject, @preconcurrency SPUUserDriver {
                          state: SPUUserUpdateState,
                          reply: @escaping @Sendable (SPUUserUpdateChoice) -> Void) {
         log.append("show update found: \(appcastItem.displayVersionString)")
-        setStateAfterMinimumCheckDelay(.updateAvailable(.init(appcastItem: appcastItem, reply: reply)))
+        let available = UpdateState.UpdateAvailable(appcastItem: appcastItem) { choice in reply(choice) }
+        available.reply.onConsumed = { [weak self] reply, choice, source in
+            self?.handlePromptReply(reply, choice: choice, source: source)
+        }
+        setStateAfterMinimumCheckDelay(.updateAvailable(available))
     }
 
     func showUpdateReleaseNotes(with downloadData: SPUDownloadData) {
@@ -105,7 +121,12 @@ final class UpdateDriver: NSObject, @preconcurrency SPUUserDriver {
     func showDownloadInitiated(cancellation: @escaping () -> Void) {
         log.append("show download initiated")
         setState(.downloading(.init(
-            cancel: cancellation,
+            cancel: { [weak self] in
+                cancellation()
+                if case .downloading = self?.model.state {
+                    self?.model.setState(.idle)
+                }
+            },
             expectedLength: nil,
             progress: 0)))
     }
@@ -168,19 +189,28 @@ final class UpdateDriver: NSObject, @preconcurrency SPUUserDriver {
     }
 
     func dismissUpdateInstallation() {
-        log.append("dismiss update installation")
-        if case .error = model.state {
-            log.append("dismiss update installation ignored (error visible)")
+        // This callback has no prompt/session identity. User actions update the model at their
+        // causal boundary, and UpdateController reconciles unexpected active-session termination
+        // from Sparkle's authoritative cycle-finished callback. Mutating here could only let an old
+        // session erase a newer prompt or an accepted install (#8368).
+        log.append("dismiss update installation observed (state=\(describe(model.state)); no state mutation)")
+    }
+
+    func handlePromptReply(_ reply: UpdatePromptReply,
+                           choice: SPUUserUpdateChoice,
+                           source: UpdatePromptReplySource) {
+        log.append("update prompt reply consumed (choice=\(choice.rawValue), source=\(source.rawValue))")
+        guard source == .user, choice == .dismiss || choice == .skip else { return }
+
+        guard case .updateAvailable(let available) = model.state,
+              available.reply.id == reply.id else {
+            log.append("user prompt reply did not match live prompt; preserving current state")
             return
         }
-        if case .notFound = model.state {
-            log.append("dismiss update installation ignored (notFound visible)")
-            return
-        }
-        if case .checking = model.state {
-            log.append("dismiss update installation ignored (checking)")
-            return
-        }
+
+        // Tell the lifecycle owner only after the structured prompt identity matches. A delayed
+        // action from an old prompt must not cancel a newer check or accepted install.
+        eventDelegate?.updateDriverUserDidDismissPrompt()
         setState(.idle)
     }
 
@@ -193,7 +223,20 @@ final class UpdateDriver: NSObject, @preconcurrency SPUUserDriver {
         checkTimeoutTask?.cancel()
         checkTimeoutTask = nil
         lastCheckStart = Date()
-        applyState(.checking(.init(cancel: cancel)))
+        applyState(.checking(.init(cancellationHandler: { [weak self] source in
+            guard let self else {
+                cancel()
+                return
+            }
+            self.log.append("update check cancellation requested (source=\(source))")
+            if source == .user {
+                self.eventDelegate?.updateDriverUserDidCancelCheck()
+            }
+            cancel()
+            if source == .user, case .checking = self.model.state {
+                self.setState(.idle)
+            }
+        })))
         scheduleCheckTimeout()
     }
 
@@ -255,8 +298,13 @@ final class UpdateDriver: NSObject, @preconcurrency SPUUserDriver {
 
     // MARK: - Feed URL tracking
 
+    /// Returns the last feed URL reported through Sparkle, or resolves the build-time feed URL
+    /// without logging or registering test URL protocols when no delegate callback has run yet.
     func resolvedFeedURLString() -> String? {
-        lastFeedURLString
+        if let lastFeedURLString {
+            return lastFeedURLString
+        }
+        return UpdateFeedResolver().resolve(infoFeedURL: infoFeedURLProvider()).url
     }
 
     func recordFeedURLString(_ feedURLString: String, usedFallback: Bool) {
@@ -295,6 +343,8 @@ final class UpdateDriver: NSObject, @preconcurrency SPUUserDriver {
             return "idle"
         case .permissionRequest:
             return "permissionRequest"
+        case .preparingCheck:
+            return "preparingCheck"
         case .checking:
             return "checking"
         case .updateAvailable(let update):
@@ -303,6 +353,8 @@ final class UpdateDriver: NSObject, @preconcurrency SPUUserDriver {
             return "notFound"
         case .error(let err):
             return "error(\(err.error.localizedDescription))"
+        case .startingDownload:
+            return "startingDownload"
         case .downloading(let download):
             if let expected = download.expectedLength, expected > 0 {
                 let percent = Double(download.progress) / Double(expected) * 100

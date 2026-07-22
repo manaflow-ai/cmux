@@ -1,20 +1,7 @@
 name: iOS simulator tests
 
 on:
-  pull_request:
-    paths:
-      - "ios/**"
-      - "Packages/Shared/**"
-      - "Packages/iOS/**"
-      - "Sources/Mobile/**"
-      - "vendor/stack-auth-swift-sdk-prerelease/**"
-      # The namespace-type convention rule scans every package, so any package
-      # change must run the conventions lint job (heavier iOS jobs still gate
-      # on iOS-owned paths via should_run).
-      - "Packages/**"
-      - "scripts/lint-ios-package-conventions.sh"
-      - "scripts/lint-namespace-types-baseline.txt"
-      - ".github/workflows/test-ios.yml"
+  # Temporarily manual-only beginning 2026-07-13 to pause automatic CI.
   workflow_dispatch:
     inputs:
       ref:
@@ -34,6 +21,15 @@ on:
           - both
           - iphone
           - ipad
+      runner:
+        description: "macOS runner (auto follows MACOS_RUNNER_IOS; tart-ios uses the isolated VM fleet)"
+        required: false
+        default: "auto"
+        type: choice
+        options:
+          - auto
+          - blacksmith-6vcpu-macos-26
+          - tart-ios
 
 permissions:
   contents: read
@@ -110,9 +106,24 @@ jobs:
   mobile-core-package:
     needs: detect-ios-changes
     if: ${{ needs.detect-ios-changes.outputs.should_run == 'true' }}
-    runs-on: ${{ vars.MACOS_RUNNER_IOS || 'blacksmith-6vcpu-macos-26' }}
+    runs-on: ${{ (!inputs.runner || inputs.runner == 'auto') && (vars.MACOS_RUNNER_IOS || 'blacksmith-6vcpu-macos-26') || inputs.runner }}
     timeout-minutes: 10
     steps:
+      - name: Validate Tart runner identity
+        if: ${{ startsWith((!inputs.runner || inputs.runner == 'auto') && (vars.MACOS_RUNNER_IOS || 'blacksmith-6vcpu-macos-26') || inputs.runner, 'tart-') }}
+        env:
+          RUNNER_CONTEXT_NAME: ${{ runner.name }}
+        run: |
+          set -euo pipefail
+          [[ "$RUNNER_CONTEXT_NAME" == tart-cmux-* ]] || {
+            echo "::error::tart-ios resolved to unexpected runner $RUNNER_CONTEXT_NAME"
+            exit 1
+          }
+          test -f /etc/cmux-tart-ci || {
+            echo "::error::tart-ios runner is missing the immutable VM identity marker"
+            exit 1
+          }
+
       - name: Checkout
         uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
         with:
@@ -147,6 +158,10 @@ jobs:
           # or app-target dependency, so it runs as a real CI gate here.
           swift test --package-path Packages/Shared/CmuxSyncStore
 
+      - name: Run CmuxMobilePairedMac package tests
+        run: |
+          swift test --package-path Packages/iOS/CmuxMobilePairedMac
+
       - name: Run CmuxMobileShell package tests
         run: |
           # iOS shell replay/liveness regressions live in this package target.
@@ -162,13 +177,28 @@ jobs:
     # foregrounded Mac app, so the Blacksmith macOS foreground limitation that
     # blocks macOS app-host XCTest does not apply here; this lane is verified
     # green on blacksmith-6vcpu-macos-26.
-    runs-on: ${{ vars.MACOS_RUNNER_IOS || 'blacksmith-6vcpu-macos-26' }}
+    runs-on: ${{ (!inputs.runner || inputs.runner == 'auto') && (vars.MACOS_RUNNER_IOS || 'blacksmith-6vcpu-macos-26') || inputs.runner }}
     timeout-minutes: 35
     strategy:
       fail-fast: false
       matrix:
         family: [iphone, ipad]
     steps:
+      - name: Validate Tart runner identity
+        if: ${{ startsWith((!inputs.runner || inputs.runner == 'auto') && (vars.MACOS_RUNNER_IOS || 'blacksmith-6vcpu-macos-26') || inputs.runner, 'tart-') && !(github.event_name == 'workflow_dispatch' && inputs.device_family != 'both' && inputs.device_family != matrix.family) }}
+        env:
+          RUNNER_CONTEXT_NAME: ${{ runner.name }}
+        run: |
+          set -euo pipefail
+          [[ "$RUNNER_CONTEXT_NAME" == tart-cmux-* ]] || {
+            echo "::error::tart-ios resolved to unexpected runner $RUNNER_CONTEXT_NAME"
+            exit 1
+          }
+          test -f /etc/cmux-tart-ci || {
+            echo "::error::tart-ios runner is missing the immutable VM identity marker"
+            exit 1
+          }
+
       - name: Skip unrequested family
         if: ${{ github.event_name == 'workflow_dispatch' && inputs.device_family != 'both' && inputs.device_family != matrix.family }}
         run: |

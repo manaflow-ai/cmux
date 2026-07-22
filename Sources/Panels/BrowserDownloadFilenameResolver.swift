@@ -4,7 +4,7 @@ import ImageIO
 import CmuxSettings
 import UniformTypeIdentifiers
 
-nonisolated struct BrowserDownloadFilenameResolver: Sendable {
+struct BrowserDownloadFilenameResolver: Sendable {
     private static let maxFilenameCollisionAttempts = 100
 
     func shouldForceDownload(

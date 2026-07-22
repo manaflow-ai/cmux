@@ -13,6 +13,34 @@ private enum WorkspaceTitlebarInteractionMetrics {
     static let minimalModeTopStripHeight: CGFloat = MinimalModeChromeMetrics.titlebarHeight
 }
 
+enum WorkspacePanelVisibilityPolicy {
+    nonisolated static func panelVisibleInUI(
+        isWorkspaceVisible: Bool,
+        paneHasSelectedTab: Bool,
+        isSelectedInPane: Bool,
+        isFocused: Bool
+    ) -> Bool {
+        guard isWorkspaceVisible else { return false }
+        return isSelectedInPane || (isFocused && !paneHasSelectedTab)
+    }
+
+    nonisolated static func visiblePanelIdForRenderedPane(
+        paneId: UUID,
+        selectedPanelId: UUID?,
+        firstPanelId: UUID?,
+        focusedPanelId: UUID?,
+        focusedPanelPaneId: UUID?
+    ) -> UUID? {
+        if let selectedPanelId {
+            return selectedPanelId
+        }
+        if focusedPanelPaneId == paneId, let focusedPanelId {
+            return focusedPanelId
+        }
+        return firstPanelId
+    }
+}
+
 private struct WorkspacePanelContentHostView: View {
     let workspace: Workspace
     let panel: any Panel
@@ -47,6 +75,17 @@ private struct WorkspacePanelContentHostView: View {
             customSidebarTabManager: customSidebarTabManager,
             hasUnreadNotification: hasUnreadNotification,
             terminalAgentContext: WorkspaceContentView.terminalAgentContext(panel: panel, workspace: workspace),
+            terminalPaneOwnershipResolver: { [weak workspace, weak panel] in
+                guard let workspace,
+                      let panel,
+                      let livePanel = workspace.panels[panel.id],
+                      livePanel === panel,
+                      workspace.paneId(forPanelId: panel.id)?.id == paneId.id,
+                      let tabId = workspace.surfaceIdFromPanelId(panel.id) else {
+                    return false
+                }
+                return workspace.bonsplitController.selectedTab(inPane: paneId)?.id == tabId
+            },
             onFocus: onFocus,
             onRequestPanelFocus: onRequestPanelFocus,
             onResumeAgentHibernation: onResumeAgentHibernation,
@@ -147,13 +186,20 @@ struct WorkspaceContentView: View {
 
     static func panelVisibleInUI(
         isWorkspaceVisible: Bool,
+        paneHasSelectedTab: Bool,
         isSelectedInPane: Bool,
         isFocused: Bool
     ) -> Bool {
-        guard isWorkspaceVisible else { return false }
         // During pane/tab reparenting, Bonsplit can transiently report selected=false
-        // for the currently focused panel. Keep focused content visible to avoid blank frames.
-        return isSelectedInPane || isFocused
+        // for the currently focused panel. Keep focused content visible only when
+        // the pane has no selected tab to report; if another tab is selected, a
+        // stale focused terminal must not keep its portal view visible.
+        return WorkspacePanelVisibilityPolicy.panelVisibleInUI(
+            isWorkspaceVisible: isWorkspaceVisible,
+            paneHasSelectedTab: paneHasSelectedTab,
+            isSelectedInPane: isSelectedInPane,
+            isFocused: isFocused
+        )
     }
 
     var body: some View {
@@ -197,9 +243,11 @@ struct WorkspaceContentView: View {
                 // Gated focus for the ring/active state only: the main pane yields
                 // its focus ring while the right sidebar (Dock) owns focus.
                 let isFocused = isFocusedPanel && !rightSidebarOwnsInputFocus
-                let isSelectedInPane = workspace.bonsplitController.selectedTab(inPane: paneId)?.id == tab.id
+                let selectedTab = workspace.bonsplitController.selectedTab(inPane: paneId)
+                let isSelectedInPane = selectedTab?.id == tab.id
                 let isVisibleInUI = Self.panelVisibleInUI(
                     isWorkspaceVisible: isWorkspaceVisible,
+                    paneHasSelectedTab: selectedTab != nil,
                     isSelectedInPane: isSelectedInPane,
                     isFocused: isFocusedPanel
                 )
@@ -217,15 +265,14 @@ struct WorkspaceContentView: View {
                     // Multi-pane tmux window: render its pane layout as splits
                     // inside this single tab. Single-pane windows keep the
                     // standard PanelContentView path below.
-                    RemoteTmuxWindowMirrorView(
+                    RemoteTmuxWindowMirrorSplitView(
                         mirror: windowMirror,
                         appearance: appearance,
+                        isOuterFocused: isFocused,
                         isVisibleInUI: isVisibleInUI,
                         portalPriority: workspacePortalPriority,
-                        onClosePane: { tmuxPaneId in
-                            workspace.requestRemoteTmuxPaneClose(
-                                windowMirror: windowMirror, tmuxPaneId: tmuxPaneId
-                            )
+                        onOuterFocus: {
+                            workspace.bonsplitController.focusPane(paneId)
                         }
                     )
                     .onTapGesture {
@@ -343,9 +390,7 @@ struct WorkspaceContentView: View {
             logTheme(
                 "theme notification workspace=\(workspace.id.uuidString) event=\(eventId.map(String.init) ?? "nil") source=\(source) payload=\(payloadHex) payloadFg=\(foregroundHex) appBg=\(GhosttyApp.shared.defaultBackgroundColor.hexString()) appFg=\(GhosttyApp.shared.defaultForegroundColor.hexString()) appOpacity=\(String(format: "%.3f", GhosttyApp.shared.defaultBackgroundOpacity))"
             )
-            // Payload ordering can lag across rapid config/theme updates.
-            // Resolve from GhosttyApp.shared.defaultBackgroundColor to keep tabs aligned
-            // with Ghostty's current runtime theme.
+            // Resolve from Ghostty's runtime state because notification payload ordering can lag.
             refreshGhosttyAppearanceConfig(
                 reason: "ghosttyDefaultBackgroundDidChange",
                 backgroundEventId: eventId,
@@ -368,6 +413,9 @@ struct WorkspaceContentView: View {
             }
         }
         .modifier(WorkspaceContentMinimalModeSafeAreaModifier(isFullScreen: isFullScreen))
+        // A workspace is a page: accept the parent proposal instead of
+        // contributing a hidden child's content-derived ideal to its ZStack.
+        .frame(maxWidth: .infinity, maxHeight: .infinity)
     }
 
     private func syncBonsplitNotificationBadges() {
@@ -663,7 +711,7 @@ extension WorkspaceContentView {
                 parts.append("textBoxPendingLaunchCommand:\(pendingLaunchCommand)")
             }
         }
-        if let restoredAgent = workspace.restoredAgentSnapshotsByPanelId[panel.id] {
+        if let restoredAgent = workspace.restoredAgentSnapshotForContinuation(panelId: panel.id) {
             parts.append("restoredAgent:\(restoredAgent.kind.rawValue)")
         }
         if let agentPIDKeys = workspace.agentPIDKeysByPanelId[panel.id], !agentPIDKeys.isEmpty {

@@ -1,5 +1,6 @@
 #if canImport(UIKit)
 import CMUXMobileCore
+import CmuxAgentChat
 import CmuxMobileDiagnostics
 import CmuxMobileSupport
 import CmuxMobileTerminalKit
@@ -10,365 +11,6 @@ import UIKit
 
 private let log = Logger(subsystem: "ai.manaflow.cmux.ios", category: "ghostty.surface")
 
-public enum TerminalInputAccessoryAction: Int, CaseIterable, Sendable {
-    case control
-    case alternate
-    case command
-    case shift
-    case zoomOut
-    case zoomIn
-    case escape
-    case tab
-    case upArrow
-    case downArrow
-    case leftArrow
-    case rightArrow
-    case claude
-    case codex
-    case tilde
-    case pipe
-    case dollar
-    case slash
-    case atSign
-    case ctrlC
-    case ctrlD
-    case ctrlZ
-    case ctrlL
-    case home
-    case end
-    case pageUp
-    case pageDown
-    /// Paste the system clipboard into the terminal: an image is forwarded to
-    /// the Mac as `terminal.paste_image`, plain text rides the normal input
-    /// path. Unlike the other actions it carries no fixed byte ``output``; the
-    /// host reads the pasteboard when it is tapped.
-    case paste
-    /// Toggle the iMessage-style composer band above the terminal.
-    ///
-    /// Appended at the end so existing persisted raw values (user accessory bar
-    /// order/enabled set) are preserved.
-    case composer
-    /// Send a carriage return (Enter). Appended at the end so existing persisted
-    /// raw values (which are the `Int` rawValues, stored as `builtin.<n>`) stay
-    /// stable; its default on-bar position is curated separately in
-    /// ``defaultConfigurableOrder``.
-    case returnKey
-    /// Short label rendered on the terminal accessory button.
-    public var title: String {
-        title(isMacRemote: false)
-    }
-
-    /// Short label rendered on the terminal accessory button for the remote kind.
-    /// - Parameter isMacRemote: Whether the target terminal is a macOS remote.
-    /// - Returns: The compact title used by the accessory bar.
-    public func title(isMacRemote: Bool) -> String {
-        switch self {
-        case .control:
-            return isMacRemote ? "⌃" : String(localized: "terminal.input_accessory.title.control", defaultValue: "Ctrl")
-        case .alternate:
-            return isMacRemote ? "⌥" : String(localized: "terminal.input_accessory.title.alt", defaultValue: "Alt")
-        case .command:
-            return "⌘"
-        case .shift:
-            return "⇧"
-        case .zoomOut:
-            return ""
-        case .zoomIn:
-            return ""
-        case .composer:
-            return ""
-        case .escape:
-            return String(localized: "terminal.input_accessory.title.escape", defaultValue: "Esc")
-        case .tab:
-            return String(localized: "terminal.input_accessory.title.tab", defaultValue: "Tab")
-        case .returnKey:
-            return "⏎"
-        case .ctrlC:
-            return "^C"
-        case .ctrlD:
-            return "^D"
-        case .ctrlZ:
-            return "^Z"
-        case .ctrlL:
-            return String(localized: "terminal.input_accessory.title.clear", defaultValue: "Clear")
-        case .upArrow:
-            return "↑"
-        case .downArrow:
-            return "↓"
-        case .leftArrow:
-            return "←"
-        case .rightArrow:
-            return "→"
-        case .claude:
-            return "Claude"
-        case .codex:
-            return "Codex"
-        case .home:
-            return String(localized: "terminal.input_accessory.title.home", defaultValue: "Home")
-        case .end:
-            return String(localized: "terminal.input_accessory.title.end", defaultValue: "End")
-        case .pageUp:
-            return String(localized: "terminal.input_accessory.title.pageUp", defaultValue: "PgUp")
-        case .tilde:
-            return "~"
-        case .pipe:
-            return "|"
-        case .dollar:
-            return "$"
-        case .slash:
-            return "/"
-        case .atSign:
-            return "@"
-        case .pageDown:
-            return String(localized: "terminal.input_accessory.title.pageDown", defaultValue: "PgDn")
-        case .paste:
-            return ""
-        }
-    }
-
-    /// Stable accessibility identifier used by the terminal accessory button.
-    public var accessibilityIdentifier: String {
-        switch self {
-        case .control: return "terminal.inputAccessory.control"
-        case .alternate: return "terminal.inputAccessory.alt"
-        case .command: return "terminal.inputAccessory.command"
-        case .shift: return "terminal.inputAccessory.shift"
-        case .zoomOut: return "terminal.inputAccessory.zoomOut"
-        case .zoomIn: return "terminal.inputAccessory.zoomIn"
-        case .composer: return "terminal.inputAccessory.composer"
-        case .escape: return "terminal.inputAccessory.escape"
-        case .tab: return "terminal.inputAccessory.tab"
-        case .returnKey: return "terminal.inputAccessory.return"
-        case .upArrow: return "terminal.inputAccessory.up"
-        case .downArrow: return "terminal.inputAccessory.down"
-        case .leftArrow: return "terminal.inputAccessory.left"
-        case .rightArrow: return "terminal.inputAccessory.right"
-        case .claude: return "terminal.inputAccessory.claude"
-        case .codex: return "terminal.inputAccessory.codex"
-        case .tilde: return "terminal.inputAccessory.tilde"
-        case .pipe: return "terminal.inputAccessory.pipe"
-        case .dollar: return "terminal.inputAccessory.dollar"
-        case .slash: return "terminal.inputAccessory.slash"
-        case .atSign: return "terminal.inputAccessory.atSign"
-        case .ctrlC: return "terminal.inputAccessory.ctrlC"
-        case .ctrlD: return "terminal.inputAccessory.ctrlD"
-        case .ctrlZ: return "terminal.inputAccessory.ctrlZ"
-        case .ctrlL: return "terminal.inputAccessory.ctrlL"
-        case .home: return "terminal.inputAccessory.home"
-        case .end: return "terminal.inputAccessory.end"
-        case .pageUp: return "terminal.inputAccessory.pageUp"
-        case .pageDown: return "terminal.inputAccessory.pageDown"
-        case .paste: return "terminal.inputAccessory.paste"
-        }
-    }
-
-    /// VoiceOver label for icon-only accessory actions.
-    public var accessibilityLabel: String? {
-        switch self {
-        case .zoomOut:
-            return String(localized: "terminal.input_accessory.zoom_out", defaultValue: "Zoom Out")
-        case .zoomIn:
-            return String(localized: "terminal.input_accessory.zoom_in", defaultValue: "Zoom In")
-        case .paste:
-            return String(localized: "terminal.input_accessory.paste", defaultValue: "Paste")
-        case .composer:
-            return String(localized: "terminal.input_accessory.composer", defaultValue: "Composer")
-        default:
-            return nil
-        }
-    }
-
-    /// SF Symbol name for icon-only accessory actions.
-    public var symbolName: String? {
-        switch self {
-        case .zoomOut:
-            return "minus.magnifyingglass"
-        case .zoomIn:
-            return "plus.magnifyingglass"
-        case .paste:
-            return "doc.on.clipboard"
-        case .composer:
-            return "square.and.pencil"
-        default:
-            return nil
-        }
-    }
-
-    var zoomDirection: TerminalFontZoomDirection? {
-        switch self {
-        case .zoomOut:
-            return .decrease
-        case .zoomIn:
-            return .increase
-        default:
-            return nil
-        }
-    }
-
-    /// Whether this action is a modifier key (toggleable armed state).
-    public var isModifier: Bool {
-        switch self {
-        case .control, .alternate, .command, .shift: return true
-        default: return false
-        }
-    }
-
-    public var output: Data? {
-        switch self {
-        case .control, .alternate, .command, .shift, .zoomOut, .zoomIn, .paste, .composer:
-            return nil
-        case .escape:
-            return Data([0x1B])
-        case .tab:
-            return Data([0x09])
-        case .returnKey:
-            return Data([0x0D]) // CR (Enter)
-        case .tilde:
-            return Data([0x7E]) // ~
-        case .pipe:
-            return Data([0x7C]) // |
-        case .dollar:
-            return Data([0x24]) // $
-        case .slash:
-            return Data([0x2F]) // /
-        case .atSign:
-            return Data([0x40]) // @
-        case .ctrlC:
-            return Data([0x03])
-        case .ctrlD:
-            return Data([0x04])
-        case .ctrlZ:
-            return Data([0x1A])
-        case .ctrlL:
-            return Data([0x0C])
-        case .upArrow:
-            return Data([0x1B, 0x5B, 0x41]) // ESC[A
-        case .downArrow:
-            return Data([0x1B, 0x5B, 0x42]) // ESC[B
-        case .leftArrow:
-            return Data([0x1B, 0x5B, 0x44]) // ESC[D
-        case .rightArrow:
-            return Data([0x1B, 0x5B, 0x43]) // ESC[C
-        case .claude:
-            return Data("claude --dangerously-skip-permissions\r".utf8)
-        case .codex:
-            return Data("codex --yolo -c model_reasoning_effort=xhigh --search\r".utf8)
-        case .home:
-            return Data([0x1B, 0x5B, 0x48]) // ESC[H
-        case .end:
-            return Data([0x1B, 0x5B, 0x46]) // ESC[F
-        case .pageUp:
-            return Data([0x1B, 0x5B, 0x35, 0x7E]) // ESC[5~
-        case .pageDown:
-            return Data([0x1B, 0x5B, 0x36, 0x7E]) // ESC[6~
-        }
-    }
-
-    /// Whether the user can show/hide/reorder this action.
-    ///
-    /// Every button is configurable except ``composer`` (the iMessage-style
-    /// composer toggle, pinned outside the scroll view, not a normal shortcut).
-    /// The leading modifiers (⌃ ⌥ ⌘ ⇧), zoom, and paste were once structurally
-    /// pinned but now move freely. ⇧ became configurable in this build;
-    /// ``TerminalAccessoryConfiguration`` folds it into existing layouts.
-    public var isUserConfigurable: Bool {
-        switch self {
-        case .composer:
-            return false
-        default:
-            return true
-        }
-    }
-
-    /// Every user-configurable action in canonical (enum) order. This is the full
-    /// set the settings editor lists and the valid identifier set; it is *not* the
-    /// default on-bar arrangement (see ``defaultConfigurableOrder``).
-    public static var configurableActions: [TerminalInputAccessoryAction] {
-        allCases.filter { $0.isUserConfigurable }
-    }
-
-    /// The modifier/paste controls leading the default bar: ⌃ ⌥ ⌘ ⇧ then paste
-    /// (⇧ right after ⌘ so all four modifiers are adjacent). The v1/v2→v3 migration
-    /// force-enables and prepends them, so an upgrading user keeps these controls
-    /// and gains ⇧.
-    public static var defaultLeadingActions: [TerminalInputAccessoryAction] {
-        [.control, .alternate, .command, .shift, .paste]
-    }
-
-    /// The configurable actions that previously sat in the bar's fixed trailing
-    /// region (the zoom controls). They tail ``defaultConfigurableOrder`` on a
-    /// fresh install, and the migration force-enables and appends them so an
-    /// upgrading user's bar looks unchanged.
-    public static var defaultTrailingActions: [TerminalInputAccessoryAction] {
-        [.zoomOut, .zoomIn]
-    }
-
-    /// The default on-bar arrangement of the configurable shortcuts: the leading
-    /// modifier/paste controls, then the high-traffic agent and control keys (Tab,
-    /// Esc, Return, ^C/^D, the Claude/Codex launchers, the arrow keys, Clear), then
-    /// the punctuation and navigation keys, then the trailing zoom controls. Esc and
-    /// Return sit immediately to the right of Tab so the most common terminal keys
-    /// are adjacent. Curated independently of the enum's `rawValue` order so the
-    /// default bar can be arranged without perturbing the persisted identifiers,
-    /// which are the `rawValue`s.
-    ///
-    /// Must stay a permutation of ``configurableActions``;
-    /// ``TerminalAccessoryLayoutReducer`` defensively appends any omission, so a
-    /// gap here can never drop an action from the bar.
-    public static var defaultConfigurableOrder: [TerminalInputAccessoryAction] {
-        defaultLeadingActions + [
-            .tab,
-            .escape,
-            .returnKey,
-            .ctrlC, .ctrlD,
-            .claude, .codex,
-            .upArrow, .downArrow, .leftArrow, .rightArrow,
-            .ctrlL,
-            .tilde, .dollar, .slash, .atSign, .pipe,
-            .ctrlZ,
-            .home, .end, .pageUp, .pageDown,
-        ] + defaultTrailingActions
-    }
-
-    /// Human-readable name for the shortcuts settings editor (the bar itself
-    /// renders the short `title`/symbol).
-    public var settingsDisplayName: String {
-        switch self {
-        case .escape: return String(localized: "terminal.shortcut.name.escape", defaultValue: "Escape")
-        case .tab: return String(localized: "terminal.shortcut.name.tab", defaultValue: "Tab")
-        case .returnKey: return String(localized: "terminal.shortcut.name.return", defaultValue: "Return")
-        case .upArrow: return String(localized: "terminal.shortcut.name.upArrow", defaultValue: "Up Arrow")
-        case .downArrow: return String(localized: "terminal.shortcut.name.downArrow", defaultValue: "Down Arrow")
-        case .leftArrow: return String(localized: "terminal.shortcut.name.leftArrow", defaultValue: "Left Arrow")
-        case .rightArrow: return String(localized: "terminal.shortcut.name.rightArrow", defaultValue: "Right Arrow")
-        case .claude: return String(localized: "terminal.shortcut.name.claude", defaultValue: "Claude")
-        case .codex: return String(localized: "terminal.shortcut.name.codex", defaultValue: "Codex")
-        case .tilde: return String(localized: "terminal.shortcut.name.tilde", defaultValue: "Tilde ~")
-        case .pipe: return String(localized: "terminal.shortcut.name.pipe", defaultValue: "Pipe |")
-        case .dollar: return String(localized: "terminal.shortcut.name.dollar", defaultValue: "Dollar $")
-        case .slash: return String(localized: "terminal.shortcut.name.slash", defaultValue: "Slash /")
-        case .atSign: return String(localized: "terminal.shortcut.name.atSign", defaultValue: "At @")
-        case .ctrlC: return String(localized: "terminal.shortcut.name.ctrlC", defaultValue: "Control-C")
-        case .ctrlD: return String(localized: "terminal.shortcut.name.ctrlD", defaultValue: "Control-D")
-        case .ctrlZ: return String(localized: "terminal.shortcut.name.ctrlZ", defaultValue: "Control-Z")
-        case .ctrlL: return String(localized: "terminal.shortcut.name.ctrlL", defaultValue: "Clear (Control-L)")
-        case .home: return String(localized: "terminal.shortcut.name.home", defaultValue: "Home")
-        case .end: return String(localized: "terminal.shortcut.name.end", defaultValue: "End")
-        case .pageUp: return String(localized: "terminal.shortcut.name.pageUp", defaultValue: "Page Up")
-        case .pageDown: return String(localized: "terminal.shortcut.name.pageDown", defaultValue: "Page Down")
-        case .paste: return String(localized: "terminal.input_accessory.paste", defaultValue: "Paste")
-        case .control: return String(localized: "terminal.shortcut.name.control", defaultValue: "Control")
-        case .alternate: return String(localized: "terminal.shortcut.name.alternate", defaultValue: "Option")
-        case .command: return String(localized: "terminal.shortcut.name.command", defaultValue: "Command")
-        case .zoomIn: return String(localized: "terminal.input_accessory.zoom_in", defaultValue: "Zoom In")
-        case .zoomOut: return String(localized: "terminal.input_accessory.zoom_out", defaultValue: "Zoom Out")
-        case .shift: return String(localized: "terminal.shortcut.name.shift", defaultValue: "Shift")
-        case .composer:
-            return title
-        }
-    }
-}
-
 public final class GhosttySurfaceView: UIView, TerminalSurfaceHosting {
     /// The surface whose hidden text input is currently first responder, if any.
     ///
@@ -377,26 +19,38 @@ public final class GhosttySurfaceView: UIView, TerminalSurfaceHosting {
     /// without holding a reference to the specific surface.
     private static weak var activeInputSurface: GhosttySurfaceView?
     private weak var runtime: GhosttyRuntime?
-    private weak var delegate: GhosttySurfaceViewDelegate?
+    /// Renderer-effective colors used by this surface and its UIKit chrome.
+    public var terminalTheme: TerminalTheme = .monokai {
+        didSet { if terminalTheme != oldValue { inputProxy.terminalTheme = terminalTheme; refreshThemeColors() } }
+    }
+    /// Raw Ghostty configuration defaults for this mirror surface.
+    ///
+    /// This remains separate from ``terminalTheme``, which includes dynamic
+    /// reverse-video and OSC colors used by surrounding UIKit chrome.
+    public var terminalConfigTheme: TerminalTheme = .monokai
+    /// Verified sessions keep the Mac as the sole owner of terminal scroll state.
+    public var scrollPresentationAuthority: TerminalScrollPresentationAuthority = .legacyMirror
+    private var appliedTerminalConfigTheme: TerminalTheme?
+    weak var delegate: GhosttySurfaceViewDelegate?
     private let fontSize: Float32
     /// Surface-owned live font size (points). Zoom mutates this; it is the
     /// source of truth for the current size, so the size accumulates correctly
     /// across taps even though the actual libghostty apply is coalesced.
-    private var liveFontSize: Float32
+    var liveFontSize: Float32
     /// The user's EXPLICIT font choice: the init font until a pinch, accessory
     /// zoom step, overlay reset, or Mac-pushed `set_font` changes it. The
     /// stretch-to-fill auto-fit renders at a derived size but never moves this
     /// baseline, and viewport reports advertise the row capacity at THIS size
     /// (see `TerminalRowCapacityFit`) so the daemon negotiation can always
     /// recover when the constraining device grows.
-    private var userBaseFontSize: Float32
+    var userBaseFontSize: Float32
     /// Latest zoom target awaiting a coalesced apply. The display link applies
     /// it once per frame via an absolute `set_font_size` so a burst of zoom
     /// taps becomes one libghostty push + resize per frame, instead of one per
     /// tap. That keeps the serial `outputQueue` from accumulating blocking
     /// pushes (mailbox `.forever` push / swap-chain wait) faster than the
     /// per-frame render drains them — the wedge that froze zoom.
-    private var pendingFontSize: Float32?
+    var pendingFontSize: Float32?
     /// Countdown of quiet frames before the post-zoom geometry resync fires.
     /// A zoom step changes the cell size, which (when letterbox-pinned to the
     /// Mac's grid) changes `renderRect` and so reallocates the IOSurface render
@@ -423,20 +77,44 @@ public final class GhosttySurfaceView: UIView, TerminalSurfaceHosting {
     /// reset/save/restore actions. Owned by the surface (constructed at init)
     /// rather than reached through a singleton, so it is injectable in tests.
     private let zoomPreference = MobileTerminalZoomPreference()
-    private var bridge = GhosttySurfaceBridge()
+    var bridge = GhosttySurfaceBridge()
     private let prefersSnapshotFallbackRendering = false
+    /// Enables both terminal artifact taps and the coalesced visible-frame count.
+    public var artifactFilesEnabled: Bool {
+        get { inputProxy.artifactFilesEnabled }
+        set {
+            let changed = inputProxy.artifactFilesEnabled != newValue
+            inputProxy.artifactFilesEnabled = newValue
+            guard changed else { return }
+            resetVisibleArtifactCountTracking()
+        }
+    }
     var onFocusInputRequestedForTesting: (() -> Void)?
     private var surfaceTitle: String?
-    private var displayLink: CADisplayLink?
+    var displayLink: CADisplayLink?
     private var cursorBlinkState = TerminalCursorBlinkState()
-    private var cursorOverlayLayer: CALayer?
+    var cursorOverlayLayer: CALayer?
+    /// Immutable last-verified pixels retained above an in-progress replay.
+    var verifiedReplayFrozenPresentationLayer: CALayer?
+    var verifiedReplayFrozenBackgroundLayer: CALayer?
+    var verifiedReplayFrozenContentLayer: CALayer?
+    var verifiedReplayFrozenCursorLayer: CALayer?
+    var verifiedReplayFrozenImage: CGImage?
+    var verifiedReplayFrozenTransactionID: UInt64?
+    var verifiedReplayFrozenViewportRect: CGRect?
+    var verifiedReplayGeometryRevision: UInt64 = 0
+    var verifiedReplayReadyFence: VerifiedReplayPresentationFence?
+    var verifiedReplayReadyTransactionID: UInt64?
+    /// Set before the pre-freeze drain submission and kept set until an exact
+    /// replay presentation is revealed or the surface is torn down.
+    var verifiedReplayRenderSuppressed = false
     /// Whether the host terminal currently wants the cursor shown (DECTCEM).
     /// TUIs that hide the cursor (vim, fzf, htop, less, …) emit `ESC [ ? 25 l`;
     /// the render-grid producer forwards that in the VT-patch bytes, so we track
     /// the last applied state from the byte stream and hide the overlay to
     /// match. Defaults to visible (a normal shell shows its cursor).
     private var hostCursorVisible: Bool = true
-    private var needsDraw: Bool = false
+    var needsDraw: Bool = false
     /// Countdown of extra draw requests after a geometry change, so the
     /// renderer (which presents a frame behind) produces a frame at the final
     /// settled layer size rather than leaving a stale mid-animation surface.
@@ -450,9 +128,10 @@ public final class GhosttySurfaceView: UIView, TerminalSurfaceHosting {
     /// when zoom stopped and the backlog drained — the "frozen, no updates"
     /// symptom. Coalescing caps the backlog: while a render is in flight, mark
     /// `needsAnotherRender` and re-enqueue exactly one when it completes.
-    private var renderInFlight: Bool = false
-    private var renderInFlightSince: CFTimeInterval?
-    private var needsAnotherRender: Bool = false
+    var renderInFlight: Bool = false
+    var renderInFlightSince: CFTimeInterval?
+    var needsAnotherRender: Bool = false
+    private let surfaceFreeDrainWatchdog = SurfaceFreeDrainWatchdog()
     /// True while the app is inactive/backgrounded. On iOS `render_now`
     /// produces a frame synchronously on `outputQueue` and acquires a
     /// swap-chain frame slot from libghostty; if the app is backgrounded while
@@ -464,6 +143,7 @@ public final class GhosttySurfaceView: UIView, TerminalSurfaceHosting {
     /// GPU is available so any in-flight render drains — and gate dispatch so
     /// no `render_now` is sent into the background.
     private var renderingSuspended: Bool = false
+    var isRenderingSuspendedForVerifiedReplay: Bool { renderingSuspended }
     #if DEBUG
     /// Last time the display-link heartbeat logged (DEBUG diagnostic). The
     /// per-frame callback runs on the main thread, so a steady heartbeat proves
@@ -483,8 +163,8 @@ public final class GhosttySurfaceView: UIView, TerminalSurfaceHosting {
     private var pendingGeometryReassert: Bool = false
     /// Last content scale pushed to libghostty; used to skip redundant
     /// per-frame `set_content_scale` pushes (the screen scale is constant).
-    private var lastAppliedContentScale: CGFloat = 0
-    private var surfaceHasReceivedOutput: Bool = false
+    var lastAppliedContentScale: CGFloat = 0
+    var surfaceHasReceivedOutput: Bool = false
     private var shouldScrollInitialOutputToBottom = true
     /// Serial background queue for `ghostty_surface_process_output`, which
     /// blocks on libghostty's internal renderer/IO futex. Running it on the
@@ -493,23 +173,46 @@ public final class GhosttySurfaceView: UIView, TerminalSurfaceHosting {
     /// `GhosttySurfaceCopyableText.swift` can enqueue its surface read with
     /// the same FIFO-before-dispose ordering discipline.
     var outputQueue = GhosttySurfaceWorkQueue(generation: 0)
-    private var outputQueueGeneration: UInt64 = 0
-    private var pendingSurfaceFreeCount = 0
-    private var renderPipelineRecoveryPaused = false
-    private var lastRecoveryPausedDropLogTime: CFTimeInterval = 0
-    private static let renderPipelineStallDeadline: CFTimeInterval = 2.0
-    private static let outputApplyTimeout: CFTimeInterval = 2.0
-    private static let visibleSnapshotTimeout: CFTimeInterval = 0.6
-    private static let copyableTextTimeout: CFTimeInterval = 2.0
-    private static let maxPendingSurfaceFrees = 1
-    private var nextSurfaceOperationID: UInt64 = 0
-    private var pendingOutputApply: PendingSurfaceOperation?
-    private var pendingGeometryApply: PendingSurfaceOperation?
-    private var pendingVisibleSnapshot: PendingVisibleSnapshot?
-    private var pendingCopyableTextRead: PendingCopyableTextRead?
+    var outputQueueGeneration: UInt64 = 0
+    var pendingSurfaceFreeCount = 0
+    var renderPipelineRecoveryPaused = false
+    var renderPipelineRecoveryResumeTimer: (any DispatchSourceTimer)?
+    var renderPipelineRecoveryPausedAt: CFTimeInterval?
+    var consecutiveOutputTimeoutRecoveries = 0
+    var lastRecoveryPausedDropLogTime: CFTimeInterval = 0
+    static let renderPipelineStallDeadline: CFTimeInterval = 2.0
+    static let outputApplyTimeout: CFTimeInterval = 2.0
+    static let maxOutputApplyTimeout: CFTimeInterval = 16.0
+    static let renderPipelineRecoveryResumeInterval: TimeInterval = 5.0
+    static let visibleSnapshotTimeout: CFTimeInterval = 0.6
+    static let copyableTextTimeout: CFTimeInterval = 2.0
+    static let maxPendingSurfaceFrees = 4
+    // Timer-forced recovery may leak wedged libghostty surfaces, but only up to this hard cap.
+    static let maxForcedRecoveryPendingSurfaceFrees = 8
+    var nextSurfaceOperationID: UInt64 = 0
+    var pendingOutputApply: PendingSurfaceOperation?
+    var pendingGeometryApply: PendingSurfaceOperation?
+    var pendingVisibleSnapshot: PendingVisibleSnapshot?
+    var pendingCopyableTextRead: PendingCopyableTextRead?
+    var pendingVerifiedReplayPresentation: PendingVerifiedReplayPresentation?
+    /// Quiet-frame countdown for local visible-path detection. Output, geometry,
+    /// and coalesced scroll events reset it; detection runs only after the same
+    /// eight-frame settle threshold used by viewport reporting.
+    var visibleArtifactCountSettleFrames: Int?
+    /// Invalidates a visible-text result when newer output or scrolling lands
+    /// while the off-main Ghostty snapshot read is in flight.
+    var visibleArtifactSnapshotGeneration: UInt64 = 0
+    var visibleArtifactCountTask: Task<Void, Never>?
+    var lastVisibleArtifactSnapshotText: String?
+    var lastReportedVisibleArtifactCount = 0
+
+    /// Current visible-snapshot generation used to reject stale artifact totals.
+    public var visibleArtifactCountGeneration: UInt64 {
+        visibleArtifactSnapshotGeneration
+    }
     private var hasPendingSurfaceOperationDeadline: Bool {
         pendingOutputApply != nil || pendingGeometryApply != nil || pendingVisibleSnapshot != nil
-            || pendingCopyableTextRead != nil
+            || pendingCopyableTextRead != nil || pendingVerifiedReplayPresentation != nil
     }
     private static let scrollMechanicsContentHeight: CGFloat = 1_000_000
     private var scrollMechanicsIsRecentering = false
@@ -661,8 +364,8 @@ public final class GhosttySurfaceView: UIView, TerminalSurfaceHosting {
         return view
     }()
 
-    private(set) var surface: ghostty_surface_t?
-    private var surfaceGeneration: UInt64 = 0
+    var surface: ghostty_surface_t?
+    var surfaceGeneration: UInt64 = 0
     private var lastReportedSize: TerminalGridSize?
     /// Latest natural grid awaiting a debounced report to the Mac. The display
     /// link sends it only after the grid has held steady for
@@ -672,6 +375,11 @@ public final class GhosttySurfaceView: UIView, TerminalSurfaceHosting {
     /// initial scrollback filled with the prompt duplicated at every width.
     private var pendingViewportReport: TerminalGridSize?
     private var viewportReportSettleFrames = 0
+    /// Widest container this surface has actually rendered in the current
+    /// window geometry. A phone split-view sidebar is an overlay, but UIKit can
+    /// briefly size the detail view as a split column while it transitions.
+    var widestRenderedContainerWidth: CGFloat = 0
+    var reportWidthWindowSize: CGSize = .zero
     /// Bounded retries for the viewport report round-trip. The report goes to
     /// the Mac, which echoes back the effective grid via `applyViewSize`. If the
     /// round-trip yields no effective grid (RPC timeout / lost reply), the
@@ -700,12 +408,12 @@ public final class GhosttySurfaceView: UIView, TerminalSurfaceHosting {
     private var lastSnapshotFallbackHTML: String?
     /// Daemon-authoritative grid used for modes that need exact remote-cell
     /// replay. When nil, the surface fills the phone's natural capacity.
-    private var effectiveGrid: (cols: Int, rows: Int)?
+    var effectiveGrid: (cols: Int, rows: Int)?
     /// Cached cell metrics derived from the most recent
     /// `ghostty_surface_size` measurement. Used to translate an effective
     /// cols×rows pin into a pixel box without re-round-tripping through
     /// Ghostty. Zero until the first layout has measured.
-    private var cellPixelSize: CGSize = .zero
+    var cellPixelSize: CGSize = .zero
     /// 1 px separator stroke drawn around the pinned surface rect when the
     /// container is larger than the render target (i.e., this device is
     /// not the smallest). Added lazily on first letterbox.
@@ -713,9 +421,9 @@ public final class GhosttySurfaceView: UIView, TerminalSurfaceHosting {
     /// Last render rect used for the Ghostty surface inside the host view's
     /// coordinate space. Kept so the border layer can match it without a
     /// second set_size round-trip.
-    private var lastRenderRect: CGRect = .zero
-    private var lastRenderLayoutViewportHeight: CGFloat?
-    private var lastRenderHasSourceLayoutViewport = false
+    var lastRenderRect: CGRect = .zero
+    var lastRenderLayoutViewportHeight: CGFloat?
+    var lastRenderHasSourceLayoutViewport = false
     private var viewportCoordinator = TerminalViewportCoordinator()
     private var keyboardHeightAnimation: TerminalKeyboardHeightAnimation?
     private var keyboardHeightAnimationID = 0
@@ -807,9 +515,10 @@ public final class GhosttySurfaceView: UIView, TerminalSurfaceHosting {
 
     private lazy var inputProxy: TerminalInputTextView = {
         let inputProxy = TerminalInputTextView()
+        inputProxy.terminalTheme = terminalTheme
         inputProxy.onText = { [weak self] text in
             guard let self else { return }
-            self.resetCursorBlink()
+            self.handleUserProducedInput()
             #if DEBUG
             self.lastInputTimestamp = CACurrentMediaTime()
             #endif
@@ -823,7 +532,7 @@ public final class GhosttySurfaceView: UIView, TerminalSurfaceHosting {
         }
         inputProxy.onBackspace = { [weak self] in
             guard let self else { return }
-            self.resetCursorBlink()
+            self.handleUserProducedInput()
             // Send DEL (0x7F) directly to transport as raw byte.
             let data = Data([0x7F])
             TerminalInputDebugLog.log("surface.onBackspace data=\(TerminalInputDebugLog.dataSummary(data))")
@@ -831,12 +540,13 @@ public final class GhosttySurfaceView: UIView, TerminalSurfaceHosting {
         }
         inputProxy.onEscapeSequence = { [weak self] data in
             guard let self else { return }
-            self.resetCursorBlink()
+            self.handleUserProducedInput()
             TerminalInputDebugLog.log("surface.onEscape data=\(TerminalInputDebugLog.dataSummary(data))")
             self.delegate?.ghosttySurfaceView(self, didProduceInput: data)
         }
         inputProxy.onPasteImage = { [weak self] data, format in
             guard let self else { return }
+            self.handleUserProducedInput()
             TerminalInputDebugLog.log("surface.onPasteImage bytes=\(data.count) format=\(format)")
             self.delegate?.ghosttySurfaceView(self, didPasteImage: data, format: format)
         }
@@ -889,6 +599,10 @@ public final class GhosttySurfaceView: UIView, TerminalSurfaceHosting {
             guard let self else { return }
             self.delegate?.ghosttySurfaceViewDidRequestToolbarSettings(self)
         }
+        inputProxy.onOpenArtifactFiles = { [weak self] sourceView in
+            guard let self else { return }
+            self.delegate?.ghosttySurfaceView(self, didRequestArtifactFilesFrom: sourceView)
+        }
         inputProxy.accessoryLayoutInsetsProvider = { [weak self] in
             guard let self,
                   let window = self.window else {
@@ -906,15 +620,32 @@ public final class GhosttySurfaceView: UIView, TerminalSurfaceHosting {
         return inputProxy
     }()
 
-    public init(runtime: GhosttyRuntime, delegate: GhosttySurfaceViewDelegate, fontSize: Float32 = 10) {
+    /// Creates an embedded surface and applies its colors before the first frame.
+    /// - Parameters:
+    ///   - runtime: The process-wide embedded Ghostty runtime.
+    ///   - delegate: The receiver for input and viewport changes.
+    ///   - fontSize: Initial terminal font size in points.
+    ///   - terminalTheme: Renderer-effective colors used by surrounding UIKit chrome.
+    ///   - terminalConfigTheme: Raw Ghostty configuration defaults. Defaults to
+    ///     `terminalTheme` for callers that do not mirror a remote surface.
+    public init(runtime: GhosttyRuntime, delegate: GhosttySurfaceViewDelegate,
+                fontSize: Float32 = 10, terminalTheme: TerminalTheme = .monokai,
+                terminalConfigTheme: TerminalTheme? = nil) {
         self.runtime = runtime
         self.delegate = delegate
         self.fontSize = fontSize
         self.liveFontSize = fontSize
         self.userBaseFontSize = fontSize
+        self.terminalTheme = terminalTheme.validatedOrDefault()
+        self.terminalConfigTheme = (terminalConfigTheme ?? terminalTheme).validatedOrDefault()
         super.init(frame: CGRect(x: 0, y: 0, width: 402, height: 700))
         bridge.attach(to: self)
-        backgroundColor = .black
+        // The local view background (the area behind/around the rendered cells,
+        // and the letterbox fill) is sourced from the synced theme rather than a
+        // hardcoded color, so a fresh mount already shows the Mac's background and
+        // a later theme change can recolor it live. The effective theme stays
+        // authoritative because raw config defaults can differ under reverse video.
+        backgroundColor = terminalTheme.terminalBackgroundUIColor
         isOpaque = true
         clipsToBounds = true
         #if DEBUG
@@ -932,6 +663,7 @@ public final class GhosttySurfaceView: UIView, TerminalSurfaceHosting {
         #endif
         installPersistentToolbar()
         installComposerContainer()
+        installArtifactChipContainer()
         initializeSurface()
 
         let tap = UITapGestureRecognizer(target: self, action: #selector(handleTap(_:)))
@@ -1089,11 +821,16 @@ public final class GhosttySurfaceView: UIView, TerminalSurfaceHosting {
     /// above it upward while the band stays pinned to the keyboard — the keyboard
     /// itself never moves.
     private var composerBandHeight: CGFloat = 0
+    /// Surface-owned host for the SwiftUI artifact chip. Keeping it beside the
+    /// toolbar/composer containers makes keyboard and composer movement use one
+    /// coordinate system instead of a competing SwiftUI safe-area offset.
+    private let artifactChipHost = GhosttySurfaceArtifactChipHost()
     /// True once SwiftUI has dismantled the hosting representable for this
     /// surface. A dismantled surface performs no render, output, or
     /// accessibility work so a view SwiftUI has removed cannot keep driving the
     /// renderer or the accessibility tree.
-    private var isDismantled = false
+    /// Internal for `GhosttySurfaceView+RenderRecovery.swift` recovery guards.
+    var isDismantled = false
     /// Whether the hidden terminal input should become first responder when the
     /// surface attaches to a window. Set to `false` to suppress autofocus after
     /// chrome actions (create workspace/terminal, switch terminal) so the
@@ -1275,6 +1012,8 @@ public final class GhosttySurfaceView: UIView, TerminalSurfaceHosting {
     /// above the Ghostty renderer's sublayer so a lifted Liquid-Glass button is not
     /// clipped by the terminal render bounds (item 6). Below the zoom HUD (1100).
     private static let bottomChromeZPosition: CGFloat = 1000
+    /// Floats above dock chrome and terminal content while yielding to the zoom HUD.
+    private static let artifactChipZPosition: CGFloat = 1050
 
     /// Whether the always-visible bottom chrome (the docked accessory toolbar and,
     /// when open, the composer band) is currently on screen.
@@ -1326,7 +1065,7 @@ public final class GhosttySurfaceView: UIView, TerminalSurfaceHosting {
         ).height
     }
 
-    private var terminalViewportRect: CGRect {
+    var terminalViewportRect: CGRect {
         viewportSnapshot().layoutViewportRect
     }
 
@@ -1357,6 +1096,7 @@ public final class GhosttySurfaceView: UIView, TerminalSurfaceHosting {
 
     private func layoutRenderedTerminalForCurrentViewport(using snapshot: TerminalViewportSnapshot) {
         snapshotFallbackView.frame = snapshot.layoutViewportRect
+        layoutVerifiedReplayFrozenPresentation(viewportRect: snapshot.layoutViewportRect)
         guard !lastRenderRect.isEmpty else { return }
         let renderRect = snapshot.renderRect(
             forRenderSize: lastRenderRect.size,
@@ -1405,6 +1145,7 @@ public final class GhosttySurfaceView: UIView, TerminalSurfaceHosting {
         composerContainer.isHidden = !shouldShow || composerContainer.subviews.isEmpty
         reservedToolbarHeight = reserved
         layoutRenderedTerminalForCurrentViewport()
+        updateArtifactChipVisibility(animated: true)
         setNeedsGeometrySync()
         setNeedsLayout()
     }
@@ -1640,6 +1381,40 @@ public final class GhosttySurfaceView: UIView, TerminalSurfaceHosting {
         layoutBottomDock()
     }
 
+    /// Mounts the host-built artifact chip inside the terminal's bottom-dock
+    /// coordinate system, or hides it when `view` is `nil`.
+    ///
+    /// - Parameters:
+    ///   - view: The hosted chip view, or `nil` when no visible paths exist.
+    ///   - animated: Whether visibility changes should fade and slide.
+    public func mountArtifactChipView(_ view: UIView?, animated: Bool) {
+        artifactChipHost.setContent(view)
+        layoutArtifactChip(using: viewportSnapshot())
+        updateArtifactChipVisibility(animated: animated)
+    }
+
+    private func installArtifactChipContainer() {
+        artifactChipHost.install(in: self, zPosition: Self.artifactChipZPosition)
+    }
+
+    private func layoutArtifactChip(using snapshot: TerminalViewportSnapshot) {
+        artifactChipHost.layout(in: bounds, topInset: safeAreaInsets.top)
+    }
+
+    private var artifactChipShouldBeVisible: Bool {
+        artifactChipHost.isRequestedVisible
+            && dockedToolbarShouldBeVisible
+            && dockedToolbar?.isHidden == false
+            && !zoomOverlayShown
+    }
+
+    private func updateArtifactChipVisibility(animated: Bool) {
+        artifactChipHost.updateVisibility(
+            shouldShow: artifactChipShouldBeVisible,
+            animated: animated
+        )
+    }
+
     /// Mount (or unmount, with `nil`) the host-built compose field into the surface's
     /// composer band. The terminal package cannot import the SwiftUI composer (that
     /// would invert the package DAG), so `GhosttySurfaceRepresentable` builds it in a
@@ -1721,11 +1496,6 @@ public final class GhosttySurfaceView: UIView, TerminalSurfaceHosting {
     /// own curve/duration through ``startKeyboardHeightAnimation(to:transition:)``.
     private static let composerReflowDuration: TimeInterval = 0.25
 
-    private func bottomDockFrames() -> (composer: CGRect, toolbar: CGRect) {
-        let snapshot = viewportSnapshot()
-        return (snapshot.composerFrame, snapshot.toolbarFrame)
-    }
-
     /// Position the composer band and docked toolbar from one viewport snapshot.
     private func layoutBottomDock() {
         layoutBottomDock(using: viewportSnapshot())
@@ -1734,6 +1504,7 @@ public final class GhosttySurfaceView: UIView, TerminalSurfaceHosting {
     private func layoutBottomDock(using snapshot: TerminalViewportSnapshot) {
         composerContainer.frame = snapshot.composerFrame
         dockedToolbar?.frame = snapshot.toolbarFrame
+        layoutArtifactChip(using: snapshot)
     }
 
     /// Animate the whole bottom dock (composer band + toolbar) to its current target
@@ -1746,7 +1517,8 @@ public final class GhosttySurfaceView: UIView, TerminalSurfaceHosting {
         duration: TimeInterval = 0.25,
         curveOption: UIView.AnimationOptions = .curveEaseInOut
     ) {
-        let frames = bottomDockFrames()
+        let snapshot = viewportSnapshot()
+        let frames = (composer: snapshot.composerFrame, toolbar: snapshot.toolbarFrame)
         UIView.animate(
             withDuration: duration,
             delay: 0,
@@ -1754,6 +1526,7 @@ public final class GhosttySurfaceView: UIView, TerminalSurfaceHosting {
         ) { [weak self] in
             self?.composerContainer.frame = frames.composer
             self?.dockedToolbar?.frame = frames.toolbar
+            self?.layoutArtifactChip(using: snapshot)
         }
     }
 
@@ -1815,7 +1588,9 @@ public final class GhosttySurfaceView: UIView, TerminalSurfaceHosting {
         let lines = pendingScrollLines
         let cell = pendingScrollCell
         pendingScrollLines = 0
-        applyLocalScrollbackScroll(lines: lines, col: cell.col, row: cell.row)
+        if scrollPresentationAuthority.appliesLocally {
+            applyLocalScrollbackScroll(lines: lines, col: cell.col, row: cell.row)
+        }
         delegate?.ghosttySurfaceView(self, didScrollLines: lines, atCol: cell.col, row: cell.row)
     }
 
@@ -1836,17 +1611,26 @@ public final class GhosttySurfaceView: UIView, TerminalSurfaceHosting {
             setChromeHidden(false)
         }
         let cell = scrollCell(at: gesture.location(in: self))
-        delegate?.ghosttySurfaceView(self, didTapAtCol: cell.col, row: cell.row)
-        // A tap inside the composer band is excluded by the gesture recognizer
-        // (`gestureRecognizer(_:shouldReceive:)`), so any tap reaching here is a
-        // deliberate terminal tap. Only a reveal-from-hide with the composer still
-        // presented re-focuses the composer; every other terminal tap focuses the
-        // terminal proxy as before.
-        if wasHidden, composerActive {
-            delegate?.ghosttySurfaceViewDidRequestComposerFocus(self)
-            focusMountedComposerField()
-        } else {
-            focusInput()
+        Task { @MainActor [weak self] in
+            guard let self else { return }
+            let disposition = await self.delegate?.ghosttySurfaceView(
+                self,
+                didTapAtCol: cell.col,
+                row: cell.row
+            ) ?? .focusTerminal
+            guard disposition.shouldFocusTerminal else { return }
+
+            // A tap inside the composer band is excluded by the gesture recognizer
+            // (`gestureRecognizer(_:shouldReceive:)`), so any tap reaching here is a
+            // deliberate terminal tap. Only a reveal-from-hide with the composer still
+            // presented re-focuses the composer; every other terminal tap focuses the
+            // terminal proxy as before. Artifact taps never enter this focus path.
+            if wasHidden, self.composerActive {
+                self.delegate?.ghosttySurfaceViewDidRequestComposerFocus(self)
+                self.focusMountedComposerField()
+            } else {
+                self.focusInput()
+            }
         }
     }
 
@@ -1978,7 +1762,7 @@ public final class GhosttySurfaceView: UIView, TerminalSurfaceHosting {
     /// Set the live zoom to an absolute size (clamped to the font range),
     /// driving the same coalesced apply path as a pinch step. Does NOT move
     /// the user baseline — the stretch-to-fill auto-fit funnels through here.
-    private func applyAbsoluteFontSize(_ target: Float32) {
+    func applyAbsoluteFontSize(_ target: Float32) {
         guard surface != nil else { return }
         let clamped = min(
             max(target, MobileTerminalFontPreference.minimumSize),
@@ -1997,6 +1781,7 @@ public final class GhosttySurfaceView: UIView, TerminalSurfaceHosting {
         zoomOverlayLastInteraction = CACurrentMediaTime()
         if !zoomOverlayShown {
             zoomOverlayShown = true
+            updateArtifactChipVisibility(animated: true)
             overlay.isHidden = false
             bringSubviewToFront(overlay)
             UIView.animate(withDuration: 0.18) { overlay.alpha = 1 }
@@ -2010,15 +1795,20 @@ public final class GhosttySurfaceView: UIView, TerminalSurfaceHosting {
         UIView.animate(
             withDuration: 0.3,
             animations: { overlay.alpha = 0 },
-            completion: { [weak overlay] _ in
+            completion: { [weak self, weak overlay] _ in
                 if overlay?.alpha == 0 { overlay?.isHidden = true }
+                self?.updateArtifactChipVisibility(animated: true)
             }
         )
     }
 
     private func ensureZoomOverlay() -> MobileTerminalZoomControlOverlay {
-        if let zoomOverlay { return zoomOverlay }
+        if let zoomOverlay {
+            zoomOverlay.applyTheme(terminalTheme)
+            return zoomOverlay
+        }
         let overlay = MobileTerminalZoomControlOverlay()
+        overlay.applyTheme(terminalTheme)
         overlay.alpha = 0
         overlay.isHidden = true
         overlay.layer.zPosition = 1100
@@ -2141,8 +1931,11 @@ public final class GhosttySurfaceView: UIView, TerminalSurfaceHosting {
             if autoFocusOnWindowAttach {
                 focusInput()
             }
+            resetVisibleArtifactCountTracking()
             startDisplayLink()
+            delegate?.ghosttySurfaceView(self, didChangeWindowAttachment: true)
         } else {
+            delegate?.ghosttySurfaceView(self, didChangeWindowAttachment: false)
             prepareForReuseAfterDetach()
         }
     }
@@ -2153,39 +1946,17 @@ public final class GhosttySurfaceView: UIView, TerminalSurfaceHosting {
         processOutput(data, completion: nil)
     }
 
-    /// Process terminal output and return after the output has been applied.
-    ///
-    /// The call still performs libghostty output processing on the serial
-    /// background output queue. The returned async boundary lets callers apply
-    /// per-surface backpressure without blocking the main actor while Ghostty
-    /// consumes the chunk.
-    /// - Parameter data: VT or PTY bytes to feed into the surface.
-    /// - Returns: `true` when the bytes reached the current surface generation,
-    ///   or `false` when the caller should reset its delivery queue and replay.
-    @discardableResult
-    public func processOutputAndWait(_ data: Data) async -> Bool {
-        return await withCheckedContinuation { continuation in
-            let operationID = registerPendingOutputApply(
-                byteCount: data.count,
-                continuation: continuation
-            )
-            processOutput(data) { [weak self] applied in
-                self?.completePendingOutputApply(id: operationID, returning: applied)
-            }
-        }
-    }
-
-    private func makeSurfaceOperationID() -> UInt64 {
+    func makeSurfaceOperationID() -> UInt64 {
         nextSurfaceOperationID &+= 1
         return nextSurfaceOperationID
     }
 
-    private func ensureSurfaceOperationDeadlinePump() {
+    func ensureSurfaceOperationDeadlinePump() {
         guard window != nil, displayLink == nil, !renderingSuspended, !renderPipelineRecoveryPaused else { return }
         startDisplayLink()
     }
 
-    private func registerPendingOutputApply(
+    func registerPendingOutputApply(
         byteCount: Int,
         continuation: CheckedContinuation<Bool, Never>
     ) -> UInt64 {
@@ -2207,7 +1978,7 @@ public final class GhosttySurfaceView: UIView, TerminalSurfaceHosting {
     }
 
     @discardableResult
-    private func completePendingOutputApply(id: UInt64, returning result: Bool) -> Bool {
+    func completePendingOutputApply(id: UInt64, returning result: Bool) -> Bool {
         guard let pending = pendingOutputApply, pending.id == id else { return false }
         pendingOutputApply = nil
         pending.continuation.resume(returning: result)
@@ -2243,54 +2014,7 @@ public final class GhosttySurfaceView: UIView, TerminalSurfaceHosting {
     }
 
     @discardableResult
-    private func checkSurfaceOperationDeadlines(now: CFTimeInterval) -> Bool {
-        if let pending = pendingOutputApply,
-           now - pending.startedAt >= Self.outputApplyTimeout {
-            pendingOutputApply = nil
-            let elapsedMs = Int((now - pending.startedAt) * 1000)
-            MobileDebugLog.anchormux(
-                "output.apply.TIMEOUT bytes=\(pending.byteCount ?? 0) elapsedMs=\(elapsedMs)"
-            )
-            let recovered = recoverRenderPipeline(
-                reason: "output_timeout",
-                stalledMs: elapsedMs,
-                replay: .callerWillRequestReplay
-            )
-            pending.continuation.resume(returning: false)
-            return recovered
-        }
-
-        if let pending = pendingGeometryApply,
-           now - pending.startedAt >= Self.outputApplyTimeout {
-            pendingGeometryApply = nil
-            let elapsedMs = Int((now - pending.startedAt) * 1000)
-            MobileDebugLog.anchormux("geometry.apply.TIMEOUT elapsedMs=\(elapsedMs)")
-            let recovered = recoverRenderPipeline(
-                reason: "geometry_timeout",
-                stalledMs: elapsedMs,
-                replay: .callerWillRequestReplay
-            )
-            pending.continuation.resume(returning: false)
-            return recovered
-        }
-
-        if let pending = pendingVisibleSnapshot,
-           now - pending.startedAt >= Self.visibleSnapshotTimeout {
-            pendingVisibleSnapshot = nil
-            pending.continuation.resume(returning: nil)
-        }
-
-        if let pending = pendingCopyableTextRead,
-           now - pending.startedAt >= Self.copyableTextTimeout {
-            pendingCopyableTextRead = nil
-            pending.cancel()
-            pending.continuation.resume(returning: nil)
-        }
-        return false
-    }
-
-    @discardableResult
-    private func completePendingSurfaceOperations(returning result: Bool) -> Bool {
+    func completePendingSurfaceOperations(returning result: Bool) -> Bool {
         var completed = false
         if let pending = pendingOutputApply {
             pendingOutputApply = nil
@@ -2300,6 +2024,11 @@ public final class GhosttySurfaceView: UIView, TerminalSurfaceHosting {
         if let pending = pendingGeometryApply {
             pendingGeometryApply = nil
             pending.continuation.resume(returning: result)
+            completed = true
+        }
+        if let pending = pendingVerifiedReplayPresentation {
+            pendingVerifiedReplayPresentation = nil
+            pending.continuation.resume(returning: nil)
             completed = true
         }
         skipPendingVisibleSnapshot()
@@ -2321,10 +2050,13 @@ public final class GhosttySurfaceView: UIView, TerminalSurfaceHosting {
     }
 
     @discardableResult
-    private func completePendingVisibleSnapshot(id: UInt64, returning section: String?) -> Bool {
+    func completePendingVisibleSnapshot(
+        id: UInt64,
+        returning snapshot: (text: String, columns: Int)?
+    ) -> Bool {
         guard let pending = pendingVisibleSnapshot, pending.id == id else { return false }
         pendingVisibleSnapshot = nil
-        pending.continuation.resume(returning: section)
+        pending.continuation.resume(returning: snapshot)
         return true
     }
 
@@ -2337,8 +2069,9 @@ public final class GhosttySurfaceView: UIView, TerminalSurfaceHosting {
         return true
     }
 
-    private func processOutput(
+    func processOutput(
         _ data: Data,
+        terminalConfigTheme outputConfigTheme: TerminalTheme? = nil,
         completion: (@MainActor @Sendable (Bool) -> Void)?
     ) {
         guard !renderPipelineRecoveryPaused else {
@@ -2366,6 +2099,16 @@ public final class GhosttySurfaceView: UIView, TerminalSurfaceHosting {
         #endif
         let forwarded = Self.forwardDaemonOutputBytes(data)
         let generation = surfaceGeneration
+        let outputConfigTheme = outputConfigTheme?.validatedOrDefault()
+        let configThemeToApply = outputConfigTheme.flatMap { theme in
+            appliedTerminalConfigTheme == theme ? nil : theme
+        }
+        let preparedConfigBits = configThemeToApply
+            .flatMap { runtime?.makeThemeConfig($0) }
+            .map { Int(bitPattern: $0) }
+        if let outputConfigTheme, preparedConfigBits != nil {
+            appliedTerminalConfigTheme = outputConfigTheme
+        }
         // Track the host's cursor-visible mode (DECTCEM) straight from the VT
         // bytes the surface is about to apply, so the cursor overlay can match a
         // TUI that hides the cursor. nil = this delta carried no DECTCEM, so the
@@ -2380,6 +2123,11 @@ public final class GhosttySurfaceView: UIView, TerminalSurfaceHosting {
         // preserved) and hop back to main only for the Swift-side UI state.
         let workQueue = outputQueue
         workQueue.async { [weak self] in
+            if let preparedConfigBits,
+               let preparedConfig = ghostty_config_t(bitPattern: preparedConfigBits) {
+                ghostty_surface_update_theme_config(surface, preparedConfig)
+                ghostty_config_free(preparedConfig)
+            }
             forwarded.withUnsafeBytes { buffer in
                 guard let baseAddress = buffer.baseAddress else { return }
                 let pointer = baseAddress.assumingMemoryBound(to: CChar.self)
@@ -2411,7 +2159,9 @@ public final class GhosttySurfaceView: UIView, TerminalSurfaceHosting {
                     completion?(false)
                     return
                 }
+                self.consecutiveOutputTimeoutRecoveries = 0
                 self.needsDraw = true
+                self.scheduleVisibleArtifactCountUpdate()
                 if let cursorVisibilityDelta, cursorVisibilityDelta != self.hostCursorVisible {
                     self.hostCursorVisible = cursorVisibilityDelta
                     self.updateCursorOverlay()
@@ -2443,24 +2193,43 @@ public final class GhosttySurfaceView: UIView, TerminalSurfaceHosting {
     }
 
     private func scrollInitialOutputToBottomIfNeeded() {
-        guard shouldScrollInitialOutputToBottom, let surface else { return }
+        guard shouldScrollInitialOutputToBottom, surface != nil else { return }
         shouldScrollInitialOutputToBottom = false
-        // `ghostty_surface_binding_action` takes the same internal surface lock
-        // as `process_output`/`render_now`. This runs on the MAIN thread (inside
-        // the `processOutput` completion hop), so calling it inline would contend
-        // that lock against the off-main renderer/IO during a render storm and
-        // wedge main on libghostty's futex. Dispatch it on the serial surface
-        // queue like the absolute `set_font_size` push (see
-        // `applyPendingFontSizeIfNeeded`); enqueuing after any pending
-        // `process_output` also preserves ordering. The return was already
-        // discarded.
+        enqueueScrollToBottom()
+    }
+
+    /// Enqueues Ghostty's `scroll_to_bottom` binding action on the serial
+    /// surface queue. `ghostty_surface_binding_action` takes the same internal
+    /// surface lock as `process_output`/`render_now`; inline on MAIN it would
+    /// contend that lock against the off-main renderer/IO during a render
+    /// storm and wedge main on libghostty's futex (same dispatch pattern as
+    /// `applyPendingFontSizeIfNeeded`). Coalesced: one pending snap is enough
+    /// because it runs after everything already queued, so key-repeat during a
+    /// stall never fans out into one lock-taking queue item per event.
+    func enqueueScrollToBottom() {
+        guard let surface, !scrollToBottomInFlight else { return }
+        scrollToBottomInFlight = true
+        let generation = surfaceGeneration
         let action = "scroll_to_bottom"
-        outputQueue.async {
+        outputQueue.async { [weak self] in
             action.withCString { pointer in
                 _ = ghostty_surface_binding_action(surface, pointer, UInt(action.utf8.count))
             }
+            DispatchQueue.main.async {
+                // Generation-guarded like the `processOutput` completion: a
+                // stale pre-recovery completion must not clear the flag a
+                // new-generation snap has since set.
+                guard let self, self.surfaceGeneration == generation else { return }
+                self.scrollToBottomInFlight = false
+                self.scheduleVisibleArtifactCountUpdate()
+            }
         }
     }
+
+    /// True while a `scroll_to_bottom` binding action is queued or running on
+    /// the serial surface queue. Cleared on the reset path alongside the queue
+    /// regeneration so a wedged surface cannot permanently disable the snap.
+    var scrollToBottomInFlight = false
 
     static func forwardDaemonOutputBytes(_ data: Data) -> Data {
         // The daemon owns terminal byte semantics. iOS must feed Ghostty the
@@ -2520,7 +2289,20 @@ public final class GhosttySurfaceView: UIView, TerminalSurfaceHosting {
     /// tree. Does not set ``isDismantled`` so a transient detach can re-attach
     /// and resume; only ``prepareForDismantle()`` marks the surface dead.
     private func prepareForReuseAfterDetach() {
+        clearVerifiedReplayPresentation()
+        visibleArtifactCountTask?.cancel()
+        visibleArtifactCountTask = nil
+        visibleArtifactCountSettleFrames = nil
+        visibleArtifactSnapshotGeneration &+= 1
+        lastVisibleArtifactSnapshotText = nil
+        lastReportedVisibleArtifactCount = 0
+        delegate?.ghosttySurfaceViewDidResetArtifactCount(self)
+        artifactChipHost.setContent(nil)
+        updateArtifactChipVisibility(animated: false)
         completePendingSurfaceOperations(returning: false)
+        cancelRenderPipelineRecoveryResumeTimer()
+        renderPipelineRecoveryPaused = false
+        renderPipelineRecoveryPausedAt = nil
         renderInFlight = false
         renderInFlightSince = nil
         needsAnotherRender = false
@@ -2698,6 +2480,7 @@ public final class GhosttySurfaceView: UIView, TerminalSurfaceHosting {
 
     func disposeSurface() {
         stopDisplayLink()
+        cancelRenderPipelineRecoveryResumeTimer()
         guard let surface else { return }
         GhosttySurfaceView.unregister(surface: surface)
         self.surface = nil
@@ -2714,129 +2497,22 @@ public final class GhosttySurfaceView: UIView, TerminalSurfaceHosting {
         // work from being enqueued once `surface` is nil, so only the bounded
         // backlog drains before the free. (Retain the bridge across the hop; it
         // owns the userdata libghostty still references until the free.)
-        enqueueSurfaceFree(surface, bridge: currentBridge, on: currentQueue)
+        enqueueSurfaceFree(surface, bridge: currentBridge, generation: surfaceGeneration, on: currentQueue)
     }
 
-    private func enqueueSurfaceFree(
+    func enqueueSurfaceFree(
         _ surface: ghostty_surface_t,
         bridge: GhosttySurfaceBridge,
-        on queue: GhosttySurfaceWorkQueue,
+        generation: UInt64, on queue: GhosttySurfaceWorkQueue,
         completion: (@MainActor @Sendable () -> Void)? = nil
     ) {
         let retainedBridge = Unmanaged.passRetained(bridge)
-        queue.async {
+        surfaceFreeDrainWatchdog.start(generation: generation) { [weak self] in self?.pendingSurfaceFreeCount ?? 0 }
+        queue.async { [weak self] in
             ghostty_surface_free(surface)
             retainedBridge.release()
-            if let completion {
-                Task { @MainActor in completion() }
-            }
+            Task { @MainActor in self?.surfaceFreeDrainWatchdog.cancel(generation: generation); completion?() }
         }
-    }
-
-    private func logRecoveryPausedDrop(kind: String, byteCount: Int? = nil) {
-        let now = CACurrentMediaTime()
-        guard now - lastRecoveryPausedDropLogTime >= 1 else { return }
-        lastRecoveryPausedDropLogTime = now
-        MobileDebugLog.anchormux(
-            "render.recover.paused_drop kind=\(kind) bytes=\(byteCount ?? 0) pendingFrees=\(pendingSurfaceFreeCount)"
-        )
-    }
-
-    @discardableResult
-    private func pauseRenderPipelineRecovery(
-        reason: String,
-        stalledMs: Int
-    ) -> Bool {
-        MobileDebugLog.anchormux(
-            "render.recover.paused reason=\(reason) stalledMs=\(stalledMs) pendingFrees=\(pendingSurfaceFreeCount)"
-        )
-        renderPipelineRecoveryPaused = true
-        stopDisplayLink()
-        _ = completePendingSurfaceOperations(returning: false)
-        renderInFlight = false
-        renderInFlightSince = nil
-        needsAnotherRender = false
-        needsDraw = false
-        return true
-    }
-
-    private func resumePausedRenderPipelineRecoveryIfPossible() {
-        guard renderPipelineRecoveryPaused,
-              !isDismantled,
-              surface != nil,
-              pendingSurfaceFreeCount < Self.maxPendingSurfaceFrees else { return }
-        MobileDebugLog.anchormux(
-            "render.recover.resuming pendingFrees=\(pendingSurfaceFreeCount)"
-        )
-        renderPipelineRecoveryPaused = false
-        _ = recoverRenderPipeline(
-            reason: "free_drained",
-            stalledMs: 0,
-            replay: .delegateWhenNoCaller
-        )
-    }
-
-    @discardableResult
-    private func recoverRenderPipeline(
-        reason: String,
-        stalledMs: Int,
-        replay: RenderPipelineRecoveryReplay
-    ) -> Bool {
-        guard !isDismantled,
-              surface != nil else {
-            return false
-        }
-        guard !renderPipelineRecoveryPaused else {
-            return pauseRenderPipelineRecovery(reason: reason, stalledMs: stalledMs)
-        }
-        guard pendingSurfaceFreeCount < Self.maxPendingSurfaceFrees else {
-            return pauseRenderPipelineRecovery(reason: reason, stalledMs: stalledMs)
-        }
-        MobileDebugLog.anchormux(
-            "render.recover reason=\(reason) stalledMs=\(stalledMs) generation=\(surfaceGeneration) pendingFrees=\(pendingSurfaceFreeCount)"
-        )
-        let completedFailedOperation = completePendingSurfaceOperations(returning: false)
-
-        stopDisplayLink()
-        let oldSurface = surface
-        let oldBridge = bridge
-        let oldQueue = outputQueue
-        oldBridge.detach()
-        if let oldSurface {
-            GhosttySurfaceView.unregister(surface: oldSurface)
-            pendingSurfaceFreeCount += 1
-            enqueueSurfaceFree(oldSurface, bridge: oldBridge, on: oldQueue) { [weak self] in
-                guard let self else { return }
-                self.pendingSurfaceFreeCount = max(0, self.pendingSurfaceFreeCount - 1)
-                MobileDebugLog.anchormux(
-                    "render.recover.free_drained pendingFrees=\(self.pendingSurfaceFreeCount)"
-                )
-                self.resumePausedRenderPipelineRecoveryIfPossible()
-            }
-        }
-
-        surface = nil
-        renderInFlight = false
-        renderInFlightSince = nil
-        needsAnotherRender = false
-        needsDraw = true
-        cellPixelSize = .zero
-        lastRenderRect = .zero
-        lastRenderLayoutViewportHeight = nil
-        lastRenderHasSourceLayoutViewport = false
-        lastAppliedContentScale = 0
-
-        surfaceGeneration &+= 1
-        outputQueueGeneration &+= 1
-        outputQueue = GhosttySurfaceWorkQueue(generation: outputQueueGeneration)
-        bridge = GhosttySurfaceBridge()
-        bridge.attach(to: self)
-
-        initializeSurface()
-        if replay == .delegateWhenNoCaller && !completedFailedOperation {
-            delegate?.ghosttySurfaceViewDidResetRenderPipeline(self)
-        }
-        return true
     }
 
     private var preferredScreenScale: CGFloat {
@@ -2867,14 +2543,13 @@ public final class GhosttySurfaceView: UIView, TerminalSurfaceHosting {
         }
     }
 
-    private func initializeSurface() {
+    func initializeSurface() {
         guard let app = runtime?.app else { return }
         surface = makeSurface(app: app)
         if let surface {
             GhosttySurfaceView.register(surface: surface, for: self)
-            if let config = runtime?.config {
-                applyBackgroundColorFromConfig(config)
-            }
+            appliedTerminalConfigTheme = nil
+            applyTerminalConfigTheme()
             // Hide the snapshot fallback immediately. The Metal renderer
             // handles all rendering once the surface exists.
             snapshotFallbackView.isHidden = true
@@ -2895,10 +2570,30 @@ public final class GhosttySurfaceView: UIView, TerminalSurfaceHosting {
         updateCursorOverlay()
     }
 
-    private func stopDisplayLink() {
+    func stopDisplayLink() {
         displayLink?.invalidate()
         displayLink = nil
         cursorOverlayLayer?.isHidden = true
+    }
+
+    /// Shared reaction to user-produced terminal input (typing, backspace,
+    /// escape sequences, paste): restart the cursor blink and optimistically
+    /// snap the local mirror to the bottom of scrollback. The mirror is
+    /// display-only — the Mac echoes input at the prompt — so a user who types
+    /// while scrolled up would otherwise keep looking at old scrollback and
+    /// read the terminal as frozen. Passive output never forces this jump;
+    /// only explicit user input does (plus the one-time initial-output scroll
+    /// in `scrollInitialOutputToBottomIfNeeded`).
+    private func handleUserProducedInput() {
+        resetCursorBlink()
+        // A flick still decelerating would fight the snap: deltas already in
+        // `pendingScrollLines` flush on the display-link frame AFTER the snap
+        // below, and UIScrollView momentum keeps producing more. Drop the
+        // pending deltas and freeze the scroll mechanics at the current offset
+        // (kill-deceleration idiom) so typed input lands at the bottom.
+        pendingScrollLines = 0
+        scrollMechanicsView.setContentOffset(scrollMechanicsView.contentOffset, animated: false)
+        enqueueScrollToBottom()
     }
 
     /// Reset cursor to visible and restart blink cycle (call on user input).
@@ -2914,6 +2609,7 @@ public final class GhosttySurfaceView: UIView, TerminalSurfaceHosting {
         if checkSurfaceOperationDeadlines(now: now) {
             return
         }
+        completePendingVerifiedReplayPresentationIfPresented()
         guard surface != nil else {
             if !hasPendingSurfaceOperationDeadline {
                 stopDisplayLink()
@@ -3034,6 +2730,24 @@ public final class GhosttySurfaceView: UIView, TerminalSurfaceHosting {
         // Flush coalesced scroll to the Mac at most once per frame.
         flushPendingScrollIfNeeded()
 
+        // Visible artifact detection shares the viewport report's quiet-frame
+        // cadence. Output/scroll/geometry only re-arm this counter; one visible
+        // snapshot is read after eight quiet frames, never per render frame or
+        // per output chunk.
+        if var settleFrames = visibleArtifactCountSettleFrames {
+            if zoomSettleFrames != nil {
+                visibleArtifactCountSettleFrames = 0
+            } else {
+                settleFrames += 1
+                if settleFrames >= Self.viewportReportSettleThreshold {
+                    visibleArtifactCountSettleFrames = nil
+                    refreshVisibleArtifactCount()
+                } else {
+                    visibleArtifactCountSettleFrames = settleFrames
+                }
+            }
+        }
+
         // Fade the zoom HUD once interaction has been quiet. Uses real elapsed
         // time off the continuous display link (no timer / sleep).
         if zoomOverlayShown,
@@ -3068,6 +2782,7 @@ public final class GhosttySurfaceView: UIView, TerminalSurfaceHosting {
         guard !renderPipelineRecoveryPaused,
               !renderingSuspended,
               !isRenderDispatchSuppressed,
+              !verifiedReplayRenderSuppressed,
               let surface,
               !isDismantled else { return }
         // Coalesce: never let more than one render_now sit on the serial queue.
@@ -3121,10 +2836,14 @@ public final class GhosttySurfaceView: UIView, TerminalSurfaceHosting {
             syncSurfaceGeometry(shouldReassertNaturalSize: reassert)
         }
     }
-
-    private func updateCursorOverlay() {
+    func updateCursorOverlay() {
+        guard terminalTheme.cursorColorSemantic == nil else {
+            cursorOverlayLayer?.isHidden = true
+            return
+        }
         guard let surface,
               hostCursorVisible,
+              verifiedReplayFrozenPresentationLayer == nil,
               window != nil,
               !isHidden,
               alpha > 0.01,
@@ -3155,8 +2874,8 @@ public final class GhosttySurfaceView: UIView, TerminalSurfaceHosting {
             height: ceil(cellHeight)
         )
         overlay.backgroundColor = cursorBlinkState.isVisible
-            ? (configCursorColor ?? UIColor(red: 0xc0/255.0, green: 0xc1/255.0, blue: 0xb5/255.0, alpha: 1.0)).cgColor
-            : (configBackgroundColor ?? backgroundColor ?? .black).cgColor
+            ? (configCursorColor ?? terminalTheme.terminalCursorUIColor).cgColor
+            : (configBackgroundColor ?? terminalTheme.terminalBackgroundUIColor).cgColor
         overlay.isHidden = false
     }
 
@@ -3181,40 +2900,30 @@ public final class GhosttySurfaceView: UIView, TerminalSurfaceHosting {
     private(set) var configBackgroundColor: UIColor?
     private(set) var configCursorColor: UIColor?
 
-    private func applyBackgroundColorFromConfig(_ config: ghostty_config_t) {
-        var bgColor = ghostty_config_color_s()
-        let bgKey = "background"
-        if ghostty_config_get(config, &bgColor, bgKey, UInt(bgKey.lengthOfBytes(using: .utf8))) {
-            let bg = UIColor(red: CGFloat(bgColor.r) / 255.0, green: CGFloat(bgColor.g) / 255.0, blue: CGFloat(bgColor.b) / 255.0, alpha: 1.0)
-            backgroundColor = bg
-            snapshotFallbackView.backgroundColor = bg
-            configBackgroundColor = bg
-            #if DEBUG
-            log.debug("applyBg: config r=\(bgColor.r, privacy: .public) g=\(bgColor.g, privacy: .public) b=\(bgColor.b, privacy: .public) -> UIColor(\(bg.debugDescription, privacy: .public)), hardcoded Monokai=#272822 r=39 g=40 b=34")
-            #endif
-        } else {
-            #if DEBUG
-            log.debug("applyBg: ghostty_config_get returned false, no bg color from config")
-            #endif
-        }
-        var fgColor = ghostty_config_color_s()
-        let fgKey = "foreground"
-        if ghostty_config_get(config, &fgColor, fgKey, UInt(fgKey.lengthOfBytes(using: .utf8))) {
-            snapshotFallbackView.textColor = UIColor(red: CGFloat(fgColor.r) / 255.0, green: CGFloat(fgColor.g) / 255.0, blue: CGFloat(fgColor.b) / 255.0, alpha: 1.0)
-        }
-        var cursorColor = ghostty_config_color_s()
-        let cursorKey = "cursor-color"
-        if ghostty_config_get(config, &cursorColor, cursorKey, UInt(cursorKey.lengthOfBytes(using: .utf8))) {
-            configCursorColor = UIColor(
-                red: CGFloat(cursorColor.r) / 255.0,
-                green: CGFloat(cursorColor.g) / 255.0,
-                blue: CGFloat(cursorColor.b) / 255.0,
-                alpha: 1.0
-            )
-        }
+    /// Recolors the surface, fallback, cursor, and input accessory in place.
+    @MainActor
+    func refreshThemeColors() {
+        let themeBackground = terminalTheme.terminalBackgroundUIColor
+        backgroundColor = themeBackground
+        snapshotFallbackView.backgroundColor = themeBackground
+        snapshotFallbackView.textColor = terminalTheme.terminalForegroundUIColor
+        configBackgroundColor = themeBackground
+        configCursorColor = terminalTheme.terminalCursorUIColor
+        inputProxy.terminalTheme = terminalTheme
+        updateCursorOverlay()
+        needsDraw = true
     }
 
-    private func setFocus(_ focused: Bool) {
+    func applyTerminalConfigTheme(_ theme: TerminalTheme, force: Bool) {
+        guard surface != nil else { return }
+        let configTheme = theme.validatedOrDefault()
+        guard force || appliedTerminalConfigTheme != configTheme else { return }
+        appliedTerminalConfigTheme = configTheme
+        refreshThemeColors()
+        runtime?.applyTheme(configTheme, to: self)
+    }
+
+    func setFocus(_ focused: Bool) {
         guard let surface else { return }
         ghostty_surface_set_focus(surface, focused)
     }
@@ -3232,6 +2941,21 @@ public final class GhosttySurfaceView: UIView, TerminalSurfaceHosting {
             updateCursorOverlay()
         } else {
             cursorOverlayLayer?.isHidden = true
+        }
+    }
+
+    /// Require a fresh settled viewport report whenever this view mounts.
+    /// Reuses the last measured grid as a candidate, while later layout passes
+    /// may supersede it before the debounce finishes.
+    public func requestViewportReportForMount() {
+        viewportReportRetries = 0
+        if let pending = lastReportedSize,
+           pending.columns > 0,
+           pending.rows > 0 {
+            pendingViewportReport = pending
+            viewportReportSettleFrames = 0
+        } else {
+            setNeedsGeometrySync(reassertNaturalSize: true)
         }
     }
 
@@ -3450,6 +3174,7 @@ public final class GhosttySurfaceView: UIView, TerminalSurfaceHosting {
         let containerPxW = UInt32(max(1, Int((containerW * scale).rounded(.down))))
         let containerPxH = UInt32(max(1, Int((containerH * scale).rounded(.down))))
         let eff = effectiveGrid
+        let requiresExactEffectiveGrid = verifiedReplayRenderSuppressed
         let pushContentScale = abs(lastAppliedContentScale - scale) > 0.001
         if pushContentScale { lastAppliedContentScale = scale }
         let generation = surfaceGeneration
@@ -3473,9 +3198,14 @@ public final class GhosttySurfaceView: UIView, TerminalSurfaceHosting {
             if let eff, eff.cols > 0, eff.rows > 0, cell.width > 0, cell.height > 0 {
                 let fillsNaturalGrid = eff.cols >= Int(measured.columns) && eff.rows >= Int(measured.rows)
                 let withinOneCell = (Int(measured.columns) - eff.cols) <= 1 && (Int(measured.rows) - eff.rows) <= 1
+                let exactGridFitsInsideNatural = eff.cols <= Int(measured.columns)
+                    && eff.rows <= Int(measured.rows)
                 let pinnedW = CGFloat(eff.cols) * cell.width / scale
                 let pinnedH = CGFloat(eff.rows) * cell.height / scale
-                if !fillsNaturalGrid, !withinOneCell, pinnedW + 0.5 < containerW || pinnedH + 0.5 < containerH {
+                let shouldFitEffectiveGrid = !fillsNaturalGrid
+                    && (!withinOneCell || requiresExactEffectiveGrid && exactGridFitsInsideNatural)
+                if shouldFitEffectiveGrid,
+                   pinnedW + 0.5 < containerW || pinnedH + 0.5 < containerH {
                     let fitted = Self.fitSurfaceToGrid(surface, cols: eff.cols, rows: eff.rows, cellPixelSize: cell)
                     let aw = fitted.actual.width_px > 0 ? fitted.actual.width_px : fitted.requestedW
                     let ah = fitted.actual.height_px > 0 ? fitted.actual.height_px : fitted.requestedH
@@ -3585,22 +3315,28 @@ public final class GhosttySurfaceView: UIView, TerminalSurfaceHosting {
         syncSnapshotFallback()
 
         let naturalSize = result.naturalSize
-        // Stretch-to-fill: keep the RENDERED font tracking the daemon-granted
-        // rows so a Mac-constrained grid fills the phone instead of parking a
-        // letterbox band above the content.
-        autoFitFontToEffectiveRows(
-            renderedRows: naturalSize.rows,
-            containerPixelHeight: containerH * scale,
-            cellPixelHeight: result.cellPixelSize.height
-        )
-        // Report the row CAPACITY at the user's base font, not the rendered
-        // rows: a report derived from the fitted font would ratchet the
-        // negotiated minimum down and the phone could never learn when the
-        // constraining device grew back. Columns stay at the rendered font
-        // (the PTY must never be wider than the rendered grid can show).
+        let reportContainerWidth = columnReportContainerWidth(currentWidth: containerW)
+        // Report capacity at the user's base font, not the rendered font: a
+        // report derived from the fitted font would ratchet the negotiated
+        // minimum down and the phone could never learn when the constraining
+        // device grew back. Columns use the same base-font normalization as
+        // rows so a row-stretched font cannot under-report the phone's width.
         let reportGrid = capacityReportGrid(
             for: naturalSize,
+            containerPixelWidth: reportContainerWidth * scale,
             containerPixelHeight: containerH * scale,
+            cellPixelWidth: result.cellPixelSize.width,
+            cellPixelHeight: result.cellPixelSize.height
+        )
+        // Stretch-to-fill: keep the RENDERED font tracking only real row
+        // constraints. When the daemon grants the base-font natural grid back,
+        // decay to the user's base font so the full-width grid can render
+        // without horizontal overflow.
+        autoFitFontToEffectiveRows(
+            renderedRows: naturalSize.rows,
+            containerPixelWidth: reportContainerWidth * scale,
+            containerPixelHeight: containerH * scale,
+            cellPixelWidth: result.cellPixelSize.width,
             cellPixelHeight: result.cellPixelSize.height
         )
         let effectiveMatchesNatural = effectiveGrid.map { grid in
@@ -3614,61 +3350,7 @@ public final class GhosttySurfaceView: UIView, TerminalSurfaceHosting {
         // settles; the display link fires it once it stops changing.
         pendingViewportReport = reportGrid
         viewportReportSettleFrames = 0
-    }
-
-    /// The viewport report for the current geometry: rendered columns plus the
-    /// base-font row capacity (see `TerminalRowCapacityFit.capacityRows`).
-    private func capacityReportGrid(
-        for natural: TerminalGridSize,
-        containerPixelHeight: CGFloat,
-        cellPixelHeight: CGFloat
-    ) -> TerminalGridSize {
-        guard let fit = TerminalRowCapacityFit(
-            containerPixelHeight: containerPixelHeight,
-            cellPixelHeight: cellPixelHeight,
-            liveFontSize: liveFontSize
-        ), let capacity = fit.capacityRows(atBaseFontSize: userBaseFontSize) else { return natural }
-        return TerminalGridSize(
-            columns: natural.columns,
-            rows: capacity,
-            pixelWidth: natural.pixelWidth,
-            pixelHeight: natural.pixelHeight
-        )
-    }
-
-    /// Re-derive the rendered font from the effective grid: raise it so a
-    /// smaller granted row count fills the container, decay it back toward the
-    /// user's base font when the grant returns to (or past) capacity or the
-    /// pin lifts. Floored at the user's base font — the fit only ever
-    /// stretches, and a stale oversized grant during a keyboard transition
-    /// steps to base instead of collapsing the font toward the minimum.
-    private func autoFitFontToEffectiveRows(
-        renderedRows: Int,
-        containerPixelHeight: CGFloat,
-        cellPixelHeight: CGFloat
-    ) {
-        // Never fight an in-flight explicit zoom step.
-        guard pendingFontSize == nil else { return }
-        guard let eff = effectiveGrid else {
-            if abs(liveFontSize - userBaseFontSize) >= 0.25 {
-                MobileDebugLog.anchormux("zoom.autofit.decay live=\(liveFontSize) base=\(userBaseFontSize)")
-                applyAbsoluteFontSize(userBaseFontSize)
-            }
-            return
-        }
-        guard TerminalRowCapacityFit.shouldRefit(renderedRows: renderedRows, effectiveRows: eff.rows),
-              let fit = TerminalRowCapacityFit(
-                  containerPixelHeight: containerPixelHeight,
-                  cellPixelHeight: cellPixelHeight,
-                  liveFontSize: liveFontSize
-              ),
-              let target = fit.fitFontSize(forEffectiveRows: eff.rows) else { return }
-        let clamped = min(max(target, userBaseFontSize), MobileTerminalFontPreference.maximumSize)
-        guard abs(clamped - liveFontSize) >= 0.25 else { return }
-        MobileDebugLog.anchormux(
-            "zoom.autofit eff=\(eff.cols)x\(eff.rows) rendered=\(renderedRows) font \(liveFontSize)->\(clamped)"
-        )
-        applyAbsoluteFontSize(clamped)
+        scheduleVisibleArtifactCountUpdate()
     }
 
     private func syncRendererLayerFrame(scale: CGFloat, renderRect: CGRect) {
@@ -3687,17 +3369,29 @@ public final class GhosttySurfaceView: UIView, TerminalSurfaceHosting {
         // sublayer consistent.
         CATransaction.begin()
         CATransaction.setDisableActions(true)
+        var geometryChanged = layer.contentsScale != scale
         layer.contentsScale = scale
         for sublayer in layer.sublayers ?? [] where isGhosttyRendererLayer(sublayer) {
             if sublayer.frame != renderRect {
+                geometryChanged = true
                 sublayer.frame = renderRect
             }
             if sublayer.bounds.size != renderRect.size {
+                geometryChanged = true
                 sublayer.bounds = CGRect(origin: .zero, size: renderRect.size)
+            }
+            if sublayer.contentsScale != scale {
+                geometryChanged = true
             }
             sublayer.contentsScale = scale
         }
         CATransaction.commit()
+        if geometryChanged {
+            verifiedReplayGeometryRevision &+= 1
+            verifiedReplayReadyFence = nil
+            verifiedReplayReadyTransactionID = nil
+            restartPendingVerifiedReplayPresentationForCurrentGeometry()
+        }
     }
 
     /// Add / update a 1-pixel separator border around the pinned surface
@@ -3756,7 +3450,7 @@ public final class GhosttySurfaceView: UIView, TerminalSurfaceHosting {
         }
     }
 
-    private func isGhosttyRendererLayer(_ layer: CALayer) -> Bool {
+    func isGhosttyRendererLayer(_ layer: CALayer) -> Bool {
         String(describing: type(of: layer)) == "IOSurfaceLayer"
     }
 
@@ -3790,7 +3484,20 @@ public final class GhosttySurfaceView: UIView, TerminalSurfaceHosting {
             }
         }
         surfaceConfig.io_write_userdata = bridgePointer
-        return ghostty_surface_new(app, &surfaceConfig)
+        guard let createdSurface = ghostty_surface_new(app, &surfaceConfig) else {
+            return nil
+        }
+        guard ghostty_surface_set_render_presented_callback(
+            createdSurface,
+            { userdata, token in
+                GhosttySurfaceBridge.fromOpaque(userdata)?.handleRenderPresented(token: token)
+            },
+            bridgePointer
+        ) else {
+            ghostty_surface_free(createdSurface)
+            return nil
+        }
+        return createdSurface
     }
 
     func handleOutboundBytes(_ bytes: Data) {
@@ -3918,7 +3625,8 @@ public final class GhosttySurfaceView: UIView, TerminalSurfaceHosting {
 
     private func applySnapshotFallbackTheme(from attributedText: NSAttributedString) {
         guard attributedText.length > 0 else {
-            snapshotFallbackView.backgroundColor = .black
+            snapshotFallbackView.backgroundColor = terminalTheme.terminalBackgroundUIColor
+            snapshotFallbackView.textColor = terminalTheme.terminalForegroundUIColor
             return
         }
 
@@ -3926,7 +3634,7 @@ public final class GhosttySurfaceView: UIView, TerminalSurfaceHosting {
         if let background = attributedText.attribute(.backgroundColor, at: probeIndex, effectiveRange: nil) as? UIColor {
             snapshotFallbackView.backgroundColor = background
         } else {
-            snapshotFallbackView.backgroundColor = .black
+            snapshotFallbackView.backgroundColor = terminalTheme.terminalBackgroundUIColor
         }
     }
 
@@ -3996,101 +3704,7 @@ public final class GhosttySurfaceView: UIView, TerminalSurfaceHosting {
         }
     }
 
-    /// "What the user sees": the visible viewport text of every on-screen
-    /// terminal surface, for the DEV "Copy Debug Logs" action so a bug report
-    /// pairs the on-screen content with the debug log. Reads the VIEWPORT
-    /// (visible grid only, not scrollback) via libghostty.
-    public static let visibleTerminalSnapshot: @MainActor () async -> String = {
-        registeredSurfaceViews = registeredSurfaceViews.filter { $0.value.value != nil }
-        // Collect the main-actor state + surface pointers first, then read the
-        // viewport text on the serial output queue. `ghostty_surface_read_text`
-        // takes the same surface lock as `process_output` (which runs off-main);
-        // reading it on the MAIN thread here contends that lock during a render
-        // storm and stalls the present — tapping Copy Debug Logs would itself
-        // blank the terminal. The output queue is never concurrent with
-        // `process_output`, so the read can't wedge. The await is bounded by
-        // the surface's display-link deadline so this diagnostic path does not
-        // add a sleeping timer task or block the main actor.
-        var pending: [VisibleSnapshotRequest] = []
-        for view in registeredSurfaceViews.values.compactMap(\.value) {
-            guard view.window != nil, !view.isHidden, view.alpha > 0.01,
-                  let surface = view.surface else { continue }
-            let grid = view.effectiveGrid.map { "\($0.cols)x\($0.rows)" } ?? "?"
-            pending.append(VisibleSnapshotRequest(
-                view: view,
-                grid: grid,
-                font: Int(view.liveFontSize),
-                surface: surface,
-                generation: view.surfaceGeneration
-            ))
-        }
-        if pending.isEmpty {
-            return "===== visible terminal: (no on-screen surface) ====="
-        }
-        var sections: [String] = []
-        for item in pending {
-            guard let section = await item.view.visibleSnapshotSection(
-                surface: item.surface,
-                generation: item.generation,
-                grid: item.grid,
-                font: item.font
-            ) else {
-                return "===== visible terminal: (snapshot skipped — render busy) ====="
-            }
-            sections.append(section)
-        }
-        return sections.joined(separator: "\n\n")
-    }
 
-    private func visibleSnapshotSection(
-        surface: ghostty_surface_t,
-        generation: UInt64,
-        grid: String,
-        font: Int
-    ) async -> String? {
-        guard self.surface == surface,
-              surfaceGeneration == generation,
-              !renderPipelineRecoveryPaused else {
-            return nil
-        }
-        return await withCheckedContinuation { continuation in
-            let operationID = makeSurfaceOperationID()
-            if let existing = pendingVisibleSnapshot {
-                pendingVisibleSnapshot = nil
-                existing.continuation.resume(returning: nil)
-            }
-            pendingVisibleSnapshot = PendingVisibleSnapshot(
-                id: operationID,
-                startedAt: CACurrentMediaTime(),
-                continuation: continuation
-            )
-            ensureSurfaceOperationDeadlinePump()
-            let queue = outputQueue
-            let read = VisibleSnapshotRead(surface: surface, generation: generation, grid: grid, font: font)
-            queue.async {
-                let text = Self.surfaceText(read.surface, pointTag: GHOSTTY_POINT_VIEWPORT) ?? "(unavailable)"
-                let section = "===== visible terminal · grid=\(read.grid) · font=\(read.font) =====\n"
-                    + text
-                Task { @MainActor [weak self] in
-                    guard let view = self else { return }
-                    guard view.surface == read.surface,
-                          view.surfaceGeneration == read.generation else {
-                        view.completePendingVisibleSnapshot(id: operationID, returning: nil)
-                        return
-                    }
-                    view.completePendingVisibleSnapshot(id: operationID, returning: section)
-                }
-            }
-        }
-    }
-
-    private func handleBell() {
-        UINotificationFeedbackGenerator().notificationOccurred(.warning)
-        NotificationCenter.default.post(
-            name: .ghosttySurfaceDidRingBell,
-            object: self
-        )
-    }
 }
 
 extension GhosttySurfaceView: UIGestureRecognizerDelegate {
@@ -4111,6 +3725,9 @@ extension GhosttySurfaceView: UIGestureRecognizerDelegate {
         // the surface-level tap recognizer would otherwise also fire; exclude it.
         if !composerContainer.isHidden,
            let touched = touch.view, touched.isDescendant(of: composerContainer) {
+            return false
+        }
+        if let touched = touch.view, artifactChipHost.contains(touched) {
             return false
         }
         return true
@@ -4144,14 +3761,16 @@ extension GhosttySurfaceView: UIScrollViewDelegate {
     }
 }
 
-nonisolated private enum RenderPipelineRecoveryReplay {
+/// Internal for `GhosttySurfaceView+RenderRecovery.swift` replay decisions.
+nonisolated enum RenderPipelineRecoveryReplay {
     case callerWillRequestReplay
     case delegateWhenNoCaller
 }
 
 /// One output/geometry operation awaiting either its output-queue completion or
 /// the display-link deadline that rebuilds the stalled render pipeline.
-nonisolated private struct PendingSurfaceOperation {
+/// Internal for `GhosttySurfaceView+RenderRecovery.swift` deadline handling.
+nonisolated struct PendingSurfaceOperation {
     let id: UInt64
     let startedAt: CFTimeInterval
     let byteCount: Int?
@@ -4159,18 +3778,20 @@ nonisolated private struct PendingSurfaceOperation {
 }
 
 /// One visible-terminal snapshot read awaiting output-queue completion or its
-/// display-link deadline. A timeout skips only the diagnostic snapshot.
-nonisolated private struct PendingVisibleSnapshot {
+/// display-link deadline. A timeout skips only the pending text snapshot.
+/// Internal for `GhosttySurfaceView+RenderRecovery.swift` deadline handling.
+nonisolated struct PendingVisibleSnapshot {
     let id: UInt64
     let startedAt: CFTimeInterval
-    let continuation: CheckedContinuation<String?, Never>
+    let continuation: CheckedContinuation<(text: String, columns: Int)?, Never>
 }
 
 /// One "View as Text" read awaiting output-queue completion or deadline.
-nonisolated private struct PendingCopyableTextRead {
+/// Internal for `GhosttySurfaceView+RenderRecovery.swift` deadline handling.
+nonisolated struct PendingCopyableTextRead {
     let id: UInt64
     let startedAt: CFTimeInterval
-    let cancellation: SurfaceOperationCancellationToken
+    fileprivate let cancellation: SurfaceOperationCancellationToken
     let continuation: CheckedContinuation<String?, Never>
 
     func cancel() {
@@ -4178,25 +3799,6 @@ nonisolated private struct PendingCopyableTextRead {
     }
 }
 
-/// One surface's request for the bounded visible-terminal snapshot.
-nonisolated private struct VisibleSnapshotRequest {
-    let view: GhosttySurfaceView
-    let grid: String
-    let font: Int
-    let surface: ghostty_surface_t
-    let generation: UInt64
-}
-
-/// Raw surface read payload captured by the off-main output queue.
-///
-/// The C surface pointer is dereferenced only on `GhosttySurfaceWorkQueue`,
-/// which is the same FIFO queue that owns `process_output` and surface free.
-nonisolated private struct VisibleSnapshotRead: @unchecked Sendable {
-    let surface: ghostty_surface_t
-    let generation: UInt64
-    let grid: String
-    let font: Int
-}
 
 /// Raw full-text read payload captured by the off-main output queue.
 ///

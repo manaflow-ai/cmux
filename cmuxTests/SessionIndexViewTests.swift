@@ -434,7 +434,7 @@ final class SessionIndexViewTests: XCTestCase {
             onResume: nil
         )
 
-        XCTAssertEqual(coordinator.debugRefreshContentCallCount, 0)
+        XCTAssertEqual(coordinator.refreshContentCallCount, 0)
     }
 
     func testSectionPopoverHostCoordinatorRefreshesOnceWhenPresented() {
@@ -467,13 +467,13 @@ final class SessionIndexViewTests: XCTestCase {
             loadSnapshot: harness.loadSnapshot,
             onResume: nil
         )
-        XCTAssertEqual(coordinator.debugRefreshContentCallCount, 0)
+        XCTAssertEqual(coordinator.refreshContentCallCount, 0)
 
         coordinator.present()
         pumpRunLoop()
 
-        XCTAssertTrue(coordinator.debugIsPopoverShown)
-        XCTAssertEqual(coordinator.debugRefreshContentCallCount, 1)
+        XCTAssertTrue(coordinator.isPopoverShown)
+        XCTAssertEqual(coordinator.refreshContentCallCount, 1)
 
         coordinator.update(
             section: harness.section,
@@ -482,7 +482,7 @@ final class SessionIndexViewTests: XCTestCase {
             onResume: nil
         )
 
-        XCTAssertEqual(coordinator.debugRefreshContentCallCount, 1)
+        XCTAssertEqual(coordinator.refreshContentCallCount, 1)
     }
 
     private func makeHarness(isPresented: Bool = false) -> SessionPopoverHarness {

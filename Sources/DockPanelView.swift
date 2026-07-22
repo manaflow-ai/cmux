@@ -132,6 +132,10 @@ private struct DockSplitContentView: View {
                 hasUnreadNotification: false,
                 terminalAgentContext: "",
                 paneOwnershipOverride: isVisibleInUI,
+                terminalPaneOwnershipResolver: {
+                    guard store.paneId(forPanelId: panel.id)?.id == paneId.id else { return false }
+                    return store.panelIsSelectedInVisibleDockPane(panel.id)
+                },
                 onFocus: {
                     store.bonsplitController.focusPane(paneId)
                     store.noteKeyboardFocusIntent(window: NSApp.keyWindow ?? NSApp.mainWindow)
@@ -276,7 +280,7 @@ final class DockKeyboardFocusView: NSView {
     func ownsKeyboardFocus(_ responder: NSResponder) -> Bool {
         if responder === self { return true }
         if let window, ownsDockBrowserFocus?(responder, window) == true { return true }
-        guard let ghosttyView = cmuxOwningGhosttyView(for: responder),
+        guard let ghosttyView = responder.cmuxStrictOwningGhosttyView(),
               let surfaceId = ghosttyView.terminalSurface?.id else {
             return false
         }

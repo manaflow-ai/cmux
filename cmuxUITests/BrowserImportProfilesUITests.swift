@@ -127,7 +127,6 @@ final class BrowserImportProfilesUITests: XCTestCase {
         let capture = try XCTUnwrap(waitForSettingsOpenCapture(timeout: 5.0))
         XCTAssertEqual(capture["opened"] as? Bool, true)
         XCTAssertEqual(capture["target"] as? String, "browserImport")
-        XCTAssertEqual(capture["used_open_window_override"] as? Bool, true)
     }
 
     func testBlankBrowserImportHintCanBeDismissed() {

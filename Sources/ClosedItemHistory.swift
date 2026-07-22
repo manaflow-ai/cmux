@@ -726,6 +726,10 @@ final class ClosedItemHistoryStore: ObservableObject {
             return String(localized: "menu.history.recentlyClosed.panel.project", defaultValue: "Project")
         case .extensionBrowser:
             return String(localized: "sidebar.extensions.browser.title", defaultValue: "Sidebar Extensions")
+        case .workspaceTodo:
+            return String(localized: "workspaceTodoPane.title", defaultValue: "Todos")
+        case .cloudVMLoading:
+            return String(localized: "menu.history.recentlyClosed.panel.cloudVM", defaultValue: "Cloud VM")
         }
     }
 

@@ -5760,92 +5760,6 @@ final class AppDelegateShortcutRoutingTests: XCTestCase {
 #endif
     }
 
-    func testPresentPreferencesWindowShowsCustomSettingsWindowAndActivates() {
-        var showFallbackSettingsWindowCallCount = 0
-        var activateApplicationCallCount = 0
-        var receivedNavigationTargets: [SettingsNavigationTarget?] = []
-
-        AppDelegate.presentPreferencesWindow(
-            showFallbackSettingsWindow: { navigationTarget in
-                receivedNavigationTargets.append(navigationTarget)
-                showFallbackSettingsWindowCallCount += 1
-            },
-            activateApplication: {
-                activateApplicationCallCount += 1
-            }
-        )
-
-        XCTAssertEqual(showFallbackSettingsWindowCallCount, 1)
-        XCTAssertEqual(activateApplicationCallCount, 1)
-        XCTAssertEqual(receivedNavigationTargets, [nil])
-    }
-
-    func testPresentPreferencesWindowSupportsRepeatedCalls() {
-        var showFallbackSettingsWindowCallCount = 0
-        var activateApplicationCallCount = 0
-        var receivedNavigationTargets: [SettingsNavigationTarget?] = []
-
-        AppDelegate.presentPreferencesWindow(
-            showFallbackSettingsWindow: { navigationTarget in
-                receivedNavigationTargets.append(navigationTarget)
-                showFallbackSettingsWindowCallCount += 1
-            },
-            activateApplication: {
-                activateApplicationCallCount += 1
-            }
-        )
-
-        AppDelegate.presentPreferencesWindow(
-            showFallbackSettingsWindow: { navigationTarget in
-                receivedNavigationTargets.append(navigationTarget)
-                showFallbackSettingsWindowCallCount += 1
-            },
-            activateApplication: {
-                activateApplicationCallCount += 1
-            }
-        )
-
-        XCTAssertEqual(showFallbackSettingsWindowCallCount, 2)
-        XCTAssertEqual(activateApplicationCallCount, 2)
-        XCTAssertEqual(receivedNavigationTargets, [nil, nil])
-    }
-
-    func testPresentPreferencesWindowForwardsNavigationTarget() {
-        var receivedNavigationTarget: SettingsNavigationTarget?
-        var activateApplicationCallCount = 0
-
-        AppDelegate.presentPreferencesWindow(
-            navigationTarget: .keyboardShortcuts,
-            showFallbackSettingsWindow: { navigationTarget in
-                receivedNavigationTarget = navigationTarget
-            },
-            activateApplication: {
-                activateApplicationCallCount += 1
-            }
-        )
-
-        XCTAssertEqual(receivedNavigationTarget, .keyboardShortcuts)
-        XCTAssertEqual(activateApplicationCallCount, 1)
-    }
-
-    func testPresentPreferencesWindowForwardsBrowserImportNavigationTarget() {
-        var receivedNavigationTarget: SettingsNavigationTarget?
-        var activateApplicationCallCount = 0
-
-        AppDelegate.presentPreferencesWindow(
-            navigationTarget: .browserImport,
-            showFallbackSettingsWindow: { navigationTarget in
-                receivedNavigationTarget = navigationTarget
-            },
-            activateApplication: {
-                activateApplicationCallCount += 1
-            }
-        )
-
-        XCTAssertEqual(receivedNavigationTarget, .browserImport)
-        XCTAssertEqual(activateApplicationCallCount, 1)
-    }
-
     // MARK: - Shortcut settings consultation regression tests
 
     func testExampleShortcutRoutingConsultsConfiguredShortcutSettings() {
@@ -6502,6 +6416,69 @@ final class AppDelegateShortcutRoutingTests: XCTestCase {
         XCTAssertEqual(probeView.lastKeyDownCharactersIgnoringModifiers, "d")
     }
 
+    func testWindowPerformKeyEquivalentResolvesHostedSurfaceDescendantAsTerminalOwner() {
+        let previousMainMenu = NSApp.mainMenu
+        let probeWindow = NSWindow(
+            contentRect: NSRect(x: 0, y: 0, width: 320, height: 240),
+            styleMask: [.titled, .closable],
+            backing: .buffered,
+            defer: false
+        )
+        let contentView = NSView(frame: probeWindow.contentRect(forFrameRect: probeWindow.frame))
+        let probeView = GhosttyCommandEquivalentProbeView(frame: NSRect(x: 0, y: 0, width: 200, height: 120))
+        let hostedView = GhosttySurfaceScrollView(surfaceView: probeView)
+        hostedView.frame = contentView.bounds
+        let descendantResponder = FocusableTestView(frame: NSRect(x: 8, y: 8, width: 40, height: 40))
+        let menuProbe = MenuActionProbe()
+
+        defer {
+            NSApp.mainMenu = previousMainMenu
+            probeWindow.orderOut(nil)
+        }
+
+        let staleMenu = NSMenu(title: "Test")
+        let staleSplitItem = NSMenuItem(
+            title: "Split Right",
+            action: #selector(MenuActionProbe.perform(_:)),
+            keyEquivalent: "d"
+        )
+        staleSplitItem.keyEquivalentModifierMask = [.command]
+        staleSplitItem.target = menuProbe
+        staleMenu.addItem(staleSplitItem)
+        NSApp.mainMenu = staleMenu
+
+        probeWindow.contentView = contentView
+        contentView.addSubview(hostedView)
+        hostedView.addSubview(descendantResponder)
+        probeWindow.makeKeyAndOrderFront(nil)
+        probeWindow.displayIfNeeded()
+        XCTAssertTrue(
+            probeWindow.makeFirstResponder(descendantResponder),
+            "Expected hosted surface descendant to own first responder"
+        )
+
+        guard let event = makeKeyDownEvent(
+            key: "d",
+            modifiers: [.command],
+            keyCode: 2,
+            windowNumber: probeWindow.windowNumber
+        ) else {
+            XCTFail("Failed to construct Cmd+D event")
+            return
+        }
+
+        withTemporaryShortcut(action: .splitRight, shortcut: .unbound) {
+            XCTAssertTrue(
+                probeWindow.performKeyEquivalent(with: event),
+                "Command equivalents from hosted surface descendants should route as terminal-owned"
+            )
+        }
+
+        XCTAssertEqual(menuProbe.callCount, 0, "A stale menu equivalent must not consume cleared Cmd+D")
+        XCTAssertEqual(probeView.keyDownCallCount, 1, "Cmd+D should be forwarded into the hosted terminal surface")
+        XCTAssertEqual(probeView.lastKeyDownCharactersIgnoringModifiers, "d")
+    }
+
     func testWindowPerformKeyEquivalentSuppressesRemappedCmdDStaleMenuShortcut() {
         let previousMainMenu = NSApp.mainMenu
         let probeWindow = NSWindow(
@@ -7040,10 +7017,10 @@ final class AppDelegateShortcutRoutingTests: XCTestCase {
             let recorder = RecorderHostButton(frame: .zero)
             defer {
                 if RecorderHostButton.isActivelyRecording {
-                    recorder.debugStopRecording()
+                    recorder.stopRecording()
                 }
             }
-            recorder.debugStartRecording()
+            recorder.startRecording()
 
             XCTAssertTrue(RecorderHostButton.isActivelyRecording)
             XCTAssertFalse(textBoxView.performKeyEquivalent(with: event))
@@ -12235,9 +12212,11 @@ final class AppDelegateShortcutRoutingTests: XCTestCase {
         }
 
         workspace.focusPanel(browserPanel.id)
-        if webView.superview == nil {
-            webView.frame = window.contentView?.bounds ?? .zero
-            window.contentView?.addSubview(webView)
+        if webView.cmuxBrowserViewportAttachmentSuperview == nil,
+           let contentView = window.contentView {
+            let presentationView = webView.cmuxBrowserViewportPresentationView
+            contentView.addSubview(presentationView)
+            webView.cmuxApplyBrowserViewportLayout(in: contentView.bounds)
         }
         window.makeKeyAndOrderFront(nil)
         XCTAssertTrue(window.makeFirstResponder(webView), file: file, line: line)

@@ -1,4 +1,4 @@
-import Foundation
+public import Foundation
 #if canImport(UIKit)
 import UIKit
 #endif
@@ -19,7 +19,47 @@ public struct MobileDebugLog: Sendable {
     /// Process-wide instance used by the legacy anchormux call sites.
     // TRANSITIONAL (iOS refactor): call sites still reach for `.shared`; the
     // composition root should inject the sink once decomposition reaches them.
-    public static let shared = MobileDebugLog(sink: MobileDebugLogSink())
+    public static let shared: MobileDebugLog = {
+        let logFileURL = Self.logFileURL
+        let fileHeader = logFileURL == nil ? nil : Self.logFileHeader()
+        return MobileDebugLog(
+            sink: MobileDebugLogSink(
+                fileURL: logFileURL,
+                fileHeader: fileHeader,
+                installCrashCapture: true
+            )
+        )
+    }()
+
+    /// Default DEBUG-build file location for the durable iOS debug log.
+    ///
+    /// DEBUG builds write to `Application Support/cmux-debug.log` inside the app
+    /// container. Release builds always return `nil`, so callers cannot enable
+    /// durable debug logging by accident.
+    public static let logFileURL: URL? = {
+        #if DEBUG
+        let fileManager = FileManager.default
+        guard let applicationSupportURL = fileManager.urls(
+            for: .applicationSupportDirectory,
+            in: .userDomainMask
+        ).first else {
+            return nil
+        }
+        do {
+            try fileManager.createDirectory(
+                at: applicationSupportURL,
+                withIntermediateDirectories: true
+            )
+            let fileURL = applicationSupportURL.appendingPathComponent("cmux-debug.log")
+            NSLog("cmux debug log file: %@", fileURL.path)
+            return fileURL
+        } catch {
+            return nil
+        }
+        #else
+        return nil
+        #endif
+    }()
 
     /// The actor that owns the ring buffer and broadcast stream.
     public let sink: MobileDebugLogSink
@@ -63,6 +103,11 @@ public struct MobileDebugLog: Sendable {
         return parts.isEmpty ? "build ?" : parts.joined(separator: " · ")
     }()
 
+    private static func logFileHeader(startedAt: Date = Date()) -> String {
+        let formatter = ISO8601DateFormatter()
+        return "cmux iOS debug log · \(buildStamp) · started \(formatter.string(from: startedAt))"
+    }
+
     #if canImport(UIKit)
     /// Copy the buffer to the system pasteboard, optionally prefixed with a
     /// section (e.g. the visible terminal text).
@@ -73,8 +118,11 @@ public struct MobileDebugLog: Sendable {
     @discardableResult
     public func copyToPasteboard(prepending: String? = nil) async -> Int {
         let (count, body) = await sink.snapshotWithCount()
-        let header = "cmux iOS debug log — \(count) lines · \(Self.buildStamp)\n"
-            + String(repeating: "=", count: 40) + "\n"
+        var header = "cmux iOS debug log — \(count) lines · \(Self.buildStamp)\n"
+        if let logFileURL = Self.logFileURL {
+            header += "log file: \(logFileURL.path)\n"
+        }
+        header += String(repeating: "=", count: 40) + "\n"
         var out = ""
         if let prepending, !prepending.isEmpty {
             out += prepending + "\n\n"

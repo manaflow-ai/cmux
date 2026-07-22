@@ -26,8 +26,8 @@ enum TextBoxLayout {
     static let iconSymbolSize: CGFloat = 13
     static let sendSymbolSize: CGFloat = 14
     static let buttonBottomPadding: CGFloat = 3
-    static let leadingButtonHorizontalOffset: CGFloat = -1
-    static let trailingButtonHorizontalOffset: CGFloat = 1
+    static let leadingButtonHorizontalOffset: CGFloat = -2
+    static let trailingButtonHorizontalOffset: CGFloat = 2
     static let attachmentControlSpacing: CGFloat = 2
     static var attachmentImageSize: CGFloat {
         GlobalFontMagnification.scaledSize(16)
@@ -1344,33 +1344,6 @@ final class TextBoxMentionCompletionPanel: NSPanel {
     override var canBecomeMain: Bool { false }
 }
 
-@MainActor
-protocol TextBoxSubmitSurfaceControlling: AnyObject {
-    var clipboardReadGeneration: Int { get }
-    var textBoxSubmitObservationWindow: NSWindow? { get }
-    var textBoxSubmitTerminalSurface: TerminalSurface? { get }
-
-    func visibleText() -> String?
-    @discardableResult
-    func sendKeyText(_ text: String) -> Bool
-    @discardableResult
-    func sendText(_ text: String) -> Bool
-    @discardableResult
-    func sendNamedKey(_ keyName: String) -> TerminalSurface.NamedKeySendResult
-    @discardableResult
-    func performBindingAction(_ action: String) -> Bool
-}
-
-extension TerminalSurface: TextBoxSubmitSurfaceControlling {
-    var textBoxSubmitObservationWindow: NSWindow? {
-        hostedView.window
-    }
-
-    var textBoxSubmitTerminalSurface: TerminalSurface? {
-        self
-    }
-}
-
 private extension TerminalSurface.NamedKeySendResult {
     var acceptedForTextBoxSubmit: Bool {
         switch self {
@@ -1475,7 +1448,7 @@ enum TextBoxSubmit {
             }
         }
 
-        let submitKey = isClaude && containsNewline ? "ctrl+enter" : TextBoxTerminalKey.returnKey.rawValue
+        let submitKey = TextBoxAgentDetection.composedPromptSubmitKey(containsNewline: containsNewline, context: terminalAgentContext)
         if isClaude, containsImageAttachment(inputParts) {
             return claudeSequentialImageDispatchEvents(from: inputParts, submitKey: submitKey)
         }
@@ -2292,7 +2265,7 @@ private final class TextBoxSubmitEventRunner {
         )
 #endif
 
-        let handled = surface.performBindingAction("paste_from_clipboard")
+        let handled = surface.performExplicitInputBindingAction("paste_from_clipboard")
 #if DEBUG
         cmuxDebugLog("textbox.submit.pasteFile.binding id=\(id.uuidString.prefix(5)) handled=\(handled ? 1 : 0)")
 #endif
@@ -2422,9 +2395,9 @@ struct TextBoxInputContainer: View {
     @AppStorage(TerminalTextBoxInputSettings.submitActionsKey)
     var configuredSubmitActionsJSON = ""
     @State var submitActionImageCache: [String: NSImage] = [:]
+    @State var submitActionAssetAvailabilityCache: [String: Bool] = [:]
     @State var cachedSubmitActionsJSON: String?
     @State var cachedSubmitActions = TerminalTextBoxInputSettings.submitActions(configuredJSON: "")
-
     @Binding var text: String
     @Binding var attachments: [TextBoxAttachment]
     @Binding var selectedSubmitActionID: String?
@@ -2440,13 +2413,13 @@ struct TextBoxInputContainer: View {
     let allowsCommandTemplateSubmit: Bool
     let onFocusTextBox: () -> Void
     let onToggleFocus: () -> Void
+    let onSelectSubmitAction: (String) -> Void
     let onRecordLaunchCommand: (String) -> Void
     let onClearLaunchCommand: () -> Void
     let onEscape: () -> Void
     let onTextViewCreated: (TextBoxInputTextView) -> Void
     let onTextViewMovedToWindow: (TextBoxInputTextView) -> Void
     let onTextViewDismantled: (TextBoxInputTextView) -> Void
-
     @State private var textViewHeight: CGFloat = 0
     @State private var hasPendingAttachmentUpload = false
     @State private var hasMarkedText = false
@@ -2572,7 +2545,7 @@ struct TextBoxInputContainer: View {
             )
         )
         .padding(.horizontal, 10)
-        .padding(.vertical, 7)
+        .padding(.bottom, 7)
         .task(id: submitActionImageCacheTaskKey) {
             await refreshSubmitActionImageCache(keys: submitActionImageCacheKeys)
         }
@@ -2805,7 +2778,7 @@ struct TextBoxInputContainer: View {
         }
         TextBoxSubmit.sendEvents(
             submitPlan.events,
-            via: surface,
+            via: surface
         ) { completionContext in
             guard completionContext.didSubmit else {
                 if submitPlan.launchContextCommand != nil {

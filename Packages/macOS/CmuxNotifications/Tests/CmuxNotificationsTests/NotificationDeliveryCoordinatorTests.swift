@@ -28,11 +28,27 @@ private final class FakeTerminalNavigation: NotificationDeliveryTerminalNavigati
     var openSucceeds = true
     var performSucceeds = true
     private(set) var opens: [OpenCall] = []
+    private(set) var storedOpens: [(
+        id: UUID,
+        fallbackTabId: UUID,
+        fallbackSurfaceId: UUID?,
+        fallbackRetargetsToLiveSurfaceOwner: Bool
+    )] = []
     private(set) var performedClickActions: [NotificationNavClickAction] = []
     private(set) var markedReadIds: [UUID] = []
 
     func open(tabId: UUID, surfaceId: UUID?, notificationId: UUID?) -> Bool {
         opens.append(OpenCall(tabId: tabId, surfaceId: surfaceId, notificationId: notificationId))
+        return openSucceeds
+    }
+
+    func openNotification(
+        id: UUID,
+        fallbackTabId: UUID,
+        fallbackSurfaceId: UUID?,
+        fallbackRetargetsToLiveSurfaceOwner: Bool
+    ) -> Bool {
+        storedOpens.append((id, fallbackTabId, fallbackSurfaceId, fallbackRetargetsToLiveSurfaceOwner))
         return openSucceeds
     }
 
@@ -228,8 +244,8 @@ struct NotificationDeliveryCoordinatorTests {
         #expect(terminal.opens.isEmpty)
     }
 
-    @Test("terminal default response opens tab and surface using notificationId fallback")
-    func terminalDefaultOpensTarget() {
+    @Test("terminal default response opens stored notification using notificationId fallback")
+    func terminalDefaultOpensStoredNotification() {
         let terminal = FakeTerminalNavigation()
         let tabId = UUID()
         let surfaceId = UUID()
@@ -244,10 +260,50 @@ struct NotificationDeliveryCoordinatorTests {
                 "tabId": tabId.uuidString,
                 "surfaceId": surfaceId.uuidString,
                 "notificationId": notificationId.uuidString,
+                "retargetsToLiveSurfaceOwner": false,
             ]
         ))
 
-        #expect(terminal.opens == [.init(tabId: tabId, surfaceId: surfaceId, notificationId: notificationId)])
+        #expect(terminal.storedOpens.count == 1)
+        #expect(terminal.storedOpens.first?.id == notificationId)
+        #expect(terminal.storedOpens.first?.fallbackTabId == tabId)
+        #expect(terminal.storedOpens.first?.fallbackSurfaceId == surfaceId)
+        #expect(terminal.storedOpens.first?.fallbackRetargetsToLiveSurfaceOwner == false)
+        #expect(terminal.opens.isEmpty)
+        #expect(terminal.markedReadIds.isEmpty)
+
+        coordinator.handle(NotificationDeliveryResponse(
+            categoryIdentifier: "terminal.category",
+            actionIdentifier: "terminal.show",
+            requestIdentifier: UUID().uuidString,
+            userInfo: [
+                "tabId": tabId.uuidString,
+                "surfaceId": surfaceId.uuidString,
+            ]
+        ))
+
+        #expect(terminal.storedOpens.last?.fallbackRetargetsToLiveSurfaceOwner == true)
+    }
+
+    @Test("terminal default response without notification id opens raw tab and surface")
+    func terminalDefaultWithoutNotificationIdOpensTarget() {
+        let terminal = FakeTerminalNavigation()
+        let tabId = UUID()
+        let surfaceId = UUID()
+        let coordinator = makeCoordinator(terminalNavigation: terminal)
+
+        coordinator.handle(NotificationDeliveryResponse(
+            categoryIdentifier: "terminal.category",
+            actionIdentifier: "terminal.show",
+            requestIdentifier: "not-a-uuid",
+            userInfo: [
+                "tabId": tabId.uuidString,
+                "surfaceId": surfaceId.uuidString,
+            ]
+        ))
+
+        #expect(terminal.opens == [.init(tabId: tabId, surfaceId: surfaceId, notificationId: nil)])
+        #expect(terminal.storedOpens.isEmpty)
         #expect(terminal.markedReadIds.isEmpty)
     }
 
@@ -299,7 +355,8 @@ struct NotificationDeliveryCoordinatorTests {
             applicationActivation: applicationActivation,
             terminalIdentifiers: TerminalNotificationDeliveryIdentifiers(
                 categoryIdentifier: "terminal.category",
-                showActionIdentifier: "terminal.show"
+                showActionIdentifier: "terminal.show",
+                retargetsToLiveSurfaceOwnerUserInfoKey: "retargetsToLiveSurfaceOwner"
             ),
             actionTitles: NotificationDeliveryActionTitles(
                 show: "Show",

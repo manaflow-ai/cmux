@@ -9,6 +9,28 @@ public struct TerminalCatalogSection: SettingCatalogSection {
     /// Maximum allowed multiplier for terminal scroll deltas.
     public static let scrollSpeedMaximum = 3.0
 
+    /// Maximum width for terminal and agent-session content, or a negative
+    /// sentinel when the cap is disabled.
+    public let sessionContentMaxWidth = DefaultsKey<Double>(
+        id: SessionContentWidthSettings.settingsPath,
+        defaultValue: SessionContentWidthSettings.noMaximumWidth,
+        userDefaultsKey: SessionContentWidthSettings.maxWidthKey
+    )
+
+    /// Last enabled session content width, restored by the settings toggle.
+    public let rememberedSessionContentMaxWidth = DefaultsKey<Double>(
+        id: "terminal.sessionContentMaxWidth.remembered",
+        defaultValue: SessionContentWidthSettings.defaultConfiguredMaximumWidth,
+        userDefaultsKey: SessionContentWidthSettings.rememberedMaxWidthKey
+    )
+
+    /// Horizontal placement for width-capped session content.
+    public let sessionContentAlignment = DefaultsKey<SessionContentAlignment>(
+        id: SessionContentWidthSettings.alignmentSettingsPath,
+        defaultValue: .center,
+        userDefaultsKey: SessionContentWidthSettings.alignmentKey
+    )
+
     public let showScrollBar = DefaultsKey<Bool>(
         id: "terminal.showScrollBar",
         defaultValue: true,
@@ -127,6 +149,14 @@ public struct TerminalCatalogSection: SettingCatalogSection {
 
     public let resumeCommands = JSONKey<[String]>(
         id: "terminal.resumeCommands",
+        defaultValue: []
+    )
+
+    /// Host-scoped rules that replace the built-in `scp` for terminal file
+    /// drops/pastes over ssh; cmux runs the matching command and inserts its
+    /// output. See ``TerminalUploadCommandRule``.
+    public let uploadCommands = JSONKey<[TerminalUploadCommandRule]>(
+        id: "terminal.uploadCommands",
         defaultValue: []
     )
 

@@ -1,12 +1,144 @@
+import CMUXMobileCore
 import Foundation
 import CmuxMobileShell
 import CmuxMobileShellModel
+import CmuxMobileSupport
+import CmuxMobileToast
 import CmuxMobileWorkspace
 import SwiftUI
 #if os(iOS)
 @preconcurrency import UIKit
 #elseif os(macOS)
 import AppKit
+#endif
+
+#if os(iOS)
+private struct WorkspaceRootToolbarContentWidthKey: EnvironmentKey {
+    static let defaultValue: CGFloat = WorkspaceRootToolbarSizing.maximumPickerWidth
+}
+
+private struct WorkspaceRootToolbarRenderContext: Equatable {
+    let title: String
+    let visibleSelection: WorkspaceMacSelection
+    let machines: [WorkspaceFilterMachine]
+
+    static let fallback = WorkspaceRootToolbarRenderContext(
+        title: L10n.string("mobile.workspaces.macPicker.label", defaultValue: "Computer"),
+        visibleSelection: .all,
+        machines: []
+    )
+}
+
+private struct WorkspaceRootToolbarRenderContextKey: EnvironmentKey {
+    static let defaultValue = WorkspaceRootToolbarRenderContext.fallback
+}
+
+extension EnvironmentValues {
+    var workspaceRootToolbarContentWidth: CGFloat {
+        get { self[WorkspaceRootToolbarContentWidthKey.self] }
+        set { self[WorkspaceRootToolbarContentWidthKey.self] = newValue }
+    }
+
+    fileprivate var workspaceRootToolbarRenderContext: WorkspaceRootToolbarRenderContext {
+        get { self[WorkspaceRootToolbarRenderContextKey.self] }
+        set { self[WorkspaceRootToolbarRenderContextKey.self] = newValue }
+    }
+}
+
+private enum WorkspaceRootToolbarSizing {
+    static let minimumPickerWidth: CGFloat = 98
+    static let maximumPickerWidth: CGFloat = 124
+    private static let nonPickerWidth: CGFloat = 277
+
+    static func pickerWidth(for contentWidth: CGFloat) -> CGFloat {
+        min(
+            maximumPickerWidth,
+            max(minimumPickerWidth, contentWidth - nonPickerWidth)
+        )
+    }
+}
+
+/// The shared root toolbar used by both primary tabs. Keeping the leading
+/// controls and principal picker in one component prevents the notification
+/// feed from drifting away from the workspace-list toolbar contract.
+struct WorkspaceRootToolbarContent: ToolbarContent {
+    @Environment(\.workspaceRootToolbarContentWidth) private var contentWidth
+
+    let openSettings: () -> Void
+    let openDevices: () -> Void
+    let title: String
+    let isLoading: Bool
+    let selection: WorkspaceMacSelection
+    let select: (WorkspaceMacSelection) -> Void
+    let machines: [WorkspaceFilterMachine]
+    let showAddDevice: (() -> Void)?
+
+    var body: some ToolbarContent {
+        ToolbarItem(id: "workspace-list-settings", placement: .topBarLeading) {
+            Button(action: openSettings) {
+                MobileWorkspaceSettingsIcon()
+            }
+            .accessibilityLabel(L10n.string("mobile.workspaces.settings", defaultValue: "Settings"))
+            .accessibilityIdentifier("MobileWorkspaceSettingsMenu")
+        }
+        ToolbarItem(id: "workspace-list-title", placement: .principal) {
+            WorkspaceMacTitlePicker(
+                value: WorkspaceMacTitlePickerValue(
+                    title: title,
+                    isLoading: isLoading,
+                    selection: selection,
+                    machines: machines,
+                    canAddDevice: showAddDevice != nil,
+                    labelWidth: WorkspaceRootToolbarSizing.pickerWidth(for: contentWidth)
+                ),
+                actions: WorkspaceMacTitlePickerActions(
+                    select: select,
+                    addDevice: showAddDevice
+                )
+            )
+            .equatable()
+        }
+        ToolbarItem(id: "workspace-list-devices", placement: .topBarLeading) {
+            Button(action: openDevices) {
+                Image(systemName: "desktopcomputer")
+            }
+            .accessibilityLabel(L10n.string("mobile.computers.title", defaultValue: "Computers"))
+            .accessibilityIdentifier("MobileWorkspaceDevicesButton")
+        }
+    }
+}
+
+private struct WorkspaceRootToolbarLiveContent: ToolbarContent {
+    @Environment(\.workspaceRootToolbarRenderContext) private var renderContext
+
+    let openSettings: () -> Void
+    let openDevices: () -> Void
+    let pendingSelection: WorkspaceMacSelection?
+    let select: (WorkspaceMacSelection) -> Void
+    let showAddDevice: (() -> Void)?
+
+    var body: some ToolbarContent {
+        WorkspaceRootToolbarContent(
+            openSettings: openSettings,
+            openDevices: openDevices,
+            title: renderContext.title,
+            isLoading: pendingSelection != nil,
+            selection: pendingSelection ?? renderContext.visibleSelection,
+            select: select,
+            machines: renderContext.machines,
+            showAddDevice: showAddDevice
+        )
+    }
+}
+
+private struct WorkspaceShellRenderPresentation {
+    let selectionScope: WorkspaceMacSelectionScope
+    let notificationFeedItems: [MobileNotificationFeedItem]
+    let notificationUnreadCount: Int
+    let notificationFeedStatus: MobileNotificationFeedStatus
+    let toolbarMachineSnapshots: WorkspaceMachineSnapshots
+    let canCreateWorkspaceForSelection: Bool
+}
 #endif
 
 struct WorkspaceShellView: View {
@@ -18,21 +150,42 @@ struct WorkspaceShellView: View {
     /// Present the add-device (pairing) flow from the Computers screen. `nil`
     /// hides the add affordance.
     var showAddDevice: (() -> Void)?
-    private let compactNavigationPolicy = WorkspaceShellCompactNavigationPolicy()
+    var showPairingScanner: (() -> Void)?
+    let compactNavigationPolicy = WorkspaceShellCompactNavigationPolicy()
     @Environment(MobileDisplaySettings.self) private var displaySettings
-    @State private var compactNavigationPath: [MobileWorkspacePreview.ID] = []
-    @State private var pendingCompactCreateNavigationWorkspaceIDs: Set<MobileWorkspacePreview.ID>?
+    @State var compactNavigationPath: [MobileWorkspacePreview.ID] = []
+    @State var pendingCompactCreateNavigationWorkspaceIDs: Set<MobileWorkspacePreview.ID>?
+    #if os(iOS)
+    @State private var selectedPrimaryTab: MobilePrimaryTab = .workspaces
+    @State private var notificationNavigationPath: [MobileWorkspacePreview.ID] = []
+    @State private var showingRootSettings = false
+    @State private var settingsPairingScannerHandoff = SettingsPairingScannerHandoff()
+    @State private var showingRootDeviceTree = false
+    @State private var rootToolbarMachineSnapshots: WorkspaceMachineSnapshots?
+    @State private var rootToolbarPendingSelection: WorkspaceMacSelection?
+    @State private var rootToolbarSelectionTask: Task<Void, Never>?
+    @State private var rootToolbarSelectionGeneration: UInt64 = 0
+    #endif
     @State private var hasPresentedSplitDetail = false
     @State private var splitColumnVisibility: NavigationSplitViewVisibility = .automatic
     @State private var macSelection: WorkspaceMacSelection = .all
+    @Environment(ToastCenter.self) var toasts
+    /// Legacy fallback while the Toasts beta flag is off: the old dismissible
+    /// bottom banner for workspace-action failures.
+    @State var workspaceActionToast: WorkspaceActionToastContent?
+    var workspaceActionToastClock: any Clock<Duration> = ContinuousClock()
+    @State private var isTaskComposerPresented = false
     @State private var pendingMacSwitchID: String?
     @State private var pendingMacSwitchGeneration: UInt64 = 0
+    /// True once this shell has held a live connection, so only genuine
+    /// reconnections toast (the expected first attach stays silent).
+    @State private var hasHeldConnection = false
     #if os(iOS)
     @Environment(\.horizontalSizeClass) private var horizontalSizeClass
     @Environment(\.verticalSizeClass) private var verticalSizeClass
     #endif
 
-    private var usesCompactStack: Bool {
+    var usesCompactStack: Bool {
         #if os(iOS)
         MobileWorkspaceShellLayoutPolicy.usesCompactStack(
             horizontalSizeClass: horizontalSizeClass,
@@ -55,15 +208,112 @@ struct WorkspaceShellView: View {
     }
 
     var body: some View {
-        layoutContent
+        #if os(iOS)
+        let presentation = workspaceShellRenderPresentation
+        let toolbarRenderContext = rootToolbarRenderContext(for: presentation)
+        GeometryReader { geometry in
+            MobilePrimaryTabScaffold(
+                selection: $selectedPrimaryTab,
+                notificationUnreadCount: presentation.notificationUnreadCount
+            ) {
+                workspaceTabContent(
+                    canCreateWorkspaceForSelection: presentation.canCreateWorkspaceForSelection
+                )
+            } notifications: {
+                NavigationStack(path: $notificationNavigationPath) {
+                    NotificationFeedStoreView(
+                        store: store,
+                        items: presentation.notificationFeedItems,
+                        status: presentation.notificationFeedStatus
+                    )
+                        .toolbar {
+                            if notificationNavigationPath.isEmpty {
+                                rootToolbarContent
+                            }
+                        }
+                        .navigationDestination(for: MobileWorkspacePreview.ID.self) { workspaceID in
+                            workspaceDestination(
+                                for: workspaceID,
+                                createWorkspace: createWorkspaceInCompactStack,
+                                canCreateWorkspaceForSelection: presentation.canCreateWorkspaceForSelection
+                            )
+                            .toolbarVisibility(.hidden, for: .tabBar)
+                        }
+                }
+            }
+            .environment(\.workspaceRootToolbarContentWidth, geometry.size.width)
+            .environment(\.workspaceRootToolbarRenderContext, toolbarRenderContext)
+            .onChange(of: store.deeplinkWorkspaceNavigationRequest) { _, request in
+                guard request != nil else { return }
+                consumeDeeplinkNavigationRequestIfNeeded()
+            }
+            .onAppear {
+                updateRootToolbarMachineSnapshots(presentation.toolbarMachineSnapshots)
+                consumeDeeplinkNavigationRequestIfNeeded()
+            }
+            .onChange(of: presentation.toolbarMachineSnapshots) { _, snapshots in
+                updateRootToolbarMachineSnapshots(snapshots)
+            }
+            .sheet(isPresented: $showingRootSettings, onDismiss: {
+                settingsPairingScannerHandoff.settingsDidDismiss(startScanner: showPairingScanner)
+            }) {
+                MobileSettingsView(
+                    connectedHostName: store.connectedHostName,
+                    rescanQR: { store.disconnectAndForgetActiveMac() },
+                    startPairingScanner: {
+                        settingsPairingScannerHandoff.requestScannerAfterDismiss(
+                            isSettingsPresented: $showingRootSettings
+                        )
+                    },
+                    signOut: signOut,
+                    store: store
+                )
+            }
+            .sheet(isPresented: $showingRootDeviceTree) {
+                DeviceTreeView(
+                    store: store,
+                    selectWorkspace: { id in
+                        selectedPrimaryTab = .workspaces
+                        selectWorkspace(id)
+                    },
+                    showAddDevice: showAddDevice
+                )
+            }
+        }
+        #else
+        workspaceTabContent(canCreateWorkspaceForSelection: canCreateWorkspaceForMacSelection)
+        .onAppear {
+            consumeDeeplinkNavigationRequestIfNeeded()
+        }
+        #endif
     }
 
-    private var layoutContent: some View {
+    private func workspaceTabContent(canCreateWorkspaceForSelection: Bool) -> some View {
+        // With the Toasts beta flag on, failures surface through the app-wide
+        // toast layer; the legacy bottom banner below only ever receives
+        // content while the flag is off.
+        ZStack(alignment: .bottom) {
+            layoutContent(canCreateWorkspaceForSelection: canCreateWorkspaceForSelection)
+            if let workspaceActionToast {
+                WorkspaceActionToast(
+                    content: workspaceActionToast,
+                    clock: workspaceActionToastClock,
+                    dismiss: dismissWorkspaceActionToast
+                )
+                .padding(.horizontal, 16)
+                .padding(.bottom, 12)
+                .transition(.move(edge: .bottom).combined(with: .opacity))
+                .accessibilityIdentifier("MobileWorkspaceActionToast")
+            }
+        }
+    }
+
+    private func layoutContent(canCreateWorkspaceForSelection: Bool) -> some View {
         Group {
             if usesCompactStack {
-                stackLayout
+                stackLayout(canCreateWorkspaceForSelection: canCreateWorkspaceForSelection)
             } else {
-                splitLayout
+                splitLayout(canCreateWorkspaceForSelection: canCreateWorkspaceForSelection)
             }
         }
         .onChange(of: usesCompactStack) { _, isCompact in
@@ -72,70 +322,65 @@ struct WorkspaceShellView: View {
             }
             compactNavigationPath = [selectedWorkspaceID]
         }
-        // A notification-tap deep link must actually navigate, not just mark a
-        // selection: on the compact stack an empty path ignores selection
-        // changes by design (the attach-time auto-selection must not yank the
-        // user off the home list), so the deep link carries an explicit
-        // one-shot push intent. Consumed on change and on mount in case the
-        // request landed before this view appeared.
-        .onChange(of: store.deeplinkWorkspaceNavigationRequest) { _, request in
-            guard request != nil else { return }
-            consumeDeeplinkNavigationRequestIfNeeded()
+        #if os(iOS)
+        .sheet(isPresented: $isTaskComposerPresented) {
+            TaskComposerSheet(
+                store: store,
+                submitTaskComposer: submitTaskComposerFromShell
+            )
         }
-        .onAppear {
-            consumeDeeplinkNavigationRequestIfNeeded()
+        #endif
+        // `initial: true` primes `hasHeldConnection` when the view mounts
+        // already connected, so the first genuine reconnect still toasts.
+        .onChange(of: store.connectionState, initial: true) { _, state in
+            guard state == .connected else { return }
+            if hasHeldConnection {
+                toasts.present(.success(
+                    L10n.string(
+                        "mobile.connection.reconnectedToast",
+                        defaultValue: "Reconnected to your Mac."
+                    ),
+                    coalescingKey: "connection.reconnected"
+                ))
+            }
+            hasHeldConnection = true
         }
         .accessibilityIdentifier("MobileWorkspaceShell")
     }
 
-    private var stackLayout: some View {
+    private func stackLayout(canCreateWorkspaceForSelection: Bool) -> some View {
         NavigationStack(path: $compactNavigationPath) {
-            WorkspaceListView(
-                workspaces: store.workspaces,
-                groups: store.workspaceGroups,
-                selectedWorkspaceID: store.selectedWorkspaceID,
-                host: store.connectedHostName,
-                connectionStatus: listConnectionStatus,
-                navigationStyle: .push,
-                showsNavigationToolbar: compactNavigationPath.isEmpty,
-                wrapWorkspaceTitles: displaySettings.wrapWorkspaceTitles,
-                previewLineLimit: displaySettings.workspacePreviewLineCount,
-                unreadIndicatorLeftShift: displaySettings.unreadIndicatorLeftShift,
-                profilePictureLeftShift: displaySettings.profilePictureLeftShift,
-                profilePictureSize: displaySettings.profilePictureSize,
-                selectWorkspace: selectWorkspace,
-                createWorkspace: createWorkspaceInCompactStack,
-                canCreateWorkspace: canCreateWorkspaceForMacSelection,
-                macSelection: $macSelection,
-                switchMac: { macDeviceID in
-                    await switchMacFromWorkspacePicker(macDeviceID: macDeviceID)
-                },
-                cancelMacSwitch: cancelMacSwitchFromWorkspacePicker,
-                refresh: refreshWorkspacesClosure,
-                rescanQR: { store.disconnectAndForgetActiveMac() },
-                signOut: signOut,
-                reconnect: reconnectClosure,
-                showAddDevice: showAddDevice,
-                store: store,
-                renameWorkspace: renameWorkspaceClosure,
-                setPinned: setWorkspacePinnedClosure,
-                setUnread: setWorkspaceUnreadClosure,
-                closeWorkspace: closeWorkspaceClosure,
-                toggleGroupCollapsed: toggleGroupCollapsedClosure,
-                isInitialConnectionLoading: isInitialConnectionLoading,
-                initialConnectionTimedOut: initialConnectionTimedOut,
-                retryInitialConnection: retryInitialConnection
-            )
+            WorkspaceListSearchHost { searchText in
+                workspaceList(
+                    navigationStyle: .push,
+                    searchText: searchText,
+                    canCreateWorkspaceForSelection: canCreateWorkspaceForSelection
+                )
+            }
+            .toolbar {
+                if compactNavigationPath.isEmpty {
+                    rootToolbarContent
+                }
+            }
+            #if os(iOS)
+            .overlay(alignment: .bottomTrailing) {
+                taskComposerButtonOverlay
+            }
+            #endif
             .navigationDestination(for: MobileWorkspacePreview.ID.self) { workspaceID in
                 workspaceDestination(
                     for: workspaceID,
                     createWorkspace: createWorkspaceInCompactStack,
+                    canCreateWorkspaceForSelection: canCreateWorkspaceForSelection,
                     backButtonConfiguration: WorkspaceBackButtonConfiguration(
                         unreadCount: unreadWorkspaceCount(excluding: workspaceID),
                         badgeContrast: .darkBackground,
                         action: popCompactStack
                     )
                 )
+                    #if os(iOS)
+                    .toolbarVisibility(.hidden, for: .tabBar)
+                    #endif
                     // Only on the pushed compact stack (where a back button
                     // exists): replace the system back button with a custom one
                     // that folds the unread-workspace count INTO the same button
@@ -186,50 +431,34 @@ struct WorkspaceShellView: View {
         }
     }
 
-    private var splitLayout: some View {
+    private func splitLayout(canCreateWorkspaceForSelection: Bool) -> some View {
         NavigationSplitView(columnVisibility: $splitColumnVisibility) {
-            WorkspaceListView(
-                workspaces: store.workspaces,
-                groups: store.workspaceGroups,
-                selectedWorkspaceID: store.selectedWorkspaceID,
-                host: store.connectedHostName,
-                connectionStatus: listConnectionStatus,
-                navigationStyle: .sidebar,
-                wrapWorkspaceTitles: displaySettings.wrapWorkspaceTitles,
-                previewLineLimit: displaySettings.workspacePreviewLineCount,
-                unreadIndicatorLeftShift: displaySettings.unreadIndicatorLeftShift,
-                profilePictureLeftShift: displaySettings.profilePictureLeftShift,
-                profilePictureSize: displaySettings.profilePictureSize,
-                selectWorkspace: selectWorkspace,
-                createWorkspace: createWorkspaceIfConnected,
-                canCreateWorkspace: canCreateWorkspaceForMacSelection,
-                macSelection: $macSelection,
-                switchMac: { macDeviceID in
-                    await switchMacFromWorkspacePicker(macDeviceID: macDeviceID)
-                },
-                cancelMacSwitch: cancelMacSwitchFromWorkspacePicker,
-                refresh: refreshWorkspacesClosure,
-                rescanQR: { store.disconnectAndForgetActiveMac() },
-                signOut: signOut,
-                reconnect: reconnectClosure,
-                showAddDevice: showAddDevice,
-                store: store,
-                renameWorkspace: renameWorkspaceClosure,
-                setPinned: setWorkspacePinnedClosure,
-                setUnread: setWorkspaceUnreadClosure,
-                closeWorkspace: closeWorkspaceClosure,
-                toggleGroupCollapsed: toggleGroupCollapsedClosure,
-                isInitialConnectionLoading: isInitialConnectionLoading,
-                initialConnectionTimedOut: initialConnectionTimedOut,
-                retryInitialConnection: retryInitialConnection
-            )
+            WorkspaceListSearchHost { searchText in
+                workspaceList(
+                    navigationStyle: .sidebar,
+                    searchText: searchText,
+                    canCreateWorkspaceForSelection: canCreateWorkspaceForSelection
+                )
+            }
+            .toolbar {
+                rootToolbarContent
+            }
+            #if os(iOS)
+            .overlay(alignment: .bottomTrailing) {
+                taskComposerButtonOverlay
+            }
+            #endif
             .navigationSplitViewColumnWidth(min: 320, ideal: 380, max: 440)
         } detail: {
             workspaceDestination(
                 for: store.selectedWorkspaceID,
                 createWorkspace: createWorkspaceIfConnected,
+                canCreateWorkspaceForSelection: canCreateWorkspaceForSelection,
                 safeAreaContext: splitColumnVisibility == .detailOnly ? .fullWidth : .splitSidebarVisible
             )
+            #if os(iOS)
+            .toolbarVisibility(splitColumnVisibility == .detailOnly ? .hidden : .visible, for: .tabBar)
+            #endif
         }
         .navigationSplitViewStyle(.balanced)
         .onAppear {
@@ -237,13 +466,237 @@ struct WorkspaceShellView: View {
         }
     }
 
+    private func workspaceList(
+        navigationStyle: WorkspaceNavigationStyle,
+        searchText: String,
+        canCreateWorkspaceForSelection: Bool
+    ) -> some View {
+        WorkspaceListView(
+            workspaces: store.workspaces,
+            groups: store.workspaceGroups,
+            selectedWorkspaceID: store.selectedWorkspaceID,
+            host: store.connectedHostName,
+            connectionStatus: listConnectionStatus,
+            macUpdateHint: store.macUpdateHint,
+            macUpdateHintMacName: store.connectedHostName,
+            dismissMacUpdateHint: { store.dismissMacUpdateHint() },
+            navigationStyle: navigationStyle,
+            showsNavigationToolbar: navigationStyle != .push || compactNavigationPath.isEmpty,
+            usesExternalSharedToolbar: true,
+            wrapWorkspaceTitles: displaySettings.wrapWorkspaceTitles,
+            previewLineLimit: displaySettings.workspacePreviewLineCount,
+            unreadIndicatorLeftShift: displaySettings.unreadIndicatorLeftShift,
+            profilePictureLeftShift: displaySettings.profilePictureLeftShift,
+            profilePictureSize: displaySettings.profilePictureSize,
+            selectWorkspace: selectWorkspace,
+            createWorkspace: navigationStyle == .push
+                ? createWorkspaceInCompactStack
+                : createWorkspaceIfConnected,
+            createWorkspaceInGroup: navigationStyle == .push
+                ? createWorkspaceInGroupInCompactStackClosure
+                : createWorkspaceInGroupIfConnectedClosure,
+            createWorkspaceGroup: navigationStyle == .push
+                ? createWorkspaceGroupInCompactStackClosure
+                : createWorkspaceGroupIfConnectedClosure,
+            canCreateWorkspace: canCreateWorkspaceForSelection,
+            macSelection: $macSelection,
+            switchMac: { macDeviceID in
+                await switchMacFromWorkspacePicker(macDeviceID: macDeviceID)
+            },
+            cancelMacSwitch: cancelMacSwitchFromWorkspacePicker,
+            refresh: refreshWorkspacesClosure,
+            rescanQR: { store.disconnectAndForgetActiveMac() },
+            signOut: signOut,
+            reconnect: reconnectClosure,
+            showAddDevice: showAddDevice,
+            showPairingScanner: showPairingScanner,
+            store: store,
+            renameWorkspace: renameWorkspaceClosure,
+            setPinned: setWorkspacePinnedClosure,
+            setUnread: setWorkspaceUnreadClosure,
+            closeWorkspace: closeWorkspaceClosure,
+            moveWorkspace: moveWorkspaceClosure,
+            renameWorkspaceGroup: renameWorkspaceGroupClosure,
+            setGroupPinned: setWorkspaceGroupPinnedClosure,
+            ungroupWorkspaceGroup: ungroupWorkspaceGroupClosure,
+            deleteWorkspaceGroup: deleteWorkspaceGroupClosure,
+            toggleGroupCollapsed: toggleGroupCollapsedClosure,
+            isInitialConnectionLoading: isInitialConnectionLoading,
+            initialConnectionTimedOut: initialConnectionTimedOut,
+            retryInitialConnection: retryInitialConnection,
+            searchText: searchText
+        )
+    }
+
+    #if os(iOS)
+    @ToolbarContentBuilder
+    private var rootToolbarContent: some ToolbarContent {
+        WorkspaceRootToolbarLiveContent(
+            openSettings: { showingRootSettings = true },
+            openDevices: { showingRootDeviceTree = true },
+            pendingSelection: rootToolbarPendingSelection,
+            select: handleRootToolbarSelection,
+            showAddDevice: showAddDevice
+        )
+    }
+
+    private var workspaceShellRenderPresentation: WorkspaceShellRenderPresentation {
+        let scope = macSelectionScope
+        let selectedMachineIDs = scope.selectedMachineIDs
+        let allNotificationFeedItems = store.notificationFeedItems
+        var visibleNotificationFeedItems: [MobileNotificationFeedItem] = []
+        visibleNotificationFeedItems.reserveCapacity(allNotificationFeedItems.count)
+        var notificationUnreadCount = 0
+        var names: [String: String] = [:]
+        for workspace in store.workspaces {
+            if let id = workspace.macDeviceID,
+               let name = workspace.macDisplayName,
+               !name.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
+                names[id] = name
+            }
+        }
+        for item in allNotificationFeedItems {
+            if !item.macDisplayName.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
+                names[item.macDeviceID] = item.macDisplayName
+            }
+            guard selectedMachineIDs?.contains(item.macDeviceID) ?? true else { continue }
+            visibleNotificationFeedItems.append(item)
+            if !item.isRead {
+                notificationUnreadCount += 1
+            }
+        }
+        for device in store.deviceTreeDevices {
+            if let name = device.displayName, !name.isEmpty {
+                names[device.deviceId] = name
+            }
+        }
+        for mac in store.pairedMacs + store.displayPairedMacs {
+            names[mac.macDeviceID] = mac.resolvedName
+        }
+        if let buildScope = MobileIOSBuildScope.current() {
+            names = names.mapValues(buildScope.computerDisplayName)
+        }
+
+        let toolbarMachineSnapshots = WorkspaceMachineSnapshots(
+            workspaces: store.workspaces,
+            filterMachineIDFor: { scope.aliasIndex.representativeID(for: $0) },
+            macPickerMachineIDs: scope.machineIDs,
+            namesByID: names,
+            fallbackName: L10n.string("mobile.workspaces.macPicker.label", defaultValue: "Computer")
+        )
+        return WorkspaceShellRenderPresentation(
+            selectionScope: scope,
+            notificationFeedItems: visibleNotificationFeedItems,
+            notificationUnreadCount: notificationUnreadCount,
+            notificationFeedStatus: store.notificationFeedStatus(scopedTo: selectedMachineIDs),
+            toolbarMachineSnapshots: toolbarMachineSnapshots,
+            canCreateWorkspaceForSelection: scope.canCreateWorkspace(
+                base: canCreateWorkspace,
+                switchPending: pendingMacSwitchID != nil
+            )
+        )
+    }
+
+    private func rootToolbarRenderContext(
+        for presentation: WorkspaceShellRenderPresentation
+    ) -> WorkspaceRootToolbarRenderContext {
+        let machineSnapshots = rootToolbarMachineSnapshots ?? presentation.toolbarMachineSnapshots
+        let visibleSelection = presentation.selectionScope.visibleSelection
+        let title: String
+        switch visibleSelection {
+        case .all, .automatic:
+            title = L10n.string("mobile.workspaces.macPicker.allMacs", defaultValue: "All Computers")
+        case .machine(let id):
+            title = machineSnapshots.macPickerMachines.first { $0.id == id }?.name
+                ?? L10n.string("mobile.workspaces.macPicker.label", defaultValue: "Computer")
+        }
+        return WorkspaceRootToolbarRenderContext(
+            title: title,
+            visibleSelection: visibleSelection,
+            machines: machineSnapshots.macPickerMachines
+        )
+    }
+
+    private func handleRootToolbarSelection(_ selection: WorkspaceMacSelection) {
+        rootToolbarSelectionGeneration &+= 1
+        let generation = rootToolbarSelectionGeneration
+        let previousTask = rootToolbarSelectionTask
+        previousTask?.cancel()
+        let startsSwitch = rootToolbarSelectionNeedsMacSwitch(selection)
+        // Filtering is local and immediate. A foreground connection switch can
+        // continue in parallel, but an offline Mac's retained feed must remain
+        // selectable even when that switch cannot complete.
+        macSelection = selection
+        rootToolbarPendingSelection = startsSwitch ? selection : nil
+
+        let task = Task { @MainActor in
+            defer {
+                if rootToolbarSelectionGeneration == generation {
+                    rootToolbarPendingSelection = nil
+                    rootToolbarSelectionTask = nil
+                }
+            }
+            if previousTask != nil {
+                await cancelMacSwitchFromWorkspacePicker(restorePreviousOnCancel: true)
+            }
+            guard !Task.isCancelled, rootToolbarSelectionGeneration == generation else { return }
+            if case .machine(let id) = selection, startsSwitch {
+                let switched = await switchMacFromWorkspacePicker(macDeviceID: id)
+                guard !Task.isCancelled,
+                      rootToolbarSelectionGeneration == generation,
+                      switched else { return }
+            }
+        }
+        rootToolbarSelectionTask = task
+    }
+
+    private func rootToolbarSelectionNeedsMacSwitch(_ selection: WorkspaceMacSelection) -> Bool {
+        guard case .machine(let id) = selection else { return false }
+        let scope = macSelectionScope
+        let targetIDs = scope.aliasIndex.filterMachineIDs(for: id)
+        if !scope.foregroundMachineIDs.isDisjoint(with: targetIDs) {
+            return false
+        }
+        return store.displayPairedMacs.contains { mac in
+            !scope.aliasIndex.filterMachineIDs(for: mac.macDeviceID).isDisjoint(with: targetIDs)
+        }
+    }
+
+    private func updateRootToolbarMachineSnapshots(_ snapshots: WorkspaceMachineSnapshots) {
+        if rootToolbarMachineSnapshots != snapshots {
+            rootToolbarMachineSnapshots = snapshots
+        }
+    }
+
+    @ViewBuilder
+    private var taskComposerButtonOverlay: some View {
+        if displaySettings.taskComposerEnabled {
+            TaskComposerButton {
+                isTaskComposerPresented = true
+            }
+            .padding(.trailing, 20)
+            .padding(.bottom, 6)
+        }
+    }
+    #endif
+
     /// Apply (and clear) a pending deep-link navigation intent. On the compact
     /// stack this pushes the workspace; on the split layout the store's
     /// selection already presents the detail column, so consuming just clears
     /// the request so a later size-class change cannot replay a stale push.
     private func consumeDeeplinkNavigationRequestIfNeeded() {
-        guard store.deeplinkWorkspaceNavigationRequest != nil else { return }
+        guard let request = store.deeplinkWorkspaceNavigationRequest else { return }
         guard let workspaceID = store.consumeDeeplinkWorkspaceNavigationRequest() else { return }
+        #if os(iOS)
+        if request.origin == .notificationFeed {
+            selectedPrimaryTab = .notifications
+            if notificationNavigationPath.last != workspaceID {
+                notificationNavigationPath = [workspaceID]
+            }
+            return
+        }
+        selectedPrimaryTab = .workspaces
+        #endif
         guard usesCompactStack else { return }
         if compactNavigationPath.last != workspaceID {
             compactNavigationPath = [workspaceID]
@@ -256,32 +709,6 @@ struct WorkspaceShellView: View {
         if usesCompactStack, compactNavigationPath.last != id {
             compactNavigationPath = [id]
         }
-    }
-
-    /// Workspace action closures, always present for the real store. Row and
-    /// detail affordances gate themselves on each workspace's owning-Mac
-    /// capability snapshot, so a secondary Mac is not hidden behind the
-    /// foreground Mac's advertised capabilities. Built as explicit closure
-    /// literals (not method-reference ternaries, which the compiler fails to
-    /// type-check inside the large `WorkspaceListView` initializer).
-    private var renameWorkspaceClosure: ((MobileWorkspacePreview.ID, String) -> Void)? {
-        let store = store
-        return { id, title in Task { await store.renameWorkspace(id: id, title: title) } }
-    }
-
-    private var setWorkspacePinnedClosure: ((MobileWorkspacePreview.ID, Bool) -> Void)? {
-        let store = store
-        return { id, pinned in Task { await store.setWorkspacePinned(id: id, pinned) } }
-    }
-
-    private var setWorkspaceUnreadClosure: ((MobileWorkspacePreview.ID, Bool) -> Void)? {
-        let store = store
-        return { id, unread in Task { await store.setWorkspaceUnread(id: id, unread) } }
-    }
-
-    private var closeWorkspaceClosure: ((MobileWorkspacePreview.ID) -> Void)? {
-        let store = store
-        return { id in Task { await store.closeWorkspace(id: id) } }
     }
 
     /// Pull-to-refresh closure for the workspace list. Awaits the store's real
@@ -306,7 +733,7 @@ struct WorkspaceShellView: View {
         canCreateWorkspaceOnForegroundConnection
     }
 
-    private var canCreateWorkspaceForMacSelection: Bool {
+    var canCreateWorkspaceForMacSelection: Bool {
         macSelectionScope.canCreateWorkspace(
             base: canCreateWorkspace,
             switchPending: pendingMacSwitchID != nil
@@ -344,42 +771,10 @@ struct WorkspaceShellView: View {
             selection: macSelection,
             workspaces: store.workspaces,
             displayPairedMacs: store.displayPairedMacs,
+            notificationFeedItems: store.notificationFeedItems,
             foregroundMacDeviceID: store.connectedMacDeviceID ?? store.activeTicket?.macDeviceID,
             aliasesFor: { store.pairedMacAliasIDs(for: $0) }
         )
-    }
-
-    /// Group collapse/expand closure. Present when the Mac advertises
-    /// `workspace.groups.v1` or has actually emitted group sections: a Mac that
-    /// emits groups in the workspace list also handles collapse/expand (both
-    /// shipped together), and the capability flag arrives via a separate
-    /// `mobile.host.status` call that can lag or fail without making the
-    /// already-received groups read-only. Older Macs emit no groups, so this
-    /// stays `nil` and the list renders flat.
-    private var toggleGroupCollapsedClosure: ((MobileWorkspaceGroupPreview.ID, Bool) -> Void)? {
-        guard store.supportsWorkspaceGroups || !store.workspaceGroups.isEmpty else { return nil }
-        let store = store
-        return { id, collapsed in Task { await store.setWorkspaceGroupCollapsed(id: id, collapsed) } }
-    }
-
-    private func createWorkspaceInCompactStack() {
-        guard canCreateWorkspaceForMacSelection else { return }
-        let existingWorkspaceIDs = Set(store.workspaces.map(\.id))
-        pendingCompactCreateNavigationWorkspaceIDs = existingWorkspaceIDs
-        store.createWorkspace()
-        if let createdPath = compactNavigationPolicy.pathForCreatedWorkspaceSelection(
-            currentPath: compactNavigationPath,
-            selectedWorkspaceID: store.selectedWorkspaceID,
-            existingWorkspaceIDs: existingWorkspaceIDs
-        ) {
-            pendingCompactCreateNavigationWorkspaceIDs = nil
-            compactNavigationPath = createdPath
-        }
-    }
-
-    private func createWorkspaceIfConnected() {
-        guard canCreateWorkspaceForMacSelection else { return }
-        store.createWorkspace()
     }
 
     private func autoOpenSelectedWorkspaceForSoakIfNeeded() {
@@ -412,6 +807,7 @@ struct WorkspaceShellView: View {
     private func workspaceDestination(
         for workspaceID: MobileWorkspacePreview.ID?,
         createWorkspace: @escaping () -> Void,
+        canCreateWorkspaceForSelection: Bool,
         safeAreaContext: MobileTerminalSafeAreaContext = .fullWidth,
         backButtonConfiguration: WorkspaceBackButtonConfiguration? = nil
     ) -> some View {
@@ -419,7 +815,10 @@ struct WorkspaceShellView: View {
             store: store,
             workspaceID: workspaceID,
             createWorkspace: createWorkspace,
-            canCreateWorkspace: canCreateWorkspaceForMacSelection,
+            canCreateWorkspace: canCreateWorkspaceForSelection,
+            renameWorkspace: renameWorkspaceClosure,
+            setWorkspaceUnread: setWorkspaceUnreadClosure,
+            closeWorkspace: closeWorkspaceClosure,
             safeAreaContext: safeAreaContext,
             backButtonConfiguration: backButtonConfiguration,
             signOut: signOut
@@ -450,7 +849,7 @@ struct InteractiveSwipeBackEnabler: UIViewControllerRepresentable {
         }
 
         // The pushed workspace detail hosts surfaces with their own pan/scroll
-        // gesture recognizers — the terminal's full-bounds scroll-mechanics
+        // gesture recognizers: the terminal's full-bounds scroll-mechanics
         // `UIScrollView` and the browser's `WKWebView` scroll view. Taking over
         // the navigation controller's `interactivePopGestureRecognizer` delegate
         // (above, so the custom back button can re-enable the swipe) drops

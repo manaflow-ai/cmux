@@ -1,11 +1,14 @@
 import Foundation
 
 extension MobileHostService {
+    nonisolated static let irohArtifactLaneCapability = "iroh.artifact_lane.v1"
+
     /// The single source of truth for the capabilities advertised to mobile
     /// clients via `mobile.host.status`. Every status path (the public-status
     /// cache, the network status gate, and `TerminalController`'s
     /// full status) reads this so the lists cannot drift; iOS gates features
-    /// like rename/pin/read-state/close on the entries present here.
+    /// like rename/pin/read-state/close/move/group actions on the entries
+    /// present here.
     ///
     /// This also advertises `dogfood.v1`, the agent feedback round-trip
     /// (`dogfood.feedback.submit`). It is advertised on every build type so the
@@ -14,20 +17,35 @@ extension MobileHostService {
     /// still gated by the same-account Stack-auth check the rest of the mobile
     /// data plane enforces.
     nonisolated static var mobileHostCapabilities: [String] {
-        [
+        let capabilities = [
             "events.v1",
             "notification.badge.v1",
             "notification.dismiss.v1",
+            "notification.feed.v1",
             "notification.reconcile.v1",
             "terminal.bytes.v1",
             "terminal.render_grid.v1",
+            "terminal.render_grid.verified_replay.v1",
             "terminal.replay.v1",
             "terminal.viewport.v1",
+            "terminal.artifact.v1",
+            "terminal.artifact.list.v1",
             "workspace.actions.v1",
             "workspace.read_state.v1",
             "workspace.close.v1",
             "focus.events.v1",
             "voice.input.v1",
+            "workspace.move.v1",
+            "workspace.group_actions.v1",
+            "workspace.group_create.v1",
+            "workspace.create_in_group.v1",
+            "workspace.task_create.v1",
+            "workspace.directory_browse.v1",
+            "workspace.directory_search.v1",
+            "workspace.directory_search.v2",
+            "chat.artifact.v1",
+            "chat.artifact.folders.v1",
+            "chat.artifact.gallery.v1",
             "dogfood.v1",
             // The workspace list carries group sections (group_id per workspace +
             // a top-level groups array) and the host accepts
@@ -35,5 +53,17 @@ extension MobileHostService {
             // this to render collapsible groups only against a Mac that emits them.
             "workspace.groups.v1",
         ]
+        #if DEBUG
+        // Lets a dev Mac impersonate an older host while dogfooding the iOS update hint.
+        let suppressed = Set(
+            (ProcessInfo.processInfo.environment["CMUX_DEBUG_SUPPRESS_MOBILE_CAPS"] ?? "")
+                .split(separator: ",")
+                .map { $0.trimmingCharacters(in: .whitespacesAndNewlines) }
+                .filter { !$0.isEmpty }
+        )
+        return capabilities.filter { !suppressed.contains($0) }
+        #else
+        return capabilities
+        #endif
     }
 }

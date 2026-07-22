@@ -52,5 +52,9 @@ import Testing
         recordIssueOnTimeout: false
     )
     #expect(!replayRestartedAfterExhaustion, "replay ack resets must not bypass the replay retry cap")
-    #expect(store.terminalReplayBarrierTokensBySurfaceID[surfaceID] == barrierToken)
+    #expect(store.terminalReplayBarrierTokensBySurfaceID[surfaceID] == nil)
+
+    store.deliverTerminalBytes(Data("live-after-fail-open".utf8), surfaceID: surfaceID)
+    let liveAfterFailOpen = try #require(await iterator.next())
+    #expect(String(data: liveAfterFailOpen.data, encoding: .utf8) == "live-after-fail-open")
 }

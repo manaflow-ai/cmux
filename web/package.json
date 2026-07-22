@@ -5,8 +5,8 @@
   "private": true,
   "scripts": {
     "dev": "exec bash scripts/dev-local.sh",
-    "build": "next build && bun tools/build-docs-search.mjs",
-    "vercel-build": "VERCEL_PREVIEW_COMMENTS_ENABLED=0 next build && bun tools/build-docs-search.mjs",
+    "build": "bun tools/generate-managed-iroh-relay-catalog.ts --check && next build && bun tools/build-docs-search.mjs",
+    "vercel-build": "bun tools/generate-managed-iroh-relay-catalog.ts --check && VERCEL_PREVIEW_COMMENTS_ENABLED=0 next build && bun tools/build-docs-search.mjs",
     "search:index": "bun tools/build-docs-search.mjs",
     "cloud-vm:env:audit": "bun scripts/cloud-vm/audit-vercel-env.mjs",
     "cloud-vm:migrate": "bun scripts/cloud-vm/migrate-vercel-aurora-iam.mjs",
@@ -31,16 +31,27 @@
     "lint": "eslint"
   },
   "dependencies": {
+    "@aws-sdk/client-s3": "^3.1045.0",
     "@aws-sdk/rds-signer": "^3.1045.0",
+    "@aws-sdk/s3-request-presigner": "^3.1045.0",
     "@base-ui-components/react": "^1.0.0-rc.0",
+    "@daytonaio/sdk": "^0.192.0",
     "@effect/experimental": "0.57.9",
     "@effect/platform": "0.93.6",
     "@effect/sql": "0.48.6",
     "@effect/sql-pg": "0.49.7",
     "@opentelemetry/api": "^1.9.1",
+    "@orpc/client": "^1.14.7",
+    "@orpc/openapi": "^1.14.7",
+    "@orpc/server": "^1.14.7",
+    "@orpc/tanstack-query": "^1.14.7",
+    "@orpc/zod": "^1.14.7",
+    "@sentry/nextjs": "10.63.0",
     "@stackframe/js": "^2.8.89",
     "@stackframe/stack": "^2.8.89",
     "@t3-oss/env-nextjs": "^0.13.10",
+    "@tanstack/react-query": "^5.101.2",
+    "@tanstack/react-virtual": "^3.14.5",
     "@vercel/firewall": "^1.1.2",
     "@vercel/oidc-aws-credentials-provider": "^3.1.1",
     "@vercel/otel": "^2.1.2",
@@ -48,6 +59,7 @@
     "e2b": "^2.20.0",
     "effect": "^3.21.2",
     "freestyle": "0.1.51",
+    "fzstd": "^0.1.1",
     "next": "16.2.6",
     "next-intl": "^4.11.2",
     "next-themes": "^0.4.6",
@@ -57,9 +69,9 @@
     "react": "19.2.3",
     "react-dom": "19.2.3",
     "react-tweet": "^3.3.0",
-    "react-wrap-balancer": "^1.1.1",
     "resend": "^6.9.3",
     "shiki": "^3.22.0",
+    "stripe": "22.3.0",
     "turndown": "^7.2.4",
     "turndown-plugin-gfm": "^1.0.2",
     "ws": "^8.20.0",
@@ -73,11 +85,12 @@
     "@types/react-dom": "^19",
     "@types/turndown": "^5.0.6",
     "@types/ws": "^8.18.1",
-    "drizzle-kit": "^1.0.0-beta.23",
+    "@typescript/native-preview": "7.0.0-dev.20260616.1",
+    "drizzle-kit": "1.0.0-beta.23",
     "eslint": "^9.39.4",
     "eslint-config-next": "16.2.6",
-    "@typescript/native-preview": "7.0.0-dev.20260616.1",
     "pagefind": "^1.5.2",
+    "sharp": "0.34.5",
     "tailwindcss": "^4",
     "typescript": "^5"
   },
@@ -95,5 +108,8 @@
   "trustedDependencies": [
     "sharp",
     "unrs-resolver"
-  ]
+  ],
+  "patchedDependencies": {
+    "@stackframe/stack@2.8.89": "patches/@stackframe%2Fstack@2.8.89.patch"
+  }
 }

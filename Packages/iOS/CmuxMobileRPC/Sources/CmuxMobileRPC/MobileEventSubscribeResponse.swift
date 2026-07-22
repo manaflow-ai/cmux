@@ -22,9 +22,13 @@ public struct MobileEventSubscribeResponse: Decodable, Sendable {
     /// already active" so older Macs keep today's behavior.
     public let alreadySubscribed: Bool?
 
+    /// The selected event delivery path, absent on older hosts.
+    public let eventTransport: String?
+
     private enum CodingKeys: String, CodingKey {
         case streamID = "stream_id"
         case alreadySubscribed = "already_subscribed"
+        case eventTransport = "event_transport"
     }
 
     /// Decode a subscribe acknowledgement from raw JSON data.
@@ -43,5 +47,6 @@ public struct MobileEventSubscribeResponse: Decodable, Sendable {
         let container = try decoder.container(keyedBy: CodingKeys.self)
         streamID = (try container.decodeIfPresent(String.self, forKey: .streamID)) ?? ""
         alreadySubscribed = try container.decodeIfPresent(Bool.self, forKey: .alreadySubscribed)
+        eventTransport = try container.decodeIfPresent(String.self, forKey: .eventTransport)
     }
 }

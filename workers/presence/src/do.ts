@@ -50,11 +50,12 @@ import {
   ownersFromList,
   reconcileDeviceRecords,
   reconcileSingleDevice,
+  sanitizeDeviceSyncFrame,
   type DeviceRecord,
 } from "./syncDevices";
 import {
   applyBackupOps,
-  listBackupSnapshotWithUnscopedFallback,
+  listBackupSnapshot,
   normalizeClientScope,
   pairedMacsCollection,
   PairedMacBackupApplyError,
@@ -62,9 +63,11 @@ import {
   PAIRED_MACS_COLLECTION_TOMBSTONE_PREFIXES,
   relabelDelta,
   relabelSnapshot,
+  sanitizePairedMacSyncFrame,
   type PairedMacBackupOp,
   type PairedMacBackupRecord,
 } from "./syncPairedMacs";
+import { sanitizePublishedRoutes } from "./routePrivacy";
 
 const INSTANCE_PREFIX = "inst:";
 /** `owner:<deviceId>` -> Stack user id pinned on first heartbeat. Durable:
@@ -367,7 +370,10 @@ export class TeamPresence extends DurableObject {
     clientScope?: string | null,
   ): Promise<{ records: PairedMacBackupRecord[]; deletedMacDeviceIDs: string[] }> {
     await this.rememberTeamId(teamId);
-    return await listBackupSnapshotWithUnscopedFallback(this.syncStorage(), userId, clientScope);
+    // A tagged scope is authoritative from its first read. An unscoped record
+    // cannot prove which Mac app tag produced its routes, so falling back across
+    // that boundary could reconnect one iOS build to another app instance.
+    return await listBackupSnapshot(this.syncStorage(), userId, clientScope);
   }
 
   // ---- Subscribe transports (worker forwards the original Request) ----
@@ -526,9 +532,11 @@ export class TeamPresence extends DurableObject {
           epoch ?? 0,
         );
         if (resolved.mode === "snapshot") {
-          for (const page of resolved.pages) this.sendSync(ws, page);
+          for (const page of resolved.pages) {
+            this.sendSync(ws, sanitizeDeviceSyncFrame(page));
+          }
         } else if (resolved.delta !== null) {
-          this.sendSync(ws, resolved.delta);
+          this.sendSync(ws, sanitizeDeviceSyncFrame(resolved.delta));
         }
         continue;
       }
@@ -550,9 +558,11 @@ export class TeamPresence extends DurableObject {
         epoch ?? 0,
       );
       if (resolved.mode === "snapshot") {
-        for (const page of resolved.pages) this.sendSync(ws, relabelSnapshot(page));
+        for (const page of resolved.pages) {
+          this.sendSync(ws, relabelSnapshot(sanitizePairedMacSyncFrame(page)));
+        }
       } else if (resolved.delta !== null) {
-        this.sendSync(ws, relabelDelta(resolved.delta));
+        this.sendSync(ws, relabelDelta(sanitizePairedMacSyncFrame(resolved.delta)));
       }
     }
     // Mark this socket as sync-subscribed so future delta broadcasts reach it.
@@ -589,9 +599,12 @@ export class TeamPresence extends DurableObject {
    * client whose presence decoder throws on unknown message types. WS only; SSE
    * is presence-only for now. */
   private broadcastSync(frame: SyncServerFrame): void {
-    const collection = frame.collection;
+    const published = frame.collection === DEVICES_COLLECTION
+      ? sanitizeDeviceSyncFrame(frame as SyncServerFrame<DeviceRecord>)
+      : frame;
+    const collection = published.collection;
     const now = Date.now();
-    const json = JSON.stringify(frame);
+    const json = JSON.stringify(published);
     for (const ws of this.ctx.getWebSockets()) {
       if (wsExpiresAt(ws) <= now) continue;
       if (!wsSyncCollections(ws).includes(collection)) continue; // not subscribed
@@ -610,9 +623,12 @@ export class TeamPresence extends DurableObject {
    * another user's backup. The connection user id is pinned from the verified
    * `x-presence-user-id` at subscribe time, never from client input. */
   private broadcastSyncToUser(userId: string, frame: SyncServerFrame): void {
-    const collection = frame.collection;
+    const published = frame.collection === PAIRED_MACS_COLLECTION
+      ? sanitizePairedMacSyncFrame(frame as SyncServerFrame<PairedMacBackupRecord>)
+      : frame;
+    const collection = published.collection;
     const now = Date.now();
-    const json = JSON.stringify(frame);
+    const json = JSON.stringify(published);
     for (const ws of this.ctx.getWebSockets()) {
       if (wsExpiresAt(ws) <= now) continue;
       if (wsUserId(ws) !== userId) continue; // not this user's socket
@@ -690,12 +706,16 @@ export class TeamPresence extends DurableObject {
   // ---- Internals ----
 
   private heartbeatOk(teamId: string, instance: PresenceInstance): HeartbeatResponse {
+    const routes = sanitizePublishedRoutes(instance.routes);
     return {
       ok: true,
       teamId,
       heartbeatIntervalMs: HEARTBEAT_INTERVAL_MS,
       offlineTimeoutMs: OFFLINE_TIMEOUT_MS,
-      instance,
+      instance: {
+        ...instance,
+        ...(routes !== undefined ? { routes } : {}),
+      },
     };
   }
 

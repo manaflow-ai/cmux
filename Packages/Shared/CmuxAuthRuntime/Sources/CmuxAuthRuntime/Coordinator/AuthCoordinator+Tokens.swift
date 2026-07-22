@@ -12,22 +12,32 @@ extension AuthCoordinator {
     /// Classifies a missing token the same way ``forceRefreshAccessToken()``
     /// does, so the connection layer can tell a recoverable session from a dead
     /// one: when the SDK could not hand back an access token but a refresh token
-    /// is still stored, the failure was transient (network/server) and this
-    /// throws ``AuthError/networkError`` so the caller retries without signing
-    /// out. When neither token survives, the session is genuinely gone, so this
-    /// calls ``clearAuthState()`` (flipping ``isAuthenticated`` to `false`, which
-    /// routes the root scene to the sign-in page) and throws
+    /// is still stored, or token storage was unavailable because the device was
+    /// locked, the failure was transient and this throws
+    /// ``AuthError/networkError`` so the caller retries without signing out.
+    /// When neither token survives from available storage, the session is
+    /// genuinely gone, so this calls ``clearAuthState()`` (flipping
+    /// ``isAuthenticated`` to `false`, which routes the root scene to the
+    /// sign-in page) and throws
     /// ``AuthError/unauthorized``.
     /// - Returns: A current access token.
     /// - Throws: ``AuthError/networkError`` on a transient failure with a
-    ///   surviving refresh token (retryable); ``AuthError/unauthorized`` once the
-    ///   session is definitively gone (also clears local auth state).
+    ///   surviving refresh token or unavailable token storage (retryable);
+    ///   ``AuthError/unauthorized`` once the session is definitively gone (also
+    ///   clears local auth state).
     public func accessToken() async throws -> String {
         do {
             return try await runTokenTouchingPhase(.accessToken, timeout: timeouts.network) {
                 try await self.accessTokenWithoutStateClear()
             }
         } catch AuthError.unauthorized {
+            // A session transition owns the temporarily empty token store. This
+            // method is a reader, so it cannot publish a signed-out verdict or
+            // bump sessionGeneration out from under that writer. Callers retry
+            // after restore/sign-in reaches its terminal state.
+            if sessionTokenTransitionIsActive {
+                throw AuthError.networkError
+            }
             if let devToken = await devAuthAccessTokenFallback() {
                 return devToken
             }
@@ -42,6 +52,7 @@ extension AuthCoordinator {
     }
 
     private func accessTokenWithoutStateClear() async throws -> String {
+        let storageWasAvailable = await isTokenStorageAvailable()
         if let token = await client.accessToken() {
             return token
         }
@@ -58,7 +69,7 @@ extension AuthCoordinator {
         if await client.refreshToken() != nil {
             throw AuthError.networkError
         }
-        throw AuthError.unauthorized
+        throw emptyTokenReadError(storageWasAvailable: storageWasAvailable)
     }
 
     private func devAuthAccessTokenFallback() async -> String? {
@@ -93,14 +104,23 @@ extension AuthCoordinator {
     /// refresh-token-only start and report "Not signed in" even though a valid
     /// session becomes available moments later.
     /// - Returns: The access and refresh tokens.
-    /// - Throws: ``AuthError/unauthorized`` when either token is missing.
+    /// - Throws: ``AuthError/networkError`` when the access token is missing
+    ///   but a refresh token survives, meaning the refresh failed transiently,
+    ///   or when token storage was unavailable because the device was locked;
+    ///   ``AuthError/unauthorized`` when available storage is missing either an
+    ///   access token with no refresh token to recover from, or the refresh
+    ///   token required by backend requests.
     public func currentTokens() async throws -> (accessToken: String, refreshToken: String) {
         await awaitBootstrapped()
+        let storageWasAvailable = await isTokenStorageAvailable()
         guard let access = await client.accessToken(), !access.isEmpty else {
-            throw AuthError.unauthorized
+            if let refresh = await client.refreshToken(), !refresh.isEmpty {
+                throw AuthError.networkError
+            }
+            throw emptyTokenReadError(storageWasAvailable: storageWasAvailable)
         }
         guard let refresh = await client.refreshToken(), !refresh.isEmpty else {
-            throw AuthError.unauthorized
+            throw emptyTokenReadError(storageWasAvailable: storageWasAvailable)
         }
         return (access, refresh)
     }
@@ -111,24 +131,30 @@ extension AuthCoordinator {
     ///
     /// - Returns: A freshly minted access token.
     /// - Throws: ``AuthError/networkError`` when the refresh failed transiently
-    ///   but the session is intact (a refresh token is still stored), so the
+    ///   but the session is intact (a refresh token is still stored), or when
+    ///   token storage was unavailable because the device was locked, so the
     ///   caller should retry rather than sign out; ``AuthError/unauthorized``
-    ///   only when the session is genuinely gone (the refresh token was
-    ///   definitively rejected and cleared). The definitive case also calls
-    ///   ``clearAuthState()`` so ``isAuthenticated`` flips to `false` and the
-    ///   root scene routes to the sign-in page instead of showing a stale shell.
+    ///   only when the session is genuinely gone from available storage (the
+    ///   refresh token was definitively rejected and cleared). The definitive
+    ///   case also calls ``clearAuthState()`` so ``isAuthenticated`` flips to
+    ///   `false` and the root scene routes to the sign-in page instead of
+    ///   showing a stale shell.
     public func forceRefreshAccessToken() async throws -> String {
         do {
             return try await runTokenTouchingPhase(.forceRefreshAccessToken, timeout: timeouts.network) {
                 try await self.forceRefreshAccessTokenWithoutStateClear()
             }
         } catch AuthError.unauthorized {
+            if sessionTokenTransitionIsActive {
+                throw AuthError.networkError
+            }
             clearAuthState(preservePendingCode: true)
             throw AuthError.unauthorized
         }
     }
 
     private func forceRefreshAccessTokenWithoutStateClear() async throws -> String {
+        let storageWasAvailable = await isTokenStorageAvailable()
         if let token = await client.forceRefreshAccessToken() {
             return token
         }
@@ -138,6 +164,10 @@ extension AuthCoordinator {
         if await client.refreshToken() != nil {
             throw AuthError.networkError
         }
-        throw AuthError.unauthorized
+        throw emptyTokenReadError(storageWasAvailable: storageWasAvailable)
+    }
+
+    private func emptyTokenReadError(storageWasAvailable: Bool) -> AuthError {
+        storageWasAvailable ? .unauthorized : .networkError
     }
 }

@@ -8,8 +8,8 @@ public import Foundation
 /// bring the window to front, then focus the tab from the notification.
 ///
 /// The window mechanics (the concrete `NSWindow`, the sidebar-selection write,
-/// `bringToFront`, `focusTabFromNotification`, and the `#if DEBUG` UI-test
-/// recorders woven through them) stay app-side behind this seam so the package
+/// `bringToFront`, `focusTabFromNotification`, optional scroll restoration,
+/// and the `#if DEBUG` UI-test recorders woven through them) stay app-side behind this seam so the package
 /// carries no AppKit, `#if DEBUG`, or Combine. The coordinator only decides
 /// *which* route to take and *what* to mark read on success.
 @MainActor
@@ -18,17 +18,44 @@ public protocol NotificationOpenRouting: AnyObject {
     /// falling back to the active window when none owns it. Returns whether
     /// focus succeeded. Mirrors the full `openNotification(tabId:surfaceId:notificationId:)`
     /// routing, including its `#if DEBUG` UI-test recorders, which the coordinator
-    /// must not duplicate.
-    func openRouted(tabId: UUID, surfaceId: UUID?, notificationId: UUID?) -> Bool
+    /// must not duplicate. `retargetsToLiveSurfaceOwner` controls whether the
+    /// app-side route may follow a moved surface across workspace boundaries.
+    func openRouted(
+        tabId: UUID,
+        surfaceId: UUID?,
+        panelId: UUID?,
+        retargetsToLiveSurfaceOwner: Bool,
+        notificationId: UUID?,
+        scrollRow: Int?,
+        scrollTotalRows: Int?,
+        scrollRowSpaceRevision: UInt64?
+    ) -> Bool
 
     /// Focus `tabId`/`surfaceId` in the specific registered window `windowId`,
     /// used by the workspace-unread jump which targets one ordered window at a
     /// time. Returns whether focus succeeded. Mirrors `openNotificationInContext`.
-    func openInWindow(windowId: UUID, tabId: UUID, surfaceId: UUID?, notificationId: UUID?) -> Bool
+    func openInWindow(
+        windowId: UUID,
+        tabId: UUID,
+        surfaceId: UUID?,
+        panelId: UUID?,
+        notificationId: UUID?,
+        scrollRow: Int?,
+        scrollTotalRows: Int?,
+        scrollRowSpaceRevision: UInt64?
+    ) -> Bool
 
     /// Focus `tabId`/`surfaceId` in the active window when no registered context
     /// owns it. Returns whether focus succeeded. Mirrors `openNotificationFallback`.
-    func openInActiveWindowFallback(tabId: UUID, surfaceId: UUID?, notificationId: UUID?) -> Bool
+    func openInActiveWindowFallback(
+        tabId: UUID,
+        surfaceId: UUID?,
+        panelId: UUID?,
+        notificationId: UUID?,
+        scrollRow: Int?,
+        scrollTotalRows: Int?,
+        scrollRowSpaceRevision: UInt64?
+    ) -> Bool
 
     /// The workspace's title, resolved from whichever window owns it, falling
     /// back to the active tab manager. Mirrors `tabTitle(for:)`.

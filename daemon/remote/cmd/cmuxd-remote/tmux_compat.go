@@ -1850,66 +1850,127 @@ func tmuxResizePane(rc *rpcContext, args []string) error {
 	hasDirectional := p.hasFlag("-L") || p.hasFlag("-R") || p.hasFlag("-U") || p.hasFlag("-D")
 
 	if !hasDirectional {
-		if absWidthStr := p.value("-x"); absWidthStr != "" {
-			absWidth := parseInt(strings.ReplaceAll(absWidthStr, "%", ""))
-			// Get current width to compute delta
-			panePayload, err := rc.call("pane.list", map[string]any{"workspace_id": wsId})
-			if err != nil {
-				return err
-			}
-			panes, _ := panePayload["panes"].([]any)
-			for _, pp := range panes {
-				pane, _ := pp.(map[string]any)
-				if pane == nil {
-					continue
-				}
-				if pid, _ := pane["id"].(string); pid == paneId {
-					cellW := intFromAnyGo(pane["cell_width_px"])
-					currentCols := intFromAnyGo(pane["columns"])
-					if cellW > 0 && currentCols >= 0 {
-						delta := absWidth - currentCols
-						if delta != 0 {
-							dir := "right"
-							if delta < 0 {
-								dir = "left"
-								delta = -delta
-							}
-							rc.call("pane.resize", map[string]any{
-								"workspace_id": wsId,
-								"pane_id":      paneId,
-								"direction":    dir,
-								"amount":       delta * cellW,
-							})
-						}
-					}
-					break
-				}
-			}
+		targetSize := strings.TrimSpace(p.value("-x"))
+		// Deliberately preserve the daemon's historical height-only no-op: recurring
+		// OMX HUD probes share this shape, and this shim has no deterministic HUD
+		// identity signal. Applying -y here would overwrite the user's layout.
+		if targetSize == "" {
 			return nil
 		}
+		isPercentage := strings.HasSuffix(targetSize, "%")
+		target := parseInt(strings.TrimSuffix(targetSize, "%"))
+		if target <= 0 {
+			return fmt.Errorf("resize-pane size must be greater than zero")
+		}
+		panePayload, err := rc.call("pane.list", map[string]any{"workspace_id": wsId})
+		if err != nil {
+			return err
+		}
+		targetPoints := float64(0)
+		if isPercentage {
+			if frame, ok := panePayload["container_frame"].(map[string]any); ok {
+				targetPoints = floatFromAny(frame["width"]) * float64(target) / 100
+			}
+		}
+		panes, _ := panePayload["panes"].([]any)
+		for _, pp := range panes {
+			pane, _ := pp.(map[string]any)
+			if pane == nil {
+				continue
+			}
+			if pid, _ := pane["id"].(string); pid == paneId {
+				cellPoints := floatFromAny(pane["cell_width_points"])
+				if !isPercentage && targetPoints <= 0 && cellPoints > 0 {
+					columns := floatFromAny(pane["columns"])
+					frame, _ := pane["pixel_frame"].(map[string]any)
+					paneWidth := floatFromAny(frame["width"])
+					if columns > 0 && paneWidth > 0 {
+						residual := math.Max(0, paneWidth-columns*cellPoints)
+						targetPoints = float64(target)*cellPoints + residual
+					}
+				}
+				break
+			}
+		}
+		params := map[string]any{
+			"workspace_id":  wsId,
+			"pane_id":       paneId,
+			"absolute_axis": "horizontal",
+			"tmux_compat":   true,
+		}
+		if targetPoints > 0 {
+			params["target_pixels"] = targetPoints
+		}
+		if isPercentage {
+			params["target_percentage"] = target
+		} else {
+			params["target_cells"] = target
+		}
+		_, err = rc.call("pane.resize", params)
+		return err
 	}
 
 	if hasDirectional {
 		dir := "right"
+		directionFlag := "-R"
 		if p.hasFlag("-L") {
 			dir = "left"
+			directionFlag = "-L"
 		} else if p.hasFlag("-U") {
 			dir = "up"
+			directionFlag = "-U"
 		} else if p.hasFlag("-D") {
 			dir = "down"
+			directionFlag = "-D"
 		}
-		rawAmount := firstNonEmpty(p.value("-x"), p.value("-y"), "5")
+		rawAmount := "1"
+		if len(p.positional) > 0 {
+			rawAmount = p.positional[0]
+			if strings.HasPrefix(rawAmount, directionFlag) && len(rawAmount) > len(directionFlag) {
+				rawAmount = strings.TrimPrefix(rawAmount, directionFlag)
+			}
+		} else {
+			rawAmount = firstNonEmpty(p.value("-x"), p.value("-y"), "1")
+		}
 		rawAmount = strings.ReplaceAll(rawAmount, "%", "")
 		amount := parseInt(rawAmount)
 		if amount <= 0 {
-			amount = 5
+			amount = 1
 		}
-		_, err := rc.call("pane.resize", map[string]any{
+		amountPoints := 0
+		panePayload, err := rc.call("pane.list", map[string]any{"workspace_id": wsId})
+		if err != nil {
+			return err
+		}
+		panes, _ := panePayload["panes"].([]any)
+		for _, pp := range panes {
+			pane, _ := pp.(map[string]any)
+			if pane == nil {
+				continue
+			}
+			if pid, _ := pane["id"].(string); pid == paneId {
+				pointsKey := "cell_width_points"
+				if dir == "up" || dir == "down" {
+					pointsKey = "cell_height_points"
+				}
+				cellPoints := floatFromAny(pane[pointsKey])
+				if cellPoints > 0 {
+					amountPoints = max(1, int(math.Round(float64(amount)*cellPoints)))
+				}
+				break
+			}
+		}
+		params := map[string]any{
 			"workspace_id": wsId,
 			"pane_id":      paneId,
 			"direction":    dir,
-			"amount":       amount,
-		})
+			"amount_cells": amount,
+			"tmux_compat":  true,
+		}
+		if amountPoints > 0 {
+			params["amount"] = amountPoints
+		}
+		_, err = rc.call("pane.resize", params)
 		return err
 	}
 	return nil

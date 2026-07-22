@@ -49,6 +49,230 @@ import Testing
         #expect(activeUser1?.routes.first?.id == "tailscale")
     }
 
+    @Test func irohCapabilityPinSurvivesRawOnlyRouteRefresh() async throws {
+        let (store, directory) = try makeStore()
+        defer { try? FileManager.default.removeItem(at: directory) }
+
+        let iroh = try CmxAttachRoute(
+            id: "iroh",
+            kind: .iroh,
+            endpoint: .peer(
+                identity: CmxIrohPeerIdentity(
+                    endpointID: String(repeating: "a", count: 64)
+                ),
+                pathHints: []
+            ),
+            priority: -10_000
+        )
+        let initialTailscale = try CmxAttachRoute(
+            id: "tailscale-old",
+            kind: .tailscale,
+            endpoint: .hostPort(host: "100.64.0.10", port: 8443)
+        )
+        let refreshedTailscale = try CmxAttachRoute(
+            id: "tailscale-new",
+            kind: .tailscale,
+            endpoint: .hostPort(host: "100.64.0.11", port: 8443)
+        )
+
+        try await store.upsert(
+            macDeviceID: "iroh-mac",
+            displayName: "Iroh Mac",
+            routes: [iroh, initialTailscale],
+            markActive: true,
+            stackUserID: "user-1",
+            now: Date(timeIntervalSince1970: 1)
+        )
+        try await store.upsert(
+            macDeviceID: "iroh-mac",
+            displayName: "Iroh Mac",
+            routes: [refreshedTailscale],
+            markActive: true,
+            stackUserID: "user-1",
+            now: Date(timeIntervalSince1970: 2)
+        )
+
+        let stored = try #require(
+            await store.activeMac(stackUserID: "user-1")
+        )
+        #expect(stored.routes.contains { $0.kind == .iroh })
+        #expect(stored.routes.contains { $0.id == "tailscale-new" })
+        #expect(!stored.routes.contains { $0.id == "tailscale-old" })
+    }
+
+    @Test func v8MigrationGrandfathersOnlyTailscaleOnlyLocalPairings() async throws {
+        let directory = FileManager.default.temporaryDirectory
+            .appendingPathComponent(UUID().uuidString, isDirectory: true)
+        try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
+        defer { try? FileManager.default.removeItem(at: directory) }
+        let databaseURL = directory.appendingPathComponent("paired-macs.sqlite3")
+        let tailscale = try tailscaleRoute(host: "100.64.0.20")
+
+        try seedVersionSevenDatabase(at: databaseURL, routes: [tailscale])
+        let store = try MobilePairedMacStore(databaseURL: databaseURL)
+        let mac = try #require(await store.activeMac(stackUserID: "user-1"))
+
+        #expect(mac.legacyTailscaleRoutes == [tailscale])
+    }
+
+    @Test func v8MigrationDoesNotGrantRowsThatAlreadyHaveIroh() async throws {
+        let directory = FileManager.default.temporaryDirectory
+            .appendingPathComponent(UUID().uuidString, isDirectory: true)
+        try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
+        defer { try? FileManager.default.removeItem(at: directory) }
+        let databaseURL = directory.appendingPathComponent("paired-macs.sqlite3")
+
+        try seedVersionSevenDatabase(
+            at: databaseURL,
+            routes: [
+                try tailscaleRoute(host: "100.64.0.21"),
+                try irohRoute(),
+            ]
+        )
+        let store = try MobilePairedMacStore(databaseURL: databaseURL)
+        let mac = try #require(await store.activeMac(stackUserID: "user-1"))
+
+        #expect(mac.legacyTailscaleRoutes == nil)
+    }
+
+    @Test func v8MigrationDoesNotGrantAnonymousPairings() async throws {
+        let directory = FileManager.default.temporaryDirectory
+            .appendingPathComponent(UUID().uuidString, isDirectory: true)
+        try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
+        defer { try? FileManager.default.removeItem(at: directory) }
+        let databaseURL = directory.appendingPathComponent("paired-macs.sqlite3")
+
+        try seedVersionSevenDatabase(
+            at: databaseURL,
+            routes: [try tailscaleRoute(host: "100.64.0.25")],
+            stackUserID: nil
+        )
+        let store = try MobilePairedMacStore(databaseURL: databaseURL)
+        let mac = try #require(await store.activeMac(stackUserID: nil))
+
+        #expect(mac.stackUserID == nil)
+        #expect(mac.legacyTailscaleRoutes == nil)
+    }
+
+    @Test func freshAndRestoredRowsCannotMintLegacyTailscaleCapability() async throws {
+        let (store, directory) = try makeStore()
+        defer { try? FileManager.default.removeItem(at: directory) }
+        let tailscale = try tailscaleRoute(host: "100.64.0.22")
+
+        try await store.upsert(
+            macDeviceID: "legacy-mac",
+            displayName: "Legacy Mac",
+            routes: [tailscale],
+            markActive: true,
+            stackUserID: "user-1",
+            now: Date()
+        )
+        let mac = try #require(await store.activeMac(stackUserID: "user-1"))
+
+        #expect(mac.legacyTailscaleRoutes == nil)
+    }
+
+    @Test func routeRefreshCannotRewriteGrandfatheredDestination() async throws {
+        let directory = FileManager.default.temporaryDirectory
+            .appendingPathComponent(UUID().uuidString, isDirectory: true)
+        try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
+        defer { try? FileManager.default.removeItem(at: directory) }
+        let databaseURL = directory.appendingPathComponent("paired-macs.sqlite3")
+        let original = try tailscaleRoute(host: "100.64.0.23")
+        let replacement = try tailscaleRoute(host: "100.64.0.24")
+
+        try seedVersionSevenDatabase(at: databaseURL, routes: [original])
+        let store = try MobilePairedMacStore(databaseURL: databaseURL)
+        _ = try await store.loadAll(stackUserID: "user-1")
+        try await store.upsert(
+            macDeviceID: "legacy-mac",
+            displayName: "Legacy Mac",
+            routes: [replacement],
+            markActive: true,
+            stackUserID: "user-1",
+            now: Date()
+        )
+        let mac = try #require(await store.activeMac(stackUserID: "user-1"))
+
+        #expect(mac.routes == [replacement])
+        #expect(mac.legacyTailscaleRoutes == [original])
+    }
+
+    @Test func authenticatedIrohPublicationRevokesGrandfatheredDestination() async throws {
+        let directory = FileManager.default.temporaryDirectory
+            .appendingPathComponent(UUID().uuidString, isDirectory: true)
+        try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
+        defer { try? FileManager.default.removeItem(at: directory) }
+        let databaseURL = directory.appendingPathComponent("paired-macs.sqlite3")
+        let tailscale = try tailscaleRoute(host: "100.64.0.25")
+
+        try seedVersionSevenDatabase(at: databaseURL, routes: [tailscale])
+        let store = try MobilePairedMacStore(databaseURL: databaseURL)
+        #expect(try await store.activeMac(stackUserID: "user-1")?.legacyTailscaleRoutes == [tailscale])
+        try await store.upsert(
+            macDeviceID: "legacy-mac",
+            displayName: "Upgraded Mac",
+            routes: [tailscale, try irohRoute()],
+            markActive: true,
+            stackUserID: "user-1",
+            now: Date()
+        )
+
+        #expect(try await store.activeMac(stackUserID: "user-1")?.legacyTailscaleRoutes == nil)
+    }
+
+    @Test func grandfatheredCapabilitySurvivesLocalTeamScopeClaim() async throws {
+        let directory = FileManager.default.temporaryDirectory
+            .appendingPathComponent(UUID().uuidString, isDirectory: true)
+        try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
+        defer { try? FileManager.default.removeItem(at: directory) }
+        let databaseURL = directory.appendingPathComponent("paired-macs.sqlite3")
+        let original = try tailscaleRoute(host: "100.64.0.26")
+        let refreshed = try tailscaleRoute(host: "100.64.0.27")
+
+        try seedVersionSevenDatabase(at: databaseURL, routes: [original])
+        let store = try MobilePairedMacStore(databaseURL: databaseURL)
+        _ = try await store.loadAll(stackUserID: "user-1")
+        try await store.upsert(
+            macDeviceID: "legacy-mac",
+            displayName: "Claimed Mac",
+            routes: [refreshed],
+            markActive: true,
+            stackUserID: "user-1",
+            teamID: "team-a",
+            now: Date()
+        )
+
+        let claimed = try #require(
+            await store.activeMac(stackUserID: "user-1", teamID: "team-a")
+        )
+        #expect(claimed.routes == [refreshed])
+        #expect(claimed.legacyTailscaleRoutes == [original])
+    }
+
+    @Test func codableRepresentationNeverExportsLocalCompatibilityCapability() throws {
+        let route = try tailscaleRoute(host: "100.64.0.28")
+        let mac = MobilePairedMac(
+            macDeviceID: "legacy-mac",
+            displayName: "Legacy Mac",
+            routes: [route],
+            createdAt: Date(timeIntervalSince1970: 1),
+            lastSeenAt: Date(timeIntervalSince1970: 2),
+            isActive: true,
+            stackUserID: "user-1",
+            legacyTailscaleRoutes: [route]
+        )
+
+        let encoded = try JSONEncoder().encode(mac)
+        let object = try #require(
+            JSONSerialization.jsonObject(with: encoded) as? [String: Any]
+        )
+        let decoded = try JSONDecoder().decode(MobilePairedMac.self, from: encoded)
+
+        #expect(object["legacyTailscaleRoutes"] == nil)
+        #expect(decoded.legacyTailscaleRoutes == nil)
+    }
+
     @Test func markingActiveDeactivatesPreviousWithinScope() async throws {
         let (store, directory) = try makeStore()
         defer { try? FileManager.default.removeItem(at: directory) }
@@ -434,40 +658,89 @@ import Testing
         #expect(try await store.activeMac(stackUserID: "user-1", teamID: "team-a")?.macDeviceID == "team-mac")
     }
 
-    @Test func sameMacDeviceIDCanExistInMultipleTeams() async throws {
-        let (store, directory) = try makeStore()
-        defer { try? FileManager.default.removeItem(at: directory) }
-
-        let routeA = try CmxAttachRoute(id: "a", kind: .tailscale, endpoint: .hostPort(host: "10.0.0.1", port: 22))
-        let routeB = try CmxAttachRoute(id: "b", kind: .tailscale, endpoint: .hostPort(host: "10.0.0.2", port: 22))
-
-        try await store.upsert(macDeviceID: "shared-mac", displayName: "Team A Mac", routes: [routeA],
-            markActive: true, stackUserID: "user-1", teamID: "team-a", now: Date(timeIntervalSince1970: 1))
-        try await store.setCustomization(
-            macDeviceID: "shared-mac",
-            customName: "A custom",
-            customColor: "palette:1",
-            customIcon: "desktopcomputer",
-            stackUserID: "user-1",
-            teamID: "team-a",
-            now: Date(timeIntervalSince1970: 2)
+    private func tailscaleRoute(host: String) throws -> CmxAttachRoute {
+        try CmxAttachRoute(
+            id: "tailscale-\(host)",
+            kind: .tailscale,
+            endpoint: .hostPort(host: host, port: 58_465)
         )
-
-        try await store.upsert(macDeviceID: "shared-mac", displayName: "Team B Mac", routes: [routeB],
-            markActive: true, stackUserID: "user-1", teamID: "team-b", now: Date(timeIntervalSince1970: 3))
-
-        let teamA = try await store.loadAll(stackUserID: "user-1", teamID: "team-a")
-        let teamB = try await store.loadAll(stackUserID: "user-1", teamID: "team-b")
-
-        #expect(teamA.map(\.macDeviceID) == ["shared-mac"])
-        #expect(teamB.map(\.macDeviceID) == ["shared-mac"])
-        #expect(teamA.first?.displayName == "Team A Mac")
-        #expect(teamB.first?.displayName == "Team B Mac")
-        #expect(teamA.first?.routes.first?.id == "a")
-        #expect(teamB.first?.routes.first?.id == "b")
-        #expect(teamA.first?.customColor == "palette:1")
-        #expect(teamB.first?.customColor == nil)
-        #expect(try await store.activeMac(stackUserID: "user-1", teamID: "team-a")?.routes.first?.id == "a")
-        #expect(try await store.activeMac(stackUserID: "user-1", teamID: "team-b")?.routes.first?.id == "b")
     }
+
+    private func irohRoute() throws -> CmxAttachRoute {
+        try CmxAttachRoute(
+            id: "iroh",
+            kind: .iroh,
+            endpoint: .peer(
+                identity: CmxIrohPeerIdentity(
+                    endpointID: String(repeating: "a", count: 64)
+                ),
+                pathHints: []
+            )
+        )
+    }
+
+    private func seedVersionSevenDatabase(
+        at databaseURL: URL,
+        routes: [CmxAttachRoute],
+        stackUserID: String? = "user-1"
+    ) throws {
+        let ownerKey = "\(stackUserID ?? "")\u{1F}\u{1F}"
+        let stackUserValue = stackUserID.map(sqlQuoted) ?? "NULL"
+        var database: OpaquePointer?
+        #expect(sqlite3_open(databaseURL.path, &database) == SQLITE_OK)
+        defer { sqlite3_close(database) }
+        let schema = """
+            CREATE TABLE paired_macs (
+                mac_device_id TEXT NOT NULL,
+                owner_key TEXT NOT NULL,
+                display_name TEXT,
+                stack_user_id TEXT,
+                team_id TEXT,
+                created_at REAL NOT NULL,
+                last_seen_at REAL NOT NULL,
+                is_active INTEGER NOT NULL DEFAULT 0,
+                custom_name TEXT,
+                custom_color TEXT,
+                custom_icon TEXT,
+                instance_tag TEXT,
+                PRIMARY KEY (mac_device_id, owner_key)
+            );
+            CREATE TABLE mac_routes (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                mac_device_id TEXT NOT NULL,
+                owner_key TEXT NOT NULL,
+                route_id TEXT NOT NULL,
+                kind TEXT NOT NULL,
+                endpoint_json TEXT NOT NULL,
+                priority INTEGER NOT NULL DEFAULT 0,
+                FOREIGN KEY (mac_device_id, owner_key)
+                    REFERENCES paired_macs(mac_device_id, owner_key)
+                    ON DELETE CASCADE
+            );
+            INSERT INTO paired_macs VALUES (
+                'legacy-mac', \(sqlQuoted(ownerKey)), 'Legacy Mac',
+                \(stackUserValue), NULL, 0, 0, 1, NULL, NULL, NULL, NULL
+            );
+            PRAGMA user_version = 7;
+        """
+        #expect(sqlite3_exec(database, schema, nil, nil, nil) == SQLITE_OK)
+        for route in routes {
+            let jsonData = try JSONEncoder().encode(route)
+            let json = try #require(String(data: jsonData, encoding: .utf8))
+            let insert = """
+                INSERT INTO mac_routes (
+                    mac_device_id, owner_key, route_id, kind, endpoint_json, priority
+                ) VALUES (
+                    'legacy-mac', \(sqlQuoted(ownerKey)), \(sqlQuoted(route.id)),
+                    \(sqlQuoted(route.kind.rawValue)), \(sqlQuoted(json)), \(route.priority)
+                );
+            """
+            #expect(sqlite3_exec(database, insert, nil, nil, nil) == SQLITE_OK)
+        }
+    }
+
+    private func sqlQuoted(_ value: String) -> String {
+        "'\(value.replacingOccurrences(of: "'", with: "''"))'"
+    }
+
 }

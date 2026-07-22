@@ -1,3 +1,4 @@
+import CmuxFoundation
 import Foundation
 import Testing
 @testable import CmuxCore
@@ -8,6 +9,8 @@ struct SessionRemoteWorkspaceSnapshotTests {
     func codableRoundTrip() throws {
         let snapshot = SessionRemoteWorkspaceSnapshot(
             transport: .ssh,
+            terminalTransport: .mosh,
+            terminalProfile: .defaultTmux,
             destination: "user@host",
             port: 2222,
             identityFile: "/id",
@@ -15,7 +18,8 @@ struct SessionRemoteWorkspaceSnapshotTests {
             preserveAfterTerminalExit: true,
             skipDaemonBootstrap: true,
             relayPort: 7000,
-            persistentDaemonSlot: "slot"
+            persistentDaemonSlot: "slot",
+            managedCloudVMID: "vm-123"
         )
         let data = try JSONEncoder().encode(snapshot)
         let decoded = try JSONDecoder().decode(SessionRemoteWorkspaceSnapshot.self, from: data)
@@ -36,6 +40,8 @@ struct SessionRemoteWorkspaceSnapshotTests {
             from: Data(json.utf8)
         )
         #expect(decoded.transport == .ssh)
+        #expect(decoded.terminalTransport == nil)
+        #expect(decoded.terminalProfile == nil)
         #expect(decoded.destination == "user@host")
         #expect(decoded.port == nil)
         #expect(decoded.identityFile == nil)
@@ -43,11 +49,15 @@ struct SessionRemoteWorkspaceSnapshotTests {
         #expect(decoded.skipDaemonBootstrap == nil)
         #expect(decoded.relayPort == nil)
         #expect(decoded.persistentDaemonSlot == nil)
+        #expect(decoded.managedCloudVMID == nil)
     }
 
     @Test("transport raw values are the persisted wire strings")
     func transportRawValues() {
         #expect(WorkspaceRemoteTransport.ssh.rawValue == "ssh")
         #expect(WorkspaceRemoteTransport.websocket.rawValue == "websocket")
+        #expect(WorkspaceRemoteTerminalTransport.ssh.rawValue == "ssh")
+        #expect(WorkspaceRemoteTerminalTransport.mosh.rawValue == "mosh")
+        #expect(WorkspaceRemoteTerminalProfile.Kind.tmux.rawValue == "tmux")
     }
 }

@@ -1,31 +1,23 @@
 internal import Foundation
 
-/// The debug/test-only domain (`debug.*` main-actor methods), lifted
-/// byte-faithfully from the former `TerminalController.v2Debug*` bodies. Each
-/// payload is built directly as a ``JSONValue``; the encoded wire bytes match.
-///
-/// Every method here was dispatched from inside `#if DEBUG` in the legacy
-/// switch, so the whole domain is DEBUG-gated end to end (handler, seam,
-/// conformance): in release builds `handleDebug` returns `nil` and the
-/// legacy dispatcher's `default:` produces the same `method_not_found` the
-/// compiled-out cases always did. The worker-lane
-/// `debug.sidebar.simulate_drag` and the shared `debug.terminals` stay
-/// app-side/surface-domain and are NOT handled here.
-///
+/// The debug/test-only domain (`debug.*` main-actor methods), lifted byte-faithfully
+/// from the former `TerminalController.v2Debug*` bodies; each payload is built directly
+/// as a ``JSONValue``, so the encoded wire bytes match. DEBUG-gated end to end; release
+/// builds fall through to the same `method_not_found` behavior as the former
+/// compiled-out cases. The worker-lane `debug.sidebar.simulate_drag` and the shared
+/// `debug.terminals` stay app-side/surface-domain and are NOT handled here.
 /// This file carries the dispatch plus the session-snapshot, shortcut, input,
-/// text-box, and command-palette methods; the rest live in `+Debug2.swift`
-/// (500-line budget).
+/// text-box, and command-palette methods; the rest live in `+Debug2.swift` (500-line budget).
 extension ControlCommandCoordinator {
-    /// Runs one decoded request if it belongs to the debug domain, returning
-    /// the typed result; returns `nil` otherwise so the caller can fall
+    /// Runs one decoded request (`request` = the decoded envelope) if it belongs to
+    /// the debug domain, returning the typed result; returns `nil` otherwise — including
+    /// in release builds, where the domain does not exist — so the caller can fall
     /// through. The integrator calls this from the core `handle`.
-    ///
-    /// - Parameter request: The decoded request envelope.
-    /// - Returns: The command result, or `nil` if not a debug method (or in a
-    ///   release build, where the domain does not exist).
     func handleDebug(_ request: ControlRequest) -> ControlCallResult? {
 #if DEBUG
         switch request.method {
+        case "remote.tmux.sizing_settled":
+            return debugRemoteTmuxSizingSettled()
         case "debug.session_snapshot_benchmark":
             return debugSessionSnapshotBenchmark(request.params)
         case "debug.session_snapshot_seed_scrollback":
@@ -42,6 +34,10 @@ extension ControlCommandCoordinator {
             return debugTextBoxInteract(request.params)
         case "debug.app.activate":
             return debugActivateApp()
+        case "debug.workspace_todo.checklist_add_field":
+            return debugWorkspaceTodoChecklistAddField()
+        case "debug.pro_welcome_checklist.show":
+            return debugShowProWelcomeChecklist()
         case "debug.command_palette.toggle":
             return debugCommandPaletteEvent(.toggle, request.params)
         case "debug.command_palette.rename_tab.open":
@@ -113,11 +109,10 @@ extension ControlCommandCoordinator {
 
 #if DEBUG
 extension ControlCommandCoordinator {
-    /// The deterministic v1-style response used when the seam is unwired
-    /// (`context == nil`). Unreachable in practice — the composition owner
-    /// wires the context during its own init — but keeps the v1-forwarding
-    /// bodies total: it fails both the `== "OK"` and `hasPrefix("OK ")`
-    /// checks, surfacing as the legacy `internal_error` path.
+    /// The deterministic v1-style response used when the seam is unwired (`context ==
+    /// nil`). Unreachable in practice — the composition owner wires the context during
+    /// its own init — but keeps the v1-forwarding bodies total: it fails both the
+    /// `== "OK"` and `hasPrefix("OK ")` checks, surfacing as the legacy `internal_error` path.
     static let debugContextUnavailableResponse = "ERROR: control context unavailable"
 
     /// The debug-domain view of the seam. Once the integrator adds
@@ -219,6 +214,16 @@ extension ControlCommandCoordinator {
         }
     }
 
+    // MARK: - debug.pro_welcome_checklist.show — show the Pro welcome checklist
+
+    func debugShowProWelcomeChecklist() -> ControlCallResult {
+        guard let debugContext else {
+            return .err(code: "unavailable", message: "Control context unavailable", data: nil)
+        }
+        debugContext.controlDebugShowProWelcomeChecklist()
+        return .ok(.object(["shown": .bool(true)]))
+    }
+
     // MARK: - debug.textbox.*
 
     /// `debug.textbox.inline_fixture` — install the inline text-box fixture.
@@ -300,6 +305,13 @@ extension ControlCommandCoordinator {
         return resp == "OK"
             ? .ok(.object([:]))
             : .err(code: "internal_error", message: resp, data: nil)
+    }
+
+    /// `debug.workspace_todo.checklist_add_field` — request the selected workspace's checklist add field.
+    func debugWorkspaceTodoChecklistAddField() -> ControlCallResult {
+        guard let debugContext else { return .err(code: "unavailable", message: "Control debug context unavailable", data: nil) }
+        guard let workspaceID = debugContext.controlDebugRequestWorkspaceTodoChecklistAddField() else { return .err(code: "not_found", message: "No selected workspace", data: nil) }
+        return .ok(.object(["workspace_id": .string(workspaceID.uuidString), "workspace_ref": ref(.workspace, workspaceID), "requested": .bool(true)]))
     }
 
     // MARK: - debug.command_palette.* (event posts)

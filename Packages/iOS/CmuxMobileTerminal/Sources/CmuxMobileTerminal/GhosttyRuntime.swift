@@ -47,6 +47,32 @@ public final class GhosttyRuntime {
     private static var sharedResult: Result<GhosttyRuntime, Error>?
     private static var clipboardReader: @MainActor () -> String? = { UIPasteboard.general.string }
     private static var clipboardWriter: @MainActor (String?) -> Void = { UIPasteboard.general.string = $0 }
+    private let fileManager: FileManager
+    private let iOSConfigRootURL: URL
+
+    func applyTheme(
+        _ configTheme: TerminalTheme,
+        to surfaceView: GhosttySurfaceView
+    ) {
+        guard let surface = surfaceView.surface,
+              let newConfig = makeThemeConfig(configTheme) else { return }
+        let surfaceBits = Int(bitPattern: surface)
+        let configBits = Int(bitPattern: newConfig)
+        surfaceView.outputQueue.async {
+            guard let surface = ghostty_surface_t(bitPattern: surfaceBits),
+                  let config = ghostty_config_t(bitPattern: configBits) else { return }
+            ghostty_surface_update_theme_config(surface, config)
+            ghostty_config_free(config)
+        }
+    }
+
+    func makeThemeConfig(_ configTheme: TerminalTheme) -> ghostty_config_t? {
+        guard let baseConfig = config,
+              let newConfig = ghostty_config_clone(baseConfig) else { return nil }
+        applyGhosttyiOSTheme(configTheme.validatedOrDefault(), to: newConfig)
+        ghostty_config_finalize(newConfig)
+        return newConfig
+    }
 
     // libghostty handles are opaque C pointers (typedef `void *`). They
     // aren't Sendable in Swift's type system, but `GhosttyRuntime` is a
@@ -62,21 +88,34 @@ public final class GhosttyRuntime {
             return try sharedResult.get()
         }
 
-        let result: Result<GhosttyRuntime, Error>
         do {
-            result = .success(try GhosttyRuntime())
+            let runtime = try GhosttyRuntime()
+            sharedResult = .success(runtime)
+            return runtime
         } catch {
-            result = .failure(error)
+            sharedResult = nil
+            throw error
         }
-        sharedResult = result
-        return try result.get()
     }
 
-    init() throws {
-        try Self.initializeBackendIfNeeded()
+    init(
+        fileManager: FileManager = FileManager(),
+        iOSConfigRootURL: URL? = nil
+    ) throws {
+        self.fileManager = fileManager
+        self.iOSConfigRootURL = iOSConfigRootURL
+            ?? fileManager.urls(for: .applicationSupportDirectory, in: .userDomainMask).first
+            ?? fileManager.temporaryDirectory
+        if !Self.backendInitialized {
+            let result = ghostty_init(UInt(CommandLine.argc), CommandLine.unsafeArgv)
+            guard result == GHOSTTY_SUCCESS else {
+                throw RuntimeError.backendInitFailed(code: result)
+            }
+            Self.backendInitialized = true
+        }
 
         let config = ghostty_config_new()
-        Self.loadConfig(config)
+        loadGhosttyConfig(config)
         ghostty_config_finalize(config)
 
         #if DEBUG
@@ -149,135 +188,6 @@ public final class GhosttyRuntime {
         guard let app else { return }
         MobileDebugLog.anchormux("runtime.tick")
         ghostty_app_tick(app)
-    }
-
-    private static func initializeBackendIfNeeded() throws {
-        guard !backendInitialized else { return }
-        let result = ghostty_init(UInt(CommandLine.argc), CommandLine.unsafeArgv)
-        guard result == GHOSTTY_SUCCESS else {
-            throw RuntimeError.backendInitFailed(code: result)
-        }
-        backendInitialized = true
-    }
-
-    private static func loadConfig(_ config: ghostty_config_t?) {
-        guard let config else { return }
-        #if os(iOS)
-        Self.setupiOSConfigEnvironment()
-        Self.ensureDefaultiOSConfig()
-        ghostty_config_load_default_files(config)
-        Self.applyiOSDefaults(config)
-        #else
-        ghostty_config_load_default_files(config)
-        #endif
-    }
-
-    private static func setupiOSConfigEnvironment() {
-        let appSupport = FileManager.default.urls(for: .applicationSupportDirectory, in: .userDomainMask).first
-            ?? FileManager.default.temporaryDirectory
-        setenv("XDG_CONFIG_HOME", appSupport.path, 0)
-        if let env = getenv("XDG_CONFIG_HOME") {
-            log.debug("XDG_CONFIG_HOME=\(String(cString: env), privacy: .public)")
-        }
-    }
-
-    private static func applyiOSDefaults(_ config: ghostty_config_t) {
-        // scrollback-limit: bound the mirror surface's local scrollback page
-        // memory (ghostty defaults to 10MB per surface). On iOS the user-facing
-        // scroll path forwards to the Mac's real surface, so local scrollback
-        // exists only to feed local reads (the "View as Text" copy sheet's
-        // GHOSTTY_POINT_SCREEN read). 2MB comfortably covers that sheet's
-        // 5000-line budget while keeping the worst-case read (which runs on
-        // the serial output queue) and per-surface memory phone-sized.
-        let monokai = """
-        scrollback-limit = 2000000
-        font-family = Menlo
-        font-size = 10
-        window-padding-balance = false
-        window-padding-y = 0
-        cursor-style = bar
-        cursor-style-blink = true
-        background = #272822
-        foreground = #fdfff1
-        cursor-color = #c0c1b5
-        selection-background = #57584f
-        selection-foreground = #fdfff1
-        palette = 0=#272822
-        palette = 1=#f92672
-        palette = 2=#a6e22e
-        palette = 3=#e6db74
-        palette = 4=#fd971f
-        palette = 5=#ae81ff
-        palette = 6=#66d9ef
-        palette = 7=#fdfff1
-        palette = 8=#6e7066
-        palette = 9=#f92672
-        palette = 10=#a6e22e
-        palette = 11=#e6db74
-        palette = 12=#fd971f
-        palette = 13=#ae81ff
-        palette = 14=#66d9ef
-        palette = 15=#fdfff1
-        """
-        let tmpFile = FileManager.default.temporaryDirectory.appendingPathComponent("ghostty-ios-config-\(ProcessInfo.processInfo.processIdentifier)")
-        do {
-            try monokai.write(to: tmpFile, atomically: true, encoding: .utf8)
-            tmpFile.path.withCString { path in
-                ghostty_config_load_file(config, path)
-            }
-            try FileManager.default.removeItem(at: tmpFile)
-        } catch {
-            log.error("applyiOSDefaults: failed to write config: \(error.localizedDescription, privacy: .public)")
-        }
-
-        var bgColor = ghostty_config_color_s()
-        let bgKey2 = "background"
-        let hasBg = ghostty_config_get(config, &bgColor, bgKey2, UInt(bgKey2.lengthOfBytes(using: .utf8)))
-        log.debug("applyiOSDefaults: bg get=\(hasBg, privacy: .public) r=\(bgColor.r, privacy: .public) g=\(bgColor.g, privacy: .public) b=\(bgColor.b, privacy: .public)")
-    }
-
-    private static func ensureDefaultiOSConfig() {
-        guard let appSupport = FileManager.default.urls(for: .applicationSupportDirectory, in: .userDomainMask).first else { return }
-        let configDir = appSupport.appendingPathComponent("ghostty", isDirectory: true)
-        let configFile = configDir.appendingPathComponent("config", isDirectory: false)
-        guard !FileManager.default.fileExists(atPath: configFile.path) else { return }
-
-        let defaultConfig = """
-        font-family = Menlo
-        font-size = 10
-        window-padding-balance = false
-        window-padding-y = 0
-        cursor-style = bar
-        cursor-style-blink = true
-        background = #272822
-        foreground = #fdfff1
-        cursor-color = #c0c1b5
-        selection-background = #57584f
-        selection-foreground = #fdfff1
-        palette = 0=#272822
-        palette = 1=#f92672
-        palette = 2=#a6e22e
-        palette = 3=#e6db74
-        palette = 4=#fd971f
-        palette = 5=#ae81ff
-        palette = 6=#66d9ef
-        palette = 7=#fdfff1
-        palette = 8=#6e7066
-        palette = 9=#f92672
-        palette = 10=#a6e22e
-        palette = 11=#e6db74
-        palette = 12=#fd971f
-        palette = 13=#ae81ff
-        palette = 14=#66d9ef
-        palette = 15=#fdfff1
-        """
-
-        do {
-            try FileManager.default.createDirectory(at: configDir, withIntermediateDirectories: true)
-            try defaultConfig.write(to: configFile, atomically: true, encoding: .utf8)
-        } catch {
-            log.error("ensureDefaultiOSConfig: failed: \(error.localizedDescription, privacy: .public)")
-        }
     }
 
     nonisolated static func iOSConfigURLs(
@@ -509,6 +419,106 @@ public final class GhosttyRuntime {
     static func resetClipboardHandlersForTesting() {
         clipboardReader = { UIPasteboard.general.string }
         clipboardWriter = { UIPasteboard.general.string = $0 }
+    }
+}
+
+private extension GhosttyRuntime {
+    func loadGhosttyConfig(
+        _ config: ghostty_config_t?,
+        theme: TerminalTheme = .monokai
+    ) {
+        guard let config else { return }
+        #if os(iOS)
+        setupGhosttyiOSConfigEnvironment()
+        ensureDefaultGhosttyiOSConfig(theme: theme)
+        ghostty_config_load_default_files(config)
+        applyGhosttyiOSDefaults(config, theme: theme)
+        #else
+        ghostty_config_load_default_files(config)
+        #endif
+    }
+
+    func setupGhosttyiOSConfigEnvironment() {
+        setenv("XDG_CONFIG_HOME", iOSConfigRootURL.path, 0)
+        if let env = getenv("XDG_CONFIG_HOME") {
+            log.debug("XDG_CONFIG_HOME=\(String(cString: env), privacy: .public)")
+        }
+    }
+
+    func applyGhosttyiOSDefaults(_ config: ghostty_config_t, theme: TerminalTheme) {
+        // The phone scrolls the authoritative Mac surface. Local scrollback exists
+        // only for bounded local text reads, so cap it below Ghostty's 10MB default.
+        let defaults = """
+        scrollback-limit = 2000000
+        font-family = Menlo
+        font-size = 10
+        window-padding-balance = false
+        window-padding-y = 0
+        cursor-style = bar
+        cursor-style-blink = true
+        \(theme.ghosttyColorDirectives)
+        """
+        loadInlineGhosttyiOSConfig(defaults, path: "/__cmux_ios__/defaults.conf", into: config)
+
+        var background = ghostty_config_color_s()
+        let key = "background"
+        let found = ghostty_config_get(config, &background, key, UInt(key.lengthOfBytes(using: .utf8)))
+        log.debug("applyiOSDefaults: bg get=\(found, privacy: .public) r=\(background.r, privacy: .public) g=\(background.g, privacy: .public) b=\(background.b, privacy: .public)")
+    }
+
+    func applyGhosttyiOSTheme(_ theme: TerminalTheme, to config: ghostty_config_t) {
+        // Each surface mirrors the Mac theme. Clear optional colors inherited
+        // from the phone config before applying the remote values.
+        let directives = """
+        bold-color =
+        cursor-text =
+        \(theme.ghosttyColorDirectives)
+        """
+        loadInlineGhosttyiOSConfig(
+            directives,
+            path: "/__cmux_ios__/theme.conf",
+            into: config
+        )
+    }
+
+    func loadInlineGhosttyiOSConfig(
+        _ contents: String,
+        path syntheticPath: String,
+        into config: ghostty_config_t
+    ) {
+        contents.withCString { contentsPointer in
+            syntheticPath.withCString { path in
+                ghostty_config_load_string(
+                    config,
+                    contentsPointer,
+                    UInt(contents.lengthOfBytes(using: .utf8)),
+                    path
+                )
+            }
+        }
+    }
+
+    func ensureDefaultGhosttyiOSConfig(theme: TerminalTheme) {
+        let configDirectory = iOSConfigRootURL.appendingPathComponent("ghostty", isDirectory: true)
+        let configFile = configDirectory.appendingPathComponent("config", isDirectory: false)
+        guard !fileManager.fileExists(atPath: configFile.path) else { return }
+
+        let defaultConfig = """
+        font-family = Menlo
+        font-size = 10
+        window-padding-balance = false
+        window-padding-y = 0
+        cursor-style = bar
+        cursor-style-blink = true
+        \(theme.ghosttyColorDirectives)
+        """
+
+        do {
+            try fileManager.createDirectory(at: configDirectory, withIntermediateDirectories: true)
+            try defaultConfig.write(to: configFile, atomically: true, encoding: .utf8)
+        } catch {
+            log.error("ensureDefaultiOSConfig: failed: \(error.localizedDescription, privacy: .public)")
+        }
     }
 }
 

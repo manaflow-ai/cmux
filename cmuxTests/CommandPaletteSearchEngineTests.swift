@@ -571,7 +571,7 @@ final class CommandPaletteSearchEngineTests: XCTestCase {
                 workspaceId: workspaceId,
                 panelId: panelId,
                 supportedPanelKeys: [],
-                fallbackSnapshot: nil
+                fallbackSnapshot: nil, allowsAgentContinuation: true
             )
         )
         XCTAssertTrue(
@@ -579,7 +579,7 @@ final class CommandPaletteSearchEngineTests: XCTestCase {
                 workspaceId: workspaceId,
                 panelId: panelId,
                 supportedPanelKeys: [supportedKey],
-                fallbackSnapshot: nil
+                fallbackSnapshot: nil, allowsAgentContinuation: true
             )
         )
         XCTAssertFalse(
@@ -587,7 +587,7 @@ final class CommandPaletteSearchEngineTests: XCTestCase {
                 workspaceId: workspaceId,
                 panelId: UUID(),
                 supportedPanelKeys: [supportedKey],
-                fallbackSnapshot: nil
+                fallbackSnapshot: nil, allowsAgentContinuation: true
             )
         )
         XCTAssertFalse(
@@ -595,7 +595,7 @@ final class CommandPaletteSearchEngineTests: XCTestCase {
                 workspaceId: UUID(),
                 panelId: panelId,
                 supportedPanelKeys: [supportedKey],
-                fallbackSnapshot: nil
+                fallbackSnapshot: nil, allowsAgentContinuation: true
             )
         )
     }
@@ -615,7 +615,7 @@ final class CommandPaletteSearchEngineTests: XCTestCase {
                 supportedPanelKeys: [supportedKey],
                 supportedRemoteContextsByPanelKey: [supportedKey: false],
                 fallbackSnapshot: nil,
-                isRemoteTerminal: false
+                isRemoteTerminal: false, allowsAgentContinuation: true
             )
         )
         XCTAssertFalse(
@@ -625,7 +625,7 @@ final class CommandPaletteSearchEngineTests: XCTestCase {
                 supportedPanelKeys: [supportedKey],
                 supportedRemoteContextsByPanelKey: [supportedKey: false],
                 fallbackSnapshot: nil,
-                isRemoteTerminal: true
+                isRemoteTerminal: true, allowsAgentContinuation: true
             )
         )
         XCTAssertTrue(
@@ -635,7 +635,7 @@ final class CommandPaletteSearchEngineTests: XCTestCase {
                 supportedPanelKeys: [supportedKey],
                 supportedRemoteContextsByPanelKey: [supportedKey: true],
                 fallbackSnapshot: nil,
-                isRemoteTerminal: true
+                isRemoteTerminal: true, allowsAgentContinuation: true
             )
         )
         XCTAssertFalse(
@@ -645,7 +645,7 @@ final class CommandPaletteSearchEngineTests: XCTestCase {
                 supportedPanelKeys: [supportedKey],
                 supportedRemoteContextsByPanelKey: [supportedKey: true],
                 fallbackSnapshot: nil,
-                isRemoteTerminal: false
+                isRemoteTerminal: false, allowsAgentContinuation: true
             )
         )
     }
@@ -697,7 +697,7 @@ final class CommandPaletteSearchEngineTests: XCTestCase {
                 workspaceId: workspaceId,
                 panelId: panelId,
                 supportedPanelKeys: [],
-                fallbackSnapshot: codex
+                fallbackSnapshot: codex, allowsAgentContinuation: true
             )
         )
         XCTAssertTrue(
@@ -706,7 +706,7 @@ final class CommandPaletteSearchEngineTests: XCTestCase {
                 panelId: panelId,
                 supportedPanelKeys: [supportedKey],
                 supportedRemoteContextsByPanelKey: [supportedKey: false],
-                fallbackSnapshot: codex
+                fallbackSnapshot: codex, allowsAgentContinuation: true
             )
         )
         XCTAssertFalse(
@@ -714,7 +714,7 @@ final class CommandPaletteSearchEngineTests: XCTestCase {
                 workspaceId: workspaceId,
                 panelId: panelId,
                 supportedPanelKeys: [],
-                fallbackSnapshot: directOpenCode
+                fallbackSnapshot: directOpenCode, allowsAgentContinuation: true
             )
         )
         XCTAssertFalse(
@@ -723,7 +723,7 @@ final class CommandPaletteSearchEngineTests: XCTestCase {
                 panelId: panelId,
                 supportedPanelKeys: [],
                 fallbackSnapshot: directOpenCode,
-                isRemoteTerminal: true
+                isRemoteTerminal: true, allowsAgentContinuation: true
             )
         )
         XCTAssertTrue(
@@ -733,7 +733,7 @@ final class CommandPaletteSearchEngineTests: XCTestCase {
                 supportedPanelKeys: [supportedKey],
                 supportedRemoteContextsByPanelKey: [supportedKey: true],
                 fallbackSnapshot: directOpenCode,
-                isRemoteTerminal: true
+                isRemoteTerminal: true, allowsAgentContinuation: true
             )
         )
         XCTAssertFalse(
@@ -741,7 +741,7 @@ final class CommandPaletteSearchEngineTests: XCTestCase {
                 workspaceId: workspaceId,
                 panelId: panelId,
                 supportedPanelKeys: [],
-                fallbackSnapshot: omoOpenCode
+                fallbackSnapshot: omoOpenCode, allowsAgentContinuation: true
             )
         )
         XCTAssertTrue(
@@ -750,7 +750,7 @@ final class CommandPaletteSearchEngineTests: XCTestCase {
                 panelId: panelId,
                 supportedPanelKeys: [supportedKey],
                 supportedRemoteContextsByPanelKey: [supportedKey: false],
-                fallbackSnapshot: omoOpenCode
+                fallbackSnapshot: omoOpenCode, allowsAgentContinuation: true
             )
         )
     }
@@ -791,7 +791,7 @@ final class CommandPaletteSearchEngineTests: XCTestCase {
                 workspaceId: workspaceId,
                 panelId: panelId,
                 supportedPanelKeys: [],
-                fallbackSnapshot: snapshot
+                fallbackSnapshot: snapshot, allowsAgentContinuation: true
             )
         )
         XCTAssertTrue(
@@ -800,7 +800,7 @@ final class CommandPaletteSearchEngineTests: XCTestCase {
                 panelId: panelId,
                 supportedPanelKeys: [supportedKey],
                 supportedRemoteContextsByPanelKey: [supportedKey: false],
-                fallbackSnapshot: snapshot
+                fallbackSnapshot: snapshot, allowsAgentContinuation: true
             )
         )
         XCTAssertFalse(
@@ -809,7 +809,7 @@ final class CommandPaletteSearchEngineTests: XCTestCase {
                 panelId: panelId,
                 supportedPanelKeys: [],
                 fallbackSnapshot: snapshot,
-                isRemoteTerminal: true
+                isRemoteTerminal: true, allowsAgentContinuation: true
             )
         )
         XCTAssertFalse(
@@ -818,7 +818,7 @@ final class CommandPaletteSearchEngineTests: XCTestCase {
                 panelId: panelId,
                 supportedPanelKeys: [supportedKey],
                 fallbackSnapshot: snapshot,
-                isRemoteTerminal: true
+                isRemoteTerminal: true, allowsAgentContinuation: true
             )
         )
     }
@@ -842,7 +842,7 @@ final class CommandPaletteSearchEngineTests: XCTestCase {
                 workspaceId: workspaceId,
                 panelId: panelId,
                 supportedPanelKeys: [supportedKey],
-                fallbackSnapshot: unsupported
+                fallbackSnapshot: unsupported, allowsAgentContinuation: true
             )
         )
     }
@@ -880,7 +880,7 @@ final class CommandPaletteSearchEngineTests: XCTestCase {
                 workspaceId: workspaceId,
                 panelId: panelId,
                 supportedPanelKeys: [supportedKey],
-                fallbackSnapshot: snapshot
+                fallbackSnapshot: snapshot, allowsAgentContinuation: true
             )
         )
     }
@@ -903,7 +903,7 @@ final class CommandPaletteSearchEngineTests: XCTestCase {
             supportedRemoteContextsByPanelKey: [:],
             snapshotFingerprintsByPanelKey: [:],
             fallbackSnapshot: fallback,
-            cachedSnapshot: nil
+            cachedSnapshot: nil, allowsAgentContinuation: true
         )
 
         XCTAssertNil(snapshot)
@@ -946,7 +946,7 @@ final class CommandPaletteSearchEngineTests: XCTestCase {
             supportedRemoteContextsByPanelKey: [panelKey: false],
             snapshotFingerprintsByPanelKey: [panelKey: fingerprint],
             fallbackSnapshot: fallback,
-            cachedSnapshot: cached
+            cachedSnapshot: cached, allowsAgentContinuation: true
         )
 
         XCTAssertEqual(selection?.snapshot.sessionId, cached.sessionId)
@@ -996,7 +996,7 @@ final class CommandPaletteSearchEngineTests: XCTestCase {
             supportedRemoteContextsByPanelKey: [panelKey: false],
             snapshotFingerprintsByPanelKey: [panelKey: fingerprint],
             fallbackSnapshot: fallback,
-            cachedSnapshot: nil
+            cachedSnapshot: nil, allowsAgentContinuation: true
         )
 
         XCTAssertEqual(selection?.snapshot.sessionId, fallback.sessionId)
@@ -1048,7 +1048,7 @@ final class CommandPaletteSearchEngineTests: XCTestCase {
             supportedRemoteContextsByPanelKey: [panelKey: false],
             snapshotFingerprintsByPanelKey: [panelKey: fingerprint],
             fallbackSnapshot: fallback,
-            cachedSnapshot: cached
+            cachedSnapshot: cached, allowsAgentContinuation: true
         )
 
         XCTAssertEqual(selection?.snapshot.sessionId, cached.sessionId)
@@ -1085,7 +1085,7 @@ final class CommandPaletteSearchEngineTests: XCTestCase {
             supportedRemoteContextsByPanelKey: [panelKey: false],
             snapshotFingerprintsByPanelKey: [panelKey: "stale-fingerprint"],
             fallbackSnapshot: fallback,
-            cachedSnapshot: nil
+            cachedSnapshot: nil, allowsAgentContinuation: true
         )
 
         XCTAssertNil(snapshot)
@@ -1135,7 +1135,7 @@ final class CommandPaletteSearchEngineTests: XCTestCase {
                 workspaceId: workspaceId,
                 panelId: panelId,
                 supportedPanelKeys: [supportedKey],
-                fallbackSnapshot: directOpenCode
+                fallbackSnapshot: directOpenCode, allowsAgentContinuation: true
             )
         )
     }

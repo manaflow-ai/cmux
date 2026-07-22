@@ -4,6 +4,7 @@ import PackageDescription
 
 let package = Package(
     name: "CmuxMobileShellUI",
+    defaultLocalization: "en",
     platforms: [
         .iOS(.v18),
     ],
@@ -26,6 +27,7 @@ let package = Package(
         .package(path: "../CmuxMobileShellModel"),
         .package(path: "../CmuxMobileSupport"),
         .package(path: "../CmuxMobileTerminal"),
+        .package(path: "../CmuxMobileToast"),
         .package(path: "../CmuxMobileTerminalKit"),
         .package(path: "../CmuxMobileWorkspace"),
         .package(path: "../CmuxVoice"),
@@ -48,10 +50,12 @@ let package = Package(
                 "CmuxMobileSupport",
                 "CmuxMobileTerminal",
                 "CmuxMobileTerminalKit",
+                "CmuxMobileToast",
                 "CmuxMobileWorkspace",
                 "CmuxVoice",
                 .product(name: "StackAuth", package: "stack-auth-swift-sdk-prerelease"),
             ],
+            resources: [.process("Resources")],
             swiftSettings: [
                 .define("CMUX_DEV_AUTH", .when(configuration: .debug)),
                 .swiftLanguageMode(.v6),
@@ -61,11 +65,13 @@ let package = Package(
             name: "CmuxMobileShellUITests",
             dependencies: [
                 "CMUXMobileCore",
+                "CmuxAuthRuntime",
                 "CmuxMobilePairedMac",
                 "CmuxMobileShellUI",
                 "CmuxAgentChat",
                 "CmuxMobileShell",
                 "CmuxMobileShellModel",
+                "CmuxMobileTerminal",
                 "CmuxMobileWorkspace",
                 "CmuxVoice",
                 .product(name: "StackAuth", package: "stack-auth-swift-sdk-prerelease"),

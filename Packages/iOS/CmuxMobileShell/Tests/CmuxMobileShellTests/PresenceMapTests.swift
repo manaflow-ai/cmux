@@ -61,6 +61,31 @@ import Testing
         #expect(map.deviceSummary(deviceId: "never-seen") == nil)
     }
 
+    @Test func instanceSummaryDoesNotBorrowAnotherBuildsPresence() {
+        var futureOne = instance(
+            deviceId: "mac-a",
+            tag: "future-one",
+            online: false,
+            lastSeenAt: 1_000
+        )
+        futureOne.bundleId = "com.cmuxterm.app.debug.future-one"
+        var other = instance(
+            deviceId: "mac-a",
+            tag: "other",
+            online: true,
+            lastSeenAt: 9_000
+        )
+        other.bundleId = "com.cmuxterm.app.debug.other"
+        var map = PresenceMap()
+        map.apply(snapshot([futureOne, other]))
+
+        let summary = map.instanceSummary(deviceId: "mac-a", tag: "future-one")
+        #expect(summary?.online == false)
+        #expect(summary?.lastSeenAt == Date(timeIntervalSince1970: 1))
+        #expect(summary?.buildLabel == "DEV · future-one")
+        #expect(map.instanceSummary(deviceId: "mac-a", tag: "missing") == nil)
+    }
+
     @Test func snapshotReplacesTheWholeMap() {
         var map = PresenceMap()
         map.apply(snapshot([instance(deviceId: "mac-a")]))

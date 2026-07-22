@@ -1,4 +1,16 @@
 import AppKit
+import CmuxTerminal
+
+extension NSEvent {
+    var cmuxIsUndoRedoCommandEquivalent: Bool {
+        let normalizedFlags = modifierFlags
+            .intersection(.deviceIndependentFlagsMask)
+            .subtracting([.numericPad, .function, .capsLock])
+        return type == .keyDown
+            && (normalizedFlags == [.command] || normalizedFlags == [.command, .shift])
+            && KeyboardLayout.normalizedCharacters(for: self) == "z"
+    }
+}
 
 /// Identity of a key event currently being force-dispatched into a responder's
 /// `keyDown(with:)` by `NSWindow.cmux_performKeyEquivalent(with:)`.
@@ -32,6 +44,70 @@ private struct CmuxForceDispatchedKeyEventIdentity: Hashable {
 private var cmuxInFlightForceDispatchedKeyEventIdentities = Set<CmuxForceDispatchedKeyEventIdentity>()
 
 extension NSWindow {
+    func cmuxRouteUndoRedoCommandEquivalentAwayFromAppKit(
+        _ event: NSEvent,
+        terminalView: GhosttyNSView?,
+        webView: CmuxWebView?,
+        browserWebKitKeyDownReentry: Bool
+    ) -> Bool {
+        guard event.cmuxIsUndoRedoCommandEquivalent,
+              !cmuxFirstResponderPreservesLocalUndoRedo,
+              !cmuxIsLikelyWebInspectorResponder(firstResponder) else {
+            return false
+        }
+        if let terminalView {
+            if terminalView.performKeyEquivalentAfterMenuMiss(with: event) {
+#if DEBUG
+                cmuxDebugLog("  -> undo/redo routed to terminal before AppKit menu")
+#endif
+                return true
+            }
+            if cmuxForceDispatchKeyDownOnce(event, to: terminalView, reason: "terminal undo/redo") {
+#if DEBUG
+                cmuxDebugLog("  -> undo/redo keyDown fallback routed to terminal")
+#endif
+                return true
+            }
+            return true
+        }
+        if let webView {
+            if browserWebKitKeyDownReentry {
+#if DEBUG
+                cmuxDebugLog("  -> undo/redo browser reentry suppressed before AppKit menu")
+#endif
+                return true
+            }
+            if webView.performKeyEquivalent(with: event) {
+#if DEBUG
+                cmuxDebugLog("  -> undo/redo routed to browser before AppKit menu")
+#endif
+                return true
+            }
+            if cmuxForceDispatchKeyDownOnce(event, to: webView, reason: "browser undo/redo") {
+#if DEBUG
+                cmuxDebugLog("  -> undo/redo keyDown fallback routed to browser")
+#endif
+                return true
+            }
+            // Do not fall through to AppKit Undo from generic browser focus:
+            // that is the stale NSUndoManager path this router avoids. Focused
+            // editable AppKit responders and Web Inspector are exempted above.
+            return true
+        }
+        return false
+    }
+
+    private var cmuxFirstResponderPreservesLocalUndoRedo: Bool {
+        guard let responder = firstResponder else { return false }
+        if let textView = responder as? NSTextView {
+            return textView.isEditable || textView.isFieldEditor
+        }
+        if let textField = responder as? NSTextField {
+            return textField.isEditable
+        }
+        return false
+    }
+
     /// Single chokepoint for every direct `keyDown(with:)` force-dispatch made
     /// by `cmux_performKeyEquivalent(with:)`.
     ///

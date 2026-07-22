@@ -13,17 +13,28 @@ final class SSHPTYAttachReconnectInputFilter {
     private static let maxPendingProbeBytes = 512
     // Terminal ESC disambiguation: bounded so a literal Escape key is not held indefinitely.
     private static let pendingProbeContinuationTimeoutMilliseconds: Int32 = 25
+    private static let reconnectProbeDeadlineMilliseconds: Int64 = 2_000
 
     private var isFiltering: Bool
     private var pending = [UInt8]()
+    private let deadlineReached: (@Sendable () -> Bool)?
+    private let remainingDeadline: (@Sendable () -> Int64?)?
 
-    init(enabled: Bool) {
+    init(
+        enabled: Bool,
+        deadlineReached: (@Sendable () -> Bool)? = nil,
+        remainingDeadlineMilliseconds: (@Sendable () -> Int64?)? = nil
+    ) {
         isFiltering = enabled
+        self.deadlineReached = deadlineReached
+        remainingDeadline = remainingDeadlineMilliseconds
     }
 
     private init(state: SSHPTYAttachReconnectInputFilterState) {
         isFiltering = state.isFiltering
         pending = state.pending
+        deadlineReached = state.deadlineReached
+        remainingDeadline = state.remainingDeadlineMilliseconds
     }
 
     @discardableResult
@@ -31,10 +42,23 @@ final class SSHPTYAttachReconnectInputFilter {
         fd: Int32,
         inputFD: Int32 = STDIN_FILENO,
         filterEnabled: Bool,
+        monotonicNowMilliseconds: (@Sendable () -> Int64)? = nil,
         beforeForwardingInput: (@Sendable () async -> Void)? = nil
     ) throws -> SSHPTYAttachReconnectInputFilterControl? {
+        let now = monotonicNowMilliseconds ?? {
+            Int64(DispatchTime.now().uptimeNanoseconds / 1_000_000)
+        }
+        let deadline = filterEnabled ? now() + reconnectProbeDeadlineMilliseconds : nil
         let filterState = filterEnabled
-            ? SSHPTYAttachReconnectInputFilterState(isFiltering: true, pending: [])
+            ? SSHPTYAttachReconnectInputFilterState(
+                isFiltering: true,
+                pending: [],
+                deadlineReached: { deadline.map { now() >= $0 } ?? false },
+                remainingDeadlineMilliseconds: {
+                    guard let deadline else { return nil }
+                    return max(0, deadline - now())
+                }
+            )
             : nil
         var stopSignalFDs = [Int32](repeating: -1, count: 2)
         let filterControl: SSHPTYAttachReconnectInputFilterControl?
@@ -54,6 +78,9 @@ final class SSHPTYAttachReconnectInputFilter {
                 Darwin.close(stopSignalFDs[1])
                 throw POSIXError(POSIXErrorCode(rawValue: errno) ?? .EIO)
             }
+            // Read ends can close mid-write: writers get EPIPE, never SIGPIPE.
+            _ = fcntl(stopSignalFDs[1], F_SETNOSIGPIPE, 1)
+            _ = fcntl(stopAcknowledgementFDs[1], F_SETNOSIGPIPE, 1)
             filterControl = SSHPTYAttachReconnectInputFilterControl(
                 stopSignalWriteFD: stopSignalFDs[1],
                 stopAcknowledgementReadFD: stopAcknowledgementFDs[0]
@@ -153,16 +180,37 @@ final class SSHPTYAttachReconnectInputFilter {
             return true
         }
 
+        func flushPendingThenShutdown() async {
+            if let filter = reconnectInputFilter, filter.hasPendingInput {
+                _ = await writeOrShutdown(filter.flushPendingInput())
+            }
+            _ = shutdown(fd, SHUT_WR)
+        }
+
+        func stopReconnectFilteringAtDeadline() async -> Bool {
+            guard let filter = reconnectInputFilter else { return true }
+            guard await writeOrShutdown(filter.stopFiltering()) else { return false }
+            return stopReconnectFiltering()
+        }
+
         while true {
-            let timeoutMilliseconds = reconnectInputFilter?.hasPendingInput == true
+            if reconnectInputFilter?.isDeadlineReached == true {
+                guard await stopReconnectFilteringAtDeadline() else { return }
+                continue
+            }
+            var timeoutMilliseconds = reconnectInputFilter?.hasPendingInput == true
                 ? pendingProbeContinuationTimeoutMilliseconds
                 : -1
+            if let remaining = reconnectInputFilter?.remainingDeadlineMilliseconds {
+                let capped = Int32(min(Int64(Int32.max), remaining))
+                timeoutMilliseconds = timeoutMilliseconds < 0 ? capped : min(timeoutMilliseconds, capped)
+            }
             guard var readiness = pollStdinPump(
                 inputFD: inputFD,
                 stopSignalFD: stopSignalFD,
                 timeoutMilliseconds: timeoutMilliseconds
             ) else {
-                _ = shutdown(fd, SHUT_WR)
+                await flushPendingThenShutdown()
                 return
             }
 
@@ -174,7 +222,7 @@ final class SSHPTYAttachReconnectInputFilter {
                     stopSignalFD: nil,
                     timeoutMilliseconds: pendingProbeContinuationTimeoutMilliseconds
                 ) else {
-                    _ = shutdown(fd, SHUT_WR)
+                    await flushPendingThenShutdown()
                     return
                 }
                 if pendingReadiness.inputReady {
@@ -225,10 +273,10 @@ final class SSHPTYAttachReconnectInputFilter {
                     }
                 }
             } else if count == 0 {
-                _ = shutdown(fd, SHUT_WR)
+                await flushPendingThenShutdown()
                 return
             } else if errno != EINTR {
-                _ = shutdown(fd, SHUT_WR)
+                await flushPendingThenShutdown()
                 return
             }
         }
@@ -237,6 +285,11 @@ final class SSHPTYAttachReconnectInputFilter {
     func filter(_ data: Data) -> Data {
         guard isFiltering, !data.isEmpty else {
             return data
+        }
+        if isDeadlineReached {
+            var output = stopFiltering()
+            output.append(data)
+            return output
         }
 
         var bytes = pending
@@ -299,6 +352,15 @@ final class SSHPTYAttachReconnectInputFilter {
 
     var isFilteringActive: Bool {
         isFiltering
+    }
+
+    var isDeadlineReached: Bool {
+        isFiltering && (deadlineReached?() == true)
+    }
+
+    var remainingDeadlineMilliseconds: Int64? {
+        guard isFiltering else { return nil }
+        return remainingDeadline?()
     }
 
     func flushPendingInput() -> Data {
@@ -434,53 +496,4 @@ final class SSHPTYAttachReconnectInputFilter {
         }
     }
 
-    private static func writeAll(fd: Int32, data: Data) throws {
-        try data.withUnsafeBytes { rawBuffer in
-            guard let base = rawBuffer.bindMemory(to: UInt8.self).baseAddress else { return }
-            var remaining = rawBuffer.count
-            var cursor = base
-            while remaining > 0 {
-                let written = Darwin.write(fd, cursor, remaining)
-                if written > 0 {
-                    remaining -= written
-                    cursor = cursor.advanced(by: written)
-                } else if written < 0 && errno == EINTR {
-                    continue
-                } else {
-                    throw POSIXError(.EIO)
-                }
-            }
-        }
-    }
-
-    private static func pollStdinPump(
-        inputFD: Int32,
-        stopSignalFD: Int32?,
-        timeoutMilliseconds: Int32
-    ) -> (inputReady: Bool, stopRequested: Bool)? {
-        let inputEvents = Int16(POLLIN | POLLHUP | POLLERR | POLLNVAL)
-        let stopEvents = Int16(POLLIN | POLLHUP | POLLERR | POLLNVAL)
-        var pollFDs = [pollfd(fd: inputFD, events: Int16(POLLIN), revents: 0)]
-        if let stopSignalFD {
-            pollFDs.append(pollfd(fd: stopSignalFD, events: Int16(POLLIN), revents: 0))
-        }
-
-        while true {
-            let result = pollFDs.withUnsafeMutableBufferPointer { buffer in
-                Darwin.poll(buffer.baseAddress, nfds_t(buffer.count), timeoutMilliseconds)
-            }
-            if result > 0 {
-                let inputReady = (pollFDs[0].revents & inputEvents) != 0
-                let stopRequested = pollFDs.count > 1 && (pollFDs[1].revents & stopEvents) != 0
-                return (inputReady: inputReady, stopRequested: stopRequested)
-            }
-            if result == 0 {
-                return (inputReady: false, stopRequested: false)
-            }
-            if errno == EINTR {
-                continue
-            }
-            return nil
-        }
-    }
 }

@@ -1,0 +1,27 @@
+# fastlane snapshot config for cmux iOS App Store screenshots.
+# Run: cd ios && fastlane screenshots
+#
+# Captures the App Store required device classes (iPhone 6.9" + iPad 13") in
+# every locale the app is actually localized in. The app UI ships en + ja only
+# (knownRegions in cmux-ios.xcodeproj), so screenshots cover en-US + ja; adding
+# more store languages requires localizing the app first.
+
+# Devices (6.9" iPhone + 13" iPad) and languages (en-US, ja) are provided by the
+# Fastfile so they can be overridden per environment via SNAPSHOT_DEVICES /
+# SNAPSHOT_LANGUAGES. CI resolves the exact simulator names available on the
+# runner (model names drift across Xcode versions); setting them here too would
+# override that, so they live only in the Fastfile.
+
+# Drives the shared scheme's UI test target; only the snapshot test runs.
+scheme("cmux-ios")
+only_testing(["cmuxUITests/SnapshotUITests"])
+
+output_directory("./fastlane/screenshots")
+clear_previous_screenshots(true)
+
+# Serial keeps the Ghostty terminal surface deterministic across captures.
+concurrent_simulators(false)
+
+# Mock data + signed-in shell are gated behind a DEBUG launch env the snapshot
+# test sets (CMUX_UITEST_MOCK_DATA); the Debug build used for screenshots needs
+# no Apple signing.

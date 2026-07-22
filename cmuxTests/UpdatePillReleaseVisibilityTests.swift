@@ -1,6 +1,6 @@
-import XCTest
 import Foundation
 import AppKit
+import Testing
 
 #if canImport(cmux_DEV)
 @testable import cmux_DEV
@@ -8,26 +8,82 @@ import AppKit
 @testable import cmux
 #endif
 
-final class BrowserInsecureHTTPSettingsTests: XCTestCase {
+private func requireValue<T>(_ value: T?, _ message: String = "") throws -> T {
+    do {
+        return try #require(value)
+    } catch {
+        if !message.isEmpty {
+            Issue.record(Comment(rawValue: message))
+        }
+        throw error
+    }
+}
+
+private func checkEqual<T: Equatable>(_ actual: T, _ expected: T, _ message: String = "") {
+    #expect(actual == expected, Comment(rawValue: message))
+}
+
+private func checkEqual<T: BinaryFloatingPoint>(_ actual: T, _ expected: T, accuracy: T, _ message: String = "") {
+    let comment = message.isEmpty ? "\(actual) != \(expected) +/- \(accuracy)" : message
+    #expect(abs(actual - expected) <= accuracy, Comment(rawValue: comment))
+}
+
+private func checkTrue(_ condition: @autoclosure () -> Bool, _ message: String = "") {
+    #expect(condition(), Comment(rawValue: message))
+}
+
+private func checkFalse(_ condition: @autoclosure () -> Bool, _ message: String = "") {
+    #expect(!condition(), Comment(rawValue: message))
+}
+
+private func checkNil<T>(_ value: @autoclosure () -> T?, _ message: String = "") {
+    #expect(value() == nil, Comment(rawValue: message))
+}
+
+private func checkNotNil<T>(_ value: @autoclosure () -> T?, _ message: String = "") {
+    #expect(value() != nil, Comment(rawValue: message))
+}
+
+private func checkLessThan<T: Comparable>(_ actual: T, _ expected: T, _ message: String = "") {
+    #expect(actual < expected, Comment(rawValue: message))
+}
+
+private func checkLessThanOrEqual<T: Comparable>(_ actual: T, _ expected: T, _ message: String = "") {
+    #expect(actual <= expected, Comment(rawValue: message))
+}
+
+private func checkGreaterThan<T: Comparable>(_ actual: T, _ expected: T, _ message: String = "") {
+    #expect(actual > expected, Comment(rawValue: message))
+}
+
+private func checkGreaterThanOrEqual<T: Comparable>(_ actual: T, _ expected: T, _ message: String = "") {
+    #expect(actual >= expected, Comment(rawValue: message))
+}
+
+@Suite
+struct BrowserInsecureHTTPSettingsTests {
+    @Test
     func testDefaultAllowlistPatternsArePresent() {
-        XCTAssertEqual(
+        checkEqual(
             BrowserInsecureHTTPSettings.normalizedAllowlistPatterns(rawValue: nil),
             ["localhost", "*.localhost", "127.0.0.1", "::1", "0.0.0.0", "*.localtest.me"]
         )
     }
 
+    @Test
     func testWildcardAndExactHostMatching() {
-        XCTAssertTrue(BrowserInsecureHTTPSettings.isHostAllowed("localhost", rawAllowlist: nil))
-        XCTAssertTrue(BrowserInsecureHTTPSettings.isHostAllowed("a.localhost", rawAllowlist: nil))
-        XCTAssertTrue(BrowserInsecureHTTPSettings.isHostAllowed("deep.a.localhost", rawAllowlist: nil))
-        XCTAssertTrue(BrowserInsecureHTTPSettings.isHostAllowed("127.0.0.1", rawAllowlist: nil))
-        XCTAssertFalse(BrowserInsecureHTTPSettings.isHostAllowed("a.127.0.0.1", rawAllowlist: nil))
-        XCTAssertTrue(BrowserInsecureHTTPSettings.isHostAllowed("::1", rawAllowlist: nil))
-        XCTAssertTrue(BrowserInsecureHTTPSettings.isHostAllowed("0.0.0.0", rawAllowlist: nil))
-        XCTAssertTrue(BrowserInsecureHTTPSettings.isHostAllowed("api.localtest.me", rawAllowlist: nil))
-        XCTAssertFalse(BrowserInsecureHTTPSettings.isHostAllowed("neverssl.com", rawAllowlist: nil))
+        checkTrue(BrowserInsecureHTTPSettings.isHostAllowed("localhost", rawAllowlist: nil))
+        checkTrue(BrowserInsecureHTTPSettings.isHostAllowed("a.localhost", rawAllowlist: nil))
+        checkTrue(BrowserInsecureHTTPSettings.isHostAllowed("deep.a.localhost", rawAllowlist: nil))
+        checkTrue(BrowserInsecureHTTPSettings.isHostAllowed("127.0.0.1", rawAllowlist: nil))
+        checkFalse(BrowserInsecureHTTPSettings.isHostAllowed("a.127.0.0.1", rawAllowlist: nil))
+        checkTrue(BrowserInsecureHTTPSettings.isHostAllowed("::1", rawAllowlist: nil))
+        checkTrue(BrowserInsecureHTTPSettings.isHostAllowed("0.0.0.0", rawAllowlist: nil))
+        checkTrue(BrowserInsecureHTTPSettings.isHostAllowed("api.localtest.me", rawAllowlist: nil))
+        checkFalse(BrowserInsecureHTTPSettings.isHostAllowed("neverssl.com", rawAllowlist: nil))
     }
 
+    @Test
     func testCustomAllowlistNormalizesAndDeduplicatesEntries() {
         let raw = """
         localhost
@@ -37,31 +93,33 @@ final class BrowserInsecureHTTPSettingsTests: XCTestCase {
         *.example.com
         """
 
-        XCTAssertEqual(
+        checkEqual(
             BrowserInsecureHTTPSettings.normalizedAllowlistPatterns(rawValue: raw),
             ["localhost", "*.example.com", "127.0.0.1", "dev.internal"]
         )
-        XCTAssertTrue(BrowserInsecureHTTPSettings.isHostAllowed("foo.example.com", rawAllowlist: raw))
-        XCTAssertTrue(BrowserInsecureHTTPSettings.isHostAllowed("dev.internal", rawAllowlist: raw))
-        XCTAssertFalse(BrowserInsecureHTTPSettings.isHostAllowed("example.net", rawAllowlist: raw))
+        checkTrue(BrowserInsecureHTTPSettings.isHostAllowed("foo.example.com", rawAllowlist: raw))
+        checkTrue(BrowserInsecureHTTPSettings.isHostAllowed("dev.internal", rawAllowlist: raw))
+        checkFalse(BrowserInsecureHTTPSettings.isHostAllowed("example.net", rawAllowlist: raw))
     }
 
+    @Test
     func testBlockDecisionUsesAllowlistAndSchemeRules() throws {
-        let localURL = try XCTUnwrap(URL(string: "http://foo.localtest.me:3000"))
-        XCTAssertFalse(browserShouldBlockInsecureHTTPURL(localURL, rawAllowlist: nil))
+        let localURL = try requireValue(URL(string: "http://foo.localtest.me:3000"))
+        checkFalse(browserShouldBlockInsecureHTTPURL(localURL, rawAllowlist: nil))
 
-        let localhostSubdomainURL = try XCTUnwrap(URL(string: "http://a.localhost:3000"))
-        XCTAssertFalse(browserShouldBlockInsecureHTTPURL(localhostSubdomainURL, rawAllowlist: nil))
+        let localhostSubdomainURL = try requireValue(URL(string: "http://a.localhost:3000"))
+        checkFalse(browserShouldBlockInsecureHTTPURL(localhostSubdomainURL, rawAllowlist: nil))
 
-        let insecureURL = try XCTUnwrap(URL(string: "http://neverssl.com"))
-        XCTAssertTrue(browserShouldBlockInsecureHTTPURL(insecureURL, rawAllowlist: nil))
+        let insecureURL = try requireValue(URL(string: "http://neverssl.com"))
+        checkTrue(browserShouldBlockInsecureHTTPURL(insecureURL, rawAllowlist: nil))
 
-        let httpsURL = try XCTUnwrap(URL(string: "https://neverssl.com"))
-        XCTAssertFalse(browserShouldBlockInsecureHTTPURL(httpsURL, rawAllowlist: nil))
+        let httpsURL = try requireValue(URL(string: "https://neverssl.com"))
+        checkFalse(browserShouldBlockInsecureHTTPURL(httpsURL, rawAllowlist: nil))
     }
 
+    @Test
     func testPreparedNavigationRequestPreservesOriginalMethodBodyAndHeaders() throws {
-        let url = try XCTUnwrap(URL(string: "http://localtest.me:3000/submit"))
+        let url = try requireValue(URL(string: "http://localtest.me:3000/submit"))
         var request = URLRequest(url: url)
         request.httpMethod = "POST"
         request.httpBody = Data("token=abc123".utf8)
@@ -70,85 +128,90 @@ final class BrowserInsecureHTTPSettingsTests: XCTestCase {
 
         let prepared = browserPreparedNavigationRequest(request)
 
-        XCTAssertEqual(prepared.url, url)
-        XCTAssertEqual(prepared.httpMethod, "POST")
-        XCTAssertEqual(prepared.httpBody, Data("token=abc123".utf8))
-        XCTAssertEqual(prepared.value(forHTTPHeaderField: "Content-Type"), "application/x-www-form-urlencoded")
-        XCTAssertEqual(prepared.cachePolicy, .useProtocolCachePolicy)
+        checkEqual(prepared.url, url)
+        checkEqual(prepared.httpMethod, "POST")
+        checkEqual(prepared.httpBody, Data("token=abc123".utf8))
+        checkEqual(prepared.value(forHTTPHeaderField: "Content-Type"), "application/x-www-form-urlencoded")
+        checkEqual(prepared.cachePolicy, .useProtocolCachePolicy)
     }
 
+    @Test
     func testOneTimeBypassIsConsumedAfterFirstNavigation() throws {
-        let insecureURL = try XCTUnwrap(URL(string: "http://neverssl.com"))
+        let insecureURL = try requireValue(URL(string: "http://neverssl.com"))
         var bypassHostOnce: String? = "neverssl.com"
 
-        XCTAssertTrue(browserShouldConsumeOneTimeInsecureHTTPBypass(
+        checkTrue(browserShouldConsumeOneTimeInsecureHTTPBypass(
             insecureURL,
             bypassHostOnce: &bypassHostOnce
         ))
-        XCTAssertNil(bypassHostOnce)
+        checkNil(bypassHostOnce)
 
         // Subsequent visits should prompt again unless host was saved.
-        XCTAssertFalse(browserShouldConsumeOneTimeInsecureHTTPBypass(
+        checkFalse(browserShouldConsumeOneTimeInsecureHTTPBypass(
             insecureURL,
             bypassHostOnce: &bypassHostOnce
         ))
-        XCTAssertTrue(browserShouldBlockInsecureHTTPURL(insecureURL, rawAllowlist: nil))
+        checkTrue(browserShouldBlockInsecureHTTPURL(insecureURL, rawAllowlist: nil))
     }
 
+    @Test
     func testAddAllowedHostPersistsToDefaultsAndUnblocksHTTP() throws {
         let suiteName = "BrowserInsecureHTTPSettingsTests.Persist.\(UUID().uuidString)"
         guard let defaults = UserDefaults(suiteName: suiteName) else {
-            XCTFail("Failed to create isolated UserDefaults suite")
+            Issue.record("Failed to create isolated UserDefaults suite")
             return
         }
         defer { defaults.removePersistentDomain(forName: suiteName) }
 
-        let url = try XCTUnwrap(URL(string: "http://persist-me.test"))
-        XCTAssertTrue(browserShouldBlockInsecureHTTPURL(url, defaults: defaults))
+        let url = try requireValue(URL(string: "http://persist-me.test"))
+        checkTrue(browserShouldBlockInsecureHTTPURL(url, defaults: defaults))
 
         BrowserInsecureHTTPSettings.addAllowedHost("persist-me.test", defaults: defaults)
         let persisted = defaults.string(forKey: BrowserInsecureHTTPSettings.allowlistKey)
-        XCTAssertNotNil(persisted)
-        XCTAssertTrue(BrowserInsecureHTTPSettings.isHostAllowed("persist-me.test", defaults: defaults))
-        XCTAssertFalse(browserShouldBlockInsecureHTTPURL(url, defaults: defaults))
+        checkNotNil(persisted)
+        checkTrue(BrowserInsecureHTTPSettings.isHostAllowed("persist-me.test", defaults: defaults))
+        checkFalse(browserShouldBlockInsecureHTTPURL(url, defaults: defaults))
     }
 
+    @Test
     func testAllowlistSelectionPersistsForProceedAndOpenExternal() {
-        XCTAssertTrue(browserShouldPersistInsecureHTTPAllowlistSelection(
+        checkTrue(browserShouldPersistInsecureHTTPAllowlistSelection(
             response: .alertFirstButtonReturn,
             suppressionEnabled: true
         ))
-        XCTAssertTrue(browserShouldPersistInsecureHTTPAllowlistSelection(
+        checkTrue(browserShouldPersistInsecureHTTPAllowlistSelection(
             response: .alertSecondButtonReturn,
             suppressionEnabled: true
         ))
-        XCTAssertFalse(browserShouldPersistInsecureHTTPAllowlistSelection(
+        checkFalse(browserShouldPersistInsecureHTTPAllowlistSelection(
             response: .alertThirdButtonReturn,
             suppressionEnabled: true
         ))
-        XCTAssertFalse(browserShouldPersistInsecureHTTPAllowlistSelection(
+        checkFalse(browserShouldPersistInsecureHTTPAllowlistSelection(
             response: .alertSecondButtonReturn,
             suppressionEnabled: false
         ))
     }
 }
 
-final class TitlebarControlsSizingPolicyTests: XCTestCase {
+@Suite
+struct TitlebarControlsSizingPolicyTests {
+    @Test
     func testSchedulePolicyRequiresMeaningfulViewSizeChange() {
-        XCTAssertFalse(titlebarControlsShouldScheduleForViewSizeChange(previous: .zero, current: .zero))
-        XCTAssertTrue(
+        checkFalse(titlebarControlsShouldScheduleForViewSizeChange(previous: .zero, current: .zero))
+        checkTrue(
             titlebarControlsShouldScheduleForViewSizeChange(
                 previous: .zero,
                 current: NSSize(width: 240, height: 38)
             )
         )
-        XCTAssertFalse(
+        checkFalse(
             titlebarControlsShouldScheduleForViewSizeChange(
                 previous: NSSize(width: 240, height: 38),
                 current: NSSize(width: 240.2, height: 38.1)
             )
         )
-        XCTAssertTrue(
+        checkTrue(
             titlebarControlsShouldScheduleForViewSizeChange(
                 previous: NSSize(width: 240, height: 38),
                 current: NSSize(width: 247, height: 38)
@@ -156,6 +219,7 @@ final class TitlebarControlsSizingPolicyTests: XCTestCase {
         )
     }
 
+    @Test
     func testLayoutApplyPolicySkipsEquivalentSnapshots() {
         let baseline = TitlebarControlsLayoutSnapshot(
             contentSize: NSSize(width: 128, height: 22),
@@ -163,8 +227,8 @@ final class TitlebarControlsSizingPolicyTests: XCTestCase {
             xOffset: 0,
             yOffset: 3
         )
-        XCTAssertTrue(titlebarControlsShouldApplyLayout(previous: nil, next: baseline))
-        XCTAssertFalse(titlebarControlsShouldApplyLayout(previous: baseline, next: baseline))
+        checkTrue(titlebarControlsShouldApplyLayout(previous: nil, next: baseline))
+        checkFalse(titlebarControlsShouldApplyLayout(previous: baseline, next: baseline))
 
         let changed = TitlebarControlsLayoutSnapshot(
             contentSize: NSSize(width: 132, height: 22),
@@ -172,7 +236,7 @@ final class TitlebarControlsSizingPolicyTests: XCTestCase {
             xOffset: 0,
             yOffset: 3
         )
-        XCTAssertTrue(titlebarControlsShouldApplyLayout(previous: baseline, next: changed))
+        checkTrue(titlebarControlsShouldApplyLayout(previous: baseline, next: changed))
 
         let offsetChanged = TitlebarControlsLayoutSnapshot(
             contentSize: NSSize(width: 128, height: 22),
@@ -180,53 +244,81 @@ final class TitlebarControlsSizingPolicyTests: XCTestCase {
             xOffset: 1,
             yOffset: 3
         )
-        XCTAssertTrue(titlebarControlsShouldApplyLayout(previous: baseline, next: offsetChanged))
+        checkTrue(titlebarControlsShouldApplyLayout(previous: baseline, next: offsetChanged))
     }
 
+    @Test
     func testTitlebarControlsListenForWindowGeometryChanges() {
-        XCTAssertTrue(TitlebarWindowGeometryNotifications.names.contains(NSWindow.didResizeNotification))
-        XCTAssertTrue(TitlebarWindowGeometryNotifications.names.contains(NSWindow.didEndLiveResizeNotification))
-        XCTAssertTrue(TitlebarWindowGeometryNotifications.names.contains(NSWindow.willEnterFullScreenNotification))
-        XCTAssertTrue(TitlebarWindowGeometryNotifications.names.contains(NSWindow.didEnterFullScreenNotification))
-        XCTAssertTrue(TitlebarWindowGeometryNotifications.names.contains(NSWindow.willExitFullScreenNotification))
-        XCTAssertTrue(TitlebarWindowGeometryNotifications.names.contains(NSWindow.didExitFullScreenNotification))
-        XCTAssertTrue(TitlebarWindowGeometryNotifications.names.contains(NSWindow.didChangeScreenNotification))
-        XCTAssertTrue(TitlebarWindowGeometryNotifications.names.contains(NSWindow.didChangeBackingPropertiesNotification))
+        checkTrue(TitlebarWindowGeometryNotifications.names.contains(NSWindow.didResizeNotification))
+        checkTrue(TitlebarWindowGeometryNotifications.names.contains(NSWindow.didEndLiveResizeNotification))
+        checkTrue(TitlebarWindowGeometryNotifications.names.contains(NSWindow.willEnterFullScreenNotification))
+        checkTrue(TitlebarWindowGeometryNotifications.names.contains(NSWindow.didEnterFullScreenNotification))
+        checkTrue(TitlebarWindowGeometryNotifications.names.contains(NSWindow.willExitFullScreenNotification))
+        checkTrue(TitlebarWindowGeometryNotifications.names.contains(NSWindow.didExitFullScreenNotification))
+        checkTrue(TitlebarWindowGeometryNotifications.names.contains(NSWindow.didChangeScreenNotification))
+        checkTrue(TitlebarWindowGeometryNotifications.names.contains(NSWindow.didChangeBackingPropertiesNotification))
     }
 
+    @Test
     func testShortcutHintVerticalOffsetTucksPillIntoBottomOfButtonLane() {
         for style in TitlebarControlsStyle.allCases {
             let config = style.config
             let hintHeight = titlebarShortcutHintHeight(for: config)
             let verticalOffset = titlebarShortcutHintVerticalOffset(for: config)
 
-            XCTAssertLessThan(verticalOffset, config.buttonSize)
-            XCTAssertGreaterThan(verticalOffset + hintHeight, config.buttonSize)
+            checkLessThan(verticalOffset, config.buttonSize)
+            checkGreaterThan(verticalOffset + hintHeight, config.buttonSize)
         }
     }
 
+    @Test
     func testShortcutHintVerticalGapStaysTuckedAgainstButtonLane() {
-        XCTAssertEqual(TitlebarShortcutHintMetrics.verticalGap, -3, accuracy: 0.001)
+        checkEqual(TitlebarShortcutHintMetrics.verticalGap, -3, accuracy: 0.001)
     }
 
+    @Test
     func testTitlebarControlsUseNeutralVisualLift() {
-        XCTAssertEqual(
+        checkEqual(
             TitlebarControlsVisualMetrics.liftedYOffset(3),
             3,
             accuracy: 0.001
         )
     }
 
-    func testTitlebarControlsUseDeterministicContentSize() {
-        let classic = TitlebarControlsLayoutMetrics.contentSize(config: TitlebarControlsStyle.classic.config)
-        XCTAssertEqual(classic.width, 136, accuracy: 0.001)
-        XCTAssertEqual(classic.height, WindowChromeMetrics.appTitlebarHeight, accuracy: 0.001)
+    @Test
+    func testTitlebarControlsDefaultStyleIsClassic() {
+        let suiteName = "TitlebarControlsDefaultStyleIsClassic-\(UUID().uuidString)"
+        let defaults = UserDefaults(suiteName: suiteName)!
+        defer { defaults.removePersistentDomain(forName: suiteName) }
 
-        let compact = TitlebarControlsLayoutMetrics.contentSize(config: TitlebarControlsStyle.compact.config)
-        XCTAssertEqual(compact.width, 126, accuracy: 0.001)
-        XCTAssertEqual(compact.height, WindowChromeMetrics.appTitlebarHeight, accuracy: 0.001)
+        checkEqual(TitlebarControlsStyle.defaultStyle, .classic)
+        checkEqual(TitlebarControlsStyle.stored(in: defaults), .classic)
+
+        defaults.set(TitlebarControlsStyle.compact.rawValue, forKey: TitlebarControlsStyle.storageKey)
+        checkEqual(TitlebarControlsStyle.stored(in: defaults), .compact)
+
+        defaults.set(999, forKey: TitlebarControlsStyle.storageKey)
+        checkEqual(TitlebarControlsStyle.stored(in: defaults), .classic)
     }
 
+    @Test
+    func testTitlebarControlsUseDeterministicContentSize() {
+        let classicConfig = TitlebarControlsStyle.classic.config
+        let classic = TitlebarControlsLayoutMetrics.contentSize(config: classicConfig)
+        let classicRepeat = TitlebarControlsLayoutMetrics.contentSize(config: classicConfig)
+        checkEqual(classic, classicRepeat)
+        checkEqual(classic.width, 152, accuracy: 0.001)
+        checkEqual(classic.height, WindowChromeMetrics.appTitlebarHeight, accuracy: 0.001)
+
+        let compactConfig = TitlebarControlsStyle.compact.config
+        let compact = TitlebarControlsLayoutMetrics.contentSize(config: compactConfig)
+        let compactRepeat = TitlebarControlsLayoutMetrics.contentSize(config: compactConfig)
+        checkEqual(compact, compactRepeat)
+        checkEqual(compact.width, 139, accuracy: 0.001)
+        checkEqual(compact.height, WindowChromeMetrics.appTitlebarHeight, accuracy: 0.001)
+    }
+
+    @Test
     func testTitlebarControlsLeadingOffsetDoesNotDoubleApplyTrafficLightPosition() {
         let snapshot = MinimalModeTitlebarDebugSnapshot(
             leftControlsLeadingInset: MinimalModeTitlebarDebugSettings.defaultLeftControlsLeadingInset,
@@ -236,7 +328,7 @@ final class TitlebarControlsSizingPolicyTests: XCTestCase {
         )
         let trafficLightFrame = NSRect(x: 18, y: 7, width: 14, height: 14)
 
-        XCTAssertEqual(
+        checkEqual(
             TitlebarControlsLayoutMetrics.leadingOffset(
                 trafficLightFrame: trafficLightFrame,
                 debugSnapshot: snapshot
@@ -246,6 +338,7 @@ final class TitlebarControlsSizingPolicyTests: XCTestCase {
         )
     }
 
+    @Test
     func testTitlebarControlsLeadingOffsetDoesNotFollowSidebarTrailingEdge() {
         let snapshot = MinimalModeTitlebarDebugSnapshot(
             leftControlsLeadingInset: 150,
@@ -254,7 +347,7 @@ final class TitlebarControlsSizingPolicyTests: XCTestCase {
             trafficLightTitlebarLeadingInset: MinimalModeTitlebarDebugSettings.defaultTrafficLightTitlebarLeadingInset
         )
 
-        XCTAssertEqual(
+        checkEqual(
             TitlebarControlsLayoutMetrics.leadingOffset(
                 trafficLightFrame: NSRect(x: 18, y: 7, width: 14, height: 14),
                 debugSnapshot: snapshot
@@ -264,6 +357,7 @@ final class TitlebarControlsSizingPolicyTests: XCTestCase {
         )
     }
 
+    @Test
     func testTitlebarControlsVerticalOffsetAlignsToTrafficLightsWhenAvailable() {
         let snapshot = MinimalModeTitlebarDebugSettings.snapshot()
         let yOffset = TitlebarControlsLayoutMetrics.yOffset(
@@ -273,9 +367,10 @@ final class TitlebarControlsSizingPolicyTests: XCTestCase {
             debugSnapshot: snapshot
         )
 
-        XCTAssertEqual(yOffset, 0, accuracy: 0.001)
+        checkEqual(yOffset, 0, accuracy: 0.001)
     }
 
+    @Test
     func testTitlebarControlsBalanceTopAndBottomAgainstTrafficLights() {
         let snapshot = MinimalModeTitlebarDebugSettings.snapshot()
         let trafficLightFrame = NSRect(x: 20, y: 7, width: 14, height: 14)
@@ -288,14 +383,15 @@ final class TitlebarControlsSizingPolicyTests: XCTestCase {
         )
         let contentFrame = NSRect(x: 0, y: yOffset, width: 100, height: contentHeight)
 
-        XCTAssertEqual(contentFrame.midY, trafficLightFrame.midY, accuracy: 0.001)
-        XCTAssertEqual(
+        checkEqual(contentFrame.midY, trafficLightFrame.midY, accuracy: 0.001)
+        checkEqual(
             trafficLightFrame.minY - contentFrame.minY,
             contentFrame.maxY - trafficLightFrame.maxY,
             accuracy: 0.001
         )
     }
 
+    @Test
     func testTitlebarControlsVerticalOffsetFallsBackToTitlebarCenter() {
         let snapshot = MinimalModeTitlebarDebugSettings.snapshot()
         let yOffset = TitlebarControlsLayoutMetrics.yOffset(
@@ -305,24 +401,25 @@ final class TitlebarControlsSizingPolicyTests: XCTestCase {
             debugSnapshot: snapshot
         )
 
-        XCTAssertEqual(yOffset, 2, accuracy: 0.001)
+        checkEqual(yOffset, 2, accuracy: 0.001)
     }
 
+    @Test
     func testNotificationBadgeIsSmallAndShiftedUpRight() {
         for style in TitlebarControlsStyle.allCases {
             let config = style.config
 
-            XCTAssertLessThan(
+            checkLessThan(
                 titlebarNotificationBadgeFontSize(for: config),
                 8,
                 "Expected a compact notification badge font for style \(style)"
             )
-            XCTAssertGreaterThanOrEqual(
+            checkGreaterThanOrEqual(
                 config.badgeOffset.width,
                 3,
                 "Expected notification badge to sit farther right for style \(style)"
             )
-            XCTAssertLessThanOrEqual(
+            checkLessThanOrEqual(
                 config.badgeOffset.height,
                 -3,
                 "Expected notification badge to sit farther up for style \(style)"
@@ -331,39 +428,52 @@ final class TitlebarControlsSizingPolicyTests: XCTestCase {
     }
 }
 
-final class TitlebarControlsHoverPolicyTests: XCTestCase {
+@Suite
+struct TitlebarControlsHoverPolicyTests {
+    @Test
     func testHoverTrackingEnabledForEveryTitlebarStyle() {
         for style in TitlebarControlsStyle.allCases {
-            XCTAssertTrue(
+            checkTrue(
                 titlebarControlsShouldTrackButtonHover(config: style.config),
                 "Expected hover tracking for titlebar style \(style)"
             )
         }
     }
 
+    @Test
     func testButtonsStayVisuallyEvenAcrossTitlebarStyles() {
         let sizes = TitlebarControlsStyle.allCases.map { $0.config.buttonSize }
         let smallest = sizes.min() ?? 0
         let largest = sizes.max() ?? 0
 
-        XCTAssertLessThanOrEqual(largest - smallest, 4)
+        checkLessThanOrEqual(largest - smallest, 4)
 
         for style in TitlebarControlsStyle.allCases {
             let config = style.config
             let ranges = TitlebarControlsHitRegions.buttonXRanges(config: config)
 
-            XCTAssertEqual(ranges.count, MinimalModeSidebarControlActionSlot.allCases.count)
-            for range in ranges {
-                XCTAssertEqual(
+            checkEqual(ranges.count, MinimalModeSidebarControlActionSlot.allCases.count)
+            for (index, range) in ranges.enumerated() {
+                let slot = MinimalModeSidebarControlActionSlot(rawValue: index)
+                let expectedWidth: CGFloat = switch slot {
+                case .some(.newTab):
+                    TitlebarNewWorkspaceCloudSplitButtonMetrics.primaryWidth(config: config)
+                case .some(.cloudVM):
+                    TitlebarNewWorkspaceCloudSplitButtonMetrics.dropdownWidth(config: config)
+                case .some(.toggleSidebar), .some(.showNotifications), .some(.focusHistoryBack), .some(.focusHistoryForward), nil:
+                    config.buttonSize
+                }
+                checkEqual(
                     range.upperBound - range.lowerBound,
-                    config.buttonSize,
+                    expectedWidth,
                     accuracy: 0.001,
-                    "Expected every titlebar button lane to use one visual height for style \(style)"
+                    "Expected titlebar hit lane width to match its visible control for style \(style)"
                 )
             }
         }
     }
 
+    @Test
     func testHoverAndPressedStatesHaveVisibleDelta() {
         for style in TitlebarControlsStyle.allCases {
             let config = style.config
@@ -371,19 +481,19 @@ final class TitlebarControlsHoverPolicyTests: XCTestCase {
             let hoverForeground = titlebarControlForegroundOpacity(isHovering: true, isPressed: false)
             let pressedForeground = titlebarControlForegroundOpacity(isHovering: true, isPressed: true)
 
-            XCTAssertGreaterThan(hoverForeground, idleForeground, "Expected hover foreground delta for style \(style)")
-            XCTAssertGreaterThan(pressedForeground, hoverForeground, "Expected pressed foreground delta for style \(style)")
-            XCTAssertGreaterThan(
+            checkGreaterThan(hoverForeground, idleForeground, "Expected hover foreground delta for style \(style)")
+            checkGreaterThan(pressedForeground, hoverForeground, "Expected pressed foreground delta for style \(style)")
+            checkGreaterThan(
                 titlebarControlBackgroundOpacity(config: config, isHovering: true, isPressed: false),
                 titlebarControlBackgroundOpacity(config: config, isHovering: false, isPressed: false),
                 "Expected hover background delta for style \(style)"
             )
-            XCTAssertGreaterThan(
+            checkGreaterThan(
                 titlebarControlBackgroundOpacity(config: config, isHovering: true, isPressed: true),
                 titlebarControlBackgroundOpacity(config: config, isHovering: true, isPressed: false),
                 "Expected pressed background delta for style \(style)"
             )
-            XCTAssertGreaterThanOrEqual(
+            checkGreaterThanOrEqual(
                 titlebarControlBorderOpacity(config: config, isHovering: true, isPressed: true),
                 titlebarControlBorderOpacity(config: config, isHovering: true, isPressed: false),
                 "Expected pressed border to stay at least as visible as hover for style \(style)"
@@ -391,28 +501,61 @@ final class TitlebarControlsHoverPolicyTests: XCTestCase {
         }
     }
 
+    @Test
+    func testStandaloneTitlebarHoverMatchesSplitButtonActiveSegment() {
+        let compactConfig = TitlebarControlsStyle.compact.config
+        let standaloneHoverOpacity = max(
+            titlebarControlBackgroundOpacity(config: compactConfig, isHovering: true, isPressed: false),
+            titlebarControlActiveHoverBackgroundOpacity(isHovering: true, isPressed: false, isEnabled: true)
+        )
+
+        checkEqual(
+            titlebarControlActiveHoverBackgroundOpacity(isHovering: true, isPressed: false, isEnabled: true),
+            standaloneHoverOpacity,
+            accuracy: 0.001
+        )
+        checkEqual(
+            titlebarControlPassiveHoverBackgroundOpacity(isHovering: true, isPressed: false, isEnabled: true),
+            0.016,
+            accuracy: 0.001
+        )
+        checkLessThan(
+            titlebarControlPassiveHoverBackgroundOpacity(isHovering: true, isPressed: false, isEnabled: true),
+            titlebarControlBackgroundOpacity(config: compactConfig, isHovering: true, isPressed: false),
+            "The inactive half of the compound plus/cloud control should be lighter than a normal hovered titlebar icon."
+        )
+        checkEqual(
+            titlebarControlActiveHoverBackgroundOpacity(isHovering: false, isPressed: false, isEnabled: true),
+            0,
+            accuracy: 0.001
+        )
+    }
+
+    @Test
     func testIdleTitlebarButtonsStayReadableButMuted() {
         let idleForeground = titlebarControlForegroundOpacity(isHovering: false, isPressed: false)
 
-        XCTAssertGreaterThanOrEqual(idleForeground, 0.84)
-        XCTAssertLessThan(idleForeground, 1.0)
+        checkGreaterThanOrEqual(idleForeground, 0.84)
+        checkLessThan(idleForeground, 1.0)
     }
 
+    @Test
     func testPressedStateDoesNotScaleTitlebarButtons() {
-        XCTAssertEqual(titlebarControlPressedScale(isPressed: false), 1, accuracy: 0.001)
-        XCTAssertEqual(titlebarControlPressedScale(isPressed: true), 1, accuracy: 0.001)
+        checkEqual(titlebarControlPressedScale(isPressed: false), 1, accuracy: 0.001)
+        checkEqual(titlebarControlPressedScale(isPressed: true), 1, accuracy: 0.001)
     }
 
+    @Test
     func testDisabledStateMutesTitlebarButtons() {
         for style in TitlebarControlsStyle.allCases {
             let config = style.config
 
-            XCTAssertLessThan(
+            checkLessThan(
                 titlebarControlForegroundOpacity(isHovering: true, isPressed: false, isEnabled: false),
                 titlebarControlForegroundOpacity(isHovering: false, isPressed: false, isEnabled: true),
                 "Expected disabled foreground to stay muted for style \(style)"
             )
-            XCTAssertEqual(
+            checkEqual(
                 titlebarControlBackgroundOpacity(config: config, isHovering: true, isPressed: false, isEnabled: false),
                 0,
                 "Expected disabled titlebar button hover to have no active background for style \(style)"
@@ -420,8 +563,9 @@ final class TitlebarControlsHoverPolicyTests: XCTestCase {
         }
     }
 
+    @Test
     func testMinimalModeHoverTrackerPassesMouseMovedThroughWhenButtonsAreVisible() {
-        XCTAssertTrue(
+        checkTrue(
             minimalModePassthroughHoverTrackerCapturesHit(
                 capturesPassiveHits: true,
                 eventType: .mouseMoved,
@@ -431,7 +575,7 @@ final class TitlebarControlsHoverPolicyTests: XCTestCase {
             "Expected the hidden minimal-mode hover tracker to capture passive hover so controls reveal"
         )
 
-        XCTAssertFalse(
+        checkFalse(
             minimalModePassthroughHoverTrackerCapturesHit(
                 capturesPassiveHits: false,
                 eventType: .mouseMoved,
@@ -442,8 +586,9 @@ final class TitlebarControlsHoverPolicyTests: XCTestCase {
         )
     }
 
+    @Test
     func testMinimalModeHoverTrackerDoesNotCaptureMouseDownOrDraggedHover() {
-        XCTAssertFalse(
+        checkFalse(
             minimalModePassthroughHoverTrackerCapturesHit(
                 capturesPassiveHits: true,
                 eventType: .leftMouseDown,
@@ -451,7 +596,7 @@ final class TitlebarControlsHoverPolicyTests: XCTestCase {
                 boundsContainsPoint: true
             )
         )
-        XCTAssertFalse(
+        checkFalse(
             minimalModePassthroughHoverTrackerCapturesHit(
                 capturesPassiveHits: true,
                 eventType: .mouseMoved,
@@ -459,7 +604,7 @@ final class TitlebarControlsHoverPolicyTests: XCTestCase {
                 boundsContainsPoint: true
             )
         )
-        XCTAssertFalse(
+        checkFalse(
             minimalModePassthroughHoverTrackerCapturesHit(
                 capturesPassiveHits: true,
                 eventType: .mouseMoved,
@@ -471,7 +616,9 @@ final class TitlebarControlsHoverPolicyTests: XCTestCase {
 }
 
 @MainActor
-final class NotificationsPopoverAnchorPolicyTests: XCTestCase {
+@Suite(.serialized)
+struct NotificationsPopoverAnchorPolicyTests {
+    @Test
     func testPreferredPopoverAnchorUsesVisibleButtonAnchorBeforeWideFallback() {
         let window = NSWindow(
             contentRect: NSRect(x: 0, y: 0, width: 220, height: 80),
@@ -481,7 +628,7 @@ final class NotificationsPopoverAnchorPolicyTests: XCTestCase {
         )
         defer { window.orderOut(nil) }
         guard let contentView = window.contentView else {
-            XCTFail("Expected content view")
+            Issue.record("Expected content view")
             return
         }
 
@@ -490,16 +637,17 @@ final class NotificationsPopoverAnchorPolicyTests: XCTestCase {
         contentView.addSubview(fallback)
         fallback.addSubview(buttonAnchor)
 
-        XCTAssertTrue(
+        checkTrue(
             preferredNotificationsPopoverAnchor(buttonAnchor: buttonAnchor, fallbackAnchor: fallback) === buttonAnchor
         )
 
         buttonAnchor.isHidden = true
-        XCTAssertTrue(
+        checkTrue(
             preferredNotificationsPopoverAnchor(buttonAnchor: buttonAnchor, fallbackAnchor: fallback) === fallback
         )
     }
 
+    @Test
     func testPreferredPopoverAnchorRejectsButtonAnchorFromDifferentWindow() {
         let sourceWindow = NSWindow(
             contentRect: NSRect(x: 0, y: 0, width: 220, height: 80),
@@ -517,7 +665,7 @@ final class NotificationsPopoverAnchorPolicyTests: XCTestCase {
         defer { otherWindow.orderOut(nil) }
         guard let sourceContentView = sourceWindow.contentView,
               let otherContentView = otherWindow.contentView else {
-            XCTFail("Expected content views")
+            Issue.record("Expected content views")
             return
         }
 
@@ -526,11 +674,12 @@ final class NotificationsPopoverAnchorPolicyTests: XCTestCase {
         sourceContentView.addSubview(fallback)
         otherContentView.addSubview(buttonAnchor)
 
-        XCTAssertTrue(
+        checkTrue(
             preferredNotificationsPopoverAnchor(buttonAnchor: buttonAnchor, fallbackAnchor: fallback) === fallback
         )
     }
 
+    @Test
     func testNotificationAnchorRegistryFindsNearestVisibleButtonAnchor() {
         let window = NSWindow(
             contentRect: NSRect(x: 0, y: 0, width: 260, height: 100),
@@ -540,7 +689,7 @@ final class NotificationsPopoverAnchorPolicyTests: XCTestCase {
         )
         defer { window.orderOut(nil) }
         guard let contentView = window.contentView else {
-            XCTFail("Expected content view")
+            Issue.record("Expected content view")
             return
         }
 
@@ -552,145 +701,13 @@ final class NotificationsPopoverAnchorPolicyTests: XCTestCase {
         NotificationsAnchorRegistry.shared.register(plusAnchor)
 
         let pointNearBell = NSPoint(x: bellAnchor.frame.midX + 2, y: bellAnchor.frame.midY)
-        XCTAssertTrue(
+        checkTrue(
             NotificationsAnchorRegistry.shared.closestAnchor(in: window, to: pointNearBell) === bellAnchor
         )
 
         bellAnchor.isHidden = true
-        XCTAssertTrue(
+        checkTrue(
             NotificationsAnchorRegistry.shared.closestAnchor(in: window, to: pointNearBell) === plusAnchor
         )
-    }
-}
-
-final class AppIconAppearanceObserverTests: XCTestCase {
-    private final class ObservationToken: AppIconAppearanceObservation {
-        private(set) var invalidateCallCount = 0
-
-        func invalidate() {
-            invalidateCallCount += 1
-        }
-    }
-
-    private final class Harness {
-        var isFinishedLaunching = false
-        var isDark = false
-        var startObservationCallCount = 0
-        var currentAppearanceIsDarkCallCount = 0
-        var imageRequests: [String] = []
-        var appliedIconCount = 0
-        var didFinishLaunchingObserverCount = 0
-        private(set) var didFinishLaunchingHandler: (() -> Void)?
-        private(set) var appearanceHandler: (() -> Void)?
-        let observation = ObservationToken()
-
-        lazy var environment = AppIconAppearanceObserver.Environment(
-            isApplicationFinishedLaunching: { [unowned self] in
-                self.isFinishedLaunching
-            },
-            startEffectiveAppearanceObservation: { [unowned self] handler in
-                self.startObservationCallCount += 1
-                self.appearanceHandler = handler
-                return self.observation
-            },
-            addDidFinishLaunchingObserver: { [unowned self] handler in
-                self.didFinishLaunchingObserverCount += 1
-                self.didFinishLaunchingHandler = handler
-                return NSObject()
-            },
-            removeObserver: { _ in },
-            currentAppearanceIsDark: { [unowned self] in
-                self.currentAppearanceIsDarkCallCount += 1
-                return self.isDark
-            },
-            imageForName: { [unowned self] imageName in
-                self.imageRequests.append(imageName)
-                return NSImage(size: NSSize(width: 1, height: 1))
-            },
-            setApplicationIconImage: { [unowned self] _ in
-                self.appliedIconCount += 1
-            }
-        )
-
-        func fireDidFinishLaunching() {
-            didFinishLaunchingHandler?()
-        }
-
-        func fireAppearanceChanged() {
-            appearanceHandler?()
-        }
-    }
-
-    func testStartObservingDefersInitialApplyUntilLaunch() {
-        let harness = Harness()
-        let observer = AppIconAppearanceObserver(environment: harness.environment)
-
-        observer.startObserving()
-
-        XCTAssertEqual(harness.didFinishLaunchingObserverCount, 1)
-        XCTAssertEqual(harness.startObservationCallCount, 0)
-        XCTAssertEqual(harness.currentAppearanceIsDarkCallCount, 0)
-        XCTAssertTrue(harness.imageRequests.isEmpty)
-
-        harness.isFinishedLaunching = true
-        harness.fireDidFinishLaunching()
-
-        XCTAssertEqual(harness.startObservationCallCount, 1)
-        XCTAssertEqual(harness.currentAppearanceIsDarkCallCount, 1)
-        XCTAssertEqual(harness.imageRequests, ["AppIconLight"])
-        XCTAssertEqual(harness.appliedIconCount, 1)
-    }
-
-    func testStopObservingCancelsDeferredLaunchApply() {
-        let harness = Harness()
-        let observer = AppIconAppearanceObserver(environment: harness.environment)
-
-        observer.startObserving()
-        observer.stopObserving()
-        harness.isFinishedLaunching = true
-        harness.fireDidFinishLaunching()
-
-        XCTAssertEqual(harness.startObservationCallCount, 0)
-        XCTAssertEqual(harness.currentAppearanceIsDarkCallCount, 0)
-        XCTAssertTrue(harness.imageRequests.isEmpty)
-        XCTAssertEqual(harness.appliedIconCount, 0)
-    }
-
-    func testStopObservingInvalidatesActiveObservation() {
-        let harness = Harness()
-        harness.isFinishedLaunching = true
-        let observer = AppIconAppearanceObserver(environment: harness.environment)
-
-        observer.startObserving()
-        observer.stopObserving()
-
-        XCTAssertEqual(harness.startObservationCallCount, 1)
-        XCTAssertEqual(harness.observation.invalidateCallCount, 1)
-    }
-
-    func testUnchangedAutomaticAppearanceDoesNotReapplyIcon() {
-        let harness = Harness()
-        harness.isFinishedLaunching = true
-        let observer = AppIconAppearanceObserver(environment: harness.environment)
-
-        observer.startObserving()
-        harness.fireAppearanceChanged()
-
-        XCTAssertEqual(harness.currentAppearanceIsDarkCallCount, 2)
-        XCTAssertEqual(harness.imageRequests, ["AppIconLight"])
-        XCTAssertEqual(harness.appliedIconCount, 1)
-    }
-
-    func testAutomaticAppearanceChangeAppliesNewIcon() {
-        let harness = Harness()
-        harness.isFinishedLaunching = true
-        let observer = AppIconAppearanceObserver(environment: harness.environment)
-
-        observer.startObserving()
-        harness.isDark = true
-        harness.fireAppearanceChanged()
-
-        XCTAssertEqual(harness.imageRequests, ["AppIconLight", "AppIconDark"])
-        XCTAssertEqual(harness.appliedIconCount, 2)
     }
 }

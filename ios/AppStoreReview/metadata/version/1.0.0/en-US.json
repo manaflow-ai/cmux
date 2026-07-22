@@ -1,0 +1,6 @@
+{
+  "description": "cmux for iPhone and iPad is the mobile companion to cmux on macOS. Connect to a Mac you control to view workspaces, monitor terminal sessions, send terminal input, and receive opt-in notifications while away from your desk.\n\nA Mac running cmux is required. During App Review, use the demo account and prepared review Mac provided in Review Information. Pair through the in-app Add Computer flow, open the App Review workspace, and send echo app-review-ok.\n\ncmux does not sell digital goods in the iOS app. Existing account entitlements are displayed without purchase or upgrade links.",
+  "keywords": "terminal,mac,remote,developer,workspace,ssh,command line,notifications,companion",
+  "marketingUrl": "https://cmux.com",
+  "supportUrl": "https://cmux.com/docs"
+}

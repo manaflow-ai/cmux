@@ -196,14 +196,14 @@ extension TerminalController {
             if let requestedTerminalID, terminal.id != requestedTerminalID {
                 return nil
             }
+            let terminalDirectory = workspace.effectivePanelDirectory(
+                panelId: terminal.id,
+                localFallback: mobileNonEmpty(terminal.directory) ?? mobileNonEmpty(terminal.requestedWorkingDirectory)
+            )
             return [
                 "id": terminal.id.uuidString,
                 "title": workspace.panelTitle(panelId: terminal.id) ?? terminal.displayTitle,
-                "current_directory": v2OrNull(
-                    mobileNonEmpty(workspace.panelDirectories[terminal.id])
-                        ?? mobileNonEmpty(terminal.directory)
-                        ?? mobileNonEmpty(terminal.requestedWorkingDirectory)
-                ),
+                "current_directory": v2OrNull(terminalDirectory),
                 "is_ready": terminal.surface.surface != nil,
                 "is_focused": terminal.id == workspace.focusedPanelId
             ]
@@ -216,7 +216,7 @@ extension TerminalController {
             "id": workspace.id.uuidString,
             "window_id": v2OrNull(windowID?.uuidString),
             "title": workspace.title,
-            "current_directory": v2OrNull(mobileNonEmpty(workspace.currentDirectory)),
+            "current_directory": v2OrNull(workspace.presentedCurrentDirectory),
             "is_selected": isSelected,
             "is_pinned": workspace.isPinned,
             // Group membership so the phone can fold contiguous same-group

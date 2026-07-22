@@ -1,5 +1,4 @@
 import CMUXMobileCore
-import CmuxSettings
 import Foundation
 #if canImport(Security)
 import Security
@@ -10,6 +9,8 @@ enum MobileAttachTicketStoreError: Error {
     case routeUnavailable
     case invalidAttachURL
 }
+
+extension MobileAttachTicketStoreError: Equatable {}
 
 final class MobileAttachTicketStore {
     private struct Record {
@@ -46,7 +47,7 @@ final class MobileAttachTicketStore {
             workspaceID: workspaceID,
             terminalID: terminalID,
             macDeviceID: MobileHostIdentity.deviceID(),
-            macDisplayName: MobileHostIdentity.displayName(),
+            macDisplayName: MobileHostIdentity.instanceDisplayName(),
             macUserEmail: macUserEmail,
             macUserID: macUserID,
             macPairingCompatibilityVersion: macPairingCompatibilityVersion,
@@ -62,12 +63,35 @@ final class MobileAttachTicketStore {
         return ticket
     }
 
-    func payload(for ticket: CmxAttachTicket) throws -> [String: Any] {
+    func payload(
+        for ticket: CmxAttachTicket,
+        routeDisclosureMode: CmxPairingRouteDisclosureMode = .legacyPrivateNetworkCompatibility,
+        target: MobileAttachTarget? = nil,
+        now: Date = Date()
+    ) throws -> [String: Any] {
+        let disclosedTicket = try ticket.authenticatedDisclosure(at: now)
         var payload: [String: Any] = [
-            "ticket": try Self.jsonObject(ticket),
-            "attach_url": try attachURL(for: ticket).absoluteString,
-            "routes": ticket.routes.map(\.mobileHostJSONObject)
+            "ticket": try Self.jsonObject(disclosedTicket),
+            "routes": disclosedTicket.routes.mobileHostJSONObjects(
+                for: .authenticated,
+                at: now
+            )
         ]
+        switch target {
+        case nil:
+            payload["attach_url"] = try attachURL(
+                for: disclosedTicket,
+                routeDisclosureMode: routeDisclosureMode
+            ).absoluteString
+        case .ticketOnly:
+            break
+        case .some(let target):
+            payload["attach_url"] = try attachURL(
+                for: disclosedTicket,
+                target: target,
+                routeDisclosureMode: routeDisclosureMode
+            ).absoluteString
+        }
         // `expires_at` describes the minted attach token's lifetime (tickets
         // from `createTicket` always carry one). The QR payload itself encodes
         // no expiry; a displayed pairing code never goes stale.
@@ -128,25 +152,37 @@ final class MobileAttachTicketStore {
         recordsByAuthToken[authToken] = record
     }
 
-    private func attachURL(for ticket: CmxAttachTicket) throws -> URL {
-        // Preferred form: the minimal v2 pairing-code grammar — bare Tailscale
-        // `host:port` routes in the URL query, nothing else. Everything the
-        // older grammars carried has a better channel: the auth token never
-        // authorized anything (the owner's Stack access token is the host's
-        // sole gate, `MobileHostService.authorizationError(for:)`), the
-        // display name and device id arrive post-handshake from
-        // `mobile.host.status`, and a pairing QR never expires. A DEBUG Mac's
-        // dev loopback route is dropped outright (a scanned code must never
-        // point a phone at itself). The much shorter plain-text URL also
-        // drops the QR several versions, so the code scans faster.
-        if let pairingURL = CmxPairingQRCode().encode(ticket), let url = URL(string: pairingURL) {
+    private func attachURL(
+        for ticket: CmxAttachTicket,
+        routeDisclosureMode: CmxPairingRouteDisclosureMode
+    ) throws -> URL {
+        // Frozen iOS builds predate either the compact short-key v1 payload or
+        // the bare-route v2 grammar. Give those clients the original full-key
+        // v1 ticket, restricted to Tailscale and stripped of its attach token.
+        // New/default pairing requests `.irohIdentityOnly`, so this branch
+        // never changes the EndpointID-only Iroh representation.
+        if routeDisclosureMode == .legacyPrivateNetworkCompatibility,
+           ticket.routes.contains(where: { $0.kind == .tailscale }) {
+            guard let url = try CmxLegacyPrivateNetworkPairingCode().encode(ticket) else {
+                throw MobileAttachTicketStoreError.invalidAttachURL
+            }
+            return url
+        }
+
+        if let pairingURL = CmxPairingQRCode().encode(
+            ticket,
+            routeDisclosureMode: routeDisclosureMode
+        ), let url = URL(string: pairingURL) {
             return url
         }
         // Fallback for tickets the minimal grammar cannot express (workspace-
         // scoped, custom routes, loopback-only dev tickets): the compact
         // short-key v1 payload. The full ticket (including the token) still
         // rides in `payload(for:)["ticket"]` for RPC consumers.
-        let data = try CmxAttachTicketCompactCoder().encode(ticket)
+        let data = try CmxAttachTicketCompactCoder().encode(
+            ticket,
+            routeDisclosureMode: routeDisclosureMode
+        )
         let payload = Self.base64URLEncode(data)
         // Channel-specific scheme (see ``CmxPairingURLScheme``): the v1 fallback
         // QR must open the matching iOS channel just like the v2 path in
@@ -156,6 +192,85 @@ final class MobileAttachTicketStore {
             throw MobileAttachTicketStoreError.invalidAttachURL
         }
         return url
+    }
+
+    private func attachURL(
+        for ticket: CmxAttachTicket,
+        target: MobileAttachTarget,
+        routeDisclosureMode _: CmxPairingRouteDisclosureMode
+    ) throws -> URL {
+        switch target {
+        case .ticketOnly:
+            throw MobileAttachTicketStoreError.invalidAttachURL
+        case .simulatorInjection:
+            if Self.hasOnlyIdentityOnlyIrohRoutes(ticket.routes) {
+                return try compactAttachURL(
+                    for: ticket,
+                    routeDisclosureMode: .irohIdentityOnly
+                )
+            }
+            guard ticket.routes.allSatisfy({
+                $0.kind == .debugLoopback && CmxLoopbackHost().matches($0)
+            }) else {
+                throw MobileAttachTicketStoreError.invalidAttachURL
+            }
+            return try compactAttachURL(
+                for: ticket,
+                routeDisclosureMode: .legacyPrivateNetworkCompatibility
+            )
+        case .physicalDevice:
+            if Self.hasOnlyIdentityOnlyIrohRoutes(ticket.routes) {
+                return try compactAttachURL(
+                    for: ticket,
+                    routeDisclosureMode: .irohIdentityOnly
+                )
+            }
+            guard ticket.routes.allSatisfy({
+                $0.kind == .tailscale && !CmxLoopbackHost().matches($0)
+            }),
+            let pairingURL = CmxPairingQRCode().encode(
+                ticket,
+                routeDisclosureMode: .legacyPrivateNetworkCompatibility
+            ),
+            let url = URL(string: pairingURL),
+            let components = URLComponents(url: url, resolvingAgainstBaseURL: false),
+            let decoded = try? CmxPairingQRCode().decode(components),
+            decoded.routes == ticket.routes else {
+                throw MobileAttachTicketStoreError.invalidAttachURL
+            }
+            return url
+        }
+    }
+
+    private func compactAttachURL(
+        for ticket: CmxAttachTicket,
+        routeDisclosureMode: CmxPairingRouteDisclosureMode
+    ) throws -> URL {
+        let coder = CmxAttachTicketCompactCoder()
+        let data = try coder.encode(
+            ticket,
+            routeDisclosureMode: routeDisclosureMode
+        )
+        let payload = Self.base64URLEncode(data)
+        guard let url = URL(
+            string: "\(CmxPairingURLScheme.current)://attach?v=\(ticket.version)&payload=\(payload)"
+        ),
+        let decoded = try? coder.decode(data),
+        decoded.routes == ticket.routes,
+        decoded.authToken == nil else {
+            throw MobileAttachTicketStoreError.invalidAttachURL
+        }
+        return url
+    }
+
+    private static func hasOnlyIdentityOnlyIrohRoutes(_ routes: [CmxAttachRoute]) -> Bool {
+        !routes.isEmpty && routes.allSatisfy { route in
+            guard route.kind == .iroh,
+                  case let .peer(_, pathHints) = route.endpoint else {
+                return false
+            }
+            return pathHints.isEmpty
+        }
     }
 
     private func pruneExpired(now: Date) {
@@ -194,127 +309,4 @@ struct MobileAttachTicketAuthorization {
     let ticket: CmxAttachTicket
     let createdWorkspaceIDs: Set<String>
     let createdTerminalIDs: Set<String>
-}
-
-enum MobileHostIdentity {
-    private static let deviceIDKey = "mobileHost.deviceID"
-    private static let sharedDeviceIDFileName = "mobile-host-device-id"
-    private static let stableBundleIdentifier = "com.cmuxterm.app"
-
-    static func deviceID() -> String {
-        let stableDefaults = Bundle.main.bundleIdentifier == stableBundleIdentifier
-            ? nil
-            : UserDefaults(suiteName: stableBundleIdentifier)
-        return deviceID(
-            defaults: .standard,
-            sharedIDURL: defaultSharedDeviceIDURL(),
-            stableDefaults: stableDefaults,
-            bundleIdentifier: Bundle.main.bundleIdentifier
-        )
-    }
-
-    static func deviceID(
-        defaults: UserDefaults,
-        sharedIDURL: URL?,
-        stableDefaults: UserDefaults? = nil,
-        bundleIdentifier: String? = Bundle.main.bundleIdentifier
-    ) -> String {
-        if let id = readSharedDeviceID(from: sharedIDURL) {
-            defaults.set(id, forKey: deviceIDKey)
-            return id
-        }
-
-        if shouldPreferStableDefaults(bundleIdentifier: bundleIdentifier),
-           let id = normalizedID(stableDefaults?.string(forKey: deviceIDKey)) {
-            return settleSharedDeviceID(id, defaults: defaults, sharedIDURL: sharedIDURL)
-        }
-
-        if let id = normalizedID(defaults.string(forKey: deviceIDKey)) {
-            return settleSharedDeviceID(id, defaults: defaults, sharedIDURL: sharedIDURL)
-        }
-
-        let generated = UUID().uuidString
-        return settleSharedDeviceID(generated, defaults: defaults, sharedIDURL: sharedIDURL)
-    }
-
-    private static func defaultSharedDeviceIDURL(fileManager: FileManager = .default) -> URL? {
-        guard let appSupport = try? fileManager.url(
-            for: .applicationSupportDirectory,
-            in: .userDomainMask,
-            appropriateFor: nil,
-            create: true
-        ) else {
-            return nil
-        }
-        let directory = appSupport.appendingPathComponent("cmux", isDirectory: true)
-        if !fileManager.fileExists(atPath: directory.path) {
-            try? fileManager.createDirectory(at: directory, withIntermediateDirectories: true)
-        }
-        return directory.appendingPathComponent(sharedDeviceIDFileName)
-    }
-
-    private static func shouldPreferStableDefaults(bundleIdentifier: String?) -> Bool {
-        guard let bundleIdentifier,
-              !bundleIdentifier.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty else {
-            return false
-        }
-        return bundleIdentifier != stableBundleIdentifier
-    }
-
-    private static func normalizedID(_ value: String?) -> String? {
-        let trimmed = value?.trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
-        guard let uuid = UUID(uuidString: trimmed) else { return nil }
-        return uuid.uuidString
-    }
-
-    private static func readSharedDeviceID(from url: URL?) -> String? {
-        guard let url,
-              let existing = try? String(contentsOf: url, encoding: .utf8) else {
-            return nil
-        }
-        return normalizedID(existing)
-    }
-
-    private static func settleSharedDeviceID(_ candidate: String, defaults: UserDefaults, sharedIDURL: URL?) -> String {
-        guard let sharedIDURL else {
-            defaults.set(candidate, forKey: deviceIDKey)
-            return candidate
-        }
-        try? FileManager.default.createDirectory(
-            at: sharedIDURL.deletingLastPathComponent(),
-            withIntermediateDirectories: true
-        )
-        let data = Data(candidate.utf8)
-        if !FileManager.default.createFile(atPath: sharedIDURL.path, contents: data) {
-            if let winner = readSharedDeviceID(from: sharedIDURL) {
-                defaults.set(winner, forKey: deviceIDKey)
-                return winner
-            }
-            try? data.write(to: sharedIDURL, options: .atomic)
-        }
-        let settled = readSharedDeviceID(from: sharedIDURL) ?? candidate
-        defaults.set(settled, forKey: deviceIDKey)
-        return settled
-    }
-
-    static func displayName() -> String? {
-        displayName(defaults: .standard)
-    }
-
-    /// The name the iOS app shows for this Mac during pairing.
-    ///
-    /// Uses the user's override from
-    /// ``SettingCatalog/mobile``.`iOSPairingDisplayName` when it is set to a
-    /// non-empty value, otherwise falls back to the Mac's name from System
-    /// Settings (`Host.current().localizedName`).
-    static func displayName(defaults: UserDefaults) -> String? {
-        let key = SettingCatalog().mobile.iOSPairingDisplayName.userDefaultsKey
-        if let override = defaults.string(forKey: key) {
-            let trimmed = override.trimmingCharacters(in: .whitespacesAndNewlines)
-            if !trimmed.isEmpty {
-                return trimmed
-            }
-        }
-        return Host.current().localizedName
-    }
 }

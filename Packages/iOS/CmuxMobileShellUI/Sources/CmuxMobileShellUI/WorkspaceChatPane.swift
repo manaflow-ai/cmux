@@ -26,6 +26,8 @@ struct WorkspaceChatPane: View {
 
     @State private var accessoryConfiguration = TerminalAccessoryConfiguration.shared
     @State private var isShowingShortcutSettings = false
+    @State private var artifactThumbnailCache = ChatArtifactThumbnailCache()
+    @State private var cachedArtifactLoader: CachedArtifactLoader?
 
     var body: some View {
         Group {
@@ -38,10 +40,41 @@ struct WorkspaceChatPane: View {
                 runsStoreTask: false,
                 onOpenTerminal: openTerminal
             )
+            .environment(\.chatArtifactLoader, artifactLoader)
         }
         .sheet(isPresented: $isShowingShortcutSettings) {
             TerminalShortcutsSettingsView(scope: .agentChat)
         }
+        .task(id: artifactLoaderKey) {
+            cachedArtifactLoader = CachedArtifactLoader(
+                key: artifactLoaderKey,
+                loader: makeArtifactLoader(for: artifactLoaderKey)
+            )
+        }
+    }
+
+    private var artifactLoader: ChatArtifactLoader {
+        let key = artifactLoaderKey
+        if let cachedArtifactLoader, cachedArtifactLoader.key == key {
+            return cachedArtifactLoader.loader
+        }
+        return .unsupported(cache: artifactThumbnailCache)
+    }
+
+    private var artifactLoaderKey: ArtifactLoaderKey {
+        ArtifactLoaderKey(
+            sessionID: session.id,
+            supportsArtifacts: store.supportsChatArtifacts
+        )
+    }
+
+    private func makeArtifactLoader(for key: ArtifactLoaderKey) -> ChatArtifactLoader {
+        guard key.supportsArtifacts,
+              let source = store.makeChatEventSource()
+        else {
+            return .unsupported(cache: artifactThumbnailCache)
+        }
+        return ChatArtifactLoader(source: source, sessionID: key.sessionID, cache: artifactThumbnailCache)
     }
 
     /// The escape hatch: select the session's terminal surface, then leave
@@ -182,4 +215,15 @@ struct WorkspaceChatPane: View {
         return symbolName
     }
 }
+
+private struct ArtifactLoaderKey: Equatable, Hashable {
+    let sessionID: String
+    let supportsArtifacts: Bool
+}
+
+private struct CachedArtifactLoader {
+    let key: ArtifactLoaderKey
+    let loader: ChatArtifactLoader
+}
+
 #endif

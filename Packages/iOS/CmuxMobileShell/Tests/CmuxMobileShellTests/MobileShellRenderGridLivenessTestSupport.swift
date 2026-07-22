@@ -9,41 +9,6 @@ import Testing
 // (MobileShellRenderGridLivenessTests.swift): injected clock, scripted
 // host router, transport mocks, and the connected-store builder.
 
-// MARK: - Injected clock
-
-final class TestClock: @unchecked Sendable {
-    private let lock = NSLock()
-    private var current: Date
-
-    init() {
-        current = Date()
-    }
-
-    var now: Date {
-        lock.withLock { current }
-    }
-
-    func advance(by interval: TimeInterval) {
-        lock.withLock { current = current.addingTimeInterval(interval) }
-    }
-}
-
-// MARK: - Runtime double
-
-struct LivenessTestRuntime: MobileSyncRuntime {
-    var transportFactory: any CmxByteTransportFactory
-    var stackAccessTokenProvider: @Sendable () async throws -> String = { "test-stack-token" }
-    var stackAccessTokenForceRefresher: @Sendable () async throws -> String = { "test-stack-token" }
-    var rpcRequestTimeoutNanoseconds: UInt64 = 30 * 1_000_000_000
-    var now: @Sendable () -> Date
-    var supportedRouteKinds: [CmxAttachTransportKind] = [.debugLoopback]
-    var pairingRequestTimeoutNanoseconds: UInt64 = 30 * 1_000_000_000
-    var supportsServerPushEvents: Bool = true
-    /// Bounded deadline for the watchdog's host liveness probe. Short here so
-    /// the dead-stream test does not wait the production default.
-    var livenessProbeTimeoutNanoseconds: UInt64 = 200_000_000
-}
-
 // MARK: - Scripted host (router + transport)
 
 /// Scripts the Mac side of the persistent RPC connection: answers the
@@ -56,6 +21,7 @@ actor LivenessHostRouter {
     struct RecordedRequest: Sendable {
         var method: String?
         var topics: [String]?
+        var workspaceID: String?
     }
 
     private var recorded: [RecordedRequest] = []
@@ -67,6 +33,8 @@ actor LivenessHostRouter {
     )] = []
     private var hostStatusRequestCount = 0
     private var heldHostStatusRequestNumbers: Set<Int> = []
+    private var workspaceListRequestCount = 0
+    private var heldWorkspaceListRequestNumbers: Set<Int> = []
     private var subscribeRequestCount = 0
     private var heldSubscribeRequestNumbers: Set<Int> = []
     private var holdSubscribe = false
@@ -79,13 +47,43 @@ actor LivenessHostRouter {
     private var hasActiveSubscription = false
     private var heldContinuations: [CheckedContinuation<Void, Never>] = []
     private var capabilities = ["events.v1", "terminal.bytes.v1", "terminal.render_grid.v1", "terminal.replay.v1"]
+    // This router models the current authenticated Mac host by default. Tests
+    // for legacy identity omission opt out explicitly via `setHostIdentity`.
+    // Supplying the matching instance identity also keeps unrelated liveness
+    // tests from exercising the one-shot legacy identity recovery request.
+    private var macDeviceID: String? = "test-mac"
+    private var macInstanceTag: String? = "default"
+    private var macDisplayName: String? = "Test Mac"
+    private var workspaceListResponseHook: (@Sendable () -> Void)?
+    /// FIFO of scripted `mobile.sync.fetch` results (state sync v2 tests).
+    private var syncFetchResults: [[String: Any]] = []
     private var replayPayloads: [(text: String?, sequence: UInt64?, renderGrid: MobileTerminalRenderGridFrame?)] = []
     private var replayTexts: [String] = []
     private var replayFailuresRemaining = 0
     private var emptyReplayResponsesRemaining = 0; private var viewportEffectiveGridOverride: LivenessViewportReport?; private var emptyViewportResponsesRemaining = 0
 
-    func record(method: String?, topics: [String]?) {
-        recorded.append(RecordedRequest(method: method, topics: topics))
+    /// Scripts the next `mobile.sync.fetch` answer (state sync v2 tests). The
+    /// payload crosses the actor boundary as encoded JSON so the test-side
+    /// builder can use `JSONSerialization` freely without Sendable friction.
+    func scriptSyncFetchResult(jsonData: Data) {
+        guard let object = (try? JSONSerialization.jsonObject(with: jsonData)) as? [String: Any] else {
+            return
+        }
+        syncFetchResults.append(object)
+    }
+
+    /// Scripts the next `mobile.sync.fetch` to fail with a transient (non
+    /// method_not_found) error, modeling a timeout/decoding failure mid-repair.
+    func scriptSyncFetchTransientError() {
+        syncFetchResults.append(["__transient_error__": true])
+    }
+
+    func record(method: String?, topics: [String]?, workspaceID: String? = nil) {
+        recorded.append(RecordedRequest(
+            method: method,
+            topics: topics,
+            workspaceID: workspaceID
+        ))
         resumeSatisfiedCountWaiters()
     }
 
@@ -178,8 +176,22 @@ actor LivenessHostRouter {
         }
     }
 
+    func workspaceIDs(for method: String) -> [String?] {
+        recorded.filter { $0.method == method }.map(\.workspaceID)
+    }
+
     func setCapabilities(_ capabilities: [String]) {
         self.capabilities = capabilities
+    }
+
+    func setHostIdentity(deviceID: String?, instanceTag: String?, displayName: String? = nil) {
+        macDeviceID = deviceID
+        macInstanceTag = instanceTag
+        macDisplayName = displayName
+    }
+
+    func setWorkspaceListResponseHook(_ hook: @escaping @Sendable () -> Void) {
+        workspaceListResponseHook = hook
     }
 
     func enqueueReplayTexts(_ texts: [String]) {
@@ -217,6 +229,12 @@ actor LivenessHostRouter {
     /// a host that stopped answering on a half-dead transport.
     func holdHostStatusRequest(number: Int) {
         heldHostStatusRequestNumbers.insert(number)
+    }
+
+    /// Hold the Nth workspace-list response so tests can change persisted
+    /// per-Mac authority while a secondary snapshot is in flight.
+    func holdWorkspaceListRequest(number: Int) {
+        heldWorkspaceListRequestNumbers.insert(number)
     }
 
     /// Hold the Nth `mobile.events.subscribe` request (1-based) forever,
@@ -257,20 +275,26 @@ actor LivenessHostRouter {
     func releaseAllHeld() {
         holdSubscribe = false
         heldHostStatusRequestNumbers = []
+        heldWorkspaceListRequestNumbers = []
         heldSubscribeRequestNumbers = []
         heldReplayRequestNumbers = []
         heldReplayResponsesRemaining = 0
         heldViewportRequestNumbers = []
         let continuations = heldContinuations
         heldContinuations = []
-        for continuation in continuations {
-            continuation.resume()
-        }
+        for continuation in continuations { continuation.resume() }
     }
 
     func response(method: String?, id: String?, viewportReport: LivenessViewportReport? = nil) async -> Data? {
         switch method {
+        case "mobile.attach_ticket.create":
+            return try? Self.resultFrame(id: id, result: ["ticket": Self.attachTicketObject()])
         case "workspace.list", "mobile.workspace.list":
+            workspaceListRequestCount += 1
+            if heldWorkspaceListRequestNumbers.contains(workspaceListRequestCount) {
+                await park()
+            }
+            workspaceListResponseHook?()
             return try? Self.resultFrame(id: id, result: [
                 "workspaces": [
                     [
@@ -296,10 +320,14 @@ actor LivenessHostRouter {
                 await park()
                 return nil
             }
-            return try? Self.resultFrame(id: id, result: [
+            var result: [String: Any] = [
                 "terminal_fidelity": "render_grid",
                 "capabilities": capabilities,
-            ])
+            ]
+            if let macDeviceID { result["mac_device_id"] = macDeviceID }
+            if let macInstanceTag { result["mac_instance_tag"] = macInstanceTag }
+            if let macDisplayName { result["mac_display_name"] = macDisplayName }
+            return try? Self.resultFrame(id: id, result: result)
         case "mobile.events.subscribe":
             subscribeRequestCount += 1
             if holdSubscribe || heldSubscribeRequestNumbers.contains(subscribeRequestCount) {
@@ -361,6 +389,18 @@ actor LivenessHostRouter {
             ])
         case "mobile.events.unsubscribe":
             return try? Self.resultFrame(id: id, result: [:])
+        case "mobile.sync.fetch":
+            // Unscripted routers model a legacy Mac: the real host answers an
+            // unknown method with `method_not_found`, which the shell treats
+            // as "stay on the workspace.updated refetch loop".
+            guard !syncFetchResults.isEmpty else {
+                return try? Self.errorFrame(id: id, code: "method_not_found", message: "Unknown mobile method")
+            }
+            let scripted = syncFetchResults.removeFirst()
+            if scripted["__transient_error__"] as? Bool == true {
+                return try? Self.errorFrame(id: id, message: "scripted transient sync failure")
+            }
+            return try? Self.resultFrame(id: id, result: scripted)
         case "mobile.terminal.viewport":
             viewportRequestCount += 1
             if heldViewportRequestNumbers.contains(viewportRequestCount) {
@@ -397,11 +437,13 @@ actor LivenessHostRouter {
         return try MobileSyncFrameCodec.encodeFrame(JSONSerialization.data(withJSONObject: envelope))
     }
 
-    private static func errorFrame(id: String?, message: String) throws -> Data {
+    private static func errorFrame(id: String?, code: String? = nil, message: String) throws -> Data {
+        var error: [String: Any] = ["message": message]
+        if let code { error["code"] = code }
         let envelope: [String: Any] = [
             "id": id ?? UUID().uuidString,
             "ok": false,
-            "error": ["message": message],
+            "error": error,
         ]
         return try MobileSyncFrameCodec.encodeFrame(JSONSerialization.data(withJSONObject: envelope))
     }
@@ -458,6 +500,7 @@ actor LivenessTransport: CmxByteTransport {
     }
 
     func send(_ data: Data) async throws {
+        guard !isClosed else { throw MobileShellConnectionError.connectionClosed }
         var buffer = data
         let payloads = try MobileSyncFrameCodec.decodeFrames(from: &buffer)
         for payload in payloads {
@@ -474,7 +517,11 @@ actor LivenessTransport: CmxByteTransport {
                 }
                 return LivenessViewportReport(columns: columns, rows: rows)
             }()
-            await router.record(method: method, topics: topics)
+            await router.record(
+                method: method,
+                topics: topics,
+                workspaceID: params?["workspace_id"] as? String
+            )
             // Answer each request concurrently so one held response cannot
             // head-of-line block later RPCs, matching the Mac host's
             // per-frame response tasks.

@@ -25,6 +25,8 @@ public struct ControlSurfaceSplitInputs: Sendable, Equatable {
     public let tmuxStartCommand: String?
     /// The trimmed-non-empty `remote_pty_session_id`, or `nil`.
     public let remotePTYSessionID: String?
+    /// The raw `remote_context` token (`inherit`/`local`/`cloud`), or `nil`.
+    public let remoteContextRaw: String?
     /// The startup environment (`startup_environment`/`initial_env`), `[:]` if none.
     public let startupEnvironment: [String: String]
     /// Options the caller already knows a routed remote tmux split cannot honor.
@@ -44,6 +46,7 @@ public struct ControlSurfaceSplitInputs: Sendable, Equatable {
         initialCommand: String?,
         tmuxStartCommand: String?,
         remotePTYSessionID: String?,
+        remoteContextRaw: String?,
         startupEnvironment: [String: String],
         clientUnsupportedRemoteTmuxOptions: [String],
         requestedFocus: Bool,
@@ -57,6 +60,7 @@ public struct ControlSurfaceSplitInputs: Sendable, Equatable {
         self.initialCommand = initialCommand
         self.tmuxStartCommand = tmuxStartCommand
         self.remotePTYSessionID = remotePTYSessionID
+        self.remoteContextRaw = remoteContextRaw
         self.startupEnvironment = startupEnvironment
         self.clientUnsupportedRemoteTmuxOptions = clientUnsupportedRemoteTmuxOptions
         self.requestedFocus = requestedFocus

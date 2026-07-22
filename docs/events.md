@@ -285,7 +285,8 @@ Surface and pane:
 | `pane.created` | Pane created. |
 | `pane.closed` | Pane closed. |
 | `pane.focused` | Focused pane changed for a workspace. Fires for pane clicks, split focus, `focus-pane`, `last-pane`, and selection convergence after close/move. |
-| `pane.resized` | Pane resized. |
+| `pane.resized` | Local pane resize applied. |
+| `pane.resize_requested` | Remote tmux pane resize accepted for asynchronous application. |
 | `pane.swapped` | Two panes swapped. |
 | `pane.broken` | Pane broken into a new workspace. |
 | `pane.joined` | Pane joined into another pane. |

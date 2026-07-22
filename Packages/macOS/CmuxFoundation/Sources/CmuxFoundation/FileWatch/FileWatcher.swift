@@ -1,5 +1,23 @@
 import Foundation
 
+/// Sendable ownership boundary around Dispatch's non-Sendable filesystem source.
+/// The actor remains the sole mutator while deinit can safely request cancellation.
+private final class FileWatchDispatchSource: @unchecked Sendable {
+    private let source: any DispatchSourceFileSystemObject
+
+    init(_ source: any DispatchSourceFileSystemObject) {
+        self.source = source
+    }
+
+    func cancel() {
+        source.cancel()
+    }
+
+    deinit {
+        source.cancel()
+    }
+}
+
 /// Watches a single file or directory for change events and exposes them as an
 /// `AsyncStream<Void>`.
 ///
@@ -50,8 +68,8 @@ public actor FileWatcher {
     private let rawContinuation: AsyncStream<Void>.Continuation
     // File-descriptor lifetime is owned by each source's `setCancelHandler`,
     // which calls `close(fd)` exactly once when the source's cancel completes.
-    private var fileSource: (any DispatchSourceFileSystemObject)?
-    private var directorySource: (any DispatchSourceFileSystemObject)?
+    private var fileSource: FileWatchDispatchSource?
+    private var directorySource: FileWatchDispatchSource?
     private var watchedDirectory: String?
     private var throttleTask: Task<Void, Never>?
     private var isStopped = false
@@ -171,7 +189,7 @@ public actor FileWatcher {
         eventMask: DispatchSource.FileSystemEvent,
         queue: DispatchQueue,
         rawContinuation: AsyncStream<Void>.Continuation
-    ) -> (any DispatchSourceFileSystemObject)? {
+    ) -> FileWatchDispatchSource? {
         let fd = open(path, O_EVTONLY)
         guard fd >= 0 else { return nil }
         let source = DispatchSource.makeFileSystemObjectSource(
@@ -182,7 +200,7 @@ public actor FileWatcher {
         source.setEventHandler { rawContinuation.yield(()) }
         source.setCancelHandler { close(fd) }
         source.resume()
-        return source
+        return FileWatchDispatchSource(source)
     }
 
     /// Reacts to a raw source event: re-evaluate which ancestor directory to

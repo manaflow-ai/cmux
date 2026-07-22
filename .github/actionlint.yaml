@@ -13,6 +13,8 @@ self-hosted-runner:
     # self-hosted runner. See check_no_self_hosted_fleet_runners.
     - depot-macos-latest
     - depot-macos-14
+    # Manual E2E canary only. Required CI remains routed through repo variables.
+    - tart-canary
     # Linux: Blacksmith primary (LINUX_RUNNER), WarpBuild overflow fallback.
     - blacksmith-4vcpu-ubuntu-2404
     - blacksmith-8vcpu-ubuntu-2404

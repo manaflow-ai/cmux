@@ -9,6 +9,8 @@ import subprocess
 import tempfile
 from pathlib import Path
 
+from node_runtime import ensure_node_on_path
+
 
 ROOT = Path(__file__).resolve().parents[1]
 WRAPPER = ROOT / "Resources" / "bin" / "cmux-claude-wrapper"
@@ -865,6 +867,9 @@ done
 
 
 def main() -> int:
+    if ensure_node_on_path() is None:
+        print("SKIP: node runtime not found; shim fakes exec node")
+        return 0
     failures: list[str] = []
     test_wrapper_stops_mutual_foreign_shim_loop(failures)
     test_wrapper_stops_node_based_foreign_shim_loop(failures)

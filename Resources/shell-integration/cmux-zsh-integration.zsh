@@ -1,13 +1,15 @@
 # cmux shell integration for zsh
 # Injected automatically — do not source manually
 
-# Prefer zsh/net/unix for socket sends (no fork, ~0.2ms per send vs ~3ms
-# for fork+exec of ncat/socat/nc).  Falls back to external tools if the
-# module is unavailable.
-typeset -g _CMUX_HAS_ZSOCKET=0
-if zmodload zsh/net/unix 2>/dev/null; then
-    _CMUX_HAS_ZSOCKET=1
-fi
+# Socket sends exec a unix-socket-capable client in a detached child. The
+# historical zsocket fast path (zmodload zsh/net/unix) never activated: that
+# module does not exist (zsocket lives in zsh/net/socket), and enabling it has
+# three known defects — its instant-exit child loses the server's live
+# peer-ancestry authorization race in cmuxOnly mode, per-connection handler
+# threads make cross-connection ordering nondeterministic unless the client
+# waits for responses, and a timeout-free blocked child can outlive its shell.
+# A future fast path needs one connection per batch plus response reads; until
+# then the external-client transport below is the only send path.
 
 typeset -g _CMUX_HAS_ZSH_JOBSTATES=0
 if zmodload zsh/parameter 2>/dev/null && (( ${+jobstates} )); then
@@ -31,14 +33,22 @@ _cmux_restore_status() {
     builtin return "$1"
 }
 
+# BSD nc at /usr/bin/nc is preferred: it always supports -U, it waits for the
+# server to process the line and close (which preserves send order across a
+# batched child and keeps the peer alive through cmuxOnly ancestry checks),
+# and -w bounds its lifetime. PATH `nc` cannot be trusted first: GNU netcat
+# (e.g. Homebrew in /usr/local/bin) lacks -U and fails silently, which dropped
+# every hook message (report_tty, ports_kick, report_shell_state) on machines
+# where it shadows the system nc.
 _cmux_send() {
     local payload="$1"
-    if (( _CMUX_HAS_ZSOCKET )); then
-        local fd
-        zsocket "$CMUX_SOCKET_PATH" 2>/dev/null || return 1
-        fd=$REPLY
-        print -u $fd -r -- "$payload" 2>/dev/null
-        exec {fd}>&- 2>/dev/null
+    if [[ -x /usr/bin/nc ]]; then
+        # Apple's nc defines -N as `num_probes` (it is not OpenBSD's no-arg
+        # shutdown-after-EOF flag), so the -N form fails option parsing; use
+        # the bounded -w form directly. nc still waits for the server to
+        # process the line and close, preserving order in a batched child and
+        # keeping the peer alive through cmuxOnly ancestry checks.
+        print -r -- "$payload" | /usr/bin/nc -w 1 -U "$CMUX_SOCKET_PATH" >/dev/null 2>&1 || true
         return 0
     fi
     if command -v ncat >/dev/null 2>&1; then
@@ -54,15 +64,26 @@ _cmux_send() {
     fi
 }
 
-# Fire-and-forget send: synchronous when zsocket is available (fast, no fork),
-# backgrounded otherwise.
+# Fire-and-forget send, always detached from the interactive shell: the
+# client's connect and response wait must never run in the foreground, or a
+# wedged cmux listener (hung app, full backlog, post-wake socket) blocks every
+# precmd/preexec hook and freezes the user's prompt. Each child self-bounds
+# via its client timeout (-w 1 / -T 1), so a wedged listener cannot
+# accumulate children beyond roughly one second's worth of sends.
+# Accepts multiple payloads: they are sent sequentially inside ONE child, so
+# callers with an ordering dependency between two messages (report_tty before
+# ports_kick) batch them instead of racing two independent children.
+# Returns nonzero when the payload was dropped (job-table saturation) so
+# callers with edge-triggered latches can leave them unset and retry.
 _cmux_send_bg() {
-    if (( _CMUX_HAS_ZSOCKET )); then
-        _cmux_send "$1"
-    else
-        _cmux_zsh_job_table_saturated && return 0
-        { _cmux_send "$1" } >/dev/null 2>&1 &!
-    fi
+    _cmux_zsh_job_table_saturated && return 1
+    {
+        local _cmux_msg
+        for _cmux_msg in "$@"; do
+            _cmux_send "$_cmux_msg"
+        done
+    } >/dev/null 2>&1 &!
+    return 0
 }
 
 _cmux_socket_is_unix() {
@@ -168,6 +189,47 @@ _cmux_report_pwd_via_relay() {
     _cmux_relay_rpc_bg "surface.report_pwd" "$params"
 }
 
+_cmux_report_git_branch_via_relay() {
+    local branch="$1"
+    _cmux_socket_uses_remote_relay || return 1
+    [[ -n "$branch" ]] || return 1
+    local workspace_id="" branch_json="" params=""
+    workspace_id="$(_cmux_relay_workspace_id)" || return 1
+    branch_json="$(_cmux_json_escape "$branch")"
+    params="{\"workspace_id\":\"$workspace_id\",\"branch\":\"$branch_json\""
+    if [[ -n "${CMUX_PANEL_ID:-}" ]]; then
+        params+=",\"surface_id\":\"$CMUX_PANEL_ID\""
+    fi
+    params+="}"
+    _cmux_relay_rpc "surface.report_git_branch" "$params"
+}
+
+_cmux_clear_git_branch_via_relay() {
+    _cmux_socket_uses_remote_relay || return 1
+    local workspace_id="" params=""
+    workspace_id="$(_cmux_relay_workspace_id)" || return 1
+    params="{\"workspace_id\":\"$workspace_id\""
+    if [[ -n "${CMUX_PANEL_ID:-}" ]]; then
+        params+=",\"surface_id\":\"$CMUX_PANEL_ID\""
+    fi
+    params+="}"
+    _cmux_relay_rpc "surface.clear_git_branch" "$params"
+}
+
+_cmux_report_shell_activity_state_via_relay() {
+    local state="$1"
+    _cmux_socket_uses_remote_relay || return 1
+    [[ -n "$state" ]] || return 1
+    local workspace_id="" params=""
+    workspace_id="$(_cmux_relay_workspace_id)" || return 1
+    params="{\"workspace_id\":\"$workspace_id\",\"state\":\"$state\""
+    if [[ -n "${CMUX_PANEL_ID:-}" ]]; then
+        params+=",\"surface_id\":\"$CMUX_PANEL_ID\""
+    fi
+    params+="}"
+    _cmux_relay_rpc_bg "surface.report_shell_state" "$params"
+}
+
 _cmux_ports_kick_via_relay() {
     local reason="${1:-command}"
     _cmux_socket_uses_remote_relay || return 1
@@ -185,11 +247,19 @@ _cmux_restore_scrollback_once() {
     local path="${CMUX_RESTORE_SCROLLBACK_FILE:-}"
     [[ -n "$path" ]] || return 0
     unset CMUX_RESTORE_SCROLLBACK_FILE
+    local token="${path:t}"
+
+    builtin printf '\033]1337;CurrentDir=kitty-shell-cwd://%s/.cmux/session-scrollback-replay/%s/start\007' "$HOST" "$token"
 
     if [[ -r "$path" ]]; then
         /bin/cat -- "$path" 2>/dev/null || true
         /bin/rm -f -- "$path" >/dev/null 2>&1 || true
     fi
+
+    # Valid kitty-shell-cwd URIs reach Ghostty's PWD action in PTY order. The
+    # following real cwd report keeps the private boundary out of title state.
+    builtin printf '\033]1337;CurrentDir=kitty-shell-cwd://%s/.cmux/session-scrollback-replay/%s/end\007' "$HOST" "$token"
+    builtin printf '\033]1337;CurrentDir=kitty-shell-cwd://%s%s\007' "$HOST" "$PWD"
 }
 _cmux_restore_scrollback_once
 
@@ -476,10 +546,18 @@ _cmux_tmux_refresh_cmux_environment() {
     [[ -n "$TMUX" ]] || return 0
     command -v tmux >/dev/null 2>&1 || return 0
 
-    local output
-    output="$(tmux show-environment -g 2>/dev/null)" || return 0
+    local key did_change=0
+    for key in "${_CMUX_TMUX_SURFACE_SCOPED_KEYS[@]}"; do
+        if [[ -n "${(P)key}" ]]; then
+            unset "$key"
+            did_change=1
+        fi
+    done
 
-    local line key filtered="" did_change=0
+    local output
+    output="$(tmux show-environment 2>/dev/null)" || return 0
+
+    local line filtered=""
     while IFS= read -r line; do
         [[ "$line" == CMUX_* ]] || continue
         key="${line%%=*}"
@@ -488,7 +566,7 @@ _cmux_tmux_refresh_cmux_environment() {
     done <<< "$output"
 
     [[ -n "$filtered" ]] || return 0
-    [[ "$filtered" == "$_CMUX_TMUX_PULL_SIGNATURE" ]] && return 0
+    [[ "$filtered" == "$_CMUX_TMUX_PULL_SIGNATURE" ]] && (( ! did_change )) && return 0
 
     local value
     while IFS= read -r line; do
@@ -805,8 +883,16 @@ _cmux_report_tty_once() {
         local payload=""
         payload="$(_cmux_report_tty_payload)"
         [[ -n "$payload" ]] || return 0
+        # Batch the first ports kick behind the registration in the same
+        # child: the scanner drops kicks for unregistered TTYs, and two
+        # detached children can connect out of order. Latch only after the
+        # send was actually enqueued so a cap-dropped registration retries.
+        if [[ -n "$CMUX_TAB_ID" && -n "$CMUX_PANEL_ID" ]]; then
+            _cmux_send_bg "$payload" "ports_kick --tab=$CMUX_TAB_ID --panel=$CMUX_PANEL_ID --reason=command" || return 0
+        else
+            _cmux_send_bg "$payload" || return 0
+        fi
         _CMUX_TTY_REPORTED=1
-        _cmux_send_bg "$payload"
     else
         [[ -n "$_CMUX_TTY_NAME" ]] || return 0
         # Keep the first relay TTY report synchronous so the server can resolve
@@ -819,12 +905,18 @@ _cmux_report_tty_once() {
 _cmux_report_shell_activity_state() {
     local state="$1"
     [[ -n "$state" ]] || return 0
-    [[ -S "$CMUX_SOCKET_PATH" ]] || return 0
     [[ -n "$CMUX_TAB_ID" ]] || return 0
-    [[ -n "$CMUX_PANEL_ID" ]] || return 0
+    if _cmux_socket_is_unix; then
+        [[ -n "$CMUX_PANEL_ID" ]] || return 0
+    fi
     [[ "$_CMUX_SHELL_ACTIVITY_LAST" == "$state" ]] && return 0
     _CMUX_SHELL_ACTIVITY_LAST="$state"
-    _cmux_send_bg "report_shell_state $state --tab=$CMUX_TAB_ID --panel=$CMUX_PANEL_ID"
+    if _cmux_socket_is_unix; then
+        _cmux_send_bg "report_shell_state $state --tab=$CMUX_TAB_ID --panel=$CMUX_PANEL_ID" \
+            || _CMUX_SHELL_ACTIVITY_LAST=""
+    else
+        _cmux_report_shell_activity_state_via_relay "$state" || _CMUX_SHELL_ACTIVITY_LAST=""
+    fi
 }
 
 _cmux_reset_terminal_keyboard_protocols() {
@@ -855,18 +947,27 @@ _cmux_report_git_branch_for_path() {
     local repo_path="$1"
     [[ "${CMUX_NO_GIT_WATCH:-}" == "1" ]] && return 0
     [[ -n "$repo_path" ]] || return 0
-    [[ -S "$CMUX_SOCKET_PATH" ]] || return 0
     [[ -n "$CMUX_TAB_ID" ]] || return 0
-    [[ -n "$CMUX_PANEL_ID" ]] || return 0
+    if _cmux_socket_is_unix; then
+        [[ -n "$CMUX_PANEL_ID" ]] || return 0
+    fi
     _cmux_git_report_path_is_active "$repo_path" || return 0
 
     local branch dirty_opt="--status=unknown"
     branch="$(_cmux_git_branch_for_path "$repo_path" 2>/dev/null || true)"
     _cmux_git_report_path_is_active "$repo_path" || return 0
     if [[ -n "$branch" ]]; then
-        _cmux_send "report_git_branch $branch $dirty_opt --tab=$CMUX_TAB_ID --panel=$CMUX_PANEL_ID"
+        if _cmux_socket_is_unix; then
+            _cmux_send "report_git_branch $branch $dirty_opt --tab=$CMUX_TAB_ID --panel=$CMUX_PANEL_ID"
+        else
+            _cmux_report_git_branch_via_relay "$branch" || true
+        fi
     else
-        _cmux_send "clear_git_branch --tab=$CMUX_TAB_ID --panel=$CMUX_PANEL_ID"
+        if _cmux_socket_is_unix; then
+            _cmux_send "clear_git_branch --tab=$CMUX_TAB_ID --panel=$CMUX_PANEL_ID"
+        else
+            _cmux_clear_git_branch_via_relay || true
+        fi
     fi
 }
 
@@ -1696,6 +1797,8 @@ _cmux_precmd() {
     [[ -n "$CMUX_TAB_ID" ]] || return 0
     if [[ -n "$CMUX_PANEL_ID" ]]; then
         _cmux_reset_terminal_keyboard_protocols
+    fi
+    if [[ -n "$CMUX_PANEL_ID" ]] || (( ! cmux_has_unix_socket )); then
         _cmux_report_shell_activity_state prompt
     fi
 
@@ -1721,16 +1824,12 @@ _cmux_precmd() {
         if [[ "$pwd" != "$_CMUX_PWD_LAST_PWD" ]]; then
             _cmux_report_pwd_via_relay "$pwd" && _CMUX_PWD_LAST_PWD="$pwd"
         fi
-        if (( cmd_dur >= 2 || now - _CMUX_PORTS_LAST_RUN >= 10 )); then
-            _cmux_ports_kick refresh
-        fi
-        return 0
+    else
+        [[ -n "$CMUX_PANEL_ID" ]] || return 0
+        _cmux_prompt_wrap_guard "$cmd_start" "$pwd"
     fi
 
-    [[ -n "$CMUX_PANEL_ID" ]] || return 0
     _cmux_set_git_active_pwd "$pwd"
-
-    _cmux_prompt_wrap_guard "$cmd_start" "$pwd"
 
     # Post-wake socket writes can occasionally leave a probe process wedged.
     # If one probe is stale, clear the guard so fresh async probes can resume.
@@ -1747,7 +1846,7 @@ _cmux_precmd() {
 
     # CWD: keep the app in sync with the actual shell directory.
     # This is also the simplest way to test sidebar directory behavior end-to-end.
-    if [[ "$pwd" != "$_CMUX_PWD_LAST_PWD" ]]; then
+    if (( cmux_has_unix_socket )) && [[ "$pwd" != "$_CMUX_PWD_LAST_PWD" ]]; then
         _CMUX_PWD_LAST_PWD="$pwd"
         local qpwd="${pwd//\"/\\\"}"
         _cmux_send_bg "report_pwd \"${qpwd}\" --tab=$CMUX_TAB_ID --panel=$CMUX_PANEL_ID"
@@ -1842,15 +1941,17 @@ _cmux_precmd() {
             _CMUX_GIT_JOB_STARTED_AT=$now
         fi
     fi
-    if (( git_head_changed )); then
-        _cmux_pr_cache_clear
-        _cmux_clear_pr_for_panel
-    fi
-    if [[ "${CMUX_NO_GIT_WATCH:-}" != "1" ]] && (( last_status == 0 )); then
-        _cmux_emit_pr_command_hint
-    else
-        _CMUX_LAST_PR_ACTION=""
-        _CMUX_LAST_PR_TARGET=""
+    if (( cmux_has_unix_socket )); then
+        if (( git_head_changed )); then
+            _cmux_pr_cache_clear
+            _cmux_clear_pr_for_panel
+        fi
+        if [[ "${CMUX_NO_GIT_WATCH:-}" != "1" ]] && (( last_status == 0 )); then
+            _cmux_emit_pr_command_hint
+        else
+            _CMUX_LAST_PR_ACTION=""
+            _CMUX_LAST_PR_TARGET=""
+        fi
     fi
 
     # Ports: lightweight kick to the app's batched scanner.

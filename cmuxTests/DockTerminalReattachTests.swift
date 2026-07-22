@@ -1,4 +1,5 @@
 import AppKit
+import CmuxWorkspaces
 import Combine
 import Darwin
 import Foundation
@@ -14,6 +15,7 @@ import Testing
 private final class DockTransferTestPanel: Panel {
     let objectWillChange = ObservableObjectPublisher()
     let id: UUID
+    let stableSurfaceIdentity = PanelStableSurfaceIdentity()
     let panelType: PanelType
     var displayTitle: String
     let displayIcon: String?
@@ -48,6 +50,8 @@ extension DockSocketLifecycleTests {
         customTitleSource: Workspace.CustomTitleSource? = nil,
         restorableAgent: SessionRestorableAgentSnapshot? = nil,
         restorableAgentResumeState: Workspace.RestoredAgentResumeState? = nil,
+        restoredAgentCompletedGeneration: RestoredAgentCompletedGeneration? = nil,
+        shellActivityState: PanelShellActivityState? = nil,
         restoredResumeSessionWorkingDirectory: String? = nil,
         resumeBinding: SurfaceResumeBindingSnapshot? = nil,
         agentRuntime: Workspace.DetachedAgentRuntimeState? = nil
@@ -63,6 +67,7 @@ extension DockSocketLifecycleTests {
             isLoading: false,
             isPinned: false,
             directory: directory,
+            directoryIsTrustedRemoteReport: false,
             directoryDisplayLabel: nil,
             ttyName: nil,
             cachedTitle: cachedTitle,
@@ -72,6 +77,8 @@ extension DockSocketLifecycleTests {
             restoredUnreadIndicator: nil,
             restorableAgent: restorableAgent,
             restorableAgentResumeState: restorableAgentResumeState,
+            restoredAgentCompletedGeneration: restoredAgentCompletedGeneration,
+            shellActivityState: shellActivityState,
             restoredResumeSessionWorkingDirectory: restoredResumeSessionWorkingDirectory,
             resumeBinding: resumeBinding,
             agentRuntime: agentRuntime,

@@ -105,6 +105,19 @@ import Testing
         #expect(devices.first?.instances.first?.hasRoutes == false)
     }
 
+    @Test func instanceTagIsNormalizedBeforeAuthorityMatching() throws {
+        let json = """
+        { "teamId": "t", "devices": [
+          { "deviceId": "CCCC3333-3333-4333-8333-333333333333", "platform": "mac",
+            "instances": [ { "tag": "  stable  ", "routes": [] } ] }
+        ] }
+        """.data(using: .utf8)!
+
+        let devices = try #require(DeviceRegistryService.parseDeviceList(in: json))
+
+        #expect(devices.first?.instances.first?.tag == "stable")
+    }
+
     @Test func malformedEnvelopeReturnsNil() {
         #expect(DeviceRegistryService.parseDeviceList(in: Data("not json".utf8)) == nil)
         #expect(DeviceRegistryService.parseDeviceList(in: Data("{}".utf8)) == nil)

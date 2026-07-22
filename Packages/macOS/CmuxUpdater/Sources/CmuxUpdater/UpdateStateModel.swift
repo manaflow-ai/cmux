@@ -40,14 +40,32 @@ public final class UpdateStateModel {
     /// Creates an empty model in the ``UpdateState/idle`` state.
     public init() {}
 
+    // MARK: - cmux-originated update errors
+
+    /// The `NSError` domain for update errors that cmux itself raises (as opposed to Sparkle or
+    /// `NSURLError`). Errors in this domain carry user-ready, already-localized copy in their
+    /// `localizedDescription`.
+    public nonisolated static let updateErrorDomain = "cmux.update"
+    /// `updateErrorDomain` code for "the updater was asked to check but wasn't ready in time".
+    public nonisolated static let updaterNotReadyCode = 1
+    /// `updateErrorDomain` code for "the user asked to install but the flow never started
+    /// downloading" (the install-watchdog trip).
+    public nonisolated static let installDidNotStartCode = 2
+    /// `updateErrorDomain` code for an active foreground check whose Sparkle session ended before
+    /// producing a visible result.
+    public nonisolated static let foregroundCycleEndedCode = 3
+
     // MARK: - Change stream
 
     /// A stream that emits once whenever ``state`` or ``overrideState`` changes.
     ///
-    /// The element is `Void`: subscribers read the latest ``state``/``overrideState`` directly
-    /// (both are main-actor isolated like the subscriber), which avoids sending the
-    /// non-`Sendable` ``UpdateState`` across the stream. This is the `@Observable`-native
-    /// replacement for observing `@Published var state`.
+    /// The element is `Void`: it is a wakeup, not the payload, which avoids sending the
+    /// non-`Sendable` ``UpdateState`` across the stream. Reaction consumers that must observe
+    /// **every** transition in order call ``drainPendingChanges()`` on each wakeup instead of
+    /// re-reading the latest ``state`` — reading only the latest silently conflates
+    /// back-to-back transitions (two states landing before the consumer's task runs), which is
+    /// how a control-flow consumer can miss the `.checking` restart signal entirely. This is
+    /// the `@Observable`-native replacement for observing `@Published var state`.
     public func stateChanges() -> AsyncStream<Void> {
         AsyncStream { continuation in
             let id = UUID()
@@ -58,9 +76,40 @@ public final class UpdateStateModel {
         }
     }
 
+    /// Transitions recorded since the last ``drainPendingChanges()``, oldest first. There is one
+    /// reaction consumer (``UpdateController``); the mailbox exists for it.
+    @ObservationIgnored
+    private var pendingChanges: [UpdateStateChange] = []
+
+    /// Removes and returns every transition recorded since the last drain, oldest first.
+    ///
+    /// Call once per ``stateChanges()`` wakeup. Extra wakeups drain empty and are harmless.
+    public func drainPendingChanges() -> [UpdateStateChange] {
+        let drained = pendingChanges
+        pendingChanges.removeAll()
+        return drained
+    }
+
+    /// Discards queued transitions without invoking the reaction pipeline.
+    ///
+    /// Use at explicit control-flow boundaries where already-recorded transitions belong to the
+    /// previous operation and must not be replayed into the next one.
+    public func discardPendingChanges() {
+        pendingChanges.removeAll()
+    }
+
     private func notifyStateChanged() {
+        appendPendingChange(UpdateStateChange(state: state, overrideState: overrideState))
         for continuation in changeObservers.values {
             continuation.yield(())
+        }
+    }
+
+    private func appendPendingChange(_ change: UpdateStateChange) {
+        if let last = pendingChanges.last, last.canCoalesceProgress(with: change) {
+            pendingChanges[pendingChanges.count - 1] = change
+        } else {
+            pendingChanges.append(change)
         }
     }
 
@@ -90,12 +139,20 @@ public final class UpdateStateModel {
     /// Cancels whatever phase is active and returns the model to ``UpdateState/idle``,
     /// clearing any override. Used when starting a fresh check.
     public func cancelActiveStateForNewCheck() {
-        state.cancel()
-        // One conceptual transition: update both fields, then emit a single change notification
-        // (avoids two redundant stateChanges() emissions for one logical reset).
-        state = .idle
+        replaceActiveState(with: .idle)
+    }
+
+    /// Replaces the visible phase before causally ending the old Sparkle prompt/check.
+    ///
+    /// The order matters: Sparkle is allowed to synchronously call back while its cancellation
+    /// closure runs. Publishing the replacement first prevents that callback from exposing an
+    /// empty pill between an accepted install and its fresh check.
+    func replaceActiveState(with replacement: UpdateState) {
+        let replacedState = state
+        state = replacement
         overrideState = nil
         notifyStateChanged()
+        replacedState.finishAsSuperseded()
     }
 
     // MARK: - Detected background update
@@ -191,6 +248,8 @@ public final class UpdateStateModel {
             return ""
         case .permissionRequest:
             return String(localized: "update.permissionRequest.text", defaultValue: "Enable Automatic Updates?")
+        case .preparingCheck:
+            return String(localized: "update.preparingCheck", defaultValue: "Preparing Update Check…")
         case .checking:
             return String(localized: "update.checking", defaultValue: "Checking for Updates…")
         case .updateAvailable(let update):
@@ -215,6 +274,8 @@ public final class UpdateStateModel {
             return String(localized: "update.noUpdates.title", defaultValue: "No Updates Available")
         case .error(let err):
             return Self.userFacingErrorTitle(for: err.error)
+        case .startingDownload:
+            return String(localized: "update.startingDownload", defaultValue: "Starting Download…")
         }
     }
 
@@ -244,11 +305,13 @@ public final class UpdateStateModel {
             return nil
         case .permissionRequest:
             return "questionmark.circle"
-        case .checking:
+        case .preparingCheck, .checking:
             return "arrow.triangle.2.circlepath"
         case .updateAvailable:
             return "shippingbox.fill"
         case .downloading:
+            return "arrow.down.circle"
+        case .startingDownload:
             return "arrow.down.circle"
         case .extracting:
             return "shippingbox"
@@ -268,6 +331,8 @@ public final class UpdateStateModel {
             return ""
         case .permissionRequest:
             return String(localized: "update.configureAutoUpdates", defaultValue: "Configure automatic update preferences")
+        case .preparingCheck:
+            return String(localized: "update.preparingCheck.message", defaultValue: "Waiting for the current update session to finish")
         case .checking:
             return String(localized: "update.pleaseWait", defaultValue: "Please wait while we check for available updates")
         case .updateAvailable(let update):
@@ -282,6 +347,8 @@ public final class UpdateStateModel {
             return String(localized: "update.noUpdates.message", defaultValue: "You are running the latest version")
         case .error(let err):
             return Self.userFacingErrorMessage(for: err.error)
+        case .startingDownload:
+            return String(localized: "update.startingDownload.message", defaultValue: "Starting the update download")
         }
     }
 
@@ -316,91 +383,3 @@ public final class UpdateStateModel {
         return trimmed.isEmpty ? nil : trimmed
     }
 }
-
-#if DEBUG
-/// A synthetic update-error scenario that the debug menu can inject so every error popover
-/// variant (title, message, and whether the manual-download button shows) can be previewed
-/// without reproducing the real failure.
-///
-/// Cases map one-to-one to the branches in ``UpdateStateModel/userFacingErrorTitle(for:)`` /
-/// ``UpdateStateModel/userFacingErrorMessage(for:)`` / ``UpdateStateModel/manualDownloadURL(for:)``.
-public enum DebugUpdateErrorScenario: String, CaseIterable, Hashable, Sendable {
-    /// 4005 wrapping the internal IPC-timeout (the wedged-launchd case): "Couldn't Start Updater".
-    case installerAgentFailure
-    /// 4010 `SUAgentInvalidationError`: also "Couldn't Start Updater".
-    case agentInvalidation
-    /// Plain 4005 with no agent signal: "Updater Permission Error" + recovery message + download.
-    case genericInstallFailure
-    /// 4005 wrapping `SUAuthenticationFailure` (4001): must NOT be treated as an agent failure.
-    case installFailureWrappingAuth
-    /// 2001 `SUDownloadError`: "Couldn't Download Update", offers download.
-    case downloadFailure
-    /// 1003 `SURunningFromDiskImageError`: keeps "Move into Applications", no download button.
-    case diskImageTranslocation
-    /// 3001 `SUSignatureError`: signature copy, deliberately no download button.
-    case signatureError
-    /// Offline `NSURLError`: "No Internet Connection".
-    case noInternet
-
-    /// The label shown for this scenario in the debug menu.
-    public var menuTitle: String {
-        switch self {
-        case .installerAgentFailure: return "Installer Agent Failure (4005 + timeout)"
-        case .agentInvalidation: return "Agent Invalidation (4010)"
-        case .genericInstallFailure: return "Generic Install Failure (4005)"
-        case .installFailureWrappingAuth: return "Install Failure / Auth (4005→4001)"
-        case .downloadFailure: return "Download Failure (2001)"
-        case .diskImageTranslocation: return "Disk Image / Translocated (1003)"
-        case .signatureError: return "Signature Error (3001)"
-        case .noInternet: return "No Internet"
-        }
-    }
-
-    /// Builds the synthetic error for this scenario.
-    var error: NSError {
-        switch self {
-        case .installerAgentFailure:
-            let underlying = NSError(domain: SUSparkleErrorDomain, code: 10, userInfo: [
-                NSLocalizedDescriptionKey: "Timeout: agent connection was never initiated",
-            ])
-            return NSError(domain: SUSparkleErrorDomain, code: 4005, userInfo: [
-                NSLocalizedDescriptionKey: "An error occurred while running the updater. Please try again later.",
-                NSLocalizedFailureReasonErrorKey: "The remote port connection was invalidated from the updater.",
-                NSUnderlyingErrorKey: underlying,
-            ])
-        case .agentInvalidation:
-            return NSError(domain: SUSparkleErrorDomain, code: 4010, userInfo: [
-                NSLocalizedDescriptionKey: "The updater agent was invalidated.",
-            ])
-        case .genericInstallFailure:
-            return NSError(domain: SUSparkleErrorDomain, code: 4005, userInfo: [
-                NSLocalizedDescriptionKey: "The installation failed.",
-            ])
-        case .installFailureWrappingAuth:
-            let underlying = NSError(domain: SUSparkleErrorDomain, code: 4001, userInfo: [
-                NSLocalizedDescriptionKey: "Authorization failed.",
-            ])
-            return NSError(domain: SUSparkleErrorDomain, code: 4005, userInfo: [
-                NSLocalizedDescriptionKey: "An error occurred while installing the update.",
-                NSUnderlyingErrorKey: underlying,
-            ])
-        case .downloadFailure:
-            return NSError(domain: SUSparkleErrorDomain, code: 2001, userInfo: [
-                NSLocalizedDescriptionKey: "The update download failed.",
-            ])
-        case .diskImageTranslocation:
-            return NSError(domain: SUSparkleErrorDomain, code: 1003, userInfo: [
-                NSLocalizedDescriptionKey: "Running from a disk image.",
-            ])
-        case .signatureError:
-            return NSError(domain: SUSparkleErrorDomain, code: 3001, userInfo: [
-                NSLocalizedDescriptionKey: "The update signature is invalid.",
-            ])
-        case .noInternet:
-            return NSError(domain: NSURLErrorDomain, code: NSURLErrorNotConnectedToInternet, userInfo: [
-                NSLocalizedDescriptionKey: "The Internet connection appears to be offline.",
-            ])
-        }
-    }
-}
-#endif

@@ -53,8 +53,8 @@ public struct AgentResumeArgv: Sendable, Equatable {
 
     /// The shell token that resolves cmux's `codex` wrapper at exec time.
     ///
-    /// The codex resume argv emits a bare `codex` executable, but the captured
-    /// auto-resume command (`codex resume <id>`) resolves to the *real* codex
+    /// When the codex resume argv emits a bare `codex` executable, the captured
+    /// auto-resume command (`codex resume <id>`) can resolve to the *real* codex
     /// binary inside the `$SHELL -lic` restore launcher, bypassing
     /// `cmux-codex-wrapper` and dropping every cmux hook (no `SessionStart`, the
     /// session registry never marks the resumed session live, so the iOS GUI
@@ -219,8 +219,8 @@ public struct AgentResumeArgv: Sendable, Equatable {
     /// ``codexWrapperShellExecutableToken`` for the first bare `codex` executable token.
     ///
     /// Mirror of ``renderingClaudeWrapperExecutable(parts:quote:)`` for codex: only
-    /// the first element equal to `codex` — the wrapper executable emitted by the
-    /// codex resume builder — is replaced; every other token is quoted normally.
+    /// the first element equal to `codex` — a logical wrapper executable emitted
+    /// by the codex resume builder — is replaced; every other token is quoted normally.
     /// Call only for the codex kind. https://github.com/manaflow-ai/cmux/issues/5639
     public static func renderingCodexWrapperExecutable(
         parts: [String],
@@ -303,19 +303,39 @@ public struct AgentResumeArgv: Sendable, Equatable {
     ///   - sessionId: the session/thread id to resume.
     ///   - executablePath: the captured executable path, if any.
     ///   - arguments: the captured launch arguments (argv, including the executable as element 0).
+    ///   - observedPermissionMode: the hook-observed Claude permission mode the session last ran
+    ///     in, re-applied via ``claudeArgvApplyingObservedPermissionMode(_:observedPermissionMode:)``
+    ///     for user-owned claude restore; ignored for every other kind.
     public func builtInKind(
         kind: String,
         sessionId: String,
         executablePath: String?,
-        arguments: [String]
+        arguments: [String],
+        observedPermissionMode: String? = nil
     ) -> [String]? {
         switch kind {
         case "claude":
-            return claudeResumeArgv(sessionId: sessionId, executablePath: executablePath, arguments: arguments)
+            guard let argv = claudeResumeArgv(
+                sessionId: sessionId,
+                executablePath: executablePath,
+                arguments: arguments
+            ) else { return nil }
+            return Self.claudeArgvApplyingObservedPermissionMode(
+                argv,
+                observedPermissionMode: observedPermissionMode
+            )
         case "codex":
             let parts = commandParts(executablePath: executablePath, arguments: arguments, fallbackExecutable: "codex")
-            guard let preserved = AgentLaunchSanitizer.preservedArguments(kind: "codex-fork-restore", args: parts.tail) else { return nil }
-            return [parts.executable, "resume", sessionId]
+            guard let preserved = preservedCodexForkArguments(
+                args: parts.tail,
+                preservePromptTags: false,
+                stripCmuxHooks: parts.executable == "codex"
+            ) else { return nil }
+            let replayExecutable = codexReplayExecutable(
+                capturedExecutable: parts.executable,
+                launchTail: parts.tail
+            )
+            return [replayExecutable, "resume", sessionId]
                 + codexResumeConfigOverrides(preserved: preserved) + preserved
         case "grok":
             return withOption("grok", executable: "grok", option: "-r", sessionId: sessionId, executablePath: executablePath, arguments: arguments)
@@ -323,6 +343,8 @@ public struct AgentResumeArgv: Sendable, Equatable {
             return withOption("pi", executable: "pi", option: "--session", sessionId: sessionId, executablePath: executablePath, arguments: arguments)
         case "omp":
             return withOption("omp", executable: "omp", option: "--session", sessionId: sessionId, executablePath: executablePath, arguments: arguments)
+        case "campfire":
+            return withOption("campfire", executable: "campfire", option: "--session", sessionId: sessionId, executablePath: executablePath, arguments: arguments)
         case "amp":
             let parts = commandParts(executablePath: executablePath, arguments: arguments, fallbackExecutable: "amp")
             guard let preserved = AgentLaunchSanitizer.preservedArguments(kind: "amp", args: parts.tail) else { return nil }
@@ -357,6 +379,8 @@ public struct AgentResumeArgv: Sendable, Equatable {
             return withOption("factory", executable: "droid", option: "--resume", sessionId: sessionId, executablePath: executablePath, arguments: arguments)
         case "qoder":
             return withOption("qoder", executable: "qodercli", option: "--resume", sessionId: sessionId, executablePath: executablePath, arguments: arguments)
+        case "kimi":
+            return withOption("kimi", executable: "kimi", option: "--resume", sessionId: sessionId, executablePath: executablePath, arguments: arguments)
         default:
             return nil
         }

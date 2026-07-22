@@ -6,6 +6,184 @@ import Testing
 
 @Suite(.serialized)
 struct PostHogAnalyticsPropertiesTests {
+    @Test("feature flag bool coercion accepts PostHog bool-like values")
+    func featureFlagBoolCoercionAcceptsPostHogBoolLikeValues() {
+        #expect(CmuxFeatureFlags.coerceBoolFlagValue(true, default: false))
+        #expect(!CmuxFeatureFlags.coerceBoolFlagValue(false, default: true))
+        #expect(CmuxFeatureFlags.coerceBoolFlagValue(NSNumber(value: true), default: false))
+        #expect(!CmuxFeatureFlags.coerceBoolFlagValue(NSNumber(value: false), default: true))
+        #expect(CmuxFeatureFlags.coerceBoolFlagValue("TRUE", default: false))
+        #expect(!CmuxFeatureFlags.coerceBoolFlagValue(" false ", default: true))
+        #expect(CmuxFeatureFlags.coerceBoolFlagValue("not-a-bool", default: true))
+        #expect(!CmuxFeatureFlags.coerceBoolFlagValue("not-a-bool", default: false))
+        #expect(CmuxFeatureFlags.coerceBoolFlagValue(nil, default: true))
+        #expect(!CmuxFeatureFlags.coerceBoolFlagValue(nil, default: false))
+    }
+
+    @MainActor
+    @Test("feature flag resolution prefers remote, then override, then default")
+    func featureFlagResolutionPrecedence() throws {
+        let flag = try #require(CmuxFeatureFlags.allFlags.first {
+            $0.key == "sidebar-appkit-list-experiment"
+        })
+        let suiteName = "cmux.feature.flags.precedence.\(UUID().uuidString)"
+        let defaults = try #require(UserDefaults(suiteName: suiteName))
+        defer {
+            defaults.removePersistentDomain(forName: suiteName)
+        }
+
+        var remoteValues: [String: Any] = [:]
+        let flags = CmuxFeatureFlags(defaults: defaults) { key in
+            remoteValues[key]
+        }
+
+        #expect(flags.overrideValue(for: flag) == nil)
+        #expect(flags.remoteValue(for: flag) == nil)
+        #expect(flags.effectiveValue(for: flag))
+
+        flags.setOverride(false, for: flag)
+        #expect(flags.overrideValue(for: flag) == false)
+        #expect(!flags.effectiveValue(for: flag))
+
+        remoteValues[flag.key] = true
+        flags.applyLoadedFlags()
+        #expect(flags.overrideValue(for: flag) == false)
+        #expect(flags.remoteValue(for: flag) == true)
+        #expect(flags.effectiveValue(for: flag))
+
+        remoteValues.removeValue(forKey: flag.key)
+        flags.applyLoadedFlags()
+        #expect(flags.remoteValue(for: flag) == nil)
+        #expect(!flags.effectiveValue(for: flag))
+
+        flags.setOverride(nil, for: flag)
+        #expect(flags.overrideValue(for: flag) == nil)
+        #expect(flags.effectiveValue(for: flag))
+    }
+
+    @MainActor
+    @Test("AppKit sidebar feature flag defaults on")
+    func appKitSidebarFeatureFlagDefaultsOn() throws {
+        let flag = try #require(CmuxFeatureFlags.allFlags.first {
+            $0.key == "sidebar-appkit-list-experiment"
+        })
+        #expect(flag.defaultWhenUnavailable)
+    }
+
+    @MainActor
+    @Test("remote-controlled flags reject new local override writes")
+    func remoteControlledFlagsRejectNewLocalOverrideWrites() throws {
+        let flag = try #require(CmuxFeatureFlags.allFlags.first {
+            $0.key == "sidebar-appkit-list-experiment"
+        })
+        let suiteName = "cmux.feature.flags.remote.controlled.\(UUID().uuidString)"
+        let defaults = try #require(UserDefaults(suiteName: suiteName))
+        defer {
+            defaults.removePersistentDomain(forName: suiteName)
+        }
+
+        let remoteValues: [String: Any] = [flag.key: true]
+        let flags = CmuxFeatureFlags(defaults: defaults) { key in
+            remoteValues[key]
+        }
+        flags.applyLoadedFlags()
+
+        flags.setOverride(false, for: flag)
+
+        #expect(flags.overrideValue(for: flag) == nil)
+        #expect(flags.effectiveValue(for: flag))
+    }
+
+    @MainActor
+    @Test("workspace todo controls feature flag follows remote values")
+    func workspaceTodoControlsFeatureFlagFollowsRemoteValues() throws {
+        let flag = try #require(CmuxFeatureFlags.allFlags.first {
+            $0.key == "workspace-todo-controls-enabled-release"
+        })
+        let suiteName = "cmux.workspace.todo.controls.flag.\(UUID().uuidString)"
+        let defaults = try #require(UserDefaults(suiteName: suiteName))
+        defer {
+            defaults.removePersistentDomain(forName: suiteName)
+        }
+
+        var remoteValues: [String: Any] = [:]
+        let flags = CmuxFeatureFlags(defaults: defaults) { key in
+            remoteValues[key]
+        }
+
+        #expect(!flags.isWorkspaceTodoControlsEnabled)
+
+        remoteValues[flag.key] = false
+        flags.applyLoadedFlags()
+        #expect(!flags.isWorkspaceTodoControlsEnabled)
+
+        remoteValues[flag.key] = true
+        flags.applyLoadedFlags()
+        #expect(flags.isWorkspaceTodoControlsEnabled)
+    }
+
+    @MainActor
+    @Test("feature flag overrides persist through UserDefaults")
+    func featureFlagOverridePersistenceRoundTrip() throws {
+        let flag = try #require(CmuxFeatureFlags.allFlags.first { $0.defaultWhenUnavailable })
+        let suiteName = "cmux.feature.flags.persistence.\(UUID().uuidString)"
+        let defaults = try #require(UserDefaults(suiteName: suiteName))
+        defer {
+            defaults.removePersistentDomain(forName: suiteName)
+        }
+
+        let firstLoad = CmuxFeatureFlags(defaults: defaults) { _ in true }
+        firstLoad.setOverride(false, for: flag)
+        #expect(firstLoad.overrideValue(for: flag) == false)
+        #expect(!firstLoad.effectiveValue(for: flag))
+
+        let secondLoad = CmuxFeatureFlags(defaults: defaults) { _ in true }
+        #expect(secondLoad.overrideValue(for: flag) == false)
+        #expect(!secondLoad.effectiveValue(for: flag))
+
+        secondLoad.setOverride(nil, for: flag)
+        let thirdLoad = CmuxFeatureFlags(defaults: defaults) { _ in true }
+        #expect(thirdLoad.overrideValue(for: flag) == nil)
+        #expect(thirdLoad.effectiveValue(for: flag))
+    }
+
+    @MainActor
+    @Test("remote payload superseding a local override posts a change notification")
+    func remotePayloadSupersedingLocalOverridePostsChangeNotification() async throws {
+        let flag = try #require(CmuxFeatureFlags.allFlags.first {
+            $0.key == "sidebar-appkit-list-experiment"
+        })
+        let suiteName = "cmux.feature.flags.notifications.\(UUID().uuidString)"
+        let defaults = try #require(UserDefaults(suiteName: suiteName))
+        defer {
+            defaults.removePersistentDomain(forName: suiteName)
+        }
+
+        var remoteValues: [String: Any] = [:]
+        let flags = CmuxFeatureFlags(defaults: defaults) { key in
+            remoteValues[key]
+        }
+        flags.setOverride(false, for: flag)
+
+        await confirmation("feature flag resolution changed") { didChange in
+            let token = NotificationCenter.default.addObserver(
+                forName: .cmuxFeatureFlagsDidChange,
+                object: flags,
+                queue: nil
+            ) { _ in
+                didChange()
+            }
+            defer { NotificationCenter.default.removeObserver(token) }
+
+            remoteValues[flag.key] = true
+            flags.applyLoadedFlags()
+        }
+
+        #expect(flags.overrideValue(for: flag) == false)
+        #expect(flags.remoteValue(for: flag) == true)
+        #expect(flags.effectiveValue(for: flag))
+    }
+
     @Test
     func dailyActivePropertiesIncludeVersionAndBuild() {
         let properties = PostHogAnalytics.dailyActiveProperties(

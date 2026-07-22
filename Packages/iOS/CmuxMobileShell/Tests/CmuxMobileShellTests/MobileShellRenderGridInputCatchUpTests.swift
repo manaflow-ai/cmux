@@ -506,17 +506,14 @@ private func renderGridFrame(surfaceID: String, seq: UInt64, text: String) throw
     await transport.deliver(try renderGridEventFrame(
         surfaceID: surfaceID,
         seq: deltaSeq,
-        text: "delta-after-empty-exhaustion",
+        text: "full-after-empty-exhaustion",
         columns: 40,
-        full: false
+        full: true
     ))
-    let replayAfterExhaustion = await router.waitForCount(
-        of: "mobile.terminal.replay",
-        atLeast: replayCountAfterExhaustion + 1,
-        timeoutNanoseconds: 500_000_000,
-        recordIssueOnTimeout: false
-    )
-    #expect(!replayAfterExhaustion, "exhausted retry budget must stop live-event replay requests")
+    let fullFrameDelivered = try await pollUntil(attempts: 50) {
+        collector.lines.contains { $0.contains("full-after-empty-exhaustion") }
+    }
+    #expect(fullFrameDelivered, "exhausted retry budget must fail open for the next full live frame")
     collector.unmount()
 }
 

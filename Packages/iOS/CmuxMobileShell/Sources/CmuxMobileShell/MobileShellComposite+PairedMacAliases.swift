@@ -13,8 +13,15 @@ extension MobileShellComposite {
     }
 
     /// Stored ids represented by a visible paired-Mac row.
-    public func pairedMacAliasIDs(for macDeviceID: String) -> [String] {
-        if let aliases = pairedMacAliasIDsByRepresentativeID[macDeviceID] {
+    public func pairedMacAliasIDs(
+        for macDeviceID: String,
+        instanceTag: String? = nil
+    ) -> [String] {
+        let pairingID = MobilePairedMac.pairingID(
+            macDeviceID: macDeviceID,
+            instanceTag: instanceTag
+        )
+        if let aliases = pairedMacAliasIDsByRepresentativeID[pairingID] {
             return aliases
         }
         if let aliases = pairedMacAliasIDsByRepresentativeID.values.first(where: {
@@ -25,10 +32,18 @@ extension MobileShellComposite {
         return [macDeviceID]
     }
 
-    /// Presence rollup across every stored id represented by a visible paired-Mac row.
-    public func presenceSummary(for macDeviceID: String) -> PresenceMap.DeviceSummary? {
-        let summaries = pairedMacAliasIDs(for: macDeviceID).compactMap {
-            presenceMap.deviceSummary(deviceId: $0)
+    /// Presence across every stored id represented by a visible paired-Mac row.
+    /// When `instanceTag` is present, only that tagged app instance contributes.
+    public func presenceSummary(
+        for macDeviceID: String,
+        instanceTag: String? = nil
+    ) -> PresenceMap.DeviceSummary? {
+        let summaries = pairedMacAliasIDs(for: macDeviceID, instanceTag: instanceTag).compactMap {
+            if let instanceTag {
+                presenceMap.instanceSummary(deviceId: $0, tag: instanceTag)
+            } else {
+                presenceMap.deviceSummary(deviceId: $0)
+            }
         }
         guard !summaries.isEmpty else { return nil }
         let online = summaries.contains(where: \.online)
@@ -55,7 +70,7 @@ extension MobileShellComposite {
     func pairedMacCustomizationsByAliasID() -> [String: MobilePairedMac] {
         displayPairedMacs.reduce(into: [String: MobilePairedMac]()) { result, mac in
             guard mac.customColor != nil || mac.customIcon != nil else { return }
-            for aliasID in pairedMacAliasIDs(for: mac.macDeviceID) {
+            for aliasID in pairedMacAliasIDs(for: mac.macDeviceID, instanceTag: mac.instanceTag) {
                 result[aliasID] = mac
             }
         }

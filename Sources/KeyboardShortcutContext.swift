@@ -94,7 +94,7 @@ extension AppDelegate {
         var context = focusState.context
         context.setBool(
             ShortcutContextKnownKey.commandPaletteVisible.rawValue,
-            window.map { isCommandPaletteVisible(for: $0) } ?? false
+            window.map { isCommandPaletteEffectivelyVisible(for: $0) } ?? false
         )
         if let tabManager = shortcutContextTabManager(in: window) {
             context.setInt(ShortcutContextKnownKey.workspaceCount.rawValue, tabManager.tabs.count)
@@ -235,7 +235,7 @@ extension AppDelegate {
         }
 
         let responder = shortcutWindow.firstResponder
-        if cmuxOwningGhosttyView(for: responder) != nil {
+        if responder.cmuxStrictOwningGhosttyView() != nil {
             return nil
         }
 

@@ -58,8 +58,22 @@ public final class TerminalSurface: Identifiable, ObservableObject {
     public typealias ClaudeCommandShim = TerminalSurfaceClaudeCommandShim
     public typealias CodexCommandShim = TerminalSurfaceCodexCommandShim
     public typealias CmuxContextEnvironment = TerminalSurfaceCmuxContextEnvironment
+    private var runtimeSurface: ghostty_surface_t?
     /// The live runtime surface pointer, or nil before creation/after teardown.
-    public internal(set) var surface: ghostty_surface_t?
+    public internal(set) var surface: ghostty_surface_t? {
+        get { runtimeSurface }
+        set {
+            guard runtimeSurface != newValue else { return }
+            runtimeSurface = newValue
+            runtimeSurfaceGeneration &+= 1
+        }
+    }
+    /// Monotonic lifetime identity for the native Ghostty surface.
+    ///
+    /// The generation advances whenever the runtime handle is installed or
+    /// removed, so clients can invalidate pointer-backed caches even when an
+    /// allocator later reuses the same address.
+    public private(set) var runtimeSurfaceGeneration: UInt64 = 0
     weak var attachedView: (any TerminalSurfaceNativeViewing)?
     // MARK: Injected collaborators (see TerminalSurfaceRuntimeDependencies)
     let registry: any TerminalSurfaceRegistering
@@ -77,15 +91,10 @@ public final class TerminalSurface: Identifiable, ObservableObject {
     let scrollbackReplayEnvironmentKey: String
     let globalFontMagnificationPercent: @Sendable () -> Int
 
-    /// cmux renderer reclamation: whether the current runtime surface's GPU
-    /// renderer (Metal swap chain / IOSurface, ~40MB) is realized. A freshly
-    /// created runtime surface is always realized, so this starts `true` and is
-    /// reset to `true` in `createSurface`. `RendererRealizationController`
-    /// releases it (`releaseRenderer`) while the surface is offscreen and idle;
-    /// `setVisibleInUI(true)` re-realizes it (`realizeRenderer`) before the next
-    /// draw. It mirrors Ghostty's swap-chain `defunct` flag so realize/unrealize
-    /// strictly alternate (Ghostty's `displayRealized` asserts `defunct`).
-    var rendererRealized = true
+    /// Presentation state for the current runtime renderer. This distinguishes a
+    /// renderer Ghostty created from one cmux has actually presented in a real
+    /// window, while preserving strict native unrealize/realize alternation.
+    var rendererPresentationPhase = TerminalRendererPresentationPhase.awaitingFirstPresentation
 
     /// Wall-clock time (epoch seconds) this surface was last made visible in the
     /// UI. Used by `RendererRealizationController` as the LRU key so recently
@@ -141,6 +150,7 @@ public final class TerminalSurface: Identifiable, ObservableObject {
     let portOrdinal: Int
     let surfaceContext: ghostty_surface_context_e
     let configTemplate: CmuxSurfaceConfigTemplate?
+    var lastKnownFontSizeLineage: TerminalFontSizeLineage?
     let workingDirectory: String?
 
     /// The command to run instead of the default shell, if any.
@@ -172,16 +182,20 @@ public final class TerminalSurface: Identifiable, ObservableObject {
     let manualIO: Bool
     let manualInputHandler: (@Sendable (Data) -> Void)?
 
-    /// For MANUAL-I/O remote tmux display surfaces: invoked on the main actor
-    /// whenever the rendered grid changes so the owner can size the remote tmux
-    /// client to match.
-    @MainActor public var onManualGridResize: (@MainActor (_ columns: Int, _ rows: Int) -> Void)?
-    var lastReportedManualGrid: (columns: Int, rows: Int)?
+    /// Remote tmux manual-I/O resize and runtime-readiness hooks.
+    @MainActor public var onManualSizeApplied: (@MainActor (TerminalSurfaceRawSizingSample) -> Void)?
+    @MainActor public var onRuntimeReady: (@MainActor () -> Void)?
+    /// Called after durable font-size lineage changes.
+    @MainActor public var onFontSizeLineageChanged: (@MainActor (TerminalFontSizeLineage) -> Void)?
+    @MainActor var manualSizeReportPendingWindowAttach = false
     /// For MANUAL-I/O remote tmux display surfaces: whether to suppress
     /// ghostty primary-screen reflow on resize.
     var manualIONoReflow = true
-    /// Retained userdata for the MANUAL-mode `io_write_cb`; released alongside
-    /// the surface.
+    /// Retained userdata for the MANUAL-mode `io_write_cb`. ghostty's io
+    /// thread can invoke the callback until `ghostty_surface_free` returns, so
+    /// every teardown path releases this strictly after the native free
+    /// (inline in the free task, or transported through the teardown
+    /// coordinator's request).
     var manualIOContext: Unmanaged<TerminalManualIOWriteBox>?
     /// Output delivered before the runtime surface exists. Flushed once the
     /// surface is created so background mirror output is not lost.
@@ -212,6 +226,16 @@ public final class TerminalSurface: Identifiable, ObservableObject {
     var lastXScale: CGFloat = 0
     var lastYScale: CGFloat = 0
     var mobileViewportCellLimit: (columns: Int, rows: Int)?
+    /// tmux-assigned cell grid for manual-IO mirror panes. A mirror's grid
+    /// must EQUAL tmux's assignment, not merely fit it: a wider grid never
+    /// sets wrap flags where tmux wrapped (unwrapped reads split one tmux
+    /// line into many), a taller grid keeps stale rows tmux never repaints,
+    /// and a shorter grid drops assigned cells outright. The view renders
+    /// the pinned grid and clips or letterboxes the difference — the same
+    /// answer tmux gives a client whose size disagrees with the window.
+    var assignedGrid: (columns: Int, rows: Int)?
+    /// Temporary runtime font-size ownership while a mobile viewport is fitted.
+    var mobileViewportFontFitState: MobileViewportFontFitState?
     // Debug metadata is read from debug/CLI paths off the main thread; the
     // lock is the sanctioned carve-out for tiny values shared with
     // synchronous off-isolation readers.
@@ -240,10 +264,16 @@ public final class TerminalSurface: Identifiable, ObservableObject {
     var claudeCommandShimPendingCreationSource: RuntimeSurfaceCreationSource?
     /// The retained byte-tee lease for the libghostty PTY tee callback (cmux
     /// fork extension). Installed in `createSurface` after
-    /// `ghostty_surface_new` succeeds; released alongside
-    /// `surfaceCallbackContext` whenever we tear down or rebuild the
-    /// surface. The Mac sync server reads the tee'd bytes to broadcast
-    /// raw PTY output to paired iPhones (`MobileTerminalByteTee`).
+    /// `ghostty_surface_new` succeeds. The Mac sync server reads the tee'd
+    /// bytes to broadcast raw PTY output to paired iPhones
+    /// (`MobileTerminalByteTee`).
+    ///
+    /// Lifetime: the tee callback fires on ghostty's io-reader thread for
+    /// every output chunk until `ghostty_surface_free` joins that thread, so
+    /// every teardown path releases the lease strictly after the native free
+    /// (inline in the free task, or transported through the teardown
+    /// coordinator's request). Releasing earlier is a use-after-free on the
+    /// io-reader thread.
     var mobileByteTeeLease: (any TerminalByteTeeLease)?
     /// The desired focus state for the Ghostty C surface. May be set before the
     /// C surface exists (e.g. during layout restoration); `createSurface`
@@ -266,12 +296,60 @@ public final class TerminalSurface: Identifiable, ObservableObject {
     let debugForceRefreshCountLock = NSLock()
     var debugForceRefreshCountValue = 0
     /// Test-only override for the native free used by teardown paths.
-    @MainActor
-    public static var runtimeSurfaceFreeOverrideForTesting: (@Sendable (ghostty_surface_t) -> Void)?
+    // nonisolated(unsafe) so the nonisolated deinit teardown path can read it,
+    // like the @MainActor teardownSurface/suspend paths already do; tests only
+    // set and clear it on the main actor.
+    public nonisolated(unsafe) static var runtimeSurfaceFreeOverrideForTesting: (@Sendable (ghostty_surface_t) -> Void)?
 #endif
     var portalLifecycleState: PortalLifecycleState = .live
     var portalLifecycleGeneration: UInt64 = 1
     var activePortalHostLease: PortalHostLease?
+    var portalHostAuthority: TerminalPortalHostAuthority?
+    /// Wake-up retries for the owner-death edge, one per live candidate host.
+    ///
+    /// Every claim runs on a candidate's own edge (its SwiftUI update, window
+    /// entry, geometry change); the lease owner dying fires no edge on any
+    /// survivor, so a pane whose owner dismantled can wait a full settle
+    /// budget for an unrelated update before it re-anchors. The values are
+    /// weak trampolines into each candidate's coordinator — the surface holds
+    /// no view state and no strong reference back to itself, so a dead
+    /// coordinator turns its entry into a no-op and no retain cycle exists.
+    /// Entries drop when their own host vacates the lease, when the host
+    /// dismantles, when the runtime is hibernated, and when the portal
+    /// lifecycle leaves `.live`; parking is refused outside bindable runtime
+    /// states.
+    var portalHostVacancyRetries: [ObjectIdentifier: (instanceSerial: UInt64, generation: UInt64, retry: () -> Void)] = [:]
+    var portalHostVacancyWakeGeneration: UInt64?
+    var portalHostVacancyWakeScheduled: Bool {
+        portalHostVacancyWakeGeneration != nil
+    }
+
+    func clearPortalHostVacancyRetries() {
+        portalHostVacancyRetries.removeAll()
+        portalHostVacancyWakeGeneration = nil
+    }
+
+    /// Parks (or refreshes) a host's vacancy retry. See
+    /// `portalHostVacancyRetries` for lifetime rules.
+    public func parkPortalVacancyRetry(
+        hostId: ObjectIdentifier,
+        instanceSerial: UInt64,
+        _ retry: @escaping () -> Void
+    ) {
+        guard canAcceptPortalBinding(expectedSurfaceId: nil, expectedGeneration: nil) else { return }
+        let generation = portalLifecycleGeneration
+        portalHostVacancyRetries = portalHostVacancyRetries.filter { $0.value.generation == generation }
+        portalHostVacancyRetries[hostId] = (instanceSerial, generation, retry)
+    }
+
+    /// Drops a host's vacancy retry (dismantle, or the host stopped owning
+    /// its pane; the owner's own vacate paths drop theirs). Serial-matched
+    /// like every other identity check here: a recycled object address must
+    /// not remove a newer incarnation's park.
+    public func removePortalVacancyRetry(hostId: ObjectIdentifier, instanceSerial: UInt64) {
+        guard portalHostVacancyRetries[hostId]?.instanceSerial == instanceSerial else { return }
+        portalHostVacancyRetries.removeValue(forKey: hostId)
+    }
 
     /// The live find session, or nil when find is closed. Setting it arms the
     /// debounced needle pipeline; clearing it ends the runtime search.
@@ -301,7 +379,7 @@ public final class TerminalSurface: Identifiable, ObservableObject {
 #if DEBUG
                         logDebugEvent("find.needle updated tab=\(self?.tabId.uuidString.prefix(5) ?? "?") surface=\(self?.id.uuidString.prefix(5) ?? "?") chars=\(needle.count)")
 #endif
-                        _ = self?.performBindingAction("search:\(needle)")
+                        _ = self?.performInternalBindingAction("search:\(needle)")
                     }
             } else if let oldValue {
                 lastSearchNeedle = oldValue.needle
@@ -309,7 +387,7 @@ public final class TerminalSurface: Identifiable, ObservableObject {
 #if DEBUG
                 logDebugEvent("find.searchState cleared tab=\(tabId.uuidString.prefix(5)) surface=\(id.uuidString.prefix(5))")
 #endif
-                _ = performBindingAction("end_search")
+                _ = performInternalBindingAction("end_search")
             }
         }
     }
@@ -368,8 +446,11 @@ public final class TerminalSurface: Identifiable, ObservableObject {
     /// hopped through `MainActor.assumeIsolated`; the isolation is now
     /// compiler-enforced).
     ///
-    /// - Parameters mirror the legacy initializer, plus the injected
-    ///   `dependencies` bundle constructed at the composition root.
+    /// Parameters mirror the legacy initializer, plus the injected
+    /// `dependencies` bundle constructed at the composition root.
+    ///
+    /// - Parameter preparePaneHost: Configures the newly-created pane host
+    ///   before it is attached or any startup work can create a runtime.
     @MainActor
     public init(
         id: UUID = UUID(),
@@ -387,16 +468,19 @@ public final class TerminalSurface: Identifiable, ObservableObject {
         manualIO: Bool = false,
         manualInputHandler: (@Sendable (Data) -> Void)? = nil,
         runtimeSpawnPolicy: TerminalSurfaceRuntimeSpawnPolicy = .immediate,
+        preparePaneHost: @Sendable @MainActor (any TerminalSurfacePaneHosting) -> Void = { _ in },
         dependencies: TerminalSurfaceRuntimeDependencies
     ) {
         self.id = id
         self.tabId = tabId
         self.surfaceContext = context
         self.configTemplate = configTemplate
+        self.lastKnownFontSizeLineage = configTemplate?.fontSizeLineage
         self.workingDirectory = workingDirectory?.trimmingCharacters(in: .whitespacesAndNewlines)
         self.portOrdinal = portOrdinal
-        let trimmedCommand = initialCommand?.trimmingCharacters(in: .whitespacesAndNewlines)
-        self.initialCommand = (trimmedCommand?.isEmpty == false) ? trimmedCommand : nil
+        self.initialCommand = initialCommand.flatMap {
+            $0.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty ? nil : $0
+        }
         let trimmedTmuxStartCommand = tmuxStartCommand?.trimmingCharacters(in: .whitespacesAndNewlines)
         self.tmuxStartCommand = (trimmedTmuxStartCommand?.isEmpty == false) ? trimmedTmuxStartCommand : nil
         let trimmedInput = initialInput?.isEmpty == false ? initialInput : nil
@@ -428,6 +512,7 @@ public final class TerminalSurface: Identifiable, ObservableObject {
         )
         self.surfaceView = views.surfaceView
         self.paneHost = views.paneHost
+        preparePaneHost(self.paneHost)
         registry.register(self)
         self.paneHost.attachSurface(self)
 
@@ -464,6 +549,9 @@ public final class TerminalSurface: Identifiable, ObservableObject {
     /// Rebinds the surface (and its views) to a new owning workspace id.
     @MainActor
     public func updateWorkspaceId(_ newTabId: UUID) {
+        if tabId != newTabId {
+            portalLifecycleGeneration &+= 1
+        }
         tabId = newTabId
         attachedView?.tabId = newTabId
         surfaceView.tabId = newTabId
@@ -559,19 +647,35 @@ public final class TerminalSurface: Identifiable, ObservableObject {
 #endif
 
         // Keep teardown asynchronous to avoid re-entrant close/deinit loops, but retain
-        // callback userdata until surface free completes so callbacks never dereference
-        // a deallocated view pointer.
+        // ALL callback userdata until the native free completes: ghostty's io-reader
+        // thread keeps firing the PTY tee callback (and the io thread the MANUAL-mode
+        // io_write_cb) until ghostty_surface_free joins those threads, so releasing
+        // manualIOContext or teeLease here would leave a use-after-free window until
+        // the coordinator's deferred free runs.
+#if DEBUG
+        if let freeSurface = Self.runtimeSurfaceFreeOverrideForTesting {
+            runtimeTeardown.enqueueRuntimeTeardown(
+                id: id,
+                workspaceId: tabId,
+                reason: "deinit",
+                surface: surfaceToFree,
+                callbackContext: callbackContext,
+                manualIOContext: manualIOContext,
+                byteTeeLease: teeLease,
+                freeSurface: freeSurface
+            )
+            return
+        }
+#endif
         runtimeTeardown.enqueueRuntimeTeardown(
             id: id,
             workspaceId: tabId,
             reason: "deinit",
             surface: surfaceToFree,
-            callbackContext: callbackContext
+            callbackContext: callbackContext,
+            manualIOContext: manualIOContext,
+            byteTeeLease: teeLease
         )
-        // The teardown coordinator releases callbackContext; manualIOContext and
-        // teeLease are not transported through the request, so release them here.
-        manualIOContext?.release()
-        teeLease?.release()
     }
 }
 

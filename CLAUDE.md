@@ -255,6 +255,7 @@ Core skill map:
 - `cmux-dev-workflow`: setup, tagged reloads, Xcode project normalization, sidebar extension tagging, local dev build isolation.
 - `cmux-architecture`: package boundaries, refactor architecture, file/API discipline, testability, Swift concurrency rules.
 - `cmux-backend`: backend TypeScript, Effect, Cloud VM control plane, provider secrets, Postgres and migrations.
+- `cmux-billing`: Stripe checkout, entitlements, webhooks, pricing dev stack, live provisioning.
 - `cmux-debugging`: debug event log, Debug menu, runtime pitfalls, typing-sensitive paths, SwiftUI list boundaries.
 - `cmux-localization`: user-facing strings, localization files, shortcut text, and localization audit.
 - `cmux-testing`: regression policy, Swift Testing, test quality, test wiring, local vs CI validation.

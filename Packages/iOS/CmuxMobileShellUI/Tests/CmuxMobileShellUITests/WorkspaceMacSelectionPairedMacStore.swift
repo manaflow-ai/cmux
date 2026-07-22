@@ -18,6 +18,7 @@ actor WorkspaceMacSelectionPairedMacStore: MobilePairedMacStoring {
         macDeviceID: String,
         displayName: String?,
         routes: [CmxAttachRoute],
+        instanceTag: String? = nil,
         markActive: Bool,
         stackUserID: String?,
         teamID: String?,
@@ -38,6 +39,7 @@ actor WorkspaceMacSelectionPairedMacStore: MobilePairedMacStoring {
         }) {
             records[index].displayName = displayName
             records[index].routes = routes
+            records[index].instanceTag = instanceTag
             records[index].lastSeenAt = now
             records[index].isActive = markActive
         } else {
@@ -49,7 +51,8 @@ actor WorkspaceMacSelectionPairedMacStore: MobilePairedMacStoring {
                 lastSeenAt: now,
                 isActive: markActive,
                 stackUserID: stackUserID,
-                teamID: teamID
+                teamID: teamID,
+                instanceTag: instanceTag
             ))
         }
     }
