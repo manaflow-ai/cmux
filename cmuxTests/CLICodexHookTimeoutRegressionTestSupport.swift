@@ -267,6 +267,15 @@ func waitForFile(_ url: URL, containing expected: String, timeout: TimeInterval)
     return false
 }
 
+func waitForFileLineCount(_ url: URL, count expectedCount: Int, timeout: TimeInterval) -> Bool {
+    waitForCondition(timeout: timeout) {
+        guard let content = try? String(contentsOf: url, encoding: .utf8) else {
+            return false
+        }
+        return content.split(whereSeparator: \.isNewline).count >= expectedCount
+    }
+}
+
 func waitForCondition(timeout: TimeInterval, pollInterval: TimeInterval = 0.02, _ condition: () -> Bool) -> Bool {
     let deadline = Date().addingTimeInterval(timeout)
     while Date() < deadline {

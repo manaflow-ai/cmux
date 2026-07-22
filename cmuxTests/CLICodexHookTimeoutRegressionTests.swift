@@ -139,17 +139,22 @@ struct CLICodexHookTimeoutRegressionTests {
         let codexHome = root.appendingPathComponent(".codex", isDirectory: true)
         let toolBin = root.appendingPathComponent("tools", isDirectory: true)
         let fakeCLI = root.appendingPathComponent("cmux", isDirectory: false)
+        let fakeDate = root.appendingPathComponent("date", isDirectory: false)
         let capturedAt = root.appendingPathComponent("hook-captured-at.txt", isDirectory: false)
         let doneFile = root.appendingPathComponent("hook-done.txt", isDirectory: false)
         try FileManager.default.createDirectory(at: codexHome, withIntermediateDirectories: true)
         try installMinimalHookToolPath(in: toolBin)
         defer { try? FileManager.default.removeItem(at: root) }
 
+        try makeCodexHookExecutableShellFile(at: fakeDate, lines: [
+            "#!/bin/sh",
+            "if [ \"$1\" = \"+%s\" ]; then printf '1893456000\\n'; else exec /bin/date \"$@\"; fi",
+        ])
         try makeCodexHookExecutableShellFile(at: fakeCLI, lines: [
             "#!/bin/sh",
-            "printf '%s\\n' \"$CMUX_AGENT_HOOK_CAPTURED_AT\" > \"$CMUX_TEST_CAPTURED_AT\"",
+            "printf '%s\\n' \"$CMUX_AGENT_HOOK_CAPTURED_AT\" >> \"$CMUX_TEST_CAPTURED_AT\"",
             "cat >/dev/null",
-            "printf done > \"$CMUX_TEST_DONE\"",
+            "printf 'done\\n' >> \"$CMUX_TEST_DONE\"",
         ])
 
         let install = runCodexHookProcess(
@@ -171,6 +176,7 @@ struct CLICodexHookTimeoutRegressionTests {
                 "HOME": root.path,
                 "PATH": toolBin.path,
                 "TMPDIR": root.path,
+                "CMUX_AGENT_HOOK_DATE_BIN": fakeDate.path,
                 "CMUX_SURFACE_ID": "surface-123",
                 "CMUX_BUNDLED_CLI_PATH": fakeCLI.path,
                 "CMUX_CODEX_PID": "4242",
@@ -185,12 +191,39 @@ struct CLICodexHookTimeoutRegressionTests {
         #expect(run.status == 0, Comment(rawValue: run.stderr))
         #expect(run.stdout == "{}\n")
         #expect(waitForFile(doneFile, containing: "done", timeout: 3))
-        let rawCapturedAt = try String(contentsOf: capturedAt, encoding: .utf8)
-            .trimmingCharacters(in: .whitespacesAndNewlines)
-        let capturedTime = try #require(Double(rawCapturedAt))
-        #expect(capturedTime >= 946_684_800, Comment(rawValue: rawCapturedAt))
-        #expect(capturedTime <= 4_102_444_800, Comment(rawValue: rawCapturedAt))
-        #expect(rawCapturedAt.contains("."), Comment(rawValue: rawCapturedAt))
+        let secondRun = runCodexHookProcess(
+            executablePath: "/bin/sh",
+            arguments: ["-c", command],
+            environment: [
+                "HOME": root.path,
+                "PATH": toolBin.path,
+                "TMPDIR": root.path,
+                "CMUX_AGENT_HOOK_DATE_BIN": fakeDate.path,
+                "CMUX_SURFACE_ID": "surface-123",
+                "CMUX_BUNDLED_CLI_PATH": fakeCLI.path,
+                "CMUX_CODEX_PID": "4242",
+                "CMUX_TEST_CAPTURED_AT": capturedAt.path,
+                "CMUX_TEST_DONE": doneFile.path,
+            ],
+            standardInput: #"{"session_id":"codex-session","prompt":"second fallback timestamp"}"#,
+            timeout: 2
+        )
+        #expect(!secondRun.timedOut, Comment(rawValue: secondRun.stderr))
+        #expect(secondRun.status == 0, Comment(rawValue: secondRun.stderr))
+        #expect(secondRun.stdout == "{}\n")
+        #expect(waitForFileLineCount(capturedAt, count: 2, timeout: 3))
+
+        let rawCapturedTimes = try String(contentsOf: capturedAt, encoding: .utf8)
+            .split(whereSeparator: \.isNewline)
+            .map(String.init)
+        #expect(rawCapturedTimes.count == 2)
+        let capturedTimes = try rawCapturedTimes.map { rawValue in
+            let value = try #require(Double(rawValue))
+            #expect(value.isFinite && value > 0, Comment(rawValue: rawValue))
+            #expect(rawValue.hasPrefix("1893456000."), Comment(rawValue: rawValue))
+            return value
+        }
+        #expect(capturedTimes[0] < capturedTimes[1], Comment(rawValue: rawCapturedTimes.joined(separator: ",")))
     }
 
     @Test func codexInstalledStopHookReturnsBeforeSlowCmuxCommandFinishes() throws {
@@ -972,8 +1005,10 @@ struct CLICodexHookTimeoutRegressionTests {
         try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
         for (name, target) in [
             ("cat", "/bin/cat"),
+            ("mkdir", "/bin/mkdir"),
             ("mktemp", "/usr/bin/mktemp"),
             ("nohup", "/usr/bin/nohup"),
+            ("rmdir", "/bin/rmdir"),
             ("rm", "/bin/rm"),
             ("sh", "/bin/sh"),
             ("sleep", "/bin/sleep"),
