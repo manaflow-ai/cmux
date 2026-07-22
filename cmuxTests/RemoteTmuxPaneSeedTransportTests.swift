@@ -858,6 +858,148 @@ import Testing
         )
     }
 
+    /// A full-history seed is a replacement, not an append. A first paint can
+    /// reach local scrollback before a newer authoritative capture finishes;
+    /// replaying the newer capture must remove that older copy.
+    @Test(.timeLimit(.minutes(1)))
+    func successiveFullHistorySeedReplacesPreviouslyRenderedPrefix() async throws {
+        let fixture = attachedConnection()
+        defer { fixture.close() }
+        let layout = RemoteTmuxLayoutNode(
+            width: 80, height: 24, x: 0, y: 0, content: .pane(7)
+        )
+        fixture.connection.windowsByID[1] = RemoteTmuxWindow(
+            id: 1, name: "main", width: 80, height: 24, layout: layout
+        )
+        fixture.connection.windowOrder = [1]
+        fixture.connection.recordPublishedPaneOwnership(windowId: 1, paneIds: [7])
+
+        let manager = TabManager(autoWelcomeIfNeeded: false)
+        let workspace = try #require(manager.selectedWorkspace)
+        workspace.isRemoteTmuxMirror = true
+        let sessionMirror = RemoteTmuxSessionMirror(
+            host: fixture.connection.host,
+            sessionName: "work",
+            connection: fixture.connection,
+            tabManager: manager,
+            workspace: workspace
+        )
+        defer { sessionMirror.detachObserver() }
+        let panelID = try #require(sessionMirror.panelIdByPane[7])
+        let panel = try #require(workspace.panels[panelID] as? TerminalPanel)
+        let terminal = try hostedTerminal(panel.surface)
+        defer { terminal.window.orderOut(nil) }
+        await waitForLiveSurface(terminal.surface)
+        terminal.surface.setAssignedGrid(columns: 80, rows: 24)
+        await waitForAppliedTerminalGrid(terminal.surface, columns: 80, rows: 24)
+
+        finishPendingCommands(
+            on: fixture.connection,
+            captureRows: ["FIRST-PAINT"],
+            paneHeight: 24,
+            startingAt: 20
+        )
+
+        let prefix = [
+            "SEED-BEGIN",
+            "seed-001: plain",
+            "",
+            "seed-003: after-blank",
+            "seed-esc: RED | BOLD | UNDER",
+        ]
+        let liveRows = prefix + (1...40).map { String(format: "BEFORE-RESEED-%03d", $0) }
+        fixture.connection.routePaneOutput(
+            paneId: 7,
+            data: Data((liveRows.joined(separator: "\r\n") + "\r\n").utf8)
+        )
+        await waitForTerminalText(terminal.surface) { $0.contains("BEFORE-RESEED-040") }
+
+        let authoritativeRows = prefix + [
+            "seed-unicode: αβγ 你好 🚀 é",
+            "seed-tabs: A\tB\tC",
+            "SEED-END",
+        ]
+        #expect(fixture.connection.seedPane(paneId: 7) != nil)
+        finishPendingCommands(
+            on: fixture.connection,
+            captureRows: authoritativeRows,
+            paneHeight: 24,
+            startingAt: 60
+        )
+        await waitForTerminalText(terminal.surface) { $0.contains("SEED-END") }
+
+        let rendered = try readFullTerminalText(terminal.surface)
+        for marker in prefix where !marker.isEmpty {
+            #expect(
+                rendered.components(separatedBy: marker).count - 1 == 1,
+                "a replacement full-history seed must leave exactly one copy of \(marker)"
+            )
+        }
+    }
+
+    /// Catch-up bytes continue from the cursor represented by the authoritative
+    /// snapshot boundary. Restoring that cursor after catch-up can concatenate
+    /// two server rows even though both marker payloads survive.
+    @Test(.timeLimit(.minutes(1)))
+    func paneSeedRestoresBoundaryCursorBeforeCatchUpOutput() async throws {
+        let fixture = attachedConnection()
+        defer { fixture.close() }
+        let layout = RemoteTmuxLayoutNode(
+            width: 94, height: 24, x: 0, y: 0, content: .pane(7)
+        )
+        fixture.connection.windowsByID[1] = RemoteTmuxWindow(
+            id: 1, name: "main", width: 94, height: 24, layout: layout
+        )
+        fixture.connection.windowOrder = [1]
+        fixture.connection.recordPublishedPaneOwnership(windowId: 1, paneIds: [7])
+
+        let manager = TabManager(autoWelcomeIfNeeded: false)
+        let workspace = try #require(manager.selectedWorkspace)
+        workspace.isRemoteTmuxMirror = true
+        let sessionMirror = RemoteTmuxSessionMirror(
+            host: fixture.connection.host,
+            sessionName: "work",
+            connection: fixture.connection,
+            tabManager: manager,
+            workspace: workspace
+        )
+        defer { sessionMirror.detachObserver() }
+        let panelID = try #require(sessionMirror.panelIdByPane[7])
+        let panel = try #require(workspace.panels[panelID] as? TerminalPanel)
+        let terminal = try hostedTerminal(panel.surface)
+        defer { terminal.window.orderOut(nil) }
+        await waitForLiveSurface(terminal.surface)
+        terminal.surface.setAssignedGrid(columns: 94, rows: 24)
+        await waitForAppliedTerminalGrid(terminal.surface, columns: 94, rows: 24)
+        finishPendingCommands(
+            on: fixture.connection,
+            captureRows: [],
+            paneHeight: 24,
+            startingAt: 20
+        )
+
+        let boundaryState = RemoteTmuxControlMessageDecoding().paneStateSeedSequence(
+            from: Self.paneStateLine(cursorX: 0, cursorY: 1, paneHeight: 24)
+        )
+        sessionMirror.routeSeed(
+            paneId: 7,
+            seed: RemoteTmuxPaneSeed(
+                kind: .fullHistory,
+                discardedOutput: [],
+                snapshot: Data("\u{1b}[H\u{1b}[2J\u{1b}[3JRUN-0034".utf8),
+                catchUpOutput: [Data("RUN-0035\r\n".utf8)],
+                state: boundaryState
+            )
+        )
+        await waitForTerminalText(terminal.surface) { $0.contains("RUN-0035") }
+
+        let rows = try readFullTerminalText(terminal.surface)
+            .split(separator: "\n", omittingEmptySubsequences: false)
+            .map { $0.trimmingCharacters(in: .whitespacesAndNewlines) }
+        let markerRows = rows.filter { $0.contains("RUN-0034") || $0.contains("RUN-0035") }
+        #expect(markerRows == ["RUN-0034", "RUN-0035"])
+    }
+
     @Test func visibleRepaintMatchesAlternateScreenBeforeCapturePaint() throws {
         let fixture = attachedConnection()
         defer { fixture.close() }
