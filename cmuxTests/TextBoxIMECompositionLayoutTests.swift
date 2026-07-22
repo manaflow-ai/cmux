@@ -2,6 +2,12 @@ import AppKit
 import SwiftUI
 import Testing
 
+#if canImport(cmux_DEV)
+@testable import cmux_DEV
+#elseif canImport(cmux)
+@testable import cmux
+#endif
+
 @Suite("TextBox IME composition layout")
 struct TextBoxIMECompositionLayoutTests {
     @Test("marked text reflows the TextBox before commit")
