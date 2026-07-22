@@ -207,6 +207,7 @@ struct SignInView: View {
                 .disabled(code.count != 6 || isAuthInProgress)
                 .mobileGlassProminentButton()
                 .accessibilityIdentifier("signin.verifyCode")
+                .accessibilityLabel(L10n.string("mobile.signIn.verifyCode", defaultValue: "Verify code"))
 
                 Button {
                     let autofocusEmailOnReturn = isCodeFocused
