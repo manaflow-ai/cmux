@@ -154,6 +154,8 @@ private extension ArtifactStoreError {
             return .exceedsSizeLimit
         case .artifactNotFound, .ambiguousArtifactName:
             return .notARegularFile
+        case .scanIncomplete:
+            return .candidateLimitReached
         case .pathOutsideStore:
             return .pathOutsideStore
         case .corruptProvenance:

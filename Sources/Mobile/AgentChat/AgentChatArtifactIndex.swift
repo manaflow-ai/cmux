@@ -48,6 +48,7 @@ actor AgentChatArtifactIndex {
         let fileSize: UInt64
         let modifiedAt: Date
         let transcriptLineage: String
+        let maximumFileBytes: UInt64
 
         var generation: String {
             "\(fileSize)-\(Int64(modifiedAt.timeIntervalSince1970 * 1_000_000))"
@@ -57,6 +58,8 @@ actor AgentChatArtifactIndex {
     private struct CacheEntry: Sendable {
         let key: CacheKey
         let snapshot: Snapshot
+        let sliceStartOffset: UInt64
+        let sliceStartingSequence: Int
     }
 
     private var cacheBySessionID = ChatArtifactLRUCache<String, CacheEntry>(capacity: 8)
@@ -82,17 +85,40 @@ actor AgentChatArtifactIndex {
         if let cached = cacheBySessionID.value(forKey: sessionID), cached.key == key {
             return cached.snapshot
         }
-        let data = try Self.readTranscript(opened.handle, byteCount: key.fileSize)
+        let previous = cacheBySessionID.value(forKey: sessionID)
+        let extendsPreviousTranscript = previous.map {
+            $0.key.transcriptLineage == key.transcriptLineage
+                && $0.key.transcriptPath == key.transcriptPath
+                && $0.key.workingDirectory == key.workingDirectory
+                && $0.key.maximumFileBytes == key.maximumFileBytes
+                && $0.key.fileSize < key.fileSize
+        } ?? false
+        let slice = try AgentChatTranscriptReader().read(
+            handle: opened.handle,
+            fileSize: key.fileSize,
+            maximumBytes: key.maximumFileBytes,
+            anchorOffset: extendsPreviousTranscript ? previous?.sliceStartOffset : nil,
+            anchorSequence: extendsPreviousTranscript ? previous?.sliceStartingSequence : nil
+        )
         nextSnapshotRevision &+= 1
         let snapshot = try Self.buildSnapshot(
             agentKind: agentKind,
-            data: data,
+            slice: slice,
             workingDirectory: workingDirectory,
             generation: key.generation,
             revision: nextSnapshotRevision,
-            transcriptLineage: key.transcriptLineage
+            transcriptLineage: key.transcriptLineage,
+            previousArtifacts: extendsPreviousTranscript ? previous?.snapshot.artifacts ?? [] : []
         )
-        cacheBySessionID.insert(CacheEntry(key: key, snapshot: snapshot), forKey: sessionID)
+        cacheBySessionID.insert(
+            CacheEntry(
+                key: key,
+                snapshot: snapshot,
+                sliceStartOffset: slice.startOffset,
+                sliceStartingSequence: slice.startingSequence
+            ),
+            forKey: sessionID
+        )
         return snapshot
     }
 
@@ -148,10 +174,6 @@ actor AgentChatArtifactIndex {
             throw CocoaError(.fileReadUnknown, userInfo: [NSFilePathErrorKey: path])
         }
         let size = UInt64(status.st_size)
-        guard size <= maximumFileBytes else {
-            try? handle.close()
-            throw CocoaError(.fileReadTooLarge, userInfo: [NSFilePathErrorKey: path])
-        }
         let modifiedAt = Date(
             timeIntervalSince1970: Double(status.st_mtimespec.tv_sec)
                 + Double(status.st_mtimespec.tv_nsec) / 1_000_000_000
@@ -161,47 +183,42 @@ actor AgentChatArtifactIndex {
             workingDirectory: workingDirectory,
             fileSize: size,
             modifiedAt: modifiedAt,
-            transcriptLineage: "\(path):\(status.st_dev):\(status.st_ino)"
+            transcriptLineage: "\(path):\(status.st_dev):\(status.st_ino)",
+            maximumFileBytes: maximumFileBytes
         )
         return (key, handle)
     }
 
-    private static func readTranscript(_ handle: FileHandle, byteCount: UInt64) throws -> Data {
-        var data = Data()
-        data.reserveCapacity(Int(byteCount))
-        var remaining = Int(byteCount)
-        while remaining > 0 {
-            try Task.checkCancellation()
-            let chunk = try handle.read(upToCount: min(remaining, 64 * 1024)) ?? Data()
-            guard !chunk.isEmpty else { break }
-            data.append(chunk)
-            remaining -= chunk.count
-        }
-        return data
-    }
-
     private static func buildSnapshot(
         agentKind: ChatAgentKind,
-        data: Data,
+        slice: AgentChatTranscriptSlice,
         workingDirectory: String?,
         generation: String,
         revision: UInt64,
-        transcriptLineage: String
+        transcriptLineage: String,
+        previousArtifacts: [ChatArtifactIndexedReference]
     ) throws -> Snapshot {
-        let text = String(decoding: data, as: UTF8.self)
+        let text = String(decoding: slice.data, as: UTF8.self)
         let lines = text.split(separator: "\n", omittingEmptySubsequences: false).map(String.init)
         let parseResult: ChatTranscriptParseResult
         switch agentKind {
         case .codex:
-            parseResult = CodexTranscriptParser().parse(lines: lines, startingSeq: 0)
+            parseResult = CodexTranscriptParser().parse(
+                lines: lines,
+                startingSeq: slice.startingSequence
+            )
         case .claude, .other:
-            parseResult = ClaudeTranscriptParser().parse(lines: lines, startingSeq: 0)
+            parseResult = ClaudeTranscriptParser().parse(
+                lines: lines,
+                startingSeq: slice.startingSequence
+            )
         }
-        let artifacts = ChatArtifactIndexedReference.derive(
+        let currentArtifacts = ChatArtifactIndexedReference.derive(
             from: parseResult.messages,
             supplementalReferences: parseResult.artifactReferences,
             workingDirectory: workingDirectory
         )
+        let artifacts = mergedArtifacts(previousArtifacts, currentArtifacts)
         let referencedPaths = Set(artifacts.map(\.path))
         return Snapshot(
             referencedPaths: referencedPaths,
@@ -209,7 +226,41 @@ actor AgentChatArtifactIndex {
             generation: generation,
             revision: revision,
             transcriptLineage: transcriptLineage,
-            lineCount: lines.count
+            lineCount: slice.startingSequence + lines.count
         )
+    }
+
+    private static func mergedArtifacts(
+        _ previous: [ChatArtifactIndexedReference],
+        _ current: [ChatArtifactIndexedReference]
+    ) -> [ChatArtifactIndexedReference] {
+        var artifacts = Dictionary(uniqueKeysWithValues: previous.map { ($0.path, $0) })
+        for artifact in current {
+            let existing = artifacts[artifact.path]
+            artifacts[artifact.path] = ChatArtifactIndexedReference(
+                path: artifact.path,
+                provenance: higherPrecedence(existing?.provenance, artifact.provenance),
+                lastReferencedSeq: max(
+                    existing?.lastReferencedSeq ?? Int.min,
+                    artifact.lastReferencedSeq
+                )
+            )
+        }
+        return Array(artifacts.values)
+    }
+
+    private static func higherPrecedence(
+        _ lhs: ChatArtifactProvenance?,
+        _ rhs: ChatArtifactProvenance
+    ) -> ChatArtifactProvenance {
+        guard let lhs else { return rhs }
+        let rank: (ChatArtifactProvenance) -> Int = {
+            switch $0 {
+            case .created: 0
+            case .attached: 1
+            case .referenced: 2
+            }
+        }
+        return rank(lhs) <= rank(rhs) ? lhs : rhs
     }
 }

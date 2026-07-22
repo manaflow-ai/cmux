@@ -242420,6 +242420,23 @@
         }
       }
     },
+    "cli.artifact.error.scanIncomplete": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Artifact scan reached its safety limit: %@"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "アーティファクトのスキャンが安全上限に達しました: %@"
+          }
+        }
+      }
+    },
     "cli.artifact.error.corruptProvenance": {
       "extractionState": "manual",
       "localizations": {

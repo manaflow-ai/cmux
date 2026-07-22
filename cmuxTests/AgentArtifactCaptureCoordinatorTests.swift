@@ -251,23 +251,6 @@ struct AgentArtifactCaptureCoordinatorTests {
         #expect(await store.importCount == 1)
     }
 
-    @Test func automaticTranscriptSnapshotRejectsFilesOverItsByteBudget() async throws {
-        let projectRoot = try temporaryProjectRoot()
-        defer { try? FileManager.default.removeItem(at: projectRoot) }
-        let transcript = projectRoot.appendingPathComponent("transcript.jsonl")
-        try Data("{}\n".utf8).write(to: transcript)
-
-        await #expect(throws: (any Error).self) {
-            _ = try await AgentChatArtifactIndex().snapshot(
-                sessionID: "session",
-                agentKind: .claude,
-                transcriptPath: transcript.path,
-                workingDirectory: projectRoot.path,
-                maximumFileBytes: 2
-            )
-        }
-    }
-
     @Test func automaticTranscriptSnapshotRejectsFinalSymlinks() async throws {
         let projectRoot = try temporaryProjectRoot()
         defer { try? FileManager.default.removeItem(at: projectRoot) }

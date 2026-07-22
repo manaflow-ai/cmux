@@ -162,7 +162,8 @@ struct TranscriptBatchAssembler {
         case .toolUse(let toolUse):
             return toolUse.artifactMutationPaths
         case .terminal(let terminal):
-            return ShellArtifactMutationPathDetector().paths(in: terminal.command)
+            return ShellArtifactMutationPathDetector()
+                .pathsAttributedToSuccessfulCommand(in: terminal.command)
         case .prose, .thought, .permissionRequest, .question,
              .status, .attachment, .unsupported:
             return []

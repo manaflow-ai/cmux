@@ -9,19 +9,39 @@ import Testing
 #endif
 
 struct AgentChatArtifactIndexSafetyTests {
-    @Test func oversizedTranscriptIndexesItsNewlineAlignedTail() async throws {
+    @Test func oversizedTranscriptContinuesIndexingItsNewlineAlignedTail() async throws {
         let root = FileManager.default.temporaryDirectory
             .appendingPathComponent(UUID().uuidString, isDirectory: true)
         try FileManager.default.createDirectory(at: root, withIntermediateDirectories: true)
         defer { try? FileManager.default.removeItem(at: root) }
         let transcript = root.appendingPathComponent("transcript.jsonl")
-        let artifactPath = root.appendingPathComponent("latest.md").path
+        let firstArtifactPath = root.appendingPathComponent("first.md").path
+        let secondArtifactPath = root.appendingPathComponent("second.md").path
         let prefix = Array(repeating: String(repeating: "x", count: 80), count: 20)
-        let artifactLine = try codexArtifactLine(path: artifactPath)
+        let artifactLine = try codexArtifactLine(path: firstArtifactPath)
         try (prefix + [artifactLine]).joined(separator: "\n")
             .write(to: transcript, atomically: true, encoding: .utf8)
+        let index = AgentChatArtifactIndex()
 
-        let snapshot = try await AgentChatArtifactIndex().snapshot(
+        let firstSnapshot = try await index.snapshot(
+            sessionID: "session",
+            agentKind: .codex,
+            transcriptPath: transcript.path,
+            workingDirectory: root.path,
+            maximumFileBytes: 512
+        )
+        let firstArtifact = try #require(firstSnapshot.artifacts.first)
+        #expect(firstArtifact.path == firstArtifactPath)
+        #expect(firstArtifact.lastReferencedSeq == 20)
+        #expect(firstSnapshot.lineCount == 21)
+
+        let appendedLines = Array(repeating: String(repeating: "y", count: 80), count: 20)
+            + [try codexArtifactLine(path: secondArtifactPath)]
+        let handle = try FileHandle(forWritingTo: transcript)
+        try handle.seekToEnd()
+        try handle.write(contentsOf: Data(("\n" + appendedLines.joined(separator: "\n")).utf8))
+        try handle.close()
+        let secondSnapshot = try await index.snapshot(
             sessionID: "session",
             agentKind: .codex,
             transcriptPath: transcript.path,
@@ -29,10 +49,12 @@ struct AgentChatArtifactIndexSafetyTests {
             maximumFileBytes: 512
         )
 
-        let artifact = try #require(snapshot.artifacts.first)
-        #expect(artifact.path == artifactPath)
-        #expect(artifact.lastReferencedSeq == 20)
-        #expect(snapshot.lineCount == 21)
+        let artifacts = Dictionary(uniqueKeysWithValues: secondSnapshot.artifacts.map {
+            ($0.path, $0.lastReferencedSeq)
+        })
+        #expect(artifacts[firstArtifactPath] == 20)
+        #expect(artifacts[secondArtifactPath] == 41)
+        #expect(secondSnapshot.lineCount == 42)
     }
 
     @Test func canceledSnapshotStopsBeforeTranscriptParsing() async throws {

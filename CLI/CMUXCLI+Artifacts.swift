@@ -336,6 +336,8 @@ extension CMUXCLI {
             return String(format: String(localized: "cli.artifact.error.notFound", defaultValue: "Artifact not found: %@"), name)
         case .ambiguousArtifactName(let name, let matches):
             return String(format: String(localized: "cli.artifact.error.ambiguous", defaultValue: "Artifact name '%@' is ambiguous: %@"), name, matches.joined(separator: ", "))
+        case .scanIncomplete(let path):
+            return String(format: String(localized: "cli.artifact.error.scanIncomplete", defaultValue: "Artifact scan reached its safety limit: %@"), path)
         case .pathOutsideStore(let path):
             return String(format: String(localized: "cli.artifact.error.outsideStore", defaultValue: "Artifact path escaped the store: %@"), path)
         case .corruptProvenance(let path):

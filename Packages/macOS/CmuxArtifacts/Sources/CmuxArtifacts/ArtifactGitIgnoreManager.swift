@@ -12,10 +12,7 @@ struct ArtifactGitIgnoreManager {
             projectRoot: projectRoot,
             worktreeRoot: repository.worktreeRoot
         )
-        guard let commonGitDirectory = commonGitDirectory(for: repository.gitDirectory) else {
-            return
-        }
-        let infoDirectory = commonGitDirectory.appendingPathComponent("info", isDirectory: true)
+        let infoDirectory = repository.commonGitDirectory.appendingPathComponent("info", isDirectory: true)
         let excludeURL = infoDirectory.appendingPathComponent("exclude", isDirectory: false)
         try ensureTrustedDirectory(infoDirectory)
         try rejectUntrustedFileEntry(excludeURL)
@@ -50,83 +47,99 @@ struct ArtifactGitIgnoreManager {
         )
     }
 
-    private func locateGitRepository(startingAt projectRoot: URL) -> (worktreeRoot: URL, gitDirectory: URL)? {
+    private func locateGitRepository(startingAt projectRoot: URL) -> ArtifactGitRepository? {
         for current in ArtifactAncestorDirectories(startingAt: projectRoot) {
             let dotGit = current.appendingPathComponent(".git", isDirectory: false)
-            guard fileManager.fileExists(atPath: dotGit.path) else { continue }
-            guard let gitDirectory = resolveGitDirectory(worktreeRoot: current) else { return nil }
-            return (current, gitDirectory)
+            guard filesystemEntryExists(dotGit) else { continue }
+            return resolveGitRepository(worktreeRoot: current, dotGit: dotGit)
         }
         return nil
     }
 
     private func containsGitMarker(startingAt projectRoot: URL) -> Bool {
         ArtifactAncestorDirectories(startingAt: projectRoot).contains { current in
-            fileManager.fileExists(atPath: current.appendingPathComponent(".git").path)
+            filesystemEntryExists(current.appendingPathComponent(".git"))
         }
     }
 
-    private func resolveGitDirectory(worktreeRoot: URL) -> URL? {
-        let dotGit = worktreeRoot.appendingPathComponent(".git", isDirectory: false)
-        var isDirectory: ObjCBool = false
-        if fileManager.fileExists(atPath: dotGit.path, isDirectory: &isDirectory), isDirectory.boolValue {
-            return isTrustedDirectory(dotGit) ? dotGit.standardizedFileURL : nil
+    private func resolveGitRepository(worktreeRoot: URL, dotGit: URL) -> ArtifactGitRepository? {
+        guard let entryType = try? filesystemEntryType(dotGit) else { return nil }
+        if entryType == S_IFDIR {
+            let commonDirectoryFile = dotGit.appendingPathComponent("commondir", isDirectory: false)
+            guard isTrustedDirectory(dotGit), !filesystemEntryExists(commonDirectoryFile) else {
+                return nil
+            }
+            let gitDirectory = dotGit.standardizedFileURL
+            return ArtifactGitRepository(
+                worktreeRoot: worktreeRoot,
+                commonGitDirectory: gitDirectory
+            )
         }
-        guard let contents = try? String(contentsOf: dotGit, encoding: .utf8),
+        guard entryType == S_IFREG,
+              let contents = readRegularFile(dotGit),
               contents.lowercased().hasPrefix("gitdir:") else { return nil }
         let rawPath = contents.dropFirst("gitdir:".count).trimmingCharacters(in: .whitespacesAndNewlines)
         let url = URL(fileURLWithPath: rawPath, relativeTo: worktreeRoot).standardizedFileURL
         guard isTrustedDirectory(url),
-              isTrustedRedirect(
+              let commonGitDirectory = linkedCommonGitDirectory(
                 gitDirectory: url,
-                dotGit: dotGit,
-                worktreeRoot: worktreeRoot
+                dotGit: dotGit
               ) else {
             return nil
         }
-        return url
+        return ArtifactGitRepository(
+            worktreeRoot: worktreeRoot,
+            commonGitDirectory: commonGitDirectory
+        )
     }
 
-    private func commonGitDirectory(for gitDirectory: URL) -> URL? {
+    private func linkedCommonGitDirectory(
+        gitDirectory: URL,
+        dotGit: URL
+    ) -> URL? {
+        let backLink = gitDirectory.appendingPathComponent("gitdir", isDirectory: false)
+        guard let backLinkPath = readRegularFile(backLink)?
+            .trimmingCharacters(in: .whitespacesAndNewlines),
+              !backLinkPath.isEmpty else {
+            return nil
+        }
+        let resolvedBackLink = URL(
+            fileURLWithPath: backLinkPath,
+            relativeTo: gitDirectory
+        ).standardizedFileURL
+        guard resolvedBackLink.path == dotGit.standardizedFileURL.path else { return nil }
+
         let commonDirectoryFile = gitDirectory.appendingPathComponent("commondir", isDirectory: false)
-        guard fileManager.fileExists(atPath: commonDirectoryFile.path) else { return gitDirectory }
-        guard let rawPath = try? String(contentsOf: commonDirectoryFile, encoding: .utf8)
-            .trimmingCharacters(in: .whitespacesAndNewlines), !rawPath.isEmpty else { return nil }
+        guard let rawPath = readRegularFile(commonDirectoryFile)?
+            .trimmingCharacters(in: .whitespacesAndNewlines),
+              !rawPath.isEmpty else {
+            return nil
+        }
         let commonDirectory = URL(
             fileURLWithPath: rawPath,
             relativeTo: gitDirectory
         ).standardizedFileURL
-        guard isTrustedDirectory(commonDirectory),
-              ArtifactPathResolver().relativePath(
-                gitDirectory,
-                root: commonDirectory
-              ) != nil else {
+        let worktreesDirectory = gitDirectory.deletingLastPathComponent().standardizedFileURL
+        guard worktreesDirectory.lastPathComponent == "worktrees",
+              worktreesDirectory.deletingLastPathComponent().standardizedFileURL.path
+                == commonDirectory.path,
+              isTrustedDirectory(commonDirectory) else {
             return nil
         }
         return commonDirectory
     }
 
-    private func isTrustedRedirect(
-        gitDirectory: URL,
-        dotGit: URL,
-        worktreeRoot: URL
-    ) -> Bool {
-        let backLink = gitDirectory.appendingPathComponent("gitdir", isDirectory: false)
-        if let rawPath = try? String(contentsOf: backLink, encoding: .utf8)
-            .trimmingCharacters(in: .whitespacesAndNewlines),
-           !rawPath.isEmpty {
-            let resolved = URL(fileURLWithPath: rawPath, relativeTo: gitDirectory).standardizedFileURL
-            if resolved.path == dotGit.standardizedFileURL.path { return true }
-        }
+    private func readRegularFile(_ url: URL) -> String? {
+        guard (try? filesystemEntryType(url)) == S_IFREG else { return nil }
+        return try? String(contentsOf: url, encoding: .utf8)
+    }
 
-        for ancestor in ArtifactAncestorDirectories(startingAt: worktreeRoot.deletingLastPathComponent()) {
-            let ancestorGit = ancestor.appendingPathComponent(".git", isDirectory: true)
-            guard isTrustedDirectory(ancestorGit) else { continue }
-            if ArtifactPathResolver().relativePath(gitDirectory, root: ancestorGit) != nil {
-                return true
-            }
+    private func filesystemEntryExists(_ url: URL) -> Bool {
+        do {
+            return try filesystemEntryType(url) != nil
+        } catch {
+            return true
         }
-        return false
     }
 
     private func isTrustedDirectory(_ url: URL) -> Bool {
