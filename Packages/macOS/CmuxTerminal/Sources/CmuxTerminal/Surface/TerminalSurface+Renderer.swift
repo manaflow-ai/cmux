@@ -73,11 +73,6 @@ extension TerminalSurface {
     /// for starting the PTY, but it cannot safely host the first drawable.
     @MainActor
     private var isRendererPresentationAttachmentReady: Bool {
-#if DEBUG
-        if let rendererPresentationAttachmentReadyOverrideForTesting {
-            return rendererPresentationAttachmentReadyOverrideForTesting
-        }
-#endif
         return attachedView?.window != nil && uiWindow != nil
     }
 
@@ -89,6 +84,14 @@ extension TerminalSurface {
     /// the renderer well before `idleSeconds` of being offscreen has elapsed).
     @MainActor
     public func setRendererPortalVisible(_ visible: Bool) {
+        setRendererPortalVisible(
+            visible,
+            attachmentReady: isRendererPresentationAttachmentReady
+        )
+    }
+
+    @MainActor
+    func setRendererPortalVisible(_ visible: Bool, attachmentReady: Bool) {
         let wasVisible = rendererPortalVisible
         rendererPortalVisible = visible
         if !visible {
@@ -100,7 +103,7 @@ extension TerminalSurface {
         // while Ghostty is still occluded; occlusion is lifted only after the
         // native realization enqueue below.
         if visible {
-            ensureRendererPresented()
+            ensureRendererPresented(attachmentReady: attachmentReady)
         }
         // Stamp the last-visible time while visible, and exactly once at the hide
         // transition (the hide moment is the last-visible time). Do NOT re-stamp
@@ -125,10 +128,17 @@ extension TerminalSurface {
     /// marked presented without a redundant native realization cycle.
     @MainActor
     func rendererRuntimeSurfaceDidCreate() {
+        rendererRuntimeSurfaceDidCreate(
+            attachmentReady: isRendererPresentationAttachmentReady
+        )
+    }
+
+    @MainActor
+    func rendererRuntimeSurfaceDidCreate(attachmentReady: Bool) {
         rendererPresentationPhase = .awaitingFirstPresentation
         surfaceCallbackContext?.takeUnretainedValue().cancelRendererPresentationRepair()
         guard surface != nil else { return }
-        if rendererPortalVisible, isRendererPresentationAttachmentReady {
+        if rendererPortalVisible, attachmentReady {
             rendererPresentationPhase = .presented
             setOcclusion(true)
         } else {
@@ -147,7 +157,7 @@ extension TerminalSurface {
     @MainActor
     func rendererPresentationAttachmentDidBecomeReady() {
         guard rendererPortalVisible, isRendererPresentationAttachmentReady else { return }
-        ensureRendererPresented()
+        ensureRendererPresented(attachmentReady: true)
     }
 
     /// Release the runtime surface's GPU renderer (Metal swap chain / IOSurface)
@@ -197,11 +207,18 @@ extension TerminalSurface {
     /// alternate, so Ghostty's `displayRealized` defunct assertion remains valid.
     @MainActor
     public func ensureRendererPresented() {
+        ensureRendererPresented(
+            attachmentReady: isRendererPresentationAttachmentReady
+        )
+    }
+
+    @MainActor
+    func ensureRendererPresented(attachmentReady: Bool) {
 #if os(macOS)
         // `setVisibleInUI(true)` can precede Dock portal reattachment. Do not
         // realize against a windowless/headless layer and then mirror that
         // enqueue as a completed presentation.
-        guard isRendererPresentationAttachmentReady else { return }
+        guard attachmentReady else { return }
         guard rendererPresentationPhase != .presented else { return }
         guard let surface = liveSurfaceForGhosttyAccess(reason: "renderer.ensurePresented") else { return }
         let callbackContext = surfaceCallbackContext?.takeUnretainedValue()
@@ -246,9 +263,16 @@ extension TerminalSurface {
     /// queued callback harmless after hide, close, or successful presentation.
     @MainActor
     public func retryRendererPresentationAfterActivity() {
+        retryRendererPresentationAfterActivity(
+            attachmentReady: isRendererPresentationAttachmentReady
+        )
+    }
+
+    @MainActor
+    func retryRendererPresentationAfterActivity(attachmentReady: Bool) {
         guard rendererPortalVisible,
               hasLiveSurface,
               rendererPresentationPhase != .presented else { return }
-        ensureRendererPresented()
+        ensureRendererPresented(attachmentReady: attachmentReady)
     }
 }

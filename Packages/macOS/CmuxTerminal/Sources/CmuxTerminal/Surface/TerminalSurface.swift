@@ -290,7 +290,6 @@ public final class TerminalSurface: Identifiable, ObservableObject {
 #if DEBUG
     var needsConfirmCloseOverrideForTesting: Bool?
     var runtimeSurfaceFreedOutOfBandForTesting = false
-    var rendererPresentationAttachmentReadyOverrideForTesting: Bool?
     var runtimeSurfaceCreateAttemptCountForTesting = 0
     // Same off-isolation-reader carve-out as debugMetadataLock.
     let debugForceRefreshCountLock = NSLock()
