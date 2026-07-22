@@ -122,9 +122,9 @@ function detectedPiVersion(): string | null {
 
 function supportsAgentSettled(): boolean {
   const version = detectedPiVersion();
-  if (!version) return true;
+  if (!version) return false;
   const match = /^(\d+)\.(\d+)\.(\d+)/.exec(version);
-  if (!match) return true;
+  if (!match) return false;
   const major = Number(match[1]);
   const minor = Number(match[2]);
   const patch = Number(match[3]);
