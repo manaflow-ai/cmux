@@ -278,6 +278,339 @@ final class BrowserWebExtensionTabAdapter: NSObject, WKWebExtensionTab {
 
 @available(macOS 15.4, *)
 @MainActor
+final class BrowserWebExtensionPopupTabAdapter: NSObject, WKWebExtensionTab {
+    typealias DuplicateTab = @MainActor (WKWebExtension.TabConfiguration) throws -> BrowserWebExtensionTabAdapter
+
+    weak var popupController: BrowserPopupWindowController?
+    weak var windowAdapter: BrowserWebExtensionPopupWindowAdapter?
+    weak var parentTabObject: AnyObject?
+    let duplicateTab: DuplicateTab
+
+    init(
+        popupController: BrowserPopupWindowController,
+        windowAdapter: BrowserWebExtensionPopupWindowAdapter,
+        duplicateTab: @escaping DuplicateTab
+    ) {
+        self.popupController = popupController
+        self.windowAdapter = windowAdapter
+        self.duplicateTab = duplicateTab
+    }
+
+    func window(for context: WKWebExtensionContext) -> (any WKWebExtensionWindow)? { windowAdapter }
+    func indexInWindow(for context: WKWebExtensionContext) -> Int { 0 }
+    func parentTab(for context: WKWebExtensionContext) -> (any WKWebExtensionTab)? {
+        parentTabObject as? (any WKWebExtensionTab)
+    }
+
+    func setParentTab(
+        _ parentTab: (any WKWebExtensionTab)?,
+        for context: WKWebExtensionContext,
+        completionHandler: @escaping ((any Error)?) -> Void
+    ) {
+        guard let parentTab else {
+            parentTabObject = nil
+            completionHandler(nil)
+            return
+        }
+        guard let parent = parentTab as? BrowserWebExtensionPopupTabAdapter,
+              parent.windowAdapter === windowAdapter else {
+            completionHandler(BrowserWebExtensionAdapterError.parentTabUnavailable)
+            return
+        }
+        parentTabObject = parent
+        completionHandler(nil)
+    }
+
+    func webView(for context: WKWebExtensionContext) -> WKWebView? { popupController?.webView }
+    func title(for context: WKWebExtensionContext) -> String? { popupController?.webExtensionDisplayTitle }
+    func isPinned(for context: WKWebExtensionContext) -> Bool { false }
+
+    func setPinned(
+        _ pinned: Bool,
+        for context: WKWebExtensionContext,
+        completionHandler: @escaping ((any Error)?) -> Void
+    ) {
+        completionHandler(pinned ? BrowserWebExtensionAdapterError.pinMutationFailed : nil)
+    }
+
+    func isReaderModeAvailable(for context: WKWebExtensionContext) -> Bool { false }
+    func isReaderModeActive(for context: WKWebExtensionContext) -> Bool { false }
+    func setReaderModeActive(
+        _ active: Bool,
+        for context: WKWebExtensionContext,
+        completionHandler: @escaping ((any Error)?) -> Void
+    ) {
+        completionHandler(active ? BrowserWebExtensionAdapterError.readerModeUnsupported : nil)
+    }
+
+    func isPlayingAudio(for context: WKWebExtensionContext) -> Bool { false }
+    func isMuted(for context: WKWebExtensionContext) -> Bool {
+        popupController?.webExtensionIsMuted ?? false
+    }
+
+    func setMuted(
+        _ muted: Bool,
+        for context: WKWebExtensionContext,
+        completionHandler: @escaping ((any Error)?) -> Void
+    ) {
+        guard popupController?.setMutedForWebExtension(muted) == true else {
+            completionHandler(BrowserWebExtensionAdapterError.muteMutationFailed)
+            return
+        }
+        completionHandler(nil)
+    }
+
+    func size(for context: WKWebExtensionContext) -> CGSize {
+        popupController?.webView.bounds.size ?? .zero
+    }
+
+    func zoomFactor(for context: WKWebExtensionContext) -> Double {
+        Double(popupController?.webView.pageZoom ?? 1)
+    }
+
+    func setZoomFactor(
+        _ zoomFactor: Double,
+        for context: WKWebExtensionContext,
+        completionHandler: @escaping ((any Error)?) -> Void
+    ) {
+        guard zoomFactor.isFinite, zoomFactor > 0, let webView = popupController?.webView else {
+            completionHandler(BrowserWebExtensionAdapterError.invalidZoomFactor)
+            return
+        }
+        webView.pageZoom = CGFloat(zoomFactor)
+        completionHandler(nil)
+    }
+
+    func url(for context: WKWebExtensionContext) -> URL? { popupController?.webView.url }
+    func pendingURL(for context: WKWebExtensionContext) -> URL? { nil }
+    func isLoadingComplete(for context: WKWebExtensionContext) -> Bool {
+        !(popupController?.webView.isLoading ?? false)
+    }
+
+    func detectWebpageLocale(
+        for context: WKWebExtensionContext,
+        completionHandler: @escaping (Locale?, (any Error)?) -> Void
+    ) {
+        guard let webView = popupController?.webView else {
+            completionHandler(nil, BrowserWebExtensionAdapterError.tabUnavailable)
+            return
+        }
+        webView.evaluateJavaScript("navigator.language") { value, error in
+            if let error {
+                completionHandler(nil, error)
+            } else if let identifier = value as? String, !identifier.isEmpty {
+                completionHandler(Locale(identifier: identifier), nil)
+            } else {
+                completionHandler(nil, BrowserWebExtensionAdapterError.localeUnavailable)
+            }
+        }
+    }
+
+    func takeSnapshot(
+        using configuration: WKSnapshotConfiguration,
+        for context: WKWebExtensionContext,
+        completionHandler: @escaping @Sendable (NSImage?, (any Error)?) -> Void
+    ) {
+        guard let webView = popupController?.webView else {
+            completionHandler(nil, BrowserWebExtensionAdapterError.tabUnavailable)
+            return
+        }
+        webView.takeSnapshot(with: configuration, completionHandler: completionHandler)
+    }
+
+    func loadURL(
+        _ url: URL,
+        for context: WKWebExtensionContext,
+        completionHandler: @escaping ((any Error)?) -> Void
+    ) {
+        guard let popupController else {
+            completionHandler(BrowserWebExtensionAdapterError.tabUnavailable)
+            return
+        }
+        popupController.loadURLForWebExtension(url)
+        completionHandler(nil)
+    }
+
+    func reload(
+        fromOrigin: Bool,
+        for context: WKWebExtensionContext,
+        completionHandler: @escaping ((any Error)?) -> Void
+    ) {
+        guard let webView = popupController?.webView else {
+            completionHandler(BrowserWebExtensionAdapterError.tabUnavailable)
+            return
+        }
+        if fromOrigin {
+            webView.reloadFromOrigin()
+        } else {
+            webView.reload()
+        }
+        completionHandler(nil)
+    }
+
+    func goBack(for context: WKWebExtensionContext, completionHandler: @escaping ((any Error)?) -> Void) {
+        guard let webView = popupController?.webView else {
+            completionHandler(BrowserWebExtensionAdapterError.tabUnavailable)
+            return
+        }
+        webView.goBack()
+        completionHandler(nil)
+    }
+
+    func goForward(for context: WKWebExtensionContext, completionHandler: @escaping ((any Error)?) -> Void) {
+        guard let webView = popupController?.webView else {
+            completionHandler(BrowserWebExtensionAdapterError.tabUnavailable)
+            return
+        }
+        webView.goForward()
+        completionHandler(nil)
+    }
+
+    func activate(for context: WKWebExtensionContext, completionHandler: @escaping ((any Error)?) -> Void) {
+        guard let popupController else {
+            completionHandler(BrowserWebExtensionAdapterError.tabUnavailable)
+            return
+        }
+        popupController.focusForWebExtension()
+        completionHandler(nil)
+    }
+
+    func isSelected(for context: WKWebExtensionContext) -> Bool {
+        popupController?.webExtensionHostWindow.isKeyWindow ?? false
+    }
+
+    func setSelected(
+        _ selected: Bool,
+        for context: WKWebExtensionContext,
+        completionHandler: @escaping ((any Error)?) -> Void
+    ) {
+        guard selected else {
+            completionHandler(BrowserWebExtensionAdapterError.multiSelectionUnsupported)
+            return
+        }
+        activate(for: context, completionHandler: completionHandler)
+    }
+
+    func duplicate(
+        using configuration: WKWebExtension.TabConfiguration,
+        for context: WKWebExtensionContext,
+        completionHandler: @escaping ((any WKWebExtensionTab)?, (any Error)?) -> Void
+    ) {
+        do {
+            completionHandler(try duplicateTab(configuration), nil)
+        } catch {
+            completionHandler(nil, error)
+        }
+    }
+
+    func close(for context: WKWebExtensionContext, completionHandler: @escaping ((any Error)?) -> Void) {
+        guard let popupController else {
+            completionHandler(BrowserWebExtensionAdapterError.tabCloseFailed)
+            return
+        }
+        popupController.closePopup()
+        completionHandler(nil)
+    }
+
+    func shouldGrantPermissionsOnUserGesture(for context: WKWebExtensionContext) -> Bool { true }
+    func shouldBypassPermissions(for context: WKWebExtensionContext) -> Bool { false }
+}
+
+@available(macOS 15.4, *)
+@MainActor
+final class BrowserWebExtensionPopupWindowAdapter: NSObject, WKWebExtensionWindow {
+    let ownerID: UUID
+    weak var popupController: BrowserPopupWindowController?
+    var tabAdapter: BrowserWebExtensionPopupTabAdapter?
+
+    init(ownerID: UUID, popupController: BrowserPopupWindowController) {
+        self.ownerID = ownerID
+        self.popupController = popupController
+    }
+
+    func tabs(for context: WKWebExtensionContext) -> [any WKWebExtensionTab] {
+        tabAdapter.map { [$0 as any WKWebExtensionTab] } ?? []
+    }
+
+    func activeTab(for context: WKWebExtensionContext) -> (any WKWebExtensionTab)? { tabAdapter }
+    func windowType(for context: WKWebExtensionContext) -> WKWebExtension.WindowType { .popup }
+
+    func windowState(for context: WKWebExtensionContext) -> WKWebExtension.WindowState {
+        guard let window = popupController?.webExtensionHostWindow else { return .normal }
+        if window.styleMask.contains(.fullScreen) { return .fullscreen }
+        if window.isMiniaturized { return .minimized }
+        if window.isZoomed { return .maximized }
+        return .normal
+    }
+
+    func setWindowState(
+        _ state: WKWebExtension.WindowState,
+        for context: WKWebExtensionContext,
+        completionHandler: @escaping ((any Error)?) -> Void
+    ) {
+        guard let window = popupController?.webExtensionHostWindow else {
+            completionHandler(BrowserWebExtensionAdapterError.windowUnavailable)
+            return
+        }
+        switch state {
+        case .normal:
+            if window.isMiniaturized { window.deminiaturize(nil) }
+            if window.styleMask.contains(.fullScreen) { window.toggleFullScreen(nil) }
+            if window.isZoomed { window.performZoom(nil) }
+        case .minimized:
+            window.miniaturize(nil)
+        case .maximized:
+            if window.isMiniaturized { window.deminiaturize(nil) }
+            if !window.isZoomed { window.performZoom(nil) }
+        case .fullscreen:
+            if !window.styleMask.contains(.fullScreen) { window.toggleFullScreen(nil) }
+        @unknown default:
+            completionHandler(BrowserWebExtensionAdapterError.windowMutationUnsupported)
+            return
+        }
+        completionHandler(nil)
+    }
+
+    func isPrivate(for context: WKWebExtensionContext) -> Bool { false }
+    func screenFrame(for context: WKWebExtensionContext) -> CGRect {
+        popupController?.webExtensionHostWindow.screen?.frame ?? .null
+    }
+    func frame(for context: WKWebExtensionContext) -> CGRect {
+        popupController?.webExtensionHostWindow.frame ?? .null
+    }
+
+    func setFrame(
+        _ frame: CGRect,
+        for context: WKWebExtensionContext,
+        completionHandler: @escaping ((any Error)?) -> Void
+    ) {
+        guard let window = popupController?.webExtensionHostWindow else {
+            completionHandler(BrowserWebExtensionAdapterError.windowUnavailable)
+            return
+        }
+        window.setFrame(frame, display: true)
+        completionHandler(nil)
+    }
+
+    func focus(for context: WKWebExtensionContext) async throws {
+        guard let popupController else {
+            throw BrowserWebExtensionAdapterError.windowUnavailable
+        }
+        popupController.focusForWebExtension()
+    }
+
+    func close(for context: WKWebExtensionContext, completionHandler: @escaping ((any Error)?) -> Void) {
+        guard let popupController else {
+            completionHandler(BrowserWebExtensionAdapterError.windowUnavailable)
+            return
+        }
+        popupController.closePopup()
+        completionHandler(nil)
+    }
+}
+
+@available(macOS 15.4, *)
+@MainActor
 final class BrowserWebExtensionWindowAdapter: NSObject, WKWebExtensionWindow {
     let ownerID: UUID
     let activePanelID: @MainActor () -> UUID?

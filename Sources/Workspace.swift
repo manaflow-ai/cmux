@@ -7775,6 +7775,7 @@ final class Workspace: Identifiable, ObservableObject {
         preferredProfileID: UUID? = nil,
         focus: Bool = true,
         creationPolicy: BrowserPanelCreationPolicy = .userInitiated,
+        initialInternalPage: BrowserInternalPage? = nil,
         omnibarVisible: Bool = true,
         transparentBackground: Bool = false,
         bypassRemoteProxy: Bool = false,
@@ -7822,6 +7823,9 @@ final class Workspace: Identifiable, ObservableObject {
             remoteWebsiteDataStoreIdentifier: isRemoteWorkspace && !bypassRemoteProxy ? id : nil,
             browserServices: browserServices
         )
+        if initialInternalPage == .extensions {
+            browserPanel.showBrowserExtensionsManager()
+        }
         panels[browserPanel.id] = browserPanel
         panelTitles[browserPanel.id] = browserPanel.displayTitle
 
@@ -8008,11 +8012,11 @@ final class Workspace: Identifiable, ObservableObject {
             orientation: .horizontal,
             preferredProfileID: sourceProfileID,
             focus: true,
+            initialInternalPage: .extensions,
             omnibarVisible: false
         ) else {
             return nil
         }
-        managerPanel.showBrowserExtensionsManager()
         _ = updatePanelTitle(panelId: managerPanel.id, title: managerPanel.displayTitle)
         if let tabId = surfaceIdFromPanelId(managerPanel.id) {
             bonsplitController.updateTab(
@@ -12099,7 +12103,10 @@ extension Workspace: BonsplitDelegate {
     }
 
     func splitTabBar(_ controller: BonsplitController, didMoveTab tab: Bonsplit.Tab, fromPane source: PaneID, toPane destination: PaneID) {
-        browserServices?.webExtensionTabOrderDidChange(ownerID: id)
+        browserServices?.webExtensionTabOrderDidChange(
+            ownerID: id,
+            movedPanelID: panelIdFromSurfaceId(tab.id)
+        )
 #if DEBUG
         let now = ProcessInfo.processInfo.systemUptime
         let sincePrev: String

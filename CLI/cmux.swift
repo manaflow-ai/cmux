@@ -13651,7 +13651,16 @@ struct CMUXCLI {
                     )
                 )
             }
-            let payload = try client.sendV2(method: method, params: params)
+            // The app deliberately gives extension loading, installation, and
+            // WebView evaluation up to 120 seconds. Keep the client alive long
+            // enough to receive that terminal result instead of failing at the
+            // generic 15-second socket default.
+            let responseTimeout: TimeInterval? = method == "browser.extensions.show" ? nil : 125
+            let payload = try client.sendV2(
+                method: method,
+                params: params,
+                responseTimeout: responseTimeout
+            )
             if ["list", "action", "run", "errors", "webviews", "eval", "console"].contains(verb) {
                 print(jsonString(formatIDs(payload, mode: effectiveIDFormat)))
             } else {

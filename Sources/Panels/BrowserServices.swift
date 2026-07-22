@@ -3,11 +3,91 @@ import CmuxBrowser
 import Foundation
 import WebKit
 
+enum BrowserWebExtensionTabInsertionPlan: Equatable {
+    case before(UUID)
+    case after(UUID)
+    case fallbackEnd
+
+    static func resolve(index: Int, orderedPanelIDs: [UUID]) -> Self {
+        guard !orderedPanelIDs.isEmpty else { return .fallbackEnd }
+        let clampedIndex = min(max(index, 0), orderedPanelIDs.count)
+        if clampedIndex < orderedPanelIDs.count {
+            return .before(orderedPanelIDs[clampedIndex])
+        }
+        return .after(orderedPanelIDs[orderedPanelIDs.count - 1])
+    }
+
+    var referencePanelID: UUID? {
+        switch self {
+        case .before(let panelID), .after(let panelID): panelID
+        case .fallbackEnd: nil
+        }
+    }
+
+    func localIndex(referenceIndex: Int) -> Int {
+        switch self {
+        case .before: referenceIndex
+        case .after: referenceIndex + 1
+        case .fallbackEnd: referenceIndex
+        }
+    }
+}
+
 /// Process-wide browser services owned by the app composition root and injected
 /// through window, workspace, and panel owners.
 @MainActor
 final class BrowserServices {
     typealias ExtensionDirectoryRemover = @Sendable (URL) -> Void
+
+    @MainActor
+    private final class BrowserPanelRegistration {
+        weak var panel: BrowserPanel?
+        var profileID: UUID
+        let ownerID: UUID
+        let activePanelID: @MainActor () -> UUID?
+        let focusPriority: @MainActor () -> Int
+        let focusPanel: @MainActor (UUID) -> Void
+        let orderedPanelIDs: @MainActor () -> [UUID]
+        let createTab: @MainActor (Int, Bool, Bool) -> BrowserPanel?
+        let closePanel: @MainActor (UUID) -> Bool
+        let isPanelPinned: @MainActor (UUID) -> Bool
+        let setPanelPinned: @MainActor (UUID, Bool) -> Bool
+
+        init(
+            panel: BrowserPanel,
+            ownerID: UUID,
+            activePanelID: @escaping @MainActor () -> UUID?,
+            focusPriority: @escaping @MainActor () -> Int,
+            focusPanel: @escaping @MainActor (UUID) -> Void,
+            orderedPanelIDs: @escaping @MainActor () -> [UUID],
+            createTab: @escaping @MainActor (Int, Bool, Bool) -> BrowserPanel?,
+            closePanel: @escaping @MainActor (UUID) -> Bool,
+            isPanelPinned: @escaping @MainActor (UUID) -> Bool,
+            setPanelPinned: @escaping @MainActor (UUID, Bool) -> Bool
+        ) {
+            self.panel = panel
+            self.profileID = panel.profileID
+            self.ownerID = ownerID
+            self.activePanelID = activePanelID
+            self.focusPriority = focusPriority
+            self.focusPanel = focusPanel
+            self.orderedPanelIDs = orderedPanelIDs
+            self.createTab = createTab
+            self.closePanel = closePanel
+            self.isPanelPinned = isPanelPinned
+            self.setPanelPinned = setPanelPinned
+        }
+    }
+
+    private final class BrowserPopupRegistration {
+        weak var popup: BrowserPopupWindowController?
+        let profileID: UUID
+
+        init(popup: BrowserPopupWindowController, profileID: UUID) {
+            self.popup = popup
+            self.profileID = profileID
+        }
+    }
 
     private struct PendingWebExtensionNavigation {
         let ownerID: UUID
@@ -20,10 +100,16 @@ final class BrowserServices {
     private var webExtensionsManagerStorage: [UUID: AnyObject] = [:]
     private var pendingWebExtensionNavigations: [UUID: PendingWebExtensionNavigation] = [:]
     private var pendingWebExtensionNavigationIDsByOwner: [UUID: UUID] = [:]
-    private var registeredPanelProfileIDs: [UUID: UUID] = [:]
+    /// Authoritative surface registrations. Profile managers are projections
+    /// and may be released while a deleted profile is still selected by a panel.
+    private var panelRegistrations: [UUID: BrowserPanelRegistration] = [:]
+    private var popupRegistrations: [UUID: BrowserPopupRegistration] = [:]
     private var profileDeletionObserver: NSObjectProtocol?
 
-    var registeredBrowserPanelCount: Int { registeredPanelProfileIDs.count }
+    var registeredBrowserPanelCount: Int {
+        pruneDeadSurfaceRegistrations()
+        return panelRegistrations.count
+    }
 
     init(
         extensionDirectory: URL? = nil,
@@ -173,13 +259,19 @@ final class BrowserServices {
 
     private func profileDidDelete(_ profileID: UUID) async {
         guard profileID != BrowserProfileStore.shared.builtInDefaultProfileID else { return }
-        registeredPanelProfileIDs = registeredPanelProfileIDs.filter { $0.value != profileID }
         let directory = Self.extensionDirectory(
             for: profileID,
             defaultProfileID: BrowserProfileStore.shared.builtInDefaultProfileID,
             root: extensionDirectory
         )
         let managerObject = webExtensionsManagerStorage.removeValue(forKey: profileID)
+        let popupsToClose = popupRegistrations.compactMap { id, registration in
+            registration.profileID == profileID ? (id, registration.popup) : nil
+        }
+        for (id, popup) in popupsToClose {
+            popupRegistrations.removeValue(forKey: id)
+            popup?.closePopup()
+        }
         let navigationIDs = pendingWebExtensionNavigations.compactMap { id, pending in
             pending.profileID == profileID ? id : nil
         }
@@ -467,19 +559,35 @@ final class BrowserServices {
             createTab: { [weak workspace, weak panel] index, shouldBeActive, shouldAddToSelection in
                 guard let workspace, let panel else { return nil }
                 let previousFocusedPanelID = workspace.focusedPanelId
-                let anchorPanelID = previousFocusedPanelID ?? panel.id
-                guard let paneID = workspace.paneId(forPanelId: anchorPanelID),
-                      let newPanel = workspace.newBrowserSurface(
-                        inPane: paneID,
-                        focus: shouldBeActive,
-                        selectWhenNotFocused: shouldAddToSelection,
-                        insertAtEnd: true,
-                        preferredProfileID: panel.profileID
-                      ) else { return nil }
-                if index != NSNotFound {
+                let orderedBrowserPanelIDs = workspace.orderedPanelIds.filter { panelID in
+                    guard let browser = workspace.panels[panelID] as? BrowserPanel else { return false }
+                    return browser.profileID == panel.profileID && browser.internalPage == nil
+                }
+                let insertionPlan = BrowserWebExtensionTabInsertionPlan.resolve(
+                    index: index == NSNotFound ? orderedBrowserPanelIDs.count : index,
+                    orderedPanelIDs: orderedBrowserPanelIDs
+                )
+                let anchorPanelID = insertionPlan.referencePanelID
+                    ?? previousFocusedPanelID
+                    ?? panel.id
+                guard let paneID = workspace.paneId(forPanelId: anchorPanelID) else { return nil }
+                let localInsertionIndex: Int? = insertionPlan.referencePanelID.flatMap { referencePanelID -> Int? in
+                    guard let referenceTabID = workspace.surfaceIdFromPanelId(referencePanelID),
+                          let referenceIndex = workspace.bonsplitController.tabs(inPane: paneID)
+                            .firstIndex(where: { $0.id == referenceTabID }) else { return nil }
+                    return insertionPlan.localIndex(referenceIndex: referenceIndex)
+                }
+                guard let newPanel = workspace.newBrowserSurface(
+                    inPane: paneID,
+                    focus: shouldBeActive,
+                    selectWhenNotFocused: shouldAddToSelection,
+                    insertAtEnd: true,
+                    preferredProfileID: panel.profileID
+                ) else { return nil }
+                if let localInsertionIndex {
                     _ = workspace.reorderSurface(
                         panelId: newPanel.id,
-                        toIndex: index,
+                        toIndex: localInsertionIndex,
                         focus: shouldBeActive
                     )
                 }
@@ -530,8 +638,27 @@ final class BrowserServices {
                 guard let dock, let panel else { return nil }
                 let shouldFocus = shouldBeActive || shouldAddToSelection
                 let previousSelection = shouldFocus ? nil : dock.focusedDockPaneSelection()
-                let anchorPanelID = dock.focusedPanelId ?? panel.id
-                guard let paneID = dock.paneId(forPanelId: anchorPanelID),
+                let orderedBrowserPanelIDs: [UUID] = dock.bonsplitController.allTabIds.compactMap { tabID -> UUID? in
+                    guard let browser = dock.panel(for: tabID) as? BrowserPanel,
+                          browser.profileID == panel.profileID,
+                          browser.internalPage == nil else { return nil }
+                    return browser.id
+                }
+                let insertionPlan = BrowserWebExtensionTabInsertionPlan.resolve(
+                    index: index == NSNotFound ? orderedBrowserPanelIDs.count : index,
+                    orderedPanelIDs: orderedBrowserPanelIDs
+                )
+                let anchorPanelID = insertionPlan.referencePanelID
+                    ?? dock.focusedPanelId
+                    ?? panel.id
+                guard let paneID = dock.paneId(forPanelId: anchorPanelID) else { return nil }
+                let localInsertionIndex: Int? = insertionPlan.referencePanelID.flatMap { referencePanelID -> Int? in
+                    guard let referenceTabID = dock.surfaceId(forPanelId: referencePanelID),
+                          let referenceIndex = dock.bonsplitController.tabs(inPane: paneID)
+                            .firstIndex(where: { $0.id == referenceTabID }) else { return nil }
+                    return insertionPlan.localIndex(referenceIndex: referenceIndex)
+                }
+                guard
                       let newPanelID = dock.newSurface(
                         kind: .browser,
                         inPane: paneID,
@@ -539,9 +666,9 @@ final class BrowserServices {
                         preferredProfileID: panel.profileID
                       ),
                       let newPanel = dock.browserPanel(for: newPanelID) else { return nil }
-                if index != NSNotFound,
+                if let localInsertionIndex,
                    let tabID = dock.surfaceId(forPanelId: newPanelID) {
-                    _ = dock.bonsplitController.reorderTab(tabID, toIndex: index)
+                    _ = dock.bonsplitController.reorderTab(tabID, toIndex: localInsertionIndex)
                 }
                 if !shouldFocus {
                     dock.restoreDockPaneSelection(previousSelection)
@@ -569,38 +696,58 @@ final class BrowserServices {
     func unregisterBrowserPanel(id: UUID) {
         cancelWebExtensionNavigation(ownerID: id)
         guard #available(macOS 15.4, *),
-              let profileID = registeredPanelProfileIDs.removeValue(forKey: id),
-              let manager = webExtensionsManagerStorage[profileID] as? BrowserWebExtensionsManager else {
+              let registration = panelRegistrations.removeValue(forKey: id) else {
             return
         }
-        manager.unregister(panelID: id)
+        if let manager = webExtensionsManagerStorage[registration.profileID] as? BrowserWebExtensionsManager {
+            manager.unregister(panelID: id)
+        }
+        releaseWebExtensionsManagerIfUnused(registration.profileID)
+    }
+
+    func registerBrowserPopupWindow(
+        _ popup: BrowserPopupWindowController,
+        profileID: UUID,
+        openerPanelID: UUID?,
+        parentPopupWindowID: UUID?
+    ) {
+        guard #available(macOS 15.4, *) else { return }
+        popupRegistrations[popup.webExtensionWindowID] = BrowserPopupRegistration(
+            popup: popup,
+            profileID: profileID
+        )
+        let manager = webExtensionsManager(for: profileID)
+        manager.registerPopupWindow(
+            popup,
+            openerPanelID: openerPanelID,
+            parentPopupWindowID: parentPopupWindowID
+        )
+        manager.startLoading()
+    }
+
+    func unregisterBrowserPopupWindow(id: UUID, profileID: UUID) {
+        guard #available(macOS 15.4, *) else { return }
+        popupRegistrations.removeValue(forKey: id)
+        (webExtensionsManagerStorage[profileID] as? BrowserWebExtensionsManager)?
+            .unregisterPopupWindow(id: id)
         releaseWebExtensionsManagerIfUnused(profileID)
     }
 
     func browserPanelProfileDidChange(_ panel: BrowserPanel) {
         guard #available(macOS 15.4, *),
-              let previousProfileID = registeredPanelProfileIDs[panel.id],
-              previousProfileID != panel.profileID,
-              let previousManager = webExtensionsManagerStorage[previousProfileID] as? BrowserWebExtensionsManager,
-              let owner = previousManager.registrationOwner(for: panel.id) else {
+              let registration = panelRegistrations[panel.id],
+              registration.panel === panel,
+              registration.profileID != panel.profileID else {
             return
         }
-        previousManager.unregister(panelID: panel.id)
-        registeredPanelProfileIDs[panel.id] = panel.profileID
+        let previousProfileID = registration.profileID
+        if let previousManager = webExtensionsManagerStorage[previousProfileID] as? BrowserWebExtensionsManager {
+            previousManager.unregister(panelID: panel.id)
+        }
+        registration.profileID = panel.profileID
         releaseWebExtensionsManagerIfUnused(previousProfileID)
         let manager = webExtensionsManager(for: panel.profileID)
-        manager.register(
-            panel: panel,
-            ownerID: owner.id,
-            activePanelID: owner.activePanelID,
-            focusPriority: owner.focusPriority,
-            focusPanel: owner.focusPanel,
-            orderedPanelIDs: owner.orderedPanelIDs,
-            createTab: owner.createTab,
-            closePanel: owner.closePanel,
-            isPanelPinned: owner.isPanelPinned,
-            setPanelPinned: owner.setPanelPinned
-        )
+        register(registration, with: manager)
         manager.startLoading()
     }
 
@@ -609,7 +756,7 @@ final class BrowserServices {
         panelID: UUID,
         properties: WKWebExtension.TabChangedProperties
     ) {
-        guard let profileID = registeredPanelProfileIDs[panelID],
+        guard let profileID = panelRegistrations[panelID]?.profileID,
               let manager = webExtensionsManagerStorage[profileID] as? BrowserWebExtensionsManager else {
             return
         }
@@ -618,7 +765,7 @@ final class BrowserServices {
 
     func browserPanelInternalPageDidChange(_ panel: BrowserPanel) {
         guard #available(macOS 15.4, *),
-              let profileID = registeredPanelProfileIDs[panel.id],
+              let profileID = panelRegistrations[panel.id]?.profileID,
               let manager = webExtensionsManagerStorage[profileID] as? BrowserWebExtensionsManager else {
             return
         }
@@ -627,8 +774,8 @@ final class BrowserServices {
 
     func activateWebExtensionTab(panelID: UUID, previousPanelID: UUID?) {
         guard #available(macOS 15.4, *) else { return }
-        let profileID = registeredPanelProfileIDs[panelID]
-        let previousProfileID = previousPanelID.flatMap { registeredPanelProfileIDs[$0] }
+        let profileID = panelRegistrations[panelID]?.profileID
+        let previousProfileID = previousPanelID.flatMap { panelRegistrations[$0]?.profileID }
         if let previousPanelID,
            let previousProfileID,
            previousPanelID != panelID,
@@ -653,10 +800,13 @@ final class BrowserServices {
         }
     }
 
-    func webExtensionTabOrderDidChange(ownerID: UUID) {
+    func webExtensionTabOrderDidChange(ownerID: UUID, movedPanelID: UUID? = nil) {
         guard #available(macOS 15.4, *) else { return }
         for manager in webExtensionsManagerStorage.values {
-            (manager as? BrowserWebExtensionsManager)?.synchronizeTabOrder(ownerID: ownerID)
+            (manager as? BrowserWebExtensionsManager)?.synchronizeTabOrder(
+                ownerID: ownerID,
+                movedPanelID: movedPanelID
+            )
         }
     }
 
@@ -686,20 +836,17 @@ final class BrowserServices {
         setPanelPinned: @escaping @MainActor (UUID, Bool) -> Bool
     ) {
         guard #available(macOS 15.4, *) else { return }
-        if let previousProfileID = registeredPanelProfileIDs[panel.id],
-           let previousManager = webExtensionsManagerStorage[previousProfileID] as? BrowserWebExtensionsManager {
-            let previousOwnerID = previousManager.registrationOwner(for: panel.id)?.id
-            if previousProfileID != panel.profileID || previousOwnerID != ownerID {
+        if let previous = panelRegistrations[panel.id] {
+            if previous.profileID != panel.profileID,
+               let previousManager = webExtensionsManagerStorage[previous.profileID] as? BrowserWebExtensionsManager {
                 previousManager.unregister(panelID: panel.id)
-                if previousProfileID != panel.profileID {
-                    registeredPanelProfileIDs.removeValue(forKey: panel.id)
-                    releaseWebExtensionsManagerIfUnused(previousProfileID)
-                }
+            }
+            if previous.profileID != panel.profileID {
+                panelRegistrations.removeValue(forKey: panel.id)
+                releaseWebExtensionsManagerIfUnused(previous.profileID)
             }
         }
-        registeredPanelProfileIDs[panel.id] = panel.profileID
-        let manager = webExtensionsManager(for: panel.profileID)
-        manager.register(
+        let registration = BrowserPanelRegistration(
             panel: panel,
             ownerID: ownerID,
             activePanelID: activePanelID,
@@ -711,14 +858,39 @@ final class BrowserServices {
             isPanelPinned: isPanelPinned,
             setPanelPinned: setPanelPinned
         )
+        panelRegistrations[panel.id] = registration
+        let manager = webExtensionsManager(for: panel.profileID)
+        register(registration, with: manager)
         manager.startLoading()
     }
 
     @available(macOS 15.4, *)
+    private func register(
+        _ registration: BrowserPanelRegistration,
+        with manager: BrowserWebExtensionsManager
+    ) {
+        guard let panel = registration.panel else { return }
+        manager.register(
+            panel: panel,
+            ownerID: registration.ownerID,
+            activePanelID: registration.activePanelID,
+            focusPriority: registration.focusPriority,
+            focusPanel: registration.focusPanel,
+            orderedPanelIDs: registration.orderedPanelIDs,
+            createTab: registration.createTab,
+            closePanel: registration.closePanel,
+            isPanelPinned: registration.isPanelPinned,
+            setPanelPinned: registration.setPanelPinned
+        )
+    }
+
+    @available(macOS 15.4, *)
     private func releaseWebExtensionsManagerIfUnused(_ profileID: UUID) {
+        pruneDeadSurfaceRegistrations()
         let defaultProfileID = BrowserProfileStore.shared.builtInDefaultProfileID
         guard profileID != defaultProfileID,
-              !registeredPanelProfileIDs.values.contains(profileID),
+              !panelRegistrations.values.contains(where: { $0.profileID == profileID }),
+              !popupRegistrations.values.contains(where: { $0.profileID == profileID }),
               let manager = webExtensionsManagerStorage.removeValue(forKey: profileID)
                 as? BrowserWebExtensionsManager else {
             return
@@ -737,6 +909,14 @@ final class BrowserServices {
         }
         manager.profileRuntime.setNavigationUpdateHandler(nil)
         manager.shutdown()
+    }
+
+    /// Registration callbacks are the primary teardown path. Weak pruning is a
+    /// fail-safe for owners that disappear before their close callback runs, so
+    /// a dead surface cannot keep a non-default profile runtime alive forever.
+    private func pruneDeadSurfaceRegistrations() {
+        panelRegistrations = panelRegistrations.filter { $0.value.panel != nil }
+        popupRegistrations = popupRegistrations.filter { $0.value.popup != nil }
     }
 
 #if DEBUG

@@ -34,10 +34,18 @@ struct BrowserExtensionsToolbarButton: View {
 
             managerButton
         }
-        .task {
-            await refreshSnapshot()
+        .task(id: profileID) {
+            actionRefreshTask?.cancel()
+            actionRefreshGeneration &+= 1
+            let profileGeneration = actionRefreshGeneration
+            snapshot = .loading
+            interactionError = nil
+            isLoadingPresentation = false
+            isPresented = false
+            guard await refreshSnapshot(generation: profileGeneration) else { return }
             for await update in updates() {
-                guard !Task.isCancelled else { return }
+                guard !Task.isCancelled,
+                      profileGeneration == actionRefreshGeneration else { return }
                 switch update {
                 case .actionChanged(let actionUpdate):
                     guard actionUpdate.profileID == profileID,
@@ -67,6 +75,7 @@ struct BrowserExtensionsToolbarButton: View {
         }
         .onDisappear {
             actionRefreshTask?.cancel()
+            actionRefreshGeneration &+= 1
         }
     }
 
@@ -78,8 +87,9 @@ struct BrowserExtensionsToolbarButton: View {
             }
             guard !isLoadingPresentation else { return }
             isLoadingPresentation = true
+            let profileGeneration = actionRefreshGeneration
             Task { @MainActor in
-                await refreshSnapshot()
+                guard await refreshSnapshot(generation: profileGeneration) else { return }
                 isLoadingPresentation = false
                 isPresented = true
             }
@@ -149,8 +159,12 @@ struct BrowserExtensionsToolbarButton: View {
     }
 
     @MainActor
-    private func refreshSnapshot() async {
-        snapshot = await loadSnapshot()
+    @discardableResult
+    private func refreshSnapshot(generation: Int) async -> Bool {
+        let nextSnapshot = await loadSnapshot()
+        guard !Task.isCancelled, generation == actionRefreshGeneration else { return false }
+        snapshot = nextSnapshot
+        return true
     }
 
     @MainActor

@@ -236,6 +236,98 @@ final class BrowserWebExtensionsManager: NSObject {
         let panelID: UUID?
     }
 
+    /// Owns every object WebKit and AppKit can touch while an action popover is
+    /// visible or closing. The manager and token intentionally retain each
+    /// other until the close callback has returned and one main-actor turn has
+    /// completed, so profile/context teardown cannot race deferred KVO cleanup.
+    @MainActor
+    private final class PresentedActionPopup: NSObject, NSPopoverDelegate {
+        let popover: NSPopover
+        let extensionIdentifier: String
+        let panelID: UUID?
+        var invocationKey: ActionInvocationKey?
+        let anchorView: NSView?
+
+        private let action: WKWebExtension.Action
+        private let context: WKWebExtensionContext
+        private let controller: WKWebExtensionController
+        private let tabAdapter: BrowserWebExtensionTabAdapter?
+        private let popupWebView: WKWebView?
+        private var placementLock: BrowserWebExtensionPopupPlacementLock?
+        private var owner: BrowserWebExtensionsManager?
+        private var didBeginCloseCompletion = false
+        private(set) var isLifecycleClose = false
+
+        init(
+            popover: NSPopover,
+            extensionIdentifier: String,
+            panelID: UUID?,
+            invocationKey: ActionInvocationKey?,
+            anchorView: NSView?,
+            action: WKWebExtension.Action,
+            context: WKWebExtensionContext,
+            controller: WKWebExtensionController,
+            tabAdapter: BrowserWebExtensionTabAdapter?,
+            popupWebView: WKWebView?,
+            placementLock: BrowserWebExtensionPopupPlacementLock?,
+            owner: BrowserWebExtensionsManager
+        ) {
+            self.popover = popover
+            self.extensionIdentifier = extensionIdentifier
+            self.panelID = panelID
+            self.invocationKey = invocationKey
+            self.anchorView = anchorView
+            self.action = action
+            self.context = context
+            self.controller = controller
+            self.tabAdapter = tabAdapter
+            self.popupWebView = popupWebView
+            self.placementLock = placementLock
+            self.owner = owner
+            super.init()
+            popover.delegate = self
+        }
+
+        func attachPlacementLock(_ placementLock: BrowserWebExtensionPopupPlacementLock) {
+            guard !didBeginCloseCompletion else {
+                placementLock.stop()
+                return
+            }
+            self.placementLock = placementLock
+        }
+
+        func requestLifecycleClose() {
+            isLifecycleClose = true
+            if popover.isShown {
+                popover.performClose(nil)
+            }
+            if !popover.isShown {
+                beginCloseCompletion(event: nil)
+            }
+        }
+
+        func popoverDidClose(_ notification: Notification) {
+            beginCloseCompletion(event: NSApp.currentEvent)
+        }
+
+        private func beginCloseCompletion(event: NSEvent?) {
+            guard !didBeginCloseCompletion else { return }
+            didBeginCloseCompletion = true
+            placementLock?.stop()
+            owner?.presentedPopupDidClose(self, event: event)
+            Task { @MainActor [self] in
+                // This is an event-loop boundary, not an elapsed-time delay.
+                // It releases WebKit objects only after AppKit returns from the
+                // terminal popover callback.
+                await Task.yield()
+                popover.delegate = nil
+                let retainedOwner = owner
+                owner = nil
+                retainedOwner?.presentedPopupDidQuiesce(self)
+            }
+        }
+    }
+
     private final class WeakPopupWebView {
         weak var webView: WKWebView?
 
@@ -273,6 +365,7 @@ final class BrowserWebExtensionsManager: NSObject {
     private var toolbarPinnedExtensionIdentifiers = Set<String>()
     private var tabAdapters: [UUID: BrowserWebExtensionTabAdapter] = [:]
     private var windowAdapters: [UUID: BrowserWebExtensionWindowAdapter] = [:]
+    private var popupWindowAdapters: [UUID: BrowserWebExtensionPopupWindowAdapter] = [:]
     private var pendingActionInvocations: [ActionInvocationKey: [PendingActionInvocation]] = [:]
     private var lastActionInvocations: [ActionInvocationKey: PendingActionInvocation] = [:]
     private var popupHandoffDeadlineTasks: [ActionInvocationKey: Task<Void, Never>] = [:]
@@ -280,9 +373,11 @@ final class BrowserWebExtensionsManager: NSObject {
     private var expiredPopupHandoffs = Set<ActionInvocationKey>()
     private var dismissedPopupKeys = Set<ActionInvocationKey>()
     private var popupClosuresRequestedByActionButton = Set<ActionInvocationKey>()
-    private var popupKeysByPopover: [ObjectIdentifier: ActionInvocationKey] = [:]
-    private var popupPlacementLocks: [ObjectIdentifier: BrowserWebExtensionPopupPlacementLock] = [:]
+    private var presentedPopups: [ObjectIdentifier: PresentedActionPopup] = [:]
     private var popupWebViews: [String: WeakPopupWebView] = [:]
+#if DEBUG
+    private var debugSyntheticPopupKeys: [ObjectIdentifier: ActionInvocationKey] = [:]
+#endif
     private var actionUpdateFlushTask: Task<Void, Never>?
     private var pendingActionUpdates: [ActionUpdateKey: PendingActionUpdate] = [:]
     private var installTasks: [UUID: Task<BrowserWebExtensionInstallReceipt, any Error>] = [:]
@@ -295,6 +390,14 @@ final class BrowserWebExtensionsManager: NSObject {
     private var pendingPermissionResolutions: [UUID: PendingPermissionResolution] = [:]
     private var permissionPromptTail: Task<Void, Never>?
     private(set) var isShutDown = false
+    private var didFinalizeShutdown = false
+    private var pendingPanelUnregistrations = Set<UUID>()
+    private var shutdownWaiters: [CheckedContinuation<Void, Never>] = []
+    private var popupQuiescenceWaiters: [String: [CheckedContinuation<Void, Never>]] = [:]
+#if DEBUG
+    private(set) var debugDidOpenTabEventCount = 0
+    private(set) var debugDidCloseTabEventCount = 0
+#endif
 
     private struct PendingActionUpdate {
         let action: WKWebExtension.Action?
@@ -440,9 +543,20 @@ final class BrowserWebExtensionsManager: NSObject {
         expiredPopupHandoffs.removeAll()
         dismissedPopupKeys.removeAll()
         popupClosuresRequestedByActionButton.removeAll()
-        popupKeysByPopover.removeAll()
-        for placementLock in popupPlacementLocks.values { placementLock.stop() }
-        popupPlacementLocks.removeAll()
+#if DEBUG
+        debugSyntheticPopupKeys.removeAll()
+#endif
+        for popup in Array(presentedPopups.values) {
+            popup.requestLifecycleClose()
+        }
+        if presentedPopups.isEmpty {
+            finalizeShutdown()
+        }
+    }
+
+    private func finalizeShutdown() {
+        guard isShutDown, !didFinalizeShutdown, presentedPopups.isEmpty else { return }
+        didFinalizeShutdown = true
         popupWebViews.removeAll()
         for context in loadedContexts {
             _ = try? controller.unload(context)
@@ -454,10 +568,30 @@ final class BrowserWebExtensionsManager: NSObject {
         loadErrors.removeAll()
         tabAdapters.removeAll()
         windowAdapters.removeAll()
+        popupWindowAdapters.removeAll()
+        pendingPanelUnregistrations.removeAll()
+        controller.delegate = nil
+        let waiters = shutdownWaiters
+        shutdownWaiters.removeAll()
+        for waiter in waiters {
+            waiter.resume()
+        }
+    }
+
+    private func waitForShutdownFinalization() async {
+        guard !didFinalizeShutdown else { return }
+        await withCheckedContinuation { continuation in
+            if didFinalizeShutdown {
+                continuation.resume()
+            } else {
+                shutdownWaiters.append(continuation)
+            }
+        }
     }
 
     func shutdownAndRemoveDirectory() async {
         shutdown()
+        await waitForShutdownFinalization()
         await directoryRepository.shutdownAndRemoveDirectory(directory)
     }
 
@@ -880,6 +1014,9 @@ final class BrowserWebExtensionsManager: NSObject {
                 )
             }
             if let previousContext {
+                await closePresentedPopups(
+                    forExtensionIdentifier: previousContext.uniqueIdentifier
+                )
                 try controller.unload(previousContext)
                 loadedContexts.removeAll { $0 === previousContext }
                 managedRecordIDsByContextIdentifier.removeValue(forKey: previousContext.uniqueIdentifier)
@@ -1091,6 +1228,9 @@ final class BrowserWebExtensionsManager: NSObject {
             clearManagedLoadFailure(for: record)
         } else {
             if let context {
+                await closePresentedPopups(
+                    forExtensionIdentifier: context.uniqueIdentifier
+                )
                 try controller.unload(context)
                 loadedContexts.removeAll { $0 === context }
                 managedRecordIDsByContextIdentifier.removeValue(forKey: context.uniqueIdentifier)
@@ -1124,6 +1264,7 @@ final class BrowserWebExtensionsManager: NSObject {
         try requireActive()
         let context = loadedContext(managementID: managementID)
         if let context {
+            await closePresentedPopups(forExtensionIdentifier: context.uniqueIdentifier)
             try controller.unload(context)
             loadedContexts.removeAll { $0 === context }
             managedRecordIDsByContextIdentifier.removeValue(forKey: context.uniqueIdentifier)
@@ -1241,13 +1382,21 @@ final class BrowserWebExtensionsManager: NSObject {
         isPanelPinned: @escaping @MainActor (UUID) -> Bool = { _ in false },
         setPanelPinned: @escaping @MainActor (UUID, Bool) -> Bool = { _, _ in false }
     ) {
-        if tabAdapters[panel.id] != nil { return }
+        if let existingTabAdapter = tabAdapters[panel.id] {
+            pendingPanelUnregistrations.remove(panel.id)
+            guard existingTabAdapter.windowAdapter?.ownerID != ownerID else { return }
 
-        let windowAdapter: BrowserWebExtensionWindowAdapter
-        if let existing = windowAdapters[ownerID] {
-            windowAdapter = existing
-        } else {
-            windowAdapter = BrowserWebExtensionWindowAdapter(
+            let oldWindowAdapter = existingTabAdapter.windowAdapter
+            let oldIndex = oldWindowAdapter?.compactTabs().firstIndex {
+                $0 === existingTabAdapter
+            } ?? NSNotFound
+            let wasReportedVisible = oldWindowAdapter?
+                .lastReportedVisiblePanelIDs.contains(panel.id) == true
+            oldWindowAdapter?.tabAdapters.removeAll {
+                $0 === existingTabAdapter || $0.panel == nil
+            }
+
+            let newWindowAdapter = windowAdapters[ownerID] ?? makeWindowAdapter(
                 ownerID: ownerID,
                 activePanelID: activePanelID,
                 focusPriority: focusPriority,
@@ -1258,24 +1407,161 @@ final class BrowserWebExtensionsManager: NSObject {
                 isPanelPinned: isPanelPinned,
                 setPanelPinned: setPanelPinned
             )
-            windowAdapters[ownerID] = windowAdapter
-            controller.didOpenWindow(windowAdapter)
+            existingTabAdapter.windowAdapter = newWindowAdapter
+            newWindowAdapter.tabAdapters.append(existingTabAdapter)
+            if wasReportedVisible {
+                controller.didMoveTab(
+                    existingTabAdapter,
+                    from: oldIndex,
+                    in: oldWindowAdapter
+                )
+            }
+            oldWindowAdapter?.lastReportedVisiblePanelIDs = oldWindowAdapter?
+                .compactTabs().compactMap { $0.panel?.id } ?? []
+            newWindowAdapter.lastReportedVisiblePanelIDs = newWindowAdapter
+                .compactTabs().compactMap { $0.panel?.id }
+            if let oldWindowAdapter, oldWindowAdapter.tabAdapters.isEmpty {
+                windowAdapters.removeValue(forKey: oldWindowAdapter.ownerID)
+                controller.didCloseWindow(oldWindowAdapter)
+            }
+            return
         }
+
+        let windowAdapter = windowAdapters[ownerID] ?? makeWindowAdapter(
+            ownerID: ownerID,
+            activePanelID: activePanelID,
+            focusPriority: focusPriority,
+            focusPanel: focusPanel,
+            orderedPanelIDs: orderedPanelIDs,
+            createTab: createTab,
+            closePanel: closePanel,
+            isPanelPinned: isPanelPinned,
+            setPanelPinned: setPanelPinned
+        )
 
         let tabAdapter = BrowserWebExtensionTabAdapter(panel: panel, windowAdapter: windowAdapter)
         tabAdapters[panel.id] = tabAdapter
         windowAdapter.tabAdapters.append(tabAdapter)
         if panel.internalPage == nil {
+#if DEBUG
+            debugDidOpenTabEventCount += 1
+#endif
             controller.didOpenTab(tabAdapter)
         }
         windowAdapter.lastReportedVisiblePanelIDs = windowAdapter.compactTabs().compactMap { $0.panel?.id }
     }
 
+    private func makeWindowAdapter(
+        ownerID: UUID,
+        activePanelID: @escaping @MainActor () -> UUID?,
+        focusPriority: @escaping @MainActor () -> Int,
+        focusPanel: @escaping @MainActor (UUID) -> Void,
+        orderedPanelIDs: @escaping @MainActor () -> [UUID],
+        createTab: @escaping @MainActor (Int, Bool, Bool) -> BrowserPanel?,
+        closePanel: @escaping @MainActor (UUID) -> Bool,
+        isPanelPinned: @escaping @MainActor (UUID) -> Bool,
+        setPanelPinned: @escaping @MainActor (UUID, Bool) -> Bool
+    ) -> BrowserWebExtensionWindowAdapter {
+        let windowAdapter = BrowserWebExtensionWindowAdapter(
+            ownerID: ownerID,
+            activePanelID: activePanelID,
+            focusPriority: focusPriority,
+            focusPanel: focusPanel,
+            orderedPanelIDs: orderedPanelIDs,
+            createTab: createTab,
+            closePanel: closePanel,
+            isPanelPinned: isPanelPinned,
+            setPanelPinned: setPanelPinned
+        )
+        windowAdapters[ownerID] = windowAdapter
+        controller.didOpenWindow(windowAdapter)
+        return windowAdapter
+    }
+
     func unregister(panelID: UUID) {
+        guard tabAdapters[panelID] != nil else {
+            clearTransientState(forPanelID: panelID)
+            return
+        }
+        pendingPanelUnregistrations.insert(panelID)
         clearTransientState(forPanelID: panelID)
+        finalizePanelUnregistrationIfPossible(panelID)
+    }
+
+    func registerPopupWindow(
+        _ popup: BrowserPopupWindowController,
+        openerPanelID: UUID?,
+        parentPopupWindowID: UUID?
+    ) {
+        guard !isShutDown, popupWindowAdapters[popup.webExtensionWindowID] == nil else { return }
+        let windowAdapter = BrowserWebExtensionPopupWindowAdapter(
+            ownerID: popup.webExtensionWindowID,
+            popupController: popup
+        )
+        let tabAdapter = BrowserWebExtensionPopupTabAdapter(
+            popupController: popup,
+            windowAdapter: windowAdapter,
+            duplicateTab: { [weak self, weak popup] configuration in
+                guard let self,
+                      let windowAdapter = openerPanelID
+                        .flatMap({ self.tabAdapters[$0]?.windowAdapter })
+                        ?? self.focusedWindowAdapter()
+                        ?? self.orderedWindowAdapters().first else {
+                    throw BrowserWebExtensionNewTabError.creationFailed
+                }
+                return try self.openExtensionTab(
+                    in: windowAdapter,
+                    index: configuration.index,
+                    shouldBeActive: configuration.shouldBeActive,
+                    shouldAddToSelection: configuration.shouldAddToSelection,
+                    url: configuration.url ?? popup?.webView.url,
+                    parentTab: configuration.parentTab,
+                    shouldBePinned: configuration.shouldBePinned,
+                    shouldBeMuted: configuration.shouldBeMuted,
+                    shouldReaderModeBeActive: configuration.shouldReaderModeBeActive
+                )
+            }
+        )
+        if let parentPopupWindowID,
+           let parent = popupWindowAdapters[parentPopupWindowID]?.tabAdapter {
+            tabAdapter.parentTabObject = parent
+        } else if let openerPanelID,
+                  let opener = tabAdapters[openerPanelID] {
+            tabAdapter.parentTabObject = opener
+        }
+        windowAdapter.tabAdapter = tabAdapter
+        popupWindowAdapters[popup.webExtensionWindowID] = windowAdapter
+        controller.didOpenWindow(windowAdapter)
+#if DEBUG
+        debugDidOpenTabEventCount += 1
+#endif
+        controller.didOpenTab(tabAdapter)
+    }
+
+    func unregisterPopupWindow(id: UUID) {
+        guard let windowAdapter = popupWindowAdapters.removeValue(forKey: id) else { return }
+        if let tabAdapter = windowAdapter.tabAdapter {
+#if DEBUG
+            debugDidCloseTabEventCount += 1
+#endif
+            controller.didCloseTab(tabAdapter, windowIsClosing: true)
+        }
+        controller.didCloseWindow(windowAdapter)
+        windowAdapter.tabAdapter = nil
+    }
+
+    private func finalizePanelUnregistrationIfPossible(_ panelID: UUID) {
+        guard pendingPanelUnregistrations.contains(panelID),
+              !presentedPopups.values.contains(where: { $0.panelID == panelID }) else {
+            return
+        }
+        pendingPanelUnregistrations.remove(panelID)
         guard let tabAdapter = tabAdapters.removeValue(forKey: panelID) else { return }
         guard let windowAdapter = tabAdapter.windowAdapter else { return }
         if windowAdapter.lastReportedVisiblePanelIDs.contains(panelID) {
+#if DEBUG
+            debugDidCloseTabEventCount += 1
+#endif
             controller.didCloseTab(tabAdapter, windowIsClosing: false)
         }
         windowAdapter.tabAdapters.removeAll { $0 === tabAdapter || $0.panel == nil }
@@ -1296,10 +1582,10 @@ final class BrowserWebExtensionsManager: NSObject {
                 + dismissedPopupKeys.filter { $0.panelID == panelID }
                 + popupClosuresRequestedByActionButton.filter { $0.panelID == panelID }
         )
-        let popoverEntries = popupKeysByPopover.filter { $0.value.panelID == panelID }
+        let popoverEntries = presentedPopups.values.filter { $0.panelID == panelID }
         let extensionIdentifiers = Set(
             invocationKeys.map(\.extensionIdentifier)
-                + popoverEntries.values.map(\.extensionIdentifier)
+                + popoverEntries.map(\.extensionIdentifier)
         )
         for key in invocationKeys {
             popupHandoffDeadlineTasks.removeValue(forKey: key)?.cancel()
@@ -1310,10 +1596,12 @@ final class BrowserWebExtensionsManager: NSObject {
             dismissedPopupKeys.remove(key)
             popupClosuresRequestedByActionButton.remove(key)
         }
-        for popoverID in popoverEntries.keys {
-            popupKeysByPopover.removeValue(forKey: popoverID)
-            popupPlacementLocks.removeValue(forKey: popoverID)?.stop()
+        for popup in popoverEntries {
+            popup.requestLifecycleClose()
         }
+#if DEBUG
+        debugSyntheticPopupKeys = debugSyntheticPopupKeys.filter { $0.value.panelID != panelID }
+#endif
         for identifier in extensionIdentifiers {
             popupWebViews.removeValue(forKey: identifier)
         }
@@ -1341,13 +1629,14 @@ final class BrowserWebExtensionsManager: NSObject {
             dismissedPopupKeys.remove(key)
             popupClosuresRequestedByActionButton.remove(key)
         }
-        let popoverIDs = popupKeysByPopover.compactMap { popoverID, key in
-            key.extensionIdentifier == identifier ? popoverID : nil
+        for popup in presentedPopups.values where popup.extensionIdentifier == identifier {
+            popup.requestLifecycleClose()
         }
-        for popoverID in popoverIDs {
-            popupKeysByPopover.removeValue(forKey: popoverID)
-            popupPlacementLocks.removeValue(forKey: popoverID)?.stop()
+#if DEBUG
+        debugSyntheticPopupKeys = debugSyntheticPopupKeys.filter {
+            $0.value.extensionIdentifier != identifier
         }
+#endif
         popupWebViews.removeValue(forKey: identifier)
         pendingActionUpdates = pendingActionUpdates.filter {
             $0.key.extensionIdentifier != identifier
@@ -1357,6 +1646,28 @@ final class BrowserWebExtensionsManager: NSObject {
         }
         actionFailures = actionFailures.filter {
             $0.key.extensionIdentifier != identifier
+        }
+    }
+
+    private func closePresentedPopups(forExtensionIdentifier identifier: String) async {
+        let matchingPopups = presentedPopups.values.filter {
+            $0.extensionIdentifier == identifier
+        }
+        guard !matchingPopups.isEmpty else { return }
+        for popup in matchingPopups {
+            popup.requestLifecycleClose()
+        }
+        guard presentedPopups.values.contains(where: {
+            $0.extensionIdentifier == identifier
+        }) else { return }
+        await withCheckedContinuation { continuation in
+            if presentedPopups.values.contains(where: {
+                $0.extensionIdentifier == identifier
+            }) {
+                popupQuiescenceWaiters[identifier, default: []].append(continuation)
+            } else {
+                continuation.resume()
+            }
         }
     }
 
@@ -1395,15 +1706,47 @@ final class BrowserWebExtensionsManager: NSObject {
         guard wasVisible != isVisible else { return }
 
         if isVisible {
+#if DEBUG
+            debugDidOpenTabEventCount += 1
+#endif
             controller.didOpenTab(tabAdapter)
         } else {
             controller.didDeselectTabs([tabAdapter])
+#if DEBUG
+            debugDidCloseTabEventCount += 1
+#endif
             controller.didCloseTab(tabAdapter, windowIsClosing: false)
         }
         windowAdapter.lastReportedVisiblePanelIDs = windowAdapter.compactTabs().compactMap { $0.panel?.id }
     }
 
-    func synchronizeTabOrder(ownerID: UUID) {
+    nonisolated static func movedPanelIDForSingleMove(
+        previous: [UUID],
+        current: [UUID]
+    ) -> UUID? {
+        guard previous.count == current.count,
+              previous != current,
+              Set(previous) == Set(current) else {
+            return nil
+        }
+        let currentIndices = Dictionary(
+            uniqueKeysWithValues: current.enumerated().map { ($0.element, $0.offset) }
+        )
+        let candidates = previous.enumerated().compactMap { oldIndex, panelID -> (UUID, Int)? in
+            guard let newIndex = currentIndices[panelID], oldIndex != newIndex else { return nil }
+            var simulated = previous
+            simulated.remove(at: oldIndex)
+            simulated.insert(panelID, at: newIndex)
+            guard simulated == current else { return nil }
+            return (panelID, abs(newIndex - oldIndex))
+        }
+        return candidates.sorted { lhs, rhs in
+            if lhs.1 != rhs.1 { return lhs.1 > rhs.1 }
+            return lhs.0.uuidString < rhs.0.uuidString
+        }.first?.0
+    }
+
+    func synchronizeTabOrder(ownerID: UUID, movedPanelID: UUID? = nil) {
         guard let windowAdapter = windowAdapters[ownerID] else { return }
         let previous = windowAdapter.lastReportedVisiblePanelIDs
         let currentAdapters = windowAdapter.compactTabs()
@@ -1418,12 +1761,10 @@ final class BrowserWebExtensionsManager: NSObject {
         let previousIndices = Dictionary(
             uniqueKeysWithValues: previous.enumerated().map { ($0.element, $0.offset) }
         )
-        let currentIndices = Dictionary(
-            uniqueKeysWithValues: current.enumerated().map { ($0.element, $0.offset) }
-        )
-        if let panelID = current.first(where: {
-            previousIndices[$0] != currentIndices[$0]
-        }),
+        let resolvedMovedPanelID = movedPanelID.flatMap { panelID in
+            previousIndices[panelID] != nil && current.contains(panelID) ? panelID : nil
+        } ?? Self.movedPanelIDForSingleMove(previous: previous, current: current)
+        if let panelID = resolvedMovedPanelID,
            let oldIndex = previousIndices[panelID],
            let adapter = tabAdapters[panelID] {
             controller.didMoveTab(adapter, from: oldIndex, in: windowAdapter)
@@ -1665,6 +2006,14 @@ final class BrowserWebExtensionsManager: NSObject {
         managedRecord: BrowserWebExtensionManagedRecord?
     ) throws -> WKWebExtensionContext {
         try requireActive()
+        guard webExtension.errors.isEmpty else {
+            throw BrowserWebExtensionApprovalValidationError(
+                message: String(
+                    localized: "browser.extensions.load.failed",
+                    defaultValue: "The extension could not be loaded."
+                )
+            )
+        }
         let context = WKWebExtensionContext(for: webExtension)
         // Stable identifier derived from the managed entry or app-extension
         // bundle identifier so storage survives extension and app updates.
@@ -2339,14 +2688,27 @@ extension BrowserWebExtensionsManager: WKWebExtensionControllerDelegate {
         _ controller: WKWebExtensionController,
         openWindowsFor extensionContext: WKWebExtensionContext
     ) -> [any WKWebExtensionWindow] {
-        orderedWindowAdapters().map { $0 as any WKWebExtensionWindow }
+        let popupWindows = popupWindowAdapters.values.sorted { lhs, rhs in
+            let lhsKey = lhs.popupController?.webExtensionHostWindow.isKeyWindow == true
+            let rhsKey = rhs.popupController?.webExtensionHostWindow.isKeyWindow == true
+            if lhsKey != rhsKey { return lhsKey }
+            return lhs.ownerID.uuidString < rhs.ownerID.uuidString
+        }
+        return popupWindows.map { $0 as any WKWebExtensionWindow }
+            + orderedWindowAdapters().map { $0 as any WKWebExtensionWindow }
     }
 
     func webExtensionController(
         _ controller: WKWebExtensionController,
         focusedWindowFor extensionContext: WKWebExtensionContext
     ) -> (any WKWebExtensionWindow)? {
-        focusedWindowAdapter()
+        guard NSApp.isActive else { return nil }
+        if let popupWindow = popupWindowAdapters.values.first(where: {
+            $0.popupController?.webExtensionHostWindow.isKeyWindow == true
+        }) {
+            return popupWindow
+        }
+        return focusedWindowAdapter()
     }
 
     func webExtensionController(
@@ -2355,6 +2717,11 @@ extension BrowserWebExtensionsManager: WKWebExtensionControllerDelegate {
         for extensionContext: WKWebExtensionContext,
         completionHandler: @escaping ((any WKWebExtensionTab)?, (any Error)?) -> Void
     ) {
+        if let popupWindowAdapter = configuration.window as? BrowserWebExtensionPopupWindowAdapter,
+           let popupTabAdapter = popupWindowAdapter.tabAdapter {
+            popupTabAdapter.duplicate(using: configuration, for: extensionContext, completionHandler: completionHandler)
+            return
+        }
         let windowAdapter = (configuration.window as? BrowserWebExtensionWindowAdapter)
             ?? focusedWindowAdapter()
             ?? orderedWindowAdapters().first
@@ -2441,46 +2808,75 @@ extension BrowserWebExtensionsManager: WKWebExtensionControllerDelegate {
         guard let popover = action.popupPopover else {
             throw BrowserWebExtensionActionError.missingPopupAnchor
         }
+        let popoverID = ObjectIdentifier(popover)
+        if let presented = presentedPopups[popoverID] {
+            presented.invocationKey = key
+            if let webView = action.popupWebView {
+                popupWebViews[extensionContext.uniqueIdentifier] = WeakPopupWebView(webView)
+            }
+            return
+        }
+        var retainedAnchorView: NSView?
+        var anchor: (view: NSView, rect: NSRect)?
+        var placementPlan: BrowserWebExtensionPopupPlacementLock.Plan?
         if !popover.isShown {
-            guard let anchor = popupAnchor(for: action, extensionContext: extensionContext) else {
+            guard let resolvedAnchor = popupAnchor(for: action, extensionContext: extensionContext) else {
                 throw BrowserWebExtensionActionError.missingPopupAnchor
             }
+            anchor = resolvedAnchor
+            retainedAnchorView = resolvedAnchor.view
             popover.behavior = .transient
-            popover.delegate = self
             popover.animates = false
-            guard let placementPlan = BrowserWebExtensionPopupPlacementLock.plan(
+            guard let resolvedPlacementPlan = BrowserWebExtensionPopupPlacementLock.plan(
                 popover: popover,
-                anchorView: anchor.view,
-                anchorRect: anchor.rect
+                anchorView: resolvedAnchor.view,
+                anchorRect: resolvedAnchor.rect
             ) else {
                 throw BrowserWebExtensionActionError.missingPopupAnchor
             }
-            if popover.contentSize.height > placementPlan.maximumContentHeight {
-                popover.contentSize.height = placementPlan.maximumContentHeight
+            placementPlan = resolvedPlacementPlan
+            if popover.contentSize.height > resolvedPlacementPlan.maximumContentHeight {
+                popover.contentSize.height = resolvedPlacementPlan.maximumContentHeight
             }
+        } else {
+            retainedAnchorView = key.flatMap { lastActionInvocations[$0]?.anchorView }
+        }
+        let popupWebView = action.popupWebView
+        if let popupWebView {
+            popupWebViews[extensionContext.uniqueIdentifier] = WeakPopupWebView(popupWebView)
+        }
+        let tabAdapter = action.associatedTab as? BrowserWebExtensionTabAdapter
+        let presented = PresentedActionPopup(
+            popover: popover,
+            extensionIdentifier: extensionContext.uniqueIdentifier,
+            panelID: key?.panelID ?? tabAdapter?.panel?.id,
+            invocationKey: key,
+            anchorView: retainedAnchorView,
+            action: action,
+            context: extensionContext,
+            controller: controller,
+            tabAdapter: tabAdapter,
+            popupWebView: popupWebView,
+            placementLock: nil,
+            owner: self
+        )
+        presentedPopups[popoverID] = presented
+        if let anchor, let placementPlan {
             popover.show(
                 relativeTo: anchor.rect,
                 of: anchor.view,
                 preferredEdge: placementPlan.preferredEdge
             )
-            let popoverID = ObjectIdentifier(popover)
             guard let placementLock = BrowserWebExtensionPopupPlacementLock(
                 popover: popover,
                 anchorView: anchor.view,
                 anchorRect: anchor.rect,
                 side: placementPlan.side
             ) else {
-                popover.performClose(nil)
+                presented.requestLifecycleClose()
                 throw BrowserWebExtensionActionError.missingPopupAnchor
             }
-            popupPlacementLocks.removeValue(forKey: popoverID)?.stop()
-            popupPlacementLocks[popoverID] = placementLock
-        }
-        if let key {
-            popupKeysByPopover[ObjectIdentifier(popover)] = key
-        }
-        if let webView = action.popupWebView {
-            popupWebViews[extensionContext.uniqueIdentifier] = WeakPopupWebView(webView)
+            presented.attachPlacementLock(placementLock)
         }
     }
 
@@ -2801,6 +3197,48 @@ extension BrowserWebExtensionsManager: WKWebExtensionControllerDelegate {
         return orderedWindowAdapters().first { $0.focusPriority() > 0 }
     }
 
+    private func presentedPopupDidClose(_ popup: PresentedActionPopup, event: NSEvent?) {
+        let popoverID = ObjectIdentifier(popup.popover)
+        guard presentedPopups[popoverID] === popup,
+              !popup.isLifecycleClose,
+              let key = popup.invocationKey else {
+            return
+        }
+        cancelPopupHandoff(for: key)
+        guard popupClosuresRequestedByActionButton.remove(key) == nil,
+              let event,
+              event.type == .leftMouseDown || event.type == .rightMouseDown,
+              let anchor = popup.anchorView,
+              event.window === anchor.window,
+              anchor.bounds.contains(anchor.convert(event.locationInWindow, from: nil)) else {
+            return
+        }
+        dismissedPopupKeys.insert(key)
+    }
+
+    private func presentedPopupDidQuiesce(_ popup: PresentedActionPopup) {
+        let popoverID = ObjectIdentifier(popup.popover)
+        guard presentedPopups[popoverID] === popup else { return }
+        presentedPopups.removeValue(forKey: popoverID)
+        if !presentedPopups.values.contains(where: {
+            $0.extensionIdentifier == popup.extensionIdentifier
+        }) {
+            popupWebViews.removeValue(forKey: popup.extensionIdentifier)
+            let waiters = popupQuiescenceWaiters.removeValue(
+                forKey: popup.extensionIdentifier
+            ) ?? []
+            for waiter in waiters {
+                waiter.resume()
+            }
+        }
+        if let panelID = popup.panelID {
+            finalizePanelUnregistrationIfPossible(panelID)
+        }
+        if isShutDown {
+            finalizeShutdown()
+        }
+    }
+
 #if DEBUG
     struct DebugTransientStateCounts: Equatable {
         let pendingInvocations: Int
@@ -2845,7 +3283,7 @@ extension BrowserWebExtensionsManager: WKWebExtensionControllerDelegate {
         dismissedPopupKeys.insert(invocationKey)
         popupClosuresRequestedByActionButton.insert(invocationKey)
         let popover = NSPopover()
-        popupKeysByPopover[ObjectIdentifier(popover)] = invocationKey
+        debugSyntheticPopupKeys[ObjectIdentifier(popover)] = invocationKey
         let webView = WKWebView()
         popupWebViews[extensionIdentifier] = WeakPopupWebView(webView)
         pendingActionUpdates[updateKey] = PendingActionUpdate(action: nil, context: context)
@@ -2893,7 +3331,9 @@ extension BrowserWebExtensionsManager: WKWebExtensionControllerDelegate {
             expiredPopups: expiredPopupHandoffs.filter(matchesInvocation).count,
             dismissedPopups: dismissedPopupKeys.filter(matchesInvocation).count,
             closureRequests: popupClosuresRequestedByActionButton.filter(matchesInvocation).count,
-            popoverKeys: popupKeysByPopover.values.filter(matchesInvocation).count,
+            popoverKeys: presentedPopups.values.filter {
+                $0.invocationKey.map(matchesInvocation) == true
+            }.count + debugSyntheticPopupKeys.values.filter(matchesInvocation).count,
             popupWebViews: popupWebViews[extensionIdentifier]?.webView == nil ? 0 : 1,
             pendingUpdates: pendingActionUpdates.keys.filter(matchesUpdate).count,
             iconCacheEntries: presentationIconCache.keys.filter(matchesUpdate).count,
@@ -2905,29 +3345,6 @@ extension BrowserWebExtensionsManager: WKWebExtensionControllerDelegate {
         orderedWindowAdapters().first { $0.focusPriority() > 0 }?.ownerID
     }
 #endif
-}
-
-@available(macOS 15.4, *)
-extension BrowserWebExtensionsManager: NSPopoverDelegate {
-    func popoverDidClose(_ notification: Notification) {
-        guard let popover = notification.object as? NSPopover else {
-            return
-        }
-        let popoverID = ObjectIdentifier(popover)
-        popupPlacementLocks.removeValue(forKey: popoverID)?.stop()
-        guard let key = popupKeysByPopover.removeValue(forKey: popoverID) else { return }
-        let anchor = lastActionInvocations[key]?.anchorView
-        cancelPopupHandoff(for: key)
-        guard popupClosuresRequestedByActionButton.remove(key) == nil else { return }
-        guard let event = NSApp.currentEvent,
-              event.type == .leftMouseDown || event.type == .rightMouseDown,
-              let anchor,
-              event.window === anchor.window,
-              anchor.bounds.contains(anchor.convert(event.locationInWindow, from: nil)) else {
-            return
-        }
-        dismissedPopupKeys.insert(key)
-    }
 }
 
 /// Keeps a WebExtension action popover on the browser side selected for the

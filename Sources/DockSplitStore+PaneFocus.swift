@@ -212,7 +212,10 @@ extension DockSplitStore {
         fromPane source: PaneID,
         toPane destination: PaneID
     ) {
-        browserServices?.webExtensionTabOrderDidChange(ownerID: webExtensionWindowID)
+        browserServices?.webExtensionTabOrderDidChange(
+            ownerID: webExtensionWindowID,
+            movedPanelID: panel(for: tab.id)?.id
+        )
         applyDockSelection(tabId: tab.id, inPane: destination)
         let movedPanel = panel(for: tab.id)
         (movedPanel as? TerminalPanel)?.recordPortalHostOwnershipChange()

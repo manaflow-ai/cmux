@@ -2746,6 +2746,14 @@ final class BrowserPanel: Panel, ObservableObject {
     var websiteDataStore: WKWebsiteDataStore
     let browserServices: BrowserServices?
     private var webExtensionPageBaseURL: URL?
+#if DEBUG
+    var hasNormalPageBindingsForTesting: Bool {
+        webExtensionPageBaseURL == nil
+            && sameDocumentNavigationMessageHandler != nil
+            && reactGrabMessageHandler != nil
+            && mediaPlaybackMessageHandler != nil
+    }
+#endif
     var browserAutomationUserScripts: [WKUserScript] = []
     var browserAutomationInitScriptCount = 0
     var browserAutomationStyleScriptCount = 0
@@ -4743,6 +4751,11 @@ final class BrowserPanel: Panel, ObservableObject {
             websiteDataStore: websiteDataStore,
             browserServices: browserServices
         )
+        // The replacement starts with the normal profile configuration. Clear
+        // the previous profile's extension-origin marker before binding so
+        // normal browser bridges are installed, and a restored extension URL
+        // must resolve through the new profile's controller configuration.
+        webExtensionPageBaseURL = nil
         replacement.pageZoom = desiredZoom
         webViewInstanceID = UUID()
         hasCommittedDocumentSinceWebViewReplacement = false; userStoppedLoadSinceWebViewReplacement = false

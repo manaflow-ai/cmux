@@ -274,7 +274,8 @@ final class DockSplitStore: BonsplitDelegate {
         tmuxStartCommand: String? = nil,
         focus: Bool = true,
         preferredProfileID: UUID? = nil,
-        bypassInsecureHTTPHostOnce: String? = nil
+        bypassInsecureHTTPHostOnce: String? = nil,
+        initialInternalPage: BrowserInternalPage? = nil
     ) -> UUID? {
         ensureLoaded()
         guard let panel = makePanel(
@@ -288,6 +289,10 @@ final class DockSplitStore: BonsplitDelegate {
             preferredProfileID: preferredProfileID,
             bypassInsecureHTTPHostOnce: bypassInsecureHTTPHostOnce
         ) else { return nil }
+        if initialInternalPage == .extensions,
+           let browserPanel = panel as? BrowserPanel {
+            browserPanel.showBrowserExtensionsManager()
+        }
         let previousFocus = focus ? nil : focusedDockPaneSelection()
         guard let tabId = attachPanelAsTab(panel, kind: kind, title: panel.displayTitle, inPane: paneId, tracksTerminalTitle: true) else {
             return nil
@@ -323,11 +328,11 @@ final class DockSplitStore: BonsplitDelegate {
             kind: .browser,
             inPane: paneId,
             focus: true,
-            preferredProfileID: source.profileID
+            preferredProfileID: source.profileID,
+            initialInternalPage: .extensions
         ), let manager = browserPanel(for: managerID) else {
             return nil
         }
-        manager.showBrowserExtensionsManager()
         if let tabId = surfaceId(forPanelId: managerID) {
             bonsplitController.updateTab(
                 tabId,

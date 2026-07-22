@@ -20,6 +20,7 @@ final class BrowserPopupWindowController: NSObject, NSWindowDelegate {
 
     static let maxNestingDepth = 3
 
+    let webExtensionWindowID = UUID()
     let webView: CmuxWebView
     private let browserContext: BrowserPopupBrowserContext
     private let panel: NSPanel
@@ -36,6 +37,8 @@ final class BrowserPopupWindowController: NSObject, NSWindowDelegate {
     private let webAuthnCoordinator: BrowserWebAuthnCoordinator
     private var sslTrustBypassMessageHandler: BrowserSSLTrustBypassMessageHandler?
     private var globalFontObserver: GlobalFontMagnificationChangeObserver?
+    private var didRegisterWebExtensionWindow = false
+    private var isMutedForWebExtension = false
 
     private static var associatedObjectKey: UInt8 = 0
 
@@ -222,7 +225,34 @@ final class BrowserPopupWindowController: NSObject, NSWindowDelegate {
         #endif
 
         panel.makeKeyAndOrderFront(self)
+        browserContext.browserServices?.registerBrowserPopupWindow(
+            self,
+            profileID: browserContext.profileID,
+            openerPanelID: openerPanel?.id,
+            parentPopupWindowID: parentPopupController?.webExtensionWindowID
+        )
+        didRegisterWebExtensionWindow = browserContext.browserServices != nil
     }
+
+    var webExtensionHostWindow: NSWindow { panel }
+    var webExtensionDisplayTitle: String { panel.title }
+
+    func focusForWebExtension() {
+        panel.makeKeyAndOrderFront(nil)
+        panel.makeFirstResponder(webView)
+    }
+
+    func loadURLForWebExtension(_ url: URL) {
+        requestNavigation(URLRequest(url: url), in: webView)
+    }
+
+    func setMutedForWebExtension(_ muted: Bool) -> Bool {
+        guard webView.cmuxSetPageAudioMuted(muted) else { return false }
+        isMutedForWebExtension = muted
+        return true
+    }
+
+    var webExtensionIsMuted: Bool { isMutedForWebExtension }
 
     private func applyGlobalFont() {
         let font = GlobalFontMagnification.systemFont(ofSize: 11)
@@ -275,6 +305,13 @@ final class BrowserPopupWindowController: NSObject, NSWindowDelegate {
         #endif
 
         WebViewInspectorTeardown.closeInspector(for: webView)
+        if didRegisterWebExtensionWindow {
+            browserContext.browserServices?.unregisterBrowserPopupWindow(
+                id: webExtensionWindowID,
+                profileID: browserContext.profileID
+            )
+            didRegisterWebExtensionWindow = false
+        }
         closeAllChildPopups()
         popupNavigationDelegate.cancelPendingAuthenticationPrompts()
 
