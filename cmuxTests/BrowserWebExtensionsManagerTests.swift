@@ -4292,7 +4292,7 @@ struct BrowserWebExtensionsManagerTests {
             focusPanel: { _ in }
         )
 
-        #expect(manager.debugPreferredFocusedWindowOwnerID == focusedOwnerID)
+        #expect(manager.orderedWindowAdapters().first?.ownerID == focusedOwnerID)
     }
 
     @available(macOS 15.4, *)

@@ -3527,7 +3527,7 @@ extension BrowserWebExtensionsManager: WKWebExtensionControllerDelegate {
         profileRuntime.invalidateSnapshot()
     }
 
-    private func orderedWindowAdapters() -> [BrowserWebExtensionWindowAdapter] {
+    func orderedWindowAdapters() -> [BrowserWebExtensionWindowAdapter] {
         let live = windowAdapters.values.filter { !$0.compactTabs().isEmpty }
         return live.sorted { lhs, rhs in
             let lhsPriority = lhs.focusPriority()
@@ -3692,9 +3692,6 @@ extension BrowserWebExtensionsManager: WKWebExtensionControllerDelegate {
         )
     }
 
-    var debugPreferredFocusedWindowOwnerID: UUID? {
-        orderedWindowAdapters().first { $0.focusPriority() > 0 }?.ownerID
-    }
 #endif
 }
 
