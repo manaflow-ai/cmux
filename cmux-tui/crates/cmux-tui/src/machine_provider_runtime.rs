@@ -644,10 +644,7 @@ impl ProviderMachineRuntime {
                                     localization::catalog().sidebar.machine_provider_update_failed
                                 )
                             } else {
-                                localization::catalog()
-                                    .sidebar
-                                    .machine_provider_disconnected
-                                    .into()
+                                localization::catalog().sidebar.machine_provider_disconnected.into()
                             });
                             ui.request = Some(MachineRequest::ReconnectProvider);
                             let _ = sender.send(ui);
@@ -2897,10 +2894,7 @@ mod tests {
             concat!("Could not reconnect ", "machine: {error}"),
             concat!("this machine provider cannot connect ", "external machines"),
             concat!("is not ready ", "to connect"),
-            concat!(
-                "cannot authorize managed workspace mirrors; ",
-                "upgrade the machine provider"
-            ),
+            concat!("cannot authorize managed workspace mirrors; ", "upgrade the machine provider"),
             concat!("returned an invalid managed workspace ", "authority binding"),
         ] {
             assert!(
