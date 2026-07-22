@@ -154,6 +154,9 @@ import Testing
 
         #expect(url?.scheme == "https")
         #expect(url?.host == "localhost.evil.com")
+        #expect(BrowserURLResolver.resolve("localhost:80@evil.example/path")?.host == "duckduckgo.com")
+        #expect(BrowserURLResolver.resolve("127.0.0.1:80@evil.example")?.host == "duckduckgo.com")
+        #expect(BrowserURLResolver.resolve("example.com/path?email=user@example.com")?.host == "example.com")
     }
 
     @Test func bareIPv6LoopbackIsBracketedHTTP() {

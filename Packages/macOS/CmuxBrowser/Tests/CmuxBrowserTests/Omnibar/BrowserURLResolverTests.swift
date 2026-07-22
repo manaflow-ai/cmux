@@ -112,6 +112,12 @@ import Testing
         #expect(try #require(resolver.navigableURL(from: "127.0.0.10:3000")).scheme == "http")
         #expect(try #require(resolver.navigableURL(from: "localhost.evil.com")).scheme == "https")
         #expect(try #require(resolver.navigableURL(from: "127.0.0.1.evil.com")).scheme == "https")
+        #expect(resolver.navigableURL(from: "localhost:80@evil.example/path") == nil)
+        #expect(resolver.navigableURL(from: "127.0.0.1:80@evil.example") == nil)
+        #expect(
+            try #require(resolver.navigableURL(from: "example.com/path?email=user@example.com")).host ==
+                "example.com"
+        )
     }
 
     @Test func preservesSupportedAndRejectedSchemes() throws {
