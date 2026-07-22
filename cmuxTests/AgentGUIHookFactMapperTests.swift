@@ -14,18 +14,21 @@ import Testing
     @Test @MainActor
     func processObservationCoalescesInflightRequestsIntoOneFollowUp() async {
         let capturer = ControlledAgentProcessObservationCapturer()
-        var deliveryCount = 0
+        var deliveredGenerations: [UInt64] = []
         let source = AgentProcessObservationSource(
-            captureObservations: { await capturer.capture() },
-            onObservations: { _ in deliveryCount += 1 }
+            captureObservations: { bypassCache in
+                await capturer.capture(bypassingCache: bypassCache)
+            },
+            onObservations: { _, generation in deliveredGenerations.append(generation) }
         )
 
-        source.scanNow()
+        let firstGeneration = source.scanNow()
         await capturer.waitForCallCount(1)
-        source.scanNow()
+        let postLaunchGeneration = source.scanNow(bypassingCache: true)
         source.scanNow()
         source.scanNow()
         #expect(await capturer.callCount() == 1)
+        #expect(postLaunchGeneration == firstGeneration + 1)
 
         await capturer.release(call: 1)
         await capturer.waitForCallCount(2)
@@ -34,7 +37,8 @@ import Testing
         await source.waitForIdleForTesting()
 
         #expect(await capturer.callCount() == 2)
-        #expect(deliveryCount == 2)
+        #expect(await capturer.bypassRequests() == [false, true])
+        #expect(deliveredGenerations == [firstGeneration, postLaunchGeneration])
     }
 
     @Test @MainActor
@@ -42,8 +46,10 @@ import Testing
         let capturer = ControlledAgentProcessObservationCapturer()
         var deliveryCount = 0
         let source = AgentProcessObservationSource(
-            captureObservations: { await capturer.capture() },
-            onObservations: { _ in deliveryCount += 1 }
+            captureObservations: { bypassCache in
+                await capturer.capture(bypassingCache: bypassCache)
+            },
+            onObservations: { _, _ in deliveryCount += 1 }
         )
 
         source.scanNow()

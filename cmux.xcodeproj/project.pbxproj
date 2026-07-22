@@ -1096,6 +1096,7 @@ C0DE71B10000000000000001 /* AppDelegate+AgentChatNotifications.swift in Sources 
 		18A8E29E9BD87E184983527C /* MobilePairingWindowController.swift in Sources */ = {isa = PBXBuildFile; fileRef = 5AE701F43A0B49F08835191C /* MobilePairingWindowController.swift */; };
 		9916B44C7A9914E172D112D4 /* MobileRouteResolver.swift in Sources */ = {isa = PBXBuildFile; fileRef = 7A956C76162B79EC74AF9965 /* MobileRouteResolver.swift */; };
 		AB57F0C27BECE8EDFC6B2B97 /* MobileTerminalByteTee.swift in Sources */ = {isa = PBXBuildFile; fileRef = 4F05EBBC2FE0D5CB2F662B8A /* MobileTerminalByteTee.swift */; };
+		A6E170000000000000000155 /* MobileTerminalPasteAgentRoutingTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = A6E170000000000000000156 /* MobileTerminalPasteAgentRoutingTests.swift */; };
 		C9CFB398DF94D6DDEAF42D67 /* MobileTerminalRenderObserver.swift in Sources */ = {isa = PBXBuildFile; fileRef = F51B54FAD18160281FC1C2B6 /* MobileTerminalRenderObserver.swift */; };
 		F7A110000000000000000003 /* MobileTerminalThemeEmissionDecision.swift in Sources */ = {isa = PBXBuildFile; fileRef = F7A110000000000000000004 /* MobileTerminalThemeEmissionDecision.swift */; };
 		F7A110000000000000000001 /* MobileTerminalThemeInvalidationScheduler.swift in Sources */ = {isa = PBXBuildFile; fileRef = F7A110000000000000000002 /* MobileTerminalThemeInvalidationScheduler.swift */; };
@@ -3135,6 +3136,7 @@ C0DE71B10000000000000002 /* AppDelegate+AgentChatNotifications.swift */ = {isa =
 		5AE701F43A0B49F08835191C /* MobilePairingWindowController.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = "Pairing/MobilePairingWindowController.swift"; sourceTree = "<group>"; };
 		7A956C76162B79EC74AF9965 /* MobileRouteResolver.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = MobileRouteResolver.swift; sourceTree = "<group>"; };
 		4F05EBBC2FE0D5CB2F662B8A /* MobileTerminalByteTee.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = MobileTerminalByteTee.swift; sourceTree = "<group>"; };
+		A6E170000000000000000156 /* MobileTerminalPasteAgentRoutingTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = MobileTerminalPasteAgentRoutingTests.swift; sourceTree = "<group>"; };
 		F51B54FAD18160281FC1C2B6 /* MobileTerminalRenderObserver.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = MobileTerminalRenderObserver.swift; sourceTree = "<group>"; };
 		F7A110000000000000000004 /* MobileTerminalThemeEmissionDecision.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = MobileTerminalThemeEmissionDecision.swift; sourceTree = "<group>"; };
 		F7A110000000000000000002 /* MobileTerminalThemeInvalidationScheduler.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = MobileTerminalThemeInvalidationScheduler.swift; sourceTree = "<group>"; };
@@ -5662,6 +5664,7 @@ C0DE71B10000000000000002 /* AppDelegate+AgentChatNotifications.swift */ = {isa =
 				A6E1700000000000000000C9 /* AgentGUIJournalPipelineTests.swift */,
 				A6E1700000000000000000CA /* AgentGUIRPCHandlerTests.swift */,
 				A6E1700000000000000000CC /* AgentGUISendLedgerTests.swift */,
+				A6E170000000000000000156 /* MobileTerminalPasteAgentRoutingTests.swift */,
 				D0C0A3210000000000000003 /* AgentGUIStreamProducerTests.swift */,
 				A11CE0020000000000000001 /* AboutLicensesResourceTests.swift */,
 				F2000001A1B2C3D4E5F60718 /* UpdatePillReleaseVisibilityTests.swift */,
@@ -8427,6 +8430,7 @@ C0DE71B10000000000000002 /* AppDelegate+AgentChatNotifications.swift */ = {isa =
 				7A1B2C3D4E5F60718293A4B6 /* MobileHostTerminalThemeTests.swift in Sources */,
 				C0DE73840000000000000001 /* MobileHostWorkspaceTicketAuthorizationTests.swift in Sources */,
 				9B08F916D7FF7626C6820727 /* MobilePairingConnectionTransitionTests.swift in Sources */,
+				A6E170000000000000000155 /* MobileTerminalPasteAgentRoutingTests.swift in Sources */,
 				F6448F377504F33956E7E03B /* MobileWorkspaceListFidelityTests.swift in Sources */,
 				13AB1A2E5DA6AD02DCAE971D /* MockBridgeInputCapture.swift in Sources */,
 				596100000000000000000001 /* NativeNotificationFallbackCommandTests.swift in Sources */,

@@ -199,6 +199,28 @@ struct AgentGUIRPCHandlerTests {
         #expect((error.data as? [String: String])?["detail"] == "attachment_unsupported")
     }
 
+    @Test func cmuxOwnedPromptFallbackUsesClientTicketForIdempotency() {
+        let injector = RPCFakeAgentGUITerminalInjector()
+        let service = AgentGUIService(macDeviceID: "mac-test", terminalInjector: injector)
+        let surfaceID = UUID().uuidString
+        let ticketID = UUID()
+
+        let first = service.submitCmuxOwnedPrompt(
+            surfaceID: surfaceID,
+            text: "first delivery",
+            ticketID: ticketID
+        )
+        let retry = service.submitCmuxOwnedPrompt(
+            surfaceID: surfaceID,
+            text: "retry must not inject",
+            ticketID: ticketID
+        )
+
+        #expect(first == .accepted)
+        #expect(retry == .accepted)
+        #expect(injector.prompts == ["first delivery"])
+    }
+
     private static func okPayload(_ result: MobileHostRPCResult?) throws -> [String: Any] {
         guard case .ok(let payload)? = result,
               let dictionary = payload as? [String: Any] else {

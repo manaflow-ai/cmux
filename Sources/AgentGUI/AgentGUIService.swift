@@ -34,6 +34,7 @@ final class AgentGUIService {
     private nonisolated let hookTapContinuation: AsyncStream<WorkstreamEvent>.Continuation
     private var hookTapTask: Task<Void, Never>?
     private var started = false
+    private(set) var completedProcessObservationGeneration: UInt64 = 0
 
     init(
         macDeviceID: String = MobileHostIdentity.deviceID(),
@@ -83,8 +84,8 @@ final class AgentGUIService {
         guard !started else { return }
         started = true
         Self.shared = self
-        processSource = AgentProcessObservationSource { [weak self] observations in
-            self?.handleProcessObservations(observations)
+        processSource = AgentProcessObservationSource { [weak self] observations, generation in
+            self?.handleProcessObservations(observations, generation: generation)
         }
         exitWatcher = AgentProcessExitWatcher { [weak self] pid, startTick in
             self?.fold(.processGone(pid: pid, startTick: startTick, tick: self?.currentActivityHintMS() ?? 0))
@@ -138,9 +139,16 @@ final class AgentGUIService {
         processSource?.scanNow()
     }
 
+    func requestPostLaunchProcessScan() -> UInt64 {
+        processSource?.scanNow(bypassingCache: true) ?? completedProcessObservationGeneration &+ 1
+    }
+
     #if DEBUG
     func ingestProcessObservationsForTesting(_ observations: [ProcessObservation]) {
-        handleProcessObservations(observations)
+        handleProcessObservations(
+            observations,
+            generation: completedProcessObservationGeneration &+ 1
+        )
     }
 
     func refreshSubscriptionsForTesting(changedTopics: [String]) {
@@ -208,7 +216,7 @@ final class AgentGUIService {
         let matches = reducer.snapshots.values.filter { $0.surfaceID == surfaceID }
         return matches.first(where: { $0.phase != .ended }) ?? matches.first
     }
-    func submitCmuxOwnedPrompt(surfaceID: String, text: String) -> AgentLaunchExecutionResult {
+    func submitCmuxOwnedPrompt(surfaceID: String, text: String, ticketID _: UUID? = nil) -> AgentLaunchExecutionResult {
         guard let snapshot = sessionSnapshot(surfaceID: surfaceID), snapshot.phase != .ended else {
             return launchExecutionResult(terminalInjector.submitPrompt(surfaceID: surfaceID, text: text))
         }
@@ -291,7 +299,8 @@ final class AgentGUIService {
         return result
     }
 
-    private func handleProcessObservations(_ observations: [ProcessObservation]) {
+    private func handleProcessObservations(_ observations: [ProcessObservation], generation: UInt64) {
+        completedProcessObservationGeneration = max(completedProcessObservationGeneration, generation)
         for observation in observations {
             let knownSessionID = incrementalState.sessionID(pid: observation.pid, startTick: observation.startTick)
             let activityHint = knownSessionID.flatMap { reducer.snapshot(for: $0)?.lastActivityHint }

@@ -22,6 +22,14 @@ final class AgentSurfaceLaunchStateObserver: AgentLaunchObserving {
         return foregroundAgentIsRunning(surfaceID: surfaceID) ? .runningAgent : .idleShell
     }
 
+    func agentLaunchObservationGeneration(surfaceID: String) -> UInt64 {
+        service.completedProcessObservationGeneration
+    }
+
+    func requestAgentLaunchObservation(surfaceID: String) -> UInt64 {
+        service.requestPostLaunchProcessScan()
+    }
+
     private func foregroundAgentIsRunning(surfaceID: String) -> Bool {
         guard let surfaceUUID = UUID(uuidString: surfaceID),
               let located = AppDelegate.shared?.locateSurface(surfaceId: surfaceUUID),

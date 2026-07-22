@@ -82,6 +82,54 @@ struct AgentGUISendLedgerTests {
         #expect(injector.prompts == ["first", "second", "third"])
     }
 
+    @Test func needsInputSubmitInjectsImmediately() throws {
+        let injector = FakeAgentGUITerminalInjector()
+        let ledger = AgentGUISendLedger(
+            sessionID: Self.sessionID,
+            clock: { 1_000 },
+            injector: injector,
+            publish: { _ in }
+        )
+
+        let result = try ledger.submit(
+            ticketID: UUID(),
+            text: "the awaited answer",
+            attachmentCount: 0,
+            snapshot: Self.snapshot(phase: .needsInput)
+        )
+
+        #expect(result == GuiSendResult(accepted: true, queuedOnMac: false))
+        #expect(injector.prompts == ["the awaited answer"])
+    }
+
+    @Test func workingQueueDrainsBeforeNeedsInputReplyInjects() throws {
+        let injector = FakeAgentGUITerminalInjector()
+        let ledger = AgentGUISendLedger(
+            sessionID: Self.sessionID,
+            clock: { 1_000 },
+            injector: injector,
+            publish: { _ in }
+        )
+
+        let queued = try ledger.submit(
+            ticketID: UUID(),
+            text: "queued while working",
+            attachmentCount: 0,
+            snapshot: Self.snapshot(phase: .working)
+        )
+        ledger.handleSessionSnapshot(Self.snapshot(phase: .needsInput))
+        let reply = try ledger.submit(
+            ticketID: UUID(),
+            text: "the awaited answer",
+            attachmentCount: 0,
+            snapshot: Self.snapshot(phase: .needsInput)
+        )
+
+        #expect(queued == GuiSendResult(accepted: true, queuedOnMac: true))
+        #expect(reply == GuiSendResult(accepted: true, queuedOnMac: false))
+        #expect(injector.prompts == ["queued while working", "the awaited answer"])
+    }
+
     @Test func echoMatchingUsesOldestInjectedTicketAndWhitespaceFallback() throws {
         let injector = FakeAgentGUITerminalInjector()
         var published: [SendTicket] = []

@@ -39,7 +39,7 @@ struct AgentLaunchGuardTests {
     }
 
     @Test
-    func launchThenPromptIntoIdleShellTypesBothExactlyOnce() {
+    func promptEmbeddedLaunchIntoIdleShellTypesOnlyLaunchCommand() {
         let observer = FakeAgentLaunchObserver(state: .idleShell)
         let executor = FakeAgentLaunchExecutor()
         let guardLayer = AgentLaunchGuard(observer: observer, executor: executor)
@@ -52,7 +52,7 @@ struct AgentLaunchGuardTests {
 
         #expect(result == .launched)
         #expect(executor.launchCommands == ["cd /repo && claude"])
-        #expect(executor.prompts == ["Explain the bug"])
+        #expect(executor.prompts.isEmpty)
     }
 
     @Test
@@ -93,11 +93,68 @@ struct AgentLaunchGuardTests {
         #expect(second == .suppressed(.launchAlreadyPending))
         #expect(executor.launchCommands == ["cd /repo && claude"])
     }
+
+    @Test
+    func idleObservationAfterFailedLaunchAllowsRelaunch() {
+        let observer = FakeAgentLaunchObserver(state: .idleShell)
+        let executor = FakeAgentLaunchExecutor()
+        let guardLayer = AgentLaunchGuard(observer: observer, executor: executor)
+
+        let first = guardLayer.perform(
+            surfaceID: "surface-1",
+            command: "missing-agent",
+            intent: .launchOnly
+        )
+        observer.recordObservation(.idleShell)
+        let second = guardLayer.perform(
+            surfaceID: "surface-1",
+            command: "claude",
+            intent: .launchOnly
+        )
+
+        #expect(first == .launched)
+        #expect(second == .launched)
+        #expect(executor.launchCommands == ["missing-agent", "claude"])
+    }
+
+    @Test
+    func onlyObservationStartedAfterLaunchReleasesPendingClaim() {
+        let observer = FakeAgentLaunchObserver(state: .idleShell)
+        let executor = FakeAgentLaunchExecutor()
+        let guardLayer = AgentLaunchGuard(observer: observer, executor: executor)
+        let preLaunchObservation = observer.startObservation()
+
+        let first = guardLayer.perform(
+            surfaceID: "surface-1",
+            command: "missing-agent",
+            intent: .launchOnly
+        )
+        let postLaunchObservation = observer.requestAgentLaunchObservation(surfaceID: "surface-1")
+        observer.completeObservation(preLaunchObservation, state: .idleShell)
+        let whilePreLaunchDataIsCurrent = guardLayer.perform(
+            surfaceID: "surface-1",
+            command: "claude",
+            intent: .launchOnly
+        )
+        observer.completeObservation(postLaunchObservation, state: .idleShell)
+        let afterPostLaunchObservation = guardLayer.perform(
+            surfaceID: "surface-1",
+            command: "claude",
+            intent: .launchOnly
+        )
+
+        #expect(first == .launched)
+        #expect(whilePreLaunchDataIsCurrent == .suppressed(.launchAlreadyPending))
+        #expect(afterPostLaunchObservation == .launched)
+        #expect(executor.launchCommands == ["missing-agent", "claude"])
+    }
 }
 
 @MainActor
 private final class FakeAgentLaunchObserver: AgentLaunchObserving {
     var state: AgentLaunchSurfaceState
+    private(set) var observationGeneration: UInt64 = 0
+    private var startedObservationGeneration: UInt64 = 0
 
     init(state: AgentLaunchSurfaceState) {
         self.state = state
@@ -105,6 +162,28 @@ private final class FakeAgentLaunchObserver: AgentLaunchObserving {
 
     func agentLaunchState(surfaceID: String) -> AgentLaunchSurfaceState {
         state
+    }
+
+    func agentLaunchObservationGeneration(surfaceID: String) -> UInt64 {
+        observationGeneration
+    }
+
+    func requestAgentLaunchObservation(surfaceID: String) -> UInt64 {
+        startObservation()
+    }
+
+    func startObservation() -> UInt64 {
+        startedObservationGeneration &+= 1
+        return startedObservationGeneration
+    }
+
+    func completeObservation(_ generation: UInt64, state: AgentLaunchSurfaceState) {
+        self.state = state
+        observationGeneration = max(observationGeneration, generation)
+    }
+
+    func recordObservation(_ state: AgentLaunchSurfaceState) {
+        completeObservation(startObservation(), state: state)
     }
 }
 

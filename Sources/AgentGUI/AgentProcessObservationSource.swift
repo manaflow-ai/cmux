@@ -7,16 +7,17 @@ final class AgentProcessObservationSource {
     private var timer: DispatchSourceTimer?
     private var scanTask: Task<Void, Never>?
     private var pendingScan = false
+    private var pendingScanBypassesCache = false
     private var scanGeneration: UInt64 = 0
     private let utilityQueue = DispatchQueue(label: "dev.cmux.agentgui.process-observation", qos: .utility)
-    private let captureObservations: @Sendable () async -> [ProcessObservation]
-    private let onObservations: @MainActor ([ProcessObservation]) -> Void
+    private let captureObservations: @Sendable (Bool) async -> [ProcessObservation]
+    private let onObservations: @MainActor ([ProcessObservation], UInt64) -> Void
 
     init(
-        captureObservations: @escaping @Sendable () async -> [ProcessObservation] = {
-            await AgentProcessObservationSource.captureObservations()
+        captureObservations: @escaping @Sendable (Bool) async -> [ProcessObservation] = { bypassCache in
+            await AgentProcessObservationSource.captureObservations(bypassingCache: bypassCache)
         },
-        onObservations: @escaping @MainActor ([ProcessObservation]) -> Void
+        onObservations: @escaping @MainActor ([ProcessObservation], UInt64) -> Void
     ) {
         self.captureObservations = captureObservations
         self.onObservations = onObservations
@@ -30,25 +31,30 @@ final class AgentProcessObservationSource {
         }
     }
 
-    func scanNow() {
+    @discardableResult
+    func scanNow(bypassingCache: Bool = false) -> UInt64 {
         guard scanTask == nil else {
             pendingScan = true
-            return
+            pendingScanBypassesCache = pendingScanBypassesCache || bypassingCache
+            return scanGeneration &+ 1
         }
         scanGeneration &+= 1
         let generation = scanGeneration
         let captureObservations = captureObservations
         scanTask = Task { @MainActor [weak self] in
             let observations = await Task.detached(priority: .utility) {
-                await captureObservations()
+                await captureObservations(bypassingCache)
             }.value
             guard let self, self.scanGeneration == generation, !Task.isCancelled else { return }
             self.scanTask = nil
-            self.onObservations(observations)
+            self.onObservations(observations, generation)
             guard self.scanGeneration == generation, self.pendingScan else { return }
             self.pendingScan = false
-            self.scanNow()
+            let pendingScanBypassesCache = self.pendingScanBypassesCache
+            self.pendingScanBypassesCache = false
+            self.scanNow(bypassingCache: pendingScanBypassesCache)
         }
+        return generation
     }
 
     private func start() {
@@ -69,6 +75,7 @@ final class AgentProcessObservationSource {
         timer?.cancel()
         timer = nil
         pendingScan = false
+        pendingScanBypassesCache = false
         scanGeneration &+= 1
         scanTask?.cancel()
         scanTask = nil
@@ -82,12 +89,16 @@ final class AgentProcessObservationSource {
     }
     #endif
 
-    private nonisolated static func captureObservations() async -> [ProcessObservation] {
-        let snapshot = CmuxTopProcessSnapshot.captureCached(
-            includeProcessDetails: true,
-            includeCMUXScope: true,
-            maximumAge: 1
-        )
+    private nonisolated static func captureObservations(bypassingCache: Bool) async -> [ProcessObservation] {
+        let snapshot = if bypassingCache {
+            CmuxTopProcessSnapshot.capture(includeProcessDetails: true, includeCMUXScope: true)
+        } else {
+            CmuxTopProcessSnapshot.captureCached(
+                includeProcessDetails: true,
+                includeCMUXScope: true,
+                maximumAge: 1
+            )
+        }
         return snapshot.cmuxScopedProcesses().compactMap { process in
             observation(for: process)
         }
