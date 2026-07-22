@@ -1199,6 +1199,14 @@ def _self_test() -> int:
             {RULE_SLEEP_THEN_ASSERT},
         ),
         (
+            "Tests/ForLoopRealClockTests.swift",
+            "for clock in [ContinuousClock()] {\n"
+            "    try await clock.sleep(for: .milliseconds(300))\n"
+            "    #expect(widget.isRendered)\n"
+            "}\n",
+            {RULE_SLEEP_THEN_ASSERT},
+        ),
+        (
             "Tests/URLBlockCommentBeforeRealClockTests.swift",
             "/* See https://example.test for the fixture contract. */\n"
             "let clock = ContinuousClock()\n"
@@ -1709,6 +1717,26 @@ def _self_test() -> int:
             "        try await clock.sleep(until: deadline)\n"
             "        #expect(await clockEvents.next() == expected)\n"
             "    }\n"
+            "}\n",
+        ),
+        (
+            "Packages/CmuxClock/Tests/NestedInitializerVirtualClockTests.swift",
+            "let clock = TestRelayClock(reference: { let fallback = ContinuousClock(); return fallback }())\n"
+            "try await clock.sleep(until: deadline)\n"
+            "#expect(await clockEvents.next() == expected)\n",
+        ),
+        (
+            "Packages/CmuxClock/Tests/NestedArgumentVirtualClockTests.swift",
+            "let clock = TestRelayClock(reference: ContinuousClock())\n"
+            "try await clock.sleep(until: deadline)\n"
+            "#expect(await clockEvents.next() == expected)\n",
+        ),
+        (
+            "Packages/CmuxClock/Tests/ForLoopUnknownClockTests.swift",
+            "let clock = ContinuousClock()\n"
+            "for clock in virtualClocks {\n"
+            "    try await clock.sleep(until: deadline)\n"
+            "    #expect(await clockEvents.next() == expected)\n"
             "}\n",
         ),
         # A conditional real-clock binding must disappear with its branch and
