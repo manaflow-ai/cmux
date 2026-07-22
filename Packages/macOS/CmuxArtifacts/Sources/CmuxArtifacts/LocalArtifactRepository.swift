@@ -13,7 +13,7 @@ public actor LocalArtifactRepository: ArtifactStoring {
     let encoder: JSONEncoder
     let gitCommandRunner: any ArtifactGitCommandRunning
     let now: @Sendable () -> Date
-    private let maximumScanDepth: Int
+    let maximumScanDepth: Int
     let nodeBudget: Int
 
     /// Creates a local filesystem repository.
@@ -155,9 +155,9 @@ public actor LocalArtifactRepository: ArtifactStoring {
         if basenameMatches.count > 1 {
             throw ArtifactStoreError.ambiguousArtifactName(name, matches: basenameMatches.map(\.relativePath))
         }
-        let matcher = ArtifactFuzzyMatcher()
+        let matcher = ArtifactFuzzyMatcher(query: name)
         let fuzzyMatches = files.compactMap { node in
-            matcher.score(candidate: node.relativePath, query: name).map { (node, $0) }
+            matcher.score(candidate: node.relativePath).map { (node, $0) }
         }.sorted { $0.1 > $1.1 }
         guard let best = fuzzyMatches.first else {
             throw ArtifactStoreError.artifactNotFound(name)

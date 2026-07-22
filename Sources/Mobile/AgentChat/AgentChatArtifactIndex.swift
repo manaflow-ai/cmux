@@ -12,7 +12,7 @@ actor AgentChatArtifactIndex {
         let generation: String
         let revision: UInt64
         let transcriptLineage: String
-        let lineCount: Int
+        let transcriptExtent: UInt64
 
         init(
             referencedPaths: Set<String>,
@@ -20,14 +20,15 @@ actor AgentChatArtifactIndex {
             generation: String,
             revision: UInt64,
             transcriptLineage: String = "",
-            lineCount: Int? = nil
+            transcriptExtent: UInt64? = nil
         ) {
             self.referencedPaths = referencedPaths
             self.artifacts = artifacts
             self.generation = generation
             self.revision = revision
             self.transcriptLineage = transcriptLineage
-            self.lineCount = lineCount ?? (artifacts.map(\.lastReferencedSeq).max().map { $0 + 1 } ?? 0)
+            self.transcriptExtent = transcriptExtent
+                ?? UInt64(max(0, artifacts.map(\.lastReferencedSeq).max() ?? 0))
         }
     }
 
@@ -58,8 +59,6 @@ actor AgentChatArtifactIndex {
     private struct CacheEntry: Sendable {
         let key: CacheKey
         let snapshot: Snapshot
-        let sliceStartOffset: UInt64
-        let sliceStartingSequence: Int
     }
 
     private var cacheBySessionID = ChatArtifactLRUCache<String, CacheEntry>(capacity: 8)
@@ -96,9 +95,7 @@ actor AgentChatArtifactIndex {
         let slice = try AgentChatTranscriptReader().read(
             handle: opened.handle,
             fileSize: key.fileSize,
-            maximumBytes: key.maximumFileBytes,
-            anchorOffset: extendsPreviousTranscript ? previous?.sliceStartOffset : nil,
-            anchorSequence: extendsPreviousTranscript ? previous?.sliceStartingSequence : nil
+            maximumBytes: key.maximumFileBytes
         )
         nextSnapshotRevision &+= 1
         let snapshot = try Self.buildSnapshot(
@@ -113,9 +110,7 @@ actor AgentChatArtifactIndex {
         cacheBySessionID.insert(
             CacheEntry(
                 key: key,
-                snapshot: snapshot,
-                sliceStartOffset: slice.startOffset,
-                sliceStartingSequence: slice.startingSequence
+                snapshot: snapshot
             ),
             forKey: sessionID
         )
@@ -205,19 +200,32 @@ actor AgentChatArtifactIndex {
         case .codex:
             parseResult = CodexTranscriptParser().parse(
                 lines: lines,
-                startingSeq: slice.startingSequence
+                startingSeq: 0
             )
         case .claude, .other:
             parseResult = ClaudeTranscriptParser().parse(
                 lines: lines,
-                startingSeq: slice.startingSequence
+                startingSeq: 0
             )
         }
-        let currentArtifacts = ChatArtifactIndexedReference.derive(
+        let relativeArtifacts = ChatArtifactIndexedReference.derive(
             from: parseResult.messages,
             supplementalReferences: parseResult.artifactReferences,
             workingDirectory: workingDirectory
         )
+        let currentArtifacts = relativeArtifacts.compactMap { artifact -> ChatArtifactIndexedReference? in
+            guard slice.lineStartOffsets.indices.contains(artifact.lastReferencedSeq),
+                  let absoluteSequence = Int(
+                    exactly: slice.lineStartOffsets[artifact.lastReferencedSeq]
+                  ) else {
+                return nil
+            }
+            return ChatArtifactIndexedReference(
+                path: artifact.path,
+                provenance: artifact.provenance,
+                lastReferencedSeq: absoluteSequence
+            )
+        }
         let artifacts = mergedArtifacts(previousArtifacts, currentArtifacts)
         let referencedPaths = Set(artifacts.map(\.path))
         return Snapshot(
@@ -226,7 +234,7 @@ actor AgentChatArtifactIndex {
             generation: generation,
             revision: revision,
             transcriptLineage: transcriptLineage,
-            lineCount: slice.startingSequence + lines.count
+            transcriptExtent: slice.transcriptExtent
         )
     }
 
