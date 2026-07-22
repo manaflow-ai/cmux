@@ -351,6 +351,11 @@ struct CommandPaletteControlRegistrationTests {
         )
         AppDelegate.shared = appDelegate
         TerminalController.shared.setActiveTabManager(callerManager)
+        let targetDock = appDelegate.windowDock(forWindowId: targetWindowID)
+        let targetDockPane = try #require(targetDock.bonsplitController.allPaneIds.first)
+        let targetDockSurfaceID = try #require(
+            targetDock.newSurface(kind: .terminal, inPane: targetDockPane, focus: true)
+        )
         defer {
             appDelegate.unregisterMainWindowContextForTesting(windowId: callerWindowID)
             appDelegate.unregisterMainWindowContextForTesting(windowId: targetWindowID)
@@ -378,6 +383,40 @@ struct CommandPaletteControlRegistrationTests {
         #expect(ownerWindowID == targetWindowID)
         #expect(handledWorkspaceIDs == [selectedTargetWorkspace.id])
 
+        let surfaceRouting = routing(surfaceID: targetDockSurfaceID)
+        #expect(
+            TerminalController.shared.controlInlineVSCodeWorkspace(
+                routing: surfaceRouting,
+                tabManager: targetManager
+            )?.id == selectedTargetWorkspace.id
+        )
+        #expect(
+            TerminalController.shared.controlInlineVSCodeWorkspace(
+                routing: surfaceRouting,
+                tabManager: callerManager
+            ) == nil
+        )
+        let surfaceRun = TerminalController.shared.controlCommandPaletteRun(
+            routing: surfaceRouting,
+            commandID: item.id,
+            arguments: [:],
+            workingDirectory: nil
+        )
+        guard case .completed(let surfaceWindowID, _) = surfaceRun else {
+            Issue.record("Expected Dock surface routing to run in its owning window")
+            return
+        }
+        #expect(surfaceWindowID == targetWindowID)
+        #expect(handledWorkspaceIDs == [selectedTargetWorkspace.id, selectedTargetWorkspace.id])
+        #expect(
+            TerminalController.shared.controlCommandPaletteRun(
+                routing: routing(windowID: callerWindowID, surfaceID: targetDockSurfaceID),
+                commandID: item.id,
+                arguments: [:],
+                workingDirectory: nil
+            ) == .windowNotFound
+        )
+
         targetManager.selectedTabId = nil
         let aliasRouting = routing(
             windowID: targetWindowID,
@@ -400,7 +439,50 @@ struct CommandPaletteControlRegistrationTests {
             return
         }
         #expect(aliasWindowID == targetWindowID)
-        #expect(handledWorkspaceIDs == [selectedTargetWorkspace.id, firstTargetWorkspace.id])
+        #expect(handledWorkspaceIDs == [
+            selectedTargetWorkspace.id,
+            selectedTargetWorkspace.id,
+            firstTargetWorkspace.id,
+        ])
+
+        let paneRouting = routing(paneID: targetDockPane.id)
+        #expect(
+            TerminalController.shared.controlInlineVSCodeWorkspace(
+                routing: paneRouting,
+                tabManager: targetManager
+            )?.id == firstTargetWorkspace.id
+        )
+        #expect(
+            TerminalController.shared.controlInlineVSCodeWorkspace(
+                routing: paneRouting,
+                tabManager: callerManager
+            ) == nil
+        )
+        let paneRun = TerminalController.shared.controlCommandPaletteRun(
+            routing: paneRouting,
+            commandID: item.id,
+            arguments: [:],
+            workingDirectory: nil
+        )
+        guard case .completed(let paneWindowID, _) = paneRun else {
+            Issue.record("Expected Dock pane routing to run in its owning window")
+            return
+        }
+        #expect(paneWindowID == targetWindowID)
+        #expect(handledWorkspaceIDs == [
+            selectedTargetWorkspace.id,
+            selectedTargetWorkspace.id,
+            firstTargetWorkspace.id,
+            firstTargetWorkspace.id,
+        ])
+        #expect(
+            TerminalController.shared.controlCommandPaletteRun(
+                routing: routing(windowID: callerWindowID, paneID: targetDockPane.id),
+                commandID: item.id,
+                arguments: [:],
+                workingDirectory: nil
+            ) == .windowNotFound
+        )
 
         let unrelatedRouting = routing(workspaceID: UUID())
         #expect(
