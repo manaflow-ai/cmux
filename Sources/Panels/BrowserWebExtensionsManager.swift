@@ -3702,9 +3702,6 @@ final class BrowserWebExtensionPopupPlacementLock {
     private let side: Side
     private var observers: [NSObjectProtocol] = []
     private var isApplyingFrame = false
-    private(set) var stabilizationCount = 0
-    private(set) var firstStabilizedFrame: NSRect?
-    private(set) var lastStabilizedFrame: NSRect?
 
     init?(
         popover: NSPopover,
@@ -3758,14 +3755,15 @@ final class BrowserWebExtensionPopupPlacementLock {
         let anchorScreenRect = anchorWindow.convertToScreen(anchorWindowRect)
         let visibleFrame = anchorWindow.screen?.visibleFrame ?? NSScreen.main?.visibleFrame
         if let visibleFrame {
-            let availableHeight = Self.availableHeight(
-                for: side,
+            let fittedContentHeight = Self.contentHeightFittingChosenSide(
+                side: side,
+                popupHeight: popupWindow.frame.height,
+                contentHeight: popover.contentSize.height,
                 anchorScreenRect: anchorScreenRect,
                 visibleFrame: visibleFrame
             )
-            let overflow = popupWindow.frame.height - availableHeight
-            if overflow > 0.5, popover.contentSize.height > 1 {
-                popover.contentSize.height = max(1, popover.contentSize.height - overflow)
+            if abs(popover.contentSize.height - fittedContentHeight) > 0.5 {
+                popover.contentSize.height = fittedContentHeight
             }
         }
         let origin = Self.lockedOrigin(
@@ -3778,9 +3776,23 @@ final class BrowserWebExtensionPopupPlacementLock {
             || abs(popupWindow.frame.origin.y - origin.y) > 0.5 {
             popupWindow.setFrameOrigin(origin)
         }
-        stabilizationCount &+= 1
-        firstStabilizedFrame = firstStabilizedFrame ?? popupWindow.frame
-        lastStabilizedFrame = popupWindow.frame
+    }
+
+    static func contentHeightFittingChosenSide(
+        side: Side,
+        popupHeight: CGFloat,
+        contentHeight: CGFloat,
+        anchorScreenRect: NSRect,
+        visibleFrame: NSRect
+    ) -> CGFloat {
+        let availableHeight = availableHeight(
+            for: side,
+            anchorScreenRect: anchorScreenRect,
+            visibleFrame: visibleFrame
+        )
+        let overflow = popupHeight - availableHeight
+        guard overflow > 0.5, contentHeight > 1 else { return contentHeight }
+        return max(1, contentHeight - overflow)
     }
 
     static func plan(
