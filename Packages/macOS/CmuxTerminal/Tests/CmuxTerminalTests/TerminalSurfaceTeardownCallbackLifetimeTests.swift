@@ -21,7 +21,7 @@ import Testing
             await recorder.waitForEventCount(1, timeout: .seconds(60))
         }
 
-        await Task.yield()
+        await recorder.waitUntilEventWaiterIsRegistered()
         wait.cancel()
 
         #expect(await wait.value == false)
