@@ -55,12 +55,17 @@ extension FilePreviewPanel {
         fileChangeTask = Task { @MainActor [weak self] in
             for await _ in events {
                 guard let self, !self.isClosed else { break }
-                let state = FilePreviewFileState.capture(path: self.filePath)
-                guard state != self.lastObservedFileState else { continue }
-                self.lastObservedFileState = state
-                self.reloadFromDisk()
+                self.handleObservedFileChange()
             }
         }
+    }
+
+    @discardableResult
+    func handleObservedFileChange() -> Task<Void, Never>? {
+        let state = FilePreviewFileState.capture(path: filePath)
+        guard state != lastObservedFileState else { return nil }
+        lastObservedFileState = state
+        return reloadFromDisk()
     }
 
     func stopWatchingForFileChanges() {

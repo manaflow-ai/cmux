@@ -1032,6 +1032,7 @@ final class FilePreviewPanel: Panel, ObservableObject, FilePreviewTextEditingPan
         self.focusCoordinator = FilePreviewFocusCoordinator(
             preferredIntent: Self.defaultFocusIntent(for: initialPreviewMode)
         )
+        self.lastObservedFileState = .capture(path: filePath)
 
         prepareContentForPreviewMode()
         resolvePreviewModeIfNeeded(for: fileURL)
