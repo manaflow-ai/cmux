@@ -50,7 +50,8 @@ extension ControlCommandCoordinator {
             explicitSurfaceID: uuid(params, "surface_id"),
             title: title,
             subtitle: subtitle,
-            body: body
+            body: body,
+            replyShapeWire: rawString(params, "reply_shape")
         ) ?? .tabManagerUnavailable
 
         switch resolution {
@@ -86,7 +87,8 @@ extension ControlCommandCoordinator {
             surfaceID: surfaceID,
             title: title,
             subtitle: subtitle,
-            body: body
+            body: body,
+            replyShapeWire: rawString(params, "reply_shape")
         ) ?? .tabManagerUnavailable
         return targetedDeliveryResult(resolution)
     }
@@ -109,7 +111,8 @@ extension ControlCommandCoordinator {
             surfaceID: surfaceID,
             title: title,
             subtitle: subtitle,
-            body: body
+            body: body,
+            replyShapeWire: rawString(params, "reply_shape")
         ) ?? .tabManagerUnavailable
         return targetedDeliveryResult(resolution)
     }

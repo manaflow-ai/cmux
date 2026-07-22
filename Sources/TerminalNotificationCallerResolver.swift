@@ -1,3 +1,4 @@
+import CmuxNotifications
 import Foundation
 
 @MainActor
@@ -78,6 +79,7 @@ extension TerminalController {
         let title = stringParam(params, "title") ?? "Notification"
         let subtitle = stringParam(params, "subtitle") ?? ""
         let body = stringParam(params, "body") ?? ""
+        let replyShape = TerminalNotificationReplyShape(wire: stringParam(params, "reply_shape"))
 
         var result: V2CallResult = .err(code: "internal_error", message: "Failed to notify", data: nil)
         runOnMain {
@@ -97,7 +99,8 @@ extension TerminalController {
                 surfaceId: target.surfaceId,
                 title: title,
                 subtitle: subtitle,
-                body: body
+                body: body,
+                replyShape: replyShape
             )
             let surfaceId: Any = target.surfaceId?.uuidString ?? NSNull()
             result = .ok([
@@ -107,6 +110,24 @@ extension TerminalController {
         }
         return result
     }
+
+    #if DEBUG
+    func notificationDebugCallerTarget(params: [String: Any]) -> NotificationDebugTarget? {
+        guard let fallbackTabManager = activeTabManagerForCallerNotification() else { return nil }
+        let target = Self.callerNotificationTarget(
+            fallback: fallbackTabManager,
+            preferredWorkspaceId: v2UUID(params, "preferred_workspace_id"),
+            preferredSurfaceId: v2UUID(params, "preferred_surface_id"),
+            callerTTY: Self.normalizedTTYName(stringParam(params, "caller_tty")),
+            preferTTY: boolParam(params, "prefer_tty") ?? false
+        )
+        guard let target else { return nil }
+        return NotificationDebugTarget(
+            workspaceId: target.workspace.id,
+            surfaceId: target.surfaceId
+        )
+    }
+    #endif
 
     private static func callerNotificationTarget(
         fallback: TabManager,
@@ -275,13 +296,13 @@ extension TerminalController {
         return nil
     }
 
-    private func stringParam(_ params: [String: Any], _ key: String) -> String? {
+    func stringParam(_ params: [String: Any], _ key: String) -> String? {
         guard let raw = params[key] as? String else { return nil }
         let trimmed = raw.trimmingCharacters(in: .whitespacesAndNewlines)
         return trimmed.isEmpty ? nil : trimmed
     }
 
-    private func boolParam(_ params: [String: Any], _ key: String) -> Bool? {
+    func boolParam(_ params: [String: Any], _ key: String) -> Bool? {
         if let value = params[key] as? Bool { return value }
         if let value = params[key] as? NSNumber { return value.boolValue }
         switch stringParam(params, key)?.lowercased() {

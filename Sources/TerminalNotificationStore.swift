@@ -5,6 +5,7 @@ import os
 import UserNotifications
 import Bonsplit
 import CmuxSettings
+import CmuxNotifications
 
 nonisolated private let terminalNotificationLogger = Logger(
     subsystem: "com.cmuxterm.app",
@@ -162,7 +163,9 @@ final class TerminalNotificationStore: ObservableObject {
     let notificationHookCache = CmuxNotificationHookCache()
 
     static let categoryIdentifier = "com.cmuxterm.app.userNotification"
+    static let textReplyCategoryIdentifier = "com.cmuxterm.app.userNotification.textReply"
     static let actionShowIdentifier = "com.cmuxterm.app.userNotification.show"
+    static let actionReplyIdentifier = "terminal.reply"
     nonisolated static let retargetsToLiveSurfaceOwnerUserInfoKey = "retargetsToLiveSurfaceOwner"
     /// Mobile-host event topic the Mac emits when one or more delivered
     /// notifications are dismissed/cleared on this Mac, so an attached phone can
@@ -855,6 +858,7 @@ final class TerminalNotificationStore: ObservableObject {
         title: String,
         subtitle: String,
         body: String,
+        replyShape: TerminalNotificationReplyShape = .none,
         retargetsToLiveSurfaceOwner: Bool = true,
         cooldownKey: String? = nil,
         cooldownInterval: TimeInterval? = nil,
@@ -901,6 +905,7 @@ final class TerminalNotificationStore: ObservableObject {
             title: title,
             subtitle: subtitle,
             body: body,
+            replyShape: replyShape,
             retargetsToLiveSurfaceOwner: retargetsToLiveSurfaceOwner,
             resolvedHooks: resolvedHooks
         )
@@ -1064,6 +1069,7 @@ final class TerminalNotificationStore: ObservableObject {
         title: String,
         subtitle: String,
         body: String,
+        replyShape: TerminalNotificationReplyShape = .none,
         retargetsToLiveSurfaceOwner: Bool,
         resolvedHooks: [CmuxResolvedNotificationHook]?
     ) -> NotificationPolicyContext {
@@ -1106,6 +1112,7 @@ final class TerminalNotificationStore: ObservableObject {
                 title: title,
                 subtitle: subtitle,
                 body: body,
+                replyShape: replyShape,
                 cwd: cwd,
                 isAppFocused: isAppFocused,
                 isFocusedPanel: isFocusedPanel
@@ -1135,6 +1142,7 @@ final class TerminalNotificationStore: ObservableObject {
                 title: payload.title,
                 subtitle: payload.subtitle,
                 body: payload.body,
+                replyShape: request.replyShape,
                 cwd: request.cwd,
                 isAppFocused: request.isAppFocused,
                 isFocusedPanel: request.isFocusedPanel
@@ -1174,7 +1182,8 @@ final class TerminalNotificationStore: ObservableObject {
             isRead: !effects.markUnread,
             paneFlash: effects.paneFlash,
             scrollPosition: scrollPosition,
-            clickAction: clickAction
+            clickAction: clickAction,
+            replyShape: request.replyShape
         )
         if effects.record {
             recordNotification(
@@ -1704,7 +1713,8 @@ final class TerminalNotificationStore: ObservableObject {
             isRead: notification.isRead,
             paneFlash: notification.paneFlash,
             scrollPosition: notification.scrollPosition,
-            clickAction: notification.clickAction
+            clickAction: notification.clickAction,
+            replyShape: notification.replyShape
         )
     }
 
@@ -1808,7 +1818,8 @@ final class TerminalNotificationStore: ObservableObject {
                 isRead: notification.isRead,
                 paneFlash: notification.paneFlash,
                 scrollPosition: notification.scrollPosition,
-                clickAction: notification.clickAction
+                clickAction: notification.clickAction,
+                replyShape: notification.replyShape
             )
         }
         if didMoveNotification {
@@ -1888,7 +1899,9 @@ final class TerminalNotificationStore: ObservableObject {
         let notificationSurfaceId = notification.surfaceId
         let retargetsToLiveSurfaceOwner = notification.retargetsToLiveSurfaceOwner
         let clickActionUserInfo = notification.clickAction?.userInfo ?? [:]
-        let categoryIdentifier = Self.categoryIdentifier
+        let categoryIdentifier = notification.replyShape == .text
+            ? Self.textReplyCategoryIdentifier
+            : Self.categoryIdentifier
         let handleAuthorization: NativeNotificationDeliveryHooks.AuthorizationCompletion = { authorized, effectiveAuthorizationState in
             let content = UNMutableNotificationContent()
             content.title = notificationTitle

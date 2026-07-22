@@ -1,3 +1,4 @@
+import CmuxNotifications
 import Foundation
 
 /// Live-retargeting delivery and clear semantics for agent notifications
@@ -14,6 +15,7 @@ extension TerminalController {
         title: String,
         subtitle: String,
         body: String,
+        replyShape: TerminalNotificationReplyShape = .none,
         retargetsToLiveSurfaceOwner: Bool = true
     ) {
         let target: (tabId: UUID, surfaceId: UUID?)
@@ -55,6 +57,7 @@ extension TerminalController {
             title: title,
             subtitle: subtitle,
             body: body,
+            replyShape: replyShape,
             retargetsToLiveSurfaceOwner: retargetsToLiveSurfaceOwner
         )
     }
@@ -72,6 +75,7 @@ extension TerminalNotificationStore {
         title: String,
         subtitle: String,
         body: String,
+        replyShape: TerminalNotificationReplyShape,
         notificationGeneration: UInt64
     ) {
         guard let target = AppDelegate.shared?.agentNotificationDeliveryTarget(
@@ -96,6 +100,7 @@ extension TerminalNotificationStore {
             title: title,
             subtitle: subtitle,
             body: body,
+            replyShape: replyShape,
             retargetsToLiveSurfaceOwner: true,
             notificationGeneration: notificationGeneration
         )
@@ -119,6 +124,7 @@ extension TerminalNotificationStore {
             title: request.title,
             subtitle: request.subtitle,
             body: request.body,
+            replyShape: request.replyShape,
             cwd: request.cwd,
             isAppFocused: request.isAppFocused,
             isFocusedPanel: request.isFocusedPanel
