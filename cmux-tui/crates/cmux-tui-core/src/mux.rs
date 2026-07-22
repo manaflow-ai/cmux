@@ -3802,10 +3802,11 @@ impl Mux {
                 }
                 None if state.workspaces.is_empty() => {
                     let ws_id = self.next_id();
+                    let workspace_name = Self::default_workspace_name(&state);
                     state.push_workspace(Workspace {
                         id: ws_id,
                         key: new_workspace_key.expect("workspace key generated before spawning"),
-                        name: "1".into(),
+                        name: workspace_name,
                         screens: vec![screen],
                         active_screen: 0,
                     });
