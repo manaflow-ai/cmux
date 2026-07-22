@@ -3,6 +3,6 @@
 __attribute__((constructor))
 static void RegisterLegacyFocusHistoryTestDefaults(void) {
     [[NSUserDefaults standardUserDefaults] registerDefaults:@{
-        @"app.focusHistoryIncludesPanesAndTabs": @YES,
+        @"focusHistoryIncludesPanesAndTabs": @YES,
     }];
 }
