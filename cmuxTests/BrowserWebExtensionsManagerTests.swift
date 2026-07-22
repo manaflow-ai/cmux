@@ -56,6 +56,62 @@ struct BrowserWebExtensionsManagerTests {
         }
     }
 
+    private actor InstallCommitGate {
+        private var isEntered = false
+        private var enteredContinuation: CheckedContinuation<Void, Never>?
+
+        func pauseAfterCommit() async throws {
+            isEntered = true
+            enteredContinuation?.resume()
+            enteredContinuation = nil
+            try await Task.sleep(for: .seconds(3600))
+        }
+
+        func waitUntilEntered() async {
+            guard !isEntered else { return }
+            await withCheckedContinuation { continuation in
+                enteredContinuation = continuation
+            }
+        }
+    }
+
+    private final class WebViewLoadWaiter: NSObject, WKNavigationDelegate {
+        private var continuation: CheckedContinuation<Void, any Error>?
+
+        func load(_ html: String, in webView: WKWebView) async throws {
+            try await withCheckedThrowingContinuation { continuation in
+                self.continuation = continuation
+                webView.loadHTMLString(html, baseURL: nil)
+            }
+        }
+
+        func webView(_ webView: WKWebView, didFinish navigation: WKNavigation!) {
+            finish(.success(()))
+        }
+
+        func webView(
+            _ webView: WKWebView,
+            didFail navigation: WKNavigation!,
+            withError error: any Error
+        ) {
+            finish(.failure(error))
+        }
+
+        func webView(
+            _ webView: WKWebView,
+            didFailProvisionalNavigation navigation: WKNavigation!,
+            withError error: any Error
+        ) {
+            finish(.failure(error))
+        }
+
+        private func finish(_ result: Result<Void, any Error>) {
+            guard let continuation else { return }
+            self.continuation = nil
+            continuation.resume(with: result)
+        }
+    }
+
     private final class RejectingCreateTabDelegate: BonsplitDelegate {
         func splitTabBar(
             _ controller: BonsplitController,
@@ -93,6 +149,150 @@ struct BrowserWebExtensionsManagerTests {
         let data = try JSONSerialization.data(withJSONObject: manifest)
         try data.write(to: dir.appendingPathComponent("manifest.json"))
         return dir
+    }
+
+    private static func writeSafariExtensionFixture(
+        in root: URL,
+        bundleIdentifier: String
+    ) throws -> (app: URL, appex: URL, resources: URL, trustMarker: URL) {
+        let app = root.appendingPathComponent("Fixture.app", isDirectory: true)
+        let appex = app.appendingPathComponent(
+            "Contents/PlugIns/Fixture.appex",
+            isDirectory: true
+        )
+        let resources = appex.appendingPathComponent("Contents/Resources", isDirectory: true)
+        try FileManager.default.createDirectory(at: resources, withIntermediateDirectories: true)
+        let info: [String: Any] = [
+            "CFBundleIdentifier": bundleIdentifier,
+            "CFBundleShortVersionString": "1.0",
+            "CFBundleVersion": "1",
+            "CFBundlePackageType": "XPC!",
+            "NSExtension": [
+                "NSExtensionPointIdentifier": "com.apple.Safari.web-extension",
+            ],
+        ]
+        try PropertyListSerialization.data(
+            fromPropertyList: info,
+            format: .xml,
+            options: 0
+        ).write(to: appex.appendingPathComponent("Contents/Info.plist"))
+        var manifest = minimalManifest
+        manifest["name"] = "Safari lifecycle fixture"
+        manifest["action"] = ["default_title": "Fixture"]
+        try JSONSerialization.data(withJSONObject: manifest)
+            .write(to: resources.appendingPathComponent("manifest.json"))
+        try "// no-op".write(
+            to: resources.appendingPathComponent("content.js"),
+            atomically: true,
+            encoding: .utf8
+        )
+        let trustMarker = app.appendingPathComponent("Contents/trust-marker")
+        try "trusted".write(to: trustMarker, atomically: true, encoding: .utf8)
+        return (app, appex, resources, trustMarker)
+    }
+
+    private static func assertFailedSafariAppLifecycle(tamper: Bool) async throws {
+        let managedRoot = try makeExtensionsRoot()
+        let appRoot = try makeExtensionsRoot()
+        defer {
+            try? FileManager.default.removeItem(at: managedRoot)
+            try? FileManager.default.removeItem(at: appRoot)
+        }
+        let bundleIdentifier = "com.example.lifecycle.safari"
+        let fixture = try writeSafariExtensionFixture(
+            in: appRoot,
+            bundleIdentifier: bundleIdentifier
+        )
+        let identity = BrowserWebExtensionSafariAppIdentity(
+            id: "lifecycle-fixture",
+            appBundleIdentifier: "com.example.lifecycle",
+            extensionBundleIdentifier: bundleIdentifier,
+            teamIdentifier: "TESTTEAM"
+        )
+        let reference = BrowserWebExtensionAppExtensionReference(
+            bundleURL: fixture.appex,
+            bundleIdentifier: bundleIdentifier,
+            installationName: bundleIdentifier
+        )
+        let record = BrowserWebExtensionManagedRecord(
+            id: bundleIdentifier,
+            displayName: "Safari lifecycle fixture",
+            version: "1.0",
+            source: .safariApp(reference),
+            isEnabled: true,
+            isToolbarPinned: true,
+            grantedPermissions: [],
+            grantedMatchPatterns: []
+        )
+        let repository = BrowserWebExtensionDirectoryRepository()
+        try await repository.upsertManagedRecord(record, in: managedRoot)
+        let verify: BrowserWebExtensionsManager.SafariAppVerifier = { _ in
+            guard (try? String(contentsOf: fixture.trustMarker, encoding: .utf8)) == "trusted" else {
+                throw BrowserWebExtensionInstallError.integrityMismatch
+            }
+            return identity
+        }
+        let manager = BrowserWebExtensionsManager(
+            directory: managedRoot,
+            controllerConfiguration: .nonPersistent(),
+            directoryRepository: repository,
+            verifySafariAppExtension: verify,
+            appExtensionLoader: { _ in
+                try await WKWebExtension(resourceBaseURL: fixture.resources)
+            }
+        )
+        await manager.loadExtensions()
+        #expect(manager.loadedContexts.count == 1)
+        manager.shutdown()
+
+        if tamper {
+            try "tampered".write(
+                to: fixture.trustMarker,
+                atomically: true,
+                encoding: .utf8
+            )
+        } else {
+            try FileManager.default.removeItem(at: fixture.app)
+        }
+
+        let relaunchedManager = BrowserWebExtensionsManager(
+            directory: managedRoot,
+            controllerConfiguration: .nonPersistent(),
+            directoryRepository: repository,
+            verifySafariAppExtension: verify,
+            appExtensionLoader: { _ in
+                try await WKWebExtension(resourceBaseURL: fixture.resources)
+            }
+        )
+        await relaunchedManager.loadExtensions()
+        let snapshot = relaunchedManager.presentationSnapshot()
+        let failedItem = try #require(snapshot.extensions.first)
+        #expect(relaunchedManager.loadedContexts.isEmpty)
+        #expect(snapshot.extensions.count == 1)
+        #expect(snapshot.failures.isEmpty)
+        #expect(failedItem.managementID == bundleIdentifier)
+        #expect(!failedItem.isEnabled)
+        #expect(!failedItem.hasAction)
+        #expect(failedItem.loadFailure != nil)
+
+        if tamper {
+            try "trusted".write(
+                to: fixture.trustMarker,
+                atomically: true,
+                encoding: .utf8
+            )
+            try await relaunchedManager.setExtensionEnabled(
+                managementID: bundleIdentifier,
+                isEnabled: true
+            )
+            #expect(relaunchedManager.loadedContexts.count == 1)
+            #expect(relaunchedManager.presentationSnapshot().extensions.first?.loadFailure == nil)
+        } else {
+            try await relaunchedManager.removeExtension(managementID: bundleIdentifier)
+            #expect(relaunchedManager.presentationSnapshot().extensions.isEmpty)
+            let ledger = try await repository.managementLedger(in: managedRoot)
+            #expect(ledger.records.isEmpty)
+        }
     }
 
     private static let minimalManifest: [String: Any] = [
@@ -144,29 +344,114 @@ struct BrowserWebExtensionsManagerTests {
         #expect(names == ["archive.zip", "sample"])
     }
 
-    @Test func verifiedCatalogUsesUniqueHTTPSVersionPinnedPackages() throws {
-        let entries = BrowserWebExtensionCatalog.verifiedEntries
-
-        #expect(!entries.isEmpty)
-        #expect(Set(entries.map(\.id)).count == entries.count)
-        #expect(entries.allSatisfy { $0.packageURL.scheme == "https" })
-        #expect(entries.allSatisfy { !$0.version.isEmpty })
-        #expect(entries.allSatisfy { $0.packageSHA256.count == 64 })
+    @Test func productionCatalogPublishesNoUnverifiedPortablePackages() {
+        #expect(BrowserWebExtensionCatalog.production.verifiedEntries.isEmpty)
     }
 
-    @Test func verifiedCatalogPinsPortableOnePasswordPackage() throws {
-        let entry = try #require(BrowserWebExtensionCatalog.entry(id: "1password"))
-
-        #expect(entry.version == "8.12.28.25")
-        #expect(entry.packageURL.absoluteString
-            == "https://addons.mozilla.org/firefox/downloads/file/4899098/1password_x_password_manager-8.12.28.25.xpi")
-        #expect(entry.packageSHA256
-            == "fc369b5ee7958a57c519aa37e7ba540ebe08d58b4bc976fab1ba2e91bc01bc25")
+    @Test func managerHidesEmptyCatalogSection() {
+        #expect(!BrowserExtensionsManagerPage.shouldShowCatalog(entryCount: 0))
+        #expect(BrowserExtensionsManagerPage.shouldShowCatalog(entryCount: 1))
     }
 
-    @Test func toolbarExtensionIconMatchesBrowserChromeScale() {
-        #expect(BrowserExtensionIconMetrics.toolbarContentSize(iconPointSize: 11) == 13)
-        #expect(BrowserExtensionIconMetrics.toolbarContentSize(iconPointSize: 16) == 18)
+    @Test func installedRecommendationsUseManagementIdentityInsteadOfContextShape() {
+        let managementID = "com.example.safari-extension"
+        let item = BrowserWebExtensionPresentationItem(
+            id: BrowserWebExtensionsManager.contextIdentifier(for: managementID),
+            managementID: managementID,
+            name: "Fixture",
+            hasAction: true,
+            isToolbarPinned: false,
+            isActionEnabled: true,
+            isAwaitingPopup: false,
+            badgeText: "",
+            iconData: nil
+        )
+        let snapshot = BrowserWebExtensionsPresentationSnapshot(
+            state: .ready,
+            extensions: [item],
+            failures: []
+        )
+
+        #expect(BrowserExtensionsManagerPage.isInstalled(
+            managementID: managementID,
+            in: snapshot
+        ))
+        #expect(!BrowserExtensionsManagerPage.isInstalled(
+            managementID: "cmux-browser-extension-com.example.safari-extension",
+            in: snapshot
+        ))
+    }
+
+    @Test func contextIdentifiersAreDeterministicAndCollisionResistant() {
+        let spaced = BrowserWebExtensionsManager.contextIdentifier(for: "a b")
+        let dashed = BrowserWebExtensionsManager.contextIdentifier(for: "a-b")
+
+        #expect(spaced != dashed)
+        #expect(spaced == BrowserWebExtensionsManager.contextIdentifier(for: "a b"))
+        #expect(spaced.hasPrefix(BrowserWebExtensionsManager.managedContextIdentifierPrefix))
+    }
+
+    @available(macOS 15.4, *)
+    @Test func collidingLegacyLogicalIDsRemainDistinctAcrossRelaunch() async throws {
+        let root = try Self.makeExtensionsRoot()
+        defer { try? FileManager.default.removeItem(at: root) }
+        for name in ["a b", "a-b"] {
+            let extensionDirectory = try Self.writeExtension(
+                named: name,
+                in: root,
+                manifest: Self.minimalManifest.merging(["name": name]) { _, new in new }
+            )
+            try "// no-op".write(
+                to: extensionDirectory.appendingPathComponent("content.js"),
+                atomically: true,
+                encoding: .utf8
+            )
+        }
+        let expected = Set(["a b", "a-b"].map {
+            BrowserWebExtensionsManager.contextIdentifier(for: $0)
+        })
+        let manager = BrowserWebExtensionsManager(
+            directory: root,
+            controllerConfiguration: .nonPersistent()
+        )
+        for name in ["a b", "a-b"] {
+            try await manager.approveInstalledCandidate(
+                root.appendingPathComponent(name, isDirectory: true)
+            )
+        }
+        await manager.loadExtensions()
+
+        #expect(Set(manager.loadedContexts.map(\.uniqueIdentifier)) == expected)
+        manager.shutdown()
+
+        let relaunchedManager = BrowserWebExtensionsManager(
+            directory: root,
+            controllerConfiguration: .nonPersistent()
+        )
+        await relaunchedManager.loadExtensions()
+        #expect(Set(relaunchedManager.loadedContexts.map(\.uniqueIdentifier)) == expected)
+    }
+
+    @Test func toolbarExtensionIconStaysInsideArtworkBoxAtEveryChromeScale() {
+        let minimum = BrowserChromeMetrics(tabBarFontSize: 0.001)
+        let standard = BrowserChromeMetrics(tabBarFontSize: BrowserChromeMetrics.referenceFontSize)
+        let maximum = BrowserChromeMetrics(tabBarFontSize: 10_000)
+
+        #expect(BrowserExtensionIconMetrics.toolbarContentSize(
+            iconPointSize: minimum.navigationIconFontSize
+        ) == 8)
+        #expect(BrowserExtensionIconMetrics.toolbarContentSize(
+            iconPointSize: standard.navigationIconFontSize
+        ) == 14)
+        #expect(BrowserExtensionIconMetrics.toolbarContentSize(
+            iconPointSize: maximum.navigationIconFontSize
+        ) == BrowserExtensionIconMetrics.maximumToolbarArtworkSize)
+    }
+
+    @available(macOS 15.4, *)
+    @Test func extensionActionPopoversPreferBelowTheToolbar() {
+        #expect(BrowserExtensionPopoverMetrics.managerArrowEdge == .top)
+        #expect(BrowserWebExtensionsManager.actionPopupPreferredEdge == .minY)
     }
 
     @Test func packageVerifierAcceptsPinnedDigestAndRejectsChangedBytes() throws {
@@ -313,7 +598,7 @@ struct BrowserWebExtensionsManagerTests {
         #expect(manager.loadErrors.isEmpty)
         #expect(manager.loadedContexts.count == 1)
         let context = try #require(manager.loadedContexts.first)
-        #expect(context.uniqueIdentifier == "cmux-browser-extension-sample")
+        #expect(context.uniqueIdentifier == BrowserWebExtensionsManager.contextIdentifier(for: "sample"))
         #expect(context.unsupportedAPIs.contains("browser.runtime.sendNativeMessage"))
         #expect(context.unsupportedAPIs.contains("browser.runtime.connectNative"))
         #expect(context.currentPermissions.contains(.storage))
@@ -575,6 +860,88 @@ struct BrowserWebExtensionsManagerTests {
     }
 
     @available(macOS 15.4, *)
+    @Test func sourceMutationAfterReviewFailsBeforeLedgerCommit() async throws {
+        let sourceRoot = try Self.makeExtensionsRoot()
+        let managedRoot = try Self.makeExtensionsRoot()
+        defer {
+            try? FileManager.default.removeItem(at: sourceRoot)
+            try? FileManager.default.removeItem(at: managedRoot)
+        }
+        let source = try Self.writeExtension(
+            named: "reviewed-source",
+            in: sourceRoot,
+            manifest: Self.minimalManifest
+        )
+        let script = source.appendingPathComponent("content.js")
+        try "// reviewed".write(to: script, atomically: true, encoding: .utf8)
+        let repository = BrowserWebExtensionDirectoryRepository()
+        let manager = BrowserWebExtensionsManager(
+            directory: managedRoot,
+            controllerConfiguration: .nonPersistent(),
+            directoryRepository: repository
+        )
+        let preview = try await manager.prepareInstall(from: source)
+        try "// replaced after review".write(
+            to: script,
+            atomically: true,
+            encoding: .utf8
+        )
+
+        await #expect(throws: BrowserWebExtensionInstallError.self) {
+            _ = try await manager.confirmPreparedInstall(id: preview.id)
+        }
+        let ledger = try await repository.managementLedger(in: managedRoot)
+        #expect(ledger.records.isEmpty)
+        #expect(manager.loadedContexts.isEmpty)
+        #expect(manager.presentationSnapshot().extensions.isEmpty)
+    }
+
+    @available(macOS 15.4, *)
+    @Test func cancellationAfterLedgerCommitReturnsCommittedInstall() async throws {
+        let sourceRoot = try Self.makeExtensionsRoot()
+        let managedRoot = try Self.makeExtensionsRoot()
+        defer {
+            try? FileManager.default.removeItem(at: sourceRoot)
+            try? FileManager.default.removeItem(at: managedRoot)
+        }
+        let source = try Self.writeExtension(
+            named: "commit-cancellation",
+            in: sourceRoot,
+            manifest: Self.minimalManifest
+        )
+        try "// no-op".write(
+            to: source.appendingPathComponent("content.js"),
+            atomically: true,
+            encoding: .utf8
+        )
+        let repository = BrowserWebExtensionDirectoryRepository()
+        let gate = InstallCommitGate()
+        let manager = BrowserWebExtensionsManager(
+            directory: managedRoot,
+            controllerConfiguration: .nonPersistent(),
+            directoryRepository: repository,
+            postManagementCommitHook: {
+                try await gate.pauseAfterCommit()
+            }
+        )
+        let preview = try await manager.prepareInstall(from: source)
+        let installTask = Task { @MainActor in
+            try await manager.confirmPreparedInstall(id: preview.id)
+        }
+        await gate.waitUntilEntered()
+        installTask.cancel()
+
+        let receipt = try await installTask.value
+        #expect(receipt.name == "cmux test extension")
+        let ledger = try await repository.managementLedger(in: managedRoot)
+        #expect(ledger.records["commit-cancellation"] != nil)
+        #expect(manager.loadedContexts.count == 1)
+        let item = try #require(manager.presentationSnapshot().extensions.first)
+        #expect(item.managementID == "commit-cancellation")
+        #expect(item.isEnabled)
+    }
+
+    @available(macOS 15.4, *)
     @Test func installsSafariAppExtensionAsBundleBackedReference() async throws {
         let sourceRoot = try Self.makeExtensionsRoot()
         let managedRoot = try Self.makeExtensionsRoot()
@@ -639,7 +1006,9 @@ struct BrowserWebExtensionsManagerTests {
             installationName: "com.example.password-manager.safari"
         )])
         #expect(manager.loadedContexts.first?.uniqueIdentifier
-            == "cmux-browser-extension-com.example.password-manager.safari")
+            == BrowserWebExtensionsManager.contextIdentifier(
+                for: "com.example.password-manager.safari"
+            ))
         #expect(manager.loadedContexts.first?.unsupportedAPIs
             .contains("browser.runtime.sendNativeMessage") == false)
         #expect(manager.loadedContexts.first?.unsupportedAPIs
@@ -657,7 +1026,19 @@ struct BrowserWebExtensionsManagerTests {
 
         #expect(relaunchedManager.loadErrors.isEmpty)
         #expect(relaunchedManager.loadedContexts.first?.uniqueIdentifier
-            == "cmux-browser-extension-com.example.password-manager.safari")
+            == BrowserWebExtensionsManager.contextIdentifier(
+                for: "com.example.password-manager.safari"
+            ))
+    }
+
+    @available(macOS 15.4, *)
+    @Test func removedSafariAppRelaunchKeepsAUsableRemovalRow() async throws {
+        try await Self.assertFailedSafariAppLifecycle(tamper: false)
+    }
+
+    @available(macOS 15.4, *)
+    @Test func tamperedSafariAppRelaunchCanRetryAfterTrustIsRestored() async throws {
+        try await Self.assertFailedSafariAppLifecycle(tamper: true)
     }
 
     @available(macOS 15.4, *)
@@ -744,7 +1125,7 @@ struct BrowserWebExtensionsManagerTests {
             atomically: true,
             encoding: .utf8
         )
-        let identifier = "cmux-browser-extension-pinned-action"
+        let identifier = BrowserWebExtensionsManager.contextIdentifier(for: "pinned-action")
         let firstManager = BrowserWebExtensionsManager(
             directory: root,
             controllerConfiguration: .nonPersistent()
@@ -766,6 +1147,113 @@ struct BrowserWebExtensionsManagerTests {
         #expect(relaunchedManager.presentationSnapshot().extensions.first?.isToolbarPinned == true)
         try await relaunchedManager.setToolbarActionPinned(false, uniqueIdentifier: identifier)
         #expect(relaunchedManager.presentationSnapshot().extensions.first?.isToolbarPinned == false)
+    }
+
+    @available(macOS 15.4, *)
+    @Test func trustedUpdateAvailabilityDistinguishesCurrentCatalogNewCatalogAndSignedApp() {
+        let currentEntry = BrowserWebExtensionCatalogEntry(
+            id: "fixture",
+            version: "1.0",
+            packageURL: URL(string: "https://example.com/fixture-1.zip")!,
+            packageSHA256: String(repeating: "1", count: 64)
+        )
+        let currentCatalog = BrowserWebExtensionCatalog(
+            verifiedEntries: [currentEntry],
+            safariAppIdentities: []
+        )
+        let catalogRecord = BrowserWebExtensionManagedRecord(
+            id: "catalog:fixture",
+            displayName: "Fixture",
+            version: "1.0",
+            source: .catalogArchive(
+                filename: "fixture.zip",
+                digest: currentEntry.packageSHA256,
+                catalogID: currentEntry.id
+            ),
+            isEnabled: true,
+            grantedPermissions: [],
+            grantedMatchPatterns: []
+        )
+        #expect(BrowserWebExtensionsManager.trustedUpdateAvailable(
+            for: catalogRecord,
+            loadedVersion: "1.0",
+            catalog: currentCatalog
+        ) == false)
+
+        let newerCatalog = BrowserWebExtensionCatalog(
+            verifiedEntries: [BrowserWebExtensionCatalogEntry(
+                id: "fixture",
+                version: "2.0",
+                packageURL: URL(string: "https://example.com/fixture-2.zip")!,
+                packageSHA256: String(repeating: "2", count: 64)
+            )],
+            safariAppIdentities: []
+        )
+        #expect(BrowserWebExtensionsManager.trustedUpdateAvailable(
+            for: catalogRecord,
+            loadedVersion: "1.0",
+            catalog: newerCatalog
+        ) == true)
+
+        let appRecord = BrowserWebExtensionManagedRecord(
+            id: "com.example.safari",
+            displayName: "Signed App Fixture",
+            version: "3.0",
+            source: .safariApp(BrowserWebExtensionAppExtensionReference(
+                bundleURL: URL(fileURLWithPath: "/Applications/Fixture.app/Contents/PlugIns/Fixture.appex"),
+                bundleIdentifier: "com.example.safari",
+                installationName: "Fixture.appex"
+            )),
+            isEnabled: true,
+            grantedPermissions: [],
+            grantedMatchPatterns: []
+        )
+        #expect(BrowserWebExtensionsManager.trustedUpdateAvailable(
+            for: appRecord,
+            loadedVersion: "3.0",
+            catalog: currentCatalog
+        ) == false)
+        #expect(BrowserWebExtensionsManager.trustedUpdateAvailable(
+            for: appRecord,
+            loadedVersion: "3.1",
+            catalog: currentCatalog
+        ) == true)
+    }
+
+    @available(macOS 15.4, *)
+    @Test func toolbarPinLedgerFailureIsVisibleAndDoesNotMutatePinState() async throws {
+        let root = try Self.makeExtensionsRoot()
+        defer { try? FileManager.default.removeItem(at: root) }
+        var manifest = Self.minimalManifest
+        manifest["action"] = ["default_title": "Pin failure probe"]
+        let directory = try Self.writeExtension(
+            named: "pin-failure-probe",
+            in: root,
+            manifest: manifest
+        )
+        let manager = BrowserWebExtensionsManager(
+            directory: root,
+            controllerConfiguration: .nonPersistent()
+        )
+        try await manager.approveInstalledCandidate(directory)
+        await manager.loadExtensions()
+        let identifier = try #require(manager.loadedContexts.first?.uniqueIdentifier)
+        let ledgerURL = root.appendingPathComponent(".cmux-extension-management.json")
+        let symlinkTarget = root.appendingPathComponent("ledger-target.json")
+        try Data("{}".utf8).write(to: symlinkTarget)
+        try FileManager.default.removeItem(at: ledgerURL)
+        try FileManager.default.createSymbolicLink(
+            at: ledgerURL,
+            withDestinationURL: symlinkTarget
+        )
+
+        await #expect(throws: BrowserWebExtensionInstallError.symbolicLinksNotAllowed) {
+            try await manager.setToolbarActionPinned(true, uniqueIdentifier: identifier)
+        }
+
+        let item = try #require(manager.presentationSnapshot().extensions.first)
+        #expect(!item.isToolbarPinned)
+        #expect(item.actionFailure == .toolbarPinFailed)
     }
 
     @available(macOS 15.4, *)
@@ -966,26 +1454,11 @@ struct BrowserWebExtensionsManagerTests {
         #expect(manager.profileRuntime.phase == .idle)
     }
 
-    @Test func installedSafariAppsAreOptInSuggestions() {
-        let applicationsDirectory = URL(fileURLWithPath: "/Applications", isDirectory: true)
-        let installedPaths = Set([
-            applicationsDirectory.appendingPathComponent("Bitwarden.app").path,
-            applicationsDirectory.appendingPathComponent("1Password for Safari.app").path,
-            applicationsDirectory.appendingPathComponent("uBlock Origin Lite.app").path,
-        ])
-
-        let items = BrowserExtensionsManagerPage.availableLocalApps(
-            applicationsDirectories: [applicationsDirectory],
-            fileExists: { installedPaths.contains($0) }
-        )
-
-        #expect(items.map(\.id) == [
+    @Test func trustedSafariAppsAreOptInSuggestions() {
+        #expect(BrowserWebExtensionCatalog.production.safariAppIdentities.map(\.id) == [
             "bitwarden-safari-app",
+            "onepassword-safari-app",
             "ublock-origin-lite-safari-app",
-        ])
-        #expect(items.map(\.installedIdentifierPrefix) == [
-            "cmux-browser-extension-com.bitwarden.desktop.safari",
-            "cmux-browser-extension-net.raymondhill.uBlock-Origin-Lite.Extension",
         ])
     }
 
@@ -1030,6 +1503,81 @@ struct BrowserWebExtensionsManagerTests {
     }
 
     @available(macOS 15.4, *)
+    @Test func compatibilityAPIsSurviveNestedNamespaceWrapperChurn() async throws {
+        let configuration = WKWebViewConfiguration()
+        configuration.userContentController.addUserScript(WKUserScript(
+            source: "globalThis.chrome = { webNavigation: {}, runtime: {} };",
+            injectionTime: .atDocumentStart,
+            forMainFrameOnly: false
+        ))
+        configuration.userContentController.addUserScript(WKUserScript(
+            source: BrowserWebExtensionsManager.notificationsCompatibilityScriptSource,
+            injectionTime: .atDocumentStart,
+            forMainFrameOnly: false
+        ))
+        let webView = WKWebView(frame: .init(x: 0, y: 0, width: 320, height: 240), configuration: configuration)
+        let waiter = WebViewLoadWaiter()
+        webView.navigationDelegate = waiter
+
+        try await waiter.load("<html><body>fixture</body></html>", in: webView)
+        try await Task.sleep(for: .milliseconds(150))
+        let rawResult = try await webView.callAsyncJavaScript(
+            #"""
+            const initialNavigation = chrome.webNavigation;
+            const initialRuntime = chrome.runtime;
+            for (let index = 0; index < 10000; index += 1) {
+              const churn = { index, bytes: new Uint8Array(64) };
+              if (churn.index < 0) throw new Error('unreachable');
+            }
+            await new Promise(resolve => setTimeout(resolve, 10));
+            return {
+              navigationIdentityStable: initialNavigation === chrome.webNavigation,
+              runtimeIdentityStable: initialRuntime === chrome.runtime,
+              navigationEventType: typeof chrome.webNavigation.onCreatedNavigationTarget,
+              connectNativeType: typeof chrome.runtime.connectNative,
+              notificationsType: typeof chrome.notifications,
+              navigationConfigurable: Object.getOwnPropertyDescriptor(chrome, 'webNavigation')?.configurable,
+              runtimeConfigurable: Object.getOwnPropertyDescriptor(chrome, 'runtime')?.configurable
+            };
+            """#,
+            arguments: [:],
+            in: nil,
+            contentWorld: .page
+        )
+        let result = try #require(rawResult as? [String: Any])
+
+        #expect(result["navigationIdentityStable"] as? Bool == true)
+        #expect(result["runtimeIdentityStable"] as? Bool == true)
+        #expect(result["navigationEventType"] as? String == "object")
+        #expect(result["connectNativeType"] as? String == "function")
+        #expect(result["notificationsType"] as? String == "object")
+        #expect(result["navigationConfigurable"] as? Bool == false)
+        #expect(result["runtimeConfigurable"] as? Bool == false)
+    }
+
+    @available(macOS 15.4, *)
+    @Test func safariCompatibleApplicationNameUsesProviderAndSafeFallback() {
+        let fallback = OperatingSystemVersion(
+            majorVersion: 27,
+            minorVersion: 3,
+            patchVersion: 1
+        )
+
+        #expect(BrowserWebExtensionsManager.safariCompatibleApplicationName(
+            safariVersionProvider: { "26.5" },
+            operatingSystemVersion: fallback
+        ) == "Version/26.5 Safari/605.1.15 cmux")
+        #expect(BrowserWebExtensionsManager.safariCompatibleApplicationName(
+            safariVersionProvider: { nil },
+            operatingSystemVersion: fallback
+        ) == "Version/27.3 Safari/605.1.15 cmux")
+        #expect(BrowserWebExtensionsManager.safariCompatibleApplicationName(
+            safariVersionProvider: { "invalid token" },
+            operatingSystemVersion: fallback
+        ) == "Version/27.3 Safari/605.1.15 cmux")
+    }
+
+    @available(macOS 15.4, *)
     @Test func extensionControllerUsesSafariCompatibleApplicationName() throws {
         let root = try Self.makeExtensionsRoot()
         defer { try? FileManager.default.removeItem(at: root) }
@@ -1042,7 +1590,7 @@ struct BrowserWebExtensionsManagerTests {
 
         #expect(
             configuration.webViewConfiguration.applicationNameForUserAgent
-                == "Version/18.4 Safari/605.1.15 cmux"
+                == BrowserWebExtensionsManager.safariCompatibleApplicationName()
         )
     }
 
@@ -1836,6 +2384,45 @@ struct BrowserWebExtensionsManagerTests {
     }
 
     @available(macOS 15.4, *)
+    @Test func staleTabActionSurfacesVisibleUnavailableFailure() async throws {
+        let root = try Self.makeExtensionsRoot()
+        defer { try? FileManager.default.removeItem(at: root) }
+        var manifest = Self.minimalManifest
+        manifest["action"] = ["default_title": "Stale tab probe"]
+        let directory = try Self.writeExtension(
+            named: "stale-tab-action-probe",
+            in: root,
+            manifest: manifest
+        )
+        let manager = BrowserWebExtensionsManager(
+            directory: root,
+            controllerConfiguration: .nonPersistent()
+        )
+        try await manager.approveInstalledCandidate(directory)
+        await manager.loadExtensions()
+        let panel = BrowserPanel(workspaceId: UUID())
+        defer { panel.close() }
+        manager.register(
+            panel: panel,
+            ownerID: UUID(),
+            activePanelID: { panel.id },
+            focusPanel: { _ in }
+        )
+        let context = try #require(manager.loadedContexts.first)
+
+        manager.unregister(panelID: panel.id)
+        #expect(!manager.performAction(
+            uniqueIdentifier: context.uniqueIdentifier,
+            in: panel,
+            anchorView: nil
+        ))
+
+        let item = try #require(manager.presentationSnapshot(for: panel.id).extensions.first)
+        #expect(item.actionFailure == .actionUnavailable)
+        #expect(!item.isAwaitingPopup)
+    }
+
+    @available(macOS 15.4, *)
     @Test func popupWaitsForWebKitReadyCallbackAndPresentsOnceFromUserAnchor() async throws {
         let root = try Self.makeExtensionsRoot()
         defer { try? FileManager.default.removeItem(at: root) }
@@ -2083,15 +2670,31 @@ struct BrowserWebExtensionsManagerTests {
         let services = BrowserServices(extensionDirectory: managedRoot)
         let profileID = UUID()
 
-        _ = try await services.installWebExtension(from: source, profileID: profileID)
+        let preview = try await services.prepareWebExtensionInstall(
+            from: source,
+            profileID: profileID
+        )
+        _ = try await services.confirmPreparedWebExtensionInstall(
+            id: preview.id,
+            grantedOptionalPermissions: [],
+            grantedOptionalHosts: [],
+            profileID: profileID
+        )
 
         let profileDirectory = BrowserServices.extensionDirectory(
             for: profileID,
             defaultProfileID: BrowserProfileStore.shared.builtInDefaultProfileID,
             root: managedRoot
         )
+        let ledger = try await BrowserWebExtensionDirectoryRepository()
+            .managementLedger(in: profileDirectory)
+        let record = try #require(ledger.records[source.lastPathComponent])
+        guard case .directory(let filename, _) = record.source else {
+            Issue.record("Expected an immutable managed directory")
+            return
+        }
         #expect(FileManager.default.fileExists(
-            atPath: profileDirectory.appendingPathComponent(source.lastPathComponent).path
+            atPath: profileDirectory.appendingPathComponent(filename).path
         ))
         #expect(!FileManager.default.fileExists(
             atPath: managedRoot.appendingPathComponent(source.lastPathComponent).path
@@ -2234,15 +2837,24 @@ struct BrowserWebExtensionsManagerTests {
     }
 
     @available(macOS 15.4, *)
-    @Test func runtimePermissionPromptsDenyOptionalManifestPermissionsWithoutAlert() async throws {
+    @Test func mixedDeclaredAndUndeclaredPermissionRequestFailsClosedWithoutPresenting() async throws {
         let root = try Self.makeExtensionsRoot()
         defer { try? FileManager.default.removeItem(at: root) }
         var manifest = Self.minimalManifest
         manifest["optional_permissions"] = ["cookies"]
+        manifest["optional_host_permissions"] = ["https://optional.example/*"]
         let dir = try Self.writeExtension(named: "sample", in: root, manifest: manifest)
         try "// no-op".write(to: dir.appendingPathComponent("content.js"), atomically: true, encoding: .utf8)
 
-        let manager = BrowserWebExtensionsManager(directory: root, controllerConfiguration: .nonPersistent())
+        let promptCount = OSAllocatedUnfairLock(initialState: 0)
+        let manager = BrowserWebExtensionsManager(
+            directory: root,
+            controllerConfiguration: .nonPersistent(),
+            permissionPromptPresenter: { _, _ in
+                promptCount.withLock { $0 += 1 }
+                return .grant
+            }
+        )
         try await manager.approveInstalledCandidate(dir)
         await manager.loadExtensions()
         let context = try #require(manager.loadedContexts.first)
@@ -2258,10 +2870,209 @@ struct BrowserWebExtensionsManagerTests {
             }
         }
         #expect(granted.isEmpty)
+        let optionalURL = try #require(URL(string: "https://optional.example/page"))
+        let undeclaredURL = try #require(URL(string: "https://undeclared.example/page"))
+        let grantedURLs = await withCheckedContinuation { continuation in
+            manager.webExtensionController(
+                manager.controller,
+                promptForPermissionToAccess: [optionalURL, undeclaredURL],
+                in: nil,
+                for: context
+            ) { allowed, _ in
+                continuation.resume(returning: allowed)
+            }
+        }
+        let optionalPattern = try #require(
+            context.webExtension.optionalPermissionMatchPatterns.first
+        )
+        let undeclaredPattern = try WKWebExtension.MatchPattern(
+            string: "https://undeclared.example/*"
+        )
+        let grantedPatterns = await withCheckedContinuation { continuation in
+            manager.webExtensionController(
+                manager.controller,
+                promptForPermissionMatchPatterns: [optionalPattern, undeclaredPattern],
+                in: nil,
+                for: context
+            ) { allowed, _ in
+                continuation.resume(returning: allowed)
+            }
+        }
+        #expect(grantedURLs.isEmpty)
+        #expect(grantedPatterns.isEmpty)
+        #expect(promptCount.withLock { $0 } == 0)
     }
 
     @available(macOS 15.4, *)
-    @Test func runtimePermissionCallbacksNeverGrantOrPresentDeclaredAccess() async throws {
+    @Test func optionalPermissionCanBeRequestedGrantedRelaunchedAndRevoked() async throws {
+        let root = try Self.makeExtensionsRoot()
+        defer { try? FileManager.default.removeItem(at: root) }
+        var manifest = Self.minimalManifest
+        manifest["optional_permissions"] = ["cookies"]
+        manifest["optional_host_permissions"] = ["https://optional.example/*"]
+        let directory = try Self.writeExtension(
+            named: "optional-lifecycle",
+            in: root,
+            manifest: manifest
+        )
+        try "// no-op".write(
+            to: directory.appendingPathComponent("content.js"),
+            atomically: true,
+            encoding: .utf8
+        )
+        let promptCount = OSAllocatedUnfairLock(initialState: 0)
+        let firstManager = BrowserWebExtensionsManager(
+            directory: root,
+            controllerConfiguration: .nonPersistent(),
+            permissionPromptPresenter: { _, _ in
+                promptCount.withLock { $0 += 1 }
+                return .grant
+            }
+        )
+        try await firstManager.approveInstalledCandidate(directory)
+        await firstManager.loadExtensions()
+        let firstContext = try #require(firstManager.loadedContexts.first)
+        let optionalPattern = try #require(
+            firstContext.webExtension.optionalPermissionMatchPatterns.first
+        )
+        #expect(firstContext.permissionStatus(for: .cookies) != .deniedExplicitly)
+        #expect(firstContext.permissionStatus(for: optionalPattern) != .deniedExplicitly)
+        #expect(firstContext.deniedPermissions[.cookies] == nil)
+        #expect(firstContext.deniedPermissionMatchPatterns[optionalPattern] == nil)
+
+        let grantedPermissions = await withCheckedContinuation { continuation in
+            firstManager.webExtensionController(
+                firstManager.controller,
+                promptForPermissions: [.cookies],
+                in: nil,
+                for: firstContext
+            ) { allowed, _ in
+                continuation.resume(returning: allowed)
+            }
+        }
+        let grantedPatterns = await withCheckedContinuation { continuation in
+            firstManager.webExtensionController(
+                firstManager.controller,
+                promptForPermissionMatchPatterns: [optionalPattern],
+                in: nil,
+                for: firstContext
+            ) { allowed, _ in
+                continuation.resume(returning: allowed)
+            }
+        }
+        let optionalURL = try #require(URL(string: "https://optional.example/page"))
+        let grantedURLs = await withCheckedContinuation { continuation in
+            firstManager.webExtensionController(
+                firstManager.controller,
+                promptForPermissionToAccess: [optionalURL],
+                in: nil,
+                for: firstContext
+            ) { allowed, _ in
+                continuation.resume(returning: allowed)
+            }
+        }
+        #expect(grantedPermissions == [.cookies])
+        #expect(grantedPatterns == [optionalPattern])
+        #expect(grantedURLs == [optionalURL])
+        #expect(promptCount.withLock { $0 } == 3)
+
+        let repository = BrowserWebExtensionDirectoryRepository()
+        let grantedRecord = try #require(
+            try await repository.managementLedger(in: root).records["optional-lifecycle"]
+        )
+        #expect(grantedRecord.grantedPermissions[WKWebExtension.Permission.cookies.rawValue] != nil)
+        #expect(grantedRecord.grantedMatchPatterns[optionalPattern.string] != nil)
+        #expect(grantedRecord.deniedPermissions.isEmpty)
+        #expect(grantedRecord.deniedMatchPatterns.isEmpty)
+        firstManager.shutdown()
+
+        let relaunchedManager = BrowserWebExtensionsManager(
+            directory: root,
+            controllerConfiguration: .nonPersistent()
+        )
+        await relaunchedManager.loadExtensions()
+        let relaunchedContext = try #require(relaunchedManager.loadedContexts.first)
+        let relaunchedPattern = try #require(
+            relaunchedContext.webExtension.optionalPermissionMatchPatterns.first
+        )
+        #expect(relaunchedContext.permissionStatus(for: .cookies) == .grantedExplicitly)
+        #expect(relaunchedContext.permissionStatus(for: relaunchedPattern) == .grantedExplicitly)
+
+        try await relaunchedManager.revokeOptionalPermissions(
+            managementID: "optional-lifecycle"
+        )
+        #expect(relaunchedContext.permissionStatus(for: .cookies) != .grantedExplicitly)
+        #expect(relaunchedContext.permissionStatus(for: relaunchedPattern) != .grantedExplicitly)
+        let revokedRecord = try #require(
+            try await repository.managementLedger(in: root).records["optional-lifecycle"]
+        )
+        #expect(revokedRecord.grantedPermissions[WKWebExtension.Permission.cookies.rawValue] == nil)
+        #expect(revokedRecord.grantedMatchPatterns[relaunchedPattern.string] == nil)
+        #expect(revokedRecord.deniedPermissions.isEmpty)
+        #expect(revokedRecord.deniedMatchPatterns.isEmpty)
+    }
+
+    @available(macOS 15.4, *)
+    @Test func allHostsOptionalPermissionCoversURLAndNarrowerPattern() async throws {
+        let root = try Self.makeExtensionsRoot()
+        defer { try? FileManager.default.removeItem(at: root) }
+        var manifest = Self.minimalManifest
+        manifest["optional_host_permissions"] = ["<all_urls>"]
+        let directory = try Self.writeExtension(
+            named: "optional-all-hosts",
+            in: root,
+            manifest: manifest
+        )
+        try "// no-op".write(
+            to: directory.appendingPathComponent("content.js"),
+            atomically: true,
+            encoding: .utf8
+        )
+        let promptCount = OSAllocatedUnfairLock(initialState: 0)
+        let manager = BrowserWebExtensionsManager(
+            directory: root,
+            controllerConfiguration: .nonPersistent(),
+            permissionPromptPresenter: { _, _ in
+                promptCount.withLock { $0 += 1 }
+                return .grant
+            }
+        )
+        try await manager.approveInstalledCandidate(directory)
+        await manager.loadExtensions()
+        let context = try #require(manager.loadedContexts.first)
+        let requestedURL = try #require(URL(string: "https://narrow.example/page"))
+        let requestedPattern = try WKWebExtension.MatchPattern(
+            string: "https://narrow.example/*"
+        )
+
+        let grantedURLs = await withCheckedContinuation { continuation in
+            manager.webExtensionController(
+                manager.controller,
+                promptForPermissionToAccess: [requestedURL],
+                in: nil,
+                for: context
+            ) { allowed, _ in
+                continuation.resume(returning: allowed)
+            }
+        }
+        let grantedPatterns = await withCheckedContinuation { continuation in
+            manager.webExtensionController(
+                manager.controller,
+                promptForPermissionMatchPatterns: [requestedPattern],
+                in: nil,
+                for: context
+            ) { allowed, _ in
+                continuation.resume(returning: allowed)
+            }
+        }
+
+        #expect(grantedURLs == [requestedURL])
+        #expect(grantedPatterns == [requestedPattern])
+        #expect(promptCount.withLock { $0 } == 2)
+    }
+
+    @available(macOS 15.4, *)
+    @Test func requiredRuntimeRequestsFailClosedEvenWithGrantPresenter() async throws {
         let root = try Self.makeExtensionsRoot()
         defer { try? FileManager.default.removeItem(at: root) }
         let dir = try Self.writeExtension(named: "sample", in: root, manifest: Self.minimalManifest)
@@ -2270,9 +3081,14 @@ struct BrowserWebExtensionsManagerTests {
             atomically: true,
             encoding: .utf8
         )
+        let promptCount = OSAllocatedUnfairLock(initialState: 0)
         let manager = BrowserWebExtensionsManager(
             directory: root,
-            controllerConfiguration: .nonPersistent()
+            controllerConfiguration: .nonPersistent(),
+            permissionPromptPresenter: { _, _ in
+                promptCount.withLock { $0 += 1 }
+                return .grant
+            }
         )
         try await manager.approveInstalledCandidate(dir)
         await manager.loadExtensions()
@@ -2314,6 +3130,7 @@ struct BrowserWebExtensionsManagerTests {
         #expect(permissions.isEmpty)
         #expect(urls.isEmpty)
         #expect(patterns.isEmpty)
+        #expect(promptCount.withLock { $0 } == 0)
     }
 
     @available(macOS 15.4, *)
@@ -2339,7 +3156,6 @@ struct BrowserWebExtensionsManagerTests {
         #expect(snapshot.state == .ready)
         #expect(snapshot.extensions.map(\.name) == ["cmux test extension"])
         #expect(snapshot.failures.map(\.entryName) == ["broken"])
-        #expect(snapshot.directoryPath == root.path)
     }
 
     @available(macOS 15.4, *)
@@ -2407,7 +3223,9 @@ struct BrowserWebExtensionsManagerTests {
 
         await manager.loadExtensions()
 
-        #expect(manager.loadedContexts.map(\.uniqueIdentifier) == ["cmux-browser-extension-healthy"])
+        #expect(manager.loadedContexts.map(\.uniqueIdentifier) == [
+            BrowserWebExtensionsManager.contextIdentifier(for: "healthy"),
+        ])
         #expect(manager.loadErrors.map { $0.url.lastPathComponent } == ["damaged"])
     }
 }

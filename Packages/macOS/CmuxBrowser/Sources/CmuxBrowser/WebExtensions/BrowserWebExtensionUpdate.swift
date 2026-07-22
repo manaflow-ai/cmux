@@ -19,4 +19,7 @@ public enum BrowserWebExtensionUpdate: Equatable, Sendable {
 
     /// Installed extensions or load failures changed for a profile.
     case snapshotInvalidated(UUID)
+
+    /// An extension is awaiting an explicit optional-permission decision.
+    case permissionRequested(BrowserWebExtensionPermissionRequest)
 }

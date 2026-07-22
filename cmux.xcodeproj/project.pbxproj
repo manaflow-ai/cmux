@@ -393,8 +393,9 @@ C0DE71B10000000000000001 /* AppDelegate+AgentChatNotifications.swift in Sources 
 		A50100000000000000000022 /* BrowserWebAuthnUserDescriptor.swift in Sources */ = {isa = PBXBuildFile; fileRef = A50100000000000000000021 /* BrowserWebAuthnUserDescriptor.swift */; };
 		C0DE49870000000000000001 /* BrowserWebContentProcessTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = C0DE49870000000000000002 /* BrowserWebContentProcessTests.swift */; };
 		B7191E060000000000000001 /* BrowserWebExtensionBrowserAdapters.swift in Sources */ = {isa = PBXBuildFile; fileRef = B7191E050000000000000001 /* BrowserWebExtensionBrowserAdapters.swift */; };
-		B7191E080000000000000001 /* BrowserWebExtensionCatalog.swift in Sources */ = {isa = PBXBuildFile; fileRef = B7191E070000000000000001 /* BrowserWebExtensionCatalog.swift */; };
-		44E7A40144E7A40144E7A401 /* BrowserWebExtensionDirectoryRepository.swift in Sources */ = {isa = PBXBuildFile; fileRef = 44E7A50144E7A50144E7A501 /* BrowserWebExtensionDirectoryRepository.swift */; };
+		B7191E0C0000000000000001 /* BrowserWebExtensionCodeSignatureError.swift in Sources */ = {isa = PBXBuildFile; fileRef = B7191E0B0000000000000001 /* BrowserWebExtensionCodeSignatureError.swift */; };
+		B7191E0A0000000000000001 /* BrowserWebExtensionCodeSignatureVerifier.swift in Sources */ = {isa = PBXBuildFile; fileRef = B7191E090000000000000001 /* BrowserWebExtensionCodeSignatureVerifier.swift */; };
+		B7191E0E0000000000000001 /* BrowserWebExtensionPermissionPromptPresenter.swift in Sources */ = {isa = PBXBuildFile; fileRef = B7191E0D0000000000000001 /* BrowserWebExtensionPermissionPromptPresenter.swift */; };
 		44E7A10144E7A10144E7A101 /* BrowserWebExtensionsManager.swift in Sources */ = {isa = PBXBuildFile; fileRef = 44E7B10144E7B10144E7B101 /* BrowserWebExtensionsManager.swift */; };
 		44E7C10144E7C10144E7C101 /* BrowserWebExtensionsManagerTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 44E7D10144E7D10144E7D101 /* BrowserWebExtensionsManagerTests.swift */; };
 		C0DE58990000000000000003 /* BrowserWebKitKeyDownDispatch.swift in Sources */ = {isa = PBXBuildFile; fileRef = C0DE58990000000000000001 /* BrowserWebKitKeyDownDispatch.swift */; };
@@ -2633,8 +2634,9 @@ C0DE71B10000000000000002 /* AppDelegate+AgentChatNotifications.swift */ = {isa =
 		A50100000000000000000021 /* BrowserWebAuthnUserDescriptor.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Panels/BrowserWebAuthnUserDescriptor.swift; sourceTree = "<group>"; };
 		C0DE49870000000000000002 /* BrowserWebContentProcessTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = BrowserWebContentProcessTests.swift; sourceTree = "<group>"; };
 		B7191E050000000000000001 /* BrowserWebExtensionBrowserAdapters.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Panels/BrowserWebExtensionBrowserAdapters.swift; sourceTree = "<group>"; };
-		B7191E070000000000000001 /* BrowserWebExtensionCatalog.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Panels/BrowserWebExtensionCatalog.swift; sourceTree = "<group>"; };
-		44E7A50144E7A50144E7A501 /* BrowserWebExtensionDirectoryRepository.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Panels/BrowserWebExtensionDirectoryRepository.swift; sourceTree = "<group>"; };
+		B7191E0B0000000000000001 /* BrowserWebExtensionCodeSignatureError.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Panels/BrowserWebExtensionCodeSignatureError.swift; sourceTree = "<group>"; };
+		B7191E090000000000000001 /* BrowserWebExtensionCodeSignatureVerifier.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Panels/BrowserWebExtensionCodeSignatureVerifier.swift; sourceTree = "<group>"; };
+		B7191E0D0000000000000001 /* BrowserWebExtensionPermissionPromptPresenter.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Panels/BrowserWebExtensionPermissionPromptPresenter.swift; sourceTree = "<group>"; };
 		44E7B10144E7B10144E7B101 /* BrowserWebExtensionsManager.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Panels/BrowserWebExtensionsManager.swift; sourceTree = "<group>"; };
 		44E7D10144E7D10144E7D101 /* BrowserWebExtensionsManagerTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = BrowserWebExtensionsManagerTests.swift; sourceTree = "<group>"; };
 		C0DE58990000000000000001 /* BrowserWebKitKeyDownDispatch.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Panels/BrowserWebKitKeyDownDispatch.swift; sourceTree = "<group>"; };
@@ -5541,8 +5543,9 @@ C0DE71B10000000000000002 /* AppDelegate+AgentChatNotifications.swift */ = {isa =
 				44E7F10144E7F10144E7F101 /* BrowserPanel+WebViewConfiguration.swift */,
 				44E7A30144E7A30144E7A301 /* BrowserServices.swift */,
 				B7191E050000000000000001 /* BrowserWebExtensionBrowserAdapters.swift */,
-				B7191E070000000000000001 /* BrowserWebExtensionCatalog.swift */,
-				44E7A50144E7A50144E7A501 /* BrowserWebExtensionDirectoryRepository.swift */,
+				B7191E090000000000000001 /* BrowserWebExtensionCodeSignatureVerifier.swift */,
+				B7191E0B0000000000000001 /* BrowserWebExtensionCodeSignatureError.swift */,
+				B7191E0D0000000000000001 /* BrowserWebExtensionPermissionPromptPresenter.swift */,
 				44E7B10144E7B10144E7B101 /* BrowserWebExtensionsManager.swift */,
 				4472B0024472B0024472B002 /* BrowserScreenshotPipeline.swift */,
 				4472B0034472B0034472B003 /* BrowserScreenshotSnapshotter.swift */,
@@ -7382,8 +7385,9 @@ C0DE71B10000000000000002 /* AppDelegate+AgentChatNotifications.swift */ = {isa =
 				A50100000000000000000020 /* BrowserWebAuthnTransportSummary.swift in Sources */,
 				A50100000000000000000022 /* BrowserWebAuthnUserDescriptor.swift in Sources */,
 				B7191E060000000000000001 /* BrowserWebExtensionBrowserAdapters.swift in Sources */,
-				B7191E080000000000000001 /* BrowserWebExtensionCatalog.swift in Sources */,
-				44E7A40144E7A40144E7A401 /* BrowserWebExtensionDirectoryRepository.swift in Sources */,
+				B7191E0C0000000000000001 /* BrowserWebExtensionCodeSignatureError.swift in Sources */,
+				B7191E0A0000000000000001 /* BrowserWebExtensionCodeSignatureVerifier.swift in Sources */,
+				B7191E0E0000000000000001 /* BrowserWebExtensionPermissionPromptPresenter.swift in Sources */,
 				44E7A10144E7A10144E7A101 /* BrowserWebExtensionsManager.swift in Sources */,
 				C0DE58990000000000000003 /* BrowserWebKitKeyDownDispatch.swift in Sources */,
 				8054B0010000000000000001 /* BrowserWebViewLifecycleState.swift in Sources */,

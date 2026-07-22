@@ -86,7 +86,7 @@ final class BrowserServices {
                     self.releaseWebExtensionNavigation(intent)
                 case .navigationCancelled(let intentID):
                     self.removeWebExtensionNavigation(intentID)
-                case .phaseChanged, .actionChanged, .snapshotInvalidated:
+                case .phaseChanged, .actionChanged, .snapshotInvalidated, .permissionRequested:
                     break
                 }
             }
@@ -231,24 +231,90 @@ final class BrowserServices {
         return manager.profileRuntime.updates()
     }
 
-    func installWebExtension(
+    func prepareWebExtensionInstall(
         from source: URL,
         profileID: UUID
-    ) async throws -> BrowserWebExtensionInstallReceipt {
+    ) async throws -> BrowserWebExtensionInstallPreview {
         guard #available(macOS 15.4, *) else {
             throw BrowserWebExtensionServiceError.unsupported
         }
-        return try await webExtensionsManager(for: profileID).installExtension(from: source)
+        return try await webExtensionsManager(for: profileID).prepareInstall(from: source)
     }
 
-    func installWebExtension(
+    func prepareWebExtensionInstall(
         _ entry: BrowserWebExtensionCatalogEntry,
+        profileID: UUID
+    ) async throws -> BrowserWebExtensionInstallPreview {
+        guard #available(macOS 15.4, *) else {
+            throw BrowserWebExtensionServiceError.unsupported
+        }
+        return try await webExtensionsManager(for: profileID).prepareCatalogInstall(entry)
+    }
+
+    func cancelPreparedWebExtensionInstall(id: UUID, profileID: UUID) async {
+        guard #available(macOS 15.4, *) else { return }
+        await webExtensionsManager(for: profileID).cancelPreparedInstall(id: id)
+    }
+
+    func confirmPreparedWebExtensionInstall(
+        id: UUID,
+        grantedOptionalPermissions: Set<String>,
+        grantedOptionalHosts: Set<String>,
         profileID: UUID
     ) async throws -> BrowserWebExtensionInstallReceipt {
         guard #available(macOS 15.4, *) else {
             throw BrowserWebExtensionServiceError.unsupported
         }
-        return try await webExtensionsManager(for: profileID).installCatalogExtension(entry)
+        return try await webExtensionsManager(for: profileID).confirmPreparedInstall(
+            id: id,
+            grantedOptionalPermissions: grantedOptionalPermissions,
+            grantedOptionalHosts: grantedOptionalHosts
+        )
+    }
+
+    func setWebExtensionEnabled(
+        _ isEnabled: Bool,
+        managementID: String,
+        profileID: UUID
+    ) async throws {
+        guard #available(macOS 15.4, *) else {
+            throw BrowserWebExtensionServiceError.unsupported
+        }
+        try await webExtensionsManager(for: profileID).setExtensionEnabled(
+            managementID: managementID,
+            isEnabled: isEnabled
+        )
+    }
+
+    func removeWebExtension(managementID: String, profileID: UUID) async throws {
+        guard #available(macOS 15.4, *) else {
+            throw BrowserWebExtensionServiceError.unsupported
+        }
+        try await webExtensionsManager(for: profileID).removeExtension(managementID: managementID)
+    }
+
+    func revokeWebExtensionOptionalPermissions(
+        managementID: String,
+        profileID: UUID
+    ) async throws {
+        guard #available(macOS 15.4, *) else {
+            throw BrowserWebExtensionServiceError.unsupported
+        }
+        try await webExtensionsManager(for: profileID).revokeOptionalPermissions(
+            managementID: managementID
+        )
+    }
+
+    func prepareWebExtensionUpdate(
+        managementID: String,
+        profileID: UUID
+    ) async throws -> BrowserWebExtensionInstallPreview {
+        guard #available(macOS 15.4, *) else {
+            throw BrowserWebExtensionServiceError.unsupported
+        }
+        return try await webExtensionsManager(for: profileID).prepareUpdate(
+            managementID: managementID
+        )
     }
 
     func setWebExtensionToolbarActionPinned(
@@ -412,6 +478,17 @@ final class BrowserServices {
                     workspace.focusPanel(previousFocusedPanelID)
                 }
                 return newPanel
+            },
+            closePanel: { [weak workspace] panelID in
+                workspace?.closePanel(panelID, force: true) ?? false
+            },
+            isPanelPinned: { [weak workspace] panelID in
+                workspace?.isPanelPinned(panelID) ?? false
+            },
+            setPanelPinned: { [weak workspace] panelID, pinned in
+                guard let workspace, workspace.panels[panelID] != nil else { return false }
+                workspace.setPanelPinned(panelId: panelID, pinned: pinned)
+                return workspace.isPanelPinned(panelID) == pinned
             }
         )
     }
@@ -461,6 +538,21 @@ final class BrowserServices {
                     dock.restoreDockPaneSelection(previousSelection)
                 }
                 return newPanel
+            },
+            closePanel: { [weak dock] panelID in
+                dock?.closePanel(panelID, force: true) ?? false
+            },
+            isPanelPinned: { [weak dock] panelID in
+                guard let dock,
+                      let tabID = dock.surfaceId(forPanelId: panelID) else { return false }
+                return dock.bonsplitController.tab(tabID)?.isPinned ?? false
+            },
+            setPanelPinned: { [weak dock] panelID, pinned in
+                guard let dock,
+                      let tabID = dock.surfaceId(forPanelId: panelID),
+                      dock.bonsplitController.tab(tabID) != nil else { return false }
+                dock.bonsplitController.updateTab(tabID, isPinned: pinned)
+                return dock.bonsplitController.tab(tabID)?.isPinned == pinned
             }
         )
     }
@@ -493,7 +585,10 @@ final class BrowserServices {
             focusPriority: owner.focusPriority,
             focusPanel: owner.focusPanel,
             orderedPanelIDs: owner.orderedPanelIDs,
-            createTab: owner.createTab
+            createTab: owner.createTab,
+            closePanel: owner.closePanel,
+            isPanelPinned: owner.isPanelPinned,
+            setPanelPinned: owner.setPanelPinned
         )
         manager.startLoading()
     }
@@ -574,7 +669,10 @@ final class BrowserServices {
         focusPriority: @escaping @MainActor () -> Int,
         focusPanel: @escaping @MainActor (UUID) -> Void,
         orderedPanelIDs: @escaping @MainActor () -> [UUID],
-        createTab: @escaping @MainActor (Int, Bool, Bool) -> BrowserPanel?
+        createTab: @escaping @MainActor (Int, Bool, Bool) -> BrowserPanel?,
+        closePanel: @escaping @MainActor (UUID) -> Bool,
+        isPanelPinned: @escaping @MainActor (UUID) -> Bool,
+        setPanelPinned: @escaping @MainActor (UUID, Bool) -> Bool
     ) {
         guard #available(macOS 15.4, *) else { return }
         if let previousProfileID = registeredPanelProfileIDs[panel.id],
@@ -593,7 +691,10 @@ final class BrowserServices {
             focusPriority: focusPriority,
             focusPanel: focusPanel,
             orderedPanelIDs: orderedPanelIDs,
-            createTab: createTab
+            createTab: createTab,
+            closePanel: closePanel,
+            isPanelPinned: isPanelPinned,
+            setPanelPinned: setPanelPinned
         )
         manager.startLoading()
     }

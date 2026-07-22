@@ -18,6 +18,7 @@ import WebKit
     var didTerminateWebContentProcess: ((WKWebView) -> Void)?
     var openInNewTab: ((URL) -> Void)?
     var requestNavigation: ((URLRequest, BrowserInsecureHTTPNavigationIntent, ((WKNavigation?) -> Void)?) -> Void)?
+    var rerouteMainFrameNavigationForConfiguration: ((URLRequest) -> Bool)?
     var presentAlert: BrowserAlertPresenter = browserPresentAlert
     var shouldBlockInsecureHTTPNavigation: ((URL) -> Bool)?
     var shouldBlockInsecureHTTPSubframeDownload: ((URL) -> Bool)?
@@ -420,6 +421,19 @@ import WebKit
             let reportTerminalCancellation = terminalPolicyCancellationReporter?(navigationAction, webView) ?? {}
             openRequestInNewTab(navigationAction.request)
             reportTerminalCancellation()
+            decisionHandler(.cancel)
+            return
+        }
+
+        if navigationAction.targetFrame?.isMainFrame == true,
+           rerouteMainFrameNavigationForConfiguration?(navigationAction.request) == true {
+#if DEBUG
+            cmuxDebugLog(
+                "browser.nav.decidePolicy.action kind=replaceWebExtensionConfiguration " +
+                "url=\(browserNavigationDebugURL(navigationAction.request.url))"
+            )
+#endif
+            clearAttemptedRequest(discardPendingBypasses: true)
             decisionHandler(.cancel)
             return
         }

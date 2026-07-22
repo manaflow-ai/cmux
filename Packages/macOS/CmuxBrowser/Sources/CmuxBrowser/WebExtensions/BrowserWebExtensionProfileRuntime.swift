@@ -18,10 +18,7 @@ public final class BrowserWebExtensionProfileRuntime {
     /// The number of navigation intents still waiting for a readiness decision.
     public var pendingNavigationCount: Int { pendingNavigations.count }
 
-    /// Whether the current loading operation has not returned yet.
-    ///
-    /// A deadline may release navigation before this becomes `false`. Callers
-    /// use this value to avoid starting a second mutating load concurrently.
+    /// Whether the current loading generation is allowed to mutate WebKit.
     public private(set) var isLoadAttemptInFlight = false
 
     @ObservationIgnored
@@ -117,6 +114,13 @@ public final class BrowserWebExtensionProfileRuntime {
                   self.phase == .loading else {
                 return
             }
+            // Expire the whole generation. Cooperative post-await checks in
+            // the adapter prevent a loader that returns late from mutating
+            // WebKit after a retry has started.
+            self.generation &+= 1
+            self.loadTask?.cancel()
+            self.loadTask = nil
+            self.isLoadAttemptInFlight = false
             self.deadlineTask = nil
             self.transition(to: .degraded(.loadDeadlineExceeded))
             self.releasePendingNavigations(reason: .deadlineExceeded)
@@ -163,6 +167,12 @@ public final class BrowserWebExtensionProfileRuntime {
     public func publishActionUpdate(_ update: BrowserWebExtensionActionUpdate) {
         guard update.profileID == profileID, phase != .shutDown else { return }
         emit(.actionChanged(update))
+    }
+
+    /// Publishes an explicit optional-permission request.
+    public func publishPermissionRequest(_ request: BrowserWebExtensionPermissionRequest) {
+        guard request.profileID == profileID, phase != .shutDown else { return }
+        emit(.permissionRequested(request))
     }
 
     /// Announces that installed extension or failure presentation changed.

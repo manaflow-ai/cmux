@@ -2721,6 +2721,53 @@ final class BrowserSessionHistoryRestoreTests: XCTestCase {
         )
     }
 
+    func testWebExtensionConfigurationNavigationBridgesCurrentPageIntoBackHistory() {
+        let panel = BrowserPanel(workspaceId: UUID())
+        defer { panel.close() }
+        panel.restoreSessionNavigationHistory(
+            backHistoryURLStrings: ["https://example.com/a"],
+            forwardHistoryURLStrings: ["https://example.com/forward"],
+            currentURLString: "https://example.com/current"
+        )
+
+        let history = panel.webViewConfigurationNavigationHistory(
+            targetURL: URL(string: "webkit-extension://fixture/options.html")!,
+            preserveRestoredTraversalState: false
+        )
+
+        XCTAssertEqual(
+            history.backHistoryURLStrings,
+            ["https://example.com/a", "https://example.com/current"]
+        )
+        XCTAssertTrue(history.forwardHistoryURLStrings.isEmpty)
+        XCTAssertEqual(history.currentURLString, "webkit-extension://fixture/options.html")
+    }
+
+    func testWebExtensionConfigurationTraversalPreservesBackAndForwardStacks() {
+        let panel = BrowserPanel(workspaceId: UUID())
+        defer { panel.close() }
+        panel.restoreSessionNavigationHistory(
+            backHistoryURLStrings: ["https://example.com/a"],
+            forwardHistoryURLStrings: [
+                "https://example.com/current",
+                "https://example.com/later",
+            ],
+            currentURLString: "webkit-extension://fixture/options.html"
+        )
+
+        let history = panel.webViewConfigurationNavigationHistory(
+            targetURL: URL(string: "webkit-extension://fixture/options.html")!,
+            preserveRestoredTraversalState: true
+        )
+
+        XCTAssertEqual(history.backHistoryURLStrings, ["https://example.com/a"])
+        XCTAssertEqual(
+            history.forwardHistoryURLStrings,
+            ["https://example.com/current", "https://example.com/later"]
+        )
+        XCTAssertEqual(history.currentURLString, "webkit-extension://fixture/options.html")
+    }
+
     func testSessionNavigationHistoryBackAndForwardUpdateStacks() {
         let panel = BrowserPanel(workspaceId: UUID())
         defer { panel.close() }

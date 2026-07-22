@@ -2896,6 +2896,12 @@ final class BrowserPanel: Panel, ObservableObject {
         sanitizer: SessionHistoryURLSanitizer { browserIsTemporaryHistoryURL($0) }
     )
 
+    struct WebViewReplacementNavigationHistory {
+        let backHistoryURLStrings: [String]
+        let forwardHistoryURLStrings: [String]
+        let currentURLString: String?
+    }
+
     private var usesRestoredSessionHistory: Bool {
         restoredSessionHistory.usesRestoredSessionHistory
     }
@@ -4058,6 +4064,9 @@ final class BrowserPanel: Panel, ObservableObject {
                 onNavigationStarted: onNavigationStarted
             )
         }
+        navDelegate.rerouteMainFrameNavigationForConfiguration = { [weak self] request in
+            self?.rerouteMainFrameNavigationForConfigurationIfNeeded(request) ?? false
+        }
         navDelegate.presentAlert = { [weak self] alert, webView, completion, cancel in
             guard let self else {
                 cancel()
@@ -5214,7 +5223,9 @@ final class BrowserPanel: Panel, ObservableObject {
         waitForManualRecovery: Bool = false,
         baseConfiguration: WKWebViewConfiguration? = nil,
         navigationOverride: URL? = nil,
-        preserveNavigationHistory: Bool = true
+        navigationRequestOverride: URLRequest? = nil,
+        preserveNavigationHistory: Bool = true,
+        navigationHistoryOverride: WebViewReplacementNavigationHistory? = nil
     ) {
         guard oldWebView === webView else { return }
 
@@ -5222,7 +5233,8 @@ final class BrowserPanel: Panel, ObservableObject {
         let attemptedURL = Self.remoteProxyDisplayURL(for: navigationDelegate?.lastAttemptedURL)
             ?? navigationDelegate?.lastAttemptedURL
         let liveURL = restorableDisplayURLForCurrentErrorPage(liveURL: oldWebView.url)
-        let restoreURL = navigationOverride
+        let restoreURL = navigationRequestOverride?.url
+            ?? navigationOverride
             ?? (isMainFrameProvisionalNavigationActive ? attemptedURL : nil)
             ?? liveURL
             ?? attemptedURL
@@ -5237,8 +5249,17 @@ final class BrowserPanel: Panel, ObservableObject {
         let hasRecoveryTarget = restoreURLString != nil && restoreURLString != blankURLString
         let shouldRestoreURL = wasRenderable && hasRecoveryTarget
         let shouldShowManualRecovery = waitForManualRecovery && wasRenderable && hasRecoveryTarget
-        let history = sessionNavigationHistorySnapshot()
-        let historyCurrentURL = preferredURLStringForOmnibar()
+        let history: WebViewReplacementNavigationHistory
+        if let navigationHistoryOverride {
+            history = navigationHistoryOverride
+        } else {
+            let capturedHistory = sessionNavigationHistorySnapshot()
+            history = WebViewReplacementNavigationHistory(
+                backHistoryURLStrings: capturedHistory.backHistoryURLStrings,
+                forwardHistoryURLStrings: capturedHistory.forwardHistoryURLStrings,
+                currentURLString: preferredURLStringForOmnibar()
+            )
+        }
         let desiredZoom = max(minPageZoom, min(maxPageZoom, oldWebView.pageZoom))
         let restoreDevTools = preferredDeveloperToolsVisible
 
@@ -5292,11 +5313,13 @@ final class BrowserPanel: Panel, ObservableObject {
         applyBrowserThemeModeIfNeeded()
 
         if preserveNavigationHistory
-            && (!history.backHistoryURLStrings.isEmpty || !history.forwardHistoryURLStrings.isEmpty) {
+            && (!history.backHistoryURLStrings.isEmpty
+                || !history.forwardHistoryURLStrings.isEmpty
+                || history.currentURLString != nil) {
             restoreSessionNavigationHistory(
                 backHistoryURLStrings: history.backHistoryURLStrings,
                 forwardHistoryURLStrings: history.forwardHistoryURLStrings,
-                currentURLString: historyCurrentURL
+                currentURLString: history.currentURLString
             )
         }
 
@@ -5307,11 +5330,19 @@ final class BrowserPanel: Panel, ObservableObject {
         } else {
             clearWebContentTerminationRecovery()
             if shouldRestoreURL, let restoreURL {
-                navigateWithoutInsecureHTTPPrompt(
-                    to: restoreURL,
-                    recordTypedNavigation: false,
-                    preserveRestoredSessionHistory: true
-                )
+                if let navigationRequestOverride {
+                    navigateWithoutInsecureHTTPPrompt(
+                        request: navigationRequestOverride,
+                        recordTypedNavigation: false,
+                        preserveRestoredSessionHistory: true
+                    )
+                } else {
+                    navigateWithoutInsecureHTTPPrompt(
+                        to: restoreURL,
+                        recordTypedNavigation: false,
+                        preserveRestoredSessionHistory: true
+                    )
+                }
             } else {
                 refreshNavigationAvailability()
             }
@@ -5844,12 +5875,19 @@ final class BrowserPanel: Panel, ObservableObject {
     }
 
     private func replaceWebViewConfigurationIfNeeded(
-        for url: URL,
-        recordTypedNavigation: Bool
+        for request: URLRequest,
+        recordTypedNavigation: Bool,
+        preserveRestoredSessionHistory: Bool
     ) -> Bool {
+        guard let url = request.url else { return false }
         let extensionPageConfiguration = webExtensionPageConfiguration(for: url)
         let targetBaseURL = extensionPageConfiguration?.baseURL
         guard targetBaseURL != webExtensionPageBaseURL else { return false }
+
+        let navigationHistory = webViewConfigurationNavigationHistory(
+            targetURL: url,
+            preserveRestoredTraversalState: preserveRestoredSessionHistory
+        )
 
         // A WebExtension page must use its context-owned configuration. A tab
         // leaving an extension origin must return to the normal profile
@@ -5864,9 +5902,50 @@ final class BrowserPanel: Panel, ObservableObject {
             websiteDataStore: websiteDataStore,
             reason: "web_extension_origin_change",
             baseConfiguration: extensionPageConfiguration?.configuration,
-            navigationOverride: url,
-            preserveNavigationHistory: false
+            navigationRequestOverride: request,
+            preserveNavigationHistory: true,
+            navigationHistoryOverride: navigationHistory
         )
+        return true
+    }
+
+    func webViewConfigurationNavigationHistory(
+        targetURL: URL,
+        preserveRestoredTraversalState: Bool
+    ) -> WebViewReplacementNavigationHistory {
+        if preserveRestoredTraversalState, usesRestoredSessionHistory {
+            return WebViewReplacementNavigationHistory(
+                backHistoryURLStrings: restoredSessionHistory.back.compactMap {
+                    Self.serializableSessionHistoryURLString($0)
+                },
+                forwardHistoryURLStrings: restoredSessionHistory.forward.reversed().compactMap {
+                    Self.serializableSessionHistoryURLString($0)
+                },
+                currentURLString: Self.serializableSessionHistoryURLString(restoredSessionHistory.current)
+            )
+        }
+
+        let snapshot = sessionNavigationHistorySnapshot()
+        var backHistory = snapshot.backHistoryURLStrings
+        if let currentURLString = Self.serializableSessionHistoryURLString(
+            resolvedCurrentSessionHistoryURL()
+        ), backHistory.last != currentURLString {
+            backHistory.append(currentURLString)
+        }
+        return WebViewReplacementNavigationHistory(
+            backHistoryURLStrings: backHistory,
+            forwardHistoryURLStrings: [],
+            currentURLString: Self.serializableSessionHistoryURLString(targetURL)
+        )
+    }
+
+    private func rerouteMainFrameNavigationForConfigurationIfNeeded(
+        _ request: URLRequest
+    ) -> Bool {
+        guard let url = request.url else { return false }
+        let targetBaseURL = webExtensionPageConfiguration(for: url)?.baseURL
+        guard targetBaseURL != webExtensionPageBaseURL else { return false }
+        requestNavigation(request, intent: .currentTab)
         return true
     }
 
@@ -5877,13 +5956,6 @@ final class BrowserPanel: Panel, ObservableObject {
         recordTypedNavigation: Bool = false,
         onNavigationStarted: ((WKNavigation?) -> Void)? = nil
     ) -> WKNavigation? {
-        if replaceWebViewConfigurationIfNeeded(
-            for: url,
-            recordTypedNavigation: recordTypedNavigation
-        ) {
-            onNavigationStarted?(nil)
-            return nil
-        }
         let request = URLRequest(url: url)
         if shouldBlockInsecureHTTPNavigation(to: url) {
             presentInsecureHTTPAlert(
@@ -5927,6 +5999,14 @@ final class BrowserPanel: Panel, ObservableObject {
     ) -> WKNavigation? {
         cancelPendingWebExtensionNavigation()
         guard let url = request.url else {
+            onNavigationStarted?(nil)
+            return nil
+        }
+        if replaceWebViewConfigurationIfNeeded(
+            for: request,
+            recordTypedNavigation: recordTypedNavigation,
+            preserveRestoredSessionHistory: preserveRestoredSessionHistory
+        ) {
             onNavigationStarted?(nil)
             return nil
         }
@@ -6624,6 +6704,12 @@ extension BrowserPanel {
         resolvedCurrentSessionHistoryURL()
             ?? Self.remoteProxyDisplayURL(for: webView.url)
             ?? currentURL
+    }
+
+    var pendingURLForWebExtension: URL? {
+        guard isLoading || isMainFrameProvisionalNavigationActive else { return nil }
+        return Self.remoteProxyDisplayURL(for: navigationDelegate?.lastAttemptedURL)
+            ?? navigationDelegate?.lastAttemptedURL
     }
 
     var bypassesRemoteWorkspaceProxyForTabDuplication: Bool {
@@ -7870,14 +7956,74 @@ extension BrowserPanel {
         return browserServices.webExtensionUpdates(profileID: profileID)
     }
 
-    func installBrowserWebExtension(from source: URL) async throws -> BrowserWebExtensionInstallReceipt {
+    func prepareBrowserWebExtensionInstall(
+        from source: URL
+    ) async throws -> BrowserWebExtensionInstallPreview {
         guard let browserServices else { throw BrowserWebExtensionServiceError.unsupported }
-        return try await browserServices.installWebExtension(from: source, profileID: profileID)
+        return try await browserServices.prepareWebExtensionInstall(from: source, profileID: profileID)
     }
 
-    func installBrowserWebExtension(_ entry: BrowserWebExtensionCatalogEntry) async throws -> BrowserWebExtensionInstallReceipt {
+    func prepareBrowserWebExtensionInstall(
+        _ entry: BrowserWebExtensionCatalogEntry
+    ) async throws -> BrowserWebExtensionInstallPreview {
         guard let browserServices else { throw BrowserWebExtensionServiceError.unsupported }
-        return try await browserServices.installWebExtension(entry, profileID: profileID)
+        return try await browserServices.prepareWebExtensionInstall(entry, profileID: profileID)
+    }
+
+    func cancelPreparedBrowserWebExtensionInstall(id: UUID) async {
+        await browserServices?.cancelPreparedWebExtensionInstall(id: id, profileID: profileID)
+    }
+
+    func confirmPreparedBrowserWebExtensionInstall(
+        id: UUID,
+        grantedOptionalPermissions: Set<String>,
+        grantedOptionalHosts: Set<String>
+    ) async throws -> BrowserWebExtensionInstallReceipt {
+        guard let browserServices else { throw BrowserWebExtensionServiceError.unsupported }
+        return try await browserServices.confirmPreparedWebExtensionInstall(
+            id: id,
+            grantedOptionalPermissions: grantedOptionalPermissions,
+            grantedOptionalHosts: grantedOptionalHosts,
+            profileID: profileID
+        )
+    }
+
+    func setBrowserWebExtensionEnabled(
+        _ isEnabled: Bool,
+        managementID: String
+    ) async throws {
+        guard let browserServices else { throw BrowserWebExtensionServiceError.unsupported }
+        try await browserServices.setWebExtensionEnabled(
+            isEnabled,
+            managementID: managementID,
+            profileID: profileID
+        )
+    }
+
+    func removeBrowserWebExtension(managementID: String) async throws {
+        guard let browserServices else { throw BrowserWebExtensionServiceError.unsupported }
+        try await browserServices.removeWebExtension(
+            managementID: managementID,
+            profileID: profileID
+        )
+    }
+
+    func revokeBrowserWebExtensionOptionalPermissions(managementID: String) async throws {
+        guard let browserServices else { throw BrowserWebExtensionServiceError.unsupported }
+        try await browserServices.revokeWebExtensionOptionalPermissions(
+            managementID: managementID,
+            profileID: profileID
+        )
+    }
+
+    func prepareBrowserWebExtensionUpdate(
+        managementID: String
+    ) async throws -> BrowserWebExtensionInstallPreview {
+        guard let browserServices else { throw BrowserWebExtensionServiceError.unsupported }
+        return try await browserServices.prepareWebExtensionUpdate(
+            managementID: managementID,
+            profileID: profileID
+        )
     }
 
     func setBrowserWebExtensionToolbarActionPinned(

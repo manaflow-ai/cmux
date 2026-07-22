@@ -8376,6 +8376,47 @@ class TerminalController {
                 return .ok(try await browserServices.webExtensionDiagnostics(profileID: profileID))
             case "browser.extensions.add":
 #if DEBUG
+                if let previewIDString = params["preview_id"] as? String,
+                   let previewID = UUID(uuidString: previewIDString) {
+                    if params["cancel"] as? Bool == true {
+                        await browserServices.cancelPreparedWebExtensionInstall(
+                            id: previewID,
+                            profileID: profileID
+                        )
+                        return .ok([
+                            "cancelled": true,
+                            "preview_id": previewID.uuidString,
+                            "profile_id": profileID.uuidString,
+                        ])
+                    }
+                    guard params["confirm"] as? Bool == true else {
+                        return .err(
+                            code: "confirmation_required",
+                            message: String(
+                                localized: "cli.browser.extensions.error.confirmationRequired",
+                                defaultValue: "Set confirm=true after reviewing the extension permissions"
+                            ),
+                            data: ["preview_id": previewID.uuidString]
+                        )
+                    }
+                    let optionalPermissions = Set(
+                        params["optional_permissions"] as? [String] ?? []
+                    )
+                    let optionalHosts = Set(params["optional_hosts"] as? [String] ?? [])
+                    let receipt = try await browserServices.confirmPreparedWebExtensionInstall(
+                        id: previewID,
+                        grantedOptionalPermissions: optionalPermissions,
+                        grantedOptionalHosts: optionalHosts,
+                        profileID: profileID
+                    )
+                    return .ok([
+                        "installed": true,
+                        "name": receipt.name,
+                        "preview_id": previewID.uuidString,
+                        "profile_id": profileID.uuidString,
+                        "surface_id": v2OrNull(target.surfaceID?.uuidString),
+                    ])
+                }
                 guard let path = params["path"] as? String, !path.isEmpty else {
                     return .err(
                         code: "invalid_request",
@@ -8387,14 +8428,22 @@ class TerminalController {
                     )
                 }
                 let source = URL(fileURLWithPath: path).standardizedFileURL
-                let receipt = try await browserServices.installWebExtension(
+                let preview = try await browserServices.prepareWebExtensionInstall(
                     from: source,
                     profileID: profileID
                 )
                 return .ok([
-                    "installed": true,
-                    "name": receipt.name,
+                    "prepared": true,
+                    "preview_id": preview.id.uuidString,
+                    "name": preview.name,
+                    "version": preview.version,
                     "source": source.path,
+                    "required_permissions": preview.requiredPermissions,
+                    "required_hosts": preview.requiredHosts,
+                    "optional_permissions": preview.optionalPermissions,
+                    "optional_hosts": preview.optionalHosts,
+                    "capability_notices": preview.capabilityNotices.map(\.rawValue),
+                    "is_update": preview.isUpdate,
                     "profile_id": profileID.uuidString,
                     "surface_id": v2OrNull(target.surfaceID?.uuidString),
                 ])

@@ -91,7 +91,7 @@ struct BrowserWebExtensionProfileRuntimeTests {
         #expect(releasedIntents == [intent])
     }
 
-    @Test func lateLoadCompletionDoesNotReplayReleasedNavigation() async throws {
+    @Test func lateLoadCompletionCannotRecoverExpiredGeneration() async throws {
         let loadGate = BrowserWebExtensionTestGate<BrowserWebExtensionLoadOutcome>()
         let deadlineGate = BrowserWebExtensionTestGate<Void>()
         let profileID = UUID()
@@ -122,25 +122,45 @@ struct BrowserWebExtensionProfileRuntimeTests {
             }
         }
         await loadGate.resume(with: .ready)
-        var observedLateReady = false
-        while !observedLateReady {
-            guard let update = await updates.next() else {
-                Issue.record("Update stream ended before late readiness")
-                return
-            }
-            switch update {
-            case .phaseChanged(.ready):
-                observedLateReady = true
-            case .navigationReleased(let released, _):
-                releasedIntents.append(released)
-            default:
-                break
-            }
-        }
+        await Task.yield()
+        await Task.yield()
 
-        #expect(runtime.phase == .ready)
+        #expect(runtime.phase == .degraded(.loadDeadlineExceeded))
+        #expect(!runtime.isLoadAttemptInFlight)
         #expect(runtime.pendingNavigationCount == 0)
         #expect(releasedIntents == [intent])
+    }
+
+    @Test func deadlineCancelsNeverReturningGenerationAndAllowsRetry() async throws {
+        let firstLoadGate = BrowserWebExtensionTestGate<BrowserWebExtensionLoadOutcome>()
+        let deadlineGate = BrowserWebExtensionTestGate<Void>()
+        let runtime = BrowserWebExtensionProfileRuntime(
+            profileID: UUID(),
+            waitForDeadline: { await deadlineGate.wait() }
+        )
+        var updates = runtime.updates().makeAsyncIterator()
+        _ = await updates.next()
+
+        runtime.start { await firstLoadGate.wait() }
+        #expect(runtime.isLoadAttemptInFlight)
+        await deadlineGate.resume(with: ())
+        while runtime.phase != .degraded(.loadDeadlineExceeded) {
+            _ = await updates.next()
+        }
+
+        #expect(runtime.phase == .degraded(.loadDeadlineExceeded))
+        #expect(!runtime.isLoadAttemptInFlight)
+
+        runtime.start { .ready }
+        while runtime.phase != .ready {
+            _ = await updates.next()
+        }
+        #expect(runtime.phase == .ready)
+        #expect(!runtime.isLoadAttemptInFlight)
+
+        await firstLoadGate.resume(with: .degraded(.loadFailed))
+        await Task.yield()
+        #expect(runtime.phase == .ready)
     }
 
     @Test func cancellationRemovesQueuedNavigation() async throws {
