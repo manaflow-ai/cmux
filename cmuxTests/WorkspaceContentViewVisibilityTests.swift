@@ -11,72 +11,6 @@ import Bonsplit
 @testable import cmux
 #endif
 
-private final class WorkspaceContentViewManualClock: Clock, @unchecked Sendable {
-    struct Instant: InstantProtocol, Sendable {
-        var offset: Duration
-
-        func advanced(by duration: Duration) -> Instant {
-            Instant(offset: offset + duration)
-        }
-
-        func duration(to other: Instant) -> Duration {
-            other.offset - offset
-        }
-
-        static func < (lhs: Instant, rhs: Instant) -> Bool {
-            lhs.offset < rhs.offset
-        }
-    }
-
-    private struct Sleeper {
-        let deadline: Instant
-        let continuation: CheckedContinuation<Void, any Error>
-    }
-
-    private let lock = NSLock()
-    private var _now = Instant(offset: .zero)
-    private var sleepers: [Sleeper] = []
-
-    var now: Instant {
-        lock.lock()
-        defer { lock.unlock() }
-        return _now
-    }
-
-    var minimumResolution: Duration { .zero }
-
-    func sleep(until deadline: Instant, tolerance _: Duration?) async throws {
-        try Task.checkCancellation()
-        let readyNow: Bool = {
-            lock.lock()
-            defer { lock.unlock() }
-            return deadline <= _now
-        }()
-        if readyNow { return }
-        try await withCheckedThrowingContinuation { (continuation: CheckedContinuation<Void, any Error>) in
-            lock.lock()
-            if deadline <= _now {
-                lock.unlock()
-                continuation.resume()
-                return
-            }
-            sleepers.append(Sleeper(deadline: deadline, continuation: continuation))
-            lock.unlock()
-        }
-    }
-
-    func advance(by duration: Duration) {
-        lock.lock()
-        _now = _now.advanced(by: duration)
-        let due = sleepers.filter { $0.deadline <= _now }
-        sleepers.removeAll { $0.deadline <= _now }
-        lock.unlock()
-        for sleeper in due {
-            sleeper.continuation.resume()
-        }
-    }
-}
-
 @Suite(.serialized)
 final class WorkspaceContentViewVisibilityTests {
     private final class MinimalModeBodyProbeCounts {
@@ -119,13 +53,6 @@ final class WorkspaceContentViewVisibilityTests {
         return "\(lineNumber(in: source, at: index)): \(line)"
     }
 
-    @MainActor
-    private func drainMainActorTasks() async {
-        for _ in 0..<10 {
-            await Task.yield()
-        }
-    }
-
     private static func restoreFocusTarget(
         workspaceId: UUID = UUID(),
         panelId: UUID = UUID(),
@@ -163,49 +90,76 @@ final class WorkspaceContentViewVisibilityTests {
     }
 
     private static func stateDispatchWorkItemDeclarations(in source: String) -> [String] {
-        let declarationBoundaryPrefixes = [
-            "@",
-            "private var ",
-            "private let ",
-            "var ",
-            "let ",
-            "static ",
-            "func ",
-            "}",
-        ]
         var references: [String] = []
         var searchStart = source.startIndex
         while let stateRange = source.range(of: "@State", range: searchStart..<source.endIndex) {
             searchStart = stateRange.upperBound
-            let searchEnd = source.endIndex
-            guard source.range(of: "var ", range: stateRange.upperBound..<searchEnd) != nil else {
-                continue
-            }
+            var sawPropertyDeclaration = Self.lineStartsVarDeclaration(
+                source[
+                    stateRange.lowerBound..<(source[stateRange.lowerBound...].firstIndex(of: "\n") ?? source.endIndex)
+                ]
+                .trimmingCharacters(in: .whitespaces)
+            )
+            var declarationEnd = source.endIndex
+            var lineEnd = source[stateRange.upperBound...].firstIndex(of: "\n") ?? source.endIndex
 
-            var declarationEnd = searchEnd
-            var index = stateRange.upperBound
-            while index < searchEnd {
-                if source[index] == "\n" {
-                    let nextLineStart = source.index(after: index)
-                    let nextLineEnd = source[nextLineStart...].firstIndex(of: "\n") ?? source.endIndex
-                    let nextLine = source[nextLineStart..<nextLineEnd].trimmingCharacters(in: .whitespaces)
-                    if !nextLine.isEmpty,
-                       declarationBoundaryPrefixes.contains(where: { nextLine.hasPrefix($0) }) {
-                        declarationEnd = index
+            while lineEnd < source.endIndex {
+                let nextLineStart = source.index(after: lineEnd)
+                let nextLineEnd = source[nextLineStart...].firstIndex(of: "\n") ?? source.endIndex
+                let nextLine = source[nextLineStart..<nextLineEnd].trimmingCharacters(in: .whitespaces)
+                if !nextLine.isEmpty {
+                    if sawPropertyDeclaration, Self.lineStartsDeclarationBoundary(nextLine) {
+                        declarationEnd = lineEnd
                         break
                     }
-                } else if source[index] == ";" || source[index] == "{" {
-                    declarationEnd = index
-                    break
+                    if !sawPropertyDeclaration,
+                       Self.lineStartsDeclarationBoundary(nextLine),
+                       !nextLine.hasPrefix("@"),
+                       !Self.lineStartsVarDeclaration(nextLine) {
+                        declarationEnd = lineEnd
+                        break
+                    }
+                    sawPropertyDeclaration = sawPropertyDeclaration || Self.lineStartsVarDeclaration(nextLine)
+                    if nextLine.contains(";") || nextLine.contains("{") {
+                        declarationEnd = nextLineEnd
+                        break
+                    }
                 }
-                index = source.index(after: index)
+                lineEnd = nextLineEnd
             }
-
+            if declarationEnd == source.endIndex {
+                declarationEnd = lineEnd
+            }
             let declaration = source[stateRange.lowerBound..<declarationEnd]
-            guard declaration.contains("DispatchWorkItem") else { continue }
+            guard sawPropertyDeclaration, declaration.contains("DispatchWorkItem") else { continue }
             references.append(lineReference(in: source, at: stateRange.lowerBound))
         }
         return references
+    }
+
+    private static func lineStartsVarDeclaration(_ line: some StringProtocol) -> Bool {
+        var text = String(line).trimmingCharacters(in: .whitespaces)
+        while text.hasPrefix("@") {
+            guard let attributeEnd = text.firstIndex(where: { $0.isWhitespace }) else { return false }
+            text = text[attributeEnd...].trimmingCharacters(in: .whitespaces)
+        }
+        return text.hasPrefix("var ")
+            || text.hasPrefix("private var ")
+            || text.hasPrefix("fileprivate var ")
+            || text.hasPrefix("internal var ")
+    }
+
+    private static func lineStartsDeclarationBoundary(_ line: some StringProtocol) -> Bool {
+        line.hasPrefix("@")
+            || lineStartsVarDeclaration(line)
+            || line.hasPrefix("let ")
+            || line.hasPrefix("private let ")
+            || line.hasPrefix("fileprivate let ")
+            || line.hasPrefix("internal let ")
+            || line.hasPrefix("static ")
+            || line.hasPrefix("func ")
+            || line.hasPrefix("private func ")
+            || line.hasPrefix("}")
     }
 
     private static func dispatchWorkItemClosuresWithoutCaptureList(in source: String) -> [String] {
@@ -224,7 +178,7 @@ final class WorkspaceContentViewVisibilityTests {
             } else if next < source.endIndex, source[next] == "(" {
                 var depth = 0
                 var index = next
-                var closureBrace: String.Index?
+                var afterArguments: String.Index?
                 while index < source.endIndex {
                     switch source[index] {
                     case "(":
@@ -232,13 +186,10 @@ final class WorkspaceContentViewVisibilityTests {
                     case ")":
                         depth -= 1
                         if depth == 0 {
+                            afterArguments = source.index(after: index)
                             index = source.endIndex
                             continue
                         }
-                    case "{":
-                        closureBrace = index
-                        index = source.endIndex
-                        continue
                     default:
                         break
                     }
@@ -246,7 +197,15 @@ final class WorkspaceContentViewVisibilityTests {
                         index = source.index(after: index)
                     }
                 }
-                openingBrace = closureBrace
+                var brace = afterArguments
+                while let candidate = brace, candidate < source.endIndex, source[candidate].isWhitespace {
+                    brace = source.index(after: candidate)
+                }
+                if let candidate = brace, candidate < source.endIndex, source[candidate] == "{" {
+                    openingBrace = candidate
+                } else {
+                    openingBrace = nil
+                }
             } else {
                 continue
             }
@@ -321,56 +280,44 @@ final class WorkspaceContentViewVisibilityTests {
     }
 
     @Test
-    @MainActor
-    func commandPaletteFocusRestoreCoordinatorSupersedesOldTimeout() async {
-        let clock = WorkspaceContentViewManualClock()
-        let coordinator = CommandPaletteFocusRestoreCoordinator(
-            timeout: .milliseconds(100),
-            clock: clock
-        )
-        let firstTarget = Self.restoreFocusTarget()
-        let secondTarget = Self.restoreFocusTarget()
+    func dispatchWorkItemRegressionScannerCatchesSplitDeclarationsAndTrailingClosures() {
+        let source = """
+        struct ContentView {
+            @State
+            private var splitWorkItem:
+                DispatchWorkItem?
+            @State private var inlineWorkItem: DispatchWorkItem?
 
-        coordinator.request(target: firstTarget)
-        await drainMainActorTasks()
-        #expect(coordinator.pendingTarget?.workspaceId == firstTarget.workspaceId)
+            private func scheduleWork() {
+                let unsafe = DispatchWorkItem(qos: .userInteractive) {
+                    _ = self
+                }
+                let safe = DispatchWorkItem(qos: .userInteractive) { [weak self] in
+                    _ = self
+                }
+                _ = (unsafe, safe)
+            }
+        }
+        """
 
-        clock.advance(by: .milliseconds(60))
-        coordinator.request(target: secondTarget)
-        await drainMainActorTasks()
-        #expect(coordinator.pendingTarget?.workspaceId == secondTarget.workspaceId)
-
-        clock.advance(by: .milliseconds(40))
-        await drainMainActorTasks()
-        #expect(
-            coordinator.pendingTarget?.workspaceId == secondTarget.workspaceId,
-            "The first request's cancelled timeout must not clear the newer pending target."
-        )
-
-        clock.advance(by: .milliseconds(60))
-        await drainMainActorTasks()
-        #expect(coordinator.pendingTarget?.workspaceId == nil)
+        #expect(Self.stateDispatchWorkItemDeclarations(in: source).count == 2)
+        #expect(Self.dispatchWorkItemClosuresWithoutCaptureList(in: source).count == 1)
     }
 
     @Test
     @MainActor
-    func commandPaletteFocusRestoreCoordinatorClearCancelsTimeout() async {
-        let clock = WorkspaceContentViewManualClock()
-        let coordinator = CommandPaletteFocusRestoreCoordinator(
-            timeout: .milliseconds(100),
-            clock: clock
-        )
-        let target = Self.restoreFocusTarget()
+    func commandPaletteFocusRestoreCoordinatorKeepsLatestTargetUntilExplicitClear() {
+        let coordinator = CommandPaletteFocusRestoreCoordinator()
+        let firstTarget = Self.restoreFocusTarget()
+        let secondTarget = Self.restoreFocusTarget()
 
-        coordinator.request(target: target)
-        await drainMainActorTasks()
-        #expect(coordinator.pendingTarget?.workspaceId == target.workspaceId)
+        coordinator.request(target: firstTarget)
+        #expect(coordinator.pendingTarget?.workspaceId == firstTarget.workspaceId)
+
+        coordinator.request(target: secondTarget)
+        #expect(coordinator.pendingTarget?.workspaceId == secondTarget.workspaceId)
 
         coordinator.clear()
-        #expect(coordinator.pendingTarget?.workspaceId == nil)
-
-        clock.advance(by: .milliseconds(100))
-        await drainMainActorTasks()
         #expect(coordinator.pendingTarget?.workspaceId == nil)
     }
 
