@@ -1,4 +1,27 @@
 {
+  "cloudBillingReturn": {
+    "eyebrow": "cmux Cloud",
+    "returnTitle": "터미널에서 계속하기",
+    "returnBody": "계속하려면 ssh cmux.cloud를 실행한 터미널로 돌아가세요.",
+    "statuses": {
+      "checkoutSuccess": {
+        "title": "결제가 완료되었습니다",
+        "body": "구독이 확인되었습니다. 새 한도가 표시되기까지 잠시 걸릴 수 있습니다."
+      },
+      "checkoutCanceled": {
+        "title": "결제가 취소되었습니다",
+        "body": "요금제를 변경하지 않고 결제를 종료했습니다."
+      },
+      "portalReturn": {
+        "title": "결제 포털에서 돌아왔습니다",
+        "body": "결제 포털에서 변경한 내용이 표시되기까지 잠시 걸릴 수 있습니다."
+      },
+      "default": {
+        "title": "결제 절차가 완료되었습니다",
+        "body": "결제 절차가 끝났습니다."
+      }
+    }
+  },
   "meta": {
     "title": "cmux — 멀티태스킹을 위해 만든 터미널",
     "description": "Ghostty 기반 무료 오픈 소스 네이티브 macOS 터미널. Claude Code, Codex, OpenCode, Gemini CLI, Kiro, Aider 등 모든 CLI 도구와 호환. 세로 탭, 알림 링, 분할 패널, socket API 지원.",
