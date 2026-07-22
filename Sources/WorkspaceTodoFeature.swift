@@ -1,6 +1,5 @@
 import AppKit
 import Bonsplit
-import Combine
 import CmuxSettings
 import CmuxWorkspaces
 import Foundation
@@ -46,39 +45,6 @@ enum WorkspaceTodoFeature {
     /// stay unchanged).
     @MainActor
     static func markUsed() {}
-}
-
-/// Durable, per-workspace presentation requests for the sidebar checklist add
-/// field. Requests survive a hidden sidebar being mounted after the action and
-/// are consumed only by the sidebar that owns the workspace.
-@MainActor
-final class WorkspaceTodoChecklistAddRequestStore: ObservableObject {
-    static let shared = WorkspaceTodoChecklistAddRequestStore()
-
-    @Published private(set) var pendingTokens: [UUID: UInt64] = [:]
-    private var nextToken: UInt64 = 0
-    private let maximumPendingRequestCount = 128
-
-    @discardableResult
-    func request(workspaceID: UUID) -> UInt64 {
-        nextToken &+= 1
-        let token = nextToken
-        var updated = pendingTokens
-        updated[workspaceID] = token
-        if updated.count > maximumPendingRequestCount,
-           let oldest = updated.min(by: { $0.value < $1.value })?.key {
-            updated.removeValue(forKey: oldest)
-        }
-        pendingTokens = updated
-        return token
-    }
-
-    func consume(workspaceID: UUID, token: UInt64) {
-        guard pendingTokens[workspaceID] == token else { return }
-        var updated = pendingTokens
-        updated.removeValue(forKey: workspaceID)
-        pendingTokens = updated
-    }
 }
 
 /// Shared todo mutations used by the context menu, command palette, and the
@@ -236,10 +202,10 @@ enum WorkspaceTodoActions {
     /// add-item field (used by the context menu and the command palette,
     /// which have no direct handle on the row's transient UI state). Also
     /// enables the feature so the checklist UI is actually visible.
-    static func requestChecklistAddField(workspaceId: UUID) {
+    static func requestChecklistAddField(workspaceId: UUID, in tabManager: TabManager) {
         guard WorkspaceTodoFeature.isEnabled else { return }
         WorkspaceTodoFeature.markUsed()
-        WorkspaceTodoChecklistAddRequestStore.shared.request(workspaceID: workspaceId)
+        tabManager.checklistAddRequestStore.request(workspaceID: workspaceId)
     }
 }
 

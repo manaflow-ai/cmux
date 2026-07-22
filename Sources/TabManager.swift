@@ -193,6 +193,7 @@ class TabManager: ObservableObject {
     // timing (objectWillChange + bridge publishers in willSet, selection
     // side effects in didSet).
     let workspaces = WorkspacesModel<Workspace>()
+    let checklistAddRequestStore = WorkspaceTodoChecklistAddRequestStore()
     private(set) var workspacesById: [UUID: Workspace] = [:]
 
     var tabs: [Workspace] {

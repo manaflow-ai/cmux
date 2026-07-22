@@ -419,17 +419,45 @@ struct CommandPaletteCloudActionArgumentsTests {
 struct CommandPaletteWorkspaceTodoActionOutcomeTests {
     @Test func checklistPresentationRequestPersistsUntilMatchingConsumption() {
         let store = WorkspaceTodoChecklistAddRequestStore()
-        let workspaceID = UUID()
+        let firstWorkspaceID = UUID()
+        let latestWorkspaceID = UUID()
+        let unrelatedWorkspaceID = UUID()
 
-        let firstToken = store.request(workspaceID: workspaceID)
-        #expect(store.pendingTokens[workspaceID] == firstToken)
+        _ = store.request(workspaceID: firstWorkspaceID)
+        let latestToken = store.request(workspaceID: latestWorkspaceID)
 
-        let latestToken = store.request(workspaceID: workspaceID)
-        store.consume(workspaceID: workspaceID, token: firstToken)
-        #expect(store.pendingTokens[workspaceID] == latestToken)
+        #expect(store.claimLatest(workspaceIDs: [unrelatedWorkspaceID]) == nil)
+        #expect(store.pendingToken(for: firstWorkspaceID) == nil)
+        #expect(store.pendingToken(for: latestWorkspaceID) == latestToken)
 
-        store.consume(workspaceID: workspaceID, token: latestToken)
-        #expect(store.pendingTokens[workspaceID] == nil)
+        #expect(store.claimLatest(workspaceIDs: [firstWorkspaceID, latestWorkspaceID]) == .init(
+            workspaceID: latestWorkspaceID,
+            token: latestToken
+        ))
+        #expect(store.claimLatest(workspaceIDs: [firstWorkspaceID, latestWorkspaceID]) == nil)
+        #expect(store.pendingToken(for: firstWorkspaceID) == nil)
+        #expect(store.pendingToken(for: latestWorkspaceID) == nil)
+    }
+
+    @Test func checklistPresentationRequestsAreIsolatedPerWindowStore() {
+        let firstWindowStore = WorkspaceTodoChecklistAddRequestStore()
+        let secondWindowStore = WorkspaceTodoChecklistAddRequestStore()
+        let firstWorkspaceID = UUID()
+        let secondWorkspaceID = UUID()
+
+        let firstToken = firstWindowStore.request(workspaceID: firstWorkspaceID)
+        let secondToken = secondWindowStore.request(workspaceID: secondWorkspaceID)
+
+        #expect(firstWindowStore.claimLatest(workspaceIDs: [secondWorkspaceID]) == nil)
+        #expect(secondWindowStore.claimLatest(workspaceIDs: [firstWorkspaceID]) == nil)
+        #expect(firstWindowStore.claimLatest(workspaceIDs: [firstWorkspaceID]) == .init(
+            workspaceID: firstWorkspaceID,
+            token: firstToken
+        ))
+        #expect(secondWindowStore.claimLatest(workspaceIDs: [secondWorkspaceID]) == .init(
+            workspaceID: secondWorkspaceID,
+            token: secondToken
+        ))
     }
 
     @Test func todoPaneRequiresCapturedPanelInLivePane() throws {

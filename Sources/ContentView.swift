@@ -9480,7 +9480,10 @@ struct ContentView: View {
                     return false
                 }
                 sidebarState.isVisible = true
-                WorkspaceTodoActions.requestChecklistAddField(workspaceId: workspaceID)
+                WorkspaceTodoActions.requestChecklistAddField(
+                    workspaceId: workspaceID,
+                    in: tabManager
+                )
                 return true
             }
         )
@@ -12549,7 +12552,6 @@ struct VerticalTabsSidebar: View, Equatable {
     @EnvironmentObject var sidebarUnread: SidebarUnreadModel
     var notificationStore: TerminalNotificationStore { .shared }
     @EnvironmentObject var cmuxConfigStore: CmuxConfigStore
-    @ObservedObject private var checklistAddRequestStore = WorkspaceTodoChecklistAddRequestStore.shared
     @Binding var selection: SidebarSelection
     @Binding var selectedTabIds: Set<UUID>
     @Binding var lastSidebarSelectionIndex: Int?
@@ -12895,6 +12897,21 @@ struct VerticalTabsSidebar: View, Equatable {
         var workspaceIds: [UUID] { tabIds }
     }
 
+    private func presentPendingChecklistAddRequests() {
+        let workspaceIDs = Set(tabManager.tabs.map(\.id))
+        guard let request = tabManager.checklistAddRequestStore.claimLatest(
+            workspaceIDs: workspaceIDs
+        ) else {
+            return
+        }
+        if WorkspaceTodoFeature.checklistStyle == .popover {
+            checklistPopoverWorkspaceId = request.workspaceID
+        } else {
+            expandedChecklistWorkspaceIds.insert(request.workspaceID)
+        }
+        checklistAddFieldActivationTokens[request.workspaceID, default: 0] += 1
+    }
+
     var body: some View {
 #if DEBUG
         let _ = { minimalModeInvalidationProbe.verticalTabsSidebarBody?() }()
@@ -13046,6 +13063,7 @@ struct VerticalTabsSidebar: View, Equatable {
                 tabId: nil,
                 reason: "sidebar_appear"
             )
+            presentPendingChecklistAddRequests()
         }
         .onDisappear {
             pointerInteractionMonitor.stop()
@@ -13076,25 +13094,8 @@ struct VerticalTabsSidebar: View, Equatable {
                 frozenShortcutHintsValue = false
             }
         }
-        .onReceive(checklistAddRequestStore.$pendingTokens) { pendingTokens in
-            let ownedRequests = pendingTokens.filter { workspaceId, _ in
-                tabManager.tabs.contains(where: { $0.id == workspaceId })
-            }
-            guard !ownedRequests.isEmpty else { return }
-            for (workspaceId, _) in ownedRequests {
-                if WorkspaceTodoFeature.checklistStyle == .popover {
-                    checklistPopoverWorkspaceId = workspaceId
-                } else {
-                    expandedChecklistWorkspaceIds.insert(workspaceId)
-                }
-                checklistAddFieldActivationTokens[workspaceId, default: 0] += 1
-            }
-            Task { @MainActor in
-                await Task.yield()
-                for (workspaceId, token) in ownedRequests {
-                    checklistAddRequestStore.consume(workspaceID: workspaceId, token: token)
-                }
-            }
+        .onReceive(tabManager.checklistAddRequestStore.$revision) { _ in
+            presentPendingChecklistAddRequests()
         }
         .onChange(of: dragState.draggedTabId) { newDraggedTabId in
             SidebarDragLifecycleNotification().postStateDidChange(
@@ -16059,7 +16060,10 @@ struct VerticalTabsSidebar: View, Equatable {
                 WorkspaceTodoActions.hideStatus(for: workspaces)
             },
             requestChecklistAdd: {
-                WorkspaceTodoActions.requestChecklistAddField(workspaceId: tabId)
+                WorkspaceTodoActions.requestChecklistAddField(
+                    workspaceId: tabId,
+                    in: tabManager
+                )
             },
             markRead: { workspaceIds in
                 for workspaceId in workspaceIds where
