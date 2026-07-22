@@ -4359,8 +4359,12 @@ impl App {
             .find(|workspace| workspace.key == workspace_key)
             .map(|workspace| workspace.id)
         else {
+            self.status_message =
+                Some(localization::catalog().sidebar.managed_workspace_unavailable.to_string());
             return;
         };
+        // Queued mirror failures settle through SessionMutationOutcome::Failed.
+        // Missing mirrors must be surfaced here because no operation is queued.
         if let Some(name) = rename {
             self.session.rename_provider_managed_workspace(workspace_id, workspace_key, name);
         } else {

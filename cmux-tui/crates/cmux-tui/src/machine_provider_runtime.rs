@@ -119,7 +119,9 @@ impl ProviderMachineController {
             request => {
                 let switching_provider = matches!(request, MachineRequest::Switch(_));
                 let mut result = self.provider.perform_request(request)?;
-                if switching_provider && result.replacement.is_some() {
+                if result.replacement.is_some()
+                    && (switching_provider || self.active_local.is_none())
+                {
                     self.pending_active_local = Some(None);
                     result.ui = self.merge_local_ui_for(result.ui, None);
                 } else if self.active_local.is_some() && result.replacement.is_some() {
