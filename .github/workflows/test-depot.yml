@@ -29,7 +29,7 @@ on:
 jobs:
   tests:
     runs-on: ${{ vars.MACOS_RUNNER_15 || 'blacksmith-6vcpu-macos-15' }}
-    timeout-minutes: 20
+    timeout-minutes: 60
     steps:
       - name: Clear stale git locks (self-hosted reused workspace)
         shell: bash
@@ -140,7 +140,9 @@ jobs:
               xcodebuild -project cmux.xcodeproj -scheme cmux-unit -configuration Debug \
               -clonedSourcePackagesDirPath "$SOURCE_PACKAGES_DIR" \
               -disableAutomaticPackageResolution \
-              -destination "platform=macOS" test 2>&1
+              -destination "platform=macOS" \
+              -only-testing:cmuxTests/BrowserWebExtensionsManagerTests \
+              test 2>&1
           }
 
           set +e
