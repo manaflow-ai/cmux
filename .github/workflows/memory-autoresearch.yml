@@ -36,7 +36,7 @@ jobs:
     env:
       PERF_TAG: memory-${{ github.run_id }}-${{ github.run_attempt }}
       RESULTS_DIR: ${{ github.workspace }}/artifact
-      SOURCE_PACKAGES_DIR: ${{ runner.temp }}/cmux-memory-source-packages
+      SOURCE_PACKAGES_DIR: ${{ github.workspace }}/source-packages
       CMUX_SKIP_ZIG_BUILD: "1"
       SWIFT_BACKTRACE: "interactive=no,timeout=0s,symbolicate=off,color=no"
     steps:
