@@ -2893,6 +2893,16 @@ def _self_test() -> int:
             {RULE_SLEEP_THEN_ASSERT},
         ),
         (
+            "Tests/DefaultedExistentialRealClockTests.swift",
+            "func verify(\n"
+            "    clock: any Clock<Duration> = ContinuousClock()\n"
+            ") async {\n"
+            "    try await clock.sleep(for: .milliseconds(300))\n"
+            "    #expect(widget.isRendered)\n"
+            "}\n",
+            {RULE_SLEEP_THEN_ASSERT},
+        ),
+        (
             "Tests/ClosureDefaultRealClockParameterTests.swift",
             "func verify(\n"
             "    clock: ContinuousClock,\n"
@@ -3080,6 +3090,12 @@ def _self_test() -> int:
             "tests/asyncio_submodule_sleep.py",
             "import asyncio.subprocess\n"
             "await asyncio.sleep(0.3)\n"
+            "assert widget.is_rendered\n",
+            {RULE_SLEEP_THEN_ASSERT},
+        ),
+        (
+            "tests/import_then_sleep.py",
+            "import time; time.sleep(0.3)\n"
             "assert widget.is_rendered\n",
             {RULE_SLEEP_THEN_ASSERT},
         ),
