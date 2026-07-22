@@ -15,7 +15,13 @@ final class TeardownOrderRecorder: @unchecked Sendable {
 
     private let lock = NSLock()
     private var storedEvents: [Event] = []
-    private var waiters: [(count: Int, continuation: CheckedContinuation<Void, Never>)] = []
+    private struct Waiter {
+        let id: UUID
+        let count: Int
+        let continuation: CheckedContinuation<Bool, Never>
+    }
+
+    private var waiters: [Waiter] = []
 
     /// The events recorded so far, in order.
     var events: [Event] {
@@ -33,21 +39,38 @@ final class TeardownOrderRecorder: @unchecked Sendable {
         waiters.removeAll { $0.count <= count }
         lock.unlock()
         for continuation in resumable {
-            continuation.resume()
+            continuation.resume(returning: true)
         }
     }
 
-    /// Suspends until at least `count` events have been recorded.
-    func waitForEventCount(_ count: Int) async {
-        await withCheckedContinuation { continuation in
+    /// Suspends until at least `count` events have been recorded, or returns
+    /// false after a bounded wait so a failed teardown cannot hang the suite.
+    func waitForEventCount(_ count: Int, timeout: TimeInterval = 5) async -> Bool {
+        let waiterID = UUID()
+        return await withCheckedContinuation { continuation in
             lock.lock()
             if storedEvents.count >= count {
                 lock.unlock()
-                continuation.resume()
+                continuation.resume(returning: true)
                 return
             }
-            waiters.append((count, continuation))
+            waiters.append(Waiter(id: waiterID, count: count, continuation: continuation))
             lock.unlock()
+
+            DispatchQueue.global().asyncAfter(deadline: .now() + timeout) { [weak self] in
+                self?.expireWaiter(id: waiterID)
+            }
         }
+    }
+
+    private func expireWaiter(id: UUID) {
+        lock.lock()
+        guard let index = waiters.firstIndex(where: { $0.id == id }) else {
+            lock.unlock()
+            return
+        }
+        let continuation = waiters.remove(at: index).continuation
+        lock.unlock()
+        continuation.resume(returning: false)
     }
 }
