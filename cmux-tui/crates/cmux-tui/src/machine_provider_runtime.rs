@@ -1553,8 +1553,8 @@ mod tests {
         let listener = socket.listener();
         let catalog = provider_managed_snapshot(1);
         let workspace = active_workspace_snapshot(1);
-        let server_catalog = catalog.clone();
-        let server_workspace = workspace.clone();
+        let server_catalog = catalog;
+        let server_workspace = workspace;
         let server = thread::spawn(move || {
             let (mut stream, mut reader) =
                 serve_initial_snapshot(&listener, server_catalog.clone());
