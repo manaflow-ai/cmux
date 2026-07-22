@@ -36,6 +36,14 @@ struct WorkspaceCustomizationSheet: View {
                 descriptionSection
                 appearanceSection
             }
+            .accessibilityIdentifier("MobileWorkspaceCustomizationForm")
+            .accessibilityActions {
+                if canSave {
+                    Button(L10n.string("mobile.common.save", defaultValue: "Save")) {
+                        submit()
+                    }
+                }
+            }
             .navigationTitle(
                 L10n.string("mobile.workspace.customize.title", defaultValue: "Customize Workspace")
             )
@@ -48,8 +56,7 @@ struct WorkspaceCustomizationSheet: View {
                 }
                 ToolbarItem(placement: .confirmationAction) {
                     Button(L10n.string("mobile.common.save", defaultValue: "Save")) {
-                        save(draft)
-                        dismiss()
+                        submit()
                     }
                     .disabled(!canSave)
                     .accessibilityIdentifier("MobileWorkspaceCustomizeSaveButton")
@@ -141,5 +148,10 @@ struct WorkspaceCustomizationSheet: View {
         !draft.name.isEmpty
             && (!usesCustomColor || customColor.hexString != nil)
             && draft != initialDraft
+    }
+
+    private func submit() {
+        save(draft)
+        dismiss()
     }
 }
