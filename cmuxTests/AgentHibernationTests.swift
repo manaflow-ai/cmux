@@ -1,6 +1,7 @@
 import Foundation
 import Testing
 import Bonsplit
+import CmuxSidebar
 import CmuxTerminal
 
 #if canImport(cmux_DEV)
@@ -369,6 +370,81 @@ struct AgentHibernationTests {
         expectEqual(index.lifecycle(workspaceId: workspaceId, panelId: panelId), .idle)
         expectEqual(index.processIDs(workspaceId: workspaceId, panelId: panelId), [pid])
         expectTrue(index.hasLiveProcess(workspaceId: workspaceId, panelId: panelId))
+    }
+
+    @MainActor
+    @Test
+    func testLiveIdleHookObservationReconcilesStuckRunningSidebarStatus() throws {
+        let home = FileManager.default.temporaryDirectory
+            .appendingPathComponent("cmux-agent-hibernation-idle-reconcile-\(UUID().uuidString)", isDirectory: true)
+        let storeURL = RestorableAgentKind.codex.hookStoreFileURL(homeDirectory: home.path)
+        try FileManager.default.createDirectory(at: storeURL.deletingLastPathComponent(), withIntermediateDirectories: true)
+        defer { try? FileManager.default.removeItem(at: home) }
+
+        let workspace = Workspace()
+        let panelId = try #require(workspace.focusedPanelId)
+        let pid = Int(ProcessInfo.processInfo.processIdentifier)
+        let sessionId = "codex-live-idle-reconcile"
+        let hookUpdatedAt: TimeInterval = Date().timeIntervalSince1970 - 60
+        workspace.recordAgentPID(key: "codex.\(sessionId)", pid: pid_t(pid), panelId: panelId, refreshPorts: false)
+        workspace.setAgentLifecycle(key: "codex", panelId: panelId, lifecycle: .running)
+        workspace.statusEntries["codex"] = SidebarStatusEntry(
+            key: "codex",
+            value: "Running",
+            icon: "bolt.fill",
+            color: "#4C8DFF"
+        )
+
+        let jsonObject: [String: Any] = [
+            "version": 1,
+            "sessions": [
+                sessionId: [
+                    "sessionId": sessionId,
+                    "workspaceId": workspace.id.uuidString,
+                    "surfaceId": panelId.uuidString,
+                    "cwd": "/tmp/repo",
+                    "pid": pid,
+                    "agentLifecycle": "idle",
+                    "runtimeStatus": "idle",
+                    "updatedAt": hookUpdatedAt,
+                    "launchCommand": [
+                        "launcher": "codex",
+                        "executablePath": "/usr/local/bin/codex",
+                        "arguments": ["/usr/local/bin/codex"],
+                        "workingDirectory": "/tmp/repo",
+                    ],
+                ],
+            ],
+        ]
+        let data = try JSONSerialization.data(withJSONObject: jsonObject, options: [.prettyPrinted])
+        try data.write(to: storeURL, options: .atomic)
+
+        let index = RestorableAgentSessionIndex.load(
+            homeDirectory: home.path,
+            fileManager: .default,
+            registry: CmuxVaultAgentRegistry(registrations: []),
+            detectedSnapshots: [:],
+            processArgumentsProvider: { requestedPID in
+                requestedPID == pid
+                    ? CmuxTopProcessArguments(
+                        arguments: ["/usr/local/bin/codex"],
+                        environment: [
+                            "CMUX_WORKSPACE_ID": workspace.id.uuidString,
+                            "CMUX_SURFACE_ID": panelId.uuidString,
+                            "CMUX_AGENT_LAUNCH_KIND": RestorableAgentKind.codex.rawValue,
+                        ]
+                    )
+                    : nil
+            }
+        )
+
+        expectEqual(index.lifecycle(workspaceId: workspace.id, panelId: panelId), .idle)
+        expectTrue(index.hasLiveProcess(workspaceId: workspace.id, panelId: panelId))
+
+        expectNotNil(workspace.restorableAgentForHibernation(panelId: panelId, index: index))
+
+        expectEqual(workspace.agentHibernationLifecycleState(panelId: panelId, fallback: nil), .idle)
+        expectEqual(workspace.statusEntries["codex"]?.value, "Idle")
     }
 
     @Test
