@@ -158,7 +158,7 @@ object{app:"cmux-tui",version:string,build_commit?:string|null,ghostty_commit?:s
 
 `build_commit` and `ghostty_commit` are additive build-stamp fields. They are omitted or `null` when the binary was built without the corresponding stamp, so clients must preserve compatibility with older servers and unstamped local builds.
 
-`capabilities` is additive build-level feature negotiation within a protocol version. Clients must treat a missing field as an empty list.
+`capabilities` is additive build-level feature negotiation within a protocol version. Clients must treat a missing field as an empty list. `provider-managed-workspace-authority-v2` advertises pre-provisioned provider ownership and authority-gated post-provider rename and close commits.
 
 Errors:
 
@@ -180,7 +180,7 @@ Example:
 
 ```json
 {"id":1,"cmd":"identify"}
-{"id":1,"ok":true,"data":{"app":"cmux-tui","version":"0.1.0","build_commit":"abc123","ghostty_commit":"def456","protocol":9,"capabilities":["attach-initial-size","workspace-registry-v1"],"session":"main","pid":12345}}
+{"id":1,"ok":true,"data":{"app":"cmux-tui","version":"0.1.0","build_commit":"abc123","ghostty_commit":"def456","protocol":9,"capabilities":["attach-initial-size","workspace-registry-v1","provider-managed-workspace-authority-v2"],"session":"main","pid":12345}}
 ```
 
 The current server reports protocol `9` in this field and in `ping`. Clients must negotiate protocol 8 before requiring stable split ids or sending `set-split-ratio`, and protocol 9 before decoding stack layouts or sending `new-pane`.
@@ -1491,7 +1491,7 @@ Example:
 | status | implemented |
 | since | protocol 5 |
 
-Closes a workspace and every screen, pane, and tab in it. The workspace may be selected by stable key or numeric id. The active workspace selection is adjusted to keep a remaining workspace active when possible. `expected_revision` provides compare-and-swap protection against concurrent registry mutations. Stable-key selection, revision CAS, and the mutation result require `workspace-registry-v1`; the legacy numeric-id form remains available without it.
+Closes a workspace and every screen, pane, and tab in it. The workspace may be selected by stable key or numeric id. The active workspace selection is adjusted to keep a remaining workspace active when possible. `expected_revision` provides compare-and-swap protection against concurrent registry mutations. Stable-key selection, revision CAS, and the mutation result require `workspace-registry-v1`; the legacy numeric-id form remains available without it. After provider ownership is enabled, this ordinary command fails without changing workspace state.
 
 Params:
 
@@ -1515,6 +1515,7 @@ Errors:
 | `unknown workspace key <key>` | Workspace key does not exist |
 | `workspace id and key do not identify the same workspace` | Supplied selectors identify different workspaces |
 | `workspace revision conflict: ...` | Compare-and-swap guard is stale |
+| `cannot close a provider-managed workspace directly; use the managed workspace lifecycle controls` | Provider ownership is enabled for this mux generation |
 | `bad request: ...` | Missing selector or wrong JSON type |
 
 CLI mapping:
@@ -1532,6 +1533,77 @@ Example:
 ```json
 {"id":16,"cmd":"close-workspace","workspace":4}
 {"id":16,"ok":true,"data":{"workspace":4,"key":"ops-stable","workspace_revision":3}}
+```
+
+### mark-workspaces-provider-managed
+
+Requires the `provider-managed-workspace-authority-v2` capability. Clients must not send this command to a server that omits the capability.
+
+| Field | Value |
+| --- | --- |
+| name | `mark-workspaces-provider-managed` |
+| status | implemented |
+| since | protocol 9 additive capability |
+
+Verifies that the provider frontend holds the authority provisioned when this mux generation started. The mux is already provider-owned before this handshake and before its first control client. Repeated authorized requests are idempotent. `rename-workspace` and `close-workspace` fail for every current and future workspace in the generation even when the handshake is missing or invalid.
+
+Params: `object{authority:string}`. The authority is required and must match the mux's pre-provisioned value.
+
+Result: `object{}`.
+
+Errors:
+
+| Error | Condition |
+| --- | --- |
+| `invalid provider workspace authority` | Authority is missing from this mux generation or does not match |
+| `bad request: ...` | Authority is missing or has the wrong JSON type |
+
+This control-only command has no public CLI mapping. The provider-aware TUI sends it before exposing provider-owned workspace lifecycle controls.
+
+Example:
+
+```json
+{"id":17,"cmd":"mark-workspaces-provider-managed","authority":"<provider-authority>"}
+{"id":17,"ok":true,"data":{}}
+```
+
+### close-provider-managed-workspace
+
+Requires the `provider-managed-workspace-authority-v2` capability. Clients must not send this command to a server that omits the capability.
+
+| Field | Value |
+| --- | --- |
+| name | `close-provider-managed-workspace` |
+| status | implemented |
+| since | protocol 9 additive capability |
+
+Commits a provider-approved close to the local mux mirror. Both selectors are required and must identify the same live workspace. Clients must send this command only after the external provider durably accepts the close.
+
+Params:
+
+| Name | JSON type | Required/default | Constraints |
+| --- | --- | --- | --- |
+| `workspace` | `Id` | required | Must identify a live workspace |
+| `key` | `string` | required | Must identify the same workspace as `workspace` |
+| `authority` | `string` | required | Must match the mux's pre-provisioned provider authority |
+
+Result: `object{workspace:Id,key:string,workspace_revision:uint64}`.
+
+Errors:
+
+| Error | Condition |
+| --- | --- |
+| `invalid provider workspace authority` | Authority is missing from this mux generation or does not match |
+| `workspace id and key do not identify the same workspace` | Supplied selectors identify different workspaces |
+| `bad request: ...` | Missing fields or wrong JSON type |
+
+This control-only command has no public CLI mapping.
+
+Example:
+
+```json
+{"id":18,"cmd":"close-provider-managed-workspace","workspace":4,"key":"ops-stable","authority":"<provider-authority>"}
+{"id":18,"ok":true,"data":{"workspace":4,"key":"ops-stable","workspace_revision":3}}
 ```
 
 ### rename-pane
@@ -1683,7 +1755,7 @@ Example:
 | status | implemented |
 | since | protocol 5 |
 
-Sets a workspace name. The workspace may be selected by stable key or numeric id. Unlike pane, surface, and screen names, an empty `name` is stored as the workspace name. `expected_revision` provides compare-and-swap protection against concurrent registry mutations. Stable-key selection, revision CAS, and the mutation result require `workspace-registry-v1`; the legacy numeric-id form remains available without it.
+Sets a workspace name. The workspace may be selected by stable key or numeric id. Unlike pane, surface, and screen names, an empty `name` is stored as the workspace name. `expected_revision` provides compare-and-swap protection against concurrent registry mutations. Stable-key selection, revision CAS, and the mutation result require `workspace-registry-v1`; the legacy numeric-id form remains available without it. After provider ownership is enabled, this ordinary command fails without changing workspace state.
 
 Params:
 
@@ -1708,6 +1780,7 @@ Errors:
 | `unknown workspace key <key>` | Workspace key does not exist |
 | `workspace id and key do not identify the same workspace` | Supplied selectors identify different workspaces |
 | `workspace revision conflict: ...` | Compare-and-swap guard is stale |
+| `cannot rename a provider-managed workspace directly; use the managed workspace lifecycle controls` | Provider ownership is enabled for this mux generation |
 | `bad request: ...` | Missing fields or wrong JSON type |
 
 CLI mapping:
@@ -1725,6 +1798,46 @@ Example:
 ```json
 {"id":20,"cmd":"rename-workspace","workspace":4,"name":"prod"}
 {"id":20,"ok":true,"data":{"workspace":4,"key":"ops-stable","workspace_revision":2}}
+```
+
+### rename-provider-managed-workspace
+
+Requires the `provider-managed-workspace-authority-v2` capability. Clients must not send this command to a server that omits the capability.
+
+| Field | Value |
+| --- | --- |
+| name | `rename-provider-managed-workspace` |
+| status | implemented |
+| since | protocol 9 additive capability |
+
+Commits a provider-approved rename to the local mux mirror. Both selectors are required and must identify the same live workspace. Clients must send this command only after the external provider durably accepts the rename.
+
+Params:
+
+| Name | JSON type | Required/default | Constraints |
+| --- | --- | --- | --- |
+| `workspace` | `Id` | required | Must identify a live workspace |
+| `key` | `string` | required | Must identify the same workspace as `workspace` |
+| `name` | `string` | required | Empty string is stored |
+| `authority` | `string` | required | Must match the mux's pre-provisioned provider authority |
+
+Result: `object{workspace:Id,key:string,workspace_revision:uint64}`.
+
+Errors:
+
+| Error | Condition |
+| --- | --- |
+| `invalid provider workspace authority` | Authority is missing from this mux generation or does not match |
+| `workspace id and key do not identify the same workspace` | Supplied selectors identify different workspaces |
+| `bad request: ...` | Missing fields or wrong JSON type |
+
+This control-only command has no public CLI mapping.
+
+Example:
+
+```json
+{"id":21,"cmd":"rename-provider-managed-workspace","workspace":4,"key":"ops-stable","name":"prod","authority":"<provider-authority>"}
+{"id":21,"ok":true,"data":{"workspace":4,"key":"ops-stable","workspace_revision":2}}
 ```
 
 ### resize-surface
@@ -2383,7 +2496,7 @@ Example:
 | status | implemented |
 | since | protocol 6 |
 
-Spawns a command in a new PTY tab and returns the new surface id. `argv` executes directly without a shell. `command` executes through the session shell as `shell -lc <command>`. Exactly one of `argv` or `command` is required. By default the tab is created in the active pane. With `pane`, it is created in that pane. With `new_workspace:true`, a new workspace is created instead. Initial dimensions follow [Sizing](#sizing).
+Spawns a command in a new PTY tab and returns the new surface id. `argv` executes directly without a shell. `command` executes through the session shell as `shell -lc <command>`. Exactly one of `argv` or `command` is required. By default the tab is created in the active pane. With `pane`, it is created in that pane. With `new_workspace:true`, a new workspace is created instead. `key` assigns that workspace a caller-owned stable identity so detached or provider-backed frontends can reconcile it after a display-name change. Initial dimensions follow [Sizing](#sizing).
 
 Params:
 
@@ -2393,7 +2506,8 @@ Params:
 | `command` | `string` | required if `argv` absent | Executed via shell `-lc` |
 | `cwd` | `string` | default null | Working directory |
 | `pane` | `IdRef` | default null | Mutually exclusive with `new_workspace:true` |
-| `new_workspace` | `boolean` | default false | Create isolated workspace |
+| `new_workspace` | `boolean` | default false | Create a new workspace |
+| `key` | `string` | default null | Protocol 9; valid only with `new_workspace:true`; unique stable workspace key |
 | `name` | `string` | default null | Sets surface name; also workspace name when `new_workspace:true` |
 | `cols` | `uint16` | default null | Used only with `rows` |
 | `rows` | `uint16` | default null | Used only with `cols` |
@@ -2411,6 +2525,8 @@ Errors:
 | `argv or command is required` | Neither is supplied |
 | `argv and command are mutually exclusive` | Both are supplied |
 | `pane and new_workspace are mutually exclusive` | Both placement options are supplied by a raw socket caller |
+| `key requires new_workspace` | A stable key is supplied without workspace creation |
+| `workspace key already exists: <key>` | The stable key is already present in the session |
 | `unknown pane <id>` | Supplied pane does not exist |
 | spawn or PTY error string | PTY creation or child spawn fails |
 | `bad request: ...` | Wrong JSON type |
@@ -2420,7 +2536,7 @@ CLI mapping:
 | Item | Value |
 | --- | --- |
 | Verb | `run` |
-| Flags | `[--pane <id> | --new-workspace] [--cwd <path>] [--name <name>] -- <argv...>` or `--command <cmd>` |
+| Flags | `[--pane <id> \| --new-workspace [--key <key>]] [--cwd <path>] [--name <name>] -- <argv...>` or `--command <cmd>` |
 | Plain stdout | new surface id followed by newline |
 | JSON stdout | exact result object |
 | Exit codes | common |
@@ -2430,6 +2546,8 @@ Example:
 ```json
 {"id":102,"cmd":"run","argv":["python3","-m","http.server"],"cwd":"/tmp","name":"server"}
 {"id":102,"ok":true,"data":{"surface":31,"pane":2,"screen":3,"workspace":4}}
+{"id":103,"cmd":"run","argv":["/bin/zsh","-l"],"new_workspace":true,"key":"workspace-019c","name":"cloud"}
+{"id":103,"ok":true,"data":{"surface":32,"pane":5,"screen":6,"workspace":7}}
 ```
 
 ### send-key
