@@ -2721,8 +2721,32 @@ final class BrowserPanel: Panel, ObservableObject {
     @Published private(set) var profileID: UUID
     @Published private(set) var historyStore: BrowserHistoryStore
 
-    /// The underlying web view
-    private(set) var webView: WKWebView
+    /// The underlying web view. Replacement invalidates document-scoped React
+    /// Grab state. Discard scheduling stays suppressed until the new reference
+    /// is installed so clearing the active flag cannot recursively replace it.
+    private var isReplacingWebViewReference = false
+    private(set) var webView: WKWebView {
+        willSet {
+            guard newValue !== webView else { return }
+            isReplacingWebViewReference = true
+            resetReactGrabState(reason: "webView.replaced")
+        }
+        didSet {
+            guard oldValue !== webView else { return }
+            isReplacingWebViewReference = false
+            let replacement = webView
+            let replacementInstanceID = webViewInstanceID
+            DispatchQueue.main.async { [weak self, weak replacement] in
+                guard let self,
+                      let replacement,
+                      self.webView === replacement,
+                      self.webViewInstanceID == replacementInstanceID else {
+                    return
+                }
+                self.reevaluateHiddenWebViewDiscardScheduling(reason: "webView.replaced")
+            }
+        }
+    }
     let viewportHostView = BrowserViewportHostView(frame: .zero)
     let viewportModel = BrowserViewportModel()
     var browserViewportHostRestorationTask: Task<Void, Never>?
@@ -3006,10 +3030,12 @@ final class BrowserPanel: Panel, ObservableObject {
     @Published var isReactGrabActive: Bool = false {
         didSet {
             guard oldValue != isReactGrabActive else { return }
+            guard !isReplacingWebViewReference else { return }
             reevaluateHiddenWebViewDiscardScheduling(reason: "react_grab_changed")
         }
     }
     var requestedReactGrabActive: Bool?
+    var latestReactGrabRequestedState: Bool?
     var reactGrabStateReconciliationTask: Task<Void, Never>?
     var reactGrabStateReconciliationGeneration: UInt64 = 0
     var reactGrabStateConfirmation: ReactGrabStateConfirmation?
@@ -5430,12 +5456,7 @@ final class BrowserPanel: Panel, ObservableObject {
         automationNavigationCoordinator.invalidate()
         automationDocumentReadiness.invalidate()
         automationWatchdog.invalidate()
-        reactGrabStateReconciliationGeneration &+= 1
-        reactGrabStateReconciliationTask?.cancel()
-        reactGrabStateReconciliationTask = nil
-        reactGrabStateConfirmation?.cancel()
-        reactGrabStateConfirmation = nil
-        requestedReactGrabActive = nil
+        resetReactGrabState(reason: "close")
         refreshWebViewLifecycleState()
         GlobalSearchCoordinator.shared.purgePanel(id: id)
         closeDeveloperToolsForTeardown()
@@ -6280,6 +6301,7 @@ extension BrowserPanel {
 
     func resetForWorkspaceContextChange(reason: String) {
         guard needsWorkspaceContextReset else {
+            resetReactGrabState(reason: "contextReset.skip")
             resetWebViewLifecycleMetadata()
 #if DEBUG
             cmuxDebugLog(

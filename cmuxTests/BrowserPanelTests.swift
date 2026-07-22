@@ -1006,6 +1006,28 @@ final class BrowserPanelAddressBarFocusRequestTests: XCTestCase {
 
 @MainActor
 final class BrowserPanelReactGrabBridgeTests: XCTestCase {
+    func testActivationUpdaterInvocationEmbedsRequestGeneration() {
+        XCTAssertEqual(
+            reactGrabActivationUpdaterInvocation(
+                receiver: "existingActivationUpdater",
+                active: true,
+                requestGeneration: 42
+            ),
+            "existingActivationUpdater(true, '42')"
+        )
+
+        guard case let .stateChange(isActive, requestGeneration)? = ReactGrabBridgeMessage(body: [
+            "type": "stateChange",
+            "isActive": true,
+            "requestGeneration": "42",
+        ]) else {
+            XCTFail("Expected a request-scoped state change")
+            return
+        }
+        XCTAssertTrue(isActive)
+        XCTAssertEqual(requestGeneration, 42)
+    }
+
     func testStateConfirmationWaitsForMatchingBridgeState() async {
         let confirmation = ReactGrabStateConfirmation(target: true)
         let waiter = Task { await confirmation.wait(timeout: .seconds(1)) }
@@ -1056,7 +1078,28 @@ final class BrowserPanelReactGrabBridgeTests: XCTestCase {
         XCTAssertEqual(panel.requestedReactGrabActive, false)
     }
 
-    func testWebViewReplacementInvalidatesReactGrabStateAndRoundTrip() {
+    func testStaleScopedBridgeStateCannotOverwriteNewerRequest() {
+        let panel = BrowserPanel(workspaceId: UUID())
+        defer { panel.close() }
+
+        XCTAssertTrue(panel.requestReactGrabActive(true, reason: "test.activate"))
+        let activationGeneration = panel.reactGrabStateReconciliationGeneration
+        XCTAssertTrue(panel.requestReactGrabActive(false, reason: "test.deactivate"))
+        let deactivationGeneration = panel.reactGrabStateReconciliationGeneration
+
+        panel.handleReactGrabBridgeMessage(.stateChange(
+            isActive: false,
+            requestGeneration: deactivationGeneration
+        ))
+        panel.handleReactGrabBridgeMessage(.stateChange(
+            isActive: true,
+            requestGeneration: activationGeneration
+        ))
+
+        XCTAssertFalse(panel.isReactGrabActive)
+    }
+
+    func testWebViewReplacementInvalidatesReactGrabStateAndRoundTrip() async {
         let panel = BrowserPanel(workspaceId: UUID())
         defer { panel.close() }
         let returnPanelID = UUID()
@@ -1064,6 +1107,8 @@ final class BrowserPanelReactGrabBridgeTests: XCTestCase {
         panel.handleReactGrabBridgeMessage(.stateChange(isActive: true))
         panel.armReactGrabRoundTrip(returnTo: returnPanelID)
         XCTAssertTrue(panel.requestReactGrabActive(true, reason: "test.pending"))
+        let pendingConfirmation = ReactGrabStateConfirmation(target: true)
+        panel.reactGrabStateConfirmation = pendingConfirmation
         let reconciliationGeneration = panel.reactGrabStateReconciliationGeneration
         let originalWebView = panel.webView
 
@@ -1076,12 +1121,43 @@ final class BrowserPanelReactGrabBridgeTests: XCTestCase {
         XCTAssertFalse(panel.webView === originalWebView)
         XCTAssertFalse(panel.isReactGrabActive)
         XCTAssertNil(panel.requestedReactGrabActive)
+        XCTAssertNil(panel.reactGrabStateReconciliationTask)
+        XCTAssertNil(panel.reactGrabStateConfirmation)
         XCTAssertNil(panel.pendingReactGrabReturnTargetPanelId)
         XCTAssertNil(panel.pendingReactGrabRoundTripToken)
         XCTAssertGreaterThan(
             panel.reactGrabStateReconciliationGeneration,
             reconciliationGeneration
         )
+        let pendingConfirmationResult = await pendingConfirmation.wait(timeout: .seconds(1))
+        XCTAssertFalse(pendingConfirmationResult)
+    }
+
+    func testToggleWaitsForBridgeConfirmedState() async {
+        let panel = BrowserPanel(workspaceId: UUID())
+        defer { panel.close() }
+        panel.handleReactGrabBridgeMessage(.stateChange(isActive: true))
+        var didFinish = false
+
+        let toggleTask = Task { @MainActor in
+            await panel.toggleOrInjectReactGrab()
+            didFinish = true
+        }
+        for _ in 0..<20 {
+            if panel.reactGrabStateConfirmation?.target == false { break }
+            await Task.yield()
+        }
+
+        XCTAssertEqual(panel.reactGrabStateConfirmation?.target, false)
+        XCTAssertFalse(didFinish)
+
+        panel.handleReactGrabBridgeMessage(.stateChange(isActive: false))
+        await toggleTask.value
+
+        XCTAssertTrue(didFinish)
+        XCTAssertFalse(panel.isReactGrabActive)
+        XCTAssertNil(panel.requestedReactGrabActive)
+        XCTAssertNil(panel.reactGrabStateReconciliationTask)
     }
 
     @MainActor
@@ -1286,10 +1362,13 @@ final class BrowserPanelReactGrabBridgeTests: XCTestCase {
         panel.armReactGrabRoundTrip(returnTo: UUID())
         let token = try XCTUnwrap(panel.pendingReactGrabRoundTripToken)
 
-        await panel.ensureReactGrabActive()
+        let confirmed = await panel.ensureReactGrabActive()
+        XCTAssertTrue(confirmed)
 
         let refreshedToken = try await panel.evaluateJavaScript("window.__cmuxTestRoundTripToken") as? String
         XCTAssertEqual(refreshedToken, token)
+        XCTAssertNil(panel.requestedReactGrabActive)
+        XCTAssertNil(panel.reactGrabStateReconciliationTask)
     }
 }
 
