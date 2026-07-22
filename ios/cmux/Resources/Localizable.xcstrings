@@ -16387,7 +16387,27 @@
     "mobile.surface.openOnMac": {"extractionState":"manual","localizations":{"en":{"stringUnit":{"state":"translated","value":"Open on Mac"}},"ja":{"stringUnit":{"state":"translated","value":"Macで開く"}}}},
     "mobile.surface.openOnMacFailed": {"extractionState":"manual","localizations":{"en":{"stringUnit":{"state":"translated","value":"Couldn't reach your Mac. Try again."}},"ja":{"stringUnit":{"state":"translated","value":"Macに接続できませんでした。もう一度お試しください。"}}}},
     "mobile.surface.renderedOnMac": {"extractionState":"manual","localizations":{"en":{"stringUnit":{"state":"translated","value":"Rendered on your Mac"}},"ja":{"stringUnit":{"state":"translated","value":"Mac上でレンダリングされています"}}}},
-    "mobile.surface.section": {"extractionState":"manual","localizations":{"en":{"stringUnit":{"state":"translated","value":"Mac Surfaces"}},"ja":{"stringUnit":{"state":"translated","value":"Macのサーフェス"}}}}
+    "mobile.surface.section": {"extractionState":"manual","localizations":{"en":{"stringUnit":{"state":"translated","value":"Mac Surfaces"}},"ja":{"stringUnit":{"state":"translated","value":"Macのサーフェス"}}}},
+    "mobile.todo.add": {"extractionState":"manual","localizations":{"en":{"stringUnit":{"state":"translated","value":"Add checklist item"}},"ja":{"stringUnit":{"state":"translated","value":"チェックリスト項目を追加"}}}},
+    "mobile.todo.addPlaceholder": {"extractionState":"manual","localizations":{"en":{"stringUnit":{"state":"translated","value":"New checklist item"}},"ja":{"stringUnit":{"state":"translated","value":"新しいチェックリスト項目"}}}},
+    "mobile.todo.emptyChecklist": {"extractionState":"manual","localizations":{"en":{"stringUnit":{"state":"translated","value":"No checklist items yet."}},"ja":{"stringUnit":{"state":"translated","value":"チェックリスト項目はまだありません。"}}}},
+    "mobile.todo.item.agentOrigin": {"extractionState":"manual","localizations":{"en":{"stringUnit":{"state":"translated","value":"Created by an agent"}},"ja":{"stringUnit":{"state":"translated","value":"エージェントが作成"}}}},
+    "mobile.todo.item.delete": {"extractionState":"manual","localizations":{"en":{"stringUnit":{"state":"translated","value":"Delete"}},"ja":{"stringUnit":{"state":"translated","value":"削除"}}}},
+    "mobile.todo.item.editPlaceholder": {"extractionState":"manual","localizations":{"en":{"stringUnit":{"state":"translated","value":"Item text"}},"ja":{"stringUnit":{"state":"translated","value":"項目のテキスト"}}}},
+    "mobile.todo.item.markCompleted": {"extractionState":"manual","localizations":{"en":{"stringUnit":{"state":"translated","value":"Mark as completed"}},"ja":{"stringUnit":{"state":"translated","value":"完了にする"}}}},
+    "mobile.todo.item.markInProgress": {"extractionState":"manual","localizations":{"en":{"stringUnit":{"state":"translated","value":"Mark as in progress"}},"ja":{"stringUnit":{"state":"translated","value":"進行中にする"}}}},
+    "mobile.todo.item.markPending": {"extractionState":"manual","localizations":{"en":{"stringUnit":{"state":"translated","value":"Mark as pending"}},"ja":{"stringUnit":{"state":"translated","value":"保留にする"}}}},
+    "mobile.todo.status.automatic": {"extractionState":"manual","localizations":{"en":{"stringUnit":{"state":"translated","value":"Automatic"}},"ja":{"stringUnit":{"state":"translated","value":"自動"}}}},
+    "mobile.todo.status.choose": {"extractionState":"manual","localizations":{"en":{"stringUnit":{"state":"translated","value":"Choose status"}},"ja":{"stringUnit":{"state":"translated","value":"ステータスを選択"}}}},
+    "mobile.todo.status.cycle": {"extractionState":"manual","localizations":{"en":{"stringUnit":{"state":"translated","value":"Cycle status"}},"ja":{"stringUnit":{"state":"translated","value":"ステータスを次へ"}}}},
+    "mobile.todo.status.done": {"extractionState":"manual","localizations":{"en":{"stringUnit":{"state":"translated","value":"Done"}},"ja":{"stringUnit":{"state":"translated","value":"完了"}}}},
+    "mobile.todo.status.hidden": {"extractionState":"manual","localizations":{"en":{"stringUnit":{"state":"translated","value":"No Status"}},"ja":{"stringUnit":{"state":"translated","value":"ステータスなし"}}}},
+    "mobile.todo.status.needsAttention": {"extractionState":"manual","localizations":{"en":{"stringUnit":{"state":"translated","value":"Needs Attention"}},"ja":{"stringUnit":{"state":"translated","value":"要確認"}}}},
+    "mobile.todo.status.review": {"extractionState":"manual","localizations":{"en":{"stringUnit":{"state":"translated","value":"Review"}},"ja":{"stringUnit":{"state":"translated","value":"レビュー"}}}},
+    "mobile.todo.status.todo": {"extractionState":"manual","localizations":{"en":{"stringUnit":{"state":"translated","value":"Todo"}},"ja":{"stringUnit":{"state":"translated","value":"ToDo"}}}},
+    "mobile.todo.status.working": {"extractionState":"manual","localizations":{"en":{"stringUnit":{"state":"translated","value":"Working"}},"ja":{"stringUnit":{"state":"translated","value":"作業中"}}}},
+    "mobile.todo.updateFailed.message": {"extractionState":"manual","localizations":{"en":{"stringUnit":{"state":"translated","value":"Your change was undone. Try again."}},"ja":{"stringUnit":{"state":"translated","value":"変更を元に戻しました。もう一度お試しください。"}}}},
+    "mobile.todo.updateFailed.title": {"extractionState":"manual","localizations":{"en":{"stringUnit":{"state":"translated","value":"Couldn’t Update Checklist"}},"ja":{"stringUnit":{"state":"translated","value":"チェックリストを更新できませんでした"}}}}
   },
   "version": "1.0"
 }

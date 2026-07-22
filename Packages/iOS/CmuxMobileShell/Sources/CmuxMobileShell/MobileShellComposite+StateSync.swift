@@ -339,7 +339,8 @@ extension MobileShellComposite {
                         surfaceID: surface.surfaceID,
                         kind: surface.kind,
                         title: surface.title,
-                        filePath: surface.filePath
+                        filePath: surface.filePath,
+                        todo: surface.todo
                     )
                 }
             )

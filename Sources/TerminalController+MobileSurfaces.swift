@@ -48,9 +48,58 @@ extension TerminalController {
                 surfaceID: panel.id.uuidString,
                 kind: mobileSurfaceKind(for: panel.panelType).rawValue,
                 title: workspace.panelTitle(panelId: panel.id) ?? panel.displayTitle,
-                filePath: filePath
+                filePath: filePath,
+                todo: panel.panelType == .workspaceTodo ? mobileTodoSnapshot(in: workspace) : nil
             )
         }
+    }
+
+    /// Projects the workspace-owned todo model without carrying Mac-local attachments.
+    func mobileTodoSnapshot(in workspace: Workspace) -> MobileTodoSnapshot {
+        let status: MobileTodoStatus = switch workspace.effectiveTaskStatus {
+        case .todo: .todo
+        case .working: .working
+        case .needsAttention: .needsAttention
+        case .review: .review
+        case .done: .done
+        }
+        return MobileTodoSnapshot(
+            status: status,
+            statusHidden: workspace.todoState.statusHidden,
+            items: workspace.todoState.checklist.map { item in
+                let state: MobileTodoItemState = switch item.state {
+                case .pending: .pending
+                case .inProgress: .inProgress
+                case .completed: .completed
+                }
+                let origin: MobileTodoItemOrigin = switch item.origin {
+                case .user: .user
+                case .agent: .agent
+                }
+                return MobileTodoItem(
+                    id: item.id.uuidString,
+                    text: item.text,
+                    state: state,
+                    origin: origin
+                )
+            }
+        )
+    }
+
+    /// Bridges a typed todo snapshot into the legacy workspace-list JSON shape.
+    func mobileTodoPayload(_ todo: MobileTodoSnapshot) -> [String: Any] {
+        [
+            "status": todo.status.rawValue,
+            "status_hidden": todo.statusHidden,
+            "items": todo.items.map { item in
+                [
+                    "id": item.id,
+                    "text": item.text,
+                    "state": item.state.rawValue,
+                    "origin": item.origin.rawValue,
+                ]
+            },
+        ]
     }
 
     /// Focuses a Mac surface through the same mutation witness as `surface.focus`.

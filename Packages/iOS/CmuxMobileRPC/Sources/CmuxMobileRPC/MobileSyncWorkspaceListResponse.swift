@@ -1,3 +1,4 @@
+public import CMUXMobileCore
 public import Foundation
 
 /// Typed decoder for the `workspace.list` / `mobile.workspace.list` RPC result.
@@ -104,19 +105,29 @@ public struct MobileSyncWorkspaceListResponse: Decodable, Sendable {
         public let title: String
         /// Backing path for file-oriented surfaces, when present.
         public let filePath: String?
+        /// Bounded checklist/status payload for todo surfaces.
+        public let todo: MobileTodoSnapshot?
 
         private enum CodingKeys: String, CodingKey {
             case surfaceID = "surface_id"
             case kind, title
             case filePath = "file_path"
+            case todo
         }
 
         /// Creates a projected surface DTO.
-        public init(surfaceID: String, kind: String, title: String, filePath: String?) {
+        public init(
+            surfaceID: String,
+            kind: String,
+            title: String,
+            filePath: String?,
+            todo: MobileTodoSnapshot? = nil
+        ) {
             self.surfaceID = surfaceID
             self.kind = kind
             self.title = title
             self.filePath = filePath
+            self.todo = todo
         }
     }
 
@@ -259,4 +270,3 @@ extension MobileSyncWorkspaceListResponse {
         self.createdTerminalID = createdTerminalID
     }
 }
-
