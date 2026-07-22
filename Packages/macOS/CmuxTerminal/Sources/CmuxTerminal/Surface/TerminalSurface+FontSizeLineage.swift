@@ -69,7 +69,9 @@ extension TerminalSurface {
     /// config when its own runtime is recreated.
     @MainActor
     func recordCurrentFontSizeLineage(_ lineage: TerminalFontSizeLineage) {
+        guard lastKnownFontSizeLineage != lineage else { return }
         lastKnownFontSizeLineage = lineage
+        onFontSizeLineageChanged?(lineage)
     }
 
     /// Resolves the Swift-owned template used to create this surface's runtime.
@@ -98,8 +100,7 @@ extension TerminalSurface {
     public func sessionFontSizeOverrideBasePoints() -> Float32? {
         guard let lineage = fontSizeLineageSnapshot(),
               lineage.isExplicitOverride,
-              lineage.basePoints.isFinite,
-              lineage.basePoints > 0 else {
+              TerminalFontSizePolicy().acceptsPersistedBasePoints(lineage.basePoints) else {
             return nil
         }
         return lineage.basePoints

@@ -1426,7 +1426,7 @@ class TabManager: ObservableObject {
         // new workspace. The workspace already caches the rooted font lineage we need.
         return withExtendedLifetime(workspace) {
             guard let lineage = workspace.lastRememberedTerminalFontSizeLineageForConfigInheritance(),
-                  lineage.basePoints > 0 else {
+                  TerminalFontSizePolicy().acceptsPersistedBasePoints(lineage.basePoints) else {
                 return nil
             }
             return lineage
@@ -1460,7 +1460,9 @@ class TabManager: ObservableObject {
         inheritedTerminalFontSizeLineage: TerminalFontSizeLineage?
     ) -> CmuxSurfaceConfigTemplate? {
         guard let inheritedTerminalFontSizeLineage,
-              inheritedTerminalFontSizeLineage.basePoints > 0 else {
+              TerminalFontSizePolicy().acceptsPersistedBasePoints(
+                inheritedTerminalFontSizeLineage.basePoints
+              ) else {
             return nil
         }
         // Rebuild a clean Swift-owned template instead of carrying over any pointer-backed

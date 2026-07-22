@@ -5,8 +5,8 @@ public enum TerminalFontSizeCreationPolicy: Equatable, Sendable {
 
     /// Restores an explicit persisted font-size override or clears inherited lineage.
     ///
-    /// A missing, non-finite, or non-positive base point size clears any inherited
-    /// font-size lineage so the surface follows the current terminal configuration.
+    /// A missing value or one outside ``TerminalFontSizePolicy``'s persistable
+    /// base range clears inherited lineage so the surface follows current config.
     ///
     /// - Parameter overrideBasePoints: The persisted unscaled base font size, or
     ///   `nil` when the restored surface had no explicit override.
@@ -26,8 +26,7 @@ public enum TerminalFontSizeCreationPolicy: Equatable, Sendable {
             return inheritedConfig
         case .sessionRestore(let overrideBasePoints):
             guard let overrideBasePoints,
-                  overrideBasePoints.isFinite,
-                  overrideBasePoints > 0 else {
+                  TerminalFontSizePolicy().acceptsPersistedBasePoints(overrideBasePoints) else {
                 guard var template = inheritedConfig else { return nil }
                 template.fontSizeLineage = nil
                 return template

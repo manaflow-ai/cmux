@@ -190,6 +190,8 @@ public final class TerminalSurface: Identifiable, ObservableObject {
     /// Remote tmux manual-I/O resize and runtime-readiness hooks.
     @MainActor public var onManualSizeApplied: (@MainActor (TerminalSurfaceRawSizingSample) -> Void)?
     @MainActor public var onRuntimeReady: (@MainActor () -> Void)?
+    /// Called after durable font-size lineage changes.
+    @MainActor public var onFontSizeLineageChanged: (@MainActor (TerminalFontSizeLineage) -> Void)?
     @MainActor var manualSizeReportPendingWindowAttach = false
     /// For MANUAL-I/O remote tmux display surfaces: whether to suppress
     /// ghostty primary-screen reflow on resize.

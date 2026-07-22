@@ -19,7 +19,7 @@ public struct CmuxSurfaceConfigTemplate: Sendable {
     public var fontSize: Float32 {
         get { fontSizeLineage?.basePoints ?? 0 }
         set {
-            guard newValue.isFinite, newValue > 0 else {
+            guard TerminalFontSizePolicy().acceptsPersistedBasePoints(newValue) else {
                 fontSizeLineage = nil
                 return
             }
@@ -50,15 +50,15 @@ public struct CmuxSurfaceConfigTemplate: Sendable {
 
     /// Sets the template font size and records whether it is a surface-local override.
     ///
-    /// Invalid or non-positive values clear the font-size lineage and restore
-    /// runtime-default behavior.
+    /// Values outside the persistable base-font range clear the font-size
+    /// lineage and restore runtime-default behavior.
     ///
     /// - Parameters:
     ///   - basePoints: The unscaled font size in points.
     ///   - isExplicitOverride: Whether the new surface should retain this size
     ///     independently of later terminal config changes.
     public mutating func setFontSize(_ basePoints: Float32, isExplicitOverride: Bool) {
-        guard basePoints.isFinite, basePoints > 0 else {
+        guard TerminalFontSizePolicy().acceptsPersistedBasePoints(basePoints) else {
             fontSizeLineage = nil
             return
         }
@@ -143,9 +143,10 @@ public struct CmuxSurfaceConfigTemplate: Sendable {
     /// - Parameters:
     ///   - basePoints: The unscaled base point size.
     ///   - percent: The global magnification percent used for the conversion.
-    /// - Returns: The runtime point size for `percent`.
+    /// - Returns: The runtime point size for `percent`, clamped to Ghostty's
+    ///   supported native range.
     public static func runtimeFontSize(fromBasePoints basePoints: Float32, percent: Int) -> Float32 {
-        guard basePoints.isFinite, basePoints > 0 else { return basePoints }
-        return max(1, basePoints * Float32(GlobalFontMagnification.scale(for: percent)))
+        let scaledPoints = basePoints * Float32(GlobalFontMagnification.scale(for: percent))
+        return TerminalFontSizePolicy().clampedRuntimePoints(scaledPoints)
     }
 }

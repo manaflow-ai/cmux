@@ -1,4 +1,5 @@
 import Foundation
+import CmuxTerminalCore
 
 extension SessionPersistencePolicy {
     static func defaultCmuxCrashDirectoryURL(
@@ -250,8 +251,7 @@ extension SessionPersistencePolicy {
 
     private static func terminalCarriesRestorableUserState(_ terminal: SessionTerminalPanelSnapshot) -> Bool {
         if let fontSize = terminal.fontSize,
-           fontSize.isFinite,
-           fontSize > 0 {
+           TerminalFontSizePolicy().acceptsPersistedBasePoints(fontSize) {
             return true
         }
         return !isNilOrBlank(terminal.scrollback) || terminal.textBoxDraft != nil
