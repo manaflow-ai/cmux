@@ -7732,16 +7732,15 @@ fn browser_key_mapping(
 mod tests {
     use super::{
         App, AppEvent, BACKGROUND_REFRESH_RETRIES, ContextMenu, DeferredInput, Drag,
-        ForwardMuxOutcome, MenuAction, MenuItem, MuxTitleIngress, OrderedSession, PaneArea,
-        OuterCursorSpec, PaneFocusHistory, PendingSessionMutation, PendingSessionMutationState,
-        PtyFailureIngress,
-        PtyMousePressResult, RenderAction, Selection, SessionCompletion, SessionCompletionAction,
-        SidebarPluginSyncClaim, SidebarPluginSyncState, SurfaceResizeDecision,
-        SurfaceResizeOwnership, browser_content_size_for_rect, browser_hover_forward_allowed,
-        canonical_terminal_content, client_menu_item, forward_mux_event, forward_mux_events,
-        outer_cursor_escape, outer_cursor_escape_if_changed, pane_context_menu_groups,
-        pane_parts_for_rect, preserve_client_view, record_surface_resize_dispatch_result,
-        sidebar_plugin_status_settles_passive_claim,
+        ForwardMuxOutcome, MenuAction, MenuItem, MuxTitleIngress, OrderedSession, OuterCursorSpec,
+        PaneArea, PaneFocusHistory, PendingSessionMutation, PendingSessionMutationState,
+        PtyFailureIngress, PtyMousePressResult, RenderAction, Selection, SessionCompletion,
+        SessionCompletionAction, SidebarPluginSyncClaim, SidebarPluginSyncState,
+        SurfaceResizeDecision, SurfaceResizeOwnership, browser_content_size_for_rect,
+        browser_hover_forward_allowed, canonical_terminal_content, client_menu_item,
+        forward_mux_event, forward_mux_events, outer_cursor_escape, outer_cursor_escape_if_changed,
+        pane_context_menu_groups, pane_parts_for_rect, preserve_client_view,
+        record_surface_resize_dispatch_result, sidebar_plugin_status_settles_passive_claim,
     };
     use std::collections::{HashMap, HashSet, VecDeque};
     use std::path::PathBuf;
