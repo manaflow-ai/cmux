@@ -59,4 +59,43 @@ struct TerminalShellResolverTests {
 
         #expect(resolved == nil)
     }
+
+    @Test
+    func resolvedShellBecomesTheDefaultSurfaceCommand() {
+        let command = TerminalLaunchCommandPolicy().resolve(
+            initialCommand: nil,
+            surfaceCommand: nil,
+            hasUserGhosttyCommand: false,
+            managedShellCommand: nil,
+            resolvedShell: "/run/current-system/sw/bin/fish"
+        )
+
+        #expect(command == "/run/current-system/sw/bin/fish")
+    }
+
+    @Test
+    func explicitGhosttyCommandIsInheritedWithoutSurfaceOverride() {
+        let command = TerminalLaunchCommandPolicy().resolve(
+            initialCommand: nil,
+            surfaceCommand: nil,
+            hasUserGhosttyCommand: true,
+            managedShellCommand: "/run/current-system/sw/bin/fish --init-command source",
+            resolvedShell: "/run/current-system/sw/bin/fish"
+        )
+
+        #expect(command == nil)
+    }
+
+    @Test
+    func managedFishCommandWinsOverPlainResolvedShell() {
+        let command = TerminalLaunchCommandPolicy().resolve(
+            initialCommand: nil,
+            surfaceCommand: nil,
+            hasUserGhosttyCommand: false,
+            managedShellCommand: "/run/current-system/sw/bin/fish --init-command source",
+            resolvedShell: "/run/current-system/sw/bin/fish"
+        )
+
+        #expect(command == "/run/current-system/sw/bin/fish --init-command source")
+    }
 }
