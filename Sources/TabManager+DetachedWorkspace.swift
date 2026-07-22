@@ -1,5 +1,6 @@
 import Foundation
 import CmuxSettings
+import CmuxTerminalCore
 
 extension TabManager {
     struct WorkspaceCreationTabSnapshot {
@@ -18,7 +19,7 @@ extension TabManager {
         let selectedTabId: UUID?
         let selectedTabWasPinned: Bool
         let preferredWorkingDirectory: String?
-        let inheritedTerminalFontPoints: Float?
+        let inheritedTerminalFontSizeLineage: TerminalFontSizeLineage?
     }
 
     @discardableResult
@@ -37,12 +38,14 @@ extension TabManager {
 
         return withExtendedLifetime((capturedTabs, sourceWorkspace, detached.panel)) {
             let inheritedDirectory = implicitWorkingDirectoryForNewWorkspace(from: sourceWorkspace)
-            let font = inheritedTerminalFontPointsForNewWorkspace(workspace: sourceWorkspace)
+            let fontSizeLineage = inheritedTerminalFontSizeLineageForNewWorkspace(
+                workspace: sourceWorkspace
+            )
             let snapshot = workspaceCreationSnapshotLite(
                 currentTabs: capturedTabs,
                 currentSelectedTabId: capturedSelectedTabId,
                 preferredWorkingDirectory: inheritedDirectory,
-                inheritedTerminalFontPoints: font
+                inheritedTerminalFontSizeLineage: fontSizeLineage
             )
             didCaptureWorkspaceCreationSnapshot()
 #if DEBUG
@@ -52,7 +55,7 @@ extension TabManager {
             sentryBreadcrumb("workspace.create.fromDetachedSurface", data: ["tabCount": nextTabCount])
 
             let inheritedConfig = workspaceCreationConfigTemplate(
-                inheritedTerminalFontPoints: snapshot.inheritedTerminalFontPoints
+                inheritedTerminalFontSizeLineage: snapshot.inheritedTerminalFontSizeLineage
             )
             let plannedInsertIndex = detachedWorkspaceInsertIndex(
                 insertionIndexOverride: insertionIndexOverride,
@@ -61,13 +64,12 @@ extension TabManager {
             )
             let ordinal = Self.nextPortOrdinal
             Self.nextPortOrdinal += 1
-            let newWorkspace = Workspace(
+            let newWorkspace = makeWorkspaceForDetachedSurface(
                 title: title ?? detached.title,
                 workingDirectory: normalizedWorkingDirectory(detached.directory) ?? snapshot.preferredWorkingDirectory,
                 portOrdinal: ordinal,
                 configTemplate: inheritedConfig,
-                initialDetachedSurface: detached,
-                nativeSSHConnectionBroker: nativeSSHConnectionBroker
+                detachedSurface: detached
             )
             guard newWorkspace.panels[detached.panelId] != nil,
                   newWorkspace.paneId(forPanelId: detached.panelId) != nil else {
