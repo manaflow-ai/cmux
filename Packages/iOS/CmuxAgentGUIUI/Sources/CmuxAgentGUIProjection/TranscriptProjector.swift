@@ -33,6 +33,7 @@ public struct TranscriptProjector: Sendable {
             && input.streamingTail?.textTail.isEmpty == false
             && !input.sendTickets.contains { !Self.isResolved($0.state) }
             && !input.asks.contains { Self.isActive($0.state) }
+        let previouslyRenderedRowIDs = Set(previousRows.map(\.rowID))
         var entryIndex = 0
         var lastDayKey: String?
         var lastPromptSeqByJournal: [JournalID: EntrySeq] = [:]
@@ -58,7 +59,7 @@ public struct TranscriptProjector: Sendable {
                 latestTurnID: latestTurnID,
                 rows: &chronological
             )
-            if !suppressFreshSessionHoles {
+            if !suppressFreshSessionHoles || previouslyRenderedRowIDs.contains(.hole(hole)) {
                 chronological.append(TranscriptRow(rowID: .hole(hole), rowKind: .hole(range: hole)))
             }
             while entryIndex < entryContexts.count,
@@ -166,7 +167,7 @@ public struct TranscriptProjector: Sendable {
         let live = current.id == latestTurnID && (
             input.sessionPhase == .starting
                 || input.sessionPhase == .working
-                || current.activity.contains(where: isRunningActivity)
+                || current.entries.contains(where: isRunningActivity)
                 || hasStreaming
         )
         var turnRows = [TranscriptRow]()
@@ -184,10 +185,16 @@ public struct TranscriptProjector: Sendable {
                 unreadPointer: input.unreadPointer
             ))
         }
-        let items = current.activity.map(activityItem)
-        if items.contains(where: isMeaningfulActivity) {
+        var pendingActivity = [EntryContext]()
+        var activitySegmentCount = 0
+        let appendPendingActivity = {
+            let items = pendingActivity.map(activityItem)
+            guard items.contains(where: isMeaningfulActivity) else {
+                pendingActivity.removeAll(keepingCapacity: true)
+                return
+            }
             if live {
-                turnRows.append(contentsOf: zip(current.activity, items).map { context, item in
+                turnRows.append(contentsOf: zip(pendingActivity, items).map { context, item in
                     entryRow(
                         context,
                         kind: .activityItem(item),
@@ -196,23 +203,37 @@ public struct TranscriptProjector: Sendable {
                     )
                 })
             } else {
+                let summaryID = activitySegmentCount == 0
+                    ? current.id
+                    : TranscriptTurnID(
+                        journalID: current.id.journalID,
+                        promptSeq: current.id.promptSeq,
+                        segmentAnchorSeq: pendingActivity.first?.entry.seq
+                    )
                 turnRows.append(TranscriptRow(
-                    rowID: .activitySummary(current.id),
+                    rowID: .activitySummary(summaryID),
                     rowKind: .activitySummary(activitySummary(items: items)),
-                    isUnread: current.activity.contains { $0.entry.seq > input.unreadPointer },
+                    isUnread: pendingActivity.contains { $0.entry.seq > input.unreadPointer },
                     turnID: current.id
                 ))
+                activitySegmentCount += 1
+            }
+            pendingActivity.removeAll(keepingCapacity: true)
+        }
+        for context in current.entries {
+            if case .agentProse(let payload) = context.entry.content.payload {
+                appendPendingActivity()
+                turnRows.append(entryRow(
+                    context,
+                    kind: .proseAgent(text: payload.markdown, grouping: .single),
+                    turnID: current.id,
+                    unreadPointer: input.unreadPointer
+                ))
+            } else {
+                pendingActivity.append(context)
             }
         }
-        if let assistant = current.assistant,
-           case .agentProse(let payload) = assistant.entry.content.payload {
-            turnRows.append(entryRow(
-                assistant,
-                kind: .proseAgent(text: payload.markdown, grouping: .single),
-                turnID: current.id,
-                unreadPointer: input.unreadPointer
-            ))
-        }
+        appendPendingActivity()
         if !hasStreaming, let last = turnRows.popLast() {
             turnRows.append(TranscriptRow(
                 rowID: last.rowID,

@@ -179,7 +179,7 @@ import UIKit
         case .foreground: UIColor(theme.foreground)
         case .dim: UIColor(theme.dimForeground)
         case .faint: UIColor(theme.faintForeground)
-        case .error: UIColor.systemRed
+        case .error: theme.error.map { UIColor($0) } ?? .systemRed
         }
         let fullRange = NSRange(location: 0, length: rendered.length)
         rendered.addAttribute(.foregroundColor, value: foreground, range: fullRange)
@@ -225,7 +225,7 @@ import UIKit
         let tintColor = switch element.role {
         case .accent: UIColor(theme.accent)
         case .faint: UIColor(theme.faintForeground)
-        case .error: UIColor.systemRed
+        case .error: theme.error.map { UIColor($0) } ?? .systemRed
         }
         if let indicator = view as? UIActivityIndicatorView {
             indicator.color = tintColor

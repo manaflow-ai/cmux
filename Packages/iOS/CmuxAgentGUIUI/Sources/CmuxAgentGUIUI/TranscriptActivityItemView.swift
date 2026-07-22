@@ -12,6 +12,10 @@ struct TranscriptActivityItemView: View {
         TranscriptRowSpacing.register(for: density)
     }
 
+    private var errorColor: Color {
+        Color(uiColor: theme.error.map { UIColor($0) } ?? .systemRed)
+    }
+
     var body: some View {
         HStack(spacing: 7) {
             if item.isRunning && !item.isFailed {
@@ -20,16 +24,16 @@ struct TranscriptActivityItemView: View {
             } else {
                 Image(systemName: item.isFailed ? "exclamationmark.circle.fill" : item.kind.symbolName)
                     .font(.system(size: 9, weight: .regular))
-                    .foregroundStyle(item.isFailed ? Color(uiColor: .systemRed) : Color(theme.faintForeground))
+                    .foregroundStyle(item.isFailed ? errorColor : Color(theme.faintForeground))
                     .frame(width: 12, height: 12)
                     .accessibilityHidden(true)
             }
             Text(AgentGUIL10n.activityKind(item.kind))
                 .font(density.metadataFont.weight(.medium))
-                .foregroundStyle(item.isFailed ? Color(uiColor: .systemRed) : Color(theme.dimForeground))
+                .foregroundStyle(item.isFailed ? errorColor : Color(theme.dimForeground))
             Text(AgentGUIL10n.activityDetail(item))
                 .font(density.metadataFont)
-                .foregroundStyle(item.isFailed ? Color(uiColor: .systemRed) : Color(theme.faintForeground))
+                .foregroundStyle(item.isFailed ? errorColor : Color(theme.faintForeground))
                 .lineLimit(1)
             Spacer(minLength: 0)
         }

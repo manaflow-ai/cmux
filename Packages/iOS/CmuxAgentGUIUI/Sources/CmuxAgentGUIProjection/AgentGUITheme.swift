@@ -20,6 +20,8 @@ public struct AgentGUITheme: Hashable, Sendable {
     public let border: AgentGUIRGBColor
     /// First qualifying cool ANSI color, or the terminal foreground.
     public let accent: AgentGUIRGBColor
+    /// First available ANSI red color, or `nil` for a platform fail-open fallback.
+    public let error: AgentGUIRGBColor?
 
     /// Derives the GUI palette from one terminal theme value.
     /// - Parameter terminalTheme: The Ghostty theme transported from the Mac.
@@ -38,6 +40,7 @@ public struct AgentGUITheme: Hashable, Sendable {
         hoverBackground = foreground.mixed(with: background, ownWeight: 0.12)
         border = foreground.mixed(with: background, ownWeight: 0.15)
         accent = Self.accent(palette: terminalTheme.palette, fallback: foreground)
+        error = Self.error(palette: terminalTheme.palette)
     }
 
     private static func accent(palette: [String], fallback: AgentGUIRGBColor) -> AgentGUIRGBColor {
@@ -51,5 +54,14 @@ public struct AgentGUITheme: Hashable, Sendable {
             }
         }
         return fallback
+    }
+
+    private static func error(palette: [String]) -> AgentGUIRGBColor? {
+        for index in [1, 9] where palette.indices.contains(index) {
+            if let candidate = AgentGUIRGBColor(hex: palette[index]) {
+                return candidate
+            }
+        }
+        return nil
     }
 }

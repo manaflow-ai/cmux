@@ -58,13 +58,13 @@
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "Exit %d"
+            "value": "Exit %lld"
           }
         },
         "ja": {
           "stringUnit": {
             "state": "translated",
-            "value": "終了コード %d"
+            "value": "終了コード %lld"
           }
         }
       }

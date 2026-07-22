@@ -37,6 +37,16 @@ struct AgentGUIThemeTests {
     }
 
     @Test
+    func errorUsesNormalANSIRedBeforeBrightRed() {
+        var palette = Array(repeating: "#777777", count: TerminalTheme.paletteCount)
+        palette[1] = "#aa1122"
+        palette[9] = "#ff3344"
+        let theme = AgentGUITheme(terminalTheme: terminalTheme(palette: palette))
+
+        #expect(theme.error == AgentGUIRGBColor(hex: "#aa1122"))
+    }
+
+    @Test
     func invalidThemeFallsBackAsOneCompletePalette() {
         let invalid = TerminalTheme(
             background: "bad",

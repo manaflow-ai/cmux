@@ -60,8 +60,8 @@ enum AgentGUIL10n {
         var parts = [item.summary].filter { !$0.isEmpty }
         if let exitCode = item.exitCode {
             parts.append(String(
-                format: string("agent.activity.exitCode", defaultValue: "Exit %d"),
-                exitCode
+                format: string("agent.activity.exitCode", defaultValue: "Exit %lld"),
+                Int64(exitCode)
             ))
         }
         return parts.joined(separator: " · ")
