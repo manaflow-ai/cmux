@@ -359,6 +359,9 @@ impl ProviderMachineRuntime {
         let events = self.client.subscribe_events()?;
         let client = self.client.clone();
         let keys = self.keys.clone();
+        let provider_connect_supported = client
+            .supports_capability(protocol::EXTERNAL_MACHINE_CONNECT_CAPABILITY)
+            .unwrap_or(false);
         let mut connected_machine_id = self.open.as_ref().map(|open| open.machine_id.clone());
         let stop = Arc::new(std::sync::atomic::AtomicBool::new(false));
         let thread_stop = stop.clone();
@@ -379,6 +382,7 @@ impl ProviderMachineRuntime {
                                 last_workspace_snapshot.as_ref(),
                                 &keys,
                                 false,
+                                provider_connect_supported,
                             );
                             ui.notice = Some("Machine provider disconnected; reconnecting".into());
                             ui.request = Some(MachineRequest::ReconnectProvider);
@@ -406,6 +410,7 @@ impl ProviderMachineRuntime {
                                 last_workspace_snapshot.as_ref(),
                                 &keys,
                                 false,
+                                provider_connect_supported,
                             );
                             ui.notice = Some(format!("Machine provider update failed: {error}"));
                             ui.request = Some(MachineRequest::ReconnectProvider);
@@ -424,6 +429,7 @@ impl ProviderMachineRuntime {
                                     last_workspace_snapshot.as_ref(),
                                     &keys,
                                     false,
+                                    provider_connect_supported,
                                 );
                                 ui.notice = Some(format!(
                                     "Machine provider lifecycle update failed: {error}"
@@ -442,6 +448,7 @@ impl ProviderMachineRuntime {
                                 last_workspace_snapshot.as_ref(),
                                 &keys,
                                 false,
+                                provider_connect_supported,
                             );
                             ui.notice =
                                 Some(format!("Machine provider workspace update failed: {error}"));
@@ -458,6 +465,7 @@ impl ProviderMachineRuntime {
                         last_workspace_snapshot.as_ref(),
                         &keys,
                         session_available,
+                        provider_connect_supported,
                     );
                     ui.notice = notice
                         .or_else(|| snapshot.notice.as_ref().map(|notice| notice.message.clone()));
@@ -636,6 +644,9 @@ impl ProviderMachineRuntime {
             self.workspace_snapshot.as_ref(),
             &self.keys,
             session_available,
+            self.client
+                .supports_capability(protocol::EXTERNAL_MACHINE_CONNECT_CAPABILITY)
+                .unwrap_or(false),
         )
     }
 
@@ -785,6 +796,7 @@ fn machine_ui_state(
     workspace_snapshot: Option<&protocol::WorkspaceSnapshotResult>,
     keys: &Arc<Mutex<KeyRegistry>>,
     session_available: bool,
+    provider_connect_supported: bool,
 ) -> MachineUiState {
     reconcile_keys(keys, snapshot, machine_lifecycle_snapshot);
     let active = snapshot.selected_machine_id.as_ref().and_then(|id| key_for_id(keys, id));
@@ -823,7 +835,7 @@ fn machine_ui_state(
         active,
         capabilities: MachineCapabilities {
             create: snapshot.capabilities.create_machine,
-            connect: snapshot.capabilities.connect_external_machine,
+            connect: snapshot.capabilities.connect_external_machine && provider_connect_supported,
         },
     });
     ui.session_available = session_available;
@@ -1264,12 +1276,15 @@ mod tests {
             next: 1,
         }));
 
-        let ui = machine_ui_state(&snapshot, &lifecycle, None, &keys, true);
+        let ui = machine_ui_state(&snapshot, &lifecycle, None, &keys, true, false);
 
         assert!(
             !ui.snapshot.capabilities.connect,
             "a snapshot bit cannot expose an operation absent from hello negotiation"
         );
+
+        let negotiated = machine_ui_state(&snapshot, &lifecycle, None, &keys, true, true);
+        assert!(negotiated.snapshot.capabilities.connect);
     }
 
     #[test]
@@ -1289,7 +1304,7 @@ mod tests {
         }));
 
         let machine_lifecycle = machine_lifecycle_snapshot(&snapshot);
-        let ui = machine_ui_state(&snapshot, &machine_lifecycle, None, &keys, true);
+        let ui = machine_ui_state(&snapshot, &machine_lifecycle, None, &keys, true, false);
 
         assert_eq!(
             ui.workspace_creation_policy(),
@@ -1332,7 +1347,8 @@ mod tests {
         }));
 
         let machine_lifecycle = machine_lifecycle_snapshot(&snapshot);
-        let ui = machine_ui_state(&snapshot, &machine_lifecycle, Some(&lifecycle), &keys, true);
+        let ui =
+            machine_ui_state(&snapshot, &machine_lifecycle, Some(&lifecycle), &keys, true, false);
 
         assert_eq!(
             ui.managed_workspaces(),
@@ -1376,7 +1392,7 @@ mod tests {
             next: 1,
         }));
 
-        let first = machine_ui_state(&snapshot, &lifecycle, None, &keys, true);
+        let first = machine_ui_state(&snapshot, &lifecycle, None, &keys, true, false);
         let tombstone_key = first.snapshot.machines[1].key;
         assert_eq!(first.snapshot.machines[1].id, "deleted-machine-uuid");
         assert_eq!(
@@ -1399,7 +1415,7 @@ mod tests {
 
         lifecycle.machines[1].display_name = "renamed tombstone".into();
         lifecycle.machines[1].version = 13;
-        let refreshed = machine_ui_state(&snapshot, &lifecycle, None, &keys, true);
+        let refreshed = machine_ui_state(&snapshot, &lifecycle, None, &keys, true, false);
         assert_eq!(refreshed.snapshot.machines[1].key, tombstone_key);
         assert_eq!(refreshed.managed_machine(tombstone_key).unwrap().version, 13);
     }

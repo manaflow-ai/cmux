@@ -15,6 +15,11 @@ use serde::{Deserialize, Deserializer, Serialize, Serializer};
 
 pub const PROTOCOL_NAME: &str = "cmux.machine-provider";
 pub const PROTOCOL_VERSION: u16 = 1;
+/// Gates provider-owned external-machine enrollment.
+///
+/// The snapshot bit alone predates a complete provider request path. Clients
+/// must require this negotiated capability before presenting that action.
+pub const EXTERNAL_MACHINE_CONNECT_CAPABILITY: &str = "connect-external-machine-v1";
 pub const MACHINE_LIFECYCLE_CAPABILITY: &str = "machine-lifecycle-v1";
 pub const WORKSPACE_LIFECYCLE_CAPABILITY: &str = "workspace-lifecycle-v1";
 pub const WORKSPACE_MIRROR_AUTHORITY_CAPABILITY: &str = "workspace-mirror-authority-v1";
