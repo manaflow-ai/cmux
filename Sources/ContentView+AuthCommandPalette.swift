@@ -72,6 +72,23 @@ extension ContentView {
     static let commandPaletteCloudToolsCommandId = "palette.cloud.tools"
     static let commandPaletteCloudHandoffCommandId = "palette.cloud.handoff"
 
+    static func commandPaletteCloudRestoreResult(
+        hasSnapshotID: Bool,
+        didStart: Bool
+    ) -> CmuxActionExecutionResult {
+        guard hasSnapshotID else { return .presented }
+        guard didStart else {
+            return .failed(
+                code: "action_failed",
+                message: String(
+                    localized: "action.error.cloudVMRestoreFailed",
+                    defaultValue: "Cloud VM restore could not be started."
+                )
+            )
+        }
+        return .queued
+    }
+
     static func commandPaletteCloudCommandContributions() -> [CommandPaletteCommandContribution] {
         // Feature-gated: hide every Cloud VM command from the palette when the
         // Cloud VM UI flag is off, matching the dropdown and shortcut gates.
@@ -177,19 +194,10 @@ extension ContentView {
                 preferredWindow: commandPaletteTargetWindow,
                 debugSource: "palette.cloud.restore"
             )
-            if snapshotId == nil {
-                return .presented
-            }
-            guard didStart else {
-                return .failed(
-                    code: "action_failed",
-                    message: String(
-                        localized: "action.error.cloudVMRestoreFailed",
-                        defaultValue: "Cloud VM restore could not be started."
-                    )
-                )
-            }
-            return .completed
+            return Self.commandPaletteCloudRestoreResult(
+                hasSnapshotID: snapshotId != nil,
+                didStart: didStart
+            )
         }
         registry.register(commandId: Self.commandPaletteCloudPromoteTemplateCommandId) {
             guard let appDelegate = AppDelegate.shared else { return }

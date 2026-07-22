@@ -389,6 +389,13 @@ extension TerminalController: ControlCommandPaletteContext, ControlInlineVSCodeC
             }
             return located.workspace
         }
+        if routing.hasGroupIDParam {
+            guard let groupID = routing.groupID,
+                  let group = tabManager.workspaceGroups.first(where: { $0.id == groupID }) else {
+                return nil
+            }
+            return tabManager.tabs.first(where: { $0.id == group.anchorWorkspaceId })
+        }
         if let selected = tabManager.selectedWorkspace {
             return selected
         }
