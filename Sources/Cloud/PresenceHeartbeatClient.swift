@@ -53,9 +53,9 @@ final class PresenceHeartbeatClient {
                 forName: UserDefaults.didChangeNotification,
                 object: UserDefaults.standard,
                 queue: .main
-            ) { _ in
-                MainActor.assumeIsolated {
-                    PresenceHeartbeatClient.shared.evaluate()
+            ) { [weak self] _ in
+                Task { @MainActor [weak self] in
+                    self?.evaluate()
                 }
             }
         }

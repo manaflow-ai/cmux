@@ -581,6 +581,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
     private final class MainWindowController: NSWindowController, NSWindowDelegate {
         var onClose: (() -> Void)?
         var shouldClose: (() -> Bool)?
+        var onDidBecomeKey: (@MainActor (Notification) -> Void)?
+        var onDidResignKey: (@MainActor (Notification) -> Void)?
 
         #if DEBUG
         private func logWindowEvent(_ event: String, notification: Notification) {
@@ -596,6 +598,20 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
             onClose?()
         }
 
+        func windowDidBecomeKey(_ notification: Notification) {
+#if DEBUG
+            logWindowEvent("didBecomeKey", notification: notification)
+#endif
+            onDidBecomeKey?(notification)
+        }
+
+        func windowDidResignKey(_ notification: Notification) {
+#if DEBUG
+            logWindowEvent("didResignKey", notification: notification)
+#endif
+            onDidResignKey?(notification)
+        }
+
         #if DEBUG
         func windowDidDeminiaturize(_ notification: Notification) {
             logWindowEvent("didDeminiaturize", notification: notification)
@@ -603,14 +619,6 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
 
         func windowDidMiniaturize(_ notification: Notification) {
             logWindowEvent("didMiniaturize", notification: notification)
-        }
-
-        func windowDidBecomeKey(_ notification: Notification) {
-            logWindowEvent("didBecomeKey", notification: notification)
-        }
-
-        func windowDidResignKey(_ notification: Notification) {
-            logWindowEvent("didResignKey", notification: notification)
         }
 
         func windowDidBecomeMain(_ notification: Notification) {
@@ -791,7 +799,6 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
     var shortcutLayoutCharacterProvider: (UInt16, NSEvent.ModifierFlags) -> String? = KeyboardLayout.character(forKeyCode:modifierFlags:)
     private var workspaceObserver: NSObjectProtocol?
     private var lifecycleSnapshotObservers: [NSObjectProtocol] = []
-    private var windowKeyObservers: [NSObjectProtocol] = []
     private var shortcutMonitor: Any?
     private var shortcutDefaultsObserver: NSObjectProtocol?
     private var menuBarVisibilityObserver: NSObjectProtocol?
@@ -1477,7 +1484,6 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
         }
         titlebarAccessoryController.start()
         windowDecorationsController.start()
-        installMainWindowKeyObserver()
         refreshGhosttyGotoSplitShortcuts()
         installGhosttyConfigObserver()
         installGlobalFontMagnificationObserver()
@@ -8768,6 +8774,12 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
 
         // Keep a strong reference so the window isn't deallocated.
         let controller = MainWindowController(window: window)
+        controller.onDidBecomeKey = { [weak self] notification in
+            self?.handleCmuxWindowBecameKey(notification)
+        }
+        controller.onDidResignKey = { [weak self] notification in
+            self?.handleCmuxWindowResignedKey(notification)
+        }
         controller.onClose = { [weak self, weak controller] in
             guard let self, let controller else { return }
             let manager = self.tabManagerFor(windowId: windowId)
@@ -15915,21 +15927,6 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
             let options = self?.notificationDelivery.presentationOptions(for: notification) ?? []
             completionHandler(options)
         }
-    }
-
-    private func installMainWindowKeyObserver() {
-        guard windowKeyObservers.isEmpty else { return }
-        let center = NotificationCenter.default
-        windowKeyObservers.append(center.addObserver(forName: NSWindow.didBecomeKeyNotification, object: nil, queue: .main) { [weak self] note in
-            MainActor.assumeIsolated {
-                self?.handleCmuxWindowBecameKey(note)
-            }
-        })
-        windowKeyObservers.append(center.addObserver(forName: NSWindow.didResignKeyNotification, object: nil, queue: .main) { [weak self] note in
-            MainActor.assumeIsolated {
-                self?.handleCmuxWindowResignedKey(note)
-            }
-        })
     }
 
     private func installBrowserAddressBarFocusObservers() {

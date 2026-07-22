@@ -598,7 +598,7 @@ class TabManager: ObservableObject {
             object: nil,
             queue: .main
         ) { [weak self] _ in
-            MainActor.assumeIsolated { [weak self] in
+            Task { @MainActor [weak self] in
                 self?.sidebarMetadataSettingsDidChange()
                 self?.refreshTabCloseButtonVisibility()
                 self?.refreshWindowTitle()

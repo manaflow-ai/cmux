@@ -1195,7 +1195,11 @@ if [[ "$LAUNCH" -eq 1 ]]; then
   fi
   if [[ -n "${TAG_SLUG:-}" && -n "${CMUX_SOCKET_PATH_VALUE:-}" ]]; then
     SOCKET_READY=0
-    for _ in {1..80}; do
+    # Cold tagged launches can spend more than eight seconds restoring windows
+    # before the socket listener is installed. The app is healthy during that
+    # interval, so allow the same 20-second startup envelope used by dogfood
+    # tooling instead of reporting a false launch failure.
+    for _ in {1..200}; do
       if [[ -S "$CMUX_SOCKET_PATH_VALUE" ]]; then
         SOCKET_READY=1
         break

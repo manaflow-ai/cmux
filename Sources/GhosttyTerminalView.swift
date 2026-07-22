@@ -9167,11 +9167,13 @@ final class GhosttySurfaceScrollView: NSView {
             forName: NSWindow.didBecomeKeyNotification,
             object: window,
             queue: .main
-        ) { [weak self] _ in
-            // Registered with `queue: .main`, so the @MainActor `searchState`
-            // reads below are in fact main-isolated.
-            MainActor.assumeIsolated {
-                guard let self, self.isActive, self.surfaceView.isVisibleInUI, let tabId = self.surfaceView.tabId, let surfaceId = self.surfaceView.terminalSurface?.id, self.matchesCurrentTerminalFocusTarget(tabId: tabId, surfaceId: surfaceId) else { return }
+        ) { [weak self, weak window] _ in
+            Task { @MainActor [weak self, weak window] in
+                guard let self, let window, self.window === window, window.isKeyWindow,
+                      self.isActive, self.surfaceView.isVisibleInUI,
+                      let tabId = self.surfaceView.tabId,
+                      let surfaceId = self.surfaceView.terminalSurface?.id,
+                      self.matchesCurrentTerminalFocusTarget(tabId: tabId, surfaceId: surfaceId) else { return }
 #if DEBUG
                 cmuxDebugLog("find.window.didBecomeKey surface=\(self.surfaceView.terminalSurface?.id.uuidString.prefix(5) ?? "nil") searchActive=\(self.surfaceView.terminalSurface?.searchState != nil) focusTarget=\(self.searchFocusTarget) firstResponder=\(String(describing: self.window?.firstResponder))")
 #endif
@@ -9182,11 +9184,9 @@ final class GhosttySurfaceScrollView: NSView {
             forName: NSWindow.didResignKeyNotification,
             object: window,
             queue: .main
-        ) { [weak self] _ in
-            // Registered with `queue: .main`, so the @MainActor `searchState`
-            // read below is in fact main-isolated.
-            MainActor.assumeIsolated {
-                guard let self, let window = self.window else { return }
+        ) { [weak self, weak window] _ in
+            Task { @MainActor [weak self, weak window] in
+                guard let self, let window, self.window === window, !window.isKeyWindow else { return }
                 let searchActive = self.surfaceView.terminalSurface?.searchState != nil
                 // Losing key window does not always trigger first-responder resignation, so force
                 // the focused terminal view to yield responder to keep Ghostty cursor/focus state in sync.

@@ -257,26 +257,24 @@ private enum MainWindowKeyRegainRefresh {
 }
 
 extension AppDelegate {
+    @MainActor
     func handleCmuxWindowBecameKey(_ note: Notification) {
         guard let window = note.object as? NSWindow else { return }
-        MainActor.assumeIsolated {
-            let context = contextForMainTerminalWindow(window)
-            setActiveMainWindow(window)
-            if let windowId = mainWindowId(from: window) {
-                publishCmuxWindowLifecycle(name: "window.keyed", windowId: windowId, origin: "appkit_key")
-            }
-            if let context {
-                MainWindowKeyRegainRefresh.refresh(window: window, context: context)
-            }
+        let context = contextForMainTerminalWindow(window)
+        setActiveMainWindow(window)
+        if let windowId = mainWindowId(from: window) {
+            publishCmuxWindowLifecycle(name: "window.keyed", windowId: windowId, origin: "appkit_key")
+        }
+        if let context {
+            MainWindowKeyRegainRefresh.refresh(window: window, context: context)
         }
     }
 
+    @MainActor
     func handleCmuxWindowResignedKey(_ note: Notification) {
         guard let window = note.object as? NSWindow else { return }
-        MainActor.assumeIsolated {
-            if let windowId = mainWindowId(from: window) {
-                publishCmuxWindowLifecycle(name: "window.unkeyed", windowId: windowId, origin: "appkit_key")
-            }
+        if let windowId = mainWindowId(from: window) {
+            publishCmuxWindowLifecycle(name: "window.unkeyed", windowId: windowId, origin: "appkit_key")
         }
     }
 
