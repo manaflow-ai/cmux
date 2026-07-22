@@ -1,4 +1,5 @@
 import CmuxAgentChat
+import CmuxArtifacts
 import Foundation
 
 extension AgentChatTranscriptService {
@@ -51,13 +52,21 @@ extension AgentChatTranscriptService {
     }
 
     func saveArtifact(
-        record: AgentChatSessionRecord,
+        context: ArtifactCaptureContext,
         sourceURL: URL
     ) async throws -> ChatArtifactSaveResult {
         guard let artifactCaptureCoordinator else {
             throw AgentArtifactCaptureSaveError.rejected
         }
-        return try await artifactCaptureCoordinator.save(record: record, sourceURL: sourceURL)
+        return try await artifactCaptureCoordinator.save(
+            context: context,
+            sourceURL: sourceURL
+        )
+    }
+
+    func artifactCaptureContext(for record: AgentChatSessionRecord) async -> ArtifactCaptureContext? {
+        guard let artifactCaptureCoordinator else { return nil }
+        return await artifactCaptureCoordinator.captureContext(for: record)
     }
 
     /// Cancels obsolete work and serializes coordinator cleanup before session reuse.

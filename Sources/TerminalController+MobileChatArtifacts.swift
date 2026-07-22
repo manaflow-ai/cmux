@@ -1,4 +1,5 @@
 import CmuxAgentChat
+import CmuxArtifacts
 import CmuxSettings
 import Foundation
 
@@ -221,7 +222,7 @@ extension TerminalController {
     }
 
     func v2MobileChatArtifactSave(params: [String: Any]) async -> V2CallResult {
-        let resolution = await mobileChatArtifactResolution(params: params, operation: .file)
+        let resolution = await mobileChatArtifactResolution(params: params, operation: .save)
         guard case .success(let resolved) = resolution else {
             return resolution.failureResult
         }
@@ -229,13 +230,15 @@ extension TerminalController {
     }
 
     func v2MobileChatArtifactSave(resolved: ResolvedChatArtifact) async -> V2CallResult {
-        guard let service = agentChatTranscriptService,
-              let record = service.sessionRecord(sessionID: resolved.sessionID) else {
+        guard let service = agentChatTranscriptService else {
             return mobileChatArtifactError(.notFound, path: resolved.requestedPath)
         }
         do {
+            guard let captureContext = resolved.authorizedCaptureContext else {
+                throw AgentArtifactCaptureSaveError.rejected
+            }
             let result = try await service.saveArtifact(
-                record: record,
+                context: captureContext,
                 sourceURL: URL(fileURLWithPath: resolved.canonicalPath, isDirectory: false)
             )
             return .ok(ChatArtifactWire.payload(result) ?? [:])
@@ -251,22 +254,28 @@ extension TerminalController {
         }
     }
 
-    enum ChatArtifactOperation {
+    enum ChatArtifactOperation: Sendable {
         case file
         case list
+        case save
 
         var indexOperation: AgentChatArtifactIndex.Operation {
             switch self {
-            case .file:
+            case .file, .save:
                 return .file
             case .list:
                 return .list
             }
         }
+
+        var resolvesCaptureProject: Bool {
+            if case .save = self { return true }
+            return false
+        }
     }
 
     struct ResolvedChatArtifact: Sendable {
-        let sessionID: String
+        let authorizedCaptureContext: ArtifactCaptureContext?
         let requestedPath: String
         let canonicalPath: String
     }
@@ -329,8 +338,11 @@ extension TerminalController {
             )
             switch pathResult {
             case .success(let canonicalPath):
+                let captureContext = operation.resolvesCaptureProject
+                    ? await service.artifactCaptureContext(for: record)
+                    : nil
                 return .success(ResolvedChatArtifact(
-                    sessionID: record.sessionID,
+                    authorizedCaptureContext: captureContext,
                     requestedPath: requestedPath,
                     canonicalPath: canonicalPath
                 ))

@@ -75,7 +75,7 @@ struct MobileChatArtifactAuthorizationSnapshotTests {
 
         let resolution = await controller.mobileChatArtifactResolution(
             params: ["session_id": sessionID, "path": source.path],
-            operation: .file
+            operation: .save
         )
         guard case .success(let resolved) = resolution else {
             Issue.record("Expected the transcript snapshot to authorize the artifact")

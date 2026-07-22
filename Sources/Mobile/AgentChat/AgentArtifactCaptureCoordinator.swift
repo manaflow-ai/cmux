@@ -128,27 +128,19 @@ actor AgentArtifactCaptureCoordinator {
     }
 
     func save(
-        record: AgentChatSessionRecord,
+        context: ArtifactCaptureContext,
         sourceURL: URL,
         capturedAt: Date = .now
     ) async throws -> ChatArtifactSaveResult {
-        guard let projectRoot = projectRoot(for: record) else {
-            throw AgentArtifactCaptureSaveError.missingWorkingDirectory
-        }
         let outcome = try await captureService.add(
             sourceURL: sourceURL,
-            context: ArtifactCaptureContext(
-                projectRoot: projectRoot,
-                workspaceID: record.workspaceID,
-                sessionID: record.sessionID,
-                agentName: record.agentKind.sourceName
-            ),
+            context: context,
             capturedAt: capturedAt
         )
         guard let importedRecord = outcome.record else {
             throw AgentArtifactCaptureSaveError.rejected
         }
-        let path = ArtifactStorePaths(projectRoot: projectRoot).artifactsRoot
+        let path = ArtifactStorePaths(projectRoot: context.projectRoot).artifactsRoot
             .appendingPathComponent(importedRecord.relativePath, isDirectory: false)
         return ChatArtifactSaveResult(
             path: path.path,
@@ -161,6 +153,16 @@ actor AgentArtifactCaptureCoordinator {
     func removeSession(sessionID: String) {
         inFlightRevisionBySession.removeValue(forKey: sessionID)
         _ = completedStateBySession.removeValue(forKey: sessionID)
+    }
+
+    func captureContext(for record: AgentChatSessionRecord) -> ArtifactCaptureContext? {
+        guard let projectRoot = projectRoot(for: record) else { return nil }
+        return ArtifactCaptureContext(
+            projectRoot: projectRoot,
+            workspaceID: record.workspaceID,
+            sessionID: record.sessionID,
+            agentName: record.agentKind.sourceName
+        )
     }
 
     private func projectRoot(for record: AgentChatSessionRecord) -> URL? {
