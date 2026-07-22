@@ -321,6 +321,11 @@ pub fn install(
 
 #[cfg(target_os = "linux")]
 fn response_status(response: Response) -> Result<ProviderWorkspaceAuthorityStatus, ClientError> {
+    if !response.ok
+        && response.error.as_ref().is_some_and(|error| error.code == "unsupported_version")
+    {
+        return Err(ClientError::UpgradeRequired);
+    }
     if response.protocol != PROTOCOL_VERSION {
         return Err(ClientError::InvalidResponse);
     }
@@ -328,9 +333,6 @@ fn response_status(response: Response) -> Result<ProviderWorkspaceAuthorityStatu
         return response.status.ok_or(ClientError::InvalidResponse);
     }
     let error = response.error.ok_or(ClientError::InvalidResponse)?;
-    if error.code == "unsupported_version" {
-        return Err(ClientError::UpgradeRequired);
-    }
     Err(ClientError::Rejected { code: error.code, message: error.message })
 }
 
@@ -366,7 +368,8 @@ mod tests {
     #[cfg(target_os = "linux")]
     #[test]
     fn explicit_unsupported_response_is_the_only_upgrade_signal() {
-        let unsupported = Response::error("unsupported_version", "future protocol");
+        let mut unsupported = Response::error("unsupported_version", "future protocol");
+        unsupported.protocol = PROTOCOL_VERSION + 1;
         assert!(matches!(response_status(unsupported), Err(ClientError::UpgradeRequired)));
         let rejected = Response::error("unmanaged", "not configured");
         assert!(matches!(response_status(rejected), Err(ClientError::Rejected { .. })));

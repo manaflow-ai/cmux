@@ -258,7 +258,7 @@ mod tests {
             assert!(request.contains("\"operation\":\"status\""));
             stream
                 .write_all(
-                    b"{\"protocol\":1,\"ok\":false,\"error\":{\"code\":\"unsupported_version\",\"message\":\"future protocol\"}}\n",
+                    b"{\"protocol\":2,\"ok\":false,\"error\":{\"code\":\"unsupported_version\",\"message\":\"future protocol\"}}\n",
                 )
                 .unwrap();
         });
