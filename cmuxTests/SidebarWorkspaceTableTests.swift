@@ -55,7 +55,7 @@ struct SidebarWorkspaceTableTests {
 
     @Test
     @MainActor
-    func rowHeightCacheMeasuresOnceForEquivalentRepeatedQueries() {
+    func rowHeightCacheMeasuresOnceAndPreservesInstalledHeightAcrossSuspension() {
         let cache = SidebarWorkspaceTableRowHeightCache()
         let row = makeRowConfiguration()
         var measurementCount = 0
@@ -73,6 +73,13 @@ struct SidebarWorkspaceTableTests {
         #expect(initialChanges == IndexSet(integer: 0))
         #expect(repeatedChanges.isEmpty)
         #expect(cache.height(for: row, columnWidth: 200) == 44)
+
+        cache.clearRetainedPayloads()
+        let changedRow = makeRowConfiguration(workspaceId: row.workspaceId, contentToken: 1)
+        let revealChanges = cache.prepare(rows: [changedRow], columnWidth: 200) { candidate, _ in
+            candidate.estimatedHeight
+        }
+        #expect(revealChanges == IndexSet(integer: 0))
     }
 
     @Test
