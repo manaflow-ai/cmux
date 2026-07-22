@@ -198,12 +198,10 @@ extension TerminalController: ControlCommandPaletteContext, ControlInlineVSCodeC
         }
         if routing.hasWorkspaceIDParam {
             guard let workspaceID = routing.workspaceID else { return false }
-            // The alias means this already-resolved target window's Dock.
-            if workspaceID != AppDelegate.windowDockAliasWorkspaceId {
-                let owner = AppDelegate.shared?.tabManagerFor(tabId: workspaceID)
-                    ?? AppDelegate.shared?.tabManagerForWindowDockOwner(workspaceID)
-                guard owner === tabManager else { return false }
-            }
+            guard controlPaletteWorkspaceResolution(
+                workspaceID: workspaceID,
+                tabManager: tabManager
+            ).belongsToTarget else { return false }
         }
         if routing.hasSurfaceIDParam {
             guard let surfaceID = routing.surfaceID else { return false }
@@ -241,13 +239,21 @@ extension TerminalController: ControlCommandPaletteContext, ControlInlineVSCodeC
         )
     }
 
-    private func controlInlineVSCodeWorkspace(
+    /// Resolves the main-area workspace used when a palette action needs one.
+    /// A terminal in a window Dock exports its Dock owner (the window id) as
+    /// `workspace_id`, so that route inherits the owning window's selection.
+    func controlInlineVSCodeWorkspace(
         routing: ControlRoutingSelectors,
         tabManager: TabManager
     ) -> Workspace? {
         if routing.hasWorkspaceIDParam {
             guard let workspaceID = routing.workspaceID else { return nil }
-            return tabManager.tabs.first(where: { $0.id == workspaceID })
+            let resolution = controlPaletteWorkspaceResolution(
+                workspaceID: workspaceID,
+                tabManager: tabManager
+            )
+            guard resolution.belongsToTarget else { return nil }
+            return resolution.workspace
         }
         if routing.hasSurfaceIDParam {
             guard let surfaceID = routing.surfaceID else { return nil }
@@ -268,5 +274,26 @@ extension TerminalController: ControlCommandPaletteContext, ControlInlineVSCodeC
             return first
         }
         return tabManager.addWorkspace(select: true)
+    }
+
+    /// Resolves both real workspace ids and the two window-Dock routing forms.
+    /// Keeping selector validation and workspace selection on this one path
+    /// prevents a route from validating as a Dock owner and then failing when
+    /// an action asks for the owning window's main-area workspace.
+    private func controlPaletteWorkspaceResolution(
+        workspaceID: UUID,
+        tabManager: TabManager
+    ) -> (belongsToTarget: Bool, workspace: Workspace?) {
+        if workspaceID == AppDelegate.windowDockAliasWorkspaceId {
+            return (true, tabManager.selectedWorkspace ?? tabManager.tabs.first)
+        }
+        if let dockOwner = AppDelegate.shared?.tabManagerForWindowDockOwner(workspaceID) {
+            guard dockOwner === tabManager else { return (false, nil) }
+            return (true, tabManager.selectedWorkspace ?? tabManager.tabs.first)
+        }
+        guard let workspace = tabManager.tabs.first(where: { $0.id == workspaceID }) else {
+            return (false, nil)
+        }
+        return (true, workspace)
     }
 }

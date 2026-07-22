@@ -10,9 +10,6 @@ import SwiftUI
 /// workspace creation is unavailable.
 enum ProUpgradePresenter {
     @MainActor
-    private static var workspaceReuseState = ProUpgradeWorkspaceReuseState()
-
-    @MainActor
     private static func workspaceReuseScope(for tabManager: TabManager?) -> ProUpgradeWorkspaceReuseScope {
         guard let windowId = tabManager?.windowId else { return .global }
         return .window(windowId)
@@ -31,8 +28,8 @@ enum ProUpgradePresenter {
         guard BrowserAvailabilitySettings.isEnabled() else { return }
         // When an upgrade workspace already exists, present() refocuses it and
         // navigates its existing panel, so a prewarmed webview would go unused.
-        if let workspaceId = workspaceReuseState.workspaceId,
-           let appDelegate = AppDelegate.shared,
+        if let appDelegate = AppDelegate.shared,
+           let workspaceId = appDelegate.proPricingWorkspaceReuseState.workspaceId,
            appDelegate.proUpgradeWorkspaceExists(workspaceId: workspaceId) {
             return
         }
@@ -81,7 +78,7 @@ enum ProUpgradePresenter {
     ) -> Bool {
         guard let appDelegate = AppDelegate.shared else { return false }
         let reuseScope = workspaceReuseScope(for: tabManager)
-        if let workspaceId = workspaceReuseState.reusableWorkspaceID(
+        if let workspaceId = appDelegate.proPricingWorkspaceReuseState.reusableWorkspaceID(
             scope: reuseScope,
             exists: {
                 appDelegate.proUpgradeWorkspaceExists(
@@ -97,7 +94,7 @@ enum ProUpgradePresenter {
             ) {
                 return true
             }
-            workspaceReuseState.clear(scope: reuseScope)
+            appDelegate.proPricingWorkspaceReuseState.clear(scope: reuseScope)
         }
 
         let title = String(localized: "pricing.pro.workspace.title", defaultValue: "cmux Pro")
@@ -109,7 +106,7 @@ enum ProUpgradePresenter {
         ) else {
             return false
         }
-        workspaceReuseState.recordCreatedWorkspace(id: workspace.id, scope: reuseScope)
+        appDelegate.proPricingWorkspaceReuseState.recordCreatedWorkspace(id: workspace.id, scope: reuseScope)
         return true
     }
 

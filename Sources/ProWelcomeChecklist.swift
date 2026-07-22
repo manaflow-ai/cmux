@@ -10,11 +10,6 @@ import Foundation
 enum ProWelcomeChecklistPresenter {
     static let seenDefaultsKey = "cmux.pro.welcomeChecklist.seen"
 
-    /// Tracks the dedicated welcome workspace so repeated presentations reuse
-    /// and focus it instead of spawning a duplicate workspace each time.
-    @MainActor
-    static var workspaceReuseState = ProUpgradeWorkspaceReuseState()
-
     static func shouldPresentAutomatically(isPro: Bool, seen: Bool, flagEnabled: Bool) -> Bool {
         isPro && !seen && flagEnabled
     }
@@ -89,7 +84,7 @@ extension ProUpgradePresenter {
         guard let appDelegate = AppDelegate.shared else { return false }
         let reuseScope: ProUpgradeWorkspaceReuseScope = tabManager?.windowId
             .map(ProUpgradeWorkspaceReuseScope.window) ?? .global
-        if let workspaceId = ProWelcomeChecklistPresenter.workspaceReuseState.reusableWorkspaceID(
+        if let workspaceId = appDelegate.proWelcomeWorkspaceReuseState.reusableWorkspaceID(
             scope: reuseScope,
             exists: {
                 appDelegate.proUpgradeWorkspaceExists(
@@ -105,7 +100,7 @@ extension ProUpgradePresenter {
             ) {
                 return true
             }
-            ProWelcomeChecklistPresenter.workspaceReuseState.clear(scope: reuseScope)
+            appDelegate.proWelcomeWorkspaceReuseState.clear(scope: reuseScope)
         }
 
         let title = String(localized: "proWelcome.workspace.title", defaultValue: "Welcome to cmux Pro")
@@ -117,7 +112,7 @@ extension ProUpgradePresenter {
         ) else {
             return false
         }
-        ProWelcomeChecklistPresenter.workspaceReuseState.recordCreatedWorkspace(
+        appDelegate.proWelcomeWorkspaceReuseState.recordCreatedWorkspace(
             id: workspace.id,
             scope: reuseScope
         )

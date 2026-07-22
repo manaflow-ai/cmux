@@ -1036,6 +1036,12 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
 #endif
 
     var mainWindowContexts: [ObjectIdentifier: MainWindowContext] = [:]
+    /// Window-scoped pricing workspace reuse, owned here so window teardown
+    /// can remove entries without retaining closed window identifiers.
+    var proPricingWorkspaceReuseState = ProUpgradeWorkspaceReuseState()
+    /// Window-scoped Pro welcome workspace reuse, separate from pricing so
+    /// each destination can reuse its own workspace in the same window.
+    var proWelcomeWorkspaceReuseState = ProUpgradeWorkspaceReuseState()
     private var mainWindowControllers: [MainWindowController] = []
 
     /// Tracks the cascade point for new windows, matching Ghostty's upstream algorithm.
@@ -5932,6 +5938,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
         for key in removedKeys {
             mainWindowContexts.removeValue(forKey: key)
         }
+        proPricingWorkspaceReuseState.clear(scope: .window(removed.windowId))
+        proWelcomeWorkspaceReuseState.clear(scope: .window(removed.windowId))
         rememberRecoverableMainWindowRoute(windowId: removed.windowId, tabManager: removed.tabManager, window: removed.window)
         removeMobileWorkspaceListObserverIfUnused(for: removed.tabManager)
         notifyMainWindowContextsDidChange()
@@ -5947,6 +5955,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
         for key in contextKeys {
             mainWindowContexts.removeValue(forKey: key)
         }
+        proPricingWorkspaceReuseState.clear(scope: .window(context.windowId))
+        proWelcomeWorkspaceReuseState.clear(scope: .window(context.windowId))
         rememberRecoverableMainWindowRoute(windowId: context.windowId, tabManager: context.tabManager, window: context.window)
         removeMobileWorkspaceListObserverIfUnused(for: context.tabManager)
         notifyMainWindowContextsDidChange()
