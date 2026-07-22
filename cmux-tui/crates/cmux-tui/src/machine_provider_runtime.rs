@@ -407,7 +407,10 @@ impl ProviderMachineRuntime {
                 let selected_machine_id = result.selected_machine_id;
                 self.set_notice(result.notice);
                 if let Some(url) = result.url {
-                    self.notice = Some(format!("Open {url}"));
+                    self.notice = Some(format!(
+                        "{} {url}",
+                        localization::catalog().sidebar.provider_action_open_url
+                    ));
                 }
                 if let Some(scope_id) = selected_scope_id {
                     self.select_scope(scope_id)?;
@@ -630,7 +633,10 @@ impl ProviderMachineRuntime {
                                 false,
                                 provider_connect_supported,
                             );
-                            ui.notice = Some(format!("Machine provider update failed: {error}"));
+                            ui.notice = Some(format!(
+                                "{}: {error}",
+                                localization::catalog().sidebar.machine_provider_update_failed
+                            ));
                             ui.request = Some(MachineRequest::ReconnectProvider);
                             let _ = sender.send(ui);
                             break;
@@ -650,7 +656,10 @@ impl ProviderMachineRuntime {
                                     provider_connect_supported,
                                 );
                                 ui.notice = Some(format!(
-                                    "Machine provider lifecycle update failed: {error}"
+                                    "{}: {error}",
+                                    localization::catalog()
+                                        .sidebar
+                                        .machine_provider_lifecycle_update_failed
                                 ));
                                 ui.request = Some(MachineRequest::ReconnectProvider);
                                 let _ = sender.send(ui);
@@ -668,8 +677,12 @@ impl ProviderMachineRuntime {
                                 false,
                                 provider_connect_supported,
                             );
-                            ui.notice =
-                                Some(format!("Machine provider workspace update failed: {error}"));
+                            ui.notice = Some(format!(
+                                "{}: {error}",
+                                localization::catalog()
+                                    .sidebar
+                                    .machine_provider_workspace_update_failed
+                            ));
                             ui.request = Some(MachineRequest::ReconnectProvider);
                             let _ = sender.send(ui);
                             break;
@@ -728,7 +741,10 @@ impl ProviderMachineRuntime {
                 // selected machine failed. Keep the current mux transport and
                 // restart catalog updates against the fresh control client.
                 let mut ui = self.ui_state_for_open_connection();
-                ui.notice = Some(format!("Could not reconnect machine: {error}"));
+                ui.notice = Some(format!(
+                    "{}: {error}",
+                    localization::catalog().sidebar.machine_reconnect_failed
+                ));
                 Ok(MachineActionResult {
                     ui,
                     replacement: None,

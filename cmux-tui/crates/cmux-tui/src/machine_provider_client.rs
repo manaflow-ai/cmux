@@ -9,7 +9,7 @@
 #![allow(dead_code)]
 
 #[cfg(unix)]
-use std::collections::{BTreeMap, HashMap};
+use std::collections::{BTreeMap, HashMap, VecDeque};
 #[cfg(unix)]
 use std::fmt;
 #[cfg(unix)]
@@ -21,9 +21,9 @@ use std::sync::atomic::{AtomicBool, AtomicU64, Ordering};
 #[cfg(unix)]
 use std::sync::mpsc::{self, Receiver, RecvTimeoutError, Sender, SyncSender, TrySendError};
 #[cfg(unix)]
-use std::sync::{Arc, Mutex, Weak};
+use std::sync::{Arc, Condvar, Mutex, Weak};
 #[cfg(unix)]
-use std::time::Duration;
+use std::time::{Duration, Instant};
 
 #[cfg(unix)]
 use cmux_tui_machine_protocol::{
@@ -189,12 +189,98 @@ impl From<ReaderFailure> for ProviderClientError {
 type PendingResponse = Result<Vec<u8>, ReaderFailure>;
 
 #[cfg(unix)]
+#[derive(Default)]
+struct ProviderEventQueueState {
+    events: VecDeque<ProviderEvent>,
+    best_effort_len: usize,
+    disconnected: bool,
+}
+
+#[cfg(unix)]
+struct ProviderEventQueue {
+    state: Mutex<ProviderEventQueueState>,
+    ready: Condvar,
+}
+
+#[cfg(unix)]
+impl ProviderEventQueue {
+    fn new() -> Self {
+        Self { state: Mutex::new(ProviderEventQueueState::default()), ready: Condvar::new() }
+    }
+
+    fn publish(&self, event: ProviderEvent) {
+        let Ok(mut state) = self.state.lock() else {
+            return;
+        };
+        if state.disconnected {
+            return;
+        }
+        if matches!(&event, ProviderEvent::ConnectionClosed(_)) {
+            // Connection revocation changes transport validity. Preserve every
+            // closure without charging it to the bounded catalog/notice budget.
+            state.events.push_back(event);
+        } else if state.best_effort_len < PROVIDER_EVENT_QUEUE_CAPACITY {
+            state.events.push_back(event);
+            state.best_effort_len += 1;
+        }
+        drop(state);
+        self.ready.notify_one();
+    }
+
+    fn disconnect(&self) {
+        if let Ok(mut state) = self.state.lock() {
+            state.disconnected = true;
+        }
+        self.ready.notify_all();
+    }
+}
+
+#[cfg(unix)]
+pub(crate) struct ProviderEventReceiver {
+    queue: Arc<ProviderEventQueue>,
+}
+
+#[cfg(unix)]
+impl ProviderEventReceiver {
+    pub(crate) fn recv_timeout(
+        &self,
+        timeout: Duration,
+    ) -> Result<ProviderEvent, RecvTimeoutError> {
+        let deadline = Instant::now() + timeout;
+        let mut state = self.queue.state.lock().map_err(|_| RecvTimeoutError::Disconnected)?;
+        loop {
+            if let Some(event) = state.events.pop_front() {
+                if !matches!(&event, ProviderEvent::ConnectionClosed(_)) {
+                    state.best_effort_len -= 1;
+                }
+                return Ok(event);
+            }
+            if state.disconnected {
+                return Err(RecvTimeoutError::Disconnected);
+            }
+            let Some(remaining) = deadline.checked_duration_since(Instant::now()) else {
+                return Err(RecvTimeoutError::Timeout);
+            };
+            let (next, timed_out) = self
+                .queue
+                .ready
+                .wait_timeout(state, remaining)
+                .map_err(|_| RecvTimeoutError::Disconnected)?;
+            state = next;
+            if timed_out.timed_out() && state.events.is_empty() {
+                return Err(RecvTimeoutError::Timeout);
+            }
+        }
+    }
+}
+
+#[cfg(unix)]
 struct ProviderClientInner {
     writer: Mutex<Box<dyn Write + Send>>,
     control_guard: ProviderIoGuard,
     streams: Arc<dyn MachineStreamConnector>,
     pending: Mutex<HashMap<String, Sender<PendingResponse>>>,
-    event_subscribers: Mutex<Vec<SyncSender<ProviderEvent>>>,
+    event_subscribers: Mutex<Vec<Weak<ProviderEventQueue>>>,
     snapshot_subscribers: Mutex<Vec<SyncSender<u64>>>,
     next_request_id: AtomicU64,
     live: AtomicBool,
@@ -219,7 +305,9 @@ impl ProviderClientInner {
         self.live.store(false, Ordering::Release);
         self.cancel_pending(failure);
         if let Ok(mut subscribers) = self.event_subscribers.lock() {
-            subscribers.clear();
+            for subscriber in subscribers.drain(..).filter_map(|subscriber| subscriber.upgrade()) {
+                subscriber.disconnect();
+            }
         }
         if let Ok(mut subscribers) = self.snapshot_subscribers.lock() {
             subscribers.clear();
@@ -243,13 +331,24 @@ impl ProviderClientInner {
         let Ok(mut subscribers) = self.event_subscribers.lock() else {
             return;
         };
-        subscribers.retain(|subscriber| match subscriber.try_send(event.clone()) {
-            Ok(()) => true,
-            // Drop this event under sustained backpressure, but retain the
-            // subscriber so a later snapshot invalidation can converge state.
-            Err(TrySendError::Full(_)) => true,
-            Err(TrySendError::Disconnected(_)) => false,
+        subscribers.retain(|subscriber| {
+            let Some(subscriber) = subscriber.upgrade() else {
+                return false;
+            };
+            subscriber.publish(event.clone());
+            true
         });
+    }
+}
+
+#[cfg(unix)]
+impl Drop for ProviderClientInner {
+    fn drop(&mut self) {
+        if let Ok(subscribers) = self.event_subscribers.get_mut() {
+            for subscriber in subscribers.drain(..).filter_map(|subscriber| subscriber.upgrade()) {
+                subscriber.disconnect();
+            }
+        }
     }
 }
 
@@ -522,15 +621,18 @@ impl ProviderClient {
 
     /// Subscribe to every provider event, including notices and remote
     /// connection closures. Receivers are removed after drop.
-    pub(crate) fn subscribe_events(&self) -> ProviderResult<Receiver<ProviderEvent>> {
-        self.ensure_live()?;
-        let (sender, receiver) = mpsc::sync_channel(PROVIDER_EVENT_QUEUE_CAPACITY);
-        self.inner
+    pub(crate) fn subscribe_events(&self) -> ProviderResult<ProviderEventReceiver> {
+        let queue = Arc::new(ProviderEventQueue::new());
+        let mut subscribers = self
+            .inner
             .event_subscribers
             .lock()
-            .map_err(|_| ProviderClientError::StatePoisoned("subscriber"))?
-            .push(sender);
-        Ok(receiver)
+            .map_err(|_| ProviderClientError::StatePoisoned("subscriber"))?;
+        // Recheck while holding the same lock used by disconnection cleanup so
+        // a receiver cannot be registered after the cleanup drain has passed.
+        self.ensure_live()?;
+        subscribers.push(Arc::downgrade(&queue));
+        Ok(ProviderEventReceiver { queue })
     }
 
     /// Consume a provider-issued, one-use ticket into cmux's normal remote
