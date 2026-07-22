@@ -130,12 +130,15 @@ final class SidebarWorkspaceTableController: NSObject, NSTableViewDataSource, NS
     }
 
     func setPresentationActive(_ isActive: Bool, workspaceIds liveWorkspaceIds: [UUID]) {
-        let didChange = isPresentationActive != isActive
+        guard isPresentationActive != isActive else {
+            if !isActive {
+                pruneHiddenPresentation(retainingWorkspaceIds: liveWorkspaceIds)
+            }
+            return
+        }
         isPresentationActive = isActive
         if isActive {
-            if didChange {
-                mutationScheduler.stageViewportChange()
-            }
+            mutationScheduler.stageViewportChange()
             return
         }
         mutationScheduler.cancelPendingMutations()
@@ -144,6 +147,17 @@ final class SidebarWorkspaceTableController: NSObject, NSTableViewDataSource, NS
         widthRemeasureTask?.cancel()
         widthRemeasureTask = nil
         suspendPresentation(retainingWorkspaceIds: liveWorkspaceIds)
+    }
+
+    private func pruneHiddenPresentation(retainingWorkspaceIds liveWorkspaceIds: [UUID]) {
+        guard workspaceIds != liveWorkspaceIds else { return }
+        workspaceIds = liveWorkspaceIds
+        let liveIds = Set(liveWorkspaceIds)
+        let previousRowIds = rows.map(\.id)
+        rows = rows.filter { liveIds.contains($0.workspaceId) }
+        if previousRowIds != rows.map(\.id) {
+            containerView?.tableView.reloadData()
+        }
     }
 
     private func suspendPresentation(retainingWorkspaceIds liveWorkspaceIds: [UUID]) {
@@ -176,7 +190,7 @@ final class SidebarWorkspaceTableController: NSObject, NSTableViewDataSource, NS
         for row in 0..<table.numberOfRows {
             switch table.view(atColumn: 0, row: row, makeIfNecessary: false) {
             case let cell as SidebarWorkspaceRowTableCellView:
-                cell.suspendPresentation()
+                cell.suspendPresentation(commitEdits: true)
             case let cell as SidebarGroupHeaderTableCellView:
                 cell.suspendPresentation()
             case let cell as SidebarWorkspaceTableCellView:

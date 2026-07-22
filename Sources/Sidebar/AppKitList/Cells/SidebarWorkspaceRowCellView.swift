@@ -258,7 +258,7 @@ final class SidebarWorkspaceRowTableCellView: NSTableCellView {
             if statusPopoverPresenter.isShown {
                 statusPopoverPresenter.close()
             }
-            suspendPresentation()
+            suspendPresentation(commitEdits: true)
         }
     }
 
@@ -268,7 +268,16 @@ final class SidebarWorkspaceRowTableCellView: NSTableCellView {
         trailingSpinner?.isPresentationActive = isActive
     }
 
-    func suspendPresentation() {
+    func suspendPresentation(commitEdits: Bool = false) {
+        if commitEdits, isEditing {
+            let commitRename = actions?.commitRename
+            let text = renameField.stringValue
+            endInlineRename(commit: true)
+            commitRename?(text)
+        }
+        renameField.onCommit = nil
+        renameField.onCancel = nil
+        checklistSection.suspendPresentation(commitEdits: commitEdits)
         actions = nil
         contextMenuDidOpen = nil
         contextMenuDidClose = nil
@@ -597,23 +606,15 @@ final class SidebarWorkspaceRowTableCellView: NSTableCellView {
             existing: leadingSpinner,
             visible: leadingSpinnerVisible,
             color: spinnerColor,
-<<<<<<< HEAD
-            in: contentContainer
-=======
             presentationActive: isPresentationActive,
-            in: self
->>>>>>> 0fab0fe185 (fix: release hidden sidebar payloads)
+            in: contentContainer
         )
         trailingSpinner = Self.updateSpinner(
             existing: trailingSpinner,
             visible: trailingSpinnerVisible && !showsCloseNow,
             color: spinnerColor,
-<<<<<<< HEAD
-            in: contentContainer
-=======
             presentationActive: isPresentationActive,
-            in: self
->>>>>>> 0fab0fe185 (fix: release hidden sidebar payloads)
+            in: contentContainer
         )
         let agentCount = model.snapshot.activeCodingAgentCount
         let tooltip = agentCount == 1

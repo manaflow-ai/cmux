@@ -304,6 +304,25 @@ final class SidebarRowChecklistSection: NSView {
         needsLayout = true
     }
 
+    func suspendPresentation(commitEdits: Bool) {
+        addRow.suspendPresentation(commitEdits: commitEdits)
+        summaryLine.resetForReuse()
+        if popoverPresenter.isShown {
+            popoverPresenter.close()
+        }
+        popoverPresenter.onExternalDismiss = nil
+        activePopoverDismissContext = nil
+        awaitingPopoverDismissAck = false
+        pendingPopoverPresentation = false
+        lastAddFieldToken = 0
+        lastPopoverModel = nil
+        lastConfigureKey = nil
+        resetTransientChildren()
+        orderedItems.removeAll(keepingCapacity: true)
+        actions = nil
+        model = nil
+    }
+
     // MARK: Checklist popover (popover style)
 
     private func reconcileChecklistPopover(

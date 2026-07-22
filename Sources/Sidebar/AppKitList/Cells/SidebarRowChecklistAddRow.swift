@@ -106,6 +106,15 @@ final class SidebarRowChecklistAddRow: NSView {
         lastArmWorkspaceId = nil
     }
 
+    /// Presentation teardown can either preserve the normal focus-loss
+    /// commit or discard the editor callbacks before detaching the field.
+    func suspendPresentation(commitEdits: Bool) {
+        if !commitEdits {
+            addField?.delegate = nil
+        }
+        resetForReuse()
+    }
+
     /// Creates a fresh, empty, focus-grabbing add field (legacy bumps the
     /// field's view identity on every arm/commit for the same effect).
     func rearmField() {
@@ -221,4 +230,3 @@ final class SidebarRowChecklistAddRow: NSView {
         }
     }
 }
-
