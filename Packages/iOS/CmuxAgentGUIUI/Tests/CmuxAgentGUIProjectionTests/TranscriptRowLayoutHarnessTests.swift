@@ -217,7 +217,7 @@ extension TranscriptRenderingRegressionTests {
         #expect(abs(codeBackground.frame.width - (393 - 48)) < 0.001)
     }
 
-    @Test func sixHundredRowCacheRecomputesOnlyStreamingTail() throws {
+    @Test func sixHundredRowCacheRecomputesOnlyStreamingTail() async throws {
         let controller = TranscriptListViewController(theme: AgentGUITheme(terminalTheme: .monokai))
         let container = UIViewController()
         container.additionalSafeAreaInsets = UIEdgeInsets(top: 59, left: 0, bottom: 34, right: 0)
@@ -241,11 +241,19 @@ extension TranscriptRenderingRegressionTests {
 
         #expect(controller.currentRows.count == 600)
         #expect(initialCount <= 24)
-        let fillDeadline = CACurrentMediaTime() + 5
-        while controller.heightCache.count < 600, CACurrentMediaTime() < fillDeadline {
-            RunLoop.current.run(until: Date(timeIntervalSinceNow: 0.01))
+        let fillDeadline = ContinuousClock.now + .seconds(10)
+        while controller.heightCache.count < 600, ContinuousClock.now < fillDeadline {
+            await Task.yield()
         }
         #expect(controller.heightCache.count == 600)
+        #expect(controller.backgroundLayoutComputationCount == 600)
+        controller.collectionView.setContentOffset(
+            CGPoint(x: 0, y: -controller.collectionView.contentInset.top),
+            animated: false
+        )
+        #expect(controller.collectionView.contentOffset.y == -controller.collectionView.contentInset.top)
+        controller.scrollToBottom(animated: false)
+        #expect(controller.collectionView.contentOffset == controller.bottomRestOffset)
 
         controller.apply(input: TranscriptProjectionInput(entries: Self.perfEntries(tailRevision: 1)))
         controller.collectionView.layoutIfNeeded()

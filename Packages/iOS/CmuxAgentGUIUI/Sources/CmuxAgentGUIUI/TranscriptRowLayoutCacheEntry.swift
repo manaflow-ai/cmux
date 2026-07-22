@@ -2,7 +2,7 @@
 import CmuxAgentGUIProjection
 import CoreGraphics
 
-struct TranscriptRowLayoutCacheEntry {
+struct TranscriptRowLayoutCacheEntry: Sendable {
     let row: TranscriptRow
     let width: CGFloat
     let density: TranscriptDensity

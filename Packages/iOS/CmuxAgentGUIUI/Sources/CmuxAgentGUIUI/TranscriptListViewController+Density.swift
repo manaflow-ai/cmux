@@ -33,10 +33,19 @@ extension TranscriptListViewController {
 
     private func applyDensity(_ density: TranscriptDensity) {
         cancelActiveScrollTransition()
+        let isAwaitingInitialLayout = dataSource.snapshot().itemIdentifiers.isEmpty
+            && currentRows.count >= 100
+        if isAwaitingInitialLayout {
+            cancelInitialLayout()
+        }
         let anchor = captureAnchor(pinningExactBottomRest: true)
         currentDensity = density
         pendingDensity = nil
         guard !currentRows.isEmpty else { return }
+        if isAwaitingInitialLayout, collectionView.bounds.width > 1 {
+            scheduleInitialLayout(for: currentRows)
+            return
+        }
         isApplyingDensityTransaction = true
         defer { isApplyingDensityTransaction = false }
         let snapshot = dataSource.snapshot()

@@ -38,10 +38,21 @@ extension TranscriptListViewController {
 
     func resetLayoutComputationCount() {
         layoutComputationCount = 0
+        backgroundLayoutComputationCount = 0
     }
 
     func invalidateAllRowLayouts() {
+        cancelInitialLayout()
         heightCache.removeAll(keepingCapacity: true)
+        if isViewLoaded,
+           collectionView != nil,
+           dataSource != nil,
+           dataSource.snapshot().itemIdentifiers.isEmpty,
+           currentRows.count >= 100,
+           collectionView.bounds.width > 1 {
+            scheduleInitialLayout(for: currentRows)
+            return
+        }
         guard isViewLoaded,
               collectionView != nil,
               dataSource != nil,

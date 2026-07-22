@@ -3,6 +3,8 @@ import SwiftUI
 public import UIKit
 
 extension TranscriptListViewController {
+    static let scrollToBottomPillThreshold: CGFloat = 40
+
     /// Updates the transcript's reserved visual bottom chrome height.
     /// - Parameter height: Height obstructed by floating composer chrome.
     public func setBottomChromeHeight(_ height: CGFloat) {
@@ -86,7 +88,10 @@ extension TranscriptListViewController {
             host.view.superview?.layoutIfNeeded()
             renderedPillUnreadCount = unreadCount
         }
-        let targetAlpha: CGFloat = unreadCount > 0 && !isAutoStickingToBottom ? 1 : 0
+        let targetAlpha: CGFloat = distanceFromBottom >= Self.scrollToBottomPillThreshold
+            && !isAutoStickingToBottom
+            ? 1
+            : 0
         guard abs(host.view.alpha - targetAlpha) > 0.01 else {
             return
         }

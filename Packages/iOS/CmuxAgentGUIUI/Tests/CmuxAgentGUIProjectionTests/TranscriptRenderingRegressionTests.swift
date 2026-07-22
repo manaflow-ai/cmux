@@ -91,7 +91,7 @@ import UIKit
         #expect(collection.contentOffset == offset)
         #expect(container.terminalThemeGeneration == 5)
         #expect(list.currentTheme == replacement)
-        #expect(container.view.backgroundColor == UIColor.clear)
+        #expect(container.view.backgroundColor == UIColor(replacement.background))
         #expect(collection.backgroundColor == UIColor(replacement.background))
     }
 

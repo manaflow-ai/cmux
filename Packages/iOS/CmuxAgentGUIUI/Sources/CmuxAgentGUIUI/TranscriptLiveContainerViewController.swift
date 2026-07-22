@@ -10,6 +10,8 @@ public import UIKit
     private var currentTheme: AgentGUITheme
     private var requestedBottomChromeViews: [UIView] = []
     private var hostedBottomChrome: [(view: UIView, originalSuperview: UIView, originalIndex: Int)] = []
+    private var scrollsToTopRestorations: [ObjectIdentifier: TranscriptScrollsToTopRestoration] = [:]
+    private var ownsScrollsToTop = false
 
     /// Creates a live container with the current terminal-derived palette.
     public init(theme: AgentGUITheme, terminalThemeGeneration: UInt64) {
@@ -36,7 +38,7 @@ public import UIKit
 
     public override func viewDidLoad() {
         super.viewDidLoad()
-        view.backgroundColor = .clear
+        view.backgroundColor = UIColor(currentTheme.background)
         addChild(transcript)
         transcript.view.translatesAutoresizingMaskIntoConstraints = false
         view.addSubview(transcript.view)
@@ -53,6 +55,20 @@ public import UIKit
     public override func viewDidLayoutSubviews() {
         super.viewDidLayoutSubviews()
         reconcileBottomChromeHosting()
+        if ownsScrollsToTop {
+            reconcileScrollsToTopOwnership()
+        }
+    }
+
+    public override func viewWillAppear(_ animated: Bool) {
+        super.viewWillAppear(animated)
+        ownsScrollsToTop = true
+        reconcileScrollsToTopOwnership()
+    }
+
+    public override func viewDidDisappear(_ animated: Bool) {
+        restoreScrollsToTopOwnership()
+        super.viewDidDisappear(animated)
     }
 
     public override func willMove(toParent parent: UIViewController?) {
@@ -67,6 +83,9 @@ public import UIKit
     public func apply(input: TranscriptProjectionInput) {
         loadViewIfNeeded()
         transcript.apply(input: input)
+        if ownsScrollsToTop {
+            reconcileScrollsToTopOwnership()
+        }
     }
 
     func applyPendingAskInteraction(
@@ -94,7 +113,7 @@ public import UIKit
         self.terminalThemeGeneration = terminalThemeGeneration
         currentTheme = theme
         if isViewLoaded {
-            view.backgroundColor = .clear
+            view.backgroundColor = UIColor(theme.background)
         }
         transcript.apply(theme: theme)
     }
@@ -126,10 +145,14 @@ public import UIKit
         requestedBottomChromeViews = uniqueContainers
         transcript.setBottomEdgeElementContainers(containers)
         reconcileBottomChromeHosting()
+        if ownsScrollsToTop {
+            reconcileScrollsToTopOwnership()
+        }
     }
 
     /// Restores terminal-owned chrome and removes transcript edge interactions.
     public func prepareForDismantle() {
+        restoreScrollsToTopOwnership()
         restoreBottomChromeHosting()
         requestedBottomChromeViews.removeAll()
         transcript.prepareForDismantle()
@@ -161,6 +184,35 @@ public import UIKit
             hosted.view.frame = frameInOriginalSuperview
         }
         hostedBottomChrome.removeAll()
+    }
+
+    private func reconcileScrollsToTopOwnership() {
+        guard let hierarchyRoot = view.window else { return }
+        scrollsToTopRestorations = scrollsToTopRestorations.filter { $0.value.scrollView != nil }
+        let transcriptScrollView = transcript.collectionView
+        for scrollView in allScrollViews(in: hierarchyRoot) {
+            let identifier = ObjectIdentifier(scrollView)
+            if scrollsToTopRestorations[identifier] == nil {
+                scrollsToTopRestorations[identifier] = TranscriptScrollsToTopRestoration(
+                    scrollView: scrollView,
+                    originalValue: scrollView.scrollsToTop
+                )
+            }
+            scrollView.scrollsToTop = scrollView === transcriptScrollView
+        }
+    }
+
+    private func restoreScrollsToTopOwnership() {
+        for restoration in scrollsToTopRestorations.values {
+            restoration.scrollView?.scrollsToTop = restoration.originalValue
+        }
+        scrollsToTopRestorations.removeAll()
+        ownsScrollsToTop = false
+    }
+
+    private func allScrollViews(in root: UIView) -> [UIScrollView] {
+        let current = (root as? UIScrollView).map { [$0] } ?? []
+        return current + root.subviews.flatMap { allScrollViews(in: $0) }
     }
 }
 #endif

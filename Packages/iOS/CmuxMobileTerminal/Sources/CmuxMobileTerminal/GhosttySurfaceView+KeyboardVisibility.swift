@@ -29,8 +29,14 @@ extension GhosttySurfaceView {
     }
 
     func reconcileKeyboardVisibilityFromSystem(_ isVisible: Bool) {
-        keyboardVisible = isVisible
-        inputProxy.setKeyboardShown(isVisible)
+        // A responder handoff (terminal proxy -> composer field, or back) can
+        // emit a late `didHide` for the outgoing responder after the replacement
+        // already owns the live keyboard. The local first-responder tree is the
+        // authoritative tie-breaker; otherwise that stale notification relabels
+        // the still-visible toggle as "Show Keyboard".
+        let effectiveVisibility = isVisible || hasLocalKeyboardFirstResponder
+        keyboardVisible = effectiveVisibility
+        inputProxy.setKeyboardShown(effectiveVisibility)
     }
 }
 #endif

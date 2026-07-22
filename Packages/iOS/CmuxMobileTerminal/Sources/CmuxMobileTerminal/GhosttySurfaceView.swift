@@ -765,6 +765,9 @@ public final class GhosttySurfaceView: UIView, TerminalSurfaceHosting {
     /// stack). Replaces the round-5/6 `safeAreaInset`-plus-toolbar-handoff that
     /// fought the surface's frame math.
     private let composerContainer = UIView()
+    var hasLocalKeyboardFirstResponder: Bool {
+        inputProxy.isFirstResponder || composerContainer.firstResponderInSubtree() != nil
+    }
     /// Height (points) the open composer band reserves above the keyboard edge. Fed
     /// by the host from the hosted compose field's intrinsic content size
     /// (``setComposerBandHeight(_:animated:)``); 0 while the composer is closed. The

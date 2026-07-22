@@ -102,6 +102,32 @@ extension TranscriptRenderingRegressionTests {
         #expect(controller.pillHost?.view.alpha == 0)
     }
 
+    @Test func scrollToBottomPillUsesMatchedNearAndFarChoreographyAndLandsExactly() throws {
+        let mounted = Self.makeSlice2PhysicsMount()
+        defer { mounted.window.isHidden = true }
+        let controller = mounted.container.transcript
+        let nearDistance = controller.collectionView.bounds.height
+        controller.collectionView.setContentOffset(
+            CGPoint(x: 0, y: controller.bottomRestOffset.y - nearDistance),
+            animated: false
+        )
+        controller.scrollViewDidScroll(controller.collectionView)
+
+        try #require(controller.pillHost).rootView.action()
+        #expect(abs((controller.scrollAnimator?.duration ?? 0) - 0.45) < 0.001)
+        Self.pumpLiveRunLoop(duration: 0.55)
+        #expect(controller.collectionView.contentOffset == controller.bottomRestOffset)
+
+        let historyTop = -controller.collectionView.contentInset.top
+        controller.collectionView.setContentOffset(CGPoint(x: 0, y: historyTop), animated: false)
+        controller.scrollViewDidScroll(controller.collectionView)
+        #expect(controller.distanceFromBottom >= controller.collectionView.bounds.height * 1.75)
+
+        try #require(controller.pillHost).rootView.action()
+        Self.pumpLiveRunLoop(duration: 0.5)
+        #expect(controller.collectionView.contentOffset == controller.bottomRestOffset)
+    }
+
     private static func makeSlice2PhysicsMount() -> (
         window: UIWindow,
         root: UIViewController,
