@@ -68,6 +68,46 @@ describe("cloud billing return page", () => {
     }
   });
 
+  test("honors quality weights, exclusions, and every supported locale catalog", async () => {
+    const cases = [
+      {
+        accepted: "en-US,en;q=0.9,ja;q=0.8",
+        locale: "en",
+        title: "Back from the billing portal",
+      },
+      {
+        accepted: "ja;q=0,en;q=0.5",
+        locale: "en",
+        title: "Back from the billing portal",
+      },
+      {
+        accepted: "de-DE,de;q=0.9,en;q=0.8",
+        locale: "de",
+        title: "Zurück vom Abrechnungsportal",
+      },
+      {
+        accepted: "zh-TW,zh;q=0.9,en;q=0.8",
+        locale: "zh-TW",
+        title: "已從帳單入口網站返回",
+      },
+    ] as const;
+
+    try {
+      for (const testCase of cases) {
+        acceptLanguage = testCase.accepted;
+        const element = await CloudBillingReturnPage({
+          searchParams: Promise.resolve({ status: "portal-return" }),
+        });
+        const html = renderToStaticMarkup(element);
+
+        expect(html).toContain(`lang="${testCase.locale}"`);
+        expect(html).toContain(testCase.title);
+      }
+    } finally {
+      acceptLanguage = "en";
+    }
+  });
+
   test("uses status-specific metadata and keeps return pages out of search", async () => {
     expect(
       await generateMetadata({

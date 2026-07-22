@@ -1,8 +1,9 @@
 import type { Metadata } from "next";
 import { headers } from "next/headers";
 
-import enMessages from "../../../messages/en.json";
-import jaMessages from "../../../messages/ja.json";
+import { preferredLocaleFromAcceptLanguage } from "../../../i18n/accept-language";
+import { loadMessages } from "../../../i18n/messages";
+import type { Locale } from "../../../i18n/routing";
 
 type BillingReturnStatus =
   | "checkout-success"
@@ -41,7 +42,7 @@ export async function generateMetadata({
   searchParams,
 }: CloudBillingReturnPageProps): Promise<Metadata> {
   const params = await searchParams;
-  const { messages } = cloudBillingReturnMessages(await headers());
+  const { messages } = await cloudBillingReturnMessages(await headers());
   const statusKey = billingReturnMessageKey(firstParam(params.status));
   return {
     title: messages.statuses[statusKey].title,
@@ -53,7 +54,7 @@ export default async function CloudBillingReturnPage({
   searchParams,
 }: CloudBillingReturnPageProps) {
   const params = await searchParams;
-  const { locale, messages } = cloudBillingReturnMessages(await headers());
+  const { locale, messages } = await cloudBillingReturnMessages(await headers());
   const statusKey = billingReturnMessageKey(firstParam(params.status));
   const status = messages.statuses[statusKey];
 
@@ -89,31 +90,18 @@ function billingReturnMessageKey(
   return "default";
 }
 
-function cloudBillingReturnMessages(headersList: Headers): {
-  locale: "en" | "ja";
+async function cloudBillingReturnMessages(headersList: Headers): Promise<{
+  locale: Locale;
   messages: CloudBillingReturnMessages;
-} {
-  const locale = preferredCloudBillingLocale(
+}> {
+  const locale = preferredLocaleFromAcceptLanguage(
     headersList.get("accept-language") ?? "",
   );
+  const catalog = await loadMessages(locale);
   return {
     locale,
-    messages: (locale === "ja"
-      ? jaMessages.cloudBillingReturn
-      : enMessages.cloudBillingReturn) as CloudBillingReturnMessages,
+    messages: catalog.cloudBillingReturn as CloudBillingReturnMessages,
   };
-}
-
-function preferredCloudBillingLocale(acceptedLanguages: string): "en" | "ja" {
-  const languages = acceptedLanguages
-    .split(",")
-    .map((part) => part.split(";")[0]?.trim().toLowerCase())
-    .filter(Boolean);
-  return languages.some(
-    (language) => language === "ja" || language?.startsWith("ja-"),
-  )
-    ? "ja"
-    : "en";
 }
 
 function firstParam(value: string | string[] | undefined): string | null {

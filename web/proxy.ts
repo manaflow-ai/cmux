@@ -1,5 +1,6 @@
 import { type NextRequest, NextResponse } from "next/server";
 import createMiddleware from "next-intl/middleware";
+import { preferredLocaleFromAcceptLanguage } from "./i18n/accept-language";
 import { routing } from "./i18n/routing";
 import { isAgentPageVariantPath } from "./app/lib/agent-page-paths";
 import {
@@ -241,63 +242,10 @@ function preferredFallbackContentLocale(
     return "en";
   }
 
-  const preferences = (request.headers.get("accept-language") ?? "")
-    .split(",")
-    .map((preference, index) => {
-      const [tag, ...parameters] = preference.trim().split(";");
-      const qualityParameter = parameters.find((parameter) =>
-        /^q\s*=/iu.test(parameter.trim()),
-      );
-      const qualityValue = qualityParameter?.split("=")[1].trim();
-      const quality =
-        qualityValue === undefined
-          ? 1
-          : /^(?:0(?:\.\d{0,3})?|1(?:\.0{0,3})?)$/u.test(qualityValue)
-            ? Number(qualityValue)
-            : Number.NaN;
-      return { tag: tag.trim().toLowerCase(), quality, index };
-    })
-    .filter(
-      ({ tag, quality }) =>
-        tag.length > 0 &&
-        Number.isFinite(quality) &&
-        quality >= 0 &&
-        quality <= 1,
-    );
-
-  const preferred = availableLocales
-    .map((locale) => ({
-      locale,
-      ...effectiveLanguageQuality(locale, preferences),
-    }))
-    .sort(
-      (left, right) =>
-        right.quality - left.quality || left.index - right.index,
-    )[0];
-  return preferred && preferred.quality > 0
-    ? preferred.locale
-    : (availableLocales[0] ?? "en");
-}
-
-function effectiveLanguageQuality(
-  locale: (typeof routing.locales)[number],
-  preferences: Array<{ tag: string; quality: number; index: number }>,
-) {
-  const explicitMatches = preferences.filter(({ tag }) => {
-    if (tag === "*") return false;
-    return tag.split("-")[0] === locale;
-  });
-  const matches =
-    explicitMatches.length > 0
-      ? explicitMatches
-      : preferences.filter(({ tag }) => tag === "*");
-  return matches.reduce(
-    (best, preference) =>
-      preference.quality > best.quality ||
-      (preference.quality === best.quality && preference.index < best.index)
-        ? preference
-        : best,
-    { quality: 0, index: Number.POSITIVE_INFINITY },
+  return preferredLocaleFromAcceptLanguage(
+    request.headers.get("accept-language") ?? "",
+    availableLocales,
+    availableLocales[0] ?? routing.defaultLocale,
   );
 }
 
