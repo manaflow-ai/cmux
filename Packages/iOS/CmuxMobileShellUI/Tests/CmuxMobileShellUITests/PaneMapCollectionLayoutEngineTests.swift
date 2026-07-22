@@ -36,6 +36,35 @@ import Testing
         }
     }
 
+    @Test func undersizedVerticalSiblingBorrowsSpaceFromTheLargerPane() throws {
+        let layout = verticalLayout(ratio: 0.95, paneIDs: ["large", "small"])
+
+        let result = engine.layout(layout, in: CGSize(width: 390, height: 520))
+        let large = try #require(result.framesByPaneID["large"])
+        let small = try #require(result.framesByPaneID["small"])
+
+        #expect(!result.overflowsVertically)
+        #expect(large.height >= 220)
+        #expect(small.height == 220)
+        #expect(small.minY - large.maxY == 14)
+    }
+
+    @Test func impossibleMinimumHeightsProduceVerticalOverflow() throws {
+        let layout = verticalLayout(
+            ratio: 0.5,
+            paneIDs: ["one", "two", "three"]
+        )
+
+        let result = engine.layout(layout, in: CGSize(width: 390, height: 520))
+
+        #expect(!result.overflowsHorizontally)
+        #expect(result.overflowsVertically)
+        #expect(result.contentSize.height == 712)
+        for paneID in ["one", "two", "three"] {
+            #expect(try #require(result.framesByPaneID[paneID]).height >= 220)
+        }
+    }
+
     @Test func fourPaneGridPreservesMacRatiosWhenMinimumsFit() throws {
         let layout = fourPaneLayout()
 
@@ -62,6 +91,21 @@ import Testing
             node = .split(MobilePaneSplit(
                 id: "split-\(paneID)",
                 orientation: .horizontal,
+                ratio: ratio,
+                first: .pane(pane(paneID)),
+                second: node
+            ))
+        }
+        return MobilePaneLayout(version: 1, focusedPaneID: nil, root: node)
+    }
+
+    private func verticalLayout(ratio: Double, paneIDs: [String]) -> MobilePaneLayout {
+        precondition(paneIDs.count >= 2)
+        var node = MobilePaneLayout.Node.pane(pane(paneIDs.last!))
+        for paneID in paneIDs.dropLast().reversed() {
+            node = .split(MobilePaneSplit(
+                id: "split-\(paneID)",
+                orientation: .vertical,
                 ratio: ratio,
                 first: .pane(pane(paneID)),
                 second: node

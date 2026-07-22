@@ -1688,6 +1688,27 @@ final class cmuxUITests: XCTestCase {
 
         let claudeTile = app.buttons["MobilePaneMapTile-preview-claude"]
         XCTAssertTrue(claudeTile.waitForExistence(timeout: 2))
+        let originalClaudeFrame = claudeTile.frame
+        claudeTile.pinch(withScale: 1.3, velocity: 0.35)
+
+        XCTAssertTrue(overlay.exists, "A reversed pane zoom must stay inside the pane map")
+        let returnedToSource = XCTNSPredicateExpectation(
+            predicate: NSPredicate(
+                block: { _, _ in
+                    abs(claudeTile.frame.midX - originalClaudeFrame.midX) < 2
+                        && abs(claudeTile.frame.midY - originalClaudeFrame.midY) < 2
+                        && abs(claudeTile.frame.width - originalClaudeFrame.width) < 2
+                        && abs(claudeTile.frame.height - originalClaudeFrame.height) < 2
+                }
+            ),
+            object: claudeTile
+        )
+        XCTAssertEqual(
+            XCTWaiter.wait(for: [returnedToSource], timeout: 4),
+            .completed,
+            "A cancelled pane zoom must return to the exact source card"
+        )
+
         claudeTile.pinch(withScale: 2, velocity: 2)
 
         XCTAssertTrue(overlay.waitForNonExistence(timeout: 4))
