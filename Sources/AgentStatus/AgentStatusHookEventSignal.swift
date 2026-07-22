@@ -38,7 +38,7 @@ struct AgentStatusHookEventSignal: Equatable, Sendable {
               let sessionID = Self.sessionID(from: event.sessionId, source: source) else {
             return nil
         }
-        let pidKey = statusKey == "claude_code" ? statusKey : "\(statusKey).\(sessionID)"
+        let pidKey = "\(statusKey).\(sessionID)"
         return (statusKey, pidKey, pid, sessionID)
     }
 

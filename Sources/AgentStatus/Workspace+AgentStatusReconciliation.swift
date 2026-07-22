@@ -39,8 +39,6 @@ extension Workspace {
               agentStatusRuntimeIsCurrent(
                   pidKey: signal.runtimePIDKey,
                   pid: signal.runtimePID,
-                  sessionID: signal.runtimeSessionID,
-                  statusKey: signal.statusKey,
                   panelId: targetPanelId
               ) else {
             return
@@ -61,8 +59,6 @@ extension Workspace {
         return agentStatusRuntimeIsCurrent(
             pidKey: runtime.pidKey,
             pid: runtime.pid,
-            sessionID: runtime.sessionID,
-            statusKey: runtime.statusKey,
             panelId: panelId
         )
     }
@@ -222,25 +218,13 @@ extension Workspace {
     private func agentStatusRuntimeIsCurrent(
         pidKey: String,
         pid: Int,
-        sessionID: String,
-        statusKey: String,
         panelId: UUID
     ) -> Bool {
         guard let runtimePID = pid_t(exactly: pid) else { return false }
-        guard panels[panelId] != nil,
+        return panels[panelId] != nil &&
             agentPIDKeysByPanelId[panelId]?.contains(pidKey) == true &&
             agentPIDs[pidKey] == runtimePID &&
-            isRecordedAgentPIDLive(key: pidKey, pid: runtimePID) else {
-            return false
-        }
-        guard statusKey == "claude_code",
-              let binding = surfaceResumeBindingsByPanelId[panelId],
-              binding.isAgentHookBinding,
-              let checkpointID = binding.checkpointId?.trimmingCharacters(in: .whitespacesAndNewlines),
-              !checkpointID.isEmpty else {
-            return true
-        }
-        return checkpointID == sessionID
+            isRecordedAgentPIDLive(key: pidKey, pid: runtimePID)
     }
 
     private func agentStatusForegroundProcessIdentity(

@@ -899,6 +899,10 @@ final class CLINotifyProcessIntegrationRegressionTests: XCTestCase {
             parentSurfaceId,
             "Fork-session SessionStart reports the parent session id and must not steal the parent record's surface binding for the fork pane"
         )
+        XCTAssertFalse(
+            context.state.commands.contains { $0.hasPrefix("set_agent_pid claude_code.\(parentSessionId) ") },
+            "A pre-prompt fork has no independent session generation yet and must not steal the parent's runtime key, saw \(context.state.commands)"
+        )
     }
 
     func testClaudeForkSessionStartWithoutSurfaceIdentityDoesNotRegisterPIDOnFallbackPane() throws {

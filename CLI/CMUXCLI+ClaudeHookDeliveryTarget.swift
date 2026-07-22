@@ -203,7 +203,8 @@ extension CMUXCLI {
     /// surface identity (handled by the caller).
     private func liveAgentPidDeliveryTarget(
         pid: Int?,
-        client: SocketClient
+        client: SocketClient,
+        responseTimeout: TimeInterval = 2.0
     ) -> LiveAgentDeliveryTargetProbeResult {
         // A relay-backed connection means this hook is not running in the
         // app's process namespace (SSH/cloud host): its CMUX_CLAUDE_PID is a
@@ -217,7 +218,7 @@ extension CMUXCLI {
             payload = try client.sendV2(
                 method: "agent.resolve_delivery_target",
                 params: ["pid": pid],
-                responseTimeout: 2.0
+                responseTimeout: responseTimeout
             )
         } catch let error as CLIError where error.v2Code == "method_not_found"
                 || error.v2Code == "unrecognized_method" {
@@ -238,6 +239,54 @@ extension CMUXCLI {
             surfaceId: surfaceId,
             isAuthoritative: true
         ))
+    }
+
+    /// Resolves only a live, host-local PID target. Feed hooks use this same
+    /// authoritative seam as Claude delivery and omit ambient pane identity
+    /// whenever the app cannot validate the agent process.
+    func resolvedLiveAgentPIDDeliveryTarget(
+        pid: Int?,
+        client: SocketClient,
+        responseTimeout: TimeInterval = 2.0
+    ) -> ClaudeHookDeliveryTarget? {
+        guard case .resolved(let target) = liveAgentPidDeliveryTarget(
+            pid: pid,
+            client: client,
+            responseTimeout: responseTimeout
+        ) else {
+            return nil
+        }
+        return target
+    }
+
+    /// Early Feed dispatch resolves through its socket path before the normal
+    /// shared client exists. Keep that probe on a short-lived connection so a
+    /// timeout or delayed response cannot contaminate the subsequent
+    /// `feed.push` response stream.
+    func resolvedLiveAgentPIDDeliveryTarget(
+        pid: Int?,
+        socketPath: String,
+        socketPassword: String?,
+        responseTimeout: TimeInterval
+    ) -> ClaudeHookDeliveryTarget? {
+        let probeClient = SocketClient(path: socketPath)
+        defer { probeClient.close() }
+        do {
+            try probeClient.connectWithoutRetry(responseTimeout: responseTimeout)
+            try authenticateClientIfNeeded(
+                probeClient,
+                explicitPassword: socketPassword,
+                socketPath: socketPath,
+                responseTimeout: responseTimeout
+            )
+        } catch {
+            return nil
+        }
+        return resolvedLiveAgentPIDDeliveryTarget(
+            pid: pid,
+            client: probeClient,
+            responseTimeout: responseTimeout
+        )
     }
 
     /// `{surface_id}` probe: the workspace that CURRENTLY owns a known

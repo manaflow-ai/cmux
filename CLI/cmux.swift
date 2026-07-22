@@ -23990,26 +23990,28 @@ struct CMUXCLI {
             // Startup/resume SessionStart remains non-visible; /clear is a
             // new active boundary and must keep the sidebar Running before
             // any late pre-clear Stop can write Idle.
-            // Fork launches register their PID only with an authoritative
-            // surface: the hook reports the PARENT session id (which is often
-            // the workspace-active session), and the pre-prompt fork SessionEnd
-            // cleanup clears only authoritative targets, so a fallback-pane
-            // registration would leave a stale agent PID on a pane the fork
-            // never owned.
-            let shouldRegisterPID = isForkSessionLaunch
-                ? resolvedSurface.isAuthoritative
-                : shouldPromoteActiveSession ||
-                    shouldApplyClaudeHookVisibleMutation(
-                        sessionStore: sessionStore,
-                        parsedInput: parsedInput,
-                        workspaceId: workspaceId,
-                        surfaceId: resolvedSurface.isAuthoritative ? surfaceId : nil,
-                        telemetry: telemetry
-                    )
-            if shouldRegisterPID, let claudePid, !suppressVisibleMutations {
-                _ = try? sendV1Command(
-                    "set_agent_pid \(Self.claudeCodeStatusKey) \(claudePid) --tab=\(workspaceId)\(socketPanelOption(surfaceId))",
-                    client: client
+            // A pre-prompt fork reports the PARENT session id, not an identity
+            // it owns, so it cannot register a runtime generation yet. Its
+            // first prompt carries the minted fork id and registers there.
+            let shouldRegisterPID = !isForkSessionLaunch && (
+                shouldPromoteActiveSession ||
+                shouldApplyClaudeHookVisibleMutation(
+                    sessionStore: sessionStore,
+                    parsedInput: parsedInput,
+                    workspaceId: workspaceId,
+                    surfaceId: resolvedSurface.isAuthoritative ? surfaceId : nil,
+                    telemetry: telemetry
+                )
+            )
+            if shouldRegisterPID,
+               let claudePid,
+               !suppressVisibleMutations {
+                try? registerClaudeRuntimePID(
+                    client: client,
+                    sessionId: parsedInput.sessionId,
+                    pid: claudePid,
+                    workspaceId: workspaceId,
+                    surfaceId: surfaceId
                 )
             }
             if isClearSessionStart, !suppressVisibleMutations {
@@ -24027,8 +24029,7 @@ struct CMUXCLI {
                     surfaceId: surfaceId,
                     value: "Running",
                     icon: "bolt.fill",
-                    color: "#4C8DFF",
-                    pid: claudePid
+                    color: "#4C8DFF"
                 )
             }
             printClaudeHookAck()
@@ -24262,6 +24263,15 @@ struct CMUXCLI {
                         ?? mappedSession?.lastPermissionMode,
                     replacesActiveSession: replacesStoppedSession
                 )
+                if let claudePid {
+                    try? registerClaudeRuntimePID(
+                        client: client,
+                        sessionId: sessionId,
+                        pid: claudePid,
+                        workspaceId: workspaceId,
+                        surfaceId: surfaceId
+                    )
+                }
             }
             _ = try sendV1Command("clear_notifications --tab=\(workspaceId)\(socketPanelOption(surfaceId))", client: client)
             setAgentLifecycle(
@@ -24428,6 +24438,16 @@ struct CMUXCLI {
             // status; the app still gates the (tagged) notification itself.
             let suppressNeedsInputState = (notifyCategory == .idleReminder && notifyPending)
 
+            if let claudePid {
+                try? registerClaudeRuntimePID(
+                    client: client,
+                    sessionId: parsedInput.sessionId,
+                    pid: claudePid,
+                    workspaceId: workspaceId,
+                    surfaceId: surfaceId
+                )
+            }
+
             // `.other` means "ungated, always deliver" — identical to an untagged
             // payload, so don't put it on the wire: the app parser accepts only
             // the three known category literals, keeping the reserved suffix
@@ -24466,7 +24486,7 @@ struct CMUXCLI {
                     surfaceId: surfaceId,
                     value: "Needs input",
                     icon: "bell.fill",
-                    color: "#4C8DFF", pid: claudePid
+                    color: "#4C8DFF"
                 )
             }
             _ = try sendV1Command("notify_target_async \(workspaceId) \(surfaceId) \(payload)", client: client)
@@ -24489,10 +24509,9 @@ struct CMUXCLI {
                ),
                reportedSessionId == forkParentSessionId {
                 telemetry.breadcrumb("claude-hook.session-end.fork-parent-skipped")
-                // The fork pane's claude still exited: clear the agent PID/status
-                // that the fork SessionStart registered for this pane, but leave
-                // the parent record, its resume binding, and the workspace's
-                // notifications alone.
+                // The fork pane's claude still exited: retire any legacy
+                // registration scoped to this exact pane and parent key, but
+                // leave the parent pane's record, binding, and notifications.
                 let forkClaudePid = claudeAgentPID(from: ProcessInfo.processInfo.environment)
                 let suppressForkVisibleMutations = shouldSuppressNestedAgentVisibleMutations(
                     currentAgentPID: forkClaudePid,
@@ -24502,6 +24521,7 @@ struct CMUXCLI {
                 // follows the fork pane even after a pane move (live pid
                 // probe, then legacy chain, then identity-surface re-home).
                 if !suppressForkVisibleMutations,
+                   let runtimePIDKey = claudeRuntimePIDKey(sessionId: reportedSessionId),
                    let forkTarget = try? resolveClaudeHookDeliveryTarget(
                        mappedSession: nil,
                        routing: hookRouting,
@@ -24509,7 +24529,7 @@ struct CMUXCLI {
                    ),
                    forkTarget.isAuthoritative {
                     _ = try? sendV1Command(
-                        "clear_agent_pid \(Self.claudeCodeStatusKey) --tab=\(forkTarget.workspaceId)\(socketPanelOption(forkTarget.surfaceId)) --clear-status",
+                        "clear_agent_pid \(runtimePIDKey) --tab=\(forkTarget.workspaceId)\(socketPanelOption(forkTarget.surfaceId)) --clear-status",
                         client: client
                     )
                 }
@@ -24595,10 +24615,12 @@ struct CMUXCLI {
                     env: ProcessInfo.processInfo.environment
                 )
                 if shouldClearVisibleState, !suppressVisibleMutations {
-                    _ = try? sendV1Command(
-                        "clear_agent_pid \(Self.claudeCodeStatusKey) --tab=\(workspaceId)\(socketPanelOption(cleanupSurfaceId)) --clear-status",
-                        client: client
-                    )
+                    if let runtimePIDKey = claudeRuntimePIDKey(sessionId: consumedSession.sessionId) {
+                        _ = try? sendV1Command(
+                            "clear_agent_pid \(runtimePIDKey) --tab=\(workspaceId)\(socketPanelOption(cleanupSurfaceId)) --clear-status",
+                            client: client
+                        )
+                    }
                     try? sessionStore.clearAgentLifecycleIfPresent(
                         sessionId: consumedSession.sessionId,
                         workspaceId: consumedSession.workspaceId,
@@ -24668,6 +24690,16 @@ struct CMUXCLI {
                 telemetry.breadcrumb("claude-hook.pre-tool-use.nested-suppressed")
                 printClaudeHookAck()
                 return
+            }
+
+            if let claudePid {
+                try? registerClaudeRuntimePID(
+                    client: client,
+                    sessionId: parsedInput.sessionId,
+                    pid: claudePid,
+                    workspaceId: workspaceId,
+                    surfaceId: surfaceId
+                )
             }
 
             // AskUserQuestion and ExitPlanMode are blocking "needs input" tools:
@@ -24748,8 +24780,7 @@ struct CMUXCLI {
                         surfaceId: existingSurfaceId,
                         value: String(localized: "feed.status.needsInput", defaultValue: "Needs input"),
                         icon: "bell.fill",
-                        color: "#4C8DFF",
-                        pid: claudePid
+                        color: "#4C8DFF"
                     )
                     let title = String(
                         localized: "cli.claude-hook.notification.title",
@@ -24805,8 +24836,7 @@ struct CMUXCLI {
                 surfaceId: surfaceId,
                 value: statusValue,
                 icon: "bolt.fill",
-                color: "#4C8DFF",
-                pid: claudePid
+                color: "#4C8DFF"
             )
             printClaudeHookAck()
 
@@ -24864,14 +24894,29 @@ struct CMUXCLI {
         surfaceId: String? = nil,
         value: String,
         icon: String,
-        color: String,
-        pid: Int? = nil
+        color: String
     ) throws {
-        var cmd = "set_status \(Self.claudeCodeStatusKey) \(value) --icon=\(icon) --color=\(color) --tab=\(workspaceId)\(socketPanelOption(surfaceId))"
-        if let pid {
-            cmd += " --pid=\(pid)"
-        }
+        let cmd = "set_status \(Self.claudeCodeStatusKey) \(value) --icon=\(icon) --color=\(color) --tab=\(workspaceId)\(socketPanelOption(surfaceId))"
         _ = try client.send(command: cmd)
+    }
+
+    private func claudeRuntimePIDKey(sessionId: String?) -> String? {
+        guard let sessionId = normalizedHookValue(sessionId) else { return nil }
+        return "\(Self.claudeCodeStatusKey).\(sessionId)"
+    }
+
+    private func registerClaudeRuntimePID(
+        client: SocketClient,
+        sessionId: String?,
+        pid: Int,
+        workspaceId: String,
+        surfaceId: String?
+    ) throws {
+        guard let runtimePIDKey = claudeRuntimePIDKey(sessionId: sessionId) else { return }
+        _ = try sendV1Command(
+            "set_agent_pid \(runtimePIDKey) \(pid) --tab=\(workspaceId)\(socketPanelOption(surfaceId))",
+            client: client
+        )
     }
 
     private func setAgentLifecycle(
@@ -33763,13 +33808,6 @@ export default CMUXSessionRestore;
             throw CLIError(message: "cmux hooks feed requires --source <agent-name>")
         }
 
-        // Outside a cmux terminal (no CMUX_SURFACE_ID) → silently no-op.
-        // Also matches the graceful-fallback pattern of the other hooks.
-        guard ProcessInfo.processInfo.environment["CMUX_SURFACE_ID"]?.isEmpty == false else {
-            print("{}")
-            return
-        }
-
         let commandEvent = optionValue(commandArgs, name: "--event")
 
         // Read stdin. Claude, Codex, and the other agents all pipe hook
@@ -33833,6 +33871,23 @@ export default CMUXSessionRestore;
         // Other agents fall back to getppid() which walks up one
         // level — close enough to catch most kill scenarios.
         let agentPid = agentPidForFeedSource(source, env: env)
+        let liveTarget: ClaudeHookDeliveryTarget?
+        if let client {
+            liveTarget = resolvedLiveAgentPIDDeliveryTarget(
+                pid: agentPid,
+                client: client,
+                responseTimeout: isActionable ? 2.0 : 0.1
+            )
+        } else if let socketPath {
+            liveTarget = resolvedLiveAgentPIDDeliveryTarget(
+                pid: agentPid,
+                socketPath: socketPath,
+                socketPassword: socketPassword,
+                responseTimeout: isActionable ? 2.0 : 0.1
+            )
+        } else {
+            liveTarget = nil
+        }
         let sessionId = firstString(
             in: stdinObj,
             keys: ["session_id", "sessionId", "conversation_id", "conversationId"]
@@ -33844,11 +33899,14 @@ export default CMUXSessionRestore;
             "_source": source,
             "_ppid": agentPid,
         ]
-        if let workspaceId = feedWorkspaceId(rawObject: stdinObj, fallback: env["CMUX_WORKSPACE_ID"]) {
+        if let liveTarget {
+            eventDict["workspace_id"] = liveTarget.workspaceId
+            eventDict["surface_id"] = liveTarget.surfaceId
+        } else if let workspaceId = feedWorkspaceId(rawObject: stdinObj, fallback: nil) {
+            // A payload-owned workspace can still narrow persisted session
+            // routing. Ambient workspace/surface values cannot: they may have
+            // leaked from whichever pane launched the hook process.
             eventDict["workspace_id"] = workspaceId
-        }
-        if let surfaceId = normalizedHookValue(env["CMUX_SURFACE_ID"]) {
-            eventDict["surface_id"] = surfaceId
         }
         let toolRequestInput = stdinObj["tool_input"] ?? stdinObj["toolInput"] ?? toolCall?["args"]
         let postToolUseResponseInput = stdinObj["tool_response"]

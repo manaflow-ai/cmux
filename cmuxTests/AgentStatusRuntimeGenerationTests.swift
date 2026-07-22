@@ -102,4 +102,30 @@ struct AgentStatusRuntimeGenerationTests {
         #expect(confirmed == [identity])
         #expect(stale.isEmpty)
     }
+
+    @Test @MainActor func staleClaudeCleanupCannotClearReplacementLifecycle() throws {
+        let workspace = Workspace()
+        let panelId = try #require(workspace.focusedPanelId)
+        defer { workspace.clearAllAgentPIDs(refreshPorts: false) }
+        workspace.recordAgentPID(
+            key: "claude_code.current-session",
+            pid: getpid(),
+            panelId: panelId,
+            refreshPorts: false
+        )
+        workspace.setAgentLifecycle(
+            key: "claude_code",
+            panelId: panelId,
+            lifecycle: .running
+        )
+
+        #expect(!workspace.clearAgentPID(
+            key: "claude_code.previous-session",
+            panelId: panelId,
+            clearStatus: true,
+            refreshPorts: false
+        ))
+        #expect(workspace.agentPIDs["claude_code.current-session"] == getpid())
+        #expect(workspace.agentLifecycleStatesByPanelId[panelId]?["claude_code"] == .running)
+    }
 }

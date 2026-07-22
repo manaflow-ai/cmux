@@ -36,17 +36,22 @@ struct ClaudeNotificationStatusLifecycleTests {
         #expect(serverHandled.wait(timeout: .now() + 5) == .success)
         harness.assertSuccessfulHook(result)
 
-        let statusCommand = try #require(
-            context.state.snapshot().first {
+        let commands = context.state.snapshot()
+        _ = try #require(
+            commands.first {
                 $0.hasPrefix("set_status claude_code Needs input ")
                     && $0.contains("--tab=\(context.workspaceId)")
                     && $0.contains("--panel=\(context.surfaceId)")
             },
-            "Expected Claude notification to set a Needs input status, saw \(context.state.snapshot())"
+            "Expected Claude notification to set a Needs input status, saw \(commands)"
         )
         #expect(
-            statusCommand.contains("--pid=\(claudePID)"),
-            "Claude notification status must be PID-backed so the stale PID sweep can clear it after abrupt agent exit; command=\(statusCommand)"
+            commands.contains {
+                $0.hasPrefix("set_agent_pid claude_code.claude-notify-pid-session \(claudePID) ")
+                    && $0.contains("--tab=\(context.workspaceId)")
+                    && $0.contains("--panel=\(context.surfaceId)")
+            },
+            "Claude notification status must be backed by its exact runtime generation so stale cleanup cannot clear a replacement; commands=\(commands)"
         )
     }
 }

@@ -65,10 +65,8 @@ extension Workspace {
         panelId: UUID,
         currentProcessIdentity: (Int) -> AgentPIDProcessIdentity?
     ) -> Set<AgentPIDProcessIdentity> {
-        // Claude's `claude_code` key identifies only a panel, not a session, so it
-        // cannot prove that a live process supersedes this cached session generation.
-        guard kind != .claude else { return [] }
-        let key = "\(kind.rawValue).\(sessionId)"
+        let statusKey = FeedCoordinator.lifecycleStatusKey(forSource: kind.rawValue)
+        let key = "\(statusKey).\(sessionId)"
         guard agentPIDKeysByPanelId[panelId]?.contains(key) == true,
               let pid = agentPIDs[key],
               pid > 0,
@@ -296,7 +294,7 @@ extension Workspace {
         }
         if let changedPanelId = ownedPanelId ?? panelId, didChange { AgentHibernationController.shared.recordAgentProcessChange(workspaceId: id, panelId: changedPanelId) }
         var removedLedgerStatusKey: String?
-        if let lifecyclePanelId = ownedPanelId ?? panelId {
+        if didChange, let lifecyclePanelId = ownedPanelId ?? panelId {
             let lifecycleStatusKey = agentStatusKey(forAgentPIDKey: key)
             if clearAgentLifecycle(key: lifecycleStatusKey, panelId: lifecyclePanelId) {
                 didChange = true
