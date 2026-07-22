@@ -538,6 +538,7 @@ C0DE71B10000000000000001 /* AppDelegate+AgentChatNotifications.swift in Sources 
 		B9000072A1B2C3D4E5F60719 /* CMUXCLI+OmpExtension.swift in Sources */ = {isa = PBXBuildFile; fileRef = B9000073A1B2C3D4E5F60719 /* CMUXCLI+OmpExtension.swift */; };
 		C05555010000000000000001 /* CMUXCLI+PiExtension.swift in Sources */ = {isa = PBXBuildFile; fileRef = C05555010000000000000002 /* CMUXCLI+PiExtension.swift */; };
 		C05555010000000000000003 /* CMUXCLI+PiExtensionSource.swift in Sources */ = {isa = PBXBuildFile; fileRef = C05555010000000000000004 /* CMUXCLI+PiExtensionSource.swift */; };
+		C08672010000000000000001 /* CMUXCLI+PiExtensionSourceDispatch.swift in Sources */ = {isa = PBXBuildFile; fileRef = C08672010000000000000002 /* CMUXCLI+PiExtensionSourceDispatch.swift */; };
 		C05555010000000000000005 /* CMUXCLI+PiExtensionSourcePart1.swift in Sources */ = {isa = PBXBuildFile; fileRef = C05555010000000000000006 /* CMUXCLI+PiExtensionSourcePart1.swift */; };
 		C05555010000000000000007 /* CMUXCLI+PiExtensionSourcePart2.swift in Sources */ = {isa = PBXBuildFile; fileRef = C05555010000000000000008 /* CMUXCLI+PiExtensionSourcePart2.swift */; };
 		B9000054A1B2C3D4E5F60719 /* CMUXCLI+Process.swift in Sources */ = {isa = PBXBuildFile; fileRef = B9000055A1B2C3D4E5F60719 /* CMUXCLI+Process.swift */; };
@@ -2761,6 +2762,7 @@ C0DE71B10000000000000002 /* AppDelegate+AgentChatNotifications.swift */ = {isa =
 		B9000073A1B2C3D4E5F60719 /* CMUXCLI+OmpExtension.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "CMUXCLI+OmpExtension.swift"; sourceTree = "<group>"; };
 		C05555010000000000000002 /* CMUXCLI+PiExtension.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "CMUXCLI+PiExtension.swift"; sourceTree = "<group>"; };
 		C05555010000000000000004 /* CMUXCLI+PiExtensionSource.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "CMUXCLI+PiExtensionSource.swift"; sourceTree = "<group>"; };
+		C08672010000000000000002 /* CMUXCLI+PiExtensionSourceDispatch.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "CMUXCLI+PiExtensionSourceDispatch.swift"; sourceTree = "<group>"; };
 		C05555010000000000000006 /* CMUXCLI+PiExtensionSourcePart1.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "CMUXCLI+PiExtensionSourcePart1.swift"; sourceTree = "<group>"; };
 		C05555010000000000000008 /* CMUXCLI+PiExtensionSourcePart2.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "CMUXCLI+PiExtensionSourcePart2.swift"; sourceTree = "<group>"; };
 		B9000055A1B2C3D4E5F60719 /* CMUXCLI+Process.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "CMUXCLI+Process.swift"; sourceTree = "<group>"; };
@@ -6018,6 +6020,7 @@ C0DE71B10000000000000002 /* AppDelegate+AgentChatNotifications.swift */ = {isa =
 				B9000077A1B2C3D4E5F60719 /* CMUXCLI+CampfireNotifications.swift */,
 				C05555010000000000000002 /* CMUXCLI+PiExtension.swift */,
 				C05555010000000000000004 /* CMUXCLI+PiExtensionSource.swift */,
+				C08672010000000000000002 /* CMUXCLI+PiExtensionSourceDispatch.swift */,
 				C05555010000000000000006 /* CMUXCLI+PiExtensionSourcePart1.swift */,
 				C05555010000000000000008 /* CMUXCLI+PiExtensionSourcePart2.swift */,
 				B9000070A1B2C3D4E5F60719 /* CMUXCLI+Memory.swift */,
@@ -8498,6 +8501,7 @@ C0DE71B10000000000000002 /* AppDelegate+AgentChatNotifications.swift */ = {isa =
 				B9000072A1B2C3D4E5F60719 /* CMUXCLI+OmpExtension.swift in Sources */,
 				C05555010000000000000001 /* CMUXCLI+PiExtension.swift in Sources */,
 				C05555010000000000000003 /* CMUXCLI+PiExtensionSource.swift in Sources */,
+				C08672010000000000000001 /* CMUXCLI+PiExtensionSourceDispatch.swift in Sources */,
 						C05555010000000000000005 /* CMUXCLI+PiExtensionSourcePart1.swift in Sources */,
 						C05555010000000000000007 /* CMUXCLI+PiExtensionSourcePart2.swift in Sources */,
 						B9000054A1B2C3D4E5F60719 /* CMUXCLI+Process.swift in Sources */,

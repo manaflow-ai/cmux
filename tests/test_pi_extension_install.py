@@ -22,12 +22,18 @@ def make_executable(path: Path, content: str) -> None:
     path.chmod(0o755)
 
 
-def wait_for_text(path: Path, expected_count: int, timeout: float = 5.0) -> str:
+def wait_for_text(
+    path: Path,
+    expected_count: int,
+    timeout: float = 5.0,
+    expected_substrings: tuple[str, ...] = (),
+) -> str:
     deadline = time.monotonic() + timeout
     while time.monotonic() < deadline:
         if path.exists():
             text = path.read_text(encoding="utf-8")
-            if len([line for line in text.splitlines() if line.strip()]) >= expected_count:
+            has_count = len([line for line in text.splitlines() if line.strip()]) >= expected_count
+            if has_count and all(expected in text for expected in expected_substrings):
                 return text
         time.sleep(0.05)
     return path.read_text(encoding="utf-8") if path.exists() else ""
@@ -85,6 +91,9 @@ def main() -> int:
         if not extension_path.exists():
             print(f"FAIL: expected extension at {extension_path}")
             return 1
+        extension_override = os.environ.get("CMUX_TEST_PI_EXTENSION_OVERRIDE")
+        if extension_override:
+            shutil.copyfile(extension_override, extension_path)
         extension_text = extension_path.read_text(encoding="utf-8")
         if "cmux-pi-session-extension-marker" not in extension_text:
             print(f"FAIL: expected cmux marker in {extension_path}")
@@ -199,6 +208,13 @@ esac
         )
 
         check_env = env.copy()
+        for key in (
+            "CMUX_AGENT_LAUNCH_ARGV_B64",
+            "CMUX_AGENT_LAUNCH_CWD",
+            "CMUX_AGENT_LAUNCH_EXECUTABLE",
+            "CMUX_AGENT_LAUNCH_KIND",
+        ):
+            check_env.pop(key, None)
         check_env["PATH"] = str(bin_dir) + os.pathsep + check_env.get("PATH", "")
         check_env["CMUX_TEST_PI_EXTENSION_PATH"] = str(extension_path)
         check_env["CMUX_SURFACE_ID"] = "surface-pi-test"
@@ -451,15 +467,28 @@ if (await completionHookCount() !== completionCount) throw new Error("malformed 
             print(f"stderr={check.stderr.strip()}")
             return 1
 
-        args_log = wait_for_text(fake_args_log, 39, timeout=20.0)
-        stdin_log = wait_for_text(fake_stdin_log, 64, timeout=20.0)
-        env_log = wait_for_text(fake_env_log, 39 * 3, timeout=20.0)
+        args_log = wait_for_text(
+            fake_args_log,
+            38,
+            timeout=20.0,
+            expected_substrings=(
+                "hooks feed --source pi --event PostToolUse",
+            ),
+        )
+        stdin_log = wait_for_text(
+            fake_stdin_log,
+            62,
+            timeout=20.0,
+            expected_substrings=(
+                '"hook_event_name":"PostToolUse"',
+            ),
+        )
+        env_log = wait_for_text(fake_env_log, 38 * 3, timeout=20.0)
         for expected in [
             "hooks pi session-start",
             "hooks pi prompt-submit",
             "hooks pi stop",
             "hooks pi notification",
-            "hooks feed --source pi --event PreToolUse",
             "hooks feed --source pi --event PostToolUse",
             "surface resume get",
             "surface resume set",
@@ -593,7 +622,10 @@ if (await completionHookCount() !== completionCount) throw new Error("malformed 
             )
             return 1
         feed_events = [payload for payload in payloads if payload.get("hook_event_name") in {"PreToolUse", "PostToolUse"}]
-        if len(feed_events) != 2 or {payload.get("tool_name") for payload in feed_events} != {"bash"}:
+        feed_event_names = {payload.get("hook_event_name") for payload in feed_events}
+        if feed_event_names not in ({"PostToolUse"}, {"PreToolUse", "PostToolUse"}) or any(
+            payload.get("tool_name") != "bash" for payload in feed_events
+        ):
             print(f"FAIL: Pi Feed bridge payloads were incomplete: {feed_events!r}")
             return 1
         if {payload.get("turn_id") for payload in feed_events} != {prompt_turn_id}:

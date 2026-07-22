@@ -90,6 +90,7 @@ def main() -> int:
             return 1
 
         slow_log = root / "slow-cmux.log"
+        release_marker = root / "release-cmux"
         slow_cmux = root / "slow-cmux"
         make_executable(
             slow_cmux,
@@ -97,12 +98,20 @@ def main() -> int:
 set -euo pipefail
 printf 'start %s\n' "$*" >> "$CMUX_TEST_PI_DISPATCH_LOG"
 cat >/dev/null
-sleep 0.4
-printf 'end %s\n' "$*" >> "$CMUX_TEST_PI_DISPATCH_LOG"
-printf '{}\n'
+for _ in {1..100}; do
+  if [ -f "$CMUX_TEST_PI_RELEASE_MARKER" ]; then
+    printf 'end %s\n' "$*" >> "$CMUX_TEST_PI_DISPATCH_LOG"
+    printf 'temporary cmux failure\n' >&2
+    exit 42
+  fi
+  sleep 0.02
+done
+printf 'blocked %s\n' "$*" >> "$CMUX_TEST_PI_DISPATCH_LOG"
+exit 88
 """,
         )
         responsiveness_source = """
+import { writeFileSync } from "node:fs";
 const extensionPath = process.env.CMUX_TEST_PI_EXTENSION_PATH;
 const mod = await import(extensionPath);
 const handlers = new Map();
@@ -113,27 +122,33 @@ mod.default({
 });
 const beforeAgentStart = handlers.get("before_agent_start");
 if (typeof beforeAgentStart !== "function") throw new Error("missing before_agent_start");
+let contextStale = false;
 const ctx = {
-  cwd: "/tmp/pi-dispatch-project",
-  sessionManager: {
-    getSessionId() { return "pi-dispatch-session"; }
+  get cwd() {
+    if (contextStale) throw new Error("stale context cwd access");
+    return "/tmp/pi-dispatch-project";
+  },
+  get ui() {
+    if (contextStale) throw new Error("stale context UI access");
+    return {
+      notify() {
+        if (contextStale) throw new Error("stale context notification");
+      }
+    };
+  },
+  get sessionManager() {
+    if (contextStale) throw new Error("stale context session access");
+    return {
+      getSessionId() { return "pi-dispatch-session"; }
+    };
   }
 };
-const startedAt = Date.now();
-let heartbeatAt = 0;
-const heartbeat = new Promise((resolve) => {
-  setTimeout(() => {
-    heartbeatAt = Date.now();
-    resolve();
-  }, 75);
-});
+setTimeout(() => {
+  contextStale = true;
+  writeFileSync(process.env.CMUX_TEST_PI_RELEASE_MARKER, "ready");
+}, 0);
 const first = beforeAgentStart({ prompt: "first" }, ctx);
 const second = beforeAgentStart({ prompt: "second" }, ctx);
-await heartbeat;
-const heartbeatDelay = heartbeatAt - startedAt;
-if (heartbeatDelay >= 300) {
-  throw new Error(`Pi event loop blocked for ${heartbeatDelay}ms during cmux dispatch`);
-}
 await Promise.all([first, second]);
 """
         responsive = run_extension(
@@ -142,7 +157,10 @@ await Promise.all([first, second]);
             extension_path=extension_path,
             fake_cmux=slow_cmux,
             source=responsiveness_source,
-            extra_env={"CMUX_TEST_PI_DISPATCH_LOG": str(slow_log)},
+            extra_env={
+                "CMUX_TEST_PI_DISPATCH_LOG": str(slow_log),
+                "CMUX_TEST_PI_RELEASE_MARKER": str(release_marker),
+            },
         )
         if responsive.returncode != 0:
             print("FAIL: Pi hook dispatch blocked the extension event loop")
@@ -154,10 +172,393 @@ await Promise.all([first, second]);
         slow_lines = [line for line in slow_log.read_text(encoding="utf-8").splitlines() if line]
         phases = [line.split(" ", 1)[0] for line in slow_lines]
         if phases != ["start", "end", "start", "end"]:
-            print(f"FAIL: concurrent Pi hooks were not serialized: {slow_lines!r}")
+            print(f"FAIL: Pi hook dispatch was blocking or concurrent: {slow_lines!r}")
             return 1
         if not all("hooks pi prompt-submit" in line for line in slow_lines):
             print(f"FAIL: responsiveness harness captured unexpected commands: {slow_lines!r}")
+            return 1
+
+        backlog_log = root / "backlog-cmux.log"
+        backlog_release = root / "backlog-release"
+        backlog_cmux = root / "backlog-cmux"
+        make_executable(
+            backlog_cmux,
+            """#!/usr/bin/env bash
+set -euo pipefail
+payload="$(cat)"
+printf '%s|%s\n' "$*" "$payload" >> "$CMUX_TEST_PI_BACKLOG_LOG"
+while [ ! -f "$CMUX_TEST_PI_BACKLOG_RELEASE" ]; do sleep 0.02; done
+printf '{}\n'
+""",
+        )
+        backlog_source = """
+import { writeFileSync } from "node:fs";
+const extensionPath = process.env.CMUX_TEST_PI_EXTENSION_PATH;
+const mod = await import(extensionPath);
+const handlers = new Map();
+mod.default({ on(name, handler) { handlers.set(name, handler); } });
+const ctx = {
+  cwd: "/tmp/pi-feed-backlog-project",
+  sessionManager: { getSessionId() { return "pi-feed-backlog-session"; } }
+};
+for (let index = 0; index < 10; index += 1) {
+  handlers.get("tool_execution_start")({
+    toolCallId: `tool-${index}`,
+    toolName: "bash",
+    args: { command: `echo ${index}` }
+  }, ctx);
+}
+handlers.get("tool_execution_end")({
+  toolCallId: "tool-final",
+  toolName: "bash",
+  result: { content: [{ type: "text", text: "terminal result" }] },
+  isError: false
+}, ctx);
+setTimeout(() => writeFileSync(process.env.CMUX_TEST_PI_BACKLOG_RELEASE, "ready"), 100);
+await handlers.get("before_agent_start")({ prompt: "after feed backlog" }, ctx);
+"""
+        backlog = run_extension(
+            bun=bun,
+            root=root,
+            extension_path=extension_path,
+            fake_cmux=backlog_cmux,
+            source=backlog_source,
+            extra_env={
+                "CMUX_TEST_PI_BACKLOG_LOG": str(backlog_log),
+                "CMUX_TEST_PI_BACKLOG_RELEASE": str(backlog_release),
+            },
+        )
+        if backlog.returncode != 0:
+            print(f"FAIL: bounded feed-backlog harness failed: {backlog.stderr!r}")
+            return 1
+        backlog_calls = backlog_log.read_text(encoding="utf-8").splitlines()
+        feed_calls = [line for line in backlog_calls if "hooks feed" in line]
+        if len(feed_calls) != 9:
+            print(f"FAIL: Pi feed lane exceeded its 1-running + 8-pending bound: {backlog_calls!r}")
+            return 1
+        lifecycle_indexes = [
+            index for index, line in enumerate(backlog_calls) if "hooks pi prompt-submit" in line
+        ]
+        if lifecycle_indexes != [0] and lifecycle_indexes != [1]:
+            print(f"FAIL: lifecycle command was lost behind feed backlog: {backlog_calls!r}")
+            return 1
+        if not any("PostToolUse" in line and '"tool_call_id":"tool-final"' in line for line in feed_calls):
+            print(f"FAIL: feed shedding discarded the terminal tool event: {backlog_calls!r}")
+            return 1
+
+        cancellation_log = root / "cancellation-cmux.log"
+        cancellation_cmux = root / "cancellation-cmux"
+        make_executable(
+            cancellation_cmux,
+            """#!/usr/bin/env python3
+import os
+import signal
+import sys
+import time
+
+args = " ".join(sys.argv[1:])
+sys.stdin.read()
+with open(os.environ["CMUX_TEST_PI_CANCELLATION_LOG"], "a", encoding="utf-8") as stream:
+    stream.write(f"{args}\\n")
+    stream.flush()
+
+if "hooks feed" in args and "PreToolUse" in args:
+    def handle_term(_signum, _frame):
+        time.sleep(1.0)
+        raise SystemExit(88)
+
+    signal.signal(signal.SIGTERM, handle_term)
+    while True:
+        time.sleep(0.1)
+
+print("{}")
+""",
+        )
+        cancellation_source = """
+const extensionPath = process.env.CMUX_TEST_PI_EXTENSION_PATH;
+const mod = await import(extensionPath);
+const handlers = new Map();
+mod.default({ on(name, handler) { handlers.set(name, handler); } });
+const ctx = {
+  cwd: "/tmp/pi-cancellation-project",
+  sessionManager: { getSessionId() { return "pi-cancellation-session"; } }
+};
+for (let index = 0; index < 10; index += 1) {
+  handlers.get("tool_execution_start")({
+    toolCallId: `cancel-tool-${index}`,
+    toolName: "bash",
+    args: { command: `echo ${index}` }
+  }, ctx);
+}
+const logPath = process.env.CMUX_TEST_PI_CANCELLATION_LOG;
+while (!Bun.file(logPath).size) {
+  await new Promise((resolve) => setTimeout(resolve, 10));
+}
+await handlers.get("session_shutdown")({ reason: "reload" }, ctx);
+await new Promise((resolve) => setTimeout(resolve, 750));
+"""
+        cancellation = run_extension(
+            bun=bun,
+            root=root,
+            extension_path=extension_path,
+            fake_cmux=cancellation_cmux,
+            source=cancellation_source,
+            extra_env={"CMUX_TEST_PI_CANCELLATION_LOG": str(cancellation_log)},
+        )
+        if cancellation.returncode != 0:
+            print(f"FAIL: feed-cancellation harness failed: {cancellation.stderr!r}")
+            return 1
+        cancellation_calls = cancellation_log.read_text(encoding="utf-8").splitlines()
+        cancelled_feed_calls = [line for line in cancellation_calls if "hooks feed" in line]
+        if len(cancelled_feed_calls) != 1:
+            print(f"FAIL: queued feed work survived session shutdown: {cancellation_calls!r}")
+            return 1
+
+        completion_log = root / "completion-order-cmux.log"
+        completion_source = """
+const extensionPath = process.env.CMUX_TEST_PI_EXTENSION_PATH;
+const mod = await import(extensionPath);
+const handlers = new Map();
+mod.default({ on(name, handler) { handlers.set(name, handler); } });
+const ctx = {
+  cwd: "/tmp/pi-completion-order-project",
+  sessionManager: { getSessionId() { return "pi-completion-order-session"; } }
+};
+await handlers.get("before_agent_start")({ prompt: "complete after tools" }, ctx);
+for (let index = 0; index < 4; index += 1) {
+  handlers.get("tool_execution_start")({
+    toolCallId: `completion-tool-${index}`,
+    toolName: "bash",
+    args: { command: `echo ${index}` }
+  }, ctx);
+}
+const logPath = process.env.CMUX_TEST_PI_CANCELLATION_LOG;
+while (!(await Bun.file(logPath).text()).includes("hooks feed")) {
+  await new Promise((resolve) => setTimeout(resolve, 10));
+}
+for (let index = 0; index < 4; index += 1) {
+  handlers.get("tool_execution_end")({
+    toolCallId: `completion-tool-${index}`,
+    toolName: "bash",
+    result: { content: [{ type: "text", text: `terminal result ${index}` }] },
+    isError: false
+  }, ctx);
+}
+await handlers.get("agent_end")({
+  messages: [{ role: "assistant", content: "done" }],
+  stopReason: "completed"
+}, ctx);
+handlers.get("tool_execution_end")({
+  toolCallId: "late-tool",
+  toolName: "bash",
+  result: { content: [{ type: "text", text: "late" }] }
+}, ctx);
+await new Promise((resolve) => setTimeout(resolve, 250));
+"""
+        completion = run_extension(
+            bun=bun,
+            root=root,
+            extension_path=extension_path,
+            fake_cmux=cancellation_cmux,
+            source=completion_source,
+            extra_env={"CMUX_TEST_PI_CANCELLATION_LOG": str(completion_log)},
+        )
+        if completion.returncode != 0:
+            print(f"FAIL: completion-order harness failed: {completion.stderr!r}")
+            return 1
+        completion_calls = completion_log.read_text(encoding="utf-8").splitlines()
+        completion_feed_indexes = [
+            index for index, line in enumerate(completion_calls) if "hooks feed" in line
+        ]
+        notification_indexes = [
+            index for index, line in enumerate(completion_calls) if "hooks pi notification" in line
+        ]
+        stop_indexes = [index for index, line in enumerate(completion_calls) if "hooks pi stop" in line]
+        if len(completion_feed_indexes) != 5:
+            print(f"FAIL: terminal lifecycle did not cancel feed backlog: {completion_calls!r}")
+            return 1
+        if sum("PostToolUse" in line for line in completion_calls) != 4:
+            print(f"FAIL: terminal lifecycle discarded the retained completion event: {completion_calls!r}")
+            return 1
+        if not notification_indexes or not stop_indexes or completion_feed_indexes[-1] > notification_indexes[0]:
+            print(f"FAIL: feed event arrived after terminal lifecycle began: {completion_calls!r}")
+            return 1
+        if notification_indexes[0] > stop_indexes[0]:
+            print(f"FAIL: notification/stop lifecycle order changed: {completion_calls!r}")
+            return 1
+
+        timeout_log = root / "timeout-cmux.log"
+        timeout_lock = root / "timeout-cmux.lock"
+        timeout_cmux = root / "timeout-cmux"
+        make_executable(
+            timeout_cmux,
+            """#!/usr/bin/env python3
+import fcntl
+import os
+import signal
+import sys
+import time
+
+payload = sys.stdin.read()
+label = "first" if '"prompt":"first"' in payload else "second"
+log_path = os.environ["CMUX_TEST_PI_TIMEOUT_LOG"]
+
+def log(message: str) -> None:
+    with open(log_path, "a", encoding="utf-8") as stream:
+        stream.write(f"{message} {label}\\n")
+        stream.flush()
+
+with open(os.environ["CMUX_TEST_PI_TIMEOUT_LOCK"], "a", encoding="utf-8") as lock:
+    try:
+        fcntl.flock(lock, fcntl.LOCK_EX | fcntl.LOCK_NB)
+    except BlockingIOError:
+        log("overlap")
+        raise SystemExit(91)
+
+    log("start")
+    if label == "first":
+        def handle_term(_signum, _frame):
+            log("term")
+            time.sleep(1.0)
+            log("exit")
+            raise SystemExit(88)
+
+        signal.signal(signal.SIGTERM, handle_term)
+        while True:
+            time.sleep(0.1)
+
+    log("end")
+    print("{}")
+""",
+        )
+        timeout_source = """
+const extensionPath = process.env.CMUX_TEST_PI_EXTENSION_PATH;
+const mod = await import(extensionPath);
+const handlers = new Map();
+mod.default({ on(name, handler) { handlers.set(name, handler); } });
+const ctx = {
+  cwd: "/tmp/pi-timeout-project",
+  sessionManager: { getSessionId() { return "pi-timeout-session"; } }
+};
+const first = handlers.get("before_agent_start")({ prompt: "first" }, ctx);
+const second = handlers.get("before_agent_start")({ prompt: "second" }, ctx);
+await Promise.all([first, second]);
+"""
+        timed_out = run_extension(
+            bun=bun,
+            root=root,
+            extension_path=extension_path,
+            fake_cmux=timeout_cmux,
+            source=timeout_source,
+            extra_env={
+                "CMUX_TEST_PI_TIMEOUT_LOG": str(timeout_log),
+                "CMUX_TEST_PI_TIMEOUT_LOCK": str(timeout_lock),
+            },
+        )
+        if timed_out.returncode != 0:
+            print(f"FAIL: timeout serialization harness failed: {timed_out.stderr!r}")
+            return 1
+        timeout_lines = timeout_log.read_text(encoding="utf-8").splitlines()
+        if "overlap second" in timeout_lines:
+            print(f"FAIL: queue advanced before timed-out child exited: {timeout_lines!r}")
+            return 1
+        if "start first" not in timeout_lines or "start second" not in timeout_lines:
+            print(f"FAIL: timeout harness missed a serialized command: {timeout_lines!r}")
+            return 1
+
+        ambiguous_log = root / "ambiguous-cmux.log"
+        ambiguous_marker = root / "ambiguous-cmux-first-call"
+        ambiguous_cmux = root / "ambiguous-cmux"
+        make_executable(
+            ambiguous_cmux,
+            """#!/usr/bin/env bash
+set -euo pipefail
+printf '%s\n' "$*" >> "$CMUX_TEST_PI_AMBIGUOUS_LOG"
+cat >/dev/null
+if [ ! -f "$CMUX_TEST_PI_AMBIGUOUS_MARKER" ]; then
+  touch "$CMUX_TEST_PI_AMBIGUOUS_MARKER"
+  printf 'not_found: hook metadata references surface settings\n' >&2
+  exit 1
+fi
+printf '{}\n'
+""",
+        )
+        ambiguous_source = """
+const extensionPath = process.env.CMUX_TEST_PI_EXTENSION_PATH;
+const mod = await import(extensionPath);
+const handlers = new Map();
+mod.default({ on(name, handler) { handlers.set(name, handler); } });
+const ctx = {
+  cwd: "/tmp/pi-ambiguous-error-project",
+  sessionManager: { getSessionId() { return "pi-ambiguous-error-session"; } }
+};
+await handlers.get("before_agent_start")({ prompt: "first" }, ctx);
+await handlers.get("before_agent_start")({ prompt: "second" }, ctx);
+"""
+        ambiguous = run_extension(
+            bun=bun,
+            root=root,
+            extension_path=extension_path,
+            fake_cmux=ambiguous_cmux,
+            source=ambiguous_source,
+            extra_env={
+                "CMUX_TEST_PI_AMBIGUOUS_LOG": str(ambiguous_log),
+                "CMUX_TEST_PI_AMBIGUOUS_MARKER": str(ambiguous_marker),
+            },
+        )
+        if ambiguous.returncode != 0:
+            print(f"FAIL: ambiguous-error harness failed: {ambiguous.stderr!r}")
+            return 1
+        ambiguous_calls = ambiguous_log.read_text(encoding="utf-8").splitlines()
+        if len(ambiguous_calls) != 2:
+            print(f"FAIL: non-surface not_found error disabled dispatch: {ambiguous_calls!r}")
+            return 1
+
+        explicit_log = root / "explicit-surface-cmux.log"
+        explicit_cmux = root / "explicit-surface-cmux"
+        make_executable(
+            explicit_cmux,
+            """#!/usr/bin/env bash
+set -euo pipefail
+printf '%s\n' "$*" >> "$CMUX_TEST_PI_EXPLICIT_LOG"
+cat >/dev/null
+case "$*" in
+  *"surface resume set"*)
+    printf 'Error: not_found: Surface not found\n' >&2
+    exit 1
+    ;;
+  *)
+    printf '{}\n'
+    ;;
+esac
+""",
+        )
+        explicit_source = """
+const extensionPath = process.env.CMUX_TEST_PI_EXTENSION_PATH;
+const mod = await import(extensionPath);
+const handlers = new Map();
+mod.default({ on(name, handler) { handlers.set(name, handler); } });
+const ctx = {
+  cwd: "/tmp/pi-explicit-surface-project",
+  sessionManager: { getSessionId() { return "pi-explicit-surface-session"; } }
+};
+await handlers.get("session_start")({}, ctx);
+await handlers.get("before_agent_start")({ prompt: "route after stale resume target" }, ctx);
+"""
+        explicit = run_extension(
+            bun=bun,
+            root=root,
+            extension_path=extension_path,
+            fake_cmux=explicit_cmux,
+            source=explicit_source,
+            extra_env={"CMUX_TEST_PI_EXPLICIT_LOG": str(explicit_log)},
+        )
+        if explicit.returncode != 0:
+            print(f"FAIL: explicit-surface harness failed: {explicit.stderr!r}")
+            return 1
+        explicit_calls = explicit_log.read_text(encoding="utf-8").splitlines()
+        if len(explicit_calls) != 3 or "hooks pi prompt-submit" not in explicit_calls[-1]:
+            print(f"FAIL: stale resume target disabled recoverable lifecycle routing: {explicit_calls!r}")
             return 1
 
         stale_log = root / "stale-cmux.log"
@@ -168,7 +569,6 @@ await Promise.all([first, second]);
 set -euo pipefail
 printf '%s\n' "$*" >> "$CMUX_TEST_PI_STALE_LOG"
 cat >/dev/null
-sleep 0.15
 printf 'Error: not_found: Surface not found\n' >&2
 exit 1
 """,

@@ -5,7 +5,7 @@ extension CMUXCLI {
 // Installed by `cmux hooks pi install` or `cmux hooks setup`.
 // DO NOT EDIT MANUALLY. cmux upgrades this file in place.
 
-import { spawn, spawnSync } from "node:child_process";
+import { spawn } from "node:child_process";
 import * as fs from "node:fs";
 import * as path from "node:path";
 import type { ExtensionAPI, ExtensionContext } from "@earendil-works/pi-coding-agent";
@@ -31,6 +31,13 @@ interface CommandResult {
   stdout: string;
   stderr: string;
   error?: unknown;
+  surfaceUnavailable?: boolean;
+}
+
+interface PiExtensionContextSnapshot {
+  readonly sessionId: string | null;
+  readonly cwd: string;
+  readonly notifyWarning?: () => void;
 }
 
 const sessionStates = new Map<string, SessionState>();
@@ -259,6 +266,21 @@ function cwdFrom(ctx: ExtensionContext): string {
   return firstString(ctx.cwd, process.cwd()) || process.cwd();
 }
 
+function snapshotContext(ctx: ExtensionContext): PiExtensionContextSnapshot {
+  let notifyWarning: (() => void) | undefined;
+  try {
+    const ui = (ctx as unknown as { ui?: { notify?: (message: string, type?: string) => void } }).ui;
+    if (typeof ui?.notify === "function") {
+      notifyWarning = () => ui.notify?.("cmux Pi integration warning - check the terminal for details", "warning");
+    }
+  } catch (_) {}
+  return {
+    sessionId: sessionIdFrom(ctx),
+    cwd: cwdFrom(ctx),
+    notifyWarning,
+  };
+}
+
 function stateFor(sessionId: string): SessionState {
   let state = sessionStates.get(sessionId);
   if (!state) {
@@ -311,42 +333,20 @@ function settleTurn(sessionId: string): PendingCompletion | undefined {
   return completion;
 }
 
-function warn(ctx: ExtensionContext | null, message: string, details: Record<string, unknown> = {}): void {
+function warn(ctx: PiExtensionContextSnapshot | null, message: string, details: Record<string, unknown> = {}): void {
   const payload = { source: "cmux-pi-extension", level: "warning", message, ...details };
   try {
     console.warn(JSON.stringify(payload));
   } catch (_) {
     console.warn(`[cmux-pi-extension] ${message}`);
   }
-  const ui = (ctx as unknown as { ui?: { notify?: (message: string, type?: string) => void } } | null)?.ui;
   try {
-    ui?.notify?.("cmux Pi integration warning - check the terminal for details", "warning");
+    ctx?.notifyWarning?.();
   } catch (_) {}
 }
 
 function cmuxExecutable(): string {
   return process.env.CMUX_PI_CMUX_BIN || "cmux";
 }
-
-function runCmux(args: string[], cwd: string, input?: string): CommandResult {
-  try {
-    const result = spawnSync(cmuxExecutable(), args, {
-      input,
-      encoding: "utf8",
-      env: hookEnvironment(cwd, true),
-      stdio: ["pipe", "pipe", "pipe"],
-      timeout: 5000,
-    });
-    const status = typeof result.status === "number" ? result.status : null;
-    return {
-      ok: status === 0 && !result.error,
-      status,
-      stdout: typeof result.stdout === "string" ? result.stdout : "",
-      stderr: typeof result.stderr === "string" ? result.stderr : "",
-      error: result.error,
-    };
-  } catch (error) {
-    return { ok: false, status: null, stdout: "", stderr: "", error };
-  }
 """#
 }
