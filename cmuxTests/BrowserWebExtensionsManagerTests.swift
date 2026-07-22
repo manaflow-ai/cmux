@@ -2286,6 +2286,58 @@ struct BrowserWebExtensionsManagerTests {
     }
 
     @available(macOS 15.4, *)
+    @Test func deletingActiveProfilePreservesPanelRegistrationForReplacementProfile() async throws {
+        let root = try Self.makeExtensionsRoot()
+        defer { try? FileManager.default.removeItem(at: root) }
+        let deletedProfile = try #require(BrowserProfileStore.shared.createProfile(
+            named: "Deleted extension profile \(UUID().uuidString.prefix(6))"
+        ))
+        defer { _ = BrowserProfileStore.shared.deleteProfile(id: deletedProfile.id) }
+        let services = BrowserServices(extensionDirectory: root)
+        let tabManager = TabManager(autoWelcomeIfNeeded: false, browserServices: services)
+        let workspace = try #require(tabManager.selectedWorkspace)
+        let panel = BrowserPanel(
+            workspaceId: workspace.id,
+            profileID: deletedProfile.id,
+            browserServices: services
+        )
+        services.registerBrowserPanel(panel, workspace: workspace)
+        defer {
+            services.unregisterBrowserPanel(id: panel.id)
+            panel.close()
+        }
+        let deletedManager = services.webExtensionsManager(for: deletedProfile.id)
+        #expect(services.registeredBrowserPanelCount == 1)
+
+        #expect(BrowserProfileStore.shared.deleteProfile(id: deletedProfile.id))
+        for _ in 0..<20 {
+            if !services.hasRetainedWebExtensionsManagerForTesting(profileID: deletedProfile.id) {
+                break
+            }
+            await Task.yield()
+        }
+        #expect(!services.hasRetainedWebExtensionsManagerForTesting(profileID: deletedProfile.id))
+        #expect(deletedManager.isShutDown)
+        #expect(services.registeredBrowserPanelCount == 1)
+
+        let defaultProfileID = BrowserProfileStore.shared.builtInDefaultProfileID
+        #expect(panel.switchToProfile(defaultProfileID))
+        let replacementManager = services.webExtensionsManager(for: defaultProfileID)
+        let extensionDirectory = try Self.writeExtension(
+            named: "deleted-profile-registration-probe",
+            in: root,
+            manifest: Self.minimalManifest
+        )
+        let extensionContext = WKWebExtensionContext(
+            for: try await WKWebExtension(resourceBaseURL: extensionDirectory)
+        )
+        #expect(replacementManager
+            .webExtensionController(replacementManager.controller, openWindowsFor: extensionContext)
+            .flatMap { $0.tabs?(for: extensionContext) ?? [] }
+            .contains { $0.webView?(for: extensionContext) === panel.webView })
+    }
+
+    @available(macOS 15.4, *)
     @Test func switchingProfileDefersRestoreUntilNewProfileExtensionsLoad() async throws {
         let root = try Self.makeExtensionsRoot()
         defer { try? FileManager.default.removeItem(at: root) }
@@ -3315,6 +3367,82 @@ struct BrowserWebExtensionsManagerTests {
         #expect(popover.isShown)
         #expect(popover.positioningRect == anchor.bounds)
         #expect(performCount.withLock { $0 } == 1)
+    }
+
+    @available(macOS 15.4, *)
+    @Test func unregisteringPanelClosesShownPopupBeforeReleasingItsWebKitAdapters() async throws {
+        let root = try Self.makeExtensionsRoot()
+        defer { try? FileManager.default.removeItem(at: root) }
+        var manifest = Self.minimalManifest
+        manifest["action"] = ["default_popup": "popup.html"]
+        let directory = try Self.writeExtension(
+            named: "popup-unregister-probe",
+            in: root,
+            manifest: manifest
+        )
+        try "<main>Popup teardown</main>".write(
+            to: directory.appendingPathComponent("popup.html"),
+            atomically: true,
+            encoding: .utf8
+        )
+        let manager = BrowserWebExtensionsManager(
+            directory: root,
+            controllerConfiguration: .nonPersistent()
+        )
+        try await manager.approveInstalledCandidate(directory)
+        await manager.loadExtensions()
+        let panel = BrowserPanel(workspaceId: UUID())
+        defer {
+            manager.shutdown()
+            panel.close()
+        }
+        manager.register(
+            panel: panel,
+            ownerID: UUID(),
+            activePanelID: { panel.id },
+            focusPanel: { _ in }
+        )
+
+        let window = NSWindow(
+            contentRect: NSRect(x: 200, y: 200, width: 320, height: 240),
+            styleMask: [.titled],
+            backing: .buffered,
+            defer: false
+        )
+        let anchor = NSButton(frame: NSRect(x: 120, y: 160, width: 40, height: 24))
+        window.contentView?.addSubview(anchor)
+        window.orderFront(nil)
+        defer { window.close() }
+
+        let context = try #require(manager.loadedContexts.first)
+        let tab = try #require(manager
+            .webExtensionController(manager.controller, openWindowsFor: context)
+            .flatMap { $0.tabs?(for: context) ?? [] }
+            .first)
+        let action = try #require(context.action(for: tab))
+        #expect(manager.performAction(
+            uniqueIdentifier: context.uniqueIdentifier,
+            in: panel,
+            anchorView: anchor
+        ))
+        manager.webExtensionController(
+            manager.controller,
+            presentActionPopup: action,
+            for: context
+        ) { error in
+            #expect(error == nil)
+        }
+        let popover = try #require(action.popupPopover)
+        #expect(popover.isShown)
+
+        manager.unregister(panelID: panel.id)
+
+        #expect(!popover.isShown)
+        for _ in 0..<4 { await Task.yield() }
+        #expect(manager.transientStateCountsForTesting(
+            panelID: panel.id,
+            extensionIdentifier: context.uniqueIdentifier
+        ).total == 0)
     }
 
     @available(macOS 15.4, *)
