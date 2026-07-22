@@ -29,7 +29,14 @@ import UIKit
 
     /// The controller chain can assemble incrementally: the navigation
     /// controller can host the table before it joins a tab bar controller.
-    /// A one-shot registration would strand the bottom edge unregistered.
+    /// Whichever lifecycle path fires for the move (UIKit container
+    /// attachment always relocates the child's view, so `didMoveToWindow`
+    /// and layout passes both run), the bottom edge must end registered.
+    /// UIKit's hierarchy-consistency check forbids re-parenting a controller
+    /// whose view stays in a foreign hierarchy, so a window-stable variant of
+    /// this scenario is not constructible; the window-stable layout-retry
+    /// path is covered by
+    /// ``survivingTableReclaimsRegistrationAfterOwnerDeparts()``.
     @Test func lateTabControllerAttachmentStillRegistersBottomEdge() throws {
         guard #available(iOS 26.0, *) else { return }
         let tableView = WorkspaceListUITableView(frame: .zero, style: .plain)
