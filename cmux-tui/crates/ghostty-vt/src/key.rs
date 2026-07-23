@@ -203,6 +203,16 @@ impl KeyEncoder {
     pub fn sync_from_terminal(&mut self, terminal: &Terminal) {
         unsafe {
             sys::ghostty_key_encoder_setopt_from_terminal(self.encoder, terminal.raw());
+
+            // Crossterm has already resolved the host platform's Option key
+            // policy and only reports ALT for a logical terminal modifier.
+            // Preserve that meaning when Ghostty applies macOS encoding rules.
+            let option_as_alt = sys::GHOSTTY_OPTION_AS_ALT_TRUE;
+            sys::ghostty_key_encoder_setopt(
+                self.encoder,
+                sys::GHOSTTY_KEY_ENCODER_OPT_MACOS_OPTION_AS_ALT,
+                ptr::from_ref(&option_as_alt).cast(),
+            );
         }
     }
 

@@ -1,6 +1,6 @@
 //! crossterm key events → ghostty key encoder inputs.
 
-use crossterm::event::{KeyCode, KeyEvent, KeyEventKind, KeyModifiers};
+use crossterm::event::{EnhancedKeyEvent, KeyCode, KeyEvent, KeyEventKind, KeyModifiers};
 use ghostty_vt::sys;
 use ghostty_vt::{KeyAction, KeyInput, Mods};
 
@@ -49,36 +49,8 @@ pub(crate) fn shifted_ascii_char(c: char) -> char {
     }
 }
 
-fn unshifted_ascii_char(c: char) -> char {
-    match c {
-        'A'..='Z' => c.to_ascii_lowercase(),
-        '~' => '`',
-        '!' => '1',
-        '@' => '2',
-        '#' => '3',
-        '$' => '4',
-        '%' => '5',
-        '^' => '6',
-        '&' => '7',
-        '*' => '8',
-        '(' => '9',
-        ')' => '0',
-        '_' => '-',
-        '+' => '=',
-        '{' => '[',
-        '}' => ']',
-        '|' => '\\',
-        ':' => ';',
-        '"' => '\'',
-        '<' => ',',
-        '>' => '.',
-        '?' => '/',
-        _ => c,
-    }
-}
-
 fn physical_key_for_char(c: char) -> sys::GhosttyKey {
-    match unshifted_ascii_char(c) {
+    match c.to_ascii_lowercase() {
         'a' => sys::GHOSTTY_KEY_A,
         'b' => sys::GHOSTTY_KEY_B,
         'c' => sys::GHOSTTY_KEY_C,
@@ -148,14 +120,13 @@ pub fn key_input_from(event: &KeyEvent) -> Option<KeyInput> {
 
     match event.code {
         KeyCode::Char(c) => {
-            let unshifted = unshifted_ascii_char(c);
-            let text = if mods.contains(Mods::SHIFT) { shifted_ascii_char(c) } else { c };
+            let unshifted = if c.is_ascii_uppercase() { c.to_ascii_lowercase() } else { c };
             input.key = physical_key_for_char(c);
             input.unshifted_codepoint = unshifted as u32;
             // The encoder derives Ctrl-modified bytes from key+mods; text
             // is only the layout-produced character.
             if !mods.contains(Mods::CTRL) {
-                input.utf8 = text.to_string();
+                input.utf8 = c.to_string();
                 if mods.contains(Mods::SHIFT) {
                     input.consumed_mods = Mods::SHIFT;
                 }
@@ -187,6 +158,32 @@ pub fn key_input_from(event: &KeyEvent) -> Option<KeyInput> {
     Some(input)
 }
 
+/// Convert a lossless Kitty CSI-u event into an encoder input without
+/// guessing the keyboard layout from US punctuation pairs.
+pub fn key_input_from_enhanced(event: &EnhancedKeyEvent) -> Option<KeyInput> {
+    let mut input = key_input_from(&event.key_event)?;
+    let KeyCode::Char(unshifted) = event.key_event.code else {
+        return Some(input);
+    };
+
+    if let Some(base_layout_key) = event.base_layout_key {
+        input.key = physical_key_for_char(base_layout_key);
+    }
+    input.unshifted_codepoint = unshifted as u32;
+
+    if !input.mods.contains(Mods::CTRL) {
+        input.utf8 = if event.text.is_empty() {
+            event.shifted_key.unwrap_or(unshifted).to_string()
+        } else {
+            event.text.clone()
+        };
+        if input.mods.contains(Mods::SHIFT) {
+            input.consumed_mods = input.consumed_mods | Mods::SHIFT;
+        }
+    }
+    Some(input)
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -211,10 +208,19 @@ mod tests {
 
     #[test]
     fn alt_shift_base_keys_preserve_shifted_text_for_legacy_terminals() {
-        let encode = |code| {
-            let event = KeyEvent::new(KeyCode::Char(code), KeyModifiers::ALT | KeyModifiers::SHIFT);
-            let input = key_input_from(&event).unwrap();
-            let terminal = Terminal::new(80, 24, 0, Callbacks::default()).unwrap();
+        let encode = |code, shifted| {
+            let event = EnhancedKeyEvent {
+                key_event: KeyEvent::new(
+                    KeyCode::Char(code),
+                    KeyModifiers::ALT | KeyModifiers::SHIFT,
+                ),
+                shifted_key: Some(shifted),
+                base_layout_key: Some(code),
+                text: shifted.to_string(),
+            };
+            let input = key_input_from_enhanced(&event).unwrap();
+            let mut terminal = Terminal::new(80, 24, 0, Callbacks::default()).unwrap();
+            terminal.vt_write(b"\x1b[?1036h");
             let mut encoder = KeyEncoder::new().unwrap();
             encoder.sync_from_terminal(&terminal);
             let mut encoded = Vec::new();
@@ -224,19 +230,32 @@ mod tests {
 
         for (base, shifted) in [('d', 'D'), ('1', '!')] {
             assert_eq!(
-                encode(base),
-                encode(shifted),
-                "enhanced Alt-Shift-{base} did not preserve its shifted text"
+                encode(base, shifted),
+                [b"\x1b".as_slice(), shifted.to_string().as_bytes()].concat()
             );
         }
     }
 
     #[test]
+    fn enhanced_key_uses_reported_layout_text_and_physical_identity() {
+        let event = EnhancedKeyEvent {
+            key_event: KeyEvent::new(KeyCode::Char('&'), KeyModifiers::ALT | KeyModifiers::SHIFT),
+            shifted_key: Some('1'),
+            base_layout_key: Some('1'),
+            text: "1".to_string(),
+        };
+        let input = key_input_from_enhanced(&event).unwrap();
+
+        assert_eq!(input.key, sys::GHOSTTY_KEY_DIGIT_1);
+        assert_eq!(input.unshifted_codepoint, '&' as u32);
+        assert_eq!(input.utf8, "1");
+        assert!(input.mods.contains(Mods::ALT | Mods::SHIFT));
+        assert!(input.consumed_mods.contains(Mods::SHIFT));
+    }
+
+    #[test]
     fn shifted_punctuation_does_not_invent_a_us_layout_identity() {
-        let event = KeyEvent::new(
-            KeyCode::Char('&'),
-            KeyModifiers::ALT | KeyModifiers::SHIFT,
-        );
+        let event = KeyEvent::new(KeyCode::Char('&'), KeyModifiers::ALT | KeyModifiers::SHIFT);
         let input = key_input_from(&event).unwrap();
 
         assert_eq!(input.key, sys::GHOSTTY_KEY_UNIDENTIFIED);

@@ -9,6 +9,7 @@ members = [
     "crates/cmux-tui-machine-protocol",
     "crates/cmux-tui",
 ]
+exclude = ["vendor/crossterm"]
 
 [workspace.package]
 edition = "2024"
@@ -50,6 +51,12 @@ bindgen = "0.72"
 smallvec = "1"
 getrandom = "0.3"
 zeroize = "1.9"
+
+[patch.crates-io]
+# Crossterm 0.29 discards Kitty's shifted key, base-layout key, and associated
+# text while parsing CSI-u input. cmux needs those fields to preserve keyboard
+# layouts across its shortcut layer and nested terminals.
+crossterm = { path = "vendor/crossterm" }
 
 [profile.release]
 lto = "thin"
