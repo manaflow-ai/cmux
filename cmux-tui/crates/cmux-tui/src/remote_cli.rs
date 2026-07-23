@@ -694,7 +694,7 @@ fn start_connected(mut flags: ConnectFlags) -> anyhow::Result<ConnectedRuntime> 
     let ssh_bootstrap = SshBootstrapOptions {
         auto_install: flags.auto_install,
         upgrade: flags.upgrade,
-        attempt_timeout: startup_timeout.min(flags.reconnect.attempt_timeout),
+        attempt_timeout: startup_timeout,
     };
     let runtime = start_client_runtime(ClientRuntimeOptions {
         routes,
@@ -1635,6 +1635,7 @@ mod tests {
             version: DISTRIBUTION_VERSION.into(),
             distribution_version: Some(DISTRIBUTION_VERSION.into()),
             npm_bootstrap_version: NPM_BOOTSTRAP_VERSION.map(str::to_owned),
+            build_identity: Some(cmux_remote::ssh_bootstrap::BUILD_IDENTITY.into()),
             remote_protocol: REMOTE_PROTOCOL_VERSION,
             os: "test".into(),
             arch: "test".into(),

@@ -70,6 +70,13 @@ impl Default for ReconnectPolicy {
 /// direct socket to Iroh or a relay cannot change daemon authority.
 #[async_trait]
 pub trait ReconnectGroupSource: Send + Sync {
+    /// Bounds transport discovery separately from carrier authentication and
+    /// replay. Sources with one-time setup may extend this deadline without
+    /// slowing the ordinary reconnect path.
+    fn resolution_timeout(&self, reconnect_attempt_timeout: Duration) -> Duration {
+        reconnect_attempt_timeout
+    }
+
     async fn next_group(&self) -> Result<Arc<dyn LinkGroup>, ProviderError>;
 }
 
@@ -543,17 +550,13 @@ impl ClientConnection {
                         });
                     }
                     if let Some(source) = &self.reconnect_groups {
-                        match tokio::time::timeout(
+                        if let Some(next) = resolve_reconnect_group(
+                            source.as_ref(),
                             self.config.reconnect.attempt_timeout,
-                            source.next_group(),
                         )
                         .await
                         {
-                            Ok(Ok(next)) => group = next,
-                            Ok(Err(_)) | Err(_) => {
-                                // Provider discovery is retried with the same
-                                // bounded backoff as carrier authentication.
-                            }
+                            group = next;
                         }
                     }
                     tokio::time::sleep(jittered_delay(delay, self.config.reconnect.full_jitter))
@@ -617,6 +620,16 @@ impl ClientConnection {
             Err(_) => wait_for_close(self.close_state.subscribe()).await,
         }
     }
+}
+
+async fn resolve_reconnect_group(
+    source: &dyn ReconnectGroupSource,
+    reconnect_attempt_timeout: Duration,
+) -> Option<Arc<dyn LinkGroup>> {
+    tokio::time::timeout(source.resolution_timeout(reconnect_attempt_timeout), source.next_group())
+        .await
+        .ok()?
+        .ok()
 }
 
 async fn wait_for_close(mut state: watch::Receiver<CloseState>) -> Result<(), ConnectionError> {
@@ -920,6 +933,56 @@ mod tests {
     use crate::identity::AuthDatabase;
     use crate::provider::{CarrierEvidence, ProviderCapabilities};
     use crate::service::{EndpointRole, ServiceError, ServiceMultiplexer};
+
+    struct DelayedReconnectGroupSource {
+        delay: Duration,
+        resolution_timeout: Option<Duration>,
+        completed: Arc<AtomicBool>,
+    }
+
+    #[async_trait]
+    impl ReconnectGroupSource for DelayedReconnectGroupSource {
+        fn resolution_timeout(&self, reconnect_attempt_timeout: Duration) -> Duration {
+            self.resolution_timeout.unwrap_or(reconnect_attempt_timeout)
+        }
+
+        async fn next_group(&self) -> Result<Arc<dyn LinkGroup>, ProviderError> {
+            tokio::time::sleep(self.delay).await;
+            self.completed.store(true, Ordering::Release);
+            Err(ProviderError::Transport("delayed test source completed".into()))
+        }
+    }
+
+    #[tokio::test]
+    async fn reconnect_group_resolution_uses_only_an_explicitly_extended_deadline() {
+        let ordinary_completed = Arc::new(AtomicBool::new(false));
+        let ordinary = DelayedReconnectGroupSource {
+            delay: Duration::from_millis(200),
+            resolution_timeout: None,
+            completed: ordinary_completed.clone(),
+        };
+        tokio::time::timeout(
+            Duration::from_millis(100),
+            resolve_reconnect_group(&ordinary, Duration::from_millis(20)),
+        )
+        .await
+        .expect("ordinary reconnect source exceeded its carrier attempt timeout");
+        assert!(!ordinary_completed.load(Ordering::Acquire));
+
+        let extended_completed = Arc::new(AtomicBool::new(false));
+        let extended = DelayedReconnectGroupSource {
+            delay: Duration::from_millis(60),
+            resolution_timeout: Some(Duration::from_millis(200)),
+            completed: extended_completed.clone(),
+        };
+        tokio::time::timeout(
+            Duration::from_millis(500),
+            resolve_reconnect_group(&extended, Duration::from_millis(20)),
+        )
+        .await
+        .expect("explicit reconnect resolution deadline was ignored");
+        assert!(extended_completed.load(Ordering::Acquire));
+    }
 
     struct FaultEpoch {
         failed: AtomicBool,

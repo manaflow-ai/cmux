@@ -6,7 +6,7 @@ use std::fs;
 use std::net::SocketAddr;
 use std::path::{Path, PathBuf};
 use std::sync::Arc;
-use std::sync::atomic::{AtomicUsize, Ordering};
+use std::sync::atomic::{AtomicBool, AtomicUsize, Ordering};
 use std::sync::mpsc;
 use std::thread;
 use std::time::Duration;
@@ -387,6 +387,9 @@ async fn select_initial_route<T: Send>(
         match attempt.connect(index, request).await {
             Ok(result) => return Ok(result),
             Err(InitialRouteAttemptError::Route(error)) => {
+                if upgrade_candidate {
+                    return Err(anyhow!("upgraded SSH route failed for {endpoint}: {error:#}"));
+                }
                 failures.push(format!("{endpoint}: {error:#}"));
             }
             Err(InitialRouteAttemptError::Fatal(error)) => return Err(error),
@@ -420,10 +423,8 @@ impl InitialRouteAttempt<(Arc<ClientConnection>, String)> for RuntimeInitialRout
             .await
             .map_err(|error| InitialRouteAttemptError::Route(error.into()))?;
         let route = group.description().to_string();
-        let reconnect_groups: Arc<dyn ReconnectGroupSource> = Arc::new(RuntimeReconnectGroups {
-            options: self.options.clone(),
-            next: AtomicUsize::new(index.saturating_add(1)),
-        });
+        let reconnect_groups: Arc<dyn ReconnectGroupSource> =
+            Arc::new(RuntimeReconnectGroups::new(self.options.clone(), index));
         let connection = ClientConnection::connect_with_reconnect_groups(
             group.clone(),
             ClientConnectionConfig {
@@ -571,7 +572,7 @@ fn connect_request(
 
 #[async_trait]
 trait ReconnectRouteAttempt<T: Send>: Send + Sync {
-    async fn connect(&self, request: ConnectRequest) -> Result<T, ProviderError>;
+    async fn connect(&self, index: usize, request: ConnectRequest) -> Result<T, ProviderError>;
 }
 
 async fn select_reconnect_route<T: Send>(
@@ -590,7 +591,7 @@ async fn select_reconnect_route<T: Send>(
         let request = connect_request(&routes[index], session, lane_policy)
             .map_err(|error| ProviderError::Configuration(error.to_string()))?;
         let endpoint = request.endpoint.clone();
-        match attempt.connect(request).await {
+        match attempt.connect(index, request).await {
             Ok(group) => return Ok((index, group)),
             Err(error) => {
                 failures.push(format!("{endpoint}: {error}"));
@@ -607,16 +608,60 @@ async fn select_reconnect_route<T: Send>(
 struct RuntimeReconnectGroups {
     options: ClientRuntimeOptions,
     next: AtomicUsize,
+    prepared_ssh: Vec<AtomicBool>,
+}
+
+impl RuntimeReconnectGroups {
+    fn new(options: ClientRuntimeOptions, selected_index: usize) -> Self {
+        let selected_ssh = options
+            .routes
+            .get(selected_index)
+            .is_some_and(|candidate| candidate.endpoint.scheme() == "ssh");
+        let prepared_ssh = options
+            .routes
+            .iter()
+            .enumerate()
+            .map(|(index, _)| AtomicBool::new(selected_ssh && index == selected_index))
+            .collect();
+        Self { options, next: AtomicUsize::new(selected_index.saturating_add(1)), prepared_ssh }
+    }
+
+    fn unprepared_installable_ssh_count(&self) -> usize {
+        if !self.options.ssh_bootstrap.auto_install {
+            return 0;
+        }
+        self.options
+            .routes
+            .iter()
+            .enumerate()
+            .filter(|(index, candidate)| {
+                candidate.endpoint.scheme() == "ssh"
+                    && !self.prepared_ssh[*index].load(Ordering::Acquire)
+            })
+            .count()
+    }
 }
 
 #[async_trait]
 impl ReconnectGroupSource for RuntimeReconnectGroups {
+    fn resolution_timeout(&self, reconnect_attempt_timeout: Duration) -> Duration {
+        let provider_attempts = u32::try_from(self.options.routes.len().max(1)).unwrap_or(u32::MAX);
+        let ssh_bootstraps =
+            u32::try_from(self.unprepared_installable_ssh_count()).unwrap_or(u32::MAX);
+        reconnect_attempt_timeout.saturating_mul(provider_attempts).saturating_add(
+            self.options.ssh_bootstrap.attempt_timeout.saturating_mul(ssh_bootstraps),
+        )
+    }
+
     async fn next_group(&self) -> Result<Arc<dyn LinkGroup>, ProviderError> {
         let count = self.options.routes.len();
         if count == 0 {
             return Err(ProviderError::Configuration("no reconnect routes configured".into()));
         }
-        let attempt = RuntimeReconnectRouteAttempt { options: &self.options };
+        let attempt = RuntimeReconnectRouteAttempt {
+            options: &self.options,
+            prepared_ssh: &self.prepared_ssh,
+        };
         let start = self.next.fetch_add(1, Ordering::Relaxed) % count;
         let (index, group) = select_reconnect_route(
             &self.options.routes,
@@ -633,12 +678,43 @@ impl ReconnectGroupSource for RuntimeReconnectGroups {
 
 struct RuntimeReconnectRouteAttempt<'a> {
     options: &'a ClientRuntimeOptions,
+    prepared_ssh: &'a [AtomicBool],
 }
 
 #[async_trait]
 impl ReconnectRouteAttempt<Arc<dyn LinkGroup>> for RuntimeReconnectRouteAttempt<'_> {
-    async fn connect(&self, request: ConnectRequest) -> Result<Arc<dyn LinkGroup>, ProviderError> {
-        connect_provider(self.options, request).await
+    async fn connect(
+        &self,
+        index: usize,
+        request: ConnectRequest,
+    ) -> Result<Arc<dyn LinkGroup>, ProviderError> {
+        let endpoint = request.endpoint.clone();
+        if endpoint.scheme() == "ssh" && !self.prepared_ssh[index].load(Ordering::Acquire) {
+            bootstrap_initial_ssh_route(
+                &endpoint,
+                &self.options.ssh,
+                self.options.ssh_bootstrap,
+                false,
+            )
+            .await
+            .map_err(|error| {
+                ProviderError::Transport(format!(
+                    "SSH bootstrap failed for reconnect route {endpoint}: {error:#}"
+                ))
+            })?;
+            self.prepared_ssh[index].store(true, Ordering::Release);
+        }
+        tokio::time::timeout(
+            self.options.reconnect.attempt_timeout,
+            connect_provider(self.options, request),
+        )
+        .await
+        .map_err(|_| {
+            ProviderError::Transport(format!(
+                "reconnect route provider {endpoint} timed out after {}ms",
+                self.options.reconnect.attempt_timeout.as_millis()
+            ))
+        })?
     }
 }
 
@@ -1053,11 +1129,84 @@ mod tests {
 
     #[async_trait]
     impl ReconnectRouteAttempt<String> for FakeReconnectRouteAttempt {
-        async fn connect(&self, request: ConnectRequest) -> Result<String, ProviderError> {
+        async fn connect(
+            &self,
+            _index: usize,
+            request: ConnectRequest,
+        ) -> Result<String, ProviderError> {
             let endpoint = request.endpoint.to_string();
             self.requests.lock().unwrap().push(request);
             Ok(endpoint)
         }
+    }
+
+    fn reconnect_test_options(routes: Vec<ResolvedRouteCandidate>) -> ClientRuntimeOptions {
+        ClientRuntimeOptions {
+            routes,
+            identity: StaticIdentity::generate().unwrap(),
+            expected_daemon: None,
+            auth: ClientAuthMode::Carrier,
+            device_name: "test".into(),
+            session: SessionId([10; 16]),
+            lane_policy: LanePolicy::Single,
+            reconnect: ReconnectPolicy {
+                attempt_timeout: Duration::from_millis(20),
+                heartbeat_interval: None,
+                ..ReconnectPolicy::default()
+            },
+            startup_timeout: Duration::from_millis(500),
+            state_dir: PathBuf::from("/tmp/cmux-reconnect-budget-test"),
+            local_socket: None,
+            relay: None,
+            relay_routes: BTreeMap::new(),
+            iroh_path: IrohPathMode::Auto,
+            ssh: SshProviderConfig::default(),
+            ssh_bootstrap: SshBootstrapOptions {
+                auto_install: true,
+                upgrade: false,
+                attempt_timeout: Duration::from_millis(500),
+            },
+        }
+    }
+
+    #[test]
+    fn reconnect_resolution_budget_covers_the_whole_candidate_cycle() {
+        let candidate = |route: &str| ResolvedRouteCandidate {
+            endpoint: Url::parse(route).unwrap(),
+            routing: BTreeMap::new(),
+        };
+        let source = RuntimeReconnectGroups::new(
+            reconnect_test_options(vec![
+                candidate("wss://first.example/v1/link"),
+                candidate("ssh://first-ssh.example"),
+                candidate("iroh://fallback"),
+                candidate("ssh://second-ssh.example"),
+            ]),
+            0,
+        );
+
+        assert_eq!(
+            source.resolution_timeout(Duration::from_millis(20)),
+            Duration::from_millis(1_080),
+            "four provider attempts and two first-use SSH bootstraps need one aggregate deadline"
+        );
+        source.prepared_ssh[1].store(true, Ordering::Release);
+        assert_eq!(
+            source.resolution_timeout(Duration::from_millis(20)),
+            Duration::from_millis(580)
+        );
+        source.prepared_ssh[3].store(true, Ordering::Release);
+        assert_eq!(source.resolution_timeout(Duration::from_millis(20)), Duration::from_millis(80));
+
+        let ordinary = RuntimeReconnectGroups::new(
+            reconnect_test_options(vec![candidate("wss://only.example/v1/link")]),
+            0,
+        );
+        assert_eq!(
+            ordinary.resolution_timeout(Duration::from_millis(20)),
+            Duration::from_millis(20),
+            "an ordinary single-route reconnect must retain its configured deadline"
+        );
     }
 
     #[tokio::test]
@@ -1210,6 +1359,7 @@ mod tests {
             distribution_version: Some(cmux_remote::ssh_bootstrap::DISTRIBUTION_VERSION.into()),
             npm_bootstrap_version: cmux_remote::ssh_bootstrap::NPM_BOOTSTRAP_VERSION
                 .map(str::to_owned),
+            build_identity: Some(cmux_remote::ssh_bootstrap::BUILD_IDENTITY.into()),
             remote_protocol: cmux_remote_protocol::REMOTE_PROTOCOL_VERSION,
             os: "test".into(),
             arch: "test".into(),
@@ -1262,16 +1412,26 @@ mod tests {
                 attempt_timeout: Duration::from_millis(500),
             },
         };
-        let source = RuntimeReconnectGroups { options, next: AtomicUsize::new(1) };
+        let source = RuntimeReconnectGroups::new(options, 0);
 
-        assert_eq!(source.next_group().await.unwrap().description(), "ssh://fallback.example");
-        assert!(
-            fs::read_to_string(&log)
-                .unwrap_or_default()
-                .lines()
-                .any(|line| line.contains(" remote-probe --json")),
-            "SSH provider was returned without probing or installing its remote sidecar"
+        assert_eq!(
+            source.resolution_timeout(Duration::from_millis(20)),
+            Duration::from_millis(540)
         );
+        assert_eq!(source.next_group().await.unwrap().description(), "ssh://fallback.example");
+        assert_eq!(
+            source.resolution_timeout(Duration::from_millis(20)),
+            Duration::from_millis(40),
+            "prepared SSH routes must retain only the per-provider reconnect budgets"
+        );
+        source.next.store(1, Ordering::Relaxed);
+        assert_eq!(source.next_group().await.unwrap().description(), "ssh://fallback.example");
+        let probes = fs::read_to_string(&log)
+            .unwrap_or_default()
+            .lines()
+            .filter(|line| line.contains(" remote-probe --json"))
+            .count();
+        assert_eq!(probes, 1, "a prepared SSH reconnect route was probed again");
     }
 
     #[tokio::test]
@@ -1396,7 +1556,7 @@ mod tests {
                 attempt_timeout: Duration::from_secs(1),
             },
         };
-        let source = RuntimeReconnectGroups { options, next: AtomicUsize::new(1) };
+        let source = RuntimeReconnectGroups::new(options, 0);
         assert_eq!(source.next_group().await.unwrap().description(), "ws://second.invalid/v1/link");
         assert_eq!(source.next_group().await.unwrap().description(), "ws://first.invalid/v1/link");
     }
