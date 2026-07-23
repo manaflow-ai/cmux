@@ -88,6 +88,11 @@ class DeterminismCheckerCLITests(unittest.TestCase):
                 "expect(finished).toBe(true)\n"
             ),
             "shell.sh": 'sleep 1\nassert "$actual" "$expected"\n',
+            "shell-shebang.sh": (
+                "#!/bin/sh\n"
+                "sleep 1\n"
+                'assert "$actual" "$expected"\n'
+            ),
             "shell-interpolation.sh": (
                 'actual="$(start_job; sleep 1; read_state)"\n'
                 'assert "$actual" "$expected"\n'
@@ -132,7 +137,11 @@ class DeterminismCheckerCLITests(unittest.TestCase):
         for relative_path in fixtures:
             line = (
                 2
-                if relative_path == "template-multiline-interpolation.ts"
+                if relative_path
+                in (
+                    "shell-shebang.sh",
+                    "template-multiline-interpolation.ts",
+                )
                 else 1
             )
             self.assertIn(
@@ -218,6 +227,13 @@ class DeterminismCheckerCLITests(unittest.TestCase):
                     "clock_time.sleep(0.01)\n"
                     "assert finished\n"
                 ),
+                "parenthesized-from-time.py": (
+                    "from time import (\n"
+                    "    sleep as pause,\n"
+                    ")\n"
+                    "pause(0.01)\n"
+                    "assert finished\n"
+                ),
             }
         )
 
@@ -231,9 +247,11 @@ class DeterminismCheckerCLITests(unittest.TestCase):
             "from-time.py",
             "from-asyncio.py",
             "import-list.py",
+            "parenthesized-from-time.py",
         ):
+            line = 4 if relative_path == "parenthesized-from-time.py" else 2
             self.assertIn(
-                f"fixtures/{relative_path}:2: sleep-then-assert:",
+                f"fixtures/{relative_path}:{line}: sleep-then-assert:",
                 positive.stdout,
             )
 
@@ -292,6 +310,22 @@ class DeterminismCheckerCLITests(unittest.TestCase):
                 "unrelated-from-import-shadow.py": (
                     "from fake_clock import clock as asyncio\n"
                     "await asyncio.sleep(0.01)\n"
+                    "assert finished\n"
+                ),
+                "parenthesized-from-import-shadow.py": (
+                    "from fake_clock import (\n"
+                    "    time,\n"
+                    ")\n"
+                    "time.sleep(0.01)\n"
+                    "assert finished\n"
+                ),
+                "star-import-shadow.py": (
+                    "from fake_clock import *\n"
+                    "time.sleep(0.01)\n"
+                    "assert finished\n"
+                ),
+                "lambda-parameter-shadow.py": (
+                    "run(lambda time: time.sleep(0.01))\n"
                     "assert finished\n"
                 ),
             }
