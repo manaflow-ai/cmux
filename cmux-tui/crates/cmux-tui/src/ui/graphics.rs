@@ -257,11 +257,37 @@ fn proportional_pixels(total: u32, clipped: i64, cells: i64) -> u32 {
     .unwrap_or(total)
 }
 
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+struct PlacementFingerprint {
+    rect: Rect,
+    columns: Option<u32>,
+    rows: Option<u32>,
+    source: Option<GraphicSourceRect>,
+    x_offset: u32,
+    y_offset: u32,
+    z: i32,
+}
+
+impl From<&GraphicPlacement> for PlacementFingerprint {
+    fn from(placement: &GraphicPlacement) -> Self {
+        Self {
+            rect: placement.rect,
+            columns: placement.columns,
+            rows: placement.rows,
+            source: placement.source,
+            x_offset: placement.x_offset,
+            y_offset: placement.y_offset,
+            z: placement.z,
+        }
+    }
+}
+
 pub struct GraphicsState {
     next_image_id: u32,
     next_placement_id: u32,
     image_ids: HashMap<GraphicImageKey, u32>,
     placement_ids: HashMap<GraphicPlacementKey, u32>,
+    placement_fingerprints: HashMap<GraphicPlacementKey, PlacementFingerprint>,
     transmitted: HashMap<GraphicImageKey, u64>,
     visible: HashSet<GraphicPlacementKey>,
 }
@@ -273,6 +299,7 @@ impl Default for GraphicsState {
             next_placement_id: 1,
             image_ids: HashMap::new(),
             placement_ids: HashMap::new(),
+            placement_fingerprints: HashMap::new(),
             transmitted: HashMap::new(),
             visible: HashSet::new(),
         }
@@ -303,6 +330,7 @@ impl GraphicsState {
                 batches.push(delete_placement(image_id, placement_id));
             }
             self.placement_ids.remove(&key);
+            self.placement_fingerprints.remove(&key);
         }
 
         let mut stale_images = self
@@ -318,9 +346,13 @@ impl GraphicsState {
             }
             self.transmitted.remove(&key);
             self.placement_ids.retain(|placement, _| placement.image != key);
+            self.placement_fingerprints.retain(|placement, _| placement.image != key);
         }
 
+        let mut retransmitted_images = HashSet::new();
         for placement in placements {
+            let fingerprint = PlacementFingerprint::from(placement);
+            let previous = self.placement_fingerprints.get(&placement.key).copied();
             let image_id = self.image_id(placement.image.key);
             let placement_id = self.placement_id(placement.key);
             let mut batch = Vec::new();
@@ -330,13 +362,23 @@ impl GraphicsState {
                     batch.extend(delete_image(image_id));
                     batch.extend(transmit_image(image_id, &placement.image));
                     self.transmitted.insert(placement.image.key, placement.image.generation);
+                    retransmitted_images.insert(placement.image.key);
                 }
                 None => {
                     batch.extend(transmit_image(image_id, &placement.image));
                     self.transmitted.insert(placement.image.key, placement.image.generation);
+                    retransmitted_images.insert(placement.image.key);
                 }
             }
-            batch.extend(place_image(image_id, placement_id, placement));
+            let image_was_retransmitted = retransmitted_images.contains(&placement.image.key);
+            let geometry_changed = previous.is_some_and(|previous| previous != fingerprint);
+            if geometry_changed && !image_was_retransmitted {
+                batch.extend(delete_placement(image_id, placement_id));
+            }
+            if previous.is_none() || geometry_changed || image_was_retransmitted {
+                batch.extend(place_image(image_id, placement_id, placement));
+                self.placement_fingerprints.insert(placement.key, fingerprint);
+            }
             if !batch.is_empty() {
                 batches.push(batch);
             }
