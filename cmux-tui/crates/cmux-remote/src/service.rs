@@ -2034,6 +2034,132 @@ mod tests {
     }
 
     #[tokio::test]
+    async fn bulk_reserve_keeps_tunnel_control_and_interactive_available() {
+        const KIB: usize = 1024;
+        const TOTAL_BUDGET: usize = 8 * KIB;
+        const BULK_CEILING: usize = 5 * KIB;
+        const BULK_TUNNEL_CEILING: usize = 6 * KIB;
+        const NON_INTERACTIVE_CEILING: usize = 7 * KIB;
+
+        // The scaled 5/6/7/8 KiB limits model 20/24/28/32 MiB in production,
+        // preserving a non-borrowable tier for each higher-priority lane.
+        assert_eq!(BULK_TUNNEL_CEILING - BULK_CEILING, KIB);
+        assert_eq!(NON_INTERACTIVE_CEILING - BULK_TUNNEL_CEILING, KIB);
+        assert_eq!(TOTAL_BUDGET - NON_INTERACTIVE_CEILING, KIB);
+
+        let (client_endpoint, daemon_endpoint) = endpoint_pair();
+        let client = ServiceMultiplexer::new_with_incoming_budget(
+            client_endpoint,
+            EndpointRole::Client,
+            TOTAL_BUDGET,
+        );
+        let bulk = client.open(Service::MuxControl, BTreeMap::new()).await.unwrap();
+        let additional_bulk = client.open(Service::MuxControl, BTreeMap::new()).await.unwrap();
+        let tunnel = client.open(Service::TcpTunnel, BTreeMap::new()).await.unwrap();
+        let control = client.open(Service::MuxControl, BTreeMap::new()).await.unwrap();
+        let interactive = client.open(Service::MuxControl, BTreeMap::new()).await.unwrap();
+
+        for _ in 0..BULK_CEILING / KIB {
+            daemon_endpoint
+                .send_frame(
+                    None,
+                    Lane::Bulk,
+                    bulk.id(),
+                    Bytes::from(vec![b'b'; KIB]),
+                    FrameFlags::empty(),
+                )
+                .await
+                .unwrap();
+        }
+        daemon_endpoint
+            .send_frame(
+                None,
+                Lane::Bulk,
+                additional_bulk.id(),
+                Bytes::from_static(b"bulk-overflow"),
+                FrameFlags::empty(),
+            )
+            .await
+            .unwrap();
+        daemon_endpoint
+            .send_frame(
+                None,
+                Lane::Tunnel,
+                tunnel.id(),
+                Bytes::from_static(b"tunnel-marker"),
+                FrameFlags::empty(),
+            )
+            .await
+            .unwrap();
+        daemon_endpoint
+            .send_frame(
+                None,
+                Lane::Control,
+                control.id(),
+                Bytes::from_static(b"control-marker"),
+                FrameFlags::empty(),
+            )
+            .await
+            .unwrap();
+        daemon_endpoint
+            .send_frame(
+                None,
+                Lane::Interactive,
+                interactive.id(),
+                Bytes::from_static(b"interactive-marker"),
+                FrameFlags::empty(),
+            )
+            .await
+            .unwrap();
+
+        let interactive_result =
+            tokio::time::timeout(Duration::from_secs(1), interactive.receive())
+                .await
+                .expect("reader stalled before applying the Bulk reserve policy");
+        assert_eq!(
+            bulk.receiver.lock().await.chunks.len(),
+            BULK_CEILING / KIB,
+            "the admitted Bulk backlog must remain undrained"
+        );
+        assert_eq!(bulk.failure.borrow().clone(), None, "the admitted Bulk stream was reset");
+        let additional_bulk_result = additional_bulk.receive().await;
+        let tunnel_result = tunnel.receive().await;
+        let control_result = control.receive().await;
+
+        let additional_bulk_was_reset = matches!(
+            &additional_bulk_result,
+            Err(ServiceError::Reset(message)) if message.contains("byte budget")
+        );
+        let tunnel_was_delivered = matches!(
+            &tunnel_result,
+            Ok(Some(chunk))
+                if chunk.lane == Lane::Tunnel
+                    && chunk.payload == b"tunnel-marker".as_slice()
+        );
+        let control_was_delivered = matches!(
+            &control_result,
+            Ok(Some(chunk))
+                if chunk.lane == Lane::Control
+                    && chunk.payload == b"control-marker".as_slice()
+        );
+        let interactive_was_delivered = matches!(
+            &interactive_result,
+            Ok(Some(chunk))
+                if chunk.lane == Lane::Interactive
+                    && chunk.payload == b"interactive-marker".as_slice()
+        );
+        assert!(
+            additional_bulk_was_reset
+                && tunnel_was_delivered
+                && control_was_delivered
+                && interactive_was_delivered,
+            "Bulk reserve violation: additional_bulk={additional_bulk_result:?}, \
+             tunnel={tunnel_result:?}, control={control_result:?}, \
+             interactive={interactive_result:?}"
+        );
+    }
+
+    #[tokio::test]
     async fn completed_stream_does_not_poison_the_next_stream() {
         let (client_endpoint, daemon_endpoint) = endpoint_pair();
         let client = ServiceMultiplexer::new(client_endpoint, EndpointRole::Client);
