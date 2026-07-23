@@ -325,6 +325,62 @@ struct AgentChatArtifactIndexSafetyTests {
         #expect(slice.data.count < data.count)
     }
 
+    @Test func oversizedPrefixRewriteDropsRetainedArtifactAuthority() async throws {
+        let root = FileManager.default.temporaryDirectory
+            .appendingPathComponent(UUID().uuidString, isDirectory: true)
+        try FileManager.default.createDirectory(at: root, withIntermediateDirectories: true)
+        defer { try? FileManager.default.removeItem(at: root) }
+        let transcript = root.appendingPathComponent("transcript.jsonl")
+        let removedArtifact = root.appendingPathComponent("removed.md").path
+        let retainedArtifact = root.appendingPathComponent("retained.md").path
+        let createdLines = try codexCommandLines(
+            command: "true > \(removedArtifact)",
+            callID: "create"
+        )
+        let initialTranscript = createdLines.joined(separator: "\n")
+        try initialTranscript.write(to: transcript, atomically: true, encoding: .utf8)
+        let index = AgentChatArtifactIndex()
+        let initial = try await index.snapshot(
+            sessionID: "session",
+            agentKind: .codex,
+            transcriptPath: transcript.path,
+            workingDirectory: root.path,
+            maximumFileBytes: 512
+        )
+        #expect(initial.artifacts.first?.captureAuthorization != nil)
+
+        let appendedLines = Array(repeating: "{}", count: 256)
+            + [try codexArtifactLine(path: retainedArtifact)]
+        let handle = try FileHandle(forWritingTo: transcript)
+        try handle.seekToEnd()
+        try handle.write(contentsOf: Data(("\n" + appendedLines.joined(separator: "\n")).utf8))
+        try handle.close()
+        let appended = try await index.snapshot(
+            sessionID: "session",
+            agentKind: .codex,
+            transcriptPath: transcript.path,
+            workingDirectory: root.path,
+            maximumFileBytes: 512
+        )
+        #expect(appended.referencedPaths.contains(removedArtifact))
+
+        let rewrite = try FileHandle(forWritingTo: transcript)
+        try rewrite.seek(toOffset: 0)
+        try rewrite.write(contentsOf: Data(repeating: 0x20, count: initialTranscript.utf8.count))
+        try rewrite.close()
+        let rewritten = try await index.snapshot(
+            sessionID: "session",
+            agentKind: .codex,
+            transcriptPath: transcript.path,
+            workingDirectory: root.path,
+            maximumFileBytes: 512
+        )
+
+        #expect(!rewritten.referencedPaths.contains(removedArtifact))
+        #expect(!rewritten.artifacts.contains { $0.path == removedArtifact })
+        #expect(rewritten.referencedPaths.contains(retainedArtifact))
+    }
+
     private func codexArtifactLine(path: String) throws -> String {
         let data = try JSONSerialization.data(withJSONObject: [
             "timestamp": "2026-07-21T12:00:00.000Z",
