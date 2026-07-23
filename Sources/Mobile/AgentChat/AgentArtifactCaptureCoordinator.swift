@@ -104,7 +104,9 @@ actor AgentArtifactCaptureCoordinator {
             candidates: pending.map {
                 ArtifactCandidate(
                     sourceURL: URL(fileURLWithPath: $0.path),
-                    provenance: artifactProvenance($0.provenance)
+                    provenance: artifactProvenance(
+                        captureProvenance(for: $0, completedCursor: completedCursor)
+                    )
                 )
             },
             context: context
@@ -218,6 +220,23 @@ actor AgentArtifactCaptureCoordinator {
         case .attached: return .attached
         case .referenced: return .referenced
         }
+    }
+
+    private func captureProvenance(
+        for artifact: ChatArtifactIndexedReference,
+        completedCursor: AgentArtifactReferenceCursor?
+    ) -> ChatArtifactProvenance {
+        guard let authorization = artifact.captureAuthorization else {
+            return .referenced
+        }
+        let authorizationCursor = AgentArtifactReferenceCursor(
+            sequence: authorization.sequence,
+            path: artifact.path
+        )
+        guard completedCursor.map({ authorizationCursor > $0 }) ?? true else {
+            return .referenced
+        }
+        return authorization.provenance
     }
 
     private func isRetryableBlocker(_ outcome: ArtifactImportOutcome) -> Bool {

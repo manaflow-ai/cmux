@@ -71,6 +71,8 @@ public final class ArtifactSidebarModel {
                 workingDirectory: workspace.workingDirectory
             )
         }
+        let changesWorkspaceIdentity = self.workspace?.id != workspace.id
+        var revision = changesWorkspaceIdentity ? prepareForBinding(to: workspace) : nil
         let root = await store.locateProjectRoot(startingAt: workspace.workingDirectory)
         guard requestRevision == bindingRequestRevision, !Task.isCancelled else { return }
         if self.workspace?.id == workspace.id, projectRoot == root {
@@ -78,18 +80,8 @@ public final class ArtifactSidebarModel {
             return
         }
 
-        bindingRevision &+= 1
-        let revision = bindingRevision
-        tasks.cancelAll()
-        self.workspace = workspace
-        projectRoot = nil
-        nodes = []
-        rows = []
-        expandedPaths = []
-        hasInitializedExpansion = false
-        actionFailure = nil
-
-        phase = .loading
+        revision = revision ?? prepareForBinding(to: workspace)
+        guard let revision else { return }
         projectRoot = root
         let changes = await store.changes(projectRoot: root)
         guard revision == bindingRevision, !Task.isCancelled else { return }
@@ -216,6 +208,20 @@ public final class ArtifactSidebarModel {
                 }
             }
         }
+    }
+
+    private func prepareForBinding(to workspace: ArtifactSidebarWorkspace) -> UInt64 {
+        bindingRevision &+= 1
+        tasks.cancelAll()
+        self.workspace = workspace
+        projectRoot = nil
+        nodes = []
+        rows = []
+        expandedPaths = []
+        hasInitializedExpansion = false
+        actionFailure = nil
+        phase = .loading
+        return bindingRevision
     }
 
     private func reload(projectRoot: URL, revision: UInt64) async {

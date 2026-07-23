@@ -30,7 +30,8 @@ struct ChatArtifactCanonicalIdentityTests {
         #expect(records == [ChatArtifactIndexedReference(
             path: canonical,
             provenance: .created,
-            lastReferencedSeq: 9
+            lastReferencedSeq: 9,
+            captureAuthorization: .created(sequence: 5)
         )])
     }
 
@@ -119,7 +120,8 @@ struct ChatArtifactCanonicalIdentityTests {
         #expect(records == [ChatArtifactIndexedReference(
             path: try lexicalPath(target.path),
             provenance: .created,
-            lastReferencedSeq: 9
+            lastReferencedSeq: 9,
+            captureAuthorization: .created(sequence: 5)
         )])
     }
 

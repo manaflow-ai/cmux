@@ -8,15 +8,43 @@ public struct ChatArtifactIndexedReference: Sendable, Equatable, Codable, Identi
     public let provenance: ChatArtifactProvenance
     /// Last transcript sequence that mentioned, attached, or edited the path.
     public let lastReferencedSeq: Int
+    /// Most recent transcript occurrence that authorizes capture, if any.
+    public let captureAuthorization: ChatArtifactCaptureAuthorization?
 
     /// Stable identity used by ordering and paging.
     public var id: String { path }
 
-    /// Creates an indexed reference.
+    /// Creates an indexed reference from one provenance-bearing occurrence.
+    ///
+    /// Created and attached provenance authorizes capture at `lastReferencedSeq`.
+    /// Use ``init(path:provenance:lastReferencedSeq:captureAuthorization:)``
+    /// when aggregate provenance and the latest authorization differ.
     public init(path: String, provenance: ChatArtifactProvenance, lastReferencedSeq: Int) {
+        self.init(
+            path: path,
+            provenance: provenance,
+            lastReferencedSeq: lastReferencedSeq,
+            captureAuthorization: Self.authorization(provenance: provenance, sequence: lastReferencedSeq)
+        )
+    }
+
+    /// Creates an indexed reference with independently tracked display provenance and capture authorization.
+    ///
+    /// - Parameters:
+    ///   - path: Canonical display path.
+    ///   - provenance: Highest-precedence provenance observed for the path.
+    ///   - lastReferencedSeq: Last transcript sequence that mentioned the path.
+    ///   - captureAuthorization: Most recent capture-authorizing occurrence, if any.
+    public init(
+        path: String,
+        provenance: ChatArtifactProvenance,
+        lastReferencedSeq: Int,
+        captureAuthorization: ChatArtifactCaptureAuthorization?
+    ) {
         self.path = path
         self.provenance = provenance
         self.lastReferencedSeq = lastReferencedSeq
+        self.captureAuthorization = captureAuthorization
     }
 
     /// Derives one record per canonical path identity from parsed transcript messages.
@@ -136,8 +164,35 @@ public struct ChatArtifactIndexedReference: Sendable, Equatable, Codable, Identi
         byPath[canonicalPath] = ChatArtifactIndexedReference(
             path: canonicalPath,
             provenance: Self.higherPrecedence(previous?.provenance, provenance),
-            lastReferencedSeq: max(previous?.lastReferencedSeq ?? Int.min, seq)
+            lastReferencedSeq: max(previous?.lastReferencedSeq ?? Int.min, seq),
+            captureAuthorization: Self.latestAuthorization(
+                previous?.captureAuthorization,
+                Self.authorization(provenance: provenance, sequence: seq)
+            )
         )
+    }
+
+    private static func authorization(
+        provenance: ChatArtifactProvenance,
+        sequence: Int
+    ) -> ChatArtifactCaptureAuthorization? {
+        switch provenance {
+        case .created: .created(sequence: sequence)
+        case .attached: .attached(sequence: sequence)
+        case .referenced: nil
+        }
+    }
+
+    private static func latestAuthorization(
+        _ lhs: ChatArtifactCaptureAuthorization?,
+        _ rhs: ChatArtifactCaptureAuthorization?
+    ) -> ChatArtifactCaptureAuthorization? {
+        guard let lhs else { return rhs }
+        guard let rhs else { return lhs }
+        if lhs.sequence != rhs.sequence {
+            return lhs.sequence > rhs.sequence ? lhs : rhs
+        }
+        return higherPrecedence(lhs.provenance, rhs.provenance) == lhs.provenance ? lhs : rhs
     }
 
     private static func higherPrecedence(
