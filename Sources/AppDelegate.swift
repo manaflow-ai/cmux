@@ -4514,7 +4514,12 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
         fileExplorerState: FileExplorerState? = nil,
         cmuxConfigStore: CmuxConfigStore? = nil
     ) {
-        guard !tabManager.isFinalizedForWindowClose else { return }
+        guard !tabManager.isFinalizedForWindowClose else {
+            mainWindowVisibilityController.commitClose(window)
+            window.orderOut(nil)
+            window.close()
+            return
+        }
         guard !mainWindowVisibilityController.hasCommittedClose(for: window) else {
             // SwiftUI's window accessor can run once more while dismantling a
             // retained NSWindow. A committed close is authoritative: never

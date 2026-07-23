@@ -542,7 +542,7 @@ class TabManager: ObservableObject {
         workspaces.attach(host: self)
         workspaceReordering.attach(host: self)
         workspaceGrouping.attach(host: self)
-        addWorkspace(
+        addInitialWorkspaceAssumingActive(
             title: initialWorkspaceTitle,
             workingDirectory: initialWorkingDirectory,
             initialTerminalInput: initialTerminalInput,
@@ -1092,54 +1092,24 @@ class TabManager: ObservableObject {
         return try acquisition()
     }
 
-    @discardableResult
-    func addWorkspace(
-        title: String? = nil,
-        workingDirectory overrideWorkingDirectory: String? = nil,
-        initialSurface: NewWorkspaceInitialSurface = .terminal,
-        initialTerminalCommand: String? = nil,
-        initialTerminalInput: String? = nil,
-        initialTerminalEnvironment: [String: String] = [:],
-        initialBrowserURL: URL? = nil,
-        initialBrowserOmnibarVisible: Bool = true,
-        initialBrowserTransparentBackground: Bool = false,
-        workspaceEnvironment: [String: String] = [:],
-        inheritWorkingDirectory: Bool = true,
-        select: Bool = true,
-        eagerLoadTerminal: Bool = false,
-        placementOverride: WorkspacePlacement? = nil,
-        autoWelcomeIfNeeded: Bool = true,
-        autoRefreshMetadata: Bool = true,
-        normalizeWorkspaceGroupsAfterInsert: Bool = true,
-        allowTextBoxFocusDefault: Bool = true
-    ) -> Workspace {
+    private func addInitialWorkspaceAssumingActive(
+        title: String?,
+        workingDirectory: String?,
+        initialTerminalInput: String?,
+        autoWelcomeIfNeeded: Bool
+    ) {
         precondition(
             !isFinalizedForWindowClose,
-            "Cannot create a workspace after its window manager is finalized"
+            "Initial workspace creation requires an active window manager"
         )
-        guard let workspace = addWorkspaceIfActive(
+        guard addWorkspaceIfActive(
             title: title,
-            workingDirectory: overrideWorkingDirectory,
-            initialSurface: initialSurface,
-            initialTerminalCommand: initialTerminalCommand,
+            workingDirectory: workingDirectory,
             initialTerminalInput: initialTerminalInput,
-            initialTerminalEnvironment: initialTerminalEnvironment,
-            initialBrowserURL: initialBrowserURL,
-            initialBrowserOmnibarVisible: initialBrowserOmnibarVisible,
-            initialBrowserTransparentBackground: initialBrowserTransparentBackground,
-            workspaceEnvironment: workspaceEnvironment,
-            inheritWorkingDirectory: inheritWorkingDirectory,
-            select: select,
-            eagerLoadTerminal: eagerLoadTerminal,
-            placementOverride: placementOverride,
             autoWelcomeIfNeeded: autoWelcomeIfNeeded,
-            autoRefreshMetadata: autoRefreshMetadata,
-            normalizeWorkspaceGroupsAfterInsert: normalizeWorkspaceGroupsAfterInsert,
-            allowTextBoxFocusDefault: allowTextBoxFocusDefault
-        ) else {
-            preconditionFailure("Cannot create a workspace after its window manager is finalized")
+        ) != nil else {
+            preconditionFailure("Initial workspace creation failed for an active window manager")
         }
-        return workspace
     }
 
     @discardableResult
@@ -1427,10 +1397,10 @@ class TabManager: ObservableObject {
         return addWorkspaceIfActive() != nil
     }
 
-    // Keep addTab as convenience alias
+    // Keep addTab as a nontrapping compatibility alias for runtime callers.
     @discardableResult
-    func addTab(select: Bool = true, eagerLoadTerminal: Bool = false) -> Workspace {
-        addWorkspace(select: select, eagerLoadTerminal: eagerLoadTerminal)
+    func addTab(select: Bool = true, eagerLoadTerminal: Bool = false) -> Workspace? {
+        addWorkspaceIfActive(select: select, eagerLoadTerminal: eagerLoadTerminal)
     }
 
     func terminalPanelForWorkspaceConfigInheritanceSource() -> TerminalPanel? {
