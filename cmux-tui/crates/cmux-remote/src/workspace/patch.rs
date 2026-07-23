@@ -421,11 +421,13 @@ async fn rollback(
 
 #[cfg(test)]
 mod tests {
+    #[cfg(unix)]
     use std::sync::Arc;
 
     use cmux_remote_protocol::WorkspaceId;
     use tempfile::tempdir;
 
+    #[cfg(unix)]
     use super::super::files::{MutationTestPoint, install_mutation_test_barrier};
     use super::*;
 
@@ -438,6 +440,7 @@ mod tests {
         (directory, root)
     }
 
+    #[cfg(unix)]
     #[tokio::test]
     async fn unified_patch_supports_dry_run_then_apply() {
         let (_directory, root) = root().await;
@@ -499,6 +502,7 @@ mod tests {
         );
     }
 
+    #[cfg(unix)]
     #[tokio::test]
     async fn patch_rejects_a_target_rewrite_between_snapshot_and_commit() {
         let (_directory, root) = root().await;
@@ -529,6 +533,7 @@ mod tests {
         assert_eq!(error.code, "invalid-path");
     }
 
+    #[cfg(unix)]
     #[tokio::test]
     async fn git_format_patch_applies_multiple_files() {
         let (_directory, root) = root().await;
@@ -563,6 +568,7 @@ mod tests {
         );
     }
 
+    #[cfg(unix)]
     #[tokio::test]
     async fn creation_patch_refuses_to_replace_an_existing_file() {
         let (_directory, root) = root().await;
@@ -577,6 +583,7 @@ mod tests {
         );
     }
 
+    #[cfg(unix)]
     #[tokio::test]
     async fn rollback_uses_digest_compare_and_swap() {
         let (_directory, root) = root().await;

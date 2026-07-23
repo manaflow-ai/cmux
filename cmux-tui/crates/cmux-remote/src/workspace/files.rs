@@ -163,6 +163,71 @@ fn pause_at_mutation_test_barrier_blocking(target: &Path, point: MutationTestPoi
     }
 }
 
+#[cfg(all(test, unix))]
+#[derive(Clone, Copy, Debug, Eq, Hash, PartialEq)]
+enum MutationTestFault {
+    CommitSync,
+    ExchangeUnsupported,
+    RollbackExchange,
+    RollbackSync,
+    UnpublishedCleanup,
+    PublishedCleanup,
+}
+
+#[cfg(all(test, unix))]
+#[derive(Clone, Debug, Eq, Hash, PartialEq)]
+struct MutationTestFaultKey {
+    target: PathBuf,
+    fault: MutationTestFault,
+}
+
+#[cfg(all(test, unix))]
+type MutationTestFaults = std::sync::Mutex<HashSet<MutationTestFaultKey>>;
+
+#[cfg(all(test, unix))]
+fn mutation_test_faults() -> &'static MutationTestFaults {
+    static FAULTS: std::sync::OnceLock<MutationTestFaults> = std::sync::OnceLock::new();
+    FAULTS.get_or_init(|| std::sync::Mutex::new(HashSet::new()))
+}
+
+#[cfg(all(test, unix))]
+struct MutationTestFaultGuard {
+    key: MutationTestFaultKey,
+}
+
+#[cfg(all(test, unix))]
+impl Drop for MutationTestFaultGuard {
+    fn drop(&mut self) {
+        mutation_test_faults().lock().unwrap_or_else(|error| error.into_inner()).remove(&self.key);
+    }
+}
+
+#[cfg(all(test, unix))]
+fn install_mutation_test_fault(
+    root: &WorkspaceRoot,
+    path: &str,
+    fault: MutationTestFault,
+) -> MutationTestFaultGuard {
+    let relative = validate_relative(path).expect("test mutation paths are valid");
+    let key = MutationTestFaultKey { target: root.canonical_root().join(relative), fault };
+    assert!(
+        mutation_test_faults()
+            .lock()
+            .unwrap_or_else(|error| error.into_inner())
+            .insert(key.clone()),
+        "mutation test fault already installed"
+    );
+    MutationTestFaultGuard { key }
+}
+
+#[cfg(all(test, unix))]
+fn mutation_test_fault(target: &Path, fault: MutationTestFault) -> bool {
+    mutation_test_faults()
+        .lock()
+        .unwrap_or_else(|error| error.into_inner())
+        .contains(&MutationTestFaultKey { target: target.to_owned(), fault })
+}
+
 pub(crate) async fn stat(
     root: &WorkspaceRoot,
     path: &str,
@@ -964,7 +1029,7 @@ fn commit_unix_write(prepared: PreparedUnixWrite, bytes: &[u8]) -> Result<String
                 };
                 return Err(cleanup_unpublished_temporary(&target, &temporary_name, error));
             }
-            if let Err(error) = unlink_name(target.parent_fd(), &temporary_name) {
+            if let Err(error) = unlink_published_name(&target, &temporary_name) {
                 return Err(partial_write_with_recovery(
                     &target,
                     &temporary_name,
@@ -988,7 +1053,7 @@ fn commit_unix_write(prepared: PreparedUnixWrite, bytes: &[u8]) -> Result<String
             )?;
         }
     }
-    target.sync_parent()?;
+    sync_committed_parent(&target)?;
     Ok(hash_bytes(bytes))
 }
 
@@ -998,7 +1063,7 @@ fn cleanup_unpublished_temporary(
     temporary_name: &CStr,
     error: RpcError,
 ) -> RpcError {
-    match unlink_name(target.parent_fd(), temporary_name) {
+    match unlink_unpublished_name(target, temporary_name) {
         Ok(()) => error,
         Err(cleanup) if cleanup.kind() == std::io::ErrorKind::NotFound => error,
         Err(cleanup) => RpcError::new(
@@ -1060,7 +1125,7 @@ fn commit_content_hash_write(
         target.display(),
         MutationTestPoint::BeforeContentHashExchange,
     );
-    if let Err(error) = exchange_names(target.parent_fd(), temporary_name, target.name()) {
+    if let Err(error) = exchange_guarded_write(target, temporary_name) {
         let error = if error.kind() == std::io::ErrorKind::NotFound {
             RpcError::new("conflict", "file disappeared before commit")
         } else {
@@ -1093,7 +1158,7 @@ fn commit_content_hash_write(
         rollback_exchange(target, temporary_name, &published, &recovery)?;
         return Err(RpcError::new("conflict", "file identity changed during commit"));
     }
-    unlink_name(target.parent_fd(), temporary_name).map_err(|error| {
+    unlink_published_name(target, temporary_name).map_err(|error| {
         partial_write_with_recovery(
             target,
             temporary_name,
@@ -1125,16 +1190,16 @@ fn rollback_exchange(
             "replacement validation failed and an exchanged entry changed before restoration",
         ));
     }
-    exchange_names(target.parent_fd(), temporary_name, target.name())
+    exchange_rollback(target, temporary_name)
         .map_err(|error| exchange_error(target.display(), error))?;
-    unlink_name(target.parent_fd(), temporary_name).map_err(|error| {
+    unlink_published_name(target, temporary_name).map_err(|error| {
         partial_write_with_recovery(
             target,
             temporary_name,
             &format!("original restored but staged-entry cleanup failed: {error}"),
         )
     })?;
-    target.sync_parent()
+    sync_rollback_parent(target)
 }
 
 #[cfg(unix)]
@@ -1185,7 +1250,7 @@ fn commit_unix_remove(prepared: PreparedUnixRemove) -> Result<(), RpcError> {
     if matches!(precondition, FilePrecondition::Any) {
         unlink_name(target.parent_fd(), target.name())
             .map_err(|error| io_error("remove", target.display(), error))?;
-        return target.sync_parent();
+        return sync_committed_parent(&target);
     }
     let FilePrecondition::ContentHash(expected) = &precondition else {
         return Err(RpcError::new("conflict", "file exists"));
@@ -1246,17 +1311,17 @@ fn commit_unix_remove(prepared: PreparedUnixRemove) -> Result<(), RpcError> {
                 &format!("remove restoration failed: {error}"),
             )
         })?;
-        target.sync_parent()?;
+        sync_rollback_parent(&target)?;
         return Err(RpcError::new("conflict", "file identity changed during removal"));
     }
-    unlink_name(target.parent_fd(), &quarantine).map_err(|error| {
+    unlink_published_name(&target, &quarantine).map_err(|error| {
         partial_write_with_recovery(
             &target,
             &quarantine,
             &format!("file removed but recovery cleanup failed: {error}"),
         )
     })?;
-    target.sync_parent()
+    sync_committed_parent(&target)
 }
 
 #[cfg(unix)]
@@ -1565,6 +1630,51 @@ fn unlink_name(parent: RawFd, name: &CStr) -> Result<(), std::io::Error> {
 }
 
 #[cfg(unix)]
+fn unlink_unpublished_name(
+    target: &UnixWorkspaceTarget,
+    name: &CStr,
+) -> Result<(), std::io::Error> {
+    #[cfg(test)]
+    if mutation_test_fault(target.display(), MutationTestFault::UnpublishedCleanup) {
+        return Err(std::io::Error::new(
+            std::io::ErrorKind::PermissionDenied,
+            "injected unpublished cleanup failure",
+        ));
+    }
+    unlink_name(target.parent_fd(), name)
+}
+
+#[cfg(unix)]
+fn unlink_published_name(target: &UnixWorkspaceTarget, name: &CStr) -> Result<(), std::io::Error> {
+    #[cfg(test)]
+    if mutation_test_fault(target.display(), MutationTestFault::PublishedCleanup) {
+        return Err(std::io::Error::new(
+            std::io::ErrorKind::PermissionDenied,
+            "injected published cleanup failure",
+        ));
+    }
+    unlink_name(target.parent_fd(), name)
+}
+
+#[cfg(unix)]
+fn sync_committed_parent(target: &UnixWorkspaceTarget) -> Result<(), RpcError> {
+    #[cfg(test)]
+    if mutation_test_fault(target.display(), MutationTestFault::CommitSync) {
+        return Err(RpcError::new("io-error", "injected committed parent sync failure"));
+    }
+    target.sync_parent()
+}
+
+#[cfg(unix)]
+fn sync_rollback_parent(target: &UnixWorkspaceTarget) -> Result<(), RpcError> {
+    #[cfg(test)]
+    if mutation_test_fault(target.display(), MutationTestFault::RollbackSync) {
+        return Err(RpcError::new("io-error", "injected rollback parent sync failure"));
+    }
+    target.sync_parent()
+}
+
+#[cfg(unix)]
 fn rename_name(parent: RawFd, source: &CStr, target: &CStr) -> Result<(), std::io::Error> {
     // SAFETY: both names are NUL-terminated and relative to the live
     // `parent` descriptor. `renameat` does not retain the pointers.
@@ -1595,6 +1705,33 @@ fn exchange_names(parent: RawFd, left: &CStr, right: &CStr) -> Result<(), std::i
     } else {
         Err(std::io::Error::last_os_error())
     }
+}
+
+#[cfg(unix)]
+fn exchange_guarded_write(
+    target: &UnixWorkspaceTarget,
+    temporary_name: &CStr,
+) -> Result<(), std::io::Error> {
+    #[cfg(test)]
+    if mutation_test_fault(target.display(), MutationTestFault::ExchangeUnsupported) {
+        return Err(std::io::Error::new(
+            std::io::ErrorKind::Unsupported,
+            "injected unsupported atomic exchange",
+        ));
+    }
+    exchange_names(target.parent_fd(), temporary_name, target.name())
+}
+
+#[cfg(unix)]
+fn exchange_rollback(
+    target: &UnixWorkspaceTarget,
+    temporary_name: &CStr,
+) -> Result<(), std::io::Error> {
+    #[cfg(test)]
+    if mutation_test_fault(target.display(), MutationTestFault::RollbackExchange) {
+        return Err(std::io::Error::other("injected rollback exchange failure"));
+    }
+    exchange_names(target.parent_fd(), temporary_name, target.name())
 }
 
 #[cfg(target_vendor = "apple")]
@@ -1957,6 +2094,18 @@ mod tests {
     }
 
     #[cfg(unix)]
+    fn recovery_entry(root: &WorkspaceRoot, prefix: &str) -> PathBuf {
+        std::fs::read_dir(root.canonical_root())
+            .unwrap()
+            .flatten()
+            .map(|entry| entry.path())
+            .find(|path| {
+                path.file_name().is_some_and(|name| name.to_string_lossy().starts_with(prefix))
+            })
+            .unwrap_or_else(|| panic!("expected a retained {prefix} recovery entry"))
+    }
+
+    #[cfg(unix)]
     #[tokio::test]
     async fn atomic_write_enforces_content_preconditions() {
         let (_directory, root) = root().await;
@@ -2297,6 +2446,284 @@ mod tests {
         .unwrap_err();
         assert!(matches!(error.code.as_str(), "path-outside-workspace" | "symlink-not-supported"));
         assert!(!outside.path().join("value.txt").exists());
+    }
+
+    #[cfg(unix)]
+    #[tokio::test]
+    async fn absolute_parent_symlink_through_workspace_alias_remains_contained() {
+        use std::os::unix::fs::symlink;
+
+        let parent = tempdir().unwrap();
+        let canonical = parent.path().join("canonical-workspace");
+        let alias = parent.path().join("workspace-alias");
+        tokio::fs::create_dir_all(canonical.join("real-parent")).await.unwrap();
+        symlink(&canonical, &alias).unwrap();
+        symlink(alias.join("real-parent"), canonical.join("through-alias")).unwrap();
+        let root = WorkspaceRoot::open(
+            WorkspaceId("aliased".into()),
+            alias.to_str().expect("temporary paths are UTF-8"),
+        )
+        .await
+        .unwrap();
+
+        write_file(
+            &root,
+            "through-alias/value.txt",
+            &ByteString::from_bytes(b"contained"),
+            &FilePrecondition::Missing,
+            false,
+        )
+        .await
+        .unwrap();
+
+        assert_eq!(
+            tokio::fs::read(canonical.join("real-parent/value.txt")).await.unwrap(),
+            b"contained"
+        );
+    }
+
+    #[cfg(unix)]
+    #[tokio::test]
+    async fn guarded_exchange_unavailable_does_not_disable_unconditional_writes() {
+        let (_directory, root) = root().await;
+        let target = root.canonical_root().join("value.txt");
+        tokio::fs::write(&target, b"old").await.unwrap();
+        let fault =
+            install_mutation_test_fault(&root, "value.txt", MutationTestFault::ExchangeUnsupported);
+
+        let error = write_file(
+            &root,
+            "value.txt",
+            &ByteString::from_bytes(b"guarded"),
+            &FilePrecondition::ContentHash(hash_bytes(b"old")),
+            false,
+        )
+        .await
+        .unwrap_err();
+        assert_eq!(error.code, "unsupported-filesystem");
+        assert_eq!(tokio::fs::read(&target).await.unwrap(), b"old");
+
+        write_file(
+            &root,
+            "value.txt",
+            &ByteString::from_bytes(b"unconditional"),
+            &FilePrecondition::Any,
+            false,
+        )
+        .await
+        .unwrap();
+        drop(fault);
+        assert_eq!(tokio::fs::read(&target).await.unwrap(), b"unconditional");
+    }
+
+    #[cfg(unix)]
+    #[tokio::test]
+    async fn failed_unpublished_cleanup_reports_the_retained_recovery_path() {
+        let (_directory, root) = root().await;
+        let target = root.canonical_root().join("value.txt");
+        tokio::fs::write(&target, b"old").await.unwrap();
+        let exchange =
+            install_mutation_test_fault(&root, "value.txt", MutationTestFault::ExchangeUnsupported);
+        let cleanup =
+            install_mutation_test_fault(&root, "value.txt", MutationTestFault::UnpublishedCleanup);
+
+        let error = write_file(
+            &root,
+            "value.txt",
+            &ByteString::from_bytes(b"new"),
+            &FilePrecondition::ContentHash(hash_bytes(b"old")),
+            false,
+        )
+        .await
+        .unwrap_err();
+        let recovery = recovery_entry(&root, ".cmux-write-");
+        assert_eq!(error.code, "partial-write");
+        assert!(
+            error.message.contains(&recovery.display().to_string()),
+            "recovery path missing from error: {error:?}"
+        );
+        assert_eq!(tokio::fs::read(&target).await.unwrap(), b"old");
+        assert_eq!(tokio::fs::read(&recovery).await.unwrap(), b"new");
+
+        drop(cleanup);
+        drop(exchange);
+        tokio::fs::remove_file(recovery).await.unwrap();
+    }
+
+    #[cfg(unix)]
+    #[tokio::test]
+    async fn failed_published_cleanup_reports_the_retained_recovery_path() {
+        let (_directory, root) = root().await;
+        let target = root.canonical_root().join("value.txt");
+        tokio::fs::write(&target, b"old").await.unwrap();
+        let cleanup =
+            install_mutation_test_fault(&root, "value.txt", MutationTestFault::PublishedCleanup);
+
+        let error = write_file(
+            &root,
+            "value.txt",
+            &ByteString::from_bytes(b"new"),
+            &FilePrecondition::ContentHash(hash_bytes(b"old")),
+            false,
+        )
+        .await
+        .unwrap_err();
+        let recovery = recovery_entry(&root, ".cmux-write-");
+        assert_eq!(error.code, "partial-write");
+        assert!(error.message.contains(&recovery.display().to_string()));
+        assert_eq!(tokio::fs::read(&target).await.unwrap(), b"new");
+        assert_eq!(tokio::fs::read(&recovery).await.unwrap(), b"old");
+
+        drop(cleanup);
+        tokio::fs::remove_file(recovery).await.unwrap();
+    }
+
+    #[cfg(unix)]
+    #[tokio::test]
+    async fn rollback_exchange_failure_reports_the_retained_recovery_path() {
+        let (_directory, root) = root().await;
+        let target = root.canonical_root().join("value.txt");
+        let saved_original = root.canonical_root().join("saved-original");
+        tokio::fs::write(&target, b"old").await.unwrap();
+        let barrier = install_mutation_test_barrier(
+            &root,
+            "value.txt",
+            MutationTestPoint::BeforeContentHashExchange,
+        );
+        let rollback =
+            install_mutation_test_fault(&root, "value.txt", MutationTestFault::RollbackExchange);
+        let writer = {
+            let root = Arc::clone(&root);
+            tokio::spawn(async move {
+                write_file(
+                    &root,
+                    "value.txt",
+                    &ByteString::from_bytes(b"new"),
+                    &FilePrecondition::ContentHash(hash_bytes(b"old")),
+                    false,
+                )
+                .await
+            })
+        };
+
+        barrier.wait_until_reached().await;
+        tokio::fs::rename(&target, &saved_original).await.unwrap();
+        tokio::fs::write(&target, b"raced").await.unwrap();
+        barrier.resume();
+
+        let error = writer.await.unwrap().unwrap_err();
+        let recovery = recovery_entry(&root, ".cmux-write-");
+        assert_eq!(error.code, "partial-write");
+        assert!(
+            error.message.contains(&recovery.display().to_string()),
+            "recovery path missing from error: {error:?}"
+        );
+        assert_eq!(tokio::fs::read(&target).await.unwrap(), b"new");
+        assert_eq!(tokio::fs::read(&recovery).await.unwrap(), b"raced");
+
+        drop(rollback);
+        tokio::fs::remove_file(recovery).await.unwrap();
+    }
+
+    #[cfg(unix)]
+    #[tokio::test]
+    async fn rollback_sync_failure_reports_restored_but_not_durable() {
+        let (_directory, root) = root().await;
+        let target = root.canonical_root().join("value.txt");
+        let saved_original = root.canonical_root().join("saved-original");
+        tokio::fs::write(&target, b"old").await.unwrap();
+        let barrier = install_mutation_test_barrier(
+            &root,
+            "value.txt",
+            MutationTestPoint::BeforeContentHashExchange,
+        );
+        let sync = install_mutation_test_fault(&root, "value.txt", MutationTestFault::RollbackSync);
+        let writer = {
+            let root = Arc::clone(&root);
+            tokio::spawn(async move {
+                write_file(
+                    &root,
+                    "value.txt",
+                    &ByteString::from_bytes(b"new"),
+                    &FilePrecondition::ContentHash(hash_bytes(b"old")),
+                    false,
+                )
+                .await
+            })
+        };
+
+        barrier.wait_until_reached().await;
+        tokio::fs::rename(&target, &saved_original).await.unwrap();
+        tokio::fs::write(&target, b"raced").await.unwrap();
+        barrier.resume();
+
+        let error = writer.await.unwrap().unwrap_err();
+        assert_eq!(error.code, "rollback-not-durable");
+        assert_eq!(tokio::fs::read(&target).await.unwrap(), b"raced");
+        assert!(
+            std::fs::read_dir(root.canonical_root())
+                .unwrap()
+                .flatten()
+                .all(|entry| !entry.file_name().to_string_lossy().starts_with(".cmux-write-"))
+        );
+        drop(sync);
+    }
+
+    #[cfg(unix)]
+    #[tokio::test]
+    async fn committed_sync_failure_reports_write_or_remove_already_committed() {
+        let (_directory, root) = root().await;
+        let target = root.canonical_root().join("value.txt");
+        let write_sync =
+            install_mutation_test_fault(&root, "value.txt", MutationTestFault::CommitSync);
+        let write_error = write_file(
+            &root,
+            "value.txt",
+            &ByteString::from_bytes(b"written"),
+            &FilePrecondition::Missing,
+            false,
+        )
+        .await
+        .unwrap_err();
+        assert_eq!(write_error.code, "committed-not-durable");
+        assert_eq!(tokio::fs::read(&target).await.unwrap(), b"written");
+        drop(write_sync);
+
+        let remove_sync =
+            install_mutation_test_fault(&root, "value.txt", MutationTestFault::CommitSync);
+        let remove_error =
+            remove_file_precondition_locked(&root, "value.txt", &FilePrecondition::Any)
+                .await
+                .unwrap_err();
+        assert_eq!(remove_error.code, "committed-not-durable");
+        assert!(!target.exists());
+        drop(remove_sync);
+    }
+
+    #[cfg(not(unix))]
+    #[tokio::test]
+    async fn guarded_mutations_report_unsupported_platform() {
+        let (_directory, root) = root().await;
+        let write_error = write_file(
+            &root,
+            "value.txt",
+            &ByteString::from_bytes(b"value"),
+            &FilePrecondition::Missing,
+            false,
+        )
+        .await
+        .unwrap_err();
+        assert_eq!(write_error.code, "unsupported-platform");
+
+        tokio::fs::write(root.canonical_root().join("value.txt"), b"value").await.unwrap();
+        let remove_error = remove_file_precondition_locked(
+            &root,
+            "value.txt",
+            &FilePrecondition::ContentHash(hash_bytes(b"value")),
+        )
+        .await
+        .unwrap_err();
+        assert_eq!(remove_error.code, "unsupported-platform");
     }
 
     #[tokio::test]
