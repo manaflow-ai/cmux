@@ -910,6 +910,8 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
     /// stream's continuation.
     private var terminalLiveFontTokensBySurfaceID: [String: UUID]
     private var rawTerminalInputBuffer: MobileTerminalInputSendBuffer
+    private var rawTerminalInputDrainWaiters: [CheckedContinuation<Void, Never>]
+    private var isRawTerminalInputDrainLoopRunning: Bool
     private var pairingAttemptID: UUID
 
     /// High-level shell phase derived from sign-in and connection state.
@@ -1133,6 +1135,8 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
         self.terminalLiveFontContinuationsBySurfaceID = [:]
         self.terminalLiveFontTokensBySurfaceID = [:]
         self.rawTerminalInputBuffer = MobileTerminalInputSendBuffer()
+        self.rawTerminalInputDrainWaiters = []
+        self.isRawTerminalInputDrainLoopRunning = false
         self.pairingAttemptID = UUID()
     }
 
@@ -1259,6 +1263,8 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
         storedPairedMacs = []
         pairedMacAliasIDsByRepresentativeID = [:]
         pairedMacs = []
+        pairedMacLoadState = .notLoaded
+        hasRecoverableDeletedComputers = false
         resetTerminalThemes()
         // Likewise drop the registry-backed device tree so a shared device never
         // shows the previous user's team devices after sign-out.
@@ -1292,6 +1298,7 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
             Task { await refresher.cancelInFlightRestores() }
         }
         rawTerminalInputBuffer.clear()
+        resumeRawTerminalInputDrainWaiters()
         reportedViewportSizesByTerminalKey = [:]
         terminalPreBarrierDeliveredEndSeqBySurfaceID = [:]
         terminalRenderGridBaselineReplayRequestCountsBySurfaceID = [:]
@@ -1370,7 +1377,9 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
         storedPairedMacs = []
         pairedMacAliasIDsByRepresentativeID = [:]
         pairedMacs = []
+        pairedMacLoadState = .notLoaded
         forgottenMacDeviceIDsByScope = [:]
+        hasRecoverableDeletedComputers = false
         registryDevices = []
         teamScopeReconnectTask?.cancel()
         teamScopeReconnectTask = Task { @MainActor [weak self] in
@@ -1587,6 +1596,23 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
         case automaticBackoffExpired
 
         var reschedulesSecondaryAggregation: Bool { self != .presencePush }
+
+        /// Stable integer carried in ``DiagnosticEventCode/recoveryStarted``'s
+        /// `b` slot so an export names WHY each recovery cycle began. Values
+        /// are append-only; never renumber.
+        var diagnosticCode: Int {
+            switch self {
+            case .networkChange: 1
+            case .manual: 2
+            case .presencePush: 3
+            case .foreground: 4
+            case .liveness: 5
+            case .eventStreamEnded: 6
+            case .subscriptionStartFailed: 7
+            case .transportWriteTimedOut: 8
+            case .automaticBackoffExpired: 9
+            }
+        }
 
         var description: String {
             switch self {
@@ -2088,6 +2114,16 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
 
     // MARK: - Paired Mac switching
 
+    /// Whether the current signed-in scope's paired-Mac list is known.
+    public enum PairedMacLoadState: Equatable, Sendable {
+        /// No load has completed for the current scope.
+        case notLoaded
+        /// The current scope's paired-Mac list loaded successfully.
+        case loaded
+        /// The current scope's paired-Mac list could not be loaded.
+        case failed
+    }
+
     /// Every Mac paired with this device, for the host switcher. Refreshed via
     /// ``loadPairedMacs()`` and after switch/forget. Cleared on sign-out so a
     /// shared device never shows the previous user's Macs. The active row is
@@ -2103,6 +2139,8 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
 
     /// Full store rows for identity-sensitive paths; ``pairedMacs`` is display-coalesced.
     private var storedPairedMacs: [MobilePairedMac] = []
+    /// Load status for ``pairedMacs`` in the current signed-in account/team scope.
+    public internal(set) var pairedMacLoadState: PairedMacLoadState = .notLoaded
     /// Visible representative id to all stored ids for that logical paired Mac.
     public private(set) var pairedMacAliasIDsByRepresentativeID: [String: [String]] = [:]
     /// Same-session delete tombstones keyed by signed-in account/team scope.
@@ -2114,6 +2152,12 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
     /// completes. Filtering the current scope keeps that late write hidden until
     /// the user explicitly pairs/connects that Mac again.
     @ObservationIgnored var forgottenMacDeviceIDsByScope: [String: Set<String>] = [:]
+    /// True when the current account/team scope has a deleted-computer marker
+    /// that can be recovered through explicit same-account Iroh discovery.
+    public internal(set) var hasRecoverableDeletedComputers = false
+    /// True while the explicit deleted-computer recovery path is scanning and
+    /// reconnecting through account-scoped Iroh discovery.
+    public internal(set) var isRecoveringDeletedComputer = false
 
     var pairedMacsForIdentityMatching: [MobilePairedMac] {
         storedPairedMacs.isEmpty ? pairedMacs : storedPairedMacs
@@ -2348,13 +2392,20 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
             storedPairedMacs = []
             pairedMacAliasIDsByRepresentativeID = [:]
             pairedMacs = []
+            pairedMacLoadState = .failed
+            hasRecoverableDeletedComputers = false
             return
         }
+        pairedMacLoadState = .notLoaded
         let loaded: [MobilePairedMac]
         do {
             loaded = try await pairedMacStore.loadAll(stackUserID: scope.userID, teamID: scope.teamID)
         } catch {
             mobileShellLog.error("paired mac store loadAll failed: \(String(describing: error), privacy: .public)")
+            if await isScopeCurrent(scope) {
+                pairedMacLoadState = .failed
+                hasRecoverableDeletedComputers = false
+            }
             return
         }
         // The await above suspended the main actor; a sign-out, user switch, or
@@ -2364,9 +2415,12 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
             return
         }
         let visibleLoaded = await visibleStoredPairedMacs(from: loaded, scope: scope)
+        let hasForgottenMacs = !(await forgottenMacDeviceIDs(scope: scope)).isEmpty
         guard await isScopeCurrent(scope) else {
             return
         }
+        hasRecoverableDeletedComputers = hasForgottenMacs
+        pairedMacLoadState = .loaded
         storedPairedMacs = visibleLoaded
         let supportedRouteKinds = runtime?.supportedRouteKinds ?? []
         let coalesced = Self.coalescePairedMacsByDialEndpoint(
@@ -4438,7 +4492,7 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
             "line_count": .int(text.split(separator: "\n", omittingEmptySubsequences: false).count),
             "had_attachment": .bool(false),
         ])
-        await sendRemoteTerminalInput(text + "\r")
+        await submitTerminalRawInput(text + "\r")
     }
 
     /// Show or hide the iMessage-style composer from the input accessory bar.
@@ -4983,11 +5037,32 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
             #endif
             return
         }
-        switch rawTerminalInputBuffer.enqueue(
+        let enqueueResult = rawTerminalInputBuffer.enqueue(
             text,
             workspaceID: workspaceID,
             terminalID: terminalID
-        ) {
+        )
+        handleSynchronousRawTerminalInputEnqueueResult(enqueueResult)
+    }
+
+    /// Enqueue raw UTF-8 input for the terminal identified by `surfaceID`.
+    public func sendTerminalRawInput(_ data: Data, surfaceID: String) {
+        guard let text = String(data: data, encoding: .utf8), !text.isEmpty else {
+            return
+        }
+        guard let workspaceID = workspaceID(containingSurfaceID: surfaceID) else { return }
+        let enqueueResult = rawTerminalInputBuffer.enqueue(
+            text,
+            workspaceID: workspaceID,
+            terminalID: MobileTerminalPreview.ID(rawValue: surfaceID)
+        )
+        handleSynchronousRawTerminalInputEnqueueResult(enqueueResult)
+    }
+
+    private func handleSynchronousRawTerminalInputEnqueueResult(
+        _ enqueueResult: MobileTerminalInputEnqueueResult
+    ) {
+        switch enqueueResult {
         case .startDraining:
             Task { @MainActor [weak self] in
                 await self?.drainRawTerminalInputBuffer()
@@ -4995,21 +5070,7 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
         case .queued:
             return
         case .rejected:
-            mobileShellLog.error("disconnecting mobile terminal input because pending byte count exceeded limit")
-            // Real error-rate signal: the core input loop silently broke because
-            // the send buffer filled. Distinct from an RPC timeout.
-            analytics.capture("ios_terminal_input_dropped", [
-                "pending_byte_count": .int(rawTerminalInputBuffer.pendingByteCount),
-                "reason": .string("queue_full"),
-            ])
-            connectionError = L10n.string(
-                "mobile.terminal.inputQueueFull",
-                defaultValue: "The terminal can't accept more input right now. Wait a moment and retry, or reopen the terminal if it stays unavailable."
-            )
-            connectionErrorGuidance = nil
-            connectionState = .disconnected
-            macConnectionStatus = .unavailable
-            clearRemoteConnectionContext()
+            handleRawTerminalInputOverflow()
         }
     }
 
@@ -5020,7 +5081,11 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
               let terminalID = selectedTerminalID else {
             return
         }
-        await submitTerminalRawInput(text, workspaceID: workspaceID, terminalID: terminalID)
+        await enqueueTerminalRawInputAwaitingDrain(
+            text,
+            workspaceID: workspaceID,
+            terminalID: terminalID
+        )
     }
 
     /// Raw-bytes overload. The libghostty render path on iOS uses this
@@ -5035,32 +5100,94 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
         guard let text = String(data: data, encoding: .utf8) else {
             return
         }
-        let workspaceCandidate = workspaces.first(where: { workspace in
-            workspace.terminals.contains(where: { $0.id.rawValue == surfaceID })
-        })
-        guard let workspace = workspaceCandidate else { return }
-        let terminalID = MobileTerminalPreview.ID(rawValue: surfaceID)
-        await submitTerminalRawInput(text, workspaceID: workspace.id, terminalID: terminalID)
+        guard let workspaceID = workspaceID(containingSurfaceID: surfaceID) else { return }
+        await enqueueTerminalRawInputAwaitingDrain(
+            text,
+            workspaceID: workspaceID,
+            terminalID: MobileTerminalPreview.ID(rawValue: surfaceID)
+        )
     }
 
-    private func submitTerminalRawInput(
+    private func enqueueTerminalRawInputAwaitingDrain(
         _ text: String,
         workspaceID: MobileWorkspacePreview.ID,
         terminalID: MobileTerminalPreview.ID
     ) async {
         guard !text.isEmpty else { return }
         guard remoteClient != nil else { return }
-        await sendRemoteTerminalInput(text, workspaceID: workspaceID, terminalID: terminalID)
+        switch rawTerminalInputBuffer.enqueue(
+            text,
+            workspaceID: workspaceID,
+            terminalID: terminalID
+        ) {
+        case .startDraining:
+            await drainRawTerminalInputBuffer()
+            // A stale drain loop may still own the buffer (the runner guard
+            // made our call a no-op); wait for it so awaited submitters only
+            // return once their input has actually been handed to the sender.
+            await awaitRawTerminalInputDrainCompletion()
+        case .queued:
+            await awaitRawTerminalInputDrainCompletion()
+        case .rejected:
+            handleRawTerminalInputOverflow()
+        }
     }
 
     private func drainRawTerminalInputBuffer() async {
-        while let chunk = rawTerminalInputBuffer.nextBatch() {
-            await submitTerminalRawInput(
+        // A drain Task can outlive rawTerminalInputBuffer.clear(): the buffer's
+        // isDraining flag resets synchronously, so a new enqueue can start a
+        // second loop while the old one is still awaiting a send. Two loops
+        // interleaving sends is exactly the input reorder this pipeline exists
+        // to prevent, so an instance-level runner flag keeps at most one loop
+        // alive; late starters return and the active loop drains their chunks.
+        guard !isRawTerminalInputDrainLoopRunning else { return }
+        isRawTerminalInputDrainLoopRunning = true
+        defer {
+            isRawTerminalInputDrainLoopRunning = false
+            resumeRawTerminalInputDrainWaiters()
+        }
+        // Matches MobileIrohTerminalLane.maximumInputByteCount and the Mac lane
+        // router's maximumInputFrameByteCount.
+        while let chunk = rawTerminalInputBuffer.nextBatch(maximumByteCount: 16 * 1_024) {
+            await sendRemoteTerminalInput(
                 chunk.text,
                 workspaceID: chunk.workspaceID,
                 terminalID: chunk.terminalID
             )
         }
+    }
+
+    private func awaitRawTerminalInputDrainCompletion() async {
+        guard rawTerminalInputBuffer.isDraining else { return }
+        await withCheckedContinuation { continuation in
+            rawTerminalInputDrainWaiters.append(continuation)
+        }
+    }
+
+    private func resumeRawTerminalInputDrainWaiters() {
+        let waiters = rawTerminalInputDrainWaiters
+        rawTerminalInputDrainWaiters = []
+        for waiter in waiters {
+            waiter.resume()
+        }
+    }
+
+    private func handleRawTerminalInputOverflow() {
+        mobileShellLog.error("disconnecting mobile terminal input because pending byte count exceeded limit")
+        // Real error-rate signal: the core input loop silently broke because
+        // the send buffer filled. Distinct from an RPC timeout.
+        analytics.capture("ios_terminal_input_dropped", [
+            "pending_byte_count": .int(rawTerminalInputBuffer.pendingByteCount),
+            "reason": .string("queue_full"),
+        ])
+        connectionError = L10n.string(
+            "mobile.terminal.inputQueueFull",
+            defaultValue: "The terminal can't accept more input right now. Wait a moment and retry, or reopen the terminal if it stays unavailable."
+        )
+        connectionErrorGuidance = nil
+        connectionState = .disconnected
+        macConnectionStatus = .unavailable
+        clearRemoteConnectionContext()
     }
 
     /// Establishes the live connection for `ticket`. Returns `nil` on success
@@ -5085,6 +5212,7 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
         diagnosticLog?.record(DiagnosticEvent(.connect))
         cancelRemoteOperationTasks()
         rawTerminalInputBuffer.clear()
+        resumeRawTerminalInputDrainWaiters()
         let supportedKinds = runtime?.supportedRouteKinds ?? []
         let supportedRoutes = Self.supportedRoutes(for: ticket, supportedKinds: supportedKinds)
         guard let firstRoute = supportedRoutes.first else {
@@ -5620,6 +5748,7 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
             workspacesByMac[offlineForegroundKey] = offline
         }
         rawTerminalInputBuffer.clear()
+        resumeRawTerminalInputDrainWaiters()
     }
 
     /// Set `remoteClient` to a new value (possibly nil) and disconnect the
@@ -5724,6 +5853,7 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
         connectionAttemptGeneration = UUID()
         cancelRemoteOperationTasks()
         rawTerminalInputBuffer.clear()
+        resumeRawTerminalInputDrainWaiters()
         clearPairingError()
         clearPairingVersionWarning()
         return attemptID

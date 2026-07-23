@@ -497,6 +497,11 @@ private struct IrohDiagnosticsReportRows: View {
             String(localized: "settings.networking.diagnostics.failure.offline", defaultValue: "Offline")
         case .some(.timedOut):
             String(localized: "settings.networking.diagnostics.failure.timedOut", defaultValue: "Timed Out")
+        case .some(.transportIdleTimedOut):
+            String(
+                localized: "settings.networking.diagnostics.failure.transportIdleTimedOut",
+                defaultValue: "Transport Idle Timeout"
+            )
         case .some(.connectionRefused):
             String(
                 localized: "settings.networking.diagnostics.failure.connectionRefused",

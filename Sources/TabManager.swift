@@ -392,6 +392,7 @@ class TabManager: ObservableObject {
     /// Typed synchronous settings access (CmuxSettings).
     private let settings: any SettingsWriting
     private let settingsCatalog = SettingCatalog()
+    private var lastFocusHistoryIncludesPanesAndTabs: Bool
     let nativeSSHConnectionBroker: NativeSSHConnectionBroker
 
     @Published private(set) var focusHistoryRevision: UInt64 = 0 {
@@ -404,7 +405,7 @@ class TabManager: ObservableObject {
     // (CmuxWorkspaceNavigation); this window is its host via
     // FocusHistoryHosting and republishes its revision bumps through
     // `focusHistoryRevision` above.
-    let focusHistoryNavigation: any FocusHistoryNavigating = FocusHistoryModel()
+    let focusHistoryNavigation: any FocusHistoryNavigating
     // Stateless split-geometry application (equalize/resize divider moves);
     // the pure planning lives in CmuxPanes' ExternalTreeNode extensions.
     let paneLayout = PaneLayoutService()
@@ -479,6 +480,11 @@ class TabManager: ObservableObject {
         closeTabWarningDefaults: UserDefaults = .standard
     ) {
         self.settings = settings
+        let focusHistoryScopeKey = SettingCatalog().app.focusHistoryIncludesPanesAndTabs
+        self.lastFocusHistoryIncludesPanesAndTabs = settings.value(for: focusHistoryScopeKey)
+        self.focusHistoryNavigation = FocusHistoryModel(navigationScope: {
+            settings.value(for: focusHistoryScopeKey) ? .panesAndTabs : .workspacesOnly
+        })
         self.nativeSSHConnectionBroker = nativeSSHConnectionBroker
         self.panelTitleUpdateCoalescer = panelTitleUpdateCoalescer ?? NotificationBurstCoalescer()
         self.closeTabWarningDefaults = closeTabWarningDefaults
@@ -603,6 +609,7 @@ class TabManager: ObservableObject {
         ) { [weak self] _ in
             MainActor.assumeIsolated { [weak self] in
                 self?.sidebarMetadataSettingsDidChange()
+                self?.focusHistoryScopeSettingsDidChange()
                 self?.refreshTabCloseButtonVisibility()
                 self?.refreshWindowTitle()
             }
@@ -652,6 +659,13 @@ class TabManager: ObservableObject {
         sidebarGitMetadataService.sidebarGitMetadataWatchSettingsDidChange()
         pullRequestProbing.sidebarPullRequestPollingSettingsDidChange()
         refreshRemotePortScanningEnablement()
+    }
+
+    private func focusHistoryScopeSettingsDidChange() {
+        let includesPanesAndTabs = settings.value(for: settingsCatalog.app.focusHistoryIncludesPanesAndTabs)
+        guard includesPanesAndTabs != lastFocusHistoryIncludesPanesAndTabs else { return }
+        lastFocusHistoryIncludesPanesAndTabs = includesPanesAndTabs
+        focusHistoryRevisionDidChange()
     }
 
     /// Last ports-visibility enablement fanned out to remote sessions; gates
@@ -960,8 +974,38 @@ class TabManager: ObservableObject {
             initialBrowserTransparentBackground: initialBrowserTransparentBackground,
             workspaceEnvironment: workspaceEnvironment,
             allowTextBoxFocusDefault: allowTextBoxFocusDefault,
+            settings: settings,
             closeTabWarningDefaults: closeTabWarningDefaults,
             nativeSSHConnectionBroker: nativeSSHConnectionBroker
+        )
+    }
+
+    func makeWorkspaceForDetachedSurface(
+        title: String,
+        workingDirectory: String?,
+        portOrdinal: Int,
+        configTemplate: CmuxSurfaceConfigTemplate?,
+        detachedSurface: Workspace.DetachedSurfaceTransfer
+    ) -> Workspace {
+        Workspace(
+            title: title,
+            workingDirectory: workingDirectory,
+            portOrdinal: portOrdinal,
+            configTemplate: configTemplate,
+            settings: settings,
+            closeTabWarningDefaults: closeTabWarningDefaults,
+            initialDetachedSurface: detachedSurface,
+            nativeSSHConnectionBroker: nativeSSHConnectionBroker
+        )
+    }
+
+    func makeWindowDockStore(windowId: UUID) -> DockSplitStore {
+        DockSplitStore(
+            workspaceId: windowId,
+            scope: .global,
+            baseDirectoryProvider: { nil },
+            remoteBrowserSettingsProvider: { .local },
+            settings: settings
         )
     }
 
@@ -2818,10 +2862,14 @@ class TabManager: ObservableObject {
         AppDelegate.shared?.notificationStore?.clearNotifications(forTabId: tab.id, surfaceId: surfaceId)
     }
 
-    /// Close a panel because its child process exited (e.g. the user hit Ctrl+D).
-    /// This should never prompt: the process is already gone, and Ghostty emits the
-    /// `SHOW_CHILD_EXITED` action specifically so the host app can decide what to do.
-    func closePanelAfterChildExited(tabId: UUID, surfaceId: UUID, runtimeSurface: TerminalSurface? = nil) {
+    /// Handles Ghostty's `SHOW_CHILD_EXITED` action without prompting because the
+    /// process is already gone; startup failures may keep the addressed surface visible.
+    func closePanelAfterChildExited(
+        tabId: UUID,
+        surfaceId: UUID,
+        runtimeSurface: TerminalSurface? = nil,
+        keepSurfaceVisible: Bool = false
+    ) {
         guard let tab = tabs.first(where: { $0.id == tabId }) else { return }
         if tab.panels[surfaceId] == nil { tab.closeDockPanelAndClearNotifications(surfaceId, force: true); return }
         if let runtimeSurface, tab.terminalPanel(for: surfaceId)?.surface !== runtimeSurface { return }
@@ -2852,16 +2900,16 @@ class TabManager: ObservableObject {
         )
 #endif
 
-        // A persistent SSH workspace must never silently replace a failed remote attach with
-        // a local login shell. Keep the exited surface visible so the user can see the error
-        // and retry instead of making a detached remote workspace look local after relaunch.
+        // A persistent SSH workspace must keep the exited surface visible so the user can
+        // inspect the failure and retry instead of silently falling back to a local shell.
         if keepsPersistentRemoteSurfaceOpen {
             tab.markPersistentRemotePTYAttachFailed(surfaceId: surfaceId)
             return
         }
 
-        // Workspace owns the remote terminal's active -> disconnected transition so the
-        // logical pane and its rendered history survive the runtime replacement.
+        if keepSurfaceVisible { return }
+
+        // Workspace owns remote active -> disconnected transitions and preserves pane history.
         if handlesRemoteExitThroughWorkspace {
             guard !tab.transitionRemoteTerminalToDisconnectedPlaceholder(surfaceId: surfaceId) else { return }
             closeRuntimeSurface(tabId: tabId, surfaceId: surfaceId)
@@ -6009,6 +6057,7 @@ extension TabManager {
                 title: workspaceSnapshot.processTitle,
                 workingDirectory: workspaceSnapshot.currentDirectory,
                 portOrdinal: ordinal,
+                settings: settings,
                 closeTabWarningDefaults: closeTabWarningDefaults,
                 nativeSSHConnectionBroker: nativeSSHConnectionBroker
             )
@@ -6027,6 +6076,7 @@ extension TabManager {
             let fallback = Workspace(
                 title: "Terminal 1",
                 portOrdinal: ordinal,
+                settings: settings,
                 closeTabWarningDefaults: closeTabWarningDefaults,
                 nativeSSHConnectionBroker: nativeSSHConnectionBroker
             )
