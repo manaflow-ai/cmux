@@ -2,6 +2,10 @@ import CMUXMobileCore
 import CmuxMobileSupport
 import SwiftUI
 
+#if canImport(UIKit)
+import UIKit
+#endif
+
 /// Closure bundle for an immutable mobile todo row snapshot.
 struct TodoSurfaceRowActions {
     let cycleState: () -> Void
@@ -22,10 +26,19 @@ struct TodoSurfaceRowView: View {
     @FocusState private var editorFocused: Bool
 
     var body: some View {
-        HStack(alignment: .firstTextBaseline, spacing: 10) {
-            Button(action: actions.cycleState) {
+        HStack(alignment: .firstTextBaseline, spacing: 12) {
+            Button {
+                #if canImport(UIKit)
+                UIImpactFeedbackGenerator(style: .light).impactOccurred()
+                #endif
+                actions.cycleState()
+            } label: {
                 Image(systemName: stateSystemImage)
-                    .foregroundStyle(item.state == .completed ? .secondary : .primary)
+                    .font(.title3)
+                    .foregroundStyle(stateTint)
+                    .contentTransition(.symbolEffect(.replace))
+                    .animation(.snappy, value: item.state)
+                    .frame(width: 26, height: 26)
             }
             .buttonStyle(.plain)
             .disabled(!isEnabled)
@@ -45,9 +58,10 @@ struct TodoSurfaceRowView: View {
                 }
             } else {
                 Text(item.text)
-                    .strikethrough(item.state == .completed)
+                    .strikethrough(item.state == .completed, color: .secondary)
                     .foregroundStyle(item.state == .completed ? .secondary : .primary)
                     .fixedSize(horizontal: false, vertical: true)
+                    .animation(.snappy, value: item.state)
             }
 
             Spacer(minLength: 0)
@@ -55,13 +69,14 @@ struct TodoSurfaceRowView: View {
             if item.origin == .agent {
                 Image(systemName: "sparkles")
                     .font(.caption)
-                    .foregroundStyle(.secondary)
+                    .foregroundStyle(.tertiary)
                     .accessibilityLabel(L10n.string(
                         "mobile.todo.item.agentOrigin",
                         defaultValue: "Created by an agent"
                     ))
             }
         }
+        .padding(.vertical, 4)
         .contentShape(Rectangle())
         .onTapGesture {
             if !isEditing { beginEdit() }
@@ -85,9 +100,17 @@ struct TodoSurfaceRowView: View {
 
     private var stateSystemImage: String {
         switch item.state {
-        case .pending: "square"
-        case .inProgress: "minus.square"
-        case .completed: "checkmark.square.fill"
+        case .pending: "circle"
+        case .inProgress: "circle.lefthalf.filled"
+        case .completed: "checkmark.circle.fill"
+        }
+    }
+
+    private var stateTint: AnyShapeStyle {
+        switch item.state {
+        case .pending: AnyShapeStyle(.tertiary)
+        case .inProgress: AnyShapeStyle(.tint)
+        case .completed: AnyShapeStyle(MobileTodoStatus.done.tint)
         }
     }
 
