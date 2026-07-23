@@ -76,13 +76,14 @@ extension Workspace {
                 ? entry.agentEventTime
                 : nil
         }
+        let paneReplacementWatermark = (agentLifecycleEventTimesByPanelId[panelId] ?? [:])
+            .filter { entry in
+                entry.key != statusKey && AgentHibernationLifecycleStatusKeys.allowedStatusKeys.contains(entry.key)
+            }
+            .values
+            .max()
         if enforceStructuredAgentReplacementOrdering,
-           let replacementWatermark = (agentLifecycleEventTimesByPanelId[panelId] ?? [:])
-               .filter { entry in
-                   entry.key != statusKey && AgentHibernationLifecycleStatusKeys.allowedStatusKeys.contains(entry.key)
-               }
-               .values
-               .max() {
+           let replacementWatermark = paneReplacementWatermark {
             guard let agentEventTime, agentEventTime > replacementWatermark else {
                 return false
             }
