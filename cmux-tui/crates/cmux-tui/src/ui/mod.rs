@@ -24,7 +24,10 @@ use crate::app::{App, Hit};
 use crate::config::Action;
 use crate::localization::catalog;
 
-pub(crate) use scrollbar::thumb_geometry;
+pub(crate) use scrollbar::{
+    draw_viewport_scrollbar, thumb_geometry, viewport_drag_offset, viewport_jump_offset,
+    viewport_thumb_geometry,
+};
 
 pub fn draw(app: &mut App, frame: &mut Frame) {
     let area = frame.area();

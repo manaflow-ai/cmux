@@ -295,7 +295,7 @@ MOUSE
   local rename/close actions. Click
   tab-bar entries to switch tabs (+ for a new tab), and status-bar
   screen entries to switch screens (+ for a new screen). The shortcut
-  modal supports wheel, scrollbar track/thumb, and × close controls.
+  modal supports wheel, scrollbar track/thumb, and an Esc close control.
 
 CLI VERBS
   identify, ping, set-client-info, list-clients, detach-client, set-client-sizing,

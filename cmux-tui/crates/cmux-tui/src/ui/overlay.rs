@@ -13,6 +13,8 @@ use unicode_width::UnicodeWidthStr;
 use crate::app::{App, ContextMenu, MenuItem};
 use crate::localization::catalog;
 
+use super::draw_viewport_scrollbar;
+
 /// Trusted approval dialog for a browser pairing request.
 pub fn draw_pairing_dialog(app: &mut App, frame: &mut Frame) {
     let screen = frame.area();
@@ -298,12 +300,13 @@ pub fn draw_shortcut_help(app: &mut App, frame: &mut Frame) {
             (catalog.action_label(definition.action), shortcuts.join(", "))
         })
         .collect::<Vec<_>>();
+    let close_text = format!("[{}]", catalog.shortcuts.close_button);
     let desired_width = rows
         .iter()
         .map(|(label, shortcuts)| label.width() + shortcuts.width() + 9)
         .max()
         .unwrap_or(44)
-        .max(catalog.shortcuts.title.width() + 8);
+        .max(catalog.shortcuts.title.width() + close_text.width() + 8);
     let width = (desired_width as u16).min(76).min(screen.width.saturating_sub(2)).max(24);
     let height = (rows.len() as u16 + 4).min(screen.height.saturating_sub(2)).max(7);
     let x = (screen.width - width) / 2;
@@ -313,21 +316,26 @@ pub fn draw_shortcut_help(app: &mut App, frame: &mut Frame) {
     let base = Style::default().bg(chrome.prompt_bg).fg(chrome.prompt_fg);
     let border = base.fg(chrome.prompt_border);
     let title = base.fg(chrome.prompt_title_fg).add_modifier(Modifier::BOLD);
-    let shortcut_style = base.fg(chrome.prompt_button_accent_fg).add_modifier(Modifier::BOLD);
+    let shortcut_style = title;
     let rect = Rect { x, y, width, height };
     let Some(help) = app.shortcut_help.as_mut() else { return };
     help.rect = rect;
     help.visible_rows = visible_rows;
-    help.close_button = Rect { x: x + width - 5, y: y + 1, width: 3, height: 1 };
+    let close_width = close_text.width().min(width.saturating_sub(4) as usize) as u16;
+    help.close_button = Rect {
+        x: x + width.saturating_sub(close_width + 3),
+        y: y + 1,
+        width: close_width,
+        height: 1,
+    };
     help.scroll_offset = help.scroll_offset.min(rows.len().saturating_sub(visible_rows));
-    let has_scrollbar = rows.len() > visible_rows;
-    help.scrollbar_track = if has_scrollbar {
+    help.scrollbar_track = if visible_rows > 0 {
         Rect { x: x + width - 2, y: y + 2, width: 1, height: visible_rows as u16 }
     } else {
         Rect::default()
     };
     let (thumb_y, thumb_height) = help.scrollbar_geometry(rows.len());
-    help.scrollbar_thumb = if has_scrollbar {
+    help.scrollbar_thumb = if help.scrollbar_track.height > 0 {
         Rect {
             x: help.scrollbar_track.x,
             y: help.scrollbar_track.y + thumb_y,
@@ -339,7 +347,6 @@ pub fn draw_shortcut_help(app: &mut App, frame: &mut Frame) {
     };
     let scroll_offset = help.scroll_offset;
     let scrollbar_track = help.scrollbar_track;
-    let scrollbar_thumb = help.scrollbar_thumb;
     let close_button = help.close_button;
 
     let buf = frame.buffer_mut();
@@ -349,39 +356,36 @@ pub fn draw_shortcut_help(app: &mut App, frame: &mut Frame) {
         }
     }
     draw_border(buf, rect, border);
-    buf.set_stringn(x + 2, y + 1, catalog.shortcuts.title, width.saturating_sub(8) as usize, title);
-    buf.set_stringn(close_button.x, close_button.y, " × ", 3, shortcut_style);
+    let title_width = close_button.x.saturating_sub(x + 3);
+    buf.set_stringn(x + 2, y + 1, catalog.shortcuts.title, title_width as usize, title);
+    buf.set_stringn(
+        close_button.x,
+        close_button.y,
+        &close_text,
+        close_button.width as usize,
+        shortcut_style,
+    );
 
-    let inner_width = width.saturating_sub(if has_scrollbar { 5 } else { 4 });
+    let inner_width = width.saturating_sub(5);
     for (line, (label, shortcuts)) in rows.iter().skip(scroll_offset).take(visible_rows).enumerate()
     {
         let row_y = y + 2 + line as u16;
         let shortcuts = format!(" {shortcuts} ");
         let shortcut_width = (shortcuts.width() as u16).min(inner_width / 2);
         let shortcut_x = x + width.saturating_sub(shortcut_width + 2);
-        let shortcut_x = if has_scrollbar {
-            shortcut_x.min(scrollbar_track.x.saturating_sub(shortcut_width + 1))
-        } else {
-            shortcut_x
-        };
+        let shortcut_x = shortcut_x.min(scrollbar_track.x.saturating_sub(shortcut_width + 1));
         let label_width = shortcut_x.saturating_sub(x + 3);
         buf.set_stringn(x + 2, row_y, label, label_width as usize, base);
         buf.set_stringn(shortcut_x, row_y, &shortcuts, shortcut_width as usize, shortcut_style);
     }
-    if has_scrollbar {
-        for row_y in scrollbar_track.y..scrollbar_track.y + scrollbar_track.height {
-            set_cell(buf, scrollbar_track.x, row_y, "│", base.fg(chrome.prompt_border));
-        }
-        for row_y in scrollbar_thumb.y..scrollbar_thumb.y + scrollbar_thumb.height {
-            set_cell(
-                buf,
-                scrollbar_thumb.x,
-                row_y,
-                "█",
-                base.fg(chrome.prompt_button_accent_fg).add_modifier(Modifier::BOLD),
-            );
-        }
-    }
+    draw_viewport_scrollbar(
+        buf,
+        scrollbar_track,
+        thumb_y,
+        thumb_height,
+        base.fg(chrome.prompt_border),
+        base.fg(chrome.scrollbar_thumb_active_fg).add_modifier(Modifier::BOLD),
+    );
 
     let footer = if rows.len() > visible_rows {
         let start = scroll_offset.saturating_add(1).min(rows.len());
@@ -394,7 +398,7 @@ pub fn draw_shortcut_help(app: &mut App, frame: &mut Frame) {
         x + 2,
         y + height - 2,
         &footer,
-        width.saturating_sub(4) as usize,
+        width.saturating_sub(5) as usize,
         base.fg(chrome.status_dim_fg),
     );
 }

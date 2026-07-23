@@ -35,6 +35,7 @@ pub(crate) struct MenuMessages {
 #[derive(Debug, PartialEq, Eq)]
 pub(crate) struct ShortcutMessages {
     pub title: &'static str,
+    pub close_button: &'static str,
     pub footer: &'static str,
 }
 
@@ -185,7 +186,8 @@ static ENGLISH: Catalog = Catalog {
     },
     shortcuts: ShortcutMessages {
         title: "Keyboard shortcuts",
-        footer: "↑/↓ or wheel scroll · Esc, ?, or × close",
+        close_button: "Esc close",
+        footer: "↑/↓ or wheel scroll · Esc or ? close",
     },
     sidebar: SidebarMessages {
         machines: "machines",
@@ -279,7 +281,8 @@ static JAPANESE: Catalog = Catalog {
     },
     shortcuts: ShortcutMessages {
         title: "キーボードショートカット",
-        footer: "↑/↓ またはホイールでスクロール · Esc、?、× で閉じる",
+        close_button: "Esc 閉じる",
+        footer: "↑/↓ またはホイールでスクロール · Esc または ? で閉じる",
     },
     sidebar: SidebarMessages {
         machines: "マシン",
@@ -383,6 +386,8 @@ mod tests {
         assert_eq!(JAPANESE.action_label(Action::NewPaneSmart), "新しいペイン");
         assert_eq!(ENGLISH.shortcuts.title, "Keyboard shortcuts");
         assert_eq!(JAPANESE.shortcuts.title, "キーボードショートカット");
+        assert_eq!(ENGLISH.shortcuts.close_button, "Esc close");
+        assert_eq!(JAPANESE.shortcuts.close_button, "Esc 閉じる");
         assert_eq!(
             catalog_for_locale("ja_JP.UTF-8").sidebar.machine_provider_disconnected,
             "マシンプロバイダーから切断されました。再接続しています"

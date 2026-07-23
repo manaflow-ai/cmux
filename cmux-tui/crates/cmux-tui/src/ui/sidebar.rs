@@ -7,7 +7,7 @@ use cmux_tui_core::Rect;
 use ratatui::Frame;
 use ratatui::style::{Color, Modifier, Style};
 
-use super::{middle_truncate, rail, truncate};
+use super::{draw_viewport_scrollbar, middle_truncate, rail, truncate, viewport_thumb_geometry};
 use crate::app::{App, Hit, RailKind, WorkspaceRailSelection};
 use crate::config::SidebarView;
 use crate::localization;
@@ -376,6 +376,22 @@ fn draw_workspaces(app: &mut App, frame: &mut Frame) {
         selected_footer,
     );
     let mut hits = Vec::new();
+    let scrollbar_track = Rect {
+        x: area.x + area.width.saturating_sub(2),
+        y: viewport.body.y,
+        width: 1,
+        height: viewport.body.height,
+    };
+    if scrollbar_track.height > 0 {
+        hits.push((
+            scrollbar_track,
+            Hit::WorkspaceScrollbar {
+                track: scrollbar_track,
+                total_rows: body_rows,
+                visible_rows: viewport.body.height as usize,
+            },
+        ));
+    }
     for (i, ws) in app.tree.workspaces.iter().enumerate() {
         let span = rail::RowSpan::new(i * rail::ENTRY_STRIDE, rail::ENTRY_HEIGHT);
         let Some(y) = viewport.body_y(span) else { continue };
@@ -468,6 +484,27 @@ fn draw_workspaces(app: &mut App, frame: &mut Frame) {
             palette,
         );
         hits.push((rail::row(area, y), Hit::CreateWorkspace { mode }));
+    }
+    if scrollbar_track.height > 0 {
+        let (thumb_y, thumb_height) = viewport_thumb_geometry(
+            body_rows,
+            viewport.body.height as usize,
+            viewport.body_offset,
+            scrollbar_track.height,
+        );
+        let thumb_color = if app.workspace_sidebar_focused() {
+            app.chrome.scrollbar_thumb_active_fg
+        } else {
+            app.chrome.scrollbar_thumb_fg
+        };
+        draw_viewport_scrollbar(
+            frame.buffer_mut(),
+            scrollbar_track,
+            thumb_y,
+            thumb_height,
+            Style::default().fg(app.chrome.sidebar_border),
+            Style::default().fg(thumb_color).add_modifier(Modifier::BOLD),
+        );
     }
     hits.push((rail::divider(area), Hit::RailResize(RailKind::Workspace)));
     app.hits.extend(hits);

@@ -63,7 +63,9 @@ use crate::sidebar_files::{FileBrowser, FileCommand, file_url, shell_single_quot
 use crate::ui::graphics::GraphicPlacement;
 use crate::ui::graphics_writer::GraphicsWriter;
 use crate::ui::input::{InputEvent, TextInput};
-use crate::ui::thumb_geometry;
+use crate::ui::{
+    thumb_geometry, viewport_drag_offset, viewport_jump_offset, viewport_thumb_geometry,
+};
 
 const DEFERRED_INPUT_CAPACITY: usize = 512;
 const DEFERRED_INPUT_FIXED_BYTES: usize = 64;
@@ -2082,6 +2084,12 @@ pub enum Hit {
         surface: SurfaceId,
         track: Rect,
     },
+    /// The workspace rail's row viewport scrollbar.
+    WorkspaceScrollbar {
+        track: Rect,
+        total_rows: usize,
+        visible_rows: usize,
+    },
     /// A rail's right border.
     RailResize(RailKind),
     /// Pane border resize handle.
@@ -2792,21 +2800,12 @@ impl ShortcutHelp {
     }
 
     pub(crate) fn scrollbar_geometry(&self, total_rows: usize) -> (u16, u16) {
-        let track_height = self.scrollbar_track.height.max(1);
-        let thumb_height = if total_rows == 0 {
-            track_height
-        } else {
-            ((self.visible_rows * track_height as usize).div_ceil(total_rows))
-                .clamp(1, track_height as usize) as u16
-        };
-        let max_scroll = self.max_scroll(total_rows);
-        let travel = track_height.saturating_sub(thumb_height);
-        let thumb_y = if max_scroll == 0 {
-            0
-        } else {
-            ((self.scroll_offset * travel as usize + max_scroll / 2) / max_scroll) as u16
-        };
-        (thumb_y, thumb_height)
+        viewport_thumb_geometry(
+            total_rows,
+            self.visible_rows,
+            self.scroll_offset,
+            self.scrollbar_track.height,
+        )
     }
 
     fn start_scrollbar_drag(&mut self, y: u16, total_rows: usize) {
@@ -2818,25 +2817,25 @@ impl ShortcutHelp {
             .min(self.scrollbar_track.height.saturating_sub(1));
         let (thumb_y, thumb_height) = self.scrollbar_geometry(total_rows);
         if relative < thumb_y || relative >= thumb_y.saturating_add(thumb_height) {
-            let travel = self.scrollbar_track.height.saturating_sub(thumb_height);
-            let centered = relative.saturating_sub(thumb_height / 2).min(travel);
-            let max_scroll = self.max_scroll(total_rows);
-            self.scroll_offset = if travel == 0 {
-                0
-            } else {
-                (centered as usize * max_scroll + travel as usize / 2) / travel as usize
-            };
+            self.scroll_offset = viewport_jump_offset(
+                total_rows,
+                self.visible_rows,
+                self.scrollbar_track.height,
+                relative,
+            );
         }
         self.scrollbar_drag = Some((y, self.scroll_offset));
     }
 
     fn drag_scrollbar(&mut self, y: u16, total_rows: usize) {
         let Some((anchor_y, anchor_offset)) = self.scrollbar_drag else { return };
-        let (_, thumb_height) = self.scrollbar_geometry(total_rows);
-        let travel = self.scrollbar_track.height.saturating_sub(thumb_height).max(1) as i128;
-        let max_scroll = self.max_scroll(total_rows) as i128;
-        let delta = (y as i128 - anchor_y as i128) * max_scroll / travel;
-        self.scroll_offset = (anchor_offset as i128 + delta).clamp(0, max_scroll) as usize;
+        self.scroll_offset = viewport_drag_offset(
+            total_rows,
+            self.visible_rows,
+            self.scrollbar_track.height,
+            anchor_offset,
+            y as i128 - anchor_y as i128,
+        );
     }
 }
 
@@ -2959,6 +2958,14 @@ enum Drag {
     },
     /// Scrollbar thumb drag.
     Scrollbar { surface: SurfaceId, track: Rect, anchor_y: u16, anchor_offset: u64 },
+    /// Workspace viewport scrollbar thumb drag.
+    WorkspaceScrollbar {
+        track: Rect,
+        total_rows: usize,
+        visible_rows: usize,
+        anchor_y: u16,
+        anchor_offset: usize,
+    },
     /// Independent rail width override drag.
     RailResize(RailKind),
     /// Pane split resize drag.
@@ -9749,6 +9756,11 @@ impl App {
                 Hit::Scrollbar { surface, track } => {
                     self.start_scrollbar_drag(surface, track, y);
                 }
+                Hit::WorkspaceScrollbar { track, total_rows, visible_rows } => {
+                    self.focus = FocusTarget::WorkspaceRail;
+                    self.workspace_rail_follow_selection = false;
+                    self.start_workspace_scrollbar_drag(track, total_rows, visible_rows, y);
+                }
                 Hit::RailResize(kind) => {
                     self.focus = match kind {
                         RailKind::Machine => FocusTarget::MachineRail,
@@ -9879,6 +9891,24 @@ impl App {
                 let (surface, track, anchor_y, anchor_offset) =
                     (*surface, *track, *anchor_y, *anchor_offset);
                 self.drag_scrollbar(surface, track, anchor_y, anchor_offset, y);
+                Ok(RenderAction::Draw)
+            }
+            Some(Drag::WorkspaceScrollbar {
+                track,
+                total_rows,
+                visible_rows,
+                anchor_y,
+                anchor_offset,
+            }) => {
+                let (track, total_rows, visible_rows, anchor_y, anchor_offset) =
+                    (*track, *total_rows, *visible_rows, *anchor_y, *anchor_offset);
+                self.workspace_rail_scroll = viewport_drag_offset(
+                    total_rows,
+                    visible_rows,
+                    track.height,
+                    anchor_offset,
+                    y as i128 - anchor_y as i128,
+                );
                 Ok(RenderAction::Draw)
             }
             Some(Drag::RailResize(kind)) => {
@@ -10080,6 +10110,37 @@ impl App {
         if let Some(anchor_offset) = anchor_offset {
             self.drag = Some(Drag::Scrollbar { surface, track, anchor_y: y, anchor_offset });
         }
+    }
+
+    /// Start a workspace viewport scrollbar drag, jumping on track clicks.
+    fn start_workspace_scrollbar_drag(
+        &mut self,
+        track: Rect,
+        total_rows: usize,
+        visible_rows: usize,
+        y: u16,
+    ) {
+        if track.height == 0 {
+            return;
+        }
+        let relative = y.saturating_sub(track.y).min(track.height.saturating_sub(1));
+        let (thumb_y, thumb_height) = viewport_thumb_geometry(
+            total_rows,
+            visible_rows,
+            self.workspace_rail_scroll,
+            track.height,
+        );
+        if relative < thumb_y || relative >= thumb_y.saturating_add(thumb_height) {
+            self.workspace_rail_scroll =
+                viewport_jump_offset(total_rows, visible_rows, track.height, relative);
+        }
+        self.drag = Some(Drag::WorkspaceScrollbar {
+            track,
+            total_rows,
+            visible_rows,
+            anchor_y: y,
+            anchor_offset: self.workspace_rail_scroll,
+        });
     }
 
     /// Map an anchored scrollbar drag delta to a viewport offset.
@@ -10980,6 +11041,8 @@ mod tests {
         assert!(rendered.contains("Keyboard shortcuts"), "{rendered}");
         assert!(rendered.contains("New pane"), "{rendered}");
         assert!(rendered.contains("Alt-n"), "{rendered}");
+        assert!(rendered.contains("[Esc close]"), "{rendered}");
+        assert!(!rendered.contains('×'), "{rendered}");
         let (shortcut_y, shortcut_x) = rendered
             .lines()
             .enumerate()
@@ -10990,7 +11053,7 @@ mod tests {
         let shortcut_cell = &terminal.backend().buffer()[(shortcut_x, shortcut_y)];
         let shortcut_label_cell = &terminal.backend().buffer()[(shortcut_label_x, shortcut_y)];
         assert_eq!(shortcut_cell.bg, shortcut_label_cell.bg);
-        assert_eq!(shortcut_cell.fg, app.chrome.prompt_button_accent_fg);
+        assert_eq!(shortcut_cell.fg, app.chrome.prompt_title_fg);
         let help = app.shortcut_help.as_ref().unwrap();
         assert!(help.scrollbar_track.height > 0);
         assert!(help.scrollbar_thumb.height > 0);
@@ -11037,6 +11100,17 @@ mod tests {
         assert!(app.shortcut_help.is_none());
 
         app.run_action(Action::ShowShortcuts).unwrap();
+        let tall_height = app.config.keys.resolved_shortcuts().len() as u16 + 6;
+        let mut tall_terminal = Terminal::new(TestBackend::new(180, tall_height)).unwrap();
+        tall_terminal.draw(|frame| crate::ui::draw(&mut app, frame)).unwrap();
+        let help = app.shortcut_help.as_ref().unwrap();
+        assert!(help.scrollbar_track.height > 0);
+        assert_eq!(help.scrollbar_thumb, help.scrollbar_track);
+        assert_eq!(
+            tall_terminal.backend().buffer()[(help.scrollbar_thumb.x, help.scrollbar_thumb.y)]
+                .symbol(),
+            "█"
+        );
         app.handle_key(KeyEvent::new(KeyCode::Esc, KeyModifiers::NONE)).unwrap();
         assert!(app.shortcut_help.is_none());
 
@@ -16127,6 +16201,74 @@ mod tests {
         assert_ne!(scrolled_workspace, first_workspace);
         assert!(app.machine_rail_scroll > 0);
         assert!(app.workspace_rail_scroll > 0);
+    }
+
+    #[test]
+    fn workspace_rail_scrollbar_is_visible_clickable_and_draggable() {
+        let mux = Mux::new("workspace-rail-scrollbar-test", SurfaceOptions::default());
+        for index in 0..6 {
+            mux.new_workspace(Some(format!("workspace-{index}")), None).unwrap();
+        }
+        let mut app = test_app(Session::Local(mux));
+        app.sidebar_view = SidebarView::Workspaces;
+        app.replace_tree(app.session.tree());
+        app.sync_layout((80, 10));
+
+        let mut terminal = Terminal::new(TestBackend::new(80, 10)).unwrap();
+        terminal.draw(|frame| crate::ui::draw(&mut app, frame)).unwrap();
+        let (track, total_rows, visible_rows) = app
+            .hits
+            .iter()
+            .find_map(|(_, hit)| match hit {
+                super::Hit::WorkspaceScrollbar { track, total_rows, visible_rows } => {
+                    Some((*track, *total_rows, *visible_rows))
+                }
+                _ => None,
+            })
+            .unwrap();
+        let divider = app
+            .hits
+            .iter()
+            .find_map(|(rect, hit)| {
+                (*hit == super::Hit::RailResize(RailKind::Workspace)).then_some(*rect)
+            })
+            .unwrap();
+        let (thumb_y, _) = crate::ui::viewport_thumb_geometry(
+            total_rows,
+            visible_rows,
+            app.workspace_rail_scroll,
+            track.height,
+        );
+        assert_eq!(track.x + 1, divider.x);
+        assert_eq!(terminal.backend().buffer()[(track.x, track.y + thumb_y)].symbol(), "█");
+
+        app.handle_mouse(MouseEvent {
+            kind: MouseEventKind::Down(MouseButton::Left),
+            column: track.x,
+            row: track.y + track.height - 1,
+            modifiers: KeyModifiers::NONE,
+        })
+        .unwrap();
+        let jumped = app.workspace_rail_scroll;
+        assert!(jumped > 0);
+        assert!(!app.workspace_rail_follow_selection);
+        assert_eq!(app.focus, FocusTarget::WorkspaceRail);
+
+        app.handle_mouse(MouseEvent {
+            kind: MouseEventKind::Drag(MouseButton::Left),
+            column: track.x,
+            row: track.y,
+            modifiers: KeyModifiers::NONE,
+        })
+        .unwrap();
+        assert!(app.workspace_rail_scroll < jumped);
+        app.handle_mouse(MouseEvent {
+            kind: MouseEventKind::Up(MouseButton::Left),
+            column: track.x,
+            row: track.y,
+            modifiers: KeyModifiers::NONE,
+        })
+        .unwrap();
     }
 
     #[test]
