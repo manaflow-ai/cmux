@@ -26,6 +26,19 @@ struct ArtifactSidebarModelTests {
         #expect(model.rows.map(\.depth) == [0, 1])
     }
 
+    @Test("Binding scans once while installing the initial filesystem watcher")
+    func bindingScansOnce() async throws {
+        let root = try ArtifactTestSupport.temporaryDirectory()
+        defer { ArtifactTestSupport.remove(root) }
+        let store = SidebarArtifactStore(root: root, nodes: [])
+        let model = ArtifactSidebarModel(store: store, captureService: SidebarCaptureSpy())
+
+        await model.bind(workspace: workspace(root: root))
+
+        #expect(await store.waitUntilWatching())
+        #expect(await store.settledSnapshotCount() == 1)
+    }
+
     @Test("Search replaces tree rows with content results")
     func searches() async throws {
         let root = try ArtifactTestSupport.temporaryDirectory()

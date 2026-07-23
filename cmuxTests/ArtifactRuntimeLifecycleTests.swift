@@ -1,0 +1,96 @@
+import CmuxArtifacts
+import Foundation
+import Testing
+
+#if canImport(cmux_DEV)
+@testable import cmux_DEV
+#elseif canImport(cmux)
+@testable import cmux
+#endif
+
+@Suite("Artifact runtime lifecycle")
+@MainActor
+struct ArtifactRuntimeLifecycleTests {
+    @Test("Workspace grouping uses the restart-stable workspace identity")
+    func workspaceGroupingUsesStableIdentity() throws {
+        let root = try temporaryDirectory()
+        defer { try? FileManager.default.removeItem(at: root) }
+        let workspace = Workspace(workingDirectory: root.path)
+
+        let selection = try #require(ContentView.artifactSidebarWorkspace(for: workspace))
+
+        #expect(selection.id == workspace.stableId.uuidString)
+        #expect(selection.id != workspace.id.uuidString)
+    }
+
+    @Test("Disabling automatic capture releases artifact-only transcript tailers")
+    func disablingCaptureReleasesArtifactOnlyTailers() throws {
+        let fixture = try transcriptFixture()
+        defer { try? FileManager.default.removeItem(at: fixture.root) }
+        var captureEnabled = true
+        let service = AgentChatTranscriptService(
+            registry: AgentChatSessionRegistry(),
+            hasEventSubscribers: { false },
+            artifactCaptureCoordinator: AgentArtifactCaptureCoordinator(
+                captureService: ArtifactCaptureService(store: LocalArtifactRepository())
+            ),
+            isAutomaticArtifactCaptureEnabled: { captureEnabled }
+        )
+        service.noteHookEvent(fixture.event)
+        #expect(service.debugSessionDump().first?["tailer_active"] as? Bool == true)
+
+        captureEnabled = false
+        service.reconcileAutomaticArtifactCaptureAvailability()
+
+        #expect(service.debugSessionDump().first?["tailer_active"] as? Bool == false)
+    }
+
+    @Test("Disabling automatic capture preserves mobile-owned transcript tailers")
+    func disablingCapturePreservesSubscriberTailers() throws {
+        let fixture = try transcriptFixture()
+        defer { try? FileManager.default.removeItem(at: fixture.root) }
+        var captureEnabled = true
+        let service = AgentChatTranscriptService(
+            registry: AgentChatSessionRegistry(),
+            hasEventSubscribers: { true },
+            artifactCaptureCoordinator: AgentArtifactCaptureCoordinator(
+                captureService: ArtifactCaptureService(store: LocalArtifactRepository())
+            ),
+            isAutomaticArtifactCaptureEnabled: { captureEnabled }
+        )
+        service.noteHookEvent(fixture.event)
+        #expect(service.debugSessionDump().first?["tailer_active"] as? Bool == true)
+
+        captureEnabled = false
+        service.reconcileAutomaticArtifactCaptureAvailability()
+
+        #expect(service.debugSessionDump().first?["tailer_active"] as? Bool == true)
+    }
+
+    private func transcriptFixture() throws -> (root: URL, event: WorkstreamEvent) {
+        let root = try temporaryDirectory()
+        let transcript = root.appendingPathComponent("transcript.jsonl")
+        try Data().write(to: transcript)
+        return (
+            root,
+            WorkstreamEvent(
+                sessionId: UUID().uuidString,
+                hookEventName: .userPromptSubmit,
+                source: "claude",
+                workspaceId: UUID().uuidString,
+                surfaceId: nil,
+                transcriptPath: transcript.path,
+                cwd: root.path,
+                ppid: nil,
+                receivedAt: .now
+            )
+        )
+    }
+
+    private func temporaryDirectory() throws -> URL {
+        let root = FileManager.default.temporaryDirectory
+            .appendingPathComponent(UUID().uuidString, isDirectory: true)
+        try FileManager.default.createDirectory(at: root, withIntermediateDirectories: true)
+        return root
+    }
+}

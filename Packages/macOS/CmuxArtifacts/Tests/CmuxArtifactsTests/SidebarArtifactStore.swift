@@ -32,6 +32,12 @@ actor SidebarArtifactStore: ArtifactStoring {
         return !continuations.isEmpty
     }
 
+    func settledSnapshotCount() async -> Int {
+        // Bounded test deadline that lets an already-buffered watcher event run.
+        try? await Task.sleep(for: .milliseconds(100))
+        return snapshotCount
+    }
+
     func locateProjectRoot(startingAt: URL) -> URL { root }
     func configuration(projectRoot: URL) -> ArtifactCaptureConfiguration { .defaultValue }
     func snapshot(projectRoot: URL) -> ArtifactSnapshot {
@@ -66,6 +72,7 @@ actor SidebarArtifactStore: ArtifactStoring {
     func changes(projectRoot: URL) -> AsyncStream<Void> {
         let pair = AsyncStream<Void>.makeStream()
         continuations.append(pair.continuation)
+        pair.continuation.yield(())
         return pair.stream
     }
 }
