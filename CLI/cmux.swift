@@ -24449,12 +24449,10 @@ struct CMUXCLI {
                 }
             }
 
-            // An idle reminder while background work is still pending is not a
-            // real "waiting for input" state: the pane is still running (the Stop
-            // hook set it to Running) and the app suppresses this banner. Skip the
-            // "Needs input" pill/lifecycle so the idle nag can't undo the Running
-            // status; the app still gates the (tagged) notification itself.
-            let suppressNeedsInputState = (notifyCategory == .idleReminder && notifyPending)
+            let notificationStatus = AgentHookNotificationPolicy.claudeStatusProjection(
+                category: notifyCategory,
+                hasPendingAgentWork: notifyPending || (mappedSession?.activePromptDepth ?? 0) > 0
+            )
 
             if let claudePid {
                 try? registerClaudeRuntimePID(
@@ -24477,24 +24475,24 @@ struct CMUXCLI {
                 meta: notifyCategory.metaSegment(pending: notifyPending)
             )
 
-            if let sessionId = parsedInput.sessionId, !suppressNeedsInputState {
+            if let sessionId = parsedInput.sessionId {
                 try? sessionStore.upsert(
                     sessionId: sessionId,
                     workspaceId: workspaceId,
                     surfaceId: surfaceId,
                     cwd: parsedInput.cwd,
                     transcriptPath: parsedInput.transcriptPath,
-                    agentLifecycle: .needsInput,
+                    agentLifecycle: notificationStatus?.lifecycle,
                     lastSubtitle: summary.subtitle,
                     lastBody: summary.body
                 )
             }
 
-            if !suppressNeedsInputState {
+            if let notificationStatus {
                 setAgentLifecycle(
                     client: client,
                     key: Self.claudeCodeStatusKey,
-                    lifecycle: .needsInput,
+                    lifecycle: notificationStatus.lifecycle,
                     workspaceId: workspaceId,
                     surfaceId: surfaceId
                 )
@@ -24502,9 +24500,9 @@ struct CMUXCLI {
                     client: client,
                     workspaceId: workspaceId,
                     surfaceId: surfaceId,
-                    value: "Needs input",
-                    icon: "bell.fill",
-                    color: "#4C8DFF"
+                    value: notificationStatus.value,
+                    icon: notificationStatus.icon,
+                    color: notificationStatus.color
                 )
             }
             _ = try sendV1Command("notify_target_async \(workspaceId) \(surfaceId) \(payload)", client: client)

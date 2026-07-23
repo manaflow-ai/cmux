@@ -190,6 +190,33 @@ enum AgentHookNotificationClassifier {
 enum AgentHookNotificationPolicy {
     static let dedupeEligibleAgents: Set<String> = ["grok", "antigravity"]
 
+    /// Derives only causal Claude lifecycle changes. Idle reminders describe
+    /// an ordinary prompt; permission prompts describe a blocking decision.
+    static func claudeStatusProjection(
+        category: AgentHookNotifyCategory,
+        hasPendingAgentWork: Bool
+    ) -> (lifecycle: AgentHibernationLifecycleState, value: String, icon: String, color: String)? {
+        switch category {
+        case .needsPermission:
+            return (
+                .needsInput,
+                String(localized: "feed.status.needsInput", defaultValue: "Needs input"),
+                "bell.fill",
+                "#4C8DFF"
+            )
+        case .idleReminder, .turnComplete:
+            guard !hasPendingAgentWork else { return nil }
+            return (
+                .idle,
+                String(localized: "agent.generic.notification.status.idle", defaultValue: "Idle"),
+                "pause.circle.fill",
+                "#8E8E93"
+            )
+        case .other:
+            return nil
+        }
+    }
+
     /// Stable per-session fingerprint. Grok 0.2.91 emits an identical generic
     /// "Tool permission requested" Notification for every tool step, even in
     /// auto-approve mode where nothing awaits the user; those repeats dedupe by

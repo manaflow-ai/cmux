@@ -119,6 +119,21 @@ struct AgentHookNotificationPolicyTests {
         #expect(AgentNotificationMeta(meta: "c=needs-permission;p=0;id=") == nil)
     }
 
+    @Test func claudeLifecycleDistinguishesIdleFromBlockedInput() {
+        #expect(AgentHookNotificationPolicy.claudeStatusProjection(
+            category: .idleReminder,
+            hasPendingAgentWork: false
+        )?.lifecycle == .idle)
+        #expect(AgentHookNotificationPolicy.claudeStatusProjection(
+            category: .needsPermission,
+            hasPendingAgentWork: true
+        )?.lifecycle == .needsInput)
+        #expect(AgentHookNotificationPolicy.claudeStatusProjection(
+            category: .idleReminder,
+            hasPendingAgentWork: true
+        ) == nil)
+    }
+
     private func classify(_ message: String) -> AgentHookNotificationSummary {
         AgentHookNotificationClassifier.classify(
             displayName: "Grok",
