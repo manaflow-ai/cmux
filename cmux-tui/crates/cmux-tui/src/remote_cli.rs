@@ -24,11 +24,9 @@ use cmux_remote::identity::{
 };
 use cmux_remote::provider::{
     IrohPathMode, ROUTING_DIRECT_ADDRS, ROUTING_NODE_ID, ROUTING_RELAY_URL, RelayCredentialSource,
-    SshProvider, SshProviderConfig,
+    SshProviderConfig,
 };
-use cmux_remote::ssh_bootstrap::{
-    DISTRIBUTION_VERSION, NPM_BOOTSTRAP_VERSION, SshBootstrapConfig, SshBootstrapper,
-};
+use cmux_remote::ssh_bootstrap::{DISTRIBUTION_VERSION, NPM_BOOTSTRAP_VERSION};
 use cmux_remote_protocol::{
     LanePolicy, REMOTE_PROTOCOL_VERSION, RoutePolicy, SessionId, WorkspaceRequest,
     WorkspaceResponse,
@@ -38,8 +36,9 @@ use url::Url;
 use zeroize::Zeroizing;
 
 use crate::remote_runtime::{
-    ClientRuntimeOptions, DaemonRuntimeOptions, RelayClientOptions, daemon_paths,
-    load_runtime_info, start_client_runtime, start_daemon_runtime,
+    ClientRuntimeOptions, DaemonRuntimeOptions, RelayClientOptions, ResolvedRouteCandidate,
+    SshBootstrapOptions, daemon_paths, load_runtime_info, start_client_runtime,
+    start_daemon_runtime,
 };
 use crate::session::{RemoteSession, Session};
 
@@ -642,15 +641,11 @@ fn start_connected(mut flags: ConnectFlags) -> anyhow::Result<ConnectedRuntime> 
         (known.route_hints.clone(), auth, Some(key), Some(known), false)
     };
 
-    let mut endpoints = Vec::new();
-    for route in &route_strings {
-        let mut endpoint = Url::parse(route).with_context(|| format!("invalid route {route:?}"))?;
-        extract_iroh_routing(&mut endpoint, &mut flags.routing)?;
-        if !endpoints.iter().any(|candidate: &Url| candidate == &endpoint) {
-            endpoints.push(endpoint);
-        }
+    let mut routes = resolve_route_candidates(&route_strings, &flags.routing)?;
+    promote_reachable_unix_routes(&mut routes);
+    if flags.upgrade && routes.first().is_none_or(|route| route.endpoint.scheme() != "ssh") {
+        return Err(anyhow!("--upgrade requires SSH to be the initial route"));
     }
-    promote_reachable_unix_routes(&mut endpoints);
     let (relay, mut relay_routes) = client_relay_options(
         std::mem::take(&mut flags.relay_routes),
         std::mem::take(&mut flags.relay_slots),
@@ -680,7 +675,7 @@ fn start_connected(mut flags: ConnectFlags) -> anyhow::Result<ConnectedRuntime> 
         ));
     }
     for route in relay_routes.keys() {
-        if !endpoints.iter().any(|endpoint| endpoint.as_str() == route) {
+        if !routes.iter().any(|candidate| candidate.endpoint.as_str() == route) {
             return Err(anyhow!(
                 "relay credential route {route:?} is not one of this connection's route candidates"
             ));
@@ -694,15 +689,15 @@ fn start_connected(mut flags: ConnectFlags) -> anyhow::Result<ConnectedRuntime> 
         extra_args: flags.ssh_args.clone(),
         maximum_frame_bytes: crate::remote_runtime::MAX_CARRIER_FRAME_BYTES,
     };
-    SshProvider::new(ssh.clone())?;
-    let bootstrap_timeout = remaining_startup_timeout(startup_started, total_startup_timeout)?;
-    async_runtime.block_on(bootstrap_initial_ssh_route(&endpoints, &flags, bootstrap_timeout))?;
-
     let session = SessionId(*uuid::Uuid::new_v4().as_bytes());
     let startup_timeout = remaining_startup_timeout(startup_started, total_startup_timeout)?;
+    let ssh_bootstrap = SshBootstrapOptions {
+        auto_install: flags.auto_install,
+        upgrade: flags.upgrade,
+        attempt_timeout: startup_timeout.min(flags.reconnect.attempt_timeout),
+    };
     let runtime = start_client_runtime(ClientRuntimeOptions {
-        endpoints,
-        routing: flags.routing,
+        routes,
         identity: store.identity(),
         expected_daemon,
         auth,
@@ -717,6 +712,7 @@ fn start_connected(mut flags: ConnectFlags) -> anyhow::Result<ConnectedRuntime> 
         relay_routes,
         iroh_path: flags.iroh_path,
         ssh,
+        ssh_bootstrap,
     })?;
 
     if let Some(invitation) = &invitation {
@@ -828,11 +824,13 @@ fn remaining_startup_timeout(started: Instant, total: Duration) -> anyhow::Resul
         .ok_or_else(|| anyhow!("remote connection startup timed out after {}s", total.as_secs()))
 }
 
-fn promote_reachable_unix_routes(routes: &mut [Url]) {
-    routes.sort_by_key(|route| match (route.scheme(), reachable_unix_route(route)) {
-        ("unix", true) => 0,
-        ("unix", false) => 2,
-        _ => 1,
+fn promote_reachable_unix_routes(routes: &mut [ResolvedRouteCandidate]) {
+    routes.sort_by_key(|route| {
+        match (route.endpoint.scheme(), reachable_unix_route(&route.endpoint)) {
+            ("unix", true) => 0,
+            ("unix", false) => 2,
+            _ => 1,
+        }
     });
 }
 
@@ -949,74 +947,6 @@ fn run_ssh(args: &[String]) -> anyhow::Result<()> {
     }
 
     connect_with_flags(flags)
-}
-
-async fn bootstrap_initial_ssh_route(
-    endpoints: &[Url],
-    flags: &ConnectFlags,
-    timeout: Duration,
-) -> anyhow::Result<()> {
-    let Some(endpoint) = endpoints.first().filter(|endpoint| endpoint.scheme() == "ssh") else {
-        return if flags.upgrade {
-            Err(anyhow!("--upgrade requires SSH to be the initial route"))
-        } else {
-            Ok(())
-        };
-    };
-    let (destination, port) = ssh_bootstrap_destination(endpoint)?;
-    let mut bootstrap = SshBootstrapConfig::defaults(destination);
-    bootstrap.ssh_binary = flags.ssh_binary.clone();
-    bootstrap.port = port;
-    bootstrap.remote_binary = flags.remote_binary.clone();
-    bootstrap.extra_args = flags.ssh_args.clone();
-    bootstrap.auto_install = flags.auto_install;
-    bootstrap.timeout = timeout;
-    let bootstrap = SshBootstrapper::new(bootstrap)?;
-    tokio::select! {
-        result = tokio::time::timeout(timeout, async {
-            if flags.upgrade {
-                bootstrap.install_verified().await?;
-            } else {
-                bootstrap.ensure_installed().await?;
-            }
-            if flags.upgrade {
-                bootstrap
-                    .stop_daemon(&flags.ssh_session, flags.remote_state_dir.as_deref())
-                    .await?;
-            }
-            Ok::<(), cmux_remote::ssh_bootstrap::BootstrapError>(())
-        }) => {
-            result.map_err(|_| anyhow!("SSH bootstrap timed out after {}s", timeout.as_secs()))??;
-            Ok(())
-        }
-        () = wait_for_shutdown_request() => Err(anyhow!("SSH bootstrap interrupted")),
-    }
-}
-
-async fn wait_for_shutdown_request() {
-    while !crate::shutdown_requested() {
-        tokio::time::sleep(Duration::from_millis(50)).await;
-    }
-}
-
-fn ssh_bootstrap_destination(endpoint: &Url) -> anyhow::Result<(String, Option<u16>)> {
-    if endpoint.password().is_some() {
-        return Err(anyhow!("passwords are not allowed in SSH URLs; use SSH authentication"));
-    }
-    if !matches!(endpoint.path(), "" | "/")
-        || endpoint.query().is_some()
-        || endpoint.fragment().is_some()
-    {
-        return Err(anyhow!("SSH routes cannot contain a path, query, or fragment"));
-    }
-    let host = match endpoint.host().ok_or_else(|| anyhow!("SSH endpoint is missing a host"))? {
-        url::Host::Domain(host) => host.to_string(),
-        url::Host::Ipv4(host) => host.to_string(),
-        url::Host::Ipv6(host) => host.to_string(),
-    };
-    let username = endpoint.username();
-    let destination = if username.is_empty() { host } else { format!("{username}@{host}") };
-    Ok((destination, endpoint.port()))
 }
 
 fn ssh_url(destination: &str) -> anyhow::Result<String> {
@@ -1585,6 +1515,24 @@ fn invitation_daemon_key(invitation: &EnrollmentInvitation) -> anyhow::Result<[u
     bytes.try_into().map_err(|bytes: Vec<u8>| anyhow!("daemon key has {} bytes", bytes.len()))
 }
 
+fn resolve_route_candidates(
+    routes: &[String],
+    iroh_routing: &BTreeMap<String, String>,
+) -> anyhow::Result<Vec<ResolvedRouteCandidate>> {
+    let mut candidates = Vec::new();
+    for route in routes {
+        let mut endpoint = Url::parse(route).with_context(|| format!("invalid route {route:?}"))?;
+        let mut routing =
+            if endpoint.scheme() == "iroh" { iroh_routing.clone() } else { BTreeMap::new() };
+        extract_iroh_routing(&mut endpoint, &mut routing)?;
+        let candidate = ResolvedRouteCandidate { endpoint, routing };
+        if !candidates.contains(&candidate) {
+            candidates.push(candidate);
+        }
+    }
+    Ok(candidates)
+}
+
 fn extract_iroh_routing(
     endpoint: &mut Url,
     routing: &mut BTreeMap<String, String>,
@@ -1765,38 +1713,6 @@ mod tests {
     }
 
     #[test]
-    fn ssh_bootstrap_normalizes_ipv6_and_preserves_port() {
-        let endpoint = Url::parse("ssh://alice@[2001:db8::1]:2222").unwrap();
-        assert_eq!(
-            ssh_bootstrap_destination(&endpoint).unwrap(),
-            ("alice@2001:db8::1".into(), Some(2222))
-        );
-    }
-
-    #[cfg(unix)]
-    #[tokio::test]
-    async fn connection_timeout_bounds_initial_ssh_bootstrap() {
-        use std::os::unix::fs::PermissionsExt;
-
-        let directory = tempfile::tempdir().unwrap();
-        let script = directory.path().join("ssh");
-        fs::write(&script, "#!/bin/sh\nexec /bin/sleep 30\n").unwrap();
-        fs::set_permissions(&script, fs::Permissions::from_mode(0o755)).unwrap();
-        let flags = ConnectFlags {
-            ssh_binary: script.to_string_lossy().into_owned(),
-            remote_binary: "~/.local/bin/cmux-tui".into(),
-            auto_install: true,
-            ..ConnectFlags::default()
-        };
-        let endpoints = [Url::parse("ssh://example.com").unwrap()];
-
-        let error = bootstrap_initial_ssh_route(&endpoints, &flags, Duration::from_millis(100))
-            .await
-            .unwrap_err();
-        assert!(error.to_string().contains("timed out"));
-    }
-
-    #[test]
     fn help_detection_does_not_consume_ssh_argument_values() {
         assert!(!remote_help_requested(&["host".into(), "--ssh-arg".into(), "-h".into()]));
         assert!(remote_help_requested(&["host".into(), "--help".into()]));
@@ -1852,11 +1768,16 @@ mod tests {
             Url::parse(&format!("unix://{}", directory.path().join("missing.sock").display()))
                 .unwrap();
         let websocket = Url::parse("wss://daemon.example/v1/link").unwrap();
-        let mut routes = vec![missing.clone(), websocket.clone(), local.clone()];
+        let candidate = |endpoint| ResolvedRouteCandidate { endpoint, routing: BTreeMap::new() };
+        let mut routes = vec![
+            candidate(missing.clone()),
+            candidate(websocket.clone()),
+            candidate(local.clone()),
+        ];
 
         promote_reachable_unix_routes(&mut routes);
 
-        assert_eq!(routes, [local, websocket, missing]);
+        assert_eq!(routes, [candidate(local), candidate(websocket), candidate(missing)]);
     }
 
     #[test]

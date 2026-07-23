@@ -34,6 +34,7 @@ use cmux_remote::provider::{
 use cmux_remote::service::{EndpointRole, ServiceMultiplexer};
 use cmux_remote::services::DaemonServices;
 use cmux_remote::session::SessionLimits;
+use cmux_remote::ssh_bootstrap::{SshBootstrapConfig, SshBootstrapper};
 use cmux_remote::workspace::WorkspaceService;
 use cmux_remote_protocol::{LanePolicy, SessionId};
 use serde::{Deserialize, Serialize};
@@ -132,10 +133,22 @@ pub struct RelayClientOptions {
     pub credentials: RelayCredentialSource,
 }
 
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct ResolvedRouteCandidate {
+    pub endpoint: Url,
+    pub routing: BTreeMap<String, String>,
+}
+
+#[derive(Debug, Clone, Copy)]
+pub struct SshBootstrapOptions {
+    pub auto_install: bool,
+    pub upgrade: bool,
+    pub attempt_timeout: Duration,
+}
+
 #[derive(Debug, Clone)]
 pub struct ClientRuntimeOptions {
-    pub endpoints: Vec<Url>,
-    pub routing: BTreeMap<String, String>,
+    pub routes: Vec<ResolvedRouteCandidate>,
     pub identity: StaticIdentity,
     pub expected_daemon: Option<[u8; 32]>,
     pub auth: ClientAuthMode,
@@ -152,6 +165,7 @@ pub struct ClientRuntimeOptions {
     pub relay_routes: BTreeMap<String, RelayClientOptions>,
     pub iroh_path: IrohPathMode,
     pub ssh: SshProviderConfig,
+    pub ssh_bootstrap: SshBootstrapOptions,
 }
 
 #[derive(Debug, Clone)]
@@ -202,7 +216,7 @@ impl Drop for ClientRuntimeHandle {
 }
 
 pub fn start_client_runtime(options: ClientRuntimeOptions) -> anyhow::Result<ClientRuntimeHandle> {
-    if options.endpoints.is_empty() {
+    if options.routes.is_empty() {
         return Err(anyhow!("remote connection has no route candidates"));
     }
     if options.startup_timeout.is_zero() {
@@ -317,52 +331,186 @@ async fn run_client(
 async fn connect_first_available(
     options: &ClientRuntimeOptions,
 ) -> anyhow::Result<(Arc<ClientConnection>, String)> {
+    let mut attempt = RuntimeInitialRouteAttempt { options };
+    select_initial_route(
+        &options.routes,
+        options.session,
+        options.lane_policy,
+        options.ssh_bootstrap.upgrade,
+        &mut attempt,
+    )
+    .await
+}
+
+enum InitialRouteAttemptError {
+    Route(anyhow::Error),
+    Fatal(anyhow::Error),
+}
+
+#[async_trait]
+trait InitialRouteAttempt<T: Send> {
+    async fn bootstrap_ssh(&mut self, endpoint: &Url, upgrade: bool) -> anyhow::Result<()>;
+    async fn connect(
+        &mut self,
+        index: usize,
+        request: ConnectRequest,
+    ) -> Result<T, InitialRouteAttemptError>;
+}
+
+async fn select_initial_route<T: Send>(
+    routes: &[ResolvedRouteCandidate],
+    session: SessionId,
+    lane_policy: LanePolicy,
+    upgrade: bool,
+    attempt: &mut impl InitialRouteAttempt<T>,
+) -> anyhow::Result<T> {
+    if routes.is_empty() {
+        return Err(anyhow!("remote connection has no route candidates"));
+    }
+    if upgrade && routes[0].endpoint.scheme() != "ssh" {
+        return Err(anyhow!("--upgrade requires SSH to be the initial route"));
+    }
     let mut failures = Vec::new();
-    for (index, endpoint) in options.endpoints.iter().enumerate() {
-        let endpoint = normalize_carrier_endpoint(endpoint.clone())?;
-        let request = ConnectRequest {
-            endpoint: endpoint.clone(),
-            session: options.session,
-            lane_policy: options.lane_policy,
-            routing: options.routing.clone(),
-        };
-        let group = match connect_provider(options, request).await {
-            Ok(group) => group,
-            Err(error) => {
-                failures.push(format!("{endpoint}: {error}"));
-                continue;
+    for (index, candidate) in routes.iter().enumerate() {
+        let request = connect_request(candidate, session, lane_policy)?;
+        let endpoint = request.endpoint.clone();
+        let upgrade_candidate = upgrade && index == 0;
+        if endpoint.scheme() == "ssh"
+            && let Err(error) = attempt.bootstrap_ssh(&endpoint, upgrade_candidate).await
+        {
+            if upgrade_candidate {
+                return Err(error.context(format!("SSH bootstrap failed for {endpoint}")));
             }
-        };
+            failures.push(format!("{endpoint}: SSH bootstrap failed: {error:#}"));
+            continue;
+        }
+        match attempt.connect(index, request).await {
+            Ok(result) => return Ok(result),
+            Err(InitialRouteAttemptError::Route(error)) => {
+                failures.push(format!("{endpoint}: {error:#}"));
+            }
+            Err(InitialRouteAttemptError::Fatal(error)) => return Err(error),
+        }
+    }
+    Err(anyhow!("all remote route candidates failed: {}", failures.join("; ")))
+}
+
+struct RuntimeInitialRouteAttempt<'a> {
+    options: &'a ClientRuntimeOptions,
+}
+
+#[async_trait]
+impl InitialRouteAttempt<(Arc<ClientConnection>, String)> for RuntimeInitialRouteAttempt<'_> {
+    async fn bootstrap_ssh(&mut self, endpoint: &Url, upgrade: bool) -> anyhow::Result<()> {
+        bootstrap_initial_ssh_route(
+            endpoint,
+            &self.options.ssh,
+            self.options.ssh_bootstrap,
+            upgrade,
+        )
+        .await
+    }
+
+    async fn connect(
+        &mut self,
+        index: usize,
+        request: ConnectRequest,
+    ) -> Result<(Arc<ClientConnection>, String), InitialRouteAttemptError> {
+        let group = connect_provider(self.options, request)
+            .await
+            .map_err(|error| InitialRouteAttemptError::Route(error.into()))?;
         let route = group.description().to_string();
         let reconnect_groups: Arc<dyn ReconnectGroupSource> = Arc::new(RuntimeReconnectGroups {
-            options: options.clone(),
+            options: self.options.clone(),
             next: AtomicUsize::new(index.saturating_add(1)),
         });
         let connection = ClientConnection::connect_with_reconnect_groups(
             group.clone(),
             ClientConnectionConfig {
-                identity: options.identity.clone(),
-                expected_daemon: options.expected_daemon,
-                auth: options.auth.clone(),
-                device_name: options.device_name.clone(),
-                session: options.session,
-                lane_policy: options.lane_policy,
+                identity: self.options.identity.clone(),
+                expected_daemon: self.options.expected_daemon,
+                auth: self.options.auth.clone(),
+                device_name: self.options.device_name.clone(),
+                session: self.options.session,
+                lane_policy: self.options.lane_policy,
                 limits: SessionLimits::default(),
-                reconnect: options.reconnect,
+                reconnect: self.options.reconnect,
             },
             Some(reconnect_groups),
         )
         .await;
         match connection {
-            Ok(connection) => return Ok((connection, route)),
+            Ok(connection) => Ok((connection, route)),
             Err(error) if route_failure_allows_fallback(&error) => {
                 let _ = group.close().await;
-                failures.push(format!("{endpoint}: {error}"));
+                Err(InitialRouteAttemptError::Route(error.into()))
             }
-            Err(error) => return Err(error.into()),
+            Err(error) => Err(InitialRouteAttemptError::Fatal(error.into())),
         }
     }
-    Err(anyhow!("all remote route candidates failed: {}", failures.join("; ")))
+}
+
+async fn bootstrap_initial_ssh_route(
+    endpoint: &Url,
+    ssh: &SshProviderConfig,
+    options: SshBootstrapOptions,
+    upgrade: bool,
+) -> anyhow::Result<()> {
+    let (destination, port) = ssh_bootstrap_destination(endpoint)?;
+    let mut config = SshBootstrapConfig::defaults(destination);
+    config.ssh_binary = ssh.ssh_binary.clone();
+    config.port = port;
+    config.remote_binary = ssh.remote_binary.clone();
+    config.extra_args = ssh.extra_args.clone();
+    config.auto_install = options.auto_install;
+    config.timeout = options.attempt_timeout;
+    let bootstrap = SshBootstrapper::new(config)?;
+    tokio::select! {
+        result = tokio::time::timeout(options.attempt_timeout, async {
+            if upgrade {
+                bootstrap.install_verified().await?;
+                bootstrap
+                    .stop_daemon(&ssh.remote_session, ssh.remote_state_dir.as_deref())
+                    .await?;
+            } else {
+                bootstrap.ensure_installed().await?;
+            }
+            Ok::<(), cmux_remote::ssh_bootstrap::BootstrapError>(())
+        }) => {
+            result.map_err(|_| anyhow!(
+                "SSH bootstrap timed out after {}s",
+                options.attempt_timeout.as_secs()
+            ))??;
+            Ok(())
+        }
+        () = wait_for_shutdown_request() => Err(anyhow!("SSH bootstrap interrupted")),
+    }
+}
+
+async fn wait_for_shutdown_request() {
+    while !crate::shutdown_requested() {
+        tokio::time::sleep(Duration::from_millis(50)).await;
+    }
+}
+
+fn ssh_bootstrap_destination(endpoint: &Url) -> anyhow::Result<(String, Option<u16>)> {
+    if endpoint.password().is_some() {
+        return Err(anyhow!("passwords are not allowed in SSH URLs; use SSH authentication"));
+    }
+    if !matches!(endpoint.path(), "" | "/")
+        || endpoint.query().is_some()
+        || endpoint.fragment().is_some()
+    {
+        return Err(anyhow!("SSH routes cannot contain a path, query, or fragment"));
+    }
+    let host = match endpoint.host().ok_or_else(|| anyhow!("SSH endpoint is missing a host"))? {
+        url::Host::Domain(host) => host.to_string(),
+        url::Host::Ipv4(host) => host.to_string(),
+        url::Host::Ipv6(host) => host.to_string(),
+    };
+    let username = endpoint.username();
+    let destination = if username.is_empty() { host } else { format!("{username}@{host}") };
+    Ok((destination, endpoint.port()))
 }
 
 async fn connect_provider(
@@ -408,6 +556,54 @@ async fn connect_provider(
     }
 }
 
+fn connect_request(
+    candidate: &ResolvedRouteCandidate,
+    session: SessionId,
+    lane_policy: LanePolicy,
+) -> anyhow::Result<ConnectRequest> {
+    Ok(ConnectRequest {
+        endpoint: normalize_carrier_endpoint(candidate.endpoint.clone())?,
+        session,
+        lane_policy,
+        routing: candidate.routing.clone(),
+    })
+}
+
+#[async_trait]
+trait ReconnectRouteAttempt<T: Send>: Send + Sync {
+    async fn connect(&self, request: ConnectRequest) -> Result<T, ProviderError>;
+}
+
+async fn select_reconnect_route<T: Send>(
+    routes: &[ResolvedRouteCandidate],
+    start: usize,
+    session: SessionId,
+    lane_policy: LanePolicy,
+    attempt: &impl ReconnectRouteAttempt<T>,
+) -> Result<(usize, T), ProviderError> {
+    if routes.is_empty() {
+        return Err(ProviderError::Configuration("no reconnect routes configured".into()));
+    }
+    let mut failures = Vec::new();
+    for offset in 0..routes.len() {
+        let index = (start + offset) % routes.len();
+        let request = connect_request(&routes[index], session, lane_policy)
+            .map_err(|error| ProviderError::Configuration(error.to_string()))?;
+        let endpoint = request.endpoint.clone();
+        match attempt.connect(request).await {
+            Ok(group) => return Ok((index, group)),
+            Err(error) => {
+                failures.push(format!("{endpoint}: {error}"));
+                continue;
+            }
+        }
+    }
+    Err(ProviderError::Transport(format!(
+        "all reconnect route providers failed: {}",
+        failures.join("; ")
+    )))
+}
+
 struct RuntimeReconnectGroups {
     options: ClientRuntimeOptions,
     next: AtomicUsize,
@@ -416,34 +612,33 @@ struct RuntimeReconnectGroups {
 #[async_trait]
 impl ReconnectGroupSource for RuntimeReconnectGroups {
     async fn next_group(&self) -> Result<Arc<dyn LinkGroup>, ProviderError> {
-        let count = self.options.endpoints.len();
+        let count = self.options.routes.len();
         if count == 0 {
             return Err(ProviderError::Configuration("no reconnect routes configured".into()));
         }
+        let attempt = RuntimeReconnectRouteAttempt { options: &self.options };
         let start = self.next.fetch_add(1, Ordering::Relaxed) % count;
-        let mut failures = Vec::new();
-        for offset in 0..count {
-            let index = (start + offset) % count;
-            let endpoint = normalize_carrier_endpoint(self.options.endpoints[index].clone())
-                .map_err(|error| ProviderError::Configuration(error.to_string()))?;
-            let request = ConnectRequest {
-                endpoint: endpoint.clone(),
-                session: self.options.session,
-                lane_policy: self.options.lane_policy,
-                routing: self.options.routing.clone(),
-            };
-            match connect_provider(&self.options, request).await {
-                Ok(group) => {
-                    self.next.store(index.saturating_add(1), Ordering::Relaxed);
-                    return Ok(group);
-                }
-                Err(error) => failures.push(format!("{endpoint}: {error}")),
-            }
-        }
-        Err(ProviderError::Transport(format!(
-            "all reconnect route providers failed: {}",
-            failures.join("; ")
-        )))
+        let (index, group) = select_reconnect_route(
+            &self.options.routes,
+            start,
+            self.options.session,
+            self.options.lane_policy,
+            &attempt,
+        )
+        .await?;
+        self.next.store(index.saturating_add(1), Ordering::Relaxed);
+        Ok(group)
+    }
+}
+
+struct RuntimeReconnectRouteAttempt<'a> {
+    options: &'a ClientRuntimeOptions,
+}
+
+#[async_trait]
+impl ReconnectRouteAttempt<Arc<dyn LinkGroup>> for RuntimeReconnectRouteAttempt<'_> {
+    async fn connect(&self, request: ConnectRequest) -> Result<Arc<dyn LinkGroup>, ProviderError> {
+        connect_provider(self.options, request).await
     }
 }
 
@@ -984,6 +1179,45 @@ mod tests {
     }
 
     #[test]
+    fn ssh_bootstrap_normalizes_ipv6_and_preserves_port() {
+        let endpoint = Url::parse("ssh://alice@[2001:db8::1]:2222").unwrap();
+        assert_eq!(
+            ssh_bootstrap_destination(&endpoint).unwrap(),
+            ("alice@2001:db8::1".into(), Some(2222))
+        );
+    }
+
+    #[cfg(unix)]
+    #[tokio::test]
+    async fn connection_timeout_bounds_initial_ssh_bootstrap() {
+        use std::os::unix::fs::PermissionsExt;
+
+        let directory = tempfile::tempdir().unwrap();
+        let script = directory.path().join("ssh");
+        fs::write(&script, "#!/bin/sh\nexec /bin/sleep 30\n").unwrap();
+        fs::set_permissions(&script, fs::Permissions::from_mode(0o755)).unwrap();
+        let ssh = SshProviderConfig {
+            ssh_binary: script.to_string_lossy().into_owned(),
+            ..SshProviderConfig::default()
+        };
+        let options = SshBootstrapOptions {
+            auto_install: true,
+            upgrade: false,
+            attempt_timeout: Duration::from_millis(100),
+        };
+
+        let error = bootstrap_initial_ssh_route(
+            &Url::parse("ssh://example.com").unwrap(),
+            &ssh,
+            options,
+            false,
+        )
+        .await
+        .unwrap_err();
+        assert!(error.to_string().contains("timed out"));
+    }
+
+    #[test]
     fn remote_runtime_worker_pool_is_bounded() {
         assert!(
             (MIN_REMOTE_RUNTIME_WORKERS..=MAX_REMOTE_RUNTIME_WORKERS)
@@ -995,11 +1229,16 @@ mod tests {
     #[tokio::test]
     async fn reconnect_source_cycles_normalized_route_candidates() {
         let options = ClientRuntimeOptions {
-            endpoints: vec![
-                Url::parse("ws://first.invalid").unwrap(),
-                Url::parse("ws://second.invalid").unwrap(),
+            routes: vec![
+                ResolvedRouteCandidate {
+                    endpoint: Url::parse("ws://first.invalid").unwrap(),
+                    routing: BTreeMap::new(),
+                },
+                ResolvedRouteCandidate {
+                    endpoint: Url::parse("ws://second.invalid").unwrap(),
+                    routing: BTreeMap::new(),
+                },
             ],
-            routing: BTreeMap::new(),
             identity: StaticIdentity::generate().unwrap(),
             expected_daemon: None,
             auth: ClientAuthMode::Carrier,
@@ -1014,6 +1253,11 @@ mod tests {
             relay_routes: BTreeMap::new(),
             iroh_path: IrohPathMode::Auto,
             ssh: SshProviderConfig::default(),
+            ssh_bootstrap: SshBootstrapOptions {
+                auto_install: true,
+                upgrade: false,
+                attempt_timeout: Duration::from_secs(1),
+            },
         };
         let source = RuntimeReconnectGroups { options, next: AtomicUsize::new(1) };
         assert_eq!(source.next_group().await.unwrap().description(), "ws://second.invalid/v1/link");
