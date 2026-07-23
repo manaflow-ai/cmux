@@ -1781,6 +1781,65 @@ final class CLINotifyProcessIntegrationRegressionTests: XCTestCase {
         )
     }
 
+    func testCodexWrapperResumeSessionStartRebindsInterruptedActivePrompt() throws {
+        let context = try makeClaudeHookContext(name: "codex-wrapper-resume-rebind")
+        defer { context.cleanup() }
+
+        let sessionId = "interrupted-active-session"
+        let oldPID = 11_111
+        let resumedPID = 22_222
+        let now = Date().timeIntervalSince1970
+        let stateURL = context.root.appendingPathComponent("codex-hook-sessions.json")
+        let store: [String: Any] = [
+            "version": 1,
+            "sessions": [
+                sessionId: [
+                    "sessionId": sessionId,
+                    "workspaceId": context.workspaceId,
+                    "surfaceId": context.surfaceId,
+                    "cwd": context.root.path,
+                    "pid": oldPID,
+                    "runtimeStatus": "running",
+                    "activePromptDepth": 1,
+                    "activePromptTurnId": "interrupted-turn",
+                    "activePromptTurnIds": ["interrupted-turn"],
+                    "lastPromptTurnId": "interrupted-turn",
+                    "startedAt": now,
+                    "updatedAt": now,
+                ],
+            ],
+        ]
+        try JSONSerialization.data(withJSONObject: store, options: [.prettyPrinted])
+            .write(to: stateURL, options: .atomic)
+
+        startAgentHookMockServerAccepting(context: context, connectionLimit: 24)
+        let result = runCodexHook(
+            context: context,
+            subcommand: "session-start",
+            standardInput: #"{"session_id":"\#(sessionId)","cwd":"\#(context.root.path)","hook_event_name":"SessionStart","cmux_resume_rebind":true}"#,
+            extraEnvironment: codexLaunchEnvironment(context: context, sessionId: sessionId).merging([
+                "CMUX_CODEX_PID": String(resumedPID),
+            ], uniquingKeysWith: { _, new in new })
+        )
+
+        XCTAssertFalse(result.timedOut, result.stderr)
+        XCTAssertEqual(result.status, 0, result.stderr)
+        let record = try readClaudeHookSession(sessionId, context: context)
+        XCTAssertEqual(
+            record["pid"] as? Int,
+            resumedPID,
+            "A wrapper-confirmed resume must replace the dead pre-crash PID."
+        )
+        XCTAssertNil(
+            record["activePromptDepth"],
+            "The interrupted pre-crash turn must not make the resumed process look nested."
+        )
+        XCTAssertTrue(
+            context.state.commands.contains { self.jsonObject($0)?["method"] as? String == "surface.resume.set" },
+            "The resumed process must republish its binding for another crash cycle."
+        )
+    }
+
     func testGenericAgentNotificationUpdatesLifecycleForNeedsInput() throws {
         let context = try makeClaudeHookContext(name: "codex-notification-lifecycle")
         defer { context.cleanup() }

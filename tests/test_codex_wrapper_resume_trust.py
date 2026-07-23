@@ -42,6 +42,7 @@ class CodexWrapperResumeTrustTests(unittest.TestCase):
                 real_codex,
                 """#!/usr/bin/env bash
 printf '%s\\0' "$@" > "$FAKE_CODEX_ARGS_LOG"
+sleep 0.2
 """,
             )
             make_executable(
@@ -52,6 +53,10 @@ if [[ "${{1:-}}" == "--socket" ]]; then
   shift 2
 fi
 if [[ "${{1:-}}" == "ping" ]]; then
+  exit 0
+fi
+if [[ "${{@: -1}}" == "session-start" ]]; then
+  printf 'payload=%s\\n' "$(cat)" >> "$FAKE_CMUX_LOG"
   exit 0
 fi
 case "${{@: -1}}" in
@@ -104,7 +109,9 @@ esac
                     TRUST_OVERRIDE,
                 ],
             )
-            self.assertIn("hooks codex inject-resume-args", cmux_log.read_text())
+            logged_cmux_calls = cmux_log.read_text()
+            self.assertIn("hooks codex inject-resume-args", logged_cmux_calls)
+            self.assertIn('"cmux_resume_rebind":true', logged_cmux_calls)
 
 
 if __name__ == "__main__":
