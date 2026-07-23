@@ -102,3 +102,67 @@ impl LinkGroup for UnixLinkGroup {
         Ok(())
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use std::collections::BTreeMap;
+
+    use cmux_remote_protocol::{Lane, LanePolicy, SessionId};
+    use tempfile::tempdir;
+    use tokio::net::UnixListener;
+    use url::Url;
+
+    use super::*;
+
+    fn request(path: &std::path::Path) -> ConnectRequest {
+        let mut endpoint = Url::parse("unix:///").unwrap();
+        endpoint.set_path(path.to_str().unwrap());
+        ConnectRequest {
+            endpoint,
+            session: SessionId::ZERO,
+            lane_policy: LanePolicy::Single,
+            routing: BTreeMap::new(),
+        }
+    }
+
+    async fn open_with_expected_uid(path: &std::path::Path, expected_uid: u32) {
+        let group = UnixProvider::new_with_expected_uid(1024, expected_uid)
+            .connect(request(path))
+            .await
+            .unwrap();
+        group
+            .open(LinkRequest { lane: Lane::Interactive, generation: 1 })
+            .await
+            .unwrap_or_else(|error| panic!("same-uid Unix responder was rejected: {error}"));
+    }
+
+    #[tokio::test]
+    async fn accepts_responder_owned_by_effective_uid() {
+        let directory = tempdir().unwrap();
+        let socket = directory.path().join("carrier.sock");
+        let _listener = UnixListener::bind(&socket).unwrap();
+
+        open_with_expected_uid(&socket, unsafe { libc::geteuid() }).await;
+    }
+
+    #[tokio::test]
+    async fn rejects_responder_owned_by_another_uid() {
+        let directory = tempdir().unwrap();
+        let socket = directory.path().join("carrier.sock");
+        let _listener = UnixListener::bind(&socket).unwrap();
+        let wrong_uid = unsafe { libc::geteuid() }.wrapping_add(1);
+        let group = UnixProvider::new_with_expected_uid(1024, wrong_uid)
+            .connect(request(&socket))
+            .await
+            .unwrap();
+
+        let error = match group.open(LinkRequest { lane: Lane::Interactive, generation: 1 }).await {
+            Ok(_) => panic!("wrong-uid Unix responder was accepted"),
+            Err(error) => error,
+        };
+        assert!(
+            matches!(error, ProviderError::Transport(message) if message.contains("peer uid")),
+            "unexpected error: {error}"
+        );
+    }
+}

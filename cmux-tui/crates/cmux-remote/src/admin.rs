@@ -367,6 +367,9 @@ impl From<serde_json::Error> for AdminError {
 #[cfg(test)]
 mod tests {
     use tempfile::tempdir;
+    use tokio::io::AsyncReadExt;
+    use tokio::net::UnixListener;
+    use tokio::time::{Duration as TokioDuration, timeout};
 
     use super::*;
     use crate::identity::AuthDatabase;
@@ -419,5 +422,28 @@ mod tests {
         shutdown_rx.changed().await.unwrap();
         assert!(*shutdown_rx.borrow());
         server.shutdown().await;
+    }
+
+    #[tokio::test]
+    async fn client_rejects_wrong_uid_responder_before_writing_request() {
+        let directory = tempdir().unwrap();
+        let socket = directory.path().join("impostor-admin.sock");
+        let listener = UnixListener::bind(&socket).unwrap();
+        let responder = tokio::spawn(async move {
+            let (mut stream, _) = listener.accept().await.unwrap();
+            let mut byte = [0_u8; 1];
+            timeout(TokioDuration::from_secs(1), stream.read(&mut byte))
+                .await
+                .expect("admin client kept the rejected connection open")
+                .unwrap()
+        });
+        let wrong_uid = unsafe { libc::geteuid() }.wrapping_add(1);
+
+        let error = call_admin_with_expected_uid(&socket, &AdminRequest::Status, wrong_uid)
+            .await
+            .unwrap_err();
+
+        assert!(matches!(error, AdminError::UnauthorizedPeer(_)));
+        assert_eq!(responder.await.unwrap(), 0, "admin request leaked to the wrong-uid responder");
     }
 }
