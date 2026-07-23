@@ -121,12 +121,14 @@ impl ProviderMachineController {
     }
 
     fn perform_request(&mut self, request: MachineRequest) -> anyhow::Result<MachineActionResult> {
+        if let MachineRequest::Connect(target) = &request
+            && !self.provider.connect_external_enabled()?
+        {
+            let key = self.local.connect_machine(target)?;
+            return self.switch_local(key);
+        }
         match request {
             MachineRequest::Switch(key) if self.local.contains(key) => self.switch_local(key),
-            MachineRequest::Connect(target) => {
-                let key = self.local.connect_machine(&target)?;
-                self.switch_local(key)
-            }
             MachineRequest::ReconnectProvider if self.active_local.is_some() => {
                 self.provider.reconnect_control()?;
                 let ui = self.provider.ui_state_for_open_connection();
@@ -415,22 +417,22 @@ impl ProviderMachineRuntime {
                     self.snapshot.selected_scope_id.clone(),
                     self.next_mutation_id()?,
                 )?;
-                let created_machine_id = created.machine_id;
-                self.set_notice(created.notice);
-                self.accepted_selection = Some(AcceptedSelectionIntent {
-                    scope_id: Some(self.snapshot.selected_scope_id.clone()),
-                    machine_id: Some(created_machine_id),
-                });
-                Ok(self.finish_accepted_action(
-                    AcceptedProviderEffects {
-                        restart_updates: true,
-                        ..AcceptedProviderEffects::default()
-                    },
-                    |runtime| {
-                        runtime.refresh()?;
-                        Ok(MachineActionResult::ui(runtime.ui_state_for_open_connection()))
-                    },
-                ))
+                Ok(self.finish_accepted_machine_selection(created.machine_id, created.notice))
+            }
+            MachineRequest::Connect(specifier) => {
+                if !self.connect_external_enabled()? {
+                    anyhow::bail!(
+                        localization::catalog()
+                            .sidebar
+                            .machine_provider_external_connect_unsupported
+                    )
+                }
+                let connected = self.client.connect_external_machine(
+                    self.snapshot.selected_scope_id.clone(),
+                    protocol::ExternalMachineSpecifier::new(specifier)?,
+                    self.next_mutation_id()?,
+                )?;
+                Ok(self.finish_accepted_machine_selection(connected.machine_id, connected.notice))
             }
             MachineRequest::SelectProviderScope(scope_id) => {
                 let selected =
@@ -633,11 +635,6 @@ impl ProviderMachineRuntime {
                     runtime.refresh()?;
                     Ok(MachineActionResult::ui(runtime.ui_state_for_open_connection()))
                 }))
-            }
-            MachineRequest::Connect(_) => {
-                anyhow::bail!(
-                    localization::catalog().sidebar.machine_provider_external_connect_unsupported
-                )
             }
             MachineRequest::ReconnectProvider => unreachable!("handled before refresh"),
         }
@@ -989,6 +986,27 @@ impl ProviderMachineRuntime {
         }))
     }
 
+    /// Reconcile every mutation that selects a newly created or enrolled
+    /// machine through the same authoritative refresh and switch request.
+    fn finish_accepted_machine_selection(
+        &mut self,
+        machine_id: protocol::OpaqueId,
+        notice: Option<protocol::ProviderNotice>,
+    ) -> MachineActionResult {
+        self.set_notice(notice);
+        self.accepted_selection = Some(AcceptedSelectionIntent {
+            scope_id: Some(self.snapshot.selected_scope_id.clone()),
+            machine_id: Some(machine_id),
+        });
+        self.finish_accepted_action(
+            AcceptedProviderEffects { restart_updates: true, ..AcceptedProviderEffects::default() },
+            |runtime| {
+                runtime.refresh()?;
+                Ok(MachineActionResult::ui(runtime.ui_state_for_open_connection()))
+            },
+        )
+    }
+
     fn finish_accepted_workspace_mutation(
         &mut self,
         mutation: ManagedWorkspaceSessionMutation,
@@ -1127,6 +1145,11 @@ impl ProviderMachineRuntime {
             .get(&key)
             .cloned()
             .ok_or_else(|| anyhow::anyhow!("unknown machine {}", key.0))
+    }
+
+    fn connect_external_enabled(&self) -> anyhow::Result<bool> {
+        Ok(self.snapshot.capabilities.connect_external_machine
+            && self.client.supports_capability(protocol::EXTERNAL_MACHINE_CONNECT_CAPABILITY)?)
     }
 
     fn next_mutation_id(&self) -> anyhow::Result<protocol::OpaqueId> {
@@ -1679,6 +1702,14 @@ mod tests {
         listener: &UnixListener,
         snapshot: protocol::SnapshotResult,
     ) -> (UnixStream, BufReader<UnixStream>) {
+        serve_initial_snapshot_with_capabilities(listener, snapshot, &[])
+    }
+
+    fn serve_initial_snapshot_with_capabilities(
+        listener: &UnixListener,
+        snapshot: protocol::SnapshotResult,
+        additional_capabilities: &[&str],
+    ) -> (UnixStream, BufReader<UnixStream>) {
         let (mut stream, _) = listener.accept().unwrap();
         let mut reader = BufReader::new(stream.try_clone().unwrap());
         let hello: protocol::RequestEnvelope = read_frame(&mut reader);
@@ -1686,6 +1717,13 @@ mod tests {
             panic!("first provider request was not hello");
         };
         assert_eq!(params.token.expose(), "runtime-test-token");
+        let capabilities = [
+            protocol::MACHINE_LIFECYCLE_CAPABILITY,
+            protocol::WORKSPACE_LIFECYCLE_CAPABILITY,
+            protocol::WORKSPACE_MIRROR_AUTHORITY_CAPABILITY,
+        ]
+        .into_iter()
+        .chain(additional_capabilities.iter().copied());
         write_frame(
             &mut stream,
             &protocol::ResponseEnvelope::success(
@@ -1696,11 +1734,7 @@ mod tests {
                     negotiated_version: protocol::Version,
                 },
             )
-            .with_capabilities([
-                protocol::MACHINE_LIFECYCLE_CAPABILITY,
-                protocol::WORKSPACE_LIFECYCLE_CAPABILITY,
-                protocol::WORKSPACE_MIRROR_AUTHORITY_CAPABILITY,
-            ]),
+            .with_capabilities(capabilities),
         );
 
         let request: protocol::RequestEnvelope = read_frame(&mut reader);
@@ -2764,6 +2798,133 @@ mod tests {
 
         let negotiated = machine_ui_state(&snapshot, &lifecycle, None, &keys, true, true);
         assert!(negotiated.snapshot.capabilities.connect);
+    }
+
+    #[test]
+    fn negotiated_external_connect_routes_opaque_input_to_provider_selection_path() {
+        let socket = TestProviderSocket::bind();
+        let listener = socket.listener();
+        let mut initial = snapshot(1, "Existing", protocol::MachineStatus::Running);
+        initial.capabilities.connect_external_machine = true;
+        let mut enrolled = initial.clone();
+        enrolled.revision = 2;
+        enrolled.machines.push(protocol::MachineDescriptor {
+            id: id("paired-machine"),
+            display_name: "Paired mini".into(),
+            subtitle: "external".into(),
+            status: protocol::MachineStatus::Running,
+            connectable: true,
+            workspace_create: protocol::WorkspaceCreatePolicy::Session,
+        });
+        enrolled.selected_machine_id = Some(id("paired-machine"));
+        let server_initial = initial;
+        let server_enrolled = enrolled.clone();
+        let (finish, finished) = mpsc::channel();
+        let server = thread::spawn(move || {
+            let (mut stream, mut reader) = serve_initial_snapshot_with_capabilities(
+                &listener,
+                server_initial.clone(),
+                &[protocol::EXTERNAL_MACHINE_CONNECT_CAPABILITY],
+            );
+            serve_runtime_refresh(&mut stream, &mut reader, &server_initial, None);
+
+            let request: protocol::RequestEnvelope = read_frame(&mut reader);
+            let protocol::ProviderRequest::ConnectExternalMachine(params) = request.request else {
+                panic!("connect request did not use the provider protocol");
+            };
+            assert_eq!(params.scope_id, id("personal"));
+            assert_eq!(params.specifier.expose(), "PAIR 4J7K;$(opaque)");
+            assert!(params.mutation_id.as_str().starts_with("cmux-"));
+            write_frame(
+                &mut stream,
+                &protocol::ResponseEnvelope::success(
+                    request.id,
+                    protocol::ConnectExternalMachineResult {
+                        machine_id: id("paired-machine"),
+                        revision: 2,
+                        notice: Some(protocol::ProviderNotice {
+                            level: protocol::NoticeLevel::Info,
+                            message: "Paired machine enrolled".into(),
+                        }),
+                    },
+                ),
+            );
+            serve_runtime_refresh(&mut stream, &mut reader, &server_enrolled, None);
+            finished.recv().unwrap();
+        });
+
+        let provider = ProviderMachineRuntime::connect(&socket.path, token()).unwrap();
+        let mut controller = ProviderMachineController {
+            provider,
+            local: MachineRuntime::external(Vec::new(), true),
+            active_local: None,
+            pending_active_local: None,
+        };
+        let result = controller
+            .perform_request(MachineRequest::Connect("PAIR 4J7K;$(opaque)".into()))
+            .unwrap();
+
+        let paired = result
+            .ui
+            .snapshot
+            .machines
+            .iter()
+            .find(|machine| machine.id == "paired-machine")
+            .unwrap();
+        assert_eq!(result.ui.snapshot.active, Some(paired.key));
+        assert_eq!(result.ui.request, Some(MachineRequest::Switch(paired.key)));
+        assert_eq!(result.ui.notice.as_deref(), Some("Paired machine enrolled"));
+        assert!(
+            result.ui.snapshot.machines.iter().all(|machine| !machine.id.starts_with("ssh:")),
+            "provider-owned input leaked into the client-local SSH catalog"
+        );
+
+        finish.send(()).unwrap();
+        controller.close();
+        server.join().unwrap();
+    }
+
+    #[test]
+    fn unnegotiated_external_connect_preserves_client_local_validation() {
+        let socket = TestProviderSocket::bind();
+        let listener = socket.listener();
+        let mut catalog = snapshot(1, "Existing", protocol::MachineStatus::Running);
+        catalog.capabilities.connect_external_machine = true;
+        let server_catalog = catalog;
+        let server = thread::spawn(move || {
+            let (stream, mut reader) = serve_initial_snapshot(&listener, server_catalog);
+            stream.set_read_timeout(Some(Duration::from_millis(250))).unwrap();
+            let mut unexpected = String::new();
+            match reader.read_line(&mut unexpected) {
+                Err(error)
+                    if matches!(
+                        error.kind(),
+                        std::io::ErrorKind::WouldBlock | std::io::ErrorKind::TimedOut
+                    ) => {}
+                Ok(0) => {}
+                Ok(_) => panic!("unnegotiated provider received local SSH input: {unexpected}"),
+                Err(error) => panic!("provider read failed: {error}"),
+            }
+        });
+
+        let provider = ProviderMachineRuntime::connect(&socket.path, token()).unwrap();
+        let mut controller = ProviderMachineController {
+            provider,
+            local: MachineRuntime::external(Vec::new(), true),
+            active_local: None,
+            pending_active_local: None,
+        };
+        let Err(error) = controller.perform_request(MachineRequest::Connect("PAIR 4J7K".into()))
+        else {
+            panic!("unnegotiated provider unexpectedly handled local connect input");
+        };
+
+        assert_eq!(
+            error.to_string(),
+            "machine address must be a host or user@host without whitespace"
+        );
+        controller.close();
+        server.join().unwrap();
     }
 
     #[test]

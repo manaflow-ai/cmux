@@ -176,7 +176,7 @@ static ENGLISH: Catalog = Catalog {
         sleeping: "sleeping",
         stopped: "stopped",
         unavailable: "unavailable",
-        connect_prompt: "Connect user@host",
+        connect_prompt: "Host address or pairing code",
         personal_scope: "personal",
         team_scope: "team",
         scope: "scope",
@@ -256,7 +256,7 @@ static JAPANESE: Catalog = Catalog {
         sleeping: "スリープ中",
         stopped: "停止",
         unavailable: "利用不可",
-        connect_prompt: "user@host に接続",
+        connect_prompt: "ホストアドレスまたはペアリングコード",
         personal_scope: "個人",
         team_scope: "チーム",
         scope: "スコープ",
@@ -327,6 +327,14 @@ mod tests {
         assert_eq!(
             catalog_for_locale("en_US.UTF-8").sidebar.machine_action_failed,
             "Machine action failed"
+        );
+        assert_eq!(
+            catalog_for_locale("en_US.UTF-8").sidebar.connect_prompt,
+            "Host address or pairing code"
+        );
+        assert_eq!(
+            catalog_for_locale("ja_JP.UTF-8").sidebar.connect_prompt,
+            "ホストアドレスまたはペアリングコード"
         );
         assert_eq!(
             catalog_for_locale("ja_JP.UTF-8").sidebar.machine_action_failed,
