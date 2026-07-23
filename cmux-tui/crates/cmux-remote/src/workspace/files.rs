@@ -978,8 +978,7 @@ fn commit_content_hash_write(
         )?;
         let (actual, displaced_metadata) =
             hash_file_sync(&mut displaced, &displaced_display, MAX_HASH_BYTES)?;
-        if !metadata_stable(initial, &displaced_metadata) || !actual.eq_ignore_ascii_case(expected)
-        {
+        if !same_file(initial, &displaced_metadata) || !actual.eq_ignore_ascii_case(expected) {
             return Err(RpcError::new(
                 "conflict",
                 format!("file changed before commit: expected {expected}, found {actual}"),
@@ -1111,8 +1110,7 @@ fn commit_unix_remove(prepared: PreparedUnixRemove) -> Result<(), RpcError> {
         if let FilePrecondition::ContentHash(expected) = &precondition {
             let (actual, metadata_after) =
                 hash_file_sync(&mut displaced, &quarantine_display, MAX_HASH_BYTES)?;
-            if !metadata_stable(&initial, &metadata_after) || !actual.eq_ignore_ascii_case(expected)
-            {
+            if !same_file(&initial, &metadata_after) || !actual.eq_ignore_ascii_case(expected) {
                 return Err(RpcError::new(
                     "conflict",
                     format!("file changed before removal: expected {expected}, found {actual}"),
