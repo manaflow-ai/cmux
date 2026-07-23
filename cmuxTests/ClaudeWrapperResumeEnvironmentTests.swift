@@ -170,6 +170,10 @@ import Testing
         let stopMatchers = try #require(hooks["Stop"] as? [[String: Any]])
         let stopHooks = try #require(stopMatchers.first?["hooks"] as? [[String: Any]])
         let command = try #require(stopHooks.first?["command"] as? String)
+        try verifyAgentHookClockSamplesOnlyAfterLockAcquisition(
+            commandBody: command,
+            root: sandbox.appendingPathComponent("clock-lock-order", isDirectory: true)
+        )
 
         for (tool, target) in [
             ("chmod", "/bin/chmod"),

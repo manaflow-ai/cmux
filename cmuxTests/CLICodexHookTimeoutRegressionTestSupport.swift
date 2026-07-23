@@ -284,3 +284,120 @@ func waitForCondition(timeout: TimeInterval, pollInterval: TimeInterval = 0.02, 
     }
     return condition()
 }
+
+func verifyAgentHookClockSamplesOnlyAfterLockAcquisition(
+    commandBody: String,
+    root: URL
+) throws {
+    let clockShell = try agentHookCaptureClockShell(in: commandBody)
+    let fileManager = FileManager.default
+    let clockDirectory = root.appendingPathComponent("cmux-agent-hook-clock-v2", isDirectory: true)
+    let lockURL = clockDirectory.appendingPathComponent("lock", isDirectory: false)
+    let outputURL = root.appendingPathComponent("captured-at.txt", isDirectory: false)
+    try fileManager.createDirectory(at: clockDirectory, withIntermediateDirectories: true)
+    _ = fileManager.createFile(atPath: lockURL.path, contents: Data())
+    try fileManager.setAttributes([.posixPermissions: 0o700], ofItemAtPath: clockDirectory.path)
+
+    let lockFD = Darwin.open(lockURL.path, O_RDWR)
+    guard lockFD >= 0 else {
+        throw NSError(domain: "cmux.tests.agent-hook-clock", code: Int(errno))
+    }
+    defer { Darwin.close(lockFD) }
+    guard Darwin.lockf(lockFD, F_LOCK, 0) == 0 else {
+        throw NSError(domain: "cmux.tests.agent-hook-clock", code: Int(errno))
+    }
+    var ownsLock = true
+    defer {
+        if ownsLock {
+            _ = Darwin.lockf(lockFD, F_ULOCK, 0)
+        }
+    }
+
+    let baselineDate = Date(timeIntervalSince1970: 1_700_000_000)
+    try fileManager.setAttributes([.modificationDate: baselineDate], ofItemAtPath: clockDirectory.path)
+    let recordedBaseline = try clockDirectory.resourceValues(forKeys: [.contentModificationDateKey])
+        .contentModificationDate
+
+    let process = Process()
+    process.executableURL = URL(fileURLWithPath: "/bin/sh")
+    process.arguments = ["-c", "\(clockShell) > \(shellQuoteForAgentHookClockTest(outputURL.path))"]
+    process.environment = [
+        "PATH": "/usr/bin:/bin:/usr/sbin:/sbin",
+        "TMPDIR": root.path,
+    ]
+    process.standardInput = FileHandle.nullDevice
+    process.standardOutput = FileHandle.nullDevice
+    process.standardError = FileHandle.nullDevice
+    let exited = DispatchSemaphore(value: 0)
+    process.terminationHandler = { _ in exited.signal() }
+    try process.run()
+    defer {
+        if process.isRunning {
+            process.terminate()
+        }
+    }
+
+    let clockReachedLock = waitForCondition(timeout: 3) {
+        openProcessIDs(for: lockURL).contains { $0 != getpid() }
+    }
+    #expect(clockReachedLock, "Agent hook clock never reached its shared lock")
+    let modificationDateWhileBlocked = try clockDirectory
+        .resourceValues(forKeys: [.contentModificationDateKey])
+        .contentModificationDate
+    #expect(
+        modificationDateWhileBlocked == recordedBaseline,
+        "Agent hook clock sampled filesystem time before acquiring its shared lock"
+    )
+
+    guard Darwin.lockf(lockFD, F_ULOCK, 0) == 0 else {
+        throw NSError(domain: "cmux.tests.agent-hook-clock", code: Int(errno))
+    }
+    ownsLock = false
+    if exited.wait(timeout: .now() + 3) == .timedOut {
+        process.terminate()
+        throw NSError(domain: "cmux.tests.agent-hook-clock", code: ETIMEDOUT)
+    }
+    let rawValue = try String(contentsOf: outputURL, encoding: .utf8)
+        .trimmingCharacters(in: .whitespacesAndNewlines)
+    let capturedTime = try #require(TimeInterval(rawValue))
+    #expect(capturedTime.isFinite && capturedTime > 0, Comment(rawValue: rawValue))
+}
+
+private func agentHookCaptureClockShell(in commandBody: String) throws -> String {
+    let prefixes = [
+        #"hook_captured_at="$("#,
+        #"CMUX_AGENT_HOOK_CAPTURED_AT="$("#,
+    ]
+    for prefix in prefixes {
+        guard let prefixRange = commandBody.range(of: prefix) else { continue }
+        let bodyStart = prefixRange.upperBound
+        guard let bodyEnd = commandBody.range(of: #")""#, range: bodyStart..<commandBody.endIndex) else {
+            break
+        }
+        return String(commandBody[bodyStart..<bodyEnd.lowerBound])
+    }
+    throw NSError(domain: "cmux.tests.agent-hook-clock", code: ENOENT)
+}
+
+private func openProcessIDs(for url: URL) -> Set<Int32> {
+    let process = Process()
+    let pipe = Pipe()
+    process.executableURL = URL(fileURLWithPath: "/usr/sbin/lsof")
+    process.arguments = ["-t", "--", url.path]
+    process.standardInput = FileHandle.nullDevice
+    process.standardOutput = pipe
+    process.standardError = FileHandle.nullDevice
+    do {
+        try process.run()
+        process.waitUntilExit()
+    } catch {
+        return []
+    }
+    let data = pipe.fileHandleForReading.readDataToEndOfFile()
+    guard let output = String(data: data, encoding: .utf8) else { return [] }
+    return Set(output.split(whereSeparator: \.isNewline).compactMap { Int32($0) })
+}
+
+private func shellQuoteForAgentHookClockTest(_ value: String) -> String {
+    "'" + value.replacingOccurrences(of: "'", with: "'\\''") + "'"
+}

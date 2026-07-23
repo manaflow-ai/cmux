@@ -170,8 +170,13 @@ struct CLICodexHookTimeoutRegressionTests {
         #expect(!install.timedOut, Comment(rawValue: install.stderr))
         #expect(install.status == 0, Comment(rawValue: install.stderr))
 
-        let command = try #require(
-            codexHookEntries(in: codexHome).first { $0.eventName == "UserPromptSubmit" }?.command
+        let promptHook = try #require(
+            codexHookEntries(in: codexHome).first { $0.eventName == "UserPromptSubmit" }
+        )
+        let command = promptHook.command
+        try verifyAgentHookClockSamplesOnlyAfterLockAcquisition(
+            commandBody: promptHook.body,
+            root: root.appendingPathComponent("clock-lock-order", isDirectory: true)
         )
         let run = runCodexHookProcess(
             executablePath: "/bin/sh",
