@@ -2235,6 +2235,28 @@ final class WindowTerminalPortal: NSObject {
             entry.anchorView.map { ObjectIdentifier($0) }
         })
         hostedByAnchorId = hostedByAnchorId.filter { validAnchorIds.contains($0.key) }
+
+        // GC orphan subviews: terminal views that are still subviews of the host
+        // but have no corresponding entry in entriesByHostedId. This can happen when
+        // a workspace is removed while an entry has visibleInUI=true and its anchor
+        // is deallocated before visibleInUI is set to false — the entry gets stuck
+        // (pruneDeadEntries skips visible entries with nil anchors to avoid flicker
+        // during tab drag churn) and eventually removed by another path without
+        // calling removeFromSuperview.
+        let validHostedIds = Set(entriesByHostedId.keys)
+        for subview in hostView.subviews {
+            guard let hostedView = subview as? GhosttySurfaceScrollView else { continue }
+            let hostedId = ObjectIdentifier(hostedView)
+            if !validHostedIds.contains(hostedId) {
+#if DEBUG
+                dlog(
+                    "portal.orphan.gc hosted=\(portalDebugToken(hostedView)) " +
+                    "hidden=\(hostedView.isHidden ? 1 : 0) frame=\(portalDebugFrame(hostedView.frame))"
+                )
+#endif
+                hostedView.removeFromSuperview()
+            }
+        }
     }
 
     func hostedIds() -> Set<ObjectIdentifier> {
