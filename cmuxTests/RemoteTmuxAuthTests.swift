@@ -963,4 +963,45 @@ import Testing
         )
         #expect((params["title"] as? String)?.contains("build-box") == true)
     }
+    // MARK: - a transport that prompts instead of failing
+
+    /// A transport that authenticates itself reports no stderr at all: it prints a prompt to its
+    /// terminal and waits. cmux hands it pipes, so the prompt arrives in the bytes before control
+    /// mode. Read as transient, that attach failed with nothing to explain it — measured through a
+    /// corporate ssh broker, whose passcode prompt produced no stderr and no transport log.
+    @Test func anUnansweredCredentialPromptBeforeControlModeAsksForALogin() {
+        let prompt = """
+        (someone@build-box) two-factor login for someone
+
+        Enter a passcode:
+        Passcode:
+        """
+        #expect(
+            RemoteTmuxReconnectDisposition.classify(stderr: "", preControlOutput: prompt)
+                == .authRequired
+        )
+        // The same bytes with no prompt stay transient, so this cannot swallow an ordinary drop.
+        #expect(
+            RemoteTmuxReconnectDisposition.classify(
+                stderr: "", preControlOutput: "Last login: Tue Jul 22 19:04:24 2026\nwelcome\n")
+                == .transient
+        )
+    }
+
+    /// A gone session still wins, because a host can report both and ending is the correct outcome.
+    @Test func aGoneSessionOutranksAPromptInTheSameOutput() {
+        #expect(
+            RemoteTmuxReconnectDisposition.classify(
+                stderr: "can't find session: work", preControlOutput: "Enter a passcode:")
+                == .sessionGone
+        )
+    }
+
+    /// Prose that merely mentions a passcode is not a prompt awaiting input.
+    @Test func mentioningAPasscodeIsNotAPrompt() {
+        #expect(
+            RemoteTmuxSSHTransport.indicatesUnansweredCredentialPrompt(
+                "your passcode was accepted, continuing\n") == false
+        )
+    }
 }
