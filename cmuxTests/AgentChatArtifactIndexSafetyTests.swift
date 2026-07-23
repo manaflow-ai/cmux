@@ -240,6 +240,70 @@ struct AgentChatArtifactIndexSafetyTests {
         #expect(await store.importedPaths == [artifact.path])
     }
 
+    @Test func captureContinuationPreservesAnOlderUnprocessedAuthorization() async throws {
+        let projectRoot = FileManager.default.temporaryDirectory
+            .appendingPathComponent(UUID().uuidString, isDirectory: true)
+        let externalRoot = FileManager.default.temporaryDirectory
+            .appendingPathComponent(UUID().uuidString, isDirectory: true)
+        try FileManager.default.createDirectory(at: projectRoot, withIntermediateDirectories: true)
+        try FileManager.default.createDirectory(at: externalRoot, withIntermediateDirectories: true)
+        defer {
+            try? FileManager.default.removeItem(at: projectRoot)
+            try? FileManager.default.removeItem(at: externalRoot)
+        }
+        let first = externalRoot.appendingPathComponent("first.md")
+        let delayed = externalRoot.appendingPathComponent("delayed.md")
+        try "first".write(to: first, atomically: true, encoding: .utf8)
+        try "delayed".write(to: delayed, atomically: true, encoding: .utf8)
+        let store = OutOfOrderCaptureStore(
+            suspendsFirstImport: false,
+            maximumFilesPerCapture: 1
+        )
+        let coordinator = AgentArtifactCaptureCoordinator(
+            captureService: ArtifactCaptureService(store: store)
+        )
+        let record = AgentChatSessionRecord(
+            sessionID: "session",
+            agentKind: .codex,
+            workspaceID: "workspace",
+            surfaceID: nil,
+            workingDirectory: projectRoot.path,
+            transcriptPath: nil,
+            state: .idle,
+            lastActivityAt: .now,
+            title: nil,
+            pid: nil
+        )
+        let snapshot = AgentChatArtifactIndex.Snapshot(
+            referencedPaths: [first.path, delayed.path],
+            artifacts: [
+                ChatArtifactIndexedReference(
+                    path: first.path,
+                    provenance: .created,
+                    lastReferencedSeq: 50,
+                    captureAuthorization: .created(sequence: 50)
+                ),
+                ChatArtifactIndexedReference(
+                    path: delayed.path,
+                    provenance: .created,
+                    lastReferencedSeq: 100,
+                    captureAuthorization: .created(sequence: 1)
+                ),
+            ],
+            generation: "generation",
+            revision: 1,
+            transcriptLineage: "lineage",
+            transcriptExtent: 101
+        )
+
+        let firstProgress = await coordinator.capture(record: record, snapshot: snapshot)
+        let secondProgress = await coordinator.capture(record: record, snapshot: snapshot)
+
+        #expect(firstProgress == .needsContinuation)
+        #expect(secondProgress == .complete)
+        #expect(await store.importedPaths == [first.path, delayed.path])
+    }
+
     @Test func fragmentedTranscriptRetainsABoundedLineIndex() throws {
         let root = FileManager.default.temporaryDirectory
             .appendingPathComponent(UUID().uuidString, isDirectory: true)
