@@ -115,28 +115,25 @@ final class ComputerUseRuntimeService {
         }
     }
 
-    /// Restarts only the helper, then reads its fresh TCC status over the UDS.
+    /// Passively reads fresh TCC status from an already-running helper.
+    ///
+    /// Settings and onboarding call this while rendering and after returning
+    /// from System Settings. It must never install, start, stop, or restart the
+    /// helper: opening Settings is not authorization to override the enabled
+    /// preference or interrupt an active Computer Use request.
     @discardableResult
     func refreshHelperStatus() async -> (accessibility: Bool, screenRecording: Bool) {
         await serializeHelperLifecycle(cancelledResult: status()) { [weak self] in
             guard let self else { return (false, false) }
-            guard let helperURL = await self.ensureStandaloneHelperInstalledWithinLifecycle() else {
-                self.cachedStatus = .missing
+            guard self.acceptsNewLaunches, !Task.isCancelled else {
                 return self.status()
             }
-
-            guard await self.stopDaemon(),
-                  self.acceptsNewLaunches,
-                  !Task.isCancelled,
-                  await self.launchHelper(at: helperURL)
-            else {
-                self.cachedStatus = .missing
-                return self.status()
-            }
-            self.cachedStatus = await Self.waitForPermissionStatus(
+            if let status = await Self.queryPermissionStatus(
                 paths: self.paths,
                 transport: self.transport
-            ) ?? .missing
+            ) {
+                self.cachedStatus = status
+            }
             return self.status()
         }
     }

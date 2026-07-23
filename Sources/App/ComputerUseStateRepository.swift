@@ -28,9 +28,15 @@ struct ComputerUseStateRepository: Sendable {
             return .empty
         }
 
-        var recentStates: [ComputerUseDriverState] = []
-        recentStates.reserveCapacity(urls.count)
+        var scopeIDsByDriverSessionID: [String: [String]] = [:]
+        for session in sessions {
+            scopeIDsByDriverSessionID[session.driverSessionID, default: []].append(session.id)
+        }
+
+        var newestStateByScopeID: [String: ComputerUseDriverState] = [:]
+        var hasRecentStateFiles = false
         for url in urls {
+            guard !Task.isCancelled else { return .empty }
             guard
                 let values = try? url.resourceValues(forKeys: [.isRegularFileKey, .isSymbolicLinkKey, .fileSizeKey]),
                 values.isRegularFile == true,
@@ -44,22 +50,24 @@ struct ComputerUseStateRepository: Sendable {
             else {
                 continue
             }
-            recentStates.append(state)
-        }
-
-        var newestStateByScopeID: [String: ComputerUseDriverState] = [:]
-        for session in sessions {
-            // Every cmux wrapper gives the driver a stable per-surface session
-            // identity. Pair on that direct identity so state refreshes never
-            // need a machine-wide process-tree capture.
-            newestStateByScopeID[session.id] = recentStates
-                .filter { state in session.matches(driverSessionID: state.session) }
-                .max { $0.lastActionAt < $1.lastActionAt }
+            hasRecentStateFiles = true
+            guard let candidate = state.session else { continue }
+            let exactScopeIDs = scopeIDsByDriverSessionID[candidate]
+            let baseCandidate = candidate.range(of: "-mcp-").map {
+                String(candidate[..<$0.lowerBound])
+            }
+            let matchingScopeIDs = exactScopeIDs
+                ?? baseCandidate.flatMap { scopeIDsByDriverSessionID[$0] }
+                ?? []
+            for scopeID in matchingScopeIDs
+                where (newestStateByScopeID[scopeID]?.lastActionAt ?? .distantPast) < state.lastActionAt {
+                newestStateByScopeID[scopeID] = state
+            }
         }
 
         return ComputerUseStateScan(
             newestStateByScopeID: newestStateByScopeID,
-            hasRecentStateFiles: !recentStates.isEmpty
+            hasRecentStateFiles: hasRecentStateFiles
         )
     }
 

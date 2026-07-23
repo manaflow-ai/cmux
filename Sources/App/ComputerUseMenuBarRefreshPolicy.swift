@@ -11,7 +11,7 @@ struct ComputerUseMenuBarRefreshPolicy: Sendable {
         featureEnabled: Bool,
         showInMenuBar: Bool
     ) -> Date? {
-        guard featureEnabled || showInMenuBar else { return nil }
+        guard featureEnabled && showInMenuBar else { return nil }
         return eventDate.addingTimeInterval(minimumEventReloadInterval)
     }
 

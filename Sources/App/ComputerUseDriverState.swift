@@ -2,6 +2,13 @@ import Foundation
 
 /// A validated snapshot written by the local computer-use driver.
 struct ComputerUseDriverState: Equatable, Sendable {
+    private static let fractionalISO8601 = Date.ISO8601FormatStyle(
+        includingFractionalSeconds: true
+    )
+    private static let wholeSecondISO8601 = Date.ISO8601FormatStyle(
+        includingFractionalSeconds: false
+    )
+
     let pid: Int
     /// The driver's own session id when one was declared; `null` in the file
     /// for cursor-less runs, and never equal to the cmux hook session id.
@@ -64,12 +71,10 @@ struct ComputerUseDriverState: Equatable, Sendable {
         if let numeric = Double(string) {
             return date(timeInterval: numeric)
         }
-        let fractional = ISO8601DateFormatter()
-        fractional.formatOptions = [.withInternetDateTime, .withFractionalSeconds]
-        if let parsed = fractional.date(from: string) {
+        if let parsed = try? fractionalISO8601.parse(string) {
             return parsed
         }
-        if let parsed = ISO8601DateFormatter().date(from: string) {
+        if let parsed = try? wholeSecondISO8601.parse(string) {
             return parsed
         }
         // The driver writes 6-digit fractional seconds (e.g. ".745752Z"), which
@@ -79,7 +84,7 @@ struct ComputerUseDriverState: Equatable, Sendable {
             var truncated = string
             let keep = string[match.lowerBound...].prefix(4)
             truncated.replaceSubrange(match, with: keep)
-            return fractional.date(from: truncated)
+            return try? fractionalISO8601.parse(truncated)
         }
         return nil
     }
