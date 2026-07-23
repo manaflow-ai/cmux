@@ -8,13 +8,14 @@ use async_trait::async_trait;
 use bytes::Bytes;
 use cmux_remote_protocol::{Lane, WireFrame};
 use futures_util::future::join_all;
-use tokio::sync::{Mutex, OwnedSemaphorePermit, Semaphore, mpsc};
+use tokio::sync::{Mutex, OwnedSemaphorePermit, Semaphore, mpsc, oneshot};
 
 const INGRESS_BYTES_PER_LANE: usize = 8 * 1_024 * 1_024;
 const INGRESS_ACCOUNTING_FLOOR_BYTES: usize = 1_024;
 const INGRESS_FRAMES_PER_LANE: usize = INGRESS_BYTES_PER_LANE / INGRESS_ACCOUNTING_FLOOR_BYTES;
 const PRIORITY_BURST_FRAMES: usize = 32;
 const PRIORITY_LANES: [Lane; 4] = [Lane::Interactive, Lane::Control, Lane::Tunnel, Lane::Bulk];
+const OUTBOUND_FRAMES_PER_LANE: usize = PRIORITY_BURST_FRAMES * PRIORITY_LANES.len();
 
 /// An ordered binary-message link supplied by a direct transport or relay.
 ///
@@ -103,6 +104,35 @@ impl Ingress {
             }
         }
     }
+}
+
+struct OutboundFrame {
+    encoded: Bytes,
+    completion: oneshot::Sender<Result<(), LinkError>>,
+}
+
+#[derive(Clone)]
+struct OutboundSender {
+    frames: mpsc::Sender<OutboundFrame>,
+}
+
+impl OutboundSender {
+    async fn enqueue(
+        &self,
+        encoded: Bytes,
+    ) -> Result<oneshot::Receiver<Result<(), LinkError>>, LinkError> {
+        let (completion, result) = oneshot::channel();
+        self.frames
+            .send(OutboundFrame { encoded, completion })
+            .await
+            .map_err(|_| LinkError::Closed)?;
+        Ok(result)
+    }
+}
+
+struct PhysicalRoute {
+    lanes: BTreeSet<Lane>,
+    link: Arc<dyn FrameLink>,
 }
 
 struct PriorityReceivers<T> {
@@ -202,13 +232,41 @@ const fn lane_index(lane: Lane) -> usize {
     }
 }
 
+fn spawn_outbound_dispatcher(
+    link: Arc<dyn FrameLink>,
+    lanes: &BTreeSet<Lane>,
+) -> BTreeMap<Lane, OutboundSender> {
+    let (interactive_tx, interactive_rx) = mpsc::channel(OUTBOUND_FRAMES_PER_LANE);
+    let (control_tx, control_rx) = mpsc::channel(OUTBOUND_FRAMES_PER_LANE);
+    let (bulk_tx, bulk_rx) = mpsc::channel(OUTBOUND_FRAMES_PER_LANE);
+    let (tunnel_tx, tunnel_rx) = mpsc::channel(OUTBOUND_FRAMES_PER_LANE);
+    let senders = [interactive_tx, control_tx, bulk_tx, tunnel_tx];
+    let routes = lanes
+        .iter()
+        .map(|lane| (*lane, OutboundSender { frames: senders[lane_index(*lane)].clone() }))
+        .collect();
+    drop(senders);
+    tokio::spawn(async move {
+        let mut frames = PriorityReceivers::new([interactive_rx, control_rx, bulk_rx, tunnel_rx]);
+        while let Some(frame) = frames.receive().await {
+            let result = link.send(frame.encoded).await;
+            let failed = result.is_err();
+            let _ = frame.completion.send(result);
+            if failed {
+                break;
+            }
+        }
+    });
+    routes
+}
+
 /// Presents several independently authenticated physical links as one frame
 /// link. Outbound frames are routed by their encoded lane; dedicated reader
 /// tasks avoid cancellation-corrupting a length-delimited stream.
 pub struct LaneMuxLink {
     description: String,
     maximum: usize,
-    routes: BTreeMap<Lane, Arc<dyn FrameLink>>,
+    routes: BTreeMap<Lane, OutboundSender>,
     links: Vec<Arc<dyn FrameLink>>,
     incoming: Mutex<Ingress>,
     closed: AtomicBool,
@@ -235,26 +293,46 @@ impl LaneMuxLink {
         if physical.is_empty() {
             return Err(LinkError::Protocol("lane mux requires at least one link".into()));
         }
+        let mut assigned = BTreeSet::new();
+        let mut physical_routes: Vec<PhysicalRoute> = Vec::with_capacity(physical.len());
+        for route in physical {
+            if route.lanes.is_empty() {
+                return Err(LinkError::Protocol("physical link has no assigned lanes".into()));
+            }
+            let lanes = route.lanes.into_iter().collect::<BTreeSet<_>>();
+            for lane in &lanes {
+                if !assigned.insert(*lane) {
+                    return Err(LinkError::Protocol(format!("lane {lane} is assigned twice")));
+                }
+            }
+            if let Some(existing) =
+                physical_routes.iter_mut().find(|existing| Arc::ptr_eq(&existing.link, &route.link))
+            {
+                existing.lanes.extend(lanes);
+            } else {
+                physical_routes.push(PhysicalRoute { lanes, link: route.link });
+            }
+        }
+        for lane in Lane::ALL {
+            if !assigned.contains(&lane) {
+                return Err(LinkError::Protocol(format!("lane {lane} has no physical link")));
+            }
+        }
+
+        let maximum =
+            physical_routes.iter().map(|route| route.link.maximum_frame_bytes()).min().unwrap();
+        let links = physical_routes.iter().map(|route| route.link.clone()).collect::<Vec<_>>();
         let mut routes = BTreeMap::new();
-        let mut links = Vec::with_capacity(physical.len());
         let (interactive_tx, interactive_rx) = IngressSender::channel();
         let (control_tx, control_rx) = IngressSender::channel();
         let (bulk_tx, bulk_rx) = IngressSender::channel();
         let (tunnel_tx, tunnel_rx) = IngressSender::channel();
         let ingress_senders = [interactive_tx, control_tx, bulk_tx, tunnel_tx];
         let (errors_tx, errors) = mpsc::unbounded_channel();
-        for route in physical {
-            if route.lanes.is_empty() {
-                return Err(LinkError::Protocol("physical link has no assigned lanes".into()));
-            }
-            let allowed = route.lanes.iter().copied().collect::<BTreeSet<_>>();
-            for lane in &allowed {
-                if routes.insert(*lane, route.link.clone()).is_some() {
-                    return Err(LinkError::Protocol(format!("lane {lane} is assigned twice")));
-                }
-            }
+        for route in physical_routes {
+            let allowed = route.lanes;
             let link = route.link;
-            links.push(link.clone());
+            routes.extend(spawn_outbound_dispatcher(link.clone(), &allowed));
             let lane_senders = allowed
                 .iter()
                 .map(|lane| (*lane, ingress_senders[lane_index(*lane)].clone()))
@@ -308,12 +386,6 @@ impl LaneMuxLink {
         }
         drop(errors_tx);
         drop(ingress_senders);
-        for lane in Lane::ALL {
-            if !routes.contains_key(&lane) {
-                return Err(LinkError::Protocol(format!("lane {lane} has no physical link")));
-            }
-        }
-        let maximum = links.iter().map(|link| link.maximum_frame_bytes()).min().unwrap();
         Ok(Self {
             description: description.into(),
             maximum,
@@ -350,9 +422,10 @@ impl FrameLink for LaneMuxLink {
         let decoded =
             WireFrame::decode(&frame).map_err(|error| LinkError::Protocol(error.to_string()))?;
         let route = self.routes.get(&decoded.lane).expect("all lanes checked at construction");
+        let completion = route.enqueue(frame).await?;
         #[cfg(test)]
         self.outbound_admitted.add_permits(1);
-        route.send(frame).await
+        completion.await.map_err(|_| LinkError::Closed)?
     }
 
     async fn receive(&self) -> Result<Option<Bytes>, LinkError> {
@@ -791,5 +864,49 @@ mod tests {
             second_bulk <= 3 * (PRIORITY_BURST_FRAMES + 1),
             "queued Bulk send exceeded the bounded priority window: {second_bulk}",
         );
+    }
+
+    #[tokio::test]
+    async fn distinct_physical_writers_send_in_parallel() {
+        let (interactive, interactive_handle) = serialized_send_link();
+        let (bulk, bulk_handle) = serialized_send_link();
+        let mux = Arc::new(
+            LaneMuxLink::new(
+                "isolated-physical",
+                vec![
+                    LinkRoute { lanes: vec![Lane::Interactive], link: Arc::new(interactive) },
+                    LinkRoute {
+                        lanes: vec![Lane::Control, Lane::Bulk, Lane::Tunnel],
+                        link: Arc::new(bulk),
+                    },
+                ],
+            )
+            .unwrap(),
+        );
+        let admitted = mux.outbound_admitted.clone();
+
+        let bulk_mux = mux.clone();
+        let bulk_send =
+            tokio::spawn(async move { bulk_mux.send(sequenced_frame(Lane::Bulk, 1)).await });
+        wait_for_signal(&admitted, "Bulk admission").await;
+        wait_for_signal(&bulk_handle.started, "Bulk physical send").await;
+
+        let interactive_mux = mux.clone();
+        let interactive_send = tokio::spawn(async move {
+            interactive_mux.send(sequenced_frame(Lane::Interactive, 1)).await
+        });
+        wait_for_signal(&admitted, "Interactive admission").await;
+        wait_for_signal(&interactive_handle.started, "parallel Interactive physical send").await;
+
+        bulk_handle.release.add_permits(1);
+        interactive_handle.release.add_permits(1);
+        let (bulk_result, interactive_result) =
+            tokio::time::timeout(Duration::from_secs(1), async {
+                tokio::join!(bulk_send, interactive_send)
+            })
+            .await
+            .expect("parallel physical sends did not finish");
+        bulk_result.unwrap().unwrap();
+        interactive_result.unwrap().unwrap();
     }
 }
