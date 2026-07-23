@@ -40,7 +40,7 @@ The first agent frame is `hello`:
 | `minimum_generation` | Lowest acceptable broker generation |
 | `migration` | Optional broker-issued generation and one-use token |
 
-The broker replies with `registered`, including the same machine id, an accepted generation, a heartbeat interval, and an optional one-time pairing code. The interval must be between 100 milliseconds and 60 seconds. The agent prints a pairing code to the controlling terminal and does not persist it.
+The broker replies with `registered`, including the same machine id, an accepted generation, a heartbeat interval, and an optional one-time pairing code. The interval must be between 1 second and 60 seconds. The agent prints a pairing code to the controlling terminal and does not persist it.
 
 On first registration, the broker must atomically bind the machine id and secret to the authenticated SSH principal before issuing a pairing code. Later registrations must prove the same secret. The broker must reject a reused connection nonce, a changed secret, an expired migration token, and any generation below `minimum_generation`.
 

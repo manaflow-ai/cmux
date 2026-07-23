@@ -790,15 +790,24 @@ mod tests {
         }
     }
 
+    fn wait_for_file(path: &Path) {
+        let deadline = Instant::now() + Duration::from_secs(10);
+        while !path.exists() {
+            assert!(Instant::now() < deadline, "timed out waiting for {}", path.display());
+            thread::sleep(Duration::from_millis(10));
+        }
+    }
+
     #[test]
     fn command_connector_executes_literal_argv_without_a_shell_or_token_leak() {
         let directory = TestDirectory::new();
         let arguments = directory.path.join("arguments");
         let environment = directory.path.join("environment");
+        let complete = directory.path.join("complete");
         let injected = directory.path.join("injected");
         let script = directory.script(
             "record",
-            "arguments=$1; environment=$2; shift 2; printf '%s\\n' \"$@\" > \"$arguments\"; env > \"$environment\"; while IFS= read -r _line; do :; done",
+            "arguments=$1; environment=$2; complete=$3; shift 3; printf '%s\\n' \"$@\" > \"$arguments.tmp\"; mv \"$arguments.tmp\" \"$arguments\"; env > \"$environment.tmp\"; mv \"$environment.tmp\" \"$environment\"; printf 'done\\n' > \"$complete\"; while IFS= read -r _line; do :; done",
         );
         let metacharacters =
             format!("$(touch {}) ; touch {}", injected.display(), injected.display());
@@ -806,14 +815,14 @@ mod tests {
             script.into_os_string(),
             arguments.clone().into_os_string(),
             environment.clone().into_os_string(),
+            complete.clone().into_os_string(),
             OsString::from(&metacharacters),
         ])
         .expect("create command connector");
 
         let connection = connector.connect().expect("open command control");
         let (token, control, _) = connection.into_parts();
-        wait_for_nonempty_file(&arguments);
-        wait_for_nonempty_file(&environment);
+        wait_for_file(&complete);
         let recorded_arguments = fs::read_to_string(arguments).expect("read recorded arguments");
         let recorded_environment = fs::read_to_string(environment).expect("read environment");
         assert!(recorded_arguments.lines().any(|argument| argument == metacharacters));
