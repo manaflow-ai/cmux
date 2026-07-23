@@ -7273,6 +7273,22 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
         }
     }
 
+    /// Tracks the `TabManager` instance SwiftUI installs for the app's
+    /// bootstrap scene so the first real main-window activation can retire it.
+    func adoptInitialMainWindowBootstrapManager(_ bootstrapManager: TabManager) {
+        guard !bootstrapManager.isFinalizedForWindowClose else { return }
+        guard mainWindowContexts.isEmpty else {
+            finalizeRejectedMainWindowRegistrationIfUnowned(bootstrapManager)
+            return
+        }
+
+        let previousManager = tabManager
+        tabManager = bootstrapManager
+        if let previousManager, previousManager !== bootstrapManager {
+            finalizeRejectedMainWindowRegistrationIfUnowned(previousManager)
+        }
+    }
+
     @discardableResult
     func bootstrapInitialMainWindowIfNeeded(
         debugSource: String,
@@ -16293,12 +16309,16 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
     }
 
     private func activateMainWindowContext(_ context: MainWindowContext?) {
+        let previousManager = tabManager
         guard let context else {
             tabManager = nil
             sidebarState = nil
             sidebarSelectionState = nil
             fileExplorerState = nil
             TerminalController.shared.setActiveTabManager(nil)
+            if let previousManager {
+                finalizeRejectedMainWindowRegistrationIfUnowned(previousManager)
+            }
             return
         }
         tabManager = context.tabManager
@@ -16306,6 +16326,9 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
         sidebarSelectionState = context.sidebarSelectionState
         fileExplorerState = context.fileExplorerState
         TerminalController.shared.setActiveTabManager(context.tabManager)
+        if let previousManager, previousManager !== context.tabManager {
+            finalizeRejectedMainWindowRegistrationIfUnowned(previousManager)
+        }
     }
 
     func setActiveMainWindow(_ window: NSWindow) {
