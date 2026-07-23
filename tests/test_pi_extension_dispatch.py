@@ -1247,8 +1247,8 @@ def check_unserializable_feed(bun: str, root: Path, extension_path: Path) -> int
         feed_cmux,
         """#!/usr/bin/env bash
 set -euo pipefail
-printf '%s\n' "$*" >> "$CMUX_TEST_PI_UNSERIALIZABLE_LOG"
-cat >/dev/null
+payload="$(cat)"
+printf '%s|%s\n' "$*" "$payload" >> "$CMUX_TEST_PI_UNSERIALIZABLE_LOG"
 printf '{}\n'
 """,
     )
@@ -1261,10 +1261,13 @@ const ctx = {
   cwd: "/tmp/pi-unserializable-feed-project",
   sessionManager: { getSessionId() { return "pi-unserializable-feed-session"; } }
 };
+const circularResult = { value: 1n };
+circularResult.self = circularResult;
 await handlers.get("tool_execution_end")({
   toolCallId: "bigint-tool",
   toolName: "custom",
-  result: { value: 1n },
+  args: { command: "custom", threshold: 2n },
+  result: circularResult,
   isError: false
 }, ctx);
 await handlers.get("before_agent_start")({ prompt: "still routable" }, ctx);
@@ -1280,9 +1283,16 @@ await handlers.get("before_agent_start")({ prompt: "still routable" }, ctx);
     if feed.returncode != 0:
         print(f"FAIL: unserializable feed escaped its best-effort boundary: {feed.stderr!r}")
         return 1
-    feed_calls = feed_log.read_text(encoding="utf-8").splitlines()
-    if len(feed_calls) != 1 or "hooks pi prompt-submit" not in feed_calls[0]:
-        print(f"FAIL: unserializable feed disrupted later lifecycle routing: {feed_calls!r}")
+    calls = feed_log.read_text(encoding="utf-8").splitlines()
+    feed_calls = [line for line in calls if "hooks feed" in line]
+    prompt_calls = [line for line in calls if "hooks pi prompt-submit" in line]
+    if len(feed_calls) != 1 or len(prompt_calls) != 1:
+        print(f"FAIL: unserializable feed was dropped or disrupted lifecycle routing: {calls!r}")
+        return 1
+    payload = json.loads(feed_calls[0].split("|", 1)[1])
+    summary = json.dumps(payload, sort_keys=True, separators=(",", ":"))
+    if '"kind":"bigint"' not in summary or '"kind":"circular"' not in summary:
+        print(f"FAIL: unserializable Pi values were not safely summarized: {payload!r}")
         return 1
 
     return 0
