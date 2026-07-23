@@ -21,6 +21,10 @@ use crate::workspace::{ClientScope, ProcessSubscriptionError, WorkspaceService};
 
 const MAX_RPC_MESSAGE: usize = 16 * 1024 * 1024;
 const RPC_CODEC_OFFLOAD_BYTES: usize = 64 * 1024;
+// A JSON control escape can expand one input byte to six output bytes. Leave
+// room for field names and collection punctuation without scanning strings on
+// the latency-sensitive task.
+const RPC_ERROR_CODEC_OFFLOAD_BYTES: usize = RPC_CODEC_OFFLOAD_BYTES / 8;
 const COPY_CHUNK: usize = 32 * 1024;
 const MAX_ACTIVE_SERVICE_STREAMS: usize = 64;
 const MAX_INTERACTIVE_RPC_REQUESTS: usize = 32;
@@ -528,6 +532,7 @@ async fn send_workspace_response(
     allow_offload: bool,
 ) -> Result<(), ServicesError> {
     let response_id = response.id;
+    let retryable_if_too_large = workspace_response_too_large_is_retryable(&response);
     let encoded = if allow_offload && workspace_response_needs_codec(&response) {
         workspace
             .run_codec("RPC response encode", move || {
@@ -542,13 +547,12 @@ async fn send_workspace_response(
     match encoded {
         EncodedWorkspaceResponse::Message(encoded) => messages.send(&encoded).await,
         EncodedWorkspaceResponse::TooLarge => {
-            let fallback = RpcResponse {
-                id: response_id,
-                result: Err(RpcError::new(
-                    "resource-exhausted",
-                    "RPC response exceeds the maximum message size",
-                )),
-            };
+            let mut error = RpcError::new(
+                "resource-exhausted",
+                "RPC response exceeds the maximum message size",
+            );
+            error.retryable = retryable_if_too_large;
+            let fallback = RpcResponse { id: response_id, result: Err(error) };
             let encoded = serde_json::to_vec(&fallback)?;
             debug_assert!(encoded.len() <= MAX_RPC_MESSAGE);
             messages.send(&encoded).await
@@ -612,8 +616,31 @@ fn workspace_response_needs_codec(response: &RpcResponse) -> bool {
             | WorkspaceResponse::StructuredDiff { .. }
             | WorkspaceResponse::ProcessEvents { .. },
         ) => true,
+        Err(error) => rpc_error_needs_codec(error),
         _ => false,
     }
+}
+
+fn workspace_response_too_large_is_retryable(response: &RpcResponse) -> bool {
+    matches!(
+        &response.result,
+        Ok(WorkspaceResponse::File { .. }
+            | WorkspaceResponse::Directory { .. }
+            | WorkspaceResponse::Search { .. }
+            | WorkspaceResponse::Diff { .. }
+            | WorkspaceResponse::StructuredDiff { .. }
+            | WorkspaceResponse::ProcessEvents { .. })
+    ) || matches!(&response.result, Err(error) if error.retryable)
+}
+
+fn rpc_error_needs_codec(error: &RpcError) -> bool {
+    let mut bytes = error.code.len().saturating_add(error.message.len());
+    if let Some(RpcErrorDetails::PatchRollback { failed_paths }) = &error.details {
+        bytes = failed_paths
+            .iter()
+            .fold(bytes, |bytes, path| bytes.saturating_add(path.len()).saturating_add(8));
+    }
+    bytes >= RPC_ERROR_CODEC_OFFLOAD_BYTES
 }
 
 pub struct MessageStream {
@@ -1217,6 +1244,7 @@ mod tests {
                 }),
             },
             true,
+            true,
         )
         .await;
     }
@@ -1232,18 +1260,23 @@ mod tests {
     }
 
     #[tokio::test]
-    async fn oversized_inline_error_response_returns_same_id_error() {
+    async fn oversized_error_response_returns_same_id_error() {
         assert_oversized_response_falls_back(
             RpcResponse {
                 id: cmux_remote_protocol::RequestId(72),
                 result: Err(RpcError::new("invalid-data", "\u{1}".repeat(3 * 1024 * 1024))),
             },
             true,
+            false,
         )
         .await;
     }
 
-    async fn assert_oversized_response_falls_back(response: RpcResponse, allow_offload: bool) {
+    async fn assert_oversized_response_falls_back(
+        response: RpcResponse,
+        allow_offload: bool,
+        expected_retryable: bool,
+    ) {
         let expected_id = response.id;
         let (client_endpoint, daemon_endpoint) = endpoint_pair();
         let client = ServiceMultiplexer::new(client_endpoint, EndpointRole::Client);
@@ -1273,7 +1306,7 @@ mod tests {
         assert_eq!(fallback.id, expected_id);
         let error = fallback.result.expect_err("oversized response should return an RPC error");
         assert_eq!(error.code, "resource-exhausted");
-        assert!(error.retryable, "the caller must be able to retry with a smaller page");
+        assert_eq!(error.retryable, expected_retryable);
 
         let next = RpcResponse {
             id: cmux_remote_protocol::RequestId(expected_id.0 + 1),
