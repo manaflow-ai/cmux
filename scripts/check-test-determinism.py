@@ -5613,21 +5613,45 @@ def _self_test() -> int:
                 "    }\n"
                 "}\n"
             ),
+            "Packages/CmuxClock/Tests/CmuxClockTests/Support/Timing.swift": (
+                "struct Timing {\n"
+                "    let clock: SystemUpdateClock\n"
+                "}\n"
+            ),
+            "Packages/CmuxClock/Tests/CmuxClockTests/Support/Environment.swift": (
+                "struct Environment {\n"
+                "    let timing: Timing\n"
+                "}\n"
+            ),
+            "Packages/CmuxClock/Tests/CmuxClockTests/EnvironmentTests.swift": (
+                "let environment: Environment\n"
+                "try await environment.timing.clock.sleep(for: .milliseconds(300))\n"
+                "#expect(widget.isRendered)\n"
+            ),
         }
         for relative_path, source in fixture_sources.items():
             fixture_path = fixture_root / relative_path
             fixture_path.parent.mkdir(parents=True, exist_ok=True)
             fixture_path.write_text(source, encoding="utf-8")
 
-        collection_rules = {
-            finding.rule
-            for finding in collect_findings(fixture_root, ("Packages",))
-        }
+        collection_findings = collect_findings(fixture_root, ("Packages",))
+        collection_rules = {finding.rule for finding in collection_findings}
         if RULE_SLEEP_THEN_ASSERT not in collection_rules:
             failures.append(
                 "POSITIVE collected split-file project clock member: missing "
                 f"{RULE_SLEEP_THEN_ASSERT!r} "
                 f"(got {sorted(collection_rules)})"
+            )
+        transitive_collection_rules = {
+            finding.rule
+            for finding in collection_findings
+            if finding.path.endswith("/EnvironmentTests.swift")
+        }
+        if RULE_SLEEP_THEN_ASSERT not in transitive_collection_rules:
+            failures.append(
+                "POSITIVE collected transitive project clock member: missing "
+                f"{RULE_SLEEP_THEN_ASSERT!r} "
+                f"(got {sorted(transitive_collection_rules)})"
             )
 
     shadowed_project_clock_sources = [
