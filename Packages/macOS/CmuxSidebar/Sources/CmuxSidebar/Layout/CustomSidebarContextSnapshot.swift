@@ -17,6 +17,9 @@ public struct CustomSidebarContextSnapshot: Sendable, Equatable {
     public let selectedWorkspaceTitle: String
     /// The total unread count across all workspaces (`unreadTotal`).
     public let totalUnreadCount: Int
+    /// The Claude Code agent sessions shown in the `agents` array, in the order
+    /// returned by `claude agents --json`. Empty when none are known.
+    public let agents: [CustomSidebarAgentSnapshot]
     /// The wall-clock instant the `clock` object is derived from.
     public let now: Date
 
@@ -26,12 +29,14 @@ public struct CustomSidebarContextSnapshot: Sendable, Equatable {
         selectedWorkspaceId: UUID?,
         selectedWorkspaceTitle: String,
         totalUnreadCount: Int,
+        agents: [CustomSidebarAgentSnapshot] = [],
         now: Date
     ) {
         self.workspaces = workspaces
         self.selectedWorkspaceId = selectedWorkspaceId
         self.selectedWorkspaceTitle = selectedWorkspaceTitle
         self.totalUnreadCount = totalUnreadCount
+        self.agents = agents
         self.now = now
     }
 }
