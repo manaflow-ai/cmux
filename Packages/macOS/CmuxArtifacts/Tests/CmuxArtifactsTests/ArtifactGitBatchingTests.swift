@@ -49,7 +49,55 @@ struct ArtifactGitBatchingTests {
         #expect(invocations.filter { $0.contains("\u{1f}ls-files\u{1f}") }.count == 1)
         #expect(invocations.filter { $0.contains("\u{1f}check-ignore\u{1f}") }.count == 2)
         #expect(invocations.first { $0.contains("\u{1f}ls-files\u{1f}") }?
-            .hasPrefix("output\u{1f}") == true)
+            .hasPrefix("status\u{1f}") == true)
         #expect(invocations.count == 3)
+    }
+
+    @Test("A conservative preflight plan authorizes a deduplicated write plan")
+    func conservativePlanAuthorizesDeduplication() throws {
+        let root = try ArtifactTestSupport.temporaryDirectory()
+        defer { ArtifactTestSupport.remove(root) }
+        let paths = ArtifactStorePaths(projectRoot: root)
+        let source = try ArtifactTestSupport.write(
+            "artifact",
+            named: "outside/artifact.md",
+            under: root
+        )
+        let staged = try ArtifactTestSupport.write(
+            "artifact",
+            named: "staged/artifact.md",
+            under: root
+        )
+        let prepared = PreparedArtifactImport(
+            candidate: ArtifactCandidate(sourceURL: source, provenance: .created),
+            snapshot: ArtifactSourceSnapshot(url: staged, size: 8),
+            digest: "digest"
+        )
+        let planner = ArtifactWritePlanner(
+            fileManager: .default,
+            encoder: JSONEncoder(),
+            decoder: JSONDecoder(),
+            nodeBudget: 100
+        )
+        let context = ArtifactCaptureContext(
+            projectRoot: root,
+            workspaceID: "workspace",
+            sessionID: "session"
+        )
+
+        let conservative = try planner.plan(
+            prepared: [prepared],
+            existingByDigest: [:],
+            context: context,
+            paths: paths
+        )
+        let refined = try planner.plan(
+            prepared: [prepared],
+            existingByDigest: ["digest": paths.filesystemRoot.appendingPathComponent("moved.md")],
+            context: context,
+            paths: paths
+        )
+
+        #expect(conservative.authorizes(refined))
     }
 }
