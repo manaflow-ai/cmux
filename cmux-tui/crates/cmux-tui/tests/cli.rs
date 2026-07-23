@@ -60,6 +60,20 @@ impl Drop for HeadlessServer {
 }
 
 #[cfg(unix)]
+#[test]
+fn machine_agent_is_a_real_entrypoint_without_changing_ordinary_cli_dispatch() {
+    let machine_agent = Command::new(bin()).args(["machine-agent", "--help"]).output().unwrap();
+    assert_success(&machine_agent);
+    let help = String::from_utf8(machine_agent.stdout).unwrap();
+    assert!(help.starts_with("cmux machine-agent - share one local cmux session"));
+    assert!(help.contains("`cmux machine register`"));
+
+    let version = Command::new(bin()).arg("--version").output().unwrap();
+    assert_success(&version);
+    assert!(String::from_utf8(version.stdout).unwrap().starts_with("cmux-tui "));
+}
+
+#[cfg(unix)]
 struct PtyChild {
     child: Child,
     output_drain: Option<std::thread::JoinHandle<()>>,
@@ -124,6 +138,7 @@ fn startup_config_helper_inherits_no_provider_secrets() {
     fs::create_dir_all(&dir).unwrap();
     let helper = dir.join("ghostty-secret-probe");
     let capture = dir.join("inherited-env.txt");
+    let socket = dir.join("mux.sock");
     fs::write(
         &helper,
         r#"#!/bin/sh
@@ -145,7 +160,8 @@ fi
     fs::set_permissions(&helper, fs::Permissions::from_mode(0o700)).unwrap();
 
     let output = Command::new(bin())
-        .args(["--machine-provider", "/does/not/exist", "--headless"])
+        .args(["--machine-provider", "/does/not/exist", "--headless", "--socket"])
+        .arg(&socket)
         .env("GHOSTTY_BIN", &helper)
         .env("CMUX_TEST_SECRET_CAPTURE", &capture)
         .env("CMUX_MACHINE_PROVIDER_TOKEN", "edge-test-bearer")

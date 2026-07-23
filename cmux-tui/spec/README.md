@@ -45,9 +45,10 @@ The generator must preserve the wire command names, parameter names, result shap
 | `bindings.md` | Language binding style sheets and conformance suite contract |
 | `plugins.md` | Sidebar plugin PTY, manifest, lifecycle, focus, and config contract |
 | `machine-provider.md` | Implemented static catalog and authenticated dynamic-provider v1 contract |
+| `machine-agent.md` | Implemented outbound local-machine registration, stream relay, and generation migration contract |
 
 ## Implemented Inventory
 
 Protocol v9 implements the socket commands listed in `commands.md` and the event names listed in `events.md`. Events include subscribe events, attach-stream events, and the implemented `empty` and `detached` lifecycle events.
 
-The client also implements `machine-provider-v0`, an in-process static Unix/SSH catalog, and `machine-provider-v1`, an authenticated dynamic-provider protocol over Unix sockets, direct child processes, or the built-in SSH connector. Both are versioned separately from protocol v9.
+The client also implements `machine-provider-v0`, an in-process static Unix/SSH catalog, `machine-provider-v1`, an authenticated dynamic-provider protocol, and `cmux.machine-agent` v1 for outbound local-machine registration. These contracts are versioned separately from protocol v9.

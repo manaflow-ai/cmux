@@ -20,6 +20,20 @@ pub(crate) struct ForeignViewportMessages {
 }
 
 #[derive(Debug, PartialEq, Eq)]
+pub(crate) struct MachineAgentMessages {
+    pub pairing_code: &'static str,
+    pub registered: &'static str,
+    pub retrying: &'static str,
+    pub migration_failed: &'static str,
+}
+
+impl MachineAgentMessages {
+    pub(crate) fn retrying_message(&self, milliseconds: u128) -> String {
+        self.retrying.replace("{milliseconds}", &milliseconds.to_string())
+    }
+}
+
+#[derive(Debug, PartialEq, Eq)]
 pub(crate) struct SidebarMessages {
     pub machines: &'static str,
     pub workspaces: &'static str,
@@ -132,6 +146,7 @@ const fn decimal_width(mut value: u16) -> usize {
 pub(crate) struct Catalog {
     pub pairing: PairingMessages,
     pub foreign_viewport: ForeignViewportMessages,
+    pub machine_agent: MachineAgentMessages,
     pub sidebar: SidebarMessages,
 }
 
@@ -144,6 +159,12 @@ static ENGLISH: Catalog = Catalog {
         approve: "[ Approve enter ]",
     },
     foreign_viewport: ForeignViewportMessages { terminal_grid: "terminal grid" },
+    machine_agent: MachineAgentMessages {
+        pairing_code: "Pairing code",
+        registered: "Sharing local cmux session",
+        retrying: "Cloud connection lost; retrying in {milliseconds} ms",
+        migration_failed: "Could not reconnect the machine; please try again",
+    },
     sidebar: SidebarMessages {
         machines: "machines",
         workspaces: "workspaces",
@@ -176,7 +197,7 @@ static ENGLISH: Catalog = Catalog {
         sleeping: "sleeping",
         stopped: "stopped",
         unavailable: "unavailable",
-        connect_prompt: "Connect user@host",
+        connect_prompt: "Host address or pairing code",
         personal_scope: "personal",
         team_scope: "team",
         scope: "scope",
@@ -224,6 +245,12 @@ static JAPANESE: Catalog = Catalog {
         approve: "[ 承認 enter ]",
     },
     foreign_viewport: ForeignViewportMessages { terminal_grid: "端末グリッド" },
+    machine_agent: MachineAgentMessages {
+        pairing_code: "ペアリングコード",
+        registered: "ローカル cmux セッションを共有中",
+        retrying: "クラウド接続が切断されました。{milliseconds} ミリ秒後に再接続します",
+        migration_failed: "マシンを再接続できませんでした。もう一度お試しください",
+    },
     sidebar: SidebarMessages {
         machines: "マシン",
         workspaces: "ワークスペース",
@@ -256,7 +283,7 @@ static JAPANESE: Catalog = Catalog {
         sleeping: "スリープ中",
         stopped: "停止",
         unavailable: "利用不可",
-        connect_prompt: "user@host に接続",
+        connect_prompt: "ホストアドレスまたはペアリングコード",
         personal_scope: "個人",
         team_scope: "チーム",
         scope: "スコープ",
@@ -324,9 +351,38 @@ mod tests {
             catalog_for_locale("ja_JP.UTF-8").sidebar.machine_provider_disconnected,
             "マシンプロバイダーから切断されました。再接続しています"
         );
+        assert_eq!(catalog_for_locale("en_US.UTF-8").machine_agent.pairing_code, "Pairing code");
+        assert_eq!(
+            catalog_for_locale("en_US.UTF-8").machine_agent.retrying_message(250),
+            "Cloud connection lost; retrying in 250 ms"
+        );
+        assert_eq!(
+            catalog_for_locale("ja_JP.UTF-8").machine_agent.pairing_code,
+            "ペアリングコード"
+        );
+        assert_eq!(
+            catalog_for_locale("ja_JP.UTF-8").machine_agent.retrying_message(250),
+            "クラウド接続が切断されました。250 ミリ秒後に再接続します"
+        );
+        assert_eq!(
+            catalog_for_locale("en_US.UTF-8").machine_agent.migration_failed,
+            "Could not reconnect the machine; please try again"
+        );
+        assert_eq!(
+            catalog_for_locale("ja_JP.UTF-8").machine_agent.migration_failed,
+            "マシンを再接続できませんでした。もう一度お試しください"
+        );
         assert_eq!(
             catalog_for_locale("en_US.UTF-8").sidebar.machine_action_failed,
             "Machine action failed"
+        );
+        assert_eq!(
+            catalog_for_locale("en_US.UTF-8").sidebar.connect_prompt,
+            "Host address or pairing code"
+        );
+        assert_eq!(
+            catalog_for_locale("ja_JP.UTF-8").sidebar.connect_prompt,
+            "ホストアドレスまたはペアリングコード"
         );
         assert_eq!(
             catalog_for_locale("ja_JP.UTF-8").sidebar.machine_action_failed,

@@ -28,15 +28,17 @@ use std::time::{Duration, Instant};
 #[cfg(unix)]
 use cmux_tui_machine_protocol::{
     ActionValue, BearerToken, ClientDescriptor, CloseMachineParams, CloseMachineResult,
-    CreateMachineParams, CreateMachineResult, CreateWorkspaceParams, CreateWorkspaceResult,
-    EventEnvelope, HelloParams, HelloResult, InvokeActionParams, InvokeActionResult,
-    MACHINE_LIFECYCLE_CAPABILITY, MachineLifecycleSnapshotParams, MachineLifecycleSnapshotResult,
-    MachineMutationParams, MachineMutationResult, OpaqueId, OpenMachineParams, OpenMachineResult,
-    Protocol, ProviderError, ProviderEvent, ProviderRequest, ProviderResponse, RenameMachineParams,
-    RenameWorkspaceParams, RequestEnvelope, ResponseEnvelope, SelectScopeParams, SelectScopeResult,
-    SnapshotParams, SnapshotResult, TransportDescriptor, TransportHandshake,
-    TransportHandshakeResult, TransportRole, Version, WORKSPACE_LIFECYCLE_CAPABILITY,
-    WorkspaceCreateMode, WorkspaceMutationParams, WorkspaceMutationResult, WorkspaceSnapshotParams,
+    ConnectExternalMachineParams, ConnectExternalMachineResult, CreateMachineParams,
+    CreateMachineResult, CreateWorkspaceParams, CreateWorkspaceResult,
+    EXTERNAL_MACHINE_CONNECT_CAPABILITY, EventEnvelope, ExternalMachineSpecifier, HelloParams,
+    HelloResult, InvokeActionParams, InvokeActionResult, MACHINE_LIFECYCLE_CAPABILITY,
+    MachineLifecycleSnapshotParams, MachineLifecycleSnapshotResult, MachineMutationParams,
+    MachineMutationResult, OpaqueId, OpenMachineParams, OpenMachineResult, Protocol, ProviderError,
+    ProviderEvent, ProviderRequest, ProviderResponse, RenameMachineParams, RenameWorkspaceParams,
+    RequestEnvelope, ResponseEnvelope, SelectScopeParams, SelectScopeResult, SnapshotParams,
+    SnapshotResult, TransportDescriptor, TransportHandshake, TransportHandshakeResult,
+    TransportRole, Version, WORKSPACE_LIFECYCLE_CAPABILITY, WorkspaceCreateMode,
+    WorkspaceMutationParams, WorkspaceMutationResult, WorkspaceSnapshotParams,
     WorkspaceSnapshotResult,
 };
 #[cfg(unix)]
@@ -507,6 +509,20 @@ impl ProviderClient {
         mutation_id: OpaqueId,
     ) -> ProviderResult<CreateMachineResult> {
         self.request(ProviderRequest::CreateMachine(CreateMachineParams { scope_id, mutation_id }))
+    }
+
+    pub(crate) fn connect_external_machine(
+        &self,
+        scope_id: OpaqueId,
+        specifier: ExternalMachineSpecifier,
+        mutation_id: OpaqueId,
+    ) -> ProviderResult<ConnectExternalMachineResult> {
+        self.require_capability(EXTERNAL_MACHINE_CONNECT_CAPABILITY)?;
+        self.request(ProviderRequest::ConnectExternalMachine(ConnectExternalMachineParams {
+            scope_id,
+            specifier,
+            mutation_id,
+        }))
     }
 
     pub(crate) fn machine_lifecycle_snapshot(
@@ -1314,7 +1330,80 @@ mod tests {
             error,
             ProviderClientError::UnsupportedCapability(WORKSPACE_LIFECYCLE_CAPABILITY)
         ));
+        let error = provider
+            .connect_external_machine(
+                id("team"),
+                ExternalMachineSpecifier::new("PAIR 4J7K").unwrap(),
+                id("connect-mutation"),
+            )
+            .expect_err("unadvertised external-machine connect must be rejected locally");
+        assert!(matches!(
+            error,
+            ProviderClientError::UnsupportedCapability(EXTERNAL_MACHINE_CONNECT_CAPABILITY)
+        ));
 
+        server.join().expect("join fake provider");
+    }
+
+    #[test]
+    fn external_machine_connect_replays_one_idempotent_provider_result() {
+        let socket = TestSocket::bind();
+        let listener = socket.listener();
+        let server = thread::spawn(move || {
+            let (mut stream, _) = listener.accept().expect("accept control socket");
+            let mut reader = BufReader::new(stream.try_clone().expect("clone control socket"));
+            accept_hello_with_capabilities(
+                &mut stream,
+                &mut reader,
+                "provider-secret",
+                &[EXTERNAL_MACHINE_CONNECT_CAPABILITY],
+            );
+
+            for _ in 0..2 {
+                let request: RequestEnvelope = read_test_frame(&mut reader);
+                let ProviderRequest::ConnectExternalMachine(params) = request.request else {
+                    panic!("expected connect_external_machine request");
+                };
+                assert_eq!(params.scope_id, id("team"));
+                assert_eq!(params.specifier.expose(), "PAIR 4J7K");
+                assert_eq!(params.mutation_id, id("connect-mutation"));
+                write_test_frame(
+                    &mut stream,
+                    &ResponseEnvelope::success(
+                        request.id,
+                        ConnectExternalMachineResult {
+                            machine_id: id("paired-machine"),
+                            revision: 8,
+                            notice: Some(ProviderNotice {
+                                level: NoticeLevel::Info,
+                                message: "Machine connected".into(),
+                            }),
+                        },
+                    ),
+                );
+            }
+        });
+
+        let (provider, _) = ProviderClient::connect_authenticated(
+            &socket.path,
+            token("provider-secret"),
+            client_descriptor(),
+        )
+        .expect("authenticate provider");
+        let connect = || {
+            provider.connect_external_machine(
+                id("team"),
+                ExternalMachineSpecifier::new("PAIR 4J7K").unwrap(),
+                id("connect-mutation"),
+            )
+        };
+        let first = connect().expect("connect external machine");
+        let replay = connect().expect("replay external-machine mutation");
+
+        assert_eq!(replay, first);
+        assert_eq!(first.machine_id, id("paired-machine"));
+        assert_eq!(first.revision, 8);
+        drop(provider);
         server.join().expect("join fake provider");
     }
 

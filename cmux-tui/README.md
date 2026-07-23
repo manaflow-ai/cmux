@@ -31,6 +31,7 @@ cargo run -p cmux-tui
 cargo run -p cmux-tui -- --session agents
 cargo run -p cmux-tui -- --headless --session agents
 cargo run -p cmux-tui -- attach --session agents
+cargo run -p cmux-tui -- machine-agent --session agents
 ```
 
 The default session is `main`. Default sockets live at `$TMPDIR/cmux-tui-<uid>/<session>.sock`; use `--socket <path>` for an explicit path. Detach from an attached TUI with prefix `d`, which is `Ctrl-b d` by default.
@@ -39,10 +40,11 @@ Packaged builds can run as `npx cmux`. The optional machine rail lets that local
 
 ```bash
 npx cmux
+npx cmux machine-agent --session agents
 ssh -T dev@buildbox cmux-tui relay --session agents
 ```
 
-The second command carries raw JSON-lines protocol traffic and is normally started by the machine connector, not used as an interactive TUI.
+`machine-agent` shares an existing local session through one outbound SSH registration with cmux.cloud. It prints a one-time pairing code and opens no listener. The final command carries raw JSON-lines protocol traffic and is normally started by the machine connector, not used as an interactive TUI.
 
 Use `--term <value>` to set `TERM` for child PTYs. Without it, children get `xterm-256color`; `CMUX_TUI_TERM` can override the process default in the surface layer, with `CMUX_MUX_TERM` retained as a legacy fallback.
 

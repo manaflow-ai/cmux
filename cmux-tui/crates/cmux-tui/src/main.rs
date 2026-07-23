@@ -14,6 +14,8 @@ mod host_colors;
 mod keys;
 mod localization;
 mod machine;
+#[cfg(unix)]
+mod machine_agent;
 mod machine_provider_client;
 #[cfg(unix)]
 mod machine_provider_runtime;
@@ -245,6 +247,7 @@ USAGE:
   cmux-tui [OPTIONS]           Start a session (TUI + control socket)
   cmux-tui attach [OPTIONS]    Attach to an existing session's socket
   cmux-tui relay [OPTIONS]     Relay stdio to a session's socket
+  cmux-tui machine-agent       Share one local session through cmux.cloud
   cmux-tui <verb> [OPTIONS]    Run one control-socket command
   cmux-tui plugin <subcommand> Manage sidebar plugins locally
 
@@ -635,6 +638,16 @@ fn main() {
         discard_provider_secret_environment();
         if let Err(error) = run_relay(args) {
             eprintln!("cmux-tui: {error}");
+            std::process::exit(1);
+        }
+        return;
+    }
+    #[cfg(unix)]
+    if raw_args.first().map(|arg| arg.as_str()) == Some("machine-agent") {
+        discard_provider_secret_environment();
+        if let Err(error) = machine_agent::run(&raw_args[1..]) {
+            eprintln!("cmux-tui: {error}");
+            eprintln!("{}", machine_agent::USAGE);
             std::process::exit(1);
         }
         return;

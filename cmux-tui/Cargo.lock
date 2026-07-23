@@ -196,6 +196,7 @@ dependencies = [
  "anyhow",
  "base64",
  "cmux-tui-core",
+ "cmux-tui-machine-agent-protocol",
  "cmux-tui-machine-protocol",
  "crossterm",
  "getrandom 0.3.4",
@@ -241,11 +242,23 @@ dependencies = [
 ]
 
 [[package]]
+name = "cmux-tui-machine-agent-protocol"
+version = "0.1.0"
+dependencies = [
+ "base64",
+ "serde",
+ "serde_json",
+ "subtle",
+ "zeroize",
+]
+
+[[package]]
 name = "cmux-tui-machine-protocol"
 version = "0.1.0"
 dependencies = [
  "serde",
  "serde_json",
+ "subtle",
  "zeroize",
 ]
 
@@ -1597,6 +1610,12 @@ dependencies = [
  "quote",
  "syn 2.0.119",
 ]
+
+[[package]]
+name = "subtle"
+version = "2.6.1"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "13c2bddecc57b384dee18652358fb23172facb8a2c51ccc10d74c157bdea3292"
 
 [[package]]
 name = "syn"
