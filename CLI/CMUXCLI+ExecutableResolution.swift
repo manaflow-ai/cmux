@@ -77,7 +77,10 @@ extension CMUXCLI {
             let candidate = URL(fileURLWithPath: entry, isDirectory: true)
                 .appendingPathComponent(name, isDirectory: false)
                 .path
-            guard FileManager.default.isExecutableFile(atPath: candidate) else { continue }
+            var isDirectory: ObjCBool = false
+            guard FileManager.default.fileExists(atPath: candidate, isDirectory: &isDirectory),
+                  !isDirectory.boolValue,
+                  FileManager.default.isExecutableFile(atPath: candidate) else { continue }
             guard !isBundledProviderExecutable(at: candidate) else { continue }
             if let skip, skip(candidate) { continue }
             return candidate

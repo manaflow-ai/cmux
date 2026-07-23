@@ -90,6 +90,20 @@ import Testing
         )
         XCTAssertFalse(unknown.timedOut, unknown.stdout)
         XCTAssertEqual(unknown.status, 2, unknown.stdout)
+        XCTAssertTrue(unknown.stdout.contains("delete-everything"), unknown.stdout)
+        XCTAssertTrue(unknown.stdout.contains("status, snapshot, list-workspaces, list-tabs, list-panes"), unknown.stdout)
+
+        let help = runProcess(
+            executablePath: cliPath,
+            arguments: ["__herdr-compat", "--help"],
+            environment: environment,
+            timeout: 5
+        )
+        XCTAssertFalse(help.timedOut, help.stdout)
+        XCTAssertEqual(help.status, 0, help.stdout)
+        XCTAssertTrue(help.stdout.contains("Usage: cmux __herdr-compat"), help.stdout)
+        XCTAssertTrue(help.stdout.contains("status, snapshot, list-workspaces, list-tabs, list-panes"), help.stdout)
+
     }
 
     @Test func testAgentTeamsHelpDoesNotLaunchExternalAgentCLI() throws {
