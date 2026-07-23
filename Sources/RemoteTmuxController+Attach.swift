@@ -13,7 +13,7 @@ extension RemoteTmuxController {
     /// was about to work is worse than waiting. A test driving a stream that will never publish
     /// anything pays the full 15 seconds per case, so DEBUG builds honor
     /// `CMUX_REMOTE_TMUX_TOPOLOGY_BARRIER_SECONDS`; see ``RemoteTmuxDebugTimers``.
-    static let mirrorTopologyBarrierSeconds: Double = {
+    nonisolated static let mirrorTopologyBarrierSeconds: Double = {
         #if DEBUG
         if let override = RemoteTmuxDebugTimers.topologyBarrierSeconds { return override }
         #endif
