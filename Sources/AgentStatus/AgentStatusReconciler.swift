@@ -3,10 +3,9 @@ import Foundation
 /// Pure priority and expiry rules for agent status evidence.
 struct AgentStatusReconciler: Sendable {
     static let runningSignalLifetime: TimeInterval = 90
+    static let runningCorroborationLifetime: TimeInterval = 120
     static let activityLifetime: TimeInterval = 45
     static let foregroundObservationLifetime: TimeInterval = 45
-    // Session/Stop hooks are followed by TUI redraws; only later activity may contradict them.
-    static let lifecycleTransitionActivityGrace: TimeInterval = 15
 
     func resolve(
         evidence: AgentStatusEvidence,
@@ -29,9 +28,6 @@ struct AgentStatusReconciler: Sendable {
             return AgentStatusResolution(lifecycle: .needsInput, confidence: .confident)
         }
 
-        let corroboratedActivityAt = [evidence.outputObservedAt, evidence.titleObservedAt]
-            .compactMap { $0 }
-            .min()
         let foregroundIsFresh = evidence.foregroundObservedAt.map {
             age(of: $0, now: now) <= Self.foregroundObservationLifetime
         } ?? false
@@ -41,9 +37,8 @@ struct AgentStatusReconciler: Sendable {
         let titleIsFresh = evidence.titleObservedAt.map {
             age(of: $0, now: now) <= Self.activityLifetime
         } ?? false
-        // A foreground TUI can redraw while waiting at an empty prompt. PTY
-        // output is only active-turn evidence when a title transition
-        // independently corroborates it.
+        // Output and title changes can corroborate a known turn, but cannot
+        // establish one: an idle foreground TUI can produce all three signals.
         let hasCorroboratedActivity = foregroundIsFresh
             && outputIsFresh
             && titleIsFresh
@@ -51,53 +46,34 @@ struct AgentStatusReconciler: Sendable {
 
         switch evidence.lifecycle {
         case .needsInput?:
-            return inferredRunningOrUnknown(hasCorroboratedActivity: hasCorroboratedActivity)
+            return unknownResolution()
 
         case .idle?:
-            guard let observedAt = evidence.lifecycleObservedAt else {
-                return inferredRunningOrUnknown(hasCorroboratedActivity: hasCorroboratedActivity)
-            }
-            if hasCorroboratedActivity,
-               let corroboratedActivityAt,
-               activityCanOverrideTransition(activityAt: corroboratedActivityAt, transitionAt: observedAt) {
-                return AgentStatusResolution(lifecycle: .running, confidence: .inferred)
-            }
+            guard evidence.lifecycleObservedAt != nil else { return unknownResolution() }
             return AgentStatusResolution(lifecycle: .idle, confidence: .confident)
 
         case .running?:
-            if let observedAt = evidence.lifecycleObservedAt,
-               age(of: observedAt, now: now) <= Self.runningSignalLifetime {
+            guard let observedAt = evidence.lifecycleObservedAt else { return unknownResolution() }
+            let lifecycleAge = age(of: observedAt, now: now)
+            if lifecycleAge <= Self.runningSignalLifetime {
                 return AgentStatusResolution(lifecycle: .running, confidence: .confident)
             }
-            return inferredRunningOrUnknown(hasCorroboratedActivity: hasCorroboratedActivity)
-
-        case .unknown?:
-            guard let observedAt = evidence.lifecycleObservedAt else {
-                return inferredRunningOrUnknown(hasCorroboratedActivity: hasCorroboratedActivity)
-            }
-            if hasCorroboratedActivity,
-               let corroboratedActivityAt,
-               activityCanOverrideTransition(activityAt: corroboratedActivityAt, transitionAt: observedAt) {
+            if lifecycleAge <= Self.runningCorroborationLifetime, hasCorroboratedActivity {
                 return AgentStatusResolution(lifecycle: .running, confidence: .inferred)
             }
+            return unknownResolution()
+
+        case .unknown?:
+            guard evidence.lifecycleObservedAt != nil else { return unknownResolution() }
             return AgentStatusResolution(lifecycle: .idle, confidence: .inferred)
 
         case nil:
-            return inferredRunningOrUnknown(hasCorroboratedActivity: hasCorroboratedActivity)
+            return unknownResolution()
         }
     }
 
-    private func inferredRunningOrUnknown(
-        hasCorroboratedActivity: Bool
-    ) -> AgentStatusResolution {
-        if hasCorroboratedActivity {
-            return AgentStatusResolution(lifecycle: .running, confidence: .inferred)
-        }
+    private func unknownResolution() -> AgentStatusResolution {
         return AgentStatusResolution(lifecycle: .unknown, confidence: .uncertain)
-    }
-
-    private func activityCanOverrideTransition(activityAt: Date, transitionAt: Date) -> Bool {
-        activityAt.timeIntervalSince(transitionAt) > Self.lifecycleTransitionActivityGrace
     }
 
     private func age(of date: Date, now: Date) -> TimeInterval {

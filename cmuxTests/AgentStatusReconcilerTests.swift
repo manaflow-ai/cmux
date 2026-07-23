@@ -3,7 +3,6 @@ import CmuxSidebar
 import Darwin
 import Foundation
 import Testing
-
 #if canImport(cmux_DEV)
 @testable import cmux_DEV
 #elseif canImport(cmux)
@@ -30,11 +29,12 @@ struct AgentStatusReconcilerTests {
         #expect(resolution == AgentStatusResolution(lifecycle: .unknown, confidence: .uncertain))
     }
 
-    @Test func recentRedrawFromMatchingForegroundAgentCannotKeepRunning() {
+    @Test func longLivedActivityCannotKeepRunningPastBound() {
         let evidence = AgentStatusEvidence(
             lifecycle: .running,
             lifecycleObservedAt: now.addingTimeInterval(-121),
             outputObservedAt: now.addingTimeInterval(-2),
+            titleObservedAt: now.addingTimeInterval(-2),
             foregroundAgentStatusKey: "codex",
             foregroundObservedAt: now.addingTimeInterval(-2),
             shellActivity: .commandRunning
@@ -48,10 +48,10 @@ struct AgentStatusReconcilerTests {
         #expect(resolution == AgentStatusResolution(lifecycle: .unknown, confidence: .uncertain))
     }
 
-    @Test func recentOutputAndTitleFromMatchingForegroundAgentInfersRunning() {
+    @Test func corroboratedActivityBrieflyExtendsRecentRunningHook() {
         let evidence = AgentStatusEvidence(
             lifecycle: .running,
-            lifecycleObservedAt: now.addingTimeInterval(-121),
+            lifecycleObservedAt: now.addingTimeInterval(-100),
             outputObservedAt: now.addingTimeInterval(-2),
             titleObservedAt: now.addingTimeInterval(-2),
             foregroundAgentStatusKey: "codex",
