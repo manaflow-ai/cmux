@@ -340,6 +340,49 @@ struct ArtifactMutationAuthorizationTests {
         #expect(artifact.lastReferencedSeq == 1)
     }
 
+    @Test("Successful sidechain Bash redirection is created across parse calls")
+    func successfulSidechainBashAcrossParseCalls() throws {
+        let invocation = claudeLine(type: "assistant", content: [[
+            "type": "tool_use", "id": "side-bash", "name": "Bash",
+            "input": ["command": "python render.py > /tmp/side-report.html"],
+        ]], isSidechain: true)
+        let parser = ClaudeTranscriptParser()
+        let first = parser.parse(lines: [invocation], startingSeq: 0)
+        let success = claudeLine(type: "user", content: [[
+            "type": "tool_result", "tool_use_id": "side-bash",
+            "content": "rendered", "is_error": false,
+        ]], isSidechain: true)
+
+        let second = parser.parse(lines: [success], startingSeq: 1, state: first.state)
+        let artifact = try #require(indexedArtifacts(second).first)
+
+        #expect(artifact.path.hasSuffix("/tmp/side-report.html"))
+        #expect(artifact.provenance == .created)
+        #expect(artifact.captureAuthorization == .created(sequence: 1))
+    }
+
+    @Test("Failed sidechain Bash redirection remains referenced")
+    func failedSidechainBashRemainsReferenced() throws {
+        let invocation = claudeLine(type: "assistant", content: [[
+            "type": "tool_use", "id": "side-bash", "name": "Bash",
+            "input": ["command": "python render.py > /tmp/side-report.html"],
+        ]], isSidechain: true)
+        let failure = claudeLine(type: "user", content: [[
+            "type": "tool_result", "tool_use_id": "side-bash",
+            "content": "permission denied", "is_error": true,
+        ]], isSidechain: true)
+
+        let result = ClaudeTranscriptParser().parse(
+            lines: [invocation, failure],
+            startingSeq: 0
+        )
+        let artifact = try #require(indexedArtifacts(result).first)
+
+        #expect(artifact.path.hasSuffix("/tmp/side-report.html"))
+        #expect(artifact.provenance == .referenced)
+        #expect(artifact.captureAuthorization == nil)
+    }
+
     private func indexedArtifacts(
         _ result: ChatTranscriptParseResult
     ) -> [ChatArtifactIndexedReference] {
