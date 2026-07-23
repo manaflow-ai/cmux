@@ -8,6 +8,7 @@ use std::os::fd::AsRawFd;
 use std::os::unix::net::UnixStream;
 use std::path::{Path, PathBuf};
 use std::process::{Command, Stdio};
+use std::sync::Arc;
 use std::thread;
 use std::time::{Duration, Instant, SystemTime, UNIX_EPOCH};
 
@@ -26,7 +27,7 @@ use cmux_remote::identity::{
 };
 use cmux_remote::provider::{
     IrohPathMode, ROUTING_DIRECT_ADDRS, ROUTING_NODE_ID, ROUTING_RELAY_URL, RelayCredentialSource,
-    SshProviderConfig,
+    SshProviderConfig, SupportedClientAuthModes,
 };
 use cmux_remote::ssh_bootstrap::{BUILD_IDENTITY, DISTRIBUTION_VERSION, NPM_BOOTSTRAP_VERSION};
 use cmux_remote_protocol::{
@@ -39,8 +40,8 @@ use zeroize::Zeroizing;
 
 use crate::remote_runtime::{
     ClientRuntimeOptions, DaemonRuntimeOptions, RelayClientOptions, ResolvedRouteCandidate,
-    SshBootstrapOptions, daemon_paths, load_runtime_info, start_client_runtime,
-    start_daemon_runtime,
+    SshBootstrapOptions, client_provider_registry, daemon_paths, load_runtime_info,
+    start_client_runtime, start_daemon_runtime,
 };
 use crate::session::{RemoteSession, Session};
 
@@ -579,6 +580,45 @@ fn start_connected(mut flags: ConnectFlags) -> anyhow::Result<ConnectedRuntime> 
         .join("client");
     let store = ClientIdentityStore::load_or_create(&client_root)?;
     let async_runtime = tokio_runtime()?;
+    let (relay, mut relay_routes) = client_relay_options(
+        std::mem::take(&mut flags.relay_routes),
+        std::mem::take(&mut flags.relay_slots),
+        std::mem::take(&mut flags.relay_credentials),
+    )?;
+    if let Some(invitation) = &invitation {
+        let mut invitation_routes = BTreeMap::new();
+        for access in &invitation.relay_access {
+            let route = Url::parse(&access.route)
+                .with_context(|| format!("invalid invitation relay route {:?}", access.route))?
+                .to_string();
+            let options = RelayClientOptions {
+                slot: access.slot.clone(),
+                credentials: RelayCredentialSource::static_ticket(access.ticket.clone())?,
+            };
+            if invitation_routes.insert(route.clone(), options).is_some() {
+                return Err(anyhow!("invitation repeats relay bootstrap route {route:?}"));
+            }
+        }
+        for (route, options) in invitation_routes {
+            relay_routes.entry(route).or_insert(options);
+        }
+    }
+    if relay_routes.len() + usize::from(relay.is_some()) > 4 {
+        return Err(anyhow!(
+            "a client supports at most four relay credential routes including invitation bootstrap routes"
+        ));
+    }
+    let ssh = SshProviderConfig {
+        ssh_binary: flags.ssh_binary.clone(),
+        remote_binary: flags.remote_binary.clone(),
+        remote_session: flags.ssh_session.clone(),
+        remote_state_dir: flags.remote_state_dir.clone(),
+        extra_args: flags.ssh_args.clone(),
+        maximum_frame_bytes: crate::remote_runtime::MAX_CARRIER_FRAME_BYTES,
+    };
+    let relay_route_names = relay_routes.keys().cloned().collect::<Vec<_>>();
+    let providers =
+        Arc::new(client_provider_registry(ssh.clone(), relay, relay_routes, flags.iroh_path)?);
     let explicit_route = flags.route.take();
     let (route_strings, auth, expected_daemon, known, carrier_auth) = if let Some(invitation) =
         &invitation
@@ -605,7 +645,9 @@ fn start_connected(mut flags: ConnectFlags) -> anyhow::Result<ConnectedRuntime> 
         )
     } else if let Some(route) = explicit_route {
         let endpoint = Url::parse(&route).with_context(|| format!("invalid route {route:?}"))?;
-        if matches!(endpoint.scheme(), "ssh" | "unix") {
+        if providers.supported_client_auth(endpoint.scheme())?
+            == SupportedClientAuthModes::DeviceOrCarrier
+        {
             (vec![route], ClientAuthMode::Carrier, None, None, true)
         } else {
             let known = async_runtime.block_on(select_known_daemon(
@@ -643,54 +685,18 @@ fn start_connected(mut flags: ConnectFlags) -> anyhow::Result<ConnectedRuntime> 
         (known.route_hints.clone(), auth, Some(key), Some(known), false)
     };
 
-    let mut routes = resolve_route_candidates(&route_strings, &flags.routing)?;
+    let mut routes = resolve_route_candidates(&route_strings, &flags.routing, &providers)?;
     promote_reachable_unix_routes(&mut routes);
     if flags.upgrade && routes.first().is_none_or(|route| route.endpoint.scheme() != "ssh") {
         return Err(anyhow!("--upgrade requires SSH to be the initial route"));
     }
-    let (relay, mut relay_routes) = client_relay_options(
-        std::mem::take(&mut flags.relay_routes),
-        std::mem::take(&mut flags.relay_slots),
-        std::mem::take(&mut flags.relay_credentials),
-    )?;
-    if let Some(invitation) = &invitation {
-        let mut invitation_routes = BTreeMap::new();
-        for access in &invitation.relay_access {
-            let route = Url::parse(&access.route)
-                .with_context(|| format!("invalid invitation relay route {:?}", access.route))?
-                .to_string();
-            let options = RelayClientOptions {
-                slot: access.slot.clone(),
-                credentials: RelayCredentialSource::static_ticket(access.ticket.clone())?,
-            };
-            if invitation_routes.insert(route.clone(), options).is_some() {
-                return Err(anyhow!("invitation repeats relay bootstrap route {route:?}"));
-            }
-        }
-        for (route, options) in invitation_routes {
-            relay_routes.entry(route).or_insert(options);
-        }
-    }
-    if relay_routes.len() + usize::from(relay.is_some()) > 4 {
-        return Err(anyhow!(
-            "a client supports at most four relay credential routes including invitation bootstrap routes"
-        ));
-    }
-    for route in relay_routes.keys() {
+    for route in relay_route_names {
         if !routes.iter().any(|candidate| candidate.endpoint.as_str() == route) {
             return Err(anyhow!(
                 "relay credential route {route:?} is not one of this connection's route candidates"
             ));
         }
     }
-    let ssh = SshProviderConfig {
-        ssh_binary: flags.ssh_binary.clone(),
-        remote_binary: flags.remote_binary.clone(),
-        remote_session: flags.ssh_session.clone(),
-        remote_state_dir: flags.remote_state_dir.clone(),
-        extra_args: flags.ssh_args.clone(),
-        maximum_frame_bytes: crate::remote_runtime::MAX_CARRIER_FRAME_BYTES,
-    };
     let session = SessionId(*uuid::Uuid::new_v4().as_bytes());
     let startup_timeout = remaining_startup_timeout(startup_started, total_startup_timeout)?;
     let ssh_bootstrap = SshBootstrapOptions {
@@ -700,6 +706,7 @@ fn start_connected(mut flags: ConnectFlags) -> anyhow::Result<ConnectedRuntime> 
     };
     let runtime = start_client_runtime(ClientRuntimeOptions {
         routes,
+        providers,
         identity: store.identity(),
         expected_daemon,
         auth,
@@ -710,9 +717,6 @@ fn start_connected(mut flags: ConnectFlags) -> anyhow::Result<ConnectedRuntime> 
         startup_timeout,
         state_dir: client_root,
         local_socket: flags.local_socket,
-        relay,
-        relay_routes,
-        iroh_path: flags.iroh_path,
         ssh,
         ssh_bootstrap,
     })?;
@@ -1534,6 +1538,7 @@ fn invitation_daemon_key(invitation: &EnrollmentInvitation) -> anyhow::Result<[u
 fn resolve_route_candidates(
     routes: &[String],
     iroh_routing: &BTreeMap<String, String>,
+    providers: &cmux_remote::provider::ProviderRegistry,
 ) -> anyhow::Result<Vec<ResolvedRouteCandidate>> {
     let mut candidates = Vec::new();
     for route in routes {
@@ -1541,7 +1546,7 @@ fn resolve_route_candidates(
         let mut routing =
             if endpoint.scheme() == "iroh" { iroh_routing.clone() } else { BTreeMap::new() };
         extract_iroh_routing(&mut endpoint, &mut routing)?;
-        let candidate = ResolvedRouteCandidate { endpoint, routing };
+        let candidate = ResolvedRouteCandidate::resolve(endpoint, routing, providers)?;
         if !candidates.contains(&candidate) {
             candidates.push(candidate);
         }
@@ -1637,6 +1642,18 @@ fn expand_home(path: String) -> anyhow::Result<PathBuf> {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    fn test_provider_registry() -> Arc<cmux_remote::provider::ProviderRegistry> {
+        Arc::new(
+            client_provider_registry(
+                SshProviderConfig::default(),
+                None,
+                BTreeMap::new(),
+                IrohPathMode::Auto,
+            )
+            .unwrap(),
+        )
+    }
 
     #[cfg(unix)]
     #[tokio::test]
@@ -1764,7 +1781,8 @@ esac
                 .to_string(),
         ];
 
-        let candidates = resolve_route_candidates(&routes, &BTreeMap::new()).unwrap();
+        let candidates =
+            resolve_route_candidates(&routes, &BTreeMap::new(), &test_provider_registry()).unwrap();
 
         assert_eq!(candidates[0].endpoint.as_str(), "iroh://first");
         assert_eq!(candidates[0].routing[ROUTING_RELAY_URL], "https://first-relay.example");
@@ -1889,7 +1907,10 @@ esac
             Url::parse(&format!("unix://{}", directory.path().join("missing.sock").display()))
                 .unwrap();
         let websocket = Url::parse("wss://daemon.example/v1/link").unwrap();
-        let candidate = |endpoint| ResolvedRouteCandidate { endpoint, routing: BTreeMap::new() };
+        let providers = test_provider_registry();
+        let candidate = |endpoint| {
+            ResolvedRouteCandidate::resolve(endpoint, BTreeMap::new(), &providers).unwrap()
+        };
         let mut routes = vec![
             candidate(missing.clone()),
             candidate(websocket.clone()),

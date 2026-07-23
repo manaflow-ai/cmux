@@ -20,7 +20,7 @@ use cmux_remote::connection::{
     ClientConnection, ClientConnectionConfig, ConnectionError, ReconnectGroupSource,
     ReconnectPolicy,
 };
-use cmux_remote::crypto::{ClientAuthMode, CryptoError, StaticIdentity};
+use cmux_remote::crypto::{AuthKind, ClientAuthMode, CryptoError, StaticIdentity};
 use cmux_remote::daemon::{DaemonSessionPolicy, serve_direct_websocket, serve_unix};
 use cmux_remote::identity::{AuthDatabase, default_state_dir};
 use cmux_remote::observability::ClientConnectionSnapshot;
@@ -28,7 +28,7 @@ use cmux_remote::provider::{
     ConnectRequest, DirectWebSocketProvider, IrohListener, IrohPathMode, IrohProvider,
     IrohProviderConfig, LinkGroup, ProviderError, RelayClientConfig, RelayCredentialSource,
     RelayDaemonConfig, RelayDaemonRegistration, RelayProvider, SshProvider, SshProviderConfig,
-    TransportProvider, UnixProvider, load_or_create_iroh_secret,
+    SupportedClientAuthModes, TransportProvider, UnixProvider, load_or_create_iroh_secret,
     register_relay_daemon_with_credentials, sanitized_route,
 };
 use cmux_remote::service::{EndpointRole, ServiceMultiplexer};
@@ -133,10 +133,100 @@ pub struct RelayClientOptions {
     pub credentials: RelayCredentialSource,
 }
 
+#[derive(Debug, Clone)]
+struct RoutedRelayProvider {
+    fallback: Option<RelayClientOptions>,
+    routes: BTreeMap<String, RelayClientOptions>,
+}
+
+#[async_trait]
+impl TransportProvider for RoutedRelayProvider {
+    fn name(&self) -> &'static str {
+        "configured-websocket-relay"
+    }
+
+    fn schemes(&self) -> &'static [&'static str] {
+        &["relay+ws", "relay+wss", "relay+https", "relay+do"]
+    }
+
+    fn supported_client_auth(&self) -> SupportedClientAuthModes {
+        SupportedClientAuthModes::DeviceOnly
+    }
+
+    async fn connect(&self, request: ConnectRequest) -> Result<Arc<dyn LinkGroup>, ProviderError> {
+        let relay =
+            self.routes.get(request.endpoint.as_str()).or(self.fallback.as_ref()).ok_or_else(
+                || {
+                    ProviderError::Configuration(
+                        "relay routes require relay slot and credentials".into(),
+                    )
+                },
+            )?;
+        RelayProvider::with_credentials(
+            RelayClientConfig {
+                slot: relay.slot.clone(),
+                ticket: String::new(),
+                maximum_frame_bytes: MAX_CARRIER_FRAME_BYTES,
+                control_timeout: Duration::from_secs(15),
+            },
+            relay.credentials.clone(),
+        )?
+        .connect(request)
+        .await
+    }
+}
+
+pub fn client_provider_registry(
+    ssh: SshProviderConfig,
+    relay: Option<RelayClientOptions>,
+    relay_routes: BTreeMap<String, RelayClientOptions>,
+    iroh_path: IrohPathMode,
+) -> Result<cmux_remote::provider::ProviderRegistry, ProviderError> {
+    let mut providers = cmux_remote::provider::ProviderRegistry::default();
+    providers.register(Arc::new(DirectWebSocketProvider::new(MAX_CARRIER_FRAME_BYTES)))?;
+    #[cfg(unix)]
+    providers.register(Arc::new(UnixProvider::new(MAX_CARRIER_FRAME_BYTES)))?;
+    providers.register(Arc::new(SshProvider::new(ssh)?))?;
+    providers.register(Arc::new(RoutedRelayProvider { fallback: relay, routes: relay_routes }))?;
+    providers.register(Arc::new(IrohProvider::new(
+        IrohProviderConfig::default().with_path_mode(iroh_path),
+    )?))?;
+    Ok(providers)
+}
+
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct ResolvedRouteCandidate {
     pub endpoint: Url,
     pub routing: BTreeMap<String, String>,
+    supported_client_auth: SupportedClientAuthModes,
+}
+
+impl ResolvedRouteCandidate {
+    pub fn resolve(
+        endpoint: Url,
+        routing: BTreeMap<String, String>,
+        providers: &cmux_remote::provider::ProviderRegistry,
+    ) -> Result<Self, ProviderError> {
+        let supported_client_auth = providers.supported_client_auth(endpoint.scheme())?;
+        Ok(Self { endpoint, routing, supported_client_auth })
+    }
+
+    pub fn supported_client_auth(&self) -> SupportedClientAuthModes {
+        self.supported_client_auth
+    }
+
+    fn supports_client_auth(&self, auth: AuthKind) -> bool {
+        self.supported_client_auth.supports(auth)
+    }
+
+    #[cfg(test)]
+    fn with_supported_client_auth_for_test(
+        endpoint: Url,
+        routing: BTreeMap<String, String>,
+        supported_client_auth: SupportedClientAuthModes,
+    ) -> Self {
+        Self { endpoint, routing, supported_client_auth }
+    }
 }
 
 #[derive(Debug, Clone, Copy)]
@@ -149,6 +239,7 @@ pub struct SshBootstrapOptions {
 #[derive(Debug, Clone)]
 pub struct ClientRuntimeOptions {
     pub routes: Vec<ResolvedRouteCandidate>,
+    pub providers: Arc<cmux_remote::provider::ProviderRegistry>,
     pub identity: StaticIdentity,
     pub expected_daemon: Option<[u8; 32]>,
     pub auth: ClientAuthMode,
@@ -159,11 +250,6 @@ pub struct ClientRuntimeOptions {
     pub startup_timeout: Duration,
     pub state_dir: PathBuf,
     pub local_socket: Option<PathBuf>,
-    /// Explicit fallback credential applied to any relay route.
-    pub relay: Option<RelayClientOptions>,
-    /// Invitation-scoped credentials keyed by normalized relay route URL.
-    pub relay_routes: BTreeMap<String, RelayClientOptions>,
-    pub iroh_path: IrohPathMode,
     pub ssh: SshProviderConfig,
     pub ssh_bootstrap: SshBootstrapOptions,
 }
@@ -336,6 +422,7 @@ async fn connect_first_available(
         &options.routes,
         options.session,
         options.lane_policy,
+        client_auth_kind(&options.auth),
         options.ssh_bootstrap.upgrade,
         &mut attempt,
     )
@@ -361,6 +448,7 @@ async fn select_initial_route<T: Send>(
     routes: &[ResolvedRouteCandidate],
     session: SessionId,
     lane_policy: LanePolicy,
+    auth: AuthKind,
     upgrade: bool,
     attempt: &mut impl InitialRouteAttempt<T>,
 ) -> anyhow::Result<T> {
@@ -372,9 +460,19 @@ async fn select_initial_route<T: Send>(
     }
     let mut failures = Vec::new();
     for (index, candidate) in routes.iter().enumerate() {
+        let display_endpoint = sanitized_route(&candidate.endpoint);
+        if !candidate.supports_client_auth(auth) {
+            failures.push(format!(
+                "{display_endpoint}: {}",
+                ProviderError::UnsupportedClientAuth {
+                    scheme: candidate.endpoint.scheme().into(),
+                    auth,
+                }
+            ));
+            continue;
+        }
         let request = connect_request(candidate, session, lane_policy)?;
         let endpoint = request.endpoint.clone();
-        let display_endpoint = sanitized_route(&endpoint);
         let upgrade_candidate = upgrade && index == 0;
         if endpoint.scheme() == "ssh"
             && let Err(error) = attempt.bootstrap_ssh(&endpoint, upgrade_candidate).await
@@ -422,7 +520,10 @@ impl InitialRouteAttempt<(Arc<ClientConnection>, String)> for RuntimeInitialRout
         index: usize,
         request: ConnectRequest,
     ) -> Result<(Arc<ClientConnection>, String), InitialRouteAttemptError> {
-        let group = connect_provider(self.options, request)
+        let group = self
+            .options
+            .providers
+            .connect(request, client_auth_kind(&self.options.auth))
             .await
             .map_err(|error| InitialRouteAttemptError::Route(error.into()))?;
         let route = group.description().to_string();
@@ -517,49 +618,6 @@ fn ssh_bootstrap_destination(endpoint: &Url) -> anyhow::Result<(String, Option<u
     Ok((destination, endpoint.port()))
 }
 
-async fn connect_provider(
-    options: &ClientRuntimeOptions,
-    request: ConnectRequest,
-) -> Result<Arc<dyn LinkGroup>, ProviderError> {
-    match request.endpoint.scheme() {
-        "ws" | "wss" => {
-            Ok(DirectWebSocketProvider::new(MAX_CARRIER_FRAME_BYTES).connect(request).await?)
-        }
-        "unix" => Ok(UnixProvider::new(MAX_CARRIER_FRAME_BYTES).connect(request).await?),
-        "ssh" => Ok(SshProvider::new(options.ssh.clone())?.connect(request).await?),
-        "relay+ws" | "relay+wss" | "relay+https" | "relay+do" => {
-            let relay = options
-                .relay_routes
-                .get(request.endpoint.as_str())
-                .or(options.relay.as_ref())
-                .ok_or_else(|| {
-                    ProviderError::Configuration(
-                        "relay routes require relay slot and credentials".into(),
-                    )
-                })?;
-            Ok(RelayProvider::with_credentials(
-                RelayClientConfig {
-                    slot: relay.slot.clone(),
-                    ticket: String::new(),
-                    maximum_frame_bytes: MAX_CARRIER_FRAME_BYTES,
-                    control_timeout: Duration::from_secs(15),
-                },
-                relay.credentials.clone(),
-            )?
-            .connect(request)
-            .await?)
-        }
-        "iroh" => {
-            Ok(IrohProvider::new(IrohProviderConfig::default().with_path_mode(options.iroh_path))?
-                .connect(request)
-                .await?)
-        }
-        scheme => {
-            Err(ProviderError::Configuration(format!("unsupported remote route scheme {scheme:?}")))
-        }
-    }
-}
-
 fn connect_request(
     candidate: &ResolvedRouteCandidate,
     session: SessionId,
@@ -583,6 +641,7 @@ async fn select_reconnect_route<T: Send>(
     start: usize,
     session: SessionId,
     lane_policy: LanePolicy,
+    auth: AuthKind,
     attempt: &impl ReconnectRouteAttempt<T>,
 ) -> Result<(usize, T), ProviderError> {
     if routes.is_empty() {
@@ -591,6 +650,17 @@ async fn select_reconnect_route<T: Send>(
     let mut failures = Vec::new();
     for offset in 0..routes.len() {
         let index = (start + offset) % routes.len();
+        if !routes[index].supports_client_auth(auth) {
+            failures.push(format!(
+                "{}: {}",
+                sanitized_route(&routes[index].endpoint),
+                ProviderError::UnsupportedClientAuth {
+                    scheme: routes[index].endpoint.scheme().into(),
+                    auth,
+                }
+            ));
+            continue;
+        }
         let request = connect_request(&routes[index], session, lane_policy)
             .map_err(|error| ProviderError::Configuration(error.to_string()))?;
         let endpoint = request.endpoint.clone();
@@ -634,12 +704,14 @@ impl RuntimeReconnectGroups {
         if !self.options.ssh_bootstrap.auto_install {
             return 0;
         }
+        let auth = client_auth_kind(&self.options.auth);
         self.options
             .routes
             .iter()
             .enumerate()
             .filter(|(index, candidate)| {
                 candidate.endpoint.scheme() == "ssh"
+                    && candidate.supports_client_auth(auth)
                     && !self.prepared_ssh[*index].load(Ordering::Acquire)
             })
             .count()
@@ -649,7 +721,16 @@ impl RuntimeReconnectGroups {
 #[async_trait]
 impl ReconnectGroupSource for RuntimeReconnectGroups {
     fn resolution_timeout(&self, reconnect_attempt_timeout: Duration) -> Duration {
-        let provider_attempts = u32::try_from(self.options.routes.len().max(1)).unwrap_or(u32::MAX);
+        let auth = client_auth_kind(&self.options.auth);
+        let provider_attempts = u32::try_from(
+            self.options
+                .routes
+                .iter()
+                .filter(|candidate| candidate.supports_client_auth(auth))
+                .count()
+                .max(1),
+        )
+        .unwrap_or(u32::MAX);
         let ssh_bootstraps =
             u32::try_from(self.unprepared_installable_ssh_count()).unwrap_or(u32::MAX);
         reconnect_attempt_timeout.saturating_mul(provider_attempts).saturating_add(
@@ -672,6 +753,7 @@ impl ReconnectGroupSource for RuntimeReconnectGroups {
             start,
             self.options.session,
             self.options.lane_policy,
+            client_auth_kind(&self.options.auth),
             &attempt,
         )
         .await?;
@@ -711,7 +793,7 @@ impl ReconnectRouteAttempt<Arc<dyn LinkGroup>> for RuntimeReconnectRouteAttempt<
         }
         tokio::time::timeout(
             self.options.reconnect.attempt_timeout,
-            connect_provider(self.options, request),
+            self.options.providers.connect(request, client_auth_kind(&self.options.auth)),
         )
         .await
         .map_err(|_| {
@@ -720,6 +802,14 @@ impl ReconnectRouteAttempt<Arc<dyn LinkGroup>> for RuntimeReconnectRouteAttempt<
                 self.options.reconnect.attempt_timeout.as_millis()
             ))
         })?
+    }
+}
+
+fn client_auth_kind(auth: &ClientAuthMode) -> AuthKind {
+    match auth {
+        ClientAuthMode::Enrolled => AuthKind::Enrolled,
+        ClientAuthMode::Invitation { .. } => AuthKind::Invitation,
+        ClientAuthMode::Carrier => AuthKind::Carrier,
     }
 }
 
@@ -1096,11 +1186,37 @@ mod tests {
         route: &str,
         supported_auth: cmux_remote::provider::SupportedClientAuthModes,
     ) -> ResolvedRouteCandidate {
+        resolved_test_route_with_routing(route, BTreeMap::new(), supported_auth)
+    }
+
+    fn resolved_test_route_with_routing(
+        route: &str,
+        routing: BTreeMap<String, String>,
+        supported_auth: cmux_remote::provider::SupportedClientAuthModes,
+    ) -> ResolvedRouteCandidate {
         ResolvedRouteCandidate::with_supported_client_auth_for_test(
             Url::parse(route).unwrap(),
+            routing,
+            supported_auth,
+        )
+    }
+
+    fn test_route(route: &str) -> ResolvedRouteCandidate {
+        let endpoint = Url::parse(route).unwrap();
+        let supported_auth = if matches!(endpoint.scheme(), "ssh" | "unix") {
+            SupportedClientAuthModes::DeviceOrCarrier
+        } else {
+            SupportedClientAuthModes::DeviceOnly
+        };
+        ResolvedRouteCandidate::with_supported_client_auth_for_test(
+            endpoint,
             BTreeMap::new(),
             supported_auth,
         )
+    }
+
+    fn test_providers(ssh: SshProviderConfig) -> Arc<cmux_remote::provider::ProviderRegistry> {
+        Arc::new(client_provider_registry(ssh, None, BTreeMap::new(), IrohPathMode::Auto).unwrap())
     }
 
     #[derive(Debug, PartialEq, Eq)]
@@ -1171,10 +1287,7 @@ mod tests {
 
     #[test]
     fn route_auth_capability_is_derived_from_the_local_provider_registry() {
-        let mut providers = cmux_remote::provider::ProviderRegistry::default();
-        providers
-            .register(Arc::new(DirectWebSocketProvider::new(MAX_CARRIER_FRAME_BYTES)))
-            .unwrap();
+        let providers = test_providers(SshProviderConfig::default());
         let candidate = ResolvedRouteCandidate::resolve(
             Url::parse(
                 "wss://daemon.example/v1/link?client_auth=device-or-carrier#untrusted-claim",
@@ -1188,6 +1301,22 @@ mod tests {
         assert_eq!(
             candidate.supported_client_auth(),
             cmux_remote::provider::SupportedClientAuthModes::DeviceOnly
+        );
+        for scheme in ["ws", "wss", "relay+ws", "relay+wss", "relay+https", "relay+do", "iroh"] {
+            assert_eq!(
+                providers.supported_client_auth(scheme).unwrap(),
+                SupportedClientAuthModes::DeviceOnly,
+                "{scheme}"
+            );
+        }
+        assert_eq!(
+            providers.supported_client_auth("ssh").unwrap(),
+            SupportedClientAuthModes::DeviceOrCarrier
+        );
+        #[cfg(unix)]
+        assert_eq!(
+            providers.supported_client_auth("unix").unwrap(),
+            SupportedClientAuthModes::DeviceOrCarrier
         );
     }
 
@@ -1307,11 +1436,13 @@ mod tests {
     }
 
     fn reconnect_test_options(routes: Vec<ResolvedRouteCandidate>) -> ClientRuntimeOptions {
+        let ssh = SshProviderConfig::default();
         ClientRuntimeOptions {
             routes,
+            providers: test_providers(ssh.clone()),
             identity: StaticIdentity::generate().unwrap(),
             expected_daemon: None,
-            auth: ClientAuthMode::Carrier,
+            auth: ClientAuthMode::Enrolled,
             device_name: "test".into(),
             session: SessionId([10; 16]),
             lane_policy: LanePolicy::Single,
@@ -1323,10 +1454,7 @@ mod tests {
             startup_timeout: Duration::from_millis(500),
             state_dir: PathBuf::from("/tmp/cmux-reconnect-budget-test"),
             local_socket: None,
-            relay: None,
-            relay_routes: BTreeMap::new(),
-            iroh_path: IrohPathMode::Auto,
-            ssh: SshProviderConfig::default(),
+            ssh,
             ssh_bootstrap: SshBootstrapOptions {
                 auto_install: true,
                 upgrade: false,
@@ -1337,16 +1465,12 @@ mod tests {
 
     #[test]
     fn reconnect_resolution_budget_covers_the_whole_candidate_cycle() {
-        let candidate = |route: &str| ResolvedRouteCandidate {
-            endpoint: Url::parse(route).unwrap(),
-            routing: BTreeMap::new(),
-        };
         let source = RuntimeReconnectGroups::new(
             reconnect_test_options(vec![
-                candidate("wss://first.example/v1/link"),
-                candidate("ssh://first-ssh.example"),
-                candidate("iroh://fallback"),
-                candidate("ssh://second-ssh.example"),
+                test_route("wss://first.example/v1/link"),
+                test_route("ssh://first-ssh.example"),
+                test_route("iroh://fallback"),
+                test_route("ssh://second-ssh.example"),
             ]),
             0,
         );
@@ -1365,7 +1489,7 @@ mod tests {
         assert_eq!(source.resolution_timeout(Duration::from_millis(20)), Duration::from_millis(80));
 
         let ordinary = RuntimeReconnectGroups::new(
-            reconnect_test_options(vec![candidate("wss://only.example/v1/link")]),
+            reconnect_test_options(vec![test_route("wss://only.example/v1/link")]),
             0,
         );
         assert_eq!(
@@ -1378,17 +1502,15 @@ mod tests {
     #[tokio::test]
     async fn failed_ssh_bootstrap_falls_back_to_next_initial_provider() {
         let routes = vec![
-            ResolvedRouteCandidate {
-                endpoint: Url::parse("ssh://unreachable.example").unwrap(),
-                routing: BTreeMap::new(),
-            },
-            ResolvedRouteCandidate {
-                endpoint: Url::parse("iroh://next").unwrap(),
-                routing: BTreeMap::from([(
+            test_route("ssh://unreachable.example"),
+            resolved_test_route_with_routing(
+                "iroh://next",
+                BTreeMap::from([(
                     cmux_remote::provider::ROUTING_DIRECT_ADDRS.into(),
                     "127.0.0.1:4242".into(),
                 )]),
-            },
+                SupportedClientAuthModes::DeviceOnly,
+            ),
         ];
         let mut attempt = FakeInitialRouteAttempt {
             fail_ssh_bootstrap: true,
@@ -1400,6 +1522,7 @@ mod tests {
             &routes,
             SessionId([5; 16]),
             LanePolicy::Single,
+            AuthKind::Enrolled,
             false,
             &mut attempt,
         )
@@ -1430,19 +1553,11 @@ mod tests {
     #[tokio::test]
     async fn initial_route_failures_redact_ssh_and_relay_endpoint_secrets() {
         let routes = vec![
-            ResolvedRouteCandidate {
-                endpoint: Url::parse("ssh://ssh-user:ssh-password-marker@ssh.example:2222")
-                    .unwrap(),
-                routing: BTreeMap::new(),
-            },
-            ResolvedRouteCandidate {
-                endpoint: Url::parse(
-                    "relay+wss://relay-user:relay-password-marker@relay.example/\
+            test_route("ssh://ssh-user:ssh-password-marker@ssh.example:2222"),
+            test_route(
+                "relay+wss://relay-user:relay-password-marker@relay.example/\
                      capability-marker?ticket=query-marker#fragment-marker",
-                )
-                .unwrap(),
-                routing: BTreeMap::new(),
-            },
+            ),
         ];
         let mut attempt = FakeInitialRouteAttempt {
             fail_ssh_bootstrap: true,
@@ -1454,6 +1569,7 @@ mod tests {
             &routes,
             SessionId([11; 16]),
             LanePolicy::Single,
+            AuthKind::Enrolled,
             false,
             &mut attempt,
         )
@@ -1479,14 +1595,8 @@ mod tests {
     #[tokio::test]
     async fn upgrade_bootstrap_failure_is_fatal_without_provider_fallback() {
         let routes = vec![
-            ResolvedRouteCandidate {
-                endpoint: Url::parse("ssh://upgrade-user@upgrade.example").unwrap(),
-                routing: BTreeMap::new(),
-            },
-            ResolvedRouteCandidate {
-                endpoint: Url::parse("wss://fallback.example/v1/link").unwrap(),
-                routing: BTreeMap::new(),
-            },
+            test_route("ssh://upgrade-user@upgrade.example"),
+            test_route("wss://fallback.example/v1/link"),
         ];
         let mut attempt = FakeInitialRouteAttempt {
             fail_ssh_bootstrap: true,
@@ -1498,6 +1608,7 @@ mod tests {
             &routes,
             SessionId([6; 16]),
             LanePolicy::Single,
+            AuthKind::Enrolled,
             true,
             &mut attempt,
         )
@@ -1519,14 +1630,8 @@ mod tests {
     #[tokio::test]
     async fn upgrade_provider_failure_is_fatal_without_route_fallback() {
         let routes = vec![
-            ResolvedRouteCandidate {
-                endpoint: Url::parse("ssh://upgrade-user@upgrade.example").unwrap(),
-                routing: BTreeMap::new(),
-            },
-            ResolvedRouteCandidate {
-                endpoint: Url::parse("wss://fallback.example/v1/link").unwrap(),
-                routing: BTreeMap::new(),
-            },
+            test_route("ssh://upgrade-user@upgrade.example"),
+            test_route("wss://fallback.example/v1/link"),
         ];
         let mut attempt = FakeInitialRouteAttempt {
             fail_ssh_bootstrap: false,
@@ -1538,6 +1643,7 @@ mod tests {
             &routes,
             SessionId([8; 16]),
             LanePolicy::Single,
+            AuthKind::Enrolled,
             true,
             &mut attempt,
         )
@@ -1593,20 +1699,19 @@ mod tests {
         )
         .unwrap();
         fs::set_permissions(&script, fs::Permissions::from_mode(0o755)).unwrap();
+        let ssh = SshProviderConfig {
+            ssh_binary: script.to_string_lossy().into_owned(),
+            ..SshProviderConfig::default()
+        };
         let options = ClientRuntimeOptions {
             routes: vec![
-                ResolvedRouteCandidate {
-                    endpoint: Url::parse("wss://initial.example/v1/link").unwrap(),
-                    routing: BTreeMap::new(),
-                },
-                ResolvedRouteCandidate {
-                    endpoint: Url::parse("ssh://fallback.example").unwrap(),
-                    routing: BTreeMap::new(),
-                },
+                test_route("wss://initial.example/v1/link"),
+                test_route("ssh://fallback.example"),
             ],
+            providers: test_providers(ssh.clone()),
             identity: StaticIdentity::generate().unwrap(),
             expected_daemon: None,
-            auth: ClientAuthMode::Carrier,
+            auth: ClientAuthMode::Enrolled,
             device_name: "test".into(),
             session: SessionId([9; 16]),
             lane_policy: LanePolicy::Single,
@@ -1618,13 +1723,7 @@ mod tests {
             startup_timeout: Duration::from_millis(500),
             state_dir: directory.path().join("state"),
             local_socket: None,
-            relay: None,
-            relay_routes: BTreeMap::new(),
-            iroh_path: IrohPathMode::Auto,
-            ssh: SshProviderConfig {
-                ssh_binary: script.to_string_lossy().into_owned(),
-                ..SshProviderConfig::default()
-            },
+            ssh,
             ssh_bootstrap: SshBootstrapOptions {
                 auto_install: true,
                 upgrade: false,
@@ -1656,27 +1755,35 @@ mod tests {
     #[tokio::test]
     async fn reconnect_provider_receives_the_exact_route_candidate_hints() {
         let routes = vec![
-            ResolvedRouteCandidate {
-                endpoint: Url::parse("iroh://first").unwrap(),
-                routing: BTreeMap::from([(
+            resolved_test_route_with_routing(
+                "iroh://first",
+                BTreeMap::from([(
                     cmux_remote::provider::ROUTING_RELAY_URL.into(),
                     "https://first-relay.example".into(),
                 )]),
-            },
-            ResolvedRouteCandidate {
-                endpoint: Url::parse("iroh://second").unwrap(),
-                routing: BTreeMap::from([(
+                SupportedClientAuthModes::DeviceOnly,
+            ),
+            resolved_test_route_with_routing(
+                "iroh://second",
+                BTreeMap::from([(
                     cmux_remote::provider::ROUTING_RELAY_URL.into(),
                     "https://second-relay.example".into(),
                 )]),
-            },
+                SupportedClientAuthModes::DeviceOnly,
+            ),
         ];
         let attempt = FakeReconnectRouteAttempt::default();
 
-        let (index, selected) =
-            select_reconnect_route(&routes, 1, SessionId([7; 16]), LanePolicy::Single, &attempt)
-                .await
-                .unwrap();
+        let (index, selected) = select_reconnect_route(
+            &routes,
+            1,
+            SessionId([7; 16]),
+            LanePolicy::Single,
+            AuthKind::Enrolled,
+            &attempt,
+        )
+        .await
+        .unwrap();
 
         assert_eq!(index, 1);
         assert_eq!(selected, "iroh://second");
@@ -1697,22 +1804,14 @@ mod tests {
     #[tokio::test]
     async fn reconnect_failures_redact_endpoint_secrets() {
         let routes = vec![
-            ResolvedRouteCandidate {
-                endpoint: Url::parse(
-                    "wss://ws-user:ws-password-marker@ws.example/\
+            test_route(
+                "wss://ws-user:ws-password-marker@ws.example/\
                      capability-marker?ticket=query-marker#fragment-marker",
-                )
-                .unwrap(),
-                routing: BTreeMap::new(),
-            },
-            ResolvedRouteCandidate {
-                endpoint: Url::parse(
-                    "relay+wss://relay-user:relay-password-marker@relay.example/\
+            ),
+            test_route(
+                "relay+wss://relay-user:relay-password-marker@relay.example/\
                      relay-capability?ticket=relay-query#relay-fragment",
-                )
-                .unwrap(),
-                routing: BTreeMap::new(),
-            },
+            ),
         ];
 
         let error = select_reconnect_route(
@@ -1720,6 +1819,7 @@ mod tests {
             0,
             SessionId([12; 16]),
             LanePolicy::Single,
+            AuthKind::Enrolled,
             &RejectingReconnectRouteAttempt,
         )
         .await
@@ -1746,10 +1846,7 @@ mod tests {
 
     #[tokio::test]
     async fn reconnect_ssh_bootstrap_failure_redacts_dial_userinfo() {
-        let routes = vec![ResolvedRouteCandidate {
-            endpoint: Url::parse("ssh://ssh-user:ssh-password-marker@ssh.example:2222").unwrap(),
-            routing: BTreeMap::new(),
-        }];
+        let routes = vec![test_route("ssh://ssh-user:ssh-password-marker@ssh.example:2222")];
         let options = reconnect_test_options(routes.clone());
         let prepared_ssh = [AtomicBool::new(false)];
         let attempt =
@@ -1816,20 +1913,13 @@ mod tests {
 
     #[tokio::test]
     async fn reconnect_source_cycles_normalized_route_candidates() {
+        let ssh = SshProviderConfig::default();
         let options = ClientRuntimeOptions {
-            routes: vec![
-                ResolvedRouteCandidate {
-                    endpoint: Url::parse("ws://first.invalid").unwrap(),
-                    routing: BTreeMap::new(),
-                },
-                ResolvedRouteCandidate {
-                    endpoint: Url::parse("ws://second.invalid").unwrap(),
-                    routing: BTreeMap::new(),
-                },
-            ],
+            routes: vec![test_route("ws://first.invalid"), test_route("ws://second.invalid")],
+            providers: test_providers(ssh.clone()),
             identity: StaticIdentity::generate().unwrap(),
             expected_daemon: None,
-            auth: ClientAuthMode::Carrier,
+            auth: ClientAuthMode::Enrolled,
             device_name: "test".into(),
             session: SessionId([3; 16]),
             lane_policy: LanePolicy::Single,
@@ -1837,10 +1927,7 @@ mod tests {
             startup_timeout: Duration::from_secs(1),
             state_dir: PathBuf::from("/tmp/cmux-remote-route-test"),
             local_socket: None,
-            relay: None,
-            relay_routes: BTreeMap::new(),
-            iroh_path: IrohPathMode::Auto,
-            ssh: SshProviderConfig::default(),
+            ssh,
             ssh_bootstrap: SshBootstrapOptions {
                 auto_install: true,
                 upgrade: false,

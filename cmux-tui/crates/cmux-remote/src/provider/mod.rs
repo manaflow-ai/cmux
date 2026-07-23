@@ -171,9 +171,7 @@ impl fmt::Debug for ProviderRegistry {
         let providers = self
             .providers
             .iter()
-            .map(|provider| {
-                (provider.name(), provider.schemes(), provider.supported_client_auth())
-            })
+            .map(|provider| (provider.name(), provider.schemes(), provider.supported_client_auth()))
             .collect::<Vec<_>>();
         formatter.debug_struct("ProviderRegistry").field("providers", &providers).finish()
     }
