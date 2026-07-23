@@ -77,7 +77,7 @@ extension Workspace {
                 : nil
         }
         if enforceStructuredAgentReplacementOrdering,
-           let replacementWatermark = agentLifecycleEventTimesByPanelId[panelId]?
+           let replacementWatermark = (agentLifecycleEventTimesByPanelId[panelId] ?? [:])
                .filter { key, _ in
                    key != statusKey && AgentHibernationLifecycleStatusKeys.allowedStatusKeys.contains(key)
                }
