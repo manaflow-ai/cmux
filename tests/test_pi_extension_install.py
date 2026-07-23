@@ -14,7 +14,7 @@ import tempfile
 import time
 from pathlib import Path
 
-from claude_teams_test_utils import resolve_cmux_cli
+from claude_teams_test_utils import install_pi_extension, resolve_cmux_cli
 
 
 def make_executable(path: Path, content: str) -> None:
@@ -69,31 +69,14 @@ def main() -> int:
     with tempfile.TemporaryDirectory(prefix="cmux-pi-extension-") as td:
         root = Path(td)
         config_dir = root / "pi-agent"
+        try:
+            extension_path = install_pi_extension(config_dir, cli_path)
+        except RuntimeError as exc:
+            print("FAIL: pi extension install failed")
+            print(exc)
+            return 1
         env = os.environ.copy()
         env["PI_CODING_AGENT_DIR"] = str(config_dir)
-
-        install = subprocess.run(
-            [cli_path, "hooks", "pi", "install", "--yes"],
-            capture_output=True,
-            text=True,
-            check=False,
-            env=env,
-            timeout=20,
-        )
-        if install.returncode != 0:
-            print("FAIL: pi extension install failed")
-            print(f"exit={install.returncode}")
-            print(f"stdout={install.stdout.strip()}")
-            print(f"stderr={install.stderr.strip()}")
-            return 1
-
-        extension_path = config_dir / "extensions" / "cmux-session.ts"
-        if not extension_path.exists():
-            print(f"FAIL: expected extension at {extension_path}")
-            return 1
-        extension_override = os.environ.get("CMUX_TEST_PI_EXTENSION_OVERRIDE")
-        if extension_override:
-            shutil.copyfile(extension_override, extension_path)
         extension_text = extension_path.read_text(encoding="utf-8")
         if "cmux-pi-session-extension-marker" not in extension_text:
             print(f"FAIL: expected cmux marker in {extension_path}")
@@ -471,17 +454,13 @@ if (await completionHookCount() !== completionCount) throw new Error("malformed 
             fake_args_log,
             38,
             timeout=20.0,
-            expected_substrings=(
-                "hooks feed --source pi --event PostToolUse",
-            ),
+            expected_substrings=("hooks feed --source pi --event PostToolUse",),
         )
         stdin_log = wait_for_text(
             fake_stdin_log,
             62,
             timeout=20.0,
-            expected_substrings=(
-                '"hook_event_name":"PostToolUse"',
-            ),
+            expected_substrings=('"hook_event_name":"PostToolUse"',),
         )
         env_log = wait_for_text(fake_env_log, 38 * 3, timeout=20.0)
         for expected in [
@@ -508,12 +487,20 @@ if (await completionHookCount() !== completionCount) throw new Error("malformed 
             elif "surface resume clear" in line:
                 resume_ops.append("clear")
         expected_resume_ops = [
-            "set", "get", "clear",
-            "set", "get", "clear",
-            "set", "get",
-            "set", "get",
-            "set", "get",
-            "set", "get",
+            "set",
+            "get",
+            "clear",
+            "set",
+            "get",
+            "clear",
+            "set",
+            "get",
+            "set",
+            "get",
+            "set",
+            "get",
+            "set",
+            "get",
         ]
         if resume_ops != expected_resume_ops:
             print(f"FAIL: extension did not verify resume binding after set, got {resume_ops!r}")
@@ -539,8 +526,14 @@ if (await completionHookCount() !== completionCount) throw new Error("malformed 
         if not any(payload.get("session_id") == "pi-session-test" for payload in payloads):
             print(f"FAIL: extension did not pass session id, got {payloads!r}")
             return 1
-        prompt_payload = next((payload for payload in payloads if payload.get("prompt") == "hello pi"), None)
-        stop_payload = next((payload for payload in payloads if payload.get("last_assistant_message") == "done"), None)
+        prompt_payload = next(
+            (payload for payload in payloads if payload.get("prompt") == "hello pi"),
+            None,
+        )
+        stop_payload = next(
+            (payload for payload in payloads if payload.get("last_assistant_message") == "done"),
+            None,
+        )
         if prompt_payload is None or stop_payload is None:
             print(f"FAIL: extension did not pass prompt/assistant payload, got {payloads!r}")
             return 1
@@ -576,8 +569,7 @@ if (await completionHookCount() !== completionCount) throw new Error("malformed 
             (
                 payload
                 for payload in payloads
-                if payload.get("session_id") == "pi-session-legacy"
-                and payload.get("hook_event_name") == "Stop"
+                if payload.get("session_id") == "pi-session-legacy" and payload.get("hook_event_name") == "Stop"
             ),
             None,
         )
@@ -588,8 +580,7 @@ if (await completionHookCount() !== completionCount) throw new Error("malformed 
             (
                 payload
                 for payload in payloads
-                if payload.get("session_id") == "pi-session-unknown"
-                and payload.get("hook_event_name") == "Stop"
+                if payload.get("session_id") == "pi-session-unknown" and payload.get("hook_event_name") == "Stop"
             ),
             None,
         )
@@ -600,8 +591,7 @@ if (await completionHookCount() !== completionCount) throw new Error("malformed 
             (
                 payload
                 for payload in payloads
-                if payload.get("session_id") == "pi-session-malformed"
-                and payload.get("hook_event_name") == "Stop"
+                if payload.get("session_id") == "pi-session-malformed" and payload.get("hook_event_name") == "Stop"
             ),
             None,
         )
@@ -621,11 +611,14 @@ if (await completionHookCount() !== completionCount) throw new Error("malformed 
                 f"got {interrupted_stop_payload!r}"
             )
             return 1
-        feed_events = [payload for payload in payloads if payload.get("hook_event_name") in {"PreToolUse", "PostToolUse"}]
+        feed_events = [
+            payload for payload in payloads if payload.get("hook_event_name") in {"PreToolUse", "PostToolUse"}
+        ]
         feed_event_names = {payload.get("hook_event_name") for payload in feed_events}
-        if feed_event_names not in ({"PostToolUse"}, {"PreToolUse", "PostToolUse"}) or any(
-            payload.get("tool_name") != "bash" for payload in feed_events
-        ):
+        if feed_event_names not in (
+            {"PostToolUse"},
+            {"PreToolUse", "PostToolUse"},
+        ) or any(payload.get("tool_name") != "bash" for payload in feed_events):
             print(f"FAIL: Pi Feed bridge payloads were incomplete: {feed_events!r}")
             return 1
         if {payload.get("turn_id") for payload in feed_events} != {prompt_turn_id}:
