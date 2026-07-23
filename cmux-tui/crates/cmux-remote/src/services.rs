@@ -1241,6 +1241,207 @@ mod tests {
 
     #[cfg(unix)]
     #[tokio::test(flavor = "current_thread")]
+    async fn predeclared_process_stream_never_silently_loses_immediate_large_output() {
+        tokio::task::LocalSet::new()
+            .run_until(async {
+                const OUTPUT_BYTES: usize = 8 * 1024 * 1024;
+
+                let directory = tempdir().unwrap();
+                let workspace = WorkspaceService::new();
+                let services = DaemonServices::new(workspace, None);
+                let (client_endpoint, daemon_endpoint) = endpoint_pair();
+                let client_multiplexer =
+                    ServiceMultiplexer::new(client_endpoint, EndpointRole::Client);
+                let daemon_multiplexer =
+                    ServiceMultiplexer::new(daemon_endpoint, EndpointRole::Daemon);
+                let server = tokio::task::spawn_local({
+                    let services = services.clone();
+                    let daemon_multiplexer = daemon_multiplexer.clone();
+                    async move {
+                        let scope = ClientScope::new(
+                            "large-output-test",
+                            cmux_remote_protocol::SessionId([9; 16]),
+                        );
+                        let request_slots = RequestAdmission::new();
+                        while let Some(incoming) = daemon_multiplexer.accept().await.unwrap() {
+                            let services = services.clone();
+                            let scope = scope.clone();
+                            let request_slots = request_slots.clone();
+                            tokio::task::spawn_local(async move {
+                                let _ = services.serve_stream(scope, request_slots, incoming).await;
+                            });
+                        }
+                    }
+                });
+                let client = WorkspaceClient::connect(client_multiplexer.clone()).await.unwrap();
+                let opened = client
+                    .request(WorkspaceRequest::OpenWorkspace {
+                        root: directory.path().to_string_lossy().into_owned(),
+                    })
+                    .await
+                    .unwrap();
+                let WorkspaceResponse::Workspace { id: workspace_id, .. } = opened else {
+                    panic!("open-workspace returned the wrong response")
+                };
+
+                let spawned = client
+                    .spawn_process_with_events(WorkspaceRequest::SpawnProcess {
+                        workspace: workspace_id,
+                        argv: vec![
+                            "/bin/sh".into(),
+                            "-c".into(),
+                            "dd if=/dev/zero bs=1048576 count=8 2>/dev/null".into(),
+                        ],
+                        cwd: None,
+                        env: BTreeMap::new(),
+                        io: ProcessIo::Pipes { stdin: false },
+                        lifetime: ProcessLifetime::Workspace,
+                        operation: None,
+                        timeout_ms: None,
+                        retained_output_bytes: None,
+                        environment: ProcessEnvironment::Inherit,
+                    })
+                    .await
+                    .unwrap();
+
+                let mut received = 0usize;
+                let mut structured_loss = None;
+                loop {
+                    let event = tokio::time::timeout(
+                        std::time::Duration::from_secs(15),
+                        spawned.events.receive(),
+                    )
+                    .await
+                    .expect("large process output stream stalled")
+                    .expect("large process output stream failed")
+                    .expect("large process output stream closed without a terminal event");
+                    match event.event {
+                        ProcessEvent::Stdout { data, .. } => {
+                            let bytes = data.decode().unwrap();
+                            assert!(bytes.iter().all(|byte| *byte == 0));
+                            received += bytes.len();
+                        }
+                        ProcessEvent::OutputTruncated { reason, .. } => {
+                            structured_loss = Some(format!("output-truncated:{reason:?}"));
+                        }
+                        ProcessEvent::ReplayGap { requested_after, range, .. } => {
+                            structured_loss =
+                                Some(format!("replay-gap:{requested_after}:{range:?}"));
+                            break;
+                        }
+                        ProcessEvent::Exit { .. } => break,
+                        ProcessEvent::Stderr { .. } => {}
+                    }
+                }
+                assert!(
+                    received == OUTPUT_BYTES || structured_loss.is_some(),
+                    "received {received} of {OUTPUT_BYTES} bytes without structured loss metadata"
+                );
+
+                drop(client);
+                client_multiplexer.shutdown().await;
+                daemon_multiplexer.shutdown().await;
+                server.abort();
+                let _ = server.await;
+            })
+            .await;
+    }
+
+    #[cfg(unix)]
+    #[tokio::test(flavor = "current_thread")]
+    async fn reconnect_process_stream_reports_a_structured_replay_gap() {
+        tokio::task::LocalSet::new()
+            .run_until(async {
+                let directory = tempdir().unwrap();
+                let workspace = WorkspaceService::new();
+                let services = DaemonServices::new(workspace, None);
+                let (client_endpoint, daemon_endpoint) = endpoint_pair();
+                let client_multiplexer =
+                    ServiceMultiplexer::new(client_endpoint, EndpointRole::Client);
+                let daemon_multiplexer =
+                    ServiceMultiplexer::new(daemon_endpoint, EndpointRole::Daemon);
+                let server = tokio::task::spawn_local({
+                    let services = services.clone();
+                    let daemon_multiplexer = daemon_multiplexer.clone();
+                    async move {
+                        let scope = ClientScope::new(
+                            "replay-gap-test",
+                            cmux_remote_protocol::SessionId([10; 16]),
+                        );
+                        let request_slots = RequestAdmission::new();
+                        while let Some(incoming) = daemon_multiplexer.accept().await.unwrap() {
+                            let services = services.clone();
+                            let scope = scope.clone();
+                            let request_slots = request_slots.clone();
+                            tokio::task::spawn_local(async move {
+                                let _ = services.serve_stream(scope, request_slots, incoming).await;
+                            });
+                        }
+                    }
+                });
+                let client = WorkspaceClient::connect(client_multiplexer.clone()).await.unwrap();
+                let opened = client
+                    .request(WorkspaceRequest::OpenWorkspace {
+                        root: directory.path().to_string_lossy().into_owned(),
+                    })
+                    .await
+                    .unwrap();
+                let WorkspaceResponse::Workspace { id: workspace_id, .. } = opened else {
+                    panic!("open-workspace returned the wrong response")
+                };
+                let started = client
+                    .request(WorkspaceRequest::SpawnProcess {
+                        workspace: workspace_id,
+                        argv: vec![
+                            "/bin/sh".into(),
+                            "-c".into(),
+                            "dd if=/dev/zero bs=65536 count=2 2>/dev/null".into(),
+                        ],
+                        cwd: None,
+                        env: BTreeMap::new(),
+                        io: ProcessIo::Pipes { stdin: false },
+                        lifetime: ProcessLifetime::Workspace,
+                        operation: None,
+                        timeout_ms: None,
+                        retained_output_bytes: Some(1),
+                        environment: ProcessEnvironment::Inherit,
+                    })
+                    .await
+                    .unwrap();
+                let WorkspaceResponse::ProcessStarted { process, .. } = started else {
+                    panic!("spawn-process returned the wrong response")
+                };
+                client.request(WorkspaceRequest::WaitProcess { process }).await.unwrap();
+
+                let events = client.process_events(process, 0).await.unwrap();
+                let gap = events
+                    .receive()
+                    .await
+                    .unwrap()
+                    .expect("replay-gap stream closed without metadata");
+                assert!(matches!(
+                    gap.event,
+                    ProcessEvent::ReplayGap {
+                        process: gap_process,
+                        requested_after: 0,
+                        range: cmux_remote_protocol::ProcessReplayRange {
+                            first_available: Some(first),
+                            ..
+                        },
+                    } if gap_process == process && first > 1
+                ));
+
+                drop(client);
+                client_multiplexer.shutdown().await;
+                daemon_multiplexer.shutdown().await;
+                server.abort();
+                let _ = server.await;
+            })
+            .await;
+    }
+
+    #[cfg(unix)]
+    #[tokio::test(flavor = "current_thread")]
     async fn blocked_workspace_cpu_does_not_delay_mux_control_round_trip() {
         tokio::task::LocalSet::new()
             .run_until(async {

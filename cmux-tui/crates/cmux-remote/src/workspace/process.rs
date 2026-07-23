@@ -1565,6 +1565,7 @@ mod tests {
         lifetime: ProcessLifetime,
     ) -> ProcessSpawnOptions {
         ProcessSpawnOptions {
+            requested_process: None,
             owner: ClientScope::local(),
             argv,
             cwd: None,
@@ -1576,6 +1577,92 @@ mod tests {
             retained_output_bytes: None,
             environment: ProcessEnvironment::Inherit,
         }
+    }
+
+    #[cfg(unix)]
+    #[tokio::test]
+    async fn duplicate_caller_process_id_is_rejected() {
+        let (_directory, root) = root().await;
+        let manager = ProcessManager::default();
+        let process = ProcessId(0x5a17);
+        let mut first = spawn_options(
+            vec!["/bin/sleep".into(), "30".into()],
+            ProcessIo::Pipes { stdin: false },
+            ProcessLifetime::Workspace,
+        );
+        first.requested_process = Some(process);
+        assert!(matches!(
+            manager.spawn(root.clone(), first).await.unwrap(),
+            WorkspaceResponse::ProcessStarted { process: started, .. } if started == process
+        ));
+
+        let mut duplicate = spawn_options(
+            vec!["/bin/true".into()],
+            ProcessIo::Pipes { stdin: false },
+            ProcessLifetime::Workspace,
+        );
+        duplicate.requested_process = Some(process);
+        let error = manager.spawn(root, duplicate).await.unwrap_err();
+        assert_eq!(error.code, "duplicate-process-id");
+
+        manager.signal(process, ProcessSignal::Kill).await.unwrap();
+        manager.wait(process).await.unwrap();
+    }
+
+    #[cfg(unix)]
+    #[tokio::test]
+    async fn output_drain_waits_for_a_slow_inherited_pipe_tail() {
+        let (_directory, root) = root().await;
+        let manager = ProcessManager::default();
+        let response = manager
+            .spawn(
+                root,
+                spawn_options(
+                    vec![
+                        "/bin/sh".into(),
+                        "-c".into(),
+                        "(sleep 0.35; printf tail) & exit 0".into(),
+                    ],
+                    ProcessIo::Pipes { stdin: false },
+                    ProcessLifetime::Workspace,
+                ),
+            )
+            .await
+            .unwrap();
+        let WorkspaceResponse::ProcessStarted { process, .. } = response else { panic!() };
+        manager.wait(process).await.unwrap();
+
+        let mut events = manager.subscribe(process, 0).await.unwrap();
+        let mut stdout = Vec::new();
+        let mut truncated = false;
+        loop {
+            match events.recv().await.unwrap().event {
+                ProcessEvent::Stdout { data, .. } => stdout.extend(data.decode().unwrap()),
+                ProcessEvent::OutputTruncated { .. } => truncated = true,
+                ProcessEvent::Exit { .. } => break,
+                ProcessEvent::Stderr { .. } | ProcessEvent::ReplayGap { .. } => {}
+            }
+        }
+        assert_eq!(stdout, b"tail");
+        assert!(!truncated, "a sub-second final drain must retain the output tail");
+    }
+
+    #[tokio::test]
+    async fn subscriber_lag_reports_a_structured_replay_gap() {
+        let process = ProcessId(7);
+        let log = ProcessEventLog::new(1);
+        let mut subscription = log.subscribe(0, false).unwrap();
+        for _ in 0..(PROCESS_BROADCAST_CAPACITY + 1) {
+            log.publish_output(process, false, b"x");
+        }
+
+        let error = subscription.recv().await.unwrap_err();
+        let ProcessSubscriptionError::ReplayGap { requested_after, range, .. } = error else {
+            panic!("subscriber lag was not returned as a replay gap: {error:?}")
+        };
+        assert_eq!(requested_after, 0);
+        assert!(range.first_available.is_some_and(|first| first > 1));
+        assert_eq!(range.last_produced, (PROCESS_BROADCAST_CAPACITY + 1) as u64);
     }
 
     #[cfg(unix)]

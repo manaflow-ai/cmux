@@ -806,6 +806,29 @@ mod tests {
     }
 
     #[test]
+    fn process_handle_spawn_has_a_stable_wire_shape() {
+        let request = WorkspaceRequest::SpawnProcessWithHandle {
+            process: ProcessId(0x5a17),
+            workspace: WorkspaceId("w".into()),
+            argv: vec!["/bin/sh".into()],
+            cwd: None,
+            env: BTreeMap::new(),
+            io: ProcessIo::Pipes { stdin: false },
+            lifetime: ProcessLifetime::Workspace,
+            operation: None,
+            timeout_ms: None,
+            retained_output_bytes: Some(1024),
+            environment: ProcessEnvironment::Clean,
+        };
+
+        let json = serde_json::to_value(request).unwrap();
+        assert_eq!(json["type"], "spawn-process-with-handle");
+        assert_eq!(json["process"], 0x5a17);
+        assert_eq!(json["retained_output_bytes"], 1024);
+        assert_eq!(json["environment"], "clean");
+    }
+
+    #[test]
     fn legacy_responses_and_errors_default_new_detail_fields() {
         let patch: WorkspaceResponse = serde_json::from_value(serde_json::json!({
             "type": "patch",
