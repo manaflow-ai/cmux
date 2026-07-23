@@ -19,12 +19,11 @@ struct AgentResumeLivenessTests {
         sessionId: String = "session-1",
         processIDs: Set<Int> = [4_242]
     ) -> RestorableAgentSessionIndex.Entry {
-        let processLiveness: RestorableAgentProcessLiveness = processIDs.isEmpty ? .exited : .running
         RestorableAgentSessionIndex.Entry(
             snapshot: SessionRestorableAgentSnapshot(kind: kind, sessionId: sessionId),
             lifecycle: nil,
             updatedAt: 0,
-            processLiveness: processLiveness,
+            processLiveness: processIDs.isEmpty ? .exited : .running,
             processIDs: processIDs,
             agentProcessIDs: processIDs,
             agentProcessIdentities: [:]
