@@ -236,16 +236,32 @@ def check_feed_lifecycle(bun: str, root: Path, extension_path: Path) -> int:
     make_executable(
         cancellation_cmux,
         """#!/usr/bin/env python3
+import fcntl
 import os
 import signal
 import sys
 import time
 
 args = " ".join(sys.argv[1:])
-sys.stdin.read()
-with open(os.environ["CMUX_TEST_PI_CANCELLATION_LOG"], "a", encoding="utf-8") as stream:
-    stream.write(f"{args}\\n")
-    stream.flush()
+payload = sys.stdin.read()
+log_path = os.environ["CMUX_TEST_PI_CANCELLATION_LOG"]
+
+def log(message):
+    with open(log_path, "a", encoding="utf-8") as stream:
+        stream.write(f"{message}\\n")
+        stream.flush()
+
+log(f"{args}|{payload}")
+
+lock_path = os.environ.get("CMUX_TEST_PI_COMPLETION_LOCK")
+if "hooks feed" in args and "PostToolUse" in args and lock_path:
+    with open(lock_path, "a", encoding="utf-8") as lock:
+        try:
+            fcntl.flock(lock, fcntl.LOCK_EX | fcntl.LOCK_NB)
+        except BlockingIOError:
+            log("overlap PostToolUse")
+            raise SystemExit(91)
+        time.sleep(0.1)
 
 if "hooks feed" in args and "PreToolUse" in args:
     def handle_term(_signum, _frame):
@@ -300,6 +316,7 @@ await new Promise((resolve) => setTimeout(resolve, 750));
         return 1
 
     completion_log = root / "completion-order-cmux.log"
+    completion_lock = root / "completion-order-cmux.lock"
     completion_source = """
 const extensionPath = process.env.CMUX_TEST_PI_EXTENSION_PATH;
 const mod = await import(extensionPath);
@@ -321,7 +338,7 @@ const logPath = process.env.CMUX_TEST_PI_CANCELLATION_LOG;
 while (!(await Bun.file(logPath).text()).includes("hooks feed")) {
   await new Promise((resolve) => setTimeout(resolve, 10));
 }
-for (let index = 0; index < 4; index += 1) {
+for (const index of [3, 1, 2, 0]) {
   handlers.get("tool_execution_end")({
     toolCallId: `completion-tool-${index}`,
     toolName: "bash",
@@ -346,7 +363,10 @@ await new Promise((resolve) => setTimeout(resolve, 250));
         extension_path=extension_path,
         fake_cmux=cancellation_cmux,
         source=completion_source,
-        extra_env={"CMUX_TEST_PI_CANCELLATION_LOG": str(completion_log)},
+        extra_env={
+            "CMUX_TEST_PI_CANCELLATION_LOG": str(completion_log),
+            "CMUX_TEST_PI_COMPLETION_LOCK": str(completion_lock),
+        },
     )
     if completion.returncode != 0:
         print(f"FAIL: completion-order harness failed: {completion.stderr!r}")
@@ -360,6 +380,16 @@ await new Promise((resolve) => setTimeout(resolve, 250));
         return 1
     if sum("PostToolUse" in line for line in completion_calls) != 4:
         print(f"FAIL: terminal lifecycle discarded the retained completion event: {completion_calls!r}")
+        return 1
+    if any(line.startswith("overlap ") for line in completion_calls):
+        print(f"FAIL: terminal lifecycle spawned overlapping feed commands: {completion_calls!r}")
+        return 1
+    post_calls = [line for line in completion_calls if "PostToolUse" in line]
+    completion_order = []
+    for line in post_calls:
+        completion_order.extend(index for index in (3, 1, 2, 0) if f'"tool_call_id":"completion-tool-{index}"' in line)
+    if completion_order != [3, 1, 2, 0]:
+        print(f"FAIL: terminal feed completion order changed: {completion_calls!r}")
         return 1
     if not notification_indexes or not stop_indexes or completion_feed_indexes[-1] > notification_indexes[0]:
         print(f"FAIL: feed event arrived after terminal lifecycle began: {completion_calls!r}")
