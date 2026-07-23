@@ -64,10 +64,14 @@ extension ContentView {
         }
         for movement in SurfacePaneMovement.allCases {
             registry.register(commandId: movement.commandID) {
+                guard let preferredWindow = preferredWindow() else {
+                    NSSound.beep()
+                    return
+                }
                 if AppDelegate.shared?.performSurfacePaneMovement(
                     movement,
                     tabManager: tabManager,
-                    preferredWindow: preferredWindow()
+                    preferredWindow: preferredWindow
                 ) != true {
                     NSSound.beep()
                 }
