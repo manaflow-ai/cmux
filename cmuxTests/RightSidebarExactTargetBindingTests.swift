@@ -1,3 +1,4 @@
+import AppKit
 import CmuxCommandPalette
 import Foundation
 import Testing
@@ -77,6 +78,98 @@ struct RightSidebarExactTargetBindingTests {
 
         #expect(target?.workspace === backgroundWorkspace)
         #expect(target?.panelID == backgroundPanelID)
+        #expect(manager.selectedWorkspace === selectedWorkspace)
+    }
+
+    @Test("Deferred focus restoration preserves an exact background target")
+    func deferredFocusRestorationPreservesExactBackgroundTarget() throws {
+        let manager = TabManager(autoWelcomeIfNeeded: false)
+        let selectedWorkspace = try #require(manager.selectedWorkspace)
+        let backgroundWorkspace = manager.addWorkspace(
+            select: false,
+            autoWelcomeIfNeeded: false
+        )
+        let backgroundPanelID = try #require(backgroundWorkspace.focusedPanelId)
+        let state = FileExplorerState()
+        let controller = MainWindowFocusController(
+            windowId: UUID(),
+            window: nil,
+            tabManager: manager,
+            fileExplorerState: state
+        )
+
+        #expect(controller.focusRightSidebar(
+            mode: .files,
+            sourceWorkspaceID: backgroundWorkspace.id,
+            sourcePanelID: backgroundPanelID
+        ))
+        #expect(controller.debugPendingRightSidebarFocusMode == .files)
+        #expect(state.rightSidebarContentWorkspaceID == backgroundWorkspace.id)
+        #expect(state.rightSidebarContentPanelID == backgroundPanelID)
+
+        #expect(controller.restoreTargetAfterWindowBecameKey())
+        let restoredTarget = manager.rightSidebarContentTarget(
+            explicitWorkspaceID: state.rightSidebarContentWorkspaceID,
+            explicitPanelID: state.rightSidebarContentPanelID
+        )
+        #expect(restoredTarget?.workspace === backgroundWorkspace)
+        #expect(restoredTarget?.panelID == backgroundPanelID)
+        #expect(manager.selectedWorkspace === selectedWorkspace)
+    }
+
+    @Test("Completed focus restoration preserves an exact background target")
+    func completedFocusRestorationPreservesExactBackgroundTarget() throws {
+        let manager = TabManager(autoWelcomeIfNeeded: false)
+        let selectedWorkspace = try #require(manager.selectedWorkspace)
+        let backgroundWorkspace = manager.addWorkspace(
+            select: false,
+            autoWelcomeIfNeeded: false
+        )
+        let backgroundPanelID = try #require(backgroundWorkspace.focusedPanelId)
+        let state = FileExplorerState()
+        let window = NSWindow(
+            contentRect: NSRect(x: 0, y: 0, width: 320, height: 240),
+            styleMask: [.titled],
+            backing: .buffered,
+            defer: false
+        )
+        let contentView = NSView(frame: window.contentView?.bounds ?? .zero)
+        window.contentView = contentView
+        let controller = MainWindowFocusController(
+            windowId: UUID(),
+            window: window,
+            tabManager: manager,
+            fileExplorerState: state
+        )
+        let focusHost = RightSidebarKeyboardFocusView(
+            frame: NSRect(x: 0, y: 0, width: 24, height: 24)
+        )
+        defer {
+            _ = window.makeFirstResponder(nil)
+            focusHost.removeFromSuperview()
+            window.contentView = nil
+            window.orderOut(nil)
+        }
+
+        #expect(controller.focusRightSidebar(
+            mode: .sessions,
+            sourceWorkspaceID: backgroundWorkspace.id,
+            sourcePanelID: backgroundPanelID
+        ))
+        contentView.addSubview(focusHost)
+        controller.registerRightSidebarHost(focusHost)
+        #expect(controller.debugPendingRightSidebarFocusMode == nil)
+        #expect(window.firstResponder === focusHost)
+
+        _ = window.makeFirstResponder(nil)
+        #expect(controller.restoreTargetAfterWindowBecameKey())
+
+        let restoredTarget = manager.rightSidebarContentTarget(
+            explicitWorkspaceID: state.rightSidebarContentWorkspaceID,
+            explicitPanelID: state.rightSidebarContentPanelID
+        )
+        #expect(restoredTarget?.workspace === backgroundWorkspace)
+        #expect(restoredTarget?.panelID == backgroundPanelID)
         #expect(manager.selectedWorkspace === selectedWorkspace)
     }
 

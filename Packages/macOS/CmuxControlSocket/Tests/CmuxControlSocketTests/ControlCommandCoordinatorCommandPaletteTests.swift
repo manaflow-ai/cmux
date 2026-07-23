@@ -108,25 +108,10 @@ struct ControlCommandCoordinatorCommandPaletteTests {
         #expect(routing.paneID == nil)
     }
 
-    @Test func listFailsClosedWithoutAConfigVersion() async throws {
-        let context = FakeCommandPaletteControlCommandContext()
-        context.listResolution = .listed(
-            target: ControlCommandPaletteTarget(
-                windowID: UUID(),
-                workspaceID: nil,
-                panelID: nil
-            ),
-            commands: []
-        )
-        let coordinator = ControlCommandCoordinator(context: context)
+    @Test func missingContextDoesNotUsePackageFallbackStrings() async {
+        let coordinator = ControlCommandCoordinator()
 
-        let result = try #require(await coordinator.handleAsync(request(method: "palette.list")))
-        guard case .err(let code, let message, _) = result else {
-            Issue.record("expected configuration-pending error")
-            return
-        }
-        #expect(code == "configuration_pending")
-        #expect(message == context.paletteStrings.configurationPending)
+        #expect(await coordinator.handleAsync(request(method: "palette.list")) == nil)
     }
 
     @Test func routingSelectorInitializerInfersPresenceForExistingCallers() {
@@ -239,7 +224,7 @@ struct ControlCommandCoordinatorCommandPaletteTests {
         #expect(context.runCall == nil)
     }
 
-    @Test func runRejectsMalformedImmutableTargetWithoutFallingBack() async throws {
+    @Test func runRejectsSnapshotlessImmutableTargetWithoutFallingBack() async throws {
         let context = FakeCommandPaletteControlCommandContext()
         let coordinator = ControlCommandCoordinator(context: context)
 
@@ -251,9 +236,7 @@ struct ControlCommandCoordinatorCommandPaletteTests {
                 "target": .object([
                     "window_id": .string(UUID().uuidString),
                     "workspace_id": .null,
-                    // A panel without a workspace cannot be an exact target.
-                    "panel_id": .string(UUID().uuidString),
-                    "config_snapshot_id": .string(UUID().uuidString),
+                    "panel_id": .null,
                 ]),
             ]
         )))
@@ -526,7 +509,7 @@ struct ControlCommandCoordinatorCommandPaletteTests {
                     "window_id": .string(target.windowID.uuidString),
                     "workspace_id": .string(target.workspaceID!.uuidString),
                     "panel_id": .string(target.panelID!.uuidString),
-                    "config_snapshot_id": .string(target.configSnapshotID!.uuidString),
+                    "config_snapshot_id": .string(target.configSnapshotID.uuidString),
                 ]),
             ]
         )))
@@ -541,7 +524,7 @@ struct ControlCommandCoordinatorCommandPaletteTests {
             "window_id": .string(target.windowID.uuidString),
             "workspace_id": .string(target.workspaceID!.uuidString),
             "panel_id": .string(target.panelID!.uuidString),
-            "config_snapshot_id": .string(target.configSnapshotID!.uuidString),
+            "config_snapshot_id": .string(target.configSnapshotID.uuidString),
         ]))
     }
 

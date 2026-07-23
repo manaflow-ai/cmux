@@ -12,7 +12,9 @@ final class FakeCommandPaletteControlCommandContext: ControlCommandContext {
         commandNotFound: "palette command unavailable",
         missingArgumentsFormat: "missing: %@",
         unknownArgumentsFormat: "unknown: %@",
-        invalidArgumentValuesFormat: "invalid: %@"
+        invalidArgumentValuesFormat: "invalid: %@",
+        configurationPending: "palette configuration pending",
+        configurationChanged: "palette configuration changed"
     )
     var listResolution: ControlCommandPaletteListResolution = .windowNotFound
     var runResolution: ControlCommandPaletteRunResolution = .windowNotFound

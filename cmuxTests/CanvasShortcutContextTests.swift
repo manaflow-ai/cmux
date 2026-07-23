@@ -3,6 +3,7 @@ import Carbon.HIToolbox
 import CmuxCanvasUI
 import CmuxCommandPalette
 import CmuxSettings
+import CmuxUpdater
 import Testing
 
 #if canImport(cmux_DEV)
@@ -33,6 +34,32 @@ private final class CanvasRoutingViewportSpy: CanvasViewportControlling {
 
 @Suite("Canvas shortcut context")
 struct CanvasShortcutContextTests {
+    @Test
+    @MainActor
+    func newPaneRejectsAnExplicitSourceWithoutAMountedSplitPane() throws {
+        let workspace = Workspace()
+        let mountedPanelID = try #require(workspace.focusedPanelId)
+        workspace.setLayoutMode(.canvas)
+        let unmountedPanel = TerminalPanel(
+            workspaceId: workspace.id,
+            runtimeSpawnPolicy: .pacedSessionRestore
+        )
+        workspace.panels[unmountedPanel.id] = unmountedPanel
+        let originalPanelIDs = Set(workspace.panels.keys)
+
+        #expect(workspace.paneId(forPanelId: mountedPanelID) != nil)
+        #expect(workspace.paneId(forPanelId: unmountedPanel.id) == nil)
+        #expect(
+            workspace.openNewCanvasPane(
+                type: .terminal,
+                focus: false,
+                direction: .right,
+                sourcePanelID: unmountedPanel.id
+            ) == nil
+        )
+        #expect(Set(workspace.panels.keys) == originalPanelIDs)
+    }
+
     @Test
     @MainActor
     func viewportActionsReportAnUnmountedCanvasTarget() throws {

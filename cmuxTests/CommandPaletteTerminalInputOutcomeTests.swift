@@ -1,6 +1,7 @@
 import AppKit
 import CmuxCommandPalette
 import CmuxSettings
+import CmuxTerminal
 import Foundation
 import Testing
 

@@ -36,7 +36,7 @@ struct BrowserPanelReactGrabStateRegressionTests {
 
     @Test func stateConfirmationWaitsForMatchingBridgeState() async {
         let confirmation = ReactGrabStateConfirmation(target: true)
-        let waiter = Task { await confirmation.wait(timeout: .seconds(1)) }
+        let waiter = Task { await confirmation.wait() }
 
         confirmation.receive(false)
         await Task.yield()
@@ -45,17 +45,23 @@ struct BrowserPanelReactGrabStateRegressionTests {
         #expect(await waiter.value)
     }
 
-    @Test func stateConfirmationCancellationReportsFailure() async {
+    @Test func stateConfirmationExplicitCancellationWinsOverLateBridgeState() async {
         let confirmation = ReactGrabStateConfirmation(target: true)
         confirmation.cancel()
+        confirmation.receive(true)
 
-        #expect(!(await confirmation.wait(timeout: .seconds(1))))
+        #expect(!(await confirmation.wait()))
     }
 
-    @Test func stateConfirmationTimeoutReportsFailure() async {
+    @Test func stateConfirmationTaskCancellationWinsOverLateBridgeState() async {
         let confirmation = ReactGrabStateConfirmation(target: true)
+        let waiter = Task { await confirmation.wait() }
 
-        #expect(!(await confirmation.wait(timeout: .milliseconds(1))))
+        waiter.cancel()
+        #expect(!(await waiter.value))
+
+        confirmation.receive(true)
+        #expect(!(await confirmation.wait()))
     }
 
     @Test func bridgeStateChangeIsTheConfirmedStateAuthority() async {
@@ -69,7 +75,7 @@ struct BrowserPanelReactGrabStateRegressionTests {
 
         panel.handleReactGrabBridgeMessage(.stateChange(isActive: true))
         #expect(panel.isReactGrabActive)
-        #expect(await confirmation.wait(timeout: .seconds(1)))
+        #expect(await confirmation.wait())
     }
 
     @Test func latestStateRequestStartsANewReconciliationGeneration() {
@@ -157,7 +163,7 @@ struct BrowserPanelReactGrabStateRegressionTests {
             panel.reactGrabStateReconciliationGeneration
                 > reconciliationGeneration
         )
-        #expect(!(await pendingConfirmation.wait(timeout: .seconds(1))))
+        #expect(!(await pendingConfirmation.wait()))
     }
 
     @Test func webViewReplacementInvalidatesReactGrabStateAndRoundTrip() async {
@@ -190,31 +196,20 @@ struct BrowserPanelReactGrabStateRegressionTests {
             panel.reactGrabStateReconciliationGeneration
                 > reconciliationGeneration
         )
-        #expect(!(await pendingConfirmation.wait(timeout: .seconds(1))))
+        #expect(!(await pendingConfirmation.wait()))
     }
 
-    @Test func toggleWaitsForBridgeConfirmedState() async {
+    @Test(.timeLimit(.minutes(1)))
+    func toggleCompletesFromVerifiedScriptStateWithoutBridgeCallback() async {
         let panel = BrowserPanel(workspaceId: UUID())
         defer { panel.close() }
         panel.handleReactGrabBridgeMessage(.stateChange(isActive: true))
-        var didFinish = false
 
         let toggleTask = Task { @MainActor in
             await panel.toggleOrInjectReactGrab()
-            didFinish = true
-        }
-        for _ in 0..<20 {
-            if panel.reactGrabStateConfirmation?.target == false { break }
-            await Task.yield()
         }
 
-        #expect(panel.reactGrabStateConfirmation?.target == false)
-        #expect(!didFinish)
-
-        panel.handleReactGrabBridgeMessage(.stateChange(isActive: false))
-        await toggleTask.value
-
-        #expect(didFinish)
+        #expect(await toggleTask.value)
         #expect(!panel.isReactGrabActive)
         #expect(panel.requestedReactGrabActive == nil)
         #expect(panel.reactGrabStateReconciliationTask == nil)

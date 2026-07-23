@@ -247,6 +247,24 @@ struct FocusedNotificationMarkerTests {
         #expect(resolver.mutations == ["storeMarkRead(\(short(tab)))"])
     }
 
+    @Test("toggle clears coexisting workspace and manual panel unread sources")
+    func toggleClearsWorkspaceAndManualPanelUnreadSources() {
+        let tab = UUID(), surface = UUID()
+        let panel = FocusedPanel(tabId: tab, panelId: surface)
+        let resolver = FakeFocusedResolving()
+        resolver.focusedTargetValue = FocusedNotificationTarget(tabId: tab, surfaceId: surface)
+        resolver.panelByTabSurface[.init(tabId: tab, surfaceId: surface)] = panel
+        resolver.visibleIndicatorSet = [.init(tabId: tab, surfaceId: nil)]
+        resolver.panelIsManualUnreadSet = [panel]
+        let (marker, _) = makeMarker(resolver: resolver)
+
+        #expect(marker.toggleFocusedNotificationUnread())
+        #expect(resolver.mutations == [
+            "storeMarkRead(\(short(tab)))",
+            "markPanelRead(\(short(surface)))",
+        ])
+    }
+
     @Test("toggle marks an unread panel read and clears workspace manual unread when representative")
     func togglePanelUnreadClearsManual() {
         let tab = UUID(), surface = UUID()

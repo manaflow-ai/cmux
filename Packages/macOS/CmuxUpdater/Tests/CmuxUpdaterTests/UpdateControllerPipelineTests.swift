@@ -65,10 +65,13 @@ import Testing
         harness.updater.startError = NSError(domain: "test.updater.start", code: 42)
 
         #expect(harness.controller.checkForUpdates() == .failed)
-        guard case .error = harness.model.state else {
+        guard case .error(let failure) = harness.model.state else {
             Issue.record("startup failure should remain visible in the update model")
             return
         }
+        let error = failure.error as NSError
+        #expect(error.domain == "test.updater.start")
+        #expect(error.code == 42)
     }
 
     /// Sparkle's dismissal callback is deliberately identity-free, so the authoritative cycle-end

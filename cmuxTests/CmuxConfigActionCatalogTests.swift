@@ -648,7 +648,7 @@ struct CmuxConfigActionCatalogTests {
     }
 
     @Test
-    func reapBeforeAcceptedQuarantineDeliveryReleasesLeaseExactlyOnce() async throws {
+    func reapBeforeAcceptedQuarantineDeliveryDrainsLeaseState() async throws {
         let root = try temporaryDirectory()
         defer { try? FileManager.default.removeItem(at: root) }
         let pidURL = root.appendingPathComponent("admission-race.pid")
@@ -662,8 +662,7 @@ struct CmuxConfigActionCatalogTests {
 
         let quarantine = CmuxConfigActionCatalogProcessQuarantine(
             generalCapacity: 1,
-            globalCapacity: 1,
-            recordsReleaseAttempts: true
+            globalCapacity: 1
         )
         let quarantineKey = "accepted-before-reap"
         let reservedLease = await quarantine.reserve(key: quarantineKey, lane: .general)
@@ -728,7 +727,10 @@ struct CmuxConfigActionCatalogTests {
         let childPID = try #require(pid_t(pidString))
         _ = Darwin.kill(-childPID, SIGKILL)
         #expect(await waitUntil {
-            await quarantine.releaseAttemptCount(for: lease) == 1
+            let state = await quarantine.state()
+            return state.reservedCount == 0
+                && state.quarantinedCount == 0
+                && state.blockedKeys.isEmpty
         })
 
         deliveryGate.continuation.yield(())
@@ -739,8 +741,10 @@ struct CmuxConfigActionCatalogTests {
         case .quarantined:
             Issue.record("reaped session was handed off after admission")
         }
-        #expect(await quarantine.releaseAttemptCount(for: lease) == 1)
-        #expect(await quarantine.state().reservedCount == 0)
+        let drainedState = await quarantine.state()
+        #expect(drainedState.reservedCount == 0)
+        #expect(drainedState.quarantinedCount == 0)
+        #expect(drainedState.blockedKeys.isEmpty)
         let recoveredLease = await quarantine.reserve(key: quarantineKey, lane: .general)
         #expect(recoveredLease != nil)
         if let recoveredLease { await quarantine.release(recoveredLease) }

@@ -5,6 +5,12 @@ import Testing
 @MainActor
 @Suite("ControlCommandCoordinator inline VS Code")
 struct ControlCommandCoordinatorInlineVSCodeTests {
+    @Test func missingContextDoesNotUsePackageFallbackStrings() {
+        let coordinator = ControlCommandCoordinator()
+
+        #expect(coordinator.handleSocketWorkerV2(request(params: [:]), context: nil) == nil)
+    }
+
     @Test func openIsWorkerOnlyAndValidatesDirectoryBeforeCrossingTheAppSeam() throws {
         let context = FakeCommandPaletteControlCommandContext()
         let coordinator = ControlCommandCoordinator(

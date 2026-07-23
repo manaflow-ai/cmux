@@ -146,7 +146,7 @@ struct CommandPaletteControlRegistrationTests {
         #expect(appDelegate.mainWindowContext(for: tabManager)?.commandPaletteControlHandler == nil)
     }
 
-    @Test func registeredWindowPublishesItsHandlerWithItsRoutingContext() async {
+    @Test func snapshotlessListedTargetFailsClosedAsConfigurationPending() async {
         let previousAppDelegate = AppDelegate.shared
         let appDelegate = AppDelegate()
         let tabManager = TabManager()
@@ -183,23 +183,7 @@ struct CommandPaletteControlRegistrationTests {
             deadline: nil
         )
 
-        #expect(resolution == .listed(
-            target: ControlCommandPaletteTarget(
-                windowID: windowID,
-                workspaceID: tabManager.selectedWorkspace?.id,
-                panelID: tabManager.selectedWorkspace?.focusedPanelId
-            ),
-            commands: [
-                ControlCommandPaletteItem(
-                    id: "palette.fixture",
-                    title: "Fixture",
-                    subtitle: "Tests",
-                    shortcutHint: nil,
-                    keywords: ["fixture"],
-                    dismissOnRun: true
-                ),
-            ]
-        ))
+        #expect(resolution == .configurationPending)
     }
 
     @Test func staleSelectorsDoNotFallBackToTheCallerWindow() async {
@@ -339,14 +323,20 @@ struct CommandPaletteControlRegistrationTests {
         let paneB = try #require(workspaceB.bonsplitController.allPaneIds.first).id
         let windowA = appDelegate.registerMainWindowContextForTesting(
             tabManager: managerA,
-            commandPaletteControlHandler: {
-                $0.complete(.listed(target: $0.target, commands: []))
+            commandPaletteControlHandler: { request in
+                request.complete(.listed(
+                    target: Self.versionedTarget(request.target),
+                    commands: []
+                ))
             }
         )
         let windowB = appDelegate.registerMainWindowContextForTesting(
             tabManager: managerB,
-            commandPaletteControlHandler: {
-                $0.complete(.listed(target: $0.target, commands: []))
+            commandPaletteControlHandler: { request in
+                request.complete(.listed(
+                    target: Self.versionedTarget(request.target),
+                    commands: []
+                ))
             }
         )
         AppDelegate.shared = appDelegate
@@ -395,11 +385,18 @@ struct CommandPaletteControlRegistrationTests {
         let selectedWorkspace = try #require(tabManager.tabs.first)
         let targetWorkspace = tabManager.addWorkspace(select: false, autoWelcomeIfNeeded: false)
         var receivedTarget: CommandPaletteActionTarget?
+        let configSnapshotID = UUID()
         let windowID = appDelegate.registerMainWindowContextForTesting(
             tabManager: tabManager,
             commandPaletteControlHandler: { request in
                 receivedTarget = request.target
-                request.complete(.listed(target: request.target, commands: []))
+                request.complete(.listed(
+                    target: Self.versionedTarget(
+                        request.target,
+                        configSnapshotID: configSnapshotID
+                    ),
+                    commands: []
+                ))
             }
         )
         AppDelegate.shared = appDelegate
@@ -419,7 +416,8 @@ struct CommandPaletteControlRegistrationTests {
             target: ControlCommandPaletteTarget(
                 windowID: windowID,
                 workspaceID: targetWorkspace.id,
-                panelID: targetWorkspace.focusedPanelId
+                panelID: targetWorkspace.focusedPanelId,
+                configSnapshotID: configSnapshotID
             ),
             commands: []
         ))
@@ -541,7 +539,8 @@ struct CommandPaletteControlRegistrationTests {
         let target = ControlCommandPaletteTarget(
             windowID: windowID,
             workspaceID: workspace.id,
-            panelID: originalPanelID
+            panelID: originalPanelID,
+            configSnapshotID: UUID()
         )
 
         #expect(workspace.closePanel(originalPanelID, force: true))
@@ -590,6 +589,21 @@ struct CommandPaletteControlRegistrationTests {
         #expect(tabManager.selectedWorkspace?.id == selectedWorkspace.id)
     }
 
+    @Test func inlineVSCodePreflightDoesNotCreateFallbackWorkspace() {
+        let tabManager = TabManager(autoWelcomeIfNeeded: false)
+        tabManager.tabs = []
+        tabManager.selectedTabId = nil
+
+        let resolvedWorkspace = TerminalController.shared.controlInlineVSCodeWorkspace(
+            routing: routing(),
+            tabManager: tabManager
+        )
+
+        #expect(resolvedWorkspace == nil)
+        #expect(tabManager.tabs.isEmpty)
+        #expect(tabManager.selectedTabId == nil)
+    }
+
     @Test func surfaceAndPaneSelectorsReachTheHandlerAsOneExactTarget() async throws {
         let previousAppDelegate = AppDelegate.shared
         let previousActiveManager = TerminalController.shared.activeTabManagerForCallerNotification()
@@ -604,7 +618,10 @@ struct CommandPaletteControlRegistrationTests {
             tabManager: tabManager,
             commandPaletteControlHandler: { request in
                 receivedTargets.append(request.target)
-                request.complete(.listed(target: request.target, commands: []))
+                request.complete(.listed(
+                    target: Self.versionedTarget(request.target),
+                    commands: []
+                ))
             }
         )
         AppDelegate.shared = appDelegate
@@ -960,6 +977,18 @@ struct CommandPaletteControlRegistrationTests {
             hasWorkspaceIDParam: hasWorkspaceIDParam,
             hasSurfaceIDParam: hasSurfaceIDParam,
             hasPaneIDParam: hasPaneIDParam
+        )
+    }
+
+    private static func versionedTarget(
+        _ target: CommandPaletteActionTarget,
+        configSnapshotID: UUID = UUID()
+    ) -> CommandPaletteActionTarget {
+        CommandPaletteActionTarget(
+            windowID: target.windowID,
+            workspaceID: target.workspaceID,
+            panelID: target.panelID,
+            configSnapshotID: configSnapshotID
         )
     }
 }

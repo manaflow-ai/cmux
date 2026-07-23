@@ -56,6 +56,23 @@ struct CommandPaletteStaticActionAPITests {
     }
 
     @Test
+    func nonInteractiveWorkspaceBatchPreflightsLastWindowClose() throws {
+        let manager = TabManager(autoWelcomeIfNeeded: false)
+        let firstWorkspace = try #require(manager.tabs.first)
+        let secondWorkspace = manager.addWorkspace(
+            select: false,
+            autoWelcomeIfNeeded: false
+        )
+        let originalWorkspaceIDs = manager.tabs.map(\.id)
+
+        #expect(!manager.closeWorkspacesNonInteractively([
+            firstWorkspace.id,
+            secondWorkspace.id,
+        ]))
+        #expect(manager.tabs.map(\.id) == originalWorkspaceIDs)
+    }
+
+    @Test
     func explicitTextBoxAttachmentFlushesWhenTheViewMounts() throws {
         let manager = TabManager(autoWelcomeIfNeeded: false)
         let workspace = try #require(manager.tabs.first)

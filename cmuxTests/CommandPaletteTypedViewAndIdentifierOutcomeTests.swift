@@ -2,6 +2,7 @@ import AppKit
 import CmuxCommandPalette
 import CmuxControlSocket
 import CmuxSettings
+import CmuxUpdater
 import Foundation
 import Testing
 

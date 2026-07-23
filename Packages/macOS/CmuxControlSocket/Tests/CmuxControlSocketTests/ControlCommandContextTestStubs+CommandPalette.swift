@@ -13,7 +13,9 @@ extension ControlCommandPaletteContext {
             commandNotFound: "Command palette action not found in the current context",
             missingArgumentsFormat: "Missing required action arguments: %@",
             unknownArgumentsFormat: "Unknown action arguments: %@",
-            invalidArgumentValuesFormat: "Invalid values for action arguments: %@"
+            invalidArgumentValuesFormat: "Invalid values for action arguments: %@",
+            configurationPending: "Command palette configuration is still loading",
+            configurationChanged: "Command palette configuration changed"
         )
     }
 

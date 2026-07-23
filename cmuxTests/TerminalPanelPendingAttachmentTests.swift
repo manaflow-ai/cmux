@@ -8,6 +8,16 @@ import Testing
 @testable import cmux
 #endif
 
+private final class TextBoxAttachmentFocusBlocker: NSView {
+    override var acceptsFirstResponder: Bool { true }
+
+    var rejectsResignation = true
+
+    override func resignFirstResponder() -> Bool {
+        !rejectsResignation
+    }
+}
+
 @Suite("Terminal panel pending attachments", .serialized)
 @MainActor
 struct TerminalPanelPendingAttachmentTests {
@@ -91,5 +101,50 @@ struct TerminalPanelPendingAttachmentTests {
 
         let standardizedURL = fileURL.standardizedFileURL
         #expect(insertionCalls == [[standardizedURL], [standardizedURL]])
+    }
+
+    @Test
+    func mountedFocusRejectionDoesNotRetryAfterTheViewMoves() {
+        let panel = TerminalPanel(workspaceId: UUID())
+        let fileURL = FileManager.default.temporaryDirectory
+            .appendingPathComponent("cmux-mounted-focus-rejection-\(UUID().uuidString).txt")
+        let textView = TextBoxInputTextView(frame: NSRect(x: 0, y: 0, width: 320, height: 120))
+        var insertedURLs: [URL] = []
+        textView.onInsertFileURLs = { urls, _ in
+            insertedURLs = urls
+            return true
+        }
+
+        let blocker = TextBoxAttachmentFocusBlocker(frame: .zero)
+        let contentView = NSView(frame: NSRect(x: 0, y: 0, width: 320, height: 120))
+        contentView.addSubview(textView)
+        contentView.addSubview(blocker)
+        let window = NSWindow(
+            contentRect: contentView.bounds,
+            styleMask: [.borderless],
+            backing: .buffered,
+            defer: false
+        )
+        window.contentView = contentView
+        panel.registerTextBoxInputView(textView)
+        defer {
+            blocker.rejectsResignation = false
+            _ = window.makeFirstResponder(nil)
+            window.close()
+            panel.surface.teardownSurface()
+        }
+
+        #expect(window.makeFirstResponder(blocker))
+        #expect(panel.attachFilesToTextBoxInput([fileURL]) == .completed)
+        #expect(window.firstResponder === blocker)
+        #expect(insertedURLs == [fileURL.standardizedFileURL])
+#if DEBUG
+        #expect(!panel.debugHasPendingTextBoxFocusRequest)
+#endif
+
+        blocker.rejectsResignation = false
+        panel.textBoxInputViewDidMoveToWindow(textView)
+
+        #expect(window.firstResponder === blocker)
     }
 }

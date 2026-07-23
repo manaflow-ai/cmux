@@ -439,7 +439,7 @@ struct CmuxConfigWorkspaceActionTests {
     }
 
     @MainActor
-    @Test func rejectedModalAuthorizationReportsFailure() {
+    @Test func missingAuthoritativeWindowFailsClosed() {
         let configPath = "/tmp/cmux-project-\(UUID().uuidString)/.cmux/cmux.json"
         let alert = CmuxConfigConfirmationAlertSpy(modalResponse: .alertThirdButtonReturn)
         var authorizationCount = 0
@@ -451,7 +451,6 @@ struct CmuxConfigWorkspaceActionTests {
             configSourcePath: configPath,
             globalConfigPath: "/tmp/cmux-global-\(UUID().uuidString).json",
             displayCommand: "echo ready",
-            fallbackPresentingWindowProvider: { nil },
             alertFactory: { alert },
             onAuthorized: {
                 authorizationCount += 1
@@ -462,7 +461,7 @@ struct CmuxConfigWorkspaceActionTests {
         )
 
         #expect(outcome == .failed)
-        #expect(alert.didRunModal)
+        #expect(!alert.didRunModal)
         #expect(authorizationCount == 0)
         #expect(denialCount == 1)
     }
@@ -638,6 +637,126 @@ struct CmuxConfigWorkspaceActionTests {
 
         #expect(manager.tabs.map(\.id) == [targetWorkspace.id])
         #expect(targetWorkspace.customTitle != "Must Not Open")
+        #expect(executionCount == 0)
+    }
+
+    @MainActor
+    @Test func restartConfirmationUsesAuthoritativeWindowForBackgroundTarget() throws {
+        let manager = TabManager()
+        let selectedWorkspace = try #require(manager.selectedWorkspace)
+        let sourceWorkspace = manager.addWorkspace(select: false)
+        let sourcePanelID = try #require(sourceWorkspace.focusedPanelId)
+        let existingWorkspace = manager.addWorkspace(select: false)
+        existingWorkspace.setCustomTitle("Restart Me")
+        let action = try #require(CmuxResolvedConfigAction.fromDefinition(
+            id: "restart-background-workspace",
+            definition: CmuxConfigActionDefinition(
+                action: .workspace(
+                    CmuxWorkspaceDefinition(name: "Restart Me"),
+                    restart: .confirm
+                )
+            ),
+            sourcePath: nil
+        ))
+        let alert = CmuxConfigConfirmationAlertSpy()
+        let hostWindow = NSWindow(
+            contentRect: NSRect(x: 0, y: 0, width: 320, height: 240),
+            styleMask: [.titled],
+            backing: .buffered,
+            defer: false
+        )
+        defer { hostWindow.close() }
+        var executionCount = 0
+
+        let outcome = CmuxConfigExecutor.executeOutcome(
+            action: action,
+            commands: [],
+            commandSourcePaths: [:],
+            tabManager: manager,
+            baseCwd: NSTemporaryDirectory(),
+            globalConfigPath: "/tmp/cmux-global-\(UUID().uuidString).json",
+            presentingWindow: hostWindow,
+            modelTarget: CmuxActionModelTarget(
+                workspaceID: sourceWorkspace.id,
+                panelID: sourcePanelID
+            ),
+            selectWorkspace: false,
+            alertFactory: { alert },
+            onExecuted: {
+                executionCount += 1
+            }
+        )
+
+        #expect(outcome == .presented)
+        #expect(alert.didBeginSheet)
+        #expect(!alert.didRunModal)
+        #expect(manager.tabs.contains(where: { $0 === existingWorkspace }))
+
+        alert.sheetCompletion?(.alertFirstButtonReturn)
+
+        #expect(!manager.tabs.contains(where: { $0 === existingWorkspace }))
+        #expect(manager.tabs.contains(where: { $0 === sourceWorkspace }))
+        #expect(manager.tabs.contains(where: { $0.customTitle == "Restart Me" }))
+        #expect(manager.selectedWorkspace === selectedWorkspace)
+        #expect(executionCount == 1)
+    }
+
+    @MainActor
+    @Test func restartConfirmationRevalidatesExactTargetAfterDismissal() throws {
+        let manager = TabManager()
+        let sourceWorkspace = try #require(manager.selectedWorkspace)
+        let sourcePanelID = try #require(sourceWorkspace.focusedPanelId)
+        let existingWorkspace = manager.addWorkspace(select: false)
+        existingWorkspace.setCustomTitle("Restart Me")
+        let survivingWorkspace = manager.addWorkspace()
+        let action = try #require(CmuxResolvedConfigAction.fromDefinition(
+            id: "restart-stale-target",
+            definition: CmuxConfigActionDefinition(
+                action: .workspace(
+                    CmuxWorkspaceDefinition(name: "Restart Me"),
+                    restart: .confirm
+                )
+            ),
+            sourcePath: nil
+        ))
+        let alert = CmuxConfigConfirmationAlertSpy()
+        let hostWindow = NSWindow(
+            contentRect: NSRect(x: 0, y: 0, width: 320, height: 240),
+            styleMask: [.titled],
+            backing: .buffered,
+            defer: false
+        )
+        defer { hostWindow.close() }
+        var executionCount = 0
+
+        let outcome = CmuxConfigExecutor.executeOutcome(
+            action: action,
+            commands: [],
+            commandSourcePaths: [:],
+            tabManager: manager,
+            baseCwd: NSTemporaryDirectory(),
+            globalConfigPath: "/tmp/cmux-global-\(UUID().uuidString).json",
+            presentingWindow: hostWindow,
+            modelTarget: CmuxActionModelTarget(
+                workspaceID: sourceWorkspace.id,
+                panelID: sourcePanelID
+            ),
+            selectWorkspace: false,
+            alertFactory: { alert },
+            onExecuted: {
+                executionCount += 1
+            }
+        )
+
+        #expect(outcome == .presented)
+        #expect(alert.didBeginSheet)
+        manager.closeWorkspace(sourceWorkspace)
+
+        alert.sheetCompletion?(.alertFirstButtonReturn)
+
+        #expect(manager.tabs.contains(where: { $0 === existingWorkspace }))
+        #expect(manager.tabs.contains(where: { $0 === survivingWorkspace }))
+        #expect(manager.tabs.filter { $0.customTitle == "Restart Me" }.count == 1)
         #expect(executionCount == 0)
     }
 
