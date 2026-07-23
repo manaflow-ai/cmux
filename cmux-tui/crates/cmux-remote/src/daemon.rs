@@ -27,13 +27,12 @@ use tokio::sync::{Mutex, Notify, OwnedSemaphorePermit, RwLock, Semaphore, mpsc, 
 
 use crate::connection::{ConnectionError, send_link_ready};
 use crate::crypto::{
-    AcceptedSecureLink, AuthKind, CryptoError, authorize_secure_link,
-    complete_secure_link_authorization, verify_secure_link,
+    AcceptedSecureLink, AuthKind, CryptoError, authorize_secure_link, verify_secure_link,
 };
-use crate::identity::AuthDatabase;
-pub use crate::identity::{
+pub use crate::crypto::{
     InboundAuthEvidence, NetworkPeer, VerifiedKernelPeer, VerifiedSshPrincipal,
 };
+use crate::identity::AuthDatabase;
 use crate::link::{FrameLink, LaneMuxLink, LinkError, LinkRoute};
 use crate::observability::{ConnectionState, ServerConnectionSnapshot};
 use crate::provider::AxumWebSocketLink;
@@ -721,7 +720,7 @@ impl RemoteDaemon {
         let permit = self.handshakes.try_acquire().map_err(|_| DaemonError::HandshakeBusy)?;
         let verified = tokio::time::timeout(
             PREAUTH_HANDSHAKE_TIMEOUT,
-            verify_secure_link(raw, &self.auth.identity(), &*self.auth),
+            verify_secure_link(raw, &self.auth.identity(), &*self.auth, evidence),
         )
         .await
         .map_err(|_| DaemonError::HandshakeTimeout)??;
@@ -737,17 +736,7 @@ impl RemoteDaemon {
                 drop(approval);
                 accepted
             }
-            AuthKind::Carrier => {
-                let authorization =
-                    self.auth.authorize_carrier(verified.device_public_key(), &evidence);
-                tokio::time::timeout(
-                    AUTHORIZATION_TIMEOUT,
-                    complete_secure_link_authorization(verified, authorization),
-                )
-                .await
-                .map_err(|_| DaemonError::HandshakeTimeout)??
-            }
-            AuthKind::Enrolled => tokio::time::timeout(
+            AuthKind::Carrier | AuthKind::Enrolled => tokio::time::timeout(
                 AUTHORIZATION_TIMEOUT,
                 authorize_secure_link(verified, &*self.auth),
             )
@@ -1515,6 +1504,20 @@ mod tests {
         }
     }
 
+    fn carrier_auth_request(public_key: [u8; 32], inbound: InboundAuthEvidence) -> AuthRequest {
+        AuthRequest {
+            mode: AuthKind::Carrier,
+            invitation_id: None,
+            device_public_key: public_key,
+            device_name: "carrier-client".into(),
+            session: SessionId([91; 16]),
+            lane: Lane::Control,
+            lanes: vec![Lane::Control],
+            generation: 0,
+            inbound,
+        }
+    }
+
     #[test]
     fn wrong_kernel_uid_is_rejected_before_noise_prelude() {
         let reads = Arc::new(AtomicUsize::new(0));
@@ -1545,12 +1548,20 @@ mod tests {
             ("ssh", InboundAuthEvidence::verified_ssh_principal("alice@example.test").unwrap()),
         ];
         for (carrier, evidence) in verified {
-            let grant = allowed
-                .authorize_carrier(public_key, &evidence)
-                .unwrap_or_else(|error| panic!("{carrier} evidence was rejected: {error}"));
+            let grant = ServerAuthenticator::authorize(
+                &*allowed,
+                carrier_auth_request(public_key, evidence.clone()),
+            )
+            .await
+            .unwrap_or_else(|error| panic!("{carrier} evidence was rejected: {error}"));
             assert_eq!(grant.device_id, format!("carrier:{}", public_key_fingerprint(&public_key)));
             assert!(
-                denied.authorize_carrier(public_key, &evidence).is_err(),
+                ServerAuthenticator::authorize(
+                    &*denied,
+                    carrier_auth_request(public_key, evidence),
+                )
+                .await
+                .is_err(),
                 "{carrier} evidence bypassed disabled carrier policy"
             );
         }
@@ -1564,25 +1575,15 @@ mod tests {
         for (carrier, peer) in network {
             let evidence = InboundAuthEvidence::Network(peer);
             assert!(
-                allowed.authorize_carrier(public_key, &evidence).is_err(),
+                ServerAuthenticator::authorize(
+                    &*allowed,
+                    carrier_auth_request(public_key, evidence),
+                )
+                .await
+                .is_err(),
                 "{carrier} network evidence granted Carrier authentication"
             );
         }
-
-        let raw_claim = AuthRequest {
-            mode: AuthKind::Carrier,
-            invitation_id: None,
-            device_public_key: public_key,
-            device_name: "raw-carrier-claim".into(),
-            session: SessionId([91; 16]),
-            lane: Lane::Control,
-            lanes: vec![Lane::Control],
-            generation: 0,
-        };
-        assert!(
-            ServerAuthenticator::authorize(&*allowed, raw_claim).await.is_err(),
-            "a raw Carrier claim bypassed typed ingress evidence"
-        );
     }
 
     struct FaultEpoch {

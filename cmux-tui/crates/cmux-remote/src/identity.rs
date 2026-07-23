@@ -11,8 +11,8 @@ use serde::{Deserialize, Serialize};
 use tokio::sync::{Mutex, Notify, oneshot, watch};
 
 use crate::crypto::{
-    AuthGrant, AuthKind, AuthRequest, CryptoError, ServerAuthenticator, StaticIdentity,
-    public_key_fingerprint,
+    AuthGrant, AuthKind, AuthRequest, CryptoError, InboundAuthEvidence, ServerAuthenticator,
+    StaticIdentity, public_key_fingerprint,
 };
 
 const STATE_VERSION: u32 = 1;
@@ -316,64 +316,6 @@ pub struct PendingEnrollment {
     pub requested_at_unix: u64,
 }
 
-/// The non-authoritative network path that delivered an inbound link.
-#[derive(Clone, Copy, Debug, PartialEq, Eq)]
-pub enum NetworkPeer {
-    Tcp,
-    Tls,
-    Relay,
-    Iroh,
-}
-
-/// Kernel credentials verified to belong to the daemon's effective user.
-#[derive(Clone, Copy, Debug, PartialEq, Eq)]
-pub struct VerifiedKernelPeer {
-    uid: u32,
-}
-
-impl VerifiedKernelPeer {
-    pub fn uid(&self) -> u32 {
-        self.uid
-    }
-}
-
-/// An SSH principal verified by a future SSH server boundary.
-#[derive(Clone, Debug, PartialEq, Eq)]
-pub struct VerifiedSshPrincipal {
-    principal: String,
-}
-
-impl VerifiedSshPrincipal {
-    pub fn principal(&self) -> &str {
-        &self.principal
-    }
-}
-
-/// Server-side evidence established by the transport boundary.
-///
-/// Network evidence identifies provenance for diagnostics but never
-/// authorizes carrier authentication.
-#[derive(Clone, Debug, PartialEq, Eq)]
-pub enum InboundAuthEvidence {
-    Kernel(VerifiedKernelPeer),
-    Ssh(VerifiedSshPrincipal),
-    Network(NetworkPeer),
-}
-
-impl InboundAuthEvidence {
-    pub(crate) fn verified_same_owner_kernel_peer(
-        peer_uid: u32,
-        effective_uid: u32,
-    ) -> Option<Self> {
-        (peer_uid == effective_uid).then_some(Self::Kernel(VerifiedKernelPeer { uid: peer_uid }))
-    }
-
-    pub(crate) fn verified_ssh_principal(principal: impl Into<String>) -> Option<Self> {
-        let principal = principal.into();
-        (!principal.is_empty()).then_some(Self::Ssh(VerifiedSshPrincipal { principal }))
-    }
-}
-
 pub struct AuthDatabase {
     state_dir: PathBuf,
     daemon_name: String,
@@ -509,23 +451,6 @@ impl AuthDatabase {
                 .devices
                 .get(&grant.device_id)
                 .is_some_and(|device| device.revoked_at_unix.is_none())
-    }
-
-    pub(crate) fn authorize_carrier(
-        &self,
-        device_public_key: [u8; 32],
-        evidence: &InboundAuthEvidence,
-    ) -> Result<AuthGrant, String> {
-        if !self.allow_carrier
-            || !matches!(evidence, InboundAuthEvidence::Kernel(_) | InboundAuthEvidence::Ssh(_))
-        {
-            return Err("trusted carrier access is disabled or unavailable".into());
-        }
-        Ok(AuthGrant {
-            device_id: format!("carrier:{}", public_key_fingerprint(&device_public_key)),
-            daemon_name: self.daemon_name.clone(),
-            revocation_generation: *self.revocation_tx.borrow(),
-        })
     }
 
     pub async fn pending_enrollments(&self) -> Vec<PendingEnrollment> {
@@ -683,9 +608,23 @@ impl ServerAuthenticator for AuthDatabase {
                     revocation_generation: generation,
                 })
             }
-            AuthKind::Carrier => {
-                Err("carrier authentication requires verified ingress evidence".into())
+            AuthKind::Carrier
+                if self.allow_carrier
+                    && matches!(
+                        &request.inbound,
+                        InboundAuthEvidence::Kernel(_) | InboundAuthEvidence::Ssh(_)
+                    ) =>
+            {
+                Ok(AuthGrant {
+                    device_id: format!(
+                        "carrier:{}",
+                        public_key_fingerprint(&request.device_public_key)
+                    ),
+                    daemon_name: self.daemon_name.clone(),
+                    revocation_generation: *self.revocation_tx.borrow(),
+                })
             }
+            AuthKind::Carrier => Err("trusted carrier access is disabled or unavailable".into()),
             AuthKind::Invitation => {
                 let invitation_id = request
                     .invitation_id
@@ -1079,7 +1018,7 @@ mod tests {
 
     use super::*;
     use crate::crypto::{
-        ClientAuthMode, ClientHandshake, accept_secure_link, initiate_secure_link,
+        ClientAuthMode, ClientHandshake, NetworkPeer, accept_secure_link, initiate_secure_link,
     };
     use crate::link::test_support;
 
@@ -1229,7 +1168,15 @@ mod tests {
         });
         let server_task = tokio::spawn({
             let database = database.clone();
-            async move { accept_secure_link(Box::new(server_link), &daemon_identity, &*database).await }
+            async move {
+                accept_secure_link(
+                    Box::new(server_link),
+                    &daemon_identity,
+                    &*database,
+                    InboundAuthEvidence::Network(NetworkPeer::Tcp),
+                )
+                .await
+            }
         });
 
         let pending = database.wait_for_pending(Duration::from_secs(2)).await.unwrap();
@@ -1262,6 +1209,7 @@ mod tests {
             lane: Lane::Control,
             lanes: vec![Lane::Control],
             generation: 0,
+            inbound: InboundAuthEvidence::Network(NetworkPeer::Tls),
         };
         let first = tokio::spawn({
             let database = database.clone();
@@ -1318,6 +1266,7 @@ mod tests {
                 lane: Lane::Control,
                 lanes: vec![Lane::Control],
                 generation: 0,
+                inbound: InboundAuthEvidence::Network(NetworkPeer::Relay),
             })
             .await;
         assert_eq!(result.unwrap_err(), "device has been revoked");

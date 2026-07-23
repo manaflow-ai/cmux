@@ -101,6 +101,64 @@ pub struct ClientHandshake {
     pub resume: BTreeMap<Lane, u64>,
 }
 
+/// The non-authoritative network path that delivered an inbound link.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum NetworkPeer {
+    Tcp,
+    Tls,
+    Relay,
+    Iroh,
+}
+
+/// Kernel credentials verified to belong to the daemon's effective user.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub struct VerifiedKernelPeer {
+    uid: u32,
+}
+
+impl VerifiedKernelPeer {
+    pub fn uid(&self) -> u32 {
+        self.uid
+    }
+}
+
+/// An SSH principal verified by a future SSH server boundary.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct VerifiedSshPrincipal {
+    principal: String,
+}
+
+impl VerifiedSshPrincipal {
+    pub fn principal(&self) -> &str {
+        &self.principal
+    }
+}
+
+/// Server-side evidence established by the transport boundary.
+///
+/// Network evidence identifies provenance for diagnostics but never
+/// authorizes carrier authentication.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub enum InboundAuthEvidence {
+    Kernel(VerifiedKernelPeer),
+    Ssh(VerifiedSshPrincipal),
+    Network(NetworkPeer),
+}
+
+impl InboundAuthEvidence {
+    pub(crate) fn verified_same_owner_kernel_peer(
+        peer_uid: u32,
+        effective_uid: u32,
+    ) -> Option<Self> {
+        (peer_uid == effective_uid).then_some(Self::Kernel(VerifiedKernelPeer { uid: peer_uid }))
+    }
+
+    pub(crate) fn verified_ssh_principal(principal: impl Into<String>) -> Option<Self> {
+        let principal = principal.into();
+        (!principal.is_empty()).then_some(Self::Ssh(VerifiedSshPrincipal { principal }))
+    }
+}
+
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct AuthRequest {
     pub mode: AuthKind,
@@ -111,6 +169,7 @@ pub struct AuthRequest {
     pub lane: Lane,
     pub lanes: Vec<Lane>,
     pub generation: u64,
+    pub inbound: InboundAuthEvidence,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -139,10 +198,6 @@ pub(crate) struct VerifiedSecureLink {
 impl VerifiedSecureLink {
     pub(crate) fn auth_kind(&self) -> AuthKind {
         self.request.mode
-    }
-
-    pub(crate) fn device_public_key(&self) -> [u8; 32] {
-        self.request.device_public_key
     }
 }
 
@@ -351,8 +406,9 @@ pub async fn accept_secure_link(
     link: Box<dyn FrameLink>,
     identity: &StaticIdentity,
     authenticator: &dyn ServerAuthenticator,
+    inbound: InboundAuthEvidence,
 ) -> Result<AcceptedSecureLink, CryptoError> {
-    let verified = verify_secure_link(link, identity, authenticator).await?;
+    let verified = verify_secure_link(link, identity, authenticator, inbound).await?;
     authorize_secure_link(verified, authenticator).await
 }
 
@@ -360,6 +416,7 @@ pub(crate) async fn verify_secure_link(
     link: Box<dyn FrameLink>,
     identity: &StaticIdentity,
     authenticator: &dyn ServerAuthenticator,
+    inbound: InboundAuthEvidence,
 ) -> Result<VerifiedSecureLink, CryptoError> {
     let prelude_bytes = receive_bytes(&*link).await?;
     let prelude: ClientPrelude =
@@ -416,6 +473,7 @@ pub(crate) async fn verify_secure_link(
             lane: prelude.lane,
             lanes: prelude.lanes,
             generation: prelude.generation,
+            inbound,
         },
         resume: hello.resume,
     })
@@ -425,18 +483,7 @@ pub(crate) async fn authorize_secure_link(
     verified: VerifiedSecureLink,
     authenticator: &dyn ServerAuthenticator,
 ) -> Result<AcceptedSecureLink, CryptoError> {
-    let authorization = if verified.auth_kind() == AuthKind::Carrier {
-        Err("carrier authentication requires verified ingress evidence".into())
-    } else {
-        authenticator.authorize(verified.request.clone()).await
-    };
-    complete_secure_link_authorization(verified, authorization).await
-}
-
-pub(crate) async fn complete_secure_link_authorization(
-    verified: VerifiedSecureLink,
-    authorization: Result<AuthGrant, String>,
-) -> Result<AcceptedSecureLink, CryptoError> {
+    let authorization = authenticator.authorize(verified.request.clone()).await;
     let grant = match authorization {
         Ok(grant) => {
             send_secure_json(
@@ -694,7 +741,12 @@ mod tests {
 
         let (client_result, server_result) = tokio::join!(
             initiate_secure_link(Box::new(client_link), client_config),
-            accept_secure_link(Box::new(server_link), &daemon, &auth),
+            accept_secure_link(
+                Box::new(server_link),
+                &daemon,
+                &auth,
+                InboundAuthEvidence::Network(NetworkPeer::Tcp),
+            ),
         );
         let client_secure = client_result.unwrap();
         let accepted = server_result.unwrap();
@@ -726,7 +778,12 @@ mod tests {
 
         let (client_result, _) = tokio::join!(
             initiate_secure_link(Box::new(client_link), config),
-            accept_secure_link(Box::new(server_link), &daemon, &auth),
+            accept_secure_link(
+                Box::new(server_link),
+                &daemon,
+                &auth,
+                InboundAuthEvidence::Network(NetworkPeer::Tcp),
+            ),
         );
         assert!(matches!(client_result, Err(CryptoError::DaemonKeyMismatch { .. })));
     }
@@ -749,7 +806,12 @@ mod tests {
 
         let (client_result, server_result) = tokio::join!(
             initiate_secure_link(Box::new(client_link), config),
-            accept_secure_link(Box::new(server_link), &daemon, &auth),
+            accept_secure_link(
+                Box::new(server_link),
+                &daemon,
+                &auth,
+                InboundAuthEvidence::Network(NetworkPeer::Tcp),
+            ),
         );
         assert!(client_result.is_err());
         assert!(server_result.is_err());
