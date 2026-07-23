@@ -81,7 +81,6 @@ class FakeCmuxSocket:
         feed_response_gate: threading.Event | None = None,
         feed_response_ok: bool = True,
         include_feed_item_id: bool = True,
-        deferred_feed_response_count: int | None = None,
         raw_response_delay: float = 0,
         surfaces_by_workspace: dict[str, list[dict]] | None = None,
         surface_delivery_target: tuple[str, str] | None = None,
@@ -93,7 +92,6 @@ class FakeCmuxSocket:
         self.feed_response_gate = feed_response_gate
         self.feed_response_ok = feed_response_ok
         self.include_feed_item_id = include_feed_item_id
-        self.deferred_feed_response_count = deferred_feed_response_count
         self.raw_response_delay = raw_response_delay
         self.surfaces_by_workspace = surfaces_by_workspace
         self.surface_delivery_target = surface_delivery_target
@@ -140,7 +138,6 @@ class FakeCmuxSocket:
     def _handle_conn(self, conn: socket.socket, connection_id: int) -> None:
         with conn:
             data = b""
-            deferred_feed_responses: list[bytes] = []
             while not self._stop.is_set():
                 chunk = conn.recv(65536)
                 if not chunk:
@@ -170,7 +167,14 @@ class FakeCmuxSocket:
                             self.feed_response_gate.wait(timeout=3)
                     result: dict = {"status": "acknowledged"}
                     if frame.get("method") == "feed.push" and self.include_feed_item_id:
-                        result["item_id"] = "33333333-3333-3333-3333-333333333333"
+                        events = frame.get("params", {}).get("events")
+                        if isinstance(events, list):
+                            result["item_ids"] = [
+                                f"33333333-3333-3333-3333-{index:012d}"
+                                for index in range(len(events))
+                            ]
+                        else:
+                            result["item_id"] = "33333333-3333-3333-3333-333333333333"
                     if frame.get("method") == "surface.list":
                         if self.drop_first_surface_list and not self._dropped_surface_list:
                             self._dropped_surface_list = True
@@ -209,12 +213,6 @@ class FakeCmuxSocket:
                             "message": "Feed rejected the event",
                         }
                     encoded_response = json.dumps(response).encode("utf-8") + b"\n"
-                    if frame.get("method") == "feed.push" and self.deferred_feed_response_count is not None:
-                        deferred_feed_responses.append(encoded_response)
-                        if len(deferred_feed_responses) < self.deferred_feed_response_count:
-                            continue
-                        encoded_response = b"".join(deferred_feed_responses)
-                        deferred_feed_responses.clear()
                     try:
                         conn.sendall(encoded_response)
                     except BrokenPipeError:
@@ -2426,7 +2424,7 @@ def test_non_codex_post_tool_use_keeps_request_input(cli_path: str, root: Path) 
         raise AssertionError(f"non-Codex request input should not be sanitized: {event!r}")
 
 
-def test_pi_compacted_post_tool_use_expands_to_distinct_frames(cli_path: str, root: Path) -> None:
+def test_pi_compacted_post_tool_use_sends_one_ordered_batch(cli_path: str, root: Path) -> None:
     socket_path = root / "cmux-pi-compacted-posttool.sock"
     payload = {
         "session_id": "pi-session",
@@ -2492,25 +2490,13 @@ def test_pi_compacted_post_tool_use_expands_to_distinct_frames(cli_path: str, ro
                 f"compacted Pi hooks feed failed exit={result.returncode}\n"
                 f"stdout={result.stdout}\nstderr={result.stderr}"
             )
-        deadline = time.monotonic() + 3
-        while time.monotonic() < deadline:
-            if len([frame for frame in fake.frames if frame.get("method") == "feed.push"]) >= 2:
-                break
-            time.sleep(0.02)
         feed_frames = [frame for frame in fake.frames if frame.get("method") == "feed.push"]
-        feed_connections = [
-            connection_id
-            for connection_id, frame in fake.frames_with_connection
-            if frame.get("method") == "feed.push"
-        ]
 
-    if len(feed_frames) != 2:
+    if len(feed_frames) != 1:
         raise AssertionError(
-            f"compacted Pi terminal events should produce two Feed frames: feed={feed_frames!r}, all={fake.frames!r}"
+            f"compacted Pi terminal events should produce one Feed batch: feed={feed_frames!r}, all={fake.frames!r}"
         )
-    events = [frame["params"]["event"] for frame in feed_frames]
-    if feed_connections[0] != feed_connections[1]:
-        raise AssertionError(f"compacted Pi terminal events used separate socket connections: {feed_connections!r}")
+    events = feed_frames[0]["params"]["events"]
     if [event.get("tool_call_id") for event in events] != ["overflow-tool-8", "overflow-tool-9"]:
         raise AssertionError(f"compacted Pi terminal event order changed: {events!r}")
     expected_routing = [
@@ -2534,7 +2520,7 @@ def test_pi_compacted_post_tool_use_expands_to_distinct_frames(cli_path: str, ro
         raise AssertionError(f"compacted Pi terminal events leaked tool output into Feed: {events!r}")
 
 
-def test_pi_compacted_feed_pipelines_bounded_acknowledged_batch(cli_path: str, root: Path) -> None:
+def test_pi_compacted_feed_sends_bounded_acknowledged_batch(cli_path: str, root: Path) -> None:
     socket_path = root / "cmux-pi-compacted-pipeline.sock"
     event_count = 64
     payload = {
@@ -2560,7 +2546,6 @@ def test_pi_compacted_feed_pipelines_bounded_acknowledged_batch(cli_path: str, r
     with FakeCmuxSocket(
         socket_path,
         None,
-        deferred_feed_response_count=event_count,
         surface_delivery_target=(FAKE_WORKSPACE_ID, FAKE_SURFACE_ID),
     ) as fake:
         result = subprocess.run(
@@ -2589,22 +2574,17 @@ def test_pi_compacted_feed_pipelines_bounded_acknowledged_batch(cli_path: str, r
 
     if result.returncode != 0:
         raise AssertionError(
-            "compacted Pi feed did not pipeline its acknowledged batch: "
+            "compacted Pi feed did not send its acknowledged batch: "
             f"exit={result.returncode} stdout={result.stdout!r} stderr={result.stderr!r}"
         )
     feed_frames = [frame for frame in fake.frames if frame.get("method") == "feed.push"]
-    if len(feed_frames) != event_count:
-        raise AssertionError(f"compacted Pi feed exceeded its {event_count}-request bound: {len(feed_frames)}")
-    feed_connections = {
-        connection_id
-        for connection_id, frame in fake.frames_with_connection
-        if frame.get("method") == "feed.push"
-    }
-    if len(feed_connections) != 1:
-        raise AssertionError(f"compacted Pi feed pipeline used multiple connections: {feed_connections!r}")
-    events = [frame["params"]["event"] for frame in feed_frames]
+    if len(feed_frames) != 1:
+        raise AssertionError(f"compacted Pi feed emitted {len(feed_frames)} requests instead of one")
+    events = feed_frames[0]["params"]["events"]
+    if len(events) != event_count:
+        raise AssertionError(f"compacted Pi feed exceeded its {event_count}-event bound: {len(events)}")
     if any(event.get("workspace_id") != FAKE_WORKSPACE_ID for event in events):
-        raise AssertionError(f"compacted Pi feed pipeline accepted untrusted workspace routing: {events!r}")
+        raise AssertionError(f"compacted Pi feed batch accepted untrusted workspace routing: {events!r}")
     if not any(event.get("tool_call_id") == f"pipeline-tool-{event_count - 1}" for event in events):
         raise AssertionError(f"compacted Pi feed overflow displaced its newest retained event: {events!r}")
     final_event = events[-1]
@@ -2633,7 +2613,7 @@ def test_pi_compacted_feed_rejects_failed_server_ack(cli_path: str, root: Path) 
     env["CMUX_SURFACE_ID"] = FAKE_SURFACE_ID
     env["CMUX_WORKSPACE_ID"] = FAKE_WORKSPACE_ID
 
-    with FakeCmuxSocket(socket_path, None, feed_response_ok=False):
+    with FakeCmuxSocket(socket_path, None, include_feed_item_id=False):
         result = subprocess.run(
             [
                 cli_path,
@@ -2656,7 +2636,7 @@ def test_pi_compacted_feed_rejects_failed_server_ack(cli_path: str, root: Path) 
 
     if result.returncode == 0:
         raise AssertionError(
-            "compacted Pi feed accepted a failed server acknowledgment: "
+            "compacted Pi feed accepted an acknowledgment without authoritative item IDs: "
             f"stdout={result.stdout!r} stderr={result.stderr!r}"
         )
 
@@ -3313,8 +3293,8 @@ def main() -> int:
             test_codex_post_tool_use_keeps_cwd_from_tool_input(cli_path, root)
             test_codex_post_tool_use_without_response_keeps_request_input(cli_path, root)
             test_non_codex_post_tool_use_keeps_request_input(cli_path, root)
-            test_pi_compacted_post_tool_use_expands_to_distinct_frames(cli_path, root)
-            test_pi_compacted_feed_pipelines_bounded_acknowledged_batch(cli_path, root)
+            test_pi_compacted_post_tool_use_sends_one_ordered_batch(cli_path, root)
+            test_pi_compacted_feed_sends_bounded_acknowledged_batch(cli_path, root)
             test_pi_compacted_feed_rejects_failed_server_ack(cli_path, root)
             test_pi_compacted_feed_allows_brief_auth_delay(cli_path, root)
             test_pi_feed_waits_for_server_ack(cli_path, root)

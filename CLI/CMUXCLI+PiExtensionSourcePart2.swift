@@ -76,6 +76,15 @@ function rememberSurfaceTarget(
   );
 }
 
+function releaseSessionRuntime(
+  dispatcher: PiCmuxCommandDispatcher,
+  sessionStates: Map<string, SessionState>,
+  sessionId: string,
+): void {
+  sessionStates.delete(sessionId);
+  surfaceTargetsFor(dispatcher).delete(sessionId);
+}
+
 function parseJSONOutput(result: CommandResult): Record<string, unknown> | null {
   if (!result.ok) return null;
   try {
@@ -223,10 +232,10 @@ async function clearResumeBinding(
   dispatcher: PiCmuxCommandDispatcher,
   context: PiExtensionContextSnapshot,
   sessionId: string,
-): Promise<boolean> {
-  if (process.env.CMUX_PI_HOOKS_DISABLED === "1") return true;
+): Promise<void> {
+  if (process.env.CMUX_PI_HOOKS_DISABLED === "1") return;
   const target = surfaceTargetArgs(dispatcher, sessionId);
-  if (!target) return true;
+  if (!target) return;
   const cwd = context.cwd;
   const result = await dispatcher.run([
     "--json",
@@ -239,7 +248,7 @@ async function clearResumeBinding(
     "--source",
     "agent-hook",
   ], cwd, undefined, context);
-  if (result.surfaceUnavailable) return true;
+  if (result.surfaceUnavailable) return;
   if (!result.ok) {
     warn(context, "failed to clear Pi resume binding", {
       status: result.status,
@@ -247,8 +256,6 @@ async function clearResumeBinding(
       error_available: result.error !== undefined,
     });
   }
-  if (result.ok) surfaceTargetsFor(dispatcher).delete(sessionId);
-  return result.ok;
 }
 
 function sendFeed(
@@ -401,7 +408,11 @@ export default function cmuxPiSessionExtension(pi: ExtensionAPI) {
     const feedDelivered = await dispatcher.finishFeedForSession(sessionId);
     if (!feedDelivered) warn(context, "cmux terminal feed delivery failed", { session_id: sessionId });
     if (stopPayload && feedDelivered) await sendHook(dispatcher, "stop", context, stopPayload);
-    if (await clearResumeBinding(dispatcher, context, sessionId)) sessionStates.delete(sessionId);
+    try {
+      await clearResumeBinding(dispatcher, context, sessionId);
+    } finally {
+      releaseSessionRuntime(dispatcher, sessionStates, sessionId);
+    }
   });
 }
 """#

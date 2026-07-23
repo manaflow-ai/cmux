@@ -5600,13 +5600,25 @@ class TerminalController {
         } else {
             waitTimeout = 0
         }
-        let eventDict: [String: Any]
+        guard params["event"] == nil || params["events"] == nil else {
+            return .err(
+                code: "invalid_params",
+                message: "feed.push accepts either `event` or `events`, not both",
+                data: nil
+            )
+        }
+        let isBatch = params["events"] != nil
+        let eventDicts: [[String: Any]]
         if let nested = params["event"] as? [String: Any] {
-            eventDict = nested
+            eventDicts = [nested]
+        } else if let nested = params["events"] as? [[String: Any]],
+                  !nested.isEmpty,
+                  nested.count <= 64 {
+            eventDicts = nested
         } else if params["session_id"] != nil,
                   params["hook_event_name"] != nil,
                   params["_source"] != nil {
-            eventDict = params
+            eventDicts = [params]
         } else {
             return .err(
                 code: "invalid_params",
@@ -5615,14 +5627,38 @@ class TerminalController {
             )
         }
 
-        let event: WorkstreamEvent
+        let events: [WorkstreamEvent]
         do {
-            let data = try JSONSerialization.data(withJSONObject: eventDict)
-            event = try JSONDecoder().decode(WorkstreamEvent.self, from: data)
+            events = try eventDicts.map {
+                let data = try JSONSerialization.data(withJSONObject: $0)
+                return try JSONDecoder().decode(WorkstreamEvent.self, from: data)
+            }
         } catch {
             return .err(
                 code: "invalid_params",
                 message: "feed.push event failed to decode: \(error)",
+                data: nil
+            )
+        }
+        guard !isBatch || events.allSatisfy({
+            $0.source == "pi"
+                && $0.hookEventName == .postToolUse
+                && $0.requestId != nil
+                && $0.surfaceId != nil
+        }) else {
+            return .err(
+                code: "invalid_params",
+                message: "feed.push requires an `event` object",
+                data: nil
+            )
+        }
+        if requiresIngestionAcknowledgment && waitTimeout == 0 {
+            return v2IngestAcknowledgedFeedEvents(events)
+        }
+        guard let event = events.first, events.count == 1 else {
+            return .err(
+                code: "invalid_params",
+                message: "feed.push requires an `event` object",
                 data: nil
             )
         }
@@ -5631,16 +5667,10 @@ class TerminalController {
         v2ApplyIMessageModeSideEffects(for: event)
         Task { @MainActor in self.agentChatTranscriptService?.noteHookEvent(event) }
 
-        let result = if requiresIngestionAcknowledgment && waitTimeout == 0 {
-            v2MainSync {
-                FeedCoordinator.shared.ingestAcknowledged(event)
-            }
-        } else {
-            FeedCoordinator.shared.ingestBlocking(
-                event: event,
-                waitTimeout: waitTimeout
-            )
-        }
+        let result = FeedCoordinator.shared.ingestBlocking(
+            event: event,
+            waitTimeout: waitTimeout
+        )
         CmuxEventBus.shared.publishWorkstreamEvent(
             event,
             phase: "completed",
@@ -5649,7 +5679,7 @@ class TerminalController {
         return .ok(FeedSocketEncoding.payload(for: result))
     }
 
-    private nonisolated func v2ApplyIMessageModeSideEffects(for event: WorkstreamEvent) {
+    nonisolated func v2ApplyIMessageModeSideEffects(for event: WorkstreamEvent) {
         guard event.hookEventName == .userPromptSubmit || event.hookEventName == .stop,
               let rawWorkspaceId = event.workspaceId?.trimmingCharacters(in: .whitespacesAndNewlines),
               !rawWorkspaceId.isEmpty

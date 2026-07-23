@@ -91,9 +91,14 @@ final class FeedCoordinator: @unchecked Sendable {
 
     @MainActor
     private func ingestOnMainActor(_ event: WorkstreamEvent) -> UUID? {
-        let revalidatedEvent = eventRehomedToLiveSurface(event)
-        store.ingest(revalidatedEvent)
-        if let ppid = revalidatedEvent.ppid, ppid > 0 {
+        guard let revalidatedEvent = eventRehomedToLiveSurface(event) else { return nil }
+        return ingestRevalidatedOnMainActor(revalidatedEvent)
+    }
+
+    @MainActor
+    func ingestRevalidatedOnMainActor(_ event: WorkstreamEvent) -> UUID? {
+        store.ingest(event)
+        if let ppid = event.ppid, ppid > 0 {
             armPidWatcher(ppid: ppid)
         }
         return store.items.last?.id

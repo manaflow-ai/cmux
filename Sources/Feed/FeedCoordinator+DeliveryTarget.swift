@@ -9,23 +9,45 @@ extension FeedCoordinator {
     /// earlier resolution remains a useful fail-fast check, but it cannot be
     /// authoritative after the socket round-trip.
     @MainActor
-    func eventRehomedToLiveSurface(_ event: WorkstreamEvent) -> WorkstreamEvent {
-        guard let rawSurfaceId = event.surfaceId?.trimmingCharacters(in: .whitespacesAndNewlines),
-              let surfaceId = UUID(uuidString: rawSurfaceId),
+    func eventRehomedToLiveSurface(_ event: WorkstreamEvent) -> WorkstreamEvent? {
+        eventsRehomedToLiveSurface([event])?.first
+    }
+
+    /// Resolves one shared live owner for a same-surface Feed batch.
+    @MainActor
+    func eventsRehomedToLiveSurface(_ events: [WorkstreamEvent]) -> [WorkstreamEvent]? {
+        guard let first = events.first else { return [] }
+        guard let claimedSurfaceId = first.surfaceId else {
+            return events.allSatisfy { $0.surfaceId == nil } ? events : nil
+        }
+        guard let surfaceId = normalizedUUID(claimedSurfaceId),
+              events.allSatisfy({ $0.surfaceId.flatMap(normalizedUUID) == surfaceId }),
               let owner = AppDelegate.shared?.workspaceContainingPanel(
                   panelId: surfaceId,
-                  preferredWorkspaceId: event.workspaceId.flatMap(UUID.init(uuidString:))
+                  preferredWorkspaceId: first.workspaceId.flatMap(normalizedUUID)
               )
-        else {
-            return event
-        }
+        else { return nil }
 
+        return events.map {
+            event(
+                $0,
+                rehomedToWorkspaceId: owner.workspace.id.uuidString,
+                surfaceId: surfaceId.uuidString
+            )
+        }
+    }
+
+    private func event(
+        _ event: WorkstreamEvent,
+        rehomedToWorkspaceId workspaceId: String,
+        surfaceId: String
+    ) -> WorkstreamEvent {
         return WorkstreamEvent(
             sessionId: event.sessionId,
             hookEventName: event.hookEventName,
             source: event.source,
-            workspaceId: owner.workspace.id.uuidString,
-            surfaceId: surfaceId.uuidString,
+            workspaceId: workspaceId,
+            surfaceId: surfaceId,
             transcriptPath: event.transcriptPath,
             cwd: event.cwd,
             toolName: event.toolName,
@@ -37,5 +59,9 @@ extension FeedCoordinator {
             receivedAt: event.receivedAt,
             extraFieldsJSON: event.extraFieldsJSON
         )
+    }
+
+    private func normalizedUUID(_ rawValue: String) -> UUID? {
+        UUID(uuidString: rawValue.trimmingCharacters(in: .whitespacesAndNewlines))
     }
 }

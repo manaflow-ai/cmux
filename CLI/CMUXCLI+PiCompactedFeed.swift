@@ -50,21 +50,19 @@ extension CMUXCLI {
         client: SocketClient
     ) throws -> Bool {
         let target = try resolveExplicitPiHookTarget(commandArgs: commandArgs, client: client)
-        let requestLines = PiCompactedFeedEventExpander(
+        let request = PiCompactedFeedEventExpander(
             agentPid: agentPid,
             workspaceId: target?.workspaceId ?? fallbackWorkspaceId,
             surfaceId: target?.surfaceId,
             maximumRequestCount: client.isRelayBacked ? 2 : nil
-        ).requestLines(from: rawObject)
-        guard !requestLines.isEmpty else { return false }
+        ).acknowledgedBatchRequest(from: rawObject)
+        guard let request else { return false }
 
-        let responses = try client.sendSingleLineBatch(
-            commands: requestLines,
+        let response = try client.send(
+            command: request.line,
             responseTimeout: 4
         )
-        for response in responses {
-            try validatePiFeedAcknowledgment(response)
-        }
+        try validatePiFeedAcknowledgment(response, expectedItemCount: request.eventCount)
         return true
     }
 
@@ -186,7 +184,10 @@ extension CMUXCLI {
     }
 
     /// Rejects a Pi feed response unless the server confirms ingestion.
-    func validatePiFeedAcknowledgment(_ response: String) throws {
+    func validatePiFeedAcknowledgment(
+        _ response: String,
+        expectedItemCount: Int? = nil
+    ) throws {
         let decodedResponse: Any
         do {
             decodedResponse = try JSONSerialization.jsonObject(with: Data(response.utf8))
@@ -198,11 +199,24 @@ extension CMUXCLI {
         }
         guard responseObject["ok"] as? Bool == true,
               let result = responseObject["result"] as? [String: Any],
-              result["status"] as? String == "acknowledged",
-              let itemId = result["item_id"] as? String,
-              UUID(uuidString: itemId) != nil
+              result["status"] as? String == "acknowledged"
         else {
             throw piFeedAcknowledgmentError()
+        }
+        if let expectedItemCount {
+            guard expectedItemCount > 0,
+                  let itemIds = result["item_ids"] as? [String],
+                  itemIds.count == expectedItemCount,
+                  itemIds.allSatisfy({ UUID(uuidString: $0) != nil })
+            else {
+                throw piFeedAcknowledgmentError()
+            }
+        } else {
+            guard let itemId = result["item_id"] as? String,
+                  UUID(uuidString: itemId) != nil
+            else {
+                throw piFeedAcknowledgmentError()
+            }
         }
     }
 

@@ -1364,6 +1364,89 @@ await handlers.get("session_shutdown")({ reason: "quit" }, ctx);
     return 0
 
 
+def check_failed_resume_clear_releases_session_runtime(
+    bun: str,
+    root: Path,
+    extension_path: Path,
+) -> int:
+    log_path = root / "failed-resume-clear.log"
+    fake_cmux = root / "failed-resume-clear-cmux"
+    make_executable(
+        fake_cmux,
+        """#!/usr/bin/env bash
+set -euo pipefail
+args="$*"
+cat >/dev/null
+printf '%s\n' "$args" >> "$CMUX_TEST_PI_FAILED_CLEAR_LOG"
+if [[ "$args" == *"hooks pi session-start"* ]]; then
+  printf '{"workspace_id":"00000000-0000-0000-0000-000000008673","surface_id":"00000000-0000-0000-0000-000000008672"}\n'
+elif [[ "$args" == *"surface resume get"* ]]; then
+  printf '{"resume_binding":{"kind":"pi","checkpoint_id":"pi-failed-clear-session"}}\n'
+elif [[ "$args" == *"surface resume clear"* ]]; then
+  printf 'temporary clear failure\n' >&2
+  exit 42
+else
+  printf '{}\n'
+fi
+""",
+    )
+    inspectable_extension = root / "failed-resume-clear-session.ts"
+    inspectable_extension.write_text(
+        extension_path.read_text(encoding="utf-8")
+        + "\nexport { releaseSessionRuntime, surfaceTargetsFor };\n",
+        encoding="utf-8",
+    )
+    source = """
+const extensionPath = process.env.CMUX_TEST_PI_EXTENSION_PATH;
+const mod = await import(extensionPath);
+const handlers = new Map();
+mod.default({ on(name, handler) { handlers.set(name, handler); } });
+const ctx = {
+  cwd: "/tmp/pi-failed-clear-project",
+  sessionManager: { getSessionId() { return "pi-failed-clear-session"; } }
+};
+await handlers.get("session_start")({}, ctx);
+await handlers.get("session_shutdown")({ reason: "done" }, ctx);
+process.env.CMUX_WORKSPACE_ID = "00000000-0000-0000-0000-000000009673";
+process.env.CMUX_SURFACE_ID = "00000000-0000-0000-0000-000000009672";
+await handlers.get("before_agent_start")({ prompt: "new target" }, ctx);
+
+const probeDispatcher = {};
+const probeStates = new Map([["probe-session", { stopped: true }]]);
+mod.surfaceTargetsFor(probeDispatcher).set("probe-session", ["--surface", "old"]);
+mod.releaseSessionRuntime(probeDispatcher, probeStates, "probe-session");
+if (probeStates.has("probe-session")) throw new Error("session state survived runtime release");
+if (mod.surfaceTargetsFor(probeDispatcher).has("probe-session")) {
+  throw new Error("resolved surface target survived runtime release");
+}
+"""
+    result = run_extension(
+        bun=bun,
+        root=root,
+        extension_path=inspectable_extension,
+        fake_cmux=fake_cmux,
+        source=source,
+        extra_env={"CMUX_TEST_PI_FAILED_CLEAR_LOG": str(log_path)},
+    )
+    if result.returncode != 0:
+        print(f"FAIL: failed resume clear retained Pi runtime state: {result.stderr!r}")
+        return 1
+    calls = log_path.read_text(encoding="utf-8").splitlines()
+    prompt_calls = [line for line in calls if "hooks pi prompt-submit" in line]
+    expected_new_target = (
+        "--workspace 00000000-0000-0000-0000-000000009673 "
+        "--surface 00000000-0000-0000-0000-000000009672"
+    )
+    if len(prompt_calls) != 1 or expected_new_target not in prompt_calls[0]:
+        print(f"FAIL: failed resume clear retained the old resolved target: {calls!r}")
+        return 1
+    if '"message":"failed to clear Pi resume binding"' not in result.stderr:
+        print(f"FAIL: failed resume clear was not reported: {result.stderr!r}")
+        return 1
+
+    return 0
+
+
 def check_runtime_isolation(bun: str, root: Path, extension_path: Path) -> int:
     runtime_log = root / "runtime-isolation-cmux.log"
     runtime_cmux = root / "runtime-isolation-cmux"
@@ -1501,6 +1584,7 @@ def run_checks(bun: str, root: Path, extension_path: Path) -> int:
         check_unserializable_feed,
         check_explicit_surface_routing,
         check_moved_surface_resume_target,
+        check_failed_resume_clear_releases_session_runtime,
         check_runtime_isolation,
         check_stale_surface,
     )

@@ -23,7 +23,24 @@ struct PiCompactedFeedEventExpander {
         )
     }
 
-    func requestLines(from rawObject: [String: Any]) -> [String] {
+    func acknowledgedBatchRequest(from rawObject: [String: Any]) -> (line: String, eventCount: Int)? {
+        let events = events(from: rawObject)
+        guard let firstRequestId = events.first?["_opencode_request_id"] as? String else { return nil }
+        let request: [String: Any] = [
+            "id": "\(firstRequestId)-batch",
+            "method": "feed.push",
+            "params": [
+                "events": events,
+                "wait_timeout_seconds": 0,
+            ],
+        ]
+        guard let data = try? JSONSerialization.data(withJSONObject: request),
+              let line = String(data: data, encoding: .utf8)
+        else { return nil }
+        return (line, events.count)
+    }
+
+    private func events(from rawObject: [String: Any]) -> [[String: Any]] {
         guard let summaries = rawObject["cmux_compacted_terminal_events"] as? [[String: Any]],
               !summaries.isEmpty,
               summaries.count <= Self.maxCompactedTerminalEvents
@@ -46,8 +63,8 @@ struct PiCompactedFeedEventExpander {
             retainedSummaries = Array(summaries.prefix(leadingCount))
                 + Array(summaries.suffix(trailingCount))
         }
-        var requests = retainedSummaries.enumerated().compactMap { index, summary in
-            requestLine(summary: summary, fallback: rawObject, index: index)
+        var events = retainedSummaries.enumerated().compactMap { index, summary in
+            event(summary: summary, fallback: rawObject, index: index)
         }
         if needsOverflow {
             let displacedCount = summaries.count - retainedSummaries.count
@@ -59,18 +76,18 @@ struct PiCompactedFeedEventExpander {
             ]
             summary["session_id"] = rawObject["session_id"]
             summary["turn_id"] = rawObject["turn_id"]
-            if let request = requestLine(summary: summary, fallback: rawObject, index: retainedSummaries.count) {
-                requests.append(request)
+            if let event = event(summary: summary, fallback: rawObject, index: retainedSummaries.count) {
+                events.append(event)
             }
         }
-        return requests
+        return events
     }
 
-    private func requestLine(
+    private func event(
         summary: [String: Any],
         fallback: [String: Any],
         index: Int
-    ) -> String? {
+    ) -> [String: Any]? {
         guard let sessionId = string(summary["session_id"]) ?? string(fallback["session_id"]) else {
             return nil
         }
@@ -106,18 +123,7 @@ struct PiCompactedFeedEventExpander {
             event["tool_input"] = terminalResultMetadata(toolResult)
         }
 
-        let request: [String: Any] = [
-            "id": requestId,
-            "method": "feed.push",
-            "params": [
-                "event": event,
-                "wait_timeout_seconds": 0,
-            ],
-        ]
-        guard let data = try? JSONSerialization.data(withJSONObject: request) else {
-            return nil
-        }
-        return String(data: data, encoding: .utf8)
+        return event
     }
 
     private func string(_ value: Any?) -> String? {
