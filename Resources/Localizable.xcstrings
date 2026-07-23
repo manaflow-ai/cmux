@@ -615,6 +615,20 @@
         "ja": { "stringUnit": { "state": "translated", "value": "送信" } }
       }
     },
+    "cli.herdrCompat.error.launchFailed": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": { "stringUnit": { "state": "translated", "value": "Failed to launch compatibility provider at %1$@: %2$@" } },
+        "ja": { "stringUnit": { "state": "translated", "value": "%1$@ の互換プロバイダーを起動できませんでした: %2$@" } }
+      }
+    },
+    "cli.herdrCompat.error.unknownCommand": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": { "stringUnit": { "state": "translated", "value": "Unknown compatibility command '%@'. Supported commands: status, snapshot, list-workspaces, list-tabs, list-panes." } },
+        "ja": { "stringUnit": { "state": "translated", "value": "不明な互換コマンド '%@' です。対応コマンド: status、snapshot、list-workspaces、list-tabs、list-panes。" } }
+      }
+    },
     "about.appName": {
       "extractionState": "manual",
       "localizations": {
