@@ -91,6 +91,21 @@ struct ArtifactSidebarModelTests {
         #expect(await waitUntil { model.rows != firstRows })
     }
 
+    @Test("Thumbnail revisions include file identity as well as modification time")
+    func thumbnailRevisionIncludesFileIdentity() {
+        let modifiedAt = Date(timeIntervalSince1970: 1)
+
+        #expect(
+            ArtifactSidebarFileRevision(
+                fileURL: URL(fileURLWithPath: "/tmp/first.png"),
+                modifiedAt: modifiedAt
+            ) != ArtifactSidebarFileRevision(
+                fileURL: URL(fileURLWithPath: "/tmp/second.png"),
+                modifiedAt: modifiedAt
+            )
+        )
+    }
+
     @Test("Manual add uses injected capture service and workspace context")
     func addsThroughCaptureService() async throws {
         let root = try ArtifactTestSupport.temporaryDirectory()

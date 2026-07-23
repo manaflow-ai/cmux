@@ -329,6 +329,22 @@ struct ArtifactGitPrivacyTests {
         #expect(outcomes.first == .skipped(.gitPrivacyUnavailable))
     }
 
+    @Test("Oversized Git excludes fail closed before sidebar preparation")
+    func rejectsOversizedGitExclude() async throws {
+        let root = try gitRepository()
+        defer { ArtifactTestSupport.remove(root) }
+        let exclude = root.appendingPathComponent(".git/info/exclude")
+        try String(repeating: "# generated ignore\n", count: 140_000).write(
+            to: exclude,
+            atomically: true,
+            encoding: .utf8
+        )
+
+        await #expect(throws: ArtifactStoreError.gitPrivacyUnavailable(exclude.path)) {
+            _ = try await LocalArtifactRepository().snapshot(projectRoot: root)
+        }
+    }
+
     @Test("Concurrent nested projects retain every shared Git exclusion")
     func serializesSharedExcludeUpdates() async throws {
         let root = try gitRepository()
