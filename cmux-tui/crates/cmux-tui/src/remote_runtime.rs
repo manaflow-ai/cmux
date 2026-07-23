@@ -1019,6 +1019,7 @@ mod tests {
 
     struct FakeInitialRouteAttempt {
         fail_ssh_bootstrap: bool,
+        fail_provider_index: Option<usize>,
         events: Vec<FakeInitialRouteEvent>,
     }
 
@@ -1032,12 +1033,16 @@ mod tests {
 
         async fn connect(
             &mut self,
-            _index: usize,
+            index: usize,
             request: ConnectRequest,
         ) -> Result<String, InitialRouteAttemptError> {
             let endpoint = request.endpoint.to_string();
             self.events.push(FakeInitialRouteEvent::Provider(request));
-            Ok(endpoint)
+            if self.fail_provider_index == Some(index) {
+                Err(InitialRouteAttemptError::Route(anyhow!("fake provider is unreachable")))
+            } else {
+                Ok(endpoint)
+            }
         }
     }
 
@@ -1070,7 +1075,11 @@ mod tests {
                 )]),
             },
         ];
-        let mut attempt = FakeInitialRouteAttempt { fail_ssh_bootstrap: true, events: Vec::new() };
+        let mut attempt = FakeInitialRouteAttempt {
+            fail_ssh_bootstrap: true,
+            fail_provider_index: None,
+            events: Vec::new(),
+        };
 
         let selected = select_initial_route(
             &routes,
@@ -1115,7 +1124,11 @@ mod tests {
                 routing: BTreeMap::new(),
             },
         ];
-        let mut attempt = FakeInitialRouteAttempt { fail_ssh_bootstrap: true, events: Vec::new() };
+        let mut attempt = FakeInitialRouteAttempt {
+            fail_ssh_bootstrap: true,
+            fail_provider_index: None,
+            events: Vec::new(),
+        };
 
         let error = select_initial_route(
             &routes,
@@ -1134,6 +1147,130 @@ mod tests {
                 endpoint: "ssh://upgrade.example".into(),
                 upgrade: true,
             }]
+        );
+    }
+
+    #[tokio::test]
+    async fn upgrade_provider_failure_is_fatal_without_route_fallback() {
+        let routes = vec![
+            ResolvedRouteCandidate {
+                endpoint: Url::parse("ssh://upgrade.example").unwrap(),
+                routing: BTreeMap::new(),
+            },
+            ResolvedRouteCandidate {
+                endpoint: Url::parse("wss://fallback.example/v1/link").unwrap(),
+                routing: BTreeMap::new(),
+            },
+        ];
+        let mut attempt = FakeInitialRouteAttempt {
+            fail_ssh_bootstrap: false,
+            fail_provider_index: Some(0),
+            events: Vec::new(),
+        };
+
+        let error = select_initial_route(
+            &routes,
+            SessionId([8; 16]),
+            LanePolicy::Single,
+            true,
+            &mut attempt,
+        )
+        .await
+        .unwrap_err();
+
+        assert!(error.to_string().contains("fake provider is unreachable"));
+        assert_eq!(
+            attempt.events,
+            [
+                FakeInitialRouteEvent::Bootstrap {
+                    endpoint: "ssh://upgrade.example".into(),
+                    upgrade: true,
+                },
+                FakeInitialRouteEvent::Provider(ConnectRequest {
+                    endpoint: Url::parse("ssh://upgrade.example").unwrap(),
+                    session: SessionId([8; 16]),
+                    lane_policy: LanePolicy::Single,
+                    routing: BTreeMap::new(),
+                }),
+            ]
+        );
+    }
+
+    #[cfg(unix)]
+    #[tokio::test]
+    async fn reconnect_bootstraps_an_ssh_candidate_not_attempted_initially() {
+        use std::os::unix::fs::PermissionsExt;
+
+        let directory = tempfile::tempdir().unwrap();
+        let script = directory.path().join("ssh");
+        let log = directory.path().join("ssh.log");
+        let probe = cmux_remote::ssh_bootstrap::RemoteProbe {
+            app: "cmux-tui".into(),
+            version: cmux_remote::ssh_bootstrap::DISTRIBUTION_VERSION.into(),
+            distribution_version: Some(cmux_remote::ssh_bootstrap::DISTRIBUTION_VERSION.into()),
+            npm_bootstrap_version: cmux_remote::ssh_bootstrap::NPM_BOOTSTRAP_VERSION
+                .map(str::to_owned),
+            remote_protocol: cmux_remote_protocol::REMOTE_PROTOCOL_VERSION,
+            os: "test".into(),
+            arch: "test".into(),
+        };
+        fs::write(
+            &script,
+            format!(
+                "#!/bin/sh\nprintf '%s\\n' \"$*\" >> '{}'\nprintf '%s\\n' '{}'\n",
+                log.display(),
+                serde_json::to_string(&probe).unwrap()
+            ),
+        )
+        .unwrap();
+        fs::set_permissions(&script, fs::Permissions::from_mode(0o755)).unwrap();
+        let options = ClientRuntimeOptions {
+            routes: vec![
+                ResolvedRouteCandidate {
+                    endpoint: Url::parse("wss://initial.example/v1/link").unwrap(),
+                    routing: BTreeMap::new(),
+                },
+                ResolvedRouteCandidate {
+                    endpoint: Url::parse("ssh://fallback.example").unwrap(),
+                    routing: BTreeMap::new(),
+                },
+            ],
+            identity: StaticIdentity::generate().unwrap(),
+            expected_daemon: None,
+            auth: ClientAuthMode::Carrier,
+            device_name: "test".into(),
+            session: SessionId([9; 16]),
+            lane_policy: LanePolicy::Single,
+            reconnect: ReconnectPolicy {
+                attempt_timeout: Duration::from_millis(20),
+                heartbeat_interval: None,
+                ..ReconnectPolicy::default()
+            },
+            startup_timeout: Duration::from_millis(500),
+            state_dir: directory.path().join("state"),
+            local_socket: None,
+            relay: None,
+            relay_routes: BTreeMap::new(),
+            iroh_path: IrohPathMode::Auto,
+            ssh: SshProviderConfig {
+                ssh_binary: script.to_string_lossy().into_owned(),
+                ..SshProviderConfig::default()
+            },
+            ssh_bootstrap: SshBootstrapOptions {
+                auto_install: true,
+                upgrade: false,
+                attempt_timeout: Duration::from_millis(500),
+            },
+        };
+        let source = RuntimeReconnectGroups { options, next: AtomicUsize::new(1) };
+
+        assert_eq!(source.next_group().await.unwrap().description(), "ssh://fallback.example");
+        assert!(
+            fs::read_to_string(&log)
+                .unwrap_or_default()
+                .lines()
+                .any(|line| line.contains(" remote-probe --json")),
+            "SSH provider was returned without probing or installing its remote sidecar"
         );
     }
 

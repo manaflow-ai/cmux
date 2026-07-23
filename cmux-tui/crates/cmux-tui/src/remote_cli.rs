@@ -1622,6 +1622,76 @@ fn expand_home(path: String) -> anyhow::Result<PathBuf> {
 mod tests {
     use super::*;
 
+    #[cfg(unix)]
+    #[test]
+    fn initial_ssh_bootstrap_can_use_more_than_the_reconnect_attempt_budget() {
+        use std::os::unix::fs::PermissionsExt;
+
+        let directory = tempfile::tempdir().unwrap();
+        let script = directory.path().join("ssh");
+        let log = directory.path().join("ssh.log");
+        let probe = cmux_remote::ssh_bootstrap::RemoteProbe {
+            app: "cmux-tui".into(),
+            version: DISTRIBUTION_VERSION.into(),
+            distribution_version: Some(DISTRIBUTION_VERSION.into()),
+            npm_bootstrap_version: NPM_BOOTSTRAP_VERSION.map(str::to_owned),
+            remote_protocol: REMOTE_PROTOCOL_VERSION,
+            os: "test".into(),
+            arch: "test".into(),
+        };
+        let probe = serde_json::to_string(&probe).unwrap();
+        fs::write(
+            &script,
+            format!(
+                r#"#!/bin/sh
+printf '%s\n' "$*" >> '{}'
+case " $* " in
+  *" remote-probe --json "*)
+    sleep 0.08
+    printf '%s\n' '{}'
+    ;;
+  *)
+    exit 1
+    ;;
+esac
+"#,
+                log.display(),
+                probe
+            ),
+        )
+        .unwrap();
+        fs::set_permissions(&script, fs::Permissions::from_mode(0o755)).unwrap();
+        let flags = ConnectFlags {
+            route: Some("ssh://bootstrap.example".into()),
+            lanes: LanePolicy::Single,
+            reconnect: ReconnectPolicy {
+                attempt_timeout: Duration::from_millis(20),
+                heartbeat_interval: None,
+                ..ReconnectPolicy::default()
+            },
+            startup_timeout: Some(Duration::from_millis(500)),
+            state_dir: Some(directory.path().join("state")),
+            local_socket: Some(directory.path().join("client.sock")),
+            ssh_session: "main".into(),
+            ssh_binary: script.to_string_lossy().into_owned(),
+            remote_binary: "~/.local/bin/cmux-tui".into(),
+            auto_install: true,
+            ..ConnectFlags::default()
+        };
+
+        if let Ok(runtime) = start_connected(flags) {
+            drop(runtime);
+            panic!("fake remote-link unexpectedly completed a connection");
+        }
+
+        let invocations = fs::read_to_string(log).unwrap();
+        assert!(
+            invocations.contains(" remote-link "),
+            "initial SSH bootstrap was cut off by the shorter reconnect attempt budget: \
+             {invocations:?}"
+        );
+    }
+
     #[test]
     fn iroh_url_query_becomes_non_secret_routing_hints() {
         let mut url =
