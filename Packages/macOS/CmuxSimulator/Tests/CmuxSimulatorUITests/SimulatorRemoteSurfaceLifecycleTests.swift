@@ -110,6 +110,32 @@ struct SimulatorRemoteSurfaceLifecycleTests {
         #expect(await source.copyCount() == 2)
     }
 
+    @Test("A completed frame copy presents without another display tick")
+    func completedCopyPresentsImmediately() async throws {
+        let source = BlockingSimulatorFrameSurfaceSource(snapshot: simulatorFrameSnapshot(
+            pixel: 0xFF_77_88_99,
+            sequence: 1
+        ))
+        let view = SimulatorRemoteSurfaceView(frameSourceFactory: { _ in source })
+        view.update(
+            frameTransport: simulatorFrameTransportDescriptor(50),
+            display: simulatorTestDisplay,
+            chrome: nil
+        )
+        try await waitUntil { await source.hasStarted() }
+
+        await source.release()
+
+        try await waitUntil {
+            simulatorFrameImageFirstPixel(
+                view.frameLayer?.contents
+            ) == 0xFF_77_88_99
+        }
+        #expect(simulatorFrameImageFirstPixel(
+            view.frameLayer?.contents
+        ) == 0xFF_77_88_99)
+    }
+
     @Test("A released stale copy cannot replace a newer transport frame")
     func replacementRejectsStaleCopyCompletion() async throws {
         let oldDescriptor = simulatorFrameTransportDescriptor(44)
