@@ -217,6 +217,9 @@ _PYTHON_FUNCTION_START = re.compile(
 _PYTHON_PARAMETER = re.compile(
     r"(?:^|,)\s*\*{0,2}(?P<name>[A-Za-z_]\w*)"
 )
+_PYTHON_LAMBDA_PARAMETERS = re.compile(
+    r"\blambda\s+(?P<parameters>[^:\n]*):"
+)
 _PYTHON_CLASS = re.compile(r"^\s*class\s+(?P<name>[A-Za-z_]\w*)\b")
 _PYTHON_DEL = re.compile(r"^\s*del\s+(?P<names>.+)$")
 _PYTHON_FOR_TARGET = re.compile(
@@ -493,11 +496,13 @@ def _sleep_call_pattern(path_suffix: str) -> Optional[re.Pattern[str]]:
 
 def _python_import_bindings(
     line: str,
-) -> tuple[set[str], set[str], set[str]]:
-    """Return all bindings plus trusted module/function aliases on one line."""
+) -> tuple[set[str], set[str], set[str], bool]:
+    """Return bindings, trusted aliases, and whether an import is wildcard."""
     bindings: set[str] = set()
     module_aliases: set[str] = set()
     function_aliases: set[str] = set()
+    wildcard_import = False
+    line = line.replace("\\\n", " ")
 
     module_import = _PYTHON_IMPORT.search(line)
     if module_import:
@@ -514,11 +519,11 @@ def _python_import_bindings(
             bindings.add(alias)
             if module in _PYTHON_SLEEP_MODULES:
                 module_aliases.add(alias)
-        return bindings, module_aliases, function_aliases
+        return bindings, module_aliases, function_aliases, wildcard_import
 
     from_import = _PYTHON_FROM_IMPORT.search(line)
     if not from_import:
-        return bindings, module_aliases, function_aliases
+        return bindings, module_aliases, function_aliases, wildcard_import
     module = from_import.group("module")
     imported_items = from_import.group("imports").strip().strip("()")
     for item in imported_items.split(","):
@@ -526,6 +531,9 @@ def _python_import_bindings(
         if not parts:
             continue
         imported = parts[0]
+        if imported == "*":
+            wildcard_import = True
+            continue
         alias = (
             parts[2]
             if len(parts) == 3 and parts[1] == "as"
@@ -534,7 +542,7 @@ def _python_import_bindings(
         bindings.add(alias)
         if module in ("time", "asyncio") and imported == "sleep":
             function_aliases.add(alias)
-    return bindings, module_aliases, function_aliases
+    return bindings, module_aliases, function_aliases, wildcard_import
 
 
 def _python_shadowed_names(line: str, candidates: set[str]) -> set[str]:
@@ -579,6 +587,15 @@ def _python_shadowed_names(line: str, candidates: set[str]) -> set[str]:
             if match.group("name") in candidates
         )
 
+    for lambda_parameters in _PYTHON_LAMBDA_PARAMETERS.finditer(line):
+        shadowed.update(
+            match.group("name")
+            for match in _PYTHON_PARAMETER.finditer(
+                lambda_parameters.group("parameters")
+            )
+            if match.group("name") in candidates
+        )
+
     deletion = _PYTHON_DEL.search(line)
     if deletion:
         deleted = set(re.findall(r"\b[A-Za-z_]\w*\b", deletion.group("names")))
@@ -593,14 +610,52 @@ def _python_real_sleep_lines(masked_lines: list[str]) -> set[int]:
     sleep_lines: set[int] = set()
     pending_parameters: Optional[str] = None
     pending_parameter_depth = 0
+    pending_import: Optional[str] = None
+    pending_import_depth = 0
 
     for idx, line in enumerate(masked_lines):
         candidates = active_modules | active_functions
-        shadowed = _python_shadowed_names(line, candidates)
-        import_bindings, module_aliases, function_aliases = (
-            _python_import_bindings(line)
+        import_statement: Optional[str] = None
+        in_import_header = False
+        if pending_import is not None:
+            in_import_header = True
+            pending_import += "\n" + line
+            pending_import_depth += line.count("(") - line.count(")")
+            if (
+                pending_import_depth <= 0
+                and not line.rstrip().endswith("\\")
+            ):
+                import_statement = pending_import
+                pending_import = None
+        elif line.lstrip().startswith(("import ", "from ")):
+            in_import_header = True
+            import_depth = line.count("(") - line.count(")")
+            if import_depth > 0 or line.rstrip().endswith("\\"):
+                pending_import = line
+                pending_import_depth = import_depth
+            else:
+                import_statement = line
+
+        shadowed = (
+            set()
+            if in_import_header
+            else _python_shadowed_names(line, candidates)
         )
+        if import_statement is None:
+            import_bindings: set[str] = set()
+            module_aliases: set[str] = set()
+            function_aliases: set[str] = set()
+            wildcard_import = False
+        else:
+            (
+                import_bindings,
+                module_aliases,
+                function_aliases,
+                wildcard_import,
+            ) = _python_import_bindings(import_statement)
         shadowed.update(import_bindings & candidates)
+        if wildcard_import:
+            shadowed.update(candidates)
 
         function = _PYTHON_FUNCTION_START.search(line)
         in_function_header = function is not None or pending_parameters is not None
@@ -630,11 +685,14 @@ def _python_real_sleep_lines(masked_lines: list[str]) -> set[int]:
 
         # Only module-scope imports establish aliases. Propagating an alias out
         # of a nested scope would create a false positive elsewhere in the file.
-        if line == line.lstrip():
+        if (
+            import_statement is not None
+            and import_statement == import_statement.lstrip()
+        ):
             active_modules.update(module_aliases)
             active_functions.update(function_aliases)
 
-        if in_function_header:
+        if in_function_header or in_import_header:
             continue
 
         qualified_sleep = any(
@@ -912,7 +970,9 @@ def scan_text(rel_posix: str, text: str) -> list[Finding]:
         else bool(sleep_pattern and sleep_pattern.search(text))
     )
     if not has_sleep_candidate and suffix == ".sh":
-        has_sleep_candidate = bool(_SHELL_BARE_SLEEP.search(text))
+        has_sleep_candidate = any(
+            _SHELL_BARE_SLEEP.search(line) for line in raw_lines
+        )
     masked_lines = (
         _mask_noncode(raw_lines, suffix) if has_sleep_candidate else code_lines
     )
