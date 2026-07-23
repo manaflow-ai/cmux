@@ -820,6 +820,14 @@ class CmuxRuntimeAdapter:
     def _browser_churn(self, planned_id: str, actual_id: str, cycles: int) -> dict[str, Any]:
         latencies: list[dict[str, Any]] = []
         evidence: list[dict[str, Any]] = []
+        surface_latency, surface_payload = self._timed_rpc(
+            "browser_surface_focus",
+            planned_id,
+            "surface.focus",
+            {"workspace_id": self._workspace_id, "surface_id": actual_id},
+        )
+        latencies.append(surface_latency)
+        evidence.append({"label": "browser_surface_focus", "payload": surface_payload})
         methods = (
             ("browser_focus", "browser.focus_webview"),
             ("browser_reload", "browser.reload"),
@@ -851,7 +859,7 @@ class CmuxRuntimeAdapter:
         }
         screenshot_evidence["png_base64_length"] = len(encoded_png)
         return {
-            "operations": cycles * len(methods) + 1,
+            "operations": cycles * len(methods) + 2,
             "latencies": latencies,
             "render_observations": 1,
             "owned_screenshot_path": screenshot.get("path"),
@@ -861,6 +869,14 @@ class CmuxRuntimeAdapter:
                 "screenshot": screenshot_evidence,
             },
         }
+
+    def _browser_churn_batch(
+        self, cycles: int
+    ) -> list[tuple[str, dict[str, Any]]]:
+        return [
+            (planned, self._browser_churn(planned, actual, cycles))
+            for planned, actual in self._browser_actual_ids.items()
+        ]
 
     def _temporary_browser_cycle(self) -> dict[str, Any] | None:
         if not self._browser_actual_ids or self._plan is None:
@@ -932,7 +948,7 @@ class CmuxRuntimeAdapter:
                     "terminal_ansi_lines": len(self._terminal_actual_ids)
                     * self._terminal_ansi_line_target(),
                     "browser_churn_rpc_operations": len(self._browser_actual_ids)
-                    * (cycles * 3 + 1),
+                    * (cycles * 3 + 2),
                     "temporary_browser_open_close_operations": 2
                     if self._browser_actual_ids
                     else 0,
@@ -950,14 +966,14 @@ class CmuxRuntimeAdapter:
             except BaseException as error:
                 failures.append({"phase": "profile_setup", "message": str(error)})
         futures: dict[Any, tuple[str, str]] = {}
-        worker_count = len(self._terminal_actual_ids) + len(self._browser_actual_ids)
+        worker_count = len(self._terminal_actual_ids) + bool(self._browser_actual_ids)
         with ThreadPoolExecutor(max_workers=max(1, worker_count)) as pool:
             for planned, actual in self._terminal_actual_ids.items():
                 future = pool.submit(self._terminal_churn, planned, actual, cycles)
                 futures[future] = ("terminal", planned)
-            for planned, actual in self._browser_actual_ids.items():
-                future = pool.submit(self._browser_churn, planned, actual, cycles)
-                futures[future] = ("browser", planned)
+            if self._browser_actual_ids:
+                future = pool.submit(self._browser_churn_batch, cycles)
+                futures[future] = ("browser_batch", "browser-batch")
 
             sample_count = max(1, cycles)
             samples: list[dict[str, Any]] = []
@@ -984,7 +1000,7 @@ class CmuxRuntimeAdapter:
             for future in as_completed(futures):
                 kind, planned = futures[future]
                 try:
-                    result = future.result()
+                    value = future.result()
                 except BaseException as error:
                     failures.append(
                         {
@@ -994,31 +1010,34 @@ class CmuxRuntimeAdapter:
                         }
                     )
                     continue
-                operation_counts[kind] += result["operations"]
-                if kind == "browser":
-                    browser_render_counts[planned] = result["render_observations"]
-                    screenshot_path = result.get("owned_screenshot_path")
-                    if isinstance(screenshot_path, str) and screenshot_path:
-                        candidate = Path(screenshot_path).absolute()
-                        expected_root = (
-                            Path(tempfile.gettempdir()) / "cmux-browser-screenshots"
-                        ).resolve()
-                        if (
-                            candidate.parent.resolve() == expected_root
-                            and candidate.name.startswith("surface-")
-                            and candidate.suffix == ".png"
-                            and candidate.is_file()
-                            and not candidate.is_symlink()
-                        ):
-                            self._owned_browser_screenshot_paths.add(candidate)
-                latencies.extend(result["latencies"])
-                evidence.append(
-                    {
-                        "surface_kind": kind,
-                        "surface_id": planned,
-                        **result["evidence"],
-                    }
-                )
+                results = value if kind == "browser_batch" else [(planned, value)]
+                result_kind = "browser" if kind == "browser_batch" else kind
+                for result_planned, result in results:
+                    operation_counts[result_kind] += result["operations"]
+                    if result_kind == "browser":
+                        browser_render_counts[result_planned] = result["render_observations"]
+                        screenshot_path = result.get("owned_screenshot_path")
+                        if isinstance(screenshot_path, str) and screenshot_path:
+                            candidate = Path(screenshot_path).absolute()
+                            expected_root = (
+                                Path(tempfile.gettempdir()) / "cmux-browser-screenshots"
+                            ).resolve()
+                            if (
+                                candidate.parent.resolve() == expected_root
+                                and candidate.name.startswith("surface-")
+                                and candidate.suffix == ".png"
+                                and candidate.is_file()
+                                and not candidate.is_symlink()
+                            ):
+                                self._owned_browser_screenshot_paths.add(candidate)
+                    latencies.extend(result["latencies"])
+                    evidence.append(
+                        {
+                            "surface_kind": result_kind,
+                            "surface_id": result_planned,
+                            **result["evidence"],
+                        }
+                    )
 
         temporary: dict[str, Any] | None = None
         try:
