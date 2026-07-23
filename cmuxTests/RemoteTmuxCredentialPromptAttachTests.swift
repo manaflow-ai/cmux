@@ -119,6 +119,43 @@ struct RemoteTmuxCredentialPromptAttachTests {
         )
     }
 
+    /// The case the unit tests missed while the product was broken: by the time the attach gives up,
+    /// the stream that saw the prompt has ended, and its teardown has already removed the view from the
+    /// host map. Latching on the view was not enough — whoever asks has to find the verdict anyway.
+    @Test func theVerdictOutlivesTheViewBeingDiscarded() {
+        let host = RemoteTmuxHost(destination: "user@host", transport: .et, transportPort: 2039)
+        RemoteTmuxController.hostsAwaitingCredentials.remove(host.connectionHash)
+
+        let view = RemoteTmuxViewConnection(host: host, ownerId: "test-owner")
+        var noted = false
+        view.onAwaitingCredentials = { noted = true }
+        view.adoptConnectionForTesting(brokeredConnection())
+        view.connection?.ingest(Data("Enter a passcode:\n".utf8))
+
+        // The stream ends and everything holding the reason goes away.
+        view.stop()
+        #expect(noted, "the verdict has to be published before the view can be discarded")
+
+        RemoteTmuxController.hostsAwaitingCredentials.insert(host.connectionHash)
+        #expect(
+            RemoteTmuxController.mirrorFailure(
+                destination: host.destination,
+                awaitingCredentials: RemoteTmuxController.hostsAwaitingCredentials
+                    .contains(host.connectionHash)
+            ) == .authenticationRequired(host.destination),
+            "with no view and no connection left, the host-level note is the only thing that knows"
+        )
+        RemoteTmuxController.hostsAwaitingCredentials.remove(host.connectionHash)
+    }
+
+    /// A flushed line alone is enough. Measured in the product: a prompt arrives as a flushed preamble
+    /// plus an unterminated tail, and either one has to classify on its own.
+    @Test func aFlushedPreambleClassifiesWithoutTheTail() {
+        let connection = brokeredConnection()
+        connection.ingest(Data("Enter a passcode:\n".utf8))
+        #expect(connection.isAwaitingCredentials)
+    }
+
     /// The message the user reads. "host unreachable" is the wrong classification for a host that
     /// answered and asked for credentials.
     @Test func theErrorNamesTheLoginRatherThanTheNetwork() {
