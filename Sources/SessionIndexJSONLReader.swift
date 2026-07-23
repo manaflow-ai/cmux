@@ -131,6 +131,8 @@ struct SessionIndexJSONLReader: Sendable {
             }
         }
 
+        // `nextEndOffset` is the next older page's exclusive `endingBeforeOffset`.
+        // `nil` means no earlier bytes remain; `didReachStart` reports that same terminal state.
         let nextEndOffset: UInt64?
         if !includesBoundaryContext {
             nextEndOffset = nil
