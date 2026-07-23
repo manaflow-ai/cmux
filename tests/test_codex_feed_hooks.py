@@ -2485,8 +2485,12 @@ def test_pi_post_tool_use_uses_projected_result(cli_path: str, root: Path) -> No
         None,
         source="pi",
     )
-    if stdout != {}:
-        raise AssertionError(f"Pi PostToolUse telemetry should not emit a decision: {stdout!r}")
+    expected_target = {
+        "workspace_id": FAKE_WORKSPACE_ID,
+        "surface_id": FAKE_SURFACE_ID,
+    }
+    if stdout != expected_target:
+        raise AssertionError(f"Pi PostToolUse telemetry reported the wrong acknowledged target: {stdout!r}")
     event = frame["params"]["event"]
     tool_input = event.get("tool_input")
     if not isinstance(tool_input, dict):
@@ -2523,8 +2527,12 @@ def test_legacy_pi_post_tool_use_redacts_raw_result(cli_path: str, root: Path) -
         None,
         source="pi",
     )
-    if stdout != {}:
-        raise AssertionError(f"legacy Pi PostToolUse telemetry should not emit a decision: {stdout!r}")
+    expected_target = {
+        "workspace_id": FAKE_WORKSPACE_ID,
+        "surface_id": FAKE_SURFACE_ID,
+    }
+    if stdout != expected_target:
+        raise AssertionError(f"legacy Pi PostToolUse telemetry reported the wrong acknowledged target: {stdout!r}")
     event = frame["params"]["event"]
     tool_input = event.get("tool_input")
     if not isinstance(tool_input, dict) or tool_input.get("_cmux_sanitized") is not True:
