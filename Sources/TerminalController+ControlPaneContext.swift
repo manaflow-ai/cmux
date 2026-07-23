@@ -491,11 +491,9 @@ extension TerminalController: ControlPaneContext {
             )
         }
 
-        guard let candidate = orientationMatches.first(where: {
+        let candidate = orientationMatches.first(where: {
             $0.paneInFirstChild == direction.requiresPaneInFirstChild
-        }) else {
-            return .noAdjacentBorder(paneID: paneUUID, direction: direction.rawValue)
-        }
+        }) ?? orientationMatches[0]
 
         guard let amount = inputs.amount else {
             return localFallbackUnavailable
