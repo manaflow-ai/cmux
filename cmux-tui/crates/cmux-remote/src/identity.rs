@@ -1008,14 +1008,16 @@ pub fn credential_free_route_hint(route: &str) -> Result<String, IdentityError> 
             clear_url_username(&mut endpoint)?;
             let routing = endpoint
                 .query_pairs()
-                .filter_map(|(key, value)| match key.as_ref() {
-                    "node_id" | "direct" | "direct_addrs" => {
-                        Some((key.into_owned(), value.into_owned()))
+                .filter_map(|(key, value)| {
+                    let key = key.into_owned();
+                    let value = value.into_owned();
+                    match key.as_str() {
+                        "node_id" | "direct" | "direct_addrs" => Some((key, value)),
+                        "relay" | "relay_url" => {
+                            sanitize_nested_route(&value).map(|route| (key, route))
+                        }
+                        _ => None,
                     }
-                    "relay" | "relay_url" => {
-                        sanitize_nested_route(&value).map(|route| (key.into_owned(), route))
-                    }
-                    _ => None,
                 })
                 .collect::<Vec<_>>();
             endpoint.set_query(None);
