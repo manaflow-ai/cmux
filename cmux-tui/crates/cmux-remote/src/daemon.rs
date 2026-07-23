@@ -1411,7 +1411,7 @@ impl From<SessionError> for DaemonError {
 
 #[cfg(test)]
 mod tests {
-    use std::sync::atomic::{AtomicBool, Ordering};
+    use std::sync::atomic::{AtomicBool, AtomicUsize, Ordering};
 
     use async_trait::async_trait;
     use cmux_remote_protocol::{LanePolicy, WireFrame};
@@ -1420,11 +1420,119 @@ mod tests {
 
     use super::*;
     use crate::connection::{ClientConnection, ClientConnectionConfig, ReconnectPolicy};
-    use crate::crypto::{ClientAuthMode, StaticIdentity};
+    use crate::crypto::{
+        AuthRequest, ClientAuthMode, ServerAuthenticator, StaticIdentity, public_key_fingerprint,
+    };
     use crate::link::test_support;
     use crate::provider::{
         CarrierEvidence, LinkGroup, LinkRequest, ProviderCapabilities, ProviderError,
     };
+
+    struct PreludeProbeLink {
+        reads: Arc<AtomicUsize>,
+    }
+
+    #[async_trait]
+    impl FrameLink for PreludeProbeLink {
+        fn description(&self) -> &str {
+            "prelude-probe"
+        }
+
+        fn maximum_frame_bytes(&self) -> usize {
+            128 * 1024
+        }
+
+        async fn send(&self, _frame: Bytes) -> Result<(), LinkError> {
+            Ok(())
+        }
+
+        async fn receive(&self) -> Result<Option<Bytes>, LinkError> {
+            self.reads.fetch_add(1, Ordering::SeqCst);
+            Ok(None)
+        }
+
+        async fn close(&self) -> Result<(), LinkError> {
+            Ok(())
+        }
+    }
+
+    #[test]
+    fn wrong_kernel_uid_is_rejected_before_noise_prelude() {
+        let reads = Arc::new(AtomicUsize::new(0));
+        let inbound = InboundLink::same_owner_kernel_peer(
+            Box::new(PreludeProbeLink { reads: reads.clone() }),
+            502,
+            501,
+        );
+
+        assert!(inbound.is_none());
+        assert_eq!(reads.load(Ordering::SeqCst), 0);
+    }
+
+    #[tokio::test]
+    async fn carrier_authorization_requires_verified_ingress_and_policy() {
+        let allowed_directory = tempdir().unwrap();
+        let allowed =
+            AuthDatabase::load_or_create(allowed_directory.path(), "carrier-allowed", true).unwrap();
+        let denied_directory = tempdir().unwrap();
+        let denied =
+            AuthDatabase::load_or_create(denied_directory.path(), "carrier-denied", false).unwrap();
+        let client = StaticIdentity::generate().unwrap();
+        let public_key = client.public_key();
+
+        let verified = [
+            (
+                "kernel",
+                InboundAuthEvidence::verified_same_owner_kernel_peer(501, 501).unwrap(),
+            ),
+            (
+                "ssh",
+                InboundAuthEvidence::verified_ssh_principal("alice@example.test"),
+            ),
+        ];
+        for (carrier, evidence) in verified {
+            let grant = allowed
+                .authorize_carrier(public_key, &evidence)
+                .unwrap_or_else(|error| panic!("{carrier} evidence was rejected: {error}"));
+            assert_eq!(
+                grant.device_id,
+                format!("carrier:{}", public_key_fingerprint(&public_key))
+            );
+            assert!(
+                denied.authorize_carrier(public_key, &evidence).is_err(),
+                "{carrier} evidence bypassed disabled carrier policy"
+            );
+        }
+
+        let network = [
+            ("tcp", NetworkPeer::Tcp),
+            ("tls", NetworkPeer::Tls),
+            ("relay", NetworkPeer::Relay),
+            ("iroh", NetworkPeer::Iroh),
+        ];
+        for (carrier, peer) in network {
+            let evidence = InboundAuthEvidence::Network(peer);
+            assert!(
+                allowed.authorize_carrier(public_key, &evidence).is_err(),
+                "{carrier} network evidence granted Carrier authentication"
+            );
+        }
+
+        let raw_claim = AuthRequest {
+            mode: AuthKind::Carrier,
+            invitation_id: None,
+            device_public_key: public_key,
+            device_name: "raw-carrier-claim".into(),
+            session: SessionId([91; 16]),
+            lane: Lane::Control,
+            lanes: vec![Lane::Control],
+            generation: 0,
+        };
+        assert!(
+            ServerAuthenticator::authorize(&*allowed, raw_claim).await.is_err(),
+            "a raw Carrier claim bypassed typed ingress evidence"
+        );
+    }
 
     struct FaultEpoch {
         failed: watch::Sender<bool>,
