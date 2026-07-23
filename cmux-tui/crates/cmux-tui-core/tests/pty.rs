@@ -632,6 +632,7 @@ fn control_socket_attach_vt_state_includes_effective_colors() {
             "palette": {"4": "#112233"},
             "cursor_style": "bar",
             "cursor_blink": false,
+            "font_family": null,
         })
     );
 
@@ -767,6 +768,7 @@ fn control_socket_attach_stream_receives_merged_colors_changed() {
             "palette": {},
             "cursor_style": "bar",
             "cursor_blink": false,
+            "font_family": null,
         })
     );
 
@@ -1146,6 +1148,35 @@ fn render_attach_headless_fans_one_frame_to_render_and_byte_consumers() {
         Duration::from_secs(10),
     );
     assert!(output.is_some(), "byte attachment stopped while render attachment was active");
+
+    mux.set_terminal_font_family(Some("JetBrains Mono".to_string()));
+    let font_delta = wait_for(
+        || {
+            while let Some(value) = read_json_line(&mut render_reader) {
+                if value["event"] == "render-delta" && value["font_family"] == "JetBrains Mono" {
+                    return Some(value);
+                }
+            }
+            None
+        },
+        Duration::from_secs(5),
+    )
+    .expect("render font delta");
+    assert_eq!(font_delta["font_family"], "JetBrains Mono");
+
+    let font_colors = wait_for(
+        || {
+            while let Some(value) = read_json_line(&mut byte_reader) {
+                if value["event"] == "colors-changed" && value["font_family"] == "JetBrains Mono" {
+                    return Some(value);
+                }
+            }
+            None
+        },
+        Duration::from_secs(5),
+    )
+    .expect("byte font appearance update");
+    assert_eq!(font_colors["font_family"], "JetBrains Mono");
 
     mux.close_surface(surface.id);
     cmux_tui_core::server::cleanup(&sock_path);

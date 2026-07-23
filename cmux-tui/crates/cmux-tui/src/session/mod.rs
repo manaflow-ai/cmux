@@ -299,6 +299,7 @@ impl Session {
 
     pub fn apply_config(&self, config: &crate::config::Config) {
         if let Session::Local(mux) = self {
+            mux.set_terminal_font_family(config.terminal_font_family.clone());
             mux.update_surface_options(|options| {
                 crate::config::apply_browser_to_surface_options(config, options);
             });

@@ -12,6 +12,7 @@ export interface RenderModel {
   cursor: RenderCursor;
   defaultFg: string;
   defaultBg: string;
+  fontFamily: string | null;
   scrollbackRows: number;
   rows: readonly RenderRow[];
 }
@@ -36,6 +37,7 @@ export function applySnapshot(snapshot: RenderStateEvent): RenderModel {
     cursor: { ...snapshot.cursor },
     defaultFg: snapshot.default_fg,
     defaultBg: snapshot.default_bg,
+    fontFamily: snapshot.font_family ?? null,
     scrollbackRows: snapshot.scrollback_rows,
     rows: normalizeRows(snapshot.rows, snapshot.size.rows),
   };
@@ -66,6 +68,7 @@ export function applyDelta(model: RenderModel, delta: RenderDeltaEvent): RenderM
     cursor: { ...delta.cursor },
     defaultFg: delta.default_fg ?? model.defaultFg,
     defaultBg: delta.default_bg ?? model.defaultBg,
+    fontFamily: delta.font_family === undefined ? model.fontFamily : delta.font_family,
     scrollbackRows: delta.scrollback_rows ?? model.scrollbackRows,
     rows,
   };

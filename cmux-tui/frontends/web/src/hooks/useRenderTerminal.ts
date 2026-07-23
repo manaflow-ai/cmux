@@ -323,6 +323,7 @@ export function useRenderTerminal({
 
     const observer = new ResizeObserver(sendResize);
     observer.observe(host);
+    if (probe !== null) observer.observe(probe);
     window.visualViewport?.addEventListener("resize", sendResize);
     window.visualViewport?.addEventListener("scroll", sendResize);
     void document.fonts?.ready.then(() => {

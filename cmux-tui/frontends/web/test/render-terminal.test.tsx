@@ -8,26 +8,28 @@ import { RenderTerminal } from "../src/components/RenderTerminal";
 const renderHook = vi.hoisted(() => ({
   focused: true,
   historyActive: false,
+  terminalRef: vi.fn(),
   sendKey: vi.fn(),
   sendText: vi.fn(),
 }));
 
-const model: RenderModel = {
+const model = {
   surface: 7,
   size: { cols: 4, rows: 2 },
   cursor: { x: 2, y: 1, style: "bar", blink: true, visible: true, color: null },
   defaultFg: "#eeeeee",
   defaultBg: "#111111",
+  fontFamily: 'Berkeley Mono "Retina"',
   scrollbackRows: 10,
   rows: [
     { row: 0, runs: [{ text: "界", fg: null, bg: null, attrs: renderAttrs.bold, width_hint: 2 }] },
     { row: 1, runs: [{ text: "ok  ", fg: "#00ff00", bg: null, attrs: 0, underline: "dashed" }] },
   ],
-};
+} satisfies RenderModel & { fontFamily: string };
 
 vi.mock("../src/hooks/useRenderTerminal", () => ({
   useRenderTerminal: () => ({
-    terminalRef: () => undefined,
+    terminalRef: renderHook.terminalRef,
     focused: renderHook.focused,
     foreignSize: null,
     model,
@@ -46,11 +48,34 @@ vi.mock("../src/hooks/useRenderTerminal", () => ({
 beforeEach(() => {
   renderHook.focused = true;
   renderHook.historyActive = false;
+  renderHook.terminalRef.mockClear();
   renderHook.sendKey.mockClear();
   renderHook.sendText.mockClear();
 });
 
 describe("RenderTerminal DOM grid", () => {
+  it("applies the server font family as a quoted CSS stack", () => {
+    const { container } = render(
+      <RenderTerminal client={{ protocol: 7 } as CmuxClient} surface={7} active error={null} onError={vi.fn()} />,
+    );
+
+    expect(container.querySelector<HTMLElement>(".render-terminal-host")?.style
+      .getPropertyValue("--terminal-font-family"))
+      .toBe('"Berkeley Mono \\"Retina\\"", Menlo, "SFMono-Regular", Consolas, "Liberation Mono", monospace');
+  });
+
+  it("keeps the terminal host callback stable across render frames", () => {
+    const view = render(
+      <RenderTerminal client={{ protocol: 7 } as CmuxClient} surface={7} active error={null} onError={vi.fn()} />,
+    );
+
+    expect(renderHook.terminalRef).toHaveBeenCalledTimes(1);
+    view.rerender(
+      <RenderTerminal client={{ protocol: 7 } as CmuxClient} surface={7} active error={null} onError={vi.fn()} />,
+    );
+    expect(renderHook.terminalRef).toHaveBeenCalledTimes(1);
+  });
+
   it("renders one absolute row per model row, authoritative run width, and server cursor geometry", () => {
     const { container } = render(
       <RenderTerminal client={{ protocol: 7 } as CmuxClient} surface={7} active error={null} onError={vi.fn()} />,

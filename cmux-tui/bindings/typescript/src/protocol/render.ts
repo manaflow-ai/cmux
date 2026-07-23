@@ -37,6 +37,8 @@ export interface RenderStateEvent {
   cursor: RenderCursor;
   default_fg: ColorHex;
   default_bg: ColorHex;
+  /** Protocol v7 additive extension inherited from Ghostty. */
+  font_family?: string | null;
   scrollback_rows: number;
   rows: RenderRow[];
 }
@@ -50,6 +52,8 @@ export interface RenderDeltaEvent {
   size?: Size;
   default_fg?: ColorHex;
   default_bg?: ColorHex;
+  /** Protocol v7 additive extension updated when Ghostty's configured font changes. */
+  font_family?: string | null;
   scrollback_rows?: number;
   rows: RenderRow[];
 }

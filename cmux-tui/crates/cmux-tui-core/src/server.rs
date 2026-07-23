@@ -2299,7 +2299,7 @@ fn color_hex(color: Option<Rgb>) -> Option<String> {
     color.map(|color| format!("#{:02x}{:02x}{:02x}", color.r, color.g, color.b))
 }
 
-fn terminal_colors_json(colors: TerminalColors) -> Value {
+fn terminal_colors_json(colors: TerminalColors, font_family: Option<&str>) -> Value {
     let cursor_style = colors.cursor_style.map(|style| match style {
         ghostty_vt::CursorShape::Bar => "bar",
         ghostty_vt::CursorShape::Underline => "underline",
@@ -2322,6 +2322,7 @@ fn terminal_colors_json(colors: TerminalColors) -> Value {
         "palette": palette,
         "cursor_style": cursor_style,
         "cursor_blink": colors.cursor_blink,
+        "font_family": font_family,
     })
 }
 
@@ -2384,7 +2385,11 @@ fn render_cursor_json(frame: &SurfaceRenderFrame) -> Value {
     })
 }
 
-fn render_state_json(surface: SurfaceId, frame: &SurfaceRenderFrame) -> Value {
+fn render_state_json(
+    surface: SurfaceId,
+    frame: &SurfaceRenderFrame,
+    font_family: Option<&str>,
+) -> Value {
     let (cols, rows) = frame.frame.size;
     json!({
         "event": "render-state",
@@ -2393,6 +2398,7 @@ fn render_state_json(surface: SurfaceId, frame: &SurfaceRenderFrame) -> Value {
         "cursor": render_cursor_json(frame),
         "default_fg": rgb_hex(frame.frame.default_colors.1),
         "default_bg": rgb_hex(frame.frame.default_colors.0),
+        "font_family": font_family,
         "scrollback_rows": frame.scrollback_rows,
         "rows": render_rows_json(frame, 0..rows),
     })
@@ -2401,22 +2407,31 @@ fn render_state_json(surface: SurfaceId, frame: &SurfaceRenderFrame) -> Value {
 struct RenderClientState {
     size: (u16, u16),
     default_colors: (Rgb, Rgb),
+    font_family: Option<String>,
     scrollback_rows: u32,
 }
 
 impl RenderClientState {
-    fn new(frame: &SurfaceRenderFrame) -> Self {
+    fn new(frame: &SurfaceRenderFrame, font_family: Option<String>) -> Self {
         Self {
             size: frame.frame.size,
             default_colors: frame.frame.default_colors,
+            font_family,
             scrollback_rows: frame.scrollback_rows,
         }
     }
 
-    fn delta_json(&mut self, surface: SurfaceId, frame: &SurfaceRenderFrame) -> Value {
+    fn delta_json(
+        &mut self,
+        surface: SurfaceId,
+        frame: &SurfaceRenderFrame,
+        font_family_update: Option<Option<String>>,
+    ) -> Value {
         let size_changed = self.size != frame.frame.size;
         let foreground_changed = self.default_colors.1 != frame.frame.default_colors.1;
         let background_changed = self.default_colors.0 != frame.frame.default_colors.0;
+        let font_changed =
+            font_family_update.as_ref().is_some_and(|font_family| self.font_family != *font_family);
         let scrollback_changed = self.scrollback_rows != frame.scrollback_rows;
         let full = size_changed
             || foreground_changed
@@ -2443,11 +2458,17 @@ impl RenderClientState {
         if background_changed {
             value["default_bg"] = json!(rgb_hex(frame.frame.default_colors.0));
         }
+        if font_changed {
+            value["font_family"] = json!(font_family_update.as_ref().unwrap());
+        }
         if scrollback_changed {
             value["scrollback_rows"] = json!(frame.scrollback_rows);
         }
         self.size = frame.frame.size;
         self.default_colors = frame.frame.default_colors;
+        if let Some(font_family) = font_family_update {
+            self.font_family = font_family;
+        }
         self.scrollback_rows = frame.scrollback_rows;
         value
     }
@@ -3568,9 +3589,11 @@ fn handle_command(
                         return Err(error.into());
                     }
                 };
-                if let Err(error) = writer
-                    .send_initial(&render_state_json(surface_id, &attach.initial), &outbound_stream)
-                {
+                let (font_generation, font_family) = mux.terminal_font_snapshot();
+                if let Err(error) = writer.send_initial(
+                    &render_state_json(surface_id, &attach.initial, font_family.as_deref()),
+                    &outbound_stream,
+                ) {
                     handle_attach_send_error(&lifecycle, &error);
                     rollback_failed_attach(
                         mux,
@@ -3596,14 +3619,23 @@ fn handle_command(
                         if worker_committed.recv().is_err() {
                             return;
                         }
-                        let mut state = RenderClientState::new(&attach.initial);
+                        let mut state = RenderClientState::new(&attach.initial, font_family);
+                        let mut font_generation = font_generation;
                         while writer.is_open()
                             && outbound_stream.is_open()
                             && !lifecycle.is_canceled()
                         {
                             let value = match attach.stream.recv_timeout(STREAM_DISCONNECT_POLL) {
                                 Ok(RenderAttachFrame::Frame(frame)) => {
-                                    state.delta_json(surface_id, &frame)
+                                    let current_generation = mux.terminal_font_generation();
+                                    let font_family_update =
+                                        (current_generation != font_generation).then(|| {
+                                            let (generation, font_family) =
+                                                mux.terminal_font_snapshot();
+                                            font_generation = generation;
+                                            font_family
+                                        });
+                                    state.delta_json(surface_id, &frame, font_family_update)
                                 }
                                 Ok(RenderAttachFrame::ScrollChanged { offset, at_bottom }) => {
                                     json!({
@@ -3842,7 +3874,10 @@ fn handle_command(
                     "cols": attach.cols,
                     "rows": attach.rows,
                     "data": base64::engine::general_purpose::STANDARD.encode(attach.replay),
-                    "colors": terminal_colors_json(attach.colors),
+                    "colors": terminal_colors_json(
+                        attach.colors,
+                        mux.terminal_font_family().as_deref(),
+                    ),
                 }),
                 &outbound_stream,
             ) {
@@ -3904,11 +3939,18 @@ fn handle_command(
                                     "cols": cols,
                                     "rows": rows,
                                     "replay": base64::engine::general_purpose::STANDARD.encode(replay),
-                                    "colors": terminal_colors_json(*colors),
+                                    "colors": terminal_colors_json(
+                                        *colors,
+                                        mux.terminal_font_family().as_deref(),
+                                    ),
                                 })
                             }
                             AttachFrame::ColorsChanged(colors) => {
-                                let mut value = terminal_colors_json(*colors);
+                                let font_family = mux.terminal_font_family();
+                                let mut value = terminal_colors_json(
+                                    *colors,
+                                    font_family.as_deref(),
+                                );
                                 value["event"] = json!("colors-changed");
                                 value["surface"] = json!(surface_id);
                                 value

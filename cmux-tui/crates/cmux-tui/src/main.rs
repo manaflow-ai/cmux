@@ -875,6 +875,7 @@ fn run_server(
     // Headless sessions have no host terminal to query, so seed the mux from
     // Ghostty's config before any protocol client can create a surface.
     mux.set_default_colors(config.terminal_defaults);
+    mux.set_terminal_font_family(config.terminal_font_family.clone());
     mux.configure_sidebar_plugin(config.sidebar.plugin.clone());
     #[cfg(target_os = "linux")]
     let _provider_management = provider_management_listener
