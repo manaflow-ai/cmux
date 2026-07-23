@@ -4548,8 +4548,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
         cmuxConfigStore: CmuxConfigStore? = nil
     ) {
         let key = ObjectIdentifier(window)
-        let exactContextOwner = mainWindowContexts[key]
-            ?? mainWindowContexts.values.first(where: { $0.window === window })
+        let exactContextOwner = mainWindowContext(forExactWindowIdentity: window)
         let exactIdentityOwner = exactContextOwner.map { context in
             (windowId: context.windowId, tabManager: context.tabManager)
         } ?? recoverableMainWindowIdentity(forExactWindow: window)
@@ -5965,11 +5964,53 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
         return true
     }
 
+    private func repairMismatchedMainWindowContextIndex() {
+        var seenContexts = Set<ObjectIdentifier>()
+        let contexts = mainWindowContexts.values.filter { context in
+            seenContexts.insert(ObjectIdentifier(context)).inserted
+        }
+        var repaired: [ObjectIdentifier: MainWindowContext] = [:]
+
+        // Exact live window identities get their canonical keys first.
+        for context in contexts {
+            guard let window = context.window else { continue }
+            let key = ObjectIdentifier(window)
+            guard repaired[key] == nil else { continue }
+            repaired[key] = context
+        }
+
+        // A windowless context still owns its manager and window ID. Keep it
+        // indexed under its own live identity so an old NSWindow address can
+        // never become authority if AppKit later reuses that address.
+        for context in contexts
+        where !repaired.values.contains(where: { $0 === context }) {
+            repaired[ObjectIdentifier(context)] = context
+        }
+
+        mainWindowContexts = repaired
+        notifyMainWindowContextsDidChange()
+    }
+
+    private func mainWindowContext(forExactWindowIdentity window: NSWindow) -> MainWindowContext? {
+        let key = ObjectIdentifier(window)
+        if let indexedContext = mainWindowContexts[key] {
+            if indexedContext.window === window {
+                return indexedContext
+            }
+            repairMismatchedMainWindowContextIndex()
+        }
+
+        guard let exactContext = mainWindowContexts.values.first(where: { $0.window === window }),
+              reindexMainWindowContextIfNeeded(exactContext, for: window) else {
+            return nil
+        }
+        return exactContext
+    }
+
     func contextForMainTerminalWindow(_ window: NSWindow, reindex: Bool = true) -> MainWindowContext? {
         guard isMainTerminalWindow(window) else { return nil }
 
-        if let context = mainWindowContexts[ObjectIdentifier(window)] {
-            context.window = window
+        if let context = mainWindowContext(forExactWindowIdentity: window) {
             return context
         }
 
@@ -16306,10 +16347,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
         // A close signal owns only the exact NSWindow identity that emitted it.
         // Matching by window id here can tear down the live owner when SwiftUI
         // closes an ignored duplicate carrying the same restored identifier.
-        if let context = mainWindowContexts[ObjectIdentifier(window)] {
-            return commitMainWindowClose(context: context, window: window)
-        }
-        if let context = mainWindowContexts.values.first(where: { $0.window === window }) {
+        if let context = mainWindowContext(forExactWindowIdentity: window) {
             return commitMainWindowClose(context: context, window: window)
         }
         guard let windowId = mainWindowId(from: window),

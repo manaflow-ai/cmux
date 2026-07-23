@@ -8,16 +8,21 @@ extension AppDelegate {
     }
 
     func windowForMainWindowId(_ windowId: UUID) -> NSWindow? {
-        if let ctx = mainWindowContexts.values.first(where: { $0.windowId == windowId }),
-           let window = ctx.window,
-           !hasCommittedMainWindowClose(window) {
+        if let context = mainWindowContexts.values.first(where: { $0.windowId == windowId }) {
+            guard let window = context.window,
+                  !hasCommittedMainWindowClose(window) else {
+                return nil
+            }
             return window
         }
-        let expectedIdentifier = "cmux.main.\(windowId.uuidString)"
-        return NSApp.windows.first(where: {
-            $0.identifier?.rawValue == expectedIdentifier &&
-                !hasCommittedMainWindowClose($0)
-        })
+        guard let route = recoverableMainWindowRoute(windowId: windowId),
+              let window = route.window,
+              NSApp.windows.contains(where: { $0 === window }),
+              mainWindowId(from: window) == windowId,
+              !hasCommittedMainWindowClose(window) else {
+            return nil
+        }
+        return window
     }
 
     func mainWindowForClose(windowId: UUID) -> NSWindow? {
