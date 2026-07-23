@@ -3201,6 +3201,11 @@ class GhosttyNSView: NSView, NSUserInterfaceValidations {
         window?.invalidateCursorRects(for: self)
     }
 
+    /// Last observed trackpad pressure stage. Tracks the rising edge of a
+    /// stage-2 force click so we only invoke the system Look Up popover
+    /// once per gesture rather than on every pressure update.
+    private var prevPressureStage: Int = 0
+
     /// Coalesce high-frequency scrollbar updates into a single main-thread
     /// dispatch.  The action callback (which may fire thousands of times per
     /// second during bulk output like `seq 1 100000`) stores the latest value
@@ -6948,6 +6953,75 @@ class GhosttyNSView: NSView, NSUserInterfaceValidations {
         }
         guard let surface = surface else { return }
         _ = ghostty_surface_mouse_button(surface, GHOSTTY_MOUSE_RELEASE, GHOSTTY_MOUSE_MIDDLE, mouseModsFromEvent(event))
+    }
+
+    /// Forward trackpad pressure changes to Ghostty and bridge the rising
+    /// edge of a stage-2 force click to AppKit's Quick Look / dictionary
+    /// popover, gated on the user's system Force Click preference. Mirrors
+    /// upstream Ghostty's `SurfaceView_AppKit.swift` so we get the same
+    /// behavior Apple's Terminal.app and iTerm2 expose for force-click
+    /// "Look Up".
+    override func pressureChange(with event: NSEvent) {
+        guard let surface = surface else {
+            super.pressureChange(with: event)
+            return
+        }
+
+        ghostty_surface_mouse_pressure(surface, UInt32(event.stage), Double(event.pressure))
+
+        let stage = event.stage
+        guard prevPressureStage < 2 else {
+            prevPressureStage = stage
+            return
+        }
+        prevPressureStage = stage
+        guard stage == 2 else { return }
+
+        // Apple's "Force Click and haptic feedback" toggle lives in
+        // NSGlobalDomain. Skip the popover if the user has disabled it.
+        guard UserDefaults.standard.bool(forKey: "com.apple.trackpad.forceClick") else { return }
+        quickLook(with: event)
+    }
+
+    override func quickLook(with event: NSEvent) {
+        guard let surface = surface else {
+            super.quickLook(with: event)
+            return
+        }
+
+        var text = ghostty_text_s()
+        guard ghostty_surface_quicklook_word(surface, &text) else {
+            super.quickLook(with: event)
+            return
+        }
+        defer { ghostty_surface_free_text(surface, &text) }
+        guard text.text_len > 0, let textPtr = text.text else {
+            super.quickLook(with: event)
+            return
+        }
+
+        let wordData = Data(bytes: textPtr, count: Int(text.text_len))
+        guard let word = String(data: wordData, encoding: .utf8), !word.isEmpty else {
+            super.quickLook(with: event)
+            return
+        }
+
+        var attributes: [NSAttributedString.Key: Any] = [:]
+        if let fontRaw = ghostty_surface_quicklook_font(surface) {
+            // ghostty_surface_quicklook_font returns a +1 retained CTFont;
+            // Swift will retain again when we stash it in the dictionary, so
+            // we balance with an explicit release to avoid the leak that hit
+            // upstream (see manaflow-ai/cmux#4163 for prior CTFont fallout).
+            let font = Unmanaged<CTFont>.fromOpaque(fontRaw)
+            attributes[.font] = font.takeUnretainedValue()
+            font.release()
+        }
+
+        // Ghostty reports cell coords in a top-left origin; AppKit views
+        // here are bottom-left, so flip Y.
+        let pt = NSPoint(x: text.tl_px_x, y: frame.size.height - text.tl_px_y)
+        let str = NSAttributedString(string: word, attributes: attributes)
+        showDefinition(for: str, at: pt)
     }
 
     override func menu(for event: NSEvent) -> NSMenu? {
