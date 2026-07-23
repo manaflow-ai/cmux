@@ -7734,7 +7734,7 @@ mod tests {
         enable_host_keyboard_protocol(&mut output).unwrap();
         disable_host_keyboard_protocol(&mut output).unwrap();
 
-        assert_eq!(output, b"\x1b[>5u\x1b[<1u");
+        assert_eq!(output, b"\x1b[>1u\x1b[<1u");
     }
 
     #[test]
@@ -8050,6 +8050,46 @@ mod tests {
             assert!(!viewport.contains("history-"));
             assert!(viewport.contains("visible-content"));
         });
+        mux.close_surface(surface.id);
+    }
+
+    #[test]
+    fn command_k_reaches_a_kitty_app_on_the_alternate_screen() {
+        let mux = Mux::new(
+            "command-k-alternate-screen-test",
+            SurfaceOptions {
+                command: Some(vec!["/bin/cat".to_string()]),
+                cols: 20,
+                rows: 8,
+                ..Default::default()
+            },
+        );
+        let surface = mux.new_workspace(Some("work".to_string()), Some((20, 8))).unwrap();
+        surface.with_terminal(|term| term.vt_write(b"\x1b[?1049h\x1b[>1u"));
+        let attach = surface.attach_stream().unwrap();
+
+        let (mut app, _events) = test_app_with_events(Session::Local(mux.clone()));
+        app.sidebar_visible = false;
+        app.replace_tree(app.session.tree());
+        let action =
+            app.handle_key(KeyEvent::new(KeyCode::Char('k'), KeyModifiers::SUPER)).unwrap();
+        assert_eq!(action, RenderAction::None);
+        assert!(!app.session.has_pending_mutations());
+        assert!(app.pty_input.shutdown(Duration::from_secs(1)));
+
+        let expected = b"\x1b[107;9u";
+        let deadline = Instant::now() + Duration::from_secs(1);
+        let mut output = Vec::new();
+        while !output.windows(expected.len()).any(|window| window == expected) {
+            match attach.stream.recv_timeout(Duration::from_millis(20)) {
+                Ok(cmux_tui_core::AttachFrame::Output(bytes)) => output.extend_from_slice(&bytes),
+                Ok(cmux_tui_core::AttachFrame::Resized { .. })
+                | Ok(cmux_tui_core::AttachFrame::ColorsChanged(_)) => {}
+                Err(_) if Instant::now() < deadline => {}
+                Err(error) => panic!("alternate-screen app did not receive Command-K: {error}"),
+            }
+        }
+
         mux.close_surface(surface.id);
     }
 

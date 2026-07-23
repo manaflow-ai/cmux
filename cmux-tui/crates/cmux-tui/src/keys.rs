@@ -128,3 +128,26 @@ pub fn key_input_from(event: &KeyEvent) -> Option<KeyInput> {
     }
     Some(input)
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use ghostty_vt::{Callbacks, KeyEncoder, Terminal};
+
+    #[test]
+    fn ctrl_shift_letter_keeps_shift_in_kitty_forwarding() {
+        let event = KeyEvent::new(KeyCode::Char('c'), KeyModifiers::CONTROL | KeyModifiers::SHIFT);
+        let input = key_input_from(&event).unwrap();
+        assert!(input.mods.contains(Mods::CTRL));
+        assert!(input.mods.contains(Mods::SHIFT));
+
+        let mut terminal = Terminal::new(80, 24, 0, Callbacks::default()).unwrap();
+        terminal.vt_write(b"\x1b[>1u");
+        let mut encoder = KeyEncoder::new().unwrap();
+        encoder.sync_from_terminal(&terminal);
+        let mut encoded = Vec::new();
+        encoder.encode(&input, &mut encoded).unwrap();
+
+        assert_eq!(encoded, b"\x1b[99;6u");
+    }
+}

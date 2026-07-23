@@ -1856,6 +1856,37 @@ mod tests {
     }
 
     #[test]
+    fn clear_history_without_prompt_metadata_preserves_wrapped_active_rows() {
+        let mux = Mux::new_for_test("clear-wrapped-input", SurfaceOptions::default());
+        let surface = Surface::spawn_for_test(
+            1,
+            SurfaceOptions { cols: 10, rows: 5, ..SurfaceOptions::default() },
+            Arc::downgrade(&mux),
+        )
+        .unwrap();
+        let writer = CapturingWriter::default();
+        *surface.as_pty().unwrap().writer.lock().unwrap() = Box::new(writer.clone());
+        let before = surface
+            .with_terminal(|term| {
+                for line in 0..12 {
+                    term.vt_write(format!("history-{line}\r\n").as_bytes());
+                }
+                term.vt_write(b"wrapped-edit-buffer");
+                assert!(term.history_rows() > 0);
+                term.viewport_text().unwrap()
+            })
+            .unwrap();
+
+        surface.clear_history().unwrap();
+
+        surface.with_terminal(|term| {
+            assert_eq!(term.history_rows(), 0);
+            assert_eq!(term.viewport_text().unwrap(), before);
+        });
+        assert!(writer.0.lock().unwrap().is_empty());
+    }
+
+    #[test]
     fn clear_history_preserves_alternate_screen_and_primary_history() {
         let mux = Mux::new_for_test("clear-alternate-screen", SurfaceOptions::default());
         let surface =
