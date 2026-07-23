@@ -1,4 +1,5 @@
 import Testing
+import CmuxMobileShellModel
 @testable import CmuxMobileShellUI
 
 @Suite struct WorkspaceActiveSurfaceTests {
@@ -24,6 +25,22 @@ import Testing
             hasChosenChatSession: false,
             hasActiveBrowser: false
         ) == .terminal)
+    }
+
+    @Test func explicitMacSurfaceIsBelowBrowserAndAboveTerminal() {
+        let surface = MobileSurfacePreview(id: "surface", kind: .markdown, title: "README")
+        #expect(WorkspaceActiveSurface.derive(
+            isChatMode: false,
+            hasChosenChatSession: false,
+            hasActiveBrowser: false,
+            selectedMacSurface: surface
+        ) == .macSurface(surface))
+        #expect(WorkspaceActiveSurface.derive(
+            isChatMode: false,
+            hasChosenChatSession: false,
+            hasActiveBrowser: true,
+            selectedMacSurface: surface
+        ) == .browser)
     }
 
     @Test func chromeReturnRefocusesTheSelectedTerminal() {

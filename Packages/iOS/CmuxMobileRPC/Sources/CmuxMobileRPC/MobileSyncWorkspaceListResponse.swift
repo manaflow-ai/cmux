@@ -41,6 +41,8 @@ public struct MobileSyncWorkspaceListResponse: Decodable, Sendable {
         public let hasUnread: Bool?
         /// Terminals belonging to this workspace.
         public let terminals: [Terminal]
+        /// All workspace surfaces. `nil` when an older Mac omits the field.
+        public let surfaces: [Surface]?
 
         private enum CodingKeys: String, CodingKey {
             case id
@@ -55,6 +57,7 @@ public struct MobileSyncWorkspaceListResponse: Decodable, Sendable {
             case lastActivityAt = "last_activity_at"
             case hasUnread = "has_unread"
             case terminals
+            case surfaces
         }
 
         /// Memberwise construction for callers that assemble a row from an
@@ -72,7 +75,8 @@ public struct MobileSyncWorkspaceListResponse: Decodable, Sendable {
             previewAt: Double?,
             lastActivityAt: Double?,
             hasUnread: Bool?,
-            terminals: [Terminal]
+            terminals: [Terminal],
+            surfaces: [Surface]? = nil
         ) {
             self.id = id
             self.windowID = windowID
@@ -86,6 +90,33 @@ public struct MobileSyncWorkspaceListResponse: Decodable, Sendable {
             self.lastActivityAt = lastActivityAt
             self.hasUnread = hasUnread
             self.terminals = terminals
+            self.surfaces = surfaces
+        }
+    }
+
+    /// A Mac-rendered surface in workspace spatial order.
+    public struct Surface: Decodable, Equatable, Sendable {
+        /// Stable Mac-local surface identifier.
+        public let surfaceID: String
+        /// Open surface-kind wire value.
+        public let kind: String
+        /// User-facing surface title.
+        public let title: String
+        /// Backing path for file-oriented surfaces, when present.
+        public let filePath: String?
+
+        private enum CodingKeys: String, CodingKey {
+            case surfaceID = "surface_id"
+            case kind, title
+            case filePath = "file_path"
+        }
+
+        /// Creates a projected surface DTO.
+        public init(surfaceID: String, kind: String, title: String, filePath: String?) {
+            self.surfaceID = surfaceID
+            self.kind = kind
+            self.title = title
+            self.filePath = filePath
         }
     }
 
@@ -228,6 +259,4 @@ extension MobileSyncWorkspaceListResponse {
         self.createdTerminalID = createdTerminalID
     }
 }
-
-
 

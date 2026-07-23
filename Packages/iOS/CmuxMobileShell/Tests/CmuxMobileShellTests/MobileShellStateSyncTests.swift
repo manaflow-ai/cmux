@@ -15,7 +15,8 @@ import Testing
 private func workspaceRecord(
     id: String,
     title: String,
-    sortIndex: Int
+    sortIndex: Int,
+    surfaces: [WorkspaceSyncRecord.Surface]? = nil
 ) -> WorkspaceSyncRecord {
     WorkspaceSyncRecord(
         id: id,
@@ -30,7 +31,8 @@ private func workspaceRecord(
         lastActivityAt: 1.0,
         hasUnread: false,
         sortIndex: sortIndex,
-        terminals: []
+        terminals: [],
+        surfaces: surfaces
     )
 }
 
@@ -100,7 +102,17 @@ struct MobileShellStateSyncTests {
                 epoch: "epoch-1",
                 rev: 3,
                 records: [
-                    workspaceRecord(id: UUID().uuidString, title: "synced-alpha", sortIndex: 0),
+                    workspaceRecord(
+                        id: UUID().uuidString,
+                        title: "synced-alpha",
+                        sortIndex: 0,
+                        surfaces: [.init(
+                            surfaceID: "surface-alpha",
+                            kind: "future.canvas",
+                            title: "Canvas",
+                            filePath: "/tmp/canvas"
+                        )]
+                    ),
                     workspaceRecord(id: UUID().uuidString, title: "synced-beta", sortIndex: 1),
                 ]
             )
@@ -115,6 +127,11 @@ struct MobileShellStateSyncTests {
             store.workspaces.map(\.name).contains("synced-alpha")
         }
         #expect(projected, "snapshot projection must reach the published workspace list")
+        let projectedSurface = try #require(
+            store.workspaces.first(where: { $0.name == "synced-alpha" })?.surfaces.first
+        )
+        #expect(projectedSurface.kind == .other("future.canvas"))
+        #expect(projectedSurface.filePath == "/tmp/canvas")
 
         // A workspace.updated push must no longer trigger the legacy full-list
         // refetch while v2 owns the list.

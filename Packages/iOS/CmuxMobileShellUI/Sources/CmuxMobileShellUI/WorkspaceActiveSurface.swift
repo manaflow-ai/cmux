@@ -1,17 +1,25 @@
 import Foundation
+import CmuxMobileShellModel
 
 enum WorkspaceActiveSurface: Equatable {
     case terminal
     case chat
     case browser
+    case macSurface(MobileSurfacePreview)
 
-    static func derive(isChatMode: Bool, hasChosenChatSession: Bool, hasActiveBrowser: Bool) -> Self {
+    static func derive(
+        isChatMode: Bool,
+        hasChosenChatSession: Bool,
+        hasActiveBrowser: Bool,
+        selectedMacSurface: MobileSurfacePreview? = nil
+    ) -> Self {
         if isChatMode, hasChosenChatSession {
             return .chat
         }
         if hasActiveBrowser {
             return .browser
         }
+        if let selectedMacSurface { return .macSurface(selectedMacSurface) }
         return .terminal
     }
 

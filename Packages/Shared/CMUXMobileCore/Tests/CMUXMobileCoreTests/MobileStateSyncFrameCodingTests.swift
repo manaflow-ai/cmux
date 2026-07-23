@@ -26,6 +26,14 @@ struct MobileStateSyncFrameCodingTests {
                     isReady: true,
                     isFocused: false
                 )
+            ],
+            surfaces: [
+                WorkspaceSyncRecord.Surface(
+                    surfaceID: "surface-future",
+                    kind: "simulator",
+                    title: "iPhone 17 Pro",
+                    filePath: nil
+                )
             ]
         )
     }
@@ -45,6 +53,37 @@ struct MobileStateSyncFrameCodingTests {
         let terminals = object["terminals"] as? [[String: Any]]
         #expect(terminals?.first?["is_ready"] as? Bool == true)
         #expect(terminals?.first?["is_focused"] as? Bool == false)
+        let surfaces = object["surfaces"] as? [[String: Any]]
+        #expect(surfaces?.first?["surface_id"] as? String == "surface-future")
+        #expect(surfaces?.first?["kind"] as? String == "simulator")
+        #expect(surfaces?.first?["file_path"] == nil)
+    }
+
+    @Test func mobileSurfaceKindPreservesUnknownRawValues() throws {
+        let kind = MobileSurfaceKind(rawValue: "simulator")
+        let data = try JSONEncoder().encode(kind)
+        #expect(String(decoding: data, as: UTF8.self) == #""simulator""#)
+        #expect(try JSONDecoder().decode(MobileSurfaceKind.self, from: data) == kind)
+    }
+
+    @Test func workspaceRecordWithoutSurfacesDecodesAndReencodesWithoutTheField() throws {
+        let json = #"{"id":"ws-old","title":"old","is_selected":false,"is_pinned":false,"last_activity_at":1,"has_unread":false,"sort_index":0,"terminals":[]}"#
+        let decoded = try MobileSyncFrameCoder().decode(
+            WorkspaceSyncRecord.self,
+            fromJSONString: json
+        )
+        #expect(decoded.surfaces == nil)
+        let object = try MobileSyncFrameCoder().jsonObject(from: decoded)
+        #expect(object["surfaces"] == nil)
+    }
+
+    @Test func workspaceRecordRoundTripsSurfaceInventory() throws {
+        let decoded = try JSONDecoder().decode(
+            WorkspaceSyncRecord.self,
+            from: JSONEncoder().encode(workspace)
+        )
+        #expect(decoded == workspace)
+        #expect(decoded.surfaces?.first?.kind == "simulator")
     }
 
     @Test func deltaEventRoundTripsThroughJSONObject() throws {

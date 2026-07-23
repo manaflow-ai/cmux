@@ -333,6 +333,14 @@ extension MobileShellComposite {
                         isFocused: terminal.isFocused,
                         isReady: terminal.isReady
                     )
+                },
+                surfaces: record.surfaces?.map { surface in
+                    MobileSyncWorkspaceListResponse.Surface(
+                        surfaceID: surface.surfaceID,
+                        kind: surface.kind,
+                        title: surface.title,
+                        filePath: surface.filePath
+                    )
                 }
             )
         }
