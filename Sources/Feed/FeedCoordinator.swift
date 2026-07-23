@@ -333,7 +333,7 @@ final class FeedCoordinator: @unchecked Sendable {
         ) { result in
             let acceptedEvent: WorkstreamEvent? = DispatchQueue.main.sync {
                 MainActor.assumeIsolated {
-                    let accept = {
+                    let accept: () -> WorkstreamEvent? = {
                         guard case .accepted(let event, _) = FeedCoordinator.shared.acceptOnMainActor(event) else {
                             return nil
                         }
