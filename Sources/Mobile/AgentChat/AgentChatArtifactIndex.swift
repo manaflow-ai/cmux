@@ -59,6 +59,9 @@ actor AgentChatArtifactIndex {
     private struct CacheEntry: Sendable {
         let key: CacheKey
         let snapshot: Snapshot
+        let continuityStartOffset: UInt64
+        let continuityByteCount: UInt64
+        let continuityDigest: Data
     }
 
     private var cacheBySessionID = ChatArtifactLRUCache<String, CacheEntry>(capacity: 8)
@@ -81,28 +84,42 @@ actor AgentChatArtifactIndex {
         )
         defer { try? opened.handle.close() }
         let key = opened.key
-        if let cached = cacheBySessionID.value(forKey: sessionID), cached.key == key {
-            return cached.snapshot
-        }
         let previous = cacheBySessionID.value(forKey: sessionID)
-        let extendsPreviousTranscript = previous.map {
-            $0.key.transcriptLineage == key.transcriptLineage
-                && $0.key.transcriptPath == key.transcriptPath
-                && $0.key.workingDirectory == key.workingDirectory
-                && $0.key.maximumFileBytes == key.maximumFileBytes
-                && $0.key.fileSize < key.fileSize
+        let reader = AgentChatTranscriptReader()
+        let matchesPreviousContent = try previous.map { entry in
+            let hasSameSource = entry.key.transcriptLineage == key.transcriptLineage
+                && entry.key.transcriptPath == key.transcriptPath
+                && entry.key.workingDirectory == key.workingDirectory
+                && entry.key.maximumFileBytes == key.maximumFileBytes
+            guard hasSameSource,
+                  entry.continuityByteCount <= key.fileSize,
+                  entry.continuityStartOffset <= key.fileSize - entry.continuityByteCount else {
+                return false
+            }
+            return try reader.matchesContent(
+                handle: opened.handle,
+                startOffset: entry.continuityStartOffset,
+                byteCount: entry.continuityByteCount,
+                expectedDigest: entry.continuityDigest
+            )
         } ?? false
-        let slice = try AgentChatTranscriptReader().read(
+        if matchesPreviousContent, let previous, previous.key == key {
+            return previous.snapshot
+        }
+        let extendsPreviousTranscript = matchesPreviousContent
+            && (previous?.key.fileSize ?? key.fileSize) < key.fileSize
+        let slice = try reader.read(
             handle: opened.handle,
             fileSize: key.fileSize,
             maximumBytes: key.maximumFileBytes
         )
+        let sliceDigest = reader.digest(slice.data)
         nextSnapshotRevision &+= 1
         let snapshot = try Self.buildSnapshot(
             agentKind: agentKind,
             slice: slice,
             workingDirectory: workingDirectory,
-            generation: key.generation,
+            generation: "\(key.generation)-\(sliceDigest.base64EncodedString())",
             revision: nextSnapshotRevision,
             transcriptLineage: key.transcriptLineage,
             previousArtifacts: extendsPreviousTranscript ? previous?.snapshot.artifacts ?? [] : []
@@ -110,7 +127,10 @@ actor AgentChatArtifactIndex {
         cacheBySessionID.insert(
             CacheEntry(
                 key: key,
-                snapshot: snapshot
+                snapshot: snapshot,
+                continuityStartOffset: slice.lineStartOffsets.first ?? slice.transcriptExtent,
+                continuityByteCount: UInt64(slice.data.count),
+                continuityDigest: sliceDigest
             ),
             forKey: sessionID
         )
