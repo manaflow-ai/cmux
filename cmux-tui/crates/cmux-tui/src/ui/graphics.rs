@@ -524,7 +524,8 @@ fn find_da1(bytes: &[u8]) -> Option<usize> {
 
 #[cfg(test)]
 mod tests {
-    use ghostty_vt::{KittyPlacement, KittyPlacementKey};
+    use base64::Engine as _;
+    use ghostty_vt::{Callbacks, KittyPlacement, KittyPlacementKey, Terminal};
 
     use super::*;
 
@@ -564,6 +565,43 @@ mod tests {
 
     fn joined(batches: &[Vec<u8>]) -> String {
         String::from_utf8(batches.concat()).unwrap()
+    }
+
+    fn translated_terminal_placement(
+        width: u32,
+        height: u32,
+        sizing: &str,
+        pane: Rect,
+    ) -> GraphicPlacement {
+        let mut terminal = Terminal::new(20, 8, 100, Callbacks::default()).unwrap();
+        terminal.resize(20, 8, 10, 20).unwrap();
+        let pixels = vec![255; usize::try_from(width * height * 3).unwrap()];
+        let payload = base64::engine::general_purpose::STANDARD.encode(pixels);
+        terminal.vt_write(
+            format!(
+                "\x1b_Ga=T,t=d,f=24,i=201,p=1,s={width},v={height}{sizing},q=2;{payload}\x1b\\"
+            )
+            .as_bytes(),
+        );
+
+        let snapshot = terminal.kitty_graphics_snapshot().unwrap();
+        assert_eq!(snapshot.placements.len(), 1);
+        kitty_graphic_placement(
+            pane,
+            (10, 20),
+            kitty_graphic_image(0, 9, snapshot.image(201).unwrap()),
+            &snapshot.placements[0],
+        )
+        .unwrap()
+    }
+
+    fn emitted_placement(value: GraphicPlacement) -> String {
+        let mut state = GraphicsState::default();
+        let output = joined(&state.frame_batches(&[value]));
+        let start = output.find("\x1b_Ga=p").expect("placement command");
+        let command = &output[start..];
+        let end = command.find("\x1b\\").expect("placement terminator") + 2;
+        command[..end].to_string()
     }
 
     #[test]
@@ -760,6 +798,69 @@ mod tests {
             u32::from(outer.rect.y - pane.y + outer.rect.height) * 20 + outer.y_offset
                 <= u32::from(pane.height) * 20
         );
+    }
+
+    #[test]
+    fn terminal_native_size_omits_outer_columns_and_rows() {
+        let command = emitted_placement(translated_terminal_placement(
+            3,
+            2,
+            "",
+            Rect { x: 0, y: 0, width: 20, height: 8 },
+        ));
+        assert!(!command.contains(",c="), "{command:?}");
+        assert!(!command.contains(",r="), "{command:?}");
+    }
+
+    #[test]
+    fn terminal_column_only_size_omits_outer_rows() {
+        let command = emitted_placement(translated_terminal_placement(
+            20,
+            10,
+            ",c=2",
+            Rect { x: 0, y: 0, width: 20, height: 8 },
+        ));
+        assert!(command.contains(",c=2"), "{command:?}");
+        assert!(!command.contains(",r="), "{command:?}");
+    }
+
+    #[test]
+    fn terminal_row_only_size_omits_outer_columns() {
+        let command = emitted_placement(translated_terminal_placement(
+            10,
+            40,
+            ",r=2",
+            Rect { x: 0, y: 0, width: 20, height: 8 },
+        ));
+        assert!(!command.contains(",c="), "{command:?}");
+        assert!(command.contains(",r=2"), "{command:?}");
+    }
+
+    #[test]
+    fn terminal_explicit_cell_size_emits_both_outer_axes() {
+        let command = emitted_placement(translated_terminal_placement(
+            20,
+            40,
+            ",c=2,r=2",
+            Rect { x: 0, y: 0, width: 20, height: 8 },
+        ));
+        assert!(command.contains(",c=2,r=2"), "{command:?}");
+    }
+
+    #[test]
+    fn terminal_clipping_resolves_both_axes_and_crops_source_inside_pane() {
+        let outer = translated_terminal_placement(
+            20,
+            40,
+            ",X=4,Y=5,c=2,r=2",
+            Rect { x: 0, y: 0, width: 2, height: 2 },
+        );
+        assert_eq!(outer.rect, Rect { x: 0, y: 0, width: 1, height: 1 });
+        assert_eq!(outer.source, Some(GraphicSourceRect { x: 0, y: 0, width: 10, height: 20 }));
+        assert_eq!((outer.x_offset, outer.y_offset), (4, 5));
+
+        let command = emitted_placement(outer);
+        assert!(command.contains("x=0,y=0,w=10,h=20,X=4,Y=5,c=1,r=1"), "{command:?}");
     }
 
     #[test]
