@@ -66,7 +66,6 @@ struct DisconnectedWorkspaceShellView: View {
                     }
                     #endif
                 }
-                .accessibilityIdentifier("MobileDisconnectedWorkspaceShell")
                 .task {
                     // Load (and, via the backup decorator, restore) saved Macs so a
                     // known/restored Mac shows up here for one-tap reconnect. Only
@@ -142,15 +141,15 @@ struct DisconnectedWorkspaceShellView: View {
         store.map { MacComputerSnapshot.snapshots(from: $0) } ?? []
     }
 
-    var showsDeletedComputerRecoveryAction: Bool {
-        store?.hasRecoverableDeletedComputers == true
+    var showsAccountComputerRecoveryAction: Bool {
+        store?.accountComputerRecoveryMode != .unavailable
     }
 
     var shouldAutoPresentAddDeviceAfterLoadingSavedMacs: Bool {
         guard let store else { return false }
         return store.pairedMacLoadState == .loaded
             && store.pairedMacs.isEmpty
-            && !showsDeletedComputerRecoveryAction
+            && !showsAccountComputerRecoveryAction
     }
 
     @ViewBuilder
@@ -189,8 +188,8 @@ struct DisconnectedWorkspaceShellView: View {
                     defaultValue: "Tap a computer to reconnect. Swipe left to remove one."
                 ))
             }
-            if showsDeletedComputerRecoveryAction, let store {
-                deletedComputerRecoverySection(store: store)
+            if showsAccountComputerRecoveryAction, let store {
+                accountComputerRecoverySection(store: store)
             }
             Section {
                 Button(action: showAddDevice) {
@@ -235,14 +234,16 @@ struct DisconnectedWorkspaceShellView: View {
                 defaultValue: "Add a computer to start syncing terminal workspaces."
             ))
         } actions: {
-            if showsDeletedComputerRecoveryAction, let store {
-                DeletedComputerRecoveryButton(
+            if showsAccountComputerRecoveryAction, let store {
+                let mode = store.accountComputerRecoveryMode
+                AccountComputerRecoveryButton(
                     isProminent: true,
-                    isRecovering: store.isRecoveringDeletedComputer,
-                    recover: { await store.recoverForgottenIrohMacFromAccount() },
-                    reloadAfterFailure: { await reloadAfterFailedDeletedComputerRecovery() }
+                    mode: mode,
+                    isRecovering: store.isRecoveringAccountComputer,
+                    recover: { await store.recoverIrohMacFromAccount() },
+                    reloadAfterFailure: { await reloadAfterFailedAccountComputerRecovery() }
                 )
-                DeletedComputerRecoveryFooter()
+                AccountComputerRecoveryFooter(mode: mode)
                     .font(.footnote)
                     .foregroundStyle(.secondary)
                     .multilineTextAlignment(.center)
@@ -271,15 +272,17 @@ struct DisconnectedWorkspaceShellView: View {
         }
     }
 
-    private func deletedComputerRecoverySection(store: CMUXMobileShellStore) -> some View {
-        Section {
-            DeletedComputerRecoveryButton(
-                isRecovering: store.isRecoveringDeletedComputer,
-                recover: { await store.recoverForgottenIrohMacFromAccount() },
-                reloadAfterFailure: { await reloadAfterFailedDeletedComputerRecovery() }
+    private func accountComputerRecoverySection(store: CMUXMobileShellStore) -> some View {
+        let mode = store.accountComputerRecoveryMode
+        return Section {
+            AccountComputerRecoveryButton(
+                mode: mode,
+                isRecovering: store.isRecoveringAccountComputer,
+                recover: { await store.recoverIrohMacFromAccount() },
+                reloadAfterFailure: { await reloadAfterFailedAccountComputerRecovery() }
             )
         } footer: {
-            DeletedComputerRecoveryFooter()
+            AccountComputerRecoveryFooter(mode: mode)
         }
     }
 
@@ -360,7 +363,7 @@ struct DisconnectedWorkspaceShellView: View {
         }
     }
 
-    private func reloadAfterFailedDeletedComputerRecovery() async {
+    private func reloadAfterFailedAccountComputerRecovery() async {
         await store?.loadPairedMacs()
         await store?.loadRegistryDevices()
     }

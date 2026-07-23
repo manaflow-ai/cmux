@@ -11,16 +11,17 @@ import Testing
 @Suite
 struct DisconnectedWorkspaceShellRecoveryTests {
     @Test func emptyDisconnectedStateOffersDeletedComputerRecovery() async throws {
-        let store = try await shellStore()
+        let store = try await shellStore(personalIrohDiscovery: EmptyAccountIrohDiscovery())
         store.hasRecoverableDeletedComputers = true
 
         let view = disconnectedView(store: store)
 
-        #expect(view.showsDeletedComputerRecoveryAction)
+        #expect(store.accountComputerRecoveryMode == .recoverDeletedComputer)
+        #expect(view.showsAccountComputerRecoveryAction)
     }
 
     @Test func recoverableDeletedComputerSuppressesAutomaticAddComputerSheet() async throws {
-        let store = try await shellStore()
+        let store = try await shellStore(personalIrohDiscovery: EmptyAccountIrohDiscovery())
         await store.loadPairedMacs()
         store.hasRecoverableDeletedComputers = true
 
@@ -29,7 +30,19 @@ struct DisconnectedWorkspaceShellRecoveryTests {
         #expect(!view.shouldAutoPresentAddDeviceAfterLoadingSavedMacs)
     }
 
-    @Test func emptyStateAutoPresentsAddComputerOnlyAfterSuccessfulLoad() async throws {
+    @Test func emptyDisconnectedStateOffersAccountRecoveryWithoutDeletionMarker() async throws {
+        let store = try await shellStore(personalIrohDiscovery: EmptyAccountIrohDiscovery())
+        await store.loadPairedMacs()
+
+        let view = disconnectedView(store: store)
+
+        #expect(!store.hasRecoverableDeletedComputers)
+        #expect(store.accountComputerRecoveryMode == .findAccountComputer)
+        #expect(view.showsAccountComputerRecoveryAction)
+        #expect(!view.shouldAutoPresentAddDeviceAfterLoadingSavedMacs)
+    }
+
+    @Test func emptyStateAutoPresentsAddComputerWhenAccountDiscoveryIsUnavailable() async throws {
         let store = try await shellStore()
         var view = disconnectedView(store: store)
         #expect(!view.shouldAutoPresentAddDeviceAfterLoadingSavedMacs)
@@ -40,15 +53,19 @@ struct DisconnectedWorkspaceShellRecoveryTests {
         #expect(view.shouldAutoPresentAddDeviceAfterLoadingSavedMacs)
     }
 
-    @Test func failedPairedMacLoadDoesNotAutoPresentAddComputer() async throws {
-        let store = try await shellStore(pairedMacStore: FailingLoadPairedMacStore())
+    @Test func failedPairedMacLoadStillOffersAccountRecovery() async throws {
+        let store = try await shellStore(
+            pairedMacStore: FailingLoadPairedMacStore(),
+            personalIrohDiscovery: EmptyAccountIrohDiscovery()
+        )
         store.hasRecoverableDeletedComputers = true
 
         await store.loadPairedMacs()
         let view = disconnectedView(store: store)
 
         #expect(store.pairedMacLoadState == .failed)
-        #expect(!view.showsDeletedComputerRecoveryAction)
+        #expect(store.accountComputerRecoveryMode == .findAccountComputer)
+        #expect(view.showsAccountComputerRecoveryAction)
         #expect(!view.shouldAutoPresentAddDeviceAfterLoadingSavedMacs)
     }
 
@@ -63,13 +80,15 @@ struct DisconnectedWorkspaceShellRecoveryTests {
     }
 
     private func shellStore(
-        pairedMacStore: any MobilePairedMacStoring = WorkspaceMacSelectionPairedMacStore([])
+        pairedMacStore: any MobilePairedMacStoring = WorkspaceMacSelectionPairedMacStore([]),
+        personalIrohDiscovery: (any MobileIrohMacDiscovering)? = nil
     ) async throws -> CMUXMobileShellStore {
         let suiteName = "DisconnectedWorkspaceShellRecoveryTests-\(UUID().uuidString)"
         let defaults = try #require(UserDefaults(suiteName: suiteName))
         return MobileShellComposite(
             isSignedIn: true,
             pairedMacStore: pairedMacStore,
+            personalIrohDiscovery: personalIrohDiscovery,
             clientIDRepository: MobileClientIDRepository(defaults: defaults),
             identityProvider: WorkspaceMacSelectionIdentityProvider(userID: "user-1"),
             teamIDProvider: { "team-a" },
@@ -77,6 +96,11 @@ struct DisconnectedWorkspaceShellRecoveryTests {
             multiMacAggregationDefaults: defaults
         )
     }
+}
+
+@MainActor
+private final class EmptyAccountIrohDiscovery: MobileIrohMacDiscovering {
+    func discoverLiveMacs() async -> [MobileDiscoveredIrohMac] { [] }
 }
 
 private enum FailingLoadPairedMacStoreError: Error {

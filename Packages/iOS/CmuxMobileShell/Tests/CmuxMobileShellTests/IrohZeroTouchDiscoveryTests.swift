@@ -98,7 +98,7 @@ struct IrohZeroTouchDiscoveryTests {
 
         await fixture.shell.loadPairedMacs()
         #expect(fixture.shell.hasRecoverableDeletedComputers)
-        #expect(await fixture.shell.recoverForgottenIrohMacFromAccount() == .recovered)
+        #expect(await fixture.shell.recoverIrohMacFromAccount() == .recovered)
 
         #expect(fixture.shell.connectionState == .connected)
         #expect(fixture.factory.attemptedRouteIDs() == ["iroh-mac-a"])
@@ -113,6 +113,27 @@ struct IrohZeroTouchDiscoveryTests {
             instanceTag: "stable",
             scope: scope
         )))
+    }
+
+    @Test
+    func explicitAccountRecoveryDialsLiveMacWithoutForgottenMarker() async throws {
+        let fixture = try await makeFixture(
+            candidates: [try candidate(deviceID: "mac-a", endpointByte: "a")],
+            reportedDeviceID: "mac-a"
+        )
+        defer { fixture.cleanup() }
+
+        await fixture.shell.loadPairedMacs()
+        #expect(!fixture.shell.hasRecoverableDeletedComputers)
+        #expect(await fixture.shell.recoverIrohMacFromAccount() == .recovered)
+
+        #expect(fixture.shell.connectionState == .connected)
+        #expect(fixture.factory.attemptedRouteIDs() == ["iroh-mac-a"])
+        let rows = try await fixture.store.loadAll(stackUserID: "user-1", teamID: nil)
+        let saved = try #require(rows.first)
+        #expect(rows.count == 1)
+        #expect(saved.macDeviceID == "mac-a")
+        #expect(saved.instanceTag == "stable")
     }
 
     @Test
@@ -141,7 +162,7 @@ struct IrohZeroTouchDiscoveryTests {
 
         await fixture.shell.loadPairedMacs()
         #expect(fixture.shell.hasRecoverableDeletedComputers)
-        #expect(await fixture.shell.recoverForgottenIrohMacFromAccount() == .recovered)
+        #expect(await fixture.shell.recoverIrohMacFromAccount() == .recovered)
 
         #expect(fixture.factory.attemptedRouteIDs() == ["iroh-mac-a"])
         let rows = try await fixture.store.loadAll(stackUserID: "user-1", teamID: nil)
@@ -163,7 +184,7 @@ struct IrohZeroTouchDiscoveryTests {
             scope: scope
         )
 
-        #expect(await fixture.shell.recoverForgottenIrohMacFromAccount() == .notFound)
+        #expect(await fixture.shell.recoverIrohMacFromAccount() == .notFound)
 
         #expect(fixture.shell.connectionState == .disconnected)
         #expect(fixture.factory.attemptedRouteIDs() == ["iroh-mac-a"])
@@ -190,11 +211,11 @@ struct IrohZeroTouchDiscoveryTests {
             scope: scope
         )
         let firstRecovery = Task { @MainActor in
-            await fixture.shell.recoverForgottenIrohMacFromAccount()
+            await fixture.shell.recoverIrohMacFromAccount()
         }
         await discovery.waitUntilRequested()
 
-        #expect(await fixture.shell.recoverForgottenIrohMacFromAccount() == .alreadyInProgress)
+        #expect(await fixture.shell.recoverIrohMacFromAccount() == .alreadyInProgress)
 
         discovery.resume()
         #expect(await firstRecovery.value == .recovered)
@@ -216,7 +237,7 @@ struct IrohZeroTouchDiscoveryTests {
             scope: scope
         )
         let recovery = Task { @MainActor in
-            await fixture.shell.recoverForgottenIrohMacFromAccount()
+            await fixture.shell.recoverIrohMacFromAccount()
         }
         await discovery.waitUntilRequested()
 
@@ -243,7 +264,7 @@ struct IrohZeroTouchDiscoveryTests {
             scope: scope
         )
         let recovery = Task { @MainActor in
-            await fixture.shell.recoverForgottenIrohMacFromAccount()
+            await fixture.shell.recoverIrohMacFromAccount()
         }
         await discovery.waitUntilRequested()
 
