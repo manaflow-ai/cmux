@@ -68,6 +68,10 @@ extension CMUXCLI {
         guard var prefix = herdrCompatCommands.first(where: { $0.name == command })?.arguments else {
             return nil
         }
+        // Only `herdr status` has a distinct human vs JSON mode (`--json`).
+        // `api snapshot`, `workspace list`, `tab list`, and `pane list` always emit JSON
+        // and do not accept `--json`; injecting the flag there would fail those commands.
+        // cmux `--json` is therefore intentionally a no-op for those aliases.
         if command == "status", jsonOutput, !arguments.contains("--json") {
             prefix.append("--json")
         }
@@ -106,8 +110,13 @@ extension CMUXCLI {
             defaultValue: """
             Usage: cmux __herdr-compat <command> [options]
 
-            Hidden compatibility bridge to an installed Herdr CLI.
+            Hidden compatibility bridge to an installed provider CLI.
             Commands: %@
+
+            Notes:
+              - `status` accepts cmux `--json` (mapped to provider `status --json`).
+              - `snapshot`, `list-workspaces`, `list-tabs`, and `list-panes` always return JSON;
+                cmux `--json` is accepted and ignored for those aliases.
             """
         )
         return String(format: format, herdrCompatCommandList)

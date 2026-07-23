@@ -272942,7 +272942,7 @@
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "Usage: cmux __herdr-compat <command> [options]\n\nHidden compatibility bridge to an installed Herdr CLI.\nCommands: %@"
+            "value": "Usage: cmux __herdr-compat <command> [options]\n\nHidden compatibility bridge to an installed provider CLI.\nCommands: %@\n\nNotes:\n  - `status` accepts cmux `--json` (mapped to provider `status --json`).\n  - `snapshot`, `list-workspaces`, `list-tabs`, and `list-panes` always return JSON;\n    cmux `--json` is accepted and ignored for those aliases."
           }
         },
         "ja": {
