@@ -74,7 +74,9 @@ interface PiFeedProjectionState {
 function projectPiFeedValue(value: unknown, state: PiFeedProjectionState, depth = 0, preserveText = true): unknown {
   if (value === null || typeof value === "boolean") return value;
   if (typeof value === "string") return preserveText ? utf8Prefix(value, 512) : piFeedValueSummary(value);
-  if (typeof value === "number") return Number.isFinite(value) ? value : piFeedValueSummary(value);
+  if (typeof value === "number") {
+    return preserveText && Number.isFinite(value) ? value : piFeedValueSummary(value);
+  }
   if (typeof value !== "object") return piFeedValueSummary(value);
   if (depth >= 4 || state.remainingNodes <= 0) return piFeedValueSummary(value);
   if (state.seen.has(value)) return { kind: "circular" };

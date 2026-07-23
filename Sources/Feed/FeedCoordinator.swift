@@ -46,11 +46,8 @@ final class FeedCoordinator: @unchecked Sendable {
         label: "cmux.feed.pidWatcher", qos: .utility
     )
 
-    /// Serial execution is an ingress/event-delivery lane, not coordinator-state synchronization.
-    /// Every accepted Feed path crosses it before MainActor insertion and `received` publication.
-    private let feedIngressDeliveryQueue = DispatchQueue(
-        label: "cmux.feed.ingressDelivery", qos: .userInitiated
-    )
+    /// Every accepted Feed path crosses this lane before insertion and `received` publication.
+    private let feedIngressDeliveryLane = FeedIngressDeliveryLane()
 
     /// In-flight blocking decisions whose needs-input overlay is currently lit,
     /// keyed by ``AttentionTarget``. Each state keeps the workspace object that
@@ -133,7 +130,7 @@ final class FeedCoordinator: @unchecked Sendable {
     func performAcceptedEventDelivery<Result: Sendable>(
         _ delivery: @Sendable () -> Result
     ) -> Result {
-        feedIngressDeliveryQueue.sync(execute: delivery)
+        feedIngressDeliveryLane.perform(delivery)
     }
 
     /// Ingests a wire-frame event and, when `waitTimeout` > 0, blocks the
@@ -292,7 +289,7 @@ final class FeedCoordinator: @unchecked Sendable {
         onAcceptedOnMainActor: @escaping @MainActor @Sendable (WorkstreamEvent) -> Void,
         onAccepted: @escaping @Sendable (WorkstreamEvent) -> Void
     ) {
-        feedIngressDeliveryQueue.async {
+        feedIngressDeliveryLane.enqueueLatestZeroWait {
             let acceptedEvent = DispatchQueue.main.sync {
                 MainActor.assumeIsolated {
                     guard case .accepted(let event, _) = FeedCoordinator.shared.acceptOnMainActor(event) else {
