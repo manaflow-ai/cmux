@@ -271,10 +271,10 @@ public struct AutomationSection: View {
             SettingsCardRow(
                 configurationReview: .json("automation.claudeBinaryPath"),
                 String(localized: "settings.automation.claudeCode.customPath", defaultValue: "Claude Binary Path"),
-                subtitle: String(localized: "settings.automation.claudeCode.customPath.subtitle", defaultValue: "Custom path to the claude binary. Leave empty to use PATH.")
+                subtitle: String(localized: "settings.automation.claudeCode.customPath.subtitle", defaultValue: "Custom path to the claude binary, or a launch command containing \"$@\" to forward the arguments. Leave empty to use PATH.")
             ) {
                 TextField(
-                    String(localized: "settings.automation.claudeCode.customPath.placeholder", defaultValue: "e.g. /usr/local/bin/claude"),
+                    String(localized: "settings.automation.claudeCode.customPath.placeholder", defaultValue: "e.g. /usr/local/bin/claude or zsh -lic 'claude \"$@\"' claude \"$@\""),
                     text: Binding(get: { claudePathModel.current }, set: { claudePathModel.set($0) })
                 )
                 .textFieldStyle(.roundedBorder)

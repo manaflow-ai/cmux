@@ -514,6 +514,137 @@ struct AgentExecutableResolverTests {
         expectFalse(AgentSessionProviderID.claude.shouldAutoStartSession)
     }
 
+    // https://github.com/manaflow-ai/cmux/issues/7035: the configured Claude
+    // launch value may be a shell command (receiving the agent arguments as
+    // "$@"), not just a binary path, so a `claude` defined as a shell function
+    // in the user's rc can be reached.
+    @Test
+    func testConfiguredClaudeCommandStringResolvesToShellLaunchPlan() throws {
+        let root = FileManager.default.temporaryDirectory
+            .appendingPathComponent(
+                "AgentExecutableResolverTests-\(UUID().uuidString)", isDirectory: true)
+        try FileManager.default.createDirectory(at: root, withIntermediateDirectories: true)
+        defer { try? FileManager.default.removeItem(at: root) }
+
+        let command = #"/bin/zsh -lic 'claude "$@"' claude "$@""#
+        let resolver = AgentExecutableResolver(
+            environment: ["PATH": root.path, "HOME": root.path],
+            bundleResourceURL: root.appendingPathComponent("Resources", isDirectory: true),
+            includeStandardSearchDirectories: false,
+            configuredExecutablePaths: [.claude: command]
+        )
+
+        let plan = try resolver.resolve(.claude)
+        expectEqual(plan.executableURL.path, "/bin/sh")
+        expectEqual(
+            plan.arguments,
+            ["-c", command, "claude"] + AgentSessionProviderID.claude.launchArguments)
+        expectEqual(plan.environment["CMUX_CLAUDE_CUSTOM_COMMAND_ACTIVE"], "1")
+    }
+
+    @Test
+    func testConfiguredClaudeCommandIgnoredWhenGuardAlreadyActive() throws {
+        let root = FileManager.default.temporaryDirectory
+            .appendingPathComponent(
+                "AgentExecutableResolverTests-\(UUID().uuidString)", isDirectory: true)
+        let bin = root.appendingPathComponent("bin", isDirectory: true)
+        try FileManager.default.createDirectory(at: bin, withIntermediateDirectories: true)
+        let executable = bin.appendingPathComponent("claude")
+        try "#!/bin/sh\nexit 0\n".write(to: executable, atomically: true, encoding: .utf8)
+        try FileManager.default.setAttributes([.posixPermissions: 0o755], ofItemAtPath: executable.path)
+        defer { try? FileManager.default.removeItem(at: root) }
+
+        let resolver = AgentExecutableResolver(
+            environment: [
+                "PATH": bin.path,
+                "HOME": root.path,
+                "CMUX_CLAUDE_CUSTOM_COMMAND_ACTIVE": "1",
+            ],
+            bundleResourceURL: root.appendingPathComponent("Resources", isDirectory: true),
+            includeStandardSearchDirectories: false,
+            configuredExecutablePaths: [.claude: #"/bin/zsh -lic 'claude "$@"' claude "$@""#]
+        )
+
+        let plan = try resolver.resolve(.claude)
+        expectEqual(plan.executableURL.path, executable.standardizedFileURL.path)
+    }
+
+    // The guard is active iff non-empty (matching the wrapper's `-z` check):
+    // an empty inherited value must not disable command mode.
+    @Test
+    func testConfiguredClaudeCommandAppliesWhenGuardEnvValueIsEmpty() throws {
+        let root = FileManager.default.temporaryDirectory
+            .appendingPathComponent(
+                "AgentExecutableResolverTests-\(UUID().uuidString)", isDirectory: true)
+        try FileManager.default.createDirectory(at: root, withIntermediateDirectories: true)
+        defer { try? FileManager.default.removeItem(at: root) }
+
+        let command = #"my-wrapper "$@""#
+        let resolver = AgentExecutableResolver(
+            environment: [
+                "PATH": root.path,
+                "HOME": root.path,
+                "CMUX_CLAUDE_CUSTOM_COMMAND_ACTIVE": "",
+            ],
+            bundleResourceURL: root.appendingPathComponent("Resources", isDirectory: true),
+            includeStandardSearchDirectories: false,
+            configuredExecutablePaths: [.claude: command]
+        )
+
+        let plan = try resolver.resolve(.claude)
+        expectEqual(plan.executableURL.path, "/bin/sh")
+    }
+
+    // A stale spaced path (no "$@") must keep the silent PATH fallback, not
+    // become a hard-failing /bin/sh command.
+    @Test
+    func testConfiguredStaleSpacedPathFallsBackToPathSearch() throws {
+        let root = FileManager.default.temporaryDirectory
+            .appendingPathComponent(
+                "AgentExecutableResolverTests-\(UUID().uuidString)", isDirectory: true)
+        let bin = root.appendingPathComponent("bin", isDirectory: true)
+        try FileManager.default.createDirectory(at: bin, withIntermediateDirectories: true)
+        let executable = bin.appendingPathComponent("claude")
+        try "#!/bin/sh\nexit 0\n".write(to: executable, atomically: true, encoding: .utf8)
+        try FileManager.default.setAttributes([.posixPermissions: 0o755], ofItemAtPath: executable.path)
+        defer { try? FileManager.default.removeItem(at: root) }
+
+        let staleSpacedPath = root.appendingPathComponent("dir with space/claude").path
+        let resolver = AgentExecutableResolver(
+            environment: ["PATH": bin.path, "HOME": root.path],
+            bundleResourceURL: root.appendingPathComponent("Resources", isDirectory: true),
+            includeStandardSearchDirectories: false,
+            configuredExecutablePaths: [.claude: staleSpacedPath]
+        )
+
+        let plan = try resolver.resolve(.claude)
+        expectEqual(plan.executableURL.path, executable.standardizedFileURL.path)
+    }
+
+    @Test
+    func testConfiguredStalePlainPathStillFallsBackToPathSearch() throws {
+        let root = FileManager.default.temporaryDirectory
+            .appendingPathComponent(
+                "AgentExecutableResolverTests-\(UUID().uuidString)", isDirectory: true)
+        let bin = root.appendingPathComponent("bin", isDirectory: true)
+        try FileManager.default.createDirectory(at: bin, withIntermediateDirectories: true)
+        let executable = bin.appendingPathComponent("claude")
+        try "#!/bin/sh\nexit 0\n".write(to: executable, atomically: true, encoding: .utf8)
+        try FileManager.default.setAttributes([.posixPermissions: 0o755], ofItemAtPath: executable.path)
+        defer { try? FileManager.default.removeItem(at: root) }
+
+        let stalePath = root.appendingPathComponent("missing/claude").path
+        let resolver = AgentExecutableResolver(
+            environment: ["PATH": bin.path, "HOME": root.path],
+            bundleResourceURL: root.appendingPathComponent("Resources", isDirectory: true),
+            includeStandardSearchDirectories: false,
+            configuredExecutablePaths: [.claude: stalePath]
+        )
+
+        let plan = try resolver.resolve(.claude)
+        expectEqual(plan.executableURL.path, executable.standardizedFileURL.path)
+    }
+
     @Test
     func testSearchesBunBinUnderHome() throws {
         let root = FileManager.default.temporaryDirectory
