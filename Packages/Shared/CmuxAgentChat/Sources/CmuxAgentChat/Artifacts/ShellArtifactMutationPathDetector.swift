@@ -51,24 +51,33 @@ struct ShellArtifactMutationPathDetector: Sendable {
     private func containsCompoundGrouping(_ command: String) -> Bool {
         var quote: Character?
         var escaped = false
-        for character in command {
+        let characters = Array(command)
+        var index = 0
+        while index < characters.count {
+            let character = characters[index]
             if escaped {
                 escaped = false
+                index += 1
                 continue
             }
             if character == "\\", quote != "'" {
                 escaped = true
+                index += 1
                 continue
             }
             if let activeQuote = quote {
                 if character == activeQuote { quote = nil }
+                index += 1
                 continue
             }
             if character == "'" || character == "\"" {
                 quote = character
+            } else if character == "[", characters[safe: index + 1] == "[" {
+                return true
             } else if "(){}".contains(character) {
                 return true
             }
+            index += 1
         }
         return false
     }

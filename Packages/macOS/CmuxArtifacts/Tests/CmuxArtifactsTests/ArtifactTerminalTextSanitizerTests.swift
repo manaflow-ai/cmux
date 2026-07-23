@@ -21,4 +21,13 @@ struct ArtifactTerminalTextSanitizerTests {
 
         #expect(ArtifactTerminalTextSanitizer().sanitize(text) == text)
     }
+
+    @Test("Text content preserves tabs and line structure")
+    func preservesMultilineTextLayout() {
+        let text = "first\tcolumn\r\nsecond\rthird\n\u{1B}[31m"
+
+        let sanitized = ArtifactTerminalTextSanitizer().sanitizeTextContent(text)
+
+        #expect(sanitized == "first\tcolumn\nsecond\nthird\n�[31m")
+    }
 }

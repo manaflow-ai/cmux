@@ -1,3 +1,4 @@
+import CryptoKit
 import Foundation
 
 /// Reads a newline-aligned transcript suffix without retaining the discarded prefix.
@@ -32,6 +33,31 @@ struct AgentChatTranscriptReader {
             lineStartOffsets: lineStartOffsets(data: data, startOffset: alignedStart),
             transcriptExtent: fileSize
         )
+    }
+
+    func digest(_ data: Data) -> Data {
+        Data(SHA256.hash(data: data))
+    }
+
+    func matchesContent(
+        handle: FileHandle,
+        startOffset: UInt64,
+        byteCount: UInt64,
+        expectedDigest: Data
+    ) throws -> Bool {
+        try handle.seek(toOffset: startOffset)
+        var hasher = SHA256()
+        var remaining = byteCount
+        while remaining > 0 {
+            try Task.checkCancellation()
+            let requested = Int(min(remaining, UInt64(Self.chunkSize)))
+            guard let chunk = try handle.read(upToCount: requested), !chunk.isEmpty else {
+                return false
+            }
+            hasher.update(data: chunk)
+            remaining -= UInt64(chunk.count)
+        }
+        return Data(hasher.finalize()) == expectedDigest
     }
 
     private func lineStartOffsets(data: Data, startOffset: UInt64) -> [UInt64] {
