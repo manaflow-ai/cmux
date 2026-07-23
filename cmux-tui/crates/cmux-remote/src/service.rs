@@ -1493,6 +1493,23 @@ mod tests {
         close_count: AtomicUsize,
     }
 
+    struct LostCarrierEndpoint {
+        generation: watch::Sender<u64>,
+        reset_attempts: AtomicUsize,
+        close_count: AtomicUsize,
+    }
+
+    impl LostCarrierEndpoint {
+        fn new() -> Arc<Self> {
+            let (generation, _) = watch::channel(0);
+            Arc::new(Self {
+                generation,
+                reset_attempts: AtomicUsize::new(0),
+                close_count: AtomicUsize::new(0),
+            })
+        }
+    }
+
     impl FlakyEndpoint {
         fn new(reset_failures: usize) -> Arc<Self> {
             let (generation, _) = watch::channel(0);
@@ -1531,6 +1548,39 @@ mod tests {
                 }
             }
             Ok(1)
+        }
+
+        async fn receive_frame(&self) -> Result<Option<ReceivedFrame>, ServiceError> {
+            pending().await
+        }
+
+        fn subscribe_generation(&self) -> watch::Receiver<u64> {
+            self.generation.subscribe()
+        }
+
+        async fn close_session(&self) -> Result<(), ServiceError> {
+            self.close_count.fetch_add(1, Ordering::AcqRel);
+            Ok(())
+        }
+    }
+
+    #[async_trait]
+    impl SessionEndpoint for LostCarrierEndpoint {
+        async fn send_frame(
+            &self,
+            _expected_generation: Option<u64>,
+            _lane: Lane,
+            _stream: u64,
+            _payload: Bytes,
+            flags: FrameFlags,
+        ) -> Result<u64, ServiceError> {
+            if flags.contains(FrameFlags::RESET) {
+                self.reset_attempts.fetch_add(1, Ordering::AcqRel);
+            }
+            Err(DaemonError::Session(crate::session::SessionError::Link(
+                crate::link::LinkError::Closed,
+            ))
+            .into())
         }
 
         async fn receive_frame(&self) -> Result<Option<ReceivedFrame>, ServiceError> {
@@ -1778,6 +1828,30 @@ mod tests {
         .unwrap();
         tokio::task::yield_now().await;
         assert_eq!(endpoint.close_count.load(Ordering::Acquire), 1);
+    }
+
+    #[tokio::test]
+    async fn generation_bound_terminal_reset_does_not_close_session_after_carrier_loss() {
+        let endpoint = LostCarrierEndpoint::new();
+        let escalating = AtomicBool::new(false);
+
+        send_reset_or_close_session(
+            endpoint.clone(),
+            Some(0),
+            Lane::Tunnel,
+            9,
+            None,
+            &escalating,
+            Duration::from_millis(10),
+        )
+        .await;
+
+        assert_eq!(endpoint.reset_attempts.load(Ordering::Acquire), 1);
+        assert_eq!(
+            endpoint.close_count.load(Ordering::Acquire),
+            0,
+            "losing one generation-bound carrier must not destroy resumable session state"
+        );
     }
 
     #[tokio::test]
