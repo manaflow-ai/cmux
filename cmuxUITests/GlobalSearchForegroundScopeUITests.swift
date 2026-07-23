@@ -6,6 +6,7 @@ final class GlobalSearchForegroundScopeUITests: XCTestCase {
     override func setUpWithError() throws {
         continueAfterFailure = false
         app = XCUIApplication()
+        app.launchEnvironment["CMUX_UI_TEST_MODE"] = "1"
         app.launch()
 
         if app.state != .runningForeground {
