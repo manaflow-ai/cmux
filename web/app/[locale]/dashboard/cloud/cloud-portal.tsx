@@ -85,6 +85,8 @@ function PortalLoading() {
 
 function PortalFrame() {
   const t = useTranslations("dashboard.cloud");
+  const pathname = useRouterState({ select: (state) => state.location.pathname });
+  const machinesActive = pathname !== "/activity";
   return (
     <div className="flex h-full min-h-[calc(100vh-3.25rem)] flex-col bg-background">
       <div className="flex min-h-14 flex-wrap items-center justify-between gap-3 border-b border-border px-4 py-2.5 md:px-6">
@@ -94,33 +96,69 @@ function PortalFrame() {
           </p>
           <h1 className="text-base font-semibold tracking-tight">{t("title")}</h1>
         </div>
-        <nav aria-label={t("viewNavigationLabel")} className="flex rounded-lg bg-code-bg p-1">
-          <PortalTab to="/">{t("machinesTab")}</PortalTab>
-          <PortalTab to="/activity">{t("activityTab")}</PortalTab>
-        </nav>
+        <div role="tablist" aria-label={t("viewNavigationLabel")} className="flex rounded-lg bg-code-bg p-1">
+          <PortalTab id="portal-machines-tab" to="/" active={machinesActive}>{t("machinesTab")}</PortalTab>
+          <PortalTab id="portal-activity-tab" to="/activity" active={!machinesActive}>{t("activityTab")}</PortalTab>
+        </div>
       </div>
-      <div className="min-h-0 flex-1">
+      <div
+        id="portal-view-panel"
+        role="tabpanel"
+        aria-labelledby={machinesActive ? "portal-machines-tab" : "portal-activity-tab"}
+        className="min-h-0 flex-1"
+      >
         <Outlet />
       </div>
     </div>
   );
 }
 
-function PortalTab({ to, children }: { to: "/" | "/activity"; children: React.ReactNode }) {
+function PortalTab({
+  id,
+  to,
+  active,
+  children,
+}: {
+  id: string;
+  to: "/" | "/activity";
+  active: boolean;
+  children: React.ReactNode;
+}) {
   const navigate = useNavigate();
-  const pathname = useRouterState({ select: (state) => state.location.pathname });
-  const active = pathname === to;
 
   return (
     <button
+      id={id}
       type="button"
-      aria-current={active ? "page" : undefined}
+      role="tab"
+      aria-selected={active}
+      aria-controls="portal-view-panel"
+      tabIndex={active ? 0 : -1}
       onClick={() => navigate({ to })}
+      onKeyDown={movePortalTabFocus}
       className={`rounded-md px-3 py-1.5 text-xs font-medium transition-colors hover:text-foreground focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-foreground ${active ? "bg-background text-foreground shadow-sm" : "text-muted"}`}
     >
       {children}
     </button>
   );
+}
+
+function movePortalTabFocus(event: React.KeyboardEvent<HTMLButtonElement>) {
+  if (!["ArrowLeft", "ArrowRight", "Home", "End"].includes(event.key)) return;
+  const tabs = Array.from(
+    event.currentTarget.closest('[role="tablist"]')?.querySelectorAll<HTMLButtonElement>('[role="tab"]') ?? [],
+  );
+  const currentIndex = tabs.indexOf(event.currentTarget);
+  if (currentIndex < 0 || tabs.length === 0) return;
+
+  event.preventDefault();
+  const nextIndex = event.key === "Home"
+    ? 0
+    : event.key === "End"
+      ? tabs.length - 1
+      : (currentIndex + (event.key === "ArrowRight" ? 1 : -1) + tabs.length) % tabs.length;
+  tabs[nextIndex]?.focus();
+  tabs[nextIndex]?.click();
 }
 
 function MachinesView() {

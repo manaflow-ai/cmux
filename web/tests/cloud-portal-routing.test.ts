@@ -36,6 +36,9 @@ describe("authenticated cloud portal routing", () => {
     expect(portal).toContain('path: "/activity"');
     expect(portal).toContain('path: "/machines/$machineId"');
     expect(portal).toContain("<RouterProvider router={router} />");
+    expect(portal).toContain('role="tablist"');
+    expect(portal).toContain('role="tab"');
+    expect(portal).toContain("movePortalTabFocus");
   });
 
   test("falls back to the complete English portal catalog for other locales", async () => {
