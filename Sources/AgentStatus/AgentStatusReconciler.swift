@@ -5,6 +5,8 @@ struct AgentStatusReconciler: Sendable {
     static let runningSignalLifetime: TimeInterval = 90
     static let activityLifetime: TimeInterval = 45
     static let foregroundObservationLifetime: TimeInterval = 45
+    // Session/Stop hooks are followed by TUI redraws; only later activity may contradict them.
+    static let lifecycleTransitionActivityGrace: TimeInterval = 15
 
     func resolve(
         evidence: AgentStatusEvidence,
@@ -50,7 +52,7 @@ struct AgentStatusReconciler: Sendable {
             }
             if hasAttributedActivity,
                let latestActivity,
-               latestActivity > observedAt {
+               activityCanOverrideTransition(activityAt: latestActivity, transitionAt: observedAt) {
                 return AgentStatusResolution(lifecycle: .running, confidence: .inferred)
             }
             return AgentStatusResolution(lifecycle: .idle, confidence: .confident)
@@ -62,7 +64,18 @@ struct AgentStatusReconciler: Sendable {
             }
             return inferredRunningOrUnknown(hasAttributedActivity: hasAttributedActivity)
 
-        case .unknown?, nil:
+        case .unknown?:
+            guard let observedAt = evidence.lifecycleObservedAt else {
+                return inferredRunningOrUnknown(hasAttributedActivity: hasAttributedActivity)
+            }
+            if hasAttributedActivity,
+               let latestActivity,
+               activityCanOverrideTransition(activityAt: latestActivity, transitionAt: observedAt) {
+                return AgentStatusResolution(lifecycle: .running, confidence: .inferred)
+            }
+            return AgentStatusResolution(lifecycle: .idle, confidence: .inferred)
+
+        case nil:
             return inferredRunningOrUnknown(hasAttributedActivity: hasAttributedActivity)
         }
     }
@@ -74,6 +87,10 @@ struct AgentStatusReconciler: Sendable {
             return AgentStatusResolution(lifecycle: .running, confidence: .inferred)
         }
         return AgentStatusResolution(lifecycle: .unknown, confidence: .uncertain)
+    }
+
+    private func activityCanOverrideTransition(activityAt: Date, transitionAt: Date) -> Bool {
+        activityAt.timeIntervalSince(transitionAt) > Self.lifecycleTransitionActivityGrace
     }
 
     private func age(of date: Date, now: Date) -> TimeInterval {

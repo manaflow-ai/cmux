@@ -180,6 +180,11 @@ extension Workspace {
             previous.pid != pid || previous.pidNamespace != pidNamespace ||
             (previous.identity != nil && processIdentity != nil && previous.identity != processIdentity)
         )
+        let runtimeObservationChanged = previous.pid != pid ||
+            previous.panelId != panelId ||
+            previous.identity != processIdentity ||
+            previous.pidNamespace != pidNamespace
+        let runtimeRegistrationChanged = previous.pid == nil || runtimeGenerationChanged || previous.panelId != panelId
         agentPIDs[key] = pid
         agentPIDProcessIdentitiesByKey[key] = processIdentity
         agentPIDNamespacesByKey[key] = pidNamespace
@@ -191,10 +196,8 @@ extension Workspace {
                 agentLifecycleStatesByPanelId[changedPanelId]?.removeValue(forKey: statusKey)
             }
         }
-        if previous.pid != pid ||
-            previous.panelId != panelId ||
-            previous.identity != processIdentity ||
-            previous.pidNamespace != pidNamespace {
+        if runtimeRegistrationChanged { noteAgentStatusRuntimeRegistration(key: key, processIdentity: processIdentity, panelId: panelId) }
+        if runtimeObservationChanged {
             for changedPanelId in (previous.panelId == panelId ? [panelId] : [previous.panelId, panelId]).compactMap({ $0 }) {
                 AgentHibernationController.shared.recordAgentProcessChange(workspaceId: id, panelId: changedPanelId)
             }

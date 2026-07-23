@@ -9,6 +9,26 @@ extension Workspace {
         sidebarAgentRuntimeObservation.agentStatusLedger
     }
 
+    /// Establishes a fresh runtime's pre-turn boundary before activity reconciliation.
+    func noteAgentStatusRuntimeRegistration(
+        key: String,
+        processIdentity: AgentPIDProcessIdentity?,
+        panelId: UUID?,
+        observedAt: Date = .now
+    ) {
+        guard let panelId, panels[panelId] != nil else { return }
+        let statusKey = agentStatusKey(forAgentPIDKey: key)
+        guard AgentHibernationLifecycleStatusKeys.isAllowed(statusKey) else { return }
+        _ = agentStatusLedger.recordLifecycle(
+            .unknown,
+            panelId: panelId,
+            statusKey: statusKey,
+            observedAt: observedAt,
+            runtimePIDKey: key,
+            runtimeProcessIdentity: processIdentity
+        )
+    }
+
     @discardableResult
     func setAgentLifecycle(
         key: String,

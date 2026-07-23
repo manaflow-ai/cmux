@@ -21,14 +21,12 @@ struct AgentStatusReconcilerTests {
             lifecycleObservedAt: now.addingTimeInterval(-121),
             shellActivity: .commandRunning
         )
-
         let resolution = reconciler.resolve(
             evidence: evidence,
             statusKey: "codex",
             hasLiveRuntime: true,
             now: now
         )
-
         #expect(resolution == AgentStatusResolution(lifecycle: .unknown, confidence: .uncertain))
     }
 
@@ -41,14 +39,12 @@ struct AgentStatusReconcilerTests {
             foregroundObservedAt: now.addingTimeInterval(-2),
             shellActivity: .commandRunning
         )
-
         let resolution = reconciler.resolve(
             evidence: evidence,
             statusKey: "codex",
             hasLiveRuntime: true,
             now: now
         )
-
         #expect(resolution == AgentStatusResolution(lifecycle: .running, confidence: .inferred))
     }
 
@@ -61,14 +57,12 @@ struct AgentStatusReconcilerTests {
             foregroundObservedAt: now.addingTimeInterval(-2),
             shellActivity: .commandRunning
         )
-
         let resolution = reconciler.resolve(
             evidence: evidence,
             statusKey: "codex",
             hasLiveRuntime: true,
             now: now
         )
-
         #expect(resolution == AgentStatusResolution(lifecycle: .unknown, confidence: .uncertain))
     }
 
@@ -82,29 +76,30 @@ struct AgentStatusReconcilerTests {
             shellActivity: .promptIdle,
             shellActivityObservedAt: now.addingTimeInterval(1)
         )
-
         let resolution = reconciler.resolve(
             evidence: evidence,
             statusKey: "codex",
             hasLiveRuntime: true,
             now: now
         )
-
         #expect(resolution == AgentStatusResolution(lifecycle: .idle, confidence: .confident))
     }
 
     @Test(
-        "Startup and stop rendering do not imply active work",
-        arguments: [AgentHibernationLifecycleState.unknown, .idle]
+        "Transition rendering stays idle while later attributed activity can run",
+        arguments: [AgentHibernationLifecycleState.unknown, .idle], [1.0, 20.0]
     )
-    func lifecycleTransitionRenderingRemainsIdle(_ lifecycle: AgentHibernationLifecycleState) {
-        let transitionAt = now.addingTimeInterval(-5)
+    func lifecycleTransitionActivityRespectsGrace(
+        _ lifecycle: AgentHibernationLifecycleState,
+        activityDelay: TimeInterval
+    ) {
+        let transitionAt = now.addingTimeInterval(-30)
         let evidence = AgentStatusEvidence(
             lifecycle: lifecycle,
             lifecycleObservedAt: transitionAt,
-            outputObservedAt: transitionAt.addingTimeInterval(1),
+            outputObservedAt: transitionAt.addingTimeInterval(activityDelay),
             foregroundAgentStatusKey: "claude_code",
-            foregroundObservedAt: transitionAt.addingTimeInterval(1),
+            foregroundObservedAt: transitionAt.addingTimeInterval(activityDelay),
             shellActivity: .commandRunning
         )
         let resolution = reconciler.resolve(
@@ -113,8 +108,8 @@ struct AgentStatusReconcilerTests {
             hasLiveRuntime: true,
             now: now
         )
-
-        #expect(resolution?.lifecycle == .idle)
+        let expected: AgentHibernationLifecycleState = activityDelay > 15 ? .running : .idle
+        #expect(resolution?.lifecycle == expected)
     }
 
     @Test func freshNeedsInputOverridesStalePromptIdleShellState() {
@@ -124,14 +119,12 @@ struct AgentStatusReconcilerTests {
             shellActivity: .promptIdle,
             shellActivityObservedAt: now.addingTimeInterval(-1)
         )
-
         let resolution = reconciler.resolve(
             evidence: evidence,
             statusKey: "codex",
             hasLiveRuntime: true,
             now: now
         )
-
         #expect(resolution == AgentStatusResolution(lifecycle: .needsInput, confidence: .confident))
     }
 
@@ -141,15 +134,26 @@ struct AgentStatusReconcilerTests {
             lifecycleObservedAt: now,
             shellActivity: .commandRunning
         )
-
         let resolution = reconciler.resolve(
             evidence: evidence,
             statusKey: "codex",
             hasLiveRuntime: false,
             now: now
         )
-
         #expect(resolution == nil)
+    }
+
+    @Test @MainActor func newlyRegisteredClaudeRuntimeStartsIdle() throws {
+        let workspace = Workspace()
+        let panelId = try #require(workspace.focusedPanelId)
+        defer { workspace.clearAllAgentPIDs(refreshPorts: false) }
+        workspace.recordAgentPID(
+            key: "claude_code.session",
+            pid: getpid(),
+            panelId: panelId,
+            refreshPorts: false
+        )
+        #expect(workspace.statusEntries["claude_code"]?.icon == "pause.circle.fill")
     }
 
     @Test @MainActor func workspacePeriodicReconciliationReplacesStaleRunningPill() throws {
@@ -175,9 +179,7 @@ struct AgentStatusReconcilerTests {
             statusKey: "codex",
             observedAt: now.addingTimeInterval(-121)
         )
-
         workspace.reconcileAgentStatuses(panelId: panelId, now: now)
-
         #expect(workspace.statusEntries["codex"] == nil)
         #expect(workspace.agentLifecycleStatesByPanelId[panelId]?["codex"] == .unknown)
     }
@@ -198,10 +200,8 @@ struct AgentStatusReconcilerTests {
         workspace.agentPIDs["custom-tool.session"] = getppid()
         workspace.agentPIDProcessIdentitiesByKey["custom-tool.session"] = AgentPIDProcessIdentity(pid: getppid())
         workspace.agentPIDKeysByPanelId[panelId, default: []].insert("custom-tool.session")
-
         let probe = workspace.agentStatusForegroundProbe()
         let rootStatusKeys = Set((probe.rootStatusKeysByPanelId[panelId] ?? [:]).values.flatMap { $0 })
-
         #expect(rootStatusKeys == ["claude_code", "codex"])
     }
 
