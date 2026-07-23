@@ -4,9 +4,9 @@ import Foundation
 struct CmuxExtensionWorktreeCreationResult: Sendable {
     let worktreePath: String
     let workspaceTitle: String
-    /// A convenience command (e.g. a sample dev-server launcher) that should run
-    /// inside the new workspace's interactive shell. This is *setup*, never the
-    /// workspace's primary process.
+    /// A convenience command that should run inside the new workspace's
+    /// interactive shell. This is *setup*, never the workspace's primary
+    /// process.
     let setupCommand: String
 }
 
@@ -25,6 +25,9 @@ struct CmuxExtensionWorktreeWorkspaceSpawnArgs: Sendable, Equatable {
     /// trailing newline so it executes), or `nil` when there is no setup.
     let initialTerminalInput: String?
     let inheritWorkingDirectory: Bool
+    /// Worktree-created workspaces should stay at a clean shell prompt even
+    /// when there is no setup command to type into the terminal.
+    let autoWelcomeIfNeeded: Bool
 }
 
 extension CmuxExtensionWorktreeCreationResult {
@@ -40,7 +43,8 @@ extension CmuxExtensionWorktreeCreationResult {
             title: workspaceTitle,
             workingDirectory: worktreePath,
             initialTerminalInput: setupCommand.isEmpty ? nil : setupCommand + "\n",
-            inheritWorkingDirectory: false
+            inheritWorkingDirectory: false,
+            autoWelcomeIfNeeded: false
         )
     }
 }
@@ -98,14 +102,10 @@ enum CmuxExtensionWorktreePrototype {
             try FileManager.default.createDirectory(at: worktreeRoot, withIntermediateDirectories: true)
             let worktree = worktreeRoot.appendingPathComponent(branchName, isDirectory: true)
             try await run("git", ["-C", projectRoot.path, "worktree", "add", "-b", branchName, worktree.path, "HEAD"])
-            try writeSampleDevServerFiles(in: worktree, projectName: projectRoot.lastPathComponent)
-
-            let port = 4_100 + abs(branchName.hashValue % 800)
-            let samplePath = shellEscaped(worktree.appendingPathComponent("cmux-sample-dev", isDirectory: true).path)
             return CmuxExtensionWorktreeCreationResult(
                 worktreePath: worktree.path,
                 workspaceTitle: branchName,
-                setupCommand: "cd \(samplePath) && python3 -m http.server \(port)"
+                setupCommand: ""
             )
         }.value
     }
@@ -149,26 +149,6 @@ enum CmuxExtensionWorktreePrototype {
         try next.write(to: excludeURL, atomically: true, encoding: .utf8)
     }
 
-    private static func writeSampleDevServerFiles(in worktree: URL, projectName: String) throws {
-        let sample = worktree.appendingPathComponent("cmux-sample-dev", isDirectory: true)
-        try FileManager.default.createDirectory(at: sample, withIntermediateDirectories: true)
-        let escapedProject = projectName
-            .replacingOccurrences(of: "&", with: "&amp;")
-            .replacingOccurrences(of: "<", with: "&lt;")
-            .replacingOccurrences(of: ">", with: "&gt;")
-        let html = """
-        <!doctype html>
-        <html>
-          <head><meta charset="utf-8"><title>cmux worktree</title></head>
-          <body style="font: 15px -apple-system; padding: 32px;">
-            <h1>\(escapedProject) worktree</h1>
-            <p>This page is served from a git worktree created by CmuxExtensionKit.</p>
-          </body>
-        </html>
-        """
-        try html.write(to: sample.appendingPathComponent("index.html"), atomically: true, encoding: .utf8)
-    }
-
     private static func run(_ executable: String, _ arguments: [String]) async throws {
         _ = try await runCapturingOutput(executable, arguments)
     }
@@ -202,9 +182,6 @@ enum CmuxExtensionWorktreePrototype {
         return outputData
     }
 
-    private static func shellEscaped(_ value: String) -> String {
-        "'" + value.replacingOccurrences(of: "'", with: "'\\''") + "'"
-    }
 }
 
 final class CmuxExtensionPipeOutputCollector: @unchecked Sendable {
