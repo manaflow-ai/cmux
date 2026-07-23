@@ -423,7 +423,13 @@ struct ArtifactRepositorySafetyTests {
             encoding: .utf8
         )
 
-        _ = try await LocalArtifactRepository().snapshot(projectRoot: root)
+        await #expect(
+            throws: ArtifactStoreError.gitPrivacyUnavailable(
+                root.appendingPathComponent(".git").path
+            )
+        ) {
+            _ = try await LocalArtifactRepository().snapshot(projectRoot: root)
+        }
 
         #expect(!FileManager.default.fileExists(
             atPath: otherGit.appendingPathComponent("info/exclude").path
