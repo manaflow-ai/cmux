@@ -16,7 +16,10 @@ struct OnboardingConnectionView: View {
             OnboardingSceneContent(
                 title: title,
                 message: message,
-                visual: OnboardingConnectionPreview(phase: phase)
+                visual: OnboardingScreenshot(
+                    content: .terminal,
+                    accessibilityLabel: title
+                )
             )
         }
     }

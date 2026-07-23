@@ -1,6 +1,8 @@
 #if os(iOS)
 @testable import CmuxMobileShellUI
+import Foundation
 import Testing
+import UIKit
 
 @Suite struct OnboardingSceneChromeTests {
     @Test func productPagesKeepExpectedNavigationChrome() {
@@ -66,6 +68,57 @@ import Testing
         #expect(fallback.secondaryTitle != nil)
         #expect(ready.primaryTitle != nil)
         #expect(ready.secondaryTitle == nil)
+    }
+
+    @Test func screenshotLanguageMatchesTheSupportedLocale() {
+        #expect(
+            OnboardingScreenshotLanguage.resolve(
+                locale: Locale(identifier: "en_US")
+            ) == .english
+        )
+        #expect(
+            OnboardingScreenshotLanguage.resolve(
+                locale: Locale(identifier: "ja_JP")
+            ) == .japanese
+        )
+        #expect(
+            OnboardingScreenshotLanguage.resolve(
+                locale: Locale(identifier: "fr_FR")
+            ) == .english
+        )
+    }
+
+    @Test @MainActor func everyLocalizedOnboardingScreenshotLoads() {
+        for content in OnboardingScreenshot.Content.allCases {
+            for language in OnboardingScreenshotLanguage.allCases {
+                let image = OnboardingScreenshot.image(
+                    content: content,
+                    language: language
+                )
+                #expect(image.size.width > 0)
+                #expect(image.size.height > 0)
+            }
+        }
+    }
+
+    @Test @MainActor func onboardingCopyUsesNativeLineBalancing() {
+        let label = OnboardingBalancedText.makeLabel()
+        label.font = .preferredFont(forTextStyle: .body)
+        label.text = "See every workspace and its latest activity, wherever you are."
+        let maximumWidth: CGFloat = 360
+        let maximumHeight = label.sizeThatFits(
+            CGSize(width: maximumWidth, height: .greatestFiniteMagnitude)
+        ).height
+        let balancedSize = OnboardingBalancedText.balancedSize(
+            for: label,
+            maximumWidth: maximumWidth
+        )
+
+        #expect(label.numberOfLines == 0)
+        #expect(label.lineBreakMode == .byWordWrapping)
+        #expect(label.lineBreakStrategy == .pushOut)
+        #expect(balancedSize.width < maximumWidth)
+        #expect(balancedSize.height == ceil(maximumHeight))
     }
 }
 #endif

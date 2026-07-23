@@ -47,9 +47,10 @@ final class cmuxUITests: XCTestCase {
     /// durable progress key to `welcome`; advancing to Connect writes the real
     /// `.connect` milestone. The default connection scene must describe
     /// same-account automatic discovery without presenting QR as the primary
-    /// path. The middle scene explains the shipped chronological notification
-    /// feed without depending on its current GUI. Relaunching after the simulated
-    /// search finishes must resume at Connect and expose QR as an explicit fallback.
+    /// path. Each product scene uses an actual production-app screenshot, with
+    /// the notification scene showing the shipped chronological feed. Relaunching
+    /// after the simulated search finishes must resume at Connect and expose QR
+    /// as an explicit fallback.
     @MainActor
     func testOnboardingScenesNotificationFeedResumeAndScannerFallback() throws {
         let app = XCUIApplication()
@@ -122,6 +123,7 @@ final class cmuxUITests: XCTestCase {
         }
 
         capture("onboarding-01-agents")
+        XCTAssertTrue(element("MobileOnboardingScreenshot-workspaces").exists)
 
         let primaryButton = app.buttons["MobileOnboardingPrimaryButton"]
         XCTAssertTrue(primaryButton.waitForExistence(timeout: 4))
@@ -138,6 +140,7 @@ final class cmuxUITests: XCTestCase {
         XCTAssertTrue(notificationsBody.exists)
         XCTAssertTrue(app.buttons["MobileOnboardingBackButton"].exists)
         XCTAssertTrue(app.buttons["MobileOnboardingSkipButton"].exists)
+        XCTAssertTrue(element("MobileOnboardingScreenshot-notifications").exists)
         XCTAssertTrue(primaryButton.exists)
         assertStableChrome()
         capture("onboarding-02-notifications")
@@ -165,7 +168,7 @@ final class cmuxUITests: XCTestCase {
         XCTAssertTrue(app.staticTexts[
             "Keep cmux open on your Mac and sign in with the same account. cmux finds it and connects securely."
         ].exists)
-        XCTAssertTrue(app.staticTexts["Looking for your Mac…"].exists)
+        XCTAssertTrue(element("MobileOnboardingScreenshot-terminal").exists)
         XCTAssertFalse(app.buttons["Scan Mac QR"].exists)
         XCTAssertFalse(app.buttons["Use QR Code Instead"].exists)
         assertStableChrome(includeFooter: false)
