@@ -45,6 +45,7 @@ extension CMUXCLI {
         if let captured = parseAgentHookTimeValue(ProcessInfo.processInfo.environment["CMUX_AGENT_HOOK_CAPTURED_AT"]) {
             return captured
         }
+        let maximumPayloadEventTime = Date().timeIntervalSince1970 + 5 * 60
         let keys = [
             "cmux_event_time", "cmuxEventTime",
             "event_time", "eventTime",
@@ -52,7 +53,8 @@ extension CMUXCLI {
         ]
         if let rawObject {
             for key in keys {
-                if let parsed = parseAgentHookTimeValue(rawObject[key]) {
+                if let parsed = parseAgentHookTimeValue(rawObject[key]),
+                   parsed <= maximumPayloadEventTime {
                     return parsed
                 }
             }

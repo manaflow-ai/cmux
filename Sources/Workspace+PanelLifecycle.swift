@@ -112,7 +112,7 @@ extension Workspace {
         return String(key[..<dotIndex])
     }
 
-    private func hasAgentRuntime(forStatusKey statusKey: String) -> Bool {
+    func hasAgentRuntime(forStatusKey statusKey: String) -> Bool {
         for key in agentPIDs.keys where agentStatusKey(forAgentPIDKey: key) == statusKey {
             return true
         }
@@ -122,7 +122,7 @@ extension Workspace {
         return false
     }
 
-    private func removeAgentPIDOwnership(key: String) {
+    func removeAgentPIDOwnership(key: String) {
         if let previousPanelId = agentPIDPanelIdsByKey[key] {
             agentPIDKeysByPanelId[previousPanelId]?.remove(key)
             if agentPIDKeysByPanelId[previousPanelId]?.isEmpty == true {
@@ -286,48 +286,6 @@ extension Workspace {
 
     private func isStructuredAgentHookPIDKey(_ key: String) -> Bool {
         Self.structuredAgentHookStatusKeys.contains(agentStatusKey(forAgentPIDKey: key))
-    }
-
-    @discardableResult
-    func clearAgentPID(
-        key: String,
-        panelId: UUID? = nil,
-        clearStatus: Bool = false,
-        refreshPorts: Bool = true
-    ) -> Bool {
-        let ownedPanelId = agentPIDPanelIdsByKey[key]
-        if let panelId, let ownedPanelId, ownedPanelId != panelId {
-            return false
-        }
-        let statusKeyToClear = clearStatus ? agentStatusKey(forAgentPIDKey: key) : nil
-
-        var didChange = false
-        if agentPIDs.removeValue(forKey: key) != nil {
-            didChange = true
-        }
-        if agentPIDProcessIdentitiesByKey.removeValue(forKey: key) != nil {
-            didChange = true
-        }
-        if ownedPanelId != nil {
-            removeAgentPIDOwnership(key: key)
-            didChange = true
-        }
-        if let changedPanelId = ownedPanelId ?? panelId, didChange { AgentHibernationController.shared.recordAgentProcessChange(workspaceId: id, panelId: changedPanelId) }
-        if let lifecyclePanelId = ownedPanelId ?? panelId {
-            let lifecycleStatusKey = agentStatusKey(forAgentPIDKey: key)
-            if clearAgentLifecycle(key: lifecycleStatusKey, panelId: lifecyclePanelId) {
-                didChange = true
-            }
-        }
-        if let statusKeyToClear,
-           !hasAgentRuntime(forStatusKey: statusKeyToClear),
-           statusEntries.removeValue(forKey: statusKeyToClear) != nil {
-            didChange = true
-        }
-        if didChange, refreshPorts {
-            refreshTrackedAgentPorts()
-        }
-        return didChange
     }
 
     /// Clears a panel's restored agent snapshot and resume metadata.

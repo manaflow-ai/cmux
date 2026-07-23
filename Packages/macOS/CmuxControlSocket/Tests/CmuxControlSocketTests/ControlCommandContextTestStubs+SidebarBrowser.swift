@@ -99,7 +99,8 @@ extension ControlSidebarContext {
         target: ControlSidebarTabTarget,
         key: String,
         panelID: UUID?,
-        clearStatus: Bool
+        clearStatus: Bool,
+        agentEventTime: TimeInterval?
     ) {}
 
     nonisolated func controlSidebarScheduleMetadataBlockUpsert(

@@ -452,11 +452,22 @@ extension ControlCommandCoordinator {
         if let error = panelResolution.error {
             return error
         }
+        let agentEventTimeResult = sidebarParseAgentEventTime(parsed.options["agent-event-time"])
+        let agentEventTime: TimeInterval?
+        switch agentEventTimeResult {
+        case .absent:
+            agentEventTime = nil
+        case .valid(let value):
+            agentEventTime = value
+        case .invalid(let raw):
+            return "ERROR: Invalid agent event time '\(raw)' - must be a positive finite number"
+        }
         context?.controlSidebarScheduleAgentPIDClear(
             target: target,
             key: key,
             panelID: panelResolution.panelId,
-            clearStatus: parsed.options["clear-status"] != nil
+            clearStatus: parsed.options["clear-status"] != nil,
+            agentEventTime: agentEventTime
         )
         return "OK"
     }

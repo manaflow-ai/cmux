@@ -178,7 +178,7 @@ extension TerminalController {
             source: inputs.source,
             environment: inputs.environment,
             autoResume: inputs.autoResume,
-            updatedAt: Date().timeIntervalSince1970
+            updatedAt: inputs.agentEventTime ?? Date().timeIntervalSince1970
         )
         guard let target = resolveSurfaceResumeTarget(
             routing: routing,
@@ -246,7 +246,8 @@ extension TerminalController {
         explicitTargetID: UUID?,
         hasResolvedWindowID: Bool,
         expectedCheckpointID: String?,
-        expectedSource: String?
+        expectedSource: String?,
+        agentEventTime: TimeInterval?
     ) -> ControlSurfaceResumeResolution {
         guard let tabManager = resolveTabManager(routing: routing) else {
             return .windowUnavailable
@@ -270,6 +271,15 @@ extension TerminalController {
             ))
         }
         if let expectedSource, currentBinding?.source != expectedSource {
+            return .result(surfaceResumeSnapshot(
+                tabManager: target.tabManager,
+                workspace: target.workspace,
+                surfaceId: target.surfaceId,
+                binding: currentBinding,
+                cleared: false
+            ))
+        }
+        if let agentEventTime, let currentBinding, currentBinding.updatedAt > agentEventTime {
             return .result(surfaceResumeSnapshot(
                 tabManager: target.tabManager,
                 workspace: target.workspace,

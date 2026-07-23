@@ -203,13 +203,16 @@ extension TerminalController: ControlSidebarContext {
         target: ControlSidebarTabTarget,
         key: String,
         panelID: UUID?,
-        clearStatus: Bool
+        clearStatus: Bool,
+        agentEventTime: TimeInterval?
     ) {
         controlSidebarSchedulePanelOwnedMutation(target: target, panelID: panelID) { _, tab in
             tab.clearAgentPID(
                 key: key,
                 panelId: panelID,
-                clearStatus: clearStatus
+                clearStatus: clearStatus,
+                agentEventTime: agentEventTime,
+                enforceAgentEventOrdering: true
             )
         }
     }

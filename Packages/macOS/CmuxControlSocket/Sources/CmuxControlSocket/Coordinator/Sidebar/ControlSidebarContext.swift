@@ -115,7 +115,8 @@ public protocol ControlSidebarContext: AnyObject {
         target: ControlSidebarTabTarget,
         key: String,
         panelID: UUID?,
-        clearStatus: Bool
+        clearStatus: Bool,
+        agentEventTime: TimeInterval?
     )
 
     /// Enqueues the `report_meta_block` upsert mutation.

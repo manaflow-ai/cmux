@@ -476,7 +476,8 @@ extension ControlSurfaceContext {
         explicitTargetID: UUID?,
         hasResolvedWindowID: Bool,
         expectedCheckpointID: String?,
-        expectedSource: String?
+        expectedSource: String?,
+        agentEventTime: TimeInterval?
     ) -> ControlSurfaceResumeResolution { .surfaceNotFound }
 
     nonisolated func controlSurfaceParseShellActivityState(_ rawState: String) -> String? { nil }

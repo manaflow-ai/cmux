@@ -261,13 +261,15 @@ public protocol ControlSurfaceContext: AnyObject {
     ///   - routing: The routing selectors (with the surface-resume precedence).
     ///   - expectedCheckpointID: The optional expected checkpoint guard.
     ///   - expectedSource: The optional expected source guard.
+    ///   - agentEventTime: The trusted hook event time used for mutation ordering.
     /// - Returns: The resume resolution.
     func controlSurfaceResumeClear(
         routing: ControlRoutingSelectors,
         explicitTargetID: UUID?,
         hasResolvedWindowID: Bool,
         expectedCheckpointID: String?,
-        expectedSource: String?
+        expectedSource: String?,
+        agentEventTime: TimeInterval?
     ) -> ControlSurfaceResumeResolution
 
     // MARK: - report_tty / report_pwd / report_shell_state / ports_kick

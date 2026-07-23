@@ -483,7 +483,12 @@ extension AgentNotificationRegressionTests {
             agentEventTime: 200
         )
 
-        #expect(!fixture.source.clearAgentPID(key: pidKey, panelId: fixture.panelId, clearStatus: true))
+        #expect(!fixture.source.clearAgentPID(
+            key: pidKey,
+            panelId: fixture.panelId,
+            clearStatus: true,
+            enforceAgentEventOrdering: true
+        ))
         #expect(fixture.source.agentPIDs[pidKey] == 43_210)
         #expect(fixture.source.statusEntries["claude_code"]?.value == "Running")
         #expect(fixture.source.hasRunningAgentLifecycle(key: "claude_code", panelId: fixture.panelId))
