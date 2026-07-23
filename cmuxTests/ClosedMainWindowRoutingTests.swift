@@ -1131,6 +1131,191 @@ struct GhostMainWindowContextLifecycleTests {
         #expect(GhosttyApp.terminalSurfaceRegistry.surface(id: terminalPanel.id) == nil)
     }
 
+    @Test("Windowless owner rejects a same-identifier close request")
+    func windowlessOwnerRejectsSameIdentifierCloseRequest() throws {
+        _ = NSApplication.shared
+        let previousAppDelegate = AppDelegate.shared
+        let app = AppDelegate()
+        defer {
+            TerminalController.shared.setActiveTabManager(nil)
+            AppDelegate.shared = previousAppDelegate
+        }
+
+        let windowId = UUID()
+        let ownerWindow = makeMainWindow(id: windowId)
+        let duplicateWindow = makeMainWindow(id: windowId)
+        let manager = TabManager()
+        let workspace = try #require(manager.selectedWorkspace)
+        let terminalPanel = try #require(workspace.focusedTerminalPanel)
+        defer {
+            app.forgetRecoverableMainWindowRoute(windowId: windowId)
+            if !manager.isFinalizedForWindowClose {
+                manager.finalizeAllWorkspacesForWindowClose()
+            }
+            workspace.teardownAllPanels()
+            workspace.teardownRemoteConnection()
+            ownerWindow.orderOut(nil)
+            duplicateWindow.orderOut(nil)
+        }
+
+        app.registerMainWindow(
+            ownerWindow,
+            windowId: windowId,
+            tabManager: manager,
+            sidebarState: SidebarState(),
+            sidebarSelectionState: SidebarSelectionState(),
+            fileExplorerState: FileExplorerState()
+        )
+        ownerWindow.makeKeyAndOrderFront(nil)
+        let context = try #require(
+            app.mainWindowContexts.values.first { $0.windowId == windowId }
+        )
+        app.discardOrphanedMainWindowContext(context)
+        let route = try #require(app.recoverableMainWindowRoute(windowId: windowId))
+        route.window = nil
+        ownerWindow.orderOut(nil)
+        duplicateWindow.makeKeyAndOrderFront(nil)
+
+        // Read-only lookup may still discover an unowned AppKit duplicate by
+        // identifier. A close mutation must fail closed without an exact owner.
+        #expect(app.windowForMainWindowId(windowId) === duplicateWindow)
+        #expect(!app.closeMainWindow(windowId: windowId, recordHistory: false))
+        #expect(!manager.isFinalizedForWindowClose)
+        #expect(manager.tabs.contains { $0 === workspace })
+        #expect(app.recoverableMainWindowRoute(windowId: windowId)?.tabManager === manager)
+        #expect(GhosttyApp.terminalSurfaceRegistry.surface(id: terminalPanel.id) === terminalPanel.surface)
+#if DEBUG
+        #expect(!app.isClosedWindowHistorySuppressedForTesting(windowId: windowId))
+#endif
+    }
+
+    @Test("Close request targets the exact recoverable owner instead of a duplicate")
+    func closeRequestTargetsExactRecoverableOwnerInsteadOfDuplicate() throws {
+        _ = NSApplication.shared
+        let previousAppDelegate = AppDelegate.shared
+        let app = AppDelegate()
+        defer {
+            TerminalController.shared.setActiveTabManager(nil)
+            AppDelegate.shared = previousAppDelegate
+        }
+
+        let windowId = UUID()
+        let ownerWindow = makeMainWindow(id: windowId)
+        let duplicateWindow = makeMainWindow(id: windowId)
+        let manager = TabManager()
+        let workspace = try #require(manager.selectedWorkspace)
+        let terminalPanel = try #require(workspace.focusedTerminalPanel)
+        defer {
+            app.forgetRecoverableMainWindowRoute(windowId: windowId)
+            if !manager.isFinalizedForWindowClose {
+                manager.finalizeAllWorkspacesForWindowClose()
+            }
+            workspace.teardownAllPanels()
+            workspace.teardownRemoteConnection()
+            ownerWindow.orderOut(nil)
+            duplicateWindow.orderOut(nil)
+        }
+
+        app.registerMainWindow(
+            ownerWindow,
+            windowId: windowId,
+            tabManager: manager,
+            sidebarState: SidebarState(),
+            sidebarSelectionState: SidebarSelectionState(),
+            fileExplorerState: FileExplorerState()
+        )
+        ownerWindow.makeKeyAndOrderFront(nil)
+        let context = try #require(
+            app.mainWindowContexts.values.first { $0.windowId == windowId }
+        )
+        app.discardOrphanedMainWindowContext(context)
+        ownerWindow.orderFront(nil)
+        duplicateWindow.makeKeyAndOrderFront(nil)
+
+        #expect(app.recoverableMainWindowRoute(windowId: windowId)?.window === ownerWindow)
+        #expect(app.windowForMainWindowId(windowId) === duplicateWindow)
+        #expect(app.closeMainWindow(windowId: windowId, recordHistory: false))
+        #expect(manager.isFinalizedForWindowClose)
+        #expect(manager.tabs.isEmpty)
+        #expect(workspace.isRetiredFromOwningTabManager)
+        #expect(app.recoverableMainWindowRoute(windowId: windowId) == nil)
+        #expect(GhosttyApp.terminalSurfaceRegistry.surface(id: terminalPanel.id) == nil)
+#if DEBUG
+        #expect(!app.isClosedWindowHistorySuppressedForTesting(windowId: windowId))
+#endif
+    }
+
+    @Test("Route-only close records window history before finalization")
+    func routeOnlyCloseRecordsWindowHistoryBeforeFinalization() throws {
+        _ = NSApplication.shared
+        ClosedItemHistoryStore.shared.removeAll()
+        defer { ClosedItemHistoryStore.shared.removeAll() }
+
+        let previousAppDelegate = AppDelegate.shared
+        let app = AppDelegate()
+        defer {
+            TerminalController.shared.setActiveTabManager(nil)
+            AppDelegate.shared = previousAppDelegate
+        }
+
+        let windowId = UUID()
+        let window = makeMainWindow(id: windowId)
+        let manager = TabManager()
+        let workspace = try #require(manager.selectedWorkspace)
+        defer {
+            app.forgetRecoverableMainWindowRoute(windowId: windowId)
+            if !manager.isFinalizedForWindowClose {
+                manager.finalizeAllWorkspacesForWindowClose()
+            }
+            workspace.teardownAllPanels()
+            workspace.teardownRemoteConnection()
+            window.orderOut(nil)
+        }
+
+        app.registerMainWindow(
+            window,
+            windowId: windowId,
+            tabManager: manager,
+            sidebarState: SidebarState(),
+            sidebarSelectionState: SidebarSelectionState(),
+            fileExplorerState: FileExplorerState()
+        )
+        window.makeKeyAndOrderFront(nil)
+        let context = try #require(
+            app.mainWindowContexts.values.first { $0.windowId == windowId }
+        )
+        app.discardOrphanedMainWindowContext(context)
+        window.orderOut(nil)
+
+        #expect(ClosedItemHistoryStore.shared.menuSnapshot().totalItemCount == 0)
+        #expect(app.commitMainWindowClose(window))
+
+        let menuSnapshot = ClosedItemHistoryStore.shared.menuSnapshot()
+        #expect(menuSnapshot.totalItemCount == 1)
+        let historyItem = try #require(menuSnapshot.items.first)
+        let removedRecord = try #require(
+            ClosedItemHistoryStore.shared.removeRecord(id: historyItem.id)?.record
+        )
+        switch removedRecord.entry {
+        case .window(let entry):
+            #expect(entry.windowId == windowId)
+            #expect(entry.snapshot.windowId == windowId)
+            #expect(entry.workspaceIds.contains(workspace.id))
+            #expect(
+                entry.snapshot.tabManager.workspaces.contains {
+                    $0.workspaceId == workspace.id
+                }
+            )
+            #expect(!entry.snapshot.tabManager.workspaces.isEmpty)
+        case .panel, .workspace:
+            Issue.record("Route-only main-window close recorded a non-window history entry")
+        }
+
+        #expect(manager.isFinalizedForWindowClose)
+        #expect(manager.tabs.isEmpty)
+        #expect(workspace.isRetiredFromOwningTabManager)
+    }
+
     @Test("Retained closed window cannot respawn its context or terminal")
     func retainedClosedWindowCannotRespawnItsContextOrTerminal() throws {
         _ = NSApplication.shared
