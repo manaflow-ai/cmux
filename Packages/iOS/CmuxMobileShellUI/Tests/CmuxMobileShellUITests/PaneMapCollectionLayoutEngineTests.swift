@@ -145,178 +145,40 @@ import Testing
     }
 }
 
-@Suite struct PaneMapInteractiveZoomGeometryTests {
-    private let initialFrame = CGRect(x: 100, y: 200, width: 120, height: 240)
-    private let targetFrame = CGRect(x: 0, y: 0, width: 390, height: 844)
-    private let anchor = CGPoint(x: 0.25, y: 0.75)
+@Suite struct PaneZoomPresentationStateTests {
+    @Test func bothDirectionsKeepTheSameStableZoomSource() {
+        var state = PaneZoomPresentationState()
 
-    @Test func zeroProgressPreservesTheSourceFrame() {
-        let sourceAnchor = CGPoint(
-            x: initialFrame.minX + initialFrame.width * anchor.x,
-            y: initialFrame.minY + initialFrame.height * anchor.y
-        )
+        state.presentPaneMap(from: "terminal-a")
+        #expect(state.endpoint == .paneMap)
+        #expect(state.sourceSurfaceID == "terminal-a")
 
-        let frame = PaneMapInteractiveZoomGeometry.frame(
-            initialFrame: initialFrame,
-            targetFrame: targetFrame,
-            normalizedAnchor: anchor,
-            gestureLocation: sourceAnchor,
-            progress: 0
-        )
+        state.presentTerminal(surfaceID: "terminal-b")
+        #expect(state.endpoint == .terminal)
+        #expect(state.sourceSurfaceID == "terminal-b")
 
-        #expect(frame == initialFrame)
+        state.presentationDidChange(isTerminalPresented: false)
+        #expect(state.endpoint == .paneMap)
+        #expect(state.sourceSurfaceID == "terminal-b")
     }
 
-    @Test func intermediateProgressTracksTheGestureCenter() {
-        let progress: CGFloat = 0.4
-        let gestureLocation = CGPoint(x: 250, y: 500)
+    @Test func anInteractiveCancellationDoesNotDiscardTheSource() {
+        var state = PaneZoomPresentationState()
+        state.presentTerminal(surfaceID: "terminal-a")
 
-        let frame = PaneMapInteractiveZoomGeometry.frame(
-            initialFrame: initialFrame,
-            targetFrame: targetFrame,
-            normalizedAnchor: anchor,
-            gestureLocation: gestureLocation,
-            progress: progress
-        )
+        state.presentationDidChange(isTerminalPresented: false)
+        state.presentationDidChange(isTerminalPresented: true)
 
-        let renderedAnchor = CGPoint(
-            x: frame.minX + frame.width * anchor.x,
-            y: frame.minY + frame.height * anchor.y
-        )
-
-        #expect(abs(frame.width - 228) < 0.001)
-        #expect(abs(frame.height - 481.6) < 0.001)
-        #expect(abs(renderedAnchor.x - gestureLocation.x) < 0.001)
-        #expect(abs(renderedAnchor.y - gestureLocation.y) < 0.001)
+        #expect(state.endpoint == .terminal)
+        #expect(state.sourceSurfaceID == "terminal-a")
     }
 
-    @Test func movingTheGestureCenterMovesTheFrameOneForOne() {
-        let first = PaneMapInteractiveZoomGeometry.frame(
-            initialFrame: initialFrame,
-            targetFrame: targetFrame,
-            normalizedAnchor: anchor,
-            gestureLocation: CGPoint(x: 200, y: 400),
-            progress: 0.5
-        )
-        let second = PaneMapInteractiveZoomGeometry.frame(
-            initialFrame: initialFrame,
-            targetFrame: targetFrame,
-            normalizedAnchor: anchor,
-            gestureLocation: CGPoint(x: 237, y: 381),
-            progress: 0.5
-        )
+    @Test func anEmptyTerminalIDCannotBreakTheMatchedSource() {
+        var state = PaneZoomPresentationState()
+        state.presentTerminal(surfaceID: "terminal-a")
+        state.presentTerminal(surfaceID: "")
 
-        #expect(abs(second.minX - first.minX - 37) < 0.001)
-        #expect(abs(second.minY - first.minY + 19) < 0.001)
-        #expect(second.size == first.size)
-    }
-
-    @Test func settlementUsesExactSourceAndTargetFrames() {
-        let source = PaneMapInteractiveZoomGeometry.settledFrame(
-            from: initialFrame,
-            to: targetFrame,
-            progress: 0
-        )
-        let target = PaneMapInteractiveZoomGeometry.settledFrame(
-            from: initialFrame,
-            to: targetFrame,
-            progress: 1
-        )
-
-        #expect(source == initialFrame)
-        #expect(target == targetFrame)
-    }
-
-    @Test func pinchScaleProgressIsAbsoluteAndClamped() {
-        #expect(PaneMapInteractiveZoomGeometry.progress(forPinchScale: 0.5) == 0)
-        #expect(PaneMapInteractiveZoomGeometry.progress(forPinchScale: 1) == 0)
-        #expect(abs(
-            PaneMapInteractiveZoomGeometry.progress(forPinchScale: 1.575) - 0.5
-        ) < 0.001)
-        #expect(PaneMapInteractiveZoomGeometry.progress(forPinchScale: 2.15) == 1)
-        #expect(PaneMapInteractiveZoomGeometry.progress(forPinchScale: 4) == 1)
-    }
-
-    @Test func reciprocalPinchesProduceComplementaryProgress() {
-        let scale: CGFloat = 1.6
-        let zoomedIn = PaneMapInteractiveZoomGeometry.progress(
-            startingAt: 0,
-            forPinchScale: scale
-        )
-        let zoomedOut = PaneMapInteractiveZoomGeometry.progress(
-            startingAt: 1,
-            forPinchScale: 1 / scale
-        )
-
-        #expect(abs(zoomedIn + zoomedOut - 1) < 0.001)
-    }
-
-    @Test func equalDistanceSettlesUseIdenticalTimingInBothDirections() {
-        let zoomInDuration = PaneMapInteractiveZoomGeometry.settlementDuration(
-            from: 0.25,
-            to: 1
-        )
-        let zoomOutDuration = PaneMapInteractiveZoomGeometry.settlementDuration(
-            from: 0.75,
-            to: 0
-        )
-
-        #expect(zoomInDuration == zoomOutDuration)
-    }
-
-    @Test func reversingScaleDoesNotAccumulateGeometry() {
-        let sourceAnchor = CGPoint(
-            x: initialFrame.minX + initialFrame.width * anchor.x,
-            y: initialFrame.minY + initialFrame.height * anchor.y
-        )
-        let expanded = PaneMapInteractiveZoomGeometry.frame(
-            initialFrame: initialFrame,
-            targetFrame: targetFrame,
-            normalizedAnchor: anchor,
-            gestureLocation: sourceAnchor,
-            progress: 0.7
-        )
-        let reversed = PaneMapInteractiveZoomGeometry.frame(
-            initialFrame: initialFrame,
-            targetFrame: targetFrame,
-            normalizedAnchor: anchor,
-            gestureLocation: sourceAnchor,
-            progress: 0.25
-        )
-        let returned = PaneMapInteractiveZoomGeometry.frame(
-            initialFrame: initialFrame,
-            targetFrame: targetFrame,
-            normalizedAnchor: anchor,
-            gestureLocation: sourceAnchor,
-            progress: 0
-        )
-
-        #expect(expanded.width > reversed.width)
-        #expect(returned == initialFrame)
-    }
-}
-
-@Suite struct PaneMapZoomTransitionStateTests {
-    @Test func staleCommitCannotWinAfterSettlementIsReversed() {
-        var state = PaneMapZoomTransitionState(progress: 0)
-        state.beginGesture(at: 0)
-        state.updateGesture(pinchScale: 1.7)
-        let staleCommit = state.beginSettlement(toward: .terminal)
-
-        state.interruptSettlement(at: 0.6)
-        state.updateGesture(pinchScale: 0.5)
-        let currentReturn = state.beginSettlement(toward: .map)
-
-        #expect(state.completeSettlement(generation: staleCommit) == nil)
-        #expect(state.completeSettlement(generation: currentReturn) == .map)
-    }
-
-    @Test func interruptedSettlementContinuesFromRenderedProgress() {
-        var state = PaneMapZoomTransitionState(progress: 0)
-        state.interruptSettlement(at: 0.63)
-
-        #expect(abs(state.progress - 0.63) < 0.001)
-        state.updateGesture(pinchScale: 1)
-        #expect(abs(state.progress - 0.63) < 0.001)
+        #expect(state.endpoint == .terminal)
+        #expect(state.sourceSurfaceID == "terminal-a")
     }
 }

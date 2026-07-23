@@ -7,6 +7,8 @@ import SwiftUI
 struct PaneMapOverlay: View {
     let value: PaneMapValue
     let terminalTheme: TerminalTheme
+    let zoomNamespace: Namespace.ID
+    let isVisible: Bool
     let fetchPreviews: ([String], [String]) async -> [String: MobileTerminalRenderGridFrame]
     let selectTerminal: (MobileTerminalPreview.ID) -> Void
     let dismiss: () -> Void
@@ -20,12 +22,16 @@ struct PaneMapOverlay: View {
     init(
         value: PaneMapValue,
         terminalTheme: TerminalTheme,
+        zoomNamespace: Namespace.ID,
+        isVisible: Bool,
         fetchPreviews: @escaping ([String], [String]) async -> [String: MobileTerminalRenderGridFrame],
         selectTerminal: @escaping (MobileTerminalPreview.ID) -> Void,
         dismiss: @escaping () -> Void
     ) {
         self.value = value
         self.terminalTheme = terminalTheme
+        self.zoomNamespace = zoomNamespace
+        self.isVisible = isVisible
         self.fetchPreviews = fetchPreviews
         self.selectTerminal = selectTerminal
         self.dismiss = dismiss
@@ -46,6 +52,7 @@ struct PaneMapOverlay: View {
                 items: collectionItems,
                 layout: value.layout,
                 terminalTheme: terminalTheme,
+                zoomNamespace: zoomNamespace,
                 overflowLabels: overflowLabels,
                 selectPreviewSurface: selectPreviewSurface,
                 jumpToTerminal: jumpToTerminal
@@ -59,10 +66,19 @@ struct PaneMapOverlay: View {
                 .accessibilityIdentifier("MobilePaneMapOverlay")
         }
         .onAppear {
-            startPreviewRefresh()
+            if isVisible {
+                startPreviewRefresh()
+            }
         }
         .onDisappear {
             cancelPreviewRefresh()
+        }
+        .onChange(of: isVisible) { _, isVisible in
+            if isVisible {
+                startPreviewRefresh()
+            } else {
+                cancelPreviewRefresh()
+            }
         }
         .onChange(of: value.layout) { _, _ in
             selectedSurfaceIDsByPaneID = value.reconciledSurfaceIDs(
@@ -153,16 +169,10 @@ struct PaneMapOverlay: View {
     }
 
     private func jumpToTerminal(_ surfaceID: String) {
-        var transaction = Transaction(animation: nil)
-        transaction.disablesAnimations = true
-        withTransaction(transaction) {
-            selectTerminal(MobileTerminalPreview.ID(rawValue: surfaceID))
-            dismissPaneMap()
-        }
+        selectTerminal(MobileTerminalPreview.ID(rawValue: surfaceID))
     }
 
     private func dismissPaneMap() {
-        cancelPreviewRefresh()
         dismiss()
     }
 

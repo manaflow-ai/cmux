@@ -1705,7 +1705,7 @@ final class cmuxUITests: XCTestCase {
         tapMenuItem(app.buttons["MobilePaneMapMenuItem"], in: app)
 
         let overlay = app.otherElements["MobilePaneMapOverlay"]
-        XCTAssertTrue(overlay.waitForExistence(timeout: 4))
+        XCTAssertTrue(waitForPaneMap(overlay, toBeActive: true))
         let leftTopPane = app.descendants(matching: .any)[
             "MobilePaneMapPane-preview-pane-left-top"
         ]
@@ -1734,10 +1734,10 @@ final class cmuxUITests: XCTestCase {
         XCTAssertEqual(leftTopTabStrip.frame.width, 64, accuracy: 2)
 
         tap(app.buttons["MobilePaneMapDone"], in: app)
-        XCTAssertTrue(overlay.waitForNonExistence(timeout: 4))
+        XCTAssertTrue(waitForPaneMap(overlay, toBeActive: false))
 
         tap(app.buttons["MobileSurfaceDeckPaneMap"], in: app)
-        XCTAssertTrue(overlay.waitForExistence(timeout: 4))
+        XCTAssertTrue(waitForPaneMap(overlay, toBeActive: true))
         tap(app.buttons["MobilePaneMapTab-preview-zsh"], in: app)
         let zshTile = app.buttons["MobilePaneMapTile-preview-zsh"]
         XCTAssertTrue(zshTile.waitForExistence(timeout: 2))
@@ -1745,12 +1745,12 @@ final class cmuxUITests: XCTestCase {
         XCTAssertTrue(overlay.exists, "Switching tabs must stay inside the pane map")
         tap(zshTile, in: app)
 
-        XCTAssertTrue(overlay.waitForNonExistence(timeout: 4))
+        XCTAssertTrue(waitForPaneMap(overlay, toBeActive: false))
         XCTAssertTrue(app.buttons["MobileSurfaceDeckChip-preview-zsh"].isSelected)
     }
 
     @MainActor
-    func testPanesPreviewReordersCardsAndPinchZoomsTerminal() throws {
+    func testPanesPreviewReordersCardsAndZoomsTerminalInBothDirections() throws {
         let app = launchApp(mockData: false, environment: [
             "CMUX_UITEST_PANES_PREVIEW": "1",
         ])
@@ -1760,7 +1760,7 @@ final class cmuxUITests: XCTestCase {
         tap(app.buttons["MobileSurfaceDeckPaneMap"], in: app)
 
         let overlay = app.otherElements["MobilePaneMapOverlay"]
-        XCTAssertTrue(overlay.waitForExistence(timeout: 4))
+        XCTAssertTrue(waitForPaneMap(overlay, toBeActive: true))
         let leftTopPane = app.descendants(matching: .any)[
             "MobilePaneMapPane-preview-pane-left-top"
         ]
@@ -1791,78 +1791,22 @@ final class cmuxUITests: XCTestCase {
 
         let claudeTile = app.buttons["MobilePaneMapTile-preview-claude"]
         XCTAssertTrue(claudeTile.waitForExistence(timeout: 2))
-        let originalClaudeFrame = claudeTile.frame
-        claudeTile.pinch(withScale: 1.3, velocity: 0.35)
+        tap(claudeTile, in: app)
 
-        XCTAssertTrue(overlay.exists, "A reversed pane zoom must stay inside the pane map")
-        let returnedToSource = XCTNSPredicateExpectation(
-            predicate: NSPredicate(
-                block: { _, _ in
-                    abs(claudeTile.frame.midX - originalClaudeFrame.midX) < 2
-                        && abs(claudeTile.frame.midY - originalClaudeFrame.midY) < 2
-                        && abs(claudeTile.frame.width - originalClaudeFrame.width) < 2
-                        && abs(claudeTile.frame.height - originalClaudeFrame.height) < 2
-                }
-            ),
-            object: claudeTile
-        )
-        XCTAssertEqual(
-            XCTWaiter.wait(for: [returnedToSource], timeout: 4),
-            .completed,
-            "A cancelled pane zoom must return to the exact source card"
-        )
-
-        claudeTile.pinch(withScale: 2, velocity: 2)
-
-        XCTAssertTrue(overlay.waitForNonExistence(timeout: 4))
+        XCTAssertTrue(waitForPaneMap(overlay, toBeActive: false))
         XCTAssertTrue(app.buttons["MobileSurfaceDeckChip-preview-claude"].isSelected)
-    }
 
-    @MainActor
-    func testPaneZoomSettlementCanBeInterruptedBackToItsSourceCard() throws {
-        let app = launchApp(mockData: false, environment: [
-            "CMUX_UITEST_PANES_PREVIEW": "1",
-            "CMUX_UITEST_PANE_ZOOM_SETTLE_DURATION": "1.2",
-            "CMUX_UITEST_PANE_ZOOM_INTERRUPT_DELAY": "0.12",
-        ])
-        defer { app.terminate() }
-
-        XCTAssertTrue(app.otherElements["PanesTabsPreviewHost"].waitForExistence(timeout: 8))
         tap(app.buttons["MobileSurfaceDeckPaneMap"], in: app)
-
-        let overlay = app.otherElements["MobilePaneMapOverlay"]
-        XCTAssertTrue(overlay.waitForExistence(timeout: 4))
-        let claudeTile = app.buttons["MobilePaneMapTile-preview-claude"]
+        XCTAssertTrue(
+            waitForPaneMap(overlay, toBeActive: true),
+            "The opened terminal must fluidly return to its pane-map source"
+        )
         XCTAssertTrue(claudeTile.waitForExistence(timeout: 2))
-        let sourceFrame = claudeTile.frame
 
-        // Public XCUITest gestures wait for UI quiescence, so the debug host
-        // schedules the reversing gesture through the same coordinator path.
-        claudeTile.pinch(withScale: 1.4, velocity: 2)
-
+        tap(claudeTile, in: app)
         XCTAssertTrue(
-            overlay.waitForExistence(timeout: 2),
-            "Reversing an active terminal settlement must keep the pane map presented"
-        )
-        let returnedToSource = XCTNSPredicateExpectation(
-            predicate: NSPredicate(
-                block: { _, _ in
-                    abs(claudeTile.frame.midX - sourceFrame.midX) < 2
-                        && abs(claudeTile.frame.midY - sourceFrame.midY) < 2
-                        && abs(claudeTile.frame.width - sourceFrame.width) < 2
-                        && abs(claudeTile.frame.height - sourceFrame.height) < 2
-                }
-            ),
-            object: claudeTile
-        )
-        XCTAssertEqual(
-            XCTWaiter.wait(for: [returnedToSource], timeout: 3),
-            .completed,
-            "Interrupted zoom must settle to the exact source card"
-        )
-        XCTAssertTrue(
-            overlay.exists,
-            "A stale terminal completion must not dismiss after the reversal"
+            waitForPaneMap(overlay, toBeActive: false),
+            "The same source must zoom back into the opened terminal"
         )
     }
 
@@ -4038,6 +3982,18 @@ final class cmuxUITests: XCTestCase {
     @MainActor
     private func isAddDeviceField(_ element: XCUIElement) -> Bool {
         element.identifier.hasPrefix("MobileAddDevice")
+    }
+
+    private func waitForPaneMap(
+        _ overlay: XCUIElement,
+        toBeActive isActive: Bool,
+        timeout: TimeInterval = 4
+    ) -> Bool {
+        let expectation = XCTNSPredicateExpectation(
+            predicate: NSPredicate(format: "isHittable == %@", NSNumber(value: isActive)),
+            object: overlay
+        )
+        return XCTWaiter.wait(for: [expectation], timeout: timeout) == .completed
     }
 
     @MainActor

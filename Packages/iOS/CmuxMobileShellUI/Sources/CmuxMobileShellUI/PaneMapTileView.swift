@@ -91,6 +91,7 @@ enum PaneMapTabStripMetrics {
 struct PaneMapTileView: View {
     let item: PaneMapCollectionItem
     let terminalTheme: TerminalTheme
+    let zoomNamespace: Namespace.ID
     let selectPreviewSurface: (String) -> Void
     let jumpToTerminal: (String) -> Void
 
@@ -101,6 +102,10 @@ struct PaneMapTileView: View {
                 terminalTheme: terminalTheme,
                 selectPreviewSurface: selectPreviewSurface,
                 jumpToTerminal: jumpToTerminal
+            )
+            .matchedTransitionSource(
+                id: item.selectedSurface?.id ?? item.id,
+                in: zoomNamespace
             )
             PaneMapTileCaption(item: item, terminalTheme: terminalTheme)
                 .frame(height: PaneMapTileMetrics.captionHeight)

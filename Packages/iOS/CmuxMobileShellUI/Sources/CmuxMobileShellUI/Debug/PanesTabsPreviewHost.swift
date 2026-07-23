@@ -13,7 +13,8 @@ struct PanesTabsPreviewHost: View {
     private static let gitSurfaceID = "preview-git"
 
     @State private var selectedSurfaceID = Self.claudeSurfaceID
-    @State private var isPaneMapPresented = false
+    @Namespace private var paneZoomNamespace
+    @State private var paneZoomPresentation = PaneZoomPresentationState()
     private let terminalTheme = TerminalTheme.monokai
 
     private let workspace = MobileWorkspacePreview(
@@ -137,40 +138,62 @@ struct PanesTabsPreviewHost: View {
     ]
 
     var body: some View {
+        if let layout = workspace.layout {
+            PaneMapOverlay(
+                value: PaneMapValue(
+                    workspaceName: workspace.name,
+                    layout: layout,
+                    phoneSelectedSurfaceID: selectedSurfaceID,
+                    agentStateKindsBySurfaceID: agentStateKindsBySurfaceID
+                ),
+                terminalTheme: terminalTheme,
+                zoomNamespace: paneZoomNamespace,
+                isVisible: !paneZoomPresentation.isTerminalPresented,
+                fetchPreviews: Self.fetchFixturePreviews,
+                selectTerminal: presentTerminalFromPaneMap,
+                dismiss: returnToTerminalFromPaneMap
+            )
+            .accessibilityHidden(paneZoomPresentation.isTerminalPresented)
+            .fullScreenCover(
+                isPresented: terminalPresentationBinding,
+                onDismiss: reconcilePaneMapAfterInteractiveDismissal
+            ) {
+                NavigationStack {
+                    terminalPreviewEndpoint
+                }
+                .navigationTransition(
+                    .zoom(
+                        sourceID: paneZoomSourceSurfaceID,
+                        in: paneZoomNamespace
+                    )
+                )
+            }
+        } else {
+            terminalPreviewEndpoint
+        }
+    }
+
+    private var terminalPreviewEndpoint: some View {
         ZStack(alignment: .topTrailing) {
             terminalTheme.terminalBackgroundColor
                 .frame(maxWidth: .infinity, maxHeight: .infinity)
-
-            WorkspaceUtilitiesMenu(
-                showsViewAsText: false,
-                showsPaneMap: true,
-                terminalTheme: terminalTheme,
-                presentPaneMap: presentPaneMap,
-                openTextSheet: {},
-                copyDebugLogs: {},
-                sendFeedback: {}
-            )
-            .frame(width: 44, height: 44)
-            .padding()
         }
         .safeAreaInset(edge: .bottom, spacing: 0) {
             SurfaceDeckBar(value: deckValue, actions: deckActions, terminalTheme: terminalTheme)
                 .equatable()
         }
         .ignoresSafeArea(.keyboard, edges: .bottom)
-        .fullScreenCover(isPresented: $isPaneMapPresented) {
-            if let layout = workspace.layout {
-                PaneMapOverlay(
-                    value: PaneMapValue(
-                        workspaceName: workspace.name,
-                        layout: layout,
-                        phoneSelectedSurfaceID: selectedSurfaceID,
-                        agentStateKindsBySurfaceID: agentStateKindsBySurfaceID
-                    ),
+        .navigationTitle(workspace.name)
+        .toolbar {
+            ToolbarItem(placement: .topBarTrailing) {
+                WorkspaceUtilitiesMenu(
+                    showsViewAsText: false,
+                    showsPaneMap: true,
                     terminalTheme: terminalTheme,
-                    fetchPreviews: Self.fetchFixturePreviews,
-                    selectTerminal: { selectedSurfaceID = $0.rawValue },
-                    dismiss: { isPaneMapPresented = false }
+                    presentPaneMap: presentPaneMap,
+                    openTextSheet: {},
+                    copyDebugLogs: {},
+                    sendFeedback: {}
                 )
             }
         }
@@ -198,7 +221,35 @@ struct PanesTabsPreviewHost: View {
     }
 
     private func presentPaneMap() {
-        isPaneMapPresented = true
+        paneZoomPresentation.presentPaneMap(from: selectedSurfaceID)
+    }
+
+    private func presentTerminalFromPaneMap(_ terminalID: MobileTerminalPreview.ID) {
+        paneZoomPresentation.presentTerminal(surfaceID: terminalID.rawValue)
+        selectedSurfaceID = terminalID.rawValue
+    }
+
+    private func returnToTerminalFromPaneMap() {
+        paneZoomPresentation.presentTerminal(surfaceID: paneZoomSourceSurfaceID)
+    }
+
+    private var terminalPresentationBinding: Binding<Bool> {
+        Binding(
+            get: { paneZoomPresentation.isTerminalPresented },
+            set: { isPresented in
+                paneZoomPresentation.presentationDidChange(
+                    isTerminalPresented: isPresented
+                )
+            }
+        )
+    }
+
+    private func reconcilePaneMapAfterInteractiveDismissal() {
+        paneZoomPresentation.presentationDidChange(isTerminalPresented: false)
+    }
+
+    private var paneZoomSourceSurfaceID: String {
+        paneZoomPresentation.sourceSurfaceID ?? selectedSurfaceID
     }
 
     private static func fetchFixturePreviews(

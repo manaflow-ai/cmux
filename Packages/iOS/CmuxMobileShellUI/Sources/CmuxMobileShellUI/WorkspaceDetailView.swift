@@ -53,7 +53,8 @@ struct WorkspaceDetailView: View {
     @State private var contentWidth: CGFloat = 0
     /// Terminal captured for the current "View as Text" sheet presentation.
     @State private var textSheetSurfaceID: String?
-    @State private var isPaneMapPresented = false
+    @Namespace private var paneZoomNamespace
+    @State private var paneZoomPresentation = PaneZoomPresentationState()
     /// Chat-mode toggle for inline agent chat in place of the terminal.
     @State var isChatMode = false
     /// The session chat mode was entered on, pinned so sorting cannot swap the conversation
@@ -98,10 +99,43 @@ struct WorkspaceDetailView: View {
     }
     #endif
     var body: some View {
-        let content = Group { detailSurfaceContent }
-
         #if os(iOS)
+        if let layout = workspace.layout {
+            paneMapRoot(layout: layout)
+                .accessibilityHidden(paneZoomPresentation.isTerminalPresented)
+                .fullScreenCover(
+                    isPresented: terminalZoomPresentationBinding,
+                    onDismiss: reconcilePaneMapAfterInteractiveDismissal
+                ) {
+                    NavigationStack {
+                        terminalWorkspaceEndpoint
+                    }
+                    .navigationTransition(
+                        .zoom(
+                            sourceID: paneZoomSourceSurfaceID,
+                            in: paneZoomNamespace
+                        )
+                    )
+                }
+                .toolbar(.hidden, for: .navigationBar)
+                .navigationBarBackButtonHidden(true)
+        } else {
+            terminalWorkspaceEndpoint
+        }
+        #else
+        Group { detailSurfaceContent }
+            .closeWorkspaceConfirmation(
+                isPresented: $isConfirmingClose,
+                confirm: confirmCloseWorkspaceFromMenu
+            )
+            .mobileConnectionRecoveryOverlay(store: store, signOut: signOut)
+        #endif
+    }
+
+    #if os(iOS)
+    private var terminalWorkspaceEndpoint: some View {
         let deckValue = surfaceDeckValue
+        let content = Group { detailSurfaceContent }
         // Deck visibility must not change the content subtree's structural
         // identity: branching around `content` would remount the terminal
         // surface (and the chat/browser ZStack) every time the deck toggles.
@@ -125,7 +159,7 @@ struct WorkspaceDetailView: View {
             // normal avoidance.
             .ignoresSafeArea(showDeck ? .keyboard : [], edges: .bottom)
 
-        contentWithSurfaceDeck
+        return contentWithSurfaceDeck
             .onGeometryChange(for: CGFloat.self) { $0.size.width } action: { contentWidth = $0 }
             .navigationTitle(systemNavigationTitle)
             .mobileTerminalNavigationChrome(theme: store.activeTerminalTheme)
@@ -144,7 +178,7 @@ struct WorkspaceDetailView: View {
             }
             .onChange(of: workspace.layout == nil) { _, layoutIsMissing in
                 if layoutIsMissing {
-                    isPaneMapPresented = false
+                    paneZoomPresentation.presentationDidChange(isTerminalPresented: true)
                 }
             }
             .closeWorkspaceConfirmation(
@@ -157,45 +191,61 @@ struct WorkspaceDetailView: View {
             .sheet(isPresented: $isTextSheetPresented) {
                 TerminalTextSheetView(surfaceID: textSheetSurfaceID)
             }
-            .fullScreenCover(isPresented: $isPaneMapPresented) {
-                if let layout = workspace.layout {
-                    PaneMapOverlay(
-                        value: PaneMapValue(
-                            workspaceName: workspace.name,
-                            layout: layout,
-                            phoneSelectedSurfaceID: selectedTerminal?.id.rawValue,
-                            agentStateKindsBySurfaceID: surfaceDeckAgentStateKinds
-                        ),
-                        terminalTheme: store.activeTerminalTheme,
-                        fetchPreviews: { selectedSurfaceIDs, remainingSurfaceIDs in
-                            await store.fetchPaneMapPreviewGrids(
-                                remoteWorkspaceID: workspace.rpcWorkspaceID.rawValue,
-                                selectedSurfaceIDs: selectedSurfaceIDs,
-                                remainingSurfaceIDs: remainingSurfaceIDs
-                            )
-                        },
-                        selectTerminal: selectTerminalFromDeck,
-                        dismiss: { isPaneMapPresented = false }
-                    )
-                }
-            }
             .workspaceRenameDialog(
                 isPresented: $isRenamePresented,
                 text: $renameText,
                 onSave: commitRenameFromDialog
             )
             .mobileConnectionRecoveryOverlay(store: store, signOut: signOut)
-        #else
-        content
-            .closeWorkspaceConfirmation(
-                isPresented: $isConfirmingClose,
-                confirm: confirmCloseWorkspaceFromMenu
-            )
-            .mobileConnectionRecoveryOverlay(store: store, signOut: signOut)
-        #endif
     }
 
-    #if os(iOS)
+    private func paneMapRoot(layout: MobilePaneLayout) -> some View {
+        PaneMapOverlay(
+            value: PaneMapValue(
+                workspaceName: workspace.name,
+                layout: layout,
+                phoneSelectedSurfaceID: selectedTerminal?.id.rawValue,
+                agentStateKindsBySurfaceID: surfaceDeckAgentStateKinds
+            ),
+            terminalTheme: store.activeTerminalTheme,
+            zoomNamespace: paneZoomNamespace,
+            isVisible: !paneZoomPresentation.isTerminalPresented,
+            fetchPreviews: { selectedSurfaceIDs, remainingSurfaceIDs in
+                await store.fetchPaneMapPreviewGrids(
+                    remoteWorkspaceID: workspace.rpcWorkspaceID.rawValue,
+                    selectedSurfaceIDs: selectedSurfaceIDs,
+                    remainingSurfaceIDs: remainingSurfaceIDs
+                )
+            },
+            selectTerminal: presentTerminalFromPaneMap,
+            dismiss: returnToTerminalFromPaneMap
+        )
+    }
+
+    private var terminalZoomPresentationBinding: Binding<Bool> {
+        Binding(
+            get: { paneZoomPresentation.isTerminalPresented },
+            set: { isPresented in
+                paneZoomPresentation.presentationDidChange(
+                    isTerminalPresented: isPresented
+                )
+            }
+        )
+    }
+
+    private func reconcilePaneMapAfterInteractiveDismissal() {
+        paneZoomPresentation.presentationDidChange(isTerminalPresented: false)
+    }
+
+    private var paneZoomSourceSurfaceID: String {
+        paneZoomPresentation.sourceSurfaceID
+            ?? selectedTerminal?.id.rawValue
+            ?? workspace.layout?.orderedPanes
+                .compactMap(\.selectedSurfaceID)
+                .first
+            ?? ""
+    }
+
     @ToolbarContentBuilder
     private var workspaceDetailToolbar: some ToolbarContent {
         if backButtonConfiguration != nil {
@@ -556,7 +606,19 @@ struct WorkspaceDetailView: View {
 
     private func presentPaneMap() {
         guard workspace.layout != nil else { return }
-        isPaneMapPresented = true
+        paneZoomPresentation.presentPaneMap(
+            from: selectedTerminal?.id.rawValue
+        )
+    }
+
+    private func presentTerminalFromPaneMap(_ terminalID: MobileTerminalPreview.ID) {
+        paneZoomPresentation.presentTerminal(surfaceID: terminalID.rawValue)
+        selectTerminalFromDeck(terminalID)
+    }
+
+    private func returnToTerminalFromPaneMap() {
+        guard !paneZoomSourceSurfaceID.isEmpty else { return }
+        paneZoomPresentation.presentTerminal(surfaceID: paneZoomSourceSurfaceID)
     }
 
     #if canImport(UIKit)
