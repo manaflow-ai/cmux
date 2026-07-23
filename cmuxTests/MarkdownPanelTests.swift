@@ -1373,6 +1373,50 @@ final class MarkdownPanelTests: XCTestCase {
         )
     }
 
+    func testCodespanDoesNotDoubleEscapeHTMLEntities() async throws {
+        let markdownURL = FileManager.default.temporaryDirectory
+            .appendingPathComponent("cmux-codespan-escape-\(UUID().uuidString).md")
+
+        let frame = NSRect(x: 0, y: 0, width: 420, height: 260)
+        let webView = WKWebView(frame: frame, configuration: WKWebViewConfiguration())
+        let window = NSWindow(contentRect: frame, styleMask: [.borderless], backing: .buffered, defer: false)
+        window.contentView = webView
+        window.orderFrontRegardless()
+        defer {
+            webView.navigationDelegate = nil
+            window.close()
+        }
+
+        let loaded = expectation(description: "markdown shell loaded")
+        let loadDelegate = MarkdownShellLoadDelegate(expectation: loaded)
+        webView.navigationDelegate = loadDelegate
+        webView.loadHTMLString(
+            MarkdownViewerAssets.shared.shellHTML(isDark: true),
+            baseURL: markdownURL
+        )
+        await fulfillment(of: [loaded], timeout: 5)
+        if let error = loadDelegate.error {
+            throw error
+        }
+
+        try await renderMarkdown("`<>&\"'`\n", in: webView)
+
+        let codeHTML = try await webView.evaluateJavaScript(
+            """
+            (function() {
+              var code = document.querySelector('code');
+              return code ? code.innerHTML : null;
+            })();
+            """
+        )
+        let html = try XCTUnwrap(codeHTML as? String, "Expected a <code> element in rendered output")
+        XCTAssertTrue(html.contains("&amp;"), "codespan should preserve single-escaped ampersand: \(html)")
+        XCTAssertFalse(html.contains("&amp;amp;"), "codespan should not double-escape ampersand entities: \(html)")
+        XCTAssertTrue(html.contains("&lt;"), "codespan should preserve single-escaped less-than: \(html)")
+        XCTAssertTrue(html.contains("&gt;"), "codespan should preserve single-escaped greater-than: \(html)")
+        XCTAssertTrue(html.contains("\""), "codespan should render double-quote literally without double-escaping: \(html)")
+    }
+
     private func renderMarkdown(_ markdown: String, in webView: WKWebView) async throws {
         let data = try JSONSerialization.data(withJSONObject: [markdown])
         let literal = try XCTUnwrap(String(data: data, encoding: .utf8))
