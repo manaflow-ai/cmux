@@ -2,7 +2,11 @@ import CMUXMobileCore
 import Foundation
 import IrohLib
 
-struct CmxIrohLibConnection: CmxIrohConnection, CmxIrohConnectionPathInspecting {
+struct CmxIrohLibConnection:
+    CmxIrohConnection,
+    CmxIrohConnectionContinuityIdentifying,
+    CmxIrohConnectionPathInspecting
+{
     let driver: Connection
     let peerIdentity: CmxIrohPeerIdentity
 
@@ -13,6 +17,10 @@ struct CmxIrohLibConnection: CmxIrohConnection, CmxIrohConnectionPathInspecting 
 
     func remoteIdentity() async -> CmxIrohPeerIdentity {
         peerIdentity
+    }
+
+    func connectionContinuityID() async -> UInt64 {
+        driver.stableId()
     }
 
     func observedSelectedPath() async -> CmxIrohObservedConnectionPath {

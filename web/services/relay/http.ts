@@ -22,6 +22,12 @@ export async function runRelayEffect<A, E>(
 export function enforceRelayRateLimit(input: {
   readonly request: Request;
   readonly accountId: string;
+  /**
+   * Optional per-device partition (endpoint id). When present the budget is
+   * per account+device, so one storming device cannot starve the account's
+   * other phones, simulators, and tagged builds.
+   */
+  readonly devicePartition?: string;
   readonly ruleId: string | undefined;
   readonly check: RelayRateLimitCheck;
   readonly isVercel?: boolean;
@@ -39,7 +45,9 @@ export function enforceRelayRateLimit(input: {
   return Effect.tryPromise({
     try: () => input.check(ruleId, {
       request: input.request,
-      rateLimitKey: input.accountId,
+      rateLimitKey: input.devicePartition
+        ? `${input.accountId}:${input.devicePartition}`
+        : input.accountId,
     }),
     catch: () => new RelayRateLimitError({ code: "rate_limit_unavailable" }),
   }).pipe(
@@ -100,7 +108,13 @@ export function relayErrorResponse(error: unknown): Response {
     console.error("relay.policy.catalog_rollback", {
       configuredSequence: (error as { configuredSequence?: unknown }).configuredSequence,
       persistedSequence: (error as { persistedSequence?: unknown }).persistedSequence,
+      reason: (error as { reason?: unknown }).reason,
     });
+    return jsonResponse({ error: "relay_policy_unavailable" }, 503);
+  }
+  if (tag === "RelayCatalogIntegrityError") {
+    const typed = error as Extract<RelayServiceError, { _tag: "RelayCatalogIntegrityError" }>;
+    console.error("relay.policy.catalog_integrity", { reason: typed.reason });
     return jsonResponse({ error: "relay_policy_unavailable" }, 503);
   }
   if (
@@ -111,7 +125,9 @@ export function relayErrorResponse(error: unknown): Response {
     console.error("relay.policy.unavailable", tag);
     return jsonResponse({ error: "relay_policy_unavailable" }, 503);
   }
-  console.error("relay.policy.unexpected", error);
+  // Unexpected errors can carry database causes, relay origins, or credentials.
+  // Keep the operational event while making its payload intentionally coarse.
+  console.error("relay.policy.unexpected", { failure: "unexpected" });
   return jsonResponse({ error: "internal_error" }, 500);
 }
 

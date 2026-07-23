@@ -29,7 +29,7 @@ extension CmxIrohHostRuntime {
                 }
                 let delay = registrationRetrySchedule.delay(
                     failureCount: failureCount,
-                    retryAfterSeconds: (error as? CmxIrohTrustBrokerClientError)?
+                    retryAfterSeconds: (error as? any CmxRetryAfterProviding)?
                         .retryAfterSeconds,
                     jitterUnitInterval: registrationRetryJitter()
                 )
@@ -77,9 +77,17 @@ extension CmxIrohHostRuntime {
         guard address.identity == expectedEndpointID else {
             throw CmxIrohHostRuntimeError.invalidLocalBinding
         }
+        // Discovery follows registration in one trust round. Honor a restored
+        // discovery floor first so activation cannot spend a registration call
+        // that is guaranteed to stop at the next broker operation.
+        try await broker.preflight(operation: .discovery)
+        try requireCurrent(revision)
         let publicHints = Array(address.pathHints.compactMap {
             $0.publicDisclosure(at: now())
         }.prefix(CmxAttachEndpoint.maximumIrohPathHintCount))
+        let directPorts = CmxIrohDirectPorts(
+            localDirectAddresses: await endpoint.localDirectAddresses()
+        )
         let payload = try CmxIrohRegistrationPayload(
             deviceID: configuration.deviceID,
             appInstanceID: configuration.appInstanceID,
@@ -91,6 +99,7 @@ extension CmxIrohHostRuntime {
             pairingEnabled: configuration.pairingEnabled,
             capabilities: configuration.capabilities,
             pathHints: publicHints,
+            directPorts: directPorts,
             now: now()
         )
         let signer = try CmxIrohRegistrationSigner(
@@ -340,7 +349,7 @@ extension CmxIrohHostRuntime {
               lifecycleRevision == revision else { return }
         let delay = registrationRetrySchedule.delay(
             failureCount: registrationRefreshFailureCount,
-            retryAfterSeconds: (error as? CmxIrohTrustBrokerClientError)?
+            retryAfterSeconds: (error as? any CmxRetryAfterProviding)?
                 .retryAfterSeconds,
             jitterUnitInterval: registrationRetryJitter()
         )

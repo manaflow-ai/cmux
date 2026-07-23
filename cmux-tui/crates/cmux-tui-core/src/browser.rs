@@ -43,6 +43,14 @@ pub struct BrowserFrameStream {
     pub notify: Receiver<()>,
 }
 
+pub(crate) type BrowserResizeOutcome = Result<(), Arc<str>>;
+pub(crate) type BrowserResizeWaiter = SyncSender<BrowserResizeOutcome>;
+
+pub(crate) struct PendingBrowserResize {
+    pub reservation: u64,
+    pub completion: Receiver<BrowserResizeOutcome>,
+}
+
 struct BrowserFrameTap {
     slot: Arc<Mutex<BrowserAttachUpdate>>,
     notify: SyncSender<()>,
@@ -108,6 +116,7 @@ struct BrowserState {
     capture_pixels: (u32, u32),
     capture_scale: f64,
     pending_reconfigures: VecDeque<QueuedBrowserGeometry>,
+    reconfigure_waiters: HashMap<u64, Vec<BrowserResizeWaiter>>,
     next_reconfigure_id: u64,
     reconfigure_failure: Option<BrowserReconfigureFailure>,
     page_viewport: Option<(u32, u32)>,
@@ -172,6 +181,7 @@ enum BrowserCommand {
     Reconfigure {
         queued: QueuedBrowserGeometry,
         report: Option<Box<dyn FnOnce(Option<u64>) + Send>>,
+        completion: Option<BrowserResizeWaiter>,
     },
     #[cfg(test)]
     Hold {
@@ -197,10 +207,13 @@ impl BrowserCommand {
 }
 
 fn reject_reconfigure(mut command: BrowserCommand) -> Option<QueuedBrowserGeometry> {
-    if let BrowserCommand::Reconfigure { report, .. } = &mut command
-        && let Some(report) = report.take()
-    {
-        report(None);
+    if let BrowserCommand::Reconfigure { report, completion, .. } = &mut command {
+        if let Some(report) = report.take() {
+            report(None);
+        }
+        if let Some(completion) = completion.take() {
+            let _ = completion.send(Err(Arc::from("browser resize was rejected before execution")));
+        }
     }
     match command {
         BrowserCommand::Reconfigure { queued, .. } => Some(queued),
@@ -358,6 +371,7 @@ pub const TRANSPORT_SAFE_CAPTURE_MEGAPIXELS: f64 = 2.0;
 const DEFAULT_CAPTURE_MEGAPIXELS: f64 = TRANSPORT_SAFE_CAPTURE_MEGAPIXELS;
 const STALL_THRESHOLD: Duration = Duration::from_secs(2);
 const BROWSER_COMMAND_QUEUE_CAPACITY: usize = 64;
+const MAX_RECONFIGURE_WAITERS_PER_RESERVATION: usize = 64;
 const BROWSER_NOT_RESPONDING_MESSAGE: &str = "browser is not responding";
 const BROWSER_RECONFIGURE_RETRY_DELAYS: [Duration; 2] =
     [Duration::from_millis(250), Duration::from_millis(500)];
@@ -554,6 +568,7 @@ pub(crate) fn new_surface(
             capture_pixels,
             capture_scale,
             pending_reconfigures: VecDeque::new(),
+            reconfigure_waiters: HashMap::new(),
             next_reconfigure_id: 1,
             reconfigure_failure: None,
             page_viewport: None,
@@ -932,11 +947,15 @@ fn run_browser_worker_command(
     id: SurfaceId,
     failures: &mut BrowserWorkerErrorState,
 ) {
-    if let BrowserCommand::Reconfigure { queued, report } = &mut command
-        && let Some(report) = report.take()
-    {
-        report(Some(queued.id));
-    }
+    let completion =
+        if let BrowserCommand::Reconfigure { queued, report, completion } = &mut command {
+            if let Some(report) = report.take() {
+                report(Some(queued.id));
+            }
+            completion.take()
+        } else {
+            None
+        };
     let is_input = command.is_input();
     let is_reconfigure = matches!(command, BrowserCommand::Reconfigure { .. });
     let reconfigure = match &command {
@@ -1012,6 +1031,16 @@ fn run_browser_worker_command(
             retry_after_ms: retry_delay.map(|delay| delay.as_millis() as u64),
             reservation_id: Some(queued.id),
         });
+    }
+    if let Some(completion) = completion {
+        let outcome = result.as_ref().map(|_| ()).map_err(|error| Arc::from(error.to_string()));
+        let _ = completion.send(outcome);
+    }
+    if let Some(queued) = reconfigure
+        && let Some(browser) = surface.as_browser()
+    {
+        let outcome = result.as_ref().map(|_| ()).map_err(|error| Arc::from(error.to_string()));
+        browser.complete_reconfigure_waiters(queued.id, outcome);
     }
     record_browser_worker_result(surface, mux, id, is_input, result, failures);
 }
@@ -1158,12 +1187,29 @@ impl BrowserSurface {
         rows: u16,
         report: Box<dyn FnOnce(Option<u64>) + Send>,
     ) -> anyhow::Result<Option<u64>> {
+        self.resize_reporting_completion(cols, rows, report, None)
+    }
+
+    pub(crate) fn resize_reporting_completion(
+        &self,
+        cols: u16,
+        rows: u16,
+        report: Box<dyn FnOnce(Option<u64>) + Send>,
+        completion: Option<BrowserResizeWaiter>,
+    ) -> anyhow::Result<Option<u64>> {
         let (cols, rows) = (cols.max(1), rows.max(1));
         let Some(queued) = self.reserve_reconfigure(cols, rows) else {
             report(None);
+            if let Some(completion) = completion {
+                let _ = completion.send(Ok(()));
+            }
             return Ok(None);
         };
-        self.enqueue_reconfigure(BrowserCommand::Reconfigure { queued, report: Some(report) })?;
+        self.enqueue_reconfigure(BrowserCommand::Reconfigure {
+            queued,
+            report: Some(report),
+            completion,
+        })?;
         Ok(Some(queued.id))
     }
 
@@ -1218,6 +1264,45 @@ impl BrowserSurface {
         Some(queued)
     }
 
+    pub(crate) fn pending_resize_completion(
+        &self,
+        cols: u16,
+        rows: u16,
+    ) -> anyhow::Result<Option<PendingBrowserResize>> {
+        let geometry = self.resize_geometry(cols, rows);
+        let mut state = self.state.lock().unwrap();
+        if let Some(pending) =
+            state.pending_reconfigures.iter().rev().find(|pending| pending.geometry == geometry)
+        {
+            let reservation = pending.id;
+            if state
+                .reconfigure_waiters
+                .get(&reservation)
+                .is_some_and(|waiters| waiters.len() >= MAX_RECONFIGURE_WAITERS_PER_RESERVATION)
+            {
+                anyhow::bail!("browser resize reservation {reservation} has too many waiters");
+            }
+            let (completion, completed) = sync_channel(1);
+            state.reconfigure_waiters.entry(reservation).or_default().push(completion);
+            return Ok(Some(PendingBrowserResize { reservation, completion: completed }));
+        }
+        if browser_geometry_locked(&state) == geometry {
+            return Ok(None);
+        }
+        if state.reconfigure_failure.is_some_and(|failure| failure.geometry == geometry) {
+            anyhow::bail!("browser resize is waiting to retry after a previous failure");
+        }
+        anyhow::bail!("browser resize was not accepted");
+    }
+
+    fn complete_reconfigure_waiters(&self, reservation: u64, outcome: BrowserResizeOutcome) {
+        let waiters =
+            self.state.lock().unwrap().reconfigure_waiters.remove(&reservation).unwrap_or_default();
+        for waiter in waiters {
+            let _ = waiter.send(outcome.clone());
+        }
+    }
+
     fn confirm_reconfigure(&self, queued: QueuedBrowserGeometry) {
         let mut state = self.state.lock().unwrap();
         let Some(index) =
@@ -1234,6 +1319,8 @@ impl BrowserSurface {
         state.capture_pixels = geometry.capture_pixels;
         state.capture_scale = geometry.capture_scale;
         if changed {
+            state.latest_frame = None;
+            state.page_viewport = None;
             state.live_since = Some(Instant::now());
             state.last_frame_at = None;
             state.stall_nudged = false;
@@ -1260,11 +1347,17 @@ impl BrowserSurface {
     }
 
     fn release_reconfigure(&self, queued: QueuedBrowserGeometry) {
-        let mut state = self.state.lock().unwrap();
-        if let Some(index) =
-            state.pending_reconfigures.iter().position(|pending| pending.id == queued.id)
-        {
-            state.pending_reconfigures.remove(index);
+        let waiters = {
+            let mut state = self.state.lock().unwrap();
+            if let Some(index) =
+                state.pending_reconfigures.iter().position(|pending| pending.id == queued.id)
+            {
+                state.pending_reconfigures.remove(index);
+            }
+            state.reconfigure_waiters.remove(&queued.id).unwrap_or_default()
+        };
+        for waiter in waiters {
+            let _ = waiter.send(Err(Arc::from("browser resize was rejected before execution")));
         }
     }
 
@@ -1962,9 +2055,9 @@ fn percent_encode_query(input: &str) -> String {
 mod tests {
     use super::{
         BROWSER_COMMAND_QUEUE_CAPACITY, BrowserCaptureOptions, BrowserCommand, BrowserFrame,
-        BrowserSession, BrowserSource, BrowserStatus, capture_scale_for, new_surface,
-        normalize_url, runtime_endpoint, scaled_pixels, start_surface_thread,
-        take_latest_worker_commands,
+        BrowserSession, BrowserSource, BrowserStatus, MAX_RECONFIGURE_WAITERS_PER_RESERVATION,
+        capture_scale_for, new_surface, normalize_url, runtime_endpoint, scaled_pixels,
+        start_surface_thread, take_latest_worker_commands,
     };
     use crate::{Mux, MuxEvent, Surface, SurfaceOptions};
     use serde_json::{Value, json};
@@ -3026,6 +3119,36 @@ mod tests {
     }
 
     #[test]
+    fn input_mapping_uses_new_capture_geometry_while_waiting_for_resized_frame() {
+        let opts = SurfaceOptions::default();
+        let surface =
+            new_surface(1, "https://example.test".into(), (476, 182), (10, 14), &opts, Weak::new());
+        let browser = surface.as_browser().expect("browser surface");
+
+        let mut frame = test_frame(1);
+        frame.css_width = 2320;
+        frame.css_height = 1363;
+        browser.store_frame(frame);
+
+        let queued = browser.reserve_reconfigure(400, 100).expect("changed geometry");
+        browser.confirm_reconfigure(queued);
+
+        let state = browser.state.lock().unwrap();
+        assert_eq!(state.latest_frame, None);
+        assert_eq!(state.page_viewport, None);
+        let (pane_width, pane_height) = state.pane_pixels;
+        let (capture_width, capture_height) = state.capture_pixels;
+        let capture_scale = state.capture_scale;
+        drop(state);
+
+        assert_eq!(
+            browser.scale_input_point(f64::from(pane_width), f64::from(pane_height)),
+            (f64::from(capture_width), f64::from(capture_height))
+        );
+        assert!((browser.scale_delta(100.0) - 100.0 * capture_scale).abs() < f64::EPSILON);
+    }
+
+    #[test]
     fn input_mapping_clamps_to_page_viewport() {
         let surface = test_surface();
         let browser = surface.as_browser().expect("browser surface");
@@ -3171,21 +3294,39 @@ mod tests {
         started.recv_timeout(Duration::from_secs(1)).unwrap();
         let accepted = Arc::new(AtomicBool::new(false));
         let reported = accepted.clone();
+        let (completion_tx, completion_rx) = mpsc::sync_channel(1);
 
         assert!(
             browser
-                .resize_reporting_acceptance(
+                .resize_reporting_completion(
                     11,
                     5,
                     Box::new(move |reservation_id| {
                         assert!(reservation_id.is_some());
                         reported.store(true, Ordering::Release);
                     }),
+                    Some(completion_tx),
                 )
                 .unwrap()
                 .is_some()
         );
         assert!(!accepted.load(Ordering::Acquire));
+        assert!(matches!(
+            completion_rx.recv_timeout(Duration::from_millis(10)),
+            Err(mpsc::RecvTimeoutError::Timeout)
+        ));
+        let pending =
+            browser.pending_resize_completion(11, 5).unwrap().expect("pending resize completion");
+        assert!(pending.reservation > 0);
+        assert!(matches!(
+            pending.completion.recv_timeout(Duration::from_millis(10)),
+            Err(mpsc::RecvTimeoutError::Timeout)
+        ));
+        for _ in 1..MAX_RECONFIGURE_WAITERS_PER_RESERVATION {
+            drop(browser.pending_resize_completion(11, 5).unwrap().unwrap());
+        }
+        let error = browser.pending_resize_completion(11, 5).err().expect("waiter cap error");
+        assert!(error.to_string().contains("too many waiters"));
         let (duplicate_tx, duplicate_rx) = mpsc::channel();
         assert!(
             browser
@@ -3205,6 +3346,8 @@ mod tests {
             thread::yield_now();
         }
         assert!(accepted.load(Ordering::Acquire));
+        assert!(completion_rx.recv_timeout(Duration::from_secs(1)).unwrap().is_ok());
+        assert!(pending.completion.recv_timeout(Duration::from_secs(1)).unwrap().is_ok());
         browser.kill();
         done.recv_timeout(Duration::from_secs(1)).expect("browser worker exited after release");
     }
@@ -3224,6 +3367,25 @@ mod tests {
         browser.reconfigure_reserved_blocking(queued).unwrap();
         assert!(!browser.resize_needed(10, 5));
         assert!(browser.reserve_reconfigure(10, 5).is_none());
+    }
+
+    #[test]
+    fn rejected_resize_releases_joined_completion_waiters() {
+        let surface = test_surface();
+        let browser = surface.as_browser().expect("browser surface");
+        let queued = browser.reserve_reconfigure(11, 5).expect("changed geometry");
+        let pending =
+            browser.pending_resize_completion(11, 5).unwrap().expect("pending completion");
+
+        browser.release_reconfigure(queued);
+
+        let error = pending
+            .completion
+            .recv_timeout(Duration::from_secs(1))
+            .unwrap()
+            .expect_err("rejected resize completion");
+        assert!(error.contains("rejected before execution"));
+        assert!(browser.state.lock().unwrap().reconfigure_waiters.is_empty());
     }
 
     #[test]

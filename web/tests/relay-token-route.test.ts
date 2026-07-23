@@ -56,6 +56,7 @@ function deps(overrides: Partial<RelayTokenDeps> = {}): RelayTokenDeps {
       key: input.key,
       nowSeconds: input.nowSeconds,
     }),
+    isEndpointBound: async () => true,
     checkRateLimit: async () => ({ rateLimited: false }),
     rateLimitRuleId: () => undefined,
     isVercel: () => false,
@@ -114,6 +115,53 @@ describe("POST /api/relay/token", () => {
       exp: 1_700_000_300,
       endpoint_id: ENDPOINT_ID,
     });
+  });
+
+  test("withholds relay credentials until the endpoint has an active broker binding", async () => {
+    let mintedCredentials = false;
+    const unboundDeps = {
+      ...deps({
+        issueCredentials: (input) => {
+          mintedCredentials = true;
+          return mintManagedRelayCredentials({
+            sub: input.accountId,
+            endpointId: input.endpointId,
+            relayUrls: input.relayUrls,
+            key: input.key,
+            nowSeconds: input.nowSeconds,
+          });
+        },
+      }),
+      isEndpointBound: async (input: {
+        accountId: string;
+        endpointId: string;
+        nowSeconds: number;
+      }) => {
+        expect(input).toEqual({
+          accountId: "account-a",
+          endpointId: ENDPOINT_ID,
+          nowSeconds: 1_700_000_000,
+        });
+        return false;
+      },
+    };
+
+    const response = await handleRelayTokenRequest(
+      request({ endpointId: ENDPOINT_ID }),
+      unboundDeps,
+    );
+
+    expect(response.status).toBe(200);
+    expect(mintedCredentials).toBe(false);
+    const body = await response.json() as Record<string, unknown>;
+    expect(body.endpointId).toBe(ENDPOINT_ID);
+    expect(body.policy).toBe("signed.policy.value");
+    expect(body.preferenceRevision).toBe(3);
+    expect(body.relayCredentials).toBeUndefined();
+    expect(body.token).toBeUndefined();
+    expect(body.relays).toBeUndefined();
+    expect(body.expiresAt).toBeUndefined();
+    expect(body.ttlSeconds).toBeUndefined();
   });
 
   test("preserves distinct URL-token associations without ambiguous legacy fields", async () => {
@@ -259,22 +307,42 @@ describe("POST /api/relay/token", () => {
     expect(invalid.status).toBe(400);
   });
 
-  test("rate limits by authenticated account and fails closed", async () => {
+  test("rate limits per account and endpoint and fails closed", async () => {
     let key: string | undefined;
+    let checks = 0;
     const limited = await handleRelayTokenRequest(
       request({ endpointId: ENDPOINT_ID }),
       deps({
         isVercel: () => true,
         rateLimitRuleId: () => "relay-token",
         checkRateLimit: async (_id, options) => {
+          checks += 1;
           key = options.rateLimitKey;
           return { rateLimited: true };
         },
       }),
     );
     expect(limited.status).toBe(429);
-    expect(key).toBe("account-a");
+    // Partitioned per device: a storming endpoint starves only itself, never
+    // the account's other phones, simulators, or tagged builds.
+    expect(key).toBe(`account-a:${ENDPOINT_ID.toLowerCase()}`);
     expect(limited.headers.get("retry-after")).toBe("600");
+
+    // Malformed requests are rejected before the limiter and never consume
+    // the per-device budget.
+    const invalid = await handleRelayTokenRequest(
+      request({ endpointId: "not-an-endpoint" }),
+      deps({
+        isVercel: () => true,
+        rateLimitRuleId: () => "relay-token",
+        checkRateLimit: async () => {
+          checks += 1;
+          return { rateLimited: true };
+        },
+      }),
+    );
+    expect(invalid.status).toBe(400);
+    expect(checks).toBe(1);
 
     const unavailable = await handleRelayTokenRequest(
       request({ endpointId: ENDPOINT_ID }),

@@ -124,6 +124,7 @@ extension CmxIrohEndpointSupervisorError: DiagnosticFailureProviding {
     public var diagnosticFailureKind: DiagnosticFailureKind {
         switch self {
         case .inactive: .endpointUnavailable
+        case .relayReadinessTimedOut: .endpointUnavailable
         case .superseded: .superseded
         }
     }
@@ -201,4 +202,30 @@ extension CmxIrohKeychainCredentialStoreError: DiagnosticFailureProviding {
 
 extension CmxIrohKeychainIdentityStoreError: DiagnosticFailureProviding {
     public var diagnosticFailureKind: DiagnosticFailureKind { .credentialUnavailable }
+}
+
+extension CmxIrohClientOfflinePolicyCacheError: DiagnosticFailureProviding {
+    public var diagnosticFailureKind: DiagnosticFailureKind {
+        switch self {
+        case .invalidExpectation, .invalidPolicy, .policyMismatch:
+            .policyUnavailable
+        case .invalidGrantEnvelope:
+            .protocolViolation
+        }
+    }
+}
+
+extension CmxIrohHostPolicyCacheError: DiagnosticFailureProviding {
+    public var diagnosticFailureKind: DiagnosticFailureKind {
+        switch self {
+        case .invalidExpectation, .invalidPolicy, .policyMismatch:
+            .policyUnavailable
+        case .invalidAttestationEnvelope:
+            .protocolViolation
+        }
+    }
+}
+
+extension CmxIrohLocalBindingExpectationError: DiagnosticFailureProviding {
+    public var diagnosticFailureKind: DiagnosticFailureKind { .protocolViolation }
 }

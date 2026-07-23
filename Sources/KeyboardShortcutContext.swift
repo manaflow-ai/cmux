@@ -254,7 +254,7 @@ extension AppDelegate {
         }
 
         let responder = shortcutWindow.firstResponder
-        if cmuxOwningGhosttyView(for: responder) != nil {
+        if responder.cmuxStrictOwningGhosttyView() != nil {
             return nil
         }
 

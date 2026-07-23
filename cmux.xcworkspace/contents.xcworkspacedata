@@ -84,6 +84,9 @@
          location = "group:CmuxMobileTerminalKit">
       </FileRef>
       <FileRef
+         location = "group:CmuxMobileToast">
+      </FileRef>
+      <FileRef
          location = "group:CmuxMobileTransport">
       </FileRef>
       <FileRef

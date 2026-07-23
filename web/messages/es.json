@@ -1,4 +1,27 @@
 {
+  "cloudBillingReturn": {
+    "eyebrow": "cmux Cloud",
+    "returnTitle": "Continúa en la terminal",
+    "returnBody": "Vuelve a la terminal donde ejecutaste ssh cmux.cloud para continuar.",
+    "statuses": {
+      "checkoutSuccess": {
+        "title": "Pago completado",
+        "body": "Tu suscripción está confirmada. Los nuevos límites pueden tardar un momento en aparecer."
+      },
+      "checkoutCanceled": {
+        "title": "Pago cancelado",
+        "body": "El pago se cerró sin cambiar tu plan."
+      },
+      "portalReturn": {
+        "title": "De vuelta del portal de facturación",
+        "body": "Los cambios del portal de facturación pueden tardar un momento en aparecer."
+      },
+      "default": {
+        "title": "Facturación completada",
+        "body": "El proceso de facturación ha terminado."
+      }
+    }
+  },
   "meta": {
     "title": "cmux — La terminal diseñada para multitarea",
     "description": "Terminal nativa de macOS open source y gratuita basada en Ghostty. Funciona con Claude Code, Codex, OpenCode, Gemini CLI, Kiro, Aider y cualquier herramienta CLI. Pestañas verticales, anillos de notificación, paneles divididos y una socket API.",
@@ -745,6 +768,9 @@
     }
   },
   "docs": {
+    "remoteTmux": {
+      "moshContrast": "Para cambiar de red sin perder la sesión, usa cmux mosh-tmux. Abre un terminal Mosh plenamente integrado y conectado a una sesión tmux con nombre; no sustituye el espejo nativo de espacios, pestañas y divisiones que ofrece el modo de control tmux por SSH."
+    },
     "layoutTitle": "cmux docs",
     "gettingStarted": {
       "title": "Primeros pasos",
@@ -1494,10 +1520,16 @@
       "flagName": "Bandera",
       "flagDesc": "Descripción",
       "flagNameVal": "Establecer el título del espacio de trabajo",
+      "flagCommand": "Ejecutar el texto del comando una vez en el terminal remoto inicial después de iniciar el shell",
       "flagPort": "Puerto SSH (predeterminado 22)",
       "flagIdentity": "Ruta al archivo de identidad",
       "flagSshOption": "Pasar opciones SSH arbitrarias (por ejemplo, -o StrictHostKeyChecking=no)",
+      "flagTransport": "Transporte del terminal interactivo: ssh (predeterminado) o mosh",
       "flagNoFocus": "Cree el espacio de trabajo sin cambiar a él",
+      "moshTitle": "Transporte de terminal Mosh",
+      "moshDesc": "Usa cmux ssh user@remote --transport mosh cuando el terminal interactivo deba sobrevivir a cambios de Wi-Fi, VPN o punto de acceso, así como a la suspensión y reactivación. Mosh solo transporta el PTY del terminal; SSH sigue gestionando los metadatos remotos, la configuración y el control del servicio cmux, el proxy del navegador, las cargas y las reconexiones.",
+      "moshFallback": "cmux requiere Mosh 1.4 o posterior en el equipo local y comprueba el mosh-server remoto antes de iniciarse. Si el cliente falta o no es compatible, falta el servidor o falla la comprobación remota, cmux explica el motivo y continúa por SSH.",
+      "moshTmux": "Crea un espacio Mosh que crea o adjunta una sesión tmux con nombre (predeterminada: main). El perfil tmux persiste al reconectar y restaurar la sesión de la app. Es un terminal tmux itinerante, no el espejo nativo de cmux ssh-tmux. --session <name> elige la sesión; las demás opciones coinciden con cmux mosh. Sin Mosh, el mismo perfil funciona por SSH.",
       "deepLinksTitle": "Enlaces profundos SSH",
       "deepLinksDesc": "Utilice enlaces profundos SSH de cmux cuando un sitio web o herramienta quiera ofrecer un botón Abrir en cmux. El enlace abre cmux, muestra un mensaje de confirmación y luego ejecuta el comando cmux ssh equivalente después de que el usuario confirma.",
       "deepLinksWebFallbackDesc": "Utilice la URL alternativa de cmux.com para los botones del sitio web. Abre el enlace nativo y muestra la descarga si cmux no está instalado.",

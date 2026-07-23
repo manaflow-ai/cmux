@@ -375,10 +375,11 @@ assert probe_answers[10] > 0 and probe_answers[11] > 0, probe_answers
 
 ident = rpc({"id": 1, "cmd": "identify"})
 assert ident["ok"] and ident["data"]["app"] == "cmux-tui", ident
-assert ident["data"]["protocol"] == 7, ident
+assert ident["data"]["protocol"] == 9, ident
 print("identify ok:", ident["data"])
 
 ws0 = tree()[0]
+assert ws0["name"] == "0", ws0
 screen0 = active_screen(ws0)
 panes = screen0["panes"]
 assert len(panes) == 1, ws0
@@ -397,7 +398,7 @@ print("initial surface spawned at final size ok")
 # numbered tab and the + button in the top border.
 drain(0.5)
 text = output.decode("utf-8", "replace")
-assert " 1 " in text, text[-500:]
+assert " 0 " in text, text[-500:]
 assert " + " in text, text[-500:]
 print("always-on tab bar with numbered tab ok")
 
@@ -636,11 +637,13 @@ ws0 = tree()[0]
 assert len(ws0["screens"]) == 2, ws0
 assert ws0["screens"][1]["active"], ws0
 assert len(ws0["screens"][1]["panes"]) == 1, ws0
+status_line = render_text_snapshot(output).splitlines()[-1]
+assert " screens  0  1  + " in status_line, status_line
 print("prefix-c new screen ok")
 
-# The status bar shows both screens; click screen 1's entry to switch
+# The status bar shows both screens; click screen 0's entry to switch
 # back. Status bar row is the last row (30). The bar starts after the
-# sidebar (col 23 SGR) with " screens " (9 cols), so entry 1 starts at
+# sidebar (col 23 SGR) with " screens " (9 cols), so entry 0 starts at
 # col 32.
 os.write(fd, b"\x1b[<0;33;30M\x1b[<0;33;30m")
 drain(1.0)
@@ -682,6 +685,7 @@ drain(1.0)
 workspaces = tree()
 assert len(workspaces) == 2, workspaces
 assert workspaces[1]["active"], workspaces
+assert workspaces[1]["name"] == "1", workspaces
 print("prefix-W new workspace ok")
 
 # Drag the original workspace below the new one. Layout: row 0 header,

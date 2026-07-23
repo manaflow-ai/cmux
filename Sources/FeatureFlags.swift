@@ -16,7 +16,11 @@ struct CmuxFeatureFlagDefinition: Identifiable, Equatable {
 /// refreshed when the SDK reports a flag payload, so gated UI can be toggled
 /// from the PostHog dashboard without shipping a build.
 ///
-/// Fallback semantics (flags must never break the app):
+/// Resolution semantics (flags must never break the app):
+/// - A remote value is authoritative when present, so rollout and kill-switch
+///   changes cannot be masked by a stale local override.
+/// - Without a remote value, a local override applies, followed by the explicit
+///   per-flag default.
 /// - Until a payload arrives, the last remote value survives restarts. A flag
 ///   that has never loaded keeps its safe default.
 /// - Cached disables remain authoritative when a later refresh omits a flag,
@@ -49,7 +53,7 @@ final class CmuxFeatureFlags {
     private static let sidebarWorkspaceAgentSpinnerDefault = false
     private static let simulatorDefault = true
     private static let workspaceTodoControlsDefault = false
-    private static let appKitSidebarListDefault = false
+    private static let appKitSidebarListDefault = true
 
     private static let overrideKeyPrefix = "cmux.flags.override."
     private static let remoteCacheKeyPrefix = "cmux.flags.remote."
@@ -175,10 +179,10 @@ final class CmuxFeatureFlags {
             ),
 
             // FLAG(key: sidebar-appkit-list-experiment, owner: lawrencecchen,
-            //      reviewBy: 2026-10-01, defaultWhenUnavailable: false)
+            //      reviewBy: 2026-10-01, defaultWhenUnavailable: true)
             // Renders the workspace sidebar with the AppKit NSTableView list
             // (virtualized rows, measured-once heights) instead of the SwiftUI
-            // LazyVStack. Off by default while the rewrite soaks.
+            // LazyVStack. On by default after the remote rollout reached 100%.
             CmuxFeatureFlagDefinition(
                 key: "sidebar-appkit-list-experiment",
                 title: String(
@@ -239,7 +243,7 @@ final class CmuxFeatureFlags {
 
     private var localOverridesByKey: [String: Bool] = [:]
     private var remoteValuesByKey: [String: Bool] = [:]
-    private var effectiveValuesByKey: [String: Bool] = [:]
+    private var resolutionsByKey: [String: CmuxFeatureFlagResolution] = [:]
 
     init(
         defaults: UserDefaults = .standard,
@@ -291,7 +295,7 @@ final class CmuxFeatureFlags {
     }
 
     private func applyRemoteFlagValues(_ values: [String: Bool]) {
-        let previousEffectiveValues = effectiveValuesByKey
+        let previousResolutions = resolutionsByKey
         for definition in Self.allFlags {
             if let value = values[definition.key] {
                 remoteValuesByKey[definition.key] = value
@@ -302,7 +306,7 @@ final class CmuxFeatureFlags {
             }
         }
         recomputeEffectiveValues()
-        postChangeIfNeeded(previousEffectiveValues: previousEffectiveValues)
+        postChangeIfNeeded(previousResolutions: previousResolutions)
     }
 
     nonisolated static func postHogControlPlaneRequest() -> URLRequest? {
@@ -348,7 +352,15 @@ final class CmuxFeatureFlags {
     }
 
     func effectiveValue(for definition: CmuxFeatureFlagDefinition) -> Bool {
-        effectiveValuesByKey[definition.key] ?? definition.defaultWhenUnavailable
+        resolution(for: definition).effectiveValue
+    }
+
+    func resolution(for definition: CmuxFeatureFlagDefinition) -> CmuxFeatureFlagResolution {
+        resolutionsByKey[definition.key] ?? CmuxFeatureFlagResolution(
+            remoteValue: remoteValuesByKey[definition.key],
+            overrideValue: localOverridesByKey[definition.key],
+            defaultValue: definition.defaultWhenUnavailable
+        )
     }
 
     func overrideValue(for definition: CmuxFeatureFlagDefinition) -> Bool? {
@@ -360,7 +372,9 @@ final class CmuxFeatureFlags {
     }
 
     func setOverride(_ value: Bool?, for definition: CmuxFeatureFlagDefinition) {
-        let previousEffectiveValues = effectiveValuesByKey
+        guard value == nil || remoteValuesByKey[definition.key] == nil else { return }
+
+        let previousResolutions = resolutionsByKey
         if let value {
             localOverridesByKey[definition.key] = value
             defaults.set(value, forKey: Self.overrideDefaultsKey(for: definition.key))
@@ -369,11 +383,11 @@ final class CmuxFeatureFlags {
             defaults.removeObject(forKey: Self.overrideDefaultsKey(for: definition.key))
         }
         recomputeEffectiveValues()
-        postChangeIfNeeded(previousEffectiveValues: previousEffectiveValues)
+        postChangeIfNeeded(previousResolutions: previousResolutions)
     }
 
     func clearAllOverrides() {
-        let previousEffectiveValues = effectiveValuesByKey
+        let previousResolutions = resolutionsByKey
         var clearedAnyOverride = false
         for definition in Self.allFlags {
             if localOverridesByKey.removeValue(forKey: definition.key) != nil {
@@ -383,11 +397,11 @@ final class CmuxFeatureFlags {
         }
         guard clearedAnyOverride else { return }
         recomputeEffectiveValues()
-        postChangeIfNeeded(previousEffectiveValues: previousEffectiveValues)
+        postChangeIfNeeded(previousResolutions: previousResolutions)
     }
 
     func applyLoadedFlags() {
-        let previousEffectiveValues = effectiveValuesByKey
+        let previousResolutions = resolutionsByKey
         for definition in Self.allFlags {
             if let value = Self.coerceBoolFlagValue(remoteFlagValueProvider(definition.key)) {
                 remoteValuesByKey[definition.key] = value
@@ -398,21 +412,21 @@ final class CmuxFeatureFlags {
             }
         }
         recomputeEffectiveValues()
-        postChangeIfNeeded(previousEffectiveValues: previousEffectiveValues)
+        postChangeIfNeeded(previousResolutions: previousResolutions)
     }
 
     private func recomputeEffectiveValues() {
-        effectiveValuesByKey = Self.allFlags.reduce(into: [:]) { values, definition in
-            values[definition.key] = localOverridesByKey[definition.key]
-                ?? remoteValuesByKey[definition.key]
-                ?? definition.defaultWhenUnavailable
+        resolutionsByKey = Self.allFlags.reduce(into: [:]) { values, definition in
+            values[definition.key] = CmuxFeatureFlagResolution(
+                remoteValue: remoteValuesByKey[definition.key],
+                overrideValue: localOverridesByKey[definition.key],
+                defaultValue: definition.defaultWhenUnavailable
+            )
         }
     }
 
-    private func postChangeIfNeeded(previousEffectiveValues: [String: Bool]) {
-        if Self.allFlags.contains(where: { definition in
-            previousEffectiveValues[definition.key] != effectiveValuesByKey[definition.key]
-        }) {
+    private func postChangeIfNeeded(previousResolutions: [String: CmuxFeatureFlagResolution]) {
+        if previousResolutions != resolutionsByKey {
             NotificationCenter.default.post(name: .cmuxFeatureFlagsDidChange, object: self)
         }
     }

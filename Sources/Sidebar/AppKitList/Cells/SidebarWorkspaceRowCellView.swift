@@ -19,6 +19,10 @@ final class SidebarWorkspaceRowTableCellView: NSTableCellView {
     private let topDropIndicator = NSView()
     private let bottomDropIndicator = NSView()
     private let hintPill = SidebarShortcutHintPillView()
+    /// Hosts every content subview so the Done-status dim composites like the
+    /// legacy row's `.opacity(0.6)` on the content VStack — the selection
+    /// background, rail, drop indicators, and hint pill stay full-strength.
+    private let contentContainer = SidebarRowContentContainerView()
     // Title line
     private let leadingBadge = SidebarRowUnreadBadgeView()
     private var leadingSpinner: GPUSpinnerNSView?
@@ -26,6 +30,7 @@ final class SidebarWorkspaceRowTableCellView: NSTableCellView {
     private let mediaAudioView = NSImageView()
     private let mediaMicView = NSImageView()
     private let mediaCameraView = NSImageView()
+    private let statusGlyphButton = SidebarRowTaskStatusGlyphButton()
     private let titleView = SidebarRowTextView(lines: 1)
     private let renameField = SidebarRowInlineRenameField()
     private let trailingBadge = SidebarRowUnreadBadgeView()
@@ -34,6 +39,7 @@ final class SidebarWorkspaceRowTableCellView: NSTableCellView {
     // Detail slots
     private let descriptionView = SidebarRowTextView(lines: 12)
     private let subtitleView = SidebarRowTextView(lines: 2)
+    private let compactStatusLine = SidebarRowCompactStatusLine()
     private let remoteTargetView = SidebarRowTextView(lines: 1)
     private let remoteStatusView = SidebarRowTextView(lines: 1)
     private let remoteReconnectButton = NSButton()
@@ -48,6 +54,10 @@ final class SidebarWorkspaceRowTableCellView: NSTableCellView {
     private var pullRequestRows: [SidebarRowPullRequestLine] = []
     private var portButtons: [SidebarRowLinkButton] = []
     private let checklistSection = SidebarRowChecklistSection()
+    /// Presents the legacy SwiftUI `SidebarWorkspaceStatusPopover` from the
+    /// manual status glyph (min width 200, max height 400, below the glyph).
+    private let statusPopoverPresenter = SidebarRowSwiftUIPopoverPresenter()
+    private var lastStatusPopoverModel: SidebarWorkspaceStatusPopoverModel?
 
     private var model: SidebarWorkspaceRowModel?
     private var actions: SidebarAppKitRowActions?
@@ -124,10 +134,38 @@ final class SidebarWorkspaceRowTableCellView: NSTableCellView {
         needsLayout = true
     }
 
+    /// Modifier-click preview: a cmd/shift press JOINS the multi-selection,
+    /// so it paints the dim multi-select tint — painting the full active
+    /// treatment made every cmd-click flash bright blue and then settle
+    /// dim once the authoritative state landed.
+    func showOptimisticMultiSelection() {
+        guard let model, !model.isActive, !model.isMultiSelected else { return }
+        var optimistic = model
+        optimistic.isMultiSelected = true
+        applyModel(optimistic)
+        needsLayout = true
+    }
+
+    /// Restores the stored (authoritative) model's paint, undoing any
+    /// optimistic treatment. Used by the preview bailout when no
+    /// authoritative apply arrives to reconcile.
+    func restoreStoredModelPaint() {
+        guard let model else { return }
+        applyModel(model)
+        needsLayout = true
+    }
+
     /// True when a press at this view should not repaint selection (the
-    /// close button closes without selecting).
+    /// close button closes without selecting; the status glyph, compact
+    /// status menu, and checklist controls act without activating the row,
+    /// exactly like their legacy SwiftUI Buttons).
     func selectionPreviewShouldIgnore(_ hitView: NSView) -> Bool {
-        hitView === closeButton || hitView.isDescendant(of: closeButton)
+        for control in [closeButton, statusGlyphButton, compactStatusLine, checklistSection] {
+            if hitView === control || hitView.isDescendant(of: control) {
+                return true
+            }
+        }
+        return false
     }
 
     private func applyBackgroundStyle(_ style: SidebarWorkspaceRowBackgroundStyle) {
@@ -150,37 +188,46 @@ final class SidebarWorkspaceRowTableCellView: NSTableCellView {
         addSubview(backgroundView)
         railView.wantsLayer = true
         addSubview(railView)
+        addSubview(contentContainer)
 
         pinImageView.imageScaling = .scaleProportionallyDown
-        addSubview(pinImageView)
+        contentContainer.addSubview(pinImageView)
         for view in [mediaAudioView, mediaMicView, mediaCameraView] {
             view.imageScaling = .scaleProportionallyDown
-            addSubview(view)
+            contentContainer.addSubview(view)
         }
-        addSubview(leadingBadge)
-        addSubview(titleView)
+        statusGlyphButton.isHidden = true
+        statusGlyphButton.onClick = { [weak self] in self?.toggleStatusPopover() }
+        contentContainer.addSubview(statusGlyphButton)
+        contentContainer.addSubview(leadingBadge)
+        contentContainer.addSubview(titleView)
         renameField.isHidden = true
-        addSubview(renameField)
-        addSubview(trailingBadge)
+        contentContainer.addSubview(renameField)
+        contentContainer.addSubview(trailingBadge)
         closeButton.onClick = { [weak self] in self?.actions?.commands.closeWorkspace() }
-        addSubview(closeButton)
+        contentContainer.addSubview(closeButton)
 
-        addSubview(descriptionView)
-        addSubview(subtitleView)
-        addSubview(remoteTargetView)
-        addSubview(remoteStatusView)
+        contentContainer.addSubview(descriptionView)
+        contentContainer.addSubview(subtitleView)
+        compactStatusLine.isHidden = true
+        compactStatusLine.menuProvider = { [weak self] in self?.makeCompactStatusMenu() ?? NSMenu() }
+        contentContainer.addSubview(compactStatusLine)
+        contentContainer.addSubview(remoteTargetView)
+        contentContainer.addSubview(remoteStatusView)
         remoteReconnectButton.isBordered = false
         remoteReconnectButton.imagePosition = .imageLeading
         remoteReconnectButton.target = self
         remoteReconnectButton.action = #selector(didClickReconnect)
-        addSubview(remoteReconnectButton)
-        addSubview(metadataToggleButton)
-        addSubview(markdownToggleButton)
-        addSubview(logLine)
-        addSubview(progressView)
+        contentContainer.addSubview(remoteReconnectButton)
+        contentContainer.addSubview(metadataToggleButton)
+        contentContainer.addSubview(markdownToggleButton)
+        contentContainer.addSubview(logLine)
+        contentContainer.addSubview(progressView)
         branchIconView.imageScaling = .scaleProportionallyDown
-        addSubview(branchIconView)
-        addSubview(checklistSection)
+        contentContainer.addSubview(branchIconView)
+        contentContainer.addSubview(checklistSection)
+        statusPopoverPresenter.minWidth = 200
+        statusPopoverPresenter.maxHeight = 400
 
         topDropIndicator.wantsLayer = true
         bottomDropIndicator.wantsLayer = true
@@ -192,6 +239,23 @@ final class SidebarWorkspaceRowTableCellView: NSTableCellView {
 
     required init?(coder: NSCoder) {
         fatalError("init(coder:) has not been implemented")
+    }
+
+    override func prepareForReuse() {
+        super.prepareForReuse()
+        pumpCancellables.removeAll()
+        model = nil
+        hintPill.resetForReuse()
+    }
+
+    override func viewDidMoveToWindow() {
+        super.viewDidMoveToWindow()
+        // Detachment without a configure pass must not leave the status
+        // popover attached to an unmounted row (its presentation state is
+        // cell-local, so closing is the full teardown).
+        if window == nil, statusPopoverPresenter.isShown {
+            statusPopoverPresenter.close()
+        }
     }
 
     override func setFrameSize(_ newSize: NSSize) {
@@ -219,6 +283,10 @@ final class SidebarWorkspaceRowTableCellView: NSTableCellView {
         self.isPointerHovering = isPointerHovering
         if previous?.workspaceId != model.workspaceId {
             endInlineRename(commit: false)
+            if statusPopoverPresenter.isShown {
+                statusPopoverPresenter.close()
+            }
+            lastStatusPopoverModel = nil
         }
         guard previous != model || hoverChanged else { return }
         self.model = model
@@ -304,6 +372,26 @@ final class SidebarWorkspaceRowTableCellView: NSTableCellView {
             mediaCameraView.contentTintColor = .systemGreen
         }
 
+        // Manual task-status glyph (legacy `SidebarWorkspaceManualStatusIndicatorMenu`):
+        // only a human-set status draws row chrome; automatic status stays out.
+        let showsStatusGlyph = model.todoControlsEnabled
+            && snapshot.hasManualTaskStatus
+            && snapshot.taskStatus != nil
+        statusGlyphButton.isHidden = !showsStatusGlyph
+        if showsStatusGlyph, let taskStatus = snapshot.taskStatus {
+            statusGlyphButton.configure(
+                model: .init(
+                    status: taskStatus,
+                    hasOverride: true,
+                    usesMonochrome: model.isActive,
+                    fontScale: model.fontScale
+                ),
+                monochromeColor: palette.secondary(0.8),
+                neutralColor: palette.secondary(0.8)
+            )
+        }
+        reconcileStatusPopover(model: model, showsAnchor: showsStatusGlyph)
+
         let titleLineLimit = settings.wrapsWorkspaceTitles ? 8 : 1
         titleView.maximumNumberOfLines = titleLineLimit
         titleView.lineBreakMode = titleLineLimit == 1 ? .byTruncatingTail : .byWordWrapping
@@ -377,6 +465,18 @@ final class SidebarWorkspaceRowTableCellView: NSTableCellView {
             subtitleView.textColor = palette.secondary(0.8)
         }
 
+        // Compact status row (legacy `compactWorkspaceStatusMenu`): in
+        // hide-all-details mode, any visible status renders as a flag +
+        // "Status: X" line that opens the lanes menu.
+        let showsCompactStatus = model.todoControlsEnabled
+            && settings.hidesAllDetails
+            && snapshot.taskStatus != nil
+            && snapshot.todoStatusMenuModel != nil
+        compactStatusLine.isHidden = !showsCompactStatus
+        if showsCompactStatus, let taskStatus = snapshot.taskStatus {
+            compactStatusLine.configure(status: taskStatus, model: model, palette: palette)
+        }
+
         // Remote
         let showsRemote = !settings.hidesAllDetails && settings.showsSSH && snapshot.remoteWorkspaceSidebarText != nil
         remoteTargetView.isHidden = !showsRemote
@@ -414,14 +514,18 @@ final class SidebarWorkspaceRowTableCellView: NSTableCellView {
         // Hint pill + indicators + dim/drag
         hintPill.configure(
             text: model.shortcutHintText,
-            fontSize: model.scaled(10),
-            emphasis: model.isActive ? 1.0 : 0.9
+            fontSize: model.scaled(9),
+            emphasis: model.isActive ? 1.0 : 0.9,
+            representedIdentity: model.workspaceId
         )
         topDropIndicator.layer?.backgroundColor = cmuxAccentNSColor().cgColor
         bottomDropIndicator.layer?.backgroundColor = cmuxAccentNSColor().cgColor
         topDropIndicator.isHidden = !model.topDropIndicatorVisible
         bottomDropIndicator.isHidden = !model.bottomDropIndicatorVisible
         alphaValue = model.isBeingDragged ? 0.6 : 1
+        // Done rows read as settled (legacy parity): dim the row CONTENT to
+        // ~60% — never the selection background, rail, or drop chrome.
+        contentContainer.alphaValue = snapshot.taskStatus == .done ? 0.6 : 1
 
         setAccessibilityIdentifier("sidebarWorkspace.\(model.workspaceId.uuidString)")
         setAccessibilityLabel(String(
@@ -466,13 +570,13 @@ final class SidebarWorkspaceRowTableCellView: NSTableCellView {
             existing: leadingSpinner,
             visible: leadingSpinnerVisible,
             color: spinnerColor,
-            in: self
+            in: contentContainer
         )
         trailingSpinner = Self.updateSpinner(
             existing: trailingSpinner,
             visible: trailingSpinnerVisible && !showsCloseNow,
             color: spinnerColor,
-            in: self
+            in: contentContainer
         )
         let agentCount = model.snapshot.activeCodingAgentCount
         let tooltip = agentCount == 1
@@ -538,12 +642,29 @@ final class SidebarWorkspaceRowTableCellView: NSTableCellView {
         let allEntries = model.settings.visibleAuxiliaryDetails.showsMetadata
             ? model.snapshot.metadataEntries : []
         let visible = model.isMetadataExpanded ? allEntries : Array(allEntries.prefix(3))
-        Self.pool(&metadataRows, count: visible.count, parent: self) { SidebarRowIconTextLine() }
+        Self.pool(&metadataRows, count: visible.count, parent: contentContainer) { SidebarRowIconTextLine() }
         for (index, entry) in visible.enumerated() {
+            // Legacy parity: on the selected row an explicit entry color
+            // yields to the selected foreground — otherwise agent-status
+            // tints (blue "Running") vanish into the blue selection
+            // highlight. Explicit colors only apply on unselected rows.
+            let explicitColor = entry.color.flatMap { NSColor(hex: $0) }
+            let entryColor: NSColor
+            if model.isActive {
+                entryColor = explicitColor != nil
+                    ? palette.selectedForeground(1.0)
+                    : palette.secondary(0.95).withAlphaComponent(0.84)
+            } else {
+                entryColor = explicitColor ?? .secondaryLabelColor
+            }
             metadataRows[index].configureMetadataEntry(
-                entry, model: model,
-                color: entry.color.flatMap { NSColor(hex: $0) } ?? (model.isActive ? palette.secondary(0.95).withAlphaComponent(0.84) : .secondaryLabelColor)
-            )
+                entry,
+                model: model,
+                color: entryColor
+            ) { [weak self] url in
+                self?.actions?.commands.updateSelection()
+                self?.actions?.onOpenStatusURL(url)
+            }
         }
         let toggleFont = NSFont.systemFont(ofSize: model.scaled(10), weight: .semibold)
         let toggleColor = model.isActive
@@ -572,7 +693,7 @@ final class SidebarWorkspaceRowTableCellView: NSTableCellView {
                 onClick: { [weak self] in self?.actions?.onToggleMarkdownExpansion() }
             )
         }
-        Self.pool(&markdownBlocks, count: blocks.count, parent: self) { SidebarRowTextView(lines: 12) }
+        Self.pool(&markdownBlocks, count: blocks.count, parent: contentContainer) { SidebarRowTextView(lines: 12) }
         for (index, block) in blocks.enumerated() {
             let view = markdownBlocks[index]
             let display = block.markdown.sidebarBoundedDisplayString(maxDisplayedLines: 12, maxDisplayedCharacters: 4096)
@@ -618,15 +739,15 @@ final class SidebarWorkspaceRowTableCellView: NSTableCellView {
         let showsSection = settings.visibleAuxiliaryDetails.showsBranchDirectory
         var lines: [SidebarRowIconTextLine.BranchLineContent] = []
         if showsSection {
-            if settings.usesVerticalBranchLayout {
+            if settings.branchDirectory.branchLayout == .vertical {
                 for line in snapshot.branchDirectoryLines {
                     lines.append(.init(
                         branch: settings.showsGitBranch ? line.branch : nil,
                         directoryCandidates: line.directoryCandidates,
-                        stacked: settings.stacksBranchAndDirectory
+                        stacked: settings.branchDirectory.branchDirectoryPlacement == .stacked
                     ))
                 }
-            } else if settings.stacksBranchAndDirectory {
+            } else if settings.branchDirectory.branchDirectoryPlacement == .stacked {
                 if snapshot.compactGitBranchSummaryText != nil || !snapshot.compactDirectoryCandidates.isEmpty {
                     lines.append(.init(
                         branch: snapshot.compactGitBranchSummaryText,
@@ -643,7 +764,9 @@ final class SidebarWorkspaceRowTableCellView: NSTableCellView {
             }
         }
         let showsIcon = showsSection && settings.showsGitBranchIcon
-            && (settings.usesVerticalBranchLayout ? snapshot.branchLinesContainBranch : snapshot.compactGitBranchSummaryText != nil || !snapshot.compactBranchDirectoryCandidates.isEmpty)
+            && (settings.branchDirectory.branchLayout == .vertical
+                ? snapshot.branchLinesContainBranch
+                : snapshot.compactGitBranchSummaryText != nil || !snapshot.compactBranchDirectoryCandidates.isEmpty)
         branchIconView.isHidden = !(showsIcon && !lines.isEmpty)
         if !branchIconView.isHidden {
             branchIconView.image = RenderableSystemSymbol.configuredAppKitImage(
@@ -651,7 +774,7 @@ final class SidebarWorkspaceRowTableCellView: NSTableCellView {
             )
             branchIconView.contentTintColor = palette.secondary(0.6)
         }
-        Self.pool(&branchLines, count: lines.count, parent: self) { SidebarRowIconTextLine() }
+        Self.pool(&branchLines, count: lines.count, parent: contentContainer) { SidebarRowIconTextLine() }
         for (index, content) in lines.enumerated() {
             branchLines[index].configureBranchLine(content, model: model, palette: palette)
         }
@@ -661,7 +784,7 @@ final class SidebarWorkspaceRowTableCellView: NSTableCellView {
         let snapshot = model.snapshot
         let settings = model.settings
         let prs = settings.visibleAuxiliaryDetails.showsPullRequests ? snapshot.pullRequestRows : []
-        Self.pool(&pullRequestRows, count: prs.count, parent: self) { SidebarRowPullRequestLine() }
+        Self.pool(&pullRequestRows, count: prs.count, parent: contentContainer) { SidebarRowPullRequestLine() }
         for (index, pr) in prs.enumerated() {
             pullRequestRows[index].configure(
                 pr, model: model, palette: palette,
@@ -672,7 +795,7 @@ final class SidebarWorkspaceRowTableCellView: NSTableCellView {
             }
         }
         let ports = settings.visibleAuxiliaryDetails.showsPorts ? snapshot.listeningPorts : []
-        Self.pool(&portButtons, count: ports.count, parent: self) { SidebarRowLinkButton() }
+        Self.pool(&portButtons, count: ports.count, parent: contentContainer) { SidebarRowLinkButton() }
         for (index, port) in ports.enumerated() {
             portButtons[index].configure(
                 title: SidebarPortDisplayText.label(for: port),
@@ -707,6 +830,104 @@ final class SidebarWorkspaceRowTableCellView: NSTableCellView {
 
     @objc private func didClickReconnect() {
         actions?.commands.reconnectRemoteConnection()
+    }
+
+    // MARK: Status popover + compact status menu
+
+    private func statusPopoverModel() -> SidebarWorkspaceStatusPopoverModel? {
+        guard let menuModel = model?.snapshot.todoStatusMenuModel else { return nil }
+        return SidebarWorkspaceStatusPopoverModel(
+            inferred: menuModel.inferred,
+            activeOverride: menuModel.activeOverride
+        )
+    }
+
+    private func statusPopoverContent(_ popoverModel: SidebarWorkspaceStatusPopoverModel) -> AnyView {
+        AnyView(SidebarWorkspaceStatusPopover(
+            model: popoverModel,
+            onSelectLane: { [weak self] status in
+                self?.actions?.applyTodoStatus(status)
+            },
+            onSelectNone: { [weak self] in
+                self?.actions?.hideTodoStatus()
+            },
+            onClose: { [weak self] in
+                self?.statusPopoverPresenter.close()
+            }
+        ))
+    }
+
+    /// Glyph click toggles the status popover (min width 200, max height
+    /// 400). Presented to the RIGHT of the glyph: the glyph hugs the
+    /// sidebar's left edge, so a below-the-anchor popover puts its arrow
+    /// into the rounded corner and renders a deformed beak — `.maxX`
+    /// matches the checklist popover's clean left-edge arrow.
+    private func toggleStatusPopover() {
+        if statusPopoverPresenter.isShown {
+            statusPopoverPresenter.close()
+            return
+        }
+        guard let popoverModel = statusPopoverModel(), window != nil else { return }
+        lastStatusPopoverModel = popoverModel
+        statusPopoverPresenter.present(
+            statusPopoverContent(popoverModel),
+            relativeTo: statusGlyphButton.bounds,
+            of: statusGlyphButton,
+            preferredEdge: .maxX
+        )
+    }
+
+    /// Live refresh while shown: status mutations flow through the normal
+    /// configure pass; repaint the open popover instead of showing
+    /// creation-time lanes.
+    private func reconcileStatusPopover(model: SidebarWorkspaceRowModel, showsAnchor: Bool) {
+        guard statusPopoverPresenter.isShown else { return }
+        guard showsAnchor, let popoverModel = statusPopoverModel() else {
+            statusPopoverPresenter.close()
+            return
+        }
+        if lastStatusPopoverModel != popoverModel {
+            lastStatusPopoverModel = popoverModel
+            statusPopoverPresenter.update(statusPopoverContent(popoverModel))
+        }
+    }
+
+    /// The compact status line's lanes menu (legacy `compactWorkspaceStatusMenu`):
+    /// the Auto row, a divider, the five status lanes, a divider, then None —
+    /// selection checkmarks included, applying to this row's workspace only.
+    private func makeCompactStatusMenu() -> NSMenu? {
+        guard let menuModel = model?.snapshot.todoStatusMenuModel,
+              let actions else { return nil }
+        // Freeze the workspace-bound closures at menu-build time: menu
+        // tracking allows model updates, so a row recycled while its menu is
+        // open must not route the selection to the cell's NEW workspace.
+        let applyStatus = actions.applyTodoStatus
+        let hideStatus = actions.hideTodoStatus
+        let menu = NSMenu()
+        menu.autoenablesItems = false
+        let lanes = WorkspaceTodoStatusLane.lanes(
+            inferred: menuModel.inferred,
+            activeOverride: menuModel.activeOverride,
+            isHidden: false
+        )
+        for lane in lanes {
+            if lane.isNone {
+                menu.addItem(.separator())
+            }
+            let item = SidebarRowClosureMenuItem(title: lane.title) {
+                if lane.isNone {
+                    hideStatus()
+                } else {
+                    applyStatus(lane.status)
+                }
+            }
+            item.state = lane.isSelected ? .on : .off
+            menu.addItem(item)
+            if lane.status == nil, !lane.isNone {
+                menu.addItem(.separator())
+            }
+        }
+        return menu
     }
 
     func beginInlineRename() {
@@ -819,6 +1040,11 @@ final class SidebarWorkspaceRowTableCellView: NSTableCellView {
             place(view, size: NSSize(width: side, height: side), centerY: firstLineCenter)
             x += side + titleRowSpacing
         }
+        if !statusGlyphButton.isHidden {
+            let glyphSize = SidebarRowTaskStatusGlyphButton.occupiedSize(fontScale: model.fontScale)
+            place(statusGlyphButton, size: glyphSize, centerY: firstLineCenter)
+            x += glyphSize.width + titleRowSpacing
+        }
 
         // Trailing slot
         let closeHit = max(16, 16 * model.fontScale)
@@ -870,14 +1096,23 @@ final class SidebarWorkspaceRowTableCellView: NSTableCellView {
         placeBlock(descriptionView)
         placeBlock(subtitleView)
 
+        if !compactStatusLine.isHidden {
+            y += spacing
+            let height = compactStatusLine.measuredHeight(width: contentWidth)
+            if apply {
+                compactStatusLine.frame = NSRect(x: leading, y: y, width: contentWidth, height: height)
+            }
+            y += height
+        }
+
         if !remoteTargetView.isHidden {
             y += model.latestNotificationText == nil ? 1 : 2
             y += spacing
-            let statusSize = remoteStatusView.isHidden ? .zero : remoteStatusView.intrinsicContentSize
+            let statusSize = remoteStatusView.isHidden ? .zero : remoteStatusView.sidebarNaturalCellSize
             let reconnectSize = remoteReconnectButton.isHidden ? .zero : remoteReconnectButton.intrinsicContentSize
             let rightWidth = statusSize.width + (reconnectSize.width > 0 ? reconnectSize.width + 6 : 0)
             let targetWidth = max(10, contentWidth - rightWidth - 6)
-            let lineHeight = max(remoteTargetView.intrinsicContentSize.height, statusSize.height, reconnectSize.height)
+            let lineHeight = max(remoteTargetView.sidebarNaturalCellSize.height, statusSize.height, reconnectSize.height)
             if apply {
                 remoteTargetView.frame = NSRect(x: leading, y: y, width: targetWidth, height: lineHeight)
                 var rightX = trailing - statusSize.width
@@ -993,17 +1228,34 @@ final class SidebarWorkspaceRowTableCellView: NSTableCellView {
         }
 
         if !checklistSection.isHidden {
-            y += spacing
             let height = checklistSection.measuredHeight(width: contentWidth)
-            if apply { checklistSection.frame = NSRect(x: leading, y: y, width: contentWidth, height: height) }
-            y += height
+            if height > 0 {
+                y += spacing
+                if apply { checklistSection.frame = NSRect(x: leading, y: y, width: contentWidth, height: height) }
+                y += height
+            } else if apply {
+                // Anchor-only mount (zero-item popover style): the section
+                // stays mounted so the open checklist popover keeps its
+                // anchor, but it must not reserve any row height — opening
+                // the first-item popover previously nudged the row taller.
+                // 1pt tall (overlapping the row's bottom padding, drawing
+                // nothing): a zero-height view has an empty visibleRect,
+                // which NSPopover can refuse to anchor to.
+                checklistSection.frame = NSRect(x: leading, y: y, width: contentWidth, height: 1)
+            }
         }
 
         y += 8
 
         if apply {
-            let bgX = outerPad
-            backgroundView.frame = NSRect(x: bgX, y: 0, width: width - outerPad * 2, height: y)
+            contentContainer.frame = NSRect(x: 0, y: 0, width: width, height: y)
+            // Legacy parity: the SwiftUI row applies the group-member indent
+            // OUTSIDE the row (padding before TabItemView), so the selection
+            // and hover background shift right with the content. Indenting
+            // only the content left the full-width highlight hiding the
+            // nesting ("can't tell when a workspace is in a group").
+            let bgX = outerPad + (model.isGrouped ? SidebarWorkspaceGroupingMetrics.memberIndent : 0)
+            backgroundView.frame = NSRect(x: bgX, y: 0, width: max(0, width - outerPad - bgX), height: y)
             railView.frame = NSRect(x: bgX + 4 - 1, y: 5, width: 3, height: max(0, y - 10))
             railView.layer?.cornerRadius = 1.5
             let indicatorLeading: CGFloat = 8 + (model.isGrouped ? 0 : 0)

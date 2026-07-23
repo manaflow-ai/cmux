@@ -17,6 +17,13 @@ struct CmxIrohServerSessionTests {
             buffer: terminalHeader + Data("terminal-payload".utf8)
         )
         let terminalSend = TestIrohSendStream()
+        let artifactID = try CmxIrohResourceID("artifact:admitted-preview")
+        let artifactHeader = try fixture.headerCodec.encode(
+            CmxIrohStreamHeader(lane: .artifact(resourceID: artifactID, offset: 4))
+        )
+        let artifactReceive = TestIrohReceiveStream(
+            buffer: artifactHeader + Data("artifact-payload".utf8)
+        )
         let connection = TestIrohConnection(
             remoteIdentity: fixture.peerID,
             bidirectionalStreams: [
@@ -24,6 +31,10 @@ struct CmxIrohServerSessionTests {
                 CmxIrohBidirectionalStream(
                     receiveStream: terminalReceive,
                     sendStream: terminalSend
+                ),
+                CmxIrohBidirectionalStream(
+                    receiveStream: artifactReceive,
+                    sendStream: TestIrohSendStream()
                 ),
             ],
             eventRecorder: events
@@ -54,12 +65,23 @@ struct CmxIrohServerSessionTests {
             try await inbound.stream.receiveStream.receive(maximumByteCount: 64)
                 == Data("terminal-payload".utf8)
         )
+        let artifact = try await session.acceptBidirectionalLane()
+        #expect(artifact.lane == .artifact(resourceID: artifactID, offset: 4))
+        #expect(
+            try await artifact.stream.receiveStream.receive(maximumByteCount: 64)
+                == Data("artifact-payload".utf8)
+        )
         let acknowledgements = await fixture.controlSend.observedSentBuffers()
         let acceptedPending = try #require(acknowledgements.first)
         let serverReady = try #require(acknowledgements.dropFirst().first)
         #expect(acknowledgements.count == 2)
         #expect(try CmxIrohAdmissionAckCodec().decodePrefix(acceptedPending) == .accepted)
         #expect(serverReady == admissionFrame(status: 3))
+        try await session.sendControl(Data("control-after-artifact".utf8))
+        #expect(
+            await fixture.controlSend.observedSentBuffers().last
+                == Data("control-after-artifact".utf8)
+        )
         #expect(await connection.observedCloseCallCount() == 0)
     }
 

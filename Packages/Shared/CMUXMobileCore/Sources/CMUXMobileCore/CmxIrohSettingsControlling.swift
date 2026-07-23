@@ -24,6 +24,12 @@ public protocol CmxIrohSettingsControlling: AnyObject {
     /// Probes one custom relay without changing the active preference.
     func testIrohCustomRelay(id: String) async -> CmxIrohRelayTestResult
 
+    /// Persists one device-local custom private-path configuration.
+    func upsertIrohCustomPrivatePath(_ path: CmxIrohCustomPrivatePathDraft) async throws
+
+    /// Removes this device's custom private paths for one Mac.
+    func removeIrohCustomPrivatePath(macDeviceID: String) async throws
+
     /// Fetches the latest signed fleet and account preference.
     func refreshIrohSettings() async
 
@@ -35,11 +41,27 @@ public protocol CmxIrohSettingsControlling: AnyObject {
 
     /// Erases the in-memory connection timeline and rotates its report session.
     func clearIrohDiagnosticReport() async
+
+    /// The archived report from the previous process launch, if one exists.
+    /// Exports include it so a drop that preceded a relaunch stays diagnosable.
+    func irohPreviousLaunchDiagnosticReport() async -> DiagnosticReport?
 }
 
 public extension CmxIrohSettingsControlling {
+    func upsertIrohCustomPrivatePath(_ path: CmxIrohCustomPrivatePathDraft) async throws {
+        throw CmxIrohSettingsControlError.unsupported
+    }
+
+    func removeIrohCustomPrivatePath(macDeviceID: String) async throws {
+        throw CmxIrohSettingsControlError.unsupported
+    }
+
     func irohDiagnosticReport() async -> DiagnosticReport {
         .empty
+    }
+
+    func irohPreviousLaunchDiagnosticReport() async -> DiagnosticReport? {
+        nil
     }
 
     func exportIrohDiagnosticReport() async -> Data {
@@ -47,4 +69,8 @@ public extension CmxIrohSettingsControlling {
     }
 
     func clearIrohDiagnosticReport() async {}
+}
+
+public enum CmxIrohSettingsControlError: Error, Equatable, Sendable {
+    case unsupported
 }
