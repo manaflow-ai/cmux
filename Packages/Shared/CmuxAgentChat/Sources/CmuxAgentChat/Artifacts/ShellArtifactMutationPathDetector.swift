@@ -5,6 +5,7 @@ struct ShellArtifactMutationPathDetector: Sendable {
     private enum Token: Equatable {
         case word(String)
         case outputRedirect
+        case appendRedirect
         case readWriteRedirect
         case boundary
     }
@@ -41,7 +42,7 @@ struct ShellArtifactMutationPathDetector: Sendable {
             switch tokens[index] {
             case .outputRedirect:
                 append(nextWord(after: index, in: tokens))
-            case .word, .readWriteRedirect, .boundary:
+            case .word, .appendRedirect, .readWriteRedirect, .boundary:
                 break
             }
         }
@@ -148,14 +149,24 @@ struct ShellArtifactMutationPathDetector: Sendable {
             }
             if character == ">" {
                 flushWord()
-                tokens.append(.outputRedirect)
-                index += characters[safe: index + 1] == ">" ? 2 : 1
+                if characters[safe: index + 1] == ">" {
+                    tokens.append(.appendRedirect)
+                    index += 2
+                } else {
+                    tokens.append(.outputRedirect)
+                    index += 1
+                }
                 continue
             }
             if character == "&", characters[safe: index + 1] == ">" {
                 flushWord()
-                tokens.append(.outputRedirect)
-                index += 2
+                if characters[safe: index + 2] == ">" {
+                    tokens.append(.appendRedirect)
+                    index += 3
+                } else {
+                    tokens.append(.outputRedirect)
+                    index += 2
+                }
                 continue
             }
             if character == ";" || character == "|" || character == "&" {
@@ -178,7 +189,7 @@ struct ShellArtifactMutationPathDetector: Sendable {
             switch token {
             case .word(let word): return word
             case .outputRedirect: continue
-            case .readWriteRedirect: return nil
+            case .appendRedirect, .readWriteRedirect: return nil
             case .boundary: return nil
             }
         }

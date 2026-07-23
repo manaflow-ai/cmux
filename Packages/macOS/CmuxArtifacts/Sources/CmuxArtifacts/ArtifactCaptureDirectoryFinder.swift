@@ -42,10 +42,20 @@ struct ArtifactCaptureDirectoryFinder {
         guard let workspaceID = normalized(context.workspaceID) else {
             return ArtifactCaptureDirectoryResolution(directory: fallback)
         }
-        let matches = try markerCatalog.workspaceDirectories(
+        let workspaceDirectoryPaths = Set(
+            try markerCatalog.workspaceDirectories(
+                paths: paths,
+                pathResolver: pathResolver
+            ).filter { $0.marker.workspaceID == workspaceID }
+                .map { $0.directory.standardizedFileURL.path }
+        )
+        let matches = try markerCatalog.sessionDirectories(
             paths: paths,
             pathResolver: pathResolver
-        ).filter { $0.marker.workspaceID == workspaceID }.map(\.directory)
+        ).filter {
+            $0.marker.identity == sessionIdentity
+                && workspaceDirectoryPaths.contains($0.directory.standardizedFileURL.path)
+        }.map(\.directory)
         guard let sessionRoot = try uniqueDirectory(matches, paths: paths) else {
             return ArtifactCaptureDirectoryResolution(directory: fallback)
         }
