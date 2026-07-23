@@ -48,4 +48,16 @@ struct ArtifactHTMLPreviewSecurityTests {
         #expect(configuration.userContentController.userScripts.isEmpty)
         #expect(!configuration.preferences.javaScriptCanOpenWindowsAutomatically)
     }
+
+    @Test("Artifact previews permit only their wrapper and inert srcdoc frame")
+    func blocksFollowUpNavigationAndPopups() throws {
+        let documentURL = try #require(URL(string: "data:text/html;base64,PGh0bWw+"))
+        let policy = ArtifactHTMLPreviewNavigationPolicy(documentURL: documentURL)
+
+        #expect(policy.allowsNavigation(to: documentURL, targetIsMainFrame: true))
+        #expect(policy.allowsNavigation(to: URL(string: "about:srcdoc"), targetIsMainFrame: false))
+        #expect(!policy.allowsNavigation(to: URL(string: "https://example.com"), targetIsMainFrame: true))
+        #expect(!policy.allowsNavigation(to: URL(fileURLWithPath: "/private/sibling.txt"), targetIsMainFrame: false))
+        #expect(!policy.allowsNavigation(to: documentURL, targetIsMainFrame: nil))
+    }
 }
