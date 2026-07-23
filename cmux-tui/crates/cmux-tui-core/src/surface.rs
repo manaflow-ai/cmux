@@ -1707,6 +1707,20 @@ mod tests {
         }
     }
 
+    #[derive(Clone, Default)]
+    struct FlushFailingWriter(Arc<Mutex<Vec<u8>>>);
+
+    impl Write for FlushFailingWriter {
+        fn write(&mut self, bytes: &[u8]) -> std::io::Result<usize> {
+            self.0.lock().unwrap().extend_from_slice(bytes);
+            Ok(bytes.len())
+        }
+
+        fn flush(&mut self) -> std::io::Result<()> {
+            Err(std::io::Error::new(std::io::ErrorKind::BrokenPipe, "flush outcome is ambiguous"))
+        }
+    }
+
     struct PromptOutputDuringFlush {
         written: Arc<Mutex<Vec<u8>>>,
         surface: Weak<Surface>,
@@ -2140,6 +2154,33 @@ mod tests {
             assert!(term.viewport_text().unwrap().trim().is_empty());
         });
         assert_eq!(&*written.lock().unwrap(), b"\r\x0c");
+    }
+
+    #[test]
+    fn clear_history_keeps_the_prompt_guard_closed_after_an_ambiguous_flush_failure() {
+        let mux = Mux::new_for_test("clear-ambiguous-enter", SurfaceOptions::default());
+        let surface =
+            Surface::spawn_for_test(1, SurfaceOptions::default(), Arc::downgrade(&mux)).unwrap();
+        let writer = FlushFailingWriter::default();
+        *surface.as_pty().unwrap().writer.lock().unwrap() = Box::new(writer.clone());
+        let before = surface
+            .with_terminal(|term| {
+                for line in 0..40 {
+                    term.vt_write(format!("history-{line}\r\n").as_bytes());
+                }
+                term.vt_write(b"\x1b]133;A\x07prompt> \x1b]133;B\x07sleep 1");
+                term.viewport_text().unwrap()
+            })
+            .unwrap();
+
+        assert!(surface.write_bytes(b"\r").is_err());
+        surface.clear_history().unwrap();
+
+        surface.with_terminal(|term| {
+            assert_eq!(term.history_rows(), 0);
+            assert_eq!(term.viewport_text().unwrap(), before);
+        });
+        assert_eq!(&*writer.0.lock().unwrap(), b"\r");
     }
 
     #[test]

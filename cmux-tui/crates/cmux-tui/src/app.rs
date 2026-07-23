@@ -10558,7 +10558,7 @@ mod tests {
 
     use cmux_tui_core::{
         BrowserStatus, Direction, Mux, MuxEvent, Node, Rect, SplitDir, SurfaceId, SurfaceKind,
-        SurfaceOptions, layout_screen,
+        SurfaceOptions, layout_screen, server,
     };
     use crossterm::event::{
         EnhancedKeyEvent, Event, KeyCode, KeyEvent, KeyModifiers, MouseButton, MouseEvent,
@@ -10588,7 +10588,8 @@ mod tests {
     };
     use crate::session::tree::{PaneView, ScreenView, TabNotificationView, TabView, WorkspaceView};
     use crate::session::{
-        ClientInfo, ClientSizeInfo, Session, SidebarPluginSurface, SurfaceHandle, TreeView,
+        ClientInfo, ClientSizeInfo, RemoteSession, Session, SidebarPluginSurface, SurfaceHandle,
+        TreeView,
     };
     use crate::sidebar_files::FileBrowser;
 
@@ -11183,6 +11184,90 @@ mod tests {
         }
 
         mux.close_surface(surface.id);
+    }
+
+    #[test]
+    fn remote_command_k_uses_the_authoritative_screen_when_the_mirror_is_stale() {
+        let mux = Mux::new(
+            "remote-command-k-authority-test",
+            SurfaceOptions {
+                command: Some(vec![
+                    "/bin/sh".to_string(),
+                    "-c".to_string(),
+                    "stty raw -echo; printf '\\033[>1uready'; exec cat".to_string(),
+                ]),
+                cols: 20,
+                rows: 8,
+                ..Default::default()
+            },
+        );
+        let surface = mux.new_workspace(Some("work".to_string()), Some((20, 8))).unwrap();
+        let attach = surface.attach_stream().unwrap();
+        let deadline = Instant::now() + Duration::from_secs(1);
+        let mut output = attach.replay.clone();
+        while !output.windows(5).any(|window| window == b"ready") {
+            match attach.stream.recv_timeout(Duration::from_millis(20)) {
+                Ok(cmux_tui_core::AttachFrame::Output(bytes)) => output.extend_from_slice(&bytes),
+                Ok(cmux_tui_core::AttachFrame::Resized { .. })
+                | Ok(cmux_tui_core::AttachFrame::ColorsChanged(_)) => {}
+                Err(_) if Instant::now() < deadline => {}
+                Err(error) => {
+                    panic!("remote alternate-screen helper did not become ready: {error}")
+                }
+            }
+        }
+
+        let dir = PathBuf::from(format!(
+            "/tmp/cmux-k-auth-{}-{:?}",
+            std::process::id(),
+            std::thread::current().id()
+        ));
+        let _ = std::fs::remove_dir_all(&dir);
+        std::fs::create_dir_all(&dir).unwrap();
+        let socket = dir.join("mux.sock");
+        server::serve(mux.clone(), Some(socket.clone())).unwrap();
+        let remote = RemoteSession::connect(&socket).unwrap();
+        let session = Session::Remote(remote);
+        let tree = session.refresh_tree().unwrap();
+        let mirror = session.try_surface_sized(surface.id, Some((20, 8))).unwrap().unwrap();
+        assert_eq!(
+            mirror.with_terminal(|terminal| terminal.active_screen()),
+            Some(ghostty_vt::Screen::Primary)
+        );
+
+        // This bypasses the attach stream to model a remote mirror that has
+        // not received the server's authoritative screen transition yet.
+        surface.with_terminal(|terminal| terminal.vt_write(b"\x1b[?1049h"));
+        assert_eq!(
+            surface.with_terminal(|terminal| terminal.active_screen()),
+            Some(ghostty_vt::Screen::Alternate)
+        );
+
+        let (mut app, _events) = test_app_with_events(session);
+        app.sidebar_visible = false;
+        app.replace_tree(tree);
+        let action =
+            app.handle_key(KeyEvent::new(KeyCode::Char('k'), KeyModifiers::SUPER)).unwrap();
+        assert_eq!(action, RenderAction::None);
+        assert!(app.pty_input.shutdown(Duration::from_secs(1)));
+
+        let expected = b"\x1b[107;9u";
+        let deadline = Instant::now() + Duration::from_secs(1);
+        output.clear();
+        while !output.windows(expected.len()).any(|window| window == expected) {
+            match attach.stream.recv_timeout(Duration::from_millis(20)) {
+                Ok(cmux_tui_core::AttachFrame::Output(bytes)) => output.extend_from_slice(&bytes),
+                Ok(cmux_tui_core::AttachFrame::Resized { .. })
+                | Ok(cmux_tui_core::AttachFrame::ColorsChanged(_)) => {}
+                Err(_) if Instant::now() < deadline => {}
+                Err(error) => {
+                    panic!("authoritative alternate-screen app did not receive Command-K: {error}")
+                }
+            }
+        }
+
+        mux.close_surface(surface.id);
+        let _ = std::fs::remove_dir_all(dir);
     }
 
     #[test]

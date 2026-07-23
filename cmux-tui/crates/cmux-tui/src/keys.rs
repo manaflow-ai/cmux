@@ -455,6 +455,55 @@ mod tests {
     }
 
     #[test]
+    fn enhanced_keypad_identity_and_lock_state_reach_the_ghostty_encoder() {
+        let state = crossterm::event::KeyEventState::KEYPAD
+            | crossterm::event::KeyEventState::CAPS_LOCK
+            | crossterm::event::KeyEventState::NUM_LOCK;
+        let event = EnhancedKeyEvent {
+            key_event: KeyEvent::new_with_kind_and_state(
+                KeyCode::Char('1'),
+                KeyModifiers::NONE,
+                KeyEventKind::Press,
+                state,
+            ),
+            shifted_key: None,
+            base_layout_key: None,
+            text: String::new(),
+        };
+
+        let input = key_input_from_enhanced(&event).unwrap();
+
+        assert_eq!(input.key, sys::GHOSTTY_KEY_NUMPAD_1);
+        assert_ne!(input.mods.0 & sys::GHOSTTY_MODS_CAPS_LOCK as u16, 0);
+        assert_ne!(input.mods.0 & sys::GHOSTTY_MODS_NUM_LOCK as u16, 0);
+    }
+
+    #[test]
+    fn enhanced_keypad_navigation_keeps_its_physical_identity() {
+        let state = crossterm::event::KeyEventState::KEYPAD;
+        for (code, expected) in [
+            (KeyCode::Enter, sys::GHOSTTY_KEY_NUMPAD_ENTER),
+            (KeyCode::Up, sys::GHOSTTY_KEY_NUMPAD_UP),
+            (KeyCode::PageDown, sys::GHOSTTY_KEY_NUMPAD_PAGE_DOWN),
+            (KeyCode::KeypadBegin, sys::GHOSTTY_KEY_NUMPAD_BEGIN),
+        ] {
+            let event = EnhancedKeyEvent {
+                key_event: KeyEvent::new_with_kind_and_state(
+                    code,
+                    KeyModifiers::NONE,
+                    KeyEventKind::Press,
+                    state,
+                ),
+                shifted_key: None,
+                base_layout_key: None,
+                text: String::new(),
+            };
+
+            assert_eq!(key_input_from_enhanced(&event).unwrap().key, expected);
+        }
+    }
+
+    #[test]
     fn shifted_option_generated_text_is_forwarded_as_text() {
         let event = EnhancedKeyEvent {
             key_event: KeyEvent::new(KeyCode::Char('2'), KeyModifiers::ALT | KeyModifiers::SHIFT),

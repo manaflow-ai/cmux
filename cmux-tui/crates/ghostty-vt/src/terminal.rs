@@ -1929,6 +1929,23 @@ mod tests {
     }
 
     #[test]
+    fn prompt_semantic_tracking_rejects_suffixes_without_an_option_separator() {
+        let mut tracker = PromptSemanticTracker::default();
+        tracker.feed(b"\x1b]133;C\x07");
+        let revision = tracker.revision();
+        assert_eq!(tracker.semantic(Screen::Primary), PromptSemantic::Output);
+
+        tracker.feed(b"\x1b]133;Agarbage\x1b\\");
+
+        assert_eq!(tracker.semantic(Screen::Primary), PromptSemantic::Output);
+        assert_eq!(tracker.revision(), revision);
+
+        tracker.feed(b"\x1b]133;A;redraw=1\x1b\\");
+        assert_eq!(tracker.semantic(Screen::Primary), PromptSemantic::Prompt);
+        assert_eq!(tracker.revision(), revision.wrapping_add(1));
+    }
+
+    #[test]
     fn live_output_phase_overrides_persisted_prompt_rows() {
         let mut terminal = Terminal::new(20, 4, 0, Callbacks::default()).unwrap();
         terminal.vt_write(b"\x1b]133;A\x07$ \x1b]133;B\x07command");
