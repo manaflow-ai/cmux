@@ -263,6 +263,51 @@ struct PiFeedOwnershipTests {
         }
         #expect(store.items.isEmpty)
     }
+
+    @MainActor
+    @Test
+    func positiveWaitWithoutEventRequestIdCannotAcknowledgeUnavailableSurface() async throws {
+        let previousAppDelegate = AppDelegate.shared
+        let appDelegate = AppDelegate()
+        AppDelegate.shared = appDelegate
+        let tabManager = TabManager(autoWelcomeIfNeeded: false)
+        appDelegate.tabManager = tabManager
+        defer {
+            appDelegate.tabManager = nil
+            AppDelegate.shared = previousAppDelegate
+        }
+
+        let store = WorkstreamStore(ringCapacity: 10)
+        FeedCoordinator.shared.install(store: store)
+        let request: [String: Any] = [
+            "id": "outer-feed-request",
+            "method": "feed.push",
+            "params": [
+                "wait_timeout_seconds": 0.01,
+                "event": [
+                    "session_id": "missing-inner-request-id",
+                    "hook_event_name": "PermissionRequest",
+                    "_source": "pi",
+                    "workspace_id": UUID().uuidString,
+                    "surface_id": UUID().uuidString,
+                    "tool_name": "Bash",
+                ],
+            ],
+        ]
+        let requestData = try JSONSerialization.data(withJSONObject: request)
+        let requestLine = try #require(String(data: requestData, encoding: .utf8))
+        let responseLine = await Task.detached {
+            TerminalController.shared.handleSocketLine(requestLine)
+        }.value
+        let responseData = try #require(responseLine.data(using: .utf8))
+        let response = try #require(
+            JSONSerialization.jsonObject(with: responseData) as? [String: Any]
+        )
+        let error = try #require(response["error"] as? [String: Any])
+
+        #expect(error["code"] as? String == "not_found")
+        #expect(store.items.isEmpty)
+    }
 }
 
 private final class PiFeedEventRecorder: @unchecked Sendable {
