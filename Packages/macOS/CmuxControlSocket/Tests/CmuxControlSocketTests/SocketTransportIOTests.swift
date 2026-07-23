@@ -87,6 +87,34 @@ private final class ResultBox: @unchecked Sendable {
         #expect(handled.wait(timeout: .now() + 1.0) == .success)
     }
 
+    @Test func probeCommandReturnsTheServerProcessIdentityWithItsResponse() throws {
+        let path = UnixSocketFixture.makeTempSocketPath()
+        let listenerFD = try UnixSocketFixture.bindListeningSocket(at: path)
+        defer {
+            Darwin.close(listenerFD)
+            unlink(path)
+        }
+
+        let handled = UnixSocketFixture.acceptSingleClient(on: listenerFD) { clientFD in
+            var buffer = [UInt8](repeating: 0, count: 256)
+            _ = read(clientFD, &buffer, buffer.count)
+            let response = "PONG\n"
+            _ = response.withCString { ptr in
+                write(clientFD, ptr, strlen(ptr))
+            }
+        }
+
+        let result = transport.probeCommandWithPeerProcessID(
+            "ping",
+            at: path,
+            timeout: 0.5
+        )
+
+        #expect(result?.response == "PONG")
+        #expect(result?.peerProcessID == getpid())
+        #expect(handled.wait(timeout: .now() + 1.0) == .success)
+    }
+
     @Test func probeCommandTimesOutWithoutPollingUntilServerResponds() throws {
         let path = UnixSocketFixture.makeTempSocketPath()
         let listenerFD = try UnixSocketFixture.bindListeningSocket(at: path)
