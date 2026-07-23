@@ -137,7 +137,7 @@ extension ContentView {
                     beep: beep
                 )
             }
-            return .presented
+            return .queued
         }
         registry.register(commandId: Self.commandPaletteAuthSignOutCommandId) { invocation in
 #if DEBUG

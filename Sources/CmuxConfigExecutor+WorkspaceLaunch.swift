@@ -161,8 +161,10 @@ extension CmuxConfigExecutor {
                         }
                         return
                     }
-                    let currentWorkspaceToClose = tabManager.tabs.first {
-                        $0.customTitle == workspaceName
+                    guard let currentWorkspaceToClose = tabManager.tabs.first(where: {
+                        $0.id == existingWorkspaceID
+                    }) else {
+                        return
                     }
                     createWorkspace(
                         definition: wsDef,

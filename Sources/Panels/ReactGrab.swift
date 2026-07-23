@@ -377,7 +377,17 @@ extension BrowserPanel {
         #if DEBUG
         cmuxDebugLog("reactGrab.inject.start generation=\(requestGeneration)")
         #endif
-        guard let scriptSource = await ReactGrabScriptLoader.fetch() else {
+        let scriptSource: String?
+#if DEBUG
+        if let reactGrabTestingScriptSourceOverride {
+            scriptSource = reactGrabTestingScriptSourceOverride
+        } else {
+            scriptSource = await ReactGrabScriptLoader.fetch()
+        }
+#else
+        scriptSource = await ReactGrabScriptLoader.fetch()
+#endif
+        guard let scriptSource else {
             #if DEBUG
             cmuxDebugLog("reactGrab.inject.fetchFailed")
             #endif
@@ -444,7 +454,7 @@ extension BrowserPanel {
                 return true;
             };
             var applyDesiredState = function() {
-                if (!apiReference) return true;
+                if (!apiReference) return desiredActive === false;
                 pendingStateTransitions.push({
                     active: desiredActive,
                     requestGeneration: desiredRequestGeneration

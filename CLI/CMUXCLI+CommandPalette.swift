@@ -9,6 +9,10 @@ extension CMUXCLI {
         windowOverride: String?
     ) throws {
         let (parseable, protected) = splitAtArgumentTerminator(commandArgs)
+        try rejectMissingOptionValues(
+            in: parseable,
+            names: ["--target", "--window", "--arg"]
+        )
         let (targetOption, afterTarget) = parseOption(parseable, name: "--target")
         let (windowOption, afterWindow) = parseOption(afterTarget, name: "--window")
         let (argumentOptions, positional) = parseRepeatedOption(afterWindow, name: "--arg")
@@ -109,6 +113,10 @@ extension CMUXCLI {
         windowOverride: String?
     ) throws {
         let (parseable, protected) = splitAtArgumentTerminator(commandArgs)
+        try rejectMissingOptionValues(
+            in: parseable,
+            names: ["--workspace", "--window"]
+        )
         let (workspaceOption, afterWorkspace) = parseOption(parseable, name: "--workspace")
         let (windowOption, afterWindow) = parseOption(afterWorkspace, name: "--window")
         let pathTokens: [String]
@@ -124,10 +132,9 @@ extension CMUXCLI {
             ))
         }
 
-        let absolutePath = URL(
-            fileURLWithPath: resolvePath(pathTokens.first ?? "."),
-            isDirectory: true
-        ).standardizedFileURL.path
+        let absolutePath = lexicallyStandardizedAbsolutePath(
+            resolvePath(pathTokens.first ?? ".")
+        )
         let windowRaw = windowOption ?? windowOverride
         try rejectBlankExplicitOption(windowRaw, name: "--window")
         try rejectBlankExplicitOption(workspaceOption, name: "--workspace")
@@ -247,6 +254,22 @@ extension CMUXCLI {
         return (Array(arguments[..<index]), Array(arguments[arguments.index(after: index)...]))
     }
 
+    private func rejectMissingOptionValues(in arguments: [String], names: Set<String>) throws {
+        for (index, argument) in arguments.enumerated() where names.contains(argument) {
+            let valueIndex = arguments.index(after: index)
+            guard valueIndex < arguments.endIndex,
+                  !arguments[valueIndex].hasPrefix("--") else {
+                throw CLIError(message: String(
+                    format: String(
+                        localized: "cli.error.optionRequiresValue",
+                        defaultValue: "%@ requires a non-empty value"
+                    ),
+                    argument
+                ))
+            }
+        }
+    }
+
     private func rejectBlankExplicitOption(_ value: String?, name: String) throws {
         guard let value else { return }
         guard !value.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty else {
@@ -258,6 +281,25 @@ extension CMUXCLI {
                 name
             ))
         }
+    }
+
+    private func lexicallyStandardizedAbsolutePath(_ path: String) -> String {
+        guard path.hasPrefix("/") else { return path }
+
+        var components: [Substring] = []
+        for component in path.split(separator: "/", omittingEmptySubsequences: true) {
+            switch component {
+            case ".":
+                continue
+            case "..":
+                if !components.isEmpty {
+                    components.removeLast()
+                }
+            default:
+                components.append(component)
+            }
+        }
+        return components.isEmpty ? "/" : "/" + components.joined(separator: "/")
     }
 
     private func validatedPaletteCommands(in payload: [String: Any]) throws -> [[String: Any]] {

@@ -42,17 +42,20 @@ enum ProUpgradePresenter {
     }
 
     @MainActor
+    @discardableResult
     static func present(
         tabManager: TabManager? = nil,
         sourceWindowID: UUID? = nil,
         sourceWorkspaceID: UUID? = nil,
-        sourcePanelID: UUID? = nil
-    ) {
+        sourcePanelID: UUID? = nil,
+        openExternalURL: (URL) -> Bool = { NSWorkspace.shared.open($0) }
+    ) -> Bool {
         presentAppPricingWeb(
             tabManager: tabManager,
             sourceWindowID: sourceWindowID,
             sourceWorkspaceID: sourceWorkspaceID,
-            sourcePanelID: sourcePanelID
+            sourcePanelID: sourcePanelID,
+            openExternalURL: openExternalURL
         )
     }
 
@@ -90,19 +93,19 @@ enum ProUpgradePresenter {
         tabManager: TabManager? = nil,
         sourceWindowID: UUID? = nil,
         sourceWorkspaceID: UUID? = nil,
-        sourcePanelID: UUID? = nil
-    ) {
+        sourcePanelID: UUID? = nil,
+        openExternalURL: (URL) -> Bool = { NSWorkspace.shared.open($0) }
+    ) -> Bool {
         guard capturedSourceIsAvailable(
             appDelegate: AppDelegate.shared,
             tabManager: tabManager,
             sourceWindowID: sourceWindowID,
             sourceWorkspaceID: sourceWorkspaceID,
             sourcePanelID: sourcePanelID
-        ) else { return }
+        ) else { return false }
         let url = appPricingURLForCurrentAppearance()
         guard BrowserAvailabilitySettings.isEnabled() else {
-            NSWorkspace.shared.open(url)
-            return
+            return openExternalURL(url)
         }
         if presentDedicatedPricingWorkspace(
             url: url,
@@ -111,15 +114,16 @@ enum ProUpgradePresenter {
             sourceWorkspaceID: sourceWorkspaceID,
             sourcePanelID: sourcePanelID
         ) {
-            return
+            return true
         }
-        presentBrowserSplit(
+        return presentBrowserSplit(
             url: url,
             transparentBackground: true,
             tabManager: tabManager,
             sourceWindowID: sourceWindowID,
             sourceWorkspaceID: sourceWorkspaceID,
-            sourcePanelID: sourcePanelID
+            sourcePanelID: sourcePanelID,
+            openExternalURL: openExternalURL
         )
     }
 
@@ -221,15 +225,16 @@ enum ProUpgradePresenter {
         tabManager: TabManager? = nil,
         sourceWindowID: UUID? = nil,
         sourceWorkspaceID: UUID? = nil,
-        sourcePanelID: UUID? = nil
-    ) {
+        sourcePanelID: UUID? = nil,
+        openExternalURL: (URL) -> Bool = { NSWorkspace.shared.open($0) }
+    ) -> Bool {
         guard capturedSourceIsAvailable(
             appDelegate: AppDelegate.shared,
             tabManager: tabManager,
             sourceWindowID: sourceWindowID,
             sourceWorkspaceID: sourceWorkspaceID,
             sourcePanelID: sourcePanelID
-        ) else { return }
+        ) else { return false }
         let targetManager = tabManager ?? AppDelegate.shared?.tabManager
         let workspace: Workspace?
         if let sourceWorkspaceID {
@@ -238,8 +243,8 @@ enum ProUpgradePresenter {
             workspace = targetManager?.selectedWorkspace
         }
         let resolvedPanelID = sourcePanelID ?? (sourceWorkspaceID == nil ? workspace?.focusedPanelId : nil)
-        if sourceWorkspaceID != nil, workspace == nil { return }
-        if let sourcePanelID, workspace?.panels[sourcePanelID] == nil { return }
+        if sourceWorkspaceID != nil, workspace == nil { return false }
+        if let sourcePanelID, workspace?.panels[sourcePanelID] == nil { return false }
         if let workspace,
            let sourcePanelId = resolvedPanelID,
            workspace.panels[sourcePanelId] != nil,
@@ -252,7 +257,7 @@ enum ProUpgradePresenter {
                transparentBackground: transparentBackground,
                initialDividerPosition: 0.58
            ) != nil {
-            return
+            return true
         }
 
         // Fallbacks so the entrypoint never silently no-ops: a browser tab in
@@ -264,9 +269,9 @@ enum ProUpgradePresenter {
             selectWorkspace: sourceWorkspaceID == nil,
             url: url
         ) != nil {
-            return
+            return true
         }
-        NSWorkspace.shared.open(url)
+        return openExternalURL(url)
     }
 
     @MainActor

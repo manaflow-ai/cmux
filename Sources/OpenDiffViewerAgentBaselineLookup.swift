@@ -68,7 +68,7 @@ extension AppDelegate {
         originWindowId: UUID?
     ) -> Bool {
         guard let originWindowId else { return false }
-        for context in mainWindowContexts.values {
+        for context in Array(mainWindowContexts.values) {
             guard context.windowId == originWindowId,
                   resolvedWindow(for: context) != nil,
                   context.tabManager.tabs.contains(where: {

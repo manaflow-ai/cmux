@@ -82,6 +82,8 @@ final class TerminalPanel: Panel, ObservableObject {
     private var shouldFocusTextBoxWhenAvailable = false
     private var shouldOpenTextBoxFilePickerWhenAvailable = false
     private var pendingTextBoxAttachmentURLs: [URL] = []
+    private var pendingPreparedTextBoxAttachmentSlots:
+        [(reservationID: UUID, preparedFile: TextBoxPreparedFileAttachment?)] = []
     private var shouldHideTextBoxOnNextEscape = false
     private var textBoxInputFocusIntent: TextBoxInputFocusIntent = .hidden
     private var preservedTextBoxAttributedContent: NSAttributedString?
@@ -321,7 +323,8 @@ final class TerminalPanel: Panel, ObservableObject {
         guard textBoxInputView === view else { return }
         focusTextBoxIfNeeded()
         if !flushPendingTextBoxAttachmentsIfPossible(in: view),
-           !pendingTextBoxAttachmentURLs.isEmpty {
+           !pendingTextBoxAttachmentURLs.isEmpty
+            || hasFlushablePreparedTextBoxAttachments {
             NSSound.beep()
         }
 #if DEBUG
@@ -392,18 +395,116 @@ final class TerminalPanel: Panel, ObservableObject {
         return .queued
     }
 
+    /// Reserves one bounded queue slot while automation validates and prepares a
+    /// caller-supplied file off the main actor.
+    func reservePreparedTextBoxAttachment() -> UUID? {
+        guard pendingTextBoxAttachmentCount < Self.maximumPendingTextBoxAttachmentCount else {
+            return nil
+        }
+        let reservationID = UUID()
+        pendingPreparedTextBoxAttachmentSlots.append((
+            reservationID: reservationID,
+            preparedFile: nil
+        ))
+        return reservationID
+    }
+
+    /// Replaces a reservation with immutable, background-prepared attachment
+    /// data. No filesystem access or image decoding occurs on this path.
+    func fulfillPreparedTextBoxAttachment(
+        reservationID: UUID,
+        preparedFile: TextBoxPreparedFileAttachment
+    ) -> TextBoxAttachmentRequestResult? {
+        guard let reservationIndex = pendingPreparedTextBoxAttachmentSlots.firstIndex(where: {
+            $0.reservationID == reservationID
+        }) else {
+            return nil
+        }
+
+        let preparedURL = preparedFile.fileURL
+        let isAlreadyPending = pendingTextBoxAttachmentURLs.contains(preparedURL)
+            || pendingPreparedTextBoxAttachmentSlots.contains {
+                $0.preparedFile?.fileURL == preparedURL
+            }
+        if isAlreadyPending {
+            pendingPreparedTextBoxAttachmentSlots.remove(at: reservationIndex)
+        } else {
+            pendingPreparedTextBoxAttachmentSlots[reservationIndex].preparedFile = preparedFile
+        }
+
+        _ = preferTextBoxInputWhenActivated()
+        if let textBoxInputView, textBoxInputView.window != nil {
+            if isAlreadyPending {
+                let didFlush = flushPendingTextBoxAttachmentsIfPossible(in: textBoxInputView)
+                let duplicateRemainsPending =
+                    pendingTextBoxAttachmentURLs.contains(preparedURL)
+                    || pendingPreparedTextBoxAttachmentSlots.contains {
+                        $0.preparedFile?.fileURL == preparedURL
+                    }
+                if !duplicateRemainsPending {
+                    return didFlush ? .completed : .insertionFailed
+                }
+                return !pendingTextBoxAttachmentURLs.isEmpty
+                        || hasFlushablePreparedTextBoxAttachments
+                    ? .insertionFailed
+                    : .queued
+            }
+            if let currentIndex = pendingPreparedTextBoxAttachmentSlots.firstIndex(where: {
+                $0.reservationID == reservationID
+            }),
+               pendingPreparedTextBoxAttachmentSlots[..<currentIndex].contains(where: {
+                   $0.preparedFile == nil
+               }) {
+                return .queued
+            }
+            return flushPendingTextBoxAttachmentsIfPossible(in: textBoxInputView)
+                ? .completed
+                : .insertionFailed
+        }
+        return .queued
+    }
+
+    /// Releases a reservation after background validation rejects the file.
+    @discardableResult
+    func cancelPreparedTextBoxAttachment(reservationID: UUID) -> Bool {
+        guard let reservationIndex = pendingPreparedTextBoxAttachmentSlots.firstIndex(where: {
+            $0.reservationID == reservationID
+        }) else {
+            return false
+        }
+        pendingPreparedTextBoxAttachmentSlots.remove(at: reservationIndex)
+        if let textBoxInputView, textBoxInputView.window != nil {
+            _ = flushPendingTextBoxAttachmentsIfPossible(in: textBoxInputView)
+        }
+        return true
+    }
+
+    private var pendingTextBoxAttachmentCount: Int {
+        pendingTextBoxAttachmentURLs.count
+            + pendingPreparedTextBoxAttachmentSlots.count
+    }
+
+    private var hasFlushablePreparedTextBoxAttachments: Bool {
+        pendingPreparedTextBoxAttachmentSlots.first?.preparedFile != nil
+    }
+
     /// Adds a request atomically so a request that would cross the bound cannot
     /// leave a partially queued set of files behind.
     private func enqueuePendingTextBoxAttachments(_ standardizedURLs: [URL]) -> Bool {
         var seenURLs = Set(pendingTextBoxAttachmentURLs)
+        seenURLs.formUnion(
+            pendingPreparedTextBoxAttachmentSlots.compactMap {
+                $0.preparedFile?.fileURL
+            }
+        )
         var newURLs: [URL] = []
         newURLs.reserveCapacity(min(
             standardizedURLs.count,
-            max(0, Self.maximumPendingTextBoxAttachmentCount - pendingTextBoxAttachmentURLs.count)
+            max(0, Self.maximumPendingTextBoxAttachmentCount - pendingTextBoxAttachmentCount)
         ))
 
         for url in standardizedURLs where seenURLs.insert(url).inserted {
-            guard pendingTextBoxAttachmentURLs.count + newURLs.count
+            guard pendingTextBoxAttachmentCount + newURLs.count
                     < Self.maximumPendingTextBoxAttachmentCount else {
                 return false
             }
@@ -420,13 +521,28 @@ final class TerminalPanel: Panel, ObservableObject {
     ) -> Bool {
         guard textBoxInputView === view,
               view.window != nil,
-              !pendingTextBoxAttachmentURLs.isEmpty else {
+              !pendingTextBoxAttachmentURLs.isEmpty
+                || hasFlushablePreparedTextBoxAttachments else {
             return false
         }
-        let fileURLs = pendingTextBoxAttachmentURLs
-        guard view.onInsertFileURLs(fileURLs, view) else { return false }
-        pendingTextBoxAttachmentURLs.removeAll(keepingCapacity: false)
-        return true
+        var didFlushAttachments = false
+        if !pendingTextBoxAttachmentURLs.isEmpty {
+            let fileURLs = pendingTextBoxAttachmentURLs
+            guard view.onInsertFileURLs(fileURLs, view) else { return false }
+            pendingTextBoxAttachmentURLs.removeAll(keepingCapacity: false)
+            didFlushAttachments = true
+        }
+        let preparedFiles = pendingPreparedTextBoxAttachmentSlots
+            .prefix { $0.preparedFile != nil }
+            .compactMap(\.preparedFile)
+        if !preparedFiles.isEmpty {
+            guard view.onInsertPreparedFileAttachments(preparedFiles, view) else {
+                return false
+            }
+            pendingPreparedTextBoxAttachmentSlots.removeFirst(preparedFiles.count)
+            didFlushAttachments = true
+        }
+        return didFlushAttachments
     }
 
     func textBoxDidBecomeFocused() {
@@ -528,6 +644,7 @@ final class TerminalPanel: Panel, ObservableObject {
         restoredTextBoxDraft = nil
         preservedTextBoxAttributedContent = nil
         pendingTextBoxAttachmentURLs.removeAll(keepingCapacity: false)
+        pendingPreparedTextBoxAttachmentSlots.removeAll(keepingCapacity: false)
         textBoxContent = ""
         textBoxAttachments = []
         isTextBoxActive = false

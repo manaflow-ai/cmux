@@ -1055,6 +1055,37 @@ class TabManager: ObservableObject {
             .attachFilesToTextBoxInput(fileURLs)
     }
 
+    func reservePreparedTerminalTextBoxAttachment(
+        workspaceID: UUID,
+        panelID: UUID
+    ) -> UUID? {
+        terminalPanel(tabId: workspaceID, panelId: panelID)?
+            .reservePreparedTextBoxAttachment()
+    }
+
+    func fulfillPreparedTerminalTextBoxAttachment(
+        workspaceID: UUID,
+        panelID: UUID,
+        reservationID: UUID,
+        preparedFile: TextBoxPreparedFileAttachment
+    ) -> TerminalPanel.TextBoxAttachmentRequestResult? {
+        terminalPanel(tabId: workspaceID, panelId: panelID)?
+            .fulfillPreparedTextBoxAttachment(
+                reservationID: reservationID,
+                preparedFile: preparedFile
+            )
+    }
+
+    @discardableResult
+    func cancelPreparedTerminalTextBoxAttachment(
+        workspaceID: UUID,
+        panelID: UUID,
+        reservationID: UUID
+    ) -> Bool {
+        terminalPanel(tabId: workspaceID, panelId: panelID)?
+            .cancelPreparedTextBoxAttachment(reservationID: reservationID) ?? false
+    }
+
     @discardableResult
     func consumeFocusedTerminalTextBoxHideEscapeIfArmed(in window: NSWindow?) -> Bool {
         guard let focusedPanel = selectedTerminalPanel else {

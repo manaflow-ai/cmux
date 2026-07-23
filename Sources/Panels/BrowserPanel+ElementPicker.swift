@@ -33,7 +33,7 @@ extension BrowserPanel {
     }
 
     private func deactivateReactGrabForDesignMode(reason: String) async -> Bool {
-        guard reactGrabActivationIntent else { return true }
+        guard isReactGrabActive || requestedReactGrabActive != nil else { return true }
         let confirmed = await requestReactGrabActiveAndWait(
             false,
             reason: "\(reason).deactivateReactGrab"

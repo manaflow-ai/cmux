@@ -257,6 +257,23 @@ struct TextBoxAttachment: Identifiable {
         self.cleanupLocalURLWhenDisposed = cleanupLocalURLWhenDisposed
     }
 
+    init(
+        preparedFile: TextBoxPreparedFileAttachment,
+        submissionText: String,
+        submissionPath: String? = nil,
+        cleanupLocalURLWhenDisposed: Bool = false
+    ) {
+        let fileURL = preparedFile.fileURL
+        self.displayName = fileURL.lastPathComponent.isEmpty
+            ? fileURL.path
+            : fileURL.lastPathComponent
+        self.submissionText = submissionText
+        self.submissionPath = submissionPath ?? fileURL.path
+        self.localURL = fileURL
+        self.thumbnail = TextBoxAttachment.makeThumbnail(from: preparedFile)
+        self.cleanupLocalURLWhenDisposed = cleanupLocalURLWhenDisposed
+    }
+
     var isImage: Bool {
         if thumbnail != nil { return true }
         guard let localURL else { return false }
@@ -293,6 +310,38 @@ struct TextBoxAttachment: Identifiable {
             return nil
         }
         return image
+    }
+
+    private static func makeThumbnail(
+        from preparedFile: TextBoxPreparedFileAttachment
+    ) -> NSImage? {
+        guard let pixelData = preparedFile.thumbnailPixelData,
+              preparedFile.thumbnailPixelWidth > 0,
+              preparedFile.thumbnailPixelHeight > 0,
+              preparedFile.thumbnailBytesPerRow >= preparedFile.thumbnailPixelWidth * 4,
+              let provider = CGDataProvider(data: pixelData as CFData),
+              let image = CGImage(
+                width: preparedFile.thumbnailPixelWidth,
+                height: preparedFile.thumbnailPixelHeight,
+                bitsPerComponent: 8,
+                bitsPerPixel: 32,
+                bytesPerRow: preparedFile.thumbnailBytesPerRow,
+                space: CGColorSpaceCreateDeviceRGB(),
+                bitmapInfo: [
+                    .byteOrder32Big,
+                    CGBitmapInfo(rawValue: CGImageAlphaInfo.premultipliedLast.rawValue),
+                ],
+                provider: provider,
+                decode: nil,
+                shouldInterpolate: true,
+                intent: .defaultIntent
+              ) else {
+            return nil
+        }
+        return NSImage(
+            cgImage: image,
+            size: NSSize(width: image.width, height: image.height)
+        )
     }
 
     private static func isImageFileURL(_ url: URL) -> Bool {
@@ -2506,6 +2555,7 @@ struct TextBoxInputContainer: View {
                     onForwardControl: forwardControl(_:),
                     onPaste: handlePaste(_:into:),
                     onInsertFileURLs: insertSelectedFileURLs(_:into:),
+                    onInsertPreparedFileAttachments: insertPreparedFileAttachments(_:into:),
                     onChooseFiles: chooseFiles,
                     onContentChanged: markContentChanged,
                     onMarkedTextStateChanged: updateMarkedTextState(_:),
@@ -2994,10 +3044,44 @@ struct TextBoxInputContainer: View {
         }
     }
 
+    private func insertPreparedFileAttachments(
+        _ preparedFiles: [TextBoxPreparedFileAttachment],
+        into textView: TextBoxInputTextView
+    ) -> Bool {
+        guard !preparedFiles.isEmpty else { return false }
+
+        switch surface.resolvedImageTransferTarget() {
+        case .local:
+            textView.insertAttachments(
+                preparedFiles.map { preparedFile in
+                    TextBoxAttachment(
+                        preparedFile: preparedFile,
+                        submissionText: TextBoxAttachment.submissionText(
+                            forPath: preparedFile.fileURL.path
+                        ),
+                        cleanupLocalURLWhenDisposed: false
+                    )
+                }
+            )
+            attachments = textView.inlineAttachments()
+            text = textView.plainText()
+            return true
+        case .remote(let remoteTarget):
+            uploadFileAttachments(
+                preparedFiles.map(\.fileURL),
+                remoteTarget: remoteTarget,
+                focusing: textView,
+                preparedFiles: preparedFiles
+            )
+            return true
+        }
+    }
+
     private func uploadFileAttachments(
         _ fileURLs: [URL],
         remoteTarget: TerminalRemoteUploadTarget,
-        focusing textView: TextBoxInputTextView
+        focusing textView: TextBoxInputTextView,
+        preparedFiles: [TextBoxPreparedFileAttachment]? = nil
     ) {
         let placeholderID = UUID()
         textView.insertPendingAttachmentUploadPlaceholder(id: placeholderID)
@@ -3036,6 +3120,17 @@ struct TextBoxInputContainer: View {
                     }
                     let newAttachments = fileURLs.enumerated().compactMap { index, fileURL -> TextBoxAttachment? in
                         guard remotePaths.indices.contains(index) else { return nil }
+                        if let preparedFiles,
+                           preparedFiles.indices.contains(index) {
+                            return TextBoxAttachment(
+                                preparedFile: preparedFiles[index],
+                                submissionText: TextBoxAttachment.submissionText(
+                                    forPath: remotePaths[index]
+                                ),
+                                submissionPath: remotePaths[index],
+                                cleanupLocalURLWhenDisposed: false
+                            )
+                        }
                         return TextBoxAttachment(
                             localURL: fileURL,
                             submissionText: TextBoxAttachment.submissionText(forPath: remotePaths[index]),
@@ -3121,6 +3216,7 @@ struct TextBoxInputView: NSViewRepresentable {
     let onForwardControl: (String) -> Void
     let onPaste: (NSPasteboard, TextBoxInputTextView) -> Bool
     let onInsertFileURLs: ([URL], TextBoxInputTextView) -> Bool
+    let onInsertPreparedFileAttachments: ([TextBoxPreparedFileAttachment], TextBoxInputTextView) -> Bool
     let onChooseFiles: () -> Void
     let onContentChanged: () -> Void
     let onMarkedTextStateChanged: (Bool) -> Void
@@ -3148,6 +3244,10 @@ struct TextBoxInputView: NSViewRepresentable {
         onForwardControl: @escaping (String) -> Void,
         onPaste: @escaping (NSPasteboard, TextBoxInputTextView) -> Bool,
         onInsertFileURLs: @escaping ([URL], TextBoxInputTextView) -> Bool,
+        onInsertPreparedFileAttachments: @escaping (
+            [TextBoxPreparedFileAttachment],
+            TextBoxInputTextView
+        ) -> Bool = { _, _ in false },
         onChooseFiles: @escaping () -> Void,
         onContentChanged: @escaping () -> Void,
         onMarkedTextStateChanged: @escaping (Bool) -> Void = { _ in },
@@ -3174,6 +3274,7 @@ struct TextBoxInputView: NSViewRepresentable {
         self.onForwardControl = onForwardControl
         self.onPaste = onPaste
         self.onInsertFileURLs = onInsertFileURLs
+        self.onInsertPreparedFileAttachments = onInsertPreparedFileAttachments
         self.onChooseFiles = onChooseFiles
         self.onContentChanged = onContentChanged
         self.onMarkedTextStateChanged = onMarkedTextStateChanged
@@ -3280,6 +3381,7 @@ struct TextBoxInputView: NSViewRepresentable {
         textView.onForwardControl = onForwardControl
         textView.onPaste = onPaste
         textView.onInsertFileURLs = onInsertFileURLs
+        textView.onInsertPreparedFileAttachments = onInsertPreparedFileAttachments
         textView.onChooseFiles = onChooseFiles
         textView.onMarkedTextStateChanged = { [weak coordinator, weak textView] hasMarkedText in
             coordinator?.noteMarkedTextStateChanged(hasMarkedText, from: textView)
@@ -3462,6 +3564,8 @@ final class TextBoxInputTextView: NSTextView {
     var onForwardControl: (String) -> Void = { _ in }
     var onPaste: (NSPasteboard, TextBoxInputTextView) -> Bool = { _, _ in false }
     var onInsertFileURLs: ([URL], TextBoxInputTextView) -> Bool = { _, _ in false }
+    var onInsertPreparedFileAttachments:
+        ([TextBoxPreparedFileAttachment], TextBoxInputTextView) -> Bool = { _, _ in false }
     var onChooseFiles: () -> Void = {}
     var onMoveToWindow: (TextBoxInputTextView) -> Void = { _ in }
     var onLayoutCompleted: (TextBoxInputTextView) -> Void = { _ in }

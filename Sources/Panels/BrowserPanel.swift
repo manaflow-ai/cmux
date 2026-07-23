@@ -3039,6 +3039,9 @@ final class BrowserPanel: Panel, ObservableObject {
     var reactGrabStateReconciliationTask: Task<Void, Never>?
     var reactGrabStateReconciliationGeneration: UInt64 = 0
     var reactGrabStateConfirmation: ReactGrabStateConfirmation?
+#if DEBUG
+    var reactGrabTestingScriptSourceOverride: String?
+#endif
     lazy var designModeController = BrowserDesignModeController(
         surfaceID: id,
         script: BrowserDesignModeScript(),

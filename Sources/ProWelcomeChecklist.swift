@@ -39,17 +39,20 @@ enum ProWelcomeChecklistPresenter {
     }
 
     @MainActor
+    @discardableResult
     static func present(
         tabManager: TabManager? = nil,
         sourceWindowID: UUID? = nil,
         sourceWorkspaceID: UUID? = nil,
-        sourcePanelID: UUID? = nil
-    ) {
+        sourcePanelID: UUID? = nil,
+        openExternalURL: (URL) -> Bool = { NSWorkspace.shared.open($0) }
+    ) -> Bool {
         ProUpgradePresenter.presentProWelcomeWeb(
             tabManager: tabManager,
             sourceWindowID: sourceWindowID,
             sourceWorkspaceID: sourceWorkspaceID,
-            sourcePanelID: sourcePanelID
+            sourcePanelID: sourcePanelID,
+            openExternalURL: openExternalURL
         )
     }
 
@@ -74,19 +77,19 @@ extension ProUpgradePresenter {
         tabManager: TabManager? = nil,
         sourceWindowID: UUID? = nil,
         sourceWorkspaceID: UUID? = nil,
-        sourcePanelID: UUID? = nil
-    ) {
+        sourcePanelID: UUID? = nil,
+        openExternalURL: (URL) -> Bool = { NSWorkspace.shared.open($0) }
+    ) -> Bool {
         guard capturedSourceIsAvailable(
             appDelegate: AppDelegate.shared,
             tabManager: tabManager,
             sourceWindowID: sourceWindowID,
             sourceWorkspaceID: sourceWorkspaceID,
             sourcePanelID: sourcePanelID
-        ) else { return }
+        ) else { return false }
         let url = decoratedAppWebURL(AuthEnvironment.appProWelcomeURL)
         guard BrowserAvailabilitySettings.isEnabled() else {
-            NSWorkspace.shared.open(url)
-            return
+            return openExternalURL(url)
         }
         if presentDedicatedProWelcomeWorkspace(
             url: url,
@@ -95,15 +98,16 @@ extension ProUpgradePresenter {
             sourceWorkspaceID: sourceWorkspaceID,
             sourcePanelID: sourcePanelID
         ) {
-            return
+            return true
         }
-        presentBrowserSplit(
+        return presentBrowserSplit(
             url: url,
             transparentBackground: true,
             tabManager: tabManager,
             sourceWindowID: sourceWindowID,
             sourceWorkspaceID: sourceWorkspaceID,
-            sourcePanelID: sourcePanelID
+            sourcePanelID: sourcePanelID,
+            openExternalURL: openExternalURL
         )
     }
 

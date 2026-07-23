@@ -1,11 +1,12 @@
-import Combine
 import Foundation
+import Observation
 
 /// Per-window presentation mailbox for the sidebar checklist add field. A
 /// hidden sidebar claims the latest request when it mounts.
 @MainActor
-final class WorkspaceTodoChecklistAddRequestStore: ObservableObject {
-    @Published private(set) var revision: UInt64 = 0
+@Observable
+final class WorkspaceTodoChecklistAddRequestStore {
+    private(set) var revision: UInt64 = 0
     private var pendingRequest: WorkspaceTodoChecklistAddRequest?
     private var nextToken: UInt64 = 0
 

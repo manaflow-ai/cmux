@@ -7331,7 +7331,7 @@ struct ContentView: View {
                 )
                 snapshot.setBool(
                     CommandPaletteContextKeys.terminalHasLocalDirectory,
-                    focusedTerminalDirectoryURL(context: actionContext) != nil
+                    focusedTerminalDirectoryCandidateURL(context: actionContext) != nil
                 )
             }
             let allowsAgentContinuation = workspace.allowsAgentContinuation(forPanelId: panelId)
@@ -8616,7 +8616,7 @@ struct ContentView: View {
         var contributions = commandPaletteBuiltInCommandContributions()
         let composedConfig = catalog.composingPaletteActions(
             reservedActionIDs: reservedActionIDs,
-            diagnosticActionID: commandPaletteCmuxConfigIssueCommandID
+            reservedActionIDPrefixes: [Self.commandPaletteCmuxConfigIssueCommandIDPrefix]
         )
         let issues = composedConfig.issues
         let customActions = composedConfig.actions
@@ -8702,13 +8702,16 @@ struct ContentView: View {
         return filtered.trimmingCharacters(in: .whitespacesAndNewlines)
     }
 
+    private static let commandPaletteCmuxConfigIssueCommandIDPrefix =
+        "palette.cmuxConfig.issue."
+
     private func commandPaletteCmuxConfigIssueCommandID(_ issue: CmuxConfigIssue) -> String {
         var hash: UInt64 = 1_469_598_103_934_665_603
         for byte in issue.id.utf8 {
             hash ^= UInt64(byte)
             hash &*= 1_099_511_628_211
         }
-        return "palette.cmuxConfig.issue.\(String(hash, radix: 16))"
+        return "\(Self.commandPaletteCmuxConfigIssueCommandIDPrefix)\(String(hash, radix: 16))"
     }
 
     private func commandPaletteWorkspaceColorCommandID(_ colorName: String) -> String {
@@ -8797,7 +8800,13 @@ struct ContentView: View {
     func registerCommandPaletteHandlers(
         _ registry: inout CommandPaletteHandlerRegistry,
         context: CommandPaletteActionContext,
-        configCatalog: CmuxConfigActionCatalog
+        configCatalog: CmuxConfigActionCatalog,
+        terminalAttachmentPreparer: @escaping @Sendable (
+            URL
+        ) async -> TextBoxPreparedFileAttachment? = { fileURL in
+            await TextBoxPreparedFileAttachment.prepare(fileURL: fileURL)
+        },
+        terminalAttachmentDidFinish: @escaping @MainActor (Bool) -> Void = { _ in }
     ) {
         let target = context.target
         let workspacePullRequestTargetWasSelected = target.workspaceID != nil
@@ -10033,7 +10042,7 @@ struct ContentView: View {
                 guard target.isAvailable() else {
                     return commandPaletteTargetUnavailableResult()
                 }
-                guard let directoryURL = focusedTerminalDirectoryURL(context: context) else {
+                guard let directoryURL = focusedTerminalDirectoryCandidateURL(context: context) else {
                     return commandPaletteDirectoryUnavailableResult()
                 }
                 let didQueue = openFocusedDirectory(directoryURL, in: target, context: context)
@@ -10151,14 +10160,60 @@ struct ContentView: View {
                 guard let fileURL = commandPaletteFileURL(path) else {
                     return commandPaletteFileUnavailableResult()
                 }
-                guard let result = tabManager.attachFilesToTerminalTextBoxInput(
-                    workspaceID: workspaceID,
-                    panelID: panelID,
-                    fileURLs: [fileURL]
-                ) else {
+                guard tabManager.terminalPanel(tabId: workspaceID, panelId: panelID) != nil else {
                     return commandPaletteTargetUnavailableResult()
                 }
-                return commandPaletteTerminalAttachmentResult(result)
+                guard let reservationID = tabManager.reservePreparedTerminalTextBoxAttachment(
+                    workspaceID: workspaceID,
+                    panelID: panelID
+                ) else {
+                    guard tabManager.terminalPanel(
+                        tabId: workspaceID,
+                        panelId: panelID
+                    ) != nil else {
+                        return commandPaletteTargetUnavailableResult()
+                    }
+                    return commandPaletteTerminalAttachmentResult(.queueFull)
+                }
+                Task { @MainActor in
+                    let preparedFile = await Self.prepareCommandPaletteTerminalAttachment(
+                        fileURL: fileURL,
+                        using: terminalAttachmentPreparer
+                    )
+                    guard let preparedFile else {
+                        _ = tabManager.cancelPreparedTerminalTextBoxAttachment(
+                            workspaceID: workspaceID,
+                            panelID: panelID,
+                            reservationID: reservationID
+                        )
+                        terminalAttachmentDidFinish(false)
+                        if invocation.source == .commandPalette {
+                            NSSound.beep()
+                        }
+                        return
+                    }
+                    guard let result = tabManager.fulfillPreparedTerminalTextBoxAttachment(
+                        workspaceID: workspaceID,
+                        panelID: panelID,
+                        reservationID: reservationID,
+                        preparedFile: preparedFile
+                    ) else {
+                        terminalAttachmentDidFinish(false)
+                        return
+                    }
+                    let didAttach: Bool
+                    switch result {
+                    case .completed, .queued:
+                        didAttach = true
+                    case .queueFull, .invalidFiles, .insertionFailed:
+                        didAttach = false
+                    }
+                    terminalAttachmentDidFinish(didAttach)
+                    if !didAttach, invocation.source == .commandPalette {
+                        NSSound.beep()
+                    }
+                }
+                return .queued
             }
             guard tabManager.attachFileToTerminalTextBoxInput(
                 workspaceID: workspaceID,
@@ -11625,14 +11680,30 @@ struct ContentView: View {
     }
 
     private func commandPaletteFileURL(_ path: String) -> URL? {
+        guard !path.isEmpty else { return nil }
         let expandedPath = NSString(string: path).expandingTildeInPath
-        let fileURL = URL(fileURLWithPath: expandedPath).standardizedFileURL
-        var isDirectory: ObjCBool = false
-        guard FileManager.default.fileExists(atPath: fileURL.path, isDirectory: &isDirectory),
-              !isDirectory.boolValue else {
-            return nil
-        }
-        return fileURL
+        // Validation can block on network mounts, file-provider domains, and
+        // special files. The automation handler prepares this lexical candidate
+        // on a background executor before it reaches any UI-owned attachment API.
+        return URL(fileURLWithPath: expandedPath)
+    }
+
+    #if compiler(>=6.2)
+    @concurrent
+    #endif
+    nonisolated static func prepareCommandPaletteTerminalAttachment(
+        fileURL: URL,
+        using preparer: @escaping @Sendable (
+            URL
+        ) async -> TextBoxPreparedFileAttachment?
+    ) async -> TextBoxPreparedFileAttachment? {
+        #if compiler(>=6.2)
+        await preparer(fileURL)
+        #else
+        await Task.detached(priority: .userInitiated) {
+            await preparer(fileURL)
+        }.value
+        #endif
     }
 
     static func commandPaletteInlineVSCodeOpenResult(
@@ -12114,7 +12185,7 @@ struct ContentView: View {
         in target: TerminalDirectoryOpenTarget,
         context: CommandPaletteActionContext
     ) -> Bool {
-        guard let directoryURL = focusedTerminalDirectoryURL(context: context) else { return false }
+        guard let directoryURL = focusedTerminalDirectoryCandidateURL(context: context) else { return false }
         return openFocusedDirectory(directoryURL, in: target, context: context)
     }
 
@@ -12168,7 +12239,7 @@ struct ContentView: View {
         return true
     }
 
-    private func focusedTerminalDirectoryURL(context: CommandPaletteActionContext) -> URL? {
+    private func focusedTerminalDirectoryCandidateURL(context: CommandPaletteActionContext) -> URL? {
         guard let workspace = context.workspace() else { return nil }
         let rawDirectory: String = {
             if let panelID = context.target.panelID {
@@ -12187,17 +12258,17 @@ struct ContentView: View {
             guard !workspace.isRemoteWorkspace else { return "" }
             return workspace.currentDirectory
         }()
+
+        return Self.commandPaletteTerminalDirectoryCandidateURL(rawDirectory)
+    }
+
+    static func commandPaletteTerminalDirectoryCandidateURL(_ rawDirectory: String) -> URL? {
         let trimmed = rawDirectory.trimmingCharacters(in: .whitespacesAndNewlines)
         guard !trimmed.isEmpty else { return nil }
-        let directoryURL = URL(fileURLWithPath: trimmed, isDirectory: true).standardizedFileURL
-        var isDirectory: ObjCBool = false
-        guard FileManager.default.fileExists(
-            atPath: directoryURL.path,
-            isDirectory: &isDirectory
-        ), isDirectory.boolValue else {
-            return nil
-        }
-        return directoryURL
+        // This path can live on a network mount, FUSE volume, or file-provider
+        // domain. Keep command-palette snapshot construction lexical so opening
+        // the palette never blocks on the focused directory's availability.
+        return URL(fileURLWithPath: trimmed, isDirectory: true).standardizedFileURL
     }
 
 #if DEBUG
@@ -13165,7 +13236,7 @@ struct VerticalTabsSidebar: View, Equatable {
                 frozenShortcutHintsValue = false
             }
         }
-        .onReceive(tabManager.checklistAddRequestStore.$revision) { _ in
+        .onChange(of: tabManager.checklistAddRequestStore.revision) { _, _ in
             presentPendingChecklistAddRequests()
         }
         .onChange(of: dragState.draggedTabId) { newDraggedTabId in

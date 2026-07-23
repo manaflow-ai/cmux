@@ -55,43 +55,37 @@ struct CmuxConfigActionCatalog: Sendable {
         }
     }
 
-    /// Composes user palette actions with cmux-owned action IDs. Exact ID
-    /// conflicts become visible configuration issues; non-colliding
+    /// Composes user palette actions with cmux-owned action IDs and namespaces.
+    /// Conflicts become visible configuration issues; non-colliding
     /// `palette.*` IDs remain valid stable user IDs.
     func composingPaletteActions(
         reservedActionIDs: Set<String>,
-        diagnosticActionID: (CmuxConfigIssue) -> String
+        reservedActionIDPrefixes: [String] = []
     ) -> (issues: [CmuxConfigIssue], actions: [CmuxResolvedConfigAction]) {
         let configuredActions = paletteCustomActions()
-        let baseIssues = configurationIssues
-        var collidingActionIDs = Set(
-            configuredActions.lazy.map(\.id).filter(reservedActionIDs.contains)
-        )
-        var issues = baseIssues
+        var issues = configurationIssues
+        var actions: [CmuxResolvedConfigAction] = []
+        actions.reserveCapacity(configuredActions.count)
 
-        // Diagnostics are themselves command-palette actions. Iterate to a
-        // fixed point so their generated IDs cannot silently collide either.
-        while true {
-            issues = baseIssues + configuredActions.compactMap { action in
-                guard collidingActionIDs.contains(action.id) else { return nil }
-                return CmuxConfigIssue(
-                    kind: .paletteActionIDCollision,
-                    settingName: "actions",
-                    commandName: action.id,
-                    sourcePath: action.actionSourcePath
-                )
+        for action in configuredActions {
+            let collidesWithReservedID = reservedActionIDs.contains(action.id)
+            let collidesWithReservedNamespace = reservedActionIDPrefixes.contains {
+                action.id.hasPrefix($0)
             }
-            let diagnosticIDs = Set(issues.map(diagnosticActionID))
-            let nextCollidingIDs = Set(configuredActions.lazy.map(\.id).filter {
-                reservedActionIDs.contains($0) || diagnosticIDs.contains($0)
-            })
-            guard nextCollidingIDs != collidingActionIDs else { break }
-            collidingActionIDs = nextCollidingIDs
+            if collidesWithReservedID || collidesWithReservedNamespace {
+                issues.append(
+                    CmuxConfigIssue(
+                        kind: .paletteActionIDCollision,
+                        settingName: "actions",
+                        commandName: action.id,
+                        sourcePath: action.actionSourcePath
+                    )
+                )
+            } else {
+                actions.append(action)
+            }
         }
 
-        return (
-            issues,
-            configuredActions.filter { !collidingActionIDs.contains($0.id) }
-        )
+        return (issues, actions)
     }
 }
