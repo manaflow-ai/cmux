@@ -70,8 +70,6 @@ extension WorkspaceListView {
             wrapWorkspaceTitles: wrapWorkspaceTitles,
             previewLineLimit: previewLineLimit,
             unreadIndicatorLeftShift: unreadIndicatorLeftShift,
-            profilePictureLeftShift: profilePictureLeftShift,
-            profilePictureSize: profilePictureSize,
             connectionStatus: connectionStatus,
             connectionRequiresReauth: store?.connectionRequiresReauth ?? false,
             connectionRecoveryFailed: store?.connectionRecoveryFailed ?? false,

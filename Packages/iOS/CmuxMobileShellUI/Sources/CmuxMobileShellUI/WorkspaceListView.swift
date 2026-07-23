@@ -33,8 +33,6 @@ struct WorkspaceListView: View {
     /// a value snapshot so no `@Observable` store crosses the `List` boundary.
     var previewLineLimit: Int = MobileDisplaySettings.defaultWorkspacePreviewLineCount
     var unreadIndicatorLeftShift: Double = MobileDisplaySettings.defaultUnreadIndicatorLeftShift
-    var profilePictureLeftShift: Double = MobileDisplaySettings.defaultProfilePictureLeftShift
-    var profilePictureSize: Double = MobileDisplaySettings.defaultProfilePictureSize
     let selectWorkspace: (MobileWorkspacePreview.ID) -> Void
     let createWorkspace: () -> Void
     var createWorkspaceInGroup: ((MobileWorkspaceGroupPreview.ID) -> Void)? = nil
@@ -685,8 +683,6 @@ struct WorkspaceListView: View {
             wrapWorkspaceTitles: wrapWorkspaceTitles,
             previewLineLimit: previewLineLimit,
             unreadIndicatorLeftShift: unreadIndicatorLeftShift,
-            profilePictureLeftShift: profilePictureLeftShift,
-            profilePictureSize: profilePictureSize,
             selectWorkspace: { id in _ = selectWorkspaceFromList(id) },
             renameWorkspace: capabilities.supportsWorkspaceActions ? renameWorkspace : nil,
             customizeWorkspace: capabilities.supportsWorkspaceActions

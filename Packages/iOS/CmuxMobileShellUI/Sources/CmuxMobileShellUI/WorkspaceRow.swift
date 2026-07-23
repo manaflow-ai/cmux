@@ -3,8 +3,10 @@ import CmuxMobileSupport
 import SwiftUI
 
 struct WorkspaceRow: View {
-    private static let unreadDotColorCircleVisualGap: CGFloat = 10
-    private static let colorCircleTextVisualGap: CGFloat = 8
+    private static let unreadDotRailVisualGap: CGFloat = 8
+    private static let railTextVisualGap: CGFloat = 10
+    private static let railVerticalInset: CGFloat = 5
+    private static let unreadDotAlignmentHeight: CGFloat = 22
 
     let workspace: MobileWorkspacePreview
     let connectionStatus: MobileMacConnectionStatus
@@ -17,28 +19,23 @@ struct WorkspaceRow: View {
     /// with short previews keep the same height as their neighbors.
     var previewLineLimit: Int = MobileDisplaySettings.defaultWorkspacePreviewLineCount
     var unreadIndicatorLeftShift: Double = MobileDisplaySettings.defaultUnreadIndicatorLeftShift
-    var profilePictureLeftShift: Double = MobileDisplaySettings.defaultProfilePictureLeftShift
-    var profilePictureSize: Double = MobileDisplaySettings.defaultProfilePictureSize
 
     var body: some View {
         HStack(alignment: .top, spacing: 0) {
-            // Unread is JUST this dot, left of the color circle like iMessage. The
+            // Unread is JUST this dot, left of the workspace rail. The
             // gutter is always present (hidden dot when read) so read and
-            // unread rows line up. Centered against the color circle's height.
+            // unread rows line up.
             WorkspaceUnreadDot(isUnread: workspace.hasUnread, leftShift: unreadIndicatorLeftShift)
-                .frame(height: CGFloat(profilePictureSize))
+                .frame(height: Self.unreadDotAlignmentHeight)
 
             Spacer()
-                .frame(width: unreadDotColorCircleLayoutGap)
+                .frame(width: unreadDotRailLayoutGap)
 
-            WorkspaceColorCircle(
-                color: workspace.workspaceAccentColor,
-                size: profilePictureSize,
-                leftShift: profilePictureLeftShift
-            )
+            Color.clear
+                .frame(width: WorkspaceColorRail.width)
 
             Spacer()
-                .frame(width: colorCircleTextLayoutGap)
+                .frame(width: Self.railTextVisualGap)
 
             VStack(alignment: .leading, spacing: 4) {
                 HStack(alignment: .firstTextBaseline, spacing: 8) {
@@ -75,6 +72,18 @@ struct WorkspaceRow: View {
                     .lineLimit(previewLineLimit, reservesSpace: true)
             }
         }
+        .overlay(alignment: .leading) {
+            HStack(spacing: 0) {
+                Spacer()
+                    .frame(width: railLeadingOffset)
+
+                WorkspaceColorRail(color: workspace.workspaceAccentColor)
+                    .padding(.vertical, Self.railVerticalInset)
+
+                Spacer(minLength: 0)
+            }
+            .allowsHitTesting(false)
+        }
         .frame(maxWidth: .infinity, alignment: .leading)
         .padding(.vertical, 8)
         .padding(.horizontal, isSelected ? 10 : 0)
@@ -87,31 +96,32 @@ struct WorkspaceRow: View {
         .contentShape(Rectangle())
     }
 
-    private var unreadDotColorCircleLayoutGap: CGFloat {
+    private var unreadDotRailLayoutGap: CGFloat {
         let dotTrailing = (WorkspaceUnreadDot.gutterWidth + WorkspaceUnreadDot.dotDiameter) / 2
             - CGFloat(unreadIndicatorLeftShift)
         return max(
             0,
-            Self.unreadDotColorCircleVisualGap + dotTrailing - WorkspaceUnreadDot.gutterWidth
-                + CGFloat(profilePictureLeftShift)
+            Self.unreadDotRailVisualGap + dotTrailing - WorkspaceUnreadDot.gutterWidth
         )
     }
 
-    private var colorCircleTextLayoutGap: CGFloat {
-        max(0, Self.colorCircleTextVisualGap - CGFloat(profilePictureLeftShift))
+    private var railLeadingOffset: CGFloat {
+        WorkspaceUnreadDot.gutterWidth + unreadDotRailLayoutGap
     }
 }
 
-struct WorkspaceColorCircle: View {
+struct WorkspaceColorRail: View {
+    static let width: CGFloat = 3
+    private static let cornerRadius: CGFloat = 1.5
+
     let color: Color?
-    var size: Double = MobileDisplaySettings.defaultProfilePictureSize
-    var leftShift: Double = MobileDisplaySettings.defaultProfilePictureLeftShift
 
     var body: some View {
-        Circle()
+        RoundedRectangle(cornerRadius: Self.cornerRadius, style: .continuous)
             .fill(color ?? Color.clear)
-            .frame(width: CGFloat(size), height: CGFloat(size))
+            .frame(width: Self.width)
+            .frame(maxHeight: .infinity)
+            .opacity(color == nil ? 0 : 0.95)
             .accessibilityHidden(true)
-            .offset(x: -CGFloat(leftShift))
     }
 }

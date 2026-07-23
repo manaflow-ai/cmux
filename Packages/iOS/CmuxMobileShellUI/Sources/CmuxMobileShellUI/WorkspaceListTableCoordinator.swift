@@ -30,7 +30,6 @@ final class WorkspaceListTableCoordinator: NSObject, UITableViewDelegate,
         let widthInPixels: Int
         let contentSizeCategory: String
         let previewLineLimit: Int
-        let profilePictureSizeInPixels: Int
     }
 
     private static let cellReuseIdentifier = "WorkspaceListTableCell"
@@ -463,9 +462,7 @@ final class WorkspaceListTableCoordinator: NSObject, UITableViewDelegate,
                         && configuration.selectedWorkspaceID == workspace.id,
                     wrapWorkspaceTitles: configuration.wrapWorkspaceTitles,
                     previewLineLimit: configuration.previewLineLimit,
-                    unreadIndicatorLeftShift: configuration.unreadIndicatorLeftShift,
-                    profilePictureLeftShift: configuration.profilePictureLeftShift,
-                    profilePictureSize: configuration.profilePictureSize
+                    unreadIndicatorLeftShift: configuration.unreadIndicatorLeftShift
                 )
                 .accessibilityElement(children: .combine)
                 .accessibilityAddTraits(.isButton)
@@ -634,8 +631,7 @@ final class WorkspaceListTableCoordinator: NSObject, UITableViewDelegate,
             kind: kind,
             widthInPixels: Int((tableView.bounds.width * scale).rounded()),
             contentSizeCategory: tableView.traitCollection.preferredContentSizeCategory.rawValue,
-            previewLineLimit: configuration.previewLineLimit,
-            profilePictureSizeInPixels: Int((configuration.profilePictureSize * scale).rounded())
+            previewLineLimit: configuration.previewLineLimit
         )
     }
 
@@ -661,8 +657,6 @@ final class WorkspaceListTableCoordinator: NSObject, UITableViewDelegate,
                 || previous.wrapWorkspaceTitles != next.wrapWorkspaceTitles
                 || previous.previewLineLimit != next.previewLineLimit
                 || previous.unreadIndicatorLeftShift != next.unreadIndicatorLeftShift
-                || previous.profilePictureLeftShift != next.profilePictureLeftShift
-                || previous.profilePictureSize != next.profilePictureSize
                 || previousConnectionStatus != nextConnectionStatus
                 || workspaceActionAvailabilityChanged(previous: previous, next: next)
         case .groupHeader(let id):

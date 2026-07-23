@@ -12,8 +12,6 @@ struct WorkspaceNavigationRow: View {
     /// shared ``WorkspaceRow``.
     var previewLineLimit: Int = MobileDisplaySettings.defaultWorkspacePreviewLineCount
     var unreadIndicatorLeftShift: Double = MobileDisplaySettings.defaultUnreadIndicatorLeftShift
-    var profilePictureLeftShift: Double = MobileDisplaySettings.defaultProfilePictureLeftShift
-    var profilePictureSize: Double = MobileDisplaySettings.defaultProfilePictureSize
     let selectWorkspace: (MobileWorkspacePreview.ID) -> Void
     /// Rename the workspace on the Mac. When `nil` (e.g. previews) the rename
     /// affordance is hidden.
@@ -146,9 +144,7 @@ struct WorkspaceNavigationRow: View {
             isSelected: navigationStyle == .sidebar && isSelected,
             wrapWorkspaceTitles: wrapWorkspaceTitles,
             previewLineLimit: previewLineLimit,
-            unreadIndicatorLeftShift: unreadIndicatorLeftShift,
-            profilePictureLeftShift: profilePictureLeftShift,
-            profilePictureSize: profilePictureSize
+            unreadIndicatorLeftShift: unreadIndicatorLeftShift
         )
     }
 

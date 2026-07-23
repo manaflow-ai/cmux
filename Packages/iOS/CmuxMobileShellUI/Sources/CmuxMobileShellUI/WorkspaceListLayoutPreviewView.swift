@@ -240,8 +240,6 @@ public struct WorkspaceListLayoutPreviewView: View {
                             wrapWorkspaceTitles: false,
                             previewLineLimit: MobileDisplaySettings.defaultWorkspacePreviewLineCount,
                             unreadIndicatorLeftShift: MobileDisplaySettings.defaultUnreadIndicatorLeftShift,
-                            profilePictureLeftShift: MobileDisplaySettings.defaultProfilePictureLeftShift,
-                            profilePictureSize: MobileDisplaySettings.defaultProfilePictureSize,
                             selectWorkspace: { id in
                                 selectedWorkspaceID = id
                                 if reorderEnabled {

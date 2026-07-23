@@ -280,24 +280,6 @@ struct MobileSettingsView: View {
                         range: MobileDisplaySettings.unreadIndicatorLeftShiftRange,
                         identifier: "MobileSettingsUnreadIndicatorLeftness"
                     )
-                    debugLayoutSlider(
-                        title: L10n.string(
-                            "mobile.settings.profilePictureLeftness",
-                            defaultValue: "Profile Picture Leftness"
-                        ),
-                        value: $displaySettings.profilePictureLeftShift,
-                        range: MobileDisplaySettings.profilePictureLeftShiftRange,
-                        identifier: "MobileSettingsProfilePictureLeftness"
-                    )
-                    debugLayoutSlider(
-                        title: L10n.string(
-                            "mobile.settings.profilePictureSize",
-                            defaultValue: "Profile Picture Size"
-                        ),
-                        value: $displaySettings.profilePictureSize,
-                        range: MobileDisplaySettings.profilePictureSizeRange,
-                        identifier: "MobileSettingsProfilePictureSize"
-                    )
                 }
 
                 Section(L10n.string(

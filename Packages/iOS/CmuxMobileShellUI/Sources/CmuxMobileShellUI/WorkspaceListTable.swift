@@ -16,8 +16,6 @@ struct WorkspaceListTable: UIViewRepresentable {
     let wrapWorkspaceTitles: Bool
     let previewLineLimit: Int
     let unreadIndicatorLeftShift: Double
-    let profilePictureLeftShift: Double
-    let profilePictureSize: Double
     let connectionStatus: MobileMacConnectionStatus
 
     let connectionRequiresReauth: Bool

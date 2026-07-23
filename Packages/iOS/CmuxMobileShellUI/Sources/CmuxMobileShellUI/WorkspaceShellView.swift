@@ -486,8 +486,6 @@ struct WorkspaceShellView: View {
             wrapWorkspaceTitles: displaySettings.wrapWorkspaceTitles,
             previewLineLimit: displaySettings.workspacePreviewLineCount,
             unreadIndicatorLeftShift: displaySettings.unreadIndicatorLeftShift,
-            profilePictureLeftShift: displaySettings.profilePictureLeftShift,
-            profilePictureSize: displaySettings.profilePictureSize,
             selectWorkspace: selectWorkspace,
             createWorkspace: navigationStyle == .push
                 ? createWorkspaceInCompactStack

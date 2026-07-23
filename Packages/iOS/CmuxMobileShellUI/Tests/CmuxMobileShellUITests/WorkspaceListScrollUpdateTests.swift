@@ -85,8 +85,6 @@ import UIKit
             wrapWorkspaceTitles: false,
             previewLineLimit: 2,
             unreadIndicatorLeftShift: 0,
-            profilePictureLeftShift: 0,
-            profilePictureSize: 32,
             connectionStatus: .connected,
             connectionRequiresReauth: false,
             connectionRecoveryFailed: false,
