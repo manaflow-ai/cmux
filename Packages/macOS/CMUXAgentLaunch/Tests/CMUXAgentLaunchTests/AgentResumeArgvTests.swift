@@ -316,6 +316,24 @@ struct AgentResumeArgvTests {
         )
         #expect(rendered == "/bin/sh -c '" + substituted.replacingOccurrences(of: "'", with: "'\\''") + "'")
         #expect(rendered.hasPrefix("/bin/sh -c "))
+        // Real wrapper captures preserve the resolved Codex executable, not the
+        // bare `codex` token. Auto-resume must still route that executable back
+        // through the wrapper while pinning the exact captured binary.
+        let absoluteSubstituted =
+            "'env' 'CODEX_HOME=/tmp/codex home' 'CMUX_CUSTOM_CODEX_PATH=/opt/company/bin/codex' "
+            + "\(AgentResumeArgv.codexWrapperShellExecutableToken) 'resume' 'SID'"
+        #expect(
+            AgentResumeArgv.renderedPortableCodexResumeShellCommand(
+                parts: [
+                    "env",
+                    "CODEX_HOME=/tmp/codex home",
+                    "/opt/company/bin/codex",
+                    "resume",
+                    "SID",
+                ],
+                quote: quote
+            ) == "/bin/sh -c '" + absoluteSubstituted.replacingOccurrences(of: "'", with: "'\\''") + "'"
+        )
         // No bare `codex` executable: already-portable words stay unwrapped.
         #expect(
             AgentResumeArgv.renderedPortableCodexResumeShellCommand(
