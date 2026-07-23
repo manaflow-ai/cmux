@@ -2384,7 +2384,7 @@ def test_pi_compacted_post_tool_use_expands_to_distinct_frames(cli_path: str, ro
                 "tool_call_id": "overflow-tool-8",
                 "tool_name": "bash",
                 "is_error": False,
-                "tool_result": {"kind": "object", "preview": '{"status":"ok","value":8}'},
+                "tool_result": {"kind": "object", "preview": "PRIVATE-KEY-SHOULD-NOT-PERSIST"},
             },
             {
                 "session_id": "pi-session",
@@ -2446,6 +2446,8 @@ def test_pi_compacted_post_tool_use_expands_to_distinct_frames(cli_path: str, ro
         raise AssertionError(f"second compacted Pi terminal event was lost: {events!r}")
     if any(event.get("hook_event_name") != "PostToolUse" or event.get("_source") != "pi" for event in events):
         raise AssertionError(f"compacted Pi terminal events changed Feed identity: {events!r}")
+    if "PRIVATE-KEY-SHOULD-NOT-PERSIST" in json.dumps(events):
+        raise AssertionError(f"compacted Pi terminal events leaked tool output into Feed: {events!r}")
 
 
 def test_claude_subagent_stop_stays_distinct_feed_telemetry(cli_path: str, root: Path) -> None:
