@@ -389,8 +389,14 @@ extension AppDelegate {
         if let manager = contextContainingTabId(tabId)?.tabManager {
             return manager
         }
-        return recoverableMainWindowRoutes()
+        if let manager = recoverableMainWindowRoutes()
             .compactMap(\.tabManager)
-            .first { $0.workspacesById[tabId] != nil }
+            .first(where: { $0.workspacesById[tabId] != nil }) {
+            return manager
+        }
+        guard let tabManager, tabManager.workspacesById[tabId] != nil else {
+            return nil
+        }
+        return tabManager
     }
 }
