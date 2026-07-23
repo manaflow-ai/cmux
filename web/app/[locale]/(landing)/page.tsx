@@ -15,8 +15,19 @@ import {
 } from "@/app/[locale]/testimonials";
 import { Link } from "@/i18n/navigation";
 import NextLink from "next/link";
+import { redirect } from "next/navigation";
+import { getStackServerApp, isStackConfigured } from "@/app/lib/stack";
 
-export default function Home() {
+export const dynamic = "force-dynamic";
+
+export default async function Home({ params }: { params: Promise<{ locale: string }> }) {
+  if (isStackConfigured()) {
+    const user = await getStackServerApp().getUser({ or: "return-null" });
+    if (user && !user.isAnonymous) {
+      const { locale } = await params;
+      redirect(locale === "en" ? "/home" : `/${locale}/home`);
+    }
+  }
   return <HomeContent />;
 }
 
