@@ -466,4 +466,51 @@ mod tests {
             assert_eq!(sanitized_route(&Url::parse(route).unwrap()), expected);
         }
     }
+
+    #[test]
+    fn connect_request_debug_redacts_dial_endpoint_and_routing_values() {
+        let request = ConnectRequest {
+            endpoint: Url::parse(
+                "wss://userinfo-marker:password-marker@debug.example/\
+                 path-marker?ticket=query-marker#fragment-marker",
+            )
+            .unwrap(),
+            session: SessionId::ZERO,
+            lane_policy: LanePolicy::Single,
+            routing: BTreeMap::from([
+                ("direct-addresses".into(), "direct-routing-value-marker:4242".into()),
+                (
+                    "relay-url".into(),
+                    "https://routing-user-marker:routing-password-marker@relay.example/\
+                     routing-path-marker?routing-query-marker#routing-fragment-marker"
+                        .into(),
+                ),
+            ]),
+        };
+
+        let diagnostic = format!("{request:?}");
+
+        for secret in [
+            "userinfo-marker",
+            "password-marker",
+            "path-marker",
+            "query-marker",
+            "fragment-marker",
+            "direct-routing-value-marker",
+            "routing-user-marker",
+            "routing-password-marker",
+            "routing-path-marker",
+            "routing-query-marker",
+            "routing-fragment-marker",
+        ] {
+            assert!(
+                !diagnostic.contains(secret),
+                "ConnectRequest Debug leaked {secret:?}: {diagnostic}"
+            );
+        }
+        assert!(diagnostic.contains("wss://debug.example"), "{diagnostic}");
+        assert!(diagnostic.contains("direct-addresses"), "{diagnostic}");
+        assert!(diagnostic.contains("relay-url"), "{diagnostic}");
+        assert!(diagnostic.contains("Single"), "{diagnostic}");
+    }
 }

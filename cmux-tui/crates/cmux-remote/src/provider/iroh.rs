@@ -988,6 +988,63 @@ mod tests {
         );
     }
 
+    #[test]
+    fn route_debug_redacts_relay_url_and_direct_address_hints() {
+        let node_id = secret(44).public();
+        let relay_url = RelayUrl::from(
+            Url::parse(
+                "https://relay-user-marker:relay-password-marker@relay.example.test/\
+                 relay-path-marker?ticket=relay-query-marker#relay-fragment-marker",
+            )
+            .unwrap(),
+        );
+        let route = IrohRoute::new(
+            NodeAddr::new(node_id)
+                .with_relay_url(relay_url)
+                .with_ip_addr("203.0.113.246:54321".parse().unwrap()),
+        );
+
+        let diagnostic = format!("{route:?}");
+
+        for secret in [
+            "relay-user-marker",
+            "relay-password-marker",
+            "relay-path-marker",
+            "relay-query-marker",
+            "relay-fragment-marker",
+            "203.0.113.246",
+            "54321",
+        ] {
+            assert!(
+                !diagnostic.contains(secret),
+                "IrohRoute Debug leaked {secret:?}: {diagnostic}"
+            );
+        }
+        assert!(diagnostic.contains(&node_id.to_string()), "{diagnostic}");
+    }
+
+    #[test]
+    fn malformed_iroh_route_hint_errors_do_not_echo_hint_values() {
+        let node_id = secret(45).public();
+        let direct_marker = "malformed-direct-hint-marker";
+        let direct_error = IrohRoute::from_request(&request(
+            node_id,
+            BTreeMap::from([(ROUTING_DIRECT_ADDRS.into(), format!("{direct_marker}:not-a-port"))]),
+        ))
+        .unwrap_err()
+        .to_string();
+        assert!(!direct_error.contains(direct_marker), "{direct_error}");
+
+        let relay_marker = "malformed-relay-url-marker";
+        let relay_error = IrohRoute::from_request(&request(
+            node_id,
+            BTreeMap::from([(ROUTING_RELAY_URL.into(), relay_marker.into())]),
+        ))
+        .unwrap_err()
+        .to_string();
+        assert!(!relay_error.contains(relay_marker), "{relay_error}");
+    }
+
     fn local_config(secret_key: SecretKey) -> IrohProviderConfig {
         IrohProviderConfig {
             secret_key: Some(secret_key),

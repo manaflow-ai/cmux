@@ -1301,6 +1301,49 @@ mod tests {
     }
 
     #[test]
+    fn relay_config_debug_redacts_endpoint_capabilities_slots_and_tickets() {
+        let endpoint = Url::parse(
+            "relay+wss://endpoint-user-marker:endpoint-password-marker@relay.example/\
+             endpoint-path-marker?ticket=endpoint-query-marker#endpoint-fragment-marker",
+        )
+        .unwrap();
+        let client = RelayClientConfig {
+            slot: "client-slot-marker".into(),
+            ticket: "client-ticket-marker".into(),
+            maximum_frame_bytes: 65_535,
+            control_timeout: Duration::from_secs(1),
+        };
+        let daemon = RelayDaemonConfig {
+            endpoint,
+            slot: "daemon-slot-marker".into(),
+            ticket: "daemon-ticket-marker".into(),
+            maximum_frame_bytes: 65_535,
+            control_timeout: Duration::from_secs(1),
+        };
+
+        let diagnostic = format!("client={client:?} daemon={daemon:?}");
+
+        for secret in [
+            "endpoint-user-marker",
+            "endpoint-password-marker",
+            "endpoint-path-marker",
+            "endpoint-query-marker",
+            "endpoint-fragment-marker",
+            "client-slot-marker",
+            "client-ticket-marker",
+            "daemon-slot-marker",
+            "daemon-ticket-marker",
+        ] {
+            assert!(
+                !diagnostic.contains(secret),
+                "relay config Debug leaked {secret:?}: {diagnostic}"
+            );
+        }
+        assert!(diagnostic.contains("relay+wss://relay.example"), "{diagnostic}");
+        assert!(diagnostic.contains("65535"), "{diagnostic}");
+    }
+
+    #[test]
     fn durable_object_urls_route_before_websocket_upgrade() {
         let base = Url::parse("relay+do://relay.example/").unwrap();
         let client = relay_websocket_url(&base, "slot_value-1", RelayRole::Client).unwrap();

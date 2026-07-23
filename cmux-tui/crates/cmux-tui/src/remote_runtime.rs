@@ -1300,6 +1300,20 @@ mod tests {
         }
     }
 
+    struct DebugEchoingReconnectRouteAttempt;
+
+    #[async_trait]
+    impl ReconnectRouteAttempt<String> for DebugEchoingReconnectRouteAttempt {
+        async fn connect(
+            &self,
+            _index: usize,
+            request: ConnectRequest,
+            _auth: AuthKind,
+        ) -> Result<String, ProviderError> {
+            Err(ProviderError::Transport(format!("provider rejected {request:?}")))
+        }
+    }
+
     #[derive(Default)]
     struct AuthRecordingReconnectRouteAttempt {
         auth: std::sync::Mutex<Vec<AuthKind>>,
@@ -1377,6 +1391,125 @@ mod tests {
             providers.supported_client_auth("unix").unwrap(),
             SupportedClientAuthModes::DeviceOrCarrier
         );
+    }
+
+    #[test]
+    fn runtime_route_debug_redacts_raw_urls_slots_and_routing_hints() {
+        let candidate = resolved_test_route_with_routing(
+            "wss://candidate-user-marker:candidate-password-marker@candidate.example/\
+             candidate-path-marker?ticket=candidate-query-marker#candidate-fragment-marker",
+            BTreeMap::from([
+                (
+                    cmux_remote::provider::ROUTING_DIRECT_ADDRS.into(),
+                    "direct-hint-marker:4242".into(),
+                ),
+                (
+                    cmux_remote::provider::ROUTING_RELAY_URL.into(),
+                    "https://hint-user-marker:hint-password-marker@hint.example/\
+                     hint-path-marker?ticket=hint-query-marker#hint-fragment-marker"
+                        .into(),
+                ),
+            ]),
+            SupportedClientAuthModes::DeviceOnly,
+        );
+        let relay_options = RelayDaemonOptions {
+            endpoint: Url::parse(
+                "relay+wss://daemon-user-marker:daemon-password-marker@daemon.example/\
+                 daemon-path-marker?ticket=daemon-query-marker#daemon-fragment-marker",
+            )
+            .unwrap(),
+            slot: "daemon-slot-marker".into(),
+            credentials: RelayCredentialSource::static_ticket("daemon-ticket-marker").unwrap(),
+        };
+        let routed_provider = RoutedRelayProvider {
+            fallback: Some(RelayClientOptions {
+                slot: "fallback-slot-marker".into(),
+                credentials: RelayCredentialSource::static_ticket("fallback-ticket-marker")
+                    .unwrap(),
+            }),
+            routes: BTreeMap::from([(
+                "relay+wss://map-user-marker:map-password-marker@map.example/\
+                 map-path-marker?ticket=map-query-marker#map-fragment-marker"
+                    .into(),
+                RelayClientOptions {
+                    slot: "route-slot-marker".into(),
+                    credentials: RelayCredentialSource::static_ticket("route-ticket-marker")
+                        .unwrap(),
+                },
+            )]),
+        };
+        let daemon_options = DaemonRuntimeOptions {
+            session: "debug-control".into(),
+            state_dir: None,
+            link_socket: None,
+            admin_socket: None,
+            direct_websocket: None,
+            allow_insecure_non_loopback: false,
+            relays: vec![relay_options],
+            iroh: false,
+            advertised_routes: vec!["%%% malformed-route-marker %%%".into()],
+            resume_lease: Duration::from_secs(1),
+            replaceable_sidecar: false,
+        };
+        let daemon_info = DaemonRuntimeInfo {
+            session: "debug-control".into(),
+            state_dir: PathBuf::from("/tmp/state"),
+            link_socket: PathBuf::from("/tmp/link"),
+            admin_socket: PathBuf::from("/tmp/admin"),
+            daemon_fingerprint: "public-fingerprint".into(),
+            routes: vec!["%%% malformed-info-route-marker %%%".into()],
+            direct_websocket: None,
+            iroh_node_id: None,
+            replaceable_sidecar: false,
+        };
+
+        let diagnostic = format!(
+            "candidate={candidate:?} provider={routed_provider:?} \
+             daemon_options={daemon_options:?} daemon_info={daemon_info:?}"
+        );
+
+        for secret in [
+            "candidate-user-marker",
+            "candidate-password-marker",
+            "candidate-path-marker",
+            "candidate-query-marker",
+            "candidate-fragment-marker",
+            "direct-hint-marker",
+            "hint-user-marker",
+            "hint-password-marker",
+            "hint-path-marker",
+            "hint-query-marker",
+            "hint-fragment-marker",
+            "daemon-user-marker",
+            "daemon-password-marker",
+            "daemon-path-marker",
+            "daemon-query-marker",
+            "daemon-fragment-marker",
+            "daemon-slot-marker",
+            "daemon-ticket-marker",
+            "fallback-slot-marker",
+            "fallback-ticket-marker",
+            "map-user-marker",
+            "map-password-marker",
+            "map-path-marker",
+            "map-query-marker",
+            "map-fragment-marker",
+            "route-slot-marker",
+            "route-ticket-marker",
+            "malformed-route-marker",
+            "malformed-info-route-marker",
+        ] {
+            assert!(
+                !diagnostic.contains(secret),
+                "remote runtime Debug leaked {secret:?}: {diagnostic}"
+            );
+        }
+        assert!(diagnostic.contains("wss://candidate.example"), "{diagnostic}");
+        assert!(diagnostic.contains("relay+wss://daemon.example"), "{diagnostic}");
+        assert!(diagnostic.contains("relay+wss://map.example"), "{diagnostic}");
+        assert!(diagnostic.contains("invalid route"), "{diagnostic}");
+        assert!(diagnostic.contains(cmux_remote::provider::ROUTING_DIRECT_ADDRS), "{diagnostic}");
+        assert!(diagnostic.contains(cmux_remote::provider::ROUTING_RELAY_URL), "{diagnostic}");
     }
 
     #[tokio::test]
@@ -1901,6 +2034,50 @@ mod tests {
         }
         assert!(error.contains("wss://ws.example/"), "{error}");
         assert!(error.contains("relay+wss://relay.example"), "{error}");
+    }
+
+    #[tokio::test]
+    async fn reconnect_provider_debug_error_redacts_request_route_and_hints() {
+        let routes = vec![resolved_test_route_with_routing(
+            "wss://reconnect-user-marker:reconnect-password-marker@reconnect.example/\
+             reconnect-path-marker?ticket=reconnect-query-marker#reconnect-fragment-marker",
+            BTreeMap::from([(
+                cmux_remote::provider::ROUTING_RELAY_URL.into(),
+                "https://routing-user-marker:routing-password-marker@routing.example/\
+                 routing-path-marker?ticket=routing-query-marker#routing-fragment-marker"
+                    .into(),
+            )]),
+            SupportedClientAuthModes::DeviceOnly,
+        )];
+
+        let error = select_reconnect_route(
+            &routes,
+            0,
+            SessionId([18; 16]),
+            LanePolicy::Single,
+            AuthKind::Enrolled,
+            &DebugEchoingReconnectRouteAttempt,
+        )
+        .await
+        .unwrap_err()
+        .to_string();
+
+        for secret in [
+            "reconnect-user-marker",
+            "reconnect-password-marker",
+            "reconnect-path-marker",
+            "reconnect-query-marker",
+            "reconnect-fragment-marker",
+            "routing-user-marker",
+            "routing-password-marker",
+            "routing-path-marker",
+            "routing-query-marker",
+            "routing-fragment-marker",
+        ] {
+            assert!(!error.contains(secret), "reconnect diagnostic leaked {secret:?}: {error}");
+        }
+        assert!(error.contains("wss://reconnect.example"), "{error}");
+        assert!(error.contains(cmux_remote::provider::ROUTING_RELAY_URL), "{error}");
     }
 
     #[tokio::test]
