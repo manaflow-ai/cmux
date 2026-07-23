@@ -33803,6 +33803,9 @@ export default CMUXSessionRestore;
             eventDict["cwd"] = cwd
         }
         if !toolName.isEmpty { eventDict["tool_name"] = toolName }
+        if let isError = stdinObj["is_error"] as? Bool ?? stdinObj["isError"] as? Bool {
+            eventDict["is_error"] = isError
+        }
         let promptText = hookEventName == "UserPromptSubmit" ? feedPromptText(from: stdinObj) : nil
         if let feedToolInput {
             eventDict["tool_input"] = shouldUseCodexPostToolUseResponse
