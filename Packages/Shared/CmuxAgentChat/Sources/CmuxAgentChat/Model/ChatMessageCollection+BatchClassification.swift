@@ -14,23 +14,27 @@ public extension Collection where Element == ChatMessage {
     /// Latest agent timestamp when the batch contains no unfinished agent work.
     var completedAssistantTurnTimestamp: Date? {
         guard !isEmpty else { return nil }
+        guard let finalProse = lazy.filter({ $0.role == .agent }).filter({ message in
+            if case .prose = message.kind { return true }
+            return false
+        }).max(by: { $0.seq < $1.seq }) else {
+            return nil
+        }
         guard !contains(where: { message in
             guard message.role == .agent else { return false }
             switch message.kind {
-            case .toolUse, .terminal, .fileEdit, .permissionRequest, .question:
+            case .toolUse(let toolUse):
+                return toolUse.status == .running || message.seq > finalProse.seq
+            case .terminal(let terminal):
+                return terminal.isRunning || message.seq > finalProse.seq
+            case .fileEdit, .thought, .unsupported:
+                return message.seq > finalProse.seq
+            case .permissionRequest, .question:
                 return true
-            case .prose, .thought, .status, .attachment, .unsupported:
+            case .prose, .status, .attachment:
                 return false
             }
         }) else { return nil }
-        return lazy.filter { $0.role == .agent }.compactMap { message in
-            switch message.kind {
-            case .prose, .thought, .unsupported:
-                return message.timestamp
-            case .toolUse, .terminal, .fileEdit, .permissionRequest, .question, .status, .attachment:
-                return nil
-            }
-        }
-        .max()
+        return finalProse.timestamp
     }
 }

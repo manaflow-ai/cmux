@@ -35,6 +35,26 @@ struct ChatMessageBatchClassificationTests {
         #expect([prose, tool].completedAssistantTurnTimestamp == nil)
     }
 
+    @Test("Completed tool work before final prose allows turn completion")
+    func acceptsCompletedToolBeforeFinalProse() {
+        let tool = message(
+            role: .agent,
+            timestamp: 2,
+            kind: .toolUse(ChatToolUse(
+                toolName: "Read",
+                summary: "Read file",
+                status: .succeeded
+            ))
+        )
+        let prose = message(
+            role: .agent,
+            timestamp: 3,
+            kind: .prose(ChatProse(text: "answer"))
+        )
+
+        #expect([prose, tool].completedAssistantTurnTimestamp == date(3))
+    }
+
     @Test("Thought-only and unsupported batches do not complete a turn")
     func requiresFinalAgentProse() {
         let thought = message(

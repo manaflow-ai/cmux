@@ -55,6 +55,33 @@ struct CmuxProjectNoteResolver {
         return best.0
     }
 
+    func resolveExact(notes: [CmuxProjectNote], rawName: String) throws -> CmuxProjectNote {
+        let name = normalizedReference(rawName)
+        guard !name.isEmpty else { throw CmuxNoteStoreError.invalidName(rawName) }
+        if let exact = notes.first(where: { $0.relativePath == name }) { return exact }
+        guard !name.contains("/") else { throw CmuxNoteStoreError.noteNotFound(rawName) }
+
+        let requestedBasename = URL(fileURLWithPath: name).lastPathComponent
+        let requestedStem = URL(fileURLWithPath: requestedBasename)
+            .deletingPathExtension().lastPathComponent
+        let matches = notes.filter { candidate in
+            candidate.name.caseInsensitiveCompare(requestedBasename) == .orderedSame
+                || URL(fileURLWithPath: candidate.name)
+                    .deletingPathExtension().lastPathComponent
+                    .caseInsensitiveCompare(requestedStem) == .orderedSame
+        }
+        guard matches.count <= 1 else {
+            throw CmuxNoteStoreError.ambiguousNoteName(
+                rawName,
+                matches: matches.map(\.relativePath)
+            )
+        }
+        guard let match = matches.first else {
+            throw CmuxNoteStoreError.noteNotFound(rawName)
+        }
+        return match
+    }
+
     func creationRelativePath(rawName: String) throws -> String {
         let trimmed = rawName.trimmingCharacters(in: .whitespacesAndNewlines)
         guard !trimmed.isEmpty,
