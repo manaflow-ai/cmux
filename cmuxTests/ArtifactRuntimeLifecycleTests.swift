@@ -1,3 +1,4 @@
+import AppKit
 import CmuxArtifacts
 import Foundation
 import Testing
@@ -135,6 +136,45 @@ struct ArtifactRuntimeLifecycleTests {
         #expect(service.debugSessionDump().first?["tailer_active"] as? Bool == true)
     }
 
+    @Test("Artifacts focus waits for its search endpoint instead of accepting the sidebar host")
+    func artifactsFocusTargetsSearchEndpoint() {
+        let defaults = UserDefaults.standard
+        let key = RightSidebarBetaFeatureSettings.artifactsEnabledKey
+        let previousValue = defaults.object(forKey: key)
+        defaults.set(true, forKey: key)
+        defer { restore(previousValue, forKey: key) }
+
+        let fileExplorerState = FileExplorerState()
+        let window = NSWindow(
+            contentRect: NSRect(x: 0, y: 0, width: 240, height: 180),
+            styleMask: [.titled],
+            backing: .buffered,
+            defer: false
+        )
+        let contentView = NSView(frame: window.contentView?.bounds ?? .zero)
+        window.contentView = contentView
+        let controller = MainWindowFocusController(
+            windowId: UUID(),
+            window: window,
+            tabManager: TabManager(),
+            fileExplorerState: fileExplorerState
+        )
+        let fallbackHost = RightSidebarKeyboardFocusView(
+            frame: NSRect(x: 0, y: 0, width: 24, height: 24)
+        )
+        contentView.addSubview(fallbackHost)
+        controller.registerRightSidebarHost(fallbackHost)
+        defer {
+            _ = window.makeFirstResponder(nil)
+            fallbackHost.removeFromSuperview()
+            window.contentView = nil
+            window.orderOut(nil)
+        }
+
+        #expect(controller.focusRightSidebar(mode: .artifacts, focusFirstItem: true))
+        #expect(controller.debugPendingRightSidebarFocusMode == .artifacts)
+    }
+
     private func transcriptFixture() throws -> (root: URL, event: WorkstreamEvent) {
         let root = try temporaryDirectory()
         let transcript = root.appendingPathComponent("transcript.jsonl")
@@ -160,5 +200,13 @@ struct ArtifactRuntimeLifecycleTests {
             .appendingPathComponent(UUID().uuidString, isDirectory: true)
         try FileManager.default.createDirectory(at: root, withIntermediateDirectories: true)
         return root
+    }
+
+    private func restore(_ value: Any?, forKey key: String) {
+        if let value {
+            UserDefaults.standard.set(value, forKey: key)
+        } else {
+            UserDefaults.standard.removeObject(forKey: key)
+        }
     }
 }

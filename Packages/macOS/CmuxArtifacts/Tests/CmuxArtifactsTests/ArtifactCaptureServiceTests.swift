@@ -70,6 +70,37 @@ struct ArtifactCaptureServiceTests {
         #expect(await store.importCount == 1)
     }
 
+    @Test("Automatic capture enforces its aggregate staged-byte budget")
+    func enforcesAggregateAutomaticCaptureByteLimit() async throws {
+        let root = try ArtifactTestSupport.temporaryDirectory()
+        defer { ArtifactTestSupport.remove(root) }
+        #expect(try ArtifactTestSupport.runGit(["init", "--quiet", root.path]) == 0)
+        _ = try ArtifactTestSupport.write(
+            """
+            {
+              "maximumFileBytes": 10,
+              "maximumTextFileBytes": 10,
+              "maximumAutomaticCaptureBytes": 6
+            }
+            """,
+            named: ".cmux/artifacts.json",
+            under: root
+        )
+        let first = try ArtifactTestSupport.write("1111", named: "outside/first.md", under: root)
+        let second = try ArtifactTestSupport.write("2222", named: "outside/second.md", under: root)
+
+        let outcomes = await ArtifactCaptureService(store: LocalArtifactRepository()).capture(
+            candidates: [
+                ArtifactCandidate(sourceURL: first, provenance: .created),
+                ArtifactCandidate(sourceURL: second, provenance: .created),
+            ],
+            context: ArtifactCaptureContext(projectRoot: root)
+        )
+
+        #expect(outcomes.first?.record != nil)
+        #expect(outcomes.last == .skipped(.candidateLimitReached))
+    }
+
     @Test("Manual selections share configuration and use bounded persistence batches")
     func batchesManualSelection() async throws {
         let root = try ArtifactTestSupport.temporaryDirectory()
