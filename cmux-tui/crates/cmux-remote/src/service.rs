@@ -19,6 +19,7 @@ const MAX_OPEN_STREAMS: usize = 256;
 // lanes), so a resumed slow lane cannot outlive the closed-stream memory.
 const MAX_CLOSED_STREAM_TOMBSTONES: usize = 16 * 1024;
 const MAX_BUFFERED_STREAM_BYTES: usize = 32 * 1024 * 1024;
+const MIN_BUFFERED_FRAME_ACCOUNTING_BYTES: usize = 1024;
 const STREAM_LOCAL_FIN: u8 = 1 << 0;
 const STREAM_REMOTE_FIN: u8 = 1 << 1;
 const STREAM_RESET: u8 = 1 << 2;
@@ -200,7 +201,7 @@ impl TerminalCleanup {
 struct StreamRegistration {
     service: Service,
     generation: Option<u64>,
-    chunks: mpsc::Sender<StreamChunk>,
+    chunks: mpsc::UnboundedSender<StreamChunk>,
     failure: watch::Sender<Option<StreamFailure>>,
     state: Arc<AtomicU8>,
     terminal: Arc<LaneTerminalState>,
@@ -333,7 +334,7 @@ impl ServiceMultiplexer {
             .next_stream
             .fetch_update(Ordering::Relaxed, Ordering::Relaxed, |value| value.checked_add(2))
             .map_err(|_| ServiceError::StreamIdsExhausted)?;
-        let (sender, receiver) = mpsc::channel(256);
+        let (sender, receiver) = mpsc::unbounded_channel();
         let generation = generation_for_service(service, *self.generation.borrow());
         let (failure, failure_changed) = watch::channel(None);
         let state = Arc::new(AtomicU8::new(0));
@@ -545,7 +546,7 @@ pub struct ServiceStream {
 }
 
 struct StreamReceiver {
-    chunks: mpsc::Receiver<StreamChunk>,
+    chunks: mpsc::UnboundedReceiver<StreamChunk>,
     failure_changed: watch::Receiver<Option<StreamFailure>>,
     remote_finished_delivered: bool,
 }
@@ -880,7 +881,7 @@ async fn reader_loop(reader: ReaderLoop) {
                     fatal.send(Some(format!("closed stream {} was opened again", frame.stream)));
                 break;
             }
-            let (sender, receiver) = mpsc::channel(256);
+            let (sender, receiver) = mpsc::unbounded_channel();
             let (failure, failure_changed) = watch::channel(None);
             let state = Arc::new(AtomicU8::new(0));
             let terminal = LaneTerminalState::new(control.0);
@@ -1032,40 +1033,6 @@ async fn reader_loop(reader: ReaderLoop) {
             continue;
         }
         let lane_finished = frame.flags.contains(FrameFlags::FIN);
-        let budget = if frame.payload.is_empty() {
-            None
-        } else {
-            let Ok(bytes) = u32::try_from(frame.payload.len()) else {
-                reset_registered_stream(
-                    &streams,
-                    &closed,
-                    frame.stream,
-                    "incoming frame length exceeded the stream budget representation",
-                )
-                .await;
-                continue;
-            };
-            match incoming_budget.clone().try_acquire_many_owned(bytes) {
-                Ok(permit) => Some(permit),
-                Err(_) => {
-                    reset_registered_stream(
-                        &streams,
-                        &closed,
-                        frame.stream,
-                        "incoming stream byte budget was exhausted",
-                    )
-                    .await;
-                    cleanup.spawn(
-                        endpoint.clone(),
-                        stream_generation,
-                        frame.lane,
-                        frame.stream,
-                        None,
-                    );
-                    continue;
-                }
-            }
-        };
         let finished = if lane_finished {
             let remote = terminal.remote.fetch_or(inbound_lane, Ordering::AcqRel) | inbound_lane;
             terminal.required == 0 || remote & terminal.required == terminal.required
@@ -1075,20 +1042,45 @@ async fn reader_loop(reader: ReaderLoop) {
         if lane_finished && !finished && frame.payload.is_empty() {
             continue;
         }
+        let accounted_bytes = frame.payload.len().max(MIN_BUFFERED_FRAME_ACCOUNTING_BYTES);
+        let Ok(accounted_bytes) = u32::try_from(accounted_bytes) else {
+            reset_registered_stream(
+                &streams,
+                &closed,
+                frame.stream,
+                "incoming frame length exceeded the stream budget representation",
+            )
+            .await;
+            continue;
+        };
+        let budget = match incoming_budget.clone().try_acquire_many_owned(accounted_bytes) {
+            Ok(permit) => permit,
+            Err(_) => {
+                reset_registered_stream(
+                    &streams,
+                    &closed,
+                    frame.stream,
+                    "incoming stream byte budget was exhausted",
+                )
+                .await;
+                cleanup.spawn(endpoint.clone(), stream_generation, frame.lane, frame.stream, None);
+                continue;
+            }
+        };
         let chunk = StreamChunk {
             lane: frame.lane,
             sequence: frame.sequence,
             payload: frame.payload,
             finished,
             reset,
-            budget,
+            budget: Some(budget),
         };
         let prior_state = if finished {
             state.fetch_or(STREAM_REMOTE_FIN, Ordering::AcqRel)
         } else {
             state.load(Ordering::Acquire)
         };
-        match sender.try_send(chunk) {
+        match sender.send(chunk) {
             Ok(()) if !finished => {}
             Ok(())
                 if service != Service::TcpTunnel
@@ -1099,19 +1091,9 @@ async fn reader_loop(reader: ReaderLoop) {
                 closed.lock().await.insert(frame.stream);
             }
             Ok(()) => {}
-            Err(mpsc::error::TrySendError::Closed(_)) => {
+            Err(_) => {
                 streams.lock().await.remove(&frame.stream);
                 closed.lock().await.insert(frame.stream);
-            }
-            Err(mpsc::error::TrySendError::Full(_)) => {
-                reset_registered_stream(
-                    &streams,
-                    &closed,
-                    frame.stream,
-                    "incoming stream frame queue was exhausted",
-                )
-                .await;
-                cleanup.spawn(endpoint.clone(), stream_generation, frame.lane, frame.stream, None);
             }
         }
     }
