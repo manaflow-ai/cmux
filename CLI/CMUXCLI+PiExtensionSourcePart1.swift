@@ -5,6 +5,7 @@ extension CMUXCLI {
 // Installed by `cmux hooks pi install` or `cmux hooks setup`.
 // DO NOT EDIT MANUALLY. cmux upgrades this file in place.
 
+import { Buffer } from "node:buffer";
 import { spawn } from "node:child_process";
 import * as fs from "node:fs";
 import * as path from "node:path";

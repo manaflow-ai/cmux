@@ -14,15 +14,26 @@ extension CMUXCLI {
         ).requestLines(from: rawObject)
         guard !requestLines.isEmpty else { return false }
 
-        for line in requestLines {
-            if let client {
+        if let client {
+            for line in requestLines {
                 _ = try? client.sendOneWay(command: line, writeTimeout: 0.05)
-            } else if let socketPath {
-                sendBestEffortFeedTelemetry(
+            }
+        } else if let socketPath {
+            let batchClient = SocketClient(path: socketPath)
+            defer { batchClient.close() }
+            do {
+                try batchClient.connectWithoutRetry(responseTimeout: 0.05)
+                try authenticateClientIfNeeded(
+                    batchClient,
+                    explicitPassword: socketPassword,
                     socketPath: socketPath,
-                    line: line,
-                    socketPassword: socketPassword
+                    responseTimeout: 0.05
                 )
+                for line in requestLines {
+                    try batchClient.sendOneWay(command: line, writeTimeout: 0.05)
+                }
+            } catch {
+                return true
             }
         }
         return true

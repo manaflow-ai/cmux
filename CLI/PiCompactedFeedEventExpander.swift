@@ -52,10 +52,12 @@ struct PiCompactedFeedEventExpander {
             "_ppid": agentPid,
             "_opencode_request_id": "pi-\(sessionId)-PostToolUse-\(toolCallId)-compacted-\(index)",
         ]
-        if let workspaceId = string(fallback["workspace_id"]) ?? workspaceId {
+        if let workspaceId = string(summary["workspace_id"])
+            ?? string(fallback["workspace_id"])
+            ?? workspaceId {
             event["workspace_id"] = workspaceId
         }
-        if let cwd = string(fallback["cwd"]) {
+        if let cwd = string(summary["cwd"]) ?? string(fallback["cwd"]) {
             event["cwd"] = cwd
         }
         if let turnId = string(summary["turn_id"]) ?? string(fallback["turn_id"]) {

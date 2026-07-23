@@ -19,6 +19,7 @@ interface PiCommandCancellation {
 class PiCmuxCommandDispatcher {
   private static readonly maxPendingFeedCommands = 8;
   private static readonly maxCompactedTerminalSummaries = 64;
+  private static readonly maxFeedInputBytes = 128 * 1024;
   private static readonly feedDrainDeadlineMs = 2500;
   private controlQueue: Promise<void> = Promise.resolve();
   private pendingFeedCommands = new Map<string, PiFeedCommand>();
@@ -52,6 +53,8 @@ class PiCmuxCommandDispatcher {
 
   enqueueFeed(key: string, command: PiFeedCommand): void {
     if (!this.canDispatch) return;
+    command = this.boundedFeedCommand(command);
+    const sessionId = command.context.sessionId;
 
     const existing = this.pendingFeedCommands.get(key);
     if (existing) {
@@ -61,9 +64,9 @@ class PiCmuxCommandDispatcher {
       this.pendingFeedCommands.delete(key);
       this.pendingFeedCommands.set(key, command);
     } else {
-      if (this.queuedFeedCount() >= PiCmuxCommandDispatcher.maxPendingFeedCommands) {
+      if (this.queuedFeedCount(sessionId) >= PiCmuxCommandDispatcher.maxPendingFeedCommands) {
         if (!command.terminal) return;
-        if (!this.evictPendingStartForCompletion()) {
+        if (!this.evictPendingStartForCompletion(sessionId)) {
           this.compactPendingCompletion(command);
           return;
         }
@@ -88,8 +91,14 @@ class PiCmuxCommandDispatcher {
     await this.waitForFeedDrainUntilDeadline(sessionId);
   }
 
-  private queuedFeedCount(): number {
-    return this.priorityFeedCommands.length + this.pendingFeedCommands.size;
+  private queuedFeedCount(sessionId: string | null): number {
+    let count = this.priorityFeedCommands.filter(
+      (command) => command.context.sessionId === sessionId,
+    ).length;
+    for (const command of this.pendingFeedCommands.values()) {
+      if (command.context.sessionId === sessionId) count += 1;
+    }
+    return count;
   }
 
   private waitForFeedDrain(sessionId: string): Promise<void> {
@@ -137,9 +146,9 @@ class PiCmuxCommandDispatcher {
     }
   }
 
-  private evictPendingStartForCompletion(): boolean {
+  private evictPendingStartForCompletion(sessionId: string | null): boolean {
     for (const [key, command] of this.pendingFeedCommands) {
-      if (!command.terminal) {
+      if (!command.terminal && command.context.sessionId === sessionId) {
         this.pendingFeedCommands.delete(key);
         return true;
       }
@@ -149,7 +158,6 @@ class PiCmuxCommandDispatcher {
 
   private compactPendingCompletion(command: PiFeedCommand): void {
     const entries = Array.from(this.pendingFeedCommands.entries());
-    let fallbackPending: [string, PiFeedCommand] | null = null;
     for (let index = entries.length - 1; index >= 0; index -= 1) {
       const [key, pending] = entries[index];
       if (!pending.terminal) continue;
@@ -157,9 +165,7 @@ class PiCmuxCommandDispatcher {
         this.pendingFeedCommands.set(key, this.compactedTerminalCommand(pending, command));
         return;
       }
-      if (!fallbackPending) fallbackPending = [key, pending];
     }
-    let fallbackPriorityIndex: number | null = null;
     for (let index = this.priorityFeedCommands.length - 1; index >= 0; index -= 1) {
       const pending = this.priorityFeedCommands[index];
       if (!pending.terminal) continue;
@@ -167,17 +173,28 @@ class PiCmuxCommandDispatcher {
         this.priorityFeedCommands[index] = this.compactedTerminalCommand(pending, command);
         return;
       }
-      if (fallbackPriorityIndex === null) fallbackPriorityIndex = index;
     }
-    if (fallbackPending) {
-      const [key, pending] = fallbackPending;
-      this.pendingFeedCommands.set(key, this.compactedTerminalCommand(pending, command));
-      return;
+  }
+
+  private boundedFeedCommand(command: PiFeedCommand): PiFeedCommand {
+    if (Buffer.byteLength(command.input, "utf8") <= PiCmuxCommandDispatcher.maxFeedInputBytes) {
+      return command;
     }
-    if (fallbackPriorityIndex !== null) {
-      const pending = this.priorityFeedCommands[fallbackPriorityIndex];
-      this.priorityFeedCommands[fallbackPriorityIndex] = this.compactedTerminalCommand(pending, command);
+    const payload = this.feedPayload(command);
+    if (command.terminal) {
+      const summary = this.terminalSummary(payload);
+      delete payload.tool_input;
+      delete payload.tool_result;
+      payload.cmux_compacted_terminal_count = 1;
+      payload.cmux_compacted_terminal_omitted_count = 0;
+      payload.cmux_compacted_terminal_events = [summary];
+    } else if (payload.tool_input !== undefined) {
+      payload.tool_input = this.terminalResultSummary(payload.tool_input);
     }
+    for (const key of ["session_id", "cwd", "turn_id", "tool_call_id", "tool_name"] as const) {
+      if (typeof payload[key] === "string") payload[key] = payload[key].slice(0, 2048);
+    }
+    return { ...command, input: JSON.stringify(payload) };
   }
 
   private compactedTerminalCommand(existing: PiFeedCommand, incoming: PiFeedCommand): PiFeedCommand {
@@ -193,14 +210,28 @@ class PiCmuxCommandDispatcher {
     const incomingCount = this.compactedTerminalCount(incomingPayload, incomingSummaries.length);
     const combined = [...existingSummaries, ...incomingSummaries];
     const summaryLimit = PiCmuxCommandDispatcher.maxCompactedTerminalSummaries;
-    const summaries = combined.length <= summaryLimit
+    let summaries = combined.length <= summaryLimit
       ? combined
       : [...combined.slice(0, summaryLimit / 2), ...combined.slice(-summaryLimit / 2)];
     const totalCount = existingCount + incomingCount;
-    existingPayload.cmux_compacted_terminal_count = totalCount;
-    existingPayload.cmux_compacted_terminal_omitted_count = Math.max(0, totalCount - summaries.length);
-    existingPayload.cmux_compacted_terminal_events = summaries;
-    return { ...existing, input: JSON.stringify(existingPayload) };
+    delete existingPayload.tool_input;
+    delete existingPayload.tool_result;
+    let input = "";
+    while (true) {
+      existingPayload.cmux_compacted_terminal_count = totalCount;
+      existingPayload.cmux_compacted_terminal_omitted_count = Math.max(0, totalCount - summaries.length);
+      existingPayload.cmux_compacted_terminal_events = summaries;
+      input = JSON.stringify(existingPayload);
+      if (Buffer.byteLength(input, "utf8") <= PiCmuxCommandDispatcher.maxFeedInputBytes || summaries.length <= 1) break;
+      const keptCount = Math.max(1, Math.floor(summaries.length / 2));
+      const leadingCount = Math.ceil(keptCount / 2);
+      const trailingCount = keptCount - leadingCount;
+      summaries = [
+        ...summaries.slice(0, leadingCount),
+        ...(trailingCount > 0 ? summaries.slice(-trailingCount) : []),
+      ];
+    }
+    return { ...existing, input };
   }
 
   private compactedTerminalCount(payload: Record<string, unknown>, fallback: number): number {
