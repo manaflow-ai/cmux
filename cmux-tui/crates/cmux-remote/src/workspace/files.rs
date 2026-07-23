@@ -2995,6 +2995,40 @@ mod tests {
 
     #[cfg(any(target_os = "linux", target_os = "android", target_vendor = "apple"))]
     #[tokio::test]
+    async fn failed_remove_rename_does_not_report_an_uncreated_recovery_entry() {
+        let (_directory, root) = root().await;
+        let target = root.canonical_root().join("value.txt");
+        tokio::fs::write(&target, b"expected").await.unwrap();
+        let before_rename = install_mutation_test_barrier(
+            &root,
+            "value.txt",
+            MutationTestPoint::BeforeContentHashRemoveRename,
+        );
+        let remover = {
+            let root = Arc::clone(&root);
+            tokio::spawn(async move {
+                remove_file_precondition_locked_with_outcome(
+                    &root,
+                    "value.txt",
+                    &FilePrecondition::ContentHash(hash_bytes(b"expected")),
+                )
+                .await
+            })
+        };
+
+        before_rename.wait_until_reached().await;
+        tokio::fs::remove_file(&target).await.unwrap();
+        before_rename.resume();
+
+        let failure = remover.await.unwrap().unwrap_err();
+        assert_eq!(failure.error.code, "conflict");
+        assert_eq!(failure.outcome, MutationOutcome::Unknown);
+        assert_eq!(failure.recovery_path, None);
+        assert!(!has_recovery_entry(&root, ".cmux-remove-"));
+    }
+
+    #[cfg(any(target_os = "linux", target_os = "android", target_vendor = "apple"))]
+    #[tokio::test]
     async fn content_hash_write_rejects_an_in_place_staged_file_mutation() {
         use std::os::unix::fs::MetadataExt as _;
 
