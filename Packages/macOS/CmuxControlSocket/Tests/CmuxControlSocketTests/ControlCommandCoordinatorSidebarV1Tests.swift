@@ -93,6 +93,6 @@ struct ControlCommandCoordinatorSidebarV1Tests {
             args: "codex Running --agent-event-time=4102444800"
         )
 
-        #expect(response.hasPrefix("ERROR: Invalid agent event time"))
+        #expect(response?.hasPrefix("ERROR: Invalid agent event time") == true)
     }
 }
