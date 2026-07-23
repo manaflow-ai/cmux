@@ -73,16 +73,13 @@ extension AgentChatTranscriptService {
             }
             guard !Task.isCancelled, await isAutomaticArtifactCaptureEnabled() else { return }
             let progress = await artifactCaptureCoordinator.capture(record: record, snapshot: snapshot)
-            guard progress == .needsContinuation,
-                  !Task.isCancelled,
-                  await isAutomaticArtifactCaptureEnabled() else {
-                return
-            }
-            await self?.enqueueIndexedArtifactCaptureContinuation(
+            await self?.scheduleIndexedArtifactCaptureContinuation(
+                progress: progress,
                 record: record,
                 snapshot: snapshot,
                 coordinator: artifactCaptureCoordinator,
-                isEnabled: isAutomaticArtifactCaptureEnabled
+                isEnabled: isAutomaticArtifactCaptureEnabled,
+                contentionRetryAttempt: 0
             )
         }
     }
@@ -109,30 +106,61 @@ extension AgentChatTranscriptService {
         record: AgentChatSessionRecord,
         snapshot: AgentChatArtifactIndex.Snapshot,
         coordinator: AgentArtifactCaptureCoordinator,
-        isEnabled: @escaping @MainActor @Sendable () -> Bool
+        isEnabled: @escaping @MainActor @Sendable () -> Bool,
+        contentionRetryAttempt: Int = 0
     ) -> @Sendable () async -> Void {
         { [weak self] in
             guard !Task.isCancelled, await isEnabled() else { return }
             let progress = await coordinator.capture(record: record, snapshot: snapshot)
-            guard progress == .needsContinuation,
-                  !Task.isCancelled,
-                  await isEnabled() else {
-                return
-            }
-            await self?.enqueueIndexedArtifactCaptureContinuation(
+            await self?.scheduleIndexedArtifactCaptureContinuation(
+                progress: progress,
                 record: record,
                 snapshot: snapshot,
                 coordinator: coordinator,
-                isEnabled: isEnabled
+                isEnabled: isEnabled,
+                contentionRetryAttempt: contentionRetryAttempt
             )
         }
+    }
+
+    private func scheduleIndexedArtifactCaptureContinuation(
+        progress: AgentArtifactCaptureProgress,
+        record: AgentChatSessionRecord,
+        snapshot: AgentChatArtifactIndex.Snapshot,
+        coordinator: AgentArtifactCaptureCoordinator,
+        isEnabled: @escaping @MainActor @Sendable () -> Bool,
+        contentionRetryAttempt: Int
+    ) async {
+        guard !Task.isCancelled, isEnabled() else { return }
+        let nextContentionRetryAttempt: Int
+        switch progress {
+        case .needsContinuation:
+            nextContentionRetryAttempt = 0
+        case .retryableContention:
+            guard await coordinator.waitForContentionRetry(
+                afterAttempt: contentionRetryAttempt
+            ), !Task.isCancelled, isEnabled() else {
+                return
+            }
+            nextContentionRetryAttempt = contentionRetryAttempt + 1
+        case .complete, .blocked:
+            return
+        }
+        enqueueIndexedArtifactCaptureContinuation(
+            record: record,
+            snapshot: snapshot,
+            coordinator: coordinator,
+            isEnabled: isEnabled,
+            contentionRetryAttempt: nextContentionRetryAttempt
+        )
     }
 
     private func enqueueIndexedArtifactCaptureContinuation(
         record: AgentChatSessionRecord,
         snapshot: AgentChatArtifactIndex.Snapshot,
         coordinator: AgentArtifactCaptureCoordinator,
-        isEnabled: @escaping @MainActor @Sendable () -> Bool
+        isEnabled: @escaping @MainActor @Sendable () -> Bool,
+        contentionRetryAttempt: Int
     ) {
         guard isAutomaticArtifactCaptureEnabled(),
               var active = artifactCaptureTasks[record.sessionID],
@@ -143,7 +171,8 @@ extension AgentChatTranscriptService {
             record: record,
             snapshot: snapshot,
             coordinator: coordinator,
-            isEnabled: isEnabled
+            isEnabled: isEnabled,
+            contentionRetryAttempt: contentionRetryAttempt
         )
         artifactCaptureTasks[record.sessionID] = active
     }

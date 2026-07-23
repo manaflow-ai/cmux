@@ -10,8 +10,10 @@ actor AgentArtifactCaptureCoordinator {
     }
 
     private static let retainedSessionLimit = 64
+    private static let maximumContentionRetryCount = 3
     private let captureService: ArtifactCaptureService
     private let fileManager: FileManager
+    private let contentionRetryDelay: @Sendable (Int) async throws -> Void
     private var inFlightRevisionBySession: [String: UInt64] = [:]
     private var completedStateBySession = ChatArtifactLRUCache<String, CompletedCaptureState>(
         capacity: retainedSessionLimit
@@ -19,10 +21,16 @@ actor AgentArtifactCaptureCoordinator {
 
     init(
         captureService: ArtifactCaptureService,
-        fileManager: FileManager = .default
+        fileManager: FileManager = .default,
+        contentionRetryDelay: @escaping @Sendable (Int) async throws -> Void = { attempt in
+            let milliseconds = 50 * (1 << min(max(attempt, 0), 3))
+            // A bounded, cancellable backoff is the intended store-contention behavior.
+            try await Task<Never, Never>.sleep(for: .milliseconds(milliseconds))
+        }
     ) {
         self.captureService = captureService
         self.fileManager = fileManager
+        self.contentionRetryDelay = contentionRetryDelay
     }
 
     func maximumTranscriptScanBytes(for record: AgentChatSessionRecord) async -> UInt64? {
@@ -129,12 +137,30 @@ actor AgentArtifactCaptureCoordinator {
                 forKey: record.sessionID
             )
         }
-        guard processedCount < pending.count else { return .complete }
-        guard outcomes.indices.contains(processedCount),
-              outcomes[processedCount] == .skipped(.candidateLimitReached) else {
+        guard processedCount < pending.count,
+              outcomes.indices.contains(processedCount) else {
+            return processedCount == pending.count ? .complete : .blocked
+        }
+        switch outcomes[processedCount] {
+        case .skipped(.candidateLimitReached):
+            return .needsContinuation
+        case .skipped(.storeBusy):
+            return .retryableContention
+        case .copied, .deduplicated, .alreadyStored, .skipped:
             return .blocked
         }
-        return .needsContinuation
+    }
+
+    func waitForContentionRetry(afterAttempt attempt: Int) async -> Bool {
+        guard attempt < Self.maximumContentionRetryCount, !Task.isCancelled else {
+            return false
+        }
+        do {
+            try await contentionRetryDelay(attempt)
+            return !Task.isCancelled
+        } catch {
+            return false
+        }
     }
 
     func save(

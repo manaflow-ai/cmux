@@ -19,7 +19,12 @@ struct ArtifactDeduplicationIndexBuilder {
                 let lastKnownURL = paths.filesystemRoot
                     .appendingPathComponent(document.lastKnownRelativePath, isDirectory: false)
                 if pathResolver.isInsideStore(lastKnownURL, paths: paths),
-                   matches(file: lastKnownURL, digest: item.digest, size: size) {
+                   matches(
+                       file: lastKnownURL,
+                       digest: item.digest,
+                       size: size,
+                       paths: paths
+                   ) {
                     existingByDigest[item.digest] = lastKnownURL
                     continue
                 }
@@ -29,7 +34,11 @@ struct ArtifactDeduplicationIndexBuilder {
         guard !unresolvedBySize.isEmpty else { return existingByDigest }
         try scanner.scanFiles(paths: paths, matchingSizes: Set(unresolvedBySize.keys)) { file, size in
             guard let unresolvedDigests = unresolvedBySize[size], !unresolvedDigests.isEmpty,
-                  let digest = try? ArtifactDigestCalculator().digest(url: file),
+                  let digest = try? ArtifactDigestCalculator().digest(
+                    url: file,
+                    expectedSize: size,
+                    allowedRoot: paths.filesystemRoot
+                  ),
                   unresolvedDigests.contains(digest) else {
                 return false
             }
@@ -43,14 +52,17 @@ struct ArtifactDeduplicationIndexBuilder {
         return existingByDigest
     }
 
-    private func matches(file: URL, digest: String, size: Int64) -> Bool {
-        guard let values = try? file.resourceValues(forKeys: [
-            .fileSizeKey, .isRegularFileKey, .isSymbolicLinkKey,
-        ]),
-        values.isRegularFile == true,
-        values.isSymbolicLink != true,
-        Int64(values.fileSize ?? -1) == size,
-        let existingDigest = try? ArtifactDigestCalculator().digest(url: file) else {
+    private func matches(
+        file: URL,
+        digest: String,
+        size: Int64,
+        paths: ArtifactStorePaths
+    ) -> Bool {
+        guard let existingDigest = try? ArtifactDigestCalculator().digest(
+            url: file,
+            expectedSize: size,
+            allowedRoot: paths.filesystemRoot
+        ) else {
             return false
         }
         return existingDigest == digest

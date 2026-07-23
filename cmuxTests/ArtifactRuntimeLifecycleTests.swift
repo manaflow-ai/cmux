@@ -149,7 +149,8 @@ struct ArtifactRuntimeLifecycleTests {
         let service = AgentChatTranscriptService(
             registry: AgentChatSessionRegistry(),
             artifactCaptureCoordinator: AgentArtifactCaptureCoordinator(
-                captureService: ArtifactCaptureService(store: store)
+                captureService: ArtifactCaptureService(store: store),
+                contentionRetryDelay: { _ in }
             )
         )
         let record = AgentChatSessionRecord(
