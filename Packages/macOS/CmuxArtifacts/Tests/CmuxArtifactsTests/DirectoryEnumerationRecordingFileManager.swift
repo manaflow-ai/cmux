@@ -1,6 +1,7 @@
 import Foundation
 
 /// Records eager directory materialization so scanner tests can enforce streaming traversal.
+// Safety: tests inject this instance into one repository actor and read counters only after awaited calls.
 final class DirectoryEnumerationRecordingFileManager: FileManager, @unchecked Sendable {
     private(set) var eagerDirectoryReadCount = 0
 

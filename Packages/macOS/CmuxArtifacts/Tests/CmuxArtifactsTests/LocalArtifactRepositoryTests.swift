@@ -4,6 +4,26 @@ import Testing
 
 @Suite("Local artifact repository")
 struct LocalArtifactRepositoryTests {
+    @Test("Read operations do not create the store or edit Git excludes")
+    func readsDoNotMutateProject() async throws {
+        let root = try ArtifactTestSupport.temporaryDirectory()
+        defer { ArtifactTestSupport.remove(root) }
+        #expect(try runGit(["init", "--quiet", root.path]) == 0)
+        let exclude = root.appendingPathComponent(".git/info/exclude")
+        try "# preserve\n".write(to: exclude, atomically: true, encoding: .utf8)
+        let repository = LocalArtifactRepository()
+
+        #expect(try await repository.snapshot(projectRoot: root).nodes.isEmpty)
+        #expect(try await repository.search(projectRoot: root, query: "missing").isEmpty)
+        #expect(try await repository.listNotes(projectRoot: root).isEmpty)
+        #expect(try await repository.searchNotes(projectRoot: root, query: "missing").isEmpty)
+
+        #expect(!FileManager.default.fileExists(
+            atPath: root.appendingPathComponent(".cmux").path
+        ))
+        #expect(try String(contentsOf: exclude, encoding: .utf8) == "# preserve\n")
+    }
+
     @Test("Import groups files and records hidden provenance")
     func importsWithGroupingAndProvenance() async throws {
         let root = try ArtifactTestSupport.temporaryDirectory()

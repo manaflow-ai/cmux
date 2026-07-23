@@ -182,6 +182,56 @@ struct NoteCLIIntegrationTests {
         #expect(sessionRoots.count == cases.count)
     }
 
+    @Test("Agent wrapper launch kinds agree with their native session identifiers")
+    func wrapperLaunchKindsUseNativeAgentFamilies() throws {
+        let cases: [(launchKind: String, sessionKey: String, sessionID: String, agentName: String)] = [
+            ("omx", "CODEX_THREAD_ID", "wrapper-codex", "codex"),
+            ("omc", "CLAUDE_CODE_SESSION_ID", "wrapper-claude", "claude"),
+            ("omo", "OPENCODE_SESSION_ID", "wrapper-opencode", "opencode"),
+        ]
+        let fileManager = FileManager.default
+        let testRoot = fileManager.temporaryDirectory
+            .appendingPathComponent("cmux-note-wrapper-session-\(UUID().uuidString)", isDirectory: true)
+        try fileManager.createDirectory(at: testRoot, withIntermediateDirectories: true)
+        defer { try? fileManager.removeItem(at: testRoot) }
+        let cliPath = try BundledCLITestSupport.bundledCLIPath(
+            for: BundledCLILinkageTests.self
+        )
+
+        for testCase in cases {
+            let projectRoot = testRoot.appendingPathComponent(
+                testCase.launchKind,
+                isDirectory: true
+            )
+            try fileManager.createDirectory(at: projectRoot, withIntermediateDirectories: true)
+            let result = try runCLI(
+                cliPath,
+                [
+                    "note", "write", "plan", "--text", "private",
+                    "--project", projectRoot.path, "--json",
+                ],
+                environment: [
+                    "CMUX_AGENT_LAUNCH_KIND": testCase.launchKind,
+                    testCase.sessionKey: testCase.sessionID,
+                ]
+            )
+
+            #expect(result.status == 0)
+            let payload = try jsonObject(result.stdout)
+            let relativePath = try #require(payload["relative_path"] as? String)
+            let sessionRoot = String(try #require(relativePath.split(separator: "/").first))
+            let markerURL = projectRoot.appendingPathComponent(
+                ".cmux/\(sessionRoot)/_session.json"
+            )
+            let marker = try #require(
+                JSONSerialization.jsonObject(with: Data(contentsOf: markerURL))
+                    as? [String: Any]
+            )
+            #expect(marker["sessionID"] as? String == testCase.sessionID)
+            #expect(marker["agentName"] as? String == testCase.agentName)
+        }
+    }
+
     @Test("Conflicting native agent identities never select an inherited parent session")
     func conflictingNativeAgentIdentitiesFailClosed() throws {
         let fileManager = FileManager.default
