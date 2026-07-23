@@ -312,20 +312,22 @@ async function publishPendingCompletion(
 ): Promise<void> {
   const completion = settleTurn(sessionStates, sessionId);
   if (!completion) return;
-  if (!await dispatcher.finishFeedForSession(sessionId)) {
+  const feedDelivered = await dispatcher.finishFeedForSession(sessionId);
+  if (!feedDelivered) {
     warn(context, "cmux terminal feed delivery failed", { session_id: sessionId });
-    return;
   }
-  const notificationRouted = await sendHook(dispatcher, "notification", context, {
-    message: completion.lastAssistantMessage || "Task completed",
-    turn_id: completion.turnId,
-    notification: { type: completion.notificationType },
-  });
   const stopPayload: HookExtra = {
     last_assistant_message: completion.lastAssistantMessage,
     turn_id: completion.turnId,
   };
-  if (notificationRouted) stopPayload.cmux_notification_routed = true;
+  if (feedDelivered) {
+    const notificationRouted = await sendHook(dispatcher, "notification", context, {
+      message: completion.lastAssistantMessage || "Task completed",
+      turn_id: completion.turnId,
+      notification: { type: completion.notificationType },
+    });
+    if (notificationRouted) stopPayload.cmux_notification_routed = true;
+  }
   await sendHook(dispatcher, "stop", context, stopPayload);
 }
 
@@ -407,7 +409,7 @@ export default function cmuxPiSessionExtension(pi: ExtensionAPI) {
     }
     const feedDelivered = await dispatcher.finishFeedForSession(sessionId);
     if (!feedDelivered) warn(context, "cmux terminal feed delivery failed", { session_id: sessionId });
-    if (stopPayload && feedDelivered) await sendHook(dispatcher, "stop", context, stopPayload);
+    if (stopPayload) await sendHook(dispatcher, "stop", context, stopPayload);
     try {
       await clearResumeBinding(dispatcher, context, sessionId);
     } finally {
