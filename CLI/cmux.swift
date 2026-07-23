@@ -33825,7 +33825,10 @@ export default CMUXSessionRestore;
         let shouldUseCodexPostToolUseResponse = source == "codex"
             && hookEventName == "PostToolUse"
             && postToolUseResponseInput != nil
-        let feedToolInput = shouldUseCodexPostToolUseResponse
+        let shouldUsePiPostToolUseResult = source == "pi"
+            && hookEventName == "PostToolUse"
+            && postToolUseResponseInput != nil
+        let feedToolInput = shouldUseCodexPostToolUseResponse || shouldUsePiPostToolUseResult
             ? postToolUseResponseInput
             : toolRequestInput
         if let cwd = firstString(in: stdinObj, keys: ["cwd", "working_directory", "workingDirectory"])

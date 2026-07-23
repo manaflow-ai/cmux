@@ -6,33 +6,48 @@ extension TerminalController {
     nonisolated func v2IngestAcknowledgedFeedEvents(
         _ events: [WorkstreamEvent]
     ) -> V2CallResult {
-        let ingestion = v2MainSync { () -> FeedBatchIngestion in
-            guard FeedCoordinator.shared.store != nil else { return .unavailable }
-            let authoritativeEvents: [WorkstreamEvent]
-            switch FeedCoordinator.shared.resolveDeliveryTarget(for: events) {
-            case .accepted(let events):
-                authoritativeEvents = events
-            case .notFound:
-                return .notFound
-            case .unavailable:
-                return .unavailable
+        let ingestion = FeedCoordinator.shared.performAcceptedEventDelivery {
+            let ingestion = v2MainSync { () -> FeedBatchIngestion in
+                guard FeedCoordinator.shared.store != nil else { return .unavailable }
+                let authoritativeEvents: [WorkstreamEvent]
+                switch FeedCoordinator.shared.resolveDeliveryTarget(for: events) {
+                case .accepted(let events):
+                    authoritativeEvents = events
+                case .notFound:
+                    return .notFound
+                case .unavailable:
+                    return .unavailable
+                }
+
+                var itemIds: [UUID] = []
+                itemIds.reserveCapacity(authoritativeEvents.count)
+                for event in authoritativeEvents {
+                    v2ApplyIMessageModeSideEffects(for: event)
+                    guard let itemId = FeedCoordinator.shared.ingestRevalidatedOnMainActor(event) else {
+                        continue
+                    }
+                    itemIds.append(itemId)
+                }
+                if itemIds.count == authoritativeEvents.count {
+                    v2NoteCoalescedFeedTranscriptEvents(authoritativeEvents)
+                } else {
+                    return .unavailable
+                }
+                return .accepted(events: authoritativeEvents, itemIds: itemIds)
             }
 
-            var itemIds: [UUID] = []
-            itemIds.reserveCapacity(authoritativeEvents.count)
-            for event in authoritativeEvents {
-                v2ApplyIMessageModeSideEffects(for: event)
-                guard let itemId = FeedCoordinator.shared.ingestRevalidatedOnMainActor(event) else {
-                    continue
+            if case .accepted(let authoritativeEvents, let authoritativeItemIds) = ingestion {
+                for (event, itemId) in zip(authoritativeEvents, authoritativeItemIds) {
+                    CmuxEventBus.shared.publishWorkstreamEvent(event, phase: "received")
+                    let result = FeedCoordinator.IngestBlockingResult.acknowledged(itemId: itemId)
+                    CmuxEventBus.shared.publishWorkstreamEvent(
+                        event,
+                        phase: "completed",
+                        result: FeedSocketEncoding.payload(for: result)
+                    )
                 }
-                itemIds.append(itemId)
             }
-            if itemIds.count == authoritativeEvents.count {
-                v2NoteCoalescedFeedTranscriptEvents(authoritativeEvents)
-            } else {
-                return .unavailable
-            }
-            return .accepted(events: authoritativeEvents, itemIds: itemIds)
+            return ingestion
         }
 
         let authoritativeEvents: [WorkstreamEvent]
@@ -45,16 +60,6 @@ extension TerminalController {
             return v2FeedTargetNotFound()
         case .unavailable:
             return v2FeedTargetUnavailable()
-        }
-
-        for (event, itemId) in zip(authoritativeEvents, authoritativeItemIds) {
-            CmuxEventBus.shared.publishWorkstreamEvent(event, phase: "received")
-            let result = FeedCoordinator.IngestBlockingResult.acknowledged(itemId: itemId)
-            CmuxEventBus.shared.publishWorkstreamEvent(
-                event,
-                phase: "completed",
-                result: FeedSocketEncoding.payload(for: result)
-            )
         }
 
         let itemIds = authoritativeItemIds.map(\.uuidString)

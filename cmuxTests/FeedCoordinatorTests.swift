@@ -484,10 +484,17 @@ struct FeedCoordinatorTests {
             toolInputJSON: #"{"kind":"object"}"#,
             requestId: "pi-authoritative-ack-request"
         )
-        let result = await MainActor.run {
-            FeedCoordinator.shared.ingestAcknowledged(event)
+        let resultBox = FeedV2CallResultBox()
+        await withCheckedContinuation { continuation in
+            DispatchQueue.global(qos: .userInitiated).async {
+                resultBox.value = TerminalController.shared.v2IngestAcknowledgedFeedEvents([event])
+                continuation.resume()
+            }
         }
-        guard case .acknowledged(let itemId?) = result else {
+        guard case .ok(let rawPayload) = resultBox.value,
+              let payload = rawPayload as? [String: Any],
+              let rawItemId = payload["item_id"] as? String,
+              let itemId = UUID(uuidString: rawItemId) else {
             Issue.record("zero-wait acknowledgment must identify the inserted Feed item")
             return
         }
@@ -815,6 +822,11 @@ struct FeedCoordinatorTests {
 
 private final class IngestResultBox: @unchecked Sendable {
     var value: FeedCoordinator.IngestBlockingResult?
+}
+
+// Written once on a socket worker and read only after its continuation resumes.
+private final class FeedV2CallResultBox: @unchecked Sendable {
+    var value: TerminalController.V2CallResult?
 }
 
 private final class AttentionSurfaceRecorder: @unchecked Sendable {

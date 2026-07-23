@@ -12,7 +12,7 @@ import Testing
 struct PiFeedOwnershipTests {
     @MainActor
     @Test
-    func acknowledgedInsertionRehomesSurfaceToItsLiveWorkspace() throws {
+    func acknowledgedInsertionRehomesSurfaceToItsLiveWorkspace() async throws {
         let previousAppDelegate = AppDelegate.shared
         let appDelegate = AppDelegate()
         AppDelegate.shared = appDelegate
@@ -51,7 +51,11 @@ struct PiFeedOwnershipTests {
             toolName: "Bash",
             requestId: "pi-live-ownership-request"
         )
-        guard case .acknowledged(let itemId?) = FeedCoordinator.shared.ingestAcknowledged(event) else {
+        let result = await Self.ingestAcknowledgedOffMainActor([event])
+        guard case .ok(let rawPayload) = result,
+              let payload = rawPayload as? [String: Any],
+              let rawItemId = payload["item_id"] as? String,
+              let itemId = UUID(uuidString: rawItemId) else {
             Issue.record("expected authoritative Pi Feed insertion")
             return
         }
@@ -63,7 +67,7 @@ struct PiFeedOwnershipTests {
 
     @MainActor
     @Test
-    func acknowledgedInsertionRejectsClosedAndMalformedSurfaceClaims() {
+    func acknowledgedInsertionRejectsClosedAndMalformedSurfaceClaims() async {
         let previousAppDelegate = AppDelegate.shared
         let appDelegate = AppDelegate()
         AppDelegate.shared = appDelegate
@@ -88,7 +92,7 @@ struct PiFeedOwnershipTests {
                 toolName: "Bash",
                 requestId: "pi-invalid-ownership-request-\(index)"
             )
-            let result = TerminalController.shared.v2IngestAcknowledgedFeedEvents([event])
+            let result = await Self.ingestAcknowledgedOffMainActor([event])
             guard case .err(let code, _, _) = result else {
                 Issue.record("closed or malformed surface claim received an acknowledgment")
                 continue
@@ -100,7 +104,7 @@ struct PiFeedOwnershipTests {
 
     @MainActor
     @Test
-    func acknowledgedBatchUsesOneLiveWorkspaceSnapshotForEveryEvent() throws {
+    func acknowledgedBatchUsesOneLiveWorkspaceSnapshotForEveryEvent() async throws {
         let previousAppDelegate = AppDelegate.shared
         let appDelegate = AppDelegate()
         AppDelegate.shared = appDelegate
@@ -140,7 +144,7 @@ struct PiFeedOwnershipTests {
             )
         }
 
-        let result = TerminalController.shared.v2IngestAcknowledgedFeedEvents(events)
+        let result = await Self.ingestAcknowledgedOffMainActor(events)
         guard case .ok(let rawPayload) = result,
               let payload = rawPayload as? [String: Any],
               let itemIds = payload["item_ids"] as? [String]
@@ -160,7 +164,7 @@ struct PiFeedOwnershipTests {
 
     @MainActor
     @Test
-    func startupResolutionGapIsRetryableButClosedSurfaceIsNotFound() {
+    func startupResolutionGapIsRetryableButClosedSurfaceIsNotFound() async {
         let previousAppDelegate = AppDelegate.shared
         let appDelegate = AppDelegate()
         AppDelegate.shared = appDelegate
@@ -184,14 +188,16 @@ struct PiFeedOwnershipTests {
         )
 
         appDelegate.didAttemptStartupSessionRestore = false
-        guard case .err(let startupCode, _, _) = TerminalController.shared.v2IngestAcknowledgedFeedEvents([event]) else {
+        let startupResult = await Self.ingestAcknowledgedOffMainActor([event])
+        guard case .err(let startupCode, _, _) = startupResult else {
             Issue.record("startup resolution gap received an acknowledgment")
             return
         }
         #expect(startupCode == "unavailable")
 
         appDelegate.didAttemptStartupSessionRestore = true
-        guard case .err(let closedCode, _, _) = TerminalController.shared.v2IngestAcknowledgedFeedEvents([event]) else {
+        let closedResult = await Self.ingestAcknowledgedOffMainActor([event])
+        guard case .err(let closedCode, _, _) = closedResult else {
             Issue.record("closed surface received an acknowledgment")
             return
         }
@@ -201,7 +207,7 @@ struct PiFeedOwnershipTests {
 
     @MainActor
     @Test
-    func sameSessionPiPostToolBatchCoalescesTranscriptUpdate() throws {
+    func sameSessionPiPostToolBatchCoalescesTranscriptUpdate() async throws {
         let previousAppDelegate = AppDelegate.shared
         let previousTranscriptService = TerminalController.shared.agentChatTranscriptService
         let appDelegate = AppDelegate()
@@ -242,7 +248,7 @@ struct PiFeedOwnershipTests {
             )
         }
 
-        guard case .ok = TerminalController.shared.v2IngestAcknowledgedFeedEvents(events) else {
+        guard case .ok = await Self.ingestAcknowledgedOffMainActor(events) else {
             Issue.record("expected Pi PostToolUse batch acknowledgment")
             return
         }
@@ -410,7 +416,7 @@ struct PiFeedOwnershipTests {
     }
 
     @MainActor @Test
-    func surfaceLessFeedRejectsClosedWorkspaceClaim() {
+    func surfaceLessFeedRejectsClosedWorkspaceClaim() async {
         let previousAppDelegate = AppDelegate.shared
         let appDelegate = AppDelegate()
         AppDelegate.shared = appDelegate
@@ -430,7 +436,7 @@ struct PiFeedOwnershipTests {
             workspaceId: UUID().uuidString,
             requestId: "pi-closed-workspace-only-request"
         )
-        let result = TerminalController.shared.v2IngestAcknowledgedFeedEvents([event])
+        let result = await Self.ingestAcknowledgedOffMainActor([event])
         guard case .err(let code, _, _) = result else {
             Issue.record("closed workspace-only claim received an acknowledgment")
             return
@@ -440,7 +446,7 @@ struct PiFeedOwnershipTests {
     }
 
     @MainActor @Test
-    func surfaceLessFeedNormalizesLiveWorkspaceClaim() throws {
+    func surfaceLessFeedNormalizesLiveWorkspaceClaim() async throws {
         let previousAppDelegate = AppDelegate.shared
         let appDelegate = AppDelegate()
         AppDelegate.shared = appDelegate
@@ -465,7 +471,7 @@ struct PiFeedOwnershipTests {
             workspaceId: "  \(workspace.id.uuidString) \n",
             requestId: "pi-live-workspace-only-request"
         )
-        let result = TerminalController.shared.v2IngestAcknowledgedFeedEvents([event])
+        let result = await Self.ingestAcknowledgedOffMainActor([event])
         guard case .ok(let rawPayload) = result,
               let payload = rawPayload as? [String: Any] else {
             Issue.record("live workspace-only claim was not acknowledged")
@@ -477,6 +483,24 @@ struct PiFeedOwnershipTests {
         #expect(insertedEvent?.surfaceId == nil)
         #expect(store.items.count == 1)
     }
+
+    private static func ingestAcknowledgedOffMainActor(
+        _ events: [WorkstreamEvent]
+    ) async -> TerminalController.V2CallResult {
+        let resultBox = PiFeedV2CallResultBox()
+        await withCheckedContinuation { continuation in
+            DispatchQueue.global(qos: .userInitiated).async {
+                resultBox.value = TerminalController.shared.v2IngestAcknowledgedFeedEvents(events)
+                continuation.resume()
+            }
+        }
+        return resultBox.value!
+    }
+}
+
+// Written once on a socket worker and read only after its continuation resumes.
+private final class PiFeedV2CallResultBox: @unchecked Sendable {
+    var value: TerminalController.V2CallResult?
 }
 
 private final class PiFeedEventRecorder: @unchecked Sendable {
