@@ -1795,6 +1795,62 @@ await healthyHandlers.get("before_agent_start")(
     return 0
 
 
+def check_session_isolation_within_runtime(bun: str, root: Path, extension_path: Path) -> int:
+    session_log = root / "session-isolation-cmux.log"
+    session_cmux = root / "session-isolation-cmux"
+    make_executable(
+        session_cmux,
+        """#!/usr/bin/env bash
+set -euo pipefail
+payload="$(cat)"
+printf '%s|%s\n' "$*" "$payload" >> "$CMUX_TEST_PI_SESSION_ISOLATION_LOG"
+if [[ "$payload" == *'"session_id":"pi-session-stale"'* ]]; then
+  printf 'stale surface\n' >&2
+  exit 69
+fi
+printf '{}\n'
+""",
+    )
+    session_source = """
+const extensionPath = process.env.CMUX_TEST_PI_EXTENSION_PATH;
+const mod = await import(extensionPath);
+const handlers = new Map();
+mod.default({ on(name, handler) { handlers.set(name, handler); } });
+const context = (sessionId) => ({
+  cwd: "/tmp/pi-session-isolation-project",
+  sessionManager: { getSessionId() { return sessionId; } },
+});
+await handlers.get("before_agent_start")(
+  { prompt: "stale session" },
+  context("pi-session-stale"),
+);
+await handlers.get("before_agent_start")(
+  { prompt: "stale session retry" },
+  context("pi-session-stale"),
+);
+await handlers.get("before_agent_start")(
+  { prompt: "healthy session" },
+  context("pi-session-healthy"),
+);
+"""
+    result = run_extension(
+        bun=bun,
+        root=root,
+        extension_path=extension_path,
+        fake_cmux=session_cmux,
+        source=session_source,
+        extra_env={"CMUX_TEST_PI_SESSION_ISOLATION_LOG": str(session_log)},
+    )
+    if result.returncode != 0:
+        print(f"FAIL: same-runtime session isolation harness failed: {result.stderr!r}")
+        return 1
+    calls = session_log.read_text(encoding="utf-8").splitlines()
+    if len(calls) != 2 or "pi-session-healthy" not in calls[-1]:
+        print(f"FAIL: stale surface disabled another Pi session in the same runtime: {calls!r}")
+        return 1
+    return 0
+
+
 def check_stale_surface(bun: str, root: Path, extension_path: Path) -> int:
     stale_log = root / "stale-cmux.log"
     stale_cmux = root / "stale-cmux"
@@ -1882,6 +1938,7 @@ def run_checks(bun: str, root: Path, extension_path: Path) -> int:
         check_moved_surface_resume_target,
         check_failed_resume_clear_releases_session_runtime,
         check_runtime_isolation,
+        check_session_isolation_within_runtime,
         check_stale_surface,
     )
     for check in checks:

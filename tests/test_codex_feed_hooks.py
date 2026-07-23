@@ -3301,6 +3301,59 @@ def test_pi_feed_rejects_missing_explicit_workspace(cli_path: str, root: Path) -
         )
 
 
+def test_pi_feed_treats_blank_ambient_workspace_as_absent(cli_path: str, root: Path) -> None:
+    socket_path = root / "cmux-pi-blank-ambient-workspace.sock"
+    env = os.environ.copy()
+    for key in ("CMUX_SOCKET", "CMUX_SOCKET_CAPABILITY", "CMUX_SOCKET_PATH", "CMUX_SOCKET_PASSWORD"):
+        env.pop(key, None)
+    env["CMUX_SURFACE_ID"] = FAKE_SURFACE_ID
+    env["CMUX_WORKSPACE_ID"] = ""
+    payload = {
+        "session_id": "pi-blank-workspace-session",
+        "cwd": "/tmp/pi-blank-workspace-project",
+        "hook_event_name": "PostToolUse",
+        "tool_call_id": "pi-blank-workspace-tool",
+        "tool_name": "bash",
+    }
+
+    with FakeCmuxSocket(
+        socket_path,
+        None,
+        surface_delivery_target=(FAKE_WORKSPACE_ID, FAKE_SURFACE_ID),
+    ) as fake:
+        result = subprocess.run(
+            [
+                cli_path,
+                "--socket",
+                str(socket_path),
+                "hooks",
+                "feed",
+                "--source",
+                "pi",
+                "--event",
+                "PostToolUse",
+            ],
+            input=json.dumps(payload),
+            capture_output=True,
+            text=True,
+            check=False,
+            env=env,
+            timeout=10,
+        )
+
+    if result.returncode != 0:
+        raise AssertionError(
+            "Pi feed rejected a valid surface because its ambient workspace was blank: "
+            f"exit={result.returncode} stdout={result.stdout!r} stderr={result.stderr!r} frames={fake.frames!r}"
+        )
+    feed_frames = [frame for frame in fake.frames if frame.get("method") == "feed.push"]
+    if len(feed_frames) != 1:
+        raise AssertionError(f"Pi feed did not emit one surface-only event: {fake.frames!r}")
+    event = feed_frames[0]["params"]["event"]
+    if event.get("surface_id") != FAKE_SURFACE_ID or "workspace_id" in event:
+        raise AssertionError(f"Pi feed did not preserve surface-only routing: {event!r}")
+
+
 def test_pi_hook_rejects_malformed_explicit_surface(cli_path: str, root: Path) -> None:
     socket_path = root / "cmux-pi-malformed-explicit-surface.sock"
     env = os.environ.copy()
@@ -3521,6 +3574,7 @@ def main() -> int:
             test_pi_hook_rehomes_moved_explicit_surface(cli_path, root)
             test_pi_feed_uses_resolved_explicit_workspace(cli_path, root)
             test_pi_feed_rejects_missing_explicit_workspace(cli_path, root)
+            test_pi_feed_treats_blank_ambient_workspace_as_absent(cli_path, root)
             test_pi_hook_rejects_malformed_explicit_surface(cli_path, root)
             test_pi_compacted_feed_bounds_untrusted_batch(cli_path, root)
             test_pi_feed_rejects_oversized_input(cli_path, root)
