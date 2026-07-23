@@ -161,6 +161,38 @@ import Testing
         }
     }
 
+    @Test func baseCacheBoundsZeroByteEntriesByCount() async throws {
+        let root = FileManager.default.temporaryDirectory
+            .appendingPathComponent("cmux-base-cache-count-\(UUID().uuidString)", isDirectory: true)
+        try FileManager.default.createDirectory(at: root, withIntermediateDirectories: true)
+        defer { try? FileManager.default.removeItem(at: root) }
+        let cache = WorkspaceChangesBaseContentCache(
+            byteBudget: 1024,
+            maximumEntryCount: 3,
+            temporaryDirectory: root
+        )
+
+        var urls: [URL] = []
+        for index in 0..<6 {
+            let key = WorkspaceChangesBaseContentCache.Key(
+                repoRoot: "/repo",
+                baseRef: "HEAD",
+                path: "empty-\(index)"
+            )
+            let url = try await cache.fileURL(for: key) { destination in
+                try Data().write(to: destination)
+                return 0
+            }
+            urls.append(url)
+        }
+
+        // Zero-byte entries are invisible to the byte budget; the count bound
+        // must evict the oldest so entries and temp files stay bounded.
+        let survivors = urls.filter { FileManager.default.fileExists(atPath: $0.path) }
+        #expect(survivors.count == 3)
+        #expect(survivors == Array(urls.suffix(3)))
+    }
+
     @Test func baseCacheRejectsOversizedEntriesAndEvictsLeastRecentlyUsed() async throws {
         let root = FileManager.default.temporaryDirectory
             .appendingPathComponent("cmux-base-cache-budget-\(UUID().uuidString)", isDirectory: true)

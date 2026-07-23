@@ -7,6 +7,7 @@ actor WorkspaceChangesBaseContentCache {
     }
 
     static let defaultByteBudget: Int64 = 256 * 1024 * 1024
+    static let defaultMaximumEntryCount = 256
 
     struct Key: Hashable, Sendable {
         let repoRoot: String
@@ -21,6 +22,7 @@ actor WorkspaceChangesBaseContentCache {
     }
 
     private let byteBudget: Int64
+    private let maximumEntryCount: Int
     // FileManager is documented thread-safe; deinit begins after actor access ends and removes only this cache's unique directory.
     private nonisolated(unsafe) let fileManager: FileManager
     private let directory: URL
@@ -30,10 +32,12 @@ actor WorkspaceChangesBaseContentCache {
 
     init(
         byteBudget: Int64 = WorkspaceChangesBaseContentCache.defaultByteBudget,
+        maximumEntryCount: Int = WorkspaceChangesBaseContentCache.defaultMaximumEntryCount,
         fileManager: FileManager = .default,
         temporaryDirectory: URL? = nil
     ) {
         self.byteBudget = max(0, byteBudget)
+        self.maximumEntryCount = max(1, maximumEntryCount)
         self.fileManager = fileManager
         directory = (temporaryDirectory ?? fileManager.temporaryDirectory)
             .appendingPathComponent("cmux-workspace-changes-base-\(UUID().uuidString)", isDirectory: true)
@@ -92,7 +96,9 @@ actor WorkspaceChangesBaseContentCache {
     }
 
     private func evictIfNeeded() {
-        while totalBytes > byteBudget,
+        // The count bound keeps zero-byte blobs (invisible to the byte
+        // budget) from growing entries and temp files without limit.
+        while totalBytes > byteBudget || entries.count > maximumEntryCount,
               let victim = entries
                 .min(by: { $0.value.accessOrdinal < $1.value.accessOrdinal }) {
             entries[victim.key] = nil

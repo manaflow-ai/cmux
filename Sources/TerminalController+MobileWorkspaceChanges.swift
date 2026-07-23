@@ -1,5 +1,4 @@
 import CmuxGit
-import CmuxMobileRPC
 import Foundation
 // MARK: - Mobile workspace changes
 

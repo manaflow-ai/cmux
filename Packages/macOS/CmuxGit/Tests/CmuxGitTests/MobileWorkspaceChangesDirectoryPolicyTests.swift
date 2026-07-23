@@ -1,5 +1,5 @@
 import Testing
-@testable import CmuxMobileRPC
+@testable import CmuxGit
 
 @Suite struct MobileWorkspaceChangesDirectoryPolicyTests {
     private let policy = MobileWorkspaceChangesDirectoryPolicy()
