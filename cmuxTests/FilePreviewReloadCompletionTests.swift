@@ -35,6 +35,42 @@ struct FilePreviewReloadCompletionTests {
         #expect(panel.previewMode == .text)
         #expect(panel.textContent == "transitioned")
     }
+
+    @Test("Refresh keeps unsaved text visible when disk content changes preview mode")
+    func refreshKeepsDirtyTextMode() async throws {
+        let fileURL = FileManager.default.temporaryDirectory
+            .appending(path: "cmux-file-preview-dirty-mode-\(UUID().uuidString).plist")
+        defer { try? FileManager.default.removeItem(at: fileURL) }
+        let propertyList = ["key": "value"]
+        let xmlData = try PropertyListSerialization.data(
+            fromPropertyList: propertyList,
+            format: .xml,
+            options: 0
+        )
+        try xmlData.write(to: fileURL)
+
+        let panel = FilePreviewPanel(
+            workspaceId: UUID(),
+            filePath: fileURL.path,
+            startFileWatcher: false
+        )
+        defer { panel.close() }
+        await panel.reloadFromDisk().value
+        #expect(panel.previewMode == .text)
+        panel.updateTextContent("unsaved edits\n")
+
+        let binaryData = try PropertyListSerialization.data(
+            fromPropertyList: propertyList,
+            format: .binary,
+            options: 0
+        )
+        try binaryData.write(to: fileURL)
+        await panel.reloadFromDisk().value
+
+        #expect(panel.previewMode == .text)
+        #expect(panel.textContent == "unsaved edits\n")
+        #expect(panel.isDirty)
+    }
 }
 
 private actor FilePreviewModeTransitionResolver {
