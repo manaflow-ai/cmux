@@ -344,6 +344,17 @@ handlers.get("tool_execution_end")({
   result: `PRIVATE-RELAY-TOOL-OUTPUT-${"x".repeat(20 * 1024)}`,
   isError: false
 }, ctx);
+const multibyteIdentifier = "界".repeat(2048);
+const multibyteCtx = {
+  cwd: multibyteIdentifier,
+  sessionManager: { getSessionId() { return multibyteIdentifier; } }
+};
+handlers.get("tool_execution_end")({
+  toolCallId: multibyteIdentifier,
+  toolName: multibyteIdentifier,
+  result: `PRIVATE-MULTIBYTE-TOOL-OUTPUT-${"界".repeat(20 * 1024)}`,
+  isError: false
+}, multibyteCtx);
 const largeResult = `PRIVATE-TOOL-OUTPUT-${"x".repeat(512 * 1024)}`;
 for (let index = 0; index < 10; index += 1) {
   handlers.get("tool_execution_end")({

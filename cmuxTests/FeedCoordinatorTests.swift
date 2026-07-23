@@ -469,6 +469,42 @@ struct FeedCoordinatorTests {
         }
     }
 
+    @Test func zeroWaitAcknowledgmentIncludesInsertedItem() async {
+        await MainActor.run {
+            let store = WorkstreamStore(ringCapacity: 10)
+            FeedCoordinator.shared.install(store: store)
+        }
+
+        let event = WorkstreamEvent(
+            sessionId: "pi-authoritative-ack-test",
+            hookEventName: .postToolUse,
+            source: "pi",
+            cwd: "/tmp",
+            toolName: "Bash",
+            toolInputJSON: #"{"kind":"object"}"#,
+            requestId: "pi-authoritative-ack-request"
+        )
+        let done = DispatchSemaphore(value: 0)
+        let resultBox = IngestResultBox()
+        DispatchQueue.global(qos: .userInitiated).async {
+            resultBox.value = FeedCoordinator.shared.ingestBlocking(
+                event: event,
+                waitTimeout: 0
+            )
+            done.signal()
+        }
+
+        #expect(done.wait(timeout: .now() + 2) == .success)
+        guard case .acknowledged(let itemId?) = resultBox.value else {
+            Issue.record("zero-wait acknowledgment must identify the inserted Feed item")
+            return
+        }
+        let inserted = await MainActor.run {
+            FeedCoordinator.shared.store.items.contains(where: { $0.id == itemId })
+        }
+        #expect(inserted)
+    }
+
     @Test func blockingIngestSkipsNotificationWhenPermissionResolvesBeforeDisplay() async {
         let requestId = "auto-allow-request"
         let notifications = NotificationRequestRecorder()
