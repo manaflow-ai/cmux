@@ -313,7 +313,17 @@ impl UnixWorkspaceTarget {
     }
 
     pub(crate) fn verify_parent_identity(&self) -> Result<(), RpcError> {
-        let current = self.root.resolve_directory(&self.parent_relative, false)?;
+        let current =
+            self.root.resolve_directory(&self.parent_relative, false).map_err(|error| {
+                RpcError::new(
+                    "conflict",
+                    format!(
+                        "write parent changed before commit: {} ({})",
+                        self.parent_display().display(),
+                        error.message
+                    ),
+                )
+            })?;
         let expected = self
             .parent
             .metadata()
@@ -325,7 +335,7 @@ impl UnixWorkspaceTarget {
             return Ok(());
         }
         Err(RpcError::new(
-            "path-changed",
+            "conflict",
             format!("write parent changed before commit: {}", self.parent_display().display()),
         ))
     }
