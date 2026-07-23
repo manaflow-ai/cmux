@@ -133,6 +133,51 @@ struct CmuxFilesystemIdentityTests {
         }
     }
 
+    @Test("Workspace-only capture does not reuse an agent-session directory")
+    func workspaceOnlyCaptureStaysSeparateFromAgentSession() async throws {
+        let root = try ArtifactTestSupport.temporaryDirectory()
+        defer { ArtifactTestSupport.remove(root) }
+        let repository = LocalArtifactRepository()
+        let agentSource = try ArtifactTestSupport.write(
+            "agent",
+            named: "outside/agent.md",
+            under: root
+        )
+        let agent = try await repository.importFile(
+            sourceURL: agentSource,
+            context: ArtifactCaptureContext(
+                projectRoot: root,
+                workspaceID: "workspace:shared",
+                sessionID: "session:agent",
+                agentName: "codex"
+            ),
+            provenance: .manual,
+            configuration: .defaultValue,
+            capturedAt: Date(timeIntervalSince1970: 1)
+        )
+        let manualSource = try ArtifactTestSupport.write(
+            "manual",
+            named: "outside/manual.md",
+            under: root
+        )
+
+        let manual = try await repository.importFile(
+            sourceURL: manualSource,
+            context: ArtifactCaptureContext(
+                projectRoot: root,
+                workspaceID: "workspace:shared"
+            ),
+            provenance: .manual,
+            configuration: .defaultValue,
+            capturedAt: Date(timeIntervalSince1970: 2)
+        )
+
+        #expect(
+            try sessionRoot(for: agent, projectRoot: root)
+                != sessionRoot(for: manual, projectRoot: root)
+        )
+    }
+
     private func sessionRoot(
         for outcome: ArtifactImportOutcome,
         projectRoot: URL

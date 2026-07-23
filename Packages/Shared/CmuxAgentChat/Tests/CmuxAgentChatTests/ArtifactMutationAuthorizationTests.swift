@@ -144,6 +144,33 @@ struct ArtifactMutationAuthorizationTests {
         #expect(artifacts.first { $0.path.hasSuffix("/tmp/existing.md") }?.provenance == .referenced)
     }
 
+    @Test(
+        "Successful shell append redirections remain references",
+        arguments: [">>", "&>>"]
+    )
+    func successfulShellAppendRedirectionFailsClosed(_ redirect: String) throws {
+        let call = codexLine(type: "response_item", payload: [
+            "type": "function_call",
+            "name": "exec_command",
+            "arguments": json([
+                "cmd": "true \(redirect) /Users/me/private.json",
+            ]),
+            "call_id": "append",
+        ])
+        let output = codexLine(type: "response_item", payload: [
+            "type": "function_call_output",
+            "call_id": "append",
+            "output": "Process exited with code 0\nOutput:\n",
+        ])
+
+        let result = CodexTranscriptParser().parse(lines: [call, output], startingSeq: 0)
+        let artifact = try #require(
+            indexedArtifacts(result).first { $0.path == "/Users/me/private.json" }
+        )
+
+        #expect(artifact.provenance == .referenced)
+    }
+
     @Test("Unexecuted compound-shell redirections remain references")
     func compoundShellRedirectionFailsClosed() throws {
         let call = codexLine(type: "response_item", payload: [
