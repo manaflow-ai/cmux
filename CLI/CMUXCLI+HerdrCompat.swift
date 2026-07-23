@@ -21,14 +21,18 @@ extension CMUXCLI {
             arguments: Array(commandArgs.dropFirst()),
             jsonOutput: jsonOutput
         ) else {
-            throw CLIError(
-                message: "Unknown __herdr-compat command '\(command)'. Supported commands: status, snapshot, list-workspaces, list-tabs, list-panes.",
-                exitCode: 2
+            let format = String(
+                localized: "cli.herdrCompat.error.unknownCommand",
+                defaultValue: "Unknown compatibility command '%@'. Supported commands: status, snapshot, list-workspaces, list-tabs, list-panes."
             )
+            throw CLIError(message: String(format: format, command), exitCode: 2)
         }
         guard let executable = Self.resolveHerdrExecutable() else {
             throw CLIError(
-                message: "Herdr was not found. Install it and make sure \"herdr\" is available on PATH.",
+                message: missingProviderExecutableMessage(
+                    displayName: "Herdr",
+                    executableName: "herdr"
+                ),
                 exitCode: 127
             )
         }
@@ -39,8 +43,12 @@ extension CMUXCLI {
         let code = cliExecFailureErrno {
             execv(executable, &cArguments)
         }
+        let format = String(
+            localized: "cli.herdrCompat.error.launchFailed",
+            defaultValue: "Failed to launch compatibility provider at %@: %@"
+        )
         throw CLIError(
-            message: "Failed to launch Herdr at \(executable): \(String(cString: strerror(code)))",
+            message: String(format: format, executable, String(cString: strerror(code))),
             exitCode: 126
         )
     }
