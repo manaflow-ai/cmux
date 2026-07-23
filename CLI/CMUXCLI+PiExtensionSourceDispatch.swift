@@ -8,7 +8,6 @@ interface PiFeedCommand {
   readonly input: string;
   readonly context: PiExtensionContextSnapshot;
   readonly terminal: boolean;
-  readonly retriesRemaining: number;
 }
 
 interface PiCommandCancellation {
@@ -121,6 +120,7 @@ class PiCmuxCommandDispatcher {
         resolve();
       };
       const deadline = setTimeout(() => {
+        if (this.hasTerminalFeedWork(sessionId)) this.failedFeedSessions.add(sessionId);
         this.discardFeedForSession(sessionId);
         finish();
       }, PiCmuxCommandDispatcher.feedDrainDeadlineMs);
@@ -133,6 +133,17 @@ class PiCmuxCommandDispatcher {
     if (this.priorityFeedCommands.some((command) => command.context.sessionId === sessionId)) return true;
     for (const command of this.pendingFeedCommands.values()) {
       if (command.context.sessionId === sessionId) return true;
+    }
+    return false;
+  }
+
+  private hasTerminalFeedWork(sessionId: string): boolean {
+    if (this.activeFeeds.get(sessionId)?.command.terminal) return true;
+    if (this.priorityFeedCommands.some(
+      (command) => command.terminal && command.context.sessionId === sessionId,
+    )) return true;
+    for (const command of this.pendingFeedCommands.values()) {
+      if (command.terminal && command.context.sessionId === sessionId) return true;
     }
     return false;
   }
@@ -315,13 +326,12 @@ class PiCmuxCommandDispatcher {
       .then((result) => {
         if (result.error instanceof Error && result.error.message.includes("timed out after")) {
           const sessionId = command.context.sessionId;
-          if (sessionId) this.discardFeedForSession(sessionId);
-        } else if (!result.ok && command.terminal && !result.surfaceUnavailable && !cancellation.cancelled) {
-          if (command.retriesRemaining > 0) {
-            this.priorityFeedCommands.unshift({ ...command, retriesRemaining: command.retriesRemaining - 1 });
-          } else if (sessionId) {
-            this.failedFeedSessions.add(sessionId);
+          if (sessionId) {
+            if (command.terminal) this.failedFeedSessions.add(sessionId);
+            this.discardFeedForSession(sessionId);
           }
+        } else if (!result.ok && command.terminal && !result.surfaceUnavailable && !cancellation.cancelled) {
+          if (sessionId) this.failedFeedSessions.add(sessionId);
         }
       })
       .catch(() => {})

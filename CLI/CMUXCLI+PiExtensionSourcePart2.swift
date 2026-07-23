@@ -265,7 +265,6 @@ function sendFeed(
     input,
     context,
     terminal: eventName === "PostToolUse",
-    retriesRemaining: 1,
   });
 }
 
