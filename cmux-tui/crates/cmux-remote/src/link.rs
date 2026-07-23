@@ -212,6 +212,8 @@ pub struct LaneMuxLink {
     links: Vec<Arc<dyn FrameLink>>,
     incoming: Mutex<Ingress>,
     closed: AtomicBool,
+    #[cfg(test)]
+    outbound_admitted: Arc<Semaphore>,
 }
 
 impl fmt::Debug for LaneMuxLink {
@@ -322,6 +324,8 @@ impl LaneMuxLink {
                 errors,
             }),
             closed: AtomicBool::new(false),
+            #[cfg(test)]
+            outbound_admitted: Arc::new(Semaphore::new(0)),
         })
     }
 }
@@ -345,7 +349,10 @@ impl FrameLink for LaneMuxLink {
         }
         let decoded =
             WireFrame::decode(&frame).map_err(|error| LinkError::Protocol(error.to_string()))?;
-        self.routes.get(&decoded.lane).expect("all lanes checked at construction").send(frame).await
+        let route = self.routes.get(&decoded.lane).expect("all lanes checked at construction");
+        #[cfg(test)]
+        self.outbound_admitted.add_permits(1);
+        route.send(frame).await
     }
 
     async fn receive(&self) -> Result<Option<Bytes>, LinkError> {
@@ -456,6 +463,19 @@ mod tests {
         receive_calls: Arc<Semaphore>,
     }
 
+    struct SerializedSendLink {
+        writer: Mutex<()>,
+        started: Arc<Semaphore>,
+        release: Arc<Semaphore>,
+        order: Arc<Mutex<Vec<(Lane, u64)>>>,
+    }
+
+    struct SerializedSendHandle {
+        started: Arc<Semaphore>,
+        release: Arc<Semaphore>,
+        order: Arc<Mutex<Vec<(Lane, u64)>>>,
+    }
+
     fn controlled_receive_link(
         description: &str,
         maximum: usize,
@@ -470,6 +490,21 @@ mod tests {
                 receive_calls: receive_calls.clone(),
             },
             ControlledReceiveHandle { incoming, receive_calls },
+        )
+    }
+
+    fn serialized_send_link() -> (SerializedSendLink, SerializedSendHandle) {
+        let started = Arc::new(Semaphore::new(0));
+        let release = Arc::new(Semaphore::new(0));
+        let order = Arc::new(Mutex::new(Vec::new()));
+        (
+            SerializedSendLink {
+                writer: Mutex::new(()),
+                started: started.clone(),
+                release: release.clone(),
+                order: order.clone(),
+            },
+            SerializedSendHandle { started, release, order },
         )
     }
 
@@ -497,6 +532,36 @@ mod tests {
         }
     }
 
+    #[async_trait]
+    impl FrameLink for SerializedSendLink {
+        fn description(&self) -> &str {
+            "serialized-send"
+        }
+
+        fn maximum_frame_bytes(&self) -> usize {
+            65_535
+        }
+
+        async fn send(&self, frame: Bytes) -> Result<(), LinkError> {
+            let _writer = self.writer.lock().await;
+            let frame = WireFrame::decode(&frame)
+                .map_err(|error| LinkError::Protocol(error.to_string()))?;
+            self.order.lock().await.push((frame.lane, frame.sequence));
+            self.started.add_permits(1);
+            let permit = self.release.acquire().await.map_err(|_| LinkError::Closed)?;
+            permit.forget();
+            Ok(())
+        }
+
+        async fn receive(&self) -> Result<Option<Bytes>, LinkError> {
+            pending().await
+        }
+
+        async fn close(&self) -> Result<(), LinkError> {
+            Ok(())
+        }
+    }
+
     fn encoded_frame(lane: Lane, payload_bytes: usize) -> Bytes {
         WireFrame {
             session: SessionId::ZERO,
@@ -513,10 +578,34 @@ mod tests {
         .into()
     }
 
+    fn sequenced_frame(lane: Lane, sequence: u64) -> Bytes {
+        WireFrame {
+            session: SessionId::ZERO,
+            generation: 1,
+            lane,
+            flags: FrameFlags::empty(),
+            sequence,
+            acknowledgement: 0,
+            stream: 1,
+            payload: vec![lane as u8],
+        }
+        .encode()
+        .unwrap()
+        .into()
+    }
+
     async fn wait_for_receive_calls(calls: &Semaphore, count: u32) {
         let permit = tokio::time::timeout(Duration::from_secs(1), calls.acquire_many(count))
             .await
             .expect("physical reader did not reach the deterministic gate")
+            .unwrap();
+        permit.forget();
+    }
+
+    async fn wait_for_signal(signal: &Semaphore, context: &str) {
+        let permit = tokio::time::timeout(Duration::from_secs(1), signal.acquire())
+            .await
+            .unwrap_or_else(|_| panic!("timed out waiting for {context}"))
             .unwrap();
         permit.forget();
     }
@@ -629,5 +718,78 @@ mod tests {
             }
         }
         assert!(bulk_delivery.is_some(), "bulk was starved by interactive ingress");
+    }
+
+    #[tokio::test]
+    async fn shared_physical_writer_prioritizes_later_interactive_sends_without_starvation() {
+        const INTERACTIVE_FRAMES: u64 = 100;
+
+        let (physical, physical_handle) = serialized_send_link();
+        let mux = Arc::new(
+            LaneMuxLink::new(
+                "single-physical",
+                vec![LinkRoute { lanes: Lane::ALL.to_vec(), link: Arc::new(physical) }],
+            )
+            .unwrap(),
+        );
+        let admitted = mux.outbound_admitted.clone();
+        let mut frames = vec![sequenced_frame(Lane::Bulk, 1), sequenced_frame(Lane::Bulk, 2)];
+        frames.push(sequenced_frame(Lane::Tunnel, 1));
+        frames.extend(
+            (1..=INTERACTIVE_FRAMES).map(|sequence| sequenced_frame(Lane::Interactive, sequence)),
+        );
+        let total_frames = frames.len();
+        let mut sends = Vec::with_capacity(total_frames);
+
+        let first = frames.remove(0);
+        let first_mux = mux.clone();
+        sends.push(tokio::spawn(async move { first_mux.send(first).await }));
+        wait_for_signal(&admitted, "first Bulk admission").await;
+        wait_for_signal(&physical_handle.started, "first physical send").await;
+
+        for frame in frames {
+            let mux = mux.clone();
+            sends.push(tokio::spawn(async move { mux.send(frame).await }));
+            wait_for_signal(&admitted, "queued lane admission").await;
+        }
+
+        for _ in 1..total_frames {
+            physical_handle.release.add_permits(1);
+            wait_for_signal(&physical_handle.started, "next physical send").await;
+        }
+        physical_handle.release.add_permits(1);
+        let results = tokio::time::timeout(Duration::from_secs(1), join_all(sends))
+            .await
+            .expect("serialized sends did not finish");
+        assert!(results.into_iter().all(|result| result.unwrap().is_ok()));
+
+        let order = physical_handle.order.lock().await.clone();
+        assert_eq!(order.len(), total_frames);
+        assert_eq!(order[0], (Lane::Bulk, 1));
+        assert_eq!(order[1].0, Lane::Interactive, "later Interactive send lost priority");
+        assert_eq!(
+            order
+                .iter()
+                .filter_map(|(lane, sequence)| (*lane == Lane::Bulk).then_some(*sequence))
+                .collect::<Vec<_>>(),
+            vec![1, 2],
+            "Bulk FIFO changed",
+        );
+        assert_eq!(
+            order
+                .iter()
+                .filter_map(|(lane, sequence)| (*lane == Lane::Interactive).then_some(*sequence))
+                .collect::<Vec<_>>(),
+            (1..=INTERACTIVE_FRAMES).collect::<Vec<_>>(),
+            "Interactive FIFO changed",
+        );
+        let second_bulk = order
+            .iter()
+            .position(|frame| *frame == (Lane::Bulk, 2))
+            .expect("queued Bulk send was starved");
+        assert!(
+            second_bulk <= 3 * (PRIORITY_BURST_FRAMES + 1),
+            "queued Bulk send exceeded the bounded priority window: {second_bulk}",
+        );
     }
 }
