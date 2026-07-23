@@ -2157,12 +2157,12 @@ class TabManager: ObservableObject {
         isFinalizedForWindowClose = true
         let closingWorkspaces = Array(tabs)
         panelTitleUpdateCoalescer.flushNow()
+        sidebarGitMetadataService.resetAllWorkspaceGitProbeTracking()
 
         for workspace in closingWorkspaces {
-            finalizeWorkspaceForRemoval(workspace)
+            finalizeWorkspaceForRemoval(workspace, clearsWorkspaceGitProbes: false)
         }
 
-        sidebarGitMetadataService.resetAllWorkspaceGitProbeTracking()
         sidebarMultiSelection.replaceSelection(with: [])
         pruneBackgroundWorkspaceLoads(existingIds: [])
         pendingPanelTitleUpdates.removeAll()
@@ -2202,9 +2202,13 @@ class TabManager: ObservableObject {
 
     /// Runs the shared per-workspace ownership cleanup before the manager
     /// removes the workspace from its collection.
-    private func finalizeWorkspaceForRemoval(_ workspace: Workspace) {
-        sidebarGitMetadataService.clearWorkspaceGitProbes(workspaceId: workspace.id)
-        pullRequestProbing.clearWorkspacePullRequestTracking(workspaceId: workspace.id)
+    private func finalizeWorkspaceForRemoval(
+        _ workspace: Workspace,
+        clearsWorkspaceGitProbes: Bool = true
+    ) {
+        if clearsWorkspaceGitProbes {
+            sidebarGitMetadataService.clearWorkspaceGitProbes(workspaceId: workspace.id)
+        }
         sidebarMultiSelection.removeFromSelection(workspace.id)
         invalidateFocusHistoryTarget(workspaceId: workspace.id, panelId: nil)
         lastFocusedPanelByTab.removeValue(forKey: workspace.id)
