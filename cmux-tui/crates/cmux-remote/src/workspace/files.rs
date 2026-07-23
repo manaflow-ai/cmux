@@ -1633,9 +1633,9 @@ fn commit_unix_remove(
                 error.raw_os_error(),
                 Some(code) if code == libc::ENOTSUP || code == libc::EINVAL
             );
+        progress.cleaned();
         if unsupported {
             progress.outcome = MutationOutcome::Unchanged;
-            progress.cleaned();
         } else {
             progress.outcome = MutationOutcome::Unknown;
         }
