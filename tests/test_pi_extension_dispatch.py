@@ -561,6 +561,57 @@ await handlers.get("before_agent_start")({ prompt: "route after stale resume tar
             print(f"FAIL: stale resume target disabled recoverable lifecycle routing: {explicit_calls!r}")
             return 1
 
+        runtime_log = root / "runtime-isolation-cmux.log"
+        runtime_cmux = root / "runtime-isolation-cmux"
+        make_executable(
+            runtime_cmux,
+            """#!/usr/bin/env bash
+set -euo pipefail
+payload="$(cat)"
+printf '%s|%s\n' "$*" "$payload" >> "$CMUX_TEST_PI_RUNTIME_LOG"
+if [[ "$payload" == *'"session_id":"pi-runtime-stale"'* ]]; then
+  printf 'Error: not_found: Surface not found\n' >&2
+  exit 1
+fi
+printf '{}\n'
+""",
+        )
+        runtime_source = """
+const extensionPath = process.env.CMUX_TEST_PI_EXTENSION_PATH;
+const mod = await import(extensionPath);
+const staleHandlers = new Map();
+const healthyHandlers = new Map();
+mod.default({ on(name, handler) { staleHandlers.set(name, handler); } });
+mod.default({ on(name, handler) { healthyHandlers.set(name, handler); } });
+const context = (sessionId) => ({
+  cwd: "/tmp/pi-runtime-isolation-project",
+  sessionManager: { getSessionId() { return sessionId; } }
+});
+await staleHandlers.get("before_agent_start")(
+  { prompt: "stale runtime" },
+  context("pi-runtime-stale")
+);
+await healthyHandlers.get("before_agent_start")(
+  { prompt: "healthy runtime" },
+  context("pi-runtime-healthy")
+);
+"""
+        runtime = run_extension(
+            bun=bun,
+            root=root,
+            extension_path=extension_path,
+            fake_cmux=runtime_cmux,
+            source=runtime_source,
+            extra_env={"CMUX_TEST_PI_RUNTIME_LOG": str(runtime_log)},
+        )
+        if runtime.returncode != 0:
+            print(f"FAIL: runtime-isolation harness failed: {runtime.stderr!r}")
+            return 1
+        runtime_calls = runtime_log.read_text(encoding="utf-8").splitlines()
+        if len(runtime_calls) != 2 or "pi-runtime-healthy" not in runtime_calls[-1]:
+            print(f"FAIL: stale surface leaked across Pi extension runtimes: {runtime_calls!r}")
+            return 1
+
         stale_log = root / "stale-cmux.log"
         stale_cmux = root / "stale-cmux"
         make_executable(
