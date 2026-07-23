@@ -18,6 +18,7 @@ extension ControlDebugContext {
     func controlDebugShowProWelcomeChecklist() {}
     func controlDebugIsTerminalFocused(surfaceArgument: String) -> String { "ERROR: not implemented" }
     func controlDebugReadTerminalText(surfaceArgument: String) -> String { "ERROR: not implemented" }
+    func controlDebugSelectAllTerminal(surfaceArgument: String) -> String { "ERROR: not implemented" }
     func controlDebugRenderStats(surfaceArgument: String) -> String { "ERROR: not implemented" }
     func controlDebugLayout() -> String { "ERROR: not implemented" }
     func controlDebugBonsplitUnderflowCount() -> String { "ERROR: not implemented" }
