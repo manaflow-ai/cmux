@@ -12,6 +12,12 @@ extension MobileShellComposite {
     /// healthy even though the old foreground session was intentionally torn
     /// down.
     public var workspaceListConnectionStatus: MobileMacConnectionStatus {
+        if pairedMacs.isEmpty, hasHiddenComputers {
+            // Hidden Macs have no reconnectable row or workspace target. Present
+            // the normal shell as an ordinary empty list instead of advertising a
+            // reconnect action that cannot reach anything visible.
+            return .connected
+        }
         let foregroundKey: String?
         if let id = foregroundMacDeviceID, workspacesByMac[id] != nil {
             foregroundKey = id
