@@ -21,24 +21,6 @@ from test_codex_feed_hooks import (
 def test_relay_batch_uses_one_response_deadline(root: Path) -> None:
     source_path = Path(__file__).resolve().parents[1] / "CLI" / "SocketClient+SingleLineBatch.swift"
     source = source_path.read_text()
-    socket_client_source = (
-        Path(__file__).resolve().parents[1] / "CLI" / "cmux.swift"
-    ).read_text()
-    send_start = socket_client_source.index(
-        "    func send(command: String, responseTimeout: TimeInterval? = nil) throws -> String {"
-    )
-    send_end = socket_client_source.index(
-        "\n    func sendOneWay(",
-        send_start,
-    )
-    send_source = socket_client_source[send_start:send_end]
-    if (
-        "connectWithoutRetry(responseTimeout: requestedResponseTimeout)" not in send_source
-        or "remainingRelayTimeout(until: responseDeadline)" not in send_source
-    ):
-        raise AssertionError(
-            "relay-backed send does not share its response deadline with connect/authentication"
-        )
     source = "\n".join(
         line for line in source.splitlines()
         if line not in {"import Darwin", "import Foundation"}
@@ -56,7 +38,13 @@ struct CLIError: Error {{
 final class SocketClient {{
     let isRelayBacked = true
     let socketFD: Int32 = -1
+    var observedConnectTimeouts: [TimeInterval] = []
     var observedTimeouts: [TimeInterval] = []
+
+    func connectWithoutRetry(responseTimeout: TimeInterval? = nil) throws {{
+        observedConnectTimeouts.append(responseTimeout ?? 0)
+        Thread.sleep(forTimeInterval: 0.04)
+    }}
 
     func send(command: String, responseTimeout: TimeInterval? = nil) throws -> String {{
         let timeout = responseTimeout ?? 0
@@ -83,8 +71,19 @@ _ = try client.sendSingleLineBatch(
     commands: ["first", "second", "third"],
     responseTimeout: 0.2
 )
+guard client.observedConnectTimeouts.count == 3 else {{
+    fatalError("batch did not budget all three relay authentications: \\(client.observedConnectTimeouts)")
+}}
 guard client.observedTimeouts.count == 3 else {{
     fatalError("expected three relay sends, got \\(client.observedTimeouts)")
+}}
+guard zip(client.observedConnectTimeouts, client.observedTimeouts).allSatisfy({{ connect, response in
+    connect > response
+}}) else {{
+    fatalError(
+        "relay command reused its pre-authentication timeout: "
+            + "\\(client.observedConnectTimeouts) -> \\(client.observedTimeouts)"
+    )
 }}
 guard client.observedTimeouts[0] > client.observedTimeouts[1],
       client.observedTimeouts[1] > client.observedTimeouts[2] else {{
