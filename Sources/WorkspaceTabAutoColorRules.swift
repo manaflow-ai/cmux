@@ -92,7 +92,12 @@ enum WorkspaceTabAutoColorRules {
                 if lhs.foldedKeyword.count != rhs.foldedKeyword.count {
                     return lhs.foldedKeyword.count > rhs.foldedKeyword.count
                 }
-                return lhs.keyword.localizedStandardCompare(rhs.keyword) == .orderedAscending
+                // Locale-independent tie-breaks: the same rules must resolve to
+                // the same color whatever the user's locale is. `folded` uses
+                // no locale either, and `keyword` is the final tie-break
+                // because two keywords can fold to the same string.
+                if lhs.foldedKeyword != rhs.foldedKeyword { return lhs.foldedKeyword < rhs.foldedKeyword }
+                return lhs.keyword < rhs.keyword
             }
         return WorkspaceTabAutoColorRuleSet(rules: rules)
     }

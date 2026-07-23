@@ -208,22 +208,34 @@ public struct WorkspaceColorsSection: View {
     }
 
     /// Rules in the order the app matches them: longest keyword first (most
-    /// specific rule wins), ties broken alphabetically. Mirrors
-    /// `WorkspaceTabAutoColorRules.ruleSet` in the app target.
+    /// specific rule wins), then locale-independent tie-breaks. Mirrors
+    /// `WorkspaceTabAutoColorRules.ruleSet` in the app target, folding
+    /// included, so this list reads in the order rules actually apply.
     private func orderedAutoColorRules(
         stored: [String: String]
     ) -> [(keyword: String, value: String, hex: String?)] {
         let palette = effectivePaletteMap(stored: paletteModel.current)
         return stored
-            .compactMap { rawKeyword, value -> (keyword: String, value: String, hex: String?)? in
+            .compactMap { rawKeyword, value -> (keyword: String, folded: String, value: String, hex: String?)? in
                 let keyword = rawKeyword.trimmingCharacters(in: .whitespacesAndNewlines)
-                guard !keyword.isEmpty else { return nil }
-                return (keyword: keyword, value: value, hex: resolvedRuleHex(value, palette: palette))
+                let folded = keyword.folding(
+                    options: [.caseInsensitive, .diacriticInsensitive, .widthInsensitive],
+                    locale: nil
+                )
+                guard !folded.isEmpty else { return nil }
+                return (
+                    keyword: keyword,
+                    folded: folded,
+                    value: value,
+                    hex: resolvedRuleHex(value, palette: palette)
+                )
             }
             .sorted { lhs, rhs in
-                if lhs.keyword.count != rhs.keyword.count { return lhs.keyword.count > rhs.keyword.count }
-                return lhs.keyword.localizedStandardCompare(rhs.keyword) == .orderedAscending
+                if lhs.folded.count != rhs.folded.count { return lhs.folded.count > rhs.folded.count }
+                if lhs.folded != rhs.folded { return lhs.folded < rhs.folded }
+                return lhs.keyword < rhs.keyword
             }
+            .map { (keyword: $0.keyword, value: $0.value, hex: $0.hex) }
     }
 
     /// Resolves a rule value (palette name or `#RRGGBB`) to a hex, or `nil`

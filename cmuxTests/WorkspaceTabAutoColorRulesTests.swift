@@ -57,16 +57,30 @@ struct WorkspaceTabAutoColorRulesTests {
         }
     }
 
-    /// Equal-length keywords resolve alphabetically so the same config always
-    /// paints the same color.
+    /// Equal-length keywords resolve on a locale-independent order, so the same
+    /// config paints the same color on every machine.
     @Test
     func equalLengthKeywordsResolveDeterministically() throws {
         try withDefaults("ties") { defaults in
             let raw = ["zzz": "Red", "aaa": "Blue"]
             let first = WorkspaceTabAutoColorRules.ruleSet(raw: raw, defaults: defaults)
             let second = WorkspaceTabAutoColorRules.ruleSet(raw: raw, defaults: defaults)
+            #expect(first.rules.map(\.keyword) == ["aaa", "zzz"])
             #expect(first.rules.map(\.keyword) == second.rules.map(\.keyword))
             #expect(first.colorHex(forTitle: "aaa zzz") == "#1565C0")
+        }
+    }
+
+    /// Two keywords that fold to the same string still get a total order, so
+    /// the winner never depends on dictionary iteration order.
+    @Test
+    func keywordsFoldingToTheSameStringStillOrderDeterministically() throws {
+        try withDefaults("foldedTies") { defaults in
+            let raw = ["Deploy": "Red", "déploy": "Blue"]
+            let first = WorkspaceTabAutoColorRules.ruleSet(raw: raw, defaults: defaults)
+            let second = WorkspaceTabAutoColorRules.ruleSet(raw: raw, defaults: defaults)
+            #expect(first.rules.map(\.keyword) == second.rules.map(\.keyword))
+            #expect(first.colorHex(forTitle: "deploy prod") == second.colorHex(forTitle: "deploy prod"))
         }
     }
 
