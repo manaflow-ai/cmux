@@ -70,4 +70,37 @@ struct ArtifactHTMLPreviewSecurityTests {
         ).allowsSessionPersistence)
         #expect(BrowserPanelContentMode.standard.allowsSessionPersistence)
     }
+
+    @Test("Closing an artifact preview never stages it for normal browser reopening")
+    @MainActor
+    func excludesPreviewDocumentsFromClosedBrowserHistory() throws {
+        let workspace = Workspace()
+        let documentURL = try #require(URL(string: "data:text/html;base64,PGh0bWw+"))
+        let paneID = try #require(workspace.bonsplitController.focusedPaneId)
+        let browserPanel = try #require(workspace.newBrowserSurface(
+            inPane: paneID,
+            url: documentURL,
+            focus: false,
+            creationPolicy: .artifactPreview
+        ))
+        let tabID = try #require(workspace.surfaceIdFromPanelId(browserPanel.id))
+        let tab = try #require(workspace.bonsplitController.tab(tabID))
+        var closedSnapshot: ClosedBrowserPanelRestoreSnapshot?
+        workspace.onClosedBrowserPanel = { snapshot in
+            closedSnapshot = snapshot
+        }
+
+        #expect(workspace.splitTabBar(
+            workspace.bonsplitController,
+            shouldCloseTab: tab,
+            inPane: paneID
+        ))
+        workspace.splitTabBar(
+            workspace.bonsplitController,
+            didCloseTab: tabID,
+            fromPane: paneID
+        )
+
+        #expect(closedSnapshot == nil)
+    }
 }
