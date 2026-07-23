@@ -71,7 +71,7 @@ extension AppDelegate {
         for context in mainWindowContexts.values {
             guard context.windowId == originWindowId,
                   resolvedWindow(for: context) != nil,
-                  let workspace = context.tabManager.tabs.first(where: {
+                  context.tabManager.tabs.contains(where: {
                 $0.id == workspaceId && $0.panels.keys.contains(surfaceId)
             }),
                   let snapshot = SharedLiveAgentIndex.shared.snapshot(workspaceId: workspaceId, panelId: surfaceId),

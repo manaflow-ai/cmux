@@ -49,7 +49,7 @@ struct CmuxConfigExecutor {
         presentingWindow: NSWindow? = nil,
         modelTarget: CmuxActionModelTarget? = nil,
         selectWorkspace: Bool = true,
-        alertFactory: () -> NSAlert = { NSAlert() },
+        alertFactory: @MainActor () -> NSAlert = { NSAlert() },
         isExecutionTargetAvailable: @escaping () -> Bool = { true },
         onExecuted: (() -> Void)? = nil
     ) -> CmuxConfiguredActionExecutionOutcome {
@@ -171,7 +171,7 @@ struct CmuxConfigExecutor {
         presentingWindow: NSWindow? = nil,
         modelTarget: CmuxActionModelTarget? = nil,
         selectWorkspace: Bool = true,
-        alertFactory: () -> NSAlert = { NSAlert() },
+        alertFactory: @MainActor () -> NSAlert = { NSAlert() },
         isExecutionTargetAvailable: @escaping () -> Bool = { true },
         onExecuted: (() -> Void)? = nil
     ) -> CmuxConfiguredActionExecutionOutcome {
@@ -326,7 +326,7 @@ struct CmuxConfigExecutor {
         icon: CmuxButtonIcon? = nil,
         iconSourcePath: String? = nil,
         presentingWindow: NSWindow? = nil,
-        alertFactory: () -> NSAlert = { NSAlert() },
+        alertFactory: @MainActor () -> NSAlert = { NSAlert() },
         onAuthorized: @escaping (String) -> Void
     ) -> CmuxConfiguredActionExecutionOutcome {
         let shellCommand = sanitizeForDisplay(rawCommand)
@@ -389,8 +389,8 @@ struct CmuxConfigExecutor {
         displayCommand: String,
         displayTitle: String? = nil,
         presentingWindow: NSWindow? = nil,
-        fallbackPresentingWindowProvider: @escaping () -> NSWindow? = { NSApp.keyWindow ?? NSApp.mainWindow },
-        alertFactory: @escaping () -> NSAlert = { NSAlert() },
+        fallbackPresentingWindowProvider: @escaping @MainActor () -> NSWindow? = { NSApp.keyWindow ?? NSApp.mainWindow },
+        alertFactory: @escaping @MainActor () -> NSAlert = { NSAlert() },
         onAuthorized: @escaping () -> Void,
         onDenied: (() -> Void)? = nil
     ) -> CmuxConfiguredActionExecutionOutcome {
@@ -421,8 +421,8 @@ struct CmuxConfigExecutor {
         displayCommand: String,
         displayTitle: String?,
         presentingWindow: NSWindow?,
-        fallbackPresentingWindowProvider: () -> NSWindow? = { NSApp.keyWindow ?? NSApp.mainWindow },
-        alertFactory: () -> NSAlert = { NSAlert() },
+        fallbackPresentingWindowProvider: @MainActor () -> NSWindow? = { NSApp.keyWindow ?? NSApp.mainWindow },
+        alertFactory: @MainActor () -> NSAlert = { NSAlert() },
         onAuthorized: @escaping () -> CmuxConfiguredActionExecutionOutcome,
         onDenied: (() -> Void)? = nil
     ) -> CmuxConfiguredActionExecutionOutcome {
@@ -490,7 +490,7 @@ struct CmuxConfigExecutor {
         descriptor: CmuxActionTrustDescriptor,
         configPath: String,
         presentingWindow: NSWindow,
-        alertFactory: () -> NSAlert,
+        alertFactory: @MainActor () -> NSAlert,
         completion: @escaping (Bool) -> Void
     ) {
         let alert = makeConfirmDialog(
@@ -514,7 +514,7 @@ struct CmuxConfigExecutor {
         displayTitle: String?,
         descriptor: CmuxActionTrustDescriptor,
         configPath: String,
-        alertFactory: () -> NSAlert
+        alertFactory: @MainActor () -> NSAlert
     ) -> Bool {
         let alert = makeConfirmDialog(
             command: command,
@@ -534,7 +534,7 @@ struct CmuxConfigExecutor {
         command: String,
         displayTitle: String?,
         configPath: String,
-        alertFactory: () -> NSAlert
+        alertFactory: @MainActor () -> NSAlert
     ) -> NSAlert {
         let alert = alertFactory()
         // Titles come from project-local configs too — strip bidi/zero-width

@@ -431,7 +431,7 @@ struct CmuxConfigActionCatalogTests {
         )
         let load: @Sendable (String?) async -> CmuxConfigActionCatalogSource? = { directory in
             let isHung = directory == fixture.hungA.path || directory == fixture.hungB.path
-            await CmuxConfigStore.loadActionCatalogSource(
+            return await CmuxConfigStore.loadActionCatalogSource(
                 startingFrom: directory,
                 globalConfigPath: fixture.globalPath,
                 workspaceColorPalette: [:],
