@@ -436,6 +436,16 @@ impl PtyInputSender {
         )
     }
 
+    pub fn enqueue_surface_operation(
+        &self,
+        label: &'static str,
+        surface_id: SurfaceId,
+        remote: bool,
+        operation: impl FnOnce() -> anyhow::Result<()> + Send + 'static,
+    ) -> PtyInputEnqueueResult {
+        self.enqueue_mutation_with_key(label, None, Some(surface_id), remote, None, None, operation)
+    }
+
     fn enqueue_mutation_with_key(
         &self,
         label: &'static str,

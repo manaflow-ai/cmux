@@ -1,6 +1,8 @@
 //! crossterm key events → ghostty key encoder inputs.
 
-use crossterm::event::{EnhancedKeyEvent, KeyCode, KeyEvent, KeyEventKind, KeyModifiers};
+use crossterm::event::{
+    EnhancedKeyEvent, KeyCode, KeyEvent, KeyEventKind, KeyEventState, KeyModifiers,
+};
 use ghostty_vt::sys;
 use ghostty_vt::{KeyAction, KeyInput, Mods};
 
@@ -124,6 +126,17 @@ pub fn mods_from(m: KeyModifiers) -> Mods {
     mods
 }
 
+fn state_mods(state: KeyEventState) -> Mods {
+    let mut mods = Mods::default();
+    if state.contains(KeyEventState::CAPS_LOCK) {
+        mods = mods | Mods::CAPS_LOCK;
+    }
+    if state.contains(KeyEventState::NUM_LOCK) {
+        mods = mods | Mods::NUM_LOCK;
+    }
+    mods
+}
+
 pub(crate) fn shifted_ascii_char(c: char) -> char {
     match c {
         'a'..='z' => c.to_ascii_uppercase(),
@@ -206,6 +219,42 @@ fn physical_key_for_char(c: char) -> sys::GhosttyKey {
     }
 }
 
+fn keypad_physical_key(code: KeyCode) -> Option<sys::GhosttyKey> {
+    Some(match code {
+        KeyCode::Char('0') => sys::GHOSTTY_KEY_NUMPAD_0,
+        KeyCode::Char('1') => sys::GHOSTTY_KEY_NUMPAD_1,
+        KeyCode::Char('2') => sys::GHOSTTY_KEY_NUMPAD_2,
+        KeyCode::Char('3') => sys::GHOSTTY_KEY_NUMPAD_3,
+        KeyCode::Char('4') => sys::GHOSTTY_KEY_NUMPAD_4,
+        KeyCode::Char('5') => sys::GHOSTTY_KEY_NUMPAD_5,
+        KeyCode::Char('6') => sys::GHOSTTY_KEY_NUMPAD_6,
+        KeyCode::Char('7') => sys::GHOSTTY_KEY_NUMPAD_7,
+        KeyCode::Char('8') => sys::GHOSTTY_KEY_NUMPAD_8,
+        KeyCode::Char('9') => sys::GHOSTTY_KEY_NUMPAD_9,
+        KeyCode::Char('+') => sys::GHOSTTY_KEY_NUMPAD_ADD,
+        KeyCode::Backspace => sys::GHOSTTY_KEY_NUMPAD_BACKSPACE,
+        KeyCode::Char(',') => sys::GHOSTTY_KEY_NUMPAD_COMMA,
+        KeyCode::Char('.') => sys::GHOSTTY_KEY_NUMPAD_DECIMAL,
+        KeyCode::Char('/') => sys::GHOSTTY_KEY_NUMPAD_DIVIDE,
+        KeyCode::Enter => sys::GHOSTTY_KEY_NUMPAD_ENTER,
+        KeyCode::Char('=') => sys::GHOSTTY_KEY_NUMPAD_EQUAL,
+        KeyCode::Char('*') => sys::GHOSTTY_KEY_NUMPAD_MULTIPLY,
+        KeyCode::Char('-') => sys::GHOSTTY_KEY_NUMPAD_SUBTRACT,
+        KeyCode::Up => sys::GHOSTTY_KEY_NUMPAD_UP,
+        KeyCode::Down => sys::GHOSTTY_KEY_NUMPAD_DOWN,
+        KeyCode::Right => sys::GHOSTTY_KEY_NUMPAD_RIGHT,
+        KeyCode::Left => sys::GHOSTTY_KEY_NUMPAD_LEFT,
+        KeyCode::KeypadBegin => sys::GHOSTTY_KEY_NUMPAD_BEGIN,
+        KeyCode::Home => sys::GHOSTTY_KEY_NUMPAD_HOME,
+        KeyCode::End => sys::GHOSTTY_KEY_NUMPAD_END,
+        KeyCode::Insert => sys::GHOSTTY_KEY_NUMPAD_INSERT,
+        KeyCode::Delete => sys::GHOSTTY_KEY_NUMPAD_DELETE,
+        KeyCode::PageUp => sys::GHOSTTY_KEY_NUMPAD_PAGE_UP,
+        KeyCode::PageDown => sys::GHOSTTY_KEY_NUMPAD_PAGE_DOWN,
+        _ => return None,
+    })
+}
+
 /// Convert a crossterm key event into an encoder input. Returns `None`
 /// for events that produce no terminal bytes (releases, media keys, ...).
 pub fn key_input_from(event: &KeyEvent) -> Option<KeyInput> {
@@ -217,7 +266,7 @@ pub fn key_input_from(event: &KeyEvent) -> Option<KeyInput> {
         // end to end. Skip for now.
         KeyEventKind::Release => return None,
     };
-    let mods = mods_from(event.modifiers);
+    let mods = mods_from(event.modifiers) | state_mods(event.state);
 
     let mut input = KeyInput { mods, action: Some(action), ..Default::default() };
 
@@ -256,7 +305,13 @@ pub fn key_input_from(event: &KeyEvent) -> Option<KeyInput> {
         KeyCode::F(n @ 1..=20) => {
             input.key = sys::GHOSTTY_KEY_F1 + (n as sys::GhosttyKey - 1);
         }
+        KeyCode::KeypadBegin => input.key = sys::GHOSTTY_KEY_NUMPAD_BEGIN,
         _ => return None,
+    }
+    if event.state.contains(KeyEventState::KEYPAD)
+        && let Some(key) = keypad_physical_key(event.code)
+    {
+        input.key = key;
     }
     Some(input)
 }
@@ -284,7 +339,9 @@ fn key_input_from_parts(
     let mut input = key_input_from(event)?;
 
     if let KeyCode::Char(unshifted) = event.code {
-        if let Some(base_layout_key) = base_layout_key {
+        if !event.state.contains(KeyEventState::KEYPAD)
+            && let Some(base_layout_key) = base_layout_key
+        {
             input.key = physical_key_for_char(base_layout_key);
         }
         input.unshifted_codepoint = unshifted as u32;
@@ -456,9 +513,7 @@ mod tests {
 
     #[test]
     fn enhanced_keypad_identity_and_lock_state_reach_the_ghostty_encoder() {
-        let state = crossterm::event::KeyEventState::KEYPAD
-            | crossterm::event::KeyEventState::CAPS_LOCK
-            | crossterm::event::KeyEventState::NUM_LOCK;
+        let state = KeyEventState::KEYPAD | KeyEventState::CAPS_LOCK | KeyEventState::NUM_LOCK;
         let event = EnhancedKeyEvent {
             key_event: KeyEvent::new_with_kind_and_state(
                 KeyCode::Char('1'),
@@ -480,7 +535,7 @@ mod tests {
 
     #[test]
     fn enhanced_keypad_navigation_keeps_its_physical_identity() {
-        let state = crossterm::event::KeyEventState::KEYPAD;
+        let state = KeyEventState::KEYPAD;
         for (code, expected) in [
             (KeyCode::Enter, sys::GHOSTTY_KEY_NUMPAD_ENTER),
             (KeyCode::Up, sys::GHOSTTY_KEY_NUMPAD_UP),

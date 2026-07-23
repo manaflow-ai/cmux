@@ -756,6 +756,16 @@ impl Session {
         }
     }
 
+    pub fn clear_history_or_send(&self, surface: SurfaceId, fallback: &[u8]) -> anyhow::Result<()> {
+        match self {
+            Session::Local(mux) => mux
+                .surface(surface)
+                .ok_or_else(|| anyhow::anyhow!("unknown surface {surface}"))?
+                .clear_history_or_write(Some(fallback)),
+            Session::Remote(remote) => remote.clear_history_or_send(surface, fallback),
+        }
+    }
+
     pub fn close_pane(&self, pane: PaneId) -> anyhow::Result<()> {
         match self {
             Session::Local(mux) => {

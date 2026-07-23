@@ -22,6 +22,8 @@ impl Mods {
     pub const CTRL: Mods = Mods(sys::GHOSTTY_MODS_CTRL as u16);
     pub const ALT: Mods = Mods(sys::GHOSTTY_MODS_ALT as u16);
     pub const SUPER: Mods = Mods(sys::GHOSTTY_MODS_SUPER as u16);
+    pub const CAPS_LOCK: Mods = Mods(sys::GHOSTTY_MODS_CAPS_LOCK as u16);
+    pub const NUM_LOCK: Mods = Mods(sys::GHOSTTY_MODS_NUM_LOCK as u16);
 
     pub fn contains(self, other: Mods) -> bool {
         self.0 & other.0 == other.0

@@ -1065,12 +1065,30 @@ impl RemoteSession {
     }
 
     pub fn clear_history(&self, surface: SurfaceId) -> anyhow::Result<()> {
+        self.clear_history_request(surface, None)
+    }
+
+    pub fn clear_history_or_send(&self, surface: SurfaceId, fallback: &[u8]) -> anyhow::Result<()> {
+        let fallback = base64::engine::general_purpose::STANDARD.encode(fallback);
+        self.clear_history_request(surface, Some(fallback))
+    }
+
+    fn clear_history_request(
+        &self,
+        surface: SurfaceId,
+        fallback: Option<String>,
+    ) -> anyhow::Result<()> {
         require_capability(
             &self.capabilities.lock().unwrap(),
             CLEAR_HISTORY_CAPABILITY,
             "clear-history",
         )?;
-        self.request(json!({"cmd": "clear-history", "surface": surface})).map(|_| ())
+        self.request(json!({
+            "cmd": "clear-history",
+            "surface": surface,
+            "fallback": fallback,
+        }))
+        .map(|_| ())
     }
 
     pub fn begin_shutdown(&self) {

@@ -264,13 +264,14 @@ enum PromptTrackState {
 struct PromptOsc {
     prefix_len: u8,
     action: Option<u8>,
+    options_started: bool,
     invalid: bool,
 }
 
 impl PromptOsc {
     fn feed(&mut self, byte: u8) {
         const PREFIX: &[u8] = b"133;";
-        if self.invalid || self.action.is_some() {
+        if self.invalid {
             return;
         }
         if usize::from(self.prefix_len) < PREFIX.len() {
@@ -281,7 +282,19 @@ impl PromptOsc {
             }
             return;
         }
-        self.action = Some(byte);
+        if self.action.is_none() {
+            self.action = Some(byte);
+        } else if !self.options_started {
+            if byte == b';' {
+                self.options_started = true;
+            } else {
+                self.invalid = true;
+            }
+        }
+    }
+
+    fn valid_action(&self) -> Option<u8> {
+        if self.invalid { None } else { self.action }
     }
 }
 
@@ -318,7 +331,7 @@ impl PromptSemanticTracker {
                 },
                 PromptTrackState::Osc(mut osc) => match byte {
                     0x07 => {
-                        self.finish_osc(osc.action);
+                        self.finish_osc(osc.valid_action());
                         PromptTrackState::Ground
                     }
                     0x18 | 0x1a => PromptTrackState::Ground,
@@ -330,7 +343,7 @@ impl PromptSemanticTracker {
                 },
                 PromptTrackState::OscEscape(osc) => {
                     if byte == b'\\' {
-                        self.finish_osc(osc.action);
+                        self.finish_osc(osc.valid_action());
                         PromptTrackState::Ground
                     } else if byte == 0x1b {
                         PromptTrackState::OscEscape(osc)

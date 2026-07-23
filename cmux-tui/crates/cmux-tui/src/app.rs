@@ -1941,6 +1941,16 @@ impl OrderedSession {
         );
     }
 
+    pub fn clear_history_or_send(&self, surface: SurfaceId, fallback: Vec<u8>) {
+        let session = self.inner.clone();
+        self.operations.enqueue_surface_operation(
+            "clear terminal history",
+            surface,
+            self.remote,
+            move || session.clear_history_or_send(surface, &fallback),
+        );
+    }
+
     pub fn close_pane(&self, pane: PaneId) {
         self.enqueue_routing("close pane", move |session| session.close_pane(pane));
     }
@@ -6095,15 +6105,6 @@ impl App {
         Some((id, self.session.surface(id)?))
     }
 
-    fn active_surface_can_clear_history(&self) -> bool {
-        self.active_surface_handle().is_some_and(|surface| {
-            surface.kind() == SurfaceKind::Pty
-                && surface
-                    .with_terminal(|terminal| terminal.active_screen() == Screen::Primary)
-                    .unwrap_or(false)
-        })
-    }
-
     fn missing_input_surface(&self, input: &TerminalInput) -> Option<SurfaceId> {
         let surface = match input {
             TerminalInput::Keyboard(_) | TerminalInput::Paste(_) => self.active_surface()?,
@@ -6825,14 +6826,8 @@ impl App {
                 binding_fallback.as_ref(),
             )
         {
-            if action == Action::ClearHistory && !self.active_surface_can_clear_history() {
-                self.selection = None;
-                self.forward_key(&input);
-                return Ok(if self.status_message.is_some() {
-                    RenderAction::Draw
-                } else {
-                    RenderAction::None
-                });
+            if action == Action::ClearHistory {
+                return Ok(self.run_clear_history_shortcut(&input));
             }
             return self.run_action(action);
         }
@@ -8133,6 +8128,41 @@ impl App {
 
     fn sidebar_surface_handle(&self) -> Option<SurfaceHandle> {
         self.sidebar_plugin_surface.and_then(|surface| self.session.surface(surface))
+    }
+
+    fn run_clear_history_shortcut(&mut self, input: &keys::KeyboardInput) -> RenderAction {
+        let Some(surface_id) = self.active_surface() else {
+            return RenderAction::None;
+        };
+        if self.tree.surface_kind(surface_id) != SurfaceKind::Pty {
+            self.selection = None;
+            self.forward_key(input);
+            return if self.status_message.is_some() {
+                RenderAction::Draw
+            } else {
+                RenderAction::None
+            };
+        }
+        let Some(key_input) = input.terminal_input() else {
+            return RenderAction::None;
+        };
+        let Some(surface) = self.session.surface(surface_id) else {
+            return RenderAction::None;
+        };
+        self.encode_buf.clear();
+        let _ = surface.scroll_to_bottom();
+        let Some(encoded) = surface.with_terminal(|term| {
+            self.encoder.sync_from_terminal(term);
+            self.encoder.encode(&key_input, &mut self.encode_buf)
+        }) else {
+            return RenderAction::None;
+        };
+        if encoded.is_ok() {
+            self.session.clear_history_or_send(surface_id, self.encode_buf.clone());
+            self.render_states.remove(&surface_id);
+            self.selection = None;
+        }
+        if self.status_message.is_some() { RenderAction::Draw } else { RenderAction::None }
     }
 
     fn forward_key(&mut self, input: &keys::KeyboardInput) {

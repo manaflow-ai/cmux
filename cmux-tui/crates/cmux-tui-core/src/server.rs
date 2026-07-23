@@ -136,6 +136,10 @@ enum Command {
     },
     ClearHistory {
         surface: SurfaceId,
+        /// Base64-encoded key bytes to send when the authoritative terminal
+        /// is in the alternate screen.
+        #[serde(default)]
+        fallback: Option<String>,
     },
     ReadScrollback {
         surface: SurfaceId,
@@ -2873,10 +2877,13 @@ fn handle_command(
             let text = surface.try_with_terminal(|t| t.viewport_text())??;
             Ok(json!({ "text": text }))
         }
-        Command::ClearHistory { surface } => {
+        Command::ClearHistory { surface, fallback } => {
             let surface = get_surface(mux, surface)?;
             require_pty(&surface)?;
-            surface.clear_history()?;
+            let fallback = fallback
+                .map(|bytes| base64::engine::general_purpose::STANDARD.decode(bytes))
+                .transpose()?;
+            surface.clear_history_or_write(fallback.as_deref())?;
             Ok(json!({}))
         }
         Command::ReadScrollback { surface, start, count } => {

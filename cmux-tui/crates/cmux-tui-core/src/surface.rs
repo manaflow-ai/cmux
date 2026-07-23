@@ -454,7 +454,6 @@ enum PromptSubmissionState {
 }
 
 struct PromptSubmission {
-    previous: PromptSubmissionState,
     revision_before_write: u64,
 }
 
@@ -981,6 +980,13 @@ impl Surface {
     /// are sent to the child. Attached byte frontends receive the same VT erase
     /// sequence. Alternate-screen applications are left untouched.
     pub fn clear_history(&self) -> anyhow::Result<()> {
+        self.clear_history_or_write(None)
+    }
+
+    /// Clear primary-screen history, or write `fallback` when the
+    /// authoritative terminal is in the alternate screen. The screen
+    /// decision and fallback write share the terminal and PTY writer locks.
+    pub fn clear_history_or_write(&self, fallback: Option<&[u8]>) -> anyhow::Result<()> {
         const CLEAR_PROMPT_HISTORY_AND_SCREEN: &[u8] = b"\x1b[2J\x1b[3J\x1b[H";
         const CLEAR_SCROLLBACK: &[u8] = b"\x1b[3J";
         const REDRAW_PROMPT: &[u8] = b"\x0c";
@@ -992,7 +998,12 @@ impl Surface {
         let (scroll_changed, redraw_prompt) = {
             let mut term = pty.term.lock().unwrap();
             if term.active_screen() == Screen::Alternate {
-                return Ok(());
+                return match fallback {
+                    Some(bytes) if !bytes.is_empty() => {
+                        writer.write_all(bytes).and_then(|()| writer.flush()).map_err(Into::into)
+                    }
+                    _ => Ok(()),
+                };
             }
             let prompt_metadata_ready = pty.prompt_metadata_ready(&term);
             let redraw_prompt = prompt_metadata_ready && term.cursor_is_at_prompt();
@@ -1451,26 +1462,25 @@ impl PtySurface {
             return None;
         }
         let revision_before_write = self.term.lock().unwrap().prompt_semantic_revision();
-        let previous = std::mem::replace(
-            &mut *self.prompt_submission.lock().unwrap(),
-            PromptSubmissionState::Writing,
-        );
-        Some(PromptSubmission { previous, revision_before_write })
+        *self.prompt_submission.lock().unwrap() = PromptSubmissionState::Writing;
+        Some(PromptSubmission { revision_before_write })
     }
 
     fn finish_prompt_submission(&self, submission: Option<PromptSubmission>, succeeded: bool) {
         let Some(submission) = submission else { return };
-        let next = if succeeded {
-            let term = self.term.lock().unwrap();
-            let revision = term.prompt_semantic_revision();
-            if revision != submission.revision_before_write && term.cursor_is_at_prompt() {
-                PromptSubmissionState::Idle
-            } else {
-                PromptSubmissionState::AwaitingPromptMarker(revision)
-            }
+        let term = self.term.lock().unwrap();
+        let revision = term.prompt_semantic_revision();
+        let next = if succeeded
+            && revision != submission.revision_before_write
+            && term.cursor_is_at_prompt()
+        {
+            PromptSubmissionState::Idle
         } else {
-            submission.previous
+            // A failed write or flush has an ambiguous delivery outcome. Keep
+            // prompt redraw blocked until output proves the child advanced.
+            PromptSubmissionState::AwaitingPromptMarker(revision)
         };
+        drop(term);
         *self.prompt_submission.lock().unwrap() = next;
     }
 
