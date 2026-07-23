@@ -187,7 +187,12 @@ extension CMUXCLI {
         guard let responseObject = decodedResponse as? [String: Any] else {
             throw piFeedAcknowledgmentError()
         }
-        guard responseObject["ok"] as? Bool == true else {
+        guard responseObject["ok"] as? Bool == true,
+              let result = responseObject["result"] as? [String: Any],
+              result["status"] as? String == "acknowledged",
+              let itemId = result["item_id"] as? String,
+              UUID(uuidString: itemId) != nil
+        else {
             throw piFeedAcknowledgmentError()
         }
     }

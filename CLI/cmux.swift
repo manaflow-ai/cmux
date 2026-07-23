@@ -1958,7 +1958,7 @@ final class SocketClient {
 
         let initialResponseTimeout: TimeInterval
         if shouldCloseAfterSend {
-            initialResponseTimeout = try remainingRelayTimeout(until: responseDeadline)
+            initialResponseTimeout = try remainingSocketTimeout(until: responseDeadline)
         } else {
             initialResponseTimeout = requestedResponseTimeout
         }
@@ -1986,7 +1986,10 @@ final class SocketClient {
         var receivedCompleteResponse = false
 
         while true {
-            let currentTimeout = sawNewline ? Self.multilineResponseIdleTimeoutSeconds : initialResponseTimeout
+            let remaining = try remainingSocketTimeout(until: responseDeadline)
+            let currentTimeout = sawNewline
+                ? min(Self.multilineResponseIdleTimeoutSeconds, remaining)
+                : remaining
             operation.phase = sawNewline ? .readMultilineResponse : .waitForResponse
             operation.sawNewline = sawNewline
             operation.timeout = currentTimeout
@@ -2221,7 +2224,7 @@ final class SocketClient {
     private func connectToRelay(endpoint: RelayEndpoint, responseTimeout: TimeInterval? = nil) throws {
         let deadline = Date().addingTimeInterval(responseTimeout ?? Self.responseTimeoutSeconds)
         let credentials = try Self.relayCredentials(for: endpoint)
-        let timeout = try remainingRelayTimeout(until: deadline)
+        let timeout = try remainingSocketTimeout(until: deadline)
 
         socketFD = socket(AF_INET, SOCK_STREAM, 0)
         guard socketFD >= 0 else {
@@ -2270,7 +2273,7 @@ final class SocketClient {
         }
     }
 
-    private func remainingRelayTimeout(until deadline: Date) throws -> TimeInterval {
+    private func remainingSocketTimeout(until deadline: Date) throws -> TimeInterval {
         let remaining = deadline.timeIntervalSinceNow
         guard remaining > 0 else {
             throw CLIError(message: String(
@@ -2282,7 +2285,7 @@ final class SocketClient {
     }
 
     private func authenticateRelay(credentials: RelayCredentials, deadline: Date) throws {
-        let challengeLine = try readLine(responseTimeout: remainingRelayTimeout(until: deadline))
+        let challengeLine = try readLine(deadline: deadline)
         guard let challengeData = challengeLine.data(using: .utf8),
               let challenge = try JSONSerialization.jsonObject(with: challengeData) as? [String: Any],
               (challenge["protocol"] as? String) == "cmux-relay-auth",
@@ -2301,14 +2304,14 @@ final class SocketClient {
             "relay_id": relayID,
             "mac": Self.hexString(from: mac),
         ])
-        try configureSocketWriteSafety(remainingRelayTimeout(until: deadline))
+        try configureSocketWriteSafety(remainingSocketTimeout(until: deadline))
         try writeAll(
             authPayload + Data([0x0A]),
             timeoutMessage: "Relay command timed out",
             failureMessage: "Failed to write to relay socket"
         )
 
-        let authResponseLine = try readLine(responseTimeout: remainingRelayTimeout(until: deadline))
+        let authResponseLine = try readLine(deadline: deadline)
         guard let authResponseData = authResponseLine.data(using: .utf8),
               let authResponse = try JSONSerialization.jsonObject(with: authResponseData) as? [String: Any],
               (authResponse["ok"] as? Bool) == true else {
@@ -2459,11 +2462,11 @@ final class SocketClient {
 #endif
     }
 
-    private func readLine(maxBytes: Int = 16 * 1024, responseTimeout: TimeInterval? = nil) throws -> String {
+    private func readLine(maxBytes: Int = 16 * 1024, deadline: Date) throws -> String {
         var data = Data()
 
         while data.count < maxBytes {
-            try configureReceiveTimeout(responseTimeout ?? Self.responseTimeoutSeconds)
+            try configureReceiveTimeout(remainingSocketTimeout(until: deadline))
 
             var byte: UInt8 = 0
             let count = Darwin.read(socketFD, &byte, 1)
