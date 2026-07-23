@@ -84,6 +84,7 @@ class FakeCmuxSocket:
         raw_response_delay: float = 0,
         surfaces_by_workspace: dict[str, list[dict]] | None = None,
         surface_delivery_target: tuple[str, str] | None = None,
+        method_errors: dict[str, tuple[str, str]] | None = None,
     ):
         self.path = path
         self.decision = decision
@@ -95,6 +96,7 @@ class FakeCmuxSocket:
         self.raw_response_delay = raw_response_delay
         self.surfaces_by_workspace = surfaces_by_workspace
         self.surface_delivery_target = surface_delivery_target
+        self.method_errors = method_errors or {}
         self._dropped_surface_list = False
         self.frames: list[dict] = []
         self.frames_with_connection: list[tuple[int, dict]] = []
@@ -161,6 +163,21 @@ class FakeCmuxSocket:
                         continue
                     self.frames.append(frame)
                     self.frames_with_connection.append((connection_id, frame))
+                    if method_error := self.method_errors.get(frame.get("method")):
+                        code, message = method_error
+                        response = {
+                            "id": frame.get("id"),
+                            "ok": False,
+                            "error": {
+                                "code": code,
+                                "message": message,
+                            },
+                        }
+                        try:
+                            conn.sendall(json.dumps(response).encode("utf-8") + b"\n")
+                        except BrokenPipeError:
+                            return
+                        continue
                     if frame.get("method") == "feed.push":
                         self.feed_frame_received.set()
                         if self.feed_response_gate is not None:
@@ -3087,6 +3104,67 @@ def test_pi_feed_uses_resolved_explicit_workspace(cli_path: str, root: Path) -> 
         )
 
 
+def test_pi_feed_rejects_missing_explicit_workspace(cli_path: str, root: Path) -> None:
+    socket_path = root / "cmux-pi-missing-explicit-workspace.sock"
+    missing_workspace = "workspace:404"
+    other_workspace_id = "66666666-6666-6666-6666-666666666666"
+    env = os.environ.copy()
+    for key in ("CMUX_SOCKET", "CMUX_SOCKET_CAPABILITY", "CMUX_SOCKET_PATH", "CMUX_SOCKET_PASSWORD"):
+        env.pop(key, None)
+    env["CMUX_SURFACE_ID"] = FAKE_SURFACE_ID
+    env["CMUX_WORKSPACE_ID"] = FAKE_WORKSPACE_ID
+    payload = {
+        "session_id": "pi-missing-workspace-session",
+        "cwd": "/tmp/pi-missing-workspace-project",
+        "hook_event_name": "PostToolUse",
+        "tool_call_id": "pi-missing-workspace-tool",
+        "tool_name": "bash",
+    }
+
+    with FakeCmuxSocket(
+        socket_path,
+        None,
+        surface_delivery_target=(other_workspace_id, FAKE_SURFACE_ID),
+        method_errors={"window.list": ("not_found", "Workspace not found")},
+    ) as fake:
+        result = subprocess.run(
+            [
+                cli_path,
+                "--socket",
+                str(socket_path),
+                "hooks",
+                "feed",
+                "--source",
+                "pi",
+                "--event",
+                "PostToolUse",
+                "--workspace",
+                missing_workspace,
+                "--surface",
+                FAKE_SURFACE_ID,
+            ],
+            input=json.dumps(payload),
+            capture_output=True,
+            text=True,
+            check=False,
+            env=env,
+            timeout=10,
+        )
+
+    if result.returncode == 0:
+        raise AssertionError(
+            "Pi feed discarded its missing explicit workspace and routed by surface alone: "
+            f"stdout={result.stdout!r} stderr={result.stderr!r} frames={fake.frames!r}"
+        )
+    forbidden_methods = {"agent.resolve_delivery_target", "feed.push"}
+    leaked_frames = [frame for frame in fake.frames if frame.get("method") in forbidden_methods]
+    if leaked_frames:
+        raise AssertionError(
+            "Pi feed continued routing after its explicit workspace failed to resolve: "
+            f"{leaked_frames!r}"
+        )
+
+
 def test_pi_hook_rejects_malformed_explicit_surface(cli_path: str, root: Path) -> None:
     socket_path = root / "cmux-pi-malformed-explicit-surface.sock"
     env = os.environ.copy()
@@ -3304,6 +3382,7 @@ def main() -> int:
             test_pi_hook_rejects_invalid_explicit_surface(cli_path, root)
             test_pi_hook_rehomes_moved_explicit_surface(cli_path, root)
             test_pi_feed_uses_resolved_explicit_workspace(cli_path, root)
+            test_pi_feed_rejects_missing_explicit_workspace(cli_path, root)
             test_pi_hook_rejects_malformed_explicit_surface(cli_path, root)
             test_pi_compacted_feed_bounds_untrusted_batch(cli_path, root)
             test_pi_feed_rejects_oversized_input(cli_path, root)
