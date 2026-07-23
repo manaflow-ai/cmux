@@ -1228,7 +1228,7 @@ impl OrderedSession {
         let authoritative_generation = self.committed_mutation_generation.load(Ordering::Acquire);
         let routing_generation = self.routing_mutation_committed.load(Ordering::Acquire);
         let refresh_sequence = self.remote_refresh_sequence.fetch_add(1, Ordering::AcqRel) + 1;
-        let pending = self.pending_mutation();
+        let pending = self.pending_mutation_with_routing(true);
         let claim = RemoteRefreshClaim(self.remote_refresh_queued.clone());
         let spawn =
             std::thread::Builder::new().name("remote-tree-refresh".into()).spawn(move || {
@@ -1405,8 +1405,27 @@ impl OrderedSession {
         key: (&'static str, u64),
         operation: impl FnOnce(Session) -> anyhow::Result<()> + Send + 'static,
     ) {
+        self.enqueue_coalescing_session_mutation_with_routing(label, key, false, operation);
+    }
+
+    fn enqueue_coalescing_routing_mutation(
+        &self,
+        label: &'static str,
+        key: (&'static str, u64),
+        operation: impl FnOnce(Session) -> anyhow::Result<()> + Send + 'static,
+    ) {
+        self.enqueue_coalescing_session_mutation_with_routing(label, key, true, operation);
+    }
+
+    fn enqueue_coalescing_session_mutation_with_routing(
+        &self,
+        label: &'static str,
+        key: (&'static str, u64),
+        routing: bool,
+        operation: impl FnOnce(Session) -> anyhow::Result<()> + Send + 'static,
+    ) {
         let session = self.inner.clone();
-        let pending = self.pending_mutation();
+        let pending = self.pending_mutation_with_routing(routing);
         let remote = self.remote;
         let committed_mutation_generation = self.committed_mutation_generation.clone();
         let superseded = pending.clone();
@@ -1828,7 +1847,7 @@ impl OrderedSession {
     }
 
     pub fn zoom_pane(&self, pane: Option<PaneId>) {
-        self.enqueue("zoom pane", move |session| session.zoom_pane(pane));
+        self.enqueue_routing("zoom pane", move |session| session.zoom_pane(pane));
     }
 
     pub fn split(
@@ -1858,7 +1877,7 @@ impl OrderedSession {
     }
 
     fn set_split_ratio_deferred(&self, split: SplitId, ratio: f32) {
-        self.enqueue_coalescing_session_mutation(
+        self.enqueue_coalescing_routing_mutation(
             "resize exact pane split",
             ("split id", split),
             move |session| session.set_split_ratio(split, ratio),
@@ -1866,7 +1885,7 @@ impl OrderedSession {
     }
 
     fn settle_split_ratio(&self) {
-        self.enqueue("settle split resize", |_| Ok(()));
+        self.enqueue_routing("settle split resize", |_| Ok(()));
     }
 
     pub fn close_surface(&self, surface: SurfaceId) {
@@ -1878,7 +1897,7 @@ impl OrderedSession {
     }
 
     pub fn swap_pane(&self, pane: PaneId, target: PaneId) {
-        self.enqueue("swap panes", move |session| session.swap_pane(pane, target));
+        self.enqueue_routing("swap panes", move |session| session.swap_pane(pane, target));
     }
 
     pub fn close_workspace(&self, workspace: WorkspaceId) {
@@ -1937,7 +1956,9 @@ impl OrderedSession {
     }
 
     pub fn move_workspace(&self, workspace: WorkspaceId, index: usize) {
-        self.enqueue("move workspace", move |session| session.move_workspace(workspace, index));
+        self.enqueue_routing("move workspace", move |session| {
+            session.move_workspace(workspace, index)
+        });
     }
 }
 
@@ -4088,7 +4109,7 @@ impl App {
             if self.expire_toast() {
                 action = action.merge(RenderAction::Draw);
             }
-            self.retry_deferred_surface_attach();
+            self.retry_pending_surface_attach();
             if self.browser_input.resize_retry_due() {
                 let mut visible_surfaces =
                     self.pane_areas.iter().map(|area| area.surface).collect::<HashSet<_>>();
@@ -4510,6 +4531,7 @@ impl App {
         self.selection = None;
         self.last_browser_hover = None;
         self.deferred_input.clear();
+        self.pending_pointer_motion = None;
         self.routing_refresh_pending = false;
         self.routing_refresh_retries_remaining = 0;
         self.background_refresh_attempts = 0;
@@ -5385,17 +5407,22 @@ impl App {
         ) {
             self.session.clear_surface_sync_failures();
         }
-        let event = match event {
-            AppEvent::Input(
-                input @ Event::Mouse(MouseEvent { kind: MouseEventKind::Moved, .. }),
-            ) if self.missing_input_surface(&input).is_some() || self.pointer_route_is_stale() => {
-                if let Some(surface) = self.missing_input_surface(&input) {
+        if let AppEvent::Input(Event::Mouse(
+            mouse @ MouseEvent { kind: MouseEventKind::Moved, .. },
+        )) = &event
+        {
+            let mouse = *mouse;
+            let input = Event::Mouse(mouse);
+            let missing_surface = self.missing_input_surface(&input);
+            if missing_surface.is_some() || self.pointer_route_is_stale() {
+                if let Some(surface) = missing_surface {
                     self.queue_surface_attach(surface);
                 }
-                let Event::Mouse(mouse) = input else { unreachable!() };
                 self.pending_pointer_motion = Some(mouse);
                 return Ok(RenderAction::None);
             }
+        }
+        let event = match event {
             AppEvent::Input(input @ (Event::Key(_) | Event::Mouse(_) | Event::Paste(_)))
                 if self.missing_input_surface(&input).is_some()
                     && !self.input_can_update_pending_mutation(&input) =>
@@ -6027,9 +6054,13 @@ impl App {
         self.session.attach_surface(surface, size);
     }
 
-    fn retry_deferred_surface_attach(&mut self) {
+    fn retry_pending_surface_attach(&mut self) {
         let surface =
             self.deferred_input.iter().find_map(|input| self.missing_input_surface(&input.event));
+        let surface = surface.or_else(|| {
+            self.pending_pointer_motion
+                .and_then(|mouse| self.missing_input_surface(&Event::Mouse(mouse)))
+        });
         if let Some(surface) = surface {
             self.queue_surface_attach(surface);
         }
@@ -8199,6 +8230,9 @@ impl App {
     }
 
     fn handle_mouse(&mut self, mouse: MouseEvent) -> anyhow::Result<RenderAction> {
+        // Every routable physical sample supersedes passive motion retained
+        // from an older route or missing surface.
+        self.pending_pointer_motion = None;
         // This TUI tracks one active pointer button. Ignore additional presses
         // until its release so a second button cannot orphan the inner app's
         // pressed state.
@@ -12681,6 +12715,56 @@ mod tests {
     }
 
     #[test]
+    fn retained_pointer_motion_retries_a_missing_surface_attach() {
+        let mux = Mux::new("missing-mirror-pointer-retry-test", SurfaceOptions::default());
+        let (mut app, events) = test_app_with_events(Session::Local(mux));
+        let surface = 77;
+        app.replace_tree(notify_tree(surface, false));
+        app.pane_areas.push(browser_completion_area(surface));
+        app.session.surface_attach_failures.lock().unwrap().insert(
+            surface,
+            super::SurfaceSyncFailureState {
+                attempts: 1,
+                retry_after: Some(Instant::now() + Duration::from_secs(30)),
+                sticky_until_reconnect: false,
+            },
+        );
+
+        app.handle(AppEvent::Input(Event::Mouse(MouseEvent {
+            kind: MouseEventKind::Moved,
+            column: 9,
+            row: 3,
+            modifiers: KeyModifiers::NONE,
+        })))
+        .unwrap();
+
+        assert!(app.pending_pointer_motion.is_some());
+        assert!(!app.session.has_pending_mutations());
+        assert!(events.try_recv().is_err());
+
+        app.session
+            .surface_attach_failures
+            .lock()
+            .unwrap()
+            .get_mut(&surface)
+            .unwrap()
+            .retry_after = Some(Instant::now() - Duration::from_millis(1));
+        app.retry_pending_surface_attach();
+
+        assert!(matches!(
+            events.recv_timeout(Duration::from_secs(1)).unwrap(),
+            AppEvent::SessionMutationSettled {
+                outcome: super::SessionMutationOutcome::SurfaceSyncFailed {
+                    surface: 77,
+                    operation: "attach",
+                    ..
+                },
+                ..
+            }
+        ));
+    }
+
+    #[test]
     fn replacing_tree_retires_removed_browser_input_state() {
         let mux = Mux::new("browser-input-topology-test", SurfaceOptions::default());
         let mut app = test_app(Session::Local(mux));
@@ -13464,6 +13548,31 @@ mod tests {
     }
 
     #[test]
+    fn pointer_map_mutations_enter_the_routing_lane() {
+        let mux = Mux::new("pointer-map-routing-test", SurfaceOptions::default());
+        let (app, _events) = test_app_with_events(Session::Local(mux));
+        let (started_tx, started_rx) = std::sync::mpsc::channel();
+        let (release_tx, release_rx) = std::sync::mpsc::channel();
+        app.session.operations.enqueue_session_mutation(
+            "block pointer map lane",
+            false,
+            move || {
+                started_tx.send(()).unwrap();
+                release_rx.recv().unwrap();
+                Ok(())
+            },
+        );
+        started_rx.recv_timeout(Duration::from_secs(1)).unwrap();
+
+        app.session.zoom_pane(None);
+        app.session.swap_pane(1, 2);
+        app.session.move_workspace(1, 0);
+
+        assert_eq!(app.session.pending_routing_mutations.load(Ordering::Acquire), 3);
+        release_tx.send(()).unwrap();
+    }
+
+    #[test]
     fn split_drag_updates_the_coalescing_lane_while_a_ratio_is_pending() {
         let mux = Mux::new("pending-split-drag-test", SurfaceOptions::default());
         let (mut app, _events) = test_app_with_events(Session::Local(mux));
@@ -13535,10 +13644,12 @@ mod tests {
             match events.recv_timeout(Duration::from_secs(1)).unwrap() {
                 AppEvent::SessionMutationSettled {
                     outcome: super::SessionMutationOutcome::Success { tree: None },
+                    routing: true,
                     ..
                 } => sample_without_tree += 1,
                 AppEvent::SessionMutationSettled {
                     outcome: super::SessionMutationOutcome::AuthoritativeMutationSucceeded { .. },
+                    routing: true,
                     ..
                 } => authoritative_snapshots += 1,
                 _ => panic!("unexpected split ratio settlement"),
@@ -13576,6 +13687,53 @@ mod tests {
 
         assert_eq!(app.hover, Some((14, 6)));
         assert_eq!(app.status_message, None);
+    }
+
+    #[test]
+    fn newer_live_pointer_motion_supersedes_a_retained_position() {
+        let mux = Mux::new("newer-pointer-motion-test", SurfaceOptions::default());
+        let mut app = test_app(Session::Local(mux));
+        app.session.pending_mutations.store(1, Ordering::Release);
+        app.session.pending_routing_mutations.store(1, Ordering::Release);
+
+        app.handle(AppEvent::Input(Event::Mouse(MouseEvent {
+            kind: MouseEventKind::Moved,
+            column: 9,
+            row: 3,
+            modifiers: KeyModifiers::NONE,
+        })))
+        .unwrap();
+
+        app.session.pending_mutations.store(0, Ordering::Release);
+        app.session.pending_routing_mutations.store(0, Ordering::Release);
+        app.handle(AppEvent::Input(Event::Mouse(MouseEvent {
+            kind: MouseEventKind::Moved,
+            column: 14,
+            row: 6,
+            modifiers: KeyModifiers::NONE,
+        })))
+        .unwrap();
+
+        assert_eq!(app.pending_pointer_motion, None);
+        assert_eq!(app.hover, Some((14, 6)));
+        app.replay_deferred_input().unwrap();
+        assert_eq!(app.hover, Some((14, 6)));
+    }
+
+    #[test]
+    fn session_presentation_reset_clears_retained_pointer_motion() {
+        let mux = Mux::new("reset-pointer-motion-test", SurfaceOptions::default());
+        let mut app = test_app(Session::Local(mux));
+        app.pending_pointer_motion = Some(MouseEvent {
+            kind: MouseEventKind::Moved,
+            column: 9,
+            row: 3,
+            modifiers: KeyModifiers::NONE,
+        });
+
+        app.reset_session_presentation(TreeView::default());
+
+        assert_eq!(app.pending_pointer_motion, None);
     }
 
     #[test]
