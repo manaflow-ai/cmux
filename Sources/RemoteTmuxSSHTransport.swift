@@ -413,6 +413,11 @@ actor RemoteTmuxSSHTransport {
         if lowered.contains("error starting et process") { return true }
         // An argv the transport rejects outright is a bug in what cmux built, not a bad moment.
         if lowered.contains("unrecognized option") || lowered.contains("unknown option") { return true }
+        // Go's flag package wording for the same thing. Wrappers that front a transport are
+        // routinely written in Go, and without this a mis-ordered argv reads as a bad moment:
+        // cmux would retry the identical rejected command forever. Measured against a real
+        // broker, which answers "flag provided but not defined: -p" and exits 2.
+        if lowered.contains("flag provided but not defined") { return true }
         return false
     }
 

@@ -71,13 +71,24 @@ struct RemoteTmuxHost: Sendable, Equatable, Identifiable {
     /// one host into two.
     let transportTerminalPath: String?
 
+    /// The wrapper that fronts the transport client, for a host that is not directly reachable.
+    ///
+    /// Set when reaching this host means going through a broker that resolves the route — a
+    /// tunnel, an agent socket, a short-lived credential — and then launches the client itself.
+    /// Like ``transportTerminalPath`` this is deliberately absent from ``connectionHash``: it
+    /// describes how to reach the endpoint, not which endpoint it is, so a host reached directly
+    /// and the same host reached through a broker are one endpoint that should share one
+    /// connection rather than two competing ones.
+    let transportBroker: RemoteTmuxTransportBroker?
+
     init(
         destination: String,
         port: Int? = nil,
         identityFile: String? = nil,
         transport: RemoteTmuxTransportKind = .ssh,
         transportPort: Int? = nil,
-        transportTerminalPath: String? = nil
+        transportTerminalPath: String? = nil,
+        transportBroker: RemoteTmuxTransportBroker? = nil
     ) {
         self.destination = destination
         self.port = port
@@ -85,6 +96,7 @@ struct RemoteTmuxHost: Sendable, Equatable, Identifiable {
         self.transport = transport
         self.transportPort = transportPort
         self.transportTerminalPath = transportTerminalPath
+        self.transportBroker = transportBroker
     }
 
     /// A human-readable (but lossy) slug for the destination, used only for
@@ -395,10 +407,10 @@ struct RemoteTmuxHost: Sendable, Equatable, Identifiable {
     ///
     /// - Parameters:
     ///   - sessionName: the tmux session to attach to (or create).
-    ///   - createIfMissing: `new-session -A -s` (attach or create) vs `attach-session -t`.
+    ///   - mode: which tmux command opens the session — see ``RemoteTmuxControlAttachMode``.
     func controlModeArguments(
         sessionName: String,
-        createIfMissing: Bool,
+        mode: RemoteTmuxControlAttachMode,
         controlPersistSeconds: Int = 180
     ) -> [String] {
         var args = ["-tt"]
@@ -406,9 +418,8 @@ struct RemoteTmuxHost: Sendable, Equatable, Identifiable {
             controlPersistSeconds: controlPersistSeconds,
             batchMode: true
         ))
-        let remoteCommand = Self.tmuxRemoteCommand(arguments: createIfMissing
-            ? ["-CC", "new-session", "-A", "-s", sessionName]
-            : ["-CC", "attach-session", "-t", sessionName])
+        let remoteCommand = Self.tmuxRemoteCommand(
+            arguments: mode.tmuxArguments(sessionName: sessionName))
         args.append(contentsOf: ["--", destination, remoteCommand])
         return args
     }
