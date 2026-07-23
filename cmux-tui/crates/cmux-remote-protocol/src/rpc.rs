@@ -39,7 +39,27 @@ pub struct OperationId(pub String);
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize)]
 #[serde(transparent)]
-pub struct ProcessId(pub u64);
+pub struct ProcessId(pub uuid::Uuid);
+
+impl ProcessId {
+    pub const fn from_u128(value: u128) -> Self {
+        Self(uuid::Uuid::from_u128(value))
+    }
+
+    pub fn parse_str(value: &str) -> Result<Self, uuid::Error> {
+        uuid::Uuid::parse_str(value).map(Self)
+    }
+
+    pub fn is_nil(self) -> bool {
+        self.0.is_nil()
+    }
+}
+
+impl std::fmt::Display for ProcessId {
+    fn fmt(&self, formatter: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        self.0.fmt(formatter)
+    }
+}
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize)]
 #[serde(transparent)]
@@ -88,7 +108,7 @@ pub enum RemoteCapability {
     StructuredDiffV1,
     ProcessLifecycleV2,
     ProcessReplayV1,
-    ProcessHandlesV1,
+    ProcessHandlesV2,
     RequestControlV1,
     ComputerUseV1,
 }
@@ -641,11 +661,21 @@ pub struct ProcessReplayRange {
     pub exited: bool,
 }
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(tag = "type", rename_all = "kebab-case")]
 pub enum ProcessOutputTruncationReason {
     DrainIdleTimeout { idle_timeout_ms: u64 },
     DrainTotalTimeout { total_timeout_ms: u64 },
+    ReadError { stream: ProcessOutputStream, message: String },
+    ReaderTaskFailed { message: String },
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "kebab-case")]
+pub enum ProcessOutputStream {
+    Stdout,
+    Stderr,
+    Pty,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
@@ -874,7 +904,7 @@ mod tests {
     #[test]
     fn process_handle_spawn_has_a_stable_wire_shape() {
         let request = WorkspaceRequest::SpawnProcessWithHandle {
-            process: ProcessId(0x5a17),
+            process: ProcessId::from_u128(0x5a17),
             workspace: WorkspaceId("w".into()),
             argv: vec!["/bin/sh".into()],
             cwd: None,
@@ -891,7 +921,7 @@ mod tests {
 
         let json = serde_json::to_value(request).unwrap();
         assert_eq!(json["type"], "spawn-process-with-handle");
-        assert_eq!(json["process"], 0x5a17);
+        assert_eq!(json["process"], "00000000-0000-0000-0000-000000005a17");
         assert_eq!(json["retained_output_bytes"], 1024);
         assert_eq!(json["environment"], "clean");
         assert_eq!(json["output_drain_idle_timeout_ms"], 750);
@@ -901,7 +931,7 @@ mod tests {
     #[test]
     fn process_handles_are_json_strings() {
         assert!(
-            serde_json::to_value(ProcessId(0x5a17)).unwrap().is_string(),
+            serde_json::to_value(ProcessId::from_u128(0x5a17)).unwrap().is_string(),
             "numeric process handles lose precision in JavaScript clients"
         );
     }

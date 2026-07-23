@@ -1,6 +1,6 @@
 # Remote workspace RPC contract
 
-Status: normative schema for remote protocol 1.
+Status: normative schema for remote protocol 2.
 
 This contract describes the `workspace-rpc`, `process-stream`, and `tcp-tunnel` services. Rust enum variant names serialize as kebab-case `type` values. Struct field names remain snake_case. Identifier wrappers serialize as their underlying JSON string or unsigned integer.
 
@@ -79,6 +79,8 @@ An error is:
 
 `ByteString` is a standard padded base64 JSON string. File data, process input and output, and legacy diff data use this type.
 
+`ProcessId` is an opaque lowercase UUID string. It is never a JSON number, so JavaScript clients do not lose identity precision. A client generates a fresh UUID synchronously before reserving and spawning; the daemon generates one for legacy `spawn-process`.
+
 | Type | JSON values |
 | --- | --- |
 | `FilePrecondition` | `"any"`, `"missing"`, or `{"content-hash":"<sha256>"}` |
@@ -110,7 +112,8 @@ Every field in the table is required unless marked optional or given a default.
 | `git-status` | `workspace` | `git-status` |
 | `diff` | `workspace`, `paths:[string]`, `staged:bool`, `context:u16`, `format:DiffFormat`, optional `cursor`, optional `max_bytes:u32` | `diff` or `structured-diff` |
 | `spawn-process` | Process fields below | `process-started` |
-| `write-process` | `process:u64`, `write_id:u64`, `data:ByteString`, `eof:bool` | `process-write-accepted` |
+| `spawn-process-with-handle` | `process:ProcessId`, process fields below, optional drain deadlines | `process-started` |
+| `write-process` | `process:ProcessId`, `write_id:u64`, `data:ByteString`, `eof:bool` | `process-write-accepted` |
 | `resize-process` | `process`, `cols:u16`, `rows:u16` | `process-resized` |
 | `signal-process` | `process`, `signal:ProcessSignal` | `process-signaled` |
 | `wait-process` | `process` | `process-exit` |
@@ -122,7 +125,7 @@ Every field in the table is required unless marked optional or given a default.
 | `close-route` | `route:u64` | `closed` |
 | `computer-use-capabilities` | none | `computer-use-capabilities` |
 | `computer-use-capabilities-v1` | none | `computer-use-capabilities-v1` |
-| `invoke-computer-use` | `invocation:ComputerUseInvocation` | unavailable in protocol 1 |
+| `invoke-computer-use` | `invocation:ComputerUseInvocation` | unavailable in protocol 2 |
 | `cancel-computer-use` | `invocation:u64` | `computer-use-canceled` with `accepted:false` |
 
 Common response objects have these fields:
@@ -141,7 +144,7 @@ Common response objects have these fields:
 | `git-status` | `status:{branch,head,changes}` |
 | `diff` | `data:ByteString`, `format:DiffFormat`, optional `next_cursor` |
 | `structured-diff` | `diff:StructuredDiffV1`, optional `next_cursor` |
-| `process-started` | `process:u64`, `pid:u32|null`, optional `operation:string` |
+| `process-started` | `process:ProcessId`, `pid:u32|null`, optional `operation:string` |
 | `process-write-accepted` | `process`, `write_id` |
 | `process-resized` | `process`, `cols`, `rows` |
 | `process-signaled` | `process`, `signal` |
@@ -154,7 +157,7 @@ Common response objects have these fields:
 | `route-created` | `route:u64`, `host`, `port` |
 | `closed` | no fields |
 
-Protocol 1 currently advertises `workspace-files-v1`, `workspace-search-v1`, `workspace-patch-v1`, `workspace-diff-v1`, `process-pipes-v1`, `process-pty-v1`, `tcp-routes-v1`, `computer-use-negotiation-v1`, `workspace-pagination-v1`, `workspace-patch-v2`, `structured-diff-v1`, `process-lifecycle-v2`, `process-replay-v1`, and `request-control-v1`.
+Protocol 2 currently advertises `workspace-files-v1`, `workspace-search-v1`, `workspace-patch-v1`, `workspace-diff-v1`, `process-pipes-v1`, `process-pty-v1` on Unix, `tcp-routes-v1`, `computer-use-negotiation-v1`, `workspace-pagination-v1`, `workspace-patch-v2`, `structured-diff-v1`, `process-lifecycle-v2`, `process-replay-v1`, `process-handles-v2`, and `request-control-v1`.
 
 ## Files, search, patch, and diff
 
@@ -210,6 +213,8 @@ Request a typed diff with:
 | `retained_output_bytes` | Optional retained replay budget |
 | `environment` | Optional `inherit` or `clean`, default `inherit` |
 
+`spawn-process-with-handle` has the same fields plus a caller-generated `process` UUID, optional `output_drain_idle_timeout_ms`, and optional `output_drain_total_timeout_ms`. Drain deadlines range from 100 ms through 60 seconds, idle must not exceed total, and defaults are one second idle and two seconds total. The client must allocate the UUID before any await, open a reserved process stream, and send the spawn request only after the stream is accepted.
+
 Omitting `io` selects `{"type":"pipes","stdin":true}`. Read-only commands can explicitly close stdin:
 
 ```json
@@ -247,15 +252,21 @@ Programs that need terminal behavior request a PTY:
 
 `write-process.data` is base64 and decodes to at most 32 KiB. `write_id` values increase monotonically per process. Repeating a retained ID with identical data and `eof` is idempotent; reusing it with different content is an error. PTY EOF defaults to rejection unless the spawn request chooses `control-d` or `hangup`.
 
-`process-events` contains `process`, `range`, `events`, and optional `next_cursor`. `range` has optional `first_available`, `last_produced`, and `exited`. Each event envelope has `sequence` and `event`. Output event types are `stdout` and `stderr`, with `process`, `sequence`, and base64 `data`; an `exit` event has `process`, optional `code`, and optional `signal`.
+`process-events` contains `process`, `range`, `events`, and optional `next_cursor`. `range` has optional `first_available`, `last_produced`, and `exited`. Each event envelope has `sequence` and `event`. Output event types are `stdout` and `stderr`, with `process`, `sequence`, and base64 `data`; an `exit` event has `process`, optional `code`, and optional numeric POSIX `signal`. On Unix, both pipe and PTY processes terminated by a signal report `code:null` and the signal number.
 
-For retained and live output, open `process-stream` with decimal metadata values:
+`output-truncated` precedes `exit` when output cannot be proven complete. Its typed reason is `drain-idle-timeout`, `drain-total-timeout`, `read-error`, or `reader-task-failed`. Read errors identify `stdout`, `stderr`, or `pty`; Unix PTY `EIO` after slave closure is normal EOF. Only actual output resets the idle deadline. Reader completion does not. Non-Unix daemons do not advertise PTY support and reject PTY spawn explicitly.
+
+`replay-gap` is terminal stream metadata containing `requested_after` and the available `range`. Completed records retain bounded replay history separately from the 64-process active admission limit. After completed-record eviction, the old UUID returns `unknown-process`. Normal clients generate a fresh UUIDv4, making accidental reuse negligible, and must never deliberately reuse a process UUID. An enrolled malicious client already has full operating-system-user authority, so the daemon does not trade long-lived availability for an unbounded permanent UUID denylist.
+
+For retained and live output, open `process-stream` with UUID process metadata and a decimal cursor:
 
 ```json
-{"type":"open","service":"process-stream","metadata":{"process":"7","after":"12"}}
+{"type":"open","service":"process-stream","metadata":{"process":"018f47a2-17d6-7c16-a8b1-7b3d5d998271","after":"12"}}
 ```
 
 After the open response, the server sends length-prefixed `RpcEvent` objects and accepts no client messages on that stream.
+
+To close the output-before-subscribe race, add `"reserve":"true"` and use `after:"0"` before `spawn-process-with-handle`. Reservation succeeds only when the UUID has no active, completed, or outstanding reservation, including one owned by the same client. Stream close, reset, send failure, or handler cancellation releases an unclaimed reservation. A spawn atomically claims its matching same-client reservation and retains that stream's event log. Callers use a new UUID after a rejected or canceled reservation.
 
 ## Cancellation
 
@@ -290,7 +301,7 @@ The response is `{"type":"route-created","route":9,"host":"127.0.0.1","port":300
 
 `computer-use-capabilities-v1` returns entries with `feature` and `version`. Feature strings are `screenshot`, `accessibility-tree`, `pointer`, `keyboard`, `text-input`, and `scroll`. The default daemon returns an empty list.
 
-An `invoke-computer-use` request contains an `invocation` with numeric `id`, optional `workspace`, optional `timeout_ms`, and an `action`. Action objects use the types `screenshot`, `accessibility-tree`, `pointer`, `keyboard`, `text-input`, or `scroll`. Protocol 1 returns `computer-use-unavailable` because no platform executor is wired. Future execution belongs on the separate `computer-use` service so media and long actions cannot block process input.
+An `invoke-computer-use` request contains an `invocation` with numeric `id`, optional `workspace`, optional `timeout_ms`, and an `action`. Action objects use the types `screenshot`, `accessibility-tree`, `pointer`, `keyboard`, `text-input`, or `scroll`. Protocol 2 returns `computer-use-unavailable` because no platform executor is wired. Future execution belongs on the separate `computer-use` service so media and long actions cannot block process input.
 
 | Action `type` | Fields |
 | --- | --- |

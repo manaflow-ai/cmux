@@ -23,7 +23,6 @@ pub struct WorkspaceClient {
     cancellation: WorkspaceRpcChannel,
     bulk: WorkspaceRpcChannel,
     next_request: AtomicU64,
-    next_process: AtomicU64,
 }
 
 struct WorkspaceRpcChannel {
@@ -66,7 +65,6 @@ impl WorkspaceClient {
             // A random start avoids collisions between independently
             // constructed clients sharing one authenticated session.
             next_request: AtomicU64::new(request_id_seed()),
-            next_process: AtomicU64::new(process_id_seed()),
         }))
     }
 
@@ -173,23 +171,21 @@ impl WorkspaceClient {
         self.process_events_inner(process, after_sequence, false).await
     }
 
-    /// Reserve an output stream before spawning with a caller-generated
-    /// process handle. This removes the response-before-subscribe race for
-    /// commands that emit output immediately.
+    /// Allocate an opaque handle before starting any asynchronous work.
+    ///
+    /// Callers retain this handle if the spawn future is canceled and can use
+    /// it to reconnect to a process whose spawn request reached the daemon.
+    pub fn allocate_process_handle(&self) -> ProcessId {
+        ProcessId(uuid::Uuid::new_v4())
+    }
+
+    /// Reserve an output stream before spawning with `process`. This removes
+    /// the response-before-subscribe race for commands that emit immediately.
     pub async fn spawn_process_with_events(
         &self,
+        process: ProcessId,
         request: WorkspaceRequest,
     ) -> Result<SpawnedProcess, RpcError> {
-        let process = match &request {
-            WorkspaceRequest::SpawnProcess { .. } => self.next_process_id()?,
-            WorkspaceRequest::SpawnProcessWithHandle { process, .. } => *process,
-            _ => {
-                return Err(RpcError::new(
-                    "invalid-argument",
-                    "spawn_process_with_events requires a spawn-process request",
-                ));
-            }
-        };
         let request = attach_process_handle(request, process)?;
         let events = self.process_events_inner(process, 0, true).await?;
         let response = match self.request(request).await {
@@ -210,7 +206,7 @@ impl WorkspaceClient {
                 "protocol",
                 format!(
                     "spawn-process returned handle {} for requested handle {}",
-                    started.0, process.0
+                    started, process
                 ),
             ));
         }
@@ -224,7 +220,7 @@ impl WorkspaceClient {
         reserve: bool,
     ) -> Result<ProcessEventStream, RpcError> {
         let metadata = BTreeMap::from([
-            ("process".into(), process.0.to_string()),
+            ("process".into(), process.to_string()),
             ("after".into(), after_sequence.to_string()),
         ]);
         let mut metadata = metadata;
@@ -238,13 +234,6 @@ impl WorkspaceClient {
             .map_err(transport_error)?;
         await_opened(&stream, Lane::Bulk).await?;
         Ok(ProcessEventStream { messages: MessageStream::with_lane(Arc::new(stream), Lane::Bulk) })
-    }
-
-    fn next_process_id(&self) -> Result<ProcessId, RpcError> {
-        self.next_process
-            .fetch_update(Ordering::Relaxed, Ordering::Relaxed, |value| value.checked_add(1))
-            .map(ProcessId)
-            .map_err(|_| RpcError::new("resource-exhausted", "process handles exhausted"))
     }
 }
 
@@ -489,13 +478,6 @@ fn request_id_seed() -> u64 {
         & (u64::MAX >> 1)
 }
 
-fn process_id_seed() -> u64 {
-    let bytes = uuid::Uuid::new_v4().into_bytes();
-    (u64::from_le_bytes(bytes[8..].try_into().expect("UUID contains eight process ID bytes"))
-        | (1_u64 << 63))
-        & (u64::MAX - 1)
-}
-
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -507,18 +489,18 @@ mod tests {
     fn workspace_requests_use_latency_appropriate_lanes() {
         let workspace = WorkspaceId("workspace".into());
         let process_input = rpc_traffic_class(&WorkspaceRequest::WriteProcess {
-            process: ProcessId(1),
+            process: ProcessId::from_u128(1),
             write_id: 1,
             data: ByteString::from_bytes(b"x"),
             eof: false,
         });
         let process_resize = rpc_traffic_class(&WorkspaceRequest::ResizeProcess {
-            process: ProcessId(1),
+            process: ProcessId::from_u128(1),
             cols: 80,
             rows: 24,
         });
         let process_signal = rpc_traffic_class(&WorkspaceRequest::SignalProcess {
-            process: ProcessId(1),
+            process: ProcessId::from_u128(1),
             signal: cmux_remote_protocol::ProcessSignal::Interrupt,
         });
         assert_eq!(rpc_lane(process_input), Lane::Interactive);

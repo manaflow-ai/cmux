@@ -81,6 +81,40 @@ impl Drop for ClientCleanupGuard {
     }
 }
 
+struct ProcessReservationCleanup {
+    workspace: WorkspaceService,
+    scope: ClientScope,
+    process: ProcessId,
+    armed: bool,
+}
+
+impl ProcessReservationCleanup {
+    fn new(workspace: WorkspaceService, scope: ClientScope, process: ProcessId) -> Self {
+        Self { workspace, scope, process, armed: true }
+    }
+
+    async fn release(mut self) {
+        self.workspace.release_process_reservation(&self.scope, self.process).await;
+        self.armed = false;
+    }
+}
+
+impl Drop for ProcessReservationCleanup {
+    fn drop(&mut self) {
+        if !self.armed {
+            return;
+        }
+        let workspace = self.workspace.clone();
+        let scope = self.scope.clone();
+        let process = self.process;
+        if let Ok(runtime) = tokio::runtime::Handle::try_current() {
+            runtime.spawn(async move {
+                workspace.release_process_reservation(&scope, process).await;
+            });
+        }
+    }
+}
+
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 enum WorkspaceRpcPurpose {
     Requests,
@@ -381,7 +415,7 @@ impl DaemonServices {
         stream: ServiceStream,
         metadata: BTreeMap<String, String>,
     ) -> Result<(), ServicesError> {
-        let process = ProcessId(parse_u64(&metadata, "process")?);
+        let process = parse_process_id(&metadata, "process")?;
         let after = metadata
             .get("after")
             .map(|value| value.parse::<u64>())
@@ -413,6 +447,8 @@ impl DaemonServices {
                 return Ok(());
             }
         };
+        let reservation_cleanup = reserve
+            .then(|| ProcessReservationCleanup::new(workspace.clone(), scope.clone(), process));
         send_opened(&stream, Lane::Bulk).await?;
         let messages = MessageStream::with_lane(stream, Lane::Bulk);
         let result = loop {
@@ -450,8 +486,8 @@ impl DaemonServices {
                 }
             }
         };
-        if reserve {
-            workspace.release_process_reservation(&scope, process).await;
+        if let Some(cleanup) = reservation_cleanup {
+            cleanup.release().await;
         }
         result
     }
@@ -918,6 +954,16 @@ fn parse_u64(metadata: &BTreeMap<String, String>, key: &str) -> Result<u64, Serv
         .ok_or_else(|| ServicesError::Metadata(format!("missing {key}")))?
         .parse()
         .map_err(|_| ServicesError::Metadata(format!("{key} must be an unsigned integer")))
+}
+
+fn parse_process_id(
+    metadata: &BTreeMap<String, String>,
+    key: &str,
+) -> Result<ProcessId, ServicesError> {
+    let value =
+        metadata.get(key).ok_or_else(|| ServicesError::Metadata(format!("missing {key}")))?;
+    ProcessId::parse_str(value)
+        .map_err(|_| ServicesError::Metadata(format!("{key} must be a UUID")))
 }
 
 fn workspace_rpc_metadata(
@@ -1520,23 +1566,27 @@ mod tests {
                     panic!("open-workspace returned the wrong response")
                 };
 
+                let process = client.allocate_process_handle();
                 let spawned = client
-                    .spawn_process_with_events(WorkspaceRequest::SpawnProcess {
-                        workspace: workspace_id,
-                        argv: vec![
-                            "/bin/sh".into(),
-                            "-c".into(),
-                            "dd if=/dev/zero bs=1048576 count=8 2>/dev/null".into(),
-                        ],
-                        cwd: None,
-                        env: BTreeMap::new(),
-                        io: ProcessIo::Pipes { stdin: false },
-                        lifetime: ProcessLifetime::Workspace,
-                        operation: None,
-                        timeout_ms: None,
-                        retained_output_bytes: None,
-                        environment: ProcessEnvironment::Inherit,
-                    })
+                    .spawn_process_with_events(
+                        process,
+                        WorkspaceRequest::SpawnProcess {
+                            workspace: workspace_id,
+                            argv: vec![
+                                "/bin/sh".into(),
+                                "-c".into(),
+                                "dd if=/dev/zero bs=1048576 count=8 2>/dev/null".into(),
+                            ],
+                            cwd: None,
+                            env: BTreeMap::new(),
+                            io: ProcessIo::Pipes { stdin: false },
+                            lifetime: ProcessLifetime::Workspace,
+                            operation: None,
+                            timeout_ms: None,
+                            retained_output_bytes: None,
+                            environment: ProcessEnvironment::Inherit,
+                        },
+                    )
                     .await
                     .unwrap();
 
@@ -1938,12 +1988,12 @@ mod tests {
         let daemon = ServiceMultiplexer::new(daemon_endpoint, EndpointRole::Daemon);
 
         for index in 0..RESERVATION_LIMIT {
-            let process = ProcessId(0x8000_0000_0010_0000 + index);
+            let process = ProcessId::from_u128(0x8000_0000_0010_0000 + u128::from(index));
             let client_stream = client
                 .open(
                     Service::ProcessStream,
                     BTreeMap::from([
-                        ("process".into(), process.0.to_string()),
+                        ("process".into(), process.to_string()),
                         ("after".into(), "0".into()),
                         ("reserve".into(), "true".into()),
                     ]),
@@ -1967,11 +2017,23 @@ mod tests {
             drop(client_stream);
         }
 
-        let final_process = ProcessId(0x8000_0000_0020_0000);
-        match workspace.subscribe_or_reserve_process(&scope, final_process, 0, true).await {
-            Ok(_) => workspace.release_process_reservation(&scope, final_process).await,
-            Err(error) => panic!("canceled opens leaked reservation capacity: {error}"),
-        }
+        let final_process = ProcessId::from_u128(0x8000_0000_0020_0000);
+        tokio::time::timeout(std::time::Duration::from_secs(2), async {
+            loop {
+                match workspace.subscribe_or_reserve_process(&scope, final_process, 0, true).await {
+                    Ok(_) => {
+                        workspace.release_process_reservation(&scope, final_process).await;
+                        break;
+                    }
+                    Err(error) if error.code == "resource-exhausted" => {
+                        tokio::task::yield_now().await;
+                    }
+                    Err(error) => panic!("canceled opens leaked reservation state: {error}"),
+                }
+            }
+        })
+        .await
+        .expect("canceled opens leaked reservation capacity");
         client.shutdown().await;
         daemon.shutdown().await;
     }
@@ -2031,7 +2093,7 @@ mod tests {
             .open(
                 Service::ProcessStream,
                 BTreeMap::from([
-                    ("process".into(), process.0.to_string()),
+                    ("process".into(), process.to_string()),
                     ("after".into(), "0".into()),
                 ]),
             )

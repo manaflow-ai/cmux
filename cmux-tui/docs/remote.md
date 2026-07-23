@@ -205,6 +205,12 @@ Process input uses monotonically increasing `write_id` values and at most 32 KiB
 
 Omitting process `io` selects writable pipes. Use `"io":{"type":"pipes","stdin":false}` for a noninteractive command that should start with stdin closed, or an explicit `pty` object for a terminal program.
 
+Coding-agent clients allocate an opaque process UUID before awaiting network work, reserve its event stream, then send `spawn-process-with-handle`. This prevents immediate output from racing subscription and leaves the UUID available for reconnect if the client future is canceled. Duplicate active, completed, or reserved UUIDs are rejected. Completed replay records are bounded independently from the 64 active-process slots.
+
+Output drain has separate idle and absolute deadlines. Actual output resets the idle deadline; reader completion does not. A read failure, reader-task failure, idle deadline, or total deadline emits typed `output-truncated` metadata before `exit`. Unix PTY slave closure is normal EOF. PTYs are explicitly unavailable on non-Unix daemons.
+
+Unix pipe and PTY processes terminated by a signal report a null exit code and the numeric POSIX signal in wait responses and terminal events.
+
 ## Native relay
 
 Build the central Rust relay and set its signing secret:

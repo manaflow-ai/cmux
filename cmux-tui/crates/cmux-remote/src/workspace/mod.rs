@@ -289,7 +289,7 @@ impl WorkspaceService {
                     RemoteCapability::StructuredDiffV1,
                     RemoteCapability::ProcessLifecycleV2,
                     RemoteCapability::ProcessReplayV1,
-                    RemoteCapability::ProcessHandlesV1,
+                    RemoteCapability::ProcessHandlesV2,
                     RemoteCapability::RequestControlV1,
                 ];
                 #[cfg(unix)]

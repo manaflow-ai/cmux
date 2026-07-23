@@ -378,37 +378,41 @@ async fn real_pty_and_fresh_services_survive_authenticated_carrier_reconnect() {
                 let WorkspaceResponse::Workspace { id: workspace_id, .. } = opened else {
                     panic!("open-workspace returned the wrong response: {opened:?}");
                 };
+                let process_handle = workspace.allocate_process_handle();
                 let started = workspace
-                    .spawn_process_with_events(WorkspaceRequest::SpawnProcess {
-                        workspace: workspace_id.clone(),
-                        argv: vec![
-                            "/bin/sh".into(),
-                            "-c".into(),
-                            concat!(
-                                "stty -echo; ",
-                                "printf 'READY PID=%s\\n' \"$$\"; ",
-                                "while IFS= read -r line; do ",
-                                "set -- $(stty size); ",
-                                "printf 'PID=%s ROWS=%s COLS=%s INPUT=%s\\n' ",
-                                "\"$$\" \"$1\" \"$2\" \"$line\"; ",
-                                "done"
-                            )
-                            .into(),
-                        ],
-                        cwd: None,
-                        env: BTreeMap::new(),
-                        io: ProcessIo::Pty {
-                            cols: 80,
-                            rows: 24,
-                            term: "xterm-256color".into(),
-                            eof: PtyEofPolicy::Reject,
+                    .spawn_process_with_events(
+                        process_handle,
+                        WorkspaceRequest::SpawnProcess {
+                            workspace: workspace_id.clone(),
+                            argv: vec![
+                                "/bin/sh".into(),
+                                "-c".into(),
+                                concat!(
+                                    "stty -echo; ",
+                                    "printf 'READY PID=%s\\n' \"$$\"; ",
+                                    "while IFS= read -r line; do ",
+                                    "set -- $(stty size); ",
+                                    "printf 'PID=%s ROWS=%s COLS=%s INPUT=%s\\n' ",
+                                    "\"$$\" \"$1\" \"$2\" \"$line\"; ",
+                                    "done"
+                                )
+                                .into(),
+                            ],
+                            cwd: None,
+                            env: BTreeMap::new(),
+                            io: ProcessIo::Pty {
+                                cols: 80,
+                                rows: 24,
+                                term: "xterm-256color".into(),
+                                eof: PtyEofPolicy::Reject,
+                            },
+                            lifetime: ProcessLifetime::Workspace,
+                            operation: None,
+                            timeout_ms: Some(60_000),
+                            retained_output_bytes: Some(64 * 1024),
+                            environment: ProcessEnvironment::Inherit,
                         },
-                        lifetime: ProcessLifetime::Workspace,
-                        operation: None,
-                        timeout_ms: Some(60_000),
-                        retained_output_bytes: Some(64 * 1024),
-                        environment: ProcessEnvironment::Inherit,
-                    })
+                    )
                     .await
                     .unwrap();
                 let process = started.process;
