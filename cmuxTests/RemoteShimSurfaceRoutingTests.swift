@@ -11,11 +11,6 @@ import CmuxCore
 
 @MainActor
 struct RemoteShimSurfaceRoutingTests {
-    // Helper: build a workspace with a remote configuration and one tracked
-    // remote terminal panel. Follow the construction pattern used by the
-    // nearest existing Workspace unit test (grep: "remoteConfiguration ="
-    // in cmuxTests/ and Packages/*/Tests for a factory/stub; reuse it).
-
     private func makeRemoteWorkspaceWithTrackedPanel() throws -> Workspace {
         let workspace = Workspace()
         let config = WorkspaceRemoteConfiguration(
@@ -63,7 +58,7 @@ struct RemoteShimSurfaceRoutingTests {
 
     @Test func respawnRewriteReroutesTrackedRemoteSurface() throws {
         let ws = try makeRemoteWorkspaceWithTrackedPanel()
-        let panelId = ws.activeRemoteTerminalSurfaceIds.first!
+        let panelId = try #require(ws.activeRemoteTerminalSurfaceIds.first)
         let raw = "cd /Users/bencollins/Development/Braid && env CLAUDECODE=1 claude --agent-id x"
 
         let rewrite = ws.remoteShimRespawnRewrite(panelId: panelId, rawCommand: raw)
@@ -81,7 +76,7 @@ struct RemoteShimSurfaceRoutingTests {
 
     @Test func respawnRewriteMintsFreshSessionIDs() throws {
         let ws = try makeRemoteWorkspaceWithTrackedPanel()
-        let panelId = ws.activeRemoteTerminalSurfaceIds.first!
+        let panelId = try #require(ws.activeRemoteTerminalSurfaceIds.first)
         let a = ws.remoteShimRespawnRewrite(panelId: panelId, rawCommand: "echo a")
         let b = ws.remoteShimRespawnRewrite(panelId: panelId, rawCommand: "echo b")
         #expect(try #require(a).sessionID != (try #require(b).sessionID))
@@ -91,7 +86,7 @@ struct RemoteShimSurfaceRoutingTests {
 
     @Test func respawnRewriteLeavesLocalWorkspacesAlone() throws {
         let ws = try makeLocalWorkspaceWithTerminalPanel()
-        let panelId = ws.panels.keys.first!
+        let panelId = try #require(ws.panels.keys.first)
         #expect(ws.remoteShimRespawnRewrite(panelId: panelId, rawCommand: "echo x") == nil)
     }
 
