@@ -10,7 +10,7 @@ async function sendHook(
   const sessionId = context.sessionId;
   if (!sessionId) return true;
   const target = surfaceTargetArgs(dispatcher, sessionId);
-  if (!target) return true;
+  if (!target) return !firstString(process.env.CMUX_PANEL_ID);
 
   const cwd = context.cwd;
   const payload: HookExtra = {

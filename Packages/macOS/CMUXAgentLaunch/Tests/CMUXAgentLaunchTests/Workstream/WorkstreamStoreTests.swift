@@ -135,6 +135,11 @@ struct WorkstreamStoreTests {
             """.data(using: .utf8)
         )
         let event = try JSONDecoder().decode(WorkstreamEvent.self, from: data)
+        let encoded = try JSONEncoder().encode(event)
+        let encodedObject = try #require(
+            JSONSerialization.jsonObject(with: encoded) as? [String: Any]
+        )
+        #expect(encodedObject["is_error"] as? Bool == true)
         let store = WorkstreamStore(ringCapacity: 10)
         store.ingest(event)
 

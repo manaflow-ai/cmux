@@ -3073,7 +3073,7 @@ def test_pi_feed_uses_resolved_explicit_workspace(cli_path: str, root: Path) -> 
                 "--event",
                 "PostToolUse",
                 "--workspace",
-                explicit_workspace_id,
+                f"  {explicit_workspace_id}  ",
                 "--surface",
                 FAKE_SURFACE_ID,
             ],

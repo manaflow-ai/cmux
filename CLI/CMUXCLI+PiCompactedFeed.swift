@@ -83,18 +83,18 @@ extension CMUXCLI {
         }
         let rawWorkspace = optionValue(commandArgs, name: "--workspace")
             ?? ProcessInfo.processInfo.environment["CMUX_WORKSPACE_ID"]
-        if let rawWorkspace {
-            let workspace = rawWorkspace.trimmingCharacters(in: .whitespacesAndNewlines)
+        let trimmedWorkspace = rawWorkspace?.trimmingCharacters(in: .whitespacesAndNewlines)
+        if let workspace = trimmedWorkspace {
             guard isUUID(workspace)
                 || Int(workspace) != nil
                 || piHookHandleRef(workspace, kind: "workspace")
             else {
-                throw piHookSurfaceNotFoundError(rawSurface)
+                throw piHookSurfaceNotFoundError(workspace)
             }
         }
         let resolvedWorkspaceId: String?
         do {
-            resolvedWorkspaceId = try resolveWorkspaceId(rawWorkspace, client: client)
+            resolvedWorkspaceId = try resolveWorkspaceId(trimmedWorkspace, client: client)
         } catch let error as CLIError where error.v2Code == "not_found" {
             resolvedWorkspaceId = nil
         }

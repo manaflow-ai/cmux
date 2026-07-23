@@ -28,11 +28,11 @@ def run_extension(
     extra_env: dict[str, str],
 ) -> subprocess.CompletedProcess[str]:
     env = os.environ.copy()
-    env.update(extra_env)
     env["CMUX_TEST_PI_EXTENSION_PATH"] = str(extension_path)
     env["CMUX_PI_CMUX_BIN"] = str(fake_cmux)
     env["CMUX_SURFACE_ID"] = "00000000-0000-0000-0000-000000008672"
     env["CMUX_WORKSPACE_ID"] = "00000000-0000-0000-0000-000000008673"
+    env.update(extra_env)
     return subprocess.run(
         [bun, "--eval", source],
         cwd=root,
@@ -158,6 +158,58 @@ await Promise.all([first, second]);
         print(f"FAIL: responsiveness harness captured unexpected commands: {slow_lines!r}")
         return 1
 
+    return 0
+
+
+def check_panel_only_target_fails_closed(bun: str, root: Path, extension_path: Path) -> int:
+    marker = root / "panel-only-cmux-called"
+    fake_cmux = root / "panel-only-cmux"
+    make_executable(
+        fake_cmux,
+        """#!/usr/bin/env bash
+set -euo pipefail
+touch "$CMUX_TEST_PI_PANEL_ONLY_MARKER"
+exit 91
+""",
+    )
+    inspectable_extension = root / "panel-only-cmux-session.ts"
+    inspectable_extension.write_text(
+        extension_path.read_text(encoding="utf-8")
+        + "\nexport { sendHook };\n",
+        encoding="utf-8",
+    )
+    source = """
+const extensionPath = process.env.CMUX_TEST_PI_EXTENSION_PATH;
+const mod = await import(extensionPath);
+const delivered = await mod.sendHook(
+  {},
+  "session-start",
+  {
+    sessionId: "pi-panel-only-session",
+    cwd: "/tmp/pi-panel-only-project",
+  },
+);
+if (delivered) throw new Error("panel-only hook was reported as delivered");
+"""
+    result = run_extension(
+        bun=bun,
+        root=root,
+        extension_path=inspectable_extension,
+        fake_cmux=fake_cmux,
+        source=source,
+        extra_env={
+            "CMUX_SURFACE_ID": "",
+            "CMUX_WORKSPACE_ID": "",
+            "CMUX_PANEL_ID": "00000000-0000-0000-0000-000000008674",
+            "CMUX_TEST_PI_PANEL_ONLY_MARKER": str(marker),
+        },
+    )
+    if result.returncode != 0:
+        print(f"FAIL: panel-only target was treated as delivered: {result.stderr!r}")
+        return 1
+    if marker.exists():
+        print("FAIL: panel-only target invoked the cmux CLI fallback")
+        return 1
     return 0
 
 
@@ -1433,6 +1485,7 @@ await handlers.get("session_shutdown")({ reason: "quit" }, ctx);
 def run_checks(bun: str, root: Path, extension_path: Path) -> int:
     checks = (
         check_responsiveness,
+        check_panel_only_target_fails_closed,
         check_feed_backlog,
         check_terminal_feed_compaction,
         check_feed_payload_byte_bound,
