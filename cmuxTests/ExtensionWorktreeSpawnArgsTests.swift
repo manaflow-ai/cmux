@@ -19,7 +19,9 @@ import Testing
 struct ExtensionWorktreeSpawnArgsTests {
     private func makeResult(setupCommand: String) -> CmuxExtensionWorktreeCreationResult {
         CmuxExtensionWorktreeCreationResult(
+            projectRootPath: "/tmp/project",
             worktreePath: "/tmp/project/.cmux/worktrees/cmux-sidebar-123",
+            branchName: "cmux-sidebar-123",
             workspaceTitle: "cmux-sidebar-123",
             setupCommand: setupCommand
         )
@@ -53,5 +55,72 @@ struct ExtensionWorktreeSpawnArgsTests {
         let args = makeResult(setupCommand: "").workspaceSpawnArgs()
 
         #expect(args.initialTerminalInput == nil)
+    }
+
+    @Test("unclaimed worktree rollback removes checkout and branch")
+    func unclaimedWorktreeRollbackRemovesCheckoutAndBranch() async throws {
+        let fileManager = FileManager.default
+        let projectRoot = fileManager.temporaryDirectory
+            .appendingPathComponent("cmux-extension-worktree-rollback-\(UUID().uuidString)", isDirectory: true)
+        defer { try? fileManager.removeItem(at: projectRoot) }
+
+        try fileManager.createDirectory(at: projectRoot, withIntermediateDirectories: true)
+        try runGit(["-C", projectRoot.path, "init", "--quiet"])
+        try "seed\n".write(
+            to: projectRoot.appendingPathComponent("seed.txt"),
+            atomically: true,
+            encoding: .utf8
+        )
+        try runGit(["-C", projectRoot.path, "add", "seed.txt"])
+        try runGit([
+            "-C", projectRoot.path,
+            "-c", "user.name=cmux Tests",
+            "-c", "user.email=cmux-tests@example.invalid",
+            "commit", "--quiet", "-m", "seed",
+        ])
+
+        let result = try await CmuxExtensionWorktreePrototype.createWorktree(
+            projectRootPath: projectRoot.path
+        )
+        #expect(fileManager.fileExists(atPath: result.worktreePath))
+        #expect(
+            try gitStatus([
+                "-C", projectRoot.path,
+                "show-ref", "--verify", "--quiet", "refs/heads/\(result.branchName)",
+            ]) == 0
+        )
+
+        try await result.rollbackUnclaimedWorktree()
+
+        #expect(!fileManager.fileExists(atPath: result.worktreePath))
+        #expect(
+            try gitStatus([
+                "-C", projectRoot.path,
+                "show-ref", "--verify", "--quiet", "refs/heads/\(result.branchName)",
+            ]) != 0
+        )
+    }
+
+    private func runGit(_ arguments: [String]) throws {
+        let status = try gitStatus(arguments)
+        guard status == 0 else {
+            throw NSError(
+                domain: "ExtensionWorktreeSpawnArgsTests",
+                code: Int(status),
+                userInfo: [NSLocalizedDescriptionKey: "git command failed with status \(status)"]
+            )
+        }
+    }
+
+    private func gitStatus(_ arguments: [String]) throws -> Int32 {
+        let process = Process()
+        process.executableURL = URL(fileURLWithPath: "/usr/bin/env")
+        process.arguments = ["git"] + arguments
+        process.standardInput = FileHandle.nullDevice
+        process.standardOutput = FileHandle.nullDevice
+        process.standardError = FileHandle.nullDevice
+        try process.run()
+        process.waitUntilExit()
+        return process.terminationStatus
     }
 }

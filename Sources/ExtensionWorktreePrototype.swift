@@ -2,7 +2,9 @@ import CmuxFoundation
 import Foundation
 
 struct CmuxExtensionWorktreeCreationResult: Sendable {
+    let projectRootPath: String
     let worktreePath: String
+    let branchName: String
     let workspaceTitle: String
     /// A convenience command (e.g. a sample dev-server launcher) that should run
     /// inside the new workspace's interactive shell. This is *setup*, never the
@@ -42,6 +44,23 @@ extension CmuxExtensionWorktreeCreationResult {
             initialTerminalInput: setupCommand.isEmpty ? nil : setupCommand + "\n",
             inheritWorkingDirectory: false
         )
+    }
+
+    /// Removes this newly created worktree and its owned branch when workspace
+    /// admission fails before anything can use them.
+    func rollbackUnclaimedWorktree() async throws {
+        try await Task.detached(priority: .utility) { [projectRootPath, worktreePath, branchName] in
+            try await CmuxExtensionWorktreePrototype.run(
+                "git",
+                ["-C", projectRootPath, "worktree", "remove", "--force", worktreePath],
+                failureDescription: "Could not remove the unclaimed worktree."
+            )
+            try await CmuxExtensionWorktreePrototype.run(
+                "git",
+                ["-C", projectRootPath, "branch", "-D", branchName],
+                failureDescription: "Could not delete the unclaimed worktree branch."
+            )
+        }.value
     }
 }
 
@@ -103,7 +122,9 @@ enum CmuxExtensionWorktreePrototype {
             let port = 4_100 + abs(branchName.hashValue % 800)
             let samplePath = shellEscaped(worktree.appendingPathComponent("cmux-sample-dev", isDirectory: true).path)
             return CmuxExtensionWorktreeCreationResult(
+                projectRootPath: projectRoot.path,
                 worktreePath: worktree.path,
+                branchName: branchName,
                 workspaceTitle: branchName,
                 setupCommand: "cd \(samplePath) && python3 -m http.server \(port)"
             )
@@ -169,11 +190,23 @@ enum CmuxExtensionWorktreePrototype {
         try html.write(to: sample.appendingPathComponent("index.html"), atomically: true, encoding: .utf8)
     }
 
-    private static func run(_ executable: String, _ arguments: [String]) async throws {
-        _ = try await runCapturingOutput(executable, arguments)
+    fileprivate static func run(
+        _ executable: String,
+        _ arguments: [String],
+        failureDescription: String = "Could not create worktree."
+    ) async throws {
+        _ = try await runCapturingOutput(
+            executable,
+            arguments,
+            failureDescription: failureDescription
+        )
     }
 
-    private static func runCapturingOutput(_ executable: String, _ arguments: [String]) async throws -> Data {
+    private static func runCapturingOutput(
+        _ executable: String,
+        _ arguments: [String],
+        failureDescription: String = "Could not create worktree."
+    ) async throws -> Data {
         let process = Process()
         process.executableURL = URL(fileURLWithPath: "/usr/bin/env")
         process.arguments = [executable] + arguments
@@ -194,7 +227,7 @@ enum CmuxExtensionWorktreePrototype {
                 domain: "CmuxExtensionWorktreePrototype",
                 code: Int(terminationStatus),
                 userInfo: [
-                    NSLocalizedDescriptionKey: "Could not create worktree.",
+                    NSLocalizedDescriptionKey: failureDescription,
                     "CmuxExtensionWorktreePrototypeDetails": details
                 ]
             )

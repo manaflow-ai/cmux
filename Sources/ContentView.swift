@@ -12872,7 +12872,7 @@ struct VerticalTabsSidebar: View, Equatable {
             do {
                 let result = try await CmuxExtensionWorktreePrototype.createWorktree(projectRootPath: projectRootPath)
                 let spawnArgs = result.workspaceSpawnArgs()
-                _ = tabManager.acquireOptionalWorkspaceIfActive {
+                let workspace = tabManager.acquireOptionalWorkspaceIfActive {
                     tabManager.addWorkspaceIfActive(
                         title: spawnArgs.title,
                         workingDirectory: spawnArgs.workingDirectory,
@@ -12882,6 +12882,9 @@ struct VerticalTabsSidebar: View, Equatable {
                         eagerLoadTerminal: false,
                         autoWelcomeIfNeeded: spawnArgs.initialTerminalInput == nil
                     )
+                }
+                if workspace == nil {
+                    try await result.rollbackUnclaimedWorktree()
                 }
             } catch {
                 NSSound.beep()

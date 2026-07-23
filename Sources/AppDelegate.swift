@@ -16229,6 +16229,9 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
         if let context = mainWindowContexts[ObjectIdentifier(window)] {
             return commitMainWindowClose(context: context, window: window)
         }
+        if let context = mainWindowContexts.values.first(where: { $0.window === window }) {
+            return commitMainWindowClose(context: context, window: window)
+        }
         guard let windowId = mainWindowId(from: window),
               let route = recoverableMainWindowRoute(windowId: windowId),
               let cachedWindow = route.window,
