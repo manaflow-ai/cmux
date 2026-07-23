@@ -1783,16 +1783,26 @@ class TabManager: ObservableObject {
     }
 
     func togglePin(tabId: UUID) {
-        workspaceReordering.togglePin(tabId: tabId)
+        guard let tab = tabs.first(where: { $0.id == tabId }) else { return }
+        setPinned(tab, pinned: !tab.isPinned)
     }
 
     func setPinned(_ tab: Workspace, pinned: Bool) {
+        let wasPinned = tab.isPinned
         workspaceReordering.setPinned(tab, pinned: pinned)
+        if wasPinned != tab.isPinned {
+            tab.updatePinnedWorkingDirectoryForCurrentState()
+        }
     }
 
     @discardableResult
     func setPinned(workspaceIds: [UUID], pinned: Bool) -> [UUID] {
-        workspaceReordering.setPinned(workspaceIds: workspaceIds, pinned: pinned)
+        let changedWorkspaceIds = workspaceReordering.setPinned(workspaceIds: workspaceIds, pinned: pinned)
+        let changedWorkspaceIdSet = Set(changedWorkspaceIds)
+        for workspace in tabs where changedWorkspaceIdSet.contains(workspace.id) {
+            workspace.updatePinnedWorkingDirectoryForCurrentState()
+        }
+        return changedWorkspaceIds
     }
 
     // MARK: - Workspace Groups (WorkspaceGroupCoordinator, CmuxWorkspaces)
@@ -5648,6 +5658,7 @@ extension TabManager {
             hasher.combine(workspace.customDescription ?? "")
             hasher.combine(workspace.customColor ?? "")
             hasher.combine(workspace.isPinned)
+            hasher.combine(workspace.pinnedWorkingDirectory ?? "")
             hasher.combine(workspace.panels.count)
             hasher.combine(workspace.statusEntries.count)
             hasher.combine(workspace.metadataBlocks.count)
