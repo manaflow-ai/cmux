@@ -766,6 +766,85 @@ struct RecoverableWindowlessMainWindowRoutingTests {
         #expect(!foreignWindow.isVisible)
     }
 
+    @Test("Stale callback cannot reassign an owned window to a recoverable ID")
+    func staleCallbackCannotReassignOwnedWindowToRecoverableId() throws {
+        _ = NSApplication.shared
+        let previousAppDelegate = AppDelegate.shared
+        let app = AppDelegate()
+        defer {
+            TerminalController.shared.setActiveTabManager(nil)
+            AppDelegate.shared = previousAppDelegate
+        }
+
+        let windowAId = UUID()
+        let managerA = TabManager()
+        let workspaceA = try #require(managerA.selectedWorkspace)
+        app.registerMainWindowContextForTesting(windowId: windowAId, tabManager: managerA)
+        app.unregisterMainWindowContextForTesting(windowId: windowAId)
+        #expect(app.recoverableMainWindowRoute(windowId: windowAId)?.tabManager === managerA)
+
+        let windowBId = UUID()
+        let windowB = NonDestructiveCloseWindow(
+            contentRect: NSRect(x: 0, y: 0, width: 500, height: 320),
+            styleMask: [.titled, .closable],
+            backing: .buffered,
+            defer: false
+        )
+        windowB.identifier = NSUserInterfaceItemIdentifier("cmux.main.\(windowBId.uuidString)")
+        let managerB = TabManager()
+        let workspaceB = try #require(managerB.selectedWorkspace)
+        let panelB = try #require(workspaceB.focusedTerminalPanel)
+        defer {
+            app.unregisterMainWindowContextForTesting(windowId: windowBId)
+            app.forgetRecoverableMainWindowRoute(windowId: windowAId)
+            if !managerA.isFinalizedForWindowClose {
+                managerA.finalizeAllWorkspacesForWindowClose()
+            }
+            if !managerB.isFinalizedForWindowClose {
+                managerB.finalizeAllWorkspacesForWindowClose()
+            }
+            workspaceA.teardownAllPanels()
+            workspaceA.teardownRemoteConnection()
+            workspaceB.teardownAllPanels()
+            workspaceB.teardownRemoteConnection()
+            windowB.orderOut(nil)
+        }
+
+        app.registerMainWindow(
+            windowB,
+            windowId: windowBId,
+            tabManager: managerB,
+            sidebarState: SidebarState(),
+            sidebarSelectionState: SidebarSelectionState(),
+            fileExplorerState: FileExplorerState()
+        )
+        windowB.makeKeyAndOrderFront(nil)
+
+        // A stale SwiftUI callback carries B's exact native window and manager,
+        // but A's reserved id. Exact ownership must reject the entire tuple
+        // without falling through to A's mismatch branch and closing B.
+        app.registerMainWindow(
+            windowB,
+            windowId: windowAId,
+            tabManager: managerB,
+            sidebarState: SidebarState(),
+            sidebarSelectionState: SidebarSelectionState(),
+            fileExplorerState: FileExplorerState()
+        )
+
+        #expect(windowB.closeCallCount == 0)
+        #expect(windowB.isVisible)
+        #expect(!managerB.isFinalizedForWindowClose)
+        #expect(app.tabManagerFor(windowId: windowBId) === managerB)
+        #expect(app.mainWindowContexts.values.contains {
+            $0.windowId == windowBId && $0.tabManager === managerB && $0.window === windowB
+        })
+        #expect(GhosttyApp.terminalSurfaceRegistry.surface(id: panelB.id) === panelB.surface)
+        #expect(app.recoverableMainWindowRoute(windowId: windowAId)?.tabManager === managerA)
+        #expect(!managerA.isFinalizedForWindowClose)
+        #expect(managerA.tabs.map(\.id) == [workspaceA.id])
+    }
+
     @Test("Visible owner rejects a duplicate manager and retires its terminal graph")
     func visibleOwnerRejectsDuplicateManagerAndRetiresItsTerminalGraph() throws {
         _ = NSApplication.shared

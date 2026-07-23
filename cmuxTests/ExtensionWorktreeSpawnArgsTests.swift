@@ -60,11 +60,122 @@ struct ExtensionWorktreeSpawnArgsTests {
     @Test("unclaimed worktree rollback removes checkout and branch")
     func unclaimedWorktreeRollbackRemovesCheckoutAndBranch() async throws {
         let fileManager = FileManager.default
-        let projectRoot = fileManager.temporaryDirectory
-            .appendingPathComponent("cmux-extension-worktree-rollback-\(UUID().uuidString)", isDirectory: true)
+        let projectRoot = try makeTemporaryRepository(label: "unchanged")
         defer { try? fileManager.removeItem(at: projectRoot) }
 
-        try fileManager.createDirectory(at: projectRoot, withIntermediateDirectories: true)
+        let result = try await CmuxExtensionWorktreePrototype.createWorktree(
+            projectRootPath: projectRoot.path
+        )
+        #expect(fileManager.fileExists(atPath: result.worktreePath))
+        #expect(try branchExists(result.branchName, projectRoot: projectRoot))
+
+        try await result.rollbackUnclaimedWorktree()
+
+        #expect(!fileManager.fileExists(atPath: result.worktreePath))
+        #expect(try !branchExists(result.branchName, projectRoot: projectRoot))
+    }
+
+    @Test("rollback retains checkout when tracked, untracked, or ignored content changes")
+    func rollbackRetainsCheckoutWhenWorktreeContentChanges() async throws {
+        let fileManager = FileManager.default
+        let projectRoot = try makeTemporaryRepository(label: "dirty")
+        defer { try? fileManager.removeItem(at: projectRoot) }
+
+        let result = try await CmuxExtensionWorktreePrototype.createWorktree(
+            projectRootPath: projectRoot.path
+        )
+        let worktree = URL(fileURLWithPath: result.worktreePath, isDirectory: true)
+        try "modified seed\n".write(
+            to: worktree.appendingPathComponent("seed.txt"),
+            atomically: true,
+            encoding: .utf8
+        )
+        try "untracked data\n".write(
+            to: worktree.appendingPathComponent("notes.txt"),
+            atomically: true,
+            encoding: .utf8
+        )
+        let ignoredDirectory = worktree.appendingPathComponent(".cmux", isDirectory: true)
+        try fileManager.createDirectory(at: ignoredDirectory, withIntermediateDirectories: true)
+        try "ignored data\n".write(
+            to: ignoredDirectory.appendingPathComponent("user-data.txt"),
+            atomically: true,
+            encoding: .utf8
+        )
+
+        await expectRollbackRefused(result)
+
+        #expect(fileManager.fileExists(atPath: result.worktreePath))
+        #expect(try branchExists(result.branchName, projectRoot: projectRoot))
+        #expect(
+            try String(contentsOf: worktree.appendingPathComponent("seed.txt"), encoding: .utf8)
+                == "modified seed\n"
+        )
+        #expect(fileManager.fileExists(atPath: worktree.appendingPathComponent("notes.txt").path))
+        #expect(fileManager.fileExists(atPath: ignoredDirectory.appendingPathComponent("user-data.txt").path))
+    }
+
+    @Test("rollback retains checkout when generated artifact changes")
+    func rollbackRetainsCheckoutWhenGeneratedArtifactChanges() async throws {
+        let fileManager = FileManager.default
+        let projectRoot = try makeTemporaryRepository(label: "artifact")
+        defer { try? fileManager.removeItem(at: projectRoot) }
+
+        let result = try await CmuxExtensionWorktreePrototype.createWorktree(
+            projectRootPath: projectRoot.path
+        )
+        let artifact = URL(fileURLWithPath: result.worktreePath, isDirectory: true)
+            .appendingPathComponent("cmux-sample-dev/index.html")
+        let changedContents = Data("user changed generated sample\n".utf8)
+        try changedContents.write(to: artifact, options: .atomic)
+
+        await expectRollbackRefused(result)
+
+        #expect(fileManager.fileExists(atPath: result.worktreePath))
+        #expect(try branchExists(result.branchName, projectRoot: projectRoot))
+        #expect(try Data(contentsOf: artifact) == changedContents)
+    }
+
+    @Test("rollback retains checkout and branch after a new commit")
+    func rollbackRetainsCheckoutAndBranchAfterCommit() async throws {
+        let fileManager = FileManager.default
+        let projectRoot = try makeTemporaryRepository(label: "commit")
+        defer { try? fileManager.removeItem(at: projectRoot) }
+
+        let result = try await CmuxExtensionWorktreePrototype.createWorktree(
+            projectRootPath: projectRoot.path
+        )
+        let worktree = URL(fileURLWithPath: result.worktreePath, isDirectory: true)
+        try "committed change\n".write(
+            to: worktree.appendingPathComponent("seed.txt"),
+            atomically: true,
+            encoding: .utf8
+        )
+        try runGit(["-C", worktree.path, "add", "seed.txt"])
+        try runGit([
+            "-C", worktree.path,
+            "-c", "user.name=cmux Tests",
+            "-c", "user.email=cmux-tests@example.invalid",
+            "commit", "--quiet", "-m", "user commit",
+        ])
+
+        await expectRollbackRefused(result)
+
+        #expect(fileManager.fileExists(atPath: result.worktreePath))
+        #expect(try branchExists(result.branchName, projectRoot: projectRoot))
+        #expect(
+            try String(contentsOf: worktree.appendingPathComponent("seed.txt"), encoding: .utf8)
+                == "committed change\n"
+        )
+    }
+
+    private func makeTemporaryRepository(label: String) throws -> URL {
+        let projectRoot = FileManager.default.temporaryDirectory
+            .appendingPathComponent(
+                "cmux-extension-worktree-rollback-\(label)-\(UUID().uuidString)",
+                isDirectory: true
+            )
+        try FileManager.default.createDirectory(at: projectRoot, withIntermediateDirectories: true)
         try runGit(["-C", projectRoot.path, "init", "--quiet"])
         try "seed\n".write(
             to: projectRoot.appendingPathComponent("seed.txt"),
@@ -78,27 +189,25 @@ struct ExtensionWorktreeSpawnArgsTests {
             "-c", "user.email=cmux-tests@example.invalid",
             "commit", "--quiet", "-m", "seed",
         ])
+        return projectRoot
+    }
 
-        let result = try await CmuxExtensionWorktreePrototype.createWorktree(
-            projectRootPath: projectRoot.path
-        )
-        #expect(fileManager.fileExists(atPath: result.worktreePath))
-        #expect(
-            try gitStatus([
-                "-C", projectRoot.path,
-                "show-ref", "--verify", "--quiet", "refs/heads/\(result.branchName)",
-            ]) == 0
-        )
+    private func expectRollbackRefused(_ result: CmuxExtensionWorktreeCreationResult) async {
+        do {
+            try await result.rollbackUnclaimedWorktree()
+            Issue.record("Rollback removed a worktree whose state changed")
+        } catch {
+            let error = error as NSError
+            #expect(error.domain == "CmuxExtensionWorktreePrototype")
+            #expect(error.code == 3)
+        }
+    }
 
-        try await result.rollbackUnclaimedWorktree()
-
-        #expect(!fileManager.fileExists(atPath: result.worktreePath))
-        #expect(
-            try gitStatus([
-                "-C", projectRoot.path,
-                "show-ref", "--verify", "--quiet", "refs/heads/\(result.branchName)",
-            ]) != 0
-        )
+    private func branchExists(_ branchName: String, projectRoot: URL) throws -> Bool {
+        try gitStatus([
+            "-C", projectRoot.path,
+            "show-ref", "--verify", "--quiet", "refs/heads/\(branchName)",
+        ]) == 0
     }
 
     private func runGit(_ arguments: [String]) throws {
