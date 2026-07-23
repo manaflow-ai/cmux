@@ -497,25 +497,3 @@ struct PiFeedOwnershipTests {
         return resultBox.value!
     }
 }
-
-// Written once on a socket worker and read only after its continuation resumes.
-private final class PiFeedV2CallResultBox: @unchecked Sendable {
-    var value: TerminalController.V2CallResult?
-}
-
-private final class PiFeedEventRecorder: @unchecked Sendable {
-    private let lock = NSLock()
-    private var recordedEvents: [WorkstreamEvent] = []
-
-    var events: [WorkstreamEvent] {
-        lock.lock()
-        defer { lock.unlock() }
-        return recordedEvents
-    }
-
-    func record(_ event: WorkstreamEvent) {
-        lock.lock()
-        recordedEvents.append(event)
-        lock.unlock()
-    }
-}
