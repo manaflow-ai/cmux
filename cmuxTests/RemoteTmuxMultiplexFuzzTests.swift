@@ -225,6 +225,107 @@ struct RemoteTmuxMultiplexFuzzTests {
                 "bootstrap keyed off the session list \(ctx)")
         }
     }
+
+    /// A session row with our name and our owner, but not the version we stamp, must not be
+    /// offered for reaping — the live control client is attached to that session, so killing it
+    /// takes the whole host's mirror down.
+    ///
+    /// This does not need a format bump to happen: an ownership `set-option` that never landed
+    /// leaves the version option unset, which is exactly what these two rows look like. The
+    /// classification cannot rule the row out (it is "one of our views that is not the current
+    /// one" by construction), so the plan filters the name.
+    @Test(arguments: [0, nil] as [Int?])
+    func planNeverOffersTheLiveViewForReaping(version: Int?) {
+        let view = RemoteTmuxViewSession(ownerId: "own-name-wrong-version")
+        let ownRow = RemoteTmuxViewSession.SessionRow(
+            name: view.sessionName, isView: true, owner: view.ownerId, version: version)
+        // The premise: the classification alone DOES match this row, which is why the filter
+        // has to exist rather than being documented as impossible.
+        #expect(view.isOwnStaleView(ownRow))
+
+        let staleOther = RemoteTmuxViewSession.SessionRow(
+            name: RemoteTmuxViewSession.namePrefix + "v0-old-owner-name", isView: true,
+            owner: view.ownerId, version: 0)
+        let plan = RemoteTmuxLinkedViewPlan.plan(
+            view: view,
+            snapshot: .init(
+                sessions: [
+                    ownRow,
+                    staleOther,
+                    .init(name: "work", isView: false, owner: "", version: nil),
+                ],
+                windows: [
+                    .init(sessionName: "work", sessionId: "$1", windowId: "@1", windowIndex: 0,
+                          isActive: true),
+                ],
+                cmuxOwnedWindowIds: [],
+                placeholderWindowId: nil))
+        #expect(!plan.staleViewsToKill.contains(view.sessionName))
+        // The other stale view is still collected, so the filter is about our own name and not
+        // about turning the reap off.
+        #expect(plan.staleViewsToKill == [staleOther.name])
+    }
+
+    /// The view session name carries the format version, which is what makes a bump take
+    /// effect: the stream attaches with `new-session -A -s <name>` and would otherwise reuse an
+    /// incompatible view and stamp the new version onto it. A different name instead falls
+    /// straight into the stale-view reap.
+    @Test func theViewNameCarriesTheFormatVersion() {
+        let view = RemoteTmuxViewSession(ownerId: "version-in-name")
+        let versionSegment = "v\(RemoteTmuxViewSession.formatVersion)-"
+        #expect(view.sessionName.hasPrefix(RemoteTmuxViewSession.namePrefix + versionSegment))
+
+        let previousFormat = RemoteTmuxViewSession.SessionRow(
+            name: RemoteTmuxViewSession.namePrefix + "v0-version-in-name-"
+                + RemoteTmuxViewSession.ownerHash("version-in-name"),
+            isView: true, owner: view.ownerId, version: 0)
+        #expect(previousFormat.name != view.sessionName)
+        #expect(!view.isOwnView(previousFormat))
+        #expect(view.isOwnStaleView(previousFormat))
+        let plan = RemoteTmuxLinkedViewPlan.plan(
+            view: view,
+            snapshot: .init(
+                sessions: [previousFormat, .init(name: "work", isView: false, owner: "", version: nil)],
+                windows: [
+                    .init(sessionName: "work", sessionId: "$1", windowId: "@1", windowIndex: 0,
+                          isActive: true),
+                ],
+                cmuxOwnedWindowIds: [],
+                placeholderWindowId: nil))
+        #expect(plan.staleViewsToKill == [previousFormat.name])
+    }
+
+    /// The placeholder is the first UNLINKED row, not the first row.
+    ///
+    /// Measured on tmux 3.7: `link-window -b` inserts before its target and `base-index`
+    /// differs between hosts, so the lowest-index window in the view can be a linked copy.
+    /// Taking the first row protected that copy from unlinking and left the real placeholder
+    /// unprotected, so reconcile could unlink the one window the view cannot lose.
+    @Test func theBringupTakesTheUnlinkedRowAsThePlaceholder() {
+        let linkedFirst = RemoteTmuxViewConnection.readBringupRows([
+            "@41 1", "@7 0", "@42 1",
+        ])
+        #expect(linkedFirst.placeholder == "@7")
+        #expect(linkedFirst.adopted == ["@41", "@42"])
+
+        // The ordinary shape, where the placeholder does sit first, must be unchanged.
+        let placeholderFirst = RemoteTmuxViewConnection.readBringupRows([
+            "@7 0", "@41 1", "@42 1",
+        ])
+        #expect(placeholderFirst.placeholder == "@7")
+        #expect(placeholderFirst.adopted == ["@41", "@42"])
+
+        // Every row linked (no placeholder to find) falls back to the first row, which keeps
+        // one window protected rather than leaving the view with nothing it may not unlink.
+        let allLinked = RemoteTmuxViewConnection.readBringupRows(["@41 1", "@42 1"])
+        #expect(allLinked.placeholder == "@41")
+        #expect(allLinked.adopted == ["@42"])
+
+        // A reply with no rows leaves nothing adopted rather than inventing a placeholder.
+        let empty = RemoteTmuxViewConnection.readBringupRows([])
+        #expect(empty.placeholder == nil)
+        #expect(empty.adopted.isEmpty)
+    }
 }
 
 /// One session in the reference model: its rename-stable id, ordered windows,
@@ -260,7 +361,7 @@ private final class FuzzHostModel {
         nextSessionId = index * 10_000 + 1
         nextWindowId = index * 100_000 + 1
         controller.multiplexedViewsByHost[host.connectionHash] = RemoteTmuxViewConnection(
-            host: host, ownerId: "fuzz-owner-\(index)", transport: controller.transport(for: host))
+            host: host, ownerId: "fuzz-owner-\(index)")
     }
 
     var liveNames: [String] {
