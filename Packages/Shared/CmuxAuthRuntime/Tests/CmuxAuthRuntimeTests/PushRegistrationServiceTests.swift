@@ -163,4 +163,119 @@ struct FakeTokenProvider: TokenProviding {
         }
         #expect(hijacked == false)
     }
+
+    @Test func deviceTokenRegistrationSurvivesARedirectAsPOST() async {
+        // Regression for https://github.com/manaflow-ai/cmux/issues/6270.
+        // Foundation downgrades POST/DELETE to a body-less GET on a 301/302
+        // redirect. When the API base URL canonicalizes (e.g. a trailing-slash
+        // normalization), the upload arrived as a GET with no body, which
+        // `/api/device-tokens` has no handler for, so the device token silently
+        // never registered and iOS push went dead end-to-end. The registration
+        // request must survive a same-origin redirect as a POST *with its body*
+        // (a verb-only fix that dropped the body would still break the route).
+        RedirectingURLProtocol.recorder.reset()
+        let suite = "push-redirect-\(UUID().uuidString)"
+        let defaults = UserDefaults(suiteName: suite)!
+        defer { defaults.removePersistentDomain(forName: suite) }
+        let configuration = URLSessionConfiguration.ephemeral
+        configuration.protocolClasses = [RedirectingURLProtocol.self]
+        let service = PushRegistrationService(
+            tokenProvider: FakeTokenProvider(),
+            apiBaseURL: "https://\(RedirectingURLProtocol.sameOriginHost)",
+            bundleID: "dev.cmux.app.beta",
+            apnsEnvironment: "production",
+            suiteName: suite,
+            session: URLSession(configuration: configuration)
+        )
+
+        await service.register(deviceToken: Data([0xAB, 0xCD]))
+        // Enabling uploads the cached token via POST /api/device-tokens, which
+        // the stub 301-redirects (same origin) to the canonical path.
+        await service.setEnabled(true)
+
+        #expect(RedirectingURLProtocol.recorder.targetMethod() == "POST")
+        // The JSON body (deviceToken/bundleId/environment/platform) must survive
+        // too, not just the verb.
+        #expect((RedirectingURLProtocol.recorder.targetBodyByteCount() ?? 0) > 0)
+    }
+
+    @Test func deviceTokenRegistrationFailsClosedAcrossOrigins() async {
+        // Security: a cross-origin redirect must be REFUSED, not followed.
+        // Foundation forwards custom headers (X-Stack-Refresh-Token, ...) to the
+        // new origin even though it strips Authorization, so the delegate cancels
+        // the redirect outright — nothing (body or headers) reaches the other
+        // origin, and the cross-origin target is never contacted.
+        RedirectingURLProtocol.recorder.reset()
+        let suite = "push-xorigin-\(UUID().uuidString)"
+        let defaults = UserDefaults(suiteName: suite)!
+        defer { defaults.removePersistentDomain(forName: suite) }
+        let configuration = URLSessionConfiguration.ephemeral
+        configuration.protocolClasses = [RedirectingURLProtocol.self]
+        let service = PushRegistrationService(
+            tokenProvider: FakeTokenProvider(),
+            apiBaseURL: "https://\(RedirectingURLProtocol.crossOriginStartHost)",
+            bundleID: "dev.cmux.app.beta",
+            apnsEnvironment: "production",
+            suiteName: suite,
+            session: URLSession(configuration: configuration)
+        )
+
+        await service.register(deviceToken: Data([0xAB, 0xCD]))
+        await service.setEnabled(true)
+
+        // The redirect was refused, so the cross-origin target is never reached.
+        #expect(RedirectingURLProtocol.recorder.targetMethod() == nil)
+    }
+
+    @Test func deviceTokenRegistrationRefusesCrossOrigin308() async {
+        // A method-preserving 307/308 cross-origin redirect must ALSO be refused —
+        // it keeps the POST and would forward the payload + custom credential
+        // headers to the other origin. Origin is checked before the method, so a
+        // 308 cannot slip past; the target is never reached.
+        RedirectingURLProtocol.recorder.reset()
+        let suite = "push-xorigin308-\(UUID().uuidString)"
+        let defaults = UserDefaults(suiteName: suite)!
+        defer { defaults.removePersistentDomain(forName: suite) }
+        let configuration = URLSessionConfiguration.ephemeral
+        configuration.protocolClasses = [RedirectingURLProtocol.self]
+        let service = PushRegistrationService(
+            tokenProvider: FakeTokenProvider(),
+            apiBaseURL: "https://\(RedirectingURLProtocol.crossOrigin308StartHost)",
+            bundleID: "dev.cmux.app.beta",
+            apnsEnvironment: "production",
+            suiteName: suite,
+            session: URLSession(configuration: configuration)
+        )
+
+        await service.register(deviceToken: Data([0xAB, 0xCD]))
+        await service.setEnabled(true)
+
+        #expect(RedirectingURLProtocol.recorder.targetMethod() == nil)
+    }
+
+    @Test func deviceTokenRegistrationLeavesSeeOtherAsGET() async {
+        // A 303 ("See Other") is by spec a GET follow-up to a different resource,
+        // so the delegate must NOT replay the POST body onto it (that would be a
+        // second mutating call). It is left as Foundation's body-less GET.
+        RedirectingURLProtocol.recorder.reset()
+        let suite = "push-seeother-\(UUID().uuidString)"
+        let defaults = UserDefaults(suiteName: suite)!
+        defer { defaults.removePersistentDomain(forName: suite) }
+        let configuration = URLSessionConfiguration.ephemeral
+        configuration.protocolClasses = [RedirectingURLProtocol.self]
+        let service = PushRegistrationService(
+            tokenProvider: FakeTokenProvider(),
+            apiBaseURL: "https://\(RedirectingURLProtocol.seeOtherHost)",
+            bundleID: "dev.cmux.app.beta",
+            apnsEnvironment: "production",
+            suiteName: suite,
+            session: URLSession(configuration: configuration)
+        )
+
+        await service.register(deviceToken: Data([0xAB, 0xCD]))
+        await service.setEnabled(true)
+
+        #expect(RedirectingURLProtocol.recorder.targetMethod() == "GET")
+        #expect((RedirectingURLProtocol.recorder.targetBodyByteCount() ?? 0) == 0)
+    }
 }
