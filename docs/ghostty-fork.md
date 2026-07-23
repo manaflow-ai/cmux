@@ -12,13 +12,28 @@ When we change the fork, update this document and the parent submodule SHA.
 
 ## Current fork changes
 
-Current cmux pinned fork patch head: `b211341be`. It combines indented
-hard-newline link continuations with the presentation-token runtime from
-`24284c3ba` and is published through
-https://github.com/manaflow-ai/ghostty/pull/124.
+Current cmux pinned fork patch head: `130463c38`. It combines indented
+hard-newline link continuations, the presentation-token runtime from
+`24284c3ba`, and consumed Alt associated-text encoding. The latest patch is
+published through https://github.com/manaflow-ai/ghostty/pull/131.
 The corresponding universal ReleaseFast GhosttyKit archive is published at
 https://github.com/manaflow-ai/ghostty/releases/tag/xcframework-b211341be1ba902e772f57fc67c3e65d35205676-crashsubdir-cmux-crash-v1
 and pinned in `scripts/ghosttykit-checksums.txt`.
+
+### Associated text from consumed Alt input
+
+- Commits:
+  - `7e091b0ef` (test: cover Kitty text from consumed Alt)
+  - `14d4d041b` (fix: preserve text produced by consumed Alt)
+- Files:
+  - `src/input/key_encode.zig`
+- Summary:
+  - Kitty keyboard encoding includes associated text when macOS consumes an
+    Alt-modified key but still produces text, preserving characters such as
+    `∑` instead of forwarding the physical Alt shortcut.
+- Conflict notes:
+  - Recheck the consumed-input branch and Kitty associated-text parameters
+    when upstream changes `encodeKey` or modifier handling.
 
 ### Indented hard-newline link continuations
 

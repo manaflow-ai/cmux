@@ -28,6 +28,9 @@ pub use remote::{
 };
 pub use tree::{TabNotificationView, TreeView, WorkspaceView};
 
+pub(crate) const CLEAR_HISTORY_UNSUPPORTED_ERROR: &str =
+    "remote server does not support clear-history; restart the cmux-tui server";
+
 #[derive(Clone)]
 pub enum Session {
     Local(Arc<Mux>),

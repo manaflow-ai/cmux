@@ -22,6 +22,7 @@ use ghostty_vt::{Callbacks, MouseEncoders, MouseInput, RenderState, Terminal};
 use serde_json::{Value, json};
 use zeroize::Zeroize;
 
+use super::CLEAR_HISTORY_UNSUPPORTED_ERROR;
 use super::tree::{TreeView, parse_tree};
 
 const SUPPORTED_PROTOCOL_VERSION: u64 = 9;
@@ -70,6 +71,8 @@ fn require_capability(
 ) -> anyhow::Result<()> {
     if capabilities.contains(capability) {
         Ok(())
+    } else if operation == "clear-history" {
+        anyhow::bail!(CLEAR_HISTORY_UNSUPPORTED_ERROR)
     } else {
         anyhow::bail!("remote server does not support {operation}; restart the cmux-tui server")
     }

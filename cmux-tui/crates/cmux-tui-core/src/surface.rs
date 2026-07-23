@@ -407,6 +407,9 @@ pub struct PtySurface {
     term: Mutex<Terminal>,
     mouse_encoders: Mutex<MouseEncoders>,
     writer: Mutex<Box<dyn Write + Send>>,
+    /// A prompt-submitting write blocks prompt redraw until a later OSC 133
+    /// marker confirms that the child has advanced beyond the stale prompt.
+    prompt_submission: Mutex<PromptSubmissionState>,
     master: Mutex<Box<dyn MasterPty + Send>>,
     killer: Mutex<Box<dyn ChildKiller + Send>>,
     pid: Option<u32>,
@@ -440,6 +443,38 @@ pub struct PtySurface {
     render: Mutex<RenderHub>,
     render_generation: AtomicU64,
     frame_requests: SyncSender<u64>,
+}
+
+#[derive(Debug, Clone, Copy, Default)]
+enum PromptSubmissionState {
+    #[default]
+    Idle,
+    Writing,
+    AwaitingPromptMarker(u64),
+}
+
+fn input_may_submit_prompt(bytes: &[u8]) -> bool {
+    const PASTE_START: &[u8] = b"\x1b[200~";
+    const PASTE_END: &[u8] = b"\x1b[201~";
+
+    let mut in_bracketed_paste = false;
+    let mut offset = 0;
+    while offset < bytes.len() {
+        let remaining = &bytes[offset..];
+        if remaining.starts_with(PASTE_START) {
+            in_bracketed_paste = true;
+            offset += PASTE_START.len();
+        } else if remaining.starts_with(PASTE_END) {
+            in_bracketed_paste = false;
+            offset += PASTE_END.len();
+        } else {
+            if !in_bracketed_paste && matches!(bytes[offset], b'\r' | b'\n') {
+                return true;
+            }
+            offset += 1;
+        }
+    }
+    false
 }
 
 impl std::fmt::Debug for Surface {
@@ -529,6 +564,7 @@ impl Surface {
             term: Mutex::new(term),
             mouse_encoders: Mutex::new(mouse_encoders),
             writer: Mutex::new(writer),
+            prompt_submission: Mutex::new(PromptSubmissionState::Idle),
             master: Mutex::new(pty.master),
             killer: Mutex::new(killer),
             pid,
@@ -670,6 +706,7 @@ impl Surface {
             term: Mutex::new(term),
             mouse_encoders: Mutex::new(mouse_encoders),
             writer: Mutex::new(Box::new(std::io::sink())),
+            prompt_submission: Mutex::new(PromptSubmissionState::Idle),
             master: Mutex::new(Box::new(TestMasterPty {
                 size: Mutex::new(PtySize {
                     rows: opts.rows,
@@ -733,8 +770,10 @@ impl Surface {
             ));
         };
         let mut writer = pty.writer.lock().unwrap();
-        writer.write_all(bytes)?;
-        writer.flush()
+        let submission = pty.begin_prompt_submission(bytes);
+        let result = writer.write_all(bytes).and_then(|()| writer.flush());
+        pty.finish_prompt_submission(submission, result.is_ok());
+        result
     }
 
     /// Write a protocol input payload, conditionally applying bracketed-paste
@@ -754,14 +793,19 @@ impl Surface {
             term.mode(2004, false)
         };
         let mut writer = pty.writer.lock().unwrap();
-        if bracketed {
-            writer.write_all(b"\x1b[200~")?;
-        }
-        writer.write_all(bytes)?;
-        if bracketed {
-            writer.write_all(b"\x1b[201~")?;
-        }
-        writer.flush()
+        let submission = if bracketed { None } else { pty.begin_prompt_submission(bytes) };
+        let result = (|| {
+            if bracketed {
+                writer.write_all(b"\x1b[200~")?;
+            }
+            writer.write_all(bytes)?;
+            if bracketed {
+                writer.write_all(b"\x1b[201~")?;
+            }
+            writer.flush()
+        })();
+        pty.finish_prompt_submission(submission, result.is_ok());
+        result
     }
 
     /// Run `f` with exclusive access to the terminal state.
@@ -908,7 +952,8 @@ impl Surface {
             if term.active_screen() == Screen::Alternate {
                 return Ok(());
             }
-            let redraw_prompt = term.cursor_is_at_prompt();
+            let prompt_metadata_ready = pty.prompt_metadata_ready(&term);
+            let redraw_prompt = prompt_metadata_ready && term.cursor_is_at_prompt();
             let clear = if redraw_prompt {
                 CLEAR_PROMPT_HISTORY_AND_SCREEN.to_vec()
             } else {
@@ -1353,6 +1398,42 @@ impl ChildKiller for TestChildKiller {
 }
 
 impl PtySurface {
+    fn begin_prompt_submission(&self, bytes: &[u8]) -> Option<PromptSubmissionState> {
+        if !input_may_submit_prompt(bytes) {
+            return None;
+        }
+        Some(std::mem::replace(
+            &mut *self.prompt_submission.lock().unwrap(),
+            PromptSubmissionState::Writing,
+        ))
+    }
+
+    fn finish_prompt_submission(&self, previous: Option<PromptSubmissionState>, succeeded: bool) {
+        let Some(previous) = previous else { return };
+        let next = if succeeded {
+            let revision = self.term.lock().unwrap().prompt_semantic_revision();
+            PromptSubmissionState::AwaitingPromptMarker(revision)
+        } else {
+            previous
+        };
+        *self.prompt_submission.lock().unwrap() = next;
+    }
+
+    fn prompt_metadata_ready(&self, term: &Terminal) -> bool {
+        let mut submission = self.prompt_submission.lock().unwrap();
+        match *submission {
+            PromptSubmissionState::Idle => true,
+            PromptSubmissionState::Writing => false,
+            PromptSubmissionState::AwaitingPromptMarker(revision)
+                if term.prompt_semantic_revision() != revision =>
+            {
+                *submission = PromptSubmissionState::Idle;
+                true
+            }
+            PromptSubmissionState::AwaitingPromptMarker(_) => false,
+        }
+    }
+
     /// Snapshot colors from the terminal and the owning shared render state.
     /// Updating that state keeps Ghostty damage owned by the renderer without
     /// inventing a generation, building a viewport, or notifying subscribers.
@@ -1865,6 +1946,30 @@ mod tests {
             assert!(term.viewport_text().unwrap().trim().is_empty());
         });
         assert_eq!(&*writer.0.lock().unwrap(), b"\r\x0c");
+    }
+
+    #[test]
+    fn clear_history_keeps_prompt_redraw_ready_after_bracketed_multiline_paste() {
+        let mux = Mux::new_for_test("clear-bracketed-paste", SurfaceOptions::default());
+        let surface =
+            Surface::spawn_for_test(1, SurfaceOptions::default(), Arc::downgrade(&mux)).unwrap();
+        let writer = CapturingWriter::default();
+        *surface.as_pty().unwrap().writer.lock().unwrap() = Box::new(writer.clone());
+        surface.with_terminal(|term| {
+            for line in 0..40 {
+                term.vt_write(format!("history-{line}\r\n").as_bytes());
+            }
+            term.vt_write(b"\x1b]133;A\x07prompt> \x1b]133;B\x07first\nsecond");
+        });
+
+        surface.write_bytes(b"\x1b[200~first\nsecond\x1b[201~").unwrap();
+        surface.clear_history().unwrap();
+
+        surface.with_terminal(|term| {
+            assert_eq!(term.history_rows(), 0);
+            assert!(term.viewport_text().unwrap().trim().is_empty());
+        });
+        assert_eq!(&*writer.0.lock().unwrap(), b"\x1b[200~first\nsecond\x1b[201~\x0c");
     }
 
     #[test]

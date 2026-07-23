@@ -241,6 +241,7 @@ struct PromptSemanticTracker {
     primary: PromptSemantic,
     alternate: PromptSemantic,
     alternate_active: bool,
+    revision: u64,
 }
 
 #[derive(Default)]
@@ -418,6 +419,10 @@ impl PromptSemanticTracker {
         }
     }
 
+    fn revision(&self) -> u64 {
+        self.revision
+    }
+
     fn current_mut(&mut self) -> &mut PromptSemantic {
         if self.alternate_active { &mut self.alternate } else { &mut self.primary }
     }
@@ -430,13 +435,15 @@ impl PromptSemanticTracker {
 
     fn finish_osc(&mut self, action: Option<u8>) {
         let Some(action) = action else { return };
-        *self.current_mut() = match action {
+        let semantic = match action {
             b'A' | b'N' | b'P' => PromptSemantic::Prompt,
             b'B' => PromptSemantic::Input,
             b'I' => PromptSemantic::InputUntilEndOfLine,
             b'C' | b'D' => PromptSemantic::Output,
             _ => return,
         };
+        *self.current_mut() = semantic;
+        self.revision = self.revision.wrapping_add(1);
     }
 }
 
@@ -1339,6 +1346,11 @@ impl Terminal {
                 cell_semantic,
                 sys::GHOSTTY_CELL_SEMANTIC_INPUT | sys::GHOSTTY_CELL_SEMANTIC_PROMPT
             )
+    }
+
+    /// Monotonic revision of recognized OSC 133 prompt-phase markers.
+    pub fn prompt_semantic_revision(&self) -> u64 {
+        self.prompt_semantic.revision()
     }
 
     /// Whether any mouse tracking mode is enabled by the application.

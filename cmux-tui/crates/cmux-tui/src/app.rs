@@ -56,8 +56,8 @@ use crate::pty_input::{
     PtyInputSender, PtyOperationDelivery, PtyOperationFailure,
 };
 use crate::session::{
-    ClientInfo, Session, SidebarPluginSurface, SurfaceHandle, TreeView, is_remote_timeout,
-    is_remote_transport_failure,
+    CLEAR_HISTORY_UNSUPPORTED_ERROR, ClientInfo, Session, SidebarPluginSurface, SurfaceHandle,
+    TreeView, is_remote_timeout, is_remote_transport_failure,
 };
 use crate::sidebar_files::{FileBrowser, FileCommand, file_url, shell_single_quote};
 use crate::ui::graphics::GraphicPlacement;
@@ -4772,11 +4772,12 @@ impl App {
                     failure.error
                 )
             } else if failure.label == "clear terminal history" {
-                format!(
-                    "{}: {}",
-                    localization::catalog().terminal.clear_history_failed,
-                    failure.error
-                )
+                let detail = if failure.error == CLEAR_HISTORY_UNSUPPORTED_ERROR {
+                    localization::catalog().terminal.clear_history_unsupported
+                } else {
+                    &failure.error
+                };
+                format!("{}: {}", localization::catalog().terminal.clear_history_failed, detail)
             } else {
                 format!("{} failed: {}", failure.label, failure.error)
             },
