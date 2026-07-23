@@ -1886,6 +1886,41 @@ mod tests {
     }
 
     #[test]
+    fn enrollment_positionals_accept_url_safe_identifiers_beginning_with_hyphen() {
+        let approve = [
+            "approve",
+            "-mRUA1nkvEa07LQJx8XtvQ",
+            "--admin-socket",
+            "/tmp/cmux-admin.sock",
+            "--json",
+        ]
+        .map(str::to_string);
+        assert_eq!(required_positional(&approve, 1).unwrap(), "-mRUA1nkvEa07LQJx8XtvQ");
+
+        let deny = [
+            "deny",
+            "--admin-socket",
+            "/tmp/cmux-admin.sock",
+            "-another-url-safe-id",
+            "--json",
+        ]
+        .map(str::to_string);
+        assert_eq!(required_positional(&deny, 1).unwrap(), "-another-url-safe-id");
+
+        let disconnect = [
+            "disconnect",
+            "--session",
+            "dev",
+            "-device-id",
+            "-session-id",
+            "--json",
+        ]
+        .map(str::to_string);
+        assert_eq!(required_positional(&disconnect, 1).unwrap(), "-device-id");
+        assert_eq!(required_positional(&disconnect, 2).unwrap(), "-session-id");
+    }
+
+    #[test]
     fn relay_invitation_access_reads_owner_supplied_ticket_file() {
         let directory = tempfile::tempdir().unwrap();
         let ticket = directory.path().join("ticket");

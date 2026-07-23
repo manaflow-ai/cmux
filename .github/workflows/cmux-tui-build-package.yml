@@ -196,6 +196,11 @@ jobs:
               )
           PY
 
+      - name: Smoke-test release remote sessions
+        if: matrix.target == 'x86_64-unknown-linux-gnu'
+        shell: bash
+        run: cmux-tui/scripts/smoke-remote-release.sh "dist/cmux-tui-${{ matrix.target }}"
+
       - name: Upload binary artifact
         uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
         with:
@@ -252,6 +257,7 @@ jobs:
 
       - name: Test and lint relay
         run: |
+          python3 tests/validate_wrangler_config.py
           cargo test --locked
           cargo clippy --locked --all-targets -- -D warnings
 
