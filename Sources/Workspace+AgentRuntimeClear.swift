@@ -112,7 +112,7 @@ extension Workspace {
                 ? entry.value
                 : nil
         }
-        let statusWatermarks = statusEntries.compactMap { statusEntry in
+        let statusWatermarks: [TimeInterval] = statusEntries.compactMap { statusEntry -> TimeInterval? in
             guard statusEntry.key != statusKey,
                   AgentHibernationLifecycleStatusKeys.allowedStatusKeys.contains(statusEntry.key),
                   statusEntry.value.agentOwnerPanelID == nil || statusEntry.value.agentOwnerPanelID == panelId else {
