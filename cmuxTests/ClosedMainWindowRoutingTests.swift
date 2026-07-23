@@ -1,7 +1,9 @@
 import AppKit
 import Bonsplit
 import Combine
+import CmuxSettings
 import CmuxTerminal
+import CmuxWorkspaces
 import Testing
 
 #if canImport(cmux_DEV)
