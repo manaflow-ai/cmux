@@ -3234,7 +3234,7 @@ final class FilePreviewPanelTextSavingTests: XCTestCase {
         XCTAssertEqual(glassBackground?.alphaValue ?? 0, 0.42, accuracy: 0.001)
     }
 
-    func testWorkspaceFloatingDockUsesSharedDragHandleAndAlignedChrome() throws {
+    func testWorkspaceFloatingDockUsesUnobstructedBonsplitChromeAndAlignedTrafficLights() throws {
         _ = NSApplication.shared
         let url = try temporaryTextFile(contents: "", encoding: .utf8)
         defer { try? FileManager.default.removeItem(at: url) }
@@ -3268,11 +3268,14 @@ final class FilePreviewPanelTextSavingTests: XCTestCase {
         controller.show(focus: false)
         panel.contentView?.layoutSubtreeIfNeeded()
 
-        let dragHandle = try XCTUnwrap(Self.findView(
+        XCTAssertNil(Self.findView(
             rootedAt: panel.contentView,
             identifier: WindowDragHandleView.viewIdentifier
         ))
-        XCTAssertTrue(dragHandle.acceptsFirstMouse(for: nil))
+        XCTAssertNil(Self.findView(
+            rootedAt: panel.contentView,
+            identifier: NSUserInterfaceItemIdentifier("WorkspaceFloatingDockNewDockButton")
+        ))
 
         let closeButton = try XCTUnwrap(panel.standardWindowButton(.closeButton))
         let titlebarContainer = try XCTUnwrap(closeButton.superview)
@@ -3315,12 +3318,10 @@ final class FilePreviewPanelTextSavingTests: XCTestCase {
         )
     }
 
-    func testWorkspaceFloatingDockTitlebarIdentityLeavesRoomForSharedDragHandleAndNewButton() {
-        XCTAssertEqual(WorkspaceFloatingDockChromeMetrics.tabBarLeadingInset, 140)
+    func testWorkspaceFloatingDockTabBarInsetOnlyClearsTrafficLights() {
         XCTAssertEqual(
-            WorkspaceFloatingDockChromeMetrics.identityWidth,
-            WorkspaceFloatingDockChromeMetrics.dragRegionWidth
-                + WorkspaceFloatingDockChromeMetrics.newDockButtonWidth
+            WorkspaceFloatingDockChromeMetrics.tabBarLeadingInset,
+            WorkspaceFloatingDockChromeMetrics.trafficLightClearance
         )
     }
 
