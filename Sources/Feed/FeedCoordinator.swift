@@ -290,7 +290,7 @@ final class FeedCoordinator: @unchecked Sendable {
         onAccepted: @escaping @Sendable (WorkstreamEvent) -> Void
     ) {
         feedIngressDeliveryLane.enqueueLatestZeroWait {
-            let acceptedEvent = DispatchQueue.main.sync {
+            let acceptedEvent: WorkstreamEvent? = DispatchQueue.main.sync {
                 MainActor.assumeIsolated {
                     guard case .accepted(let event, _) = FeedCoordinator.shared.acceptOnMainActor(event) else {
                         return nil
