@@ -205,14 +205,10 @@ _PYTHON_QUALIFIED_SLEEP = re.compile(
     r"(?<![.\w])(?P<name>[A-Za-z_]\w*)\.sleep\s*\("
 )
 _PYTHON_BARE_CALL = re.compile(r"(?<![.\w])(?P<name>[A-Za-z_]\w*)\s*\(")
-_PYTHON_MODULE_IMPORT = re.compile(
-    r"^\s*import\s+"
-    r"(?P<module>time|asyncio|trio|anyio|gevent)"
-    r"(?:\s+as\s+(?P<alias>[A-Za-z_]\w*))?\b"
-)
-_PYTHON_SLEEP_IMPORT = re.compile(
-    r"^\s*from\s+(?P<module>time|asyncio)\s+import\s+sleep"
-    r"(?:\s+as\s+(?P<alias>[A-Za-z_]\w*))?\b"
+_PYTHON_IMPORT = re.compile(r"^\s*import\s+(?P<imports>[^;]+)")
+_PYTHON_FROM_IMPORT = re.compile(
+    r"^\s*from\s+(?P<module>[A-Za-z_][\w.]*)\s+"
+    r"import\s+(?P<imports>[^;]+)"
 )
 _PYTHON_FUNCTION_START = re.compile(
     r"^\s*(?:async\s+)?def\s+(?P<name>[A-Za-z_]\w*)\s*"
@@ -250,7 +246,7 @@ _BIND_HINTS = ("bind", "connect", "connect_ex", "createServer")
 # the bare form to sit at statement start (optionally after `;`, `&&`, `||`, or a
 # pipe) keeps it from firing on `"... sleep 5 ..."` substrings.
 _SHELL_BARE_SLEEP = re.compile(
-    r"""(?x) (?:^|[;&|]|\$\() \s* sleep \s+ [\d.]"""
+    r"""(?x) (?:^|[;&|]|\$\(|(?<!\\)`) \s* sleep \s+ [\d.]"""
 )
 
 # Loop-body markers: if the sleep line itself is a loop header or sits in an
@@ -492,6 +488,52 @@ def _sleep_call_pattern(path_suffix: str) -> Optional[re.Pattern[str]]:
     return None
 
 
+def _python_import_bindings(
+    line: str,
+) -> tuple[set[str], set[str], set[str]]:
+    """Return all bindings plus trusted module/function aliases on one line."""
+    bindings: set[str] = set()
+    module_aliases: set[str] = set()
+    function_aliases: set[str] = set()
+
+    module_import = _PYTHON_IMPORT.search(line)
+    if module_import:
+        for item in module_import.group("imports").split(","):
+            parts = item.strip().split()
+            if not parts:
+                continue
+            module = parts[0]
+            alias = (
+                parts[2]
+                if len(parts) == 3 and parts[1] == "as"
+                else module.split(".", maxsplit=1)[0]
+            )
+            bindings.add(alias)
+            if module in _PYTHON_SLEEP_MODULES:
+                module_aliases.add(alias)
+        return bindings, module_aliases, function_aliases
+
+    from_import = _PYTHON_FROM_IMPORT.search(line)
+    if not from_import:
+        return bindings, module_aliases, function_aliases
+    module = from_import.group("module")
+    imported_items = from_import.group("imports").strip().strip("()")
+    for item in imported_items.split(","):
+        parts = item.strip().split()
+        if not parts:
+            continue
+        imported = parts[0]
+        alias = (
+            parts[2]
+            if len(parts) == 3 and parts[1] == "as"
+            else imported
+        )
+        bindings.add(alias)
+        if module in ("time", "asyncio") and imported == "sleep":
+            function_aliases.add(alias)
+    return bindings, module_aliases, function_aliases
+
+
 def _python_shadowed_names(line: str, candidates: set[str]) -> set[str]:
     """Return conservatively rebound Python sleep module/function names."""
     shadowed: set[str] = set()
@@ -547,6 +589,10 @@ def _python_real_sleep_lines(masked_lines: list[str]) -> set[int]:
     for idx, line in enumerate(masked_lines):
         candidates = active_modules | active_functions
         shadowed = _python_shadowed_names(line, candidates)
+        import_bindings, module_aliases, function_aliases = (
+            _python_import_bindings(line)
+        )
+        shadowed.update(import_bindings & candidates)
 
         function = _PYTHON_FUNCTION_START.search(line)
         in_function_header = function is not None or pending_parameters is not None
@@ -572,15 +618,8 @@ def _python_real_sleep_lines(masked_lines: list[str]) -> set[int]:
         # Only module-scope imports establish aliases. Propagating an alias out
         # of a nested scope would create a false positive elsewhere in the file.
         if line == line.lstrip():
-            module_import = _PYTHON_MODULE_IMPORT.search(line)
-            if module_import:
-                active_modules.add(
-                    module_import.group("alias")
-                    or module_import.group("module")
-                )
-            sleep_import = _PYTHON_SLEEP_IMPORT.search(line)
-            if sleep_import:
-                active_functions.add(sleep_import.group("alias") or "sleep")
+            active_modules.update(module_aliases)
+            active_functions.update(function_aliases)
 
         if in_function_header:
             continue
@@ -633,11 +672,27 @@ def _matching_delimiter_end(
     return None
 
 
+def _unescaped_token_index(line: str, token: str, start: int) -> int:
+    """Return the next token not preceded by an odd backslash run."""
+    index = line.find(token, start)
+    while index >= 0:
+        backslashes = 0
+        cursor = index - 1
+        while cursor >= 0 and line[cursor] == "\\":
+            backslashes += 1
+            cursor -= 1
+        if backslashes % 2 == 0:
+            return index
+        index = line.find(token, index + len(token))
+    return -1
+
+
 def _mask_noncode(lines: list[str], path_suffix: str) -> list[str]:
     """Replace quoted strings and comments while preserving line positions."""
     masked_lines: list[str] = []
     quote: Optional[str] = None
     block_comment_depth = 0
+    template_interpolation_depths: list[int] = []
     hash_comments = path_suffix in (".py", ".sh")
     marker_pattern = (
         _HASH_NONCODE_MARKER if hash_comments else _SLASH_NONCODE_MARKER
@@ -663,25 +718,59 @@ def _mask_noncode(lines: list[str], path_suffix: str) -> list[str]:
             if quote:
                 quote_end = line.find(quote, i)
                 escape = line.find("\\", i)
-                interpolation = None
-                if path_suffix == ".sh" and quote == '"':
-                    interpolation = ("$(", "(", ")")
-                elif path_suffix in _JS_SUFFIXES and quote == "`":
-                    interpolation = ("${", "{", "}")
-                if interpolation is not None:
-                    token, open_delimiter, close_delimiter = interpolation
-                    interpolation_start = line.find(token, i)
+                if path_suffix in _JS_SUFFIXES and quote == "`":
+                    interpolation_start = _unescaped_token_index(
+                        line,
+                        "${",
+                        i,
+                    )
                     if interpolation_start >= 0 and (
                         quote_end < 0 or interpolation_start < quote_end
                     ) and (
                         escape < 0 or interpolation_start < escape
                     ):
-                        interpolation_end = _matching_delimiter_end(
-                            line,
-                            interpolation_start + 1,
-                            open_delimiter,
-                            close_delimiter,
+                        masked[i:interpolation_start] = " " * (
+                            interpolation_start - i
                         )
+                        template_interpolation_depths.append(1)
+                        quote = None
+                        i = interpolation_start + 2
+                        continue
+
+                interpolation = None
+                if path_suffix == ".sh" and quote == '"':
+                    dollar_start = line.find("$(", i)
+                    backtick_start = _unescaped_token_index(line, "`", i)
+                    if dollar_start >= 0 and (
+                        backtick_start < 0 or dollar_start < backtick_start
+                    ):
+                        interpolation = ("$(", "(", ")")
+                    elif backtick_start >= 0:
+                        interpolation = ("`", "`", "`")
+                if interpolation is not None:
+                    token, open_delimiter, close_delimiter = interpolation
+                    interpolation_start = _unescaped_token_index(line, token, i)
+                    if interpolation_start >= 0 and (
+                        quote_end < 0 or interpolation_start < quote_end
+                    ) and (
+                        escape < 0 or interpolation_start < escape
+                    ):
+                        if token == "`":
+                            closing = _unescaped_token_index(
+                                line,
+                                token,
+                                interpolation_start + 1,
+                            )
+                            interpolation_end = (
+                                closing + 1 if closing >= 0 else None
+                            )
+                        else:
+                            interpolation_end = _matching_delimiter_end(
+                                line,
+                                interpolation_start + 1,
+                                open_delimiter,
+                                close_delimiter,
+                            )
                         if interpolation_end is not None:
                             masked[i:interpolation_start] = " " * (
                                 interpolation_start - i
@@ -713,6 +802,26 @@ def _mask_noncode(lines: list[str], path_suffix: str) -> list[str]:
                 continue
 
             marker = marker_pattern.search(line, i)
+            if (
+                path_suffix in _JS_SUFFIXES
+                and template_interpolation_depths
+            ):
+                opening = line.find("{", i)
+                closing = line.find("}", i)
+                braces = [index for index in (opening, closing) if index >= 0]
+                brace = min(braces) if braces else -1
+                if brace >= 0 and (
+                    marker is None or brace < marker.start()
+                ):
+                    if line[brace] == "{":
+                        template_interpolation_depths[-1] += 1
+                    else:
+                        template_interpolation_depths[-1] -= 1
+                        if template_interpolation_depths[-1] == 0:
+                            template_interpolation_depths.pop()
+                            quote = "`"
+                    i = brace + 1
+                    continue
             if marker is None:
                 break
             token = marker.group()
@@ -987,6 +1096,13 @@ def _self_test() -> int:
             {RULE_SLEEP_THEN_ASSERT},
         ),
         (
+            "tests/time-import-list.py",
+            "import os, time as clock_time\n"
+            "clock_time.sleep(0.3)\n"
+            "assert widget.is_rendered()\n",
+            {RULE_SLEEP_THEN_ASSERT},
+        ),
+        (
             "tests/sleep-alias.py",
             "from asyncio import sleep as pause\n"
             "await pause(0.3)\n"
@@ -1021,8 +1137,22 @@ def _self_test() -> int:
             {RULE_SLEEP_THEN_ASSERT},
         ),
         (
+            "tests/backtick-interpolation.sh",
+            "actual=`sleep 1`\n"
+            'assert "$actual" "$expected"\n',
+            {RULE_SLEEP_THEN_ASSERT},
+        ),
+        (
             "web/tests/interpolation.ts",
             "const actual = `${await Bun.sleep(1)}`\n"
+            "expect(actual).toBeTruthy()\n",
+            {RULE_SLEEP_THEN_ASSERT},
+        ),
+        (
+            "web/tests/multiline-interpolation.ts",
+            "const actual = `${\n"
+            "  await Bun.sleep(1)\n"
+            "}`\n"
             "expect(actual).toBeTruthy()\n",
             {RULE_SLEEP_THEN_ASSERT},
         ),
@@ -1073,6 +1203,12 @@ def _self_test() -> int:
             "    asyncio.sleep(0.1)\n"
             "    assert completed\n",
         ),
+        (
+            "tests/import-shadowed-runtime.py",
+            "import fake_clock as time\n"
+            "time.sleep(0.1)\n"
+            "assert completed\n",
+        ),
         # Runtime spellings only identify direct APIs in their own language.
         (
             "cmuxTests/cross-language.swift",
@@ -1117,7 +1253,9 @@ def _self_test() -> int:
             "actual=\"$(printf 'sleep 1')\"\n"
             'assert "$actual" "$expected"\n'
             'escaped="\\$(sleep 1)"\n'
-            'assert "$escaped" "$expected"\n',
+            'assert "$escaped" "$expected"\n'
+            'escaped_backtick="\\`sleep 1\\`"\n'
+            'assert "$escaped_backtick" "$expected"\n',
         ),
         # Deterministic scenario-pacing sleep with NO following assertion.
         (
