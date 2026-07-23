@@ -13749,6 +13749,38 @@ mod tests {
     }
 
     #[test]
+    fn pointer_motion_waits_for_config_application() {
+        let mux = Mux::new("config-pointer-routing-test", SurfaceOptions::default());
+        let (mut app, _events) = test_app_with_events(Session::Local(mux));
+        let (started_tx, started_rx) = std::sync::mpsc::channel();
+        let (release_tx, release_rx) = std::sync::mpsc::channel();
+        app.session.operations.enqueue_session_mutation("block config lane", false, move || {
+            started_tx.send(()).unwrap();
+            release_rx.recv().unwrap();
+            Ok(())
+        });
+        started_rx.recv_timeout(Duration::from_secs(1)).unwrap();
+
+        app.session.apply_config(Config::default());
+        app.handle(AppEvent::Input(Event::Mouse(MouseEvent {
+            kind: MouseEventKind::Moved,
+            column: 14,
+            row: 6,
+            modifiers: KeyModifiers::NONE,
+        })))
+        .unwrap();
+
+        let pending_routing = app.session.has_pending_routing_mutations();
+        let hover = app.hover;
+        let retained_motion = app.pending_pointer_motion.is_some();
+        release_tx.send(()).unwrap();
+
+        assert!(pending_routing);
+        assert_eq!(hover, None);
+        assert!(retained_motion);
+    }
+
+    #[test]
     fn split_drag_updates_the_coalescing_lane_while_a_ratio_is_pending() {
         let mux = Mux::new("pending-split-drag-test", SurfaceOptions::default());
         let (mut app, _events) = test_app_with_events(Session::Local(mux));
@@ -13890,6 +13922,61 @@ mod tests {
         assert_eq!(app.hover, None);
         assert!(app.pending_pointer_motion.is_some());
         assert!(app.session.has_pending_routing_mutations());
+    }
+
+    #[test]
+    fn deferred_pointer_waits_for_layout_draw_during_replay() {
+        let mux = Mux::new("draw-before-pointer-replay-test", SurfaceOptions::default());
+        let plugin = cmux_tui_core::SidebarPluginOptions {
+            command: vec!["/definitely/missing/cmux-sidebar-plugin".to_string()],
+            cwd: None,
+        };
+        mux.configure_sidebar_plugin(Some(plugin.clone()));
+        let (mut app, events) = test_app_with_events(Session::Local(mux));
+        app.config.sidebar.plugin = Some(plugin);
+        app.sidebar_visible = false;
+        app.sidebar_width = 12;
+        app.content_area.height = 8;
+        let (started_tx, started_rx) = std::sync::mpsc::channel();
+        let (release_tx, release_rx) = std::sync::mpsc::channel();
+        app.session.operations.enqueue_session_mutation(
+            "block before sidebar plugin",
+            false,
+            move || {
+                started_tx.send(()).unwrap();
+                let _ = release_rx.recv();
+                Ok(())
+            },
+        );
+        started_rx.recv_timeout(Duration::from_secs(1)).unwrap();
+        app.prefix_armed = true;
+        app.defer_input(Event::Key(KeyEvent::new(KeyCode::Char('S'), KeyModifiers::SHIFT)));
+        app.retain_pointer_motion(MouseEvent {
+            kind: MouseEventKind::Moved,
+            column: 14,
+            row: 6,
+            modifiers: KeyModifiers::NONE,
+        });
+
+        let action = app.replay_deferred_input().unwrap();
+
+        assert_eq!(action, RenderAction::Draw);
+        assert!(app.sidebar_visible);
+        assert_eq!(app.hover, None);
+        assert!(app.pending_pointer_motion.is_some());
+        assert!(app.session.has_pending_mutations());
+        assert!(!app.session.has_pending_routing_mutations());
+        assert!(app.routing_refresh_pending);
+
+        release_tx.send(()).unwrap();
+        while app.session.has_pending_mutations() {
+            app.handle(events.recv_timeout(Duration::from_secs(1)).unwrap()).unwrap();
+        }
+        app.routing_refresh_pending = false;
+        app.replay_deferred_input().unwrap();
+
+        assert_eq!(app.hover, Some((14, 6)));
+        assert!(app.pending_pointer_motion.is_none());
     }
 
     #[test]
