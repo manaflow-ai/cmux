@@ -13,7 +13,12 @@ struct ArtifactGitIgnoreManager {
     ]
 
     func ensureIgnored(projectRoot: URL) throws {
-        guard let repository = locateGitRepository(startingAt: projectRoot) else { return }
+        guard let repository = locateGitRepository(startingAt: projectRoot) else {
+            if let marker = gitMarker(startingAt: projectRoot) {
+                throw ArtifactStoreError.gitPrivacyUnavailable(marker.path)
+            }
+            return
+        }
         let ignoreEntries = relativeIgnoreEntries(
             projectRoot: projectRoot,
             worktreeRoot: repository.worktreeRoot
@@ -45,7 +50,7 @@ struct ArtifactGitIgnoreManager {
         commandRunner: any ArtifactGitCommandRunning
     ) -> ArtifactGitPrivacyValidator? {
         guard let repository = locateGitRepository(startingAt: projectRoot) else {
-            guard !containsGitMarker(startingAt: projectRoot) else { return nil }
+            guard gitMarker(startingAt: projectRoot) == nil else { return nil }
             return ArtifactGitPrivacyValidator(worktreeRoot: nil, commandRunner: commandRunner)
         }
         return ArtifactGitPrivacyValidator(
@@ -63,10 +68,12 @@ struct ArtifactGitIgnoreManager {
         return nil
     }
 
-    private func containsGitMarker(startingAt projectRoot: URL) -> Bool {
-        ArtifactAncestorDirectories(startingAt: projectRoot).contains { current in
-            filesystemEntryExists(current.appendingPathComponent(".git"))
+    private func gitMarker(startingAt projectRoot: URL) -> URL? {
+        for current in ArtifactAncestorDirectories(startingAt: projectRoot) {
+            let marker = current.appendingPathComponent(".git", isDirectory: false)
+            if filesystemEntryExists(marker) { return marker }
         }
+        return nil
     }
 
     private func resolveGitRepository(worktreeRoot: URL, dotGit: URL) -> ArtifactGitRepository? {

@@ -123,6 +123,16 @@ struct ShellArtifactMutationPathDetector: Sendable {
                 index += 1
                 continue
             }
+            if character == "#", word.isEmpty {
+                while index < characters.count, characters[index] != "\n" {
+                    index += 1
+                }
+                if index < characters.count {
+                    if tokens.last != .boundary { tokens.append(.boundary) }
+                    index += 1
+                }
+                continue
+            }
             if character.isWhitespace {
                 flushWord()
                 if character == "\n" { tokens.append(.boundary) }
