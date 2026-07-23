@@ -762,6 +762,13 @@ final class RemoteTmuxControlConnection {
         }
     }
 
+    /// How many callers are currently suspended on the readiness barrier.
+    ///
+    /// Exists so a test can wait for a waiter to be genuinely registered instead of sleeping and
+    /// hoping: resolving before the waiter arrives makes the barrier answer from its already-resolved
+    /// shortcut, so the pending path under test is never exercised and the assertion passes anyway.
+    var initialTopologyWaiterCount: Int { topologyWaiters.count }
+
     /// Moves the sticky readiness state once, and releases anyone waiting on it.
     func resolveInitialTopology(ready: Bool) {
         guard initialTopologyState == .pending else { return }
