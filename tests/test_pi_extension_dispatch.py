@@ -779,9 +779,30 @@ print("{}")
     aggregate_source = """
 import { writeFileSync } from "node:fs";
 const extensionPath = process.env.CMUX_TEST_PI_EXTENSION_PATH;
+const statePath = process.env.CMUX_TEST_PI_AGGREGATE_STATE;
+const releasePath = process.env.CMUX_TEST_PI_AGGREGATE_RELEASE;
 const mod = await import(extensionPath);
 const handlers = new Map();
 mod.default({ on(name, handler) { handlers.set(name, handler); } });
+async function waitForAggregateState(label, predicate) {
+  const deadline = performance.now() + 5000;
+  let lastState = null;
+  let lastError = null;
+  while (performance.now() < deadline) {
+    try {
+      const state = JSON.parse(await Bun.file(statePath).text());
+      lastState = state;
+      lastError = null;
+      if (predicate(state)) return;
+    } catch (error) {
+      lastError = String(error);
+    }
+    await new Promise((resolve) => setTimeout(resolve, 10));
+  }
+  throw new Error(
+    `${label} timed out: state=${JSON.stringify(lastState)} error=${lastError || "none"}`,
+  );
+}
 const sessions = [];
 for (let index = 0; index < 40; index += 1) {
   const sessionId = `pi-aggregate-session-${index}`;
@@ -796,8 +817,12 @@ for (let index = 0; index < 40; index += 1) {
     sessionManager: { getSessionId() { return sessionId; } },
   });
 }
-setTimeout(() => writeFileSync(process.env.CMUX_TEST_PI_AGGREGATE_RELEASE, "ready"), 200);
-await new Promise((resolve) => setTimeout(resolve, 2000));
+await waitForAggregateState("waiting for two active Feed subprocesses", (state) => state.active === 2);
+writeFileSync(releasePath, "ready");
+await waitForAggregateState(
+  "waiting for aggregate Feed drain",
+  (state) => state.starts === 34 && state.active === 0,
+);
 """
     result = run_extension(
         bun=bun,
