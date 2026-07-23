@@ -322,7 +322,7 @@ async function publishPendingCompletion(
   const feedDelivered = !state.feedDeliveryFailed;
   state.feedDeliveryFailed = false;
   if (!feedDelivered) {
-    warn(context, "cmux terminal feed delivery failed", { session_id: sessionId });
+    warn(context, "cmux hook command failed", { session_id: sessionId });
   }
   const stopPayload: HookExtra = {
     last_assistant_message: completion.lastAssistantMessage,
@@ -416,7 +416,7 @@ export default function cmuxPiSessionExtension(pi: ExtensionAPI) {
     await dispatcher.finishFeedForSession(sessionId);
     const feedDelivered = !state.feedDeliveryFailed;
     state.feedDeliveryFailed = false;
-    if (!feedDelivered) warn(context, "cmux terminal feed delivery failed", { session_id: sessionId });
+    if (!feedDelivered) warn(context, "cmux hook command failed", { session_id: sessionId });
     if (stopPayload) await sendHook(dispatcher, "stop", context, stopPayload);
     try {
       await clearResumeBinding(dispatcher, context, sessionId);

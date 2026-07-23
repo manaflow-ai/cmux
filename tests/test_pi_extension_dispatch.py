@@ -1184,7 +1184,7 @@ await handlers.get("session_shutdown")({ reason: "quit" }, ctx);
         if any("hooks pi notification" in line for line in calls):
             print(f"FAIL: terminal-feed {label} failure emitted a completion notification: {calls!r}")
             return 1
-        if '"message":"cmux terminal feed delivery failed"' not in result.stderr:
+        if '"message":"cmux hook command failed"' not in result.stderr:
             print(f"FAIL: failed terminal-feed {label} delivery was not surfaced: {result.stderr!r}")
             return 1
 
@@ -1351,7 +1351,7 @@ console.log(`completion_ms=${performance.now() - startedAt}`);
     if any("hooks pi notification" in line for line in deadline_calls):
         print(f"FAIL: terminal-feed drain deadline emitted a completion notification: {deadline_calls!r}")
         return 1
-    if '"message":"cmux terminal feed delivery failed"' not in deadline.stderr:
+    if '"message":"cmux hook command failed"' not in deadline.stderr:
         print(f"FAIL: terminal-feed drain deadline was not surfaced: {deadline.stderr!r}")
         return 1
 
