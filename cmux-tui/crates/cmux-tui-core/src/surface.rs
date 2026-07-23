@@ -1652,6 +1652,32 @@ mod tests {
         }
     }
 
+    struct PromptOutputDuringFlush {
+        written: Arc<Mutex<Vec<u8>>>,
+        surface: Weak<Surface>,
+        emitted: AtomicBool,
+    }
+
+    impl Write for PromptOutputDuringFlush {
+        fn write(&mut self, bytes: &[u8]) -> std::io::Result<usize> {
+            self.written.lock().unwrap().extend_from_slice(bytes);
+            Ok(bytes.len())
+        }
+
+        fn flush(&mut self) -> std::io::Result<()> {
+            if !self.emitted.swap(true, Ordering::AcqRel)
+                && let Some(surface) = self.surface.upgrade()
+            {
+                surface.with_terminal(|term| {
+                    term.vt_write(
+                        b"\r\n\x1b]133;C\x07finished\r\n\x1b]133;D\x07\x1b]133;A\x07prompt> \x1b]133;B\x07",
+                    );
+                });
+            }
+            Ok(())
+        }
+    }
+
     #[test]
     fn attach_colors_preserve_same_valued_authored_palette_override() {
         let color = Rgb { r: 0x44, g: 0x55, b: 0x66 };
@@ -1946,6 +1972,34 @@ mod tests {
             assert!(term.viewport_text().unwrap().trim().is_empty());
         });
         assert_eq!(&*writer.0.lock().unwrap(), b"\r\x0c");
+    }
+
+    #[test]
+    fn clear_history_accepts_prompt_metadata_processed_during_the_input_write() {
+        let mux = Mux::new_for_test("clear-fast-prompt-output", SurfaceOptions::default());
+        let surface =
+            Surface::spawn_for_test(1, SurfaceOptions::default(), Arc::downgrade(&mux)).unwrap();
+        surface.with_terminal(|term| {
+            for line in 0..40 {
+                term.vt_write(format!("history-{line}\r\n").as_bytes());
+            }
+            term.vt_write(b"\x1b]133;A\x07prompt> \x1b]133;B\x07true");
+        });
+        let written = Arc::new(Mutex::new(Vec::new()));
+        *surface.as_pty().unwrap().writer.lock().unwrap() = Box::new(PromptOutputDuringFlush {
+            written: written.clone(),
+            surface: Arc::downgrade(&surface),
+            emitted: AtomicBool::new(false),
+        });
+
+        surface.write_bytes(b"\r").unwrap();
+        surface.clear_history().unwrap();
+
+        surface.with_terminal(|term| {
+            assert_eq!(term.history_rows(), 0);
+            assert!(term.viewport_text().unwrap().trim().is_empty());
+        });
+        assert_eq!(&*written.lock().unwrap(), b"\r\x0c");
     }
 
     #[test]

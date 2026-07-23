@@ -436,4 +436,24 @@ mod tests {
 
         assert_eq!(encoded, b"\x1b[119;3;8721u");
     }
+
+    #[test]
+    fn shifted_option_generated_text_is_forwarded_as_text() {
+        let event = EnhancedKeyEvent {
+            key_event: KeyEvent::new(KeyCode::Char('2'), KeyModifiers::ALT | KeyModifiers::SHIFT),
+            shifted_key: Some('\u{20ac}'),
+            base_layout_key: Some('2'),
+            text: "\u{20ac}".to_string(),
+        };
+        let input = key_input_from_enhanced(&event).unwrap();
+        let terminal = Terminal::new(80, 24, 0, Callbacks::default()).unwrap();
+        let mut encoder = KeyEncoder::new().unwrap();
+        encoder.sync_from_terminal(&terminal);
+        let mut encoded = Vec::new();
+
+        encoder.encode(&input, &mut encoded).unwrap();
+
+        assert!(input.consumed_mods.contains(Mods::ALT));
+        assert_eq!(encoded, "\u{20ac}".as_bytes());
+    }
 }
