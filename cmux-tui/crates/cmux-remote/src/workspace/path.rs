@@ -673,7 +673,7 @@ mod tests {
 
         let error = root.resolve_existing("outside").await.unwrap_err();
         assert_eq!(error.code, "path-outside-workspace");
-        let error = root.resolve_write_target("outside/new", true).await.unwrap_err();
+        let error = root.unix_root().resolve_target("outside/new", true).unwrap_err();
         assert_eq!(error.code, "path-outside-workspace");
     }
 }

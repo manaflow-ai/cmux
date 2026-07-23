@@ -1949,6 +1949,7 @@ mod tests {
         (directory, root)
     }
 
+    #[cfg(unix)]
     #[tokio::test]
     async fn atomic_write_enforces_content_preconditions() {
         let (_directory, root) = root().await;
@@ -2029,6 +2030,7 @@ mod tests {
         assert!(!outside.path().join("value.txt").exists());
     }
 
+    #[cfg(unix)]
     #[tokio::test]
     async fn content_hash_write_rejects_a_target_rewrite_before_commit() {
         let (_directory, root) = root().await;
@@ -2057,6 +2059,40 @@ mod tests {
         let error = writer.await.unwrap().unwrap_err();
         assert_eq!(error.code, "conflict");
         assert_eq!(tokio::fs::read(&target).await.unwrap(), b"external-change");
+    }
+
+    #[cfg(unix)]
+    #[tokio::test]
+    async fn content_hash_write_rejects_same_inode_same_length_rewrite_at_exchange() {
+        let (_directory, root) = root().await;
+        let target = root.canonical_root().join("value.txt");
+        tokio::fs::write(&target, b"expected").await.unwrap();
+        let before_exchange = install_mutation_test_barrier(
+            &root,
+            "value.txt",
+            MutationTestPoint::BeforeContentHashExchange,
+        );
+        let writer = {
+            let root = Arc::clone(&root);
+            tokio::spawn(async move {
+                write_file(
+                    &root,
+                    "value.txt",
+                    &ByteString::from_bytes(b"newbytes"),
+                    &FilePrecondition::ContentHash(hash_bytes(b"expected")),
+                    false,
+                )
+                .await
+            })
+        };
+
+        before_exchange.wait_until_reached().await;
+        tokio::fs::write(&target, b"changed!").await.unwrap();
+        before_exchange.resume();
+
+        let error = writer.await.unwrap().unwrap_err();
+        assert_eq!(error.code, "conflict");
+        assert_eq!(tokio::fs::read(&target).await.unwrap(), b"changed!");
     }
 
     #[cfg(unix)]
