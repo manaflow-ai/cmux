@@ -788,6 +788,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
     lazy var artifactCaptureService = ArtifactCaptureService(store: artifactRepository)
     private lazy var agentArtifactCaptureCoordinator = AgentArtifactCaptureCoordinator(captureService: artifactCaptureService)
     private lazy var agentChatTranscriptService = AgentChatTranscriptService(
+        registry: AgentChatSessionRegistry(),
         artifactCaptureCoordinator: agentArtifactCaptureCoordinator,
         isAutomaticArtifactCaptureEnabled: {
             RightSidebarBetaFeatureSettings.isArtifactsEnabled()
