@@ -24,12 +24,12 @@ extension CMUXCLI {
         } else if let socketPath {
             let batchClient = SocketClient(path: socketPath)
             defer { batchClient.close() }
-            try batchClient.connectWithoutRetry(responseTimeout: 0.05)
+            try batchClient.connect()
             try authenticateClientIfNeeded(
                 batchClient,
                 explicitPassword: socketPassword,
                 socketPath: socketPath,
-                responseTimeout: 0.05
+                responseTimeout: 1
             )
             return try sendPiCompactedFeedEvents(
                 commandArgs: commandArgs,

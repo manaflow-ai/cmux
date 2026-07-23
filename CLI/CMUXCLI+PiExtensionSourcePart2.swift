@@ -265,6 +265,7 @@ function sendFeed(
     input,
     context,
     terminal: eventName === "PostToolUse",
+    retriesRemaining: 1,
   });
 }
 
@@ -276,7 +277,10 @@ async function publishPendingCompletion(
 ): Promise<void> {
   const completion = settleTurn(sessionStates, sessionId);
   if (!completion) return;
-  await dispatcher.finishFeedForSession(sessionId);
+  if (!await dispatcher.finishFeedForSession(sessionId)) {
+    warn(context, "cmux terminal feed delivery failed", { session_id: sessionId });
+    return;
+  }
   const notificationRouted = await sendHook(dispatcher, "notification", context, {
     message: completion.lastAssistantMessage || "Task completed",
     turn_id: completion.turnId,
@@ -366,8 +370,9 @@ export default function cmuxPiSessionExtension(pi: ExtensionAPI) {
         terminationReason: firstString(objectValue(event, ["reason"])) || "session_shutdown",
       };
     }
-    await dispatcher.finishFeedForSession(sessionId);
-    if (stopPayload) await sendHook(dispatcher, "stop", context, stopPayload);
+    const feedDelivered = await dispatcher.finishFeedForSession(sessionId);
+    if (!feedDelivered) warn(context, "cmux terminal feed delivery failed", { session_id: sessionId });
+    if (stopPayload && feedDelivered) await sendHook(dispatcher, "stop", context, stopPayload);
     if (await clearResumeBinding(dispatcher, context, sessionId)) sessionStates.delete(sessionId);
   });
 }

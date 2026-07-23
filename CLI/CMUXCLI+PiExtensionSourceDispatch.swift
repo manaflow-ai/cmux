@@ -8,6 +8,7 @@ interface PiFeedCommand {
   readonly input: string;
   readonly context: PiExtensionContextSnapshot;
   readonly terminal: boolean;
+  readonly retriesRemaining: number;
 }
 
 interface PiCommandCancellation {
@@ -27,6 +28,7 @@ class PiCmuxCommandDispatcher {
   private feedDrainWaiters = new Map<string, Array<() => void>>();
   private surfaceState: SurfaceDispatchState = "unknown";
   private didWarnSurfaceUnavailable = false;
+  private failedFeedSessions = new Set<string>();
   private activeFeeds = new Map<string | null, {
     cancellation: PiCommandCancellation;
     command: PiFeedCommand;
@@ -72,7 +74,7 @@ class PiCmuxCommandDispatcher {
     this.startNextFeed(sessionId);
   }
 
-  async finishFeedForSession(sessionId: string): Promise<void> {
+  async finishFeedForSession(sessionId: string): Promise<boolean> {
     for (const [key, command] of this.pendingFeedCommands) {
       if (command.context.sessionId !== sessionId) continue;
       this.pendingFeedCommands.delete(key);
@@ -85,6 +87,7 @@ class PiCmuxCommandDispatcher {
     }
     this.startNextFeed(sessionId);
     await this.waitForFeedDrainUntilDeadline(sessionId);
+    return !this.failedFeedSessions.delete(sessionId);
   }
 
   private queuedFeedCount(sessionId: string | null): number {
@@ -313,6 +316,12 @@ class PiCmuxCommandDispatcher {
         if (result.error instanceof Error && result.error.message.includes("timed out after")) {
           const sessionId = command.context.sessionId;
           if (sessionId) this.discardFeedForSession(sessionId);
+        } else if (!result.ok && command.terminal && !result.surfaceUnavailable && !cancellation.cancelled) {
+          if (command.retriesRemaining > 0) {
+            this.priorityFeedCommands.unshift({ ...command, retriesRemaining: command.retriesRemaining - 1 });
+          } else if (sessionId) {
+            this.failedFeedSessions.add(sessionId);
+          }
         }
       })
       .catch(() => {})
