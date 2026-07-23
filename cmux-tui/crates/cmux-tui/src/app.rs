@@ -17,8 +17,8 @@ use std::time::{Duration, Instant};
 
 use base64::Engine;
 use cmux_tui_core::{
-    BrowserSource, BrowserStatus, Direction, MuxEvent, PairingChallenge, PaneId, Rect, SplitDir,
-    SplitEdge, SplitId, SurfaceId, SurfaceKind, WorkspaceId, exact_split_for_pane_edge,
+    BrowserSource, BrowserStatus, Direction, Mux, MuxEvent, PairingChallenge, PaneId, Rect,
+    SplitDir, SplitEdge, SplitId, SurfaceId, SurfaceKind, WorkspaceId, exact_split_for_pane_edge,
     layout_screen, split_sides, zellij_default_pane_layout,
 };
 use crossterm::ExecutableCommand;
@@ -921,6 +921,10 @@ impl OrderedSession {
 
     fn tree(&self) -> TreeView {
         self.inner.tree()
+    }
+
+    fn shutdown_requested(&self) -> bool {
+        self.inner.shutdown_requested()
     }
 
     fn respond_pairing(&self, request: u64, approve: bool) -> anyhow::Result<()> {
@@ -2885,6 +2889,7 @@ impl PaneFocusHistory {
 
 pub struct App {
     pub session: OrderedSession,
+    host_mux: Option<Arc<Mux>>,
     session_event_worker: Option<SessionEventWorker>,
     session_generation: u64,
     app_events: SyncSender<AppEvent>,
@@ -3673,6 +3678,7 @@ pub fn run_with_machine_updates(
     default_colors: cmux_tui_core::DefaultColors,
     machine_ui: Option<MachineUiState>,
     machine_controller: Option<Box<dyn MachineController>>,
+    host_mux: Option<Arc<Mux>>,
 ) -> anyhow::Result<RunOutcome> {
     let mut config = crate::config::load();
     let chrome = ChromeTheme::for_defaults(config.chrome, default_colors);
@@ -3782,6 +3788,7 @@ pub fn run_with_machine_updates(
     let initial_machine_notice = machine_ui.as_ref().and_then(|machine| machine.notice.clone());
     let mut app = App {
         session,
+        host_mux,
         session_event_worker: Some(session_event_worker),
         session_generation,
         app_events: tx,
@@ -4024,7 +4031,7 @@ impl App {
         self.draw_terminal(terminal)?;
         self.emit_graphics()?;
 
-        while !self.quit && !crate::shutdown_requested() {
+        while !self.quit && !self.shutdown_requested() {
             // Block for the first event, then drain whatever queued so a
             // torrent of pty output coalesces into one frame.
             let timeout = if self.shake_frames > 0
@@ -4112,6 +4119,12 @@ impl App {
             }
         }
         Ok(())
+    }
+
+    fn shutdown_requested(&self) -> bool {
+        crate::shutdown_requested()
+            || self.session.shutdown_requested()
+            || self.host_mux.as_ref().is_some_and(|mux| mux.shutdown_requested())
     }
 
     fn restart_machine_updates(&mut self) -> anyhow::Result<()> {
@@ -15874,6 +15887,19 @@ mod tests {
         worker.stop_and_join();
     }
 
+    #[test]
+    fn host_mux_owns_shutdown_after_the_rendered_session_changes() {
+        let rendered_mux = Mux::new("rendered", SurfaceOptions::default());
+        let host_mux = Mux::new("host", SurfaceOptions::default());
+        let mut app = test_app(Session::Local(rendered_mux));
+        app.host_mux = Some(host_mux.clone());
+        assert!(!app.shutdown_requested());
+
+        host_mux.request_shutdown();
+
+        assert!(app.shutdown_requested());
+    }
+
     fn test_app(session: Session) -> App {
         test_app_with_events(session).0
     }
@@ -15884,6 +15910,7 @@ mod tests {
         let session = OrderedSession::new(session, pty_input.sender(), events.clone());
         let app = App {
             session,
+            host_mux: None,
             session_event_worker: None,
             session_generation: 1,
             app_events: events,

@@ -244,6 +244,154 @@ fn plain_launch_explains_how_to_replace_an_incompatible_local_server() {
     assert!(!stderr.contains("already in use"), "{stderr}");
 }
 
+#[test]
+fn incompatible_server_allows_identity_and_status_but_rejects_ping() {
+    let dir = unique_temp_dir("incompatible-cli");
+    fs::create_dir_all(&dir).unwrap();
+    let socket = dir.join("mux.sock");
+    let listener = transport::listen(&socket).unwrap();
+    let server = std::thread::spawn(move || {
+        let mut commands = Vec::new();
+        for _ in 0..3 {
+            let mut stream = listener.accept().unwrap();
+            let mut request = String::new();
+            BufReader::new(stream.try_clone_box().unwrap()).read_line(&mut request).unwrap();
+            let request: serde_json::Value = serde_json::from_str(&request).unwrap();
+            commands.push(request["cmd"].as_str().unwrap().to_string());
+            let response = serde_json::json!({
+                "id": request["id"],
+                "ok": true,
+                "data": {
+                    "app": "cmux-tui",
+                    "session": "test",
+                    "pid": 4242,
+                    "version": "0.0.0-stale",
+                    "protocol": cmux_tui_core::server::PROTOCOL_VERSION,
+                },
+            });
+            writeln!(stream, "{response}").unwrap();
+        }
+        commands
+    });
+
+    let status = Command::new(bin())
+        .args(["server", "status", "--socket"])
+        .arg(&socket)
+        .env_remove("CMUX_TUI_SOCKET")
+        .output()
+        .unwrap();
+    assert_success(&status);
+    assert!(String::from_utf8_lossy(&status.stdout).contains("status: incompatible"));
+
+    let identify = Command::new(bin())
+        .args(["identify", "--socket"])
+        .arg(&socket)
+        .env_remove("CMUX_TUI_SOCKET")
+        .output()
+        .unwrap();
+    assert_success(&identify);
+    assert!(String::from_utf8_lossy(&identify.stdout).contains("version=0.0.0-stale"));
+
+    let ping = Command::new(bin())
+        .args(["ping", "--socket"])
+        .arg(&socket)
+        .env_remove("CMUX_TUI_SOCKET")
+        .output()
+        .unwrap();
+    assert_eq!(ping.status.code(), Some(1));
+    assert!(String::from_utf8_lossy(&ping.stderr).contains("cmux-tui server stop"));
+
+    assert_eq!(server.join().unwrap(), ["identify", "identify", "identify"]);
+    let _ = fs::remove_file(&socket);
+    let _ = fs::remove_dir_all(&dir);
+}
+
+#[test]
+fn server_status_and_stop_control_a_compatible_headless_session() {
+    let mut server = HeadlessServer::start("server-lifecycle");
+    let status = cli(&server, &["--json", "server", "status"]);
+    assert_success(&status);
+    let status: serde_json::Value = serde_json::from_slice(&status.stdout).unwrap();
+    assert_eq!(status["running"].as_bool(), Some(true));
+    assert_eq!(status["compatible"].as_bool(), Some(true));
+    assert_eq!(
+        status["server"]["version"].as_str(),
+        Some(cmux_tui_core::release::distribution_version())
+    );
+
+    let stop = cli(&server, &["server", "stop"]);
+    assert_success(&stop);
+    assert!(String::from_utf8_lossy(&stop.stdout).contains("Stopped the cmux-tui server."));
+    assert!(server.child.wait().unwrap().success());
+    assert!(!server.socket.exists());
+}
+
+#[cfg(unix)]
+#[test]
+fn server_stop_falls_back_when_an_older_server_rejects_shutdown() {
+    let dir = unique_temp_dir("legacy-server-stop");
+    fs::create_dir_all(&dir).unwrap();
+    let socket = dir.join("mux.sock");
+    let listener = transport::listen(&socket).unwrap();
+    let mut pane_process =
+        Command::new("yes").stdout(Stdio::null()).stderr(Stdio::null()).spawn().unwrap();
+    let pane_pid = pane_process.id();
+    let server = std::thread::spawn(move || {
+        let mut stream = listener.accept().unwrap();
+        let mut reader = BufReader::new(stream.try_clone_box().unwrap());
+        let mut request = String::new();
+        reader.read_line(&mut request).unwrap();
+        let identify_request: serde_json::Value = serde_json::from_str(&request).unwrap();
+        assert_eq!(identify_request["cmd"].as_str(), Some("identify"));
+        writeln!(
+            stream,
+            "{}",
+            serde_json::json!({
+                "id": identify_request["id"],
+                "ok": true,
+                "data": {
+                    "app": "cmux-tui",
+                    "session": "test",
+                    "pid": pane_pid,
+                    "version": "0.0.0-stale",
+                    "protocol": 8,
+                },
+            })
+        )
+        .unwrap();
+
+        request.clear();
+        reader.read_line(&mut request).unwrap();
+        assert_eq!(
+            serde_json::from_str::<serde_json::Value>(&request).unwrap()["cmd"].as_str(),
+            Some("shutdown")
+        );
+        writeln!(
+            stream,
+            "{}",
+            serde_json::json!({
+                "id": serde_json::Value::Null,
+                "ok": false,
+                "error": "bad request",
+            })
+        )
+        .unwrap();
+    });
+
+    let output = Command::new(bin())
+        .args(["server", "stop", "--socket"])
+        .arg(&socket)
+        .env_remove("CMUX_TUI_SOCKET")
+        .output()
+        .unwrap();
+
+    assert_success(&output);
+    assert!(!pane_process.wait().unwrap().success());
+    server.join().unwrap();
+    let _ = fs::remove_file(&socket);
+    let _ = fs::remove_dir_all(&dir);
+}
+
 #[cfg(unix)]
 #[test]
 fn configured_websocket_server_does_not_attach_to_existing_session() {
@@ -273,7 +421,7 @@ fn cli_verbs_cover_command_output_errors_and_streams() {
 
     let identify = cli(&server, &["identify"]);
     assert_success(&identify);
-    assert!(String::from_utf8_lossy(&identify.stdout).starts_with("cmux-tui session="));
+    assert!(String::from_utf8_lossy(&identify.stdout).starts_with("cmux-tui version="));
 
     let identify_json = cli(&server, &["--json", "identify"]);
     assert_success(&identify_json);
@@ -562,12 +710,37 @@ fn stream_preserves_partial_line_across_read_timeout() {
     let listener = transport::listen(&socket).unwrap();
     let server = std::thread::spawn(move || {
         let mut stream = listener.accept().unwrap();
+        let read_half = stream.try_clone_box().unwrap();
+        let mut reader = BufReader::new(read_half);
         let mut request = String::new();
-        {
-            let read_half = stream.try_clone_box().unwrap();
-            let mut reader = BufReader::new(read_half);
-            reader.read_line(&mut request).unwrap();
-        }
+        reader.read_line(&mut request).unwrap();
+        let request_json: serde_json::Value = serde_json::from_str(&request).unwrap();
+        assert_eq!(request_json["cmd"].as_str(), Some("identify"));
+        let release = cmux_tui_core::release::ReleaseIdentity::current(
+            cmux_tui_core::server::PROTOCOL_VERSION,
+        );
+        writeln!(
+            stream,
+            "{}",
+            serde_json::json!({
+                "id": request_json["id"],
+                "ok": true,
+                "data": {
+                    "app": "cmux-tui",
+                    "version": release.version,
+                    "build_commit": release.build_commit,
+                    "ghostty_commit": release.ghostty_commit,
+                    "protocol": release.protocol,
+                    "capabilities": [],
+                    "session": "test",
+                    "pid": std::process::id(),
+                },
+            })
+        )
+        .unwrap();
+
+        request.clear();
+        reader.read_line(&mut request).unwrap();
         assert!(request.contains("\"cmd\":\"subscribe\""));
 
         stream.write_all(br#"{"event":"status","message":""#).unwrap();

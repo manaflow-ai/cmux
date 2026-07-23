@@ -19,6 +19,7 @@ mod surface;
 
 pub mod layout;
 pub mod platform;
+pub mod release;
 pub mod server;
 
 pub use browser::{TRANSPORT_SAFE_CAPTURE_MEGAPIXELS, normalize_url};

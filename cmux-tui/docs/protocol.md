@@ -36,6 +36,8 @@ The server command set in this branch is:
 
 ```text
 identify
+ping
+shutdown
 list-workspaces
 send
 read-screen
@@ -166,7 +168,9 @@ When the stream ends, it sends:
 
 ## Client Compatibility
 
-The remote TUI requires protocol v9. It rejects protocol-v8 servers before loading their workspace tree because v8 does not define stack layout nodes or `new-pane`.
+Direct local clients require the server's distribution version, build commit, Ghostty commit, and protocol to match exactly. `identify`, `cmux-tui server status`, and `cmux-tui server stop` bypass that check so an upgraded client can inspect and stop an older server. All other local CLI commands and TUI attach paths reject a mismatch before loading or mutating session state.
+
+Remote transports require protocol v9 but do not require the same release build. They reject protocol-v8 servers before loading their workspace tree because v8 does not define stack layout nodes or `new-pane`.
 
 Existing `set-ratio` clients remain source-compatible and the server keeps the pane-and-direction command unchanged. Protocol-v8 and newer frontends should read `layout.split` and send `set-split-ratio` so nested same-direction dividers are addressed exactly. Protocol v9 adds stack layout nodes and `new-pane`; clients must not send `new-pane` to a protocol-v8 server.
 

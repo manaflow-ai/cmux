@@ -20,6 +20,26 @@ pub(crate) struct ForeignViewportMessages {
 }
 
 #[derive(Debug, PartialEq, Eq)]
+pub(crate) struct ServerMessages {
+    pub help: &'static str,
+    pub incompatible_local_server: &'static str,
+    pub server_label: &'static str,
+    pub client_label: &'static str,
+    pub protocol_label: &'static str,
+    pub status_label: &'static str,
+    pub compatible: &'static str,
+    pub incompatible: &'static str,
+    pub stop_to_use: &'static str,
+    pub stopping_exits_panes: &'static str,
+    pub restart_instruction: &'static str,
+    pub stopped: &'static str,
+    pub missing_action: &'static str,
+    pub unknown_action: &'static str,
+    pub shutdown_unsupported: &'static str,
+    pub shutdown_timed_out: &'static str,
+}
+
+#[derive(Debug, PartialEq, Eq)]
 pub(crate) struct SidebarMessages {
     pub machines: &'static str,
     pub workspaces: &'static str,
@@ -132,6 +152,7 @@ const fn decimal_width(mut value: u16) -> usize {
 pub(crate) struct Catalog {
     pub pairing: PairingMessages,
     pub foreign_viewport: ForeignViewportMessages,
+    pub server: ServerMessages,
     pub sidebar: SidebarMessages,
 }
 
@@ -144,6 +165,24 @@ static ENGLISH: Catalog = Catalog {
         approve: "[ Approve enter ]",
     },
     foreign_viewport: ForeignViewportMessages { terminal_grid: "terminal grid" },
+    server: ServerMessages {
+        help: "Inspect or stop the local server.",
+        incompatible_local_server: "This session is running a different cmux-tui release.",
+        server_label: "server",
+        client_label: "client",
+        protocol_label: "protocol",
+        status_label: "status",
+        compatible: "compatible",
+        incompatible: "incompatible",
+        stop_to_use: "Stop the old server to use this cmux-tui version.",
+        stopping_exits_panes: "Stopping exits pane processes.",
+        restart_instruction: "Run `{command}`, then run `cmux-tui` again.",
+        stopped: "Stopped the cmux-tui server.",
+        missing_action: "server needs an action: status or stop",
+        unknown_action: "unknown server action",
+        shutdown_unsupported: "this server cannot be stopped by this client",
+        shutdown_timed_out: "the server did not stop within 10 seconds",
+    },
     sidebar: SidebarMessages {
         machines: "machines",
         workspaces: "workspaces",
@@ -224,6 +263,24 @@ static JAPANESE: Catalog = Catalog {
         approve: "[ 承認 enter ]",
     },
     foreign_viewport: ForeignViewportMessages { terminal_grid: "端末グリッド" },
+    server: ServerMessages {
+        help: "ローカルサーバーの確認または停止。",
+        incompatible_local_server: "このセッションは別の cmux-tui リリースで実行されています。",
+        server_label: "サーバー",
+        client_label: "クライアント",
+        protocol_label: "プロトコル",
+        status_label: "状態",
+        compatible: "互換",
+        incompatible: "非互換",
+        stop_to_use: "この cmux-tui バージョンを使うには、古いサーバーを停止してください。",
+        stopping_exits_panes: "停止するとペインのプロセスが終了します。",
+        restart_instruction: "`{command}` を実行してから、`cmux-tui` をもう一度実行してください。",
+        stopped: "cmux-tui サーバーを停止しました。",
+        missing_action: "server には status または stop の操作が必要です",
+        unknown_action: "不明な server 操作",
+        shutdown_unsupported: "このクライアントからこのサーバーを停止できません",
+        shutdown_timed_out: "10 秒以内にサーバーが停止しませんでした",
+    },
     sidebar: SidebarMessages {
         machines: "マシン",
         workspaces: "ワークスペース",

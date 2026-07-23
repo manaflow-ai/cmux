@@ -3,9 +3,7 @@
 
 use std::collections::{HashMap, HashSet};
 use std::fmt;
-#[cfg(test)]
-use std::sync::atomic::AtomicBool;
-use std::sync::atomic::{AtomicU64, Ordering};
+use std::sync::atomic::{AtomicBool, AtomicU64, Ordering};
 use std::sync::mpsc::{Receiver, SyncSender};
 use std::sync::{Arc, Mutex, MutexGuard, Weak};
 use std::time::{Duration, Instant, SystemTime, UNIX_EPOCH};
@@ -641,6 +639,7 @@ impl ClientSizingState {
 pub struct Mux {
     state: Mutex<State>,
     subscribers: MuxEventBroadcaster,
+    shutdown_requested: AtomicBool,
     next_id: AtomicU64,
     next_notification_id: AtomicU64,
     next_active_at: AtomicU64,
@@ -760,6 +759,7 @@ impl Mux {
                 split_screens: HashMap::new(),
             }),
             subscribers: MuxEventBroadcaster::default(),
+            shutdown_requested: AtomicBool::new(false),
             next_id: AtomicU64::new(1),
             next_notification_id: AtomicU64::new(1),
             next_active_at: AtomicU64::new(1),
@@ -2086,6 +2086,14 @@ impl Mux {
         if let Some(runtime) = self.browser_runtime.lock().unwrap().take() {
             runtime.shutdown();
         }
+    }
+
+    pub fn request_shutdown(&self) {
+        self.shutdown_requested.store(true, Ordering::Release);
+    }
+
+    pub fn shutdown_requested(&self) -> bool {
+        self.shutdown_requested.load(Ordering::Acquire)
     }
 
     /// Update options used for future surface/browser launches.

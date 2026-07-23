@@ -172,7 +172,7 @@ CLI mapping:
 | --- | --- |
 | Verb | `identify` |
 | Flags | none |
-| Plain stdout | `cmux-tui session=<session> protocol=<protocol> pid=<pid>` |
+| Plain stdout | `cmux-tui version=<version> session=<session> protocol=<protocol> pid=<pid>` |
 | JSON stdout | exact result object |
 | Exit codes | common |
 
@@ -214,6 +214,36 @@ Example:
 ```json
 {"id":2,"cmd":"ping"}
 {"id":2,"ok":true,"data":{"ok":true,"version":"0.1.0","build_commit":"abc123","ghostty_commit":"def456","protocol":9}}
+```
+
+### shutdown
+
+| Field | Value |
+| --- | --- |
+| name | `shutdown` |
+| status | implemented |
+| since | protocol 9 additive extension |
+
+Requests an orderly server exit after the success response is queued. The command is accepted only on the local Unix-domain socket. Stopping the mux exits every pane process.
+
+Params: none.
+
+Result: `object{}`.
+
+Errors:
+
+| Error | Condition |
+| --- | --- |
+| `shutdown is only available over the local session socket` | Request arrived over WebSocket |
+| `bad request: ...` | Malformed request envelope |
+
+CLI mapping: `cmux-tui server stop`; `cmux-tui server status` uses `identify` and does not issue this command. A newer Unix client falls back to signaling the PID reported by `identify` when an older server does not implement `shutdown`.
+
+Example:
+
+```json
+{"id":3,"cmd":"shutdown"}
+{"id":3,"ok":true,"data":{}}
 ```
 
 ### set-client-info

@@ -23,6 +23,7 @@ mod process_diagnostics;
 #[cfg(target_os = "linux")]
 mod provider_authority;
 mod pty_input;
+mod server_lifecycle;
 mod session;
 mod sidebar_files;
 mod ui;
@@ -459,20 +460,8 @@ fn parse_args_result(args: impl IntoIterator<Item = String>) -> Result<Args, Str
 }
 
 fn version_string() -> String {
-    // Packaged builds stamp both source identities so artifact validation can
-    // reject a cmux binary built against a different Ghostty checkout before
-    // it enters an app bundle. Local builds report the crate version alone.
-    let commit = option_env!("CMUX_TUI_BUILD_COMMIT")
-        .or(option_env!("CMUX_MUX_BUILD_COMMIT"))
-        .filter(|commit| !commit.is_empty());
-    let ghostty = option_env!("CMUX_TUI_GHOSTTY_COMMIT").filter(|commit| !commit.is_empty());
-    match (commit, ghostty) {
-        (Some(commit), Some(ghostty)) => {
-            format!("{} ({commit}; ghostty {ghostty})", env!("CARGO_PKG_VERSION"))
-        }
-        (Some(commit), None) => format!("{} ({commit})", env!("CARGO_PKG_VERSION")),
-        (None, _) => env!("CARGO_PKG_VERSION").to_string(),
-    }
+    cmux_tui_core::release::ReleaseIdentity::current(cmux_tui_core::server::PROTOCOL_VERSION)
+        .version_with_build_metadata()
 }
 
 impl Args {
@@ -840,16 +829,21 @@ fn run_server(
         .socket
         .clone()
         .unwrap_or_else(|| cmux_tui_core::server::default_socket_path(&args.session));
-    if args.should_attach_existing(&ws_addr, &ws_token)
-        && socket_path.exists()
-        && let Ok(remote) = RemoteSession::connect(&socket_path)
-    {
-        return run_connected_session_client(
-            socket_path,
-            args.session,
-            config,
-            Session::Remote(remote),
-        );
+    if args.should_attach_existing(&ws_addr, &ws_token) && socket_path.exists() {
+        match RemoteSession::connect(&socket_path) {
+            Ok(remote) => {
+                return run_connected_session_client(
+                    socket_path,
+                    args.session,
+                    config,
+                    Session::Remote(remote),
+                );
+            }
+            Err(error) if cmux_tui_core::platform::transport::connect(&socket_path).is_ok() => {
+                return Err(error);
+            }
+            Err(_) => {}
+        }
     }
 
     let mut surface_options = SurfaceOptions::default();
@@ -904,7 +898,7 @@ fn run_server(
     let result = if args.headless {
         run_headless(&mux, &socket_path)
     } else if let Some(runtime) = machine_runtime {
-        run_machine_client(runtime)
+        run_machine_client(runtime, mux.clone())
     } else {
         run_tui(Session::Local(mux.clone()), args.session)
     };
@@ -915,7 +909,7 @@ fn run_server(
 }
 
 fn run_tui(session: Session, session_label: String) -> anyhow::Result<()> {
-    match run_tui_once(session, session_label, None, None)? {
+    match run_tui_once(session, session_label, None, None, None)? {
         app::RunOutcome::Quit => Ok(()),
         app::RunOutcome::Machine(_) => {
             anyhow::bail!("machine request returned without a machine runtime")
@@ -947,27 +941,28 @@ fn run_connected_session_client(
         SessionClientMode::Plain => run_tui(session, session_label),
         SessionClientMode::Machines => {
             let runtime = MachineRuntime::new(socket_path, config.machines);
-            run_machine_client_with_initial(runtime, session)
+            run_machine_client_with_initial(runtime, session, None)
         }
     }
 }
 
-fn run_machine_client(mut runtime: MachineRuntime) -> anyhow::Result<()> {
+fn run_machine_client(mut runtime: MachineRuntime, host_mux: Arc<Mux>) -> anyhow::Result<()> {
     let active = runtime.initial_key();
     let session = runtime.connect(active)?;
-    run_machine_client_with_initial(runtime, session)
+    run_machine_client_with_initial(runtime, session, Some(host_mux))
 }
 
 fn run_machine_client_with_initial(
     runtime: MachineRuntime,
     session: Session,
+    host_mux: Option<Arc<Mux>>,
 ) -> anyhow::Result<()> {
     let active = runtime.initial_key();
     let label = runtime.name(active).unwrap_or("machine").to_string();
     let machine_ui = MachineUiState::new(runtime.snapshot(active));
     let controller: Box<dyn MachineController> =
         Box::new(StaticMachineController { runtime, active, pending_active: None });
-    match run_tui_once(session, label, Some(machine_ui), Some(controller))? {
+    match run_tui_once(session, label, Some(machine_ui), Some(controller), host_mux)? {
         app::RunOutcome::Quit => Ok(()),
         app::RunOutcome::Machine(_) => {
             anyhow::bail!("machine request escaped its in-place controller")
@@ -1057,7 +1052,7 @@ fn run_provider_machine_client(
         )),
     };
     let controller: Box<dyn MachineController> = Box::new(runtime);
-    match run_tui_once(session, label, Some(machine_ui), Some(controller))? {
+    match run_tui_once(session, label, Some(machine_ui), Some(controller), None)? {
         app::RunOutcome::Quit => Ok(()),
         app::RunOutcome::Machine(_) => {
             anyhow::bail!("provider request escaped its in-place controller")
@@ -1077,6 +1072,7 @@ fn run_tui_once(
     session_label: String,
     machine_ui: Option<MachineUiState>,
     machine_controller: Option<Box<dyn MachineController>>,
+    host_mux: Option<Arc<Mux>>,
 ) -> anyhow::Result<app::RunOutcome> {
     crossterm::terminal::enable_raw_mode()?;
     let config = config::load();
@@ -1094,7 +1090,14 @@ fn run_tui_once(
         eprintln!("cmux-tui: failed to set default colors: {err}");
     }
     raw_result?;
-    app::run_with_machine_updates(session, session_label, colors, machine_ui, machine_controller)
+    app::run_with_machine_updates(
+        session,
+        session_label,
+        colors,
+        machine_ui,
+        machine_controller,
+        host_mux,
+    )
 }
 
 fn run_headless(mux: &Arc<Mux>, socket_path: &std::path::Path) -> anyhow::Result<()> {
@@ -1103,7 +1106,7 @@ fn run_headless(mux: &Arc<Mux>, socket_path: &std::path::Path) -> anyhow::Result
     // the mux reaps exited surfaces itself.
     let events = mux.subscribe();
     loop {
-        if shutdown_requested() {
+        if shutdown_requested() || mux.shutdown_requested() {
             break;
         }
         match events.recv_timeout(std::time::Duration::from_millis(250)) {

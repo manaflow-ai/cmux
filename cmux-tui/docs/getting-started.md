@@ -41,6 +41,15 @@ cargo run -p cmux-tui -- attach --session agents
 
 Detach from an attached TUI with prefix `d`. With default keys, that is `Ctrl-b d`. The server keeps running, and another `attach` reconnects to the same tree. PTY tabs attach with a Ghostty VT-state replay followed by a live output stream.
 
+Local clients require the running server to have the same release identity. Inspect a session without attaching, or stop it before starting an upgraded binary:
+
+```bash
+cmux-tui server status --session agents
+cmux-tui server stop --session agents
+```
+
+Stopping the server exits its pane processes. `identify`, `server status`, and `server stop` remain available when client and server releases differ.
+
 ## Remote machines
 
 The optional machine rail keeps rendering local while it connects individual session transports through Unix sockets or SSH. It is disabled for the default local run and activates when `machine_sidebar.enabled` is true or `machines` contains a valid entry in `cmux-tui.json`. Start a headless cmux session on each remote machine, and make the remote `cmux-tui` or `cmux` executable available to noninteractive SSH. The SSH connector runs its `relay` mode and does not nest a second TUI.
