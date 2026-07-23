@@ -46,6 +46,31 @@ import Testing
 
     // MARK: - Replays
 
+    @Test func requestOutcomesDistinguishAcceptedAndActiveWork() {
+        let checkHarness = Harness()
+        #expect(checkHarness.controller.checkForUpdates() == .accepted)
+
+        let installHarness = Harness()
+        #expect(installHarness.controller.attemptUpdate() == .accepted)
+        #expect(installHarness.controller.attemptUpdate() == .inProgress)
+
+        let activeInstallHarness = Harness()
+        activeInstallHarness.model.setState(.startingDownload)
+        #expect(activeInstallHarness.controller.checkForUpdates() == .inProgress)
+        #expect(activeInstallHarness.controller.attemptUpdate() == .inProgress)
+    }
+
+    @Test func updaterStartupFailureReturnsFailed() {
+        let harness = Harness()
+        harness.updater.startError = NSError(domain: "test.updater.start", code: 42)
+
+        #expect(harness.controller.checkForUpdates() == .failed)
+        guard case .error = harness.model.state else {
+            Issue.record("startup failure should remain visible in the update model")
+            return
+        }
+    }
+
     /// Sparkle's dismissal callback is deliberately identity-free, so the authoritative cycle-end
     /// signal must terminate an aborted manual check instead of leaving its spinner permanently
     /// visible. The surfaced error remains actionable and starts a genuinely new check on retry.

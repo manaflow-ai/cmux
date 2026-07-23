@@ -147,7 +147,8 @@ public final class WorkspaceGroupCoordinator<Tab: WorkspaceTabRepresenting> {
             initialBrowserOmnibarVisible: initialBrowserOmnibarVisible,
             initialBrowserTransparentBackground: initialBrowserTransparentBackground,
             inheritWorkingDirectory: cwd == nil,
-            select: select
+            select: select,
+            sourceWorkspaceID: referenceWorkspaceId ?? group.anchorWorkspaceId
         )
         model.assignGroup(workspaceId: newWorkspace.id, groupId: groupId)
         placeWithinGroup(

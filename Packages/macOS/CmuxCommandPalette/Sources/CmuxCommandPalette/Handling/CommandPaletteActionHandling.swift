@@ -7,8 +7,8 @@ import Foundation
 @MainActor
 public protocol CommandPaletteActionHandling {
     /// Registers `handler` as the action for `commandId`.
-    func register(commandId: String, handler: @escaping () -> Void)
+    func register(commandId: String, handler: @escaping CmuxActionHandler)
 
     /// The action registered for `commandId`, when any.
-    func handler(for commandId: String) -> (() -> Void)?
+    func handler(for commandId: String) -> CmuxActionHandler?
 }

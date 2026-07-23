@@ -282,12 +282,34 @@ struct RemoteTmuxMirrorTargetingTests {
             return true
         }
 
-        workspace.setPanelPinned(panelId: secondPanel.id, pinned: true)
+        let outcome = workspace.setPanelPinned(panelId: secondPanel.id, pinned: true)
 
         let panelOrder = workspace.bonsplitController.tabs(inPane: paneId)
             .compactMap { workspace.panelIdFromSurfaceId($0.id) }
+        #expect(outcome == .queued)
         #expect(panelOrder.first == secondPanel.id)
         #expect(requestedPanelOrder == panelOrder)
+        #expect(workspace.isPanelPinned(secondPanel.id))
+    }
+
+    @Test func mirrorPinReorderReportsCompletedWhenOwnerVerifiesSynchronously() throws {
+        let manager = TabManager()
+        let workspace = try #require(manager.selectedWorkspace)
+        guard let secondPanel = workspace.addRemoteTmuxDisplayPane(
+            remotePaneId: 2, title: "two", onInput: { _ in }
+        ) else {
+            Issue.record("Expected a second mirror panel")
+            return
+        }
+        workspace.isRemoteTmuxMirror = true
+        workspace.remoteTmuxWindowOrderSync = { _, verification in
+            verification?(true)
+            return true
+        }
+
+        let outcome = workspace.setPanelPinned(panelId: secondPanel.id, pinned: true)
+
+        #expect(outcome == .completed)
         #expect(workspace.isPanelPinned(secondPanel.id))
     }
 
@@ -305,9 +327,10 @@ struct RemoteTmuxMirrorTargetingTests {
         let orderBefore = workspace.bonsplitController.tabs(inPane: paneId).map(\.id)
         workspace.remoteTmuxWindowOrderSync = { _, _ in false }
 
-        workspace.setPanelPinned(panelId: secondPanel.id, pinned: true)
+        let outcome = workspace.setPanelPinned(panelId: secondPanel.id, pinned: true)
         let secondTabId = try #require(workspace.surfaceIdFromPanelId(secondPanel.id))
 
+        #expect(outcome == .failed)
         #expect(workspace.bonsplitController.tabs(inPane: paneId).map(\.id) == orderBefore)
         #expect(!workspace.isPanelPinned(secondPanel.id))
         #expect(workspace.bonsplitController.tab(secondTabId)?.isPinned == false)
@@ -332,8 +355,10 @@ struct RemoteTmuxMirrorTargetingTests {
             return true
         }
 
-        workspace.setPanelPinned(panelId: secondPanel.id, pinned: true)
+        let outcome = workspace.setPanelPinned(panelId: secondPanel.id, pinned: true)
         let secondTabId = try #require(workspace.surfaceIdFromPanelId(secondPanel.id))
+        #expect(outcome == .queued)
+        #expect(workspace.setPanelPinned(panelId: secondPanel.id, pinned: true) == .queued)
         #expect(workspace.isPanelPinned(secondPanel.id))
         #expect(workspace.bonsplitController.tabs(inPane: paneId).first?.id == secondTabId)
 

@@ -2163,6 +2163,7 @@ final class Workspace: Identifiable, ObservableObject {
             let oldDirectory = oldValue.trimmingCharacters(in: .whitespacesAndNewlines)
             let newDirectory = currentDirectory.trimmingCharacters(in: .whitespacesAndNewlines)
             guard oldDirectory != newDirectory else { return }
+            emitConfigTrackingEvent(.workspaceDirectoryChanged)
             scheduleExtensionSidebarProjectRootRefresh(for: currentDirectory)
             // Notify the sidebar so anchor-cwd-driven group config (color,
             // icon, context menu, newWorkspacePlacement) refreshes even
@@ -2271,6 +2272,17 @@ final class Workspace: Identifiable, ObservableObject {
     /// sites were written against. Single seam; delete when the subscribers
     /// move to @Observable observation.
     let panelsPublisher = CurrentValueSubject<[UUID: any Panel], Never>([:])
+    /// Semantic directory events consumed by config tracking. Unlike
+    /// `$panelDirectories`, panel events retain the changed panel identity so a
+    /// hot cwd report updates one contribution instead of rescanning the tree.
+    private let configTrackingEventChannel = WorkspaceConfigTrackingEventChannel()
+    var configTrackingEvents: AsyncStream<WorkspaceConfigTrackingEvent> {
+        configTrackingEventChannel.events
+    }
+
+    private func emitConfigTrackingEvent(_ event: WorkspaceConfigTrackingEvent) {
+        configTrackingEventChannel.send(event)
+    }
     /// Legacy Combine bridge for the remaining `$paneLayoutVersion`
     /// subscribers; same contract as `panelsPublisher`.
     let paneLayoutVersionPublisher = CurrentValueSubject<Int, Never>(0)
@@ -2365,6 +2377,33 @@ final class Workspace: Identifiable, ObservableObject {
 
     /// Published directory for each panel
     @Published var panelDirectories: [UUID: String] = [:]
+
+    func setTrackedPanelDirectory(
+        _ directory: String,
+        for panelID: UUID,
+        forcePublish: Bool = false
+    ) {
+        guard forcePublish || panelDirectories[panelID] != directory else { return }
+        panelDirectories[panelID] = directory
+        emitConfigTrackingEvent(.panelDirectoryChanged(panelID))
+    }
+
+    @discardableResult
+    func removeTrackedPanelDirectory(for panelID: UUID) -> String? {
+        guard let removed = panelDirectories.removeValue(forKey: panelID) else { return nil }
+        emitConfigTrackingEvent(.panelDirectoryChanged(panelID))
+        return removed
+    }
+
+    func replaceTrackedPanelDirectories(with directories: [UUID: String]) {
+        let candidateIDs = Set(panelDirectories.keys).union(directories.keys)
+        let changedIDs = candidateIDs.filter { panelDirectories[$0] != directories[$0] }
+        guard !changedIDs.isEmpty else { return }
+        panelDirectories = directories
+        for panelID in changedIDs.sorted(by: { $0.uuidString < $1.uuidString }) {
+            emitConfigTrackingEvent(.panelDirectoryChanged(panelID))
+        }
+    }
     /// Optional human-friendly sidebar label per panel, reported via
     /// `report_pwd <label> --path=<real-path>`. Display-only: the File
     /// Explorer, Finder root, and git probing always use `panelDirectories`.
@@ -2676,7 +2715,7 @@ final class Workspace: Identifiable, ObservableObject {
     var focusedSurfaceId: UUID? { focusedPanelId }
     var surfaceDirectories: [UUID: String] {
         get { panelDirectories }
-        set { panelDirectories = newValue }
+        set { replaceTrackedPanelDirectories(with: newValue) }
     }
 
     var processTitle: String
@@ -4071,9 +4110,31 @@ final class Workspace: Identifiable, ObservableObject {
     /// three-tier order); the tiers are spelled out here so the public entry point is
     /// self-contained.
     func resolvedWorkingDirectory() -> String? {
+        resolvedWorkingDirectoryCandidate(panelID: focusedPanelId)
+    }
+
+    /// Resolves an app-action working directory from an immutable panel target.
+    /// A stale or directory-less panel fails closed instead of consulting the
+    /// workspace-wide directory, which may belong to a different focused panel.
+    func resolvedWorkingDirectory(panelID: UUID) -> String? {
+        guard panels[panelID] != nil else { return nil }
         let candidates = [
-            focusedPanelId.flatMap { panelDirectories[$0] },
-            focusedPanelId.flatMap { terminalPanel(for: $0)?.requestedWorkingDirectory },
+            panelDirectories[panelID],
+            terminalPanel(for: panelID)?.requestedWorkingDirectory,
+        ]
+        for candidate in candidates {
+            let trimmed = candidate?.trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
+            if !trimmed.isEmpty {
+                return trimmed
+            }
+        }
+        return nil
+    }
+
+    private func resolvedWorkingDirectoryCandidate(panelID: UUID?) -> String? {
+        let candidates = [
+            panelID.flatMap { panelDirectories[$0] },
+            panelID.flatMap { terminalPanel(for: $0)?.requestedWorkingDirectory },
             currentDirectory,
         ]
         for candidate in candidates {
@@ -4177,8 +4238,8 @@ final class Workspace: Identifiable, ObservableObject {
         in paneId: PaneID,
         beforeMirrorRollback: () -> Void = {},
         onMirrorVerification: ((Bool) -> Void)? = nil
-    ) -> Bool {
-        guard !isNormalizingPinnedTabOrder else { return true }
+    ) -> PanelPinMutationOutcome {
+        guard !isNormalizingPinnedTabOrder else { return .completed }
         isNormalizingPinnedTabOrder = true
         defer { isNormalizingPinnedTabOrder = false }
 
@@ -4195,14 +4256,20 @@ final class Workspace: Identifiable, ObservableObject {
 
         if isRemoteTmuxMirror, desiredOrder.map(\.id) != tabs.map(\.id) {
             let desiredPanelOrder = desiredOrder.compactMap { panelIdFromSurfaceId($0.id) }
-            guard desiredPanelOrder.count == desiredOrder.count else { return false }
-            return performRemoteTmuxMirrorOrderMutation(
+            guard desiredPanelOrder.count == desiredOrder.count else { return .failed }
+            var synchronousVerification: Bool?
+            let accepted = performRemoteTmuxMirrorOrderMutation(
                 in: paneId,
                 beforeRollback: beforeMirrorRollback,
-                onVerification: onMirrorVerification
+                onVerification: { succeeded in
+                    synchronousVerification = succeeded
+                    onMirrorVerification?(succeeded)
+                }
             ) {
                 reorderRemoteTmuxMirrorTabs(toPanelOrder: desiredPanelOrder)
             }
+            guard accepted else { return .failed }
+            return synchronousVerification.map { $0 ? .completed : .failed } ?? .queued
         }
 
         for (index, desiredTab) in desiredOrder.enumerated() {
@@ -4213,7 +4280,7 @@ final class Workspace: Identifiable, ObservableObject {
             }
         }
         onMirrorVerification?(true)
-        return true
+        return .completed
     }
 
     private func insertionIndexToRight(of anchorTabId: TabID, inPane paneId: PaneID) -> Int {
@@ -4359,10 +4426,17 @@ final class Workspace: Identifiable, ObservableObject {
         return resolvedPanelTitle(panelId: panelId, fallback: fallback)
     }
 
-    func setPanelPinned(panelId: UUID, pinned: Bool) {
-        guard panels[panelId] != nil else { return }
+    @discardableResult
+    func setPanelPinned(panelId: UUID, pinned: Bool) -> PanelPinMutationOutcome {
+        guard panels[panelId] != nil else { return .failed }
         let wasPinned = pinnedPanelIds.contains(panelId)
-        guard wasPinned != pinned else { return }
+        guard wasPinned != pinned else {
+            return pinMutationTokensByPanelId[panelId] == nil ? .completed : .queued
+        }
+        guard let tabId = surfaceIdFromPanelId(panelId),
+              let paneId = paneId(forPanelId: panelId) else {
+            return .failed
+        }
         let mutationToken = UUID()
         pinMutationTokensByPanelId[panelId] = mutationToken
         if pinned {
@@ -4371,11 +4445,6 @@ final class Workspace: Identifiable, ObservableObject {
             pinnedPanelIds.remove(panelId)
         }
 
-        guard let tabId = surfaceIdFromPanelId(panelId),
-              let paneId = paneId(forPanelId: panelId) else {
-            pinMutationTokensByPanelId.removeValue(forKey: panelId)
-            return
-        }
         bonsplitController.updateTab(tabId, isPinned: pinned)
         let restorePinState = { [weak self] in
             guard let self,
@@ -4393,14 +4462,22 @@ final class Workspace: Identifiable, ObservableObject {
                 restorePinState()
             }
         }
-        guard normalizePinnedTabs(
+        let outcome = normalizePinnedTabs(
             in: paneId,
             beforeMirrorRollback: restorePinState,
             onMirrorVerification: handleVerification
-        ) else {
+        )
+        switch outcome {
+        case .completed:
+            if pinMutationTokensByPanelId[panelId] == mutationToken {
+                pinMutationTokensByPanelId.removeValue(forKey: panelId)
+            }
+        case .queued:
+            break
+        case .failed:
             restorePinState()
-            return
         }
+        return outcome
     }
 
     func markPanelUnread(_ panelId: UUID) {
@@ -4609,14 +4686,36 @@ final class Workspace: Identifiable, ObservableObject {
     private func configTrackingDirectory(for panelId: UUID?) -> String? {
         // Remote workspace directories are remote-host paths; no local per-directory config can apply.
         if usesRemoteDirectoryProvenance { return nil }
-        if let panelId {
-            for candidate in [panelDirectories[panelId], terminalPanel(for: panelId)?.requestedWorkingDirectory] {
-                let trimmed = candidate?.trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
-                if !trimmed.isEmpty { return trimmed }
-            }
+        if let panelId,
+           let panelDirectory = panelConfigTrackingDirectory(for: panelId) {
+            return panelDirectory
         }
         let trimmedCurrentDirectory = currentDirectory.trimmingCharacters(in: .whitespacesAndNewlines)
         return trimmedCurrentDirectory.isEmpty ? nil : trimmedCurrentDirectory
+    }
+
+    private func panelConfigTrackingDirectory(for panelID: UUID) -> String? {
+        for candidate in [panelDirectories[panelID], terminalPanel(for: panelID)?.requestedWorkingDirectory] {
+            let trimmed = candidate?.trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
+            if !trimmed.isEmpty { return trimmed }
+        }
+        return nil
+    }
+
+    /// Returns the local config lookup directory for an immutable panel target.
+    /// Resolves the effective lookup directory for an action target. A panel
+    /// without an explicit directory inherits the workspace cwd.
+    func configurationTrackingDirectory(panelID: UUID?) -> String? {
+        if let panelID, panels[panelID] == nil { return nil }
+        return configTrackingDirectory(for: panelID)
+    }
+
+    /// Resolves only a panel's own directory contribution. Workspace fallback
+    /// is indexed separately so a workspace cwd change never rewrites every
+    /// panel contribution.
+    func configurationTrackingPanelContributionDirectory(panelID: UUID) -> String? {
+        guard panels[panelID] != nil, !usesRemoteDirectoryProvenance else { return nil }
+        return panelConfigTrackingDirectory(for: panelID)
     }
 
     @discardableResult
@@ -4669,7 +4768,13 @@ final class Workspace: Identifiable, ObservableObject {
             remoteDirectoryReportPanelIds.insert(panelId); remoteDirectoryTrustRequiredPanelIds.insert(panelId)
         }
         let directoryChanged = panelDirectories[panelId] != trimmed
-        if directoryChanged || provenanceChanged { panelDirectories[panelId] = trimmed }
+        if directoryChanged || provenanceChanged {
+            setTrackedPanelDirectory(
+                trimmed,
+                for: panelId,
+                forcePublish: provenanceChanged
+            )
+        }
         let trimmedDisplayLabel = displayLabel?.trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
         if !trimmedDisplayLabel.isEmpty {
             if panelDirectoryDisplayLabels[panelId] != trimmedDisplayLabel {
@@ -5068,7 +5173,9 @@ final class Workspace: Identifiable, ObservableObject {
         for panelId in Array(pendingTerminalInputObserversByPanelId.keys) where !validSurfaceIds.contains(panelId) {
             removePendingTerminalInputObservers(forPanelId: panelId)
         }
-        panelDirectories = panelDirectories.filter { validSurfaceIds.contains($0.key) }
+        replaceTrackedPanelDirectories(
+            with: panelDirectories.filter { validSurfaceIds.contains($0.key) }
+        )
         panelDirectoryDisplayLabels = panelDirectoryDisplayLabels.filter { validSurfaceIds.contains($0.key) }
         remoteDirectoryTrustRequiredPanelIds = remoteDirectoryTrustRequiredPanelIds.filter { validSurfaceIds.contains($0) }
         remoteDirectoryReportPanelIds = remoteDirectoryReportPanelIds.filter { validSurfaceIds.contains($0) }
@@ -5211,7 +5318,12 @@ final class Workspace: Identifiable, ObservableObject {
     }
 
     /// Ephemeral remote tmux mirror; excluded from cmux session restore.
-    var isRemoteTmuxMirror: Bool = false
+    var isRemoteTmuxMirror: Bool = false {
+        willSet {
+            guard newValue != isRemoteTmuxMirror else { return }
+            emitConfigTrackingEvent(.structuralChanged)
+        }
+    }
     weak var remoteTmuxSessionMirror: RemoteTmuxSessionMirror?
     /// Bound action for this mirror's outbound window-order mutation boundary.
     var remoteTmuxWindowOrderSync: (([UUID], ((Bool) -> Void)?) -> Bool)?
@@ -5486,6 +5598,9 @@ final class Workspace: Identifiable, ObservableObject {
             clearRemoteRelayIDAliases()
         }
         remoteConfiguration = configuration
+        if previousConfiguration != configuration {
+            emitConfigTrackingEvent(.structuralChanged)
+        }
         let clearedRemoteDirectoryTrust = !remoteDirectoryTrustRequiredPanelIds.isEmpty ||
             !remoteDirectoryReportPanelIds.isEmpty
         remoteDirectoryTrustRequiredPanelIds = Set(remoteDirectoryTrustRequiredPanelIds.filter {
@@ -5620,10 +5735,14 @@ final class Workspace: Identifiable, ObservableObject {
         remoteLastDaemonErrorFingerprint = nil
         remoteLastPortConflictFingerprint = nil
         if clearConfiguration {
+            let configurationChanged = remoteConfiguration != nil
             remotePTYSessionIDsByPanelId.removeAll()
             endedPersistentRemotePTYAttachSurfaceIds.removeAll()
             clearRemoteRelayIDAliases()
             remoteConfiguration = nil
+            if configurationChanged {
+                emitConfigTrackingEvent(.structuralChanged)
+            }
             pendingRemoteDisconnectReplacementsBySurfaceId.removeAll()
             remoteDisconnectPlaceholderPanelIds.removeAll()
             skipControlMasterCleanupAfterDetachedRemoteTransfer = false
@@ -7041,11 +7160,11 @@ final class Workspace: Identifiable, ObservableObject {
             isPinned: false
         )
         bindSurface(newTab.id, toPanelId: newPanel.id)
-        let previousFocusedPanelId = focusedPanelId
+        let previousFocusedPanelId = panelId
 
         // Capture the source terminal's hosted view before bonsplit mutates focusedPaneId,
         // so we can hand it to focusPanel as the "move focus FROM" view.
-        let previousHostedView = focusedTerminalPanel?.hostedView
+        let previousHostedView = terminalPanel(for: panelId)?.hostedView
 
         // Create the split with the new tab already present in the new pane.
         isProgrammaticSplit = true
@@ -7174,6 +7293,10 @@ final class Workspace: Identifiable, ObservableObject {
         workingDirectoryFallbackSourcePanelId: UUID? = nil,
         allowTextBoxFocusDefault: Bool = true
     ) -> TerminalPanelCreationOutcome {
+        if let workingDirectoryFallbackSourcePanelId,
+           panels[workingDirectoryFallbackSourcePanelId] == nil {
+            return .failed
+        }
         // In a remote tmux mirror, a new tab means "create a tmux window"; never
         // create a local orphan the mirror can't reconcile. Dead mirrors are
         // torn down via handleSessionEndedRemotely.
@@ -7246,11 +7369,14 @@ final class Workspace: Identifiable, ObservableObject {
         allowTextBoxFocusDefault: Bool
     ) -> TerminalPanel? {
         let shouldFocusNewTab = focus ?? (bonsplitController.focusedPaneId == paneId)
-        let previousFocusedPanelId = focusedPanelId
-        let previousHostedView = focusedTerminalPanel?.hostedView
+        let previousFocusedPanelId = workingDirectoryFallbackSourcePanelId ?? focusedPanelId
+        let previousHostedView = previousFocusedPanelId.flatMap { terminalPanel(for: $0)?.hostedView }
 
         var inheritedConfig = terminalFontSizeCreationPolicy.applying(
-            to: inheritedTerminalConfig(inPane: paneId)
+            to: inheritedTerminalConfig(
+                preferredPanelId: workingDirectoryFallbackSourcePanelId,
+                inPane: paneId
+            )
         )
         let requestedInitialCommand = initialCommand?.trimmingCharacters(in: .whitespacesAndNewlines)
         let explicitInitialCommand = (requestedInitialCommand?.isEmpty == false) ? requestedInitialCommand : nil
@@ -7816,7 +7942,7 @@ final class Workspace: Identifiable, ObservableObject {
             isPinned: false
         )
         bindSurface(newTab.id, toPanelId: browserPanel.id)
-        let previousFocusedPanelId = focusedPanelId
+        let previousFocusedPanelId = panelId
 
         // Create the split with the browser tab already present.
         // Mark this split as programmatic so didSplitPane doesn't auto-create a terminal.
@@ -7833,7 +7959,7 @@ final class Workspace: Identifiable, ObservableObject {
         publishCmuxSplitCreated(newPaneId, sourcePaneId: paneId, orientation: orientation, surfaceId: browserPanel.id, kind: "browser", origin: "browser_split", focused: focus)
 
         // See newTerminalSplit: suppress old view's becomeFirstResponder during reparenting.
-        let previousHostedView = focusedTerminalPanel?.hostedView
+        let previousHostedView = terminalPanel(for: panelId)?.hostedView
         if focus {
             suppressReparentFocusUntilLayoutFollowUp(
                 previousHostedView,
@@ -7871,7 +7997,8 @@ final class Workspace: Identifiable, ObservableObject {
         creationPolicy: BrowserPanelCreationPolicy = .userInitiated,
         omnibarVisible: Bool = true,
         transparentBackground: Bool = false,
-        bypassRemoteProxy: Bool = false
+        bypassRemoteProxy: Bool = false,
+        sourcePanelID: UUID? = nil
     ) -> BrowserPanel? {
         // A remote tmux mirror workspace is a 1:1 view of a tmux session (which
         // has no browser concept). A local browser tab here would be an orphan
@@ -7886,10 +8013,11 @@ final class Workspace: Identifiable, ObservableObject {
             return nil
         }
 
+        if let sourcePanelID, panels[sourcePanelID] == nil { return nil }
         let shouldFocusNewTab = focus ?? (bonsplitController.focusedPaneId == paneId)
-        let sourcePanelId = effectiveSelectedPanelId(inPane: paneId)
-        let previousFocusedPanelId = focusedPanelId
-        let previousHostedView = focusedTerminalPanel?.hostedView
+        let sourcePanelId = sourcePanelID ?? effectiveSelectedPanelId(inPane: paneId)
+        let previousFocusedPanelId = sourcePanelID ?? focusedPanelId
+        let previousHostedView = previousFocusedPanelId.flatMap { terminalPanel(for: $0)?.hostedView }
 
         let browserPanel = BrowserPanel(
             workspaceId: id,
@@ -8376,20 +8504,30 @@ final class Workspace: Identifiable, ObservableObject {
     func openOrFocusRightSidebarToolSurface(
         inPane paneId: PaneID,
         mode: RightSidebarMode,
-        focus: Bool = true
+        focus: Bool = true,
+        sourcePanelID: UUID? = nil
     ) -> RightSidebarToolPanel? {
+        if let sourcePanelID, panels[sourcePanelID] == nil { return nil }
         guard mode.canOpenAsPane else { return nil }
         for (existingId, panel) in panels {
             guard let toolPanel = panel as? RightSidebarToolPanel,
                   toolPanel.mode == mode else {
                 continue
             }
+            if sourcePanelID != existingId {
+                toolPanel.bindWorkspaceRoot(toSourcePanelID: sourcePanelID)
+            }
             if focus {
                 focusPanel(existingId)
             }
             return toolPanel
         }
-        return newRightSidebarToolSurface(inPane: paneId, mode: mode, focus: focus)
+        return newRightSidebarToolSurface(
+            inPane: paneId,
+            mode: mode,
+            focus: focus,
+            sourcePanelID: sourcePanelID
+        )
     }
 
     @discardableResult
@@ -8397,14 +8535,20 @@ final class Workspace: Identifiable, ObservableObject {
         inPane paneId: PaneID,
         mode: RightSidebarMode,
         focus: Bool? = nil,
-        targetIndex: Int? = nil
+        targetIndex: Int? = nil,
+        sourcePanelID: UUID? = nil
     ) -> RightSidebarToolPanel? {
+        if let sourcePanelID, panels[sourcePanelID] == nil { return nil }
         guard mode.canOpenAsPane else { return nil }
         let shouldFocusNewTab = focus ?? (bonsplitController.focusedPaneId == paneId)
         let previousFocusedPanelId = focusedPanelId
         let previousHostedView = focusedTerminalPanel?.hostedView
 
-        let toolPanel = RightSidebarToolPanel(workspace: self, mode: mode)
+        let toolPanel = RightSidebarToolPanel(
+            workspace: self,
+            mode: mode,
+            sourcePanelID: sourcePanelID
+        )
         panels[toolPanel.id] = toolPanel
         panelTitles[toolPanel.id] = toolPanel.displayTitle
 
@@ -8471,7 +8615,7 @@ final class Workspace: Identifiable, ObservableObject {
         panels[agentPanel.id] = agentPanel
         panelTitles[agentPanel.id] = agentPanel.displayTitle
         if let directory, !directory.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
-            panelDirectories[agentPanel.id] = directory
+            setTrackedPanelDirectory(directory, for: agentPanel.id)
             if trustsAgentDirectory { remoteDirectoryReportPanelIds.insert(agentPanel.id); remoteDirectoryTrustRequiredPanelIds.insert(agentPanel.id) }
         }
 
@@ -9018,7 +9162,7 @@ final class Workspace: Identifiable, ObservableObject {
         }
 
         if let directory = detached.directory {
-            panelDirectories[detached.panelId] = directory
+            setTrackedPanelDirectory(directory, for: detached.panelId)
         }
         if let directoryDisplayLabel = detached.directoryDisplayLabel {
             panelDirectoryDisplayLabels[detached.panelId] = directoryDisplayLabel
@@ -9073,7 +9217,7 @@ final class Workspace: Identifiable, ObservableObject {
         ) else {
             removeBrowserOpenTabSuggestionIfNeeded(panel: detached.panel, panelId: detached.panelId)
             panels.removeValue(forKey: detached.panelId)
-            panelDirectories.removeValue(forKey: detached.panelId)
+            removeTrackedPanelDirectory(for: detached.panelId)
             panelDirectoryDisplayLabels.removeValue(forKey: detached.panelId)
             surfaceTTYNames.removeValue(forKey: detached.panelId)
             surfaceResumeBindingsByPanelId.removeValue(forKey: detached.panelId)
@@ -9527,6 +9671,30 @@ final class Workspace: Identifiable, ObservableObject {
         return panel
     }
 
+    /// Creates a terminal surface in the pane containing an explicit panel.
+    /// This is the selection-independent counterpart to
+    /// ``newTerminalSurfaceInFocusedPane(focus:initialInput:)``.
+    @discardableResult
+    func newTerminalSurface(
+        inPaneContainingPanelId panelId: UUID,
+        focus: Bool? = nil,
+        initialInput: String? = nil
+    ) -> TerminalPanel? {
+        guard let paneId = paneId(forPanelId: panelId) else { return nil }
+        let canvasAnchorPanelId = layoutMode == .canvas ? panelId : nil
+        let panel = newTerminalSurface(
+            inPane: paneId,
+            focus: focus,
+            initialInput: initialInput,
+            inheritWorkingDirectoryFallback: true,
+            workingDirectoryFallbackSourcePanelId: panelId
+        )
+        if let panel, let canvasAnchorPanelId {
+            joinNewPanelIntoCanvasPane(panel.id, anchor: canvasAnchorPanelId)
+        }
+        return panel
+    }
+
     @discardableResult
     func clearSplitZoom() -> Bool {
         bonsplitController.clearPaneZoom()
@@ -9534,9 +9702,24 @@ final class Workspace: Identifiable, ObservableObject {
 
     @discardableResult
     func toggleSplitZoom(panelId: UUID) -> Bool {
-        let wasSplitZoomed = bonsplitController.isSplitZoomed
         guard let paneId = paneId(forPanelId: panelId) else { return false }
-        guard bonsplitController.togglePaneZoom(inPane: paneId) else { return false }
+        return setSplitZoom(
+            bonsplitController.zoomedPaneId != paneId,
+            panelId: panelId
+        )
+    }
+
+    @discardableResult
+    func setSplitZoom(_ enabled: Bool, panelId: UUID) -> Bool {
+        guard let paneId = paneId(forPanelId: panelId) else { return false }
+        let wasTargetZoomed = bonsplitController.zoomedPaneId == paneId
+        guard wasTargetZoomed != enabled else { return true }
+        if enabled {
+            guard bonsplitController.togglePaneZoom(inPane: paneId) else { return false }
+        } else {
+            guard bonsplitController.clearPaneZoom() else { return false }
+        }
+        guard (bonsplitController.zoomedPaneId == paneId) == enabled else { return false }
         focusPanel(panelId)
         reconcileTerminalPortalVisibilityForCurrentRenderedLayout()
         reconcileBrowserPortalVisibilityForCurrentRenderedLayout(reason: "workspace.toggleSplitZoom")
@@ -9549,7 +9732,7 @@ final class Workspace: Identifiable, ObservableObject {
         beginEventDrivenLayoutFollowUp(
             reason: "workspace.toggleSplitZoom",
             browserPanelId: browserPanel(for: panelId) != nil ? panelId : nil,
-            browserExitFocusPanelId: (wasSplitZoomed && !bonsplitController.isSplitZoomed) ? panelId : nil,
+            browserExitFocusPanelId: (wasTargetZoomed && !enabled) ? panelId : nil,
             includeGeometry: true
         )
         return true
@@ -10801,7 +10984,8 @@ final class Workspace: Identifiable, ObservableObject {
         insertFirst: Bool,
         workingDirectory: String?,
         initialInput: String?,
-        remoteStartupCommand: String? = nil
+        remoteStartupCommand: String? = nil,
+        focus: Bool = true
     ) -> TerminalPanel? {
         var inheritedConfig = inheritedTerminalConfig(inPane: paneId)
         let requestedRemoteStartupCommand = remoteStartupCommand?.trimmingCharacters(in: .whitespacesAndNewlines)
@@ -10826,7 +11010,10 @@ final class Workspace: Identifiable, ObservableObject {
             initialInput: initialInput,
             additionalEnvironment: effectiveStartupEnvironment
         )
-        configureNewTerminalPanel(newPanel)
+        configureNewTerminalPanel(
+            newPanel,
+            allowTextBoxFocusDefault: focus
+        )
         panels[newPanel.id] = newPanel
         panelTitles[newPanel.id] = newPanel.displayTitle
         if startupCommand != nil {
@@ -10841,6 +11028,10 @@ final class Workspace: Identifiable, ObservableObject {
             isPinned: false
         )
         bindSurface(newTab.id, toPanelId: newPanel.id)
+        let previousFocusedPanelId = focusedPanelId
+        let previousHostedView = previousFocusedPanelId.flatMap {
+            terminalPanel(for: $0)?.hostedView
+        }
 
         isProgrammaticSplit = true
         defer { isProgrammaticSplit = false }
@@ -10853,10 +11044,18 @@ final class Workspace: Identifiable, ObservableObject {
             }
             return nil
         }
-        publishCmuxSplitCreated(newPaneId, sourcePaneId: paneId, orientation: orientation, surfaceId: newPanel.id, kind: "terminal", origin: "terminal_split", focused: true)
+        publishCmuxSplitCreated(newPaneId, sourcePaneId: paneId, orientation: orientation, surfaceId: newPanel.id, kind: "terminal", origin: "terminal_split", focused: focus)
 
-        bonsplitController.selectTab(newTab.id)
-        newPanel.focus()
+        if focus {
+            bonsplitController.selectTab(newTab.id)
+            newPanel.focus()
+        } else if let previousFocusedPanelId {
+            preserveFocusAfterNonFocusSplit(
+                preferredPanelId: previousFocusedPanelId,
+                splitPanelId: newPanel.id,
+                previousHostedView: previousHostedView
+            )
+        }
         rememberTerminalConfigInheritanceSource(newPanel)
         return newPanel
     }
@@ -10908,6 +11107,7 @@ final class Workspace: Identifiable, ObservableObject {
         fromPanelId panelId: UUID,
         snapshot: SessionRestorableAgentSnapshot,
         direction: SplitDirection,
+        focus: Bool = true,
         fileManager: FileManager = .default,
         temporaryDirectory: URL = FileManager.default.temporaryDirectory
     ) -> TerminalPanel? {
@@ -10935,7 +11135,8 @@ final class Workspace: Identifiable, ObservableObject {
             insertFirst: direction.insertFirst,
             workingDirectory: remoteStartupCommand == nil ? workingDirectory : nil,
             initialInput: startupInput,
-            remoteStartupCommand: remoteStartupCommand
+            remoteStartupCommand: remoteStartupCommand,
+            focus: focus
         )
         if let forkedPanel,
            remoteStartupCommand != nil,
@@ -10976,6 +11177,7 @@ final class Workspace: Identifiable, ObservableObject {
         snapshot: SessionRestorableAgentSnapshot,
         anchorTabId: TabID,
         paneId: PaneID,
+        focus: Bool = true,
         fileManager: FileManager = .default,
         temporaryDirectory: URL = FileManager.default.temporaryDirectory
     ) -> TerminalPanel? {
@@ -11000,7 +11202,7 @@ final class Workspace: Identifiable, ObservableObject {
         let targetIndex = insertionIndexToRight(of: anchorTabId, inPane: paneId)
         let forkedPanel = newTerminalSurface(
             inPane: paneId,
-            focus: true,
+            focus: focus,
             workingDirectory: remoteStartupCommand == nil ? workingDirectory : nil,
             initialInput: startupInput
         )
@@ -11121,6 +11323,7 @@ extension Workspace: PaneTreeHosting {
             invalidateSidebarObservation: false
         )
         panelsPublisher.send(newValue)
+        emitConfigTrackingEvent(.structuralChanged)
     }
 
     /// Legacy `@Published paneLayoutVersion` willSet; same contract.

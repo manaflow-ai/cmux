@@ -12,7 +12,8 @@ extension ContentView {
                 commandId: "palette.triggerFlash",
                 title: constant(String(localized: "command.triggerFlash.title", defaultValue: "Flash Focused Panel")),
                 subtitle: constant(String(localized: "command.triggerFlash.subtitle", defaultValue: "View")),
-                keywords: ["flash", "highlight", "focus", "panel"]
+                keywords: ["flash", "highlight", "focus", "panel"],
+                when: { $0.bool(CommandPaletteContextKeys.hasFocusedPanel) }
             ),
             CommandPaletteCommandContribution(
                 commandId: "palette.openTaskManager",
@@ -71,15 +72,59 @@ extension ContentView {
         )
     }
 
-    func registerViewCommandHandlers(_ registry: inout CommandPaletteHandlerRegistry) {
-        registry.register(commandId: "palette.triggerFlash") {
-            tabManager.triggerFocusFlash()
-        }
-        registry.register(commandId: "palette.openTaskManager") {
+    func registerViewCommandHandlers(
+        _ registry: inout CommandPaletteHandlerRegistry,
+        context: CommandPaletteActionContext,
+        showTaskManager: @escaping @MainActor () -> Void = {
             TaskManagerWindowController.shared.show()
-        }
-        registry.register(commandId: "palette.sleepyMode") {
+        },
+        activateSleepyMode: @escaping @MainActor () -> Void = {
             SleepyModeController.shared.activate()
         }
+    ) {
+        registry.register(commandId: "palette.triggerFlash") { _ in
+            guard context.target.windowID == windowId,
+                  context.owningWindowID == windowId,
+                  let (workspace, panelID, _) = context.panel() else {
+                return .targetUnavailable
+            }
+            workspace.triggerFocusFlash(panelId: panelID)
+            return .completed
+        }
+        registry.register(commandId: "palette.openTaskManager") { _ in
+            guard commandPaletteViewPresentationTargetIsAvailable(context) else {
+                return .targetUnavailable
+            }
+            showTaskManager()
+            return .presented
+        }
+        registry.register(commandId: "palette.sleepyMode") { _ in
+            guard commandPaletteViewPresentationTargetIsAvailable(context) else {
+                return .targetUnavailable
+            }
+            activateSleepyMode()
+            return .presented
+        }
+    }
+
+    private func commandPaletteViewPresentationTargetIsAvailable(
+        _ context: CommandPaletteActionContext
+    ) -> Bool {
+        guard context.target.windowID == windowId,
+              context.owningWindowID == windowId,
+              let appDelegate = AppDelegate.shared,
+              let liveContext = appDelegate.liveMainWindowContextForAction(
+                  tabManager: context.tabManager
+              ),
+              liveContext.windowId == context.target.windowID else {
+            return false
+        }
+        if context.target.panelID != nil {
+            return context.panel() != nil
+        }
+        if context.target.workspaceID != nil {
+            return context.workspace() != nil
+        }
+        return true
     }
 }

@@ -145,8 +145,22 @@ enum ReactGrabScriptLoader {
 
 private let reactGrabMessageHandlerName = "cmuxReactGrab"
 
+func reactGrabRequestGenerationJavaScriptLiteral(_ generation: UInt64) -> String {
+    "'\(generation)'"
+}
+
+func reactGrabActivationUpdaterInvocation(
+    receiver: String,
+    active: Bool,
+    requestGeneration: UInt64
+) -> String {
+    let activeLiteral = active ? "true" : "false"
+    return "\(receiver)(\(activeLiteral), " +
+        reactGrabRequestGenerationJavaScriptLiteral(requestGeneration) + ")"
+}
+
 enum ReactGrabBridgeMessage {
-    case stateChange(isActive: Bool)
+    case stateChange(isActive: Bool, requestGeneration: UInt64? = nil)
     case copySuccess(content: String, token: String?)
 
     init?(body: [String: Any]) {
@@ -154,7 +168,11 @@ enum ReactGrabBridgeMessage {
         switch type {
         case "stateChange":
             guard let isActive = body["isActive"] as? Bool else { return nil }
-            self = .stateChange(isActive: isActive)
+            let requestGeneration = (body["requestGeneration"] as? String).flatMap(UInt64.init)
+            self = .stateChange(
+                isActive: isActive,
+                requestGeneration: requestGeneration
+            )
         case "copySuccess":
             guard let content = body["content"] as? String else { return nil }
             self = .copySuccess(content: content, token: body["token"] as? String)
@@ -179,8 +197,12 @@ class ReactGrabMessageHandler: NSObject, WKScriptMessageHandler {
               let bridgeMessage = ReactGrabBridgeMessage(body: body) else { return }
         #if DEBUG
         switch bridgeMessage {
-        case .stateChange(let isActive):
-            cmuxDebugLog("reactGrab.messageHandler type=stateChange isActive=\(isActive)")
+        case .stateChange(let isActive, let requestGeneration):
+            let generationDescription = requestGeneration.map(String.init) ?? "external"
+            cmuxDebugLog(
+                "reactGrab.messageHandler type=stateChange isActive=\(isActive) " +
+                "generation=\(generationDescription)"
+            )
         case .copySuccess(let content, _):
             cmuxDebugLog("reactGrab.messageHandler type=copySuccess len=\(content.count)")
         }
@@ -188,8 +210,12 @@ class ReactGrabMessageHandler: NSObject, WKScriptMessageHandler {
         Task { @MainActor in
             #if DEBUG
             switch bridgeMessage {
-            case .stateChange(let isActive):
-                cmuxDebugLog("reactGrab.messageHandler.mainActor type=stateChange isActive=\(isActive)")
+            case .stateChange(let isActive, let requestGeneration):
+                let generationDescription = requestGeneration.map(String.init) ?? "external"
+                cmuxDebugLog(
+                    "reactGrab.messageHandler.mainActor type=stateChange isActive=\(isActive) " +
+                    "generation=\(generationDescription)"
+                )
             case .copySuccess(let content, _):
                 cmuxDebugLog("reactGrab.messageHandler.mainActor type=copySuccess len=\(content.count)")
             }
@@ -219,8 +245,16 @@ extension BrowserPanel {
     }
 
     func setupReactGrabMessageHandler(for webView: WKWebView) {
-        let handler = ReactGrabMessageHandler { [weak self] message in
-            self?.handleReactGrabBridgeMessage(message)
+        let boundWebViewInstanceID = webViewInstanceID
+        let handler = ReactGrabMessageHandler { [weak self, weak webView] message in
+            guard let self,
+                  let webView,
+                  !self.isClosingWebViewLifecycle,
+                  self.webView === webView,
+                  self.webViewInstanceID == boundWebViewInstanceID else {
+                return
+            }
+            self.handleReactGrabBridgeMessage(message)
         }
         reactGrabMessageHandler = handler
         webView.configuration.userContentController.add(handler, name: reactGrabMessageHandlerName)
@@ -258,8 +292,29 @@ extension BrowserPanel {
 
     func handleReactGrabBridgeMessage(_ message: ReactGrabBridgeMessage) {
         switch message {
-        case .stateChange(let isActive):
+        case .stateChange(let isActive, let requestGeneration):
+            if let requestGeneration {
+                guard requestGeneration == reactGrabStateReconciliationGeneration,
+                      requestedReactGrabActive == isActive,
+                      latestReactGrabRequestedState == isActive else {
+#if DEBUG
+                    cmuxDebugLog(
+                        "reactGrab.stateChange.drop state=\(isActive ? 1 : 0) " +
+                        "generation=\(requestGeneration) " +
+                        "current=\(reactGrabStateReconciliationGeneration)"
+                    )
+#endif
+                    return
+                }
+            } else if let requestedReactGrabActive,
+                      requestedReactGrabActive != isActive {
+                // Unscoped callbacks include plugin initialization and direct
+                // user interaction. While a request is pending, only its
+                // target can confirm the transition.
+                return
+            }
             isReactGrabActive = isActive
+            reactGrabStateConfirmation?.receive(isActive)
 #if DEBUG
             let pendingTarget = pendingReactGrabReturnTargetPanelId.map {
                 String($0.uuidString.prefix(5))
@@ -317,129 +372,347 @@ extension BrowserPanel {
         }
     }
 
-    private func injectReactGrab() async {
+    @discardableResult
+    private func injectReactGrab(requestGeneration: UInt64) async -> Bool {
         #if DEBUG
-        cmuxDebugLog("reactGrab.inject.start")
+        cmuxDebugLog("reactGrab.inject.start generation=\(requestGeneration)")
         #endif
         guard let scriptSource = await ReactGrabScriptLoader.fetch() else {
             #if DEBUG
             cmuxDebugLog("reactGrab.inject.fetchFailed")
             #endif
-            return
+            return false
         }
+        guard !Task.isCancelled, !isClosingWebViewLifecycle else { return false }
         #if DEBUG
         cmuxDebugLog("reactGrab.inject.fetched len=\(scriptSource.count)")
         #endif
 
         let handlerName = reactGrabMessageHandlerName
         let sessionTokenLiteral = reactGrabSessionTokenLiteral()
+        let activationUpdaterName = reactGrabBridgeActivationUpdaterName
+        let requestGenerationLiteral = reactGrabRequestGenerationJavaScriptLiteral(requestGeneration)
+        let existingActivationUpdaterInvocation = reactGrabActivationUpdaterInvocation(
+            receiver: "existingActivationUpdater",
+            active: true,
+            requestGeneration: requestGeneration
+        )
+        let fallbackActivationUpdaterInvocation = reactGrabActivationUpdaterInvocation(
+            receiver: "window[activationUpdaterName]",
+            active: true,
+            requestGeneration: requestGeneration
+        )
         let combined = """
         (function() {
             var handler = window.webkit && window.webkit.messageHandlers && window.webkit.messageHandlers.\(handlerName);
             var updaterName = '\(reactGrabBridgeSessionUpdaterName)';
+            var activationUpdaterName = '\(activationUpdaterName)';
             var refreshSessionToken = function() {
                 var syncToken = window[updaterName];
                 if (typeof syncToken !== 'function') return false;
                 return !!syncToken(\(sessionTokenLiteral));
             };
+            var existingActivationUpdater = window[activationUpdaterName];
+            if (typeof existingActivationUpdater === 'function') {
+                refreshSessionToken();
+                return !!\(existingActivationUpdaterInvocation);
+            }
+            var apiReference = window.__REACT_GRAB__ || null;
+            var desiredActive = true;
+            var desiredRequestGeneration = \(requestGenerationLiteral);
+            var pendingStateTransitions = [];
+            var applyDesiredState = function() {
+                if (!apiReference) return true;
+                pendingStateTransitions.push({
+                    active: desiredActive,
+                    requestGeneration: desiredRequestGeneration
+                });
+                if (pendingStateTransitions.length > 16) {
+                    pendingStateTransitions.splice(0, pendingStateTransitions.length - 16);
+                }
+                if (desiredActive) apiReference.activate();
+                else apiReference.deactivate();
+                return true;
+            };
+            var updateDesiredState = function(active, requestGeneration) {
+                desiredActive = !!active;
+                desiredRequestGeneration = String(requestGeneration || '');
+                return applyDesiredState();
+            };
+            try {
+                Object.defineProperty(window, activationUpdaterName, {
+                    value: updateDesiredState,
+                    writable: false,
+                    configurable: false,
+                    enumerable: false
+                });
+            } catch (_) {
+                if (typeof window[activationUpdaterName] !== 'function') return false;
+                return !!\(fallbackActivationUpdaterInvocation);
+            }
             var installBridge = function(api) {
-                if (!api || window.__CMUX_REACT_GRAB_BRIDGE_INSTALLED__) return;
-                window.__CMUX_REACT_GRAB_BRIDGE_INSTALLED__ = true;
-                var activeToken = null;
-                var syncSessionToken = function(token) {
-                    activeToken = (typeof token === 'string' && token.length > 0) ? token : null;
-                    return true;
-                };
-                try {
-                    Object.defineProperty(window, updaterName, {
-                        value: syncSessionToken,
-                        writable: false,
-                        configurable: false,
-                        enumerable: false
+                if (!api) return false;
+                apiReference = api;
+                if (!window.__CMUX_REACT_GRAB_BRIDGE_INSTALLED__) {
+                    window.__CMUX_REACT_GRAB_BRIDGE_INSTALLED__ = true;
+                    var activeToken = null;
+                    var syncSessionToken = function(token) {
+                        activeToken = (typeof token === 'string' && token.length > 0) ? token : null;
+                        return true;
+                    };
+                    try {
+                        Object.defineProperty(window, updaterName, {
+                            value: syncSessionToken,
+                            writable: false,
+                            configurable: false,
+                            enumerable: false
+                        });
+                    } catch (_) {
+                        if (typeof window[updaterName] !== 'function') return false;
+                    }
+                    api.registerPlugin({
+                        name: 'cmux-bridge',
+                        hooks: {
+                            onStateChange: function(state) {
+                                if (handler) {
+                                    var message = { type: 'stateChange', isActive: state.isActive };
+                                    for (var i = pendingStateTransitions.length - 1; i >= 0; i--) {
+                                        if (pendingStateTransitions[i].active === state.isActive) {
+                                            message.requestGeneration = pendingStateTransitions[i].requestGeneration;
+                                            pendingStateTransitions.splice(i, 1);
+                                            break;
+                                        }
+                                    }
+                                    handler.postMessage(message);
+                                }
+                            },
+                            onCopySuccess: function(elements, content) {
+                                var token = activeToken;
+                                activeToken = null;
+                                if (handler) handler.postMessage({ type: 'copySuccess', content: String(content || ''), token: token });
+                            }
+                        }
                     });
-                } catch (_) {
-                    if (typeof window[updaterName] !== 'function') return;
                 }
                 refreshSessionToken();
-                var lastActive;
-                api.registerPlugin({
-                    name: 'cmux-bridge',
-                    hooks: {
-                        onStateChange: function(state) {
-                            if (state.isActive === lastActive) return;
-                            lastActive = state.isActive;
-                            if (handler) handler.postMessage({ type: 'stateChange', isActive: state.isActive });
-                        },
-                        onCopySuccess: function(elements, content) {
-                            var token = activeToken;
-                            activeToken = null;
-                            if (handler) handler.postMessage({ type: 'copySuccess', content: String(content || ''), token: token });
-                        }
-                    }
-                });
+                return applyDesiredState();
             }
             if (window.__REACT_GRAB__) {
-                installBridge(window.__REACT_GRAB__);
-                refreshSessionToken();
-                window.__REACT_GRAB__.activate();
-                return;
+                return installBridge(window.__REACT_GRAB__);
             }
             window.addEventListener('react-grab:init', function(e) {
                 var api = e.detail;
                 if (!api) return;
                 installBridge(api);
-                refreshSessionToken();
-                api.activate();
             }, { once: true });
+            return true;
         })();
         \(scriptSource)
         """
         #if DEBUG
         cmuxDebugLog("reactGrab.inject.evalJS len=\(combined.count)")
         #endif
-        webView.evaluateJavaScript(combined) { [weak self] _, error in
+        do {
+            _ = try await evaluateJavaScript(combined)
+            guard !Task.isCancelled, !isClosingWebViewLifecycle else { return false }
             #if DEBUG
-            cmuxDebugLog("reactGrab.inject.evalJS.done error=\(error?.localizedDescription ?? "none")")
+            cmuxDebugLog("reactGrab.inject.evalJS.done error=none")
             #endif
-            if let error {
-                NSLog("ReactGrab: injection failed: %@", error.localizedDescription)
-                Task { @MainActor in self?.isReactGrabActive = false }
+            #if DEBUG
+            cmuxDebugLog("reactGrab.inject.end")
+            #endif
+            return true
+        } catch {
+            #if DEBUG
+            cmuxDebugLog("reactGrab.inject.evalJS.done error=\(error.localizedDescription)")
+            #endif
+            NSLog("ReactGrab: injection failed: %@", error.localizedDescription)
+            return false
+        }
+    }
+
+    var reactGrabActivationIntent: Bool {
+        requestedReactGrabActive ?? isReactGrabActive
+    }
+
+    /// Queues an idempotent requested state. Every explicit request supersedes
+    /// the previous generation so an older script fetch, WebKit evaluation, or
+    /// bridge confirmation cannot complete the newer request.
+    @discardableResult
+    func requestReactGrabActive(_ active: Bool, reason: String) -> Bool {
+        guard !isClosingWebViewLifecycle else { return false }
+        requestedReactGrabActive = active
+        latestReactGrabRequestedState = active
+        reactGrabStateReconciliationGeneration &+= 1
+        let requestGeneration = reactGrabStateReconciliationGeneration
+        reactGrabStateReconciliationTask?.cancel()
+        reactGrabStateConfirmation?.cancel()
+        reactGrabStateConfirmation = nil
+        reactGrabStateReconciliationTask = Task { @MainActor [weak self] in
+            guard let self else { return }
+            await self.reconcileReactGrabState(
+                reason: reason,
+                requestGeneration: requestGeneration
+            )
+        }
+        return true
+    }
+
+    /// Requests a state through the serialized reconciler and waits for the
+    /// same bridge confirmation used by automation. Design Mode uses this to
+    /// avoid racing a pending React Grab transition.
+    func requestReactGrabActiveAndWait(_ active: Bool, reason: String) async -> Bool {
+        guard requestReactGrabActive(active, reason: reason) else { return false }
+        let requestGeneration = reactGrabStateReconciliationGeneration
+        let reconciliationTask = reactGrabStateReconciliationTask
+        await reconciliationTask?.value
+        return !Task.isCancelled
+            && !isClosingWebViewLifecycle
+            && reactGrabStateReconciliationGeneration == requestGeneration
+            && requestedReactGrabActive == nil
+            && isReactGrabActive == active
+    }
+
+    private func reconcileReactGrabState(
+        reason: String,
+        requestGeneration: UInt64
+    ) async {
+        defer {
+            if reactGrabStateReconciliationGeneration == requestGeneration {
+                reactGrabStateReconciliationTask = nil
             }
         }
-        #if DEBUG
-        cmuxDebugLog("reactGrab.inject.end")
-        #endif
+
+        guard let requested = requestedReactGrabActive,
+              isCurrentReactGrabRequest(requested, generation: requestGeneration) else {
+            return
+        }
+        let confirmed = await setReactGrabActive(
+            requested,
+            reason: reason,
+            requestGeneration: requestGeneration
+        )
+        guard isCurrentReactGrabRequest(requested, generation: requestGeneration) else {
+            return
+        }
+        requestedReactGrabActive = nil
+        latestReactGrabRequestedState = nil
+        if requested, !confirmed {
+            clearReactGrabRoundTrip(reason: "\(reason).confirmationFailed")
+        }
     }
 
-    private func toggleReactGrab() {
-        #if DEBUG
-        cmuxDebugLog("reactGrab.toggle.start")
-        #endif
-        let script = "window.__REACT_GRAB__?.toggle()"
-        webView.evaluateJavaScript(script, completionHandler: nil)
-        #if DEBUG
-        cmuxDebugLog("reactGrab.toggle.end")
-        #endif
+    private func isCurrentReactGrabRequest(_ active: Bool, generation: UInt64) -> Bool {
+        !Task.isCancelled
+            && !isClosingWebViewLifecycle
+            && reactGrabStateReconciliationGeneration == generation
+            && requestedReactGrabActive == active
     }
 
-    func toggleOrInjectReactGrab() async {
-        if isReactGrabActive {
-            toggleReactGrab()
+    @discardableResult
+    private func setReactGrabActive(
+        _ active: Bool,
+        reason: String,
+        requestGeneration: UInt64
+    ) async -> Bool {
+        guard isCurrentReactGrabRequest(active, generation: requestGeneration) else { return false }
+        if active {
+            guard await prepareForReactGrabActivation(reason: reason) else { return false }
+            guard isCurrentReactGrabRequest(active, generation: requestGeneration) else { return false }
+            if isReactGrabActive {
+                guard pendingReactGrabRoundTripToken != nil else { return true }
+                if await refreshReactGrabBridgeSessionToken() {
+                    return isCurrentReactGrabRequest(active, generation: requestGeneration)
+                }
+                guard isCurrentReactGrabRequest(active, generation: requestGeneration) else { return false }
+            }
+        }
+
+        guard isCurrentReactGrabRequest(active, generation: requestGeneration) else { return false }
+        reactGrabStateConfirmation?.cancel()
+        let confirmation = ReactGrabStateConfirmation(target: active)
+        reactGrabStateConfirmation = confirmation
+
+        let accepted: Bool
+        if active {
+            accepted = await injectReactGrab(requestGeneration: requestGeneration)
         } else {
-            guard await prepareForReactGrabActivation(reason: "reactGrab.toggle") else { return }
-            await injectReactGrab()
+            accepted = await requestReactGrabDeactivation(
+                reason: reason,
+                requestGeneration: requestGeneration
+            )
+        }
+        guard accepted,
+              isCurrentReactGrabRequest(active, generation: requestGeneration) else {
+            if reactGrabStateConfirmation === confirmation {
+                reactGrabStateConfirmation = nil
+            }
+            confirmation.cancel()
+            return false
+        }
+
+        // The bridge callback may have arrived synchronously during script
+        // evaluation. Otherwise this preserves the requested intent until the
+        // authoritative state callback or the bounded timeout.
+        if isReactGrabActive == active {
+            confirmation.receive(active)
+        }
+        let confirmed = await confirmation.wait()
+        if reactGrabStateConfirmation === confirmation {
+            reactGrabStateConfirmation = nil
+        }
+        confirmation.cancel()
+        guard isCurrentReactGrabRequest(active, generation: requestGeneration) else { return false }
+        if confirmed, !active {
+            clearReactGrabRoundTrip(reason: "\(reason).deactivate")
+        }
+        return confirmed
+    }
+
+    private func requestReactGrabDeactivation(
+        reason: String,
+        requestGeneration: UInt64
+    ) async -> Bool {
+        do {
+            let updaterName = reactGrabBridgeActivationUpdaterName
+            let deactivationUpdaterInvocation = reactGrabActivationUpdaterInvocation(
+                receiver: "updateDesiredState",
+                active: false,
+                requestGeneration: requestGeneration
+            )
+            let result = try await evaluateJavaScript(
+                """
+                (function() {
+                    var updateDesiredState = window['\(updaterName)'];
+                    if (typeof updateDesiredState === 'function') {
+                        return !!\(deactivationUpdaterInvocation);
+                    }
+                    var api = window.__REACT_GRAB__;
+                    if (!api) return true;
+                    api.deactivate();
+                    return true;
+                })();
+                """
+            )
+            guard !Task.isCancelled, !isClosingWebViewLifecycle else { return false }
+            return (result as? Bool) ?? false
+        } catch {
+#if DEBUG
+            cmuxDebugLog("reactGrab.deactivate.error reason=\(reason) error=\(error.localizedDescription)")
+#endif
+            return false
         }
     }
 
-    func ensureReactGrabActive() async {
-        guard await prepareForReactGrabActivation(reason: "reactGrab.ensureActive") else { return }
-        if isReactGrabActive {
-            guard pendingReactGrabRoundTripToken != nil else { return }
-            if await refreshReactGrabBridgeSessionToken() {
-                return
-            }
-        }
-        await injectReactGrab()
+    @discardableResult
+    func toggleOrInjectReactGrab() async -> Bool {
+        let desired = !reactGrabActivationIntent
+        return await requestReactGrabActiveAndWait(desired, reason: "reactGrab.toggle")
+    }
+
+    @discardableResult
+    func ensureReactGrabActive() async -> Bool {
+        await requestReactGrabActiveAndWait(true, reason: "reactGrab.ensureActive")
     }
 
     @discardableResult
@@ -471,6 +744,13 @@ extension BrowserPanel {
             "pending=\(pendingTarget) active=\(isReactGrabActive ? 1 : 0)"
         )
 #endif
+        reactGrabStateReconciliationGeneration &+= 1
+        reactGrabStateReconciliationTask?.cancel()
+        reactGrabStateReconciliationTask = nil
+        reactGrabStateConfirmation?.cancel()
+        reactGrabStateConfirmation = nil
+        requestedReactGrabActive = nil
+        latestReactGrabRequestedState = nil
         isReactGrabActive = false
         if !preserveRoundTrip {
             clearReactGrabRoundTrip(reason: reason)

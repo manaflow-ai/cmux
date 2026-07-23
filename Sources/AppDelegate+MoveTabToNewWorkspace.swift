@@ -78,6 +78,7 @@ extension AppDelegate {
     @discardableResult
     func moveSurfaceToNewWorkspace(
         panelId: UUID,
+        sourceWorkspaceID: UUID? = nil,
         destinationManager: TabManager? = nil,
         title: String? = nil,
         focus: Bool = true,
@@ -86,6 +87,7 @@ extension AppDelegate {
         insertionIndexOverride: Int? = nil
     ) -> SurfaceNewWorkspaceMoveResult? {
         guard let source = locateSurface(surfaceId: panelId),
+              sourceWorkspaceID.map({ $0 == source.workspaceId }) ?? true,
               let sourceWorkspace = source.tabManager.tabs.first(where: { $0.id == source.workspaceId }),
               let sourcePanel = sourceWorkspace.panels[panelId],
               sourceWorkspace.panels.count > 1 else {
@@ -114,7 +116,8 @@ extension AppDelegate {
             select: false,
             placementOverride: placementOverride,
             insertionIndexOverride: insertionIndexOverride,
-            focusIntent: activationIntent
+            focusIntent: activationIntent,
+            sourceWorkspaceID: targetManager === source.tabManager ? sourceWorkspaceID : nil
         ) else {
             rollbackDetachedSurface(
                 detached,

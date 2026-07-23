@@ -29,9 +29,18 @@ extension TabManager {
         select: Bool = true,
         placementOverride: WorkspacePlacement? = nil,
         insertionIndexOverride: Int? = nil,
-        focusIntent: PanelFocusIntent? = nil
+        focusIntent: PanelFocusIntent? = nil,
+        sourceWorkspaceID: UUID? = nil
     ) -> Workspace? {
-        let sourceWorkspace = selectedWorkspace
+        let sourceWorkspace: Workspace?
+        if let sourceWorkspaceID {
+            guard let explicitSource = tabs.first(where: { $0.id == sourceWorkspaceID }) else {
+                return nil
+            }
+            sourceWorkspace = explicitSource
+        } else {
+            sourceWorkspace = selectedWorkspace
+        }
         let capturedTabs = tabs
         let capturedSelectedTabId = sourceWorkspace?.id
 

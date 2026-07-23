@@ -73,7 +73,10 @@ private func makeCoordinator(
     unreadTargeting: FakeUnreadTargeting = FakeUnreadTargeting(),
     openRouting: FakeOpenRouting = FakeOpenRouting(),
     clickRouting: FakeClickRouting = FakeClickRouting(),
-    focusedResolving: FakeFocusedResolving = FakeFocusedResolving()
+    focusedResolving: FakeFocusedResolving = FakeFocusedResolving(),
+    focusedJumpWithOutcome: (
+        (UUID?, UUID?) -> (openedNotificationId: UUID?, didOpen: Bool)
+    )? = nil
 ) -> NotificationNavigationCoordinator {
     NotificationNavigationCoordinator(
         store: store,
@@ -81,7 +84,8 @@ private func makeCoordinator(
         unreadTargeting: unreadTargeting,
         openRouting: openRouting,
         clickRouting: clickRouting,
-        focusedResolving: focusedResolving
+        focusedResolving: focusedResolving,
+        focusedJumpWithOutcome: focusedJumpWithOutcome
     )
 }
 
@@ -164,6 +168,107 @@ struct NotificationNavigationCoordinatorTests {
         let openedId = coordinator.jumpToLatestUnread(excludingNotificationId: excluded.id)
 
         #expect(openedId == next.id)
+    }
+
+    @Test("typed jump reports completion for an opened notification")
+    func typedJumpCompletesForNotification() {
+        let store = FakeStore()
+        let notification = snapshot(tabId: UUID())
+        store.orderedNotifications = [notification]
+        let coordinator = makeCoordinator(store: store)
+
+        #expect(coordinator.jumpToLatestUnreadWithOutcome() == .completed)
+    }
+
+    @Test("jump availability follows openable notifications and reachable unread workspaces")
+    func jumpAvailabilityUsesCurrentTargets() {
+        let store = FakeStore()
+        let windows = FakeWindows()
+        let focusedResolving = FakeFocusedResolving()
+        let coordinator = makeCoordinator(
+            store: store,
+            windows: windows,
+            focusedResolving: focusedResolving
+        )
+
+        #expect(!coordinator.canJumpToLatestUnread)
+
+        store.orderedNotifications = [snapshot(tabId: UUID())]
+        #expect(coordinator.canJumpToLatestUnread)
+
+        store.orderedNotifications = [
+            snapshot(tabId: UUID(), clickAction: .revealInFinder(path: "/tmp/item")),
+        ]
+        #expect(!coordinator.canJumpToLatestUnread)
+
+        let reachableWorkspace = UUID()
+        store.workspaceUnreadIndicatorIds = [reachableWorkspace]
+        #expect(!coordinator.canJumpToLatestUnread)
+        windows.orderedTargetsForUnreadJump = [
+            MainWindowTarget(windowId: UUID(), workspaceIds: [reachableWorkspace]),
+        ]
+        #expect(coordinator.canJumpToLatestUnread)
+
+        focusedResolving.hasNotificationStore = false
+        #expect(!coordinator.canJumpToLatestUnread)
+    }
+
+    @Test("typed jump reports completion for a workspace fallback")
+    func typedJumpCompletesForWorkspaceFallback() {
+        let store = FakeStore()
+        let windows = FakeWindows()
+        let tab = UUID()
+        store.workspaceUnreadIndicatorIds = [tab]
+        windows.orderedTargetsForUnreadJump = [
+            MainWindowTarget(windowId: UUID(), workspaceIds: [tab]),
+        ]
+        let coordinator = makeCoordinator(store: store, windows: windows)
+
+        #expect(coordinator.jumpToLatestUnreadWithOutcome() == .completed)
+    }
+
+    @Test("typed jump reports not applicable when nothing opens")
+    func typedJumpReportsNotApplicable() {
+        let coordinator = makeCoordinator()
+
+        #expect(coordinator.jumpToLatestUnreadWithOutcome() == .notApplicable)
+    }
+
+    @Test("typed jump reports target unavailable without a notification store")
+    func typedJumpReportsTargetUnavailable() {
+        let focusedResolving = FakeFocusedResolving()
+        focusedResolving.hasNotificationStore = false
+        let coordinator = makeCoordinator(focusedResolving: focusedResolving)
+
+        #expect(coordinator.jumpToLatestUnreadWithOutcome() == .targetUnavailable)
+    }
+
+    @Test("exact mark-and-jump uses the injected outcome-aware jump route")
+    func exactMarkUsesInjectedOutcomeJump() {
+        let tab = UUID(), panelId = UUID(), deferredNotificationId = UUID()
+        let panel = FocusedPanel(tabId: tab, panelId: panelId)
+        let focusedResolving = FakeFocusedResolving()
+        focusedResolving.existingWorkspaceIds = [tab]
+        focusedResolving.panelByTabSurface[.init(tabId: tab, surfaceId: panelId)] = panel
+        focusedResolving.oldestUnreadIdByTab[tab] = deferredNotificationId
+        var calls: [(UUID?, UUID?)] = []
+        let coordinator = makeCoordinator(
+            focusedResolving: focusedResolving,
+            focusedJumpWithOutcome: { excludedNotificationId, excludedWorkspaceId in
+                calls.append((excludedNotificationId, excludedWorkspaceId))
+                return (nil, true)
+            }
+        )
+
+        #expect(
+            coordinator.markNotificationAsOldestUnreadAndJumpToNextLatestUnread(
+                workspaceId: tab,
+                panelId: panelId
+            ) == .completed
+        )
+        #expect(calls.count == 1)
+        #expect(calls.first?.0 == deferredNotificationId)
+        #expect(calls.first?.1 == nil)
     }
 
     // MARK: - Workspace-unread fallback + flash/clear

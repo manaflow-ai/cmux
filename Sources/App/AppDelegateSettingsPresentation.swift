@@ -6,6 +6,7 @@ import AppKit
 /// Settings window lifecycle (https://github.com/manaflow-ai/cmux/issues/7777).
 extension AppDelegate {
     @MainActor
+    @discardableResult
     static func presentPreferencesWindow(
         navigationTarget: SettingsNavigationTarget? = nil,
         // Test seam only; a substitute presenter must still report a
@@ -18,30 +19,36 @@ extension AppDelegate {
         activateApplication: @MainActor () -> Void = {
             NSRunningApplication.current.activate(options: [.activateAllWindows])
         }
-    ) {
+    ) -> SettingsWindowShowResult {
 #if DEBUG
         cmuxDebugLog("settings.open.present path=appkitWindow")
 #endif
         let present = presentSettingsWindow
             ?? { SettingsWindowPresenter.show(navigationTarget: $0) }
-        if case .failed = present(navigationTarget) {
+        let result = present(navigationTarget)
+        if case .failed = result {
             // The presenter already logged the loud failure diagnostics;
             // surface the failed menu/⌘, action instead of silently activating.
             NSSound.beep()
-            return
+            return result
         }
         activateApplication()
 #if DEBUG
         cmuxDebugLog("settings.open.present activate=1")
 #endif
+        return result
     }
 
     @MainActor
-    func openPreferencesWindow(debugSource: String, navigationTarget: SettingsNavigationTarget? = nil) {
+    @discardableResult
+    func openPreferencesWindow(
+        debugSource: String,
+        navigationTarget: SettingsNavigationTarget? = nil
+    ) -> SettingsWindowShowResult {
 #if DEBUG
         cmuxDebugLog("settings.open.request source=\(debugSource)")
 #endif
-        Self.presentPreferencesWindow(navigationTarget: navigationTarget)
+        return Self.presentPreferencesWindow(navigationTarget: navigationTarget)
     }
 
     @objc func openPreferencesWindow() {

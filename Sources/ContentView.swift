@@ -4,6 +4,7 @@ import CmuxCommandPalette
 import CmuxCore
 import CmuxFeedback
 import CmuxFoundation
+import CmuxNotifications
 import CmuxPanes
 import CmuxSettings
 import CmuxWorkspaces
@@ -718,7 +719,7 @@ private func installFileDropOverlayWhenReady(
 }
 
 @MainActor
-private final class SelectedWorkspaceDirectoryObserver: ObservableObject {
+private final class RightSidebarWorkspaceDirectoryObserver: ObservableObject {
     private struct Snapshot: Equatable {
         let workspaceId: UUID?
         let currentDirectory: String?
@@ -731,18 +732,46 @@ private final class SelectedWorkspaceDirectoryObserver: ObservableObject {
 
     @Published private(set) var directoryChangeGeneration: UInt64 = 0
     private weak var tabManager: TabManager?
+    private weak var fileExplorerState: FileExplorerState?
     private var cancellable: AnyCancellable?
 
-    func wire(tabManager: TabManager) {
-        guard self.tabManager !== tabManager || cancellable == nil else { return }
+    func wire(tabManager: TabManager, fileExplorerState: FileExplorerState) {
+        guard self.tabManager !== tabManager
+                || self.fileExplorerState !== fileExplorerState
+                || cancellable == nil else {
+            return
+        }
         self.tabManager = tabManager
-        cancellable = tabManager.selectedTabIdPublisher
-            .map { [weak tabManager] tabId -> Workspace? in
-                guard let tabId, let tabManager else { return nil }
-                return tabManager.tabs.first(where: { $0.id == tabId })
+        self.fileExplorerState = fileExplorerState
+        cancellable = Publishers.CombineLatest4(
+            tabManager.tabsPublisher,
+            tabManager.selectedTabIdPublisher,
+            fileExplorerState.$rightSidebarContentWorkspaceID,
+            fileExplorerState.$rightSidebarContentPanelID
+        )
+            .map { tabs, selectedWorkspaceID, explicitWorkspaceID, explicitPanelID
+                -> (workspace: Workspace?, requiredPanelID: UUID?) in
+                // A panel-only value is the fail-closed transient while an
+                // explicit binding is being published. Never pair it with the
+                // selected workspace.
+                guard explicitWorkspaceID != nil || explicitPanelID == nil else {
+                    return (nil, explicitPanelID)
+                }
+                let workspaceID = explicitWorkspaceID ?? selectedWorkspaceID
+                let workspace = workspaceID.flatMap { workspaceID in
+                    tabs.first(where: { $0.id == workspaceID })
+                }
+                return (
+                    workspace,
+                    explicitWorkspaceID == nil ? nil : explicitPanelID
+                )
             }
-            .removeDuplicates(by: { $0?.id == $1?.id })
-            .map { workspace -> AnyPublisher<(Snapshot, UInt64), Never> in
+            .removeDuplicates(by: {
+                $0.workspace === $1.workspace
+                    && $0.requiredPanelID == $1.requiredPanelID
+            })
+            .map { target -> AnyPublisher<(Snapshot, UInt64, String?), Never> in
+                let workspace = target.workspace
                 guard let workspace else {
                     return Just(
                         Snapshot(
@@ -755,7 +784,7 @@ private final class SelectedWorkspaceDirectoryObserver: ObservableObject {
                             activeRemoteTerminalSessionCount: 0
                         )
                     )
-                    .map { ($0, UInt64(0)) }
+                    .map { ($0, UInt64(0), nil) }
                     .eraseToAnyPublisher()
                 }
                 let directoryChangeRevision = workspace.currentDirectoryChangeRevisionPublisher()
@@ -769,7 +798,19 @@ private final class SelectedWorkspaceDirectoryObserver: ObservableObject {
                         workspace.$remoteDaemonStatus,
                         workspace.$activeRemoteTerminalSessionCount
                     )
-                    .map { values in
+                    .combineLatest(workspace.panelsPublisher)
+                    .map { values, panels in
+                        guard target.requiredPanelID.map({ panels[$0] != nil }) ?? true else {
+                            return Snapshot(
+                                workspaceId: nil,
+                                currentDirectory: nil,
+                                remoteConfiguration: nil,
+                                remoteConnectionState: nil,
+                                remoteConnectionDetail: nil,
+                                remoteDaemonStatus: nil,
+                                activeRemoteTerminalSessionCount: 0
+                            )
+                        }
                         let (
                             previousValues,
                             remoteDaemonStatus,
@@ -793,11 +834,21 @@ private final class SelectedWorkspaceDirectoryObserver: ObservableObject {
                             activeRemoteTerminalSessionCount: activeRemoteTerminalSessionCount
                         )
                     }
-                    .combineLatest(directoryChangeRevision)
+                    .combineLatest(directoryChangeRevision, workspace.$panelDirectories)
+                    .map { snapshot, revision, _ in
+                        let targetDirectory = target.requiredPanelID.flatMap { panelID in
+                            workspace.usesRemoteDirectoryProvenance
+                                ? workspace.reportedPanelDirectory(panelId: panelID)
+                                : workspace.effectivePanelDirectory(panelId: panelID)
+                        }
+                        return (snapshot, revision, targetDirectory)
+                    }
                     .eraseToAnyPublisher()
             }
             .switchToLatest()
-            .removeDuplicates { lhs, rhs in lhs.0 == rhs.0 && lhs.1 == rhs.1 }
+            .removeDuplicates { lhs, rhs in
+                lhs.0 == rhs.0 && lhs.1 == rhs.1 && lhs.2 == rhs.2
+            }
             .receive(on: DispatchQueue.main)
             .sink { [weak self] _ in
                 self?.directoryChangeGeneration &+= 1
@@ -863,7 +914,7 @@ struct ContentView: View {
     @StateObject private var fullscreenControlsViewModel = TitlebarControlsViewModel()
     @StateObject private var fileExplorerStore = FileExplorerStore()
     @StateObject private var sessionIndexStore = SessionIndexStore()
-    @StateObject private var selectedWorkspaceDirectoryObserver = SelectedWorkspaceDirectoryObserver()
+    @StateObject private var rightSidebarWorkspaceDirectoryObserver = RightSidebarWorkspaceDirectoryObserver()
     @State private var commandPaletteOverlayRenderModel = CommandPaletteOverlayRenderModel()
     @State private var backgroundWorkspacePrimeCoordinator = BackgroundWorkspacePrimeCoordinator()
     @State private var workspacePresentationModeRuntimeCache = WorkspacePresentationModeRuntimeCache()
@@ -1850,6 +1901,13 @@ struct ContentView: View {
         fileExplorerState.isVisible
     }
 
+    private var rightSidebarContentTarget: (workspace: Workspace, panelID: UUID?)? {
+        tabManager.rightSidebarContentTarget(
+            explicitWorkspaceID: fileExplorerState.rightSidebarContentWorkspaceID,
+            explicitPanelID: fileExplorerState.rightSidebarContentPanelID
+        )
+    }
+
     private var rightSidebarWidth: CGFloat {
         rightSidebarVisible ? fileExplorerWidth : 0
     }
@@ -1915,7 +1973,7 @@ struct ContentView: View {
             sessionIndexStore: sessionIndexStore,
             titlebarHeight: RightSidebarChromeMetrics.titlebarHeight,
             windowAppearance: appearance,
-            workspaceId: tabManager.selectedTabId,
+            workspaceId: rightSidebarContentTarget?.workspace.id,
             onResumeSession: { entry in
                 resumeSession(entry: entry)
             },
@@ -2330,33 +2388,54 @@ struct ContentView: View {
 
     func openRightSidebarToolPane(_ mode: RightSidebarMode) {
         guard mode.canOpenAsPane,
-              let workspace = tabManager.selectedWorkspace,
-              let paneId = workspace.bonsplitController.focusedPaneId ?? workspace.bonsplitController.allPaneIds.first else {
+              let target = rightSidebarContentTarget,
+              let paneId = target.panelID.flatMap({ target.workspace.paneId(forPanelId: $0) })
+                ?? target.workspace.bonsplitController.focusedPaneId
+                ?? target.workspace.bonsplitController.allPaneIds.first else {
             NSSound.beep()
             return
         }
 
         sidebarSelectionState.selection = .tabs
-        workspace.clearSplitZoom()
-        _ = workspace.openOrFocusRightSidebarToolSurface(inPane: paneId, mode: mode, focus: true)
+        target.workspace.clearSplitZoom()
+        guard target.workspace.openOrFocusRightSidebarToolSurface(
+            inPane: paneId,
+            mode: mode,
+            focus: tabManager.selectedTabId == target.workspace.id,
+            sourcePanelID: target.panelID
+        ) != nil else {
+            NSSound.beep()
+            return
+        }
     }
 
     private func openFilePreviewFromSidebar(filePath: String) {
-        guard let workspace = tabManager.selectedWorkspace else { return }
-        guard let paneId = workspace.bonsplitController.focusedPaneId ?? workspace.bonsplitController.allPaneIds.first else {
+        guard let target = rightSidebarContentTarget else { return }
+        let workspace = target.workspace
+        guard let paneId = target.panelID.flatMap({ workspace.paneId(forPanelId: $0) })
+                ?? workspace.bonsplitController.focusedPaneId
+                ?? workspace.bonsplitController.allPaneIds.first else {
             return
         }
+        let workspaceID = workspace.id
+        let sourcePanelID = target.panelID
+        let shouldFocus = tabManager.selectedTabId == workspaceID
 
         sidebarSelectionState.selection = .tabs
         if workspace.isRemoteWorkspace {
-            Task { [weak workspace, fileExplorerStore] in
-                guard let workspace else { return }
+            Task { [weak workspace, weak tabManager, fileExplorerStore] in
+                guard let workspace, let tabManager else { return }
                 do {
                     let localURL = try await fileExplorerStore.materializeRemoteFileForPreview(path: filePath)
+                    guard tabManager.tabs.contains(where: { $0 === workspace }),
+                          sourcePanelID.map({ workspace.panels[$0] != nil }) ?? true,
+                          workspace.bonsplitController.allPaneIds.contains(paneId) else {
+                        return
+                    }
                     _ = workspace.openFileSurfaces(
                         inPane: paneId,
                         filePaths: [localURL.path],
-                        focus: true,
+                        focus: shouldFocus,
                         reuseExisting: true
                     )
                 } catch {
@@ -2368,20 +2447,20 @@ struct ContentView: View {
         _ = workspace.openFileSurfaces(
             inPane: paneId,
             filePaths: [filePath],
-            focus: true,
+            focus: shouldFocus,
             reuseExisting: true
         )
     }
 
     private func syncFileExplorerDirectory() {
-        guard let selectedId = tabManager.selectedTabId,
-              let tab = tabManager.tabs.first(where: { $0.id == selectedId }) else {
+        guard let target = rightSidebarContentTarget else {
             // No selection means we have no local cwd to scope by; clear so the
             // sessions panel doesn't keep filtering by a stale previous tab.
             sessionIndexStore.setCurrentDirectoryIfChanged(nil)
             fileExplorerStore.applyWorkspaceRoot(.none)
             return
         }
+        let tab = target.workspace
 
         fileExplorerStore.showHiddenFiles = true
 
@@ -2394,6 +2473,16 @@ struct ContentView: View {
             guard let config = tab.remoteConfiguration, config.transport == .ssh else {
                 fileExplorerStore.applyWorkspaceRoot(.none)
                 return
+            }
+            let rootPath: String?
+            if let panelID = target.panelID {
+                guard let panelDirectory = tab.reportedPanelDirectory(panelId: panelID) else {
+                    fileExplorerStore.applyWorkspaceRoot(.none)
+                    return
+                }
+                rootPath = panelDirectory
+            } else {
+                rootPath = tab.trustedRemoteCurrentDirectory
             }
             let unavailableDetail = tab.remoteConnectionDetail ?? tab.remoteDaemonStatus.detail
 
@@ -2418,7 +2507,7 @@ struct ContentView: View {
                         sshOptions: config.sshOptions
                     ),
                     displayTarget: config.displayTarget,
-                    rootPath: tab.trustedRemoteCurrentDirectory,
+                    rootPath: rootPath,
                     isAvailable: tab.remoteConnectionState == .connected,
                     unavailableDetail: unavailableDetail
                 )
@@ -2426,7 +2515,17 @@ struct ContentView: View {
             return
         }
 
-        let dir = tab.currentDirectory.trimmingCharacters(in: .whitespacesAndNewlines)
+        let dir: String
+        if let panelID = target.panelID {
+            guard let panelDirectory = tab.effectivePanelDirectory(panelId: panelID) else {
+                sessionIndexStore.setCurrentDirectoryIfChanged(nil)
+                fileExplorerStore.applyWorkspaceRoot(.none)
+                return
+            }
+            dir = panelDirectory.trimmingCharacters(in: .whitespacesAndNewlines)
+        } else {
+            dir = tab.currentDirectory.trimmingCharacters(in: .whitespacesAndNewlines)
+        }
         guard !dir.isEmpty else {
             sessionIndexStore.setCurrentDirectoryIfChanged(nil)
             fileExplorerStore.applyWorkspaceRoot(.none)
@@ -2551,7 +2650,10 @@ struct ContentView: View {
         )
 
         view = AnyView(view.onAppear {
-            selectedWorkspaceDirectoryObserver.wire(tabManager: tabManager)
+            rightSidebarWorkspaceDirectoryObserver.wire(
+                tabManager: tabManager,
+                fileExplorerState: fileExplorerState
+            )
             tabManager.applyWindowBackgroundForSelectedTab()
             reconcileMountedWorkspaceIds()
             previousSelectedWorkspaceId = tabManager.selectedTabId
@@ -2621,6 +2723,12 @@ struct ContentView: View {
         })
 
         view = AnyView(view.onChange(of: tabManager.selectedTabId) { newValue in
+            let hadExplicitRightSidebarBinding = fileExplorerState.rightSidebarContentWorkspaceID != nil
+                || fileExplorerState.rightSidebarContentPanelID != nil
+            fileExplorerState.clearRightSidebarContentBinding()
+            if hadExplicitRightSidebarBinding {
+                syncFileExplorerDirectory()
+            }
 #if DEBUG
             if let snapshot = tabManager.debugCurrentWorkspaceSwitchSnapshot() {
                 let dtMs = (CACurrentMediaTime() - snapshot.startedAt) * 1000
@@ -2652,7 +2760,7 @@ struct ContentView: View {
         })
 
         // File explorer: keep the Combine subscription stable across body re-evaluations.
-        view = AnyView(view.onChange(of: selectedWorkspaceDirectoryObserver.directoryChangeGeneration) { _ in
+        view = AnyView(view.onChange(of: rightSidebarWorkspaceDirectoryObserver.directoryChangeGeneration) { _ in
             syncFileExplorerDirectory()
         })
 
@@ -3302,7 +3410,10 @@ struct ContentView: View {
             sidebarState: sidebarState,
             sidebarSelectionState: sidebarSelectionState,
             fileExplorerState: fileExplorerState,
-            cmuxConfigStore: cmuxConfigStore
+            cmuxConfigStore: cmuxConfigStore,
+            commandPaletteControlHandler: { request in
+                handleCommandPaletteControlRequest(request)
+            }
         )
         installFileDropOverlayWhenReady(on: window, tabManager: tabManager)
     }
@@ -5211,6 +5322,13 @@ struct ContentView: View {
     private func commandPaletteCommandsFingerprint(commandsContext: CommandPaletteCommandsContext) -> Int {
         var hasher = Hasher()
         hasher.combine(commandsContext.snapshot.fingerprint())
+        let target = currentCommandPaletteActionTarget()
+        hasher.combine(target.windowID)
+        hasher.combine(target.workspaceID)
+        hasher.combine(target.panelID)
+        hasher.combine(CmuxConfigStore.actionCatalogCacheKey(
+            startingFrom: commandPaletteConfigDirectory(for: target)
+        ))
         hasher.combine(cmuxConfigStore.configRevision)
         return hasher.finalize()
     }
@@ -5368,12 +5486,14 @@ struct ContentView: View {
                         kindLabel: String(localized: "commandPalette.kind.workspace", defaultValue: "Workspace"),
                         keywords: workspaceKeywords,
                         dismissOnRun: true,
-                        action: {
+                        handler: { _ in
                             focusCommandPaletteSwitcherTarget(
                                 windowId: windowId,
                                 tabManager: windowTabManager,
                                 workspaceId: workspaceId
                             )
+                                ? .queued
+                                : .targetUnavailable
                         }
                     )
                 )
@@ -5413,13 +5533,15 @@ struct ContentView: View {
                             kindLabel: surfaceKindLabel,
                             keywords: surfaceKeywords,
                             dismissOnRun: true,
-                            action: {
+                            handler: { _ in
                                 focusCommandPaletteSwitcherSurfaceTarget(
                                     windowId: windowId,
                                     tabManager: windowTabManager,
                                     workspaceId: workspace.id,
                                     panelId: panelId
                                 )
+                                    ? .queued
+                                    : .targetUnavailable
                             }
                         )
                     )
@@ -5523,7 +5645,11 @@ struct ContentView: View {
         windowId: UUID,
         tabManager: TabManager,
         workspaceId: UUID
-    ) {
+    ) -> Bool {
+        guard AppDelegate.shared?.mainWindow(for: windowId) != nil,
+              tabManager.tabs.contains(where: { $0.id == workspaceId }) else {
+            return false
+        }
         // Switcher commands dismiss the palette after action dispatch.
         // Defer focus mutation one turn so browser omnibar autofocus can run
         // without being blocked by the palette-visibility guard.
@@ -5535,6 +5661,7 @@ struct ContentView: View {
                 dismissRestoredUnreadOnResume: true
             )
         }
+        return true
     }
 
     private func focusCommandPaletteSwitcherSurfaceTarget(
@@ -5542,7 +5669,12 @@ struct ContentView: View {
         tabManager: TabManager,
         workspaceId: UUID,
         panelId: UUID
-    ) {
+    ) -> Bool {
+        guard AppDelegate.shared?.mainWindow(for: windowId) != nil,
+              let workspace = tabManager.tabs.first(where: { $0.id == workspaceId }),
+              workspace.panels[panelId] != nil else {
+            return false
+        }
         DispatchQueue.main.async {
             _ = AppDelegate.shared?.focusMainWindow(windowId: windowId)
             tabManager.focusTab(
@@ -5552,6 +5684,7 @@ struct ContentView: View {
                 dismissRestoredUnreadOnResume: true
             )
         }
+        return true
     }
 
     private func commandPaletteWorkspaceSearchMetadata(for workspace: Workspace) -> CommandPaletteSwitcherSearchMetadata {
@@ -5637,10 +5770,12 @@ struct ContentView: View {
         )
     }
     private func resolveCommandPaletteTerminalOpenTargets(
-        for scope: CommandPaletteListScope
+        for scope: CommandPaletteListScope,
+        target: CommandPaletteActionTarget? = nil
     ) -> Set<TerminalDirectoryOpenTarget> {
+        let actionTarget = target ?? currentCommandPaletteActionTarget()
         guard scope == .commands,
-              focusedPanelContext?.panel.panelType == .terminal else {
+              commandPalettePanelContext(for: actionTarget)?.panel.panelType == .terminal else {
             return []
         }
         return TerminalDirectoryOpenTarget.availableTargets()
@@ -6550,10 +6685,14 @@ struct ContentView: View {
     }
 
     private func commandPaletteCommandsContext(
-        terminalOpenTargets: Set<TerminalDirectoryOpenTarget>
+        terminalOpenTargets: Set<TerminalDirectoryOpenTarget>,
+        target: CommandPaletteActionTarget? = nil
     ) -> CommandPaletteCommandsContext {
         let cliInstalledInPATH = AppDelegate.shared?.isCmuxCLIInstalledInPATH() ?? false
-        var snapshot = commandPaletteContextSnapshot(terminalOpenTargets: terminalOpenTargets)
+        var snapshot = commandPaletteContextSnapshot(
+            terminalOpenTargets: terminalOpenTargets,
+            target: target
+        )
         snapshot.setBool(CommandPaletteContextKeys.cliInstalledInPATH, cliInstalledInPATH)
         snapshot.setBool(
             CommandPaletteContextKeys.defaultTerminalIsDefault,
@@ -6567,18 +6706,281 @@ struct ContentView: View {
     private func commandPaletteCommands(
         commandsContext: CommandPaletteCommandsContext
     ) -> [CommandPaletteCommand] {
-        let context = commandsContext.snapshot
-        let contributions = commandPaletteCommandContributions()
-        var handlerRegistry = CommandPaletteHandlerRegistry()
-        registerCommandPaletteHandlers(&handlerRegistry)
+        commandPaletteActionRegistry(commandsContext: commandsContext).actions
+    }
 
-        var commands: [CommandPaletteCommand] = []
-        commands.reserveCapacity(contributions.count)
+    var commandPaletteTargetWindow: NSWindow? {
+        guard let appDelegate = AppDelegate.shared,
+              appDelegate.mainWindowContext(for: tabManager)?.windowId == windowId else {
+            return nil
+        }
+        return appDelegate.mainWindow(for: windowId)
+    }
+
+    private func commandPaletteWindow(for context: CommandPaletteActionContext) -> NSWindow? {
+        guard context.target.windowID == windowId else { return nil }
+        return commandPaletteTargetWindow
+    }
+
+    private func commandPaletteTargetIsLive(_ context: CommandPaletteActionContext) -> Bool {
+        guard commandPaletteWindow(for: context) != nil else { return false }
+        if context.target.workspaceID != nil, context.workspace() == nil {
+            return false
+        }
+        if context.target.panelID != nil, context.panel() == nil {
+            return false
+        }
+        return true
+    }
+
+    static let commandPaletteOptionalFocusArguments = [
+        CmuxActionArgumentDefinition(
+            name: "focus",
+            valueType: .boolean,
+            required: false
+        )
+    ]
+
+    static let commandPaletteOptionalEnabledArguments = [
+        CmuxActionArgumentDefinition(
+            name: "enabled",
+            valueType: .boolean,
+            required: false
+        )
+    ]
+
+    static let commandPaletteSidebarVisibilityArguments = [
+        CmuxActionArgumentDefinition(
+            name: "visible",
+            valueType: .boolean,
+            required: false
+        )
+    ]
+
+    static let commandPaletteEnabledToggleArguments = [
+        CmuxActionArgumentDefinition(
+            name: "enabled",
+            valueType: .boolean,
+            required: false
+        )
+    ]
+
+    static let commandPalettePinnedToggleArguments = [
+        CmuxActionArgumentDefinition(
+            name: "pinned",
+            valueType: .boolean,
+            required: false
+        )
+    ]
+
+    static let commandPaletteUnreadToggleArguments = [
+        CmuxActionArgumentDefinition(
+            name: "unread",
+            valueType: .boolean,
+            required: false
+        )
+    ]
+
+    static func commandPaletteNotificationCommandContributions() -> [CommandPaletteCommandContribution] {
+        let showNotificationsSubtitle: (CommandPaletteContextSnapshot) -> String = { _ in
+            String(localized: "command.showNotifications.subtitle", defaultValue: "Notifications")
+        }
+        let unreadSubtitle: (CommandPaletteContextSnapshot) -> String = { _ in
+            String(localized: "command.jumpUnread.subtitle", defaultValue: "Notifications")
+        }
+        return [
+            CommandPaletteCommandContribution(
+                commandId: "palette.showNotifications",
+                title: { _ in
+                    String(localized: "command.showNotifications.title", defaultValue: "Show Notifications")
+                },
+                subtitle: showNotificationsSubtitle,
+                keywords: ["notifications", "inbox"]
+            ),
+            CommandPaletteCommandContribution(
+                commandId: "palette.jumpUnread",
+                title: { _ in
+                    String(localized: "command.jumpUnread.title", defaultValue: "Jump to Latest Unread")
+                },
+                subtitle: unreadSubtitle,
+                keywords: ["jump", "unread", "notification"],
+                enablement: { $0.bool(CommandPaletteContextKeys.notificationsCanJumpUnread) }
+            ),
+            CommandPaletteCommandContribution(
+                commandId: "palette.toggleUnread",
+                title: { _ in
+                    String(localized: "command.toggleUnread.title", defaultValue: "Toggle Unread")
+                },
+                subtitle: unreadSubtitle,
+                keywords: ["toggle", "mark", "read", "unread", "notification"],
+                arguments: commandPaletteUnreadToggleArguments,
+                when: { $0.bool(CommandPaletteContextKeys.hasWorkspace) }
+            ),
+            CommandPaletteCommandContribution(
+                commandId: "palette.markOldestUnreadAndJumpNext",
+                title: { _ in
+                    String(
+                        localized: "command.markOldestUnreadAndJumpNext.title",
+                        defaultValue: "Mark as Oldest Unread and Jump to Next Latest Unread"
+                    )
+                },
+                subtitle: unreadSubtitle,
+                keywords: ["mark", "oldest", "unread", "jump", "next", "notification", "defer"],
+                when: { $0.bool(CommandPaletteContextKeys.hasWorkspace) }
+            ),
+        ]
+    }
+
+    static func commandPaletteRequestedToggleValue(
+        _ invocation: CmuxActionInvocation,
+        argumentName: String,
+        currentValue: Bool
+    ) -> Bool? {
+        guard invocation.arguments[argumentName] != nil else {
+            return !currentValue
+        }
+        return invocation.bool(argumentName)
+    }
+
+    static let commandPaletteToggleFullScreenArguments = [
+        CmuxActionArgumentDefinition(
+            name: "enabled",
+            valueType: .boolean,
+            required: false
+        )
+    ]
+
+    static func commandPaletteFullScreenShouldToggle(
+        _ invocation: CmuxActionInvocation,
+        currentIsFullScreen: Bool
+    ) -> Bool? {
+        guard invocation.arguments["enabled"] != nil else { return true }
+        guard let enabled = invocation.bool("enabled") else { return nil }
+        return enabled != currentIsFullScreen
+    }
+
+    static func commandPaletteResolvedFocus(
+        explicit: Bool?,
+        source: CmuxActionInvocationSource
+    ) -> Bool? {
+        explicit ?? (source == .automation ? true : nil)
+    }
+
+    static func commandPaletteShouldFocus(
+        _ invocation: CmuxActionInvocation,
+        interactiveDefault: Bool
+    ) -> Bool {
+        invocation.bool("focus")
+            ?? (invocation.source == .automation ? true : interactiveDefault)
+    }
+
+    static func commandPaletteOpenWorkspacePullRequestsShouldFocus(
+        _ invocation: CmuxActionInvocation,
+        targetWasSelected: Bool
+    ) -> Bool {
+        commandPaletteShouldFocus(invocation, interactiveDefault: targetWasSelected)
+    }
+
+    static func commandPaletteDiffShouldFocus(
+        _ invocation: CmuxActionInvocation,
+        targetWasSelected: Bool
+    ) -> Bool {
+        commandPaletteShouldFocus(invocation, interactiveDefault: targetWasSelected)
+    }
+
+    static func commandPaletteUpdateResult(
+        _ outcome: UpdateRequestOutcome
+    ) -> CmuxActionExecutionResult {
+        switch outcome {
+        case .accepted:
+            return .queued
+        case .inProgress:
+            return .completed
+        case .suppressed:
+            return .failed(
+                code: "update_suppressed",
+                message: String(
+                    localized: "action.error.configuredActionFailed",
+                    defaultValue: "The configured action could not be started."
+                )
+            )
+        case .failed:
+            return .failed(
+                code: "update_failed",
+                message: String(
+                    localized: "action.error.configuredActionFailed",
+                    defaultValue: "The configured action could not be started."
+                )
+            )
+        }
+    }
+
+    static func commandPaletteCloseTabIsAvailable(
+        _ context: CommandPaletteContextSnapshot
+    ) -> Bool {
+        context.bool(CommandPaletteContextKeys.hasFocusedPanel)
+    }
+
+    static func commandPaletteCloseWorkspaceIsAvailable(
+        _ context: CommandPaletteContextSnapshot
+    ) -> Bool {
+        context.bool(CommandPaletteContextKeys.hasWorkspace)
+    }
+
+    static func commandPaletteDefaultTerminalFailurePresentation(
+        _ invocation: CmuxActionInvocation,
+        targetWindow: NSWindow?
+    ) -> DefaultTerminalUserAction.FailurePresentation? {
+        if invocation.source == .automation {
+            return .silent
+        }
+        guard let targetWindow else { return nil }
+        return .alert(presentingWindow: targetWindow)
+    }
+
+    private func commandPaletteActionRegistry(
+        commandsContext: CommandPaletteCommandsContext,
+        target: CommandPaletteActionTarget? = nil,
+        configCatalog explicitConfigCatalog: CmuxConfigActionCatalog? = nil
+    ) -> CmuxActionRegistry {
+        let actionTarget = target ?? currentCommandPaletteActionTarget()
+        let actionContext = CommandPaletteActionContext(
+            target: actionTarget,
+            tabManager: tabManager,
+            owningWindowID: windowId
+        )
+        let context = commandsContext.snapshot
+        let configCatalog = explicitConfigCatalog
+            ?? commandPaletteConfigSnapshot(for: actionTarget)?.catalog
+            ?? cmuxConfigStore.unconfiguredActionCatalog()
+        var handlerRegistry = CommandPaletteHandlerRegistry()
+        registerCommandPaletteHandlers(
+            &handlerRegistry,
+            context: actionContext,
+            configCatalog: configCatalog
+        )
+        let configComposition = commandPaletteConfigComposition(
+            catalog: configCatalog,
+            reservedActionIDs: handlerRegistry.commandIDs
+        )
+        let contributions = configComposition.contributions
+        registerConfiguredCommandPaletteHandlers(
+            &handlerRegistry,
+            context: actionContext,
+            configCatalog: configCatalog,
+            configIssues: configComposition.issues,
+            customActions: configComposition.customActions
+        )
+
+        var actionRegistry = CmuxActionRegistry()
         var nextRank = 0
 
         for contribution in contributions {
-            let configuredPaletteAction = commandPaletteConfigActionID(for: contribution.commandId)
-                .flatMap { cmuxConfigStore.resolvedAction(id: $0) }
+            let configuredPaletteAction = commandPaletteConfiguredAction(
+                for: contribution.commandId,
+                catalog: configCatalog,
+                customActions: configComposition.customActions
+            )
             if let configuredPaletteAction, !configuredPaletteAction.palette {
                 continue
             }
@@ -6587,36 +6989,146 @@ struct ContentView: View {
                 assertionFailure("No command palette handler registered for \(contribution.commandId)")
                 continue
             }
-            commands.append(
-                CommandPaletteCommand(
-                    id: contribution.commandId,
-                    rank: nextRank,
-                    title: configuredPaletteAction?.title ?? contribution.title(context),
-                    subtitle: configuredPaletteAction?.subtitle ?? contribution.subtitle(context),
-                    shortcutHint: commandPaletteShortcutHint(for: contribution, context: context),
-                    kindLabel: nil,
-                    keywords: configuredPaletteAction?.keywords.isEmpty == false
-                        ? configuredPaletteAction?.keywords ?? contribution.keywords
-                        : contribution.keywords,
-                    dismissOnRun: contribution.dismissOnRun,
-                    action: action
-                )
+            let command = CommandPaletteCommand(
+                id: contribution.commandId,
+                rank: nextRank,
+                title: configuredPaletteAction?.title ?? contribution.title(context),
+                subtitle: configuredPaletteAction?.subtitle ?? contribution.subtitle(context),
+                shortcutHint: commandPaletteShortcutHint(
+                    for: contribution,
+                    context: context,
+                    catalog: configCatalog,
+                    customActions: configComposition.customActions
+                ),
+                kindLabel: nil,
+                keywords: configuredPaletteAction?.keywords.isEmpty == false
+                    ? configuredPaletteAction?.keywords ?? contribution.keywords
+                    : contribution.keywords,
+                dismissOnRun: contribution.dismissOnRun,
+                arguments: contribution.arguments,
+                handler: action
             )
+            guard actionRegistry.register(command) else {
+#if DEBUG
+                cmuxDebugLog("palette.registry duplicateId=\(contribution.commandId)")
+#endif
+                continue
+            }
             nextRank += 1
         }
 
-        return commands
+        return actionRegistry
+    }
+
+    private func handleCommandPaletteControlRequest(_ request: CommandPaletteControlRequest) {
+        guard request.target.windowID == windowId else {
+            request.complete(.commandNotFound)
+            return
+        }
+        guard commandPaletteControlTargetIsAvailable(request.target) else {
+            request.complete(.targetUnavailable)
+            return
+        }
+
+        let configDirectory = commandPaletteConfigDirectory(for: request.target)
+        guard let configSnapshot = cmuxConfigStore.cachedActionCatalogSnapshot(
+            startingFrom: configDirectory,
+            revalidate: false
+        ), configSnapshot.cacheKey == CmuxConfigStore.actionCatalogCacheKey(
+            startingFrom: configDirectory
+        ) else {
+            request.complete(.configurationPending)
+            return
+        }
+        if let listedSnapshotID = request.target.configSnapshotID,
+           listedSnapshotID != configSnapshot.id {
+            request.complete(.configurationChanged)
+            return
+        }
+        let resolvedTarget = CommandPaletteActionTarget(
+            windowID: request.target.windowID,
+            workspaceID: request.target.workspaceID,
+            panelID: request.target.panelID,
+            configSnapshotID: configSnapshot.id
+        )
+        let terminalOpenTargets = resolveCommandPaletteTerminalOpenTargets(
+            for: .commands,
+            target: resolvedTarget
+        )
+        let actionRegistry = commandPaletteActionRegistry(
+            commandsContext: commandPaletteCommandsContext(
+                terminalOpenTargets: terminalOpenTargets,
+                target: resolvedTarget
+            ),
+            target: resolvedTarget,
+            configCatalog: configSnapshot.catalog
+        )
+        switch request.operation {
+        case .list:
+            request.complete(.listed(
+                target: resolvedTarget,
+                commands: actionRegistry.actions.map(commandPaletteControlItem)
+            ))
+        case .run(let commandID, let arguments, let workingDirectory):
+            guard let command = actionRegistry.action(id: commandID) else {
+                request.complete(.commandNotFound)
+                return
+            }
+            guard commandPaletteTargetWindow != nil else {
+                request.complete(.ran(commandPaletteControlItem(command), result: .targetUnavailable))
+                return
+            }
+            let result = runCommandPaletteCommand(
+                command,
+                invocation: CmuxActionInvocation(
+                    source: .automation,
+                    arguments: arguments,
+                    workingDirectory: workingDirectory
+                )
+            )
+            request.complete(.ran(commandPaletteControlItem(command), result: result))
+        }
+    }
+
+    private func commandPaletteControlTargetIsAvailable(
+        _ target: CommandPaletteActionTarget
+    ) -> Bool {
+        guard target.windowID == windowId else { return false }
+        guard let workspaceID = target.workspaceID else {
+            return target.panelID == nil && tabManager.tabs.isEmpty
+        }
+        guard let workspace = tabManager.tabs.first(where: { $0.id == workspaceID }) else {
+            return false
+        }
+        guard let panelID = target.panelID else { return true }
+        return workspace.panels[panelID] != nil
+    }
+
+    private func commandPaletteControlItem(
+        _ command: CommandPaletteCommand
+    ) -> CommandPaletteControlRequest.Item {
+        CommandPaletteControlRequest.Item(
+            id: command.id,
+            title: command.title,
+            subtitle: command.subtitle,
+            shortcutHint: command.shortcutHint,
+            keywords: command.keywords,
+            dismissOnRun: command.dismissOnRun,
+            arguments: command.arguments
+        )
     }
 
     private func commandPaletteShortcutHint(
         for contribution: CommandPaletteCommandContribution,
-        context: CommandPaletteContextSnapshot
+        context: CommandPaletteContextSnapshot,
+        catalog: CmuxConfigActionCatalog,
+        customActions: [CmuxResolvedConfigAction]
     ) -> String? {
-        if let configuredShortcut = cmuxConfigStore.resolvedAction(id: contribution.commandId)?.shortcut {
-            return configuredShortcut.displayString
-        }
-        if let configuredPaletteAction = commandPaletteConfigActionID(for: contribution.commandId),
-           let configuredShortcut = cmuxConfigStore.resolvedAction(id: configuredPaletteAction)?.shortcut {
+        if let configuredShortcut = commandPaletteConfiguredAction(
+            for: contribution.commandId,
+            catalog: catalog,
+            customActions: customActions
+        )?.shortcut {
             return configuredShortcut.displayString
         }
         if let action = Self.commandPaletteShortcutAction(forCommandID: contribution.commandId) {
@@ -6631,6 +7143,23 @@ struct ContentView: View {
             return staticShortcut
         }
         return contribution.shortcutHint
+    }
+
+    private func commandPaletteConfiguredAction(
+        for commandID: String,
+        catalog: CmuxConfigActionCatalog,
+        customActions: [CmuxResolvedConfigAction]
+    ) -> CmuxResolvedConfigAction? {
+        if commandID == "palette.newWorkspace" {
+            return catalog.resolvedNewWorkspaceAction
+        }
+        if let customAction = customActions.first(where: { $0.id == commandID }) {
+            return customAction
+        }
+        guard let actionID = commandPaletteConfigActionID(for: commandID) else {
+            return nil
+        }
+        return catalog.resolvedAction(id: actionID)
     }
 
     private func commandPaletteStaticShortcutHint(for commandId: String) -> String? {
@@ -6679,12 +7208,28 @@ struct ContentView: View {
     }
 
     private func commandPaletteContextSnapshot(
-        terminalOpenTargets: Set<TerminalDirectoryOpenTarget>? = nil
+        terminalOpenTargets: Set<TerminalDirectoryOpenTarget>? = nil,
+        target: CommandPaletteActionTarget? = nil
     ) -> CommandPaletteContextSnapshot {
+        let actionTarget = target ?? currentCommandPaletteActionTarget()
         var snapshot = CommandPaletteContextSnapshot()
         snapshot.setBool(CommandPaletteContextKeys.workspaceMinimalModeEnabled, currentIsMinimalMode)
         snapshot.setBool(CommandPaletteContextKeys.sidebarMatchTerminalBackground, sidebarMatchTerminalBackground)
         snapshot.setBool(CommandPaletteContextKeys.browserDisabled, BrowserAvailabilitySettings.isDisabled())
+        if let appDelegate = AppDelegate.shared {
+            snapshot.setBool(
+                CommandPaletteContextKeys.notificationsCanJumpUnread,
+                appDelegate.notificationNavigation.canJumpToLatestUnread
+            )
+            snapshot.setBool(
+                CommandPaletteContextKeys.historyCanReopenClosedItem,
+                appDelegate.canReopenMostRecentlyClosedItem(preferredTabManager: tabManager)
+            )
+            snapshot.setBool(
+                CommandPaletteContextKeys.socketListenerEnabled,
+                appDelegate.socketListenerConfigurationIfEnabled() != nil
+            )
+        }
         if let auth = AppDelegate.shared?.auth {
             snapshot.setBool(CommandPaletteContextKeys.authSignedIn, auth.coordinator.isAuthenticated)
             snapshot.setBool(CommandPaletteContextKeys.proUpgradeEnabled, CmuxFeatureFlags.shared.isProUpgradeUIEnabled)
@@ -6694,7 +7239,7 @@ struct ContentView: View {
             )
         }
 
-        if let workspace = tabManager.selectedWorkspace {
+        if let workspace = commandPaletteWorkspace(for: actionTarget) {
             let pinTarget = WorkspaceActionDispatcher.Target.single(workspace.id)
             let pinState = WorkspaceActionDispatcher.pinState(in: tabManager, target: pinTarget)
             snapshot.setBool(CommandPaletteContextKeys.hasWorkspace, true)
@@ -6714,12 +7259,18 @@ struct ContentView: View {
                 CommandPaletteContextKeys.workspaceCanvasLayout,
                 workspace.layoutMode == .canvas
             )
-            let workspaceIndex = tabManager.tabs.firstIndex { $0.id == workspace.id }
+            snapshot.setBool(
+                CommandPaletteContextKeys.workspaceHasCloudVM,
+                workspace.isManagedCloudVMWorkspace
+            )
             snapshot.setBool(CommandPaletteContextKeys.workspaceHasPeers, tabManager.tabs.count > 1)
-            snapshot.setBool(CommandPaletteContextKeys.workspaceHasAbove, (workspaceIndex ?? 0) > 0)
+            snapshot.setBool(
+                CommandPaletteContextKeys.workspaceHasAbove,
+                tabManager.canReorderWorkspace(tabId: workspace.id, by: -1)
+            )
             snapshot.setBool(
                 CommandPaletteContextKeys.workspaceHasBelow,
-                (workspaceIndex ?? tabManager.tabs.count - 1) < tabManager.tabs.count - 1
+                tabManager.canReorderWorkspace(tabId: workspace.id, by: 1)
             )
             snapshot.setBool(
                 CommandPaletteContextKeys.workspaceCanMarkRead,
@@ -6731,7 +7282,7 @@ struct ContentView: View {
             )
         }
 
-        if let panelContext = focusedPanelContext {
+        if let panelContext = commandPalettePanelContext(for: actionTarget) {
             let workspace = panelContext.workspace
             let panelId = panelContext.panelId
             let panelIsTerminal = panelContext.panel.panelType == .terminal
@@ -6741,6 +7292,8 @@ struct ContentView: View {
             snapshot.setBool(CommandPaletteContextKeys.panelIsBrowser, panelContext.panel.panelType == .browser)
             if let browserPanel = panelContext.panel as? BrowserPanel {
                 snapshot.setBool(CommandPaletteContextKeys.panelBrowserFocusModeActive, browserPanel.isBrowserFocusModeActive)
+                snapshot.setBool(CommandPaletteContextKeys.panelBrowserCanGoBack, browserPanel.canGoBack)
+                snapshot.setBool(CommandPaletteContextKeys.panelBrowserCanGoForward, browserPanel.canGoForward)
             }
             // Markdown zoom only affects the rendered preview, so don't surface
             // the zoom commands when the panel is in raw text-edit mode.
@@ -6758,6 +7311,29 @@ struct ContentView: View {
             )
             snapshot.setBool(CommandPaletteContextKeys.panelIsTerminal, panelIsTerminal)
             snapshot.setBool(CommandPaletteContextKeys.panelHasPane, workspace.paneId(forPanelId: panelId) != nil)
+            snapshot.setBool(
+                CommandPaletteContextKeys.panelHasPeerTab,
+                workspace.canSelectAdjacentSurface(fromPanelId: panelId)
+            )
+            if let terminalPanel = panelContext.panel as? TerminalPanel {
+                let actionContext = CommandPaletteActionContext(
+                    target: actionTarget,
+                    tabManager: tabManager,
+                    owningWindowID: windowId
+                )
+                snapshot.setBool(
+                    CommandPaletteContextKeys.terminalFindActive,
+                    terminalPanel.searchState != nil
+                )
+                snapshot.setBool(
+                    CommandPaletteContextKeys.terminalHasSelection,
+                    terminalPanel.hasSelection()
+                )
+                snapshot.setBool(
+                    CommandPaletteContextKeys.terminalHasLocalDirectory,
+                    focusedTerminalDirectoryURL(context: actionContext) != nil
+                )
+            }
             let allowsAgentContinuation = workspace.allowsAgentContinuation(forPanelId: panelId)
             let fallbackForkableSnapshot = workspace.restoredAgentSnapshotForContinuation(panelId: panelId)
             let forkablePanelKey = Self.commandPaletteForkableAgentPanelKey(
@@ -6819,7 +7395,7 @@ struct ContentView: View {
         "ios", "ipados", "iphone", "ipad", "phone", "tablet", "qr",
     ]
 
-    private func commandPaletteCommandContributions() -> [CommandPaletteCommandContribution] {
+    private func commandPaletteBuiltInCommandContributions() -> [CommandPaletteCommandContribution] {
         func constant(_ value: String) -> (CommandPaletteContextSnapshot) -> String {
             { _ in value }
         }
@@ -6885,7 +7461,8 @@ struct ContentView: View {
                 commandId: "palette.newWorkspace",
                 title: constant(String(localized: "command.newWorkspace.title", defaultValue: "New Workspace")),
                 subtitle: constant(String(localized: "command.newWorkspace.subtitle", defaultValue: "Workspace")),
-                keywords: ["create", "new", "workspace"]
+                keywords: ["create", "new", "workspace"],
+                arguments: Self.commandPaletteOptionalFocusArguments
             )
         )
         contributions.append(
@@ -6894,6 +7471,7 @@ struct ContentView: View {
                 title: constant(String(localized: "command.newBrowserWorkspace.title", defaultValue: "New Browser Workspace")),
                 subtitle: constant(String(localized: "command.newBrowserWorkspace.subtitle", defaultValue: "Workspace")),
                 keywords: ["create", "new", "browser", "workspace", "web"],
+                arguments: Self.commandPaletteOptionalFocusArguments,
                 when: { !$0.bool(CommandPaletteContextKeys.browserDisabled) }
             )
         )
@@ -6929,7 +7507,9 @@ struct ContentView: View {
                 commandId: "palette.openFolder",
                 title: constant(String(localized: "command.openFolder.title", defaultValue: "Open Folder…")),
                 subtitle: constant(String(localized: "command.openFolder.subtitle", defaultValue: "Workspace")),
-                keywords: ["open", "folder", "repository", "project", "directory"]
+                keywords: ["open", "folder", "repository", "project", "directory"],
+                arguments: [CmuxActionArgumentDefinition(name: "path", valueType: .path)]
+                    + Self.commandPaletteOptionalFocusArguments
             )
         )
         contributions.append(
@@ -6948,6 +7528,7 @@ struct ContentView: View {
                     )
                 ),
                 keywords: ["open", "folder", "directory", "project", "vs", "code", "inline", "editor", "browser"],
+                arguments: [CmuxActionArgumentDefinition(name: "path", valueType: .path)],
                 when: { _ in TerminalDirectoryOpenTarget.vscodeInline.isAvailable() }
             )
         )
@@ -6965,7 +7546,9 @@ struct ContentView: View {
                 title: constant(String(localized: "command.newTerminalTab.title", defaultValue: "New Tab (Terminal)")),
                 subtitle: constant(String(localized: "command.newTerminalTab.subtitle", defaultValue: "Tab")),
                 shortcutHint: "⌘T",
-                keywords: ["new", "terminal", "tab"]
+                keywords: ["new", "terminal", "tab"],
+                arguments: Self.commandPaletteOptionalFocusArguments,
+                when: Self.commandPalettePanelInPaneIsAvailable
             )
         )
         contributions.append(
@@ -6975,7 +7558,11 @@ struct ContentView: View {
                 subtitle: constant(String(localized: "command.newBrowserTab.subtitle", defaultValue: "Tab")),
                 shortcutHint: "⌘⇧L",
                 keywords: ["new", "browser", "tab", "web"],
-                when: { !$0.bool(CommandPaletteContextKeys.browserDisabled) }
+                arguments: Self.commandPaletteOptionalFocusArguments,
+                when: {
+                    Self.commandPalettePanelInPaneIsAvailable($0)
+                        && !$0.bool(CommandPaletteContextKeys.browserDisabled)
+                }
             )
         )
         contributions.append(
@@ -6984,7 +7571,9 @@ struct ContentView: View {
                 title: constant(String(localized: "command.closeTab.title", defaultValue: "Close Tab")),
                 subtitle: constant(String(localized: "command.closeTab.subtitle", defaultValue: "Tab")),
                 shortcutHint: "⌘W",
-                keywords: ["close", "tab"]
+                keywords: ["close", "tab"],
+                arguments: [CmuxActionArgumentDefinition(name: "force", valueType: .boolean)],
+                when: Self.commandPaletteCloseTabIsAvailable
             )
         )
         contributions.append(
@@ -6993,7 +7582,9 @@ struct ContentView: View {
                 title: constant(String(localized: "command.closeWorkspace.title", defaultValue: "Close Workspace")),
                 subtitle: constant(String(localized: "command.closeWorkspace.subtitle", defaultValue: "Workspace")),
                 shortcutHint: "⌘⇧W",
-                keywords: ["close", "workspace"]
+                keywords: ["close", "workspace"],
+                arguments: [CmuxActionArgumentDefinition(name: "force", valueType: .boolean)],
+                when: Self.commandPaletteCloseWorkspaceIsAvailable
             )
         )
         contributions.append(
@@ -7001,7 +7592,8 @@ struct ContentView: View {
                 commandId: "palette.closeWindow",
                 title: constant(String(localized: "command.closeWindow.title", defaultValue: "Close Window")),
                 subtitle: constant(String(localized: "command.closeWindow.subtitle", defaultValue: "Window")),
-                keywords: ["close", "window"]
+                keywords: ["close", "window"],
+                arguments: [CmuxActionArgumentDefinition(name: "force", valueType: .boolean)]
             )
         )
         contributions.append(
@@ -7009,7 +7601,8 @@ struct ContentView: View {
                 commandId: "palette.toggleFullScreen",
                 title: constant(String(localized: "command.toggleFullScreen.title", defaultValue: "Toggle Full Screen")),
                 subtitle: constant(String(localized: "command.toggleFullScreen.subtitle", defaultValue: "Window")),
-                keywords: ["fullscreen", "full", "screen", "window", "toggle"]
+                keywords: ["fullscreen", "full", "screen", "window", "toggle"],
+                arguments: Self.commandPaletteToggleFullScreenArguments
             )
         )
         contributions.append(
@@ -7017,7 +7610,8 @@ struct ContentView: View {
                 commandId: "palette.reopenClosedBrowserTab",
                 title: constant(String(localized: "menu.history.reopenLastClosed", defaultValue: "Reopen Last Closed")),
                 subtitle: constant(String(localized: "menu.history.title", defaultValue: "History")),
-                keywords: ["reopen", "closed", "recently", "history", "tab", "workspace", "window"]
+                keywords: ["reopen", "closed", "recently", "history", "tab", "workspace", "window"],
+                when: { $0.bool(CommandPaletteContextKeys.historyCanReopenClosedItem) }
             )
         )
         contributions.append(
@@ -7025,7 +7619,8 @@ struct ContentView: View {
                 commandId: "palette.toggleSidebar",
                 title: constant(String(localized: "command.toggleLeftSidebar.title", defaultValue: "Toggle Left Sidebar")),
                 subtitle: constant(String(localized: "command.toggleSidebar.subtitle", defaultValue: "Layout")),
-                keywords: ["toggle", "sidebar", "left", "layout"]
+                keywords: ["toggle", "sidebar", "left", "layout"],
+                arguments: Self.commandPaletteSidebarVisibilityArguments
             )
         )
         // "Sidebar: <provider>" switch commands for each available view. The
@@ -7036,7 +7631,7 @@ struct ContentView: View {
             let titleFormat = String(localized: "command.switchExtensionSidebar.title", defaultValue: "Sidebar: %@")
             contributions.append(
                 CommandPaletteCommandContribution(
-                    commandId: commandPaletteExtensionSidebarCommandID(descriptor.id),
+                    commandId: Self.commandPaletteExtensionSidebarCommandID(descriptor.id),
                     title: constant(String.localizedStringWithFormat(titleFormat, title)),
                     subtitle: constant(String(localized: "command.switchExtensionSidebar.subtitle", defaultValue: "Choose Sidebar")),
                     keywords: ["sidebar", "switch", "extension", title.lowercased()]
@@ -7054,7 +7649,8 @@ struct ContentView: View {
                         : String(localized: "command.enableMatchTerminalBackground.title", defaultValue: "Enable Match Terminal Background")
                 },
                 subtitle: constant(String(localized: "command.matchTerminalBackground.subtitle", defaultValue: "Sidebar")),
-                keywords: ["match", "terminal", "background", "transparency", "sidebar", "surface", "chrome"]
+                keywords: ["match", "terminal", "background", "transparency", "sidebar", "surface", "chrome"],
+                arguments: Self.commandPaletteEnabledToggleArguments
             )
         )
         contributions.append(
@@ -7077,45 +7673,7 @@ struct ContentView: View {
         )
         contributions.append(contentsOf: Self.commandPaletteViewCommandContributions())
         contributions.append(contentsOf: Self.commandPaletteCanvasCommandContributions())
-        contributions.append(
-            CommandPaletteCommandContribution(
-                commandId: "palette.showNotifications",
-                title: constant(String(localized: "command.showNotifications.title", defaultValue: "Show Notifications")),
-                subtitle: constant(String(localized: "command.showNotifications.subtitle", defaultValue: "Notifications")),
-                keywords: ["notifications", "inbox"]
-            )
-        )
-        contributions.append(
-            CommandPaletteCommandContribution(
-                commandId: "palette.jumpUnread",
-                title: constant(String(localized: "command.jumpUnread.title", defaultValue: "Jump to Latest Unread")),
-                subtitle: constant(String(localized: "command.jumpUnread.subtitle", defaultValue: "Notifications")),
-                keywords: ["jump", "unread", "notification"]
-            )
-        )
-        contributions.append(
-            CommandPaletteCommandContribution(
-                commandId: "palette.toggleUnread",
-                title: constant(String(localized: "command.toggleUnread.title", defaultValue: "Toggle Unread")),
-                subtitle: constant(String(localized: "command.jumpUnread.subtitle", defaultValue: "Notifications")),
-                keywords: ["toggle", "mark", "read", "unread", "notification"],
-                when: { $0.bool(CommandPaletteContextKeys.hasWorkspace) }
-            )
-        )
-        contributions.append(
-            CommandPaletteCommandContribution(
-                commandId: "palette.markOldestUnreadAndJumpNext",
-                title: constant(
-                    String(
-                        localized: "command.markOldestUnreadAndJumpNext.title",
-                        defaultValue: "Mark as Oldest Unread and Jump to Next Latest Unread"
-                    )
-                ),
-                subtitle: constant(String(localized: "command.jumpUnread.subtitle", defaultValue: "Notifications")),
-                keywords: ["mark", "oldest", "unread", "jump", "next", "notification", "defer"],
-                when: { $0.bool(CommandPaletteContextKeys.hasWorkspace) }
-            )
-        )
+        contributions.append(contentsOf: Self.commandPaletteNotificationCommandContributions())
         contributions.append(
             CommandPaletteCommandContribution(
                 commandId: "palette.openSettings",
@@ -7209,7 +7767,8 @@ struct ContentView: View {
                 commandId: "palette.restartSocketListener",
                 title: constant(String(localized: "command.restartSocketListener.title", defaultValue: "Restart CLI Listener")),
                 subtitle: constant(String(localized: "command.restartSocketListener.subtitle", defaultValue: "Global")),
-                keywords: ["restart", "socket", "listener", "cli", "cmux", "control"]
+                keywords: ["restart", "socket", "listener", "cli", "cmux", "control"],
+                when: { $0.bool(CommandPaletteContextKeys.socketListenerEnabled) }
             )
         )
         contributions.append(
@@ -7239,6 +7798,7 @@ struct ContentView: View {
                 subtitle: workspaceSubtitle,
                 keywords: ["rename", "workspace", "title"],
                 dismissOnRun: false,
+                arguments: [CmuxActionArgumentDefinition(name: "name", allowsEmpty: true)],
                 when: { $0.bool(CommandPaletteContextKeys.hasWorkspace) }
             )
         )
@@ -7249,6 +7809,7 @@ struct ContentView: View {
                 subtitle: workspaceSubtitle,
                 keywords: ["edit", "workspace", "description", "notes", "markdown"],
                 dismissOnRun: false,
+                arguments: [CmuxActionArgumentDefinition(name: "description", allowsEmpty: true)],
                 when: { $0.bool(CommandPaletteContextKeys.hasWorkspace) }
             )
         )
@@ -7284,6 +7845,7 @@ struct ContentView: View {
                 },
                 subtitle: workspaceSubtitle,
                 keywords: ["workspace", "pin", "pinned"],
+                arguments: Self.commandPalettePinnedToggleArguments,
                 when: { $0.bool(CommandPaletteContextKeys.hasWorkspace) }
             )
         )
@@ -7314,7 +7876,8 @@ struct ContentView: View {
                 title: constant(String(localized: "command.nextWorkspace.title", defaultValue: "Next Workspace")),
                 subtitle: constant(String(localized: "command.nextWorkspace.subtitle", defaultValue: "Workspace Navigation")),
                 keywords: ["next", "workspace", "navigate"],
-                when: { $0.bool(CommandPaletteContextKeys.hasWorkspace) }
+                when: { $0.bool(CommandPaletteContextKeys.hasWorkspace) },
+                enablement: { $0.bool(CommandPaletteContextKeys.workspaceHasPeers) }
             )
         )
         contributions.append(
@@ -7323,7 +7886,8 @@ struct ContentView: View {
                 title: constant(String(localized: "command.previousWorkspace.title", defaultValue: "Previous Workspace")),
                 subtitle: constant(String(localized: "command.previousWorkspace.subtitle", defaultValue: "Workspace Navigation")),
                 keywords: ["previous", "workspace", "navigate"],
-                when: { $0.bool(CommandPaletteContextKeys.hasWorkspace) }
+                when: { $0.bool(CommandPaletteContextKeys.hasWorkspace) },
+                enablement: { $0.bool(CommandPaletteContextKeys.workspaceHasPeers) }
             )
         )
         contributions.append(
@@ -7362,6 +7926,7 @@ struct ContentView: View {
                 title: constant(String(localized: "contextMenu.closeOtherWorkspaces", defaultValue: "Close Other Workspaces")),
                 subtitle: workspaceSubtitle,
                 keywords: ["close", "other", "workspaces", "reset", "workspace"],
+                arguments: [CmuxActionArgumentDefinition(name: "force", valueType: .boolean)],
                 when: { $0.bool(CommandPaletteContextKeys.hasWorkspace) },
                 enablement: { $0.bool(CommandPaletteContextKeys.workspaceHasPeers) }
             )
@@ -7372,6 +7937,7 @@ struct ContentView: View {
                 title: constant(String(localized: "contextMenu.closeWorkspacesBelow", defaultValue: "Close Workspaces Below")),
                 subtitle: workspaceSubtitle,
                 keywords: ["close", "below", "workspaces", "workspace"],
+                arguments: [CmuxActionArgumentDefinition(name: "force", valueType: .boolean)],
                 when: { $0.bool(CommandPaletteContextKeys.hasWorkspace) },
                 enablement: { $0.bool(CommandPaletteContextKeys.workspaceHasBelow) }
             )
@@ -7382,6 +7948,7 @@ struct ContentView: View {
                 title: constant(String(localized: "contextMenu.closeWorkspacesAbove", defaultValue: "Close Workspaces Above")),
                 subtitle: workspaceSubtitle,
                 keywords: ["close", "above", "workspaces", "workspace"],
+                arguments: [CmuxActionArgumentDefinition(name: "force", valueType: .boolean)],
                 when: { $0.bool(CommandPaletteContextKeys.hasWorkspace) },
                 enablement: { $0.bool(CommandPaletteContextKeys.workspaceHasAbove) }
             )
@@ -7420,6 +7987,7 @@ struct ContentView: View {
                 subtitle: panelSubtitle,
                 keywords: ["rename", "tab", "title"],
                 dismissOnRun: false,
+                arguments: [CmuxActionArgumentDefinition(name: "name", allowsEmpty: true)],
                 when: { $0.bool(CommandPaletteContextKeys.hasFocusedPanel) }
             )
         )
@@ -7444,6 +8012,7 @@ struct ContentView: View {
                 },
                 subtitle: panelSubtitle,
                 keywords: ["tab", "pin", "pinned"],
+                arguments: Self.commandPalettePinnedToggleArguments,
                 when: { $0.bool(CommandPaletteContextKeys.hasFocusedPanel) }
             )
         )
@@ -7455,6 +8024,7 @@ struct ContentView: View {
                 },
                 subtitle: panelSubtitle,
                 keywords: ["tab", "read", "unread", "notification"],
+                arguments: Self.commandPaletteUnreadToggleArguments,
                 when: { $0.bool(CommandPaletteContextKeys.hasFocusedPanel) }
             )
         )
@@ -7464,7 +8034,8 @@ struct ContentView: View {
                 title: constant(String(localized: "command.nextTabInPane.title", defaultValue: "Next Tab in Pane")),
                 subtitle: constant(String(localized: "command.nextTabInPane.subtitle", defaultValue: "Tab Navigation")),
                 keywords: ["next", "tab", "pane"],
-                when: { $0.bool(CommandPaletteContextKeys.hasFocusedPanel) }
+                when: { $0.bool(CommandPaletteContextKeys.hasFocusedPanel) },
+                enablement: { $0.bool(CommandPaletteContextKeys.panelHasPeerTab) }
             )
         )
         contributions.append(
@@ -7473,7 +8044,8 @@ struct ContentView: View {
                 title: constant(String(localized: "command.previousTabInPane.title", defaultValue: "Previous Tab in Pane")),
                 subtitle: constant(String(localized: "command.previousTabInPane.subtitle", defaultValue: "Tab Navigation")),
                 keywords: ["previous", "tab", "pane"],
-                when: { $0.bool(CommandPaletteContextKeys.hasFocusedPanel) }
+                when: { $0.bool(CommandPaletteContextKeys.hasFocusedPanel) },
+                enablement: { $0.bool(CommandPaletteContextKeys.panelHasPeerTab) }
             )
         )
 
@@ -7483,6 +8055,7 @@ struct ContentView: View {
                 title: constant(String(localized: "command.openWorkspacePRLinks.title", defaultValue: "Open All Workspace PR Links")),
                 subtitle: workspaceSubtitle,
                 keywords: ["pull", "request", "review", "merge", "pr", "mr", "open", "links", "workspace"],
+                arguments: Self.commandPaletteOptionalFocusArguments,
                 when: {
                     $0.bool(CommandPaletteContextKeys.hasWorkspace) &&
                     $0.bool(CommandPaletteContextKeys.workspaceHasPullRequests)
@@ -7495,6 +8068,7 @@ struct ContentView: View {
                 title: constant(String(localized: "command.openDiffViewer.title", defaultValue: "Open Diff Viewer")),
                 subtitle: workspaceSubtitle,
                 keywords: ["diff", "changes", "git", "review", "branch", "unstaged", "codeview", "agent", "codex", "claude"],
+                arguments: Self.commandPaletteOptionalFocusArguments,
                 when: {
                     $0.bool(CommandPaletteContextKeys.hasWorkspace) &&
                     !$0.bool(CommandPaletteContextKeys.browserDisabled)
@@ -7507,6 +8081,7 @@ struct ContentView: View {
                 title: constant(String(localized: "command.openDirectoryDiffViewer.title", defaultValue: "Open Directory Diff Viewer")),
                 subtitle: workspaceSubtitle,
                 keywords: ["diff", "changes", "git", "review", "branch", "unstaged", "codeview", "directory", "cwd", "folder"],
+                arguments: Self.commandPaletteOptionalFocusArguments,
                 when: {
                     $0.bool(CommandPaletteContextKeys.hasWorkspace) &&
                     !$0.bool(CommandPaletteContextKeys.browserDisabled)
@@ -7520,7 +8095,8 @@ struct ContentView: View {
                 subtitle: browserPanelSubtitle,
                 shortcutHint: "⌘[",
                 keywords: ["browser", "back", "history"],
-                when: { $0.bool(CommandPaletteContextKeys.panelIsBrowser) }
+                when: { $0.bool(CommandPaletteContextKeys.panelIsBrowser) },
+                enablement: Self.commandPaletteBrowserBackEnabled
             )
         )
         contributions.append(
@@ -7530,7 +8106,8 @@ struct ContentView: View {
                 subtitle: browserPanelSubtitle,
                 shortcutHint: "⌘]",
                 keywords: ["browser", "forward", "history"],
-                when: { $0.bool(CommandPaletteContextKeys.panelIsBrowser) }
+                when: { $0.bool(CommandPaletteContextKeys.panelIsBrowser) },
+                enablement: Self.commandPaletteBrowserForwardEnabled
             )
         )
         contributions.append(
@@ -7572,6 +8149,7 @@ struct ContentView: View {
                 },
                 subtitle: browserPanelSubtitle,
                 keywords: ["browser", "focus", "mode", "keyboard", "shortcuts", "webview"],
+                arguments: Self.commandPaletteOptionalEnabledArguments,
                 when: { $0.bool(CommandPaletteContextKeys.panelIsBrowser) }
             )
         )
@@ -7586,6 +8164,7 @@ struct ContentView: View {
                 },
                 subtitle: browserPanelSubtitle,
                 keywords: ["browser", "address", "omnibar", "url", "toolbar", "chrome", "show", "hide"],
+                arguments: Self.commandPaletteOptionalEnabledArguments,
                 when: { $0.bool(CommandPaletteContextKeys.panelIsBrowser) }
             )
         )
@@ -7595,6 +8174,7 @@ struct ContentView: View {
                 title: constant(String(localized: "command.browserToggleDevTools.title", defaultValue: "Toggle Developer Tools")),
                 subtitle: browserPanelSubtitle,
                 keywords: ["browser", "devtools", "inspector"],
+                arguments: Self.commandPaletteOptionalEnabledArguments,
                 when: { $0.bool(CommandPaletteContextKeys.panelIsBrowser) }
             )
         )
@@ -7613,6 +8193,7 @@ struct ContentView: View {
                 title: constant(String(localized: "command.browserReactGrab.title", defaultValue: "Toggle React Grab")),
                 subtitle: browserPanelSubtitle,
                 keywords: ["browser", "react", "grab", "inspect", "element"],
+                arguments: Self.commandPaletteOptionalEnabledArguments,
                 when: { $0.bool(CommandPaletteContextKeys.panelIsBrowser) }
             )
         )
@@ -7650,6 +8231,7 @@ struct ContentView: View {
                 title: constant(String(localized: "command.browserClearHistory.title", defaultValue: "Clear Browser History")),
                 subtitle: constant(String(localized: "command.browserClearHistory.subtitle", defaultValue: "Browser")),
                 keywords: ["browser", "history", "clear"],
+                arguments: Self.commandPaletteBrowserHistoryClearArguments,
                 when: { $0.bool(CommandPaletteContextKeys.panelIsBrowser) }
             )
         )
@@ -7659,6 +8241,7 @@ struct ContentView: View {
                 title: constant(String(localized: "command.browserSplitRight.title", defaultValue: "Split Browser Right")),
                 subtitle: constant(String(localized: "command.browserSplitRight.subtitle", defaultValue: "Browser Layout")),
                 keywords: ["browser", "split", "right"],
+                arguments: Self.commandPaletteBrowserSplitArguments,
                 when: {
                     $0.bool(CommandPaletteContextKeys.panelIsBrowser) &&
                     !$0.bool(CommandPaletteContextKeys.browserDisabled)
@@ -7671,6 +8254,7 @@ struct ContentView: View {
                 title: constant(String(localized: "command.browserSplitDown.title", defaultValue: "Split Browser Down")),
                 subtitle: constant(String(localized: "command.browserSplitDown.subtitle", defaultValue: "Browser Layout")),
                 keywords: ["browser", "split", "down"],
+                arguments: Self.commandPaletteBrowserSplitArguments,
                 when: {
                     $0.bool(CommandPaletteContextKeys.panelIsBrowser) &&
                     !$0.bool(CommandPaletteContextKeys.browserDisabled)
@@ -7683,6 +8267,7 @@ struct ContentView: View {
                 title: constant(String(localized: "command.browserDuplicateRight.title", defaultValue: "Duplicate Browser to the Right")),
                 subtitle: constant(String(localized: "command.browserDuplicateRight.subtitle", defaultValue: "Browser Layout")),
                 keywords: ["browser", "duplicate", "clone", "split"],
+                arguments: Self.commandPaletteBrowserSplitArguments,
                 when: {
                     $0.bool(CommandPaletteContextKeys.panelIsBrowser) &&
                     !$0.bool(CommandPaletteContextKeys.browserDisabled)
@@ -7699,6 +8284,8 @@ struct ContentView: View {
                     keywords: target.commandPaletteKeywords,
                     when: { context in
                         context.bool(CommandPaletteContextKeys.panelIsTerminal)
+                            && context.bool(CommandPaletteContextKeys.terminalOpenTargetAvailable(target))
+                            && context.bool(CommandPaletteContextKeys.terminalHasLocalDirectory)
                     }
                 )
             )
@@ -7732,7 +8319,8 @@ struct ContentView: View {
                 commandId: "palette.findInDirectory",
                 title: constant(String(localized: "menu.find.findInDirectory", defaultValue: "Find in Directory…")),
                 subtitle: constant(String(localized: "command.findInDirectory.subtitle", defaultValue: "Right Sidebar")),
-                keywords: ["files", "directory", "find", "search"]
+                keywords: ["files", "directory", "find", "search"],
+                arguments: [CmuxActionArgumentDefinition(name: "query")]
             )
         )
         contributions.append(
@@ -7742,6 +8330,7 @@ struct ContentView: View {
                 subtitle: terminalPanelSubtitle,
                 shortcutHint: "⌘F",
                 keywords: ["terminal", "find", "search"],
+                arguments: [CmuxActionArgumentDefinition(name: "query")],
                 when: { $0.bool(CommandPaletteContextKeys.panelIsTerminal) }
             )
         )
@@ -7752,7 +8341,10 @@ struct ContentView: View {
                 subtitle: terminalPanelSubtitle,
                 shortcutHint: "⌘G",
                 keywords: ["terminal", "find", "next", "search"],
-                when: { $0.bool(CommandPaletteContextKeys.panelIsTerminal) }
+                when: {
+                    $0.bool(CommandPaletteContextKeys.panelIsTerminal)
+                        && $0.bool(CommandPaletteContextKeys.terminalFindActive)
+                }
             )
         )
         contributions.append(
@@ -7762,7 +8354,10 @@ struct ContentView: View {
                 subtitle: terminalPanelSubtitle,
                 shortcutHint: "⌥⌘G",
                 keywords: ["terminal", "find", "previous", "search"],
-                when: { $0.bool(CommandPaletteContextKeys.panelIsTerminal) }
+                when: {
+                    $0.bool(CommandPaletteContextKeys.panelIsTerminal)
+                        && $0.bool(CommandPaletteContextKeys.terminalFindActive)
+                }
             )
         )
         contributions.append(
@@ -7772,7 +8367,10 @@ struct ContentView: View {
                 subtitle: terminalPanelSubtitle,
                 shortcutHint: "⌥⌘⇧F",
                 keywords: ["terminal", "hide", "find", "search"],
-                when: { $0.bool(CommandPaletteContextKeys.panelIsTerminal) }
+                when: {
+                    $0.bool(CommandPaletteContextKeys.panelIsTerminal)
+                        && $0.bool(CommandPaletteContextKeys.terminalFindActive)
+                }
             )
         )
         contributions.append(
@@ -7781,7 +8379,10 @@ struct ContentView: View {
                 title: constant(String(localized: "command.terminalUseSelectionForFind.title", defaultValue: "Use Selection for Find")),
                 subtitle: terminalPanelSubtitle,
                 keywords: ["terminal", "selection", "find"],
-                when: { $0.bool(CommandPaletteContextKeys.panelIsTerminal) }
+                when: {
+                    $0.bool(CommandPaletteContextKeys.panelIsTerminal)
+                        && $0.bool(CommandPaletteContextKeys.terminalHasSelection)
+                }
             )
         )
         contributions.append(
@@ -7790,6 +8391,7 @@ struct ContentView: View {
                 title: constant(String(localized: "command.terminalToggleTextBoxInput.title", defaultValue: "Toggle TextBox Input")),
                 subtitle: terminalPanelSubtitle,
                 keywords: ["terminal", "textbox", "text", "box", "rich", "input", "prompt"],
+                arguments: Self.commandPaletteOptionalEnabledArguments,
                 when: { $0.bool(CommandPaletteContextKeys.panelIsTerminal) }
             )
         )
@@ -7808,6 +8410,7 @@ struct ContentView: View {
                 title: constant(String(localized: "command.terminalAttachTextBoxFile.title", defaultValue: "Attach File to TextBox Input")),
                 subtitle: terminalPanelSubtitle,
                 keywords: ["terminal", "textbox", "text", "box", "rich", "input", "attach", "file", "image"],
+                arguments: [CmuxActionArgumentDefinition(name: "path", valueType: .path)],
                 when: { $0.bool(CommandPaletteContextKeys.panelIsTerminal) }
             )
         )
@@ -7841,6 +8444,7 @@ struct ContentView: View {
                 title: constant(String(localized: "command.terminalSplitRight.title", defaultValue: "Split Right")),
                 subtitle: constant(String(localized: "command.terminalSplitRight.subtitle", defaultValue: "Terminal Layout")),
                 keywords: ["terminal", "split", "right"],
+                arguments: Self.commandPaletteOptionalFocusArguments,
                 when: { $0.bool(CommandPaletteContextKeys.panelIsTerminal) }
             )
         )
@@ -7850,6 +8454,7 @@ struct ContentView: View {
                 title: constant(String(localized: "command.forkAgentConversationRight.title", defaultValue: "Fork Conversation to the Right")),
                 subtitle: terminalPanelSubtitle,
                 keywords: ["terminal", "agent", "fork", "conversation", "session", "claude", "codex", "opencode", "right", "split"],
+                arguments: Self.commandPaletteOptionalFocusArguments,
                 when: {
                     $0.bool(CommandPaletteContextKeys.panelIsTerminal) &&
                     $0.bool(CommandPaletteContextKeys.panelHasForkableAgent)
@@ -7862,6 +8467,7 @@ struct ContentView: View {
                 title: constant(String(localized: "command.forkAgentConversationLeft.title", defaultValue: "Fork Conversation to the Left")),
                 subtitle: terminalPanelSubtitle,
                 keywords: ["terminal", "agent", "fork", "conversation", "session", "claude", "codex", "opencode", "left", "split"],
+                arguments: Self.commandPaletteOptionalFocusArguments,
                 when: {
                     $0.bool(CommandPaletteContextKeys.panelIsTerminal) &&
                     $0.bool(CommandPaletteContextKeys.panelHasForkableAgent)
@@ -7874,6 +8480,7 @@ struct ContentView: View {
                 title: constant(String(localized: "command.forkAgentConversationTop.title", defaultValue: "Fork Conversation to the Top")),
                 subtitle: terminalPanelSubtitle,
                 keywords: ["terminal", "agent", "fork", "conversation", "session", "claude", "codex", "opencode", "top", "up", "above", "split"],
+                arguments: Self.commandPaletteOptionalFocusArguments,
                 when: {
                     $0.bool(CommandPaletteContextKeys.panelIsTerminal) &&
                     $0.bool(CommandPaletteContextKeys.panelHasForkableAgent)
@@ -7886,6 +8493,7 @@ struct ContentView: View {
                 title: constant(String(localized: "command.forkAgentConversationBottom.title", defaultValue: "Fork Conversation to the Bottom")),
                 subtitle: terminalPanelSubtitle,
                 keywords: ["terminal", "agent", "fork", "conversation", "session", "claude", "codex", "opencode", "bottom", "down", "below", "split"],
+                arguments: Self.commandPaletteOptionalFocusArguments,
                 when: {
                     $0.bool(CommandPaletteContextKeys.panelIsTerminal) &&
                     $0.bool(CommandPaletteContextKeys.panelHasForkableAgent)
@@ -7898,6 +8506,7 @@ struct ContentView: View {
                 title: constant(String(localized: "command.forkAgentConversationNewTab.title", defaultValue: "Fork Conversation to New Tab")),
                 subtitle: terminalPanelSubtitle,
                 keywords: ["terminal", "agent", "fork", "conversation", "session", "claude", "codex", "opencode", "new", "tab", "same", "pane"],
+                arguments: Self.commandPaletteOptionalFocusArguments,
                 when: {
                     $0.bool(CommandPaletteContextKeys.panelIsTerminal) &&
                     $0.bool(CommandPaletteContextKeys.panelHasForkableAgent)
@@ -7910,6 +8519,7 @@ struct ContentView: View {
                 title: constant(String(localized: "command.forkAgentConversationNewWorkspace.title", defaultValue: "Fork Conversation to New Workspace")),
                 subtitle: workspaceSubtitle,
                 keywords: ["terminal", "agent", "fork", "conversation", "session", "claude", "codex", "opencode", "new", "workspace"],
+                arguments: Self.commandPaletteOptionalFocusArguments,
                 when: {
                     $0.bool(CommandPaletteContextKeys.panelIsTerminal) &&
                     $0.bool(CommandPaletteContextKeys.panelHasForkableAgent)
@@ -7922,6 +8532,7 @@ struct ContentView: View {
                 title: constant(String(localized: "command.terminalSplitDown.title", defaultValue: "Split Down")),
                 subtitle: constant(String(localized: "command.terminalSplitDown.subtitle", defaultValue: "Terminal Layout")),
                 keywords: ["terminal", "split", "down"],
+                arguments: Self.commandPaletteOptionalFocusArguments,
                 when: { $0.bool(CommandPaletteContextKeys.panelIsTerminal) }
             )
         )
@@ -7931,6 +8542,7 @@ struct ContentView: View {
                 title: constant(String(localized: "command.terminalSplitBrowserRight.title", defaultValue: "Split Browser Right")),
                 subtitle: constant(String(localized: "command.terminalSplitBrowserRight.subtitle", defaultValue: "Terminal Layout")),
                 keywords: ["terminal", "split", "browser", "right"],
+                arguments: Self.commandPaletteBrowserSplitArguments,
                 when: {
                     $0.bool(CommandPaletteContextKeys.panelIsTerminal) &&
                     !$0.bool(CommandPaletteContextKeys.browserDisabled)
@@ -7943,6 +8555,7 @@ struct ContentView: View {
                 title: constant(String(localized: "command.terminalSplitBrowserDown.title", defaultValue: "Split Browser Down")),
                 subtitle: constant(String(localized: "command.terminalSplitBrowserDown.subtitle", defaultValue: "Terminal Layout")),
                 keywords: ["terminal", "split", "browser", "down"],
+                arguments: Self.commandPaletteBrowserSplitArguments,
                 when: {
                     $0.bool(CommandPaletteContextKeys.panelIsTerminal) &&
                     !$0.bool(CommandPaletteContextKeys.browserDisabled)
@@ -7955,6 +8568,7 @@ struct ContentView: View {
                 title: constant(String(localized: "command.toggleSplitZoom.title", defaultValue: "Toggle Pane Zoom")),
                 subtitle: constant(String(localized: "command.toggleSplitZoom.subtitle", defaultValue: "Terminal Layout")),
                 keywords: ["terminal", "pane", "split", "zoom", "maximize"],
+                arguments: Self.commandPaletteOptionalEnabledArguments,
                 when: { context in
                     context.bool(CommandPaletteContextKeys.panelIsTerminal) &&
                     context.bool(CommandPaletteContextKeys.workspaceHasSplits)
@@ -7967,6 +8581,7 @@ struct ContentView: View {
                 title: constant(String(localized: "command.toggleFullWidthTab.title", defaultValue: "Toggle Full Width Tab")),
                 subtitle: constant(String(localized: "command.toggleSplitZoom.subtitle", defaultValue: "Terminal Layout")),
                 keywords: ["full", "width", "tab", "title", "header", "solo"],
+                arguments: Self.commandPaletteOptionalEnabledArguments,
                 when: { context in
                     context.bool(CommandPaletteContextKeys.hasFocusedPanel) &&
                     context.bool(CommandPaletteContextKeys.panelHasPane)
@@ -7983,8 +8598,29 @@ struct ContentView: View {
             )
         )
 
-        let cmuxConfigDefaultSubtitle = String(localized: "command.cmuxConfig.subtitle", defaultValue: "cmux.json")
-        for issue in cmuxConfigStore.configurationIssues {
+        return contributions
+    }
+
+    private func commandPaletteConfigComposition(
+        catalog: CmuxConfigActionCatalog,
+        reservedActionIDs: Set<String>
+    ) -> (
+        contributions: [CommandPaletteCommandContribution],
+        issues: [CmuxConfigIssue],
+        customActions: [CmuxResolvedConfigAction]
+    ) {
+        func constant(_ value: String) -> (CommandPaletteContextSnapshot) -> String {
+            { _ in value }
+        }
+
+        var contributions = commandPaletteBuiltInCommandContributions()
+        let composedConfig = catalog.composingPaletteActions(
+            reservedActionIDs: reservedActionIDs,
+            diagnosticActionID: commandPaletteCmuxConfigIssueCommandID
+        )
+        let issues = composedConfig.issues
+        let customActions = composedConfig.actions
+        for issue in issues {
             contributions.append(
                 CommandPaletteCommandContribution(
                     commandId: commandPaletteCmuxConfigIssueCommandID(issue),
@@ -7994,7 +8630,12 @@ struct ContentView: View {
                 )
             )
         }
-        for action in cmuxConfigStore.paletteCustomActions() {
+
+        let cmuxConfigDefaultSubtitle = String(
+            localized: "command.cmuxConfig.subtitle",
+            defaultValue: "cmux.json"
+        )
+        for action in customActions {
             let actionTitle = sanitizeCmuxConfigPaletteText(action.title)
             let subtitleText = action.subtitle
                 .map { sanitizeCmuxConfigPaletteText($0) }
@@ -8005,12 +8646,49 @@ struct ContentView: View {
                     commandId: action.id,
                     title: constant(actionTitle),
                     subtitle: constant(subtitleText),
-                    keywords: action.keywords
+                    keywords: action.keywords,
+                    arguments: commandPaletteCustomActionArguments(action),
+                    when: commandPaletteCustomActionAvailability(action)
                 )
             )
         }
+        return (contributions, issues, customActions)
+    }
 
-        return contributions
+    private func commandPaletteCustomActionArguments(
+        _ action: CmuxResolvedConfigAction
+    ) -> [CmuxActionArgumentDefinition] {
+        guard case .builtIn(let builtIn) = action.action else { return [] }
+        switch builtIn {
+        case .newTerminal, .newBrowser, .splitRight, .splitDown:
+            return Self.commandPaletteOptionalFocusArguments
+        case .newWorkspace, .newAgentChat, .cloudVM, .mobileConnect:
+            return []
+        }
+    }
+
+    private func commandPaletteCustomActionAvailability(
+        _ action: CmuxResolvedConfigAction
+    ) -> (CommandPaletteContextSnapshot) -> Bool {
+        switch action.paletteTargetRequirement {
+        case .unavailable:
+            return { _ in false }
+        case .window:
+            return { _ in true }
+        case .workspace:
+            return { $0.bool(CommandPaletteContextKeys.hasWorkspace) }
+        case .panelInPane:
+            return Self.commandPalettePanelInPaneIsAvailable
+        case .terminalPanel:
+            return { $0.bool(CommandPaletteContextKeys.panelIsTerminal) }
+        }
+    }
+
+    static func commandPalettePanelInPaneIsAvailable(
+        _ context: CommandPaletteContextSnapshot
+    ) -> Bool {
+        context.bool(CommandPaletteContextKeys.hasFocusedPanel)
+            && context.bool(CommandPaletteContextKeys.panelHasPane)
     }
 
     private func sanitizeCmuxConfigPaletteText(_ text: String) -> String {
@@ -8042,7 +8720,7 @@ struct ContentView: View {
         return "palette.workspaceColor.\(String(hash, radix: 16))"
     }
 
-    private func commandPaletteExtensionSidebarCommandID(_ providerId: String) -> String {
+    static func commandPaletteExtensionSidebarCommandID(_ providerId: String) -> String {
         var hash: UInt64 = 1_469_598_103_934_665_603
         for byte in providerId.utf8 {
             hash ^= UInt64(byte)
@@ -8107,621 +8785,1740 @@ struct ContentView: View {
                 defaultValue: "%@ '%@' must reference a workspace command"
             )
             return String(format: format, issue.settingName, issue.commandName ?? "")
+        case .paletteActionIDCollision:
+            let format = String(
+                localized: "command.cmuxConfig.issue.paletteActionIDCollision.detail",
+                defaultValue: "Action '%@' conflicts with a cmux command palette action and was ignored"
+            )
+            return String(format: format, issue.commandName ?? "")
         }
     }
 
-    private func registerCommandPaletteHandlers(_ registry: inout CommandPaletteHandlerRegistry) {
-        registry.register(commandId: "palette.newWorkspace") {
-            AppDelegate.shared?.performNewWorkspaceAction(
-                tabManager: tabManager,
+    func registerCommandPaletteHandlers(
+        _ registry: inout CommandPaletteHandlerRegistry,
+        context: CommandPaletteActionContext,
+        configCatalog: CmuxConfigActionCatalog
+    ) {
+        let target = context.target
+        let workspacePullRequestTargetWasSelected = target.workspaceID != nil
+            && target.workspaceID == tabManager.selectedTabId
+        let diffTargetWasSelected = target.workspaceID != nil
+            && target.workspaceID == tabManager.selectedTabId
+        registry.register(commandId: "palette.newWorkspace") { invocation in
+            guard let appDelegate = AppDelegate.shared else {
+                return .targetUnavailable
+            }
+            let focus = Self.commandPaletteShouldFocus(invocation, interactiveDefault: true)
+            return commandPaletteResult(for: appDelegate.performNewWorkspaceActionOutcome(
+                tabManager: context.tabManager,
+                sourceWorkspaceID: context.target.workspaceID,
+                sourcePanelID: context.target.panelID,
+                expectedWindowID: context.target.windowID,
+                configCatalog: configCatalog,
+                focus: focus,
                 debugSource: "palette.newWorkspace"
+            ))
+        }
+        registry.register(commandId: "palette.newBrowserWorkspace") { invocation in
+            guard commandPaletteWindow(for: context) != nil,
+                  context.target.workspaceID == nil || context.workspace() != nil,
+                  context.target.panelID == nil || context.panel() != nil,
+                  let appDelegate = AppDelegate.shared else {
+                return commandPaletteTargetUnavailableResult()
+            }
+            let focus = Self.commandPaletteShouldFocus(invocation, interactiveDefault: true)
+            return appDelegate.performNewBrowserWorkspaceAction(
+                tabManager: tabManager,
+                sourceWorkspaceID: context.target.workspaceID,
+                sourcePanelID: context.target.panelID,
+                focus: focus,
+                debugSource: "palette.newBrowserWorkspace"
+            ) ? .completed : commandPaletteActionCouldNotStartResult(
+                code: "workspace_creation_failed"
             )
         }
-        registry.register(commandId: "palette.newBrowserWorkspace") {
-            // Let command-palette dismissal complete first so omnibar focus
-            // is not blocked by the palette visibility guard.
-            DispatchQueue.main.async {
-                _ = AppDelegate.shared?.performNewBrowserWorkspaceAction(
-                    tabManager: tabManager,
-                    debugSource: "palette.newBrowserWorkspace"
+        registerAgentChatCommandPaletteHandler(
+            &registry,
+            context: context,
+            configCatalog: configCatalog
+        )
+        registry.register(commandId: "palette.openFolder") { invocation in
+            let focus = Self.commandPaletteShouldFocus(invocation, interactiveDefault: true)
+            if let path = invocation.string("path") {
+                guard let directoryURL = commandPaletteDirectoryURL(path) else {
+                    return commandPaletteDirectoryUnavailableResult()
+                }
+                if target.workspaceID != nil, context.workspace() == nil {
+                    return commandPaletteTargetUnavailableResult()
+                }
+                tabManager.addWorkspace(
+                    workingDirectory: directoryURL.path,
+                    select: focus,
+                    sourceWorkspaceID: context.workspace()?.id
                 )
+                return .completed
             }
-        }
-        registerAgentChatCommandPaletteHandler(&registry)
-        registry.register(commandId: "palette.openFolder") {
             // Defer so the command palette dismisses before the modal sheet appears.
-            DispatchQueue.main.async {
+            Task { @MainActor in
+                guard let presentingWindow = commandPaletteWindow(for: context) else {
+                    NSSound.beep()
+                    return
+                }
                 let panel = NSOpenPanel()
                 panel.canChooseFiles = false
                 panel.canChooseDirectories = true
                 panel.allowsMultipleSelection = false
                 panel.title = String(localized: "panel.openFolder.title", defaultValue: "Open Folder")
                 panel.prompt = String(localized: "panel.openFolder.prompt", defaultValue: "Open")
-                if panel.runModal() == .OK, let url = panel.url {
-                    tabManager.addWorkspace(workingDirectory: url.path)
+                panel.beginSheetModal(for: presentingWindow) { response in
+                    guard response == .OK, let url = panel.url else { return }
+                    Task { @MainActor in
+                        guard commandPaletteWindow(for: context) === presentingWindow,
+                              target.workspaceID == nil || context.workspace() != nil else {
+                            NSSound.beep()
+                            return
+                        }
+                        tabManager.addWorkspace(
+                            workingDirectory: url.path,
+                            select: focus,
+                            sourceWorkspaceID: context.workspace()?.id
+                        )
+                    }
                 }
             }
+            return .presented
         }
-        registry.register(commandId: "palette.openFolderInVSCodeInline") {
-            DispatchQueue.main.async {
-                AppDelegate.shared?.showOpenFolderInInlineVSCodePanel(tabManager: tabManager)
+        registry.register(commandId: "palette.openFolderInVSCodeInline") { invocation in
+            if let path = invocation.string("path") {
+                guard let directoryURL = commandPaletteDirectoryURL(path) else {
+                    return commandPaletteDirectoryUnavailableResult()
+                }
+                let didQueue = AppDelegate.shared?.openDirectoryInInlineVSCode(
+                    directoryURL,
+                    tabManager: tabManager,
+                    windowID: target.windowID,
+                    workspaceID: target.workspaceID,
+                    panelID: target.panelID
+                ) == true
+                return Self.commandPaletteInlineVSCodeOpenResult(didQueue: didQueue)
             }
-        }
-        registry.register(commandId: "palette.reopenPreviousSession") {
-            if AppDelegate.shared?.reopenPreviousSession() != true {
-                NSSound.beep()
+            Task { @MainActor in
+                AppDelegate.shared?.showOpenFolderInInlineVSCodePanel(
+                    tabManager: tabManager,
+                    windowID: target.windowID,
+                    workspaceID: target.workspaceID,
+                    panelID: target.panelID
+                )
             }
+            return .queued
         }
-        registry.register(commandId: "palette.newWindow") {
-            guard let appDelegate = AppDelegate.shared else { return }
-            appDelegate.openNewMainWindow(preferredWindow: appDelegate.mainWindow(for: windowId))
-        }
-        registry.register(commandId: "palette.installCLI") {
-            AppDelegate.shared?.installCmuxCLIInPath(nil)
-        }
-        registry.register(commandId: "palette.uninstallCLI") {
-            AppDelegate.shared?.uninstallCmuxCLIInPath(nil)
-        }
-        registry.register(commandId: "palette.newTerminalTab") {
-            if !executeConfiguredAction(id: CmuxSurfaceTabBarBuiltInAction.newTerminal.configID) {
-                tabManager.newSurface()
+        registry.register(commandId: "palette.reopenPreviousSession") { _ in
+            guard let appDelegate = AppDelegate.shared else {
+                return commandPaletteTargetUnavailableResult()
             }
+            return appDelegate.reopenPreviousSession()
+                ? .completed
+                : commandPaletteActionCouldNotStartResult(code: "history_unavailable")
         }
-        registry.register(commandId: "palette.newBrowserTab") {
-            if executeConfiguredAction(id: CmuxSurfaceTabBarBuiltInAction.newBrowser.configID) {
-                return
+        registry.register(commandId: "palette.newWindow") { _ in
+            guard let sourceWindow = commandPaletteWindow(for: context),
+                  let appDelegate = AppDelegate.shared else {
+                return commandPaletteTargetUnavailableResult()
             }
-            // Let command-palette dismissal complete first so omnibar focus
-            // is not blocked by the palette visibility guard.
-            DispatchQueue.main.async {
-                _ = AppDelegate.shared?.openBrowserAndFocusAddressBar()
+            _ = appDelegate.openNewMainWindow(preferredWindow: sourceWindow)
+            return .completed
+        }
+        registry.register(commandId: "palette.installCLI") { invocation in
+            guard let appDelegate = AppDelegate.shared,
+                  let targetWindow = commandPaletteWindow(for: context) else {
+                return commandPaletteTargetUnavailableResult()
             }
+            return appDelegate.installCmuxCLIInPath(
+                resultPresentation: invocation.source == .automation ? .silent : .resultAlert,
+                preferredWindow: targetWindow
+            )
         }
-        registry.register(commandId: "palette.closeTab") {
-            tabManager.closeCurrentPanelWithConfirmation()
+        registry.register(commandId: "palette.uninstallCLI") { invocation in
+            guard let appDelegate = AppDelegate.shared,
+                  let targetWindow = commandPaletteWindow(for: context) else {
+                return commandPaletteTargetUnavailableResult()
+            }
+            return appDelegate.uninstallCmuxCLIInPath(
+                resultPresentation: invocation.source == .automation ? .silent : .resultAlert,
+                preferredWindow: targetWindow
+            )
         }
-        registry.register(commandId: "palette.closeWorkspace") {
-            tabManager.closeCurrentWorkspaceWithConfirmation()
+        registry.register(commandId: "palette.newTerminalTab") { invocation in
+            executeConfiguredPaletteAction(
+                id: CmuxSurfaceTabBarBuiltInAction.newTerminal.configID,
+                context: context,
+                configCatalog: configCatalog,
+                focus: commandPaletteConfiguredActionFocus(invocation)
+            )
         }
-        registry.register(commandId: "palette.closeWindow") {
-            guard let window = observedWindow ?? NSApp.keyWindow ?? NSApp.mainWindow else {
-                NSSound.beep()
-                return
+        registry.register(commandId: "palette.newBrowserTab") { invocation in
+            executeConfiguredPaletteAction(
+                id: CmuxSurfaceTabBarBuiltInAction.newBrowser.configID,
+                context: context,
+                configCatalog: configCatalog,
+                focus: commandPaletteConfiguredActionFocus(invocation)
+            )
+        }
+        registry.register(commandId: "palette.closeTab") { invocation in
+            guard let panelContext = context.panel() else {
+                return commandPaletteTargetUnavailableResult()
+            }
+            if let force = invocation.bool("force") {
+                guard force else { return commandPaletteConfirmationRequiredResult() }
+                return tabManager.closePanelNonInteractively(
+                    workspaceID: panelContext.workspace.id,
+                    panelID: panelContext.panelId,
+                    allowPinnedWorkspace: true
+                ) ? .completed : commandPaletteCloseFailedResult()
+            }
+            tabManager.closePanelWithConfirmation(
+                tabId: panelContext.workspace.id,
+                surfaceId: panelContext.panelId
+            )
+            return .presented
+        }
+        registry.register(commandId: "palette.closeWorkspace") { invocation in
+            guard let workspace = context.workspace() else {
+                return commandPaletteTargetUnavailableResult()
+            }
+            if let force = invocation.bool("force") {
+                guard force else { return commandPaletteConfirmationRequiredResult() }
+                return tabManager.closeWorkspaceNonInteractively(
+                    workspace,
+                    allowPinned: true
+                ) ? .completed : commandPaletteCloseFailedResult()
+            }
+            _ = tabManager.closeWorkspaceWithConfirmation(workspace)
+            return .presented
+        }
+        registry.register(commandId: "palette.closeWindow") { invocation in
+            guard let window = commandPaletteWindow(for: context) else {
+                return commandPaletteTargetUnavailableResult()
+            }
+            if let force = invocation.bool("force") {
+                guard force else { return commandPaletteConfirmationRequiredResult() }
+                guard let appDelegate = AppDelegate.shared else {
+                    return commandPaletteCloseFailedResult()
+                }
+                return appDelegate.closeMainWindow(windowId: context.target.windowID)
+                    ? .completed
+                    : commandPaletteCloseFailedResult()
             }
             if let appDelegate = AppDelegate.shared {
                 appDelegate.closeWindowWithConfirmation(window)
             } else {
                 window.performClose(nil)
             }
+            return .presented
         }
-        registry.register(commandId: "palette.toggleFullScreen") {
-            guard let window = observedWindow ?? NSApp.keyWindow ?? NSApp.mainWindow else {
-                NSSound.beep()
-                return
+        registry.register(commandId: "palette.toggleFullScreen") { invocation in
+            guard let window = commandPaletteWindow(for: context) else {
+                return commandPaletteTargetUnavailableResult()
             }
+            guard let shouldToggle = Self.commandPaletteFullScreenShouldToggle(
+                invocation,
+                currentIsFullScreen: window.styleMask.contains(.fullScreen)
+            ) else {
+                return commandPaletteActionCouldNotStartResult(code: "invalid_arguments")
+            }
+            guard shouldToggle else { return .completed }
             window.toggleFullScreen(nil)
+            return .queued
         }
-        registry.register(commandId: "palette.reopenClosedBrowserTab") {
-            if let appDelegate = AppDelegate.shared {
-                _ = appDelegate.reopenMostRecentlyClosedItem(preferredTabManager: tabManager)
+        registry.register(commandId: "palette.reopenClosedBrowserTab") { _ in
+            let didReopen = if let appDelegate = AppDelegate.shared {
+                appDelegate.reopenMostRecentlyClosedItem(preferredTabManager: tabManager)
             } else {
-                _ = tabManager.reopenMostRecentlyClosedItem()
+                tabManager.reopenMostRecentlyClosedItem()
             }
+            return didReopen
+                ? .completed
+                : commandPaletteActionCouldNotStartResult(code: "history_unavailable")
         }
-        registry.register(commandId: "palette.toggleSidebar") {
-            sidebarState.toggle()
+        registry.register(commandId: "palette.toggleSidebar") { invocation in
+            guard commandPaletteTargetIsLive(context) else {
+                if invocation.source == .commandPalette { NSSound.beep() }
+                return commandPaletteTargetUnavailableResult()
+            }
+            guard let visible = Self.commandPaletteRequestedToggleValue(
+                invocation,
+                argumentName: "visible",
+                currentValue: sidebarState.isVisible
+            ) else {
+                return commandPaletteActionCouldNotStartResult(code: "invalid_arguments")
+            }
+            sidebarState.isVisible = visible
+            return sidebarState.isVisible == visible
+                ? .completed
+                : commandPaletteActionCouldNotStartResult(code: "sidebar_update_failed")
         }
         // Register a handler for every possible view (including the hosted
         // extension sidebar) regardless of the beta flag, so a contribution that
         // was visible when the flag was on still resolves after a runtime flip.
         // Visibility is gated by `descriptors`; the handler set is the superset.
         for descriptor in CmuxExtensionSidebarSelection.allDescriptors {
-            registry.register(commandId: commandPaletteExtensionSidebarCommandID(descriptor.id)) {
+            registry.register(commandId: Self.commandPaletteExtensionSidebarCommandID(descriptor.id)) { invocation in
+                guard commandPaletteTargetIsLive(context) else {
+                    if invocation.source == .commandPalette { NSSound.beep() }
+                    return commandPaletteTargetUnavailableResult()
+                }
+                guard CmuxExtensionSidebarSelection.descriptors.contains(where: { $0.id == descriptor.id }) else {
+                    return commandPaletteActionCouldNotStartResult(code: "sidebar_provider_unavailable")
+                }
                 CmuxExtensionSidebarSelection.setProviderId(descriptor.id)
+                return UserDefaults.standard.string(forKey: CmuxExtensionSidebarSelection.defaultsKey) == descriptor.id
+                    ? .completed
+                    : commandPaletteActionCouldNotStartResult(code: "sidebar_provider_update_failed")
             }
         }
         for mode in RightSidebarMode.allCases {
-            registry.register(commandId: Self.commandPaletteRightSidebarModeCommandID(mode)) {
-                handleCommandPaletteRightSidebarMode(mode, observedWindow: observedWindow)
+            registry.register(commandId: Self.commandPaletteRightSidebarModeCommandID(mode)) { invocation in
+                handleCommandPaletteRightSidebarMode(
+                    mode,
+                    context: context,
+                    invocation: invocation
+                )
             }
         }
         for descriptor in Self.commandPaletteRightSidebarToolPaneCommandDescriptors() {
-            registry.register(commandId: descriptor.commandId) {
-                handleCommandPaletteRightSidebarToolPane(descriptor.mode)
+            registry.register(commandId: descriptor.commandId) { invocation in
+                handleCommandPaletteRightSidebarToolPane(
+                    descriptor.mode,
+                    context: context,
+                    invocation: invocation
+                )
             }
         }
-        registry.register(commandId: "palette.toggleMatchTerminalBackground") {
-            sidebarMatchTerminalBackground.toggle()
+        registry.register(commandId: "palette.toggleMatchTerminalBackground") { invocation in
+            guard commandPaletteTargetIsLive(context) else {
+                if invocation.source == .commandPalette { NSSound.beep() }
+                return commandPaletteTargetUnavailableResult()
+            }
+            guard let enabled = Self.commandPaletteRequestedToggleValue(
+                invocation,
+                argumentName: "enabled",
+                currentValue: sidebarMatchTerminalBackground
+            ) else {
+                return commandPaletteActionCouldNotStartResult(code: "invalid_arguments")
+            }
+            sidebarMatchTerminalBackground = enabled
+            return sidebarMatchTerminalBackground == enabled
+                ? .completed
+                : commandPaletteActionCouldNotStartResult(code: "sidebar_background_update_failed")
         }
-        registry.register(commandId: "palette.enableMinimalMode") {
+        registry.register(commandId: "palette.enableMinimalMode") { invocation in
+            guard commandPaletteTargetIsLive(context) else {
+                if invocation.source == .commandPalette { NSSound.beep() }
+                return commandPaletteTargetUnavailableResult()
+            }
             UserDefaults.standard.set(
                 WorkspacePresentationModeSettings.Mode.minimal.rawValue,
                 forKey: WorkspacePresentationModeSettings.modeKey
             )
+            return WorkspacePresentationModeSettings.isMinimal()
+                ? .completed
+                : commandPaletteActionCouldNotStartResult(code: "minimal_mode_update_failed")
         }
-        registry.register(commandId: "palette.disableMinimalMode") {
+        registry.register(commandId: "palette.disableMinimalMode") { invocation in
+            guard commandPaletteTargetIsLive(context) else {
+                if invocation.source == .commandPalette { NSSound.beep() }
+                return commandPaletteTargetUnavailableResult()
+            }
             UserDefaults.standard.set(
                 WorkspacePresentationModeSettings.Mode.standard.rawValue,
                 forKey: WorkspacePresentationModeSettings.modeKey
             )
+            return !WorkspacePresentationModeSettings.isMinimal()
+                ? .completed
+                : commandPaletteActionCouldNotStartResult(code: "minimal_mode_update_failed")
         }
-        registerViewCommandHandlers(&registry)
-        registerCanvasCommandHandlers(&registry)
-        registerCloudCommandHandlers(&registry)
-        registerSavedLayoutCommandHandlers(&registry)
-        registry.register(commandId: "palette.showNotifications") {
-            AppDelegate.shared?.toggleNotificationsPopover(animated: false)
+        registerViewCommandHandlers(&registry, context: context)
+        registerCanvasCommandHandlers(&registry, context: context)
+        registerCloudCommandHandlers(
+            &registry,
+            context: context,
+            configCatalog: configCatalog
+        )
+        registerSavedLayoutCommandHandlers(&registry, context: context)
+        registry.register(commandId: "palette.showNotifications") { invocation in
+            guard let targetWindow = commandPaletteWindow(for: context) else {
+                if invocation.source == .commandPalette {
+                    NSSound.beep()
+                }
+                return commandPaletteTargetUnavailableResult()
+            }
+            guard let appDelegate = AppDelegate.shared else {
+                return commandPaletteTargetUnavailableResult()
+            }
+            switch appDelegate.showNotificationsPopover(
+                animated: false,
+                preferredWindow: targetWindow
+            ) {
+            case .presented:
+                return .presented
+            case .completed:
+                return .completed
+            case .failed:
+                return commandPaletteTargetUnavailableResult()
+            }
         }
-        registry.register(commandId: "palette.jumpUnread") {
-            AppDelegate.shared?.jumpToLatestUnread()
+        registry.register(commandId: "palette.jumpUnread") { _ in
+            guard let appDelegate = AppDelegate.shared else {
+                return commandPaletteTargetUnavailableResult()
+            }
+            switch appDelegate.jumpToLatestUnreadWithOutcome() {
+            case .completed:
+                return .completed
+            case .notApplicable:
+                return commandPaletteNotificationNotApplicableResult()
+            case .targetUnavailable:
+                return commandPaletteTargetUnavailableResult()
+            }
         }
-        registry.register(commandId: "palette.toggleUnread") {
-            AppDelegate.shared?.toggleFocusedNotificationUnread(
-                preferredWindow: observedWindow
-            )
+        registry.register(commandId: "palette.toggleUnread") { invocation in
+            guard let workspace = context.workspace(),
+                  context.target.panelID == nil || context.panel() != nil,
+                  let appDelegate = AppDelegate.shared else {
+                return commandPaletteTargetUnavailableResult()
+            }
+            let outcome: ExplicitNotificationActionOutcome
+            if invocation.arguments["unread"] != nil {
+                guard let unread = invocation.bool("unread") else {
+                    return commandPaletteActionCouldNotStartResult(code: "invalid_arguments")
+                }
+                outcome = appDelegate.notificationNavigation.setNotificationUnread(
+                    workspaceId: workspace.id,
+                    panelId: context.target.panelID,
+                    unread: unread
+                )
+            } else {
+                outcome = appDelegate.notificationNavigation.toggleNotificationUnread(
+                    workspaceId: workspace.id,
+                    panelId: context.target.panelID
+                )
+            }
+            switch outcome {
+            case .completed:
+                return .completed
+            case .notApplicable:
+                return commandPaletteNotificationNotApplicableResult()
+            case .targetUnavailable:
+                return commandPaletteTargetUnavailableResult()
+            }
         }
-        registry.register(commandId: "palette.markOldestUnreadAndJumpNext") {
-            AppDelegate.shared?.markFocusedNotificationAsOldestUnreadAndJumpToNextLatestUnread(
-                preferredWindow: observedWindow
-            )
+        registry.register(commandId: "palette.markOldestUnreadAndJumpNext") { _ in
+            guard let workspace = context.workspace(),
+                  context.target.panelID == nil || context.panel() != nil,
+                  let appDelegate = AppDelegate.shared else {
+                return commandPaletteTargetUnavailableResult()
+            }
+            let outcome = appDelegate.notificationNavigation
+                .markNotificationAsOldestUnreadAndJumpToNextLatestUnread(
+                    workspaceId: workspace.id,
+                    panelId: context.target.panelID
+                )
+            switch outcome {
+            case .completed:
+                return .completed
+            case .notApplicable:
+                return commandPaletteNotificationNotApplicableResult()
+            case .targetUnavailable:
+                return commandPaletteTargetUnavailableResult()
+            }
         }
-        registry.register(commandId: "palette.openSettings") {
+        registry.register(commandId: "palette.openSettings") { _ in
 #if DEBUG
             cmuxDebugLog("palette.openSettings.invoke")
 #endif
+            let result: SettingsWindowShowResult
             if let appDelegate = AppDelegate.shared {
-                appDelegate.openPreferencesWindow(debugSource: "palette.openSettings")
+                result = appDelegate.openPreferencesWindow(debugSource: "palette.openSettings")
             } else {
 #if DEBUG
                 cmuxDebugLog("palette.openSettings.missingAppDelegate fallback=1")
 #endif
-                AppDelegate.presentPreferencesWindow()
+                result = AppDelegate.presentPreferencesWindow()
+            }
+            switch result {
+            case .presented, .orderedWhileAppHidden:
+                return .presented
+            case .failed:
+                return commandPaletteActionCouldNotStartResult(
+                    code: "settings_open_failed"
+                )
             }
         }
-        registry.register(commandId: "palette.openCmuxSettingsFile") {
+        registry.register(commandId: "palette.openCmuxSettingsFile") { _ in
 #if DEBUG
             cmuxDebugLog("palette.openCmuxSettingsFile.invoke")
 #endif
             openCmuxSettingsFileInEditor()
+            return .queued
         }
-        registry.register(commandId: "palette.openGhosttySettings") {
+        registry.register(commandId: "palette.openGhosttySettings") { _ in
 #if DEBUG
             cmuxDebugLog("palette.openGhosttySettings.invoke")
 #endif
-            GhosttyApp.shared.openConfigurationInTextEdit()
+            return GhosttyApp.shared.openConfigurationInTextEdit()
+                ? .queued
+                : commandPaletteActionCouldNotStartResult(
+                    code: "settings_open_failed"
+                )
         }
-        registry.register(commandId: "palette.mobileConnect") {
+        registry.register(commandId: "palette.mobileConnect") { _ in
 #if DEBUG
             cmuxDebugLog("palette.mobileConnect.invoke")
 #endif
-            MobilePairingWindowController.shared.show()
+            return executeConfiguredPaletteAction(
+                id: CmuxSurfaceTabBarBuiltInAction.mobileConnect.configID,
+                context: context,
+                configCatalog: configCatalog
+            )
         }
-        registerAuthCommandHandlers(&registry)
-        registerProCommandHandlers(&registry)
-        registry.register(commandId: "palette.makeDefaultTerminal") {
-            DefaultTerminalUserAction.setAsDefault(debugSource: "palette.makeDefaultTerminal")
+        registerAuthCommandHandlers(&registry, context: context)
+        registerProCommandHandlers(&registry, context: context)
+        registry.register(commandId: "palette.makeDefaultTerminal") { invocation in
+            guard let failurePresentation = Self.commandPaletteDefaultTerminalFailurePresentation(
+                invocation,
+                targetWindow: commandPaletteWindow(for: context)
+            ) else {
+                return commandPaletteTargetUnavailableResult()
+            }
+            switch DefaultTerminalUserAction.setAsDefault(
+                debugSource: "palette.makeDefaultTerminal",
+                failurePresentation: failurePresentation
+            ) {
+            case .alreadyDefault:
+                return .completed
+            case .queued:
+                return .queued
+            }
         }
-        registry.register(commandId: "palette.checkForUpdates") {
-            AppDelegate.shared?.checkForUpdates(nil)
+        registry.register(commandId: "palette.checkForUpdates") { _ in
+            guard let appDelegate = AppDelegate.shared else {
+                return commandPaletteTargetUnavailableResult()
+            }
+            return Self.commandPaletteUpdateResult(appDelegate.requestCheckForUpdates())
         }
-        registry.register(commandId: "palette.applyUpdateIfAvailable") {
-            AppDelegate.shared?.applyUpdateIfAvailable(nil)
+        registry.register(commandId: "palette.applyUpdateIfAvailable") { _ in
+            guard let appDelegate = AppDelegate.shared else {
+                return commandPaletteTargetUnavailableResult()
+            }
+            guard case .updateAvailable = updateViewModel.effectiveState else {
+                return commandPaletteActionCouldNotStartResult(
+                    code: "update_unavailable"
+                )
+            }
+            return Self.commandPaletteUpdateResult(appDelegate.requestApplyUpdateIfAvailable())
         }
-        registry.register(commandId: "palette.attemptUpdate") {
-            AppDelegate.shared?.attemptUpdate(nil)
+        registry.register(commandId: "palette.attemptUpdate") { _ in
+            guard let appDelegate = AppDelegate.shared else {
+                return commandPaletteTargetUnavailableResult()
+            }
+            return Self.commandPaletteUpdateResult(appDelegate.requestAttemptUpdate())
         }
-        registry.register(commandId: "palette.restartSocketListener") {
-            AppDelegate.shared?.restartSocketListener(nil)
+        registry.register(commandId: "palette.restartSocketListener") { invocation in
+            guard commandPaletteWindow(for: context) != nil,
+                  context.target.workspaceID == nil || context.workspace() != nil,
+                  context.target.panelID == nil || context.panel() != nil,
+                  let appDelegate = AppDelegate.shared,
+                  appDelegate.socketListenerConfigurationIfEnabled() != nil else {
+                return commandPaletteActionCouldNotStartResult(
+                    code: "socket_listener_unavailable"
+                )
+            }
+            // Stop the listener on the next main-actor turn so the control
+            // socket can deliver this queued result before its transport is
+            // intentionally replaced.
+            Task { @MainActor in
+                let didRestart = appDelegate.restartSocketListenerIfEnabled(
+                    tabManager: context.tabManager,
+                    expectedWindowID: context.target.windowID,
+                    source: "palette.restartSocketListener"
+                )
+                if !didRestart, invocation.source == .commandPalette {
+                    NSSound.beep()
+                }
+            }
+            return .queued
         }
-        registry.register(commandId: "palette.disableBrowser") {
+        registry.register(commandId: "palette.disableBrowser") { invocation in
+            guard commandPaletteTargetIsLive(context) else {
+                if invocation.source == .commandPalette { NSSound.beep() }
+                return commandPaletteTargetUnavailableResult()
+            }
             BrowserAvailabilitySettings.setDisabled(true)
+            return BrowserAvailabilitySettings.isDisabled()
+                ? .completed
+                : commandPaletteActionCouldNotStartResult(code: "browser_availability_update_failed")
         }
-        registry.register(commandId: "palette.enableBrowser") {
+        registry.register(commandId: "palette.enableBrowser") { invocation in
+            guard commandPaletteTargetIsLive(context) else {
+                if invocation.source == .commandPalette { NSSound.beep() }
+                return commandPaletteTargetUnavailableResult()
+            }
             BrowserAvailabilitySettings.setDisabled(false)
+            return BrowserAvailabilitySettings.isEnabled()
+                ? .completed
+                : commandPaletteActionCouldNotStartResult(code: "browser_availability_update_failed")
         }
         registerSettingsToggleCommandHandlers(&registry)
 
-        registry.register(commandId: "palette.renameWorkspace") {
-            beginRenameWorkspaceFlow()
-        }
-        registry.register(commandId: "palette.editWorkspaceDescription") {
-            beginWorkspaceDescriptionFlow()
-        }
-        registry.register(commandId: "palette.clearWorkspaceName") {
-            guard let workspace = tabManager.selectedWorkspace else {
-                NSSound.beep()
-                return
+        registry.register(commandId: "palette.renameWorkspace") { invocation in
+            if let proposedName = invocation.string("name") {
+                guard let workspace = context.workspace() else {
+                    return commandPaletteTargetUnavailableResult()
+                }
+                tabManager.setCustomTitle(
+                    tabId: workspace.id,
+                    title: normalizedCommandPaletteName(proposedName)
+                )
+                return .completed
             }
-            tabManager.clearCustomTitle(tabId: workspace.id)
+            beginRenameWorkspaceFlow(context: context)
+            return .presented
         }
-        registry.register(commandId: "palette.clearWorkspaceDescription") {
-            guard let workspace = tabManager.selectedWorkspace else {
-                NSSound.beep()
-                return
+        registry.register(commandId: "palette.editWorkspaceDescription") { invocation in
+            if let proposedDescription = invocation.string("description") {
+                guard let workspace = context.workspace() else {
+                    return commandPaletteTargetUnavailableResult()
+                }
+                tabManager.setCustomDescription(
+                    tabId: workspace.id,
+                    description: proposedDescription
+                )
+                return .completed
             }
-            tabManager.clearCustomDescription(tabId: workspace.id)
+            beginWorkspaceDescriptionFlow(context: context)
+            return .presented
         }
-        registry.register(commandId: "palette.toggleWorkspacePin") {
-            guard let workspace = tabManager.selectedWorkspace else {
-                NSSound.beep()
-                return
+        registry.register(commandId: "palette.clearWorkspaceName") { invocation in
+            guard let workspace = context.workspace() else {
+                if invocation.source == .commandPalette { NSSound.beep() }
+                return commandPaletteTargetUnavailableResult()
             }
-            let pinTarget = WorkspaceActionDispatcher.Target.single(workspace.id)
-            guard WorkspaceActionDispatcher.performPinAction(in: tabManager, target: pinTarget) != nil else {
-                NSSound.beep()
-                return
-            }
+            context.tabManager.clearCustomTitle(tabId: workspace.id)
+            return workspace.customTitle == nil
+                ? .completed
+                : commandPaletteActionCouldNotStartResult(code: "workspace_name_clear_failed")
         }
-        registry.register(commandId: "palette.resetWorkspaceColor") {
-            guard let workspace = tabManager.selectedWorkspace else {
-                NSSound.beep()
-                return
+        registry.register(commandId: "palette.clearWorkspaceDescription") { invocation in
+            guard let workspace = context.workspace() else {
+                if invocation.source == .commandPalette { NSSound.beep() }
+                return commandPaletteTargetUnavailableResult()
             }
-            tabManager.applyWorkspaceColor(nil, toWorkspaceIds: [workspace.id])
+            context.tabManager.clearCustomDescription(tabId: workspace.id)
+            return workspace.customDescription == nil
+                ? .completed
+                : commandPaletteActionCouldNotStartResult(code: "workspace_description_clear_failed")
+        }
+        registry.register(commandId: "palette.toggleWorkspacePin") { invocation in
+            guard let workspace = context.workspace() else {
+                if invocation.source == .commandPalette { NSSound.beep() }
+                return commandPaletteTargetUnavailableResult()
+            }
+            guard let pinned = Self.commandPaletteRequestedToggleValue(
+                invocation,
+                argumentName: "pinned",
+                currentValue: workspace.isPinned
+            ) else {
+                return commandPaletteActionCouldNotStartResult(code: "invalid_arguments")
+            }
+            context.tabManager.setPinned(workspaceIds: [workspace.id], pinned: pinned)
+            return workspace.isPinned == pinned
+                ? .completed
+                : commandPaletteActionCouldNotStartResult(code: "workspace_pin_failed")
+        }
+        registry.register(commandId: "palette.resetWorkspaceColor") { invocation in
+            guard let workspace = context.workspace() else {
+                if invocation.source == .commandPalette { NSSound.beep() }
+                return commandPaletteTargetUnavailableResult()
+            }
+            context.tabManager.applyWorkspaceColor(nil, toWorkspaceIds: [workspace.id])
+            return workspace.customColor == nil
+                ? .completed
+                : commandPaletteActionCouldNotStartResult(code: "workspace_color_update_failed")
         }
         for entry in WorkspaceTabColorSettings.palette() {
-            registry.register(commandId: commandPaletteWorkspaceColorCommandID(entry.name)) {
-                guard let workspace = tabManager.selectedWorkspace else {
-                    NSSound.beep()
-                    return
+            registry.register(commandId: commandPaletteWorkspaceColorCommandID(entry.name)) { invocation in
+                guard let workspace = context.workspace() else {
+                    if invocation.source == .commandPalette { NSSound.beep() }
+                    return commandPaletteTargetUnavailableResult()
                 }
-                tabManager.applyWorkspacePaletteColor(named: entry.name, toWorkspaceIds: [workspace.id])
+                context.tabManager.applyWorkspacePaletteColor(
+                    named: entry.name,
+                    toWorkspaceIds: [workspace.id]
+                )
+                return workspace.customColor == WorkspaceTabColorSettings.normalizedHex(entry.hex)
+                    ? .completed
+                    : commandPaletteActionCouldNotStartResult(code: "workspace_color_update_failed")
             }
         }
-        registry.register(commandId: "palette.nextWorkspace") {
-            tabManager.selectNextTab()
-        }
-        registry.register(commandId: "palette.previousWorkspace") {
-            tabManager.selectPreviousTab()
-        }
-        registry.register(commandId: "palette.moveWorkspaceUp") {
-            tabManager.moveSelectedWorkspace(by: -1)
-        }
-        registry.register(commandId: "palette.moveWorkspaceDown") {
-            tabManager.moveSelectedWorkspace(by: 1)
-        }
-        registry.register(commandId: "palette.moveWorkspaceToTop") {
-            guard let workspace = tabManager.selectedWorkspace else {
-                NSSound.beep()
-                return
+        registry.register(commandId: "palette.nextWorkspace") { _ in
+            guard let workspaceID = context.workspace()?.id else {
+                return commandPaletteTargetUnavailableResult()
             }
-            tabManager.moveTabsToTop([workspace.id])
-            tabManager.selectWorkspace(workspace)
+            return tabManager.selectNextTab(from: workspaceID)
+                ? .completed
+                : commandPaletteActionCouldNotStartResult(
+                    code: "workspace_navigation_unavailable"
+                )
         }
-        WorkspaceTodoPaletteCommands.registerHandlers(in: &registry, tabManager: tabManager)
-        registry.register(commandId: "palette.closeOtherWorkspaces") {
-            closeOtherSelectedWorkspaces()
-        }
-        registry.register(commandId: "palette.closeWorkspacesBelow") {
-            closeSelectedWorkspacesBelow()
-        }
-        registry.register(commandId: "palette.closeWorkspacesAbove") {
-            closeSelectedWorkspacesAbove()
-        }
-        registry.register(commandId: "palette.markWorkspaceRead") {
-            guard let workspaceId = tabManager.selectedWorkspace?.id else {
-                NSSound.beep()
-                return
+        registry.register(commandId: "palette.previousWorkspace") { _ in
+            guard let workspaceID = context.workspace()?.id else {
+                return commandPaletteTargetUnavailableResult()
             }
-            notificationStore.markRead(forTabId: workspaceId)
+            return tabManager.selectPreviousTab(from: workspaceID)
+                ? .completed
+                : commandPaletteActionCouldNotStartResult(
+                    code: "workspace_navigation_unavailable"
+                )
         }
-        registry.register(commandId: "palette.markWorkspaceUnread") {
-            guard let workspaceId = tabManager.selectedWorkspace?.id else {
-                NSSound.beep()
-                return
+        registry.register(commandId: "palette.moveWorkspaceUp") { _ in
+            guard let workspaceID = context.workspace()?.id else {
+                return commandPaletteTargetUnavailableResult()
             }
-            notificationStore.markUnread(forTabId: workspaceId)
+            return tabManager.reorderWorkspace(tabId: workspaceID, by: -1)
+                ? .completed
+                : commandPaletteActionCouldNotStartResult(
+                    code: "workspace_reorder_unavailable"
+                )
         }
-        registerIdentifierCopyCommandHandlers(&registry)
-
-        registry.register(commandId: "palette.renameTab") {
-            beginRenameTabFlow()
-        }
-        registry.register(commandId: "palette.clearTabName") {
-            guard let panelContext = focusedPanelContext else {
-                NSSound.beep()
-                return
+        registry.register(commandId: "palette.moveWorkspaceDown") { _ in
+            guard let workspaceID = context.workspace()?.id else {
+                return commandPaletteTargetUnavailableResult()
             }
-            panelContext.workspace.setPanelCustomTitle(panelId: panelContext.panelId, title: nil)
+            return tabManager.reorderWorkspace(tabId: workspaceID, by: 1)
+                ? .completed
+                : commandPaletteActionCouldNotStartResult(
+                    code: "workspace_reorder_unavailable"
+                )
         }
-        registry.register(commandId: "palette.moveTabToNewWorkspace") {
-            guard moveFocusedPanelToNewWorkspace() else { NSSound.beep(); return }
-        }
-        registry.register(commandId: "palette.toggleTabPin") {
-            guard let panelContext = focusedPanelContext else {
-                NSSound.beep()
-                return
+        registry.register(commandId: "palette.moveWorkspaceToTop") { _ in
+            guard let workspaceID = context.workspace()?.id else {
+                return commandPaletteTargetUnavailableResult()
             }
-            panelContext.workspace.setPanelPinned(
-                panelId: panelContext.panelId,
-                pinned: !panelContext.workspace.isPanelPinned(panelContext.panelId)
+            return tabManager.moveWorkspaceToTop(tabId: workspaceID)
+                ? .completed
+                : commandPaletteActionCouldNotStartResult(
+                    code: "workspace_reorder_unavailable"
+                )
+        }
+        WorkspaceTodoPaletteCommands.registerHandlers(
+            in: &registry,
+            context: context,
+            presentChecklistAddField: { workspaceID in
+                guard commandPaletteTargetIsLive(context),
+                      tabManager.tabs.contains(where: { $0.id == workspaceID }) else {
+                    return false
+                }
+                sidebarState.isVisible = true
+                WorkspaceTodoActions.requestChecklistAddField(
+                    workspaceId: workspaceID,
+                    in: tabManager
+                )
+                return true
+            }
+        )
+        registry.register(commandId: "palette.closeOtherWorkspaces") { invocation in
+            closeOtherWorkspaces(
+                keeping: context.target.workspaceID,
+                invocation: invocation
             )
         }
-        registry.register(commandId: "palette.toggleTabUnread") {
-            guard let panelContext = focusedPanelContext else {
-                NSSound.beep()
-                return
+        registry.register(commandId: "palette.closeWorkspacesBelow") { invocation in
+            closeWorkspacesBelow(
+                context.target.workspaceID,
+                invocation: invocation
+            )
+        }
+        registry.register(commandId: "palette.closeWorkspacesAbove") { invocation in
+            closeWorkspacesAbove(
+                context.target.workspaceID,
+                invocation: invocation
+            )
+        }
+        registry.register(commandId: "palette.markWorkspaceRead") { invocation in
+            guard let workspaceId = context.workspace()?.id else {
+                if invocation.source == .commandPalette { NSSound.beep() }
+                return commandPaletteTargetUnavailableResult()
+            }
+            notificationStore.markRead(forTabId: workspaceId)
+            return notificationStore.workspaceIsUnread(forTabId: workspaceId)
+                ? commandPaletteActionCouldNotStartResult(code: "workspace_unread_update_failed")
+                : .completed
+        }
+        registry.register(commandId: "palette.markWorkspaceUnread") { invocation in
+            guard let workspaceId = context.workspace()?.id else {
+                if invocation.source == .commandPalette { NSSound.beep() }
+                return commandPaletteTargetUnavailableResult()
+            }
+            notificationStore.markUnread(forTabId: workspaceId)
+            return notificationStore.workspaceIsUnread(forTabId: workspaceId)
+                ? .completed
+                : commandPaletteActionCouldNotStartResult(code: "workspace_unread_update_failed")
+        }
+        registerIdentifierCopyCommandHandlers(&registry, context: context)
+
+        registry.register(commandId: "palette.renameTab") { invocation in
+            if let proposedName = invocation.string("name") {
+                guard let panelContext = context.panel() else {
+                    return commandPaletteTargetUnavailableResult()
+                }
+                panelContext.workspace.setPanelCustomTitle(
+                    panelId: panelContext.panelId,
+                    title: normalizedCommandPaletteName(proposedName)
+                )
+                return .completed
+            }
+            beginRenameTabFlow(context: context)
+            return .presented
+        }
+        registry.register(commandId: "palette.clearTabName") { invocation in
+            guard let panelContext = context.panel() else {
+                if invocation.source == .commandPalette { NSSound.beep() }
+                return commandPaletteTargetUnavailableResult()
+            }
+            _ = panelContext.workspace.setPanelCustomTitle(
+                panelId: panelContext.panelId,
+                title: nil
+            )
+            return panelContext.workspace.panelCustomTitles[panelContext.panelId] == nil
+                ? .completed
+                : commandPaletteActionCouldNotStartResult(code: "tab_name_clear_failed")
+        }
+        registry.register(commandId: "palette.moveTabToNewWorkspace") { invocation in
+            guard context.panel() != nil else {
+                return commandPaletteTargetUnavailableResult()
+            }
+            return movePanelToNewWorkspace(
+                context: context,
+                focus: Self.commandPaletteShouldFocus(
+                    invocation,
+                    interactiveDefault: true
+                )
+            )
+                ? .completed
+                : commandPaletteActionCouldNotStartResult(
+                    code: "tab_move_failed"
+                )
+        }
+        registry.register(commandId: "palette.toggleTabPin") { invocation in
+            guard let panelContext = context.panel() else {
+                if invocation.source == .commandPalette { NSSound.beep() }
+                return commandPaletteTargetUnavailableResult()
+            }
+            guard let pinned = Self.commandPaletteRequestedToggleValue(
+                invocation,
+                argumentName: "pinned",
+                currentValue: panelContext.workspace.isPanelPinned(panelContext.panelId)
+            ) else {
+                return commandPaletteActionCouldNotStartResult(code: "invalid_arguments")
+            }
+            let outcome = panelContext.workspace.setPanelPinned(
+                panelId: panelContext.panelId,
+                pinned: pinned
+            )
+            switch outcome {
+            case .completed:
+                return .completed
+            case .queued:
+                return .queued
+            case .failed:
+                return commandPaletteActionCouldNotStartResult(code: "tab_pin_failed")
+            }
+        }
+        registry.register(commandId: "palette.toggleTabUnread") { invocation in
+            guard let panelContext = context.panel() else {
+                if invocation.source == .commandPalette { NSSound.beep() }
+                return commandPaletteTargetUnavailableResult()
             }
             let hasUnread = panelContext.workspace.manualUnreadPanelIds.contains(panelContext.panelId) ||
                 panelContext.workspace.restoredUnreadPanelIds.contains(panelContext.panelId) ||
-                sidebarUnread.hasUnreadNotification(forWorkspaceId: panelContext.workspace.id, surfaceId: panelContext.panelId)
-            if hasUnread {
-                panelContext.workspace.markPanelRead(panelContext.panelId)
-            } else {
+                notificationStore.hasUnreadNotification(
+                    forTabId: panelContext.workspace.id,
+                    surfaceId: panelContext.panelId
+                )
+            guard let unread = Self.commandPaletteRequestedToggleValue(
+                invocation,
+                argumentName: "unread",
+                currentValue: hasUnread
+            ) else {
+                return commandPaletteActionCouldNotStartResult(code: "invalid_arguments")
+            }
+            if unread {
                 panelContext.workspace.markPanelUnread(panelContext.panelId)
+            } else {
+                panelContext.workspace.markPanelRead(panelContext.panelId)
             }
+            let isUnread = panelContext.workspace.manualUnreadPanelIds.contains(panelContext.panelId) ||
+                panelContext.workspace.restoredUnreadPanelIds.contains(panelContext.panelId) ||
+                notificationStore.hasUnreadNotification(
+                    forTabId: panelContext.workspace.id,
+                    surfaceId: panelContext.panelId
+                )
+            return isUnread == unread
+                ? .completed
+                : commandPaletteActionCouldNotStartResult(code: "tab_unread_update_failed")
         }
-        registry.register(commandId: "palette.nextTabInPane") {
-            tabManager.selectNextSurface()
-        }
-        registry.register(commandId: "palette.previousTabInPane") {
-            tabManager.selectPreviousSurface()
-        }
-        registry.register(commandId: "palette.openWorkspacePullRequests") {
-            DispatchQueue.main.async {
-                if !openWorkspacePullRequestsInConfiguredBrowser() {
-                    NSSound.beep()
-                }
+        registry.register(commandId: "palette.nextTabInPane") { _ in
+            guard let panelContext = context.panel() else {
+                return commandPaletteTargetUnavailableResult()
             }
-        }
-        registry.register(commandId: "palette.openDiffViewer") {
-            if AppDelegate.shared?.openDiffViewerForFocusedWorkspace(for: tabManager) != true {
-                NSSound.beep()
-            }
-        }
-        registry.register(commandId: "palette.openDirectoryDiffViewer") {
-            if AppDelegate.shared?.openDirectoryDiffViewerForFocusedWorkspace(for: tabManager) != true {
-                NSSound.beep()
-            }
-        }
-
-        registry.register(commandId: "palette.browserBack") {
-            tabManager.focusedBrowserPanel?.goBack()
-        }
-        registry.register(commandId: "palette.browserForward") {
-            tabManager.focusedBrowserPanel?.goForward()
-        }
-        registry.register(commandId: "palette.browserReload") {
-            tabManager.focusedBrowserPanel?.reload()
-        }
-        registry.register(commandId: "palette.browserOpenDefault") {
-            if !openFocusedBrowserInDefaultBrowser() {
-                NSSound.beep()
-            }
-        }
-        registry.register(commandId: "palette.browserFocusAddressBar") {
-            if !focusFocusedBrowserAddressBar() {
-                NSSound.beep()
-            }
-        }
-        registry.register(commandId: "palette.browserFocusMode") {
-            if !tabManager.toggleBrowserFocusModeForFocusedBrowser(reason: "commandPalette") {
-                NSSound.beep()
-            }
-        }
-        registry.register(commandId: "palette.browserToggleOmnibar") {
-            if !tabManager.toggleOmnibarFocusedBrowser() {
-                NSSound.beep()
-            }
-        }
-        registry.register(commandId: "palette.browserToggleDevTools") {
-            if !tabManager.toggleDeveloperToolsFocusedBrowser() {
-                NSSound.beep()
-            }
-        }
-        registry.register(commandId: "palette.browserConsole") {
-            if !tabManager.showJavaScriptConsoleFocusedBrowser() {
-                NSSound.beep()
-            }
-        }
-        registry.register(commandId: "palette.browserReactGrab") {
-            if !tabManager.toggleReactGrabFromCurrentFocus() {
-                NSSound.beep()
-            }
-        }
-        registry.register(commandId: "palette.browserZoomIn") {
-            if !tabManager.zoomInFocusedBrowserOrTextFilePreview() {
-                NSSound.beep()
-            }
-        }
-        registry.register(commandId: "palette.browserZoomOut") {
-            if !tabManager.zoomOutFocusedBrowserOrTextFilePreview() {
-                NSSound.beep()
-            }
-        }
-        registry.register(commandId: "palette.browserZoomReset") {
-            if !tabManager.resetZoomFocusedBrowserOrTextFilePreview() {
-                NSSound.beep()
-            }
-        }
-        registry.register(commandId: "palette.markdownZoomIn") {
-            if !tabManager.zoomInFocusedMarkdown() {
-                NSSound.beep()
-            }
-        }
-        registry.register(commandId: "palette.markdownZoomOut") {
-            if !tabManager.zoomOutFocusedMarkdown() {
-                NSSound.beep()
-            }
-        }
-        registry.register(commandId: "palette.markdownZoomReset") {
-            if !tabManager.resetZoomFocusedMarkdown() {
-                NSSound.beep()
-            }
-        }
-        registry.register(commandId: "palette.browserClearHistory") {
-            BrowserHistoryStore.shared.clearHistory()
-        }
-        registry.register(commandId: "palette.findInDirectory") {
-            _ = AppDelegate.shared?.focusFileSearchInActiveMainWindow(
-                preferredWindow: NSApp.keyWindow ?? NSApp.mainWindow
+            return tabManager.selectNextSurface(
+                tabId: panelContext.workspace.id,
+                fromPanelId: panelContext.panelId
+            ) ? .completed : commandPaletteActionCouldNotStartResult(
+                code: "tab_navigation_unavailable"
             )
         }
-        registry.register(commandId: "palette.browserSplitRight") {
-            _ = tabManager.createBrowserSplit(direction: .right)
+        registry.register(commandId: "palette.previousTabInPane") { _ in
+            guard let panelContext = context.panel() else {
+                return commandPaletteTargetUnavailableResult()
+            }
+            return tabManager.selectPreviousSurface(
+                tabId: panelContext.workspace.id,
+                fromPanelId: panelContext.panelId
+            ) ? .completed : commandPaletteActionCouldNotStartResult(
+                code: "tab_navigation_unavailable"
+            )
         }
-        registry.register(commandId: "palette.browserSplitDown") {
-            _ = tabManager.createBrowserSplit(direction: .down)
+        registry.register(commandId: "palette.openWorkspacePullRequests") { invocation in
+            guard context.workspace() != nil else {
+                return commandPaletteTargetUnavailableResult()
+            }
+            let focus = Self.commandPaletteOpenWorkspacePullRequestsShouldFocus(
+                invocation,
+                targetWasSelected: workspacePullRequestTargetWasSelected
+            )
+            return openWorkspacePullRequestsInConfiguredBrowser(
+                context: context,
+                focus: focus
+            )
+                ? .completed
+                : commandPaletteActionCouldNotStartResult(code: "open_failed")
         }
-        registry.register(commandId: "palette.browserDuplicateRight") {
-            let url = tabManager.focusedBrowserPanel?.preferredURLStringForOmnibar().flatMap(URL.init(string:))
-            _ = tabManager.createBrowserSplit(direction: .right, url: url)
+        registry.register(commandId: "palette.openDiffViewer") { invocation in
+            guard let workspace = context.workspace() else {
+                return commandPaletteTargetUnavailableResult()
+            }
+            let focus = Self.commandPaletteDiffShouldFocus(
+                invocation,
+                targetWasSelected: diffTargetWasSelected
+            )
+            return AppDelegate.shared?.openDiffViewer(
+                    for: tabManager,
+                    workspaceID: workspace.id,
+                    panelID: context.target.panelID,
+                    focus: focus
+                  ) == true
+                ? .queued
+                : commandPaletteActionCouldNotStartResult(code: "open_failed")
+        }
+        registry.register(commandId: "palette.openDirectoryDiffViewer") { invocation in
+            guard let workspace = context.workspace() else {
+                return commandPaletteTargetUnavailableResult()
+            }
+            let focus = Self.commandPaletteDiffShouldFocus(
+                invocation,
+                targetWasSelected: diffTargetWasSelected
+            )
+            return AppDelegate.shared?.openDirectoryDiffViewer(
+                    for: tabManager,
+                    workspaceID: workspace.id,
+                    panelID: context.target.panelID,
+                    focus: focus
+                  ) == true
+                ? .queued
+                : commandPaletteActionCouldNotStartResult(code: "open_failed")
+        }
+
+        registry.register(commandId: "palette.browserBack") { _ in
+            guard let panel = context.browserPanel else { return .targetUnavailable }
+            return Self.commandPaletteBrowserActionResult(
+                didStart: panel.goBackIfPossible(),
+                acceptedResult: .queued
+            )
+        }
+        registry.register(commandId: "palette.browserForward") { _ in
+            guard let panel = context.browserPanel else { return .targetUnavailable }
+            return Self.commandPaletteBrowserActionResult(
+                didStart: panel.goForwardIfPossible(),
+                acceptedResult: .queued
+            )
+        }
+        registry.register(commandId: "palette.browserReload") { _ in
+            guard let panel = context.browserPanel else { return .targetUnavailable }
+            return Self.commandPaletteBrowserActionResult(
+                didStart: panel.reloadIfPossible(),
+                acceptedResult: .queued
+            )
+        }
+        registry.register(commandId: "palette.browserOpenDefault") { _ in
+            guard context.browserPanel != nil else { return .targetUnavailable }
+            return Self.commandPaletteBrowserActionResult(
+                didStart: openBrowserInDefaultBrowser(context: context),
+                acceptedResult: .queued
+            )
+        }
+        registry.register(commandId: "palette.browserFocusAddressBar") { _ in
+            guard context.browserPanel != nil else { return .targetUnavailable }
+            return Self.commandPaletteBrowserActionResult(
+                didStart: focusBrowserAddressBar(context: context),
+                acceptedResult: .queued
+            )
+        }
+        registry.register(commandId: "palette.browserFocusMode") { invocation in
+            guard let panel = context.browserPanel,
+                  let workspaceID = context.target.workspaceID,
+                  let panelID = context.target.panelID else {
+                return .targetUnavailable
+            }
+            guard let enabled = Self.commandPaletteRequestedToggleValue(
+                invocation,
+                argumentName: "enabled",
+                currentValue: panel.isBrowserFocusModeActive
+            ) else {
+                return commandPaletteActionCouldNotStartResult(code: "invalid_arguments")
+            }
+            return Self.commandPaletteBrowserStateActionResult(
+                tabManager.setBrowserFocusMode(
+                    workspaceID: workspaceID,
+                    panelID: panelID,
+                    enabled: enabled,
+                    reason: "commandPalette"
+                )
+            )
+        }
+        registry.register(commandId: "palette.browserToggleOmnibar") { invocation in
+            guard let panel = context.browserPanel,
+                  let workspaceID = context.target.workspaceID,
+                  let panelID = context.target.panelID else {
+                return .targetUnavailable
+            }
+            guard let enabled = Self.commandPaletteRequestedToggleValue(
+                invocation,
+                argumentName: "enabled",
+                currentValue: panel.isOmnibarVisible
+            ) else {
+                return commandPaletteActionCouldNotStartResult(code: "invalid_arguments")
+            }
+            return Self.commandPaletteBrowserStateActionResult(
+                tabManager.setBrowserOmnibar(
+                    workspaceID: workspaceID,
+                    panelID: panelID,
+                    enabled: enabled
+                )
+            )
+        }
+        registry.register(commandId: "palette.browserToggleDevTools") { invocation in
+            guard let panel = context.browserPanel,
+                  let workspaceID = context.target.workspaceID,
+                  let panelID = context.target.panelID else {
+                return .targetUnavailable
+            }
+            guard let enabled = Self.commandPaletteRequestedToggleValue(
+                invocation,
+                argumentName: "enabled",
+                currentValue: panel.developerToolsVisibilityIntent
+            ) else {
+                return commandPaletteActionCouldNotStartResult(code: "invalid_arguments")
+            }
+            return Self.commandPaletteBrowserStateActionResult(
+                tabManager.setBrowserDeveloperTools(
+                    workspaceID: workspaceID,
+                    panelID: panelID,
+                    enabled: enabled
+                )
+            )
+        }
+        registry.register(commandId: "palette.browserConsole") { _ in
+            guard context.browserPanel != nil,
+                  let workspaceID = context.target.workspaceID,
+                  let panelID = context.target.panelID else {
+                return .targetUnavailable
+            }
+            return Self.commandPaletteBrowserActionResult(
+                didStart: tabManager.showBrowserJavaScriptConsole(
+                    workspaceID: workspaceID,
+                    panelID: panelID
+                ),
+                acceptedResult: .queued
+            )
+        }
+        registry.register(commandId: "palette.browserReactGrab") { invocation in
+            guard let panel = context.browserPanel,
+                  let workspaceID = context.target.workspaceID,
+                  let panelID = context.target.panelID else {
+                return .targetUnavailable
+            }
+            guard let enabled = Self.commandPaletteRequestedToggleValue(
+                invocation,
+                argumentName: "enabled",
+                currentValue: panel.reactGrabActivationIntent
+            ) else {
+                return commandPaletteActionCouldNotStartResult(code: "invalid_arguments")
+            }
+            return Self.commandPaletteBrowserStateActionResult(
+                tabManager.setBrowserReactGrab(
+                    workspaceID: workspaceID,
+                    panelID: panelID,
+                    enabled: enabled,
+                    focusWebView: invocation.source == .commandPalette
+                )
+            )
+        }
+        registry.register(commandId: "palette.browserZoomIn") { _ in
+            guard context.panel() != nil,
+                  let workspaceID = context.target.workspaceID,
+                  let panelID = context.target.panelID else {
+                return .targetUnavailable
+            }
+            return Self.commandPaletteBrowserActionResult(
+                didStart: tabManager.zoomInBrowserOrTextFilePreview(
+                    workspaceID: workspaceID,
+                    panelID: panelID
+                ),
+                acceptedResult: .completed
+            )
+        }
+        registry.register(commandId: "palette.browserZoomOut") { _ in
+            guard context.panel() != nil,
+                  let workspaceID = context.target.workspaceID,
+                  let panelID = context.target.panelID else {
+                return .targetUnavailable
+            }
+            return Self.commandPaletteBrowserActionResult(
+                didStart: tabManager.zoomOutBrowserOrTextFilePreview(
+                    workspaceID: workspaceID,
+                    panelID: panelID
+                ),
+                acceptedResult: .completed
+            )
+        }
+        registry.register(commandId: "palette.browserZoomReset") { _ in
+            guard context.panel() != nil,
+                  let workspaceID = context.target.workspaceID,
+                  let panelID = context.target.panelID else {
+                return .targetUnavailable
+            }
+            return Self.commandPaletteBrowserActionResult(
+                didStart: tabManager.resetZoomBrowserOrTextFilePreview(
+                    workspaceID: workspaceID,
+                    panelID: panelID
+                ),
+                acceptedResult: .completed
+            )
+        }
+        registry.register(commandId: "palette.markdownZoomIn") { _ in
+            guard context.panel() != nil,
+                  let workspaceID = context.target.workspaceID,
+                  let panelID = context.target.panelID else {
+                return .targetUnavailable
+            }
+            return Self.commandPaletteBrowserActionResult(
+                didStart: tabManager.zoomInMarkdown(
+                    workspaceID: workspaceID,
+                    panelID: panelID
+                ),
+                acceptedResult: .completed
+            )
+        }
+        registry.register(commandId: "palette.markdownZoomOut") { _ in
+            guard context.panel() != nil,
+                  let workspaceID = context.target.workspaceID,
+                  let panelID = context.target.panelID else {
+                return .targetUnavailable
+            }
+            return Self.commandPaletteBrowserActionResult(
+                didStart: tabManager.zoomOutMarkdown(
+                    workspaceID: workspaceID,
+                    panelID: panelID
+                ),
+                acceptedResult: .completed
+            )
+        }
+        registry.register(commandId: "palette.markdownZoomReset") { _ in
+            guard context.panel() != nil,
+                  let workspaceID = context.target.workspaceID,
+                  let panelID = context.target.panelID else {
+                return .targetUnavailable
+            }
+            return Self.commandPaletteBrowserActionResult(
+                didStart: tabManager.resetZoomMarkdown(
+                    workspaceID: workspaceID,
+                    panelID: panelID
+                ),
+                acceptedResult: .completed
+            )
+        }
+        registry.register(commandId: "palette.browserClearHistory") { invocation in
+            guard Self.commandPaletteShouldClearBrowserHistory(invocation) else {
+                return commandPaletteConfirmationRequiredResult()
+            }
+            BrowserHistoryStore.shared.clearHistory()
+            return .completed
+        }
+        registry.register(commandId: "palette.findInDirectory") { invocation in
+            guard let targetWindow = commandPaletteWindow(for: context) else {
+                return commandPaletteTargetUnavailableResult()
+            }
+            let didFocus = AppDelegate.shared?.focusFileSearchInActiveMainWindow(
+                preferredWindow: targetWindow,
+                initialQuery: invocation.string("query"),
+                sourceWorkspaceID: context.target.workspaceID,
+                sourcePanelID: context.target.panelID
+            ) == true
+            return didFocus ? .presented : commandPaletteTargetUnavailableResult()
+        }
+        let browserSplitTargetWasSelected = tabManager.selectedTabId == context.target.workspaceID
+        registry.register(commandId: "palette.browserSplitRight") { invocation in
+            guard context.browserPanel != nil else { return .targetUnavailable }
+            let focus = Self.commandPaletteBrowserSplitShouldFocus(
+                invocation,
+                targetIsSelected: browserSplitTargetWasSelected
+            )
+            return Self.commandPaletteBrowserActionResult(
+                didStart: createBrowserSplit(
+                    context: context,
+                    direction: .right,
+                    focus: focus
+                ) != nil,
+                acceptedResult: .completed
+            )
+        }
+        registry.register(commandId: "palette.browserSplitDown") { invocation in
+            guard context.browserPanel != nil else { return .targetUnavailable }
+            let focus = Self.commandPaletteBrowserSplitShouldFocus(
+                invocation,
+                targetIsSelected: browserSplitTargetWasSelected
+            )
+            return Self.commandPaletteBrowserActionResult(
+                didStart: createBrowserSplit(
+                    context: context,
+                    direction: .down,
+                    focus: focus
+                ) != nil,
+                acceptedResult: .completed
+            )
+        }
+        registry.register(commandId: "palette.browserDuplicateRight") { invocation in
+            guard let browserPanel = context.browserPanel else { return .targetUnavailable }
+            let focus = Self.commandPaletteBrowserSplitShouldFocus(
+                invocation,
+                targetIsSelected: browserSplitTargetWasSelected
+            )
+            let url = browserPanel.preferredURLStringForOmnibar().flatMap(URL.init(string:))
+            return Self.commandPaletteBrowserActionResult(
+                didStart: createBrowserSplit(
+                    context: context,
+                    direction: .right,
+                    url: url,
+                    focus: focus
+                ) != nil,
+                acceptedResult: .completed
+            )
         }
 
         for target in TerminalDirectoryOpenTarget.commandPaletteShortcutTargets {
-            registry.register(commandId: target.commandPaletteCommandId) {
-                if !openFocusedDirectory(in: target) {
-                    NSSound.beep()
+            registry.register(commandId: target.commandPaletteCommandId) { _ in
+                guard context.terminalPanel != nil else {
+                    return commandPaletteTargetUnavailableResult()
                 }
+                guard target.isAvailable() else {
+                    return commandPaletteTargetUnavailableResult()
+                }
+                guard let directoryURL = focusedTerminalDirectoryURL(context: context) else {
+                    return commandPaletteDirectoryUnavailableResult()
+                }
+                let didQueue = openFocusedDirectory(directoryURL, in: target, context: context)
+                if target == .vscodeInline {
+                    return Self.commandPaletteInlineVSCodeOpenResult(didQueue: didQueue)
+                }
+                return didQueue ? .queued : commandPaletteTargetUnavailableResult()
             }
         }
-        registry.register(commandId: "palette.vscodeServeWebStop") {
+        registry.register(commandId: "palette.vscodeServeWebStop") { _ in
+            guard context.terminalPanel != nil,
+                  TerminalDirectoryOpenTarget.vscodeInline.isAvailable() else {
+                return commandPaletteTargetUnavailableResult()
+            }
             stopInlineVSCodeServeWeb()
+            return .completed
         }
-        registry.register(commandId: "palette.vscodeServeWebRestart") {
-            if !restartInlineVSCodeServeWeb() {
-                NSSound.beep()
+        registry.register(commandId: "palette.vscodeServeWebRestart") { invocation in
+            guard context.terminalPanel != nil,
+                  TerminalDirectoryOpenTarget.vscodeInline.isAvailable() else {
+                return commandPaletteTargetUnavailableResult()
             }
+            return restartInlineVSCodeServeWeb(
+                beepOnAsynchronousFailure: invocation.source == .commandPalette
+            ) ? .queued : commandPaletteTargetUnavailableResult()
         }
-        registry.register(commandId: "palette.terminalFind") {
-            tabManager.startSearch()
-        }
-        registry.register(commandId: "palette.terminalFindNext") {
-            tabManager.findNext()
-        }
-        registry.register(commandId: "palette.terminalFindPrevious") {
-            tabManager.findPrevious()
-        }
-        registry.register(commandId: "palette.terminalHideFind") {
-            tabManager.hideFind()
-        }
-        registry.register(commandId: "palette.terminalUseSelectionForFind") {
-            tabManager.searchSelection()
-        }
-        registry.register(commandId: "palette.terminalToggleTextBoxInput") {
-            if !tabManager.toggleFocusedTerminalTextBox() {
-                NSSound.beep()
+        registry.register(commandId: "palette.terminalFind") { invocation in
+            guard let workspaceID = context.target.workspaceID,
+                  let panelID = context.target.panelID,
+                  focusCommandPaletteTerminalTarget(context: context),
+                  tabManager.startSearch(
+                    workspaceID: workspaceID,
+                    panelID: panelID,
+                    initialNeedle: invocation.string("query")
+                  ) else {
+                return context.terminalPanel == nil
+                    ? commandPaletteTargetUnavailableResult()
+                    : commandPaletteTerminalActionFailedResult(code: "terminal_find_failed")
             }
+            return .presented
         }
-        registry.register(commandId: "palette.terminalFocusTextBoxInput") {
-            if !tabManager.focusFocusedTerminalTextBoxInputOrTerminal() {
-                NSSound.beep()
+        registry.register(commandId: "palette.terminalFindNext") { _ in
+            guard let workspaceID = context.target.workspaceID,
+                  let panelID = context.target.panelID,
+                  context.terminalPanel != nil else {
+                return commandPaletteTargetUnavailableResult()
             }
+            return tabManager.findNext(workspaceID: workspaceID, panelID: panelID)
+                ? .completed
+                : commandPaletteTerminalActionFailedResult(code: "terminal_find_unavailable")
         }
-        registry.register(commandId: "palette.terminalAttachTextBoxFile") {
-            if !tabManager.attachFileToFocusedTerminalTextBoxInput() {
-                NSSound.beep()
+        registry.register(commandId: "palette.terminalFindPrevious") { _ in
+            guard let workspaceID = context.target.workspaceID,
+                  let panelID = context.target.panelID,
+                  context.terminalPanel != nil else {
+                return commandPaletteTargetUnavailableResult()
             }
+            return tabManager.findPrevious(workspaceID: workspaceID, panelID: panelID)
+                ? .completed
+                : commandPaletteTerminalActionFailedResult(code: "terminal_find_unavailable")
         }
-        registry.register(commandId: "palette.terminalSendCtrlF") {
-            if !tabManager.sendCtrlFToFocusedTerminal() {
-                NSSound.beep()
+        registry.register(commandId: "palette.terminalHideFind") { _ in
+            guard let workspaceID = context.target.workspaceID,
+                  let panelID = context.target.panelID,
+                  context.terminalPanel != nil else {
+                return commandPaletteTargetUnavailableResult()
             }
+            return tabManager.hideFind(workspaceID: workspaceID, panelID: panelID)
+                ? .completed
+                : commandPaletteTerminalActionFailedResult(code: "terminal_find_unavailable")
         }
-        registry.register(commandId: "palette.terminalClearScreenKeepScrollback") {
-            if !tabManager.clearFocusedTerminalKeepingScrollback() {
-                NSSound.beep()
+        registry.register(commandId: "palette.terminalUseSelectionForFind") { _ in
+            guard let workspaceID = context.target.workspaceID,
+                  let panelID = context.target.panelID,
+                  context.terminalPanel != nil else {
+                return commandPaletteTargetUnavailableResult()
             }
+            return tabManager.searchSelection(workspaceID: workspaceID, panelID: panelID)
+                ? .completed
+                : commandPaletteTerminalActionFailedResult(code: "terminal_selection_unavailable")
         }
-        registry.register(commandId: "palette.terminalSplitRight") {
-            if !executeConfiguredAction(id: CmuxSurfaceTabBarBuiltInAction.splitRight.configID) {
-                tabManager.createSplit(direction: .right)
+        registry.register(commandId: "palette.terminalToggleTextBoxInput") { invocation in
+            guard let terminalPanel = context.terminalPanel else {
+                return commandPaletteTargetUnavailableResult()
             }
-        }
-        registry.register(commandId: "palette.forkAgentConversationRight") {
-            forkFocusedAgentConversationRight()
-        }
-        registry.register(commandId: "palette.forkAgentConversationLeft") {
-            forkFocusedAgentConversationLeft()
-        }
-        registry.register(commandId: "palette.forkAgentConversationTop") {
-            forkFocusedAgentConversationTop()
-        }
-        registry.register(commandId: "palette.forkAgentConversationBottom") {
-            forkFocusedAgentConversationBottom()
-        }
-        registry.register(commandId: "palette.forkAgentConversationNewTab") {
-            forkFocusedAgentConversationToNewTab()
-        }
-        registry.register(commandId: "palette.forkAgentConversationNewWorkspace") {
-            forkFocusedAgentConversationToNewWorkspace()
-        }
-        registry.register(commandId: "palette.terminalSplitDown") {
-            if !executeConfiguredAction(id: CmuxSurfaceTabBarBuiltInAction.splitDown.configID) {
-                tabManager.createSplit(direction: .down)
+            let enabled: Bool
+            if invocation.arguments["enabled"] != nil {
+                guard let requestedEnabled = invocation.bool("enabled") else {
+                    return commandPaletteTerminalActionFailedResult(code: "terminal_text_box_failed")
+                }
+                enabled = requestedEnabled
+            } else {
+                enabled = !terminalPanel.isTextBoxActive
             }
+            return Self.commandPaletteTerminalTextBoxResult(
+                terminalPanel.setTextBoxInputEnabled(enabled),
+                failureCode: "terminal_text_box_failed"
+            )
         }
-        registry.register(commandId: "palette.terminalSplitBrowserRight") {
-            _ = tabManager.createBrowserSplit(direction: .right)
-        }
-        registry.register(commandId: "palette.terminalSplitBrowserDown") {
-            _ = tabManager.createBrowserSplit(direction: .down)
-        }
-        registry.register(commandId: "palette.toggleSplitZoom") {
-            if !tabManager.toggleFocusedSplitZoom() {
-                NSSound.beep()
+        registry.register(commandId: "palette.terminalFocusTextBoxInput") { _ in
+            guard let terminalPanel = context.terminalPanel,
+                  focusCommandPaletteTerminalTarget(context: context) else {
+                return commandPaletteTargetUnavailableResult()
             }
+            return Self.commandPaletteTerminalTextBoxResult(
+                terminalPanel.preferTextBoxInputWhenActivated()
+            )
         }
-        registry.register(commandId: "palette.toggleFullWidthTab") {
-            if !tabManager.toggleFocusedFullWidthTab() {
-                NSSound.beep()
+        registry.register(commandId: "palette.terminalAttachTextBoxFile") { invocation in
+            guard let workspaceID = context.target.workspaceID,
+                  let panelID = context.target.panelID else {
+                return commandPaletteTargetUnavailableResult()
             }
+            if let path = invocation.string("path") {
+                guard let fileURL = commandPaletteFileURL(path) else {
+                    return commandPaletteFileUnavailableResult()
+                }
+                guard let result = tabManager.attachFilesToTerminalTextBoxInput(
+                    workspaceID: workspaceID,
+                    panelID: panelID,
+                    fileURLs: [fileURL]
+                ) else {
+                    return commandPaletteTargetUnavailableResult()
+                }
+                return commandPaletteTerminalAttachmentResult(result)
+            }
+            guard tabManager.attachFileToTerminalTextBoxInput(
+                workspaceID: workspaceID,
+                panelID: panelID
+            ) else { return commandPaletteTargetUnavailableResult() }
+            return .presented
         }
-        registry.register(commandId: "palette.equalizeSplits") {
-            if let workspace = tabManager.selectedWorkspace, !tabManager.equalizeSplits(tabId: workspace.id) {
+        registry.register(commandId: "palette.terminalSendCtrlF") { _ in
+            guard let workspaceID = context.target.workspaceID,
+                  let panelID = context.target.panelID,
+                  context.terminalPanel != nil,
+                  let result = tabManager.sendCtrlFToTerminalResult(
+                    workspaceID: workspaceID,
+                    panelID: panelID
+                  ) else {
+                return commandPaletteTargetUnavailableResult()
+            }
+            return Self.commandPaletteTerminalInputResult(result)
+        }
+        registry.register(commandId: "palette.terminalClearScreenKeepScrollback") { _ in
+            guard let workspaceID = context.target.workspaceID,
+                  let panelID = context.target.panelID,
+                  context.terminalPanel != nil,
+                  let result = tabManager.clearTerminalKeepingScrollbackResult(
+                    workspaceID: workspaceID,
+                    panelID: panelID
+                  ) else {
+                return commandPaletteTargetUnavailableResult()
+            }
+            return Self.commandPaletteTerminalInputResult(result)
+        }
+        registry.register(commandId: "palette.terminalSplitRight") { invocation in
+            executeConfiguredPaletteAction(
+                id: CmuxSurfaceTabBarBuiltInAction.splitRight.configID,
+                context: context,
+                configCatalog: configCatalog,
+                focus: commandPaletteConfiguredActionFocus(invocation)
+            )
+        }
+        registerForkAgentConversationCommandPaletteHandlers(&registry, context: context)
+        registry.register(commandId: "palette.terminalSplitDown") { invocation in
+            executeConfiguredPaletteAction(
+                id: CmuxSurfaceTabBarBuiltInAction.splitDown.configID,
+                context: context,
+                configCatalog: configCatalog,
+                focus: commandPaletteConfiguredActionFocus(invocation)
+            )
+        }
+        registry.register(commandId: "palette.terminalSplitBrowserRight") { invocation in
+            guard context.terminalPanel != nil else {
+                return commandPaletteTargetUnavailableResult()
+            }
+            let focus = Self.commandPaletteBrowserSplitShouldFocus(
+                invocation,
+                targetIsSelected: tabManager.selectedTabId == context.target.workspaceID
+            )
+            return createBrowserSplit(
+                context: context,
+                direction: .right,
+                focus: focus
+            ) != nil ? .completed : commandPaletteTerminalActionFailedResult(code: "terminal_split_failed")
+        }
+        registry.register(commandId: "palette.terminalSplitBrowserDown") { invocation in
+            guard context.terminalPanel != nil else {
+                return commandPaletteTargetUnavailableResult()
+            }
+            let focus = Self.commandPaletteBrowserSplitShouldFocus(
+                invocation,
+                targetIsSelected: tabManager.selectedTabId == context.target.workspaceID
+            )
+            return createBrowserSplit(
+                context: context,
+                direction: .down,
+                focus: focus
+            ) != nil ? .completed : commandPaletteTerminalActionFailedResult(code: "terminal_split_failed")
+        }
+        registry.register(commandId: "palette.toggleSplitZoom") { invocation in
+            guard let workspaceID = context.target.workspaceID,
+                  let panelID = context.target.panelID,
+                  context.terminalPanel != nil else {
+                return commandPaletteTargetUnavailableResult()
+            }
+            let didComplete: Bool
+            if invocation.arguments["enabled"] != nil {
+                guard let enabled = invocation.bool("enabled") else {
+                    return commandPaletteTerminalActionFailedResult(code: "terminal_layout_change_failed")
+                }
+                didComplete = tabManager.setSplitZoom(
+                    enabled,
+                    tabId: workspaceID,
+                    surfaceId: panelID
+                )
+            } else {
+                didComplete = tabManager.toggleSplitZoom(tabId: workspaceID, surfaceId: panelID)
+            }
+            return didComplete
+                ? .completed
+                : commandPaletteTerminalActionFailedResult(code: "terminal_layout_change_failed")
+        }
+        registry.register(commandId: "palette.toggleFullWidthTab") { invocation in
+            guard let workspaceID = context.target.workspaceID,
+                  let panelID = context.target.panelID,
+                  context.panel() != nil else {
+                return commandPaletteTargetUnavailableResult()
+            }
+            let didComplete: Bool
+            if invocation.arguments["enabled"] != nil {
+                guard let enabled = invocation.bool("enabled") else {
+                    return commandPaletteTerminalActionFailedResult(code: "terminal_layout_change_failed")
+                }
+                didComplete = tabManager.setFullWidthTab(
+                    enabled,
+                    workspaceID: workspaceID,
+                    panelID: panelID
+                )
+            } else {
+                didComplete = tabManager.toggleFullWidthTab(
+                    workspaceID: workspaceID,
+                    panelID: panelID
+                )
+            }
+            return didComplete
+                ? .completed
+                : commandPaletteTerminalActionFailedResult(code: "terminal_layout_change_failed")
+        }
+        registry.register(commandId: "palette.equalizeSplits") { _ in
+            guard let workspace = context.workspace() else {
+                return commandPaletteTargetUnavailableResult()
+            }
+            guard tabManager.equalizeSplits(tabId: workspace.id) else {
 #if DEBUG
                 cmuxDebugLog("palette.equalizeSplits result=noSplitOrFailed workspaceId=\(workspace.id)")
 #endif
+                return commandPaletteTerminalActionFailedResult(code: "terminal_layout_change_failed")
             }
+            return .completed
         }
 
-        for issue in cmuxConfigStore.configurationIssues {
+    }
+
+    private func registerConfiguredCommandPaletteHandlers(
+        _ registry: inout CommandPaletteHandlerRegistry,
+        context: CommandPaletteActionContext,
+        configCatalog: CmuxConfigActionCatalog,
+        configIssues: [CmuxConfigIssue],
+        customActions: [CmuxResolvedConfigAction]
+    ) {
+        for issue in configIssues {
             let captured = issue
-            registry.register(commandId: commandPaletteCmuxConfigIssueCommandID(issue)) {
-                openCmuxConfigIssue(captured)
+            registry.register(commandId: commandPaletteCmuxConfigIssueCommandID(issue)) { invocation in
+                let result = openCmuxConfigIssue(captured)
+                if case .failed = result, invocation.source == .commandPalette {
+                    NSSound.beep()
+                }
+                return result
             }
         }
-        for action in cmuxConfigStore.paletteCustomActions() {
+        for action in customActions {
             let captured = action
-            registry.register(commandId: action.id) {
-                executeConfiguredAction(captured)
+            registry.register(commandId: action.id) { invocation in
+                guard commandPaletteCustomActionTargetAvailable(
+                    captured,
+                    context: context
+                ) else {
+                    return commandPaletteTargetUnavailableResult()
+                }
+                return commandPaletteResult(
+                    for: executeConfiguredActionOutcome(
+                        captured,
+                        context: context,
+                        configCatalog: configCatalog,
+                        focus: commandPaletteConfiguredActionFocus(invocation),
+                        beepOnFailure: invocation.source == .commandPalette
+                    ),
+                    beepOnFailure: invocation.source == .commandPalette
+                )
             }
         }
     }
 
-    private func openCmuxConfigIssue(_ issue: CmuxConfigIssue) {
+    private func commandPaletteCustomActionTargetAvailable(
+        _ action: CmuxResolvedConfigAction,
+        context: CommandPaletteActionContext
+    ) -> Bool {
+        switch action.paletteTargetRequirement {
+        case .unavailable:
+            return false
+        case .window:
+            return commandPaletteWindow(for: context) != nil
+        case .workspace:
+            return context.workspace() != nil
+        case .panelInPane:
+            guard let panelContext = context.panel() else { return false }
+            return panelContext.workspace.paneId(forPanelId: panelContext.panelId) != nil
+        case .terminalPanel:
+            return context.terminalPanel != nil
+        }
+    }
+
+    private func openCmuxConfigIssue(
+        _ issue: CmuxConfigIssue
+    ) -> CmuxActionExecutionResult {
         guard let sourcePath = issue.sourcePath,
               FileManager.default.fileExists(atPath: sourcePath) else {
-            NSSound.beep()
-            return
+            return commandPaletteFileUnavailableResult()
         }
         PreferredEditorService(defaults: .standard).open(URL(fileURLWithPath: sourcePath))
+        return .queued
     }
 
-    @discardableResult
-    private func executeConfiguredAction(id: String) -> Bool {
-        guard let action = cmuxConfigStore.resolvedAction(id: id) else {
-            return false
+    func executeConfiguredPaletteAction(
+        id: String,
+        context: CommandPaletteActionContext,
+        configCatalog: CmuxConfigActionCatalog? = nil,
+        focus: Bool? = nil,
+        invocationSource: CmuxActionInvocationSource = .commandPalette
+    ) -> CmuxActionExecutionResult {
+        let action = configCatalog?.resolvedAction(id: id)
+            ?? cmuxConfigStore.resolvedAction(id: id)
+        guard let action else {
+            return commandPaletteResult(
+                for: .failed,
+                beepOnFailure: invocationSource == .commandPalette
+            )
         }
-        return executeConfiguredAction(action)
-    }
-
-    @discardableResult
-    private func executeConfiguredAction(_ action: CmuxResolvedConfigAction) -> Bool {
-        let baseCwd = configuredActionBaseCwd()
-        return CmuxConfigExecutor.execute(
-            action: action,
-            commands: cmuxConfigStore.loadedCommands,
-            commandSourcePaths: cmuxConfigStore.commandSourcePaths,
-            tabManager: tabManager,
-            baseCwd: baseCwd,
-            globalConfigPath: cmuxConfigStore.globalConfigPath
+        return commandPaletteResult(
+            for: executeConfiguredActionOutcome(
+                action,
+                context: context,
+                configCatalog: configCatalog,
+                focus: focus,
+                beepOnFailure: invocationSource == .commandPalette
+            ),
+            beepOnFailure: invocationSource == .commandPalette
         )
     }
 
-    private func configuredActionBaseCwd() -> String {
-        tabManager.selectedWorkspace?.resolvedWorkingDirectory()
-            ?? FileManager.default.homeDirectoryForCurrentUser.path
+    private func commandPaletteConfiguredActionFocus(
+        _ invocation: CmuxActionInvocation
+    ) -> Bool? {
+        Self.commandPaletteResolvedFocus(
+            explicit: invocation.bool("focus"),
+            source: invocation.source
+        )
+    }
+
+    func commandPaletteResult(
+        for outcome: CmuxConfiguredActionExecutionOutcome,
+        beepOnFailure: Bool = true
+    ) -> CmuxActionExecutionResult {
+        switch outcome {
+        case .completed:
+            return .completed
+        case .queued:
+            return .queued
+        case .presented:
+            return .presented
+        case .failed:
+            if beepOnFailure { NSSound.beep() }
+            return .failed(
+                code: "action_failed",
+                message: String(
+                    localized: "action.error.configuredActionFailed",
+                    defaultValue: "The configured action could not be started."
+                )
+            )
+        }
+    }
+
+    func executeConfiguredActionOutcome(
+        _ action: CmuxResolvedConfigAction,
+        context actionContext: CommandPaletteActionContext,
+        configCatalog: CmuxConfigActionCatalog? = nil,
+        focus: Bool? = nil,
+        beepOnFailure: Bool = true
+    ) -> CmuxConfiguredActionExecutionOutcome {
+        let modelTarget: CmuxActionModelTarget? = if actionContext.target.workspaceID != nil
+            || actionContext.target.panelID != nil {
+            CmuxActionModelTarget(
+                workspaceID: actionContext.target.workspaceID,
+                panelID: actionContext.target.panelID
+            )
+        } else {
+            nil
+        }
+        guard let appDelegate = AppDelegate.shared,
+              let windowContext = appDelegate.liveMainWindowContextForAction(tabManager: tabManager),
+              windowContext.windowId == actionContext.target.windowID else {
+            return .failed
+        }
+        return appDelegate.executeConfiguredCmuxActionOutcome(
+            action,
+            context: windowContext,
+            target: modelTarget,
+            preferredWindow: appDelegate.mainWindow(for: actionContext.target.windowID),
+            configCatalog: configCatalog,
+            focus: focus,
+            beepOnFailure: beepOnFailure
+        )
+    }
+
+    private func commandPaletteConfigSnapshot(
+        for target: CommandPaletteActionTarget
+    ) -> CmuxConfigActionCatalogSnapshot? {
+        cmuxConfigStore.cachedActionCatalogSnapshot(
+            startingFrom: commandPaletteConfigDirectory(for: target)
+        )
+    }
+
+    private func commandPaletteConfigDirectory(
+        for target: CommandPaletteActionTarget
+    ) -> String? {
+        let directory: String?
+        if let panelContext = commandPalettePanelContext(for: target) {
+            directory = panelContext.workspace.configurationTrackingDirectory(
+                panelID: panelContext.panelId
+            )
+        } else if let workspace = commandPaletteWorkspace(for: target),
+                  target.panelID == nil {
+            directory = workspace.configurationTrackingDirectory(panelID: nil)
+        } else {
+            directory = nil
+        }
+        return directory
+    }
+
+    private func currentCommandPaletteActionTarget() -> CommandPaletteActionTarget {
+        let workspace = tabManager.selectedWorkspace
+        return CommandPaletteActionTarget(
+            windowID: windowId,
+            workspaceID: workspace?.id,
+            panelID: workspace?.focusedPanelId
+        )
+    }
+
+    private func currentCommandPaletteActionContext() -> CommandPaletteActionContext {
+        CommandPaletteActionContext(
+            target: currentCommandPaletteActionTarget(),
+            tabManager: tabManager,
+            owningWindowID: windowId
+        )
+    }
+
+    private func commandPaletteWorkspace(for target: CommandPaletteActionTarget) -> Workspace? {
+        guard target.windowID == windowId,
+              let workspaceID = target.workspaceID else {
+            return nil
+        }
+        return tabManager.tabs.first(where: { $0.id == workspaceID })
+    }
+
+    private func commandPalettePanelContext(
+        for target: CommandPaletteActionTarget
+    ) -> (workspace: Workspace, panelId: UUID, panel: any Panel)? {
+        guard let workspace = commandPaletteWorkspace(for: target),
+              let panelID = target.panelID,
+              let panel = workspace.panels[panelID] else {
+            return nil
+        }
+        return (workspace, panelID, panel)
     }
 
     var focusedPanelContext: (workspace: Workspace, panelId: UUID, panel: any Panel)? {
@@ -9061,12 +10858,21 @@ struct ContentView: View {
         }
     }
 
-    private func runCommandPaletteCommand(_ command: CommandPaletteCommand) {
+    @discardableResult
+    private func runCommandPaletteCommand(
+        _ command: CommandPaletteCommand,
+        invocation: CmuxActionInvocation = CmuxActionInvocation(source: .commandPalette)
+    ) -> CmuxActionExecutionResult {
 #if DEBUG
         cmuxDebugLog("palette.run commandId=\(command.id) dismissOnRun=\(command.dismissOnRun ? 1 : 0)")
 #endif
         let postRunFocusTarget = commandPalettePostRunFocusTarget(for: command)
-        recordCommandPaletteUsage(command.id)
+        if invocation.source == .automation {
+            return executeCommandPaletteCommand(command, invocation: invocation)
+        }
+        guard isCommandPalettePresented else {
+            return executeCommandPaletteCommand(command, invocation: invocation)
+        }
         if command.dismissOnRun,
            Self.commandPaletteShouldDismissBeforeRun(forCommandId: command.id) {
             if let postRunFocusTarget {
@@ -9074,10 +10880,9 @@ struct ContentView: View {
             } else {
                 dismissCommandPalette(restoreFocus: false)
             }
-            command.action()
-            return
+            return executeCommandPaletteCommand(command, invocation: invocation)
         }
-        command.action()
+        let result = executeCommandPaletteCommand(command, invocation: invocation)
         if command.dismissOnRun {
             if let postRunFocusTarget {
                 dismissCommandPalette(restoreFocus: true, preferredFocusTarget: postRunFocusTarget)
@@ -9085,16 +10890,30 @@ struct ContentView: View {
                 dismissCommandPalette(restoreFocus: false)
             }
         }
+        return result
+    }
+
+    private func executeCommandPaletteCommand(
+        _ command: CommandPaletteCommand,
+        invocation: CmuxActionInvocation
+    ) -> CmuxActionExecutionResult {
+        let result = command.execute(invocation)
+        if result.shouldRecordCommandPaletteUsage(for: invocation.source) {
+            recordCommandPaletteUsage(command.id)
+        }
+        return result
     }
 
     private func commandPalettePostRunFocusTarget(for command: CommandPaletteCommand) -> CommandPaletteRestoreFocusTarget? {
         guard let intent = Self.commandPalettePostRunRestoreFocusIntent(forCommandId: command.id),
-              let panelContext = focusedPanelContext else {
+              let capturedTarget = commandPaletteRestoreFocusTarget,
+              let workspace = tabManager.tabs.first(where: { $0.id == capturedTarget.workspaceId }),
+              workspace.panels[capturedTarget.panelId] != nil else {
             return nil
         }
         return CommandPaletteRestoreFocusTarget(
-            workspaceId: panelContext.workspace.id,
-            panelId: panelContext.panelId,
+            workspaceId: capturedTarget.workspaceId,
+            panelId: capturedTarget.panelId,
             intent: intent
         )
     }
@@ -9135,14 +10954,14 @@ struct ContentView: View {
         if !isCommandPalettePresented {
             presentCommandPalette(initialQuery: Self.commandPaletteCommandsPrefix)
         }
-        beginRenameTabFlow()
+        beginRenameTabFlow(context: currentCommandPaletteActionContext())
     }
 
     private func openCommandPaletteRenameWorkspaceInput() {
         if !isCommandPalettePresented {
             presentCommandPalette(initialQuery: Self.commandPaletteCommandsPrefix)
         }
-        beginRenameWorkspaceFlow()
+        beginRenameWorkspaceFlow(context: currentCommandPaletteActionContext())
     }
 
     private func openCommandPaletteWorkspaceDescriptionInput() {
@@ -9156,7 +10975,7 @@ struct ContentView: View {
         if !isCommandPalettePresented {
             presentCommandPalette(initialQuery: Self.commandPaletteCommandsPrefix)
         }
-        beginWorkspaceDescriptionFlow()
+        beginWorkspaceDescriptionFlow(context: currentCommandPaletteActionContext())
 #if DEBUG
         cmuxDebugLog(
             "palette.wsDescription.open end presented=\(isCommandPalettePresented ? 1 : 0) " +
@@ -9201,17 +11020,18 @@ struct ContentView: View {
 
     static func commandPaletteShouldDismissBeforeRun(forCommandId commandId: String) -> Bool {
         switch commandId {
-        case "palette.forkAgentConversationRight",
+        case "palette.newBrowserWorkspace",
+             "palette.forkAgentConversationRight",
              "palette.forkAgentConversationLeft",
              "palette.forkAgentConversationTop",
              "palette.forkAgentConversationBottom",
              "palette.forkAgentConversationNewTab",
              "palette.forkAgentConversationNewWorkspace",
              "palette.layout.saveCurrent",
-             // Entering browser focus mode focuses the web view synchronously;
-             // dismiss the palette first so its makeFirstResponder(nil) doesn't
-             // clear that focus and leave focus mode active without key routing.
-             "palette.browserFocusMode":
+             // Browser focus actions move AppKit focus synchronously; dismiss
+             // first so palette teardown cannot clear the requested responder.
+             "palette.browserFocusMode",
+             "palette.browserFocusAddressBar":
             return true
         default:
             return false
@@ -9682,33 +11502,57 @@ struct ContentView: View {
         )
     }
 
-    private func selectedWorkspaceIndex() -> Int? {
-        guard let workspace = tabManager.selectedWorkspace else { return nil }
-        return tabManager.tabs.firstIndex { $0.id == workspace.id }
-    }
-
-    private func closeWorkspaceIds(_ workspaceIds: [UUID], allowPinned: Bool) {
+    private func closeWorkspaceIds(
+        _ workspaceIds: [UUID],
+        allowPinned: Bool,
+        invocation: CmuxActionInvocation
+    ) -> CmuxActionExecutionResult {
+        guard !workspaceIds.isEmpty else { return commandPaletteTargetUnavailableResult() }
+        if let force = invocation.bool("force") {
+            guard force else { return commandPaletteConfirmationRequiredResult() }
+            return tabManager.closeWorkspacesNonInteractively(
+                workspaceIds,
+                allowPinned: allowPinned
+            ) ? .completed : commandPaletteCloseFailedResult()
+        }
         tabManager.closeWorkspacesWithConfirmation(workspaceIds, allowPinned: allowPinned)
+        return .presented
     }
 
-    private func closeOtherSelectedWorkspaces() {
-        guard let workspace = tabManager.selectedWorkspace else { return }
-        let workspaceIds = tabManager.tabs.compactMap { $0.id == workspace.id ? nil : $0.id }
-        closeWorkspaceIds(workspaceIds, allowPinned: true)
+    private func closeOtherWorkspaces(
+        keeping workspaceID: UUID?,
+        invocation: CmuxActionInvocation
+    ) -> CmuxActionExecutionResult {
+        guard let workspaceID,
+              tabManager.tabs.contains(where: { $0.id == workspaceID }) else {
+            return commandPaletteTargetUnavailableResult()
+        }
+        let workspaceIds = tabManager.tabs.compactMap { $0.id == workspaceID ? nil : $0.id }
+        return closeWorkspaceIds(workspaceIds, allowPinned: true, invocation: invocation)
     }
 
-    private func closeSelectedWorkspacesBelow() {
-        guard tabManager.selectedWorkspace != nil,
-              let anchorIndex = selectedWorkspaceIndex() else { return }
+    private func closeWorkspacesBelow(
+        _ workspaceID: UUID?,
+        invocation: CmuxActionInvocation
+    ) -> CmuxActionExecutionResult {
+        guard let workspaceID,
+              let anchorIndex = tabManager.tabs.firstIndex(where: { $0.id == workspaceID }) else {
+            return commandPaletteTargetUnavailableResult()
+        }
         let workspaceIds = tabManager.tabs.suffix(from: anchorIndex + 1).map(\.id)
-        closeWorkspaceIds(workspaceIds, allowPinned: true)
+        return closeWorkspaceIds(workspaceIds, allowPinned: true, invocation: invocation)
     }
 
-    private func closeSelectedWorkspacesAbove() {
-        guard tabManager.selectedWorkspace != nil,
-              let anchorIndex = selectedWorkspaceIndex() else { return }
+    private func closeWorkspacesAbove(
+        _ workspaceID: UUID?,
+        invocation: CmuxActionInvocation
+    ) -> CmuxActionExecutionResult {
+        guard let workspaceID,
+              let anchorIndex = tabManager.tabs.firstIndex(where: { $0.id == workspaceID }) else {
+            return commandPaletteTargetUnavailableResult()
+        }
         let workspaceIds = tabManager.tabs.prefix(upTo: anchorIndex).map(\.id)
-        closeWorkspaceIds(workspaceIds, allowPinned: true)
+        return closeWorkspaceIds(workspaceIds, allowPinned: true, invocation: invocation)
     }
 
     private func syncSidebarSelectedWorkspaceIds() {
@@ -9752,8 +11596,8 @@ struct ContentView: View {
 #endif
     }
 
-    private func beginRenameWorkspaceFlow() {
-        guard let workspace = tabManager.selectedWorkspace else {
+    private func beginRenameWorkspaceFlow(context: CommandPaletteActionContext) {
+        guard let workspace = context.workspace() else {
             NSSound.beep()
             return
         }
@@ -9764,8 +11608,264 @@ struct ContentView: View {
         startRenameFlow(target)
     }
 
-    private func beginWorkspaceDescriptionFlow() {
-        guard let workspace = tabManager.selectedWorkspace else {
+    private func normalizedCommandPaletteName(_ proposedName: String) -> String? {
+        let trimmedName = proposedName.trimmingCharacters(in: .whitespacesAndNewlines)
+        return trimmedName.isEmpty ? nil : trimmedName
+    }
+
+    private func commandPaletteDirectoryURL(_ path: String) -> URL? {
+        let expandedPath = NSString(string: path).expandingTildeInPath
+        let directoryURL = URL(fileURLWithPath: expandedPath, isDirectory: true).standardizedFileURL
+        var isDirectory: ObjCBool = false
+        guard FileManager.default.fileExists(atPath: directoryURL.path, isDirectory: &isDirectory),
+              isDirectory.boolValue else {
+            return nil
+        }
+        return directoryURL
+    }
+
+    private func commandPaletteFileURL(_ path: String) -> URL? {
+        let expandedPath = NSString(string: path).expandingTildeInPath
+        let fileURL = URL(fileURLWithPath: expandedPath).standardizedFileURL
+        var isDirectory: ObjCBool = false
+        guard FileManager.default.fileExists(atPath: fileURL.path, isDirectory: &isDirectory),
+              !isDirectory.boolValue else {
+            return nil
+        }
+        return fileURL
+    }
+
+    static func commandPaletteInlineVSCodeOpenResult(
+        didQueue: Bool
+    ) -> CmuxActionExecutionResult {
+        guard didQueue else {
+            return .failed(
+                code: "open_failed",
+                message: String(
+                    localized: "action.error.inlineVSCodeOpenFailed",
+                    defaultValue: "VS Code (Inline) could not open the directory."
+                )
+            )
+        }
+        return .queued
+    }
+
+    static func commandPaletteTerminalInputResult(
+        _ result: TerminalSurface.NamedKeySendResult
+    ) -> CmuxActionExecutionResult {
+        switch result {
+        case .sent:
+            return .completed
+        case .queued:
+            return .queued
+        case .unknownKey, .inputQueueFull, .surfaceUnavailable, .processExited:
+            return .failed(
+                code: "terminal_input_rejected",
+                message: String(
+                    localized: "action.error.terminalInputRejected",
+                    defaultValue: "The terminal did not accept the input."
+                )
+            )
+        }
+    }
+
+    static func commandPaletteTerminalTextBoxResult(
+        _ result: TerminalPanel.TextBoxInputRequestResult,
+        failureCode: String = "terminal_text_box_focus_failed"
+    ) -> CmuxActionExecutionResult {
+        switch result {
+        case .focused:
+            return .presented
+        case .queued:
+            return .queued
+        case .hidden:
+            return .completed
+        case .failed:
+            return .failed(
+                code: failureCode,
+                message: String(
+                    localized: "action.error.terminalActionFailed",
+                    defaultValue: "The terminal action could not be completed."
+                )
+            )
+        }
+    }
+
+    static let commandPaletteBrowserHistoryClearArguments = [
+        CmuxActionArgumentDefinition(name: "force", valueType: .boolean)
+    ]
+
+    static let commandPaletteBrowserSplitArguments = [
+        CmuxActionArgumentDefinition(
+            name: "focus",
+            valueType: .boolean,
+            required: false
+        )
+    ]
+
+    static func commandPaletteBrowserSplitShouldFocus(
+        _ invocation: CmuxActionInvocation,
+        targetIsSelected: Bool
+    ) -> Bool {
+        invocation.bool("focus")
+            ?? (invocation.source == .automation ? true : targetIsSelected)
+    }
+
+    static func commandPaletteBrowserBackEnabled(
+        _ context: CommandPaletteContextSnapshot
+    ) -> Bool {
+        context.bool(CommandPaletteContextKeys.panelBrowserCanGoBack)
+    }
+
+    static func commandPaletteBrowserForwardEnabled(
+        _ context: CommandPaletteContextSnapshot
+    ) -> Bool {
+        context.bool(CommandPaletteContextKeys.panelBrowserCanGoForward)
+    }
+
+    static func commandPaletteBrowserActionResult(
+        didStart: Bool,
+        acceptedResult: CmuxActionExecutionResult
+    ) -> CmuxActionExecutionResult {
+        guard didStart else {
+            return .failed(
+                code: "panel_action_failed",
+                message: String(
+                    localized: "action.error.panelActionFailed",
+                    defaultValue: "The panel action could not be completed."
+                )
+            )
+        }
+        return acceptedResult
+    }
+
+    static func commandPaletteBrowserStateActionResult(
+        _ outcome: BrowserStateMutationOutcome
+    ) -> CmuxActionExecutionResult {
+        switch outcome {
+        case .alreadySatisfied, .completed:
+            return .completed
+        case .queued:
+            return .queued
+        case .failed:
+            return commandPaletteBrowserActionResult(
+                didStart: false,
+                acceptedResult: .completed
+            )
+        }
+    }
+
+    static func commandPaletteShouldClearBrowserHistory(
+        _ invocation: CmuxActionInvocation
+    ) -> Bool {
+        invocation.source == .commandPalette || invocation.bool("force") == true
+    }
+
+    private func commandPaletteDirectoryUnavailableResult() -> CmuxActionExecutionResult {
+        .failed(
+            code: "directory_not_found",
+            message: String(
+                localized: "action.error.directoryUnavailable",
+                defaultValue: "The directory does not exist or is not a folder."
+            )
+        )
+    }
+
+    private func commandPaletteFileUnavailableResult() -> CmuxActionExecutionResult {
+        .failed(
+            code: "file_not_found",
+            message: String(
+                localized: "action.error.fileUnavailable",
+                defaultValue: "The file does not exist or is not a regular file."
+            )
+        )
+    }
+
+    private func commandPaletteConfirmationRequiredResult() -> CmuxActionExecutionResult {
+        .failed(
+            code: "confirmation_required",
+            message: String(
+                localized: "action.error.confirmationRequired",
+                defaultValue: "Automation must explicitly pass force=true for this action."
+            )
+        )
+    }
+
+    private func commandPaletteCloseFailedResult() -> CmuxActionExecutionResult {
+        .failed(
+            code: "close_failed",
+            message: String(
+                localized: "action.error.closeFailed",
+                defaultValue: "The requested item could not be closed."
+            )
+        )
+    }
+
+    private func commandPaletteActionCouldNotStartResult(
+        code: String
+    ) -> CmuxActionExecutionResult {
+        .failed(
+            code: code,
+            message: String(
+                localized: "action.error.configuredActionFailed",
+                defaultValue: "The configured action could not be started."
+            )
+        )
+    }
+
+    private func commandPaletteTerminalActionFailedResult(
+        code: String
+    ) -> CmuxActionExecutionResult {
+        .failed(
+            code: code,
+            message: String(
+                localized: "action.error.terminalActionFailed",
+                defaultValue: "The terminal action could not be completed."
+            )
+        )
+    }
+
+    private func commandPaletteTerminalAttachmentResult(
+        _ result: TerminalPanel.TextBoxAttachmentRequestResult
+    ) -> CmuxActionExecutionResult {
+        switch result {
+        case .completed:
+            return .completed
+        case .queued:
+            return .queued
+        case .queueFull:
+            return .failed(
+                code: "attachment_queue_full",
+                message: String(
+                    localized: "action.error.terminalAttachmentQueueFull",
+                    defaultValue: "The terminal text-box attachment queue is full."
+                )
+            )
+        case .invalidFiles:
+            return commandPaletteFileUnavailableResult()
+        case .insertionFailed:
+            return commandPaletteTerminalActionFailedResult(
+                code: "terminal_text_box_attachment_failed"
+            )
+        }
+    }
+
+    private func commandPaletteNotificationNotApplicableResult() -> CmuxActionExecutionResult {
+        .failed(
+            code: "not_applicable",
+            message: String(
+                localized: "statusMenu.noUnread",
+                defaultValue: "No unread notifications"
+            )
+        )
+    }
+
+    private func commandPaletteTargetUnavailableResult() -> CmuxActionExecutionResult {
+        .targetUnavailable
+    }
+
+    private func beginWorkspaceDescriptionFlow(context: CommandPaletteActionContext) {
+        guard let workspace = context.workspace() else {
             NSSound.beep()
             return
         }
@@ -9776,8 +11876,8 @@ struct ContentView: View {
         startWorkspaceDescriptionFlow(target)
     }
 
-    private func beginRenameTabFlow() {
-        guard let panelContext = focusedPanelContext else {
+    private func beginRenameTabFlow(context: CommandPaletteActionContext) {
+        guard let panelContext = context.panel() else {
             NSSound.beep()
             return
         }
@@ -9832,8 +11932,7 @@ struct ContentView: View {
     }
 
     private func applyRenameFlow(target: CommandPaletteRenameTarget, proposedName: String) {
-        let trimmedName = proposedName.trimmingCharacters(in: .whitespacesAndNewlines)
-        let normalizedName: String? = trimmedName.isEmpty ? nil : trimmedName
+        let normalizedName = normalizedCommandPaletteName(proposedName)
 
         switch target.kind {
         case .workspace(let workspaceId):
@@ -9886,15 +11985,88 @@ struct ContentView: View {
         dismissCommandPalette()
     }
 
-    private func focusFocusedBrowserAddressBar() -> Bool {
-        guard let panel = tabManager.focusedBrowserPanel else { return false }
-        _ = panel.requestAddressBarFocus(selectionIntent: .selectAll)
-        NotificationCenter.default.post(name: .browserFocusAddressBar, object: panel.id)
-        return true
+    @discardableResult
+    private func createTerminalSplit(
+        context: CommandPaletteActionContext,
+        direction: SplitDirection
+    ) -> UUID? {
+        guard let panelContext = context.panel() else { return nil }
+        return tabManager.createSplit(
+            tabId: panelContext.workspace.id,
+            surfaceId: panelContext.panelId,
+            direction: direction,
+            focus: tabManager.selectedTabId == panelContext.workspace.id
+        )
     }
 
-    private func openFocusedBrowserInDefaultBrowser() -> Bool {
-        guard let panel = tabManager.focusedBrowserPanel,
+    @discardableResult
+    private func createBrowserSplit(
+        context: CommandPaletteActionContext,
+        direction: SplitDirection,
+        url: URL? = nil,
+        focus: Bool? = nil
+    ) -> UUID? {
+        guard BrowserAvailabilitySettings.isEnabled(),
+              let panelContext = context.panel() else { return nil }
+        panelContext.workspace.clearSplitZoom()
+        return tabManager.newBrowserSplit(
+            tabId: panelContext.workspace.id,
+            fromPanelId: panelContext.panelId,
+            orientation: direction.orientation,
+            insertFirst: direction.insertFirst,
+            url: url,
+            focus: focus ?? (tabManager.selectedTabId == panelContext.workspace.id)
+        )
+    }
+
+    /// Focus-presenting terminal actions must reveal the immutable list-time
+    /// target before they ask AppKit to focus an input control.
+    private func focusCommandPaletteTerminalTarget(
+        context: CommandPaletteActionContext
+    ) -> Bool {
+        guard let appDelegate = AppDelegate.shared,
+              commandPaletteWindow(for: context) != nil,
+              context.terminalPanel != nil,
+              let workspaceID = context.target.workspaceID,
+              let panelID = context.target.panelID,
+              appDelegate.focusMainWindow(windowId: context.target.windowID) else {
+            return false
+        }
+
+        tabManager.focusTab(
+            workspaceID,
+            surfaceId: panelID,
+            suppressFlash: true,
+            focusIntent: .terminal(.surface),
+            dismissRestoredUnreadOnResume: true
+        )
+        return tabManager.selectedTabId == workspaceID
+            && context.workspace()?.focusedPanelId == panelID
+            && context.terminalPanel != nil
+    }
+
+    private func focusBrowserAddressBar(context: CommandPaletteActionContext) -> Bool {
+        guard let appDelegate = AppDelegate.shared,
+              let workspaceID = context.target.workspaceID,
+              let panelID = context.target.panelID,
+              context.browserPanel != nil,
+              appDelegate.focusMainWindow(windowId: context.target.windowID),
+              let panel = tabManager.activateBrowserPanelForAddressBarFocus(
+                workspaceID: workspaceID,
+                panelID: panelID
+              ),
+              context.browserPanel === panel else {
+            return false
+        }
+        return appDelegate.focusBrowserAddressBar(
+            panelId: panelID,
+            workspaceID: workspaceID,
+            tabManager: tabManager
+        )
+    }
+
+    private func openBrowserInDefaultBrowser(context: CommandPaletteActionContext) -> Bool {
+        guard let panel = context.browserPanel,
               let rawURL = panel.preferredURLStringForOmnibar(),
               let url = URL(string: rawURL),
               let scheme = url.scheme?.lowercased(),
@@ -9904,15 +12076,24 @@ struct ContentView: View {
         return NSWorkspace.shared.open(url)
     }
 
-    private func openWorkspacePullRequestsInConfiguredBrowser() -> Bool {
-        guard let workspace = tabManager.selectedWorkspace else { return false }
+    private func openWorkspacePullRequestsInConfiguredBrowser(
+        context: CommandPaletteActionContext,
+        focus: Bool
+    ) -> Bool {
+        guard let workspace = context.workspace() else { return false }
         let pullRequests = workspace.sidebarPullRequestsInDisplayOrder()
         guard !pullRequests.isEmpty else { return false }
 
         var openedCount = 0
         if BrowserLinkOpenSettings.openSidebarPullRequestLinksInCmuxBrowser() {
             for pullRequest in pullRequests {
-                if tabManager.openBrowser(url: pullRequest.url, insertAtEnd: true) != nil {
+                if tabManager.openBrowser(
+                    inWorkspace: workspace.id,
+                    url: pullRequest.url,
+                    insertAtEnd: true,
+                    sourcePanelID: context.target.panelID,
+                    selectWorkspace: focus
+                ) != nil {
                     openedCount += 1
                 } else if NSWorkspace.shared.open(pullRequest.url) {
                     openedCount += 1
@@ -9929,18 +12110,25 @@ struct ContentView: View {
         return openedCount > 0
     }
 
-    private func openFocusedDirectory(in target: TerminalDirectoryOpenTarget) -> Bool {
-        guard let directoryURL = focusedTerminalDirectoryURL() else { return false }
-        return openFocusedDirectory(directoryURL, in: target)
+    private func openFocusedDirectory(
+        in target: TerminalDirectoryOpenTarget,
+        context: CommandPaletteActionContext
+    ) -> Bool {
+        guard let directoryURL = focusedTerminalDirectoryURL(context: context) else { return false }
+        return openFocusedDirectory(directoryURL, in: target, context: context)
     }
 
-    private func openFocusedDirectory(_ directoryURL: URL, in target: TerminalDirectoryOpenTarget) -> Bool {
+    private func openFocusedDirectory(
+        _ directoryURL: URL,
+        in target: TerminalDirectoryOpenTarget,
+        context: CommandPaletteActionContext
+    ) -> Bool {
         switch target {
         case .finder:
             NSWorkspace.shared.selectFile(nil, inFileViewerRootedAtPath: directoryURL.path)
             return true
         case .vscodeInline:
-            return openFocusedDirectoryInInlineVSCode(directoryURL)
+            return openFocusedDirectoryInInlineVSCode(directoryURL, context: context)
         default:
             guard let applicationURL = target.applicationURL() else { return false }
             let configuration = NSWorkspace.OpenConfiguration()
@@ -9949,45 +12137,67 @@ struct ContentView: View {
         }
     }
 
-    private func openFocusedDirectoryInInlineVSCode(_ directoryURL: URL) -> Bool {
-        AppDelegate.shared?.openDirectoryInInlineVSCode(directoryURL, tabManager: tabManager) ?? false
+    private func openFocusedDirectoryInInlineVSCode(
+        _ directoryURL: URL,
+        context: CommandPaletteActionContext
+    ) -> Bool {
+        return AppDelegate.shared?.openDirectoryInInlineVSCode(
+            directoryURL,
+            tabManager: tabManager,
+            windowID: context.target.windowID,
+            workspaceID: context.target.workspaceID,
+            panelID: context.target.panelID
+        ) ?? false
     }
 
     private func stopInlineVSCodeServeWeb() {
         VSCodeServeWebController.shared.stop()
     }
 
-    private func restartInlineVSCodeServeWeb() -> Bool {
+    private func restartInlineVSCodeServeWeb(
+        beepOnAsynchronousFailure: Bool
+    ) -> Bool {
         guard let vscodeApplicationURL = TerminalDirectoryOpenTarget.vscodeInline.applicationURL() else {
             return false
         }
         VSCodeServeWebController.shared.restart(vscodeApplicationURL: vscodeApplicationURL) { serveWebURL in
-            if serveWebURL == nil {
+            if serveWebURL == nil, beepOnAsynchronousFailure {
                 NSSound.beep()
             }
         }
         return true
     }
 
-    private func focusedTerminalDirectoryURL() -> URL? {
-        guard let workspace = tabManager.selectedWorkspace else { return nil }
+    private func focusedTerminalDirectoryURL(context: CommandPaletteActionContext) -> URL? {
+        guard let workspace = context.workspace() else { return nil }
         let rawDirectory: String = {
-            if let focusedPanelId = workspace.focusedPanelId {
-                guard workspace.allowsLocalDirectoryFallback(panelId: focusedPanelId) else { return "" }
-                if let directory = workspace.reportedPanelDirectory(panelId: focusedPanelId) {
+            if let panelID = context.target.panelID {
+                guard context.panel()?.panelId == panelID,
+                      workspace.allowsLocalDirectoryFallback(panelId: panelID) else {
+                    return ""
+                }
+                if let directory = workspace.reportedPanelDirectory(panelId: panelID) {
                     return directory
                 }
-                if let requestedDirectory = workspace.terminalPanel(for: focusedPanelId)?.requestedWorkingDirectory {
+                if let requestedDirectory = workspace.terminalPanel(for: panelID)?.requestedWorkingDirectory {
                     return requestedDirectory
                 }
+                return ""
             }
             guard !workspace.isRemoteWorkspace else { return "" }
             return workspace.currentDirectory
         }()
         let trimmed = rawDirectory.trimmingCharacters(in: .whitespacesAndNewlines)
         guard !trimmed.isEmpty else { return nil }
-        guard FileManager.default.fileExists(atPath: trimmed) else { return nil }
-        return URL(fileURLWithPath: trimmed, isDirectory: true)
+        let directoryURL = URL(fileURLWithPath: trimmed, isDirectory: true).standardizedFileURL
+        var isDirectory: ObjCBool = false
+        guard FileManager.default.fileExists(
+            atPath: directoryURL.path,
+            isDirectory: &isDirectory
+        ), isDirectory.boolValue else {
+            return nil
+        }
+        return directoryURL
     }
 
 #if DEBUG
@@ -10758,6 +12968,21 @@ struct VerticalTabsSidebar: View, Equatable {
         var workspaceIds: [UUID] { tabIds }
     }
 
+    private func presentPendingChecklistAddRequests() {
+        let workspaceIDs = Set(tabManager.tabs.map(\.id))
+        guard let request = tabManager.checklistAddRequestStore.claimLatest(
+            workspaceIDs: workspaceIDs
+        ) else {
+            return
+        }
+        if WorkspaceTodoFeature.checklistStyle == .popover {
+            checklistPopoverWorkspaceId = request.workspaceID
+        } else {
+            expandedChecklistWorkspaceIds.insert(request.workspaceID)
+        }
+        checklistAddFieldActivationTokens[request.workspaceID, default: 0] += 1
+    }
+
     var body: some View {
 #if DEBUG
         let _ = { minimalModeInvalidationProbe.verticalTabsSidebarBody?() }()
@@ -10909,6 +13134,7 @@ struct VerticalTabsSidebar: View, Equatable {
                 tabId: nil,
                 reason: "sidebar_appear"
             )
+            presentPendingChecklistAddRequests()
         }
         .onDisappear {
             pointerInteractionMonitor.stop()
@@ -10939,15 +13165,8 @@ struct VerticalTabsSidebar: View, Equatable {
                 frozenShortcutHintsValue = false
             }
         }
-        .onReceive(NotificationCenter.default.publisher(for: .workspaceChecklistAddItemRequested)) { notification in
-            guard let workspaceId = notification.userInfo?[WorkspaceTodoActions.workspaceIdUserInfoKey] as? UUID,
-                  tabManager.tabs.contains(where: { $0.id == workspaceId }) else { return }
-            if WorkspaceTodoFeature.checklistStyle == .popover {
-                checklistPopoverWorkspaceId = workspaceId
-            } else {
-                expandedChecklistWorkspaceIds.insert(workspaceId)
-            }
-            checklistAddFieldActivationTokens[workspaceId, default: 0] += 1
+        .onReceive(tabManager.checklistAddRequestStore.$revision) { _ in
+            presentPendingChecklistAddRequests()
         }
         .onChange(of: dragState.draggedTabId) { newDraggedTabId in
             SidebarDragLifecycleNotification().postStateDidChange(
@@ -13912,7 +16131,10 @@ struct VerticalTabsSidebar: View, Equatable {
                 WorkspaceTodoActions.hideStatus(for: workspaces)
             },
             requestChecklistAdd: {
-                WorkspaceTodoActions.requestChecklistAddField(workspaceId: tabId)
+                WorkspaceTodoActions.requestChecklistAddField(
+                    workspaceId: tabId,
+                    in: tabManager
+                )
             },
             markRead: { workspaceIds in
                 for workspaceId in workspaceIds where

@@ -35,6 +35,10 @@ enum AgentHibernationResumePreparation: Equatable {
 /// This allows TerminalSurface to be used within the bonsplit-based layout system.
 @MainActor
 final class TerminalPanel: Panel, ObservableObject {
+    /// Bounds files retained while SwiftUI has not mounted the text-box view.
+    /// Duplicate standardized URLs share one queue entry.
+    static let maximumPendingTextBoxAttachmentCount = 64
+
     private enum TextBoxInputFocusIntent: Equatable {
         case hidden
         case terminal
@@ -77,6 +81,7 @@ final class TerminalPanel: Panel, ObservableObject {
     weak var textBoxInputView: TextBoxInputTextView?
     private var shouldFocusTextBoxWhenAvailable = false
     private var shouldOpenTextBoxFilePickerWhenAvailable = false
+    private var pendingTextBoxAttachmentURLs: [URL] = []
     private var shouldHideTextBoxOnNextEscape = false
     private var textBoxInputFocusIntent: TextBoxInputFocusIntent = .hidden
     private var preservedTextBoxAttributedContent: NSAttributedString?
@@ -268,13 +273,22 @@ final class TerminalPanel: Panel, ObservableObject {
         tmuxLayoutReport = report
     }
 
-    func preferTextBoxInputWhenActivated() {
+    @discardableResult
+    func preferTextBoxInputWhenActivated() -> TextBoxInputRequestResult {
         isTextBoxActive = true
         textBoxInputFocusIntent = .textBox
         shouldFocusTextBoxWhenAvailable = true
         shouldOpenTextBoxFilePickerWhenAvailable = false
         shouldHideTextBoxOnNextEscape = false
-        focusTextBoxIfNeeded()
+        let hasMountedTextBox = textBoxInputView?.window != nil
+        if focusTextBoxIfNeeded() {
+            return .focused
+        }
+        guard hasMountedTextBox else {
+            return .queued
+        }
+        shouldFocusTextBoxWhenAvailable = false
+        return .failed
     }
 
     func showTextBoxInputWhenAvailable() {
@@ -297,6 +311,7 @@ final class TerminalPanel: Panel, ObservableObject {
             view.installPreservedContent(preservedTextBoxAttributedContent, notifyingTextChange: false)
         }
         focusTextBoxIfNeeded()
+        _ = flushPendingTextBoxAttachmentsIfPossible(in: view)
 #if DEBUG
         applyPendingDebugTextBoxInlineFixtureIfNeeded()
 #endif
@@ -305,6 +320,10 @@ final class TerminalPanel: Panel, ObservableObject {
     func textBoxInputViewDidMoveToWindow(_ view: TextBoxInputTextView) {
         guard textBoxInputView === view else { return }
         focusTextBoxIfNeeded()
+        if !flushPendingTextBoxAttachmentsIfPossible(in: view),
+           !pendingTextBoxAttachmentURLs.isEmpty {
+            NSSound.beep()
+        }
 #if DEBUG
         applyPendingDebugTextBoxInlineFixtureIfNeeded()
 #endif
@@ -312,12 +331,19 @@ final class TerminalPanel: Panel, ObservableObject {
 
     @discardableResult
     func toggleTextBoxInput() -> Bool {
-        if isTextBoxActive {
-            hideTextBoxInput()
-            return true
-        }
+        setTextBoxInputEnabled(!isTextBoxActive).accepted
+    }
 
-        return focusTextBoxInput()
+    @discardableResult
+    func setTextBoxInputEnabled(_ enabled: Bool) -> TextBoxInputRequestResult {
+        if enabled {
+            return preferTextBoxInputWhenActivated()
+        }
+        guard isTextBoxActive else {
+            return .hidden
+        }
+        hideTextBoxInput()
+        return isTextBoxActive ? .failed : .hidden
     }
 
     @discardableResult
@@ -345,6 +371,68 @@ final class TerminalPanel: Panel, ObservableObject {
         let hasMountedTextBox = textBoxInputView?.window != nil
         let didFocusTextBox = focusTextBoxIfNeeded()
         return didFocusTextBox || !hasMountedTextBox
+    }
+
+    /// Attaches caller-supplied files without presenting an open panel. If the
+    /// text box has not mounted yet, registration flushes the immutable URLs.
+    @discardableResult
+    func attachFilesToTextBoxInput(_ fileURLs: [URL]) -> TextBoxAttachmentRequestResult {
+        let standardizedURLs = fileURLs
+            .filter(\.isFileURL)
+            .map(\.standardizedFileURL)
+        guard !standardizedURLs.isEmpty else { return .invalidFiles }
+        guard enqueuePendingTextBoxAttachments(standardizedURLs) else { return .queueFull }
+
+        textBoxInputFocusIntent = .textBox
+        isTextBoxActive = true
+        shouldFocusTextBoxWhenAvailable = true
+        shouldOpenTextBoxFilePickerWhenAvailable = false
+        shouldHideTextBoxOnNextEscape = false
+
+        _ = focusTextBoxIfNeeded()
+        if let textBoxInputView, textBoxInputView.window != nil {
+            return flushPendingTextBoxAttachmentsIfPossible(in: textBoxInputView)
+                ? .completed
+                : .insertionFailed
+        }
+        return .queued
+    }
+
+    /// Adds a request atomically so a request that would cross the bound cannot
+    /// leave a partially queued set of files behind.
+    private func enqueuePendingTextBoxAttachments(_ standardizedURLs: [URL]) -> Bool {
+        var seenURLs = Set(pendingTextBoxAttachmentURLs)
+        var newURLs: [URL] = []
+        newURLs.reserveCapacity(min(
+            standardizedURLs.count,
+            max(0, Self.maximumPendingTextBoxAttachmentCount - pendingTextBoxAttachmentURLs.count)
+        ))
+
+        for url in standardizedURLs where seenURLs.insert(url).inserted {
+            guard pendingTextBoxAttachmentURLs.count + newURLs.count
+                    < Self.maximumPendingTextBoxAttachmentCount else {
+                return false
+            }
+            newURLs.append(url)
+        }
+
+        pendingTextBoxAttachmentURLs.append(contentsOf: newURLs)
+        return true
+    }
+
+    @discardableResult
+    private func flushPendingTextBoxAttachmentsIfPossible(
+        in view: TextBoxInputTextView
+    ) -> Bool {
+        guard textBoxInputView === view,
+              view.window != nil,
+              !pendingTextBoxAttachmentURLs.isEmpty else {
+            return false
+        }
+        let fileURLs = pendingTextBoxAttachmentURLs
+        guard view.onInsertFileURLs(fileURLs, view) else { return false }
+        pendingTextBoxAttachmentURLs.removeAll(keepingCapacity: false)
+        return true
     }
 
     func textBoxDidBecomeFocused() {
@@ -445,6 +533,7 @@ final class TerminalPanel: Panel, ObservableObject {
         }
         restoredTextBoxDraft = nil
         preservedTextBoxAttributedContent = nil
+        pendingTextBoxAttachmentURLs.removeAll(keepingCapacity: false)
         textBoxContent = ""
         textBoxAttachments = []
         isTextBoxActive = false
@@ -773,8 +862,14 @@ final class TerminalPanel: Panel, ObservableObject {
 
     @discardableResult
     func clearScreenKeepingScrollback() -> Bool {
+        clearScreenKeepingScrollbackResult().accepted
+    }
+
+    /// Clears through the shared Ctrl-L input path while preserving whether the
+    /// keystroke was sent, queued, or rejected.
+    func clearScreenKeepingScrollbackResult() -> TerminalSurface.NamedKeySendResult {
         resumeForExplicitInputIfNeeded()
-        return surface.clearScreenKeepingScrollback()
+        return surface.clearScreenKeepingScrollbackResult()
     }
 
     private func resumeForExplicitInputIfNeeded() {

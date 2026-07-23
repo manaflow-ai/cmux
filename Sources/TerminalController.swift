@@ -269,6 +269,7 @@ class TerminalController {
         "pane.focus",
         "pane.last",
         "file.open", "workspace.todo.open",
+        "palette.run", "vscode.open",
         "browser.focus_webview",
         "browser.focus",
         "browser.tab.switch",
@@ -991,6 +992,41 @@ class TerminalController {
         return withSocketCommandPolicy(commandKey: request.method, isV2: true, params: request.params) {
             if let workspaceParamError = v2UnsupportedWorkspaceAliasError(method: request.method, params: request.params) {
                 return v2Result(id: request.id, workspaceParamError)
+            }
+            if request.method == "palette.list" || request.method == "palette.run" {
+                // Finish before SocketClient's 15-second default receive
+                // deadline so callers receive the structured timeout error.
+                let dispatchDeadline = Date(timeIntervalSinceNow: 10)
+                var operation: Task<Void, Never>?
+                let result: ControlCallResult? = socketAwaitCallback(timeout: 12) { finish in
+                    operation = Task { @MainActor in
+                        self.v2RefreshKnownRefs()
+                        let resolved = await self.controlCommandCoordinator.handleAsync(
+                            parsedRequest,
+                            deadline: dispatchDeadline
+                        )
+                        finish(resolved ?? .err(
+                            code: "internal_error",
+                            message: String(
+                                localized: "socket.palette.error.internal",
+                                defaultValue: "Command palette request could not be handled."
+                            ),
+                            data: nil
+                        ))
+                    }
+                }
+                guard let result else {
+                    operation?.cancel()
+                    return v2Error(
+                        id: request.id,
+                        code: "timeout",
+                        message: String(
+                            localized: "socket.palette.error.configurationTimeout",
+                            defaultValue: "Command palette configuration timed out."
+                        )
+                    )
+                }
+                return Self.v2Encoder.response(id: parsedRequest.id, result)
             }
             if Self.socketWorkerCoordinatorHopMethods.contains(request.method) {
                 // Mirror processParsedV2Command's tail: one main hop for the
@@ -2465,6 +2501,9 @@ class TerminalController {
             "app.simulate_active",
             "file.open",
             "markdown.open",
+            "palette.list",
+            "palette.run",
+            "vscode.open",
             "browser.open_split",
             "browser.navigate",
             "browser.back",

@@ -2721,8 +2721,32 @@ final class BrowserPanel: Panel, ObservableObject {
     @Published private(set) var profileID: UUID
     @Published private(set) var historyStore: BrowserHistoryStore
 
-    /// The underlying web view
-    private(set) var webView: WKWebView
+    /// The underlying web view. Replacement invalidates document-scoped React
+    /// Grab state. Discard scheduling stays suppressed until the new reference
+    /// is installed so clearing the active flag cannot recursively replace it.
+    private var isReplacingWebViewReference = false
+    private(set) var webView: WKWebView {
+        willSet {
+            guard newValue !== webView else { return }
+            isReplacingWebViewReference = true
+            resetReactGrabState(reason: "webView.replaced")
+        }
+        didSet {
+            guard oldValue !== webView else { return }
+            isReplacingWebViewReference = false
+            let replacement = webView
+            let replacementInstanceID = webViewInstanceID
+            DispatchQueue.main.async { [weak self, weak replacement] in
+                guard let self,
+                      let replacement,
+                      self.webView === replacement,
+                      self.webViewInstanceID == replacementInstanceID else {
+                    return
+                }
+                self.reevaluateHiddenWebViewDiscardScheduling(reason: "webView.replaced")
+            }
+        }
+    }
     let viewportHostView = BrowserViewportHostView(frame: .zero)
     let viewportModel = BrowserViewportModel()
     var browserViewportHostRestorationTask: Task<Void, Never>?
@@ -3006,9 +3030,15 @@ final class BrowserPanel: Panel, ObservableObject {
     @Published var isReactGrabActive: Bool = false {
         didSet {
             guard oldValue != isReactGrabActive else { return }
+            guard !isReplacingWebViewReference else { return }
             reevaluateHiddenWebViewDiscardScheduling(reason: "react_grab_changed")
         }
     }
+    var requestedReactGrabActive: Bool?
+    var latestReactGrabRequestedState: Bool?
+    var reactGrabStateReconciliationTask: Task<Void, Never>?
+    var reactGrabStateReconciliationGeneration: UInt64 = 0
+    var reactGrabStateConfirmation: ReactGrabStateConfirmation?
     lazy var designModeController = BrowserDesignModeController(
         surfaceID: id,
         script: BrowserDesignModeScript(),
@@ -3104,6 +3134,7 @@ final class BrowserPanel: Panel, ObservableObject {
     var pendingReactGrabReturnTargetPanelId: UUID?
     var pendingReactGrabRoundTripToken: String?
     let reactGrabBridgeSessionUpdaterName = "__cmuxReactGrabBridgeSync_\(UUID().uuidString.replacingOccurrences(of: "-", with: ""))"
+    let reactGrabBridgeActivationUpdaterName = "__cmuxReactGrabActivation_\(UUID().uuidString.replacingOccurrences(of: "-", with: ""))"
     var preferredDeveloperToolsPresentation: DeveloperToolsPresentation = .detached
     var forceDeveloperToolsRefreshOnNextAttach: Bool = false
     private var developerToolsRestoreRetryWorkItem: DispatchWorkItem?
@@ -3809,6 +3840,7 @@ final class BrowserPanel: Panel, ObservableObject {
                 // navigation then fails or is canceled, letting a playing pane be
                 // discarded. didCommit does not fire for same-document (pushState)
                 // navigations, so a persisting SPA video keeps its frame id.
+                self.resetReactGrabState(reason: "navigationCommit")
                 self.resetMediaPlaybackTracking()
                 self.publishCommittedURL(from: webView)
                 self.applyMuteState(to: webView, reason: "navigationCommit")
@@ -5425,6 +5457,7 @@ final class BrowserPanel: Panel, ObservableObject {
         automationNavigationCoordinator.invalidate()
         automationDocumentReadiness.invalidate()
         automationWatchdog.invalidate()
+        resetReactGrabState(reason: "close")
         refreshWebViewLifecycleState()
         GlobalSearchCoordinator.shared.purgePanel(id: id)
         closeDeveloperToolsForTeardown()
@@ -6269,6 +6302,7 @@ extension BrowserPanel {
 
     func resetForWorkspaceContextChange(reason: String) {
         guard needsWorkspaceContextReset else {
+            resetReactGrabState(reason: "contextReset.skip")
             resetWebViewLifecycleMetadata()
 #if DEBUG
             cmuxDebugLog(
@@ -6427,6 +6461,15 @@ extension BrowserPanel {
         webView.goBack()
     }
 
+    /// Starts a backward history traversal only when one is currently
+    /// available, and reports whether the request was accepted.
+    @discardableResult
+    func goBackIfPossible() -> Bool {
+        guard canGoBack else { return false }
+        goBack()
+        return true
+    }
+
     /// Go forward in history
     func goForward() {
         guard canGoForward else { return }
@@ -6456,6 +6499,15 @@ extension BrowserPanel {
         }
 
         webView.goForward()
+    }
+
+    /// Starts a forward history traversal only when one is currently
+    /// available, and reports whether the request was accepted.
+    @discardableResult
+    func goForwardIfPossible() -> Bool {
+        guard canGoForward else { return false }
+        goForward()
+        return true
     }
 
     /// Open a link in a new browser surface in the same pane
@@ -6575,13 +6627,25 @@ extension BrowserPanel {
         return false
     }
 
+    private func startSoftReload(reason: String) -> (navigation: WKNavigation?, accepted: Bool) {
+        if prepareForReload(reason: reason, mode: .soft) {
+            return (nil, true)
+        }
+        let navigation = webView.reload()
+        return (navigation, navigation != nil)
+    }
+
     /// Reload the current page
     @discardableResult
     func reload() -> WKNavigation? {
-        if prepareForReload(reason: "reload", mode: .soft) {
-            return nil
-        }
-        return webView.reload()
+        startSoftReload(reason: "reload").navigation
+    }
+
+    /// Starts a reload and reports acceptance even when the reload is handled
+    /// by web-content recovery instead of returning a `WKNavigation` token.
+    @discardableResult
+    func reloadIfPossible() -> Bool {
+        startSoftReload(reason: "commandPalette.reload").accepted
     }
 
     /// Reload the current page, bypassing WebKit's cache.
@@ -6725,6 +6789,12 @@ extension BrowserPanel {
         return isDeveloperToolsVisible()
     }
 
+    /// The latest requested DevTools state, including a transition that has
+    /// been accepted but has not settled in WebKit yet.
+    var developerToolsVisibilityIntent: Bool {
+        effectiveDeveloperToolsVisibilityIntent()
+    }
+
     private func scheduleDeveloperToolsTransitionSettle(source: String) {
         developerToolsTransitionSettleWorkItem?.cancel()
         let workItem = DispatchWorkItem { [weak self] in
@@ -6837,8 +6907,8 @@ extension BrowserPanel {
             "\(debugDeveloperToolsStateSummary()) \(debugDeveloperToolsGeometrySummary())"
         )
 #endif
-        let targetVisible = !effectiveDeveloperToolsVisibilityIntent()
-        let handled = enqueueDeveloperToolsVisibilityTransition(to: targetVisible, source: "toggle")
+        let targetVisible = !developerToolsVisibilityIntent
+        let handled = setDeveloperToolsVisible(targetVisible, source: "toggle")
 #if DEBUG
         cmuxDebugLog(
             "browser.devtools toggle.end panel=\(id.uuidString.prefix(5)) targetVisible=\(targetVisible ? 1 : 0) " +
@@ -6856,8 +6926,17 @@ extension BrowserPanel {
     }
 
     @discardableResult
+    func setDeveloperToolsVisible(
+        _ visible: Bool,
+        source: String = "set"
+    ) -> Bool {
+        guard developerToolsVisibilityIntent != visible else { return true }
+        return enqueueDeveloperToolsVisibilityTransition(to: visible, source: source)
+    }
+
+    @discardableResult
     func showDeveloperTools() -> Bool {
-        return enqueueDeveloperToolsVisibilityTransition(to: true, source: "show")
+        return setDeveloperToolsVisible(true, source: "show")
     }
 
     @discardableResult
@@ -7115,7 +7194,7 @@ extension BrowserPanel {
 
     @discardableResult
     func hideDeveloperTools() -> Bool {
-        return enqueueDeveloperToolsVisibilityTransition(to: false, source: "hide")
+        return setDeveloperToolsVisible(false, source: "hide")
     }
 
     func requestDeveloperToolsRefreshAfterNextAttach(reason: String) {

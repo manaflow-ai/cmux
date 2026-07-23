@@ -42,8 +42,14 @@ struct CmuxWorkspaceDefinition: Codable, Sendable, Hashable {
         layout = try container.decodeIfPresent(CmuxLayoutNode.self, forKey: .layout)
 
         if let rawColor = try container.decodeIfPresent(String.self, forKey: .color) {
-            let defaults = decoder.userInfo[.cmuxWorkspaceColorDefaults] as? UserDefaults ?? .standard
-            guard let normalized = WorkspaceTabColorSettings.resolvedColorHex(rawColor, defaults: defaults) else {
+            let normalized: String?
+            if let palette = decoder.userInfo[.cmuxWorkspaceColorDefaults] as? [String: String] {
+                normalized = WorkspaceTabColorSettings.resolvedColorHex(rawColor, palette: palette)
+            } else {
+                let defaults = decoder.userInfo[.cmuxWorkspaceColorDefaults] as? UserDefaults ?? .standard
+                normalized = WorkspaceTabColorSettings.resolvedColorHex(rawColor, defaults: defaults)
+            }
+            guard let normalized else {
                 throw DecodingError.dataCorruptedError(
                     forKey: .color,
                     in: container,

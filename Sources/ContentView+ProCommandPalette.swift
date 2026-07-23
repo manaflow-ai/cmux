@@ -10,6 +10,12 @@ extension ContentView {
     static let commandPaletteProUpgradeCommandId = "palette.pro.upgrade"
     static let commandPaletteProWelcomeChecklistCommandId = "palette.pro.welcomeChecklist"
 
+    static func commandPaletteProPresentationResult(
+        targetAvailable: Bool
+    ) -> CmuxActionExecutionResult {
+        targetAvailable ? .presented : .targetUnavailable
+    }
+
     static func commandPaletteProCommandContributions() -> [CommandPaletteCommandContribution] {
         func constant(_ value: String) -> (CommandPaletteContextSnapshot) -> String {
             { _ in value }
@@ -37,18 +43,55 @@ extension ContentView {
         ]
     }
 
-    func registerProCommandHandlers(_ registry: inout CommandPaletteHandlerRegistry) {
-        registry.register(commandId: Self.commandPaletteProUpgradeCommandId) {
+    func registerProCommandHandlers(
+        _ registry: inout CommandPaletteHandlerRegistry,
+        context: CommandPaletteActionContext
+    ) {
+        registry.register(commandId: Self.commandPaletteProUpgradeCommandId) { _ in
 #if DEBUG
             cmuxDebugLog("palette.pro.upgrade.invoke")
 #endif
-            ProUpgradePresenter.present()
+            guard context.target.windowID == windowId,
+                  context.owningWindowID == windowId,
+                  ProUpgradePresenter.capturedSourceIsAvailable(
+                appDelegate: AppDelegate.shared,
+                tabManager: context.tabManager,
+                sourceWindowID: context.target.windowID,
+                sourceWorkspaceID: context.target.workspaceID,
+                sourcePanelID: context.target.panelID
+            ) else {
+                return Self.commandPaletteProPresentationResult(targetAvailable: false)
+            }
+            ProUpgradePresenter.present(
+                tabManager: context.tabManager,
+                sourceWindowID: context.target.windowID,
+                sourceWorkspaceID: context.target.workspaceID,
+                sourcePanelID: context.target.panelID
+            )
+            return Self.commandPaletteProPresentationResult(targetAvailable: true)
         }
-        registry.register(commandId: Self.commandPaletteProWelcomeChecklistCommandId) {
+        registry.register(commandId: Self.commandPaletteProWelcomeChecklistCommandId) { _ in
 #if DEBUG
             cmuxDebugLog("palette.pro.welcomeChecklist.invoke")
 #endif
-            ProWelcomeChecklistPresenter.present()
+            guard context.target.windowID == windowId,
+                  context.owningWindowID == windowId,
+                  ProUpgradePresenter.capturedSourceIsAvailable(
+                appDelegate: AppDelegate.shared,
+                tabManager: context.tabManager,
+                sourceWindowID: context.target.windowID,
+                sourceWorkspaceID: context.target.workspaceID,
+                sourcePanelID: context.target.panelID
+            ) else {
+                return Self.commandPaletteProPresentationResult(targetAvailable: false)
+            }
+            ProWelcomeChecklistPresenter.present(
+                tabManager: context.tabManager,
+                sourceWindowID: context.target.windowID,
+                sourceWorkspaceID: context.target.workspaceID,
+                sourcePanelID: context.target.panelID
+            )
+            return Self.commandPaletteProPresentationResult(targetAvailable: true)
         }
     }
 }

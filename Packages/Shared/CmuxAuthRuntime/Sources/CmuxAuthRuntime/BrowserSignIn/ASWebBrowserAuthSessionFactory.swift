@@ -15,9 +15,41 @@ public final class ASWebBrowserAuthSessionFactory: HostBrowserAuthSessionFactory
         self.anchor = anchor
     }
 
+    /// Creates an unstarted browser-auth session using the factory's anchor.
+    ///
+    /// - Parameters:
+    ///   - signInURL: The hosted sign-in page URL.
+    ///   - callbackScheme: The custom scheme used by the callback redirect.
+    ///   - completion: The terminal result, delivered exactly once on the main
+    ///     actor.
+    /// - Returns: A browser-auth session that has not been started.
     public func makeSession(
         signInURL: URL,
         callbackScheme: String,
+        completion: @escaping @MainActor (HostBrowserAuthSessionResult) -> Void
+    ) -> any HostBrowserAuthSession {
+        makeSession(
+            signInURL: signInURL,
+            callbackScheme: callbackScheme,
+            presentationAnchor: nil,
+            completion: completion
+        )
+    }
+
+    /// Creates an unstarted browser-auth session for an optional exact window.
+    ///
+    /// - Parameters:
+    ///   - signInURL: The hosted sign-in page URL.
+    ///   - callbackScheme: The custom scheme used by the callback redirect.
+    ///   - presentationAnchor: The window that should present this attempt, or
+    ///     `nil` to use the factory's injected presentation context provider.
+    ///   - completion: The terminal result, delivered exactly once on the main
+    ///     actor.
+    /// - Returns: A browser-auth session that has not been started.
+    public func makeSession(
+        signInURL: URL,
+        callbackScheme: String,
+        presentationAnchor: ASPresentationAnchor?,
         completion: @escaping @MainActor (HostBrowserAuthSessionResult) -> Void
     ) -> any HostBrowserAuthSession {
         log.log("auth.webauth.makeSession signInURL=\(signInURL.absoluteString) callbackScheme=\(callbackScheme)")
@@ -26,9 +58,17 @@ public final class ASWebBrowserAuthSessionFactory: HostBrowserAuthSessionFactory
             callbackURLScheme: callbackScheme,
             completionHandler: sessionCompletionBridge(completion: completion)
         )
-        session.presentationContextProvider = anchor
+        let presentationContextProvider: any ASWebAuthenticationPresentationContextProviding =
+            if let presentationAnchor {
+                ExactASWebAuthenticationPresentationContextProvider(anchor: presentationAnchor)
+            } else {
+                anchor
+            }
         session.prefersEphemeralWebBrowserSession = false
-        return ASWebBrowserAuthSession(session: session)
+        return ASWebBrowserAuthSession(
+            session: session,
+            presentationContextProvider: presentationContextProvider
+        )
     }
 
     /// The completion handed to `ASWebAuthenticationSession`.
@@ -86,23 +126,5 @@ public final class ASWebBrowserAuthSessionFactory: HostBrowserAuthSessionFactory
             return .failed(reason: "network_\(nsError.code)")
         }
         return .failed(reason: "error_\(nsError.code)")
-    }
-}
-
-/// Wraps one `ASWebAuthenticationSession` as a ``HostBrowserAuthSession``.
-@MainActor
-private final class ASWebBrowserAuthSession: HostBrowserAuthSession {
-    private let session: ASWebAuthenticationSession
-
-    init(session: ASWebAuthenticationSession) {
-        self.session = session
-    }
-
-    func start() -> Bool {
-        session.start()
-    }
-
-    func cancel() {
-        session.cancel()
     }
 }

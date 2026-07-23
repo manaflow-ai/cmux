@@ -310,26 +310,77 @@ struct AuthEnvironmentTests {
         #expect(appProWelcomeURL.path == "/app-pro-welcome")
     }
 
+    @MainActor
     @Test("Pro upgrade workspace reuse keeps a live tracked workspace")
-    func proUpgradeWorkspaceReuseKeepsLiveTrackedWorkspace() {
-        var state = ProUpgradeWorkspaceReuseState()
+    func proUpgradeWorkspaceReuseKeepsLiveTrackedWorkspace() throws {
+        let appDelegate = AppDelegate()
+        let manager = TabManager(autoWelcomeIfNeeded: false)
+        let windowId = appDelegate.registerMainWindowContextForTesting(tabManager: manager)
+        defer { appDelegate.unregisterMainWindowContextForTesting(windowId: windowId) }
+        let context = try #require(appDelegate.mainWindowContext(for: manager))
         let workspaceId = UUID()
+        context.proPricingWorkspaceId = workspaceId
 
-        state.recordCreatedWorkspace(id: workspaceId)
-
-        #expect(state.reusableWorkspaceID { $0 == workspaceId } == workspaceId)
-        #expect(state.workspaceId == workspaceId)
+        #expect(context.reusableProPricingWorkspaceID { $0 == workspaceId } == workspaceId)
+        #expect(context.proPricingWorkspaceId == workspaceId)
     }
 
+    @MainActor
     @Test("Pro upgrade workspace reuse clears stale tracked workspace")
-    func proUpgradeWorkspaceReuseClearsStaleTrackedWorkspace() {
-        var state = ProUpgradeWorkspaceReuseState()
+    func proUpgradeWorkspaceReuseClearsStaleTrackedWorkspace() throws {
+        let appDelegate = AppDelegate()
+        let manager = TabManager(autoWelcomeIfNeeded: false)
+        let windowId = appDelegate.registerMainWindowContextForTesting(tabManager: manager)
+        defer { appDelegate.unregisterMainWindowContextForTesting(windowId: windowId) }
+        let context = try #require(appDelegate.mainWindowContext(for: manager))
         let closedWorkspaceId = UUID()
+        context.proPricingWorkspaceId = closedWorkspaceId
 
-        state.recordCreatedWorkspace(id: closedWorkspaceId)
+        #expect(context.reusableProPricingWorkspaceID { _ in false } == nil)
+        #expect(context.proPricingWorkspaceId == nil)
+    }
 
-        #expect(state.reusableWorkspaceID { _ in false } == nil)
-        #expect(state.workspaceId == nil)
+    @MainActor
+    @Test("Window unregister releases pricing and Pro welcome reuse with its context")
+    func windowUnregisterReleasesProWorkspaceReuseWithItsContext() throws {
+        let appDelegate = AppDelegate()
+        let closedWindowId = UUID()
+        let remainingWindowId = UUID()
+        let closedPricingWorkspaceId = UUID()
+        let closedWelcomeWorkspaceId = UUID()
+        let remainingPricingWorkspaceId = UUID()
+        let remainingWelcomeWorkspaceId = UUID()
+        let closedManager = TabManager(autoWelcomeIfNeeded: false)
+        let remainingManager = TabManager(autoWelcomeIfNeeded: false)
+
+        _ = appDelegate.registerMainWindowContextForTesting(
+            windowId: closedWindowId,
+            tabManager: closedManager
+        )
+        _ = appDelegate.registerMainWindowContextForTesting(
+            windowId: remainingWindowId,
+            tabManager: remainingManager
+        )
+        var closedContext: AppDelegate.MainWindowContext? = try #require(
+            appDelegate.mainWindowContext(for: closedManager)
+        )
+        let remainingContext = try #require(appDelegate.mainWindowContext(for: remainingManager))
+        weak var releasedContext = closedContext
+        closedContext?.proPricingWorkspaceId = closedPricingWorkspaceId
+        closedContext?.proWelcomeWorkspaceId = closedWelcomeWorkspaceId
+        remainingContext.proPricingWorkspaceId = remainingPricingWorkspaceId
+        remainingContext.proWelcomeWorkspaceId = remainingWelcomeWorkspaceId
+        defer {
+            appDelegate.unregisterMainWindowContextForTesting(windowId: remainingWindowId)
+        }
+
+        appDelegate.unregisterMainWindowContextForTesting(windowId: closedWindowId)
+        closedContext = nil
+
+        #expect(releasedContext == nil)
+        #expect(appDelegate.mainWindowContext(for: closedManager) == nil)
+        #expect(remainingContext.proPricingWorkspaceId == remainingPricingWorkspaceId)
+        #expect(remainingContext.proWelcomeWorkspaceId == remainingWelcomeWorkspaceId)
     }
 
     @Test("Pro welcome checklist automatic presentation requires Pro plan, feature flag, and unseen defaults")

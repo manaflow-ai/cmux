@@ -2,7 +2,12 @@ import Foundation
 
 extension TabManager {
     @discardableResult
-    func openWorkspace(fromSavedLayout layout: CmuxSavedLayout, cwdOverride: String?, focus: Bool) -> Workspace? {
+    func openWorkspace(
+        fromSavedLayout layout: CmuxSavedLayout,
+        cwdOverride: String?,
+        focus: Bool,
+        sourceWorkspaceID: UUID? = nil
+    ) -> Workspace? {
         let baseCwd = FileManager.default.homeDirectoryForCurrentUser.path
         let resolvedCwd = CmuxConfigStore.resolveCwd(cwdOverride ?? layout.workspace.cwd, relativeTo: baseCwd)
         let workspace = addWorkspace(
@@ -10,7 +15,8 @@ extension TabManager {
             workingDirectory: resolvedCwd,
             workspaceEnvironment: layout.workspace.env ?? [:],
             inheritWorkingDirectory: false,
-            select: focus
+            select: focus,
+            sourceWorkspaceID: sourceWorkspaceID
         )
         if let color = layout.workspace.color {
             workspace.setCustomColor(color)
