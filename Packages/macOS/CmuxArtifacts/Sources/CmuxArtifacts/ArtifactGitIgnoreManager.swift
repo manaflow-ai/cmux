@@ -21,6 +21,11 @@ struct ArtifactGitIgnoreManager {
         )
         let infoDirectory = repository.commonGitDirectory.appendingPathComponent("info", isDirectory: true)
         let excludeURL = infoDirectory.appendingPathComponent("exclude", isDirectory: false)
+        let leaseURL = infoDirectory.appendingPathComponent("cmux-artifacts.lock", isDirectory: false)
+        try ensureTrustedDirectory(infoDirectory)
+        try rejectUntrustedFileEntry(leaseURL)
+        let lease = try ArtifactGitExcludeLease(url: leaseURL)
+        defer { lease.release() }
         try ensureTrustedDirectory(infoDirectory)
         try rejectUntrustedFileEntry(excludeURL)
         let existing: String

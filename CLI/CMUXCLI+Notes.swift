@@ -59,7 +59,7 @@ extension CMUXCLI {
                     name: name,
                     text: text,
                     mode: parsed.subcommand == "append" ? .append : .replace,
-                    context: projectFilesCaptureContext(
+                    context: try projectFilesCaptureContext(
                         projectRoot: projectRoot,
                         environment: processEnvironment
                     )

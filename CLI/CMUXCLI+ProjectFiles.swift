@@ -25,8 +25,8 @@ extension CMUXCLI {
     func projectFilesCaptureContext(
         projectRoot: URL,
         environment: [String: String]
-    ) -> ArtifactCaptureContext {
-        let agent = projectFilesAgentIdentity(environment: environment)
+    ) throws -> ArtifactCaptureContext {
+        let agent = try projectFilesAgentIdentity(environment: environment)
         return ArtifactCaptureContext(
             projectRoot: projectRoot,
             workspaceID: environment["CMUX_WORKSPACE_ID"],
@@ -38,7 +38,7 @@ extension CMUXCLI {
 
     private func projectFilesAgentIdentity(
         environment: [String: String]
-    ) -> (sessionID: String?, name: String?) {
+    ) throws -> (sessionID: String?, name: String?) {
         let explicitName = (
             normalizedProjectFilesEnvironmentValue(environment["CMUX_AGENT_LAUNCH_KIND"])
                 ?? normalizedProjectFilesEnvironmentValue(environment["CMUX_AGENT_NAME"])
@@ -48,20 +48,21 @@ extension CMUXCLI {
             ("claude", ["CLAUDE_CODE_SESSION_ID", "CMUX_CLAUDE_SESSION_ID"]),
             ("opencode", ["OPENCODE_SESSION_ID"]),
         ]
-        if let explicitName,
-           let selected = sessionByAgent.first(where: { $0.name == explicitName }),
-           let sessionID = selected.keys.lazy.compactMap({
-               normalizedProjectFilesEnvironmentValue(environment[$0])
-           }).first {
-            return (sessionID, selected.name)
-        }
-        for candidate in sessionByAgent {
-            if let sessionID = candidate.keys.lazy.compactMap({
+        let nativeIdentities = sessionByAgent.compactMap { candidate in
+            candidate.keys.lazy.compactMap {
                 normalizedProjectFilesEnvironmentValue(environment[$0])
-            }).first {
-                return (sessionID, candidate.name)
-            }
+            }.first.map { (sessionID: $0, name: candidate.name) }
         }
+        guard nativeIdentities.count <= 1 else {
+            throw CLIError(
+                message: String(
+                    localized: "cli.projectFiles.error.ambiguousAgentIdentity",
+                    defaultValue: "Multiple agent session identities are present; refusing to assign project files to an inherited parent session."
+                ),
+                exitCode: 2
+            )
+        }
+        if let nativeIdentity = nativeIdentities.first { return nativeIdentity }
         return (
             normalizedProjectFilesEnvironmentValue(environment["CMUX_AGENT_SESSION_ID"]),
             explicitName
