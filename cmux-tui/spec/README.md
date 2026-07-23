@@ -2,6 +2,8 @@
 
 This directory is the source of truth for the cmux-tui control protocol, the generated `cmux-tui` command surface, plugin contracts, and future generated language bindings. The implemented protocol described here is protocol version 9, as defined by `cmux-tui-core/src/server.rs`.
 
+The authenticated remote daemon has an independent protocol version. [`remote-daemon.md`](remote-daemon.md) and [`remote-rpc.md`](remote-rpc.md) define remote protocol 1; `mux-control` carries control protocol 9 inside that session.
+
 The spec is intentionally stricter than prose docs. Implemented commands and events describe the current server behavior exactly, including awkward result shapes and no-op cases. Proposed commands, events, transports, and config are marked `proposed` and are not part of the implemented protocol.
 
 ## Versioning
@@ -44,6 +46,8 @@ The generator must preserve the wire command names, parameter names, result shap
 | `cli.md` | Generated `cmux-tui <verb>` conventions, exit codes, stdin rules, verb table, and examples |
 | `bindings.md` | Language binding style sheets and conformance suite contract |
 | `plugins.md` | Sidebar plugin PTY, manifest, lifecycle, focus, and config contract |
+| `remote-daemon.md` | Remote protocol 1 authority, transport, authentication, reliability, and service contract |
+| `remote-rpc.md` | Remote protocol 1 workspace RPC envelopes, schemas, process execution, diffs, and routes |
 
 ## Implemented Inventory
 

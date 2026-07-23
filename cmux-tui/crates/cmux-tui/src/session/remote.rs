@@ -1,14 +1,14 @@
 //! Remote session client: JSON-lines control socket plus locally
 //! mirrored surface terminals (VT replay + live stream).
 
-use std::collections::{HashMap, HashSet};
+use std::collections::{HashMap, HashSet, VecDeque};
 use std::fs;
 use std::io::{BufRead, BufReader, Write};
 use std::net::Shutdown;
 use std::path::Path;
 use std::sync::atomic::{AtomicBool, AtomicU64, Ordering};
 use std::sync::mpsc::{Sender, channel};
-use std::sync::{Arc, Mutex};
+use std::sync::{Arc, Condvar, Mutex};
 use std::time::{Duration, Instant};
 
 use base64::Engine;
@@ -26,6 +26,28 @@ const SUPPORTED_PROTOCOL_VERSION: u64 = 9;
 const SURFACE_OVERFLOW_RETRY_DELAYS: [Duration; 3] =
     [Duration::from_millis(250), Duration::from_millis(500), Duration::from_secs(1)];
 const SURFACE_OVERFLOW_STABLE: Duration = Duration::from_secs(5);
+const INTERACTIVE_WRITE_QUEUE_CAPACITY: usize = 512;
+const INTERACTIVE_WRITE_QUEUE_BYTES: usize = 8 * 1024 * 1024;
+const INTERACTIVE_LATENCY_BUCKET_UPPER_US: [u64; 18] = [
+    50,
+    100,
+    250,
+    500,
+    1_000,
+    2_000,
+    5_000,
+    10_000,
+    25_000,
+    50_000,
+    100_000,
+    250_000,
+    500_000,
+    1_000_000,
+    2_000_000,
+    5_000_000,
+    30_000_000,
+    u64::MAX,
+];
 #[cfg(not(test))]
 const REMOTE_WRITE_TIMEOUT: Duration = Duration::from_secs(2);
 #[cfg(test)]
@@ -383,8 +405,297 @@ struct SubscriptionRecoveryState {
     in_flight: bool,
 }
 
+struct InteractiveWrite {
+    line: Vec<u8>,
+    enqueued_at: Instant,
+    sequence: u64,
+    measure_latency: bool,
+}
+
+#[derive(Clone)]
+struct InteractiveWriteFailure {
+    kind: std::io::ErrorKind,
+    message: String,
+}
+
+impl InteractiveWriteFailure {
+    fn from_error(error: &std::io::Error) -> Self {
+        Self { kind: error.kind(), message: error.to_string() }
+    }
+
+    fn to_error(&self) -> std::io::Error {
+        std::io::Error::new(self.kind, self.message.clone())
+    }
+}
+
+#[derive(Default)]
+struct InteractiveWriteQueueState {
+    writes: VecDeque<InteractiveWrite>,
+    queued_bytes: usize,
+    last_enqueued_sequence: u64,
+    last_written_sequence: u64,
+    closed: bool,
+    failure: Option<InteractiveWriteFailure>,
+}
+
+struct InteractiveWriteMetrics {
+    latency_buckets: [AtomicU64; INTERACTIVE_LATENCY_BUCKET_UPPER_US.len()],
+    write_failures: AtomicU64,
+    backpressure_rejections: AtomicU64,
+}
+
+impl Default for InteractiveWriteMetrics {
+    fn default() -> Self {
+        Self {
+            latency_buckets: std::array::from_fn(|_| AtomicU64::new(0)),
+            write_failures: AtomicU64::new(0),
+            backpressure_rejections: AtomicU64::new(0),
+        }
+    }
+}
+
+impl InteractiveWriteMetrics {
+    fn record_latency(&self, latency: Duration) {
+        let micros = u64::try_from(latency.as_micros()).unwrap_or(u64::MAX);
+        let bucket = INTERACTIVE_LATENCY_BUCKET_UPPER_US
+            .partition_point(|upper_bound| *upper_bound < micros)
+            .min(self.latency_buckets.len() - 1);
+        self.latency_buckets[bucket].fetch_add(1, Ordering::Relaxed);
+    }
+
+    fn snapshot(&self) -> InteractiveWriteMetricsSnapshot {
+        let histogram = self
+            .latency_buckets
+            .iter()
+            .zip(INTERACTIVE_LATENCY_BUCKET_UPPER_US)
+            .map(|(samples, upper_bound_micros)| InteractiveLatencyBucket {
+                upper_bound: Duration::from_micros(upper_bound_micros),
+                samples: samples.load(Ordering::Relaxed),
+            })
+            .collect::<Vec<_>>();
+        let samples = histogram.iter().map(|bucket| bucket.samples).sum();
+        InteractiveWriteMetricsSnapshot {
+            p50: latency_percentile(&histogram, samples, 50),
+            p95: latency_percentile(&histogram, samples, 95),
+            p99: latency_percentile(&histogram, samples, 99),
+            histogram,
+            samples,
+            write_failures: self.write_failures.load(Ordering::Relaxed),
+            backpressure_rejections: self.backpressure_rejections.load(Ordering::Relaxed),
+        }
+    }
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub(crate) struct InteractiveLatencyBucket {
+    pub(crate) upper_bound: Duration,
+    pub(crate) samples: u64,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub(crate) struct InteractiveWriteMetricsSnapshot {
+    pub(crate) histogram: Vec<InteractiveLatencyBucket>,
+    pub(crate) samples: u64,
+    pub(crate) write_failures: u64,
+    pub(crate) backpressure_rejections: u64,
+    pub(crate) p50: Option<Duration>,
+    pub(crate) p95: Option<Duration>,
+    pub(crate) p99: Option<Duration>,
+}
+
+fn latency_percentile(
+    histogram: &[InteractiveLatencyBucket],
+    samples: u64,
+    percentile: u64,
+) -> Option<Duration> {
+    if samples == 0 {
+        return None;
+    }
+    let target = samples.saturating_mul(percentile).div_ceil(100);
+    let mut cumulative = 0_u64;
+    histogram.iter().find_map(|bucket| {
+        cumulative = cumulative.saturating_add(bucket.samples);
+        (cumulative >= target).then_some(bucket.upper_bound)
+    })
+}
+
+struct InteractiveWriterShared {
+    state: Mutex<InteractiveWriteQueueState>,
+    changed: Condvar,
+    metrics: InteractiveWriteMetrics,
+}
+
+struct InteractiveWriter {
+    shared: Arc<InteractiveWriterShared>,
+}
+
+impl InteractiveWriter {
+    // Control requests use this actor too, then wait for their sequence. This
+    // keeps a mutation from overtaking input already accepted from the PTY lane.
+    fn spawn(writer: Box<dyn transport::Stream>) -> std::io::Result<Self> {
+        let shared = Arc::new(InteractiveWriterShared {
+            state: Mutex::new(InteractiveWriteQueueState::default()),
+            changed: Condvar::new(),
+            metrics: InteractiveWriteMetrics::default(),
+        });
+        let worker_shared = shared.clone();
+        std::thread::Builder::new()
+            .name("remote-input-writer".into())
+            .spawn(move || interactive_writer_worker(worker_shared, writer))?;
+        Ok(Self { shared })
+    }
+
+    fn enqueue(&self, line: Vec<u8>, measure_latency: bool) -> std::io::Result<u64> {
+        let line_bytes = line.len();
+        let mut state = self
+            .shared
+            .state
+            .lock()
+            .map_err(|_| std::io::Error::other("interactive writer queue is poisoned"))?;
+        if let Some(failure) = &state.failure {
+            return Err(failure.to_error());
+        }
+        if state.closed {
+            return Err(std::io::Error::new(
+                std::io::ErrorKind::BrokenPipe,
+                "interactive writer is closed",
+            ));
+        }
+        if state.writes.len() >= INTERACTIVE_WRITE_QUEUE_CAPACITY
+            || line_bytes > INTERACTIVE_WRITE_QUEUE_BYTES.saturating_sub(state.queued_bytes)
+        {
+            if measure_latency {
+                self.shared.metrics.backpressure_rejections.fetch_add(1, Ordering::Relaxed);
+            }
+            return Err(std::io::Error::new(
+                std::io::ErrorKind::WouldBlock,
+                "interactive writer queue is full",
+            ));
+        }
+        let sequence = state.last_enqueued_sequence.checked_add(1).ok_or_else(|| {
+            std::io::Error::other("interactive writer sequence space is exhausted")
+        })?;
+        state.last_enqueued_sequence = sequence;
+        state.queued_bytes += line_bytes;
+        state.writes.push_back(InteractiveWrite {
+            line,
+            enqueued_at: Instant::now(),
+            sequence,
+            measure_latency,
+        });
+        drop(state);
+        self.shared.changed.notify_one();
+        Ok(sequence)
+    }
+
+    fn last_enqueued_sequence(&self) -> std::io::Result<Option<u64>> {
+        let state = self
+            .shared
+            .state
+            .lock()
+            .map_err(|_| std::io::Error::other("interactive writer queue is poisoned"))?;
+        Ok((state.last_enqueued_sequence != 0).then_some(state.last_enqueued_sequence))
+    }
+
+    fn wait_until_written(&self, sequence: u64, timeout: Duration) -> std::io::Result<()> {
+        let deadline = Instant::now() + timeout;
+        let mut state = self
+            .shared
+            .state
+            .lock()
+            .map_err(|_| std::io::Error::other("interactive writer queue is poisoned"))?;
+        loop {
+            if state.last_written_sequence >= sequence {
+                return Ok(());
+            }
+            if let Some(failure) = &state.failure {
+                return Err(failure.to_error());
+            }
+            let remaining = deadline.saturating_duration_since(Instant::now());
+            if remaining.is_zero() {
+                return Err(std::io::Error::new(
+                    std::io::ErrorKind::TimedOut,
+                    "ordered remote write did not complete before its deadline",
+                ));
+            }
+            let (next, timeout) = self
+                .shared
+                .changed
+                .wait_timeout(state, remaining)
+                .unwrap_or_else(|poison| poison.into_inner());
+            state = next;
+            if timeout.timed_out()
+                && state.last_written_sequence < sequence
+                && state.failure.is_none()
+            {
+                return Err(std::io::Error::new(
+                    std::io::ErrorKind::TimedOut,
+                    "ordered remote write did not complete before its deadline",
+                ));
+            }
+        }
+    }
+
+    fn metrics(&self) -> InteractiveWriteMetricsSnapshot {
+        self.shared.metrics.snapshot()
+    }
+}
+
+impl Drop for InteractiveWriter {
+    fn drop(&mut self) {
+        let mut state = self.shared.state.lock().unwrap_or_else(|poison| poison.into_inner());
+        state.closed = true;
+        drop(state);
+        self.shared.changed.notify_one();
+    }
+}
+
+fn interactive_writer_worker(
+    shared: Arc<InteractiveWriterShared>,
+    mut writer: Box<dyn transport::Stream>,
+) {
+    loop {
+        let write = {
+            let mut state = shared.state.lock().unwrap_or_else(|poison| poison.into_inner());
+            while state.writes.is_empty() && !state.closed && state.failure.is_none() {
+                state = shared.changed.wait(state).unwrap_or_else(|poison| poison.into_inner());
+            }
+            let Some(write) = state.writes.pop_front() else { return };
+            state.queued_bytes = state.queued_bytes.saturating_sub(write.line.len());
+            write
+        };
+
+        let result = writer.write_all(&write.line);
+        match result {
+            Ok(()) => {
+                if write.measure_latency {
+                    shared.metrics.record_latency(write.enqueued_at.elapsed());
+                }
+                let mut state = shared.state.lock().unwrap_or_else(|poison| poison.into_inner());
+                state.last_written_sequence = write.sequence;
+                drop(state);
+                shared.changed.notify_all();
+            }
+            Err(error) => {
+                if write.measure_latency {
+                    shared.metrics.write_failures.fetch_add(1, Ordering::Relaxed);
+                }
+                let _ = writer.shutdown(Shutdown::Both);
+                let mut state = shared.state.lock().unwrap_or_else(|poison| poison.into_inner());
+                state.failure = Some(InteractiveWriteFailure::from_error(&error));
+                state.writes.clear();
+                state.queued_bytes = 0;
+                drop(state);
+                shared.changed.notify_all();
+                return;
+            }
+        }
+    }
+}
+
 pub struct RemoteSession {
-    writer: Mutex<Box<dyn transport::Stream>>,
+    shutdown_stream: Box<dyn transport::Stream>,
+    interactive_writer: InteractiveWriter,
     pending: Mutex<HashMap<u64, Sender<Value>>>,
     next_id: AtomicU64,
     shutdown: AtomicBool,
@@ -416,8 +727,12 @@ impl RemoteSession {
             anyhow::anyhow!("cannot configure session socket write timeout: {error}")
         })?;
         let read_half = stream.try_clone_box()?;
+        let shutdown_stream = stream.try_clone_box()?;
+        let interactive_writer = InteractiveWriter::spawn(stream)
+            .map_err(|error| anyhow::anyhow!("cannot start remote interactive writer: {error}"))?;
         let session = Arc::new(RemoteSession {
-            writer: Mutex::new(stream),
+            shutdown_stream,
+            interactive_writer,
             pending: Mutex::new(HashMap::new()),
             next_id: AtomicU64::new(1),
             shutdown: AtomicBool::new(false),
@@ -847,14 +1162,17 @@ impl RemoteSession {
 
         let (tx, rx) = channel();
         self.pending.lock().unwrap().insert(id, tx);
-        let mut writer = self.writer.lock().unwrap();
-        if let Err(err) = writer.write_all(&line) {
-            let _ = writer.shutdown(Shutdown::Both);
-            drop(writer);
+        let sequence = match self.interactive_writer.enqueue(line, false) {
+            Ok(sequence) => sequence,
+            Err(error) => {
+                self.pending.lock().unwrap().remove(&id);
+                return Err(RemoteRequestError::Transport(error).into());
+            }
+        };
+        if let Err(error) = self.wait_for_ordered_write(sequence) {
             self.pending.lock().unwrap().remove(&id);
-            return Err(RemoteRequestError::Transport(err).into());
+            return Err(RemoteRequestError::Transport(error).into());
         }
-        drop(writer);
 
         if self.shutdown.load(Ordering::Acquire) {
             self.pending.lock().unwrap().remove(&id);
@@ -882,9 +1200,38 @@ impl RemoteSession {
         }
     }
 
+    /// Write latency-sensitive input in order without waiting for the mux
+    /// command acknowledgement. The response reader still drains the reply;
+    /// its unknown request id is intentionally ignored. Reliable remote
+    /// sessions replay this write after carrier reconnect.
+    fn request_no_wait(&self, mut cmd: Value) -> anyhow::Result<()> {
+        let id = self.next_id.fetch_add(1, Ordering::Relaxed);
+        cmd["id"] = json!(id);
+        // The local remote bridge replaces eligible sends with compact binary
+        // MuxInput packets. Direct/older mux servers ignore this hint and keep
+        // the existing JSON response behavior.
+        cmd["no_reply"] = json!(true);
+        let mut line = serde_json::to_vec(&cmd)
+            .map_err(RemoteRequestError::Encode)
+            .map_err(anyhow::Error::new)?;
+        line.push(b'\n');
+        let sequence =
+            self.interactive_writer.enqueue(line, true).map_err(RemoteRequestError::Transport)?;
+        if self.shutdown.load(Ordering::Acquire) {
+            self.wait_for_ordered_write(sequence).map_err(RemoteRequestError::Transport)?;
+            return Err(RemoteRequestError::Shutdown.into());
+        }
+        Ok(())
+    }
+
     pub fn send_bytes(&self, surface: SurfaceId, bytes: &[u8]) -> anyhow::Result<()> {
         let encoded = base64::engine::general_purpose::STANDARD.encode(bytes);
-        self.request(json!({"cmd": "send", "surface": surface, "bytes": encoded})).map(|_| ())
+        self.request_no_wait(json!({"cmd": "send", "surface": surface, "bytes": encoded}))
+    }
+
+    #[cfg_attr(not(test), allow(dead_code))]
+    pub(crate) fn interactive_write_metrics(&self) -> InteractiveWriteMetricsSnapshot {
+        self.interactive_writer.metrics()
     }
 
     pub fn begin_shutdown(&self) {
@@ -892,6 +1239,21 @@ impl RemoteSession {
         let pending = std::mem::take(&mut *self.pending.lock().unwrap());
         for (_, sender) in pending {
             let _ = sender.send(json!({"shutdown": true}));
+        }
+        if let Ok(Some(sequence)) = self.interactive_writer.last_enqueued_sequence() {
+            let _ = self.wait_for_ordered_write(sequence);
+        }
+    }
+
+    fn wait_for_ordered_write(&self, sequence: u64) -> std::io::Result<()> {
+        match self.interactive_writer.wait_until_written(sequence, REMOTE_WRITE_TIMEOUT) {
+            Ok(()) => Ok(()),
+            Err(error) => {
+                if error.kind() == std::io::ErrorKind::TimedOut {
+                    let _ = self.shutdown_stream.shutdown(Shutdown::Both);
+                }
+                Err(error)
+            }
         }
     }
 
@@ -1242,11 +1604,11 @@ fn parse_browser_frame(value: &Value) -> Option<RemoteBrowserFrame> {
 
 #[cfg(test)]
 mod tests {
-    use std::io::BufRead;
+    use std::io::{BufRead, Read, Write};
     #[cfg(unix)]
     use std::os::unix::net::UnixStream;
-    use std::sync::Mutex;
     use std::sync::atomic::{AtomicBool, AtomicU64};
+    use std::sync::{Condvar, Mutex};
 
     use ghostty_vt::{Callbacks, Terminal};
     use serde_json::json;
@@ -1276,8 +1638,15 @@ mod tests {
     #[cfg(unix)]
     fn socket_test_session(stream: UnixStream) -> Arc<RemoteSession> {
         stream.set_write_timeout(Some(REMOTE_WRITE_TIMEOUT)).unwrap();
+        test_session(Box::new(stream))
+    }
+
+    fn test_session(stream: Box<dyn transport::Stream>) -> Arc<RemoteSession> {
+        let shutdown_stream = stream.try_clone_box().unwrap();
+        let interactive_writer = InteractiveWriter::spawn(stream).unwrap();
         Arc::new(RemoteSession {
-            writer: Mutex::new(Box::new(stream)),
+            shutdown_stream,
+            interactive_writer,
             pending: Mutex::new(HashMap::new()),
             next_id: AtomicU64::new(1),
             shutdown: AtomicBool::new(false),
@@ -1291,6 +1660,102 @@ mod tests {
             frame_logs: Mutex::new(HashMap::new()),
             surface_overflow_recovery: Mutex::new(HashMap::new()),
         })
+    }
+
+    #[derive(Default)]
+    struct BlockingWriteState {
+        blocked: bool,
+        entered: bool,
+    }
+
+    #[derive(Clone)]
+    struct BlockingWriteControl {
+        state: Arc<(Mutex<BlockingWriteState>, Condvar)>,
+    }
+
+    impl BlockingWriteControl {
+        fn wait_until_entered(&self) {
+            let deadline = Instant::now() + Duration::from_secs(1);
+            let (state, changed) = &*self.state;
+            let mut state = state.lock().unwrap();
+            while !state.entered {
+                let remaining = deadline.saturating_duration_since(Instant::now());
+                assert!(!remaining.is_zero(), "interactive writer never entered the test stream");
+                let (next, timeout) = changed.wait_timeout(state, remaining).unwrap();
+                state = next;
+                assert!(!timeout.timed_out() || state.entered);
+            }
+        }
+
+        fn release(&self) {
+            let (state, changed) = &*self.state;
+            let mut state = state.lock().unwrap();
+            state.blocked = false;
+            drop(state);
+            changed.notify_all();
+        }
+    }
+
+    #[derive(Clone)]
+    struct BlockingWriteStream {
+        control: BlockingWriteControl,
+        output: Arc<Mutex<Vec<u8>>>,
+    }
+
+    impl BlockingWriteStream {
+        fn new() -> (Self, BlockingWriteControl) {
+            let control = BlockingWriteControl {
+                state: Arc::new((
+                    Mutex::new(BlockingWriteState { blocked: true, entered: false }),
+                    Condvar::new(),
+                )),
+            };
+            (Self { control: control.clone(), output: Arc::new(Mutex::new(Vec::new())) }, control)
+        }
+    }
+
+    impl Read for BlockingWriteStream {
+        fn read(&mut self, _buffer: &mut [u8]) -> std::io::Result<usize> {
+            Ok(0)
+        }
+    }
+
+    impl Write for BlockingWriteStream {
+        fn write(&mut self, buffer: &[u8]) -> std::io::Result<usize> {
+            let (state, changed) = &*self.control.state;
+            let mut state = state.lock().unwrap();
+            state.entered = true;
+            changed.notify_all();
+            while state.blocked {
+                state = changed.wait(state).unwrap();
+            }
+            drop(state);
+            self.output.lock().unwrap().extend_from_slice(buffer);
+            Ok(buffer.len())
+        }
+
+        fn flush(&mut self) -> std::io::Result<()> {
+            Ok(())
+        }
+    }
+
+    impl transport::Stream for BlockingWriteStream {
+        fn try_clone_box(&self) -> std::io::Result<Box<dyn transport::Stream>> {
+            Ok(Box::new(self.clone()))
+        }
+
+        fn set_read_timeout(&self, _timeout: Option<Duration>) -> std::io::Result<()> {
+            Ok(())
+        }
+
+        fn set_write_timeout(&self, _timeout: Option<Duration>) -> std::io::Result<()> {
+            Ok(())
+        }
+
+        fn shutdown(&self, _how: Shutdown) -> std::io::Result<()> {
+            self.control.release();
+            Ok(())
+        }
     }
 
     #[cfg(unix)]
@@ -1323,22 +1788,200 @@ mod tests {
         assert!(release["id"].as_u64().unwrap() > first["id"].as_u64().unwrap());
     }
 
+    #[test]
+    fn shutdown_send_waits_for_ordered_write_completion() {
+        let (stream, control) = BlockingWriteStream::new();
+        let session = test_session(Box::new(stream));
+        session.begin_shutdown();
+
+        let (finished_tx, finished_rx) = channel();
+        let release = std::thread::spawn(move || {
+            finished_tx.send(session.send_bytes(7, b"release")).unwrap();
+        });
+        control.wait_until_entered();
+        assert!(
+            finished_rx.recv_timeout(Duration::from_millis(25)).is_err(),
+            "shutdown send returned before its ordered write completed"
+        );
+
+        control.release();
+        let error = finished_rx.recv_timeout(REMOTE_WRITE_TIMEOUT * 2).unwrap().unwrap_err();
+        assert!(matches!(
+            error.downcast_ref::<RemoteRequestError>(),
+            Some(RemoteRequestError::Shutdown)
+        ));
+        release.join().unwrap();
+    }
+
+    #[test]
+    fn begin_shutdown_waits_for_previously_accepted_input() {
+        let (stream, control) = BlockingWriteStream::new();
+        let session = test_session(Box::new(stream));
+        session.send_bytes(7, b"accepted").unwrap();
+        control.wait_until_entered();
+
+        let (finished_tx, finished_rx) = channel();
+        let shutdown = std::thread::spawn(move || {
+            session.begin_shutdown();
+            finished_tx.send(()).unwrap();
+        });
+        assert!(
+            finished_rx.recv_timeout(Duration::from_millis(25)).is_err(),
+            "shutdown returned before previously accepted input was written"
+        );
+
+        control.release();
+        finished_rx.recv_timeout(REMOTE_WRITE_TIMEOUT * 2).unwrap();
+        shutdown.join().unwrap();
+    }
+
+    #[test]
+    fn shutdown_write_barrier_is_bounded_by_the_write_timeout() {
+        let (stream, _control) = BlockingWriteStream::new();
+        let session = test_session(Box::new(stream));
+        session.begin_shutdown();
+
+        let started = Instant::now();
+        let error = session.send_bytes(7, b"release").unwrap_err();
+        assert!(error.downcast_ref::<RemoteRequestError>().is_some_and(|error| {
+            matches!(error, RemoteRequestError::Transport(io_error)
+                if io_error.kind() == std::io::ErrorKind::TimedOut)
+        }));
+        assert!(started.elapsed() < REMOTE_WRITE_TIMEOUT * 5);
+    }
+
     #[cfg(unix)]
     #[test]
-    fn stalled_remote_write_times_out_and_closes_the_transport() {
-        let (client, _server) = UnixStream::pair().unwrap();
+    fn keystroke_write_does_not_wait_for_command_response() {
+        let (client, server) = UnixStream::pair().unwrap();
         let session = socket_test_session(client);
-        let payload = vec![b'x'; 4 * 1024 * 1024];
+        let (finished_tx, finished_rx) = channel();
+        let sender = std::thread::spawn(move || {
+            finished_tx.send(session.send_bytes(9, b"x")).unwrap();
+        });
 
-        let error = session.send_bytes(7, &payload).unwrap_err();
+        let mut peer = BufReader::new(server);
+        let mut line = String::new();
+        peer.read_line(&mut line).unwrap();
+        let command: Value = serde_json::from_str(&line).unwrap();
+        assert_eq!(command["cmd"], "send");
+        assert_eq!(command["surface"], 9);
+        assert_eq!(command["bytes"], "eA==");
+        assert_eq!(command["no_reply"], true);
+        assert!(finished_rx.recv_timeout(Duration::from_millis(100)).unwrap().is_ok());
+        sender.join().unwrap();
+    }
 
+    #[cfg(unix)]
+    #[test]
+    fn accepted_interactive_writes_remain_fifo() {
+        let (client, server) = UnixStream::pair().unwrap();
+        let session = socket_test_session(client);
+        session.send_bytes(7, b"release").unwrap();
+        session.send_bytes(7, b"press").unwrap();
+
+        let mut peer = BufReader::new(server);
+        let mut first = String::new();
+        let mut second = String::new();
+        peer.read_line(&mut first).unwrap();
+        peer.read_line(&mut second).unwrap();
+        let first: Value = serde_json::from_str(&first).unwrap();
+        let second: Value = serde_json::from_str(&second).unwrap();
+        assert_eq!(first["bytes"], "cmVsZWFzZQ==");
+        assert_eq!(second["bytes"], "cHJlc3M=");
+        assert!(first["id"].as_u64().unwrap() < second["id"].as_u64().unwrap());
+        session.begin_shutdown();
+        let metrics = session.interactive_write_metrics();
+        assert_eq!(metrics.samples, 2);
+        assert_eq!(metrics.histogram.iter().map(|bucket| bucket.samples).sum::<u64>(), 2);
+        assert!(metrics.p50.is_some());
+        assert!(metrics.p95.is_some());
+        assert!(metrics.p99.is_some());
+    }
+
+    #[test]
+    fn control_request_cannot_overtake_accepted_interactive_writes() {
+        let (stream, control) = BlockingWriteStream::new();
+        let output = stream.output.clone();
+        let session = test_session(Box::new(stream));
+        session.send_bytes(7, b"first").unwrap();
+        control.wait_until_entered();
+        session.send_bytes(7, b"release").unwrap();
+
+        let request_session = session.clone();
+        let request = std::thread::spawn(move || {
+            request_session.request(json!({"cmd": "mutation"})).unwrap_err()
+        });
+        let deadline = Instant::now() + Duration::from_secs(1);
+        while session.interactive_writer.last_enqueued_sequence().unwrap() != Some(3) {
+            assert!(Instant::now() < deadline, "control request was not queued");
+            std::thread::yield_now();
+        }
+
+        control.release();
+        session.begin_shutdown();
+        assert!(request.join().unwrap().to_string().contains("canceled for shutdown"));
+        let output = String::from_utf8(output.lock().unwrap().clone()).unwrap();
+        let commands = output
+            .lines()
+            .map(|line| serde_json::from_str::<Value>(line).unwrap())
+            .collect::<Vec<_>>();
+        assert_eq!(commands.len(), 3);
+        assert_eq!(commands[0]["bytes"], "Zmlyc3Q=");
+        assert_eq!(commands[1]["bytes"], "cmVsZWFzZQ==");
+        assert_eq!(commands[2]["cmd"], "mutation");
+    }
+
+    #[test]
+    fn interactive_queue_saturation_fails_without_waiting_for_the_writer() {
+        let (stream, control) = BlockingWriteStream::new();
+        let session = test_session(Box::new(stream));
+        session.send_bytes(7, b"in-flight").unwrap();
+        control.wait_until_entered();
+        for _ in 0..INTERACTIVE_WRITE_QUEUE_CAPACITY {
+            session.send_bytes(7, b"queued").unwrap();
+        }
+
+        let overflow_session = session.clone();
+        let (finished_tx, finished_rx) = channel();
+        let overflow = std::thread::spawn(move || {
+            finished_tx.send(overflow_session.send_bytes(7, b"overflow")).unwrap();
+        });
+        let error = finished_rx
+            .recv_timeout(Duration::from_millis(100))
+            .expect("queue rejection waited for the blocked writer")
+            .unwrap_err();
         assert!(error.downcast_ref::<RemoteRequestError>().is_some_and(|error| {
-            matches!(error, RemoteRequestError::Transport(io_error) if matches!(
-                io_error.kind(),
-                std::io::ErrorKind::WouldBlock | std::io::ErrorKind::TimedOut
-            ))
+            matches!(error, RemoteRequestError::Transport(io_error)
+                if io_error.kind() == std::io::ErrorKind::WouldBlock)
         }));
-        assert!(session.pending.lock().unwrap().is_empty());
+        let metrics = session.interactive_write_metrics();
+        assert_eq!(metrics.backpressure_rejections, 1);
+        control.release();
+        overflow.join().unwrap();
+    }
+
+    #[test]
+    fn latency_histogram_reports_fixed_bucket_percentiles() {
+        let metrics = InteractiveWriteMetrics::default();
+        for latency in [
+            Duration::from_micros(10),
+            Duration::from_micros(80),
+            Duration::from_micros(200),
+            Duration::from_micros(900),
+            Duration::from_millis(20),
+        ] {
+            metrics.record_latency(latency);
+        }
+
+        let snapshot = metrics.snapshot();
+        assert_eq!(snapshot.samples, 5);
+        assert_eq!(snapshot.write_failures, 0);
+        assert_eq!(snapshot.backpressure_rejections, 0);
+        assert_eq!(snapshot.p50, Some(Duration::from_micros(250)));
+        assert_eq!(snapshot.p95, Some(Duration::from_millis(25)));
+        assert_eq!(snapshot.p99, Some(Duration::from_millis(25)));
+        assert_eq!(snapshot.histogram.iter().map(|bucket| bucket.samples).sum::<u64>(), 5);
     }
 
     #[cfg(unix)]

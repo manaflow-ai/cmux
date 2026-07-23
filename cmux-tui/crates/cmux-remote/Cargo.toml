@@ -1,0 +1,46 @@
+[package]
+name = "cmux-remote"
+version = "0.1.0"
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+publish.workspace = true
+description = "Authenticated remote daemon, transports, and workspace services for cmux-tui"
+
+[lints]
+workspace = true
+
+[features]
+default = ["iroh-transport"]
+iroh-transport = ["dep:iroh", "dep:socket2"]
+
+[dependencies]
+anyhow.workspace = true
+async-trait.workspace = true
+axum.workspace = true
+base64.workspace = true
+bytes.workspace = true
+cmux-remote-protocol.workspace = true
+diffy.workspace = true
+futures-util.workspace = true
+getrandom.workspace = true
+hmac.workspace = true
+http.workspace = true
+iroh = { workspace = true, optional = true }
+libc.workspace = true
+portable-pty.workspace = true
+serde.workspace = true
+serde_json.workspace = true
+sha2.workspace = true
+socket2 = { workspace = true, optional = true }
+snow.workspace = true
+tokio.workspace = true
+tokio-tungstenite.workspace = true
+url.workspace = true
+uuid.workspace = true
+x25519-dalek.workspace = true
+zeroize.workspace = true
+
+[dev-dependencies]
+cmux-relay = { path = "../cmux-relay" }
+tempfile = "3"
