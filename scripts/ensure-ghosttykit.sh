@@ -222,7 +222,7 @@ else
     echo "==> Building GhosttyKit.xcframework (this may take a few minutes)..."
     (
       cd ghostty
-      zig build -Dcrash-report-subdir="$GHOSTTYKIT_CRASH_REPORT_SUBDIR" -Demit-macos-app=false -Demit-xcframework=true -Dxcframework-target=universal -Doptimize=ReleaseFast
+      zig build -Dcrash-report-subdir="$GHOSTTYKIT_CRASH_REPORT_SUBDIR" -Demit-macos-app=false -Demit-xcframework=true -Dxcframework-target=universal -Di18n=false -Doptimize=ReleaseFast
     )
     echo "$GHOSTTY_KEY" > "$LOCAL_KEY_STAMP"
     echo "$GHOSTTY_SHA" > "$LEGACY_LOCAL_SHA_STAMP"
