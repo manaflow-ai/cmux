@@ -519,6 +519,38 @@ extension AgentNotificationRegressionTests {
         #expect(fixture.source.agentPIDPanelIdsByKey["claude_code.session"] == nil)
     }
 
+    @Test("A stale lifecycle update cannot bypass a newer status watermark")
+    func staleAgentLifecycleCannotBypassNewerStatusWatermark() throws {
+        let fixture = try makeFixture()
+        defer { fixture.restore() }
+        _ = fixture.source.upsertSidebarStatusEntry(
+            key: "claude_code",
+            value: "Idle",
+            icon: "pause.circle.fill",
+            color: "#8E8E93",
+            url: nil,
+            priority: 0,
+            format: .plain,
+            panelId: fixture.panelId,
+            pid: nil,
+            agentEventTime: 200
+        )
+
+        let bus = TerminalMutationBus.shared
+        bus.discardPendingNotifications()
+        TerminalController.shared.controlSidebarScheduleAgentLifecycle(
+            target: .workspace(fixture.source.id),
+            key: "claude_code",
+            lifecycleRawValue: AgentHibernationLifecycleState.running.rawValue,
+            panelID: fixture.panelId,
+            agentEventTime: 100
+        )
+        bus.drainForTesting()
+
+        #expect(fixture.source.statusEntries["claude_code"]?.value == "Idle")
+        #expect(fixture.source.agentLifecycleStatesByPanelId[fixture.panelId]?["claude_code"] == nil)
+    }
+
     @Test("An authorized-workspace clear cancels a confined in-flight relay delivery")
     func authorizedWorkspaceClearCancelsConfinedInFlightRelayDelivery() async throws {
         let fixture = try makeFixture(policyHookCommand: "cat")
