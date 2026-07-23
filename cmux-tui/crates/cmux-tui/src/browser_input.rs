@@ -173,7 +173,14 @@ pub struct BrowserInputDispatcher {
 
 #[cfg(test)]
 pub(crate) struct BlockedBrowserInput {
-    _rx: Receiver<SequencedBrowserInputEvent>,
+    rx: Receiver<SequencedBrowserInputEvent>,
+}
+
+#[cfg(test)]
+impl BlockedBrowserInput {
+    pub(crate) fn recv_timeout(&self, timeout: Duration) -> BrowserInputEvent {
+        self.rx.recv_timeout(timeout).unwrap().event
+    }
 }
 
 impl BrowserInputDispatcher {
@@ -215,7 +222,7 @@ impl BrowserInputDispatcher {
                 failed_resizes: Arc::new(Mutex::new(HashMap::new())),
                 surface_lifetimes: Arc::new(Mutex::new(HashMap::new())),
             },
-            BlockedBrowserInput { _rx: rx },
+            BlockedBrowserInput { rx },
         )
     }
 

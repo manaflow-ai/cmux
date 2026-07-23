@@ -254,8 +254,8 @@ enum PromptTrackState {
     #[default]
     Ground,
     Escape,
-    Osc(Vec<u8>),
-    OscEscape(Vec<u8>),
+    Osc(PromptOsc),
+    OscEscape(PromptOsc),
     Csi {
         private: bool,
         at_start: bool,
@@ -265,22 +265,39 @@ enum PromptTrackState {
     },
 }
 
-impl PromptSemanticTracker {
-    #[cfg(test)]
-    fn buffered_osc_bytes(&self) -> usize {
-        match &self.state {
-            PromptTrackState::Osc(value) | PromptTrackState::OscEscape(value) => value.capacity(),
-            _ => 0,
-        }
-    }
+#[derive(Default)]
+struct PromptOsc {
+    prefix_len: u8,
+    action: Option<u8>,
+    invalid: bool,
+}
 
+impl PromptOsc {
+    fn feed(&mut self, byte: u8) {
+        const PREFIX: &[u8] = b"133;";
+        if self.invalid || self.action.is_some() {
+            return;
+        }
+        if usize::from(self.prefix_len) < PREFIX.len() {
+            if byte == PREFIX[usize::from(self.prefix_len)] {
+                self.prefix_len += 1;
+            } else {
+                self.invalid = true;
+            }
+            return;
+        }
+        self.action = Some(byte);
+    }
+}
+
+impl PromptSemanticTracker {
     fn feed(&mut self, data: &[u8]) {
         for &byte in data {
             let state = std::mem::take(&mut self.state);
             self.state = match state {
                 PromptTrackState::Ground => match byte {
                     0x1b => PromptTrackState::Escape,
-                    0x9d => PromptTrackState::Osc(Vec::with_capacity(16)),
+                    0x9d => PromptTrackState::Osc(PromptOsc::default()),
                     0x9b => Self::csi(),
                     b'\n' | 0x0b | 0x0c | 0x84 | 0x85 => {
                         self.end_line();
@@ -289,7 +306,7 @@ impl PromptSemanticTracker {
                     _ => PromptTrackState::Ground,
                 },
                 PromptTrackState::Escape => match byte {
-                    b']' => PromptTrackState::Osc(Vec::with_capacity(16)),
+                    b']' => PromptTrackState::Osc(PromptOsc::default()),
                     b'[' => Self::csi(),
                     b'D' | b'E' => {
                         self.end_line();
@@ -304,26 +321,24 @@ impl PromptSemanticTracker {
                     0x1b => PromptTrackState::Escape,
                     _ => PromptTrackState::Ground,
                 },
-                PromptTrackState::Osc(mut value) => match byte {
+                PromptTrackState::Osc(mut osc) => match byte {
                     0x07 | 0x9c => {
-                        self.finish_osc(&value);
+                        self.finish_osc(osc.action);
                         PromptTrackState::Ground
                     }
                     0x18 | 0x1a => PromptTrackState::Ground,
-                    0x1b => PromptTrackState::OscEscape(value),
+                    0x1b => PromptTrackState::OscEscape(osc),
                     _ => {
-                        if value.len() < 64 {
-                            value.push(byte);
-                        }
-                        PromptTrackState::Osc(value)
+                        osc.feed(byte);
+                        PromptTrackState::Osc(osc)
                     }
                 },
-                PromptTrackState::OscEscape(value) => {
+                PromptTrackState::OscEscape(osc) => {
                     if byte == b'\\' {
-                        self.finish_osc(&value);
+                        self.finish_osc(osc.action);
                         PromptTrackState::Ground
                     } else if byte == 0x1b {
-                        PromptTrackState::OscEscape(value)
+                        PromptTrackState::OscEscape(osc)
                     } else {
                         PromptTrackState::Ground
                     }
@@ -419,10 +434,8 @@ impl PromptSemanticTracker {
         }
     }
 
-    fn finish_osc(&mut self, value: &[u8]) {
-        let Some(action) = value.strip_prefix(b"133;").and_then(|value| value.first()) else {
-            return;
-        };
+    fn finish_osc(&mut self, action: Option<u8>) {
+        let Some(action) = action else { return };
         *self.current_mut() = match action {
             b'A' | b'N' | b'P' => PromptSemantic::Prompt,
             b'B' => PromptSemantic::Input,
@@ -1812,8 +1825,8 @@ impl Drop for Terminal {
 #[cfg(test)]
 mod tests {
     use super::{
-        Callbacks, MouseModeScan, PaletteOsc, PromptSemanticTracker, Screen, Terminal,
-        vt_replay_row_window,
+        Callbacks, MouseModeScan, PaletteOsc, PromptSemanticTracker, PromptTrackState, Screen,
+        Terminal, vt_replay_row_window,
     };
 
     #[test]
@@ -1828,7 +1841,8 @@ mod tests {
         tracker.feed(b"\x1b]0;");
         tracker.feed(&vec![b'x'; 4 * 1024]);
 
-        assert_eq!(tracker.buffered_osc_bytes(), 0);
+        assert!(size_of::<PromptTrackState>() <= 16);
+        assert!(matches!(tracker.state, PromptTrackState::Osc(_)));
     }
 
     #[test]

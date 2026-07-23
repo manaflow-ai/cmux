@@ -50,6 +50,7 @@
 //!             Event::FocusGained => println!("FocusGained"),
 //!             Event::FocusLost => println!("FocusLost"),
 //!             Event::Key(event) => println!("{:?}", event),
+//!             Event::EnhancedKey(event) => println!("{:?}", event),
 //!             Event::Mouse(event) => println!("{:?}", event),
 //!             #[cfg(feature = "bracketed-paste")]
 //!             Event::Paste(data) => println!("{:?}", data),
@@ -96,6 +97,7 @@
 //!                 Event::FocusGained => println!("FocusGained"),
 //!                 Event::FocusLost => println!("FocusLost"),
 //!                 Event::Key(event) => println!("{:?}", event),
+//!                 Event::EnhancedKey(event) => println!("{:?}", event),
 //!                 Event::Mouse(event) => println!("{:?}", event),
 //!                 #[cfg(feature = "bracketed-paste")]
 //!                 Event::Paste(data) => println!("Pasted {:?}", data),

@@ -162,7 +162,7 @@ pub fn key_input_from_chord(chord: &str) -> Option<KeyInput> {
 }
 
 /// A single key event to encode.
-#[derive(Debug, Clone, Default)]
+#[derive(Debug, Clone)]
 pub struct KeyInput {
     /// W3C-style physical key (GHOSTTY_KEY_*), or GHOSTTY_KEY_UNIDENTIFIED.
     pub key: sys::GhosttyKey,
@@ -175,6 +175,23 @@ pub struct KeyInput {
     /// Codepoint of the key without shift applied, when known.
     pub unshifted_codepoint: u32,
     pub action: Option<KeyAction>,
+    /// Whether an Alt modifier is a logical terminal modifier. This is false
+    /// when macOS Option was consumed to produce `utf8` for this event.
+    pub macos_option_as_alt: bool,
+}
+
+impl Default for KeyInput {
+    fn default() -> Self {
+        Self {
+            key: sys::GHOSTTY_KEY_UNIDENTIFIED,
+            mods: Mods::default(),
+            consumed_mods: Mods::default(),
+            utf8: String::new(),
+            unshifted_codepoint: 0,
+            action: None,
+            macos_option_as_alt: true,
+        }
+    }
 }
 
 /// Encodes key events into the byte sequences an application expects,
@@ -203,16 +220,6 @@ impl KeyEncoder {
     pub fn sync_from_terminal(&mut self, terminal: &Terminal) {
         unsafe {
             sys::ghostty_key_encoder_setopt_from_terminal(self.encoder, terminal.raw());
-
-            // Crossterm has already resolved the host platform's Option key
-            // policy and only reports ALT for a logical terminal modifier.
-            // Preserve that meaning when Ghostty applies macOS encoding rules.
-            let option_as_alt = sys::GHOSTTY_OPTION_AS_ALT_TRUE;
-            sys::ghostty_key_encoder_setopt(
-                self.encoder,
-                sys::GHOSTTY_KEY_ENCODER_OPT_MACOS_OPTION_AS_ALT,
-                ptr::from_ref(&option_as_alt).cast(),
-            );
         }
     }
 
@@ -224,6 +231,16 @@ impl KeyEncoder {
             KeyAction::Repeat => sys::GHOSTTY_KEY_ACTION_REPEAT,
         };
         unsafe {
+            let option_as_alt = if input.macos_option_as_alt {
+                sys::GHOSTTY_OPTION_AS_ALT_TRUE
+            } else {
+                sys::GHOSTTY_OPTION_AS_ALT_FALSE
+            };
+            sys::ghostty_key_encoder_setopt(
+                self.encoder,
+                sys::GHOSTTY_KEY_ENCODER_OPT_MACOS_OPTION_AS_ALT,
+                ptr::from_ref(&option_as_alt).cast(),
+            );
             sys::ghostty_key_event_set_action(self.event, action);
             sys::ghostty_key_event_set_key(self.event, input.key);
             sys::ghostty_key_event_set_mods(self.event, input.mods.0);

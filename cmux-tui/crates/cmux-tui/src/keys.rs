@@ -4,6 +4,94 @@ use crossterm::event::{EnhancedKeyEvent, KeyCode, KeyEvent, KeyEventKind, KeyMod
 use ghostty_vt::sys;
 use ghostty_vt::{KeyAction, KeyInput, Mods};
 
+/// A host key event normalized once before cmux routes it through overlays,
+/// shortcuts, browser input, or a PTY.
+#[derive(Debug, Clone)]
+pub struct KeyboardInput {
+    key_event: KeyEvent,
+    shifted_key: Option<char>,
+    base_layout_key: Option<char>,
+    associated_text: String,
+    enhanced: bool,
+}
+
+impl From<KeyEvent> for KeyboardInput {
+    fn from(key_event: KeyEvent) -> Self {
+        Self {
+            key_event,
+            shifted_key: None,
+            base_layout_key: None,
+            associated_text: String::new(),
+            enhanced: false,
+        }
+    }
+}
+
+impl From<EnhancedKeyEvent> for KeyboardInput {
+    fn from(event: EnhancedKeyEvent) -> Self {
+        Self {
+            key_event: event.key_event,
+            shifted_key: event.shifted_key,
+            base_layout_key: event.base_layout_key,
+            associated_text: event.text,
+            enhanced: true,
+        }
+    }
+}
+
+impl KeyboardInput {
+    pub fn ui_key(&self) -> KeyEvent {
+        let mut key = self.key_event;
+        if key.modifiers.contains(KeyModifiers::SHIFT)
+            && let Some(shifted_key) = self.shifted_key
+        {
+            key.code = KeyCode::Char(shifted_key);
+        }
+        key
+    }
+
+    pub fn associated_text(&self) -> Option<&str> {
+        (!self.associated_text.is_empty()).then_some(self.associated_text.as_str())
+    }
+
+    pub fn associated_text_bytes(&self) -> usize {
+        self.associated_text.len()
+    }
+
+    /// Active-layout logical identity first, then the PC-101 physical
+    /// fallback. A reported shifted identity has already consumed Shift.
+    pub fn shortcut_keys(&self) -> (KeyEvent, Option<KeyEvent>) {
+        let mut logical = self.key_event;
+        if self.enhanced
+            && logical.modifiers.contains(KeyModifiers::SHIFT)
+            && let Some(shifted_key) = self.shifted_key
+        {
+            logical.code = KeyCode::Char(shifted_key);
+            logical.modifiers.remove(KeyModifiers::SHIFT);
+        }
+
+        let fallback = self.base_layout_key.and_then(|base_layout_key| {
+            let mut base = self.key_event;
+            base.code = KeyCode::Char(base_layout_key);
+            (base != logical).then_some(base)
+        });
+        (logical, fallback)
+    }
+
+    pub fn terminal_input(&self) -> Option<KeyInput> {
+        if self.enhanced {
+            key_input_from_parts(
+                &self.key_event,
+                self.shifted_key,
+                self.base_layout_key,
+                &self.associated_text,
+            )
+        } else {
+            key_input_from(&self.key_event)
+        }
+    }
+}
+
 pub fn mods_from(m: KeyModifiers) -> Mods {
     let mut mods = Mods::default();
     if m.contains(KeyModifiers::SHIFT) {
@@ -160,23 +248,45 @@ pub fn key_input_from(event: &KeyEvent) -> Option<KeyInput> {
 
 /// Convert a lossless Kitty CSI-u event into an encoder input without
 /// guessing the keyboard layout from US punctuation pairs.
+#[cfg(test)]
 pub fn key_input_from_enhanced(event: &EnhancedKeyEvent) -> Option<KeyInput> {
-    let mut input = key_input_from(&event.key_event)?;
-    let KeyCode::Char(unshifted) = event.key_event.code else {
-        return Some(input);
+    key_input_from_parts(&event.key_event, event.shifted_key, event.base_layout_key, &event.text)
+}
+
+fn key_input_from_parts(
+    event: &KeyEvent,
+    shifted_key: Option<char>,
+    base_layout_key: Option<char>,
+    associated_text: &str,
+) -> Option<KeyInput> {
+    let mut input = key_input_from(event)?;
+    let layout_text = match event.code {
+        KeyCode::Char(unshifted) => Some(shifted_key.unwrap_or(unshifted).to_string()),
+        _ => None,
     };
 
-    if let Some(base_layout_key) = event.base_layout_key {
-        input.key = physical_key_for_char(base_layout_key);
+    if let KeyCode::Char(unshifted) = event.code {
+        if let Some(base_layout_key) = base_layout_key {
+            input.key = physical_key_for_char(base_layout_key);
+        }
+        input.unshifted_codepoint = unshifted as u32;
     }
-    input.unshifted_codepoint = unshifted as u32;
 
-    if !input.mods.contains(Mods::CTRL) {
-        input.utf8 = if event.text.is_empty() {
-            event.shifted_key.unwrap_or(unshifted).to_string()
-        } else {
-            event.text.clone()
-        };
+    if !associated_text.is_empty() {
+        input.utf8 = associated_text.to_string();
+        if input.mods.contains(Mods::SHIFT) {
+            input.consumed_mods = input.consumed_mods | Mods::SHIFT;
+        }
+        let option_generated_text =
+            input.mods.contains(Mods::ALT) && layout_text.as_deref() != Some(associated_text);
+        if option_generated_text {
+            input.consumed_mods = input.consumed_mods | Mods::ALT;
+            input.macos_option_as_alt = false;
+        }
+    } else if let KeyCode::Char(unshifted) = event.code
+        && !input.mods.contains(Mods::CTRL)
+    {
+        input.utf8 = shifted_key.unwrap_or(unshifted).to_string();
         if input.mods.contains(Mods::SHIFT) {
             input.consumed_mods = input.consumed_mods | Mods::SHIFT;
         }
