@@ -13,11 +13,12 @@ from test_codex_feed_hooks import (
     test_pi_compacted_feed_allows_brief_auth_delay,
     test_pi_compacted_feed_sends_bounded_acknowledged_batch,
     test_pi_compacted_feed_rejects_failed_server_ack,
+    test_pi_compacted_feed_sanitizes_not_found_server_error,
     test_pi_compacted_post_tool_use_sends_one_ordered_batch,
     test_pi_feed_rejects_missing_explicit_workspace,
     test_pi_feed_rejects_unconfirmed_server_ack,
     test_pi_feed_uses_resolved_explicit_workspace,
-    test_pi_hook_rehomes_moved_explicit_surface,
+    test_pi_hook_rehomes_restored_surface_alias,
 )
 
 
@@ -131,10 +132,11 @@ def main() -> int:
             test_pi_compacted_post_tool_use_sends_one_ordered_batch(cli_path, root)
             test_pi_compacted_feed_sends_bounded_acknowledged_batch(cli_path, root)
             test_pi_compacted_feed_rejects_failed_server_ack(cli_path, root)
+            test_pi_compacted_feed_sanitizes_not_found_server_error(cli_path, root)
             test_pi_compacted_feed_allows_brief_auth_delay(cli_path, root)
             test_pi_compacted_feed_accepts_single_item_ack(cli_path, root)
             test_pi_feed_rejects_unconfirmed_server_ack(cli_path, root)
-            test_pi_hook_rehomes_moved_explicit_surface(cli_path, root)
+            test_pi_hook_rehomes_restored_surface_alias(cli_path, root)
             test_pi_feed_uses_resolved_explicit_workspace(cli_path, root)
             test_pi_feed_rejects_missing_explicit_workspace(cli_path, root)
         except Exception as exc:

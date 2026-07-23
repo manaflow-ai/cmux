@@ -2667,6 +2667,57 @@ def test_pi_compacted_feed_rejects_failed_server_ack(cli_path: str, root: Path) 
         )
 
 
+def test_pi_compacted_feed_sanitizes_not_found_server_error(cli_path: str, root: Path) -> None:
+    socket_path = root / "cmux-pi-compacted-private-not-found.sock"
+    private_marker = "private resolver detail must not leak"
+    payload = {
+        "session_id": "pi-compacted-private-not-found",
+        "hook_event_name": "PostToolUse",
+        "cmux_compacted_terminal_events": [{"tool_call_id": "private-tool", "tool_name": "bash"}],
+    }
+    env = os.environ.copy()
+    for key in ("CMUX_SOCKET", "CMUX_SOCKET_CAPABILITY", "CMUX_SOCKET_PATH", "CMUX_SOCKET_PASSWORD"):
+        env.pop(key, None)
+    env["CMUX_SURFACE_ID"] = FAKE_SURFACE_ID
+    env["CMUX_WORKSPACE_ID"] = FAKE_WORKSPACE_ID
+
+    with FakeCmuxSocket(
+        socket_path,
+        None,
+        method_errors={"feed.push": ("not_found", private_marker)},
+    ):
+        result = subprocess.run(
+            [
+                cli_path,
+                "--socket",
+                str(socket_path),
+                "hooks",
+                "feed",
+                "--source",
+                "pi",
+                "--event",
+                "PostToolUse",
+            ],
+            input=json.dumps(payload),
+            capture_output=True,
+            text=True,
+            check=False,
+            env=env,
+            timeout=10,
+        )
+
+    combined_output = result.stdout + result.stderr
+    if (
+        result.returncode != 69
+        or private_marker in combined_output
+        or "No live delivery target" not in combined_output
+    ):
+        raise AssertionError(
+            "Pi feed exposed a private server not_found message: "
+            f"exit={result.returncode} stdout={result.stdout!r} stderr={result.stderr!r}"
+        )
+
+
 def test_pi_compacted_feed_allows_brief_auth_delay(cli_path: str, root: Path) -> None:
     socket_path = root / "cmux-pi-compacted-auth-delay.sock"
     payload = {
@@ -3081,9 +3132,10 @@ def test_pi_hook_rejects_invalid_explicit_surface(cli_path: str, root: Path) -> 
         raise AssertionError(f"invalid explicit Pi surface emitted Feed telemetry: {fake.frames!r}")
 
 
-def test_pi_hook_rehomes_moved_explicit_surface(cli_path: str, root: Path) -> None:
+def test_pi_hook_rehomes_restored_surface_alias(cli_path: str, root: Path) -> None:
     socket_path = root / "cmux-pi-moved-explicit-surface.sock"
     moved_workspace_id = "44444444-4444-4444-4444-444444444444"
+    restored_surface_id = "66666666-6666-6666-6666-666666666666"
     env = os.environ.copy()
     for key in ("CMUX_SOCKET", "CMUX_SOCKET_CAPABILITY", "CMUX_SOCKET_PATH", "CMUX_SOCKET_PASSWORD"):
         env.pop(key, None)
@@ -3101,9 +3153,9 @@ def test_pi_hook_rehomes_moved_explicit_surface(cli_path: str, root: Path) -> No
         None,
         surfaces_by_workspace={
             FAKE_WORKSPACE_ID: [],
-            moved_workspace_id: [{"id": FAKE_SURFACE_ID}],
+            moved_workspace_id: [{"id": restored_surface_id}],
         },
-        surface_delivery_target=(moved_workspace_id, FAKE_SURFACE_ID),
+        surface_delivery_target=(moved_workspace_id, restored_surface_id),
     ) as fake:
         result = subprocess.run(
             [
@@ -3128,7 +3180,7 @@ def test_pi_hook_rehomes_moved_explicit_surface(cli_path: str, root: Path) -> No
 
     if result.returncode != 0:
         raise AssertionError(
-            "Pi hook rejected a live surface after it moved workspaces: "
+            "Pi hook rejected a live surface after relay alias restoration: "
             f"exit={result.returncode} stdout={result.stdout!r} stderr={result.stderr!r} frames={fake.frames!r}"
         )
     resolver_frames = [
@@ -3154,7 +3206,7 @@ def test_pi_hook_rehomes_moved_explicit_surface(cli_path: str, root: Path) -> No
         raise AssertionError(f"Pi hook did not report its resolved live target: {result.stdout!r}") from exc
     if hook_result != {
         "workspace_id": moved_workspace_id,
-        "surface_id": FAKE_SURFACE_ID,
+        "surface_id": restored_surface_id,
     }:
         raise AssertionError(f"Pi hook reported the wrong resolved live target: {hook_result!r}")
 
@@ -3563,6 +3615,7 @@ def main() -> int:
             test_pi_compacted_post_tool_use_sends_one_ordered_batch(cli_path, root)
             test_pi_compacted_feed_sends_bounded_acknowledged_batch(cli_path, root)
             test_pi_compacted_feed_rejects_failed_server_ack(cli_path, root)
+            test_pi_compacted_feed_sanitizes_not_found_server_error(cli_path, root)
             test_pi_compacted_feed_allows_brief_auth_delay(cli_path, root)
             test_pi_feed_waits_for_server_ack(cli_path, root)
             test_pi_feed_rejects_failed_server_ack(cli_path, root)
@@ -3571,7 +3624,7 @@ def main() -> int:
             test_pi_feed_rejects_connection_failure(cli_path, root)
             test_legacy_pi_feed_rejects_invalid_ambient_surface(cli_path, root)
             test_pi_hook_rejects_invalid_explicit_surface(cli_path, root)
-            test_pi_hook_rehomes_moved_explicit_surface(cli_path, root)
+            test_pi_hook_rehomes_restored_surface_alias(cli_path, root)
             test_pi_feed_uses_resolved_explicit_workspace(cli_path, root)
             test_pi_feed_rejects_missing_explicit_workspace(cli_path, root)
             test_pi_feed_treats_blank_ambient_workspace_as_absent(cli_path, root)

@@ -157,10 +157,12 @@ extension CMUXCLI {
                 )
                 if (payload["source"] as? String) == "surface",
                    let workspaceId = normalizedHandleValue(payload["workspace_id"] as? String),
-                   isUUID(workspaceId),
+                   let workspaceUUID = UUID(uuidString: workspaceId),
                    let returnedSurfaceId = normalizedHandleValue(payload["surface_id"] as? String),
-                   UUID(uuidString: returnedSurfaceId) == UUID(uuidString: surface) {
-                    return (workspaceId, surface)
+                   let returnedSurfaceUUID = UUID(uuidString: returnedSurfaceId) {
+                    // The relay can rewrite a restored surface alias before the
+                    // app resolves it, so the app's returned UUID is authoritative.
+                    return (workspaceUUID.uuidString, returnedSurfaceUUID.uuidString)
                 }
                 throw piHookSurfaceNotFoundError(rawSurface)
             } catch let error as CLIError where error.v2Code == "method_not_found"
@@ -249,7 +251,7 @@ extension CMUXCLI {
            let error = responseObject["error"] as? [String: Any],
            error["code"] as? String == "not_found" {
             throw CLIError(
-                message: error["message"] as? String ?? String(
+                message: String(
                     localized: "agent.deliveryTarget.error.notFound",
                     defaultValue: "No live delivery target"
                 ),
