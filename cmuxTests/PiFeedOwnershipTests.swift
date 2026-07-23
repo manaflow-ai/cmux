@@ -148,10 +148,53 @@ struct PiFeedOwnershipTests {
         }
         #expect(itemIds.count == 64)
         #expect(Set(itemIds).count == 64)
+        #expect(payload["workspace_id"] as? String == liveWorkspace.id.uuidString)
+        #expect(payload["surface_id"] as? String == surfaceId.uuidString)
         #expect(store.items.count == 64)
         #expect(insertedEvents.count == 64)
         #expect(insertedEvents.allSatisfy { $0.workspaceId == liveWorkspace.id.uuidString })
         #expect(insertedEvents.allSatisfy { $0.surfaceId == surfaceId.uuidString })
+    }
+
+    @MainActor
+    @Test
+    func startupResolutionGapIsRetryableButClosedSurfaceIsNotFound() {
+        let previousAppDelegate = AppDelegate.shared
+        let appDelegate = AppDelegate()
+        AppDelegate.shared = appDelegate
+        let tabManager = TabManager(autoWelcomeIfNeeded: false)
+        appDelegate.tabManager = tabManager
+        defer {
+            appDelegate.tabManager = nil
+            AppDelegate.shared = previousAppDelegate
+        }
+
+        let store = WorkstreamStore(ringCapacity: 10)
+        FeedCoordinator.shared.install(store: store)
+        let event = WorkstreamEvent(
+            sessionId: "pi-startup-resolution-gap",
+            hookEventName: .postToolUse,
+            source: "pi",
+            workspaceId: UUID().uuidString,
+            surfaceId: UUID().uuidString,
+            toolName: "Bash",
+            requestId: "pi-startup-resolution-gap-request"
+        )
+
+        appDelegate.didAttemptStartupSessionRestore = false
+        guard case .err(let startupCode, _, _) = TerminalController.shared.v2IngestAcknowledgedFeedEvents([event]) else {
+            Issue.record("startup resolution gap received an acknowledgment")
+            return
+        }
+        #expect(startupCode == "unavailable")
+
+        appDelegate.didAttemptStartupSessionRestore = true
+        guard case .err(let closedCode, _, _) = TerminalController.shared.v2IngestAcknowledgedFeedEvents([event]) else {
+            Issue.record("closed surface received an acknowledgment")
+            return
+        }
+        #expect(closedCode == "not_found")
+        #expect(store.items.isEmpty)
     }
 
     @MainActor

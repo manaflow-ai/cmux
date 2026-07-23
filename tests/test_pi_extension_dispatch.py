@@ -665,6 +665,165 @@ await handlers.get("agent_end")({
     return 0
 
 
+def check_feed_ack_rehomes_cached_target(bun: str, root: Path, extension_path: Path) -> int:
+    live_workspace = "00000000-0000-0000-0000-000000008679"
+    inspectable_extension = root / "feed-rehome-cmux-session.ts"
+    inspectable_extension.write_text(
+        extension_path.read_text(encoding="utf-8")
+        + "\nexport { PiCmuxCommandDispatcher, surfaceTargetsFor };\n",
+        encoding="utf-8",
+    )
+    rehome_cmux = root / "feed-rehome-cmux"
+    make_executable(
+        rehome_cmux,
+        f"""#!/usr/bin/env python3
+import json
+import sys
+
+sys.stdin.read()
+print(json.dumps({{
+    "status": "acknowledged",
+    "item_id": "00000000-0000-0000-0000-000000008680",
+    "workspace_id": "{live_workspace}",
+    "surface_id": "00000000-0000-0000-0000-000000008672",
+}}))
+""",
+    )
+    rehome_source = f"""
+const extensionPath = process.env.CMUX_TEST_PI_EXTENSION_PATH;
+const mod = await import(extensionPath);
+const dispatcher = new mod.PiCmuxCommandDispatcher();
+const sessionId = "pi-feed-rehome-session";
+const context = {{
+  sessionId,
+  cwd: "/tmp/pi-feed-rehome-project",
+}};
+dispatcher.enqueueFeed("first", {{
+  args: [
+    "hooks", "feed", "--workspace", "00000000-0000-0000-0000-000000008673",
+    "--surface", "00000000-0000-0000-0000-000000008672",
+  ],
+  cwd: context.cwd,
+  payload: {{
+    session_id: sessionId,
+    hook_event_name: "PostToolUse",
+  }},
+  context,
+  terminal: true,
+}});
+await dispatcher.finishFeedForSession(sessionId);
+const target = mod.surfaceTargetsFor(dispatcher).get(sessionId);
+const expected = [
+  "--workspace", "{live_workspace}",
+  "--surface", "00000000-0000-0000-0000-000000008672",
+];
+if (JSON.stringify(target) !== JSON.stringify(expected)) {{
+  throw new Error(`feed acknowledgment did not repair cached target: ${{JSON.stringify(target)}}`);
+}}
+"""
+    result = run_extension(
+        bun=bun,
+        root=root,
+        extension_path=inspectable_extension,
+        fake_cmux=rehome_cmux,
+        source=rehome_source,
+        extra_env={},
+    )
+    if result.returncode != 0:
+        print(f"FAIL: Feed acknowledgment did not rehome the Pi target: {result.stderr!r}")
+        return 1
+    return 0
+
+
+def check_aggregate_feed_bound(bun: str, root: Path, extension_path: Path) -> int:
+    state_path = root / "aggregate-feed-state.json"
+    lock_path = root / "aggregate-feed.lock"
+    release_path = root / "aggregate-feed-release"
+    aggregate_cmux = root / "aggregate-feed-cmux"
+    make_executable(
+        aggregate_cmux,
+        """#!/usr/bin/env python3
+import fcntl
+import json
+import os
+import pathlib
+import sys
+import time
+
+sys.stdin.read()
+state_path = pathlib.Path(os.environ["CMUX_TEST_PI_AGGREGATE_STATE"])
+lock_path = pathlib.Path(os.environ["CMUX_TEST_PI_AGGREGATE_LOCK"])
+release_path = pathlib.Path(os.environ["CMUX_TEST_PI_AGGREGATE_RELEASE"])
+
+def update(delta):
+    with lock_path.open("a+", encoding="utf-8") as lock:
+        fcntl.flock(lock, fcntl.LOCK_EX)
+        state = json.loads(state_path.read_text(encoding="utf-8")) if state_path.exists() else {
+            "active": 0,
+            "maximum": 0,
+            "starts": 0,
+        }
+        state["active"] += delta
+        if delta > 0:
+            state["starts"] += 1
+            state["maximum"] = max(state["maximum"], state["active"])
+        state_path.write_text(json.dumps(state), encoding="utf-8")
+
+update(1)
+while not release_path.exists():
+    time.sleep(0.01)
+update(-1)
+print("{}")
+""",
+    )
+    aggregate_source = """
+import { writeFileSync } from "node:fs";
+const extensionPath = process.env.CMUX_TEST_PI_EXTENSION_PATH;
+const mod = await import(extensionPath);
+const handlers = new Map();
+mod.default({ on(name, handler) { handlers.set(name, handler); } });
+const sessions = [];
+for (let index = 0; index < 40; index += 1) {
+  const sessionId = `pi-aggregate-session-${index}`;
+  sessions.push(sessionId);
+  handlers.get("tool_execution_end")({
+    toolCallId: `aggregate-tool-${index}`,
+    toolName: "bash",
+    result: { status: "ok" },
+    isError: false,
+  }, {
+    cwd: `/tmp/pi-aggregate-${index}`,
+    sessionManager: { getSessionId() { return sessionId; } },
+  });
+}
+setTimeout(() => writeFileSync(process.env.CMUX_TEST_PI_AGGREGATE_RELEASE, "ready"), 200);
+await new Promise((resolve) => setTimeout(resolve, 2000));
+"""
+    result = run_extension(
+        bun=bun,
+        root=root,
+        extension_path=extension_path,
+        fake_cmux=aggregate_cmux,
+        source=aggregate_source,
+        extra_env={
+            "CMUX_TEST_PI_AGGREGATE_STATE": str(state_path),
+            "CMUX_TEST_PI_AGGREGATE_LOCK": str(lock_path),
+            "CMUX_TEST_PI_AGGREGATE_RELEASE": str(release_path),
+        },
+    )
+    if result.returncode != 0:
+        print(f"FAIL: aggregate Feed bound harness failed: {result.stderr!r}")
+        return 1
+    state = json.loads(state_path.read_text(encoding="utf-8"))
+    if state["maximum"] > 2:
+        print(f"FAIL: Pi spawned {state['maximum']} concurrent Feed subprocesses: {state!r}")
+        return 1
+    if state["starts"] > 34:
+        print(f"FAIL: Pi retained more than 2 active + 32 queued Feed commands: {state!r}")
+        return 1
+    return 0
+
+
 def make_feed_lifecycle_cmux(root: Path, name: str) -> Path:
     cmux = root / name
     make_executable(
@@ -1616,6 +1775,8 @@ def run_checks(bun: str, root: Path, extension_path: Path) -> int:
         check_feed_payload_byte_bound,
         check_cross_session_feed_ownership,
         check_cross_session_feed_isolation,
+        check_feed_ack_rehomes_cached_target,
+        check_aggregate_feed_bound,
         check_feed_cancellation,
         check_completion_order,
         check_terminal_feed_failure_emits_one_stop,
