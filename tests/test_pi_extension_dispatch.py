@@ -230,6 +230,74 @@ await handlers.get("before_agent_start")({ prompt: "after feed backlog" }, ctx);
     return 0
 
 
+def check_terminal_feed_compaction(bun: str, root: Path, extension_path: Path) -> int:
+    compaction_log = root / "terminal-compaction-cmux.log"
+    compaction_release = root / "terminal-compaction-release"
+    compaction_cmux = root / "terminal-compaction-cmux"
+    make_executable(
+        compaction_cmux,
+        """#!/usr/bin/env bash
+set -euo pipefail
+payload="$(cat)"
+printf '%s|%s\n' "$*" "$payload" >> "$CMUX_TEST_PI_COMPACTION_LOG"
+if [[ "$payload" == *'"tool_call_id":"overflow-tool-0"'* ]]; then
+  while [ ! -f "$CMUX_TEST_PI_COMPACTION_RELEASE" ]; do sleep 0.02; done
+fi
+printf '{}\n'
+""",
+    )
+    compaction_source = """
+import { writeFileSync } from "node:fs";
+const extensionPath = process.env.CMUX_TEST_PI_EXTENSION_PATH;
+const mod = await import(extensionPath);
+const handlers = new Map();
+mod.default({ on(name, handler) { handlers.set(name, handler); } });
+const ctx = {
+  cwd: "/tmp/pi-terminal-compaction-project",
+  sessionManager: { getSessionId() { return "pi-terminal-compaction-session"; } }
+};
+for (let index = 0; index < 10; index += 1) {
+  handlers.get("tool_execution_end")({
+    toolCallId: `overflow-tool-${index}`,
+    toolName: "bash",
+    result: { content: [{ type: "text", text: `terminal result ${index}` }] },
+    isError: false
+  }, ctx);
+}
+const logPath = process.env.CMUX_TEST_PI_COMPACTION_LOG;
+while (!Bun.file(logPath).size) {
+  await new Promise((resolve) => setTimeout(resolve, 10));
+}
+writeFileSync(process.env.CMUX_TEST_PI_COMPACTION_RELEASE, "ready");
+await handlers.get("agent_end")({
+  messages: [{ role: "assistant", content: "done" }],
+  stopReason: "completed"
+}, ctx);
+"""
+    compacted = run_extension(
+        bun=bun,
+        root=root,
+        extension_path=extension_path,
+        fake_cmux=compaction_cmux,
+        source=compaction_source,
+        extra_env={
+            "CMUX_TEST_PI_COMPACTION_LOG": str(compaction_log),
+            "CMUX_TEST_PI_COMPACTION_RELEASE": str(compaction_release),
+        },
+    )
+    if compacted.returncode != 0:
+        print(f"FAIL: terminal-feed compaction harness failed: {compacted.stderr!r}")
+        return 1
+    compaction_calls = compaction_log.read_text(encoding="utf-8").splitlines()
+    feed_payloads = "\n".join(line for line in compaction_calls if "hooks feed" in line)
+    missing = [tool_id for index in range(10) if (tool_id := f"overflow-tool-{index}") not in feed_payloads]
+    if missing:
+        print(f"FAIL: saturated feed queue discarded terminal outcomes {missing!r}: {compaction_calls!r}")
+        return 1
+
+    return 0
+
+
 def make_feed_lifecycle_cmux(root: Path, name: str) -> Path:
     cmux = root / name
     make_executable(
@@ -406,6 +474,83 @@ await new Promise((resolve) => setTimeout(resolve, 250));
         return 1
     if notification_indexes[0] > stop_indexes[0]:
         print(f"FAIL: notification/stop lifecycle order changed: {completion_calls!r}")
+        return 1
+
+    return 0
+
+
+def check_completion_drain_deadline(bun: str, root: Path, extension_path: Path) -> int:
+    deadline_log = root / "completion-deadline-cmux.log"
+    deadline_cmux = root / "completion-deadline-cmux"
+    make_executable(
+        deadline_cmux,
+        """#!/usr/bin/env python3
+import os
+import signal
+import sys
+import time
+
+args = " ".join(sys.argv[1:])
+payload = sys.stdin.read()
+with open(os.environ["CMUX_TEST_PI_DEADLINE_LOG"], "a", encoding="utf-8") as stream:
+    stream.write(f"{args}|{payload}\\n")
+    stream.flush()
+
+if "hooks feed" in args and "PostToolUse" in args:
+    def handle_term(_signum, _frame):
+        raise SystemExit(88)
+
+    signal.signal(signal.SIGTERM, handle_term)
+    while True:
+        time.sleep(0.1)
+
+print("{}")
+""",
+    )
+    deadline_source = """
+const extensionPath = process.env.CMUX_TEST_PI_EXTENSION_PATH;
+const mod = await import(extensionPath);
+const handlers = new Map();
+mod.default({ on(name, handler) { handlers.set(name, handler); } });
+const ctx = {
+  cwd: "/tmp/pi-completion-deadline-project",
+  sessionManager: { getSessionId() { return "pi-completion-deadline-session"; } }
+};
+handlers.get("tool_execution_end")({
+  toolCallId: "deadline-tool",
+  toolName: "bash",
+  result: { content: [{ type: "text", text: "done" }] },
+  isError: false
+}, ctx);
+const logPath = process.env.CMUX_TEST_PI_DEADLINE_LOG;
+while (!Bun.file(logPath).size) {
+  await new Promise((resolve) => setTimeout(resolve, 10));
+}
+const startedAt = performance.now();
+await handlers.get("agent_end")({
+  messages: [{ role: "assistant", content: "done" }],
+  stopReason: "completed"
+}, ctx);
+console.log(`completion_ms=${performance.now() - startedAt}`);
+"""
+    deadline = run_extension(
+        bun=bun,
+        root=root,
+        extension_path=extension_path,
+        fake_cmux=deadline_cmux,
+        source=deadline_source,
+        extra_env={"CMUX_TEST_PI_DEADLINE_LOG": str(deadline_log)},
+    )
+    if deadline.returncode != 0:
+        print(f"FAIL: completion-drain deadline harness failed: {deadline.stderr!r}")
+        return 1
+    timing_lines = [line for line in deadline.stdout.splitlines() if line.startswith("completion_ms=")]
+    if len(timing_lines) != 1:
+        print(f"FAIL: completion-drain harness did not report timing: {deadline.stdout!r}")
+        return 1
+    elapsed_ms = float(timing_lines[0].split("=", 1)[1])
+    if elapsed_ms >= 3_000:
+        print(f"FAIL: stalled terminal feed delayed lifecycle completion by {elapsed_ms:.0f}ms")
         return 1
 
     return 0
@@ -767,8 +912,10 @@ def run_checks(bun: str, root: Path, extension_path: Path) -> int:
     checks = (
         check_responsiveness,
         check_feed_backlog,
+        check_terminal_feed_compaction,
         check_feed_cancellation,
         check_completion_order,
+        check_completion_drain_deadline,
         check_timeout_serialization,
         check_error_classification,
         check_unserializable_feed,
