@@ -1137,6 +1137,7 @@ fn commit_unix_write(
             return Err(cleanup_unpublished_temporary(&target, &temporary_name, error, progress));
         }
     };
+    let content_hash = hash_bytes(bytes);
     match &precondition {
         FilePrecondition::Missing => {
             if let Err(error) = link_name(target.parent_fd(), &temporary_name, target.name()) {
@@ -1188,12 +1189,13 @@ fn commit_unix_write(
                 &mut temporary_metadata,
                 pinned,
                 expected,
+                &content_hash,
                 progress,
             )?;
         }
     }
     sync_committed_parent(&target)?;
-    Ok(hash_bytes(bytes))
+    Ok(content_hash)
 }
 
 #[cfg(unix)]
@@ -1275,6 +1277,7 @@ fn commit_content_hash_write(
     temporary_metadata: &mut std::fs::Metadata,
     pinned: &mut File,
     expected: &str,
+    requested: &str,
     progress: &mut MutationProgress,
 ) -> Result<(), RpcError> {
     #[cfg(test)]
@@ -1389,12 +1392,24 @@ fn commit_content_hash_write(
         target.display(),
         MutationTestPoint::AfterContentHashExchange,
     );
-    let staged_identity = RawEntryState::from_metadata(temporary_metadata);
-    if !published.matches_snapshot(&staged_identity) || !recovery.matches_snapshot(&pinned_identity)
-    {
+    if let Err(error) = validate_exchanged_write(
+        target,
+        temporary_name,
+        temporary,
+        pinned,
+        temporary_metadata,
+        &pinned_identity,
+        &published,
+        &recovery,
+        expected,
+        requested,
+    ) {
         rollback_exchange(target, temporary_name, &published, &recovery, progress)?;
-        return Err(RpcError::new("conflict", "file identity changed during commit"));
+        return Err(error);
     }
+    // These final identity checks are the commit's linearization point. A
+    // non-cooperating process can write after them; that is a later mutation
+    // and cannot be excluded without a shared lock or kernel transaction.
     unlink_published_name(target, temporary_name).map_err(|error| {
         partial_write_with_recovery(
             target,
@@ -1403,6 +1418,69 @@ fn commit_content_hash_write(
         )
     })?;
     progress.cleaned();
+    Ok(())
+}
+
+#[cfg(unix)]
+#[allow(clippy::too_many_arguments)]
+fn validate_exchanged_write(
+    target: &UnixWorkspaceTarget,
+    temporary_name: &CStr,
+    published_file: &mut File,
+    recovery_file: &mut File,
+    staged_metadata: &std::fs::Metadata,
+    pinned_identity: &RawEntryState,
+    published: &RawEntryState,
+    recovery: &RawEntryState,
+    expected: &str,
+    requested: &str,
+) -> Result<(), RpcError> {
+    let staged_identity = RawEntryState::from_metadata(staged_metadata);
+    if !published.matches_snapshot(&staged_identity) || !recovery.matches_snapshot(pinned_identity)
+    {
+        return Err(RpcError::new("conflict", "file identity changed during commit"));
+    }
+
+    let (published_hash, published_metadata) =
+        hash_file_sync(published_file, target.display(), MAX_HASH_BYTES)?;
+    if !published_hash.eq_ignore_ascii_case(requested) {
+        return Err(RpcError::new("conflict", "staged file content changed during commit"));
+    }
+
+    let recovery_display = temporary_display(target, temporary_name);
+    let (recovery_hash, recovery_metadata) =
+        hash_file_sync(recovery_file, &recovery_display, MAX_HASH_BYTES)?;
+    if !recovery_hash.eq_ignore_ascii_case(expected) {
+        return Err(RpcError::new("conflict", "file content changed during commit"));
+    }
+
+    let published_identity = RawEntryState::from_metadata(&published_metadata);
+    let recovery_identity = RawEntryState::from_metadata(&recovery_metadata);
+    if !published.matches_snapshot(&published_identity)
+        || published.changed != published_identity.changed
+        || !recovery.matches_snapshot(&recovery_identity)
+        || recovery.changed != recovery_identity.changed
+    {
+        return Err(RpcError::new(
+            "conflict",
+            "exchanged file identity changed while content was validated",
+        ));
+    }
+    let current_published = stat_entry(target, "validate-published")?.ok_or_else(|| {
+        RpcError::new("conflict", "published entry disappeared during validation")
+    })?;
+    let current_recovery =
+        stat_named(target.parent_fd(), temporary_name, &recovery_display, "validate-recovery")?
+            .ok_or_else(|| {
+                RpcError::new("conflict", "recovery entry disappeared during validation")
+            })?;
+    if !current_published.matches_snapshot(&published_identity)
+        || current_published.changed != published_identity.changed
+        || !current_recovery.matches_snapshot(&recovery_identity)
+        || current_recovery.changed != recovery_identity.changed
+    {
+        return Err(RpcError::new("conflict", "file identity changed during commit validation"));
+    }
     Ok(())
 }
 
@@ -1823,7 +1901,7 @@ fn create_temporary(
             libc::openat(
                 target.parent_fd(),
                 name.as_ptr(),
-                libc::O_WRONLY | libc::O_CREAT | libc::O_EXCL | libc::O_CLOEXEC | libc::O_NOFOLLOW,
+                libc::O_RDWR | libc::O_CREAT | libc::O_EXCL | libc::O_CLOEXEC | libc::O_NOFOLLOW,
                 0o666,
             )
         };
@@ -2857,6 +2935,46 @@ mod tests {
             tokio::time::sleep(std::time::Duration::from_millis(10)).await;
         }
         assert_eq!(tokio::fs::read(&target).await.unwrap(), b"external-change");
+    }
+
+    #[cfg(any(target_os = "linux", target_os = "android", target_vendor = "apple"))]
+    #[tokio::test]
+    async fn content_hash_write_rejects_same_content_recovery_name_swap() {
+        let (_directory, root) = root().await;
+        let target = root.canonical_root().join("value.txt");
+        tokio::fs::write(&target, b"expected").await.unwrap();
+        let after_exchange = install_mutation_test_barrier(
+            &root,
+            "value.txt",
+            MutationTestPoint::AfterContentHashExchange,
+        );
+        let writer = {
+            let root = Arc::clone(&root);
+            tokio::spawn(async move {
+                write_file(
+                    &root,
+                    "value.txt",
+                    &ByteString::from_bytes(b"new-bytes"),
+                    &FilePrecondition::ContentHash(hash_bytes(b"expected")),
+                    false,
+                )
+                .await
+            })
+        };
+
+        after_exchange.wait_until_reached().await;
+        let recovery = recovery_entry(&root, ".cmux-write-");
+        let saved_recovery = root.canonical_root().join("saved-recovery");
+        tokio::fs::rename(&recovery, &saved_recovery).await.unwrap();
+        tokio::fs::write(&recovery, b"expected").await.unwrap();
+        after_exchange.resume();
+
+        let error = writer.await.unwrap().unwrap_err();
+        assert_eq!(error.code, "partial-write");
+        assert!(error.message.contains(&recovery.display().to_string()));
+        assert_eq!(tokio::fs::read(&target).await.unwrap(), b"new-bytes");
+        assert_eq!(tokio::fs::read(&saved_recovery).await.unwrap(), b"expected");
+        assert_eq!(tokio::fs::read(&recovery).await.unwrap(), b"expected");
     }
 
     #[cfg(any(target_os = "linux", target_os = "android", target_vendor = "apple"))]
