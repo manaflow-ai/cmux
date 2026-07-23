@@ -205,7 +205,7 @@ class PiCmuxCommandDispatcher {
     for (const key of ["session_id", "cwd", "turn_id", "tool_call_id", "tool_name"] as const) {
       if (typeof payload[key] === "string") payload[key] = payload[key].slice(0, 2048);
     }
-    return { ...command, input: JSON.stringify(payload) };
+    return { ...command, input: boundedPiFeedInput(payload, PiCmuxCommandDispatcher.maxFeedInputBytes) };
   }
 
   private compactedTerminalCommand(existing: PiFeedCommand, incoming: PiFeedCommand): PiFeedCommand {
@@ -242,7 +242,7 @@ class PiCmuxCommandDispatcher {
         ...(trailingCount > 0 ? summaries.slice(-trailingCount) : []),
       ];
     }
-    return { ...existing, input };
+    return { ...existing, input: boundedPiFeedInput(existingPayload, PiCmuxCommandDispatcher.maxFeedInputBytes) };
   }
 
   private compactedTerminalCount(payload: Record<string, unknown>, fallback: number): number {

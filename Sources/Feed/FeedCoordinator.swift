@@ -89,6 +89,15 @@ final class FeedCoordinator: @unchecked Sendable {
         src.resume()
     }
 
+    @MainActor
+    private func ingestOnMainActor(_ event: WorkstreamEvent) -> UUID? {
+        store.ingest(event)
+        if let ppid = event.ppid, ppid > 0 {
+            armPidWatcher(ppid: ppid)
+        }
+        return store.items.last?.id
+    }
+
     /// Ingests a wire-frame event and, when `waitTimeout` > 0, blocks the
     /// current (non-main) thread until the item is resolved or the
     /// timeout elapses.
@@ -96,16 +105,21 @@ final class FeedCoordinator: @unchecked Sendable {
         event: WorkstreamEvent,
         waitTimeout: TimeInterval
     ) -> IngestBlockingResult {
-        guard let requestId = event.requestId, waitTimeout > 0 else {
+        guard let requestId = event.requestId else {
             DispatchQueue.main.async {
                 MainActor.assumeIsolated {
-                    FeedCoordinator.shared.store.ingest(event)
-                    if let ppid = event.ppid, ppid > 0 {
-                        FeedCoordinator.shared.armPidWatcher(ppid: ppid)
-                    }
+                    _ = FeedCoordinator.shared.ingestOnMainActor(event)
                 }
             }
             return .acknowledged(itemId: nil)
+        }
+        guard waitTimeout > 0 else {
+            let itemId = DispatchQueue.main.sync {
+                MainActor.assumeIsolated {
+                    FeedCoordinator.shared.ingestOnMainActor(event)
+                }
+            }
+            return .acknowledged(itemId: itemId)
         }
 
         let semaphore = DispatchSemaphore(value: 0)
@@ -127,11 +141,7 @@ final class FeedCoordinator: @unchecked Sendable {
             : nil
         DispatchQueue.main.sync {
             MainActor.assumeIsolated {
-                FeedCoordinator.shared.store.ingest(event)
-                itemIdSlot.value = FeedCoordinator.shared.store.items.last?.id
-                if let ppid = event.ppid, ppid > 0 {
-                    FeedCoordinator.shared.armPidWatcher(ppid: ppid)
-                }
+                itemIdSlot.value = FeedCoordinator.shared.ingestOnMainActor(event)
                 // Surface in-app attention (needs-input status + bell +
                 // workspace elevation) for the blocking decision. This fires
                 // regardless of app focus, unlike the desktop banner below,

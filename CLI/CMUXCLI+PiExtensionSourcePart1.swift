@@ -57,6 +57,67 @@ function objectValue(value: unknown, keys: string[]): unknown {
   return undefined;
 }
 
+function utf8Prefix(value: unknown, maximumBytes: number): string | undefined {
+  if (typeof value !== "string") return undefined;
+  const bytes = Buffer.from(value, "utf8");
+  if (bytes.byteLength <= maximumBytes) return value;
+  return bytes.subarray(0, maximumBytes).toString("utf8").replace(/\uFFFD+$/u, "");
+}
+
+function boundedPiFeedInput(payload: Record<string, unknown>, maximumBytes: number): string {
+  const serialized = JSON.stringify(payload);
+  if (Buffer.byteLength(serialized, "utf8") <= maximumBytes) return serialized;
+
+  const summaries = Array.isArray(payload.cmux_compacted_terminal_events)
+    ? payload.cmux_compacted_terminal_events
+    : [];
+  const latest = summaries.length > 0 && typeof summaries[summaries.length - 1] === "object"
+    ? summaries[summaries.length - 1] as Record<string, unknown>
+    : undefined;
+  const rawCount = payload.cmux_compacted_terminal_count;
+  const totalCount = typeof rawCount === "number" && Number.isFinite(rawCount)
+    ? Math.max(summaries.length, rawCount)
+    : summaries.length;
+  const rawOmitted = payload.cmux_compacted_terminal_omitted_count;
+  const omittedCount = typeof rawOmitted === "number" && Number.isFinite(rawOmitted)
+    ? Math.max(0, rawOmitted, totalCount - 1)
+    : Math.max(0, totalCount - 1);
+  const safe: Record<string, unknown> = {};
+  for (const key of ["session_id", "cwd", "turn_id", "tool_call_id", "tool_name"] as const) {
+    const value = utf8Prefix(payload[key], 256);
+    if (value !== undefined) safe[key] = value;
+  }
+  for (const key of ["hook_event_name", "event"] as const) {
+    const value = utf8Prefix(payload[key], 64);
+    if (value !== undefined) safe[key] = value;
+  }
+  if (typeof payload.is_error === "boolean") safe.is_error = payload.is_error;
+  if (latest) {
+    const summary: Record<string, unknown> = {};
+    for (const key of ["session_id", "cwd", "turn_id", "tool_call_id", "tool_name"] as const) {
+      const value = utf8Prefix(latest[key] ?? payload[key], 256);
+      if (value !== undefined) summary[key] = value;
+    }
+    if (typeof latest.is_error === "boolean") summary.is_error = latest.is_error;
+    safe.cmux_compacted_terminal_count = totalCount;
+    safe.cmux_compacted_terminal_omitted_count = omittedCount;
+    safe.cmux_compacted_terminal_events = [summary];
+  } else if (payload.tool_input && typeof payload.tool_input === "object") {
+    safe.tool_input = payload.tool_input;
+  }
+
+  const compacted = JSON.stringify(safe);
+  if (Buffer.byteLength(compacted, "utf8") <= maximumBytes) return compacted;
+  return JSON.stringify({
+    session_id: utf8Prefix(payload.session_id, 128),
+    hook_event_name: "PostToolUse",
+    event: "PostToolUse",
+    tool_call_id: "compacted-overflow",
+    tool_name: "cmux_compacted_terminal_overflow",
+    tool_input: { omitted_terminal_count: Math.max(1, totalCount) },
+  });
+}
+
 function resolveExecutable(name: string): string {
   const pathEnv = process.env.PATH || "";
   for (const dir of pathEnv.split(path.delimiter)) {
