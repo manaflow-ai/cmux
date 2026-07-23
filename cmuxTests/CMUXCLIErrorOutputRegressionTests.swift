@@ -97,6 +97,9 @@ import Testing
         var environment = ProcessInfo.processInfo.environment
         environment["PATH"] = tempDirectory.path
         environment["CMUX_CLI_SENTRY_DISABLED"] = "1"
+        environment["AppleLanguages"] = "(en)"
+        environment["LANG"] = "en_US.UTF-8"
+        environment["LC_ALL"] = "en_US.UTF-8"
         environment["HERDR_TEST_EXIT"] = "23"
         let result = runProcess(
             executablePath: cliPath,
@@ -123,6 +126,9 @@ import Testing
         var environment = ProcessInfo.processInfo.environment
         environment["PATH"] = tempDirectory.path
         environment["CMUX_CLI_SENTRY_DISABLED"] = "1"
+        environment["AppleLanguages"] = "(en)"
+        environment["LANG"] = "en_US.UTF-8"
+        environment["LC_ALL"] = "en_US.UTF-8"
 
         let cases: [([String], String)] = [
             (["__herdr-compat", "snapshot"], "api snapshot\n"),
@@ -148,6 +154,7 @@ import Testing
         XCTAssertTrue(unknown.stdout.contains("delete-everything"), unknown.stdout)
         XCTAssertTrue(unknown.stdout.contains("status, snapshot, list-workspaces, list-tabs, list-panes"), unknown.stdout)
 
+        try FileManager.default.removeItem(at: fakeHerdr)
         let help = runProcess(
             executablePath: cliPath,
             arguments: ["__herdr-compat", "--help"],
