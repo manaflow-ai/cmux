@@ -1834,6 +1834,61 @@ def _propagate_inherited_real_members(
             real_members.setdefault(type_name, set()).update(inherited)
 
 
+def _propagate_inherited_member_types(
+    member_types: dict[str, dict[str, set[str]]],
+    parents: dict[str, str],
+) -> None:
+    """Copy inherited member types while preserving child overrides."""
+    known_types = set(member_types) | set(parents)
+    resolved: dict[str, dict[str, set[str]]] = {}
+
+    def members_for(
+        type_name: str, visiting: set[str]
+    ) -> dict[str, set[str]]:
+        if type_name in resolved:
+            return resolved[type_name]
+        if type_name in visiting:
+            return {}
+        visiting = set(visiting)
+        visiting.add(type_name)
+        members: dict[str, set[str]] = {}
+        parent = parents.get(type_name)
+        if parent is not None:
+            candidates = [parent]
+            if "." in type_name and "." not in parent:
+                candidates.insert(
+                    0, f"{type_name.rsplit('.', 1)[0]}.{parent}"
+                )
+            parent_type = next(
+                (candidate for candidate in candidates if candidate in known_types),
+                None,
+            )
+            if parent_type is not None:
+                members.update(
+                    {
+                        name: set(declared_types)
+                        for name, declared_types in members_for(
+                            parent_type, visiting
+                        ).items()
+                    }
+                )
+        members.update(
+            {
+                name: set(declared_types)
+                for name, declared_types in member_types.get(
+                    type_name, {}
+                ).items()
+            }
+        )
+        resolved[type_name] = members
+        return members
+
+    for type_name in parents:
+        inherited = members_for(type_name, set())
+        if inherited:
+            member_types[type_name] = inherited
+
+
 def _explicit_clock_member_kind(
     masked_lines: list[str],
     type_name: str,
@@ -3364,6 +3419,9 @@ def scan_sources(sources: Iterable[tuple[str, str]]) -> list[Finding]:
             parents,
             bundle_declaration_files.get(bundle, {}),
         )
+        _propagate_inherited_member_types(
+            bundle_member_types[bundle], parents
+        )
         _propagate_inherited_real_members(
             bundle_members.setdefault(bundle, {}), parents
         )
@@ -3393,6 +3451,17 @@ def scan_sources(sources: Iterable[tuple[str, str]]) -> list[Finding]:
     return findings
 
 
+def _swift_package_module_name(rel_posix: str) -> Optional[str]:
+    """Return the SwiftPM target component for a package source path."""
+    parts = pathlib.PurePosixPath(rel_posix).parts
+    if not parts or parts[0] != "Packages" or "Sources" not in parts:
+        return None
+    sources_index = parts.index("Sources")
+    if sources_index + 1 >= len(parts) - 1:
+        return None
+    return parts[sources_index + 1]
+
+
 def _repository_real_clock_types(repo_root: pathlib.Path) -> set[str]:
     """Discover production Swift clock wrappers used by the test targets."""
     candidates: list[tuple[str, str]] = []
@@ -3417,7 +3486,18 @@ def _repository_real_clock_types(repo_root: pathlib.Path) -> set[str]:
             if "func sleep" not in text:
                 continue
             candidates.append((rel_posix, text))
-    return _real_clock_implementation_types(candidates)
+    real_types: set[str] = set()
+    for rel_posix, text in candidates:
+        local_types = _real_clock_implementation_types(
+            ((rel_posix, text),)
+        )
+        real_types.update(local_types)
+        module = _swift_package_module_name(rel_posix)
+        if module is not None:
+            real_types.update(
+                f"{module}.{type_name}" for type_name in local_types
+            )
+    return real_types
 
 
 def collect_findings(repo_root: pathlib.Path, roots: Iterable[str]) -> list[Finding]:
@@ -3639,6 +3719,9 @@ def collect_findings(repo_root: pathlib.Path, roots: Iterable[str]) -> list[Find
             bundle_member_types.setdefault(bundle, {}),
             parents,
             bundle_declaration_files.get(bundle, {}),
+        )
+        _propagate_inherited_member_types(
+            bundle_member_types[bundle], parents
         )
         _propagate_inherited_real_members(bundle_members[bundle], parents)
 
@@ -5614,6 +5697,19 @@ def _self_test() -> int:
             "Packages/CmuxClock/Tests/CmuxClockTests/Support/InheritedEnvironment.swift": (
                 "final class InheritedEnvironment: BaseEnvironment {}\n"
             ),
+            "Packages/CmuxClock/Tests/CmuxClockTests/Support/VirtualTiming.swift": (
+                "struct VirtualTiming {\n"
+                "    let clock: TestRelayClock\n"
+                "}\n"
+            ),
+            "Packages/CmuxClock/Tests/CmuxClockTests/Support/VirtualBaseEnvironment.swift": (
+                "class VirtualBaseEnvironment {\n"
+                "    let timing: VirtualTiming\n"
+                "}\n"
+            ),
+            "Packages/CmuxClock/Tests/CmuxClockTests/Support/InheritedVirtualEnvironment.swift": (
+                "final class InheritedVirtualEnvironment: VirtualBaseEnvironment {}\n"
+            ),
             "Packages/CmuxClock/Tests/CmuxClockTests/EnvironmentTests.swift": (
                 "let environment: Environment\n"
                 "try await environment.timing.clock.sleep(for: .milliseconds(300))\n"
@@ -5625,6 +5721,21 @@ def _self_test() -> int:
                 "#expect(widget.isRendered)\n"
             ),
             "Packages/CmuxClock/Tests/CmuxClockTests/ModuleQualifiedClockTests.swift": (
+                "let clock = CmuxClock.SystemUpdateClock()\n"
+                "try await clock.sleep(for: .milliseconds(300))\n"
+                "#expect(widget.isRendered)\n"
+            ),
+            "Packages/CmuxClock/Tests/CmuxClockTests/InheritedVirtualEnvironmentTests.swift": (
+                "let environment: InheritedVirtualEnvironment\n"
+                "try await environment.timing.clock.sleep(until: deadline)\n"
+                "#expect(await events.next() == expected)\n"
+            ),
+            "Packages/CmuxClock/Tests/CmuxClockTests/QualifiedShadowClockTests.swift": (
+                "enum CmuxClock {\n"
+                "    struct SystemUpdateClock {\n"
+                "        func sleep(for duration: Duration) async throws {}\n"
+                "    }\n"
+                "}\n"
                 "let clock = CmuxClock.SystemUpdateClock()\n"
                 "try await clock.sleep(for: .milliseconds(300))\n"
                 "#expect(widget.isRendered)\n"
@@ -5675,6 +5786,28 @@ def _self_test() -> int:
                 "POSITIVE module-qualified project clock: missing "
                 f"{RULE_SLEEP_THEN_ASSERT!r} "
                 f"(got {sorted(qualified_collection_rules)})"
+            )
+        inherited_virtual_rules = {
+            finding.rule
+            for finding in collection_findings
+            if finding.path.endswith(
+                "/InheritedVirtualEnvironmentTests.swift"
+            )
+        }
+        if inherited_virtual_rules:
+            failures.append(
+                "NEGATIVE collected inherited virtual clock container: unexpected "
+                f"{sorted(inherited_virtual_rules)}"
+            )
+        qualified_shadow_rules = {
+            finding.rule
+            for finding in collection_findings
+            if finding.path.endswith("/QualifiedShadowClockTests.swift")
+        }
+        if qualified_shadow_rules:
+            failures.append(
+                "NEGATIVE qualified shadow project clock: unexpected "
+                f"{sorted(qualified_shadow_rules)}"
             )
 
     shadowed_project_clock_sources = [
