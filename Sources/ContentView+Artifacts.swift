@@ -4,12 +4,16 @@ import Foundation
 
 extension ContentView {
     var selectedArtifactWorkspace: ArtifactSidebarWorkspace? {
-        guard let workspace = tabManager.selectedWorkspace,
+        Self.artifactSidebarWorkspace(for: tabManager.selectedWorkspace)
+    }
+
+    static func artifactSidebarWorkspace(for workspace: Workspace?) -> ArtifactSidebarWorkspace? {
+        guard let workspace,
               !workspace.isRemoteWorkspace else { return nil }
         let directory = workspace.currentDirectory.trimmingCharacters(in: .whitespacesAndNewlines)
         guard !directory.isEmpty else { return nil }
         return ArtifactSidebarWorkspace(
-            id: workspace.id.uuidString,
+            id: workspace.stableId.uuidString,
             title: workspace.title,
             workingDirectory: URL(fileURLWithPath: directory, isDirectory: true)
         )

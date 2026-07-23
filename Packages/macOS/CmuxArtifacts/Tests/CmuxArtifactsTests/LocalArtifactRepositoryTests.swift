@@ -390,7 +390,6 @@ struct LocalArtifactRepositoryTests {
         let observed = await firstResult(
             operation: {
                 var iterator = changes.makeAsyncIterator()
-                guard await iterator.next() != nil else { return false }
                 return await iterator.next() != nil
             },
             timeout: .seconds(3)

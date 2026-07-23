@@ -16,13 +16,14 @@ final class AgentChatTranscriptService {
     let artifactIndex: AgentChatArtifactIndex
     let artifactCaptureCoordinator: AgentArtifactCaptureCoordinator?
     let isAutomaticArtifactCaptureEnabled: @MainActor @Sendable () -> Bool
+    var automaticArtifactCaptureWasEnabled: Bool
     var artifactCaptureTasks: [String: (
         token: UUID,
         task: Task<Void, Never>?,
         pending: (@Sendable () async -> Void)?
     )] = [:]
-    private var tailers: [String: AgentChatTranscriptTailer] = [:]
-    private let hasEventSubscribers: @MainActor () -> Bool
+    var tailers: [String: AgentChatTranscriptTailer] = [:]
+    let hasEventSubscribers: @MainActor () -> Bool
     private let emitEventPayload: @MainActor ([String: Any]) -> Void
     private let now: () -> Date
     /// Drives the live agent-prose streaming preview.
@@ -66,6 +67,7 @@ final class AgentChatTranscriptService {
         self.artifactIndex = artifactIndex
         self.artifactCaptureCoordinator = artifactCaptureCoordinator
         self.isAutomaticArtifactCaptureEnabled = isAutomaticArtifactCaptureEnabled
+        self.automaticArtifactCaptureWasEnabled = artifactCaptureCoordinator != nil && isAutomaticArtifactCaptureEnabled()
         self.now = now
         registry.onRecordChanged = { [weak self] record, previous in
             self?.handleRecordChange(record, previous: previous)
@@ -358,7 +360,7 @@ final class AgentChatTranscriptService {
     // MARK: - Internals
 
     @discardableResult
-    private func ensureTailer(for record: AgentChatSessionRecord) -> AgentChatTranscriptTailer? {
+    func ensureTailer(for record: AgentChatSessionRecord) -> AgentChatTranscriptTailer? {
         if let existing = tailers[record.sessionID] {
             return existing
         }

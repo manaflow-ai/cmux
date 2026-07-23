@@ -108,9 +108,11 @@ public final class ArtifactSidebarModel {
 
         phase = .loading
         projectRoot = root
+        let changes = await store.changes(projectRoot: root)
+        guard revision == bindingRevision, !Task.isCancelled else { return }
         await reload(projectRoot: root, revision: revision)
         guard revision == bindingRevision, !Task.isCancelled else { return }
-        startWatching(projectRoot: root, revision: revision)
+        startWatching(changes: changes, projectRoot: root, revision: revision)
     }
 
     /// Reloads the current filesystem tree immediately.
@@ -221,10 +223,12 @@ public final class ArtifactSidebarModel {
         actionFailure = nil
     }
 
-    private func startWatching(projectRoot: URL, revision: UInt64) {
-        let store = self.store
+    private func startWatching(
+        changes: AsyncStream<Void>,
+        projectRoot: URL,
+        revision: UInt64
+    ) {
         watcherTask = Task { [weak self] in
-            let changes = await store.changes(projectRoot: projectRoot)
             for await _ in changes {
                 guard !Task.isCancelled else { break }
                 await self?.reload(projectRoot: projectRoot, revision: revision)
