@@ -7863,7 +7863,7 @@ final class GhosttySurfaceScrollView: NSView {
 
     static func flashStyle(for reason: WorkspaceAttentionFlashReason) -> FlashStyle {
         switch reason {
-        case .navigation:
+        case .navigation, .userInitiated:
             return .navigation
         case .notificationArrival, .notificationDismiss, .unreadIndicatorDismiss, .debug:
             return .notification
