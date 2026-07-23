@@ -164,8 +164,10 @@ class FakeRunner:
         self.events.append(("rpc", method, params, timeout))
         if method == "surface.respawn":
             return {
-                "surface_id": params["surface_id"],
-                "workspace_id": params["workspace_id"],
+                "surface_id": "00000000-0000-0000-0000-000000000009",
+                "surface_ref": params["surface_id"],
+                "workspace_id": "00000000-0000-0000-0000-000000000008",
+                "workspace_ref": params["workspace_id"],
                 "type": "terminal",
             }
         if method == "debug.session_snapshot_seed_scrollback":
