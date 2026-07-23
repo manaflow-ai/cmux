@@ -1477,7 +1477,7 @@ mod tests {
 
     #[cfg(unix)]
     #[tokio::test]
-    async fn completed_process_event_stream_sends_exit_then_finishes() {
+    async fn completed_process_event_stream_uses_bulk_lane_then_finishes() {
         let directory = tempdir().unwrap();
         let workspace = WorkspaceService::new();
         let opened = workspace
@@ -1543,11 +1543,12 @@ mod tests {
             incoming.metadata,
         ));
         let opened = client_stream.receive().await.unwrap().unwrap();
+        assert_eq!(opened.lane, Lane::Bulk);
         assert!(matches!(
             serde_json::from_slice::<ServiceControl>(&opened.payload).unwrap(),
             ServiceControl::Opened { service: Service::ProcessStream }
         ));
-        let messages = MessageStream::new(Arc::new(client_stream));
+        let messages = MessageStream::with_lane(Arc::new(client_stream), Lane::Bulk);
         let event: RpcEvent =
             serde_json::from_slice(&messages.receive().await.unwrap().unwrap()).unwrap();
         assert!(matches!(event.event, ProcessEvent::Exit { .. }));
