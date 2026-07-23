@@ -3271,9 +3271,11 @@ final class WindowBrowserPortal: NSObject {
                     return
                 }
             }
-            if preserveVisibleDuringTransientDetach(reason: "anchorWindowMismatch") {
-                return
-            }
+            // Only an anchor that is still parented somewhere (the drag/reparent
+            // churn above) earns keeping the slot on screen. An anchor with no
+            // superview, or one that moved to another window, is not coming back
+            // on its own, so hide the slot while recovery retries run instead of
+            // leaving it rendering over whatever pane now owns that space.
             if scheduleTransientDetachRecovery(reason: "anchorWindowMismatch") {
                 hideContainerView(reason: "anchorWindowMismatch")
                 return

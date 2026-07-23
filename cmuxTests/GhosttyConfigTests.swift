@@ -1927,6 +1927,27 @@ final class BrowserPanelPopupContextTests: XCTestCase {
 
 @MainActor
 final class BrowserPanelWebViewLifecycleTests: XCTestCase {
+    /// Waits until the panel is settled enough to be discarded.
+    ///
+    /// Waiting on `webView.isLoading` alone is not enough: `BrowserPanel` keeps its
+    /// own `isLoading` set for a minimum indicator duration after WebKit finishes so
+    /// the spinner cannot flicker on a fast navigation, and the discard gate refuses
+    /// while it is set. Wait for the same condition the gate reads.
+    private func waitForBrowserPanelLoadingToSettle(
+        _ panel: BrowserPanel,
+        timeout: TimeInterval = 5.0,
+        file: StaticString = #filePath,
+        line: UInt = #line
+    ) {
+        let deadline = Date().addingTimeInterval(timeout)
+        while panel.isLoading || panel.webView.isLoading {
+            if Date() >= deadline { break }
+            RunLoop.main.run(mode: .default, before: Date().addingTimeInterval(0.01))
+        }
+        XCTAssertFalse(panel.webView.isLoading, "Timed out waiting for the page to finish loading", file: file, line: line)
+        XCTAssertFalse(panel.isLoading, "Timed out waiting for the panel loading flag to clear", file: file, line: line)
+    }
+
     func testHiddenDiscardPolicyReadsUserDefaults() throws {
         let suiteName = "cmux.browserHiddenDiscardPolicyTests.\(UUID().uuidString)"
         let defaults = try XCTUnwrap(UserDefaults(suiteName: suiteName))
@@ -1961,10 +1982,24 @@ final class BrowserPanelWebViewLifecycleTests: XCTestCase {
         if !hasDelayEnvironmentOverride {
             XCTAssertEqual(BrowserHiddenWebViewDiscardPolicy.hiddenDelay(defaults: defaults), 42.5)
 
-            defaults.set(7200, forKey: BrowserHiddenWebViewDiscardPolicy.hiddenDelayKey)
+            // The maximum itself is in range and is honored.
+            defaults.set(
+                BrowserHiddenWebViewDiscardPolicy.maximumHiddenDelay,
+                forKey: BrowserHiddenWebViewDiscardPolicy.hiddenDelayKey
+            )
             XCTAssertEqual(
                 BrowserHiddenWebViewDiscardPolicy.hiddenDelay(defaults: defaults),
                 BrowserHiddenWebViewDiscardPolicy.maximumHiddenDelay
+            )
+
+            // An out-of-range stored delay is rejected rather than clamped, so the
+            // delay falls back to the default. This matches how the settings file
+            // store drops an above-maximum value instead of pinning it to the
+            // maximum (see `testSettingsFileStoreIgnoresBrowserHiddenWebViewDiscardDelayAboveMaximum`).
+            defaults.set(7200, forKey: BrowserHiddenWebViewDiscardPolicy.hiddenDelayKey)
+            XCTAssertEqual(
+                BrowserHiddenWebViewDiscardPolicy.hiddenDelay(defaults: defaults),
+                BrowserHiddenWebViewDiscardPolicy.defaultHiddenDelay
             )
 
             defaults.set(-1, forKey: BrowserHiddenWebViewDiscardPolicy.hiddenDelayKey)
@@ -2059,6 +2094,12 @@ final class BrowserPanelWebViewLifecycleTests: XCTestCase {
             backing: .buffered,
             defer: false
         )
+        // A programmatically created NSWindow defaults to releasing itself on
+        // `close()`. The local strong reference releases it too, so closing it
+        // over-releases the window and XCTest's per-test memory checker walks the
+        // freed object at teardown, taking the whole test host down with a
+        // SIGSEGV in `objc_release`. Opt out of the self-release.
+        realHostWindow.isReleasedWhenClosed = false
         defer {
             realHostWindow.contentView = nil
             realHostWindow.close()
@@ -2123,16 +2164,15 @@ final class BrowserPanelWebViewLifecycleTests: XCTestCase {
         )
         defer { panel.close() }
 
-        let deadline = Date().addingTimeInterval(1.0)
-        while panel.webView.isLoading,
-              RunLoop.main.run(mode: .default, before: deadline),
-              Date() < deadline {}
-        XCTAssertFalse(panel.webView.isLoading, "Timed out waiting for about:blank to finish loading")
+        waitForBrowserPanelLoadingToSettle(panel)
 
         panel.noteWebViewVisibility(false, reason: "test.hidden", now: discardedAt)
         let originalWebView = panel.webView
 
-        XCTAssertTrue(panel.discardHiddenWebViewForMemory(reason: "test.discard", now: discardedAt))
+        XCTAssertTrue(
+            panel.discardHiddenWebViewForMemory(reason: "test.discard", now: discardedAt),
+            "Discard refused; blockers: \(panel.webViewLifecycleTopPayload()["discard_blockers"] ?? "unknown")"
+        )
         XCTAssertFalse(panel.webView === originalWebView)
         XCTAssertFalse(panel.shouldRenderWebView)
         XCTAssertEqual(panel.webViewLifecycleState, .discarded)
@@ -2219,11 +2259,7 @@ final class BrowserPanelWebViewLifecycleTests: XCTestCase {
         )
         defer { panel.close() }
 
-        let deadline = Date().addingTimeInterval(1.0)
-        while panel.webView.isLoading,
-              RunLoop.main.run(mode: .default, before: deadline),
-              Date() < deadline {}
-        XCTAssertFalse(panel.webView.isLoading, "Timed out waiting for about:blank to finish loading")
+        waitForBrowserPanelLoadingToSettle(panel)
 
         panel.restoreSessionNavigationHistory(
             backHistoryURLStrings: ["https://example.test/back"],
@@ -2233,7 +2269,10 @@ final class BrowserPanelWebViewLifecycleTests: XCTestCase {
         XCTAssertTrue(panel.canGoBack)
 
         panel.noteWebViewVisibility(false, reason: "test.hidden", now: discardedAt)
-        XCTAssertTrue(panel.discardHiddenWebViewForMemory(reason: "test.discard", now: discardedAt))
+        XCTAssertTrue(
+            panel.discardHiddenWebViewForMemory(reason: "test.discard", now: discardedAt),
+            "Discard refused; blockers: \(panel.webViewLifecycleTopPayload()["discard_blockers"] ?? "unknown")"
+        )
         XCTAssertEqual(panel.webViewLifecycleState, .discarded)
 
         var observedStates: [BrowserWebViewLifecycleState] = []
@@ -2340,6 +2379,30 @@ final class BrowserNewTabNavigationSeedTests: XCTestCase {
 
 @MainActor
 final class BrowserPanelRemoteStoreTests: XCTestCase {
+    private var previousLastUsedProfileID: UUID?
+
+    /// These tests assert that a local browser panel uses the default website
+    /// data store, which only holds while the built-in default profile is the
+    /// ambient one: a panel created without an explicit profile adopts
+    /// `effectiveLastUsedProfileID`. That selection is persisted in the shared
+    /// `UserDefaults`, so a profile left behind by any earlier test in this host
+    /// (or by an earlier run on the same machine) would otherwise hand these
+    /// panels a profile-scoped store. Pin the default profile instead of
+    /// depending on ambient state.
+    override func setUp() {
+        super.setUp()
+        previousLastUsedProfileID = BrowserProfileStore.shared.lastUsedProfileID
+        BrowserProfileStore.shared.noteUsed(BrowserProfileStore.shared.builtInDefaultProfileID)
+    }
+
+    override func tearDown() {
+        if let previousLastUsedProfileID {
+            BrowserProfileStore.shared.noteUsed(previousLastUsedProfileID)
+        }
+        previousLastUsedProfileID = nil
+        super.tearDown()
+    }
+
     func testRemoteWorkspacePanelsShareWorkspaceScopedWebsiteDataStore() {
         let localPanel = BrowserPanel(workspaceId: UUID(), isRemoteWorkspace: false)
         let remoteWorkspaceId = UUID()
