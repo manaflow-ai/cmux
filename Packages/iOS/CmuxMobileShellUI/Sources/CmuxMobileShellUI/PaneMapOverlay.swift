@@ -9,9 +9,12 @@ struct PaneMapOverlay: View {
     let terminalTheme: TerminalTheme
     let zoomNamespace: Namespace.ID
     let isVisible: Bool
+    let allowsReordering: Bool
+    let refreshTrigger: Int
     let fetchPreviews: ([String], [String]) async -> [String: MobileTerminalRenderGridFrame]
     let selectTerminal: (MobileTerminalPreview.ID) -> Void
-    let dismiss: () -> Void
+    let reorderPanes: ([String]) async -> Bool
+    let refreshingChanged: (Bool) -> Void
 
     @State private var selectedSurfaceIDsByPaneID: [String: String]
     @State private var previewsBySurfaceID: [String: MobileTerminalPaneMapPreview] = [:]
@@ -24,40 +27,38 @@ struct PaneMapOverlay: View {
         terminalTheme: TerminalTheme,
         zoomNamespace: Namespace.ID,
         isVisible: Bool,
+        allowsReordering: Bool,
+        refreshTrigger: Int,
         fetchPreviews: @escaping ([String], [String]) async -> [String: MobileTerminalRenderGridFrame],
         selectTerminal: @escaping (MobileTerminalPreview.ID) -> Void,
-        dismiss: @escaping () -> Void
+        reorderPanes: @escaping ([String]) async -> Bool,
+        refreshingChanged: @escaping (Bool) -> Void
     ) {
         self.value = value
         self.terminalTheme = terminalTheme
         self.zoomNamespace = zoomNamespace
         self.isVisible = isVisible
+        self.allowsReordering = allowsReordering
+        self.refreshTrigger = refreshTrigger
         self.fetchPreviews = fetchPreviews
         self.selectTerminal = selectTerminal
-        self.dismiss = dismiss
+        self.reorderPanes = reorderPanes
+        self.refreshingChanged = refreshingChanged
         _selectedSurfaceIDsByPaneID = State(initialValue: value.initialSurfaceIDsByPaneID)
     }
 
     var body: some View {
-        VStack(spacing: 0) {
-            PaneMapHeader(
-                workspaceName: value.workspaceName,
-                countSubtitle: countSubtitle,
-                isRefreshing: isRefreshing,
-                terminalTheme: terminalTheme,
-                refresh: startPreviewRefresh,
-                dismiss: dismissPaneMap
-            )
-            PaneMapCollectionView(
-                items: collectionItems,
-                layout: value.layout,
-                terminalTheme: terminalTheme,
-                zoomNamespace: zoomNamespace,
-                overflowLabels: overflowLabels,
-                selectPreviewSurface: selectPreviewSurface,
-                jumpToTerminal: jumpToTerminal
-            )
-        }
+        PaneMapCollectionView(
+            items: collectionItems,
+            layout: value.layout,
+            terminalTheme: terminalTheme,
+            zoomNamespace: zoomNamespace,
+            overflowLabels: overflowLabels,
+            allowsReordering: allowsReordering,
+            selectPreviewSurface: selectPreviewSurface,
+            jumpToTerminal: jumpToTerminal,
+            reorderPanes: reorderPanes
+        )
         .frame(maxWidth: .infinity, maxHeight: .infinity)
         .background {
             terminalTheme.terminalBackgroundColor
@@ -79,6 +80,11 @@ struct PaneMapOverlay: View {
             } else {
                 cancelPreviewRefresh()
             }
+        }
+        .onChange(of: refreshTrigger) { _, _ in
+            guard isVisible else { return }
+            cancelPreviewRefresh()
+            startPreviewRefresh()
         }
         .onChange(of: value.layout) { _, _ in
             selectedSurfaceIDsByPaneID = value.reconciledSurfaceIDs(
@@ -127,53 +133,12 @@ struct PaneMapOverlay: View {
         )
     }
 
-    private var countSubtitle: String {
-        let paneCount = value.panes.count
-        let tabCount = value.tabCount
-        switch (paneCount == 1, tabCount == 1) {
-        case (true, true):
-            return L10n.string(
-                "mobile.paneMap.count.onePane.oneTab",
-                defaultValue: "1 pane · 1 tab"
-            )
-        case (true, false):
-            return String.localizedStringWithFormat(
-                L10n.string(
-                    "mobile.paneMap.count.onePane.otherTabs",
-                    defaultValue: "1 pane · %d tabs"
-                ),
-                tabCount
-            )
-        case (false, true):
-            return String.localizedStringWithFormat(
-                L10n.string(
-                    "mobile.paneMap.count.otherPanes.oneTab",
-                    defaultValue: "%d panes · 1 tab"
-                ),
-                paneCount
-            )
-        case (false, false):
-            return String.localizedStringWithFormat(
-                L10n.string(
-                    "mobile.paneMap.count.otherPanes.otherTabs",
-                    defaultValue: "%d panes · %d tabs"
-                ),
-                paneCount,
-                tabCount
-            )
-        }
-    }
-
     private func selectPreviewSurface(paneID: String, surfaceID: String) {
         selectedSurfaceIDsByPaneID[paneID] = surfaceID
     }
 
     private func jumpToTerminal(_ surfaceID: String) {
         selectTerminal(MobileTerminalPreview.ID(rawValue: surfaceID))
-    }
-
-    private func dismissPaneMap() {
-        dismiss()
     }
 
     private func startPreviewRefresh() {
@@ -192,14 +157,17 @@ struct PaneMapOverlay: View {
         refreshTask?.cancel()
         refreshTask = nil
         isRefreshing = false
+        refreshingChanged(false)
     }
 
     private func refreshAllPreviews(generation: UUID) async {
         guard !isRefreshing else { return }
         isRefreshing = true
+        refreshingChanged(true)
         defer {
             if refreshGeneration == generation {
                 isRefreshing = false
+                refreshingChanged(false)
             }
         }
 
@@ -220,66 +188,5 @@ struct PaneMapOverlay: View {
         )
         guard !Task.isCancelled, refreshGeneration == generation else { return }
         previewsBySurfaceID = frames.mapValues { $0.paneMapPreview() }
-    }
-}
-
-private struct PaneMapHeader: View {
-    let workspaceName: String
-    let countSubtitle: String
-    let isRefreshing: Bool
-    let terminalTheme: TerminalTheme
-    let refresh: () -> Void
-    let dismiss: () -> Void
-
-    var body: some View {
-        HStack(spacing: 12) {
-            VStack(alignment: .leading, spacing: 2) {
-                Text(workspaceName)
-                    .font(.headline)
-                    .foregroundStyle(terminalTheme.terminalChromeForegroundColor)
-                    .lineLimit(1)
-                Text(countSubtitle)
-                    .font(.subheadline)
-                    .foregroundStyle(terminalTheme.terminalChromeForegroundColor.opacity(0.7))
-                    .lineLimit(1)
-            }
-
-            Spacer(minLength: 0)
-
-            Button(action: refresh) {
-                HStack(spacing: 5) {
-                    if isRefreshing {
-                        ProgressView()
-                            .controlSize(.mini)
-                            .tint(terminalTheme.terminalChromeForegroundColor)
-                    } else {
-                        Image(systemName: "arrow.clockwise")
-                    }
-                    Text(L10n.string("mobile.paneMap.refresh", defaultValue: "Refresh"))
-                }
-                .font(.subheadline.weight(.semibold))
-                .foregroundStyle(terminalTheme.terminalChromeForegroundColor)
-                .padding(.horizontal, 12)
-                .frame(height: 34)
-                .mobileGlassPill()
-            }
-            .buttonStyle(.plain)
-            .disabled(isRefreshing)
-            .accessibilityLabel(L10n.string("mobile.paneMap.refresh", defaultValue: "Refresh"))
-            .accessibilityIdentifier("MobilePaneMapRefresh")
-
-            Button(action: dismiss) {
-                Text(L10n.string("mobile.paneMap.done", defaultValue: "Done"))
-                    .font(.subheadline.weight(.semibold))
-                    .foregroundStyle(terminalTheme.terminalChromeForegroundColor)
-                    .padding(.horizontal, 14)
-                    .frame(height: 34)
-                    .mobileGlassPill()
-            }
-            .buttonStyle(.plain)
-            .accessibilityLabel(L10n.string("mobile.paneMap.done", defaultValue: "Done"))
-            .accessibilityIdentifier("MobilePaneMapDone")
-        }
-        .padding(16)
     }
 }

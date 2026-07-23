@@ -1673,7 +1673,11 @@ final class cmuxUITests: XCTestCase {
         defer { app.terminate() }
 
         XCTAssertTrue(app.otherElements["PanesTabsPreviewHost"].waitForExistence(timeout: 8))
-        XCTAssertTrue(app.otherElements["MobileSurfaceDeck"].waitForExistence(timeout: 4))
+        XCTAssertTrue(app.buttons["MobileWorkspaceBackButton"].exists)
+        XCTAssertFalse(
+            waitForPaneMap(app.otherElements["MobilePaneMapOverlay"], toBeActive: true, timeout: 0.3),
+            "Opening a workspace must present its restored terminal directly"
+        )
 
         let leftTopDeckGroup = app.descendants(matching: .any)[
             "MobileSurfaceDeckPane-preview-pane-left-top"
@@ -1706,6 +1710,10 @@ final class cmuxUITests: XCTestCase {
 
         let overlay = app.otherElements["MobilePaneMapOverlay"]
         XCTAssertTrue(waitForPaneMap(overlay, toBeActive: true))
+        XCTAssertTrue(
+            app.buttons["MobileWorkspaceBackButton"].exists,
+            "The shared workspace back button must remain present in pane-layout mode"
+        )
         let leftTopPane = app.descendants(matching: .any)[
             "MobilePaneMapPane-preview-pane-left-top"
         ]
@@ -1768,7 +1776,24 @@ final class cmuxUITests: XCTestCase {
         XCTAssertTrue(leftTopPane.waitForExistence(timeout: 2))
         XCTAssertTrue(testsPane.exists)
 
-        let originalLeftTopFrame = leftTopPane.frame
+        tap(app.buttons["MobilePaneMapTab-preview-claude"], in: app)
+        XCTAssertTrue(
+            waitForPaneMap(overlay, toBeActive: true),
+            "Switching the preview tab must not focus its pane"
+        )
+        let claudeTile = app.buttons["MobilePaneMapTile-preview-claude"]
+        XCTAssertTrue(claudeTile.waitForExistence(timeout: 2))
+        let originalClaudeFrame = claudeTile.frame
+        let originalTestsFrame = testsPane.frame
+
+        let swipeStart = overlay.coordinate(withNormalizedOffset: CGVector(dx: 0.7, dy: 0.72))
+        let swipeEnd = overlay.coordinate(withNormalizedOffset: CGVector(dx: 0.3, dy: 0.28))
+        swipeStart.press(forDuration: 0.05, thenDragTo: swipeEnd)
+        XCTAssertTrue(
+            waitForPaneMap(overlay, toBeActive: true),
+            "A pane-layout swipe must be absorbed by scrolling instead of focusing a pane"
+        )
+
         let dragStart = leftTopPane.coordinate(withNormalizedOffset: CGVector(dx: 0.5, dy: 0.5))
         let dragEnd = testsPane.coordinate(withNormalizedOffset: CGVector(dx: 0.5, dy: 0.5))
         dragStart.press(
@@ -1779,22 +1804,44 @@ final class cmuxUITests: XCTestCase {
         )
         let reordered = XCTNSPredicateExpectation(
             predicate: NSPredicate(
-                block: { _, _ in leftTopPane.frame.midX > originalLeftTopFrame.midX + 20 }
+                block: { _, _ in
+                    abs(claudeTile.frame.midX - originalTestsFrame.midX) < 24
+                        && abs(claudeTile.frame.midX - originalClaudeFrame.midX) > 20
+                }
             ),
-            object: leftTopPane
+            object: claudeTile
         )
         XCTAssertEqual(
             XCTWaiter.wait(for: [reordered], timeout: 4),
             .completed,
-            "Dragging a pane card must move it into the destination layout slot"
+            "Dragging a pane card must move its contents into the authoritative destination slot"
+        )
+        XCTAssertTrue(
+            waitForPaneMap(overlay, toBeActive: true),
+            "A pane relayout drag must not also focus the dragged pane"
         )
 
-        let claudeTile = app.buttons["MobilePaneMapTile-preview-claude"]
-        XCTAssertTrue(claudeTile.waitForExistence(timeout: 2))
         tap(claudeTile, in: app)
 
         XCTAssertTrue(waitForPaneMap(overlay, toBeActive: false))
         XCTAssertTrue(app.buttons["MobileSurfaceDeckChip-preview-claude"].isSelected)
+
+        let interruptedSwipeStart = app.coordinate(
+            withNormalizedOffset: CGVector(dx: 0.01, dy: 0.5)
+        )
+        let interruptedSwipeEnd = app.coordinate(
+            withNormalizedOffset: CGVector(dx: 0.18, dy: 0.5)
+        )
+        interruptedSwipeStart.press(
+            forDuration: 0.05,
+            thenDragTo: interruptedSwipeEnd,
+            withVelocity: .slow,
+            thenHoldForDuration: 0
+        )
+        XCTAssertTrue(
+            waitForPaneMap(overlay, toBeActive: false),
+            "A cancelled interactive return must leave the terminal fully focused"
+        )
 
         tap(app.buttons["MobileSurfaceDeckPaneMap"], in: app)
         XCTAssertTrue(

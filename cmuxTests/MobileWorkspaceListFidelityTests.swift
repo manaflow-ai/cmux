@@ -173,6 +173,7 @@ struct MobileWorkspaceListFidelityTests {
 
     @Test func mobileHostAdvertisesWorkspaceLayoutV1() {
         #expect(MobileHostService.mobileHostCapabilities.contains("workspace.layout.v1"))
+        #expect(MobileHostService.mobileHostCapabilities.contains("workspace.pane_reorder.v1"))
     }
 
     @Test func observerPipelinesFollowSubscriberPresence() throws {
@@ -270,6 +271,101 @@ struct MobileWorkspaceListFidelityTests {
             workspace.panelIdFromSurfaceId($0)
         }
         #expect(ordered == expected)
+    }
+
+    @Test func mobilePaneReorderMovesCompleteContentsThroughStableLayoutSlots() throws {
+        let (workspace, _) = try makeWorkspaceWithSplitTerminals(count: 3)
+        _ = try #require(workspace.newTerminalSurfaceInFocusedPane(focus: false))
+        let spatialPaneIDs = workspace.spatiallyOrderedPaneIds
+        #expect(spatialPaneIDs.count == 3)
+        let panesByID = Dictionary(
+            uniqueKeysWithValues: workspace.bonsplitController.allPaneIds.map { ($0.id, $0) }
+        )
+        let originalContents = try spatialPaneIDs.map { paneID in
+            let pane = try #require(panesByID[paneID])
+            return workspace.bonsplitController.tabs(inPane: pane).compactMap {
+                workspace.panelIdFromSurfaceId($0.id)
+            }
+        }
+        #expect(originalContents[0].count == 2)
+        let originalFocusedPanelID = try #require(workspace.focusedPanelId)
+        let originalFocusedPaneID = try #require(
+            workspace.paneId(forPanelId: originalFocusedPanelID)?.id
+        )
+        let requestedContentOrder = [
+            spatialPaneIDs[2],
+            spatialPaneIDs[0],
+            spatialPaneIDs[1],
+        ]
+        let expectedPanelOrder =
+            originalContents[2] + originalContents[0] + originalContents[1]
+        let versionBefore = workspace.paneLayoutVersion
+
+        #expect(workspace.applyMobilePaneOrder(requestedContentOrder))
+
+        #expect(
+            workspace.spatiallyOrderedPaneIds == spatialPaneIDs,
+            "Pane identities and split geometry must remain stable"
+        )
+        #expect(
+            workspace.orderedPanelIds == expectedPanelOrder,
+            "Every pane's complete content must move into the requested spatial slot"
+        )
+        let focusedPanelDestinationPaneID = try #require(
+            workspace.paneId(forPanelId: originalFocusedPanelID)?.id
+        )
+        #expect(focusedPanelDestinationPaneID == spatialPaneIDs[1])
+        #expect(workspace.bonsplitController.focusedPaneId?.id == focusedPanelDestinationPaneID)
+        #expect(originalFocusedPaneID != focusedPanelDestinationPaneID)
+        #expect(
+            workspace.paneLayoutVersion == versionBefore + 1,
+            "The multi-step Bonsplit mutation must publish one authoritative revision"
+        )
+    }
+
+    @Test func mobilePaneReorderRejectsStaleTopologyWithoutMutation() throws {
+        let (workspace, originalPanelOrder) = try makeWorkspaceWithSplitTerminals(count: 3)
+        let spatialPaneIDs = workspace.spatiallyOrderedPaneIds
+        let versionBefore = workspace.paneLayoutVersion
+
+        #expect(!workspace.applyMobilePaneOrder(Array(spatialPaneIDs.dropLast())))
+        #expect(workspace.spatiallyOrderedPaneIds == spatialPaneIDs)
+        #expect(workspace.orderedPanelIds == originalPanelOrder)
+        #expect(workspace.paneLayoutVersion == versionBefore)
+    }
+
+    @Test func mobilePaneReorderRPCMutatesOwnerAndReturnsAuthoritativeList() throws {
+        let manager = TabManager()
+        let workspace = try #require(manager.selectedWorkspace)
+        let firstPanelID = try #require(workspace.focusedPanelId)
+        let secondPanel = try #require(
+            workspace.newTerminalSplit(
+                from: firstPanelID,
+                orientation: .horizontal,
+                focus: false
+            )
+        )
+        let paneIDs = workspace.spatiallyOrderedPaneIds
+        let previousManager = TerminalController.shared.activeTabManagerForCallerNotification()
+        TerminalController.shared.setActiveTabManager(manager)
+        defer { TerminalController.shared.setActiveTabManager(previousManager) }
+
+        let result = TerminalController.shared.v2MobileWorkspacePaneReorder(params: [
+            "workspace_id": workspace.id.uuidString,
+            "ordered_pane_ids": paneIDs.reversed().map(\.uuidString),
+        ])
+
+        guard case .ok(let payload) = result,
+              let object = payload as? [String: Any],
+              let returnedWorkspaces = object["workspaces"] as? [[String: Any]] else {
+            return #expect(Bool(false), "pane reorder should return an authoritative workspace list")
+        }
+        #expect(workspace.orderedPanelIds == [secondPanel.id, firstPanelID])
+        #expect(
+            returnedWorkspaces.contains {
+                $0["id"] as? String == workspace.id.uuidString
+            }
+        )
     }
 
     @Test func reorderingTerminalsChangesObserverHashAndBumpsLayoutVersion() throws {

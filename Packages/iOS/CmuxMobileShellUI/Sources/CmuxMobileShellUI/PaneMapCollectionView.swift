@@ -36,8 +36,10 @@ struct PaneMapCollectionView: UIViewRepresentable {
     let terminalTheme: TerminalTheme
     let zoomNamespace: Namespace.ID
     let overflowLabels: PaneMapOverflowLabels
+    let allowsReordering: Bool
     let selectPreviewSurface: (_ paneID: String, _ surfaceID: String) -> Void
     let jumpToTerminal: (_ surfaceID: String) -> Void
+    let reorderPanes: (_ orderedPaneIDs: [String]) async -> Bool
 
     func makeCoordinator() -> Coordinator {
         Coordinator(parent: self)
@@ -78,6 +80,7 @@ struct PaneMapCollectionView: UIViewRepresentable {
             as? PaneMapCollectionLayout {
             collectionLayout.paneLayout = layout
         }
+        container.collectionView.dragInteractionEnabled = allowsReordering
         container.configure(
             terminalTheme: terminalTheme,
             labels: overflowLabels,
@@ -91,7 +94,8 @@ struct PaneMapCollectionView: UIViewRepresentable {
         UICollectionViewDataSource,
         UICollectionViewDelegate,
         UICollectionViewDragDelegate,
-        UICollectionViewDropDelegate
+        UICollectionViewDropDelegate,
+        UIGestureRecognizerDelegate
     {
         static let cellReuseIdentifier = "PaneMapCollectionCell"
 
@@ -101,9 +105,18 @@ struct PaneMapCollectionView: UIViewRepresentable {
         private weak var container: PaneMapCollectionContainerView?
         private var isMovingItem = false
         private var pendingItems: [PaneMapCollectionItem]?
+        private var authoritativeItemsByID: [String: PaneMapCollectionItem]
+        private var reorderState: PaneMapReorderState
+        private var selectionArbitration = PaneMapSelectionArbitration()
 
         init(parent: PaneMapCollectionView) {
             self.parent = parent
+            authoritativeItemsByID = Dictionary(
+                uniqueKeysWithValues: parent.items.map { ($0.id, $0) }
+            )
+            reorderState = PaneMapReorderState(
+                authoritativePaneIDs: parent.items.map(\.id)
+            )
         }
 
         func attach(
@@ -112,23 +125,38 @@ struct PaneMapCollectionView: UIViewRepresentable {
         ) {
             self.collectionView = collectionView
             self.container = container
-            collectionView.dragInteractionEnabled = true
+            collectionView.dragInteractionEnabled = parent.allowsReordering
             collectionView.reorderingCadence = .immediate
             collectionView.dragDelegate = self
             collectionView.dropDelegate = self
+            let resolvedTap = UILongPressGestureRecognizer(
+                target: self,
+                action: #selector(handleResolvedTap(_:))
+            )
+            resolvedTap.minimumPressDuration = 0
+            resolvedTap.allowableMovement = 10
+            resolvedTap.cancelsTouchesInView = false
+            resolvedTap.delegate = self
+            collectionView.addGestureRecognizer(resolvedTap)
         }
 
         func reconcile(items: [PaneMapCollectionItem]) {
+            authoritativeItemsByID = Dictionary(
+                uniqueKeysWithValues: items.map { ($0.id, $0) }
+            )
             guard !isMovingItem else {
                 pendingItems = items
                 return
             }
 
-            let itemsByID = Dictionary(uniqueKeysWithValues: items.map { ($0.id, $0) })
-            let retainedIDs = orderedItems.map(\.id).filter { itemsByID[$0] != nil }
-            let retainedIDSet = Set(retainedIDs)
-            let newIDs = items.map(\.id).filter { !retainedIDSet.contains($0) }
-            orderedItems = (retainedIDs + newIDs).compactMap { itemsByID[$0] }
+            reorderState.reconcile(authoritativePaneIDs: items.map(\.id))
+            reloadVisibleItems()
+        }
+
+        private func reloadVisibleItems() {
+            orderedItems = reorderState.visiblePaneIDs.compactMap {
+                authoritativeItemsByID[$0]
+            }
             collectionView?.reloadData()
             collectionView?.collectionViewLayout.invalidateLayout()
             container?.setNeedsLayout()
@@ -161,11 +189,10 @@ struct PaneMapCollectionView: UIViewRepresentable {
                     terminalTheme: parent.terminalTheme,
                     zoomNamespace: parent.zoomNamespace,
                     selectPreviewSurface: { [weak self] surfaceID in
+                        self?.selectionArbitration.cancel()
                         self?.parent.selectPreviewSurface(item.pane.id, surfaceID)
                     },
-                    jumpToTerminal: { [weak self] surfaceID in
-                        self?.parent.jumpToTerminal(surfaceID)
-                    }
+                    jumpToTerminal: { [weak self] surfaceID in self?.resolveAccessibilitySelection(surfaceID) }
                 )
             }
             .margins(.all, 0)
@@ -178,9 +205,12 @@ struct PaneMapCollectionView: UIViewRepresentable {
             itemsForBeginning session: UIDragSession,
             at indexPath: IndexPath
         ) -> [UIDragItem] {
-            guard orderedItems.indices.contains(indexPath.item),
+            guard parent.allowsReordering,
+                  !reorderState.isMutationPending,
+                  orderedItems.indices.contains(indexPath.item),
                   orderedItems.count > 1 else { return [] }
             isMovingItem = true
+            selectionArbitration.dragSessionDidBegin()
             let itemID = orderedItems[indexPath.item].id
             let dragItem = UIDragItem(itemProvider: NSItemProvider(object: itemID as NSString))
             dragItem.localObject = itemID
@@ -216,6 +246,12 @@ struct PaneMapCollectionView: UIViewRepresentable {
                 orderedItems.count - 1
             )
             let destinationIndexPath = IndexPath(item: destinationItem, section: 0)
+            guard let request = reorderState.beginMove(
+                from: sourceIndexPath.item,
+                to: destinationItem
+            ) else {
+                return
+            }
 
             collectionView.performBatchUpdates {
                 let item = orderedItems.remove(at: sourceIndexPath.item)
@@ -223,6 +259,11 @@ struct PaneMapCollectionView: UIViewRepresentable {
                 collectionView.moveItem(at: sourceIndexPath, to: destinationIndexPath)
             }
             coordinator.drop(droppedItem.dragItem, toItemAt: destinationIndexPath)
+            Task { [weak self] in
+                guard let self else { return }
+                let succeeded = await parent.reorderPanes(request.orderedPaneIDs)
+                completeReorder(requestID: request.id, succeeded: succeeded)
+            }
         }
 
         func collectionView(
@@ -234,6 +275,13 @@ struct PaneMapCollectionView: UIViewRepresentable {
 
         func scrollViewDidScroll(_ scrollView: UIScrollView) {
             container?.updateOverflowIndicators()
+            selectionArbitration.touchMoved(
+                to: scrollView.panGestureRecognizer.location(in: scrollView)
+            )
+        }
+
+        func scrollViewWillBeginDragging(_ scrollView: UIScrollView) {
+            selectionArbitration.dragSessionDidBegin()
         }
 
         private func finishInteractiveMovement() {
@@ -243,6 +291,94 @@ struct PaneMapCollectionView: UIViewRepresentable {
                 self.pendingItems = nil
                 reconcile(items: pendingItems)
             }
+        }
+
+        private func completeReorder(requestID: UUID, succeeded: Bool) {
+            let completion = reorderState.complete(
+                requestID: requestID,
+                succeeded: succeeded
+            )
+            guard completion != .ignored else { return }
+            if completion == .rolledBack {
+                UINotificationFeedbackGenerator().notificationOccurred(.error)
+            }
+            reloadVisibleItems()
+        }
+
+        private func resolveAccessibilitySelection(_ surfaceID: String) {
+            guard !isMovingItem, !reorderState.isMutationPending else { return }
+            parent.jumpToTerminal(surfaceID)
+        }
+
+        @objc private func handleResolvedTap(_ gesture: UILongPressGestureRecognizer) {
+            guard let collectionView else { return }
+            let location = gesture.location(in: collectionView)
+            switch gesture.state {
+            case .began:
+                selectionArbitration.touchBegan(at: location)
+            case .changed:
+                selectionArbitration.touchMoved(to: location)
+            case .ended:
+                guard selectionArbitration.touchEnded(at: location),
+                      !isMovingItem,
+                      !reorderState.isMutationPending,
+                      let indexPath = collectionView.indexPathForItem(at: location),
+                      orderedItems.indices.contains(indexPath.item),
+                      !isPointInTabSwitcher(
+                        location,
+                        indexPath: indexPath,
+                        collectionView: collectionView
+                      ),
+                      let surfaceID = orderedItems[indexPath.item].selectedSurface?.id,
+                      orderedItems[indexPath.item].selectedSurface?.type.isTerminal == true else {
+                    return
+                }
+                parent.jumpToTerminal(surfaceID)
+            case .cancelled, .failed:
+                selectionArbitration.cancel()
+            default:
+                break
+            }
+        }
+
+        private func isPointInTabSwitcher(
+            _ collectionLocation: CGPoint,
+            indexPath: IndexPath,
+            collectionView: UICollectionView
+        ) -> Bool {
+            guard orderedItems[indexPath.item].pane.surfaces.count > 1,
+                  let cell = collectionView.cellForItem(at: indexPath) else {
+                return false
+            }
+            let previewHeight = cell.bounds.height - PaneMapTileMetrics.captionHeight
+            let paneControlsBand = CGRect(
+                x: cell.frame.minX,
+                y: cell.frame.minY + previewHeight - 50,
+                width: cell.frame.width,
+                height: 50
+            )
+            return paneControlsBand.contains(collectionLocation)
+        }
+
+        func gestureRecognizer(
+            _ gestureRecognizer: UIGestureRecognizer,
+            shouldRecognizeSimultaneouslyWith otherGestureRecognizer: UIGestureRecognizer
+        ) -> Bool {
+            true
+        }
+
+        func collectionView(
+            _ collectionView: UICollectionView,
+            dragPreviewParametersForItemAt indexPath: IndexPath
+        ) -> UIDragPreviewParameters? {
+            guard let cell = collectionView.cellForItem(at: indexPath) else { return nil }
+            let parameters = UIDragPreviewParameters()
+            parameters.backgroundColor = .clear
+            parameters.visiblePath = UIBezierPath(
+                roundedRect: cell.bounds,
+                cornerRadius: PaneMapTileMetrics.cornerRadius
+            )
+            return parameters
         }
 
         func scrollOneViewport(_ direction: PaneMapOverflowDirection) {

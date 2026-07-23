@@ -89,6 +89,9 @@ extension Workspace: WorkspaceSurfaceTreeReading {
     /// legacy workspace-list invalidation and state sync v2 cannot drift.
     @discardableResult
     func publishMobilePaneLayoutRevisionIfChanged() -> Bool {
+        guard mobilePaneLayoutPublicationSuppressionCount == 0 else {
+            return false
+        }
         var hasher = Hasher()
         mobileWorkspaceLayoutSnapshot().hashTopology(into: &hasher)
         let topologyHash = hasher.finalize()

@@ -7848,6 +7848,13 @@
         "ja": { "stringUnit": { "state": "translated", "value": "更新" } }
       }
     },
+    "mobile.paneMap.reorderFailed": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": { "stringUnit": { "state": "translated", "value": "Couldn’t rearrange panes on your Mac." } },
+        "ja": { "stringUnit": { "state": "translated", "value": "Mac上のペインを並べ替えられませんでした。" } }
+      }
+    },
     "mobile.paneMap.unavailableOnPhone": {
       "extractionState": "manual",
       "localizations": {

@@ -51,6 +51,7 @@ extension MobileHostService {
             // this to render collapsible groups only against a Mac that emits them.
             "workspace.groups.v1",
             "workspace.layout.v1",
+            "workspace.pane_reorder.v1",
         ]
         #if DEBUG
         // Lets a dev Mac impersonate an older host while dogfooding the iOS update hint.

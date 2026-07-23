@@ -2280,6 +2280,12 @@ final class Workspace: Identifiable, ObservableObject {
     /// pane focus publish exactly once while divider drags stay quiet.
     var lastPublishedMobilePaneLayoutTopologyHash: Int?
 
+    /// Defers mobile layout publication while one authoritative mutation performs
+    /// several Bonsplit operations. Nested transactions are supported so every
+    /// delegate callback stays quiet until the outer mutation publishes its final
+    /// reconciled snapshot.
+    var mobilePaneLayoutPublicationSuppressionCount = 0
+
     /// Mapping from bonsplit TabID to our Panel instances
     var panels: [UUID: any Panel] {
         get { paneTree.panels }

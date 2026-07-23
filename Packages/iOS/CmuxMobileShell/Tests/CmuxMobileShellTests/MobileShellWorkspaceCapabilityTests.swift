@@ -36,6 +36,7 @@ import Testing
         #expect(oldMac.store.supportsWorkspaceActions)
         #expect(!oldMac.store.supportsWorkspaceReadStateActions && !oldMac.store.supportsWorkspaceCloseActions)
         #expect(!oldMac.store.supportsWorkspaceMoveActions && !oldMac.store.supportsWorkspaceGroupActions)
+        #expect(!oldMac.store.supportsWorkspacePaneReorder)
         #expect(!oldMac.store.supportsWorkspaceCreateInGroup)
         #expect(!oldMac.store.supportsWorkspaceGroupCreate)
 
@@ -47,6 +48,7 @@ import Testing
             "workspace.read_state.v1",
             "workspace.close.v1",
             "workspace.move.v1",
+            "workspace.pane_reorder.v1",
             "workspace.group_actions.v1",
             "workspace.create_in_group.v1",
             "workspace.group_create.v1",
@@ -54,6 +56,7 @@ import Testing
         let scoped = try await connectedStore(capabilities: currentCapabilities)
         #expect(scoped.store.supportsWorkspaceReadStateActions && scoped.store.supportsWorkspaceCloseActions)
         #expect(!scoped.store.supportsWorkspaceMoveActions && !scoped.store.supportsWorkspaceGroupActions)
+        #expect(scoped.store.supportsWorkspacePaneReorder)
         #expect(!scoped.store.supportsWorkspaceCreateInGroup)
         #expect(!scoped.store.supportsWorkspaceGroupCreate)
 
@@ -63,6 +66,7 @@ import Testing
             ticketTerminalID: nil
         )
         #expect(macWide.store.supportsWorkspaceMoveActions && macWide.store.supportsWorkspaceGroupActions)
+        #expect(macWide.store.supportsWorkspacePaneReorder)
         #expect(macWide.store.supportsWorkspaceCreateInGroup)
         #expect(macWide.store.supportsWorkspaceGroupCreate)
     }

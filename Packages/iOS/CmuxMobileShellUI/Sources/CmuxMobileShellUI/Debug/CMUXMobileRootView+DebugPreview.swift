@@ -24,7 +24,11 @@ extension CMUXMobileRootView {
         }
         switch route {
         case .panesTabs:
-            return AnyView(PanesTabsPreviewHost())
+            return AnyView(
+                NavigationStack {
+                    PanesTabsPreviewHost()
+                }
+            )
         }
     }
 }

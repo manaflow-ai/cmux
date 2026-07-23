@@ -14005,6 +14005,8 @@ class TerminalController {
             result = v2MobileWorkspaceAction(params: request.params)
         case "workspace.move":
             result = v2MobileWorkspaceMove(params: request.params)
+        case "workspace.pane.reorder":
+            result = v2MobileWorkspacePaneReorder(params: request.params)
         case "workspace.group.action", "workspace.group.create":
             result = request.method == "workspace.group.create" ? v2MobileWorkspaceGroupCreate(params: request.params) : v2MobileWorkspaceGroupAction(params: request.params)
         case let method where method.hasPrefix("mobile.chat."):

@@ -187,7 +187,8 @@ import Testing
     @Test func failureRollsBackToTheLatestAuthoritativeOrder() throws {
         var state = PaneMapReorderState(authoritativePaneIDs: ["left", "middle", "right"])
 
-        let request = try #require(state.beginMove(from: 0, to: 2))
+        let pendingRequest = state.beginMove(from: 0, to: 2)
+        let request = try #require(pendingRequest)
         #expect(state.visiblePaneIDs == ["middle", "right", "left"])
 
         state.reconcile(authoritativePaneIDs: ["left", "right", "middle"])
@@ -204,7 +205,8 @@ import Testing
     @Test func successWaitsForAndThenUsesTheAuthoritativeMacOrder() throws {
         var state = PaneMapReorderState(authoritativePaneIDs: ["one", "two", "three"])
 
-        let request = try #require(state.beginMove(from: 2, to: 0))
+        let pendingRequest = state.beginMove(from: 2, to: 0)
+        let request = try #require(pendingRequest)
         #expect(request.orderedPaneIDs == ["three", "one", "two"])
         #expect(state.complete(requestID: request.id, succeeded: true) == .awaitingAuthority)
         #expect(state.visiblePaneIDs == ["three", "one", "two"])
@@ -218,10 +220,12 @@ import Testing
     @Test func staleCompletionCannotOverwriteANewerMove() throws {
         var state = PaneMapReorderState(authoritativePaneIDs: ["a", "b", "c"])
 
-        let first = try #require(state.beginMove(from: 0, to: 1))
+        let firstPendingRequest = state.beginMove(from: 0, to: 1)
+        let first = try #require(firstPendingRequest)
         #expect(state.complete(requestID: first.id, succeeded: false) == .rolledBack)
 
-        let second = try #require(state.beginMove(from: 2, to: 0))
+        let secondPendingRequest = state.beginMove(from: 2, to: 0)
+        let second = try #require(secondPendingRequest)
         #expect(state.complete(requestID: first.id, succeeded: true) == .ignored)
         #expect(state.visiblePaneIDs == second.orderedPaneIDs)
         #expect(state.isMutationPending)
@@ -232,13 +236,16 @@ import Testing
 
         arbitration.touchBegan(at: CGPoint(x: 10, y: 10))
         arbitration.touchMoved(to: CGPoint(x: 32, y: 10))
-        #expect(!arbitration.touchEnded(at: CGPoint(x: 32, y: 10)))
+        let movementResolvedAsTap = arbitration.touchEnded(at: CGPoint(x: 32, y: 10))
+        #expect(!movementResolvedAsTap)
 
         arbitration.touchBegan(at: CGPoint(x: 10, y: 10))
         arbitration.dragSessionDidBegin()
-        #expect(!arbitration.touchEnded(at: CGPoint(x: 10, y: 10)))
+        let dragResolvedAsTap = arbitration.touchEnded(at: CGPoint(x: 10, y: 10))
+        #expect(!dragResolvedAsTap)
 
         arbitration.touchBegan(at: CGPoint(x: 10, y: 10))
-        #expect(arbitration.touchEnded(at: CGPoint(x: 11, y: 11)))
+        let stationaryTouchResolvedAsTap = arbitration.touchEnded(at: CGPoint(x: 11, y: 11))
+        #expect(stationaryTouchResolvedAsTap)
     }
 }

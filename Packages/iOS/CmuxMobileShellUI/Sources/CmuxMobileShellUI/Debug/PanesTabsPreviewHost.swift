@@ -1,6 +1,7 @@
 #if canImport(UIKit) && DEBUG
 import CMUXMobileCore
 import CmuxMobileShellModel
+import CmuxMobileSupport
 import SwiftUI
 
 /// Fixture-driven host for exercising the production panes-and-tabs UI without a paired Mac.
@@ -15,6 +16,15 @@ struct PanesTabsPreviewHost: View {
     @State private var selectedSurfaceID = Self.claudeSurfaceID
     @Namespace private var paneZoomNamespace
     @State private var paneZoomPresentation = PaneZoomPresentationState()
+    @State private var orderedFixturePaneIDs = [
+        "preview-pane-left-top",
+        "preview-pane-left-bottom",
+        "preview-pane-tests",
+        "preview-pane-server",
+    ]
+    @State private var paneMapRefreshTrigger = 0
+    @State private var fixtureLayoutRevision = 0
+    @State private var isPaneMapRefreshing = false
     private let terminalTheme = TerminalTheme.monokai
 
     private let workspace = MobileWorkspacePreview(
@@ -138,7 +148,7 @@ struct PanesTabsPreviewHost: View {
     ]
 
     var body: some View {
-        if let layout = workspace.layout {
+        if let layout = fixtureLayout {
             PaneMapOverlay(
                 value: PaneMapValue(
                     workspaceName: workspace.name,
@@ -149,18 +159,20 @@ struct PanesTabsPreviewHost: View {
                 terminalTheme: terminalTheme,
                 zoomNamespace: paneZoomNamespace,
                 isVisible: !paneZoomPresentation.isTerminalPresented,
+                allowsReordering: true,
+                refreshTrigger: paneMapRefreshTrigger,
                 fetchPreviews: Self.fetchFixturePreviews,
                 selectTerminal: presentTerminalFromPaneMap,
-                dismiss: returnToTerminalFromPaneMap
+                reorderPanes: reorderFixturePanes,
+                refreshingChanged: { isPaneMapRefreshing = $0 }
             )
             .accessibilityHidden(paneZoomPresentation.isTerminalPresented)
-            .fullScreenCover(
-                isPresented: terminalPresentationBinding,
-                onDismiss: reconcilePaneMapAfterInteractiveDismissal
-            ) {
-                NavigationStack {
-                    terminalPreviewEndpoint
-                }
+            .navigationTitle(workspace.name)
+            .mobileTerminalNavigationChrome(theme: terminalTheme)
+            .toolbar { sharedPaneToolbar }
+            .navigationDestination(isPresented: terminalPresentationBinding) {
+                terminalPreviewEndpoint
+                    .navigationBarBackButtonHidden(true)
                 .navigationTransition(
                     .zoom(
                         sourceID: paneZoomSourceSurfaceID,
@@ -168,6 +180,7 @@ struct PanesTabsPreviewHost: View {
                     )
                 )
             }
+            .navigationBarBackButtonHidden(true)
         } else {
             terminalPreviewEndpoint
         }
@@ -184,20 +197,8 @@ struct PanesTabsPreviewHost: View {
         }
         .ignoresSafeArea(.keyboard, edges: .bottom)
         .navigationTitle(workspace.name)
-        .toolbar {
-            ToolbarItem(placement: .topBarTrailing) {
-                WorkspaceUtilitiesMenu(
-                    showsViewAsText: false,
-                    showsPaneMap: true,
-                    terminalTheme: terminalTheme,
-                    presentPaneMap: presentPaneMap,
-                    openTextSheet: {},
-                    copyDebugLogs: {},
-                    sendFeedback: {}
-                )
-            }
-        }
-        .accessibilityElement(children: .contain)
+        .mobileTerminalNavigationChrome(theme: terminalTheme)
+        .toolbar { sharedPaneToolbar }
         .accessibilityIdentifier("PanesTabsPreviewHost")
     }
 
@@ -244,12 +245,137 @@ struct PanesTabsPreviewHost: View {
         )
     }
 
-    private func reconcilePaneMapAfterInteractiveDismissal() {
-        paneZoomPresentation.presentationDidChange(isTerminalPresented: false)
-    }
-
     private var paneZoomSourceSurfaceID: String {
         paneZoomPresentation.sourceSurfaceID ?? selectedSurfaceID
+    }
+
+    @ToolbarContentBuilder
+    private var sharedPaneToolbar: some ToolbarContent {
+        ToolbarItem(placement: .topBarLeading) {
+            WorkspaceBackButton(unreadCount: 2, action: {})
+        }
+        ToolbarItem(placement: .topBarTrailing) {
+            ZStack(alignment: .trailing) {
+                if paneZoomPresentation.isTerminalPresented {
+                    WorkspaceUtilitiesMenu(
+                        showsViewAsText: false,
+                        showsPaneMap: true,
+                        terminalTheme: terminalTheme,
+                        presentPaneMap: presentPaneMap,
+                        openTextSheet: {},
+                        copyDebugLogs: {},
+                        sendFeedback: {}
+                    )
+                    .transition(
+                        .move(edge: .trailing)
+                            .combined(with: .opacity)
+                            .combined(with: .scale(scale: 0.9, anchor: .trailing))
+                    )
+                } else {
+                    HStack(spacing: 8) {
+                        Button {
+                            paneMapRefreshTrigger &+= 1
+                        } label: {
+                            if isPaneMapRefreshing {
+                                ProgressView()
+                            } else {
+                                Image(systemName: "arrow.clockwise")
+                            }
+                        }
+                        .accessibilityLabel(
+                            L10n.string("mobile.paneMap.refresh", defaultValue: "Refresh")
+                        )
+                        .accessibilityIdentifier("MobilePaneMapRefresh")
+
+                        Button(
+                            L10n.string("mobile.paneMap.done", defaultValue: "Done"),
+                            action: returnToTerminalFromPaneMap
+                        )
+                        .accessibilityIdentifier("MobilePaneMapDone")
+                    }
+                    .transition(
+                        .move(edge: .trailing)
+                            .combined(with: .opacity)
+                            .combined(with: .scale(scale: 0.9, anchor: .trailing))
+                    )
+                }
+            }
+            .animation(.snappy(duration: 0.32), value: paneZoomPresentation.endpoint)
+        }
+    }
+
+    private var fixtureLayout: MobilePaneLayout? {
+        guard let baseLayout = workspace.layout else { return nil }
+        let panesByID = Dictionary(
+            uniqueKeysWithValues: baseLayout.orderedPanes.map { ($0.id, $0) }
+        )
+        let slotPaneIDs = baseLayout.orderedPanes.map(\.id)
+        let contentsBySlotID = Dictionary(
+            uniqueKeysWithValues: zip(slotPaneIDs, orderedFixturePaneIDs).compactMap {
+                slotID, contentID in
+                panesByID[contentID].map { (slotID, $0) }
+            }
+        )
+        let focusedPaneID = baseLayout.focusedPaneID.flatMap { focusedContentID in
+            orderedFixturePaneIDs.firstIndex(of: focusedContentID).map {
+                slotPaneIDs[$0]
+            }
+        }
+        return MobilePaneLayout(
+            version: baseLayout.version + paneMapRefreshTrigger + fixtureLayoutRevision,
+            focusedPaneID: focusedPaneID,
+            root: replacingFixturePaneContents(
+                in: baseLayout.root,
+                contentsBySlotID: contentsBySlotID
+            )
+        )
+    }
+
+    private func replacingFixturePaneContents(
+        in node: MobilePaneLayout.Node,
+        contentsBySlotID: [String: MobilePaneNode]
+    ) -> MobilePaneLayout.Node {
+        switch node {
+        case .pane(let slot):
+            guard let content = contentsBySlotID[slot.id] else { return node }
+            return .pane(MobilePaneNode(
+                id: slot.id,
+                selectedSurfaceID: content.selectedSurfaceID,
+                surfaces: content.surfaces
+            ))
+        case .split(let split):
+            return .split(MobilePaneSplit(
+                id: split.id,
+                orientation: split.orientation,
+                ratio: split.ratio,
+                first: replacingFixturePaneContents(
+                    in: split.first,
+                    contentsBySlotID: contentsBySlotID
+                ),
+                second: replacingFixturePaneContents(
+                    in: split.second,
+                    contentsBySlotID: contentsBySlotID
+                )
+            ))
+        }
+    }
+
+    @MainActor
+    private func reorderFixturePanes(_ orderedPaneIDs: [String]) async -> Bool {
+        guard let slotPaneIDs = workspace.layout?.orderedPanes.map(\.id),
+              orderedPaneIDs.count == slotPaneIDs.count,
+              Set(orderedPaneIDs) == Set(slotPaneIDs) else {
+            return false
+        }
+        let currentContentBySlotID = Dictionary(
+            uniqueKeysWithValues: zip(slotPaneIDs, orderedFixturePaneIDs)
+        )
+        orderedFixturePaneIDs = orderedPaneIDs.compactMap {
+            currentContentBySlotID[$0]
+        }
+        fixtureLayoutRevision &+= 1
+        await Task.yield()
+        return true
     }
 
     private static func fetchFixturePreviews(

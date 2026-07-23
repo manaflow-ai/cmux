@@ -55,6 +55,8 @@ struct WorkspaceDetailView: View {
     @State private var textSheetSurfaceID: String?
     @Namespace private var paneZoomNamespace
     @State private var paneZoomPresentation = PaneZoomPresentationState()
+    @State private var paneMapRefreshTrigger = 0
+    @State private var isPaneMapRefreshing = false
     /// Chat-mode toggle for inline agent chat in place of the terminal.
     @State var isChatMode = false
     /// The session chat mode was entered on, pinned so sorting cannot swap the conversation
@@ -103,13 +105,13 @@ struct WorkspaceDetailView: View {
         if let layout = workspace.layout {
             paneMapRoot(layout: layout)
                 .accessibilityHidden(paneZoomPresentation.isTerminalPresented)
-                .fullScreenCover(
-                    isPresented: terminalZoomPresentationBinding,
-                    onDismiss: reconcilePaneMapAfterInteractiveDismissal
-                ) {
-                    NavigationStack {
-                        terminalWorkspaceEndpoint
-                    }
+                .onGeometryChange(for: CGFloat.self) { $0.size.width } action: { contentWidth = $0 }
+                .navigationTitle(systemNavigationTitle)
+                .mobileTerminalNavigationChrome(theme: store.activeTerminalTheme)
+                .toolbar { workspaceDetailToolbar }
+                .navigationDestination(isPresented: terminalZoomPresentationBinding) {
+                    terminalWorkspaceEndpoint
+                        .navigationBarBackButtonHidden(true)
                     .navigationTransition(
                         .zoom(
                             sourceID: paneZoomSourceSurfaceID,
@@ -117,7 +119,6 @@ struct WorkspaceDetailView: View {
                         )
                     )
                 }
-                .toolbar(.hidden, for: .navigationBar)
                 .navigationBarBackButtonHidden(true)
         } else {
             terminalWorkspaceEndpoint
@@ -210,6 +211,8 @@ struct WorkspaceDetailView: View {
             terminalTheme: store.activeTerminalTheme,
             zoomNamespace: paneZoomNamespace,
             isVisible: !paneZoomPresentation.isTerminalPresented,
+            allowsReordering: workspace.actionCapabilities.supportsPaneReorder,
+            refreshTrigger: paneMapRefreshTrigger,
             fetchPreviews: { selectedSurfaceIDs, remainingSurfaceIDs in
                 await store.fetchPaneMapPreviewGrids(
                     remoteWorkspaceID: workspace.rpcWorkspaceID.rawValue,
@@ -218,7 +221,8 @@ struct WorkspaceDetailView: View {
                 )
             },
             selectTerminal: presentTerminalFromPaneMap,
-            dismiss: returnToTerminalFromPaneMap
+            reorderPanes: reorderPanesFromMap,
+            refreshingChanged: { isPaneMapRefreshing = $0 }
         )
     }
 
@@ -231,10 +235,6 @@ struct WorkspaceDetailView: View {
                 )
             }
         )
-    }
-
-    private func reconcilePaneMapAfterInteractiveDismissal() {
-        paneZoomPresentation.presentationDidChange(isTerminalPresented: false)
     }
 
     private var paneZoomSourceSurfaceID: String {
@@ -259,17 +259,8 @@ struct WorkspaceDetailView: View {
         ToolbarItem(id: "workspace-title", placement: .topBarLeading) {
             workspaceTitleToolbarMenu
         }
-        if let selectedTerminalID,
-           store.isAlternateScreen(surfaceID: selectedTerminalID),
-           displaySettings.showAltScreenNotice {
-            ToolbarItem(id: "workspace-altscreen-notice", placement: .topBarTrailing) {
-                AltScreenNoticeButton {
-                    displaySettings.showAltScreenNotice = false
-                }
-            }
-        }
         ToolbarItem(id: "workspace-trailing", placement: .topBarTrailing) {
-            toolbarTrailingCluster
+            paneWorkspaceToolbarTrailingContent
         }
     }
 
@@ -334,7 +325,19 @@ struct WorkspaceDetailView: View {
     }
 
     private var toolbarTitleLabelToken: WorkspaceTitleMenuLabelToken {
-        if isChatMode,
+        if !paneZoomPresentation.isTerminalPresented,
+           let layout = workspace.layout {
+            let paneMapValue = PaneMapValue(
+                workspaceName: workspace.name,
+                layout: layout,
+                phoneSelectedSurfaceID: selectedTerminal?.id.rawValue,
+                agentStateKindsBySurfaceID: surfaceDeckAgentStateKinds
+            )
+            return .standard(
+                title: workspace.name,
+                subtitle: paneMapValue.countSubtitle
+            )
+        } else if isChatMode,
            let session = chosenChatSession,
            let conversation = chatConversationStores[session.id] {
             return .chat(
@@ -348,6 +351,63 @@ struct WorkspaceDetailView: View {
             return .browser(title: browser.title ?? workspace.name)
         } else {
             return .standard(title: workspace.name, subtitle: selectedToolbarSubtitle)
+        }
+    }
+
+    private var paneWorkspaceToolbarTrailingContent: some View {
+        ZStack(alignment: .trailing) {
+            if paneZoomPresentation.isTerminalPresented {
+                HStack(spacing: 8) {
+                    if let selectedTerminalID,
+                       store.isAlternateScreen(surfaceID: selectedTerminalID),
+                       displaySettings.showAltScreenNotice {
+                        AltScreenNoticeButton {
+                            displaySettings.showAltScreenNotice = false
+                        }
+                        .frame(width: 44, height: 44)
+                    }
+                    toolbarTrailingCluster
+                }
+                .transition(
+                    .move(edge: .trailing)
+                        .combined(with: .opacity)
+                        .combined(with: .scale(scale: 0.9, anchor: .trailing))
+                )
+            } else {
+                paneMapToolbarControls
+                    .transition(
+                        .move(edge: .trailing)
+                            .combined(with: .opacity)
+                            .combined(with: .scale(scale: 0.9, anchor: .trailing))
+                    )
+            }
+        }
+        .animation(.snappy(duration: 0.32), value: paneZoomPresentation.endpoint)
+    }
+
+    private var paneMapToolbarControls: some View {
+        HStack(spacing: 8) {
+            Button(action: refreshPaneMapFromToolbar) {
+                Group {
+                    if isPaneMapRefreshing {
+                        ProgressView()
+                            .controlSize(.small)
+                    } else {
+                        Image(systemName: "arrow.clockwise")
+                    }
+                }
+                .frame(width: 24, height: 24)
+            }
+            .disabled(isPaneMapRefreshing)
+            .accessibilityLabel(L10n.string("mobile.paneMap.refresh", defaultValue: "Refresh"))
+            .accessibilityIdentifier("MobilePaneMapRefresh")
+
+            Button(action: returnToTerminalFromPaneMap) {
+                Text(L10n.string("mobile.paneMap.done", defaultValue: "Done"))
+                    .font(.subheadline.weight(.semibold))
+            }
+            .accessibilityLabel(L10n.string("mobile.paneMap.done", defaultValue: "Done"))
+            .accessibilityIdentifier("MobilePaneMapDone")
         }
     }
     #endif
@@ -619,6 +679,29 @@ struct WorkspaceDetailView: View {
     private func returnToTerminalFromPaneMap() {
         guard !paneZoomSourceSurfaceID.isEmpty else { return }
         paneZoomPresentation.presentTerminal(surfaceID: paneZoomSourceSurfaceID)
+    }
+
+    private func refreshPaneMapFromToolbar() {
+        paneMapRefreshTrigger &+= 1
+    }
+
+    @MainActor
+    private func reorderPanesFromMap(_ orderedPaneIDs: [String]) async -> Bool {
+        let result = await store.reorderWorkspacePanes(
+            id: workspace.id,
+            orderedPaneIDs: orderedPaneIDs
+        )
+        guard case .success = result else {
+            toasts.present(.failure(
+                L10n.string(
+                    "mobile.paneMap.reorderFailed",
+                    defaultValue: "Couldn’t rearrange panes on your Mac."
+                ),
+                coalescingKey: "pane-map.reorder-failed"
+            ))
+            return false
+        }
+        return true
     }
 
     #if canImport(UIKit)

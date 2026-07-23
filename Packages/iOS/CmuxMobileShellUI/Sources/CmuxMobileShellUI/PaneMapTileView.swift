@@ -210,19 +210,18 @@ private struct PaneMapSurfacePreview: View {
     var body: some View {
         ZStack {
             if surface.type.isTerminal {
-                Button {
-                    jumpToTerminal(surface.id)
-                } label: {
-                    PaneMapTerminalPreview(
-                        preview: preview,
-                        isLoadingPreview: isLoadingPreview,
-                        terminalTheme: terminalTheme
-                    )
-                    .contentShape(Rectangle())
-                }
-                .buttonStyle(.plain)
+                PaneMapTerminalPreview(
+                    preview: preview,
+                    isLoadingPreview: isLoadingPreview,
+                    terminalTheme: terminalTheme
+                )
+                .contentShape(Rectangle())
                 .accessibilityLabel(surfaceAccessibilityLabel)
                 .accessibilityIdentifier("MobilePaneMapTile-\(surface.id)")
+                .accessibilityAddTraits(.isButton)
+                .accessibilityAction {
+                    jumpToTerminal(surface.id)
+                }
             } else {
                 PaneMapUnavailableSurfacePreview(
                     surface: surface,

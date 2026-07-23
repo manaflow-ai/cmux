@@ -2070,6 +2070,7 @@ C0DE71B10000000000000001 /* AppDelegate+AgentChatNotifications.swift in Sources 
 		F17F00000000000000000005 /* Workspace+FullWidthTab.swift in Sources */ = {isa = PBXBuildFile; fileRef = F17F00000000000000000006 /* Workspace+FullWidthTab.swift */; };
 		C0DE1A050000000000000001 /* Workspace+LayoutCapture.swift in Sources */ = {isa = PBXBuildFile; fileRef = C0DE1A050000000000000002 /* Workspace+LayoutCapture.swift */; };
 		A18F4D6C1A2B3C4D5E6F7002 /* Workspace+MobilePaneLayoutSnapshot.swift in Sources */ = {isa = PBXBuildFile; fileRef = A18F4D6C1A2B3C4D5E6F7001 /* Workspace+MobilePaneLayoutSnapshot.swift */; };
+		C0DE00000000000000000C91 /* Workspace+MobilePaneReorder.swift in Sources */ = {isa = PBXBuildFile; fileRef = C0DE00000000000000000C90 /* Workspace+MobilePaneReorder.swift */; };
 		C3744E010000000000000001 /* Workspace+PanelLifecycle.swift in Sources */ = {isa = PBXBuildFile; fileRef = C3744E020000000000000001 /* Workspace+PanelLifecycle.swift */; };
 		797800030000000000000001 /* Workspace+PersistentRemotePTYReattach.swift in Sources */ = {isa = PBXBuildFile; fileRef = 797800030000000000000002 /* Workspace+PersistentRemotePTYReattach.swift */; };
 		791100010000000000000001 /* Workspace+RemoteDisconnectPlaceholder.swift in Sources */ = {isa = PBXBuildFile; fileRef = 791100020000000000000001 /* Workspace+RemoteDisconnectPlaceholder.swift */; };
@@ -4230,6 +4231,7 @@ C0DE71B10000000000000002 /* AppDelegate+AgentChatNotifications.swift */ = {isa =
 		F17F00000000000000000006 /* Workspace+FullWidthTab.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "Workspace+FullWidthTab.swift"; sourceTree = "<group>"; };
 		C0DE1A050000000000000002 /* Workspace+LayoutCapture.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "Workspace+LayoutCapture.swift"; sourceTree = "<group>"; };
 		A18F4D6C1A2B3C4D5E6F7001 /* Workspace+MobilePaneLayoutSnapshot.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "Workspace+MobilePaneLayoutSnapshot.swift"; sourceTree = "<group>"; };
+		C0DE00000000000000000C90 /* Workspace+MobilePaneReorder.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "Workspace+MobilePaneReorder.swift"; sourceTree = "<group>"; };
 		C3744E020000000000000001 /* Workspace+PanelLifecycle.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "Workspace+PanelLifecycle.swift"; sourceTree = "<group>"; };
 		797800030000000000000002 /* Workspace+PersistentRemotePTYReattach.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "Workspace+PersistentRemotePTYReattach.swift"; sourceTree = "<group>"; };
 		791100020000000000000001 /* Workspace+RemoteDisconnectPlaceholder.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "Workspace+RemoteDisconnectPlaceholder.swift"; sourceTree = "<group>"; };
@@ -5279,6 +5281,7 @@ C0DE71B10000000000000002 /* AppDelegate+AgentChatNotifications.swift */ = {isa =
 				C0DE00000000000000000D35 /* TerminalController+WorkspaceCreatePreparation.swift */,
 				C0DE00000000000000000C8A /* TerminalController+WorkspaceGroupAction.swift */,
 				C0DE00000000000000000C88 /* TerminalController+WorkspaceMove.swift */,
+				C0DE00000000000000000C90 /* Workspace+MobilePaneReorder.swift */,
 				C0DE00000000000000000C55 /* TerminalController+ControlPaneContext.swift */,
 				C7A50B000000000000000001 /* TerminalControllerV2ParamParsingSupport.swift */,
 				C7A50B000000000000000011 /* TerminalController+MobileWorkspaceList.swift */,
@@ -8405,6 +8408,7 @@ C0DE71B10000000000000002 /* AppDelegate+AgentChatNotifications.swift */ = {isa =
 				F17F00000000000000000005 /* Workspace+FullWidthTab.swift in Sources */,
 				C0DE1A050000000000000001 /* Workspace+LayoutCapture.swift in Sources */,
 				A18F4D6C1A2B3C4D5E6F7002 /* Workspace+MobilePaneLayoutSnapshot.swift in Sources */,
+				C0DE00000000000000000C91 /* Workspace+MobilePaneReorder.swift in Sources */,
 				C3744E010000000000000001 /* Workspace+PanelLifecycle.swift in Sources */,
 				797800030000000000000001 /* Workspace+PersistentRemotePTYReattach.swift in Sources */,
 				791100010000000000000001 /* Workspace+RemoteDisconnectPlaceholder.swift in Sources */,

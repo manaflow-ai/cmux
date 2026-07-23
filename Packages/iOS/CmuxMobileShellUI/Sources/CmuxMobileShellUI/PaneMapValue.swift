@@ -1,4 +1,5 @@
 import CmuxMobileShellModel
+import CmuxMobileSupport
 
 /// Immutable workspace and status state rendered by ``PaneMapOverlay``.
 struct PaneMapValue: Equatable {
@@ -12,6 +13,41 @@ struct PaneMapValue: Equatable {
     var tabCount: Int {
         panes.reduce(into: 0) { count, pane in
             count += pane.surfaces.count
+        }
+    }
+
+    var countSubtitle: String {
+        switch (panes.count == 1, tabCount == 1) {
+        case (true, true):
+            return L10n.string(
+                "mobile.paneMap.count.onePane.oneTab",
+                defaultValue: "1 pane · 1 tab"
+            )
+        case (true, false):
+            return String.localizedStringWithFormat(
+                L10n.string(
+                    "mobile.paneMap.count.onePane.otherTabs",
+                    defaultValue: "1 pane · %d tabs"
+                ),
+                tabCount
+            )
+        case (false, true):
+            return String.localizedStringWithFormat(
+                L10n.string(
+                    "mobile.paneMap.count.otherPanes.oneTab",
+                    defaultValue: "%d panes · 1 tab"
+                ),
+                panes.count
+            )
+        case (false, false):
+            return String.localizedStringWithFormat(
+                L10n.string(
+                    "mobile.paneMap.count.otherPanes.otherTabs",
+                    defaultValue: "%d panes · %d tabs"
+                ),
+                panes.count,
+                tabCount
+            )
         }
     }
 
