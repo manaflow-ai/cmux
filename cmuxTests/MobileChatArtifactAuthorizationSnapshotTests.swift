@@ -55,6 +55,7 @@ struct MobileChatArtifactAuthorizationSnapshotTests {
             workspaceID: "workspace-authorized",
             surfaceID: nil,
             workingDirectory: authorizedProject.path,
+            workingDirectoryAuthority: .hook,
             transcriptPath: transcript.path,
             state: .idle,
             lastActivityAt: .now,

@@ -159,6 +159,7 @@ struct ArtifactRuntimeLifecycleTests {
             workspaceID: "workspace",
             surfaceID: nil,
             workingDirectory: root.path,
+            workingDirectoryAuthority: .hook,
             transcriptPath: nil,
             state: .idle,
             lastActivityAt: .now,

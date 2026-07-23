@@ -20,6 +20,9 @@ struct AgentChatSessionRecord: Sendable {
     /// The session's working directory, when known.
     var workingDirectory: String?
 
+    /// Whether the working directory may choose a local persistence root.
+    var workingDirectoryAuthority: AgentChatWorkingDirectoryAuthority = .unknown
+
     /// Absolute transcript JSONL path, when resolved.
     var transcriptPath: String?
 
@@ -72,6 +75,27 @@ struct AgentChatSessionRecord: Sendable {
         hasHookLifecycleState = false
     }
 
+    mutating func adoptObservedWorkingDirectory(
+        _ value: String?,
+        authority: AgentChatWorkingDirectoryAuthority
+    ) {
+        guard let value,
+              authority.authorizesArtifactPersistence
+                || !workingDirectoryAuthority.authorizesArtifactPersistence else {
+            return
+        }
+        workingDirectory = value
+        workingDirectoryAuthority = authority
+    }
+
+    mutating func setAuthoritativeWorkingDirectory(
+        _ value: String,
+        authority: AgentChatWorkingDirectoryAuthority
+    ) {
+        workingDirectory = value
+        workingDirectoryAuthority = authority
+    }
+
     /// Adopts terminal/transcript bindings from a hook-store entry. The
     /// store is rewritten by every hook event, so its non-nil fields are
     /// fresher than the record's (panel UUIDs change across app
@@ -92,7 +116,9 @@ struct AgentChatSessionRecord: Sendable {
         surfaceID = entry.surfaceID ?? surfaceID
         workspaceID = entry.workspaceID ?? workspaceID
         transcriptPath = entry.transcriptPath ?? transcriptPath
-        workingDirectory = entry.workingDirectory ?? workingDirectory
+        if let workingDirectory = entry.workingDirectory {
+            setAuthoritativeWorkingDirectory(workingDirectory, authority: .hook)
+        }
         if includingPID {
             pid = entry.pid ?? pid
         }
@@ -107,7 +133,10 @@ struct AgentChatSessionRecord: Sendable {
         if surfaceID == nil { surfaceID = entry.surfaceID }
         if workspaceID == nil { workspaceID = entry.workspaceID }
         if transcriptPath == nil { transcriptPath = entry.transcriptPath }
-        if workingDirectory == nil { workingDirectory = entry.workingDirectory }
+        if let workingDirectory = entry.workingDirectory,
+           !workingDirectoryAuthority.authorizesArtifactPersistence {
+            setAuthoritativeWorkingDirectory(workingDirectory, authority: .hook)
+        }
         if includingPID, pid == nil { pid = entry.pid }
     }
 

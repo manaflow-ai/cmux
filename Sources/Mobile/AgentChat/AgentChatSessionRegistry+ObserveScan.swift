@@ -17,7 +17,10 @@ extension AgentChatSessionRegistry {
         update(sessionID: current.sessionID) { record in
             record.workspaceID = session.workspaceID ?? record.workspaceID
             record.surfaceID = session.surfaceID
-            record.workingDirectory = session.workingDirectory ?? record.workingDirectory
+            record.adoptObservedWorkingDirectory(
+                session.workingDirectory,
+                authority: session.workingDirectoryAuthority
+            )
             record.transcriptPath = session.transcriptPath ?? record.transcriptPath
             record.pid = session.pid
             record.setProcessObservedIdle()
@@ -40,7 +43,10 @@ extension AgentChatSessionRegistry {
         update(sessionID: current.sessionID) { record in
             record.workspaceID = session.workspaceID ?? record.workspaceID
             record.surfaceID = session.surfaceID
-            record.workingDirectory = session.workingDirectory ?? record.workingDirectory
+            record.adoptObservedWorkingDirectory(
+                session.workingDirectory,
+                authority: session.workingDirectoryAuthority
+            )
             record.transcriptPath = session.transcriptPath ?? record.transcriptPath
             record.pid = session.pid
             record.setProcessObservedIdle()
@@ -263,6 +269,9 @@ extension AgentChatSessionRegistry {
             let explicitSessionOption = !isClaudeForkLaunch
                 && (argv.map(containsExplicitSessionOption(_:)) ?? false)
             guard let resolved = sessionID ?? (def.id == "claude" && !explicitSessionOption ? pendingClaudeSessionID(surfaceID: surfaceID.uuidString) : nil) else { continue }
+            let observedDirectory = AgentChatObservedWorkingDirectoryResolver().resolve(
+                environment: loadedDetails?.environment
+            )
             let candidate = Candidate(
                 session: ObservedAgentSession(
                     sessionID: resolved,
@@ -270,7 +279,8 @@ extension AgentChatSessionRegistry {
                     surfaceID: surfaceID.uuidString,
                     workspaceID: process.cmuxWorkspaceID?.uuidString,
                     pid: process.pid,
-                    workingDirectory: observedWorkingDirectory(details?.environment),
+                    workingDirectory: observedDirectory.path,
+                    workingDirectoryAuthority: observedDirectory.authority,
                     transcriptPath: transcriptPath,
                     sampledAt: snapshot.sampledAt
                 ),
@@ -382,17 +392,6 @@ extension AgentChatSessionRegistry {
     private nonisolated static func normalizedObserverValue(_ value: String?) -> String? {
         let trimmed = value?.trimmingCharacters(in: .whitespacesAndNewlines).lowercased()
         return trimmed?.isEmpty == false ? trimmed : nil
-    }
-
-    private nonisolated static func observedWorkingDirectory(_ environment: [String: String]?) -> String? {
-        guard let environment else { return nil }
-        for key in ["CMUX_AGENT_LAUNCH_CWD", "PWD"] {
-            if let value = environment[key]?.trimmingCharacters(in: .whitespacesAndNewlines),
-               !value.isEmpty {
-                return value
-            }
-        }
-        return nil
     }
 
     private func endedPendingClaudeSessionHasHistoryIdentity(_ record: AgentChatSessionRecord) -> Bool {
