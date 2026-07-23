@@ -3525,9 +3525,10 @@ def collect_findings(repo_root: pathlib.Path, roots: Iterable[str]) -> list[Find
         file_real_clock_aliases[rel_posix] = real_clock_aliases
 
     # Standard-library clocks are common enough that their test bundles retain
-    # the complete member index. Repository clocks are indexed only where their
-    # type (or a resolved alias) appears, plus lightweight declaration and
-    # inheritance metadata needed for cross-file identity checks.
+    # the complete member index. Repository-clock bundles collect member-type
+    # edges from every file once so chained containers resolve transitively,
+    # while real-clock classification stays limited to files that name the
+    # clock or one of its aliases.
     fully_indexed_bundles = set(literal_clock_bundles)
     fully_indexed_bundles.update(
         bundle
@@ -3552,17 +3553,6 @@ def collect_findings(repo_root: pathlib.Path, roots: Iterable[str]) -> list[Find
             for alias in repository_aliases_by_bundle[bundle]
         ):
             repository_clock_index_files.add(rel_posix)
-    repository_clock_owner_leaves: dict[str, set[str]] = {}
-    for rel_posix in repository_clock_index_files:
-        bundle = _swift_test_bundle_key(rel_posix)
-        owner_leaves = repository_clock_owner_leaves.setdefault(bundle, set())
-        owner_leaves.update(
-            match.group(2).rsplit(".", 1)[-1]
-            for match in _TYPE_SCOPE_HEADER.finditer(
-                swift_source_texts.get(rel_posix, "")
-            )
-        )
-
     bundle_members: dict[str, dict[str, set[str]]] = {}
     bundle_member_types: dict[
         str, dict[str, dict[str, set[str]]]
@@ -3584,19 +3574,6 @@ def collect_findings(repo_root: pathlib.Path, roots: Iterable[str]) -> list[Find
             rel_posix in repository_clock_index_files
         )
         has_inheritance = bool(_CLASS_INHERITANCE_HEADER.search(text))
-        if project_clock_only and not is_repository_clock_index_file:
-            has_related_declaration = any(
-                re.search(
-                    rf"\b(?:actor|class|enum|struct)\s+"
-                    rf"{re.escape(owner_leaf)}\b",
-                    text,
-                )
-                for owner_leaf in repository_clock_owner_leaves.get(
-                    bundle, set()
-                )
-            )
-            if not has_inheritance and not has_related_declaration:
-                continue
         masked_lines = [
             _strip_comment(line, ".swift")
             for line in _mask_noncode(text.splitlines(), ".swift")
@@ -3615,6 +3592,12 @@ def collect_findings(repo_root: pathlib.Path, roots: Iterable[str]) -> list[Find
                 _explicit_type_parents(masked_lines)
             )
         if project_clock_only and not is_repository_clock_index_file:
+            member_types = _explicit_member_types(masked_lines)
+            file_member_types[rel_posix] = member_types
+            _merge_member_type_index(
+                bundle_member_types.setdefault(bundle, {}),
+                member_types,
+            )
             continue
         visible_real_clock_types = file_visible_real_clock_types.get(
             rel_posix, set()
