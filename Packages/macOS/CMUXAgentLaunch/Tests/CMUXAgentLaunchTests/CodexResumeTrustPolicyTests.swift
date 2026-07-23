@@ -19,7 +19,7 @@ struct CodexResumeTrustPolicyTests {
                 """
             ) == [
                 "-c",
-                "projects.\"/Users/me/worktree\".trust_level=\"untrusted\"",
+                #"projects={"/Users/me/worktree"={trust_level="untrusted"}}"#,
             ]
         )
     }
@@ -57,7 +57,7 @@ struct CodexResumeTrustPolicyTests {
                 arguments: [
                     "codex",
                     "-c",
-                    "projects.\"/Users/me/repo\".trust_level=\"trusted\"",
+                    #"projects={"/Users/me/repo"={trust_level="trusted"}}"#,
                     "resume",
                     "SID",
                 ],
@@ -65,6 +65,27 @@ struct CodexResumeTrustPolicyTests {
                 repositoryRoot: "/Users/me/repo",
                 userConfigContents: nil
             ).isEmpty
+        )
+    }
+
+    @Test("Ineffective quoted dotted launch override is replaced")
+    func ineffectiveQuotedDottedOverrideIsReplaced() {
+        #expect(
+            policy.undecidedProjectOverride(
+                arguments: [
+                    "codex",
+                    "-c",
+                    #"projects."/Users/me/work.tree".trust_level="trusted""#,
+                    "resume",
+                    "SID",
+                ],
+                currentDirectory: "/Users/me/work.tree",
+                repositoryRoot: nil,
+                userConfigContents: nil
+            ) == [
+                "-c",
+                #"projects={"/Users/me/work.tree"={trust_level="untrusted"}}"#,
+            ]
         )
     }
 
@@ -113,7 +134,7 @@ struct CodexResumeTrustPolicyTests {
                 userConfigContents: nil
             ) == [
                 "-c",
-                "projects.\"\(canonical)\".trust_level=\"untrusted\"",
+                #"projects={"\#(canonical)"={trust_level="untrusted"}}"#,
             ]
         )
     }

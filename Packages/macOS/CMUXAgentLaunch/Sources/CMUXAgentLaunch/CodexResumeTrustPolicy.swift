@@ -41,7 +41,7 @@ public struct CodexResumeTrustPolicy: Sendable, Equatable {
         let escapedDirectory = tomlBasicStringContents(overrideDirectory)
         return [
             "-c",
-            "projects.\"\(escapedDirectory)\".trust_level=\"untrusted\"",
+            "projects={\"\(escapedDirectory)\"={trust_level=\"untrusted\"}}",
         ]
     }
 
@@ -126,11 +126,32 @@ public struct CodexResumeTrustPolicy: Sendable, Equatable {
         let key = override[..<equals].trimmingCharacters(in: .whitespaces)
         let value = override[override.index(after: equals)...]
             .trimmingCharacters(in: .whitespaces)
+        if key == "projects" {
+            return candidates.contains { inlineProjectDecision(override, path: $0) }
+        }
         guard isTrustLevelValue(value),
-              let path = projectPathFromDottedTrustKey(key) else {
+              let path = projectPathFromEffectiveCLITrustKey(key) else {
             return false
         }
         return candidates.contains(normalizedAbsolutePath(path) ?? path)
+    }
+
+    /// Codex CLI overrides split key paths on literal dots without parsing
+    /// quoted TOML key segments. Only an unquoted path without dots is an
+    /// effective dotted `projects.<path>.trust_level` override.
+    private func projectPathFromEffectiveCLITrustKey(_ key: String) -> String? {
+        guard key.hasPrefix("projects."),
+              key.hasSuffix(".trust_level") else {
+            return nil
+        }
+        let start = key.index(key.startIndex, offsetBy: "projects.".count)
+        let end = key.index(key.endIndex, offsetBy: -".trust_level".count)
+        let path = String(key[start..<end])
+        guard path.hasPrefix("/"),
+              !path.contains(".") else {
+            return nil
+        }
+        return path
     }
 
     private func userConfigContainsProjectTrustDecision(
