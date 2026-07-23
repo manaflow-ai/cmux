@@ -389,6 +389,10 @@ extension AgentNotificationRegressionTests {
             source: "codex",
             requestId: "pidless-approval"
         )
+        let pidlessTarget = try #require(FeedCoordinator.shared.surfaceBlockingDecisionAttention(
+            event: pidlessEvent,
+            resolved: (fixture.source.id, fixture.panelId)
+        ))
         let orderedEvent = WorkstreamEvent(
             sessionId: "codex-session",
             hookEventName: .permissionRequest,
@@ -397,11 +401,6 @@ extension AgentNotificationRegressionTests {
             ppid: Int(pid),
             extraFieldsJSON: #"{"_cmux_agent_status_signal":"needsInput","_cmux_agent_status_revision":1}"#
         )
-
-        let pidlessTarget = try #require(FeedCoordinator.shared.surfaceBlockingDecisionAttention(
-            event: pidlessEvent,
-            resolved: (fixture.source.id, fixture.panelId)
-        ))
         let orderedTarget = try #require(FeedCoordinator.shared.surfaceBlockingDecisionAttention(
             event: orderedEvent,
             resolved: (fixture.source.id, fixture.panelId)
