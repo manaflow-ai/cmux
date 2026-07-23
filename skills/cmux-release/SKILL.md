@@ -1,6 +1,6 @@
 ---
 name: cmux-release
-description: "cmux release workflow, version bumping, changelog updates, pretag guard, release tags, and release asset expectations. Use when preparing or troubleshooting a cmux release."
+description: "cmux release workflow, version bumping, Keep a Changelog release-note summaries from git log input, changelog updates, pretag guard, release tags, and release asset expectations. Use when preparing release notes, preparing a release, or troubleshooting a cmux release."
 ---
 
 # cmux Release
@@ -8,10 +8,29 @@ description: "cmux release workflow, version bumping, changelog updates, pretag 
 Use the `/release` command to prepare a new release. This will:
 
 1. Determine the new version (bumps minor by default)
-2. Gather commits since the last tag and update the changelog
-3. Update `CHANGELOG.md` (the docs changelog page at `web/app/docs/changelog/page.tsx` reads from it)
-4. Run `./scripts/bump-version.sh` to update both versions
-5. Commit, run `./scripts/release-pretag-guard.sh`, tag, and push
+2. Gather commits since the last version tag
+3. Draft user-facing release notes in Keep a Changelog 1.1.0 style
+4. Update `CHANGELOG.md` (the docs changelog page at `web/app/docs/changelog/page.tsx` reads from it)
+5. Run `./scripts/bump-version.sh` to update both versions
+6. Commit, run `./scripts/release-pretag-guard.sh`, tag, and push
+
+## Release notes
+
+Use the commit log as raw input, not final copy:
+
+```bash
+git fetch --tags origin
+previous_tag="$(git describe --tags --abbrev=0 --match 'v[0-9]*' --exclude '*-*')"
+git log --first-parent --reverse --oneline "${previous_tag}..HEAD"
+```
+
+Summarize notable user-facing changes into the existing `CHANGELOG.md` format:
+
+- Use `### Added`, `### Changed`, `### Deprecated`, `### Removed`, `### Fixed`, and `### Security`; omit empty sections.
+- Convert PR titles and commit subjects into clear outcomes for users.
+- Preserve PR links and community contributor credit when available.
+- Skip purely internal churn unless it affects users, compatibility, release assets, performance, or reliability.
+- Mention beta platform scope explicitly, such as `iOS (beta):`.
 
 ## Version bumping
 
@@ -51,4 +70,4 @@ gh run watch --repo manaflow-ai/cmux
 
 ## Detailed reference
 
-- Read [references/release-checklist.md](references/release-checklist.md) for a more detailed release checklist and common failure handling.
+- Read [references/release-checklist.md](references/release-checklist.md) for the detailed release checklist, changelog authoring workflow, and common failure handling.
