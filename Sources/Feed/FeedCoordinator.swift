@@ -293,7 +293,8 @@ final class FeedCoordinator: @unchecked Sendable {
         // buttons so the user can respond without switching windows.
         postNotificationIfStillAwaiting(event: accepted.event, requestId: requestId)
 
-        let deadline: DispatchTime = .now() + waitTimeout
+        let remainingDecisionTimeout = Self.remainingIngressTime(until: deliveryDeadline)
+        let deadline: DispatchTime = .now() + max(remainingDecisionTimeout, 0)
         let waitResult = semaphore.wait(timeout: deadline)
 
         waiterLock.lock()
@@ -352,6 +353,14 @@ final class FeedCoordinator: @unchecked Sendable {
             keys: Set(events.map(\.feedIngressDeliveryKey)),
             importance: importance
         )
+    }
+
+    private static func remainingIngressTime(
+        until deadline: ContinuousClock.Instant
+    ) -> TimeInterval {
+        let components = ContinuousClock.now.duration(to: deadline).components
+        return TimeInterval(components.seconds)
+            + TimeInterval(components.attoseconds) / 1_000_000_000_000_000_000
     }
 
     /// Concludes an attention overlay (if any) on the main actor, hopping if

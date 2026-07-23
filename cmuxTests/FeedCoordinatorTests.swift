@@ -469,6 +469,66 @@ struct FeedCoordinatorTests {
         }
     }
 
+    @Test func blockingIngestUsesOneEndToEndDeadline() async {
+        await MainActor.run {
+            FeedCoordinator.shared.install(store: WorkstreamStore(ringCapacity: 10))
+        }
+
+        let activeDeliveryStarted = DispatchSemaphore(value: 0)
+        let releaseActiveDelivery = DispatchSemaphore(value: 0)
+        defer { releaseActiveDelivery.signal() }
+        let activeEvent = WorkstreamEvent(
+            sessionId: "deadline-active-delivery",
+            hookEventName: .postToolUse,
+            source: "pi"
+        )
+        guard case .acknowledged(itemId: nil) = FeedCoordinator.shared.ingestBlocking(
+            event: activeEvent,
+            waitTimeout: 0,
+            onAccepted: { _ in
+                activeDeliveryStarted.signal()
+                releaseActiveDelivery.wait()
+            }
+        ) else {
+            Issue.record("failed to occupy the ordered Feed lane")
+            return
+        }
+        #expect(waitForFeedTestSignal(activeDeliveryStarted, timeout: .now() + 1) == .success)
+
+        let event = WorkstreamEvent(
+            sessionId: "single-deadline-test",
+            hookEventName: .permissionRequest,
+            source: "claude",
+            toolName: "Bash",
+            requestId: "single-deadline-request"
+        )
+        let done = DispatchSemaphore(value: 0)
+        let resultBox = IngestResultBox()
+        DispatchQueue.global(qos: .userInitiated).async {
+            resultBox.value = FeedCoordinator.shared.ingestBlocking(
+                event: event,
+                waitTimeout: 1
+            )
+            done.signal()
+        }
+        DispatchQueue.global(qos: .userInitiated).asyncAfter(deadline: .now() + 0.4) {
+            releaseActiveDelivery.signal()
+        }
+
+        let returnedWithinBudget = waitForFeedTestSignal(done, timeout: .now() + 1.25)
+        #expect(
+            returnedWithinBudget == .success,
+            "ordered admission and user decision must share one timeout budget"
+        )
+        if returnedWithinBudget == .timedOut {
+            _ = waitForFeedTestSignal(done, timeout: .now() + 1)
+        }
+        guard case .timedOut = resultBox.value else {
+            Issue.record("expected the unresolved permission request to time out")
+            return
+        }
+    }
+
     @Test func zeroWaitAcknowledgmentIncludesInsertedItem() async {
         await MainActor.run {
             let store = WorkstreamStore(ringCapacity: 10)
@@ -818,6 +878,13 @@ struct FeedCoordinatorTests {
             DispatchQueue.main.sync(execute: reset)
         }
     }
+}
+
+private func waitForFeedTestSignal(
+    _ semaphore: DispatchSemaphore,
+    timeout: DispatchTime
+) -> DispatchTimeoutResult {
+    semaphore.wait(timeout: timeout)
 }
 
 private final class IngestResultBox: @unchecked Sendable {

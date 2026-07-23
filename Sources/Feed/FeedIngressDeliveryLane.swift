@@ -8,6 +8,7 @@ final class FeedIngressDeliveryLane: @unchecked Sendable {
     private typealias Delivery = @Sendable () -> Void
 
     private struct PendingDelivery: Sendable {
+        let synchronousID: UUID?
         let metadata: FeedIngressDeliveryMetadata
         let isZeroWait: Bool
         let execute: Delivery
@@ -15,6 +16,7 @@ final class FeedIngressDeliveryLane: @unchecked Sendable {
 
     private static let maximumPendingZeroWaitDeliveries = 32
     private static let maximumPendingOrdinaryZeroWaitDeliveries = 24
+    private static let maximumPendingSynchronousDeliveries = 32
     private static let maximumPriorityBurst = 8
     private static let sessionCriticalOverflowTimeout: TimeInterval = 3
 
@@ -29,6 +31,7 @@ final class FeedIngressDeliveryLane: @unchecked Sendable {
     private var pendingDeliveries: [PendingDelivery] = []
     private var pendingZeroWaitCount = 0
     private var pendingOrdinaryZeroWaitCount = 0
+    private var pendingSynchronousCount = 0
     private var drainScheduled = false
     private var consecutivePrioritySelections = 0
 
@@ -38,18 +41,27 @@ final class FeedIngressDeliveryLane: @unchecked Sendable {
         timeout: TimeInterval,
         _ delivery: @escaping @Sendable () -> Result
     ) -> Result? {
+        precondition(timeout > 0, "Synchronous Feed ingress requires a positive timeout")
         let result = FeedIngressSynchronousResult<Result>()
-        let shouldScheduleDrain = append(
+        let synchronousID = UUID()
+        guard let shouldScheduleDrain = appendSynchronous(
             PendingDelivery(
+                synchronousID: synchronousID,
                 metadata: metadata,
                 isZeroWait: false,
                 execute: {
                     result.resolve(with: delivery)
                 }
             )
-        )
+        ) else {
+            return nil
+        }
         scheduleDrainIfNeeded(shouldScheduleDrain)
-        return result.wait(timeout: timeout)
+        let value = result.wait(timeout: timeout)
+        if value == nil {
+            cancelPendingSynchronousDelivery(id: synchronousID)
+        }
+        return value
     }
 
     /// Admits a typed zero-wait delivery when its bounded capacity class has room.
@@ -79,6 +91,7 @@ final class FeedIngressDeliveryLane: @unchecked Sendable {
         pendingZeroWaitCount += 1
         pendingDeliveries.append(
             PendingDelivery(
+                synchronousID: nil,
                 metadata: metadata,
                 isZeroWait: true,
                 execute: delivery
@@ -90,12 +103,26 @@ final class FeedIngressDeliveryLane: @unchecked Sendable {
         return true
     }
 
-    private func append(_ delivery: PendingDelivery) -> Bool {
+    private func appendSynchronous(_ delivery: PendingDelivery) -> Bool? {
         admissionLock.lock()
+        guard pendingSynchronousCount < Self.maximumPendingSynchronousDeliveries else {
+            admissionLock.unlock()
+            return nil
+        }
+        pendingSynchronousCount += 1
         pendingDeliveries.append(delivery)
         let shouldScheduleDrain = beginDrainIfNeeded()
         admissionLock.unlock()
         return shouldScheduleDrain
+    }
+
+    private func cancelPendingSynchronousDelivery(id: UUID) {
+        admissionLock.lock()
+        if let index = pendingDeliveries.firstIndex(where: { $0.synchronousID == id }) {
+            pendingDeliveries.remove(at: index)
+            pendingSynchronousCount -= 1
+        }
+        admissionLock.unlock()
     }
 
     /// Called only while `admissionLock` is held.
@@ -129,6 +156,8 @@ final class FeedIngressDeliveryLane: @unchecked Sendable {
             if delivery.metadata.importance == .ordinary {
                 pendingOrdinaryZeroWaitCount -= 1
             }
+        } else {
+            pendingSynchronousCount -= 1
         }
         admissionLock.unlock()
 

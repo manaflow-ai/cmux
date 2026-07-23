@@ -9,6 +9,70 @@ import CMUXAgentLaunch
 #endif
 
 extension FeedCoordinatorTests {
+    @Test func synchronousDeliveryBacklogIsBounded() {
+        let lane = FeedIngressDeliveryLane()
+        let activeDeliveryStarted = DispatchSemaphore(value: 0)
+        let releaseActiveDelivery = DispatchSemaphore(value: 0)
+        let submissionReady = DispatchSemaphore(value: 0)
+        let releaseSubmissions = DispatchSemaphore(value: 0)
+        let submissionReturned = DispatchSemaphore(value: 0)
+        defer {
+            releaseActiveDelivery.signal()
+            for _ in 0..<33 {
+                releaseSubmissions.signal()
+            }
+        }
+
+        let activeAccepted = lane.enqueueZeroWait(
+            metadata: FeedIngressDeliveryMetadata(
+                keys: [FeedIngressDeliveryKey(source: "pi", sessionId: "active")],
+                importance: .ordinary
+            )
+        ) {
+            activeDeliveryStarted.signal()
+            releaseActiveDelivery.wait()
+        }
+        #expect(activeAccepted)
+        #expect(activeDeliveryStarted.wait(timeout: .now() + 1) == .success)
+
+        for index in 0..<33 {
+            Thread.detachNewThread {
+                submissionReady.signal()
+                releaseSubmissions.wait()
+                _ = lane.perform(
+                    metadata: FeedIngressDeliveryMetadata(
+                        keys: [
+                            FeedIngressDeliveryKey(
+                                source: "pi",
+                                sessionId: "synchronous-\(index)"
+                            )
+                        ],
+                        importance: .acknowledged
+                    ),
+                    timeout: 2
+                ) {
+                    true
+                }
+                submissionReturned.signal()
+            }
+        }
+        for _ in 0..<33 {
+            #expect(submissionReady.wait(timeout: .now() + 1) == .success)
+        }
+        for _ in 0..<33 {
+            releaseSubmissions.signal()
+        }
+
+        #expect(
+            submissionReturned.wait(timeout: .now() + 0.5) == .success,
+            "one synchronous submission must be rejected at bounded capacity"
+        )
+        releaseActiveDelivery.signal()
+        for _ in 0..<32 {
+            #expect(submissionReturned.wait(timeout: .now() + 2) == .success)
+        }
+    }
+
     @Test func synchronousDeliveryTimeoutReleasesCallerWhileDeliveryIsRunning() {
         let lane = FeedIngressDeliveryLane()
         let deliveryStarted = DispatchSemaphore(value: 0)
