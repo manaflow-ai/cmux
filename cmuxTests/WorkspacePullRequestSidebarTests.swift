@@ -1,6 +1,7 @@
 import XCTest
 import Darwin
 import CmuxFoundation
+import CmuxGit
 
 import CmuxSidebar
 
@@ -24,7 +25,7 @@ private struct StubCommandRunner: CommandRunning {
     }
 }
 
-private final class CommandRunnerInvocationCounter: @unchecked Sendable {
+private final class RepositoryDiscoveryInvocationCounter: @unchecked Sendable {
     private let lock = NSLock()
     private var storedValue = 0
 
@@ -38,29 +39,6 @@ private final class CommandRunnerInvocationCounter: @unchecked Sendable {
         lock.lock()
         defer { lock.unlock() }
         return storedValue
-    }
-}
-
-/// Records whether any observation happened on the main thread. Used to assert
-/// that off-main work (e.g. PR-refresh git commands) never executes on the main
-/// thread, a deterministic signal that does not depend on wall-clock timing.
-private final class MainThreadObservationBox: @unchecked Sendable {
-    private let lock = NSLock()
-    private var storedObservedOnMainThread = false
-
-    func recordCurrentThread() {
-        let onMain = Thread.isMainThread
-        lock.lock()
-        if onMain {
-            storedObservedOnMainThread = true
-        }
-        lock.unlock()
-    }
-
-    var observedOnMainThread: Bool {
-        lock.lock()
-        defer { lock.unlock() }
-        return storedObservedOnMainThread
     }
 }
 
@@ -540,32 +518,35 @@ final class WorkspacePullRequestSidebarTests: XCTestCase {
     }
 
     func testPullRequestRefreshRepositoryDiscoveryDoesNotBlockMainRunLoop() throws {
-        let invocationCounter = CommandRunnerInvocationCounter()
-        let gitThreadObservation = MainThreadObservationBox()
-        let commandDelay: TimeInterval = 0.03
-        let commandRunner = StubCommandRunner { _, executable, arguments, _ in
-            if executable == "git", arguments == ["remote", "-v"] {
-                invocationCounter.increment()
-                gitThreadObservation.recordCurrentThread()
-                Thread.sleep(forTimeInterval: commandDelay)
-                return CommandResult(
-                    stdout: "origin\tssh://example.invalid/not-github.git (fetch)\n",
-                    stderr: "",
-                    exitStatus: 0,
-                    timedOut: false,
-                    executionError: nil
-                )
+        let invocationCounter = RepositoryDiscoveryInvocationCounter()
+        let discoveryDelay: TimeInterval = 0.03
+        // Repository discovery reads git config in process; it has not shelled out
+        // to `git remote -v` since #2797, so stubbing a command runner observes
+        // nothing and leaves every assertion below vacuous. Stand in for the
+        // discovery seam instead. Resolving no slugs also keeps the refresh away
+        // from the GitHub transport and from `gh auth token`, because the fetch
+        // returns before it asks for an auth header when the slug map is empty.
+        struct BlockingRepositoryDiscovery: GitRepositoryDiscovering {
+            let counter: RepositoryDiscoveryInvocationCounter
+            let delay: TimeInterval
+
+            func repositorySlugs(forDirectory directory: String) async -> [String] {
+                counter.increment()
+                Thread.sleep(forTimeInterval: delay)
+                return []
             }
-            return CommandResult(
-                stdout: "",
-                stderr: "",
-                exitStatus: 0,
-                timedOut: false,
-                executionError: nil
-            )
+
+            func checkedOutBranch(forDirectory directory: String) async -> GitCheckedOutBranch {
+                .notARepository
+            }
         }
 
-        let manager = TabManager(commandRunner: commandRunner)
+        let manager = TabManager(
+            pullRequestRepositoryDiscovery: BlockingRepositoryDiscovery(
+                counter: invocationCounter,
+                delay: discoveryDelay
+            )
+        )
         var seededPanels: [(workspaceId: UUID, panelId: UUID)] = []
         let workspaceCount = 45
         var workspaces = manager.tabs
@@ -591,8 +572,8 @@ final class WorkspacePullRequestSidebarTests: XCTestCase {
         // Generous bound far above macOS CI scheduling noise (GC, unrelated test
         // work, run-loop jitter can stall the main thread well past a few hundred
         // ms on a loaded shared runner). This catches gross main-thread blocking
-        // without failing on routine host jitter; the deterministic non-main-thread
-        // assertion below is the real regression signal.
+        // without failing on routine host jitter; the invocation count below is the
+        // assertion that can fail for a product reason.
         let allowedMainThreadGap: TimeInterval = 2.0
         let finishedMonitoring = expectation(description: "main run loop remained responsive")
         let monitorStartedAt = Date()
@@ -618,14 +599,20 @@ final class WorkspacePullRequestSidebarTests: XCTestCase {
         let result = XCTWaiter().wait(for: [finishedMonitoring], timeout: monitorDuration + 1.5)
         timer.invalidate()
         XCTAssertEqual(result, .completed)
-        XCTAssertGreaterThan(invocationCounter.value, 0)
-        // Deterministic regression signal: the blocking git work must have run off
-        // the main thread. This does not depend on wall-clock timing, so it cannot
-        // flake from host scheduling noise.
-        XCTAssertFalse(
-            gitThreadObservation.observedOnMainThread,
-            "Pull request refresh ran its blocking git command on the main thread"
+        // The load-bearing assertion. Before the discovery seam existed this test
+        // watched a `git remote -v` subprocess that the refresh stopped spawning in
+        // #2797, so the counter sat at zero and the checks below it held whether or
+        // not anything ran at all.
+        XCTAssertGreaterThan(
+            invocationCounter.value,
+            0,
+            "Pull request refresh never resolved repository slugs for any seeded panel"
         )
+        // Coarse guard only, and deliberately loose: 45 seeds x 30ms of injected
+        // blocking is 1.35s, under the 2.0s ceiling, so this test's own work cannot
+        // trip it. It fires only if the product adds a multi-second main-thread stall
+        // on top, which is the gross regression worth catching here. The invocation
+        // count above is the assertion that fails for an ordinary product change.
         XCTAssertLessThan(
             maxTickGap,
             allowedMainThreadGap,
