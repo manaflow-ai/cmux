@@ -44,19 +44,20 @@ extension CMUXCLI {
             )
         }
 
-        let argv = [executable] + translated
-        var cArguments = argv.map { strdup($0) } + [nil]
+        var cArguments: [UnsafeMutablePointer<CChar>?] = []
+        for argument in [executable] + translated {
+            guard let duplicated = strdup(argument) else {
+                Self.freeHerdrCompatArguments(cArguments)
+                throw herdrCompatLaunchError()
+            }
+            cArguments.append(duplicated)
+        }
+        cArguments.append(nil)
         defer { Self.freeHerdrCompatArguments(cArguments) }
         _ = cliExecFailureErrno {
             execv(executable, &cArguments)
         }
-        throw CLIError(
-            message: String(
-                localized: "cli.herdrCompat.error.launchFailed",
-                defaultValue: "Couldn't start the required command. Verify it is installed and try again."
-            ),
-            exitCode: 126
-        )
+        throw herdrCompatLaunchError()
     }
 
     static func herdrCompatArguments(
@@ -85,8 +86,18 @@ extension CMUXCLI {
         herdrCompatCommands.map(\.name).joined(separator: ", ")
     }
 
+    private func herdrCompatLaunchError() -> CLIError {
+        CLIError(
+            message: String(
+                localized: "cli.herdrCompat.error.launchFailed",
+                defaultValue: "Couldn't start the required command. Verify it is installed and try again."
+            ),
+            exitCode: 126
+        )
+    }
+
     private static func freeHerdrCompatArguments(_ arguments: [UnsafeMutablePointer<CChar>?]) {
-        arguments.dropLast().forEach { free($0) }
+        arguments.forEach { free($0) }
     }
 
     private static var herdrCompatUsage: String {
