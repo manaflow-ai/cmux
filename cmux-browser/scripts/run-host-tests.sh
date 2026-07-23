@@ -8,6 +8,7 @@ set -euo pipefail
 
 ROOT="$(cd "$(dirname "$0")/.." && pwd)"
 TEST_DIR="$ROOT/overlay/chrome/browser/cmux_term"
+TERMINAL_HOST_TEST_DIR="$ROOT/overlay/chrome/services/cmux_terminal_renderer/public/cpp"
 TMP_OUT="$(mktemp -d)"
 trap 'rm -rf "$TMP_OUT"' EXIT
 
@@ -29,3 +30,11 @@ CXXFLAGS=(
 
 "$TMP_OUT/cmux_tui_protocol_test"
 echo "PASS cmux_tui_protocol_test.cc"
+
+"$CXX" "${CXXFLAGS[@]}" \
+  "$TERMINAL_HOST_TEST_DIR/cmux_terminal_host_protocol.cc" \
+  "$TERMINAL_HOST_TEST_DIR/cmux_terminal_host_protocol_test.cc" \
+  -o "$TMP_OUT/cmux_terminal_host_protocol_test"
+
+"$TMP_OUT/cmux_terminal_host_protocol_test"
+echo "PASS cmux_terminal_host_protocol_test.cc"

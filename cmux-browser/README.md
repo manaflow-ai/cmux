@@ -21,7 +21,7 @@ The public import is staged deliberately:
 The source snapshot is not release-ready until every item in
 [`IMPORT_PROVENANCE.md`](IMPORT_PROVENANCE.md) is resolved.
 
-### Current public slice
+### Current public slices
 
 The first source slice is the host-compilable browser-to-cmux-TUI protocol
 core:
@@ -31,7 +31,18 @@ core:
 
 It covers protocol identity, durable-registry revision fencing, ordered
 workspace events, input backpressure, resize coalescing, replay palette
-filtering, and JSON-lines framing. Run it without Chromium:
+filtering, and JSON-lines framing.
+
+The second source slice adds the host-compilable binary protocol shared by
+the terminal-host process and each renderer:
+
+- `overlay/chrome/services/cmux_terminal_renderer/public/cpp/cmux_terminal_host_protocol.{h,cc}`
+- `overlay/chrome/services/cmux_terminal_renderer/public/cpp/cmux_terminal_host_protocol_test.cc`
+
+It covers framed streaming, authenticated renderer grants, bootstrap and
+snapshot payloads, sparse terminal colors and cursor state, viewer-size
+acknowledgements, and protocol error handling. Run both slices without
+Chromium:
 
 ```sh
 ./cmux-browser/scripts/run-host-tests.sh
