@@ -483,6 +483,95 @@ await handlers.get("agent_end")({
     return 0
 
 
+def check_cross_session_feed_isolation(bun: str, root: Path, extension_path: Path) -> int:
+    isolation_log = root / "cross-session-isolation-cmux.log"
+    isolation_release = root / "cross-session-isolation-release"
+    isolation_cmux = root / "cross-session-isolation-cmux"
+    make_executable(
+        isolation_cmux,
+        """#!/usr/bin/env bash
+set -euo pipefail
+payload="$(cat)"
+printf '%s|%s\n' "$*" "$payload" >> "$CMUX_TEST_PI_ISOLATION_LOG"
+if [[ "$payload" == *'"session_id":"pi-stalled-session-a"'* ]] && [[ "$*" == *"hooks feed"* ]]; then
+  while [ ! -f "$CMUX_TEST_PI_ISOLATION_RELEASE" ]; do sleep 0.02; done
+fi
+printf '{}\n'
+""",
+    )
+    isolation_source = """
+import { writeFileSync } from "node:fs";
+const extensionPath = process.env.CMUX_TEST_PI_EXTENSION_PATH;
+const mod = await import(extensionPath);
+const handlers = new Map();
+mod.default({ on(name, handler) { handlers.set(name, handler); } });
+const context = (sessionId, cwd) => ({
+  cwd,
+  sessionManager: { getSessionId() { return sessionId; } }
+});
+const sessionA = context("pi-stalled-session-a", "/tmp/pi-stalled-a");
+const sessionB = context("pi-healthy-session-b", "/tmp/pi-healthy-b");
+handlers.get("tool_execution_end")({
+  toolCallId: "stalled-tool-a",
+  toolName: "bash",
+  result: { status: "stalled" },
+  isError: false
+}, sessionA);
+const logPath = process.env.CMUX_TEST_PI_ISOLATION_LOG;
+while (!Bun.file(logPath).size) {
+  await new Promise((resolve) => setTimeout(resolve, 10));
+}
+handlers.get("tool_execution_end")({
+  toolCallId: "healthy-tool-b",
+  toolName: "bash",
+  result: { status: "ok" },
+  isError: false
+}, sessionB);
+await handlers.get("agent_end")({
+  messages: [{ role: "assistant", content: "session b done" }],
+  stopReason: "completed"
+}, sessionB);
+writeFileSync(process.env.CMUX_TEST_PI_ISOLATION_RELEASE, "ready");
+await handlers.get("agent_end")({
+  messages: [{ role: "assistant", content: "session a done" }],
+  stopReason: "completed"
+}, sessionA);
+"""
+    isolation = run_extension(
+        bun=bun,
+        root=root,
+        extension_path=extension_path,
+        fake_cmux=isolation_cmux,
+        source=isolation_source,
+        extra_env={
+            "CMUX_TEST_PI_ISOLATION_LOG": str(isolation_log),
+            "CMUX_TEST_PI_ISOLATION_RELEASE": str(isolation_release),
+        },
+    )
+    if isolation.returncode != 0:
+        print(f"FAIL: cross-session isolation harness failed: {isolation.stderr!r}")
+        return 1
+    calls = isolation_log.read_text(encoding="utf-8").splitlines()
+    session_b_feed_indexes = [
+        index
+        for index, line in enumerate(calls)
+        if "hooks feed" in line and '"session_id":"pi-healthy-session-b"' in line
+    ]
+    session_b_notification_indexes = [
+        index
+        for index, line in enumerate(calls)
+        if "hooks pi notification" in line and '"session_id":"pi-healthy-session-b"' in line
+    ]
+    if not session_b_feed_indexes:
+        print(f"FAIL: stalled session A discarded session B feed work: {calls!r}")
+        return 1
+    if not session_b_notification_indexes or session_b_feed_indexes[0] > session_b_notification_indexes[0]:
+        print(f"FAIL: session B lifecycle ran before its isolated feed work: {calls!r}")
+        return 1
+
+    return 0
+
+
 def make_feed_lifecycle_cmux(root: Path, name: str) -> Path:
     cmux = root / name
     make_executable(
@@ -1100,6 +1189,7 @@ def run_checks(bun: str, root: Path, extension_path: Path) -> int:
         check_terminal_feed_compaction,
         check_feed_payload_byte_bound,
         check_cross_session_feed_ownership,
+        check_cross_session_feed_isolation,
         check_feed_cancellation,
         check_completion_order,
         check_completion_drain_deadline,
