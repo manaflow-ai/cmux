@@ -8,14 +8,14 @@ extension LocalArtifactRepository: NoteStoring {
     public func listNotes(projectRoot: URL) throws -> [CmuxProjectNote] {
         let paths = ArtifactStorePaths(projectRoot: projectRoot)
         try prepare(paths: paths)
-        return CmuxProjectNoteResolver().notes(snapshot: try completeSnapshot(paths: paths))
+        return try noteResolver.notes(snapshot: completeSnapshot(paths: paths))
     }
 
     /// Resolves a live note after arbitrary file or session-folder moves.
     public func resolveNote(projectRoot: URL, name: String) throws -> CmuxProjectNote {
         let paths = ArtifactStorePaths(projectRoot: projectRoot)
         try prepare(paths: paths)
-        return try CmuxProjectNoteResolver().resolve(
+        return try noteResolver.resolve(
             snapshot: completeSnapshot(paths: paths),
             rawName: name
         )
@@ -100,7 +100,7 @@ extension LocalArtifactRepository: NoteStoring {
         ) else {
             throw CmuxNoteStoreError.pathOutsideStore(plan.destination.path)
         }
-        return CmuxProjectNoteResolver().note(node)
+        return noteResolver.note(node)
     }
 
     /// Searches only live Markdown notes while sharing artifact search bounds.
@@ -108,11 +108,11 @@ extension LocalArtifactRepository: NoteStoring {
         let paths = ArtifactStorePaths(projectRoot: projectRoot)
         try prepare(paths: paths)
         let snapshot = try completeSnapshot(paths: paths)
-        let resolver = CmuxProjectNoteResolver()
+        let resolver = noteResolver
         let noteSnapshot = ArtifactSnapshot(
             projectRoot: snapshot.projectRoot,
             filesystemRoot: snapshot.filesystemRoot,
-            nodes: resolver.noteNodes(snapshot: snapshot),
+            nodes: try resolver.noteNodes(snapshot: snapshot),
             isTruncated: false
         )
         return try ArtifactSearchEngine(configuration: configuration(projectRoot: projectRoot))
@@ -135,7 +135,7 @@ extension LocalArtifactRepository: NoteStoring {
         try prepare(paths: paths)
         let lease = try ArtifactStoreMutationLease.acquire(directory: paths.filesystemRoot)
         defer { lease.finish() }
-        let resolver = CmuxProjectNoteResolver()
+        let resolver = noteResolver
         let note = try resolver.resolveExact(
             notes: resolver.notes(snapshot: completeSnapshot(paths: paths)),
             rawName: name
@@ -151,8 +151,9 @@ extension LocalArtifactRepository: NoteStoring {
         context: ArtifactCaptureContext,
         paths: ArtifactStorePaths
     ) throws -> CmuxNoteWritePlan {
-        let resolver = CmuxProjectNoteResolver()
+        let resolver = noteResolver
         let snapshot = try completeSnapshot(paths: paths)
+        let allNotes = try resolver.notes(snapshot: snapshot)
         let pathResolver = ArtifactPathResolver()
         let resolution = try ArtifactCaptureDirectoryFinder(
             fileManager: fileManager,
@@ -174,10 +175,10 @@ extension LocalArtifactRepository: NoteStoring {
         )
         let candidateNotes: [CmuxProjectNote]
         if rawName.hasPrefix(".cmux/") {
-            candidateNotes = resolver.notes(snapshot: snapshot)
+            candidateNotes = allNotes
         } else if let contentRelativePath {
             let prefix = contentRelativePath + "/"
-            candidateNotes = resolver.notes(snapshot: snapshot).filter {
+            candidateNotes = allNotes.filter {
                 $0.relativePath.hasPrefix(prefix)
             }
         } else {
@@ -229,6 +230,14 @@ extension LocalArtifactRepository: NoteStoring {
               await validator.permits(destinations: plan.privacyDestinations) else {
             throw ArtifactStoreError.gitPrivacyUnavailable(paths.filesystemRoot.path)
         }
+    }
+
+    private var noteResolver: CmuxProjectNoteResolver {
+        CmuxProjectNoteResolver(
+            fileManager: fileManager,
+            decoder: decoder,
+            nodeBudget: nodeBudget
+        )
     }
 
     private func noteText(_ note: CmuxProjectNote, paths: ArtifactStorePaths) throws -> String {

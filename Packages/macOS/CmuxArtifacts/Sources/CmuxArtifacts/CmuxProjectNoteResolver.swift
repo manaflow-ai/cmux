@@ -1,19 +1,39 @@
 import Foundation
 
-/// Pure live-tree projection and name resolution for cmux Notes.
+/// Marker-backed live-tree projection and name resolution for cmux Notes.
 struct CmuxProjectNoteResolver {
     private static let allowedExtensions: Set<String> = ["md", "markdown"]
+    let fileManager: FileManager
+    let decoder: JSONDecoder
+    let nodeBudget: Int
 
-    func notes(snapshot: ArtifactSnapshot) -> [CmuxProjectNote] {
-        noteNodes(snapshot: snapshot)
+    func notes(snapshot: ArtifactSnapshot) throws -> [CmuxProjectNote] {
+        try noteNodes(snapshot: snapshot)
             .map(note)
             .sorted {
                 $0.relativePath.localizedStandardCompare($1.relativePath) == .orderedAscending
             }
     }
 
-    func noteNodes(snapshot: ArtifactSnapshot) -> [ArtifactNode] {
-        snapshot.nodes.flattenedArtifactNodes().filter(isNoteNode)
+    func noteNodes(snapshot: ArtifactSnapshot) throws -> [ArtifactNode] {
+        let paths = ArtifactStorePaths(projectRoot: snapshot.projectRoot)
+        let pathResolver = ArtifactPathResolver()
+        let noteRootPaths = Set(
+            try ArtifactMarkerDirectoryCatalog(
+                fileManager: fileManager,
+                decoder: decoder,
+                nodeBudget: nodeBudget
+            ).sessionDirectories(
+                paths: paths,
+                pathResolver: pathResolver
+            ).compactMap { entry in
+                pathResolver.relativePath(entry.directory, root: paths.filesystemRoot)
+                    .map { $0 + "/\(CmuxSessionContentKind.notes.rawValue)" }
+            }
+        )
+        return snapshot.nodes.flattenedArtifactNodes().filter { node in
+            isNoteNode(node, noteRootPaths: noteRootPaths)
+        }
     }
 
     func resolve(snapshot: ArtifactSnapshot, rawName: String) throws -> CmuxProjectNote {
@@ -125,13 +145,21 @@ struct CmuxProjectNoteResolver {
         )
     }
 
-    private func isNoteNode(_ node: ArtifactNode) -> Bool {
+    private func isNoteNode(
+        _ node: ArtifactNode,
+        noteRootPaths: Set<String>
+    ) -> Bool {
         guard !node.isDirectory,
               Self.allowedExtensions.contains(
                   URL(fileURLWithPath: node.name).pathExtension.lowercased()
               ) else { return false }
-        let parentComponents = node.relativePath.split(separator: "/").dropLast()
-        return parentComponents.contains("notes")
+        let components = node.relativePath.split(separator: "/")
+        return components.indices.contains { index in
+            components[index] == Substring(CmuxSessionContentKind.notes.rawValue)
+                && noteRootPaths.contains(
+                    components[...index].joined(separator: "/")
+                )
+        }
     }
 
     private func normalizedReference(_ rawName: String) -> String {
