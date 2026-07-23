@@ -13836,7 +13836,7 @@ class TerminalController {
             return .absent
         }
         guard let value = TimeInterval(normalized),
-              value.isPlausibleAgentEventTime else {
+              value.isPlausibleControlAgentEventTime else {
             return .invalid(normalized)
         }
         return .valid(value)
@@ -13845,7 +13845,7 @@ class TerminalController {
     nonisolated func invalidAgentEventTimeError(_ raw: String) -> String {
         let format = String(
             localized: "socket.agentEventTime.error.invalid",
-            defaultValue: "ERROR: Invalid agent event time '%@' - must be between 2000-01-01 and 2100-01-01 UTC"
+            defaultValue: "ERROR: Invalid agent event time '%@' - must be between 2000-01-01 and 5 minutes from now"
         )
         return String(format: format, locale: Locale.current, raw)
     }

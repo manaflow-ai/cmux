@@ -163,7 +163,7 @@ extension TerminalController {
     nonisolated func controlSurfaceInvalidAgentEventTimeError() -> String {
         String(
             localized: "socket.surfaceResume.error.invalidAgentEventTime",
-            defaultValue: "Missing or invalid agent_event_time; expected Unix seconds between 2000-01-01 and 2100-01-01 UTC"
+            defaultValue: "Missing or invalid agent_event_time; expected Unix seconds between 2000-01-01 and 5 minutes from now"
         )
     }
 
@@ -195,18 +195,6 @@ extension TerminalController {
         ) else {
             return .surfaceNotFound
         }
-        guard target.workspace.acceptsSurfaceResumeBindingMutation(
-            panelId: target.surfaceId,
-            agentEventTime: inputs.agentEventTime
-        ) else {
-            return .result(surfaceResumeSnapshot(
-                tabManager: target.tabManager,
-                workspace: target.workspace,
-                surfaceId: target.surfaceId,
-                binding: target.workspace.surfaceResumeBinding(panelId: target.surfaceId),
-                cleared: false
-            ))
-        }
         let locatedBinding: SurfaceResumeBindingSnapshot
         if let remoteWorkspaceID = inputs.remoteWorkspaceID {
             guard remoteWorkspaceID == target.workspace.id,
@@ -221,6 +209,18 @@ extension TerminalController {
             locatedBinding = binding.registeredForPersistentSSH(context)
         } else {
             locatedBinding = binding
+        }
+        guard target.workspace.acceptsSurfaceResumeBindingMutation(
+            panelId: target.surfaceId,
+            agentEventTime: inputs.agentEventTime
+        ) else {
+            return .result(surfaceResumeSnapshot(
+                tabManager: target.tabManager,
+                workspace: target.workspace,
+                surfaceId: target.surfaceId,
+                binding: target.workspace.surfaceResumeBinding(panelId: target.surfaceId),
+                cleared: false
+            ))
         }
         let effectiveBinding = surfaceResumeBindingWithApproval(locatedBinding)
         guard target.workspace.setSurfaceResumeBinding(

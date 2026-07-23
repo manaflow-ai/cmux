@@ -45,7 +45,6 @@ extension CMUXCLI {
         if let captured = parseAgentHookTimeValue(ProcessInfo.processInfo.environment["CMUX_AGENT_HOOK_CAPTURED_AT"]) {
             return captured
         }
-        let maximumPayloadEventTime = Date().timeIntervalSince1970 + 5 * 60
         let keys = [
             "cmux_event_time", "cmuxEventTime",
             "event_time", "eventTime",
@@ -53,8 +52,7 @@ extension CMUXCLI {
         ]
         if let rawObject {
             for key in keys {
-                if let parsed = parseAgentHookTimeValue(rawObject[key]),
-                   parsed <= maximumPayloadEventTime {
+                if let parsed = parseAgentHookTimeValue(rawObject[key]) {
                     return parsed
                 }
             }
@@ -90,10 +88,11 @@ extension CMUXCLI {
     private func normalizeAgentHookEpochSeconds(_ rawValue: TimeInterval) -> TimeInterval? {
         guard rawValue.isFinite, rawValue > 0 else { return nil }
         let seconds = rawValue > 10_000_000_000 ? rawValue / 1_000 : rawValue
-        // Keep numeric payload timestamps in a plausible wall-clock range after
-        // normalizing millisecond epochs, so unrelated counters cannot poison
+        // Keep payload and environment timestamps near the current wall clock
+        // after normalizing millisecond epochs, so a future value cannot poison
         // ordering permanently.
-        guard seconds >= 946_684_800, seconds <= 4_102_444_800 else { return nil }
+        guard seconds >= 946_684_800,
+              seconds <= Date().timeIntervalSince1970 + 5 * 60 else { return nil }
         return seconds
     }
 

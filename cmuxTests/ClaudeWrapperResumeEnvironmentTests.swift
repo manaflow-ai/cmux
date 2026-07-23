@@ -207,7 +207,6 @@ import Testing
         let monotonicClockDirectory = sandbox.appendingPathComponent("cmux-agent-hook-clock-v2", isDirectory: true)
         let monotonicClockState = monotonicClockDirectory.appendingPathComponent("state", isDirectory: false)
         let seededMicros: Int64 = 1_893_456_000_123_456
-        let seededTime = Double(seededMicros) / 1_000_000
         try fileManager.createDirectory(at: monotonicClockDirectory, withIntermediateDirectories: false)
         try "\(seededMicros)\n".write(to: monotonicClockState, atomically: true, encoding: .utf8)
         let clockStateURL = sandbox.appendingPathComponent("cmux-agent-hook-time.state", isDirectory: false)
@@ -252,7 +251,11 @@ import Testing
         #expect(rawTimes.count == 4)
         let times = try rawTimes.map { try #require(Double($0)) }
         #expect(times.allSatisfy { $0.isFinite && $0 > 0 })
-        #expect(times.allSatisfy { $0 > seededTime })
+        let maximumAcceptedCaptureTime = Date().timeIntervalSince1970 + 5 * 60
+        #expect(
+            times.allSatisfy { $0 <= maximumAcceptedCaptureTime },
+            "A poisoned future clock state must not become the emitted ordering watermark"
+        )
         for (earlier, later) in zip(times, times.dropFirst()) {
             #expect(earlier < later, Comment(rawValue: rawTimes.joined(separator: ",")))
         }

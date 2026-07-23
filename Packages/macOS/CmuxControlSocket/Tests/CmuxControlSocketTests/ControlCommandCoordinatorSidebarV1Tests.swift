@@ -54,7 +54,7 @@ struct ControlCommandCoordinatorSidebarV1Tests {
             args: "codex Running --agent-event-time=not-a-time"
         )
 
-        #expect(response == "ERROR: Invalid agent event time 'not-a-time' - must be between 2000-01-01 and 2100-01-01 UTC")
+        #expect(response == "ERROR: Invalid agent event time 'not-a-time' - must be between 2000-01-01 and 5 minutes from now")
     }
 
     @Test func setAgentPIDRejectsMalformedAgentEventTimeBeforeMutation() {
@@ -66,7 +66,7 @@ struct ControlCommandCoordinatorSidebarV1Tests {
             args: "claude_code 42424 --agent-event-time=not-a-time"
         )
 
-        #expect(response == "ERROR: Invalid agent event time 'not-a-time' - must be between 2000-01-01 and 2100-01-01 UTC")
+        #expect(response == "ERROR: Invalid agent event time 'not-a-time' - must be between 2000-01-01 and 5 minutes from now")
     }
 
     @Test(arguments: ["1", "1e300", "4102444801"])
@@ -80,7 +80,7 @@ struct ControlCommandCoordinatorSidebarV1Tests {
         )
 
         #expect(
-            response == "ERROR: Invalid agent event time '\(rawEventTime)' - must be between 2000-01-01 and 2100-01-01 UTC"
+            response == "ERROR: Invalid agent event time '\(rawEventTime)' - must be between 2000-01-01 and 5 minutes from now"
         )
     }
 

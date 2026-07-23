@@ -41,7 +41,7 @@ extension ControlCommandCoordinator {
                 .err(
                     code: "invalid_params",
                     message: context?.controlSurfaceInvalidAgentEventTimeError()
-                        ?? "Missing or invalid agent_event_time; expected Unix seconds between 2000-01-01 and 2100-01-01 UTC",
+                        ?? "Missing or invalid agent_event_time; expected Unix seconds between 2000-01-01 and 5 minutes from now",
                     data: nil
                 )
             )

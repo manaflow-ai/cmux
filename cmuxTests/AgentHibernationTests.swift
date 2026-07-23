@@ -43,7 +43,7 @@ struct AgentHibernationTests {
             "set_status codex Running --agent-event-time=1e300"
         )
 
-        expectTrue(response.contains("must be between 2000-01-01 and 2100-01-01 UTC"))
+        expectTrue(response.contains("must be between 2000-01-01 and 5 minutes from now"))
     }
 
     @MainActor

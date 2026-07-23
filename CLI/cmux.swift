@@ -34059,8 +34059,8 @@ export default CMUXSessionRestore;
     /// at it and have permission/plan/question events surface in the
     /// Feed sidebar. Agent-specific lifecycle/status hooks can be
     /// chained separately. For Claude, `hooks claude pre-tool-use` is
-    /// async status-only telemetry; blocking decisions come through
-    /// PermissionRequest.
+    /// synchronous status-only telemetry so its lifecycle mutation precedes
+    /// later hooks; blocking decisions come through PermissionRequest.
     private func runFeedHook(
         commandArgs: [String],
         client: SocketClient? = nil,

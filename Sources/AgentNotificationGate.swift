@@ -1,3 +1,4 @@
+import CmuxControlSocket
 import Foundation
 
 /// Category an agent hook attaches to a notification so the app can gate
@@ -15,12 +16,6 @@ enum AgentTurnCompleteMode: String {
     case whenIdle
     case always
     case never
-}
-
-extension TimeInterval {
-    var isPlausibleAgentEventTime: Bool {
-        isFinite && self >= 946_684_800 && self <= 4_102_444_800
-    }
 }
 
 /// Parsed agent notification metadata. Legacy two-field policy tags remain
@@ -53,7 +48,7 @@ struct AgentNotificationMeta {
             guard !statusKey.isEmpty,
                   statusKey.allSatisfy({ $0.isLetter || $0.isNumber || "._-".contains($0) }),
                   let eventTime = TimeInterval(fields[3].dropFirst(2)),
-                  eventTime.isPlausibleAgentEventTime else { return nil }
+                  eventTime.isPlausibleControlAgentEventTime else { return nil }
             self.agentStatusKey = statusKey
             self.agentEventTime = eventTime
         }

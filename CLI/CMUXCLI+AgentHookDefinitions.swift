@@ -240,7 +240,7 @@ extension CMUXCLI {
             #"if [ -n "$formatted_at" ]; then epoch="${formatted_at%.*}"; fraction="${formatted_at#*.}"; if [ "$epoch" -ge 0 ] 2>/dev/null && [ "$fraction" -ge 0 ] 2>/dev/null; then current_micros=$((epoch * 1000000 + 10#$fraction)); fi; fi;"#,
             #"if ! [ "$current_micros" -ge 0 ] 2>/dev/null; then date_bin="${CMUX_AGENT_HOOK_DATE_BIN:-/bin/date}"; epoch=`"$date_bin" +%s 2>/dev/null || printf 946684800`; current_micros=$((epoch * 1000000)); fi; last_micros=;"#,
             #"if [ ! -L "$state" ] && [ -f "$state" ]; then if IFS= read -r last_micros 2>/dev/null <"$state"; then :; fi; fi;"#,
-            #"if [ "$last_micros" -ge 946684800000000 ] 2>/dev/null && [ "$last_micros" -le 4102444800000000 ] 2>/dev/null && [ "$current_micros" -le "$last_micros" ] 2>/dev/null; then current_micros=$((last_micros + 1)); fi;"#,
+            #"maximum_accepted_micros=$((current_micros + 300000000)); if [ "$last_micros" -ge 946684800000000 ] 2>/dev/null && [ "$last_micros" -le "$maximum_accepted_micros" ] 2>/dev/null && [ "$current_micros" -le "$last_micros" ] 2>/dev/null; then current_micros=$((last_micros + 1)); fi;"#,
             #"state_tmp=`/usr/bin/mktemp "$clock_dir/.state.XXXXXX" 2>/dev/null || true`; if [ -n "$state_tmp" ] && [ -f "$state_tmp" ]; then /bin/chmod 600 "$state_tmp" 2>/dev/null || true; if printf "%s\n" "$current_micros" >"$state_tmp" && /bin/mv -f "$state_tmp" "$state" 2>/dev/null; then state_tmp=; fi; if [ -n "$state_tmp" ]; then /bin/rm -f "$state_tmp" 2>/dev/null || true; fi; fi;"#,
             #"seconds=$((current_micros / 1000000)); micros=$((current_micros % 1000000)); printf "%s.%06d" "$seconds" "$micros" ) && exit 0;"#,
             #"fallback_capture_time; }"#,

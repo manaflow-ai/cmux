@@ -1,4 +1,4 @@
-internal import Foundation
+public import Foundation
 
 /// The v1 sidebar metadata commands (`set_status` / `report_meta` /
 /// `report_meta_block` / agent PID + lifecycle / `log` / `set_progress` and
@@ -130,7 +130,7 @@ extension ControlCommandCoordinator {
         // Standalone package callers have no app localization bundle; preserve
         // a stable English wire reply only for that non-production fallback.
         context?.controlSidebarInvalidAgentEventTimeError(raw)
-            ?? "ERROR: Invalid agent event time '\(raw)' - must be between 2000-01-01 and 2100-01-01 UTC"
+            ?? "ERROR: Invalid agent event time '\(raw)' - must be between 2000-01-01 and 5 minutes from now"
     }
 
     /// The shared `clear_status`/`clear_meta` body (parse + bus enqueue; zero
@@ -620,7 +620,10 @@ extension ControlCommandCoordinator {
 }
 
 extension TimeInterval {
-    var isPlausibleControlAgentEventTime: Bool {
-        isFinite && self >= 946_684_800 && self <= 4_102_444_800
+    /// Whether the value is a current, plausible Unix timestamp for agent event ordering.
+    public var isPlausibleControlAgentEventTime: Bool {
+        isFinite
+            && self >= 946_684_800
+            && self <= Date().timeIntervalSince1970 + 5 * 60
     }
 }
