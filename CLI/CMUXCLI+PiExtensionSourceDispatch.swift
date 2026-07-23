@@ -38,6 +38,7 @@ class PiCmuxCommandDispatcher {
   private surfaceState: SurfaceDispatchState = "unknown";
   private didWarnSurfaceUnavailable = false;
   private failedFeedSessions = new Set<string>();
+  private didOverflowFeedFailureTracking = false;
   private activeFeeds = new Map<string | null, {
     cancellation: PiCommandCancellation;
     command: PiFeedCommand;
@@ -96,7 +97,8 @@ class PiCmuxCommandDispatcher {
     }
     this.scheduleFeed(sessionId);
     await this.waitForFeedDrainUntilDeadline(sessionId);
-    return !this.failedFeedSessions.delete(sessionId);
+    const failed = this.failedFeedSessions.delete(sessionId);
+    return !failed && !this.didOverflowFeedFailureTracking;
   }
   private queuedFeedCount(sessionId: string | null): number {
     return (this.pendingFeedKeysBySession.get(sessionId)?.length || 0)
@@ -108,12 +110,11 @@ class PiCmuxCommandDispatcher {
     for (const commands of this.priorityFeedCommands.values()) count += commands.length;
     return count;
   }
-
   private markFeedSessionFailed(sessionId: string): void {
     const limit = PiCmuxCommandDispatcher.maxQueuedFeedCommands + PiCmuxCommandDispatcher.maxActiveFeedCommands;
     if (this.failedFeedSessions.has(sessionId) || this.failedFeedSessions.size < limit) this.failedFeedSessions.add(sessionId);
+    else this.didOverflowFeedFailureTracking = true;
   }
-
   private appendPendingFeed(key: string, command: PiFeedCommand): void {
     const sessionId = command.context.sessionId;
     const keys = this.pendingFeedKeysBySession.get(sessionId) || [];

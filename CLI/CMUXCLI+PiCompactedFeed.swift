@@ -39,7 +39,7 @@ extension CMUXCLI {
                 client: batchClient
             )
         }
-        return false
+        return nil
     }
 
     private func sendPiCompactedFeedEvents(

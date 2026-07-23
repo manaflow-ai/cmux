@@ -108,13 +108,13 @@ extension TerminalController {
         _ event: WorkstreamEvent,
         waitTimeout: TimeInterval
     ) -> V2CallResult {
-        let acceptedEvent = UnsafeAuthoritativeFeedEventSlot()
         let waitsForDecision = waitTimeout > 0 && event.requestId != nil
+        let acceptedEvent = waitsForDecision ? UnsafeAuthoritativeFeedEventSlot() : nil
         let result = FeedCoordinator.shared.ingestBlocking(
             event: event,
             waitTimeout: waitTimeout,
             onAccepted: { authoritativeEvent in
-                acceptedEvent.value = authoritativeEvent
+                acceptedEvent?.value = authoritativeEvent
                 CmuxEventBus.shared.publishWorkstreamEvent(authoritativeEvent, phase: "received")
                 self.v2ApplyIMessageModeSideEffects(for: authoritativeEvent)
                 self.agentChatTranscriptService?.noteHookEvent(authoritativeEvent)
@@ -137,11 +137,9 @@ extension TerminalController {
             break
         }
         guard waitsForDecision else {
-            var payload = FeedSocketEncoding.payload(for: result)
-            v2AppendFeedTarget(from: acceptedEvent.value, to: &payload)
-            return .ok(payload)
+            return .ok(FeedSocketEncoding.payload(for: result))
         }
-        guard let acceptedEvent = acceptedEvent.value else {
+        guard let acceptedEvent = acceptedEvent?.value else {
             return .err(
                 code: "unavailable",
                 message: String(
