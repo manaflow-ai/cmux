@@ -2195,10 +2195,9 @@ mod tests {
         assert_eq!(bulk_messages.read.lock().await.budgets.len(), 1);
     }
 
-    #[cfg(unix)]
     #[tokio::test]
     async fn canceled_reserved_process_streams_do_not_exhaust_the_same_session() {
-        const RESERVATION_LIMIT: u64 = 256;
+        const RESERVATION_LIMIT: u128 = 256;
 
         let workspace = WorkspaceService::new();
         let scope = ClientScope::new(
@@ -2210,7 +2209,7 @@ mod tests {
         let daemon = ServiceMultiplexer::new(daemon_endpoint, EndpointRole::Daemon);
 
         for index in 0..RESERVATION_LIMIT {
-            let process = ProcessId::from_u128(0x8000_0000_0010_0000 + u128::from(index));
+            let process = ProcessId::from_u128(0x8000_0000_0010_0000 + index);
             let client_stream = client
                 .open(
                     Service::ProcessStream,
@@ -2239,23 +2238,33 @@ mod tests {
             drop(client_stream);
         }
 
-        let final_process = ProcessId::from_u128(0x8000_0000_0020_0000);
-        tokio::time::timeout(std::time::Duration::from_secs(2), async {
-            loop {
-                match workspace.subscribe_or_reserve_process(&scope, final_process, 0, true).await {
-                    Ok(_) => {
-                        workspace.release_process_reservation(&scope, final_process).await;
-                        break;
+        let fresh_reservations = tokio::time::timeout(std::time::Duration::from_secs(5), async {
+            let mut reservations = Vec::with_capacity(RESERVATION_LIMIT as usize);
+            for index in 0..RESERVATION_LIMIT {
+                let process = ProcessId::from_u128(0x8000_0000_0020_0000 + index);
+                loop {
+                    match workspace.subscribe_or_reserve_process(&scope, process, 0, true).await {
+                        Ok(subscription) => {
+                            reservations.push((process, subscription));
+                            break;
+                        }
+                        Err(error) if error.code == "resource-exhausted" => {
+                            tokio::task::yield_now().await;
+                        }
+                        Err(error) => {
+                            panic!("fresh process reservation failed unexpectedly: {error}")
+                        }
                     }
-                    Err(error) if error.code == "resource-exhausted" => {
-                        tokio::task::yield_now().await;
-                    }
-                    Err(error) => panic!("canceled opens leaked reservation state: {error}"),
                 }
             }
+            reservations
         })
         .await
-        .expect("canceled opens leaked reservation capacity");
+        .expect("canceled opens leaked at least one reservation slot");
+        assert_eq!(fresh_reservations.len(), RESERVATION_LIMIT as usize);
+        for (process, _) in fresh_reservations {
+            workspace.release_process_reservation(&scope, process).await;
+        }
         client.shutdown().await;
         daemon.shutdown().await;
     }
