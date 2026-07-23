@@ -29,7 +29,7 @@ use cmux_remote::provider::{
     IrohProviderConfig, LinkGroup, ProviderError, RelayClientConfig, RelayCredentialSource,
     RelayDaemonConfig, RelayDaemonRegistration, RelayProvider, SshProvider, SshProviderConfig,
     TransportProvider, UnixProvider, load_or_create_iroh_secret,
-    register_relay_daemon_with_credentials,
+    register_relay_daemon_with_credentials, sanitized_route,
 };
 use cmux_remote::service::{EndpointRole, ServiceMultiplexer};
 use cmux_remote::services::DaemonServices;
@@ -374,23 +374,26 @@ async fn select_initial_route<T: Send>(
     for (index, candidate) in routes.iter().enumerate() {
         let request = connect_request(candidate, session, lane_policy)?;
         let endpoint = request.endpoint.clone();
+        let display_endpoint = sanitized_route(&endpoint);
         let upgrade_candidate = upgrade && index == 0;
         if endpoint.scheme() == "ssh"
             && let Err(error) = attempt.bootstrap_ssh(&endpoint, upgrade_candidate).await
         {
             if upgrade_candidate {
-                return Err(anyhow!("SSH bootstrap failed for {endpoint}: {error:#}"));
+                return Err(anyhow!("SSH bootstrap failed for {display_endpoint}: {error:#}"));
             }
-            failures.push(format!("{endpoint}: SSH bootstrap failed: {error:#}"));
+            failures.push(format!("{display_endpoint}: SSH bootstrap failed: {error:#}"));
             continue;
         }
         match attempt.connect(index, request).await {
             Ok(result) => return Ok(result),
             Err(InitialRouteAttemptError::Route(error)) => {
                 if upgrade_candidate {
-                    return Err(anyhow!("upgraded SSH route failed for {endpoint}: {error:#}"));
+                    return Err(anyhow!(
+                        "upgraded SSH route failed for {display_endpoint}: {error:#}"
+                    ));
                 }
-                failures.push(format!("{endpoint}: {error:#}"));
+                failures.push(format!("{display_endpoint}: {error:#}"));
             }
             Err(InitialRouteAttemptError::Fatal(error)) => return Err(error),
         }
@@ -591,10 +594,11 @@ async fn select_reconnect_route<T: Send>(
         let request = connect_request(&routes[index], session, lane_policy)
             .map_err(|error| ProviderError::Configuration(error.to_string()))?;
         let endpoint = request.endpoint.clone();
+        let display_endpoint = sanitized_route(&endpoint);
         match attempt.connect(index, request).await {
             Ok(group) => return Ok((index, group)),
             Err(error) => {
-                failures.push(format!("{endpoint}: {error}"));
+                failures.push(format!("{display_endpoint}: {error}"));
                 continue;
             }
         }
@@ -689,6 +693,7 @@ impl ReconnectRouteAttempt<Arc<dyn LinkGroup>> for RuntimeReconnectRouteAttempt<
         request: ConnectRequest,
     ) -> Result<Arc<dyn LinkGroup>, ProviderError> {
         let endpoint = request.endpoint.clone();
+        let display_endpoint = sanitized_route(&endpoint);
         if endpoint.scheme() == "ssh" && !self.prepared_ssh[index].load(Ordering::Acquire) {
             bootstrap_initial_ssh_route(
                 &endpoint,
@@ -699,7 +704,7 @@ impl ReconnectRouteAttempt<Arc<dyn LinkGroup>> for RuntimeReconnectRouteAttempt<
             .await
             .map_err(|error| {
                 ProviderError::Transport(format!(
-                    "SSH bootstrap failed for reconnect route {endpoint}: {error:#}"
+                    "SSH bootstrap failed for reconnect route {display_endpoint}: {error:#}"
                 ))
             })?;
             self.prepared_ssh[index].store(true, Ordering::Release);
@@ -711,7 +716,7 @@ impl ReconnectRouteAttempt<Arc<dyn LinkGroup>> for RuntimeReconnectRouteAttempt<
         .await
         .map_err(|_| {
             ProviderError::Transport(format!(
-                "reconnect route provider {endpoint} timed out after {}ms",
+                "reconnect route provider {display_endpoint} timed out after {}ms",
                 self.options.reconnect.attempt_timeout.as_millis()
             ))
         })?
