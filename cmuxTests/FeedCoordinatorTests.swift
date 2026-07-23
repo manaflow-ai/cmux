@@ -474,26 +474,17 @@ struct FeedCoordinatorTests {
             FeedCoordinator.shared.install(store: WorkstreamStore(ringCapacity: 10))
         }
 
-        let activeDeliveryStarted = DispatchSemaphore(value: 0)
-        let releaseActiveDelivery = DispatchSemaphore(value: 0)
-        defer { releaseActiveDelivery.signal() }
-        let activeEvent = WorkstreamEvent(
-            sessionId: "deadline-active-delivery",
-            hookEventName: .postToolUse,
-            source: "pi"
-        )
-        guard case .acknowledged(itemId: nil) = FeedCoordinator.shared.ingestBlocking(
-            event: activeEvent,
-            waitTimeout: 0,
-            onAccepted: { _ in
-                activeDeliveryStarted.signal()
-                releaseActiveDelivery.wait()
-            }
-        ) else {
-            Issue.record("failed to occupy the ordered Feed lane")
+        let mainActorBlockStarted = DispatchSemaphore(value: 0)
+        let releaseMainActor = DispatchSemaphore(value: 0)
+        defer { releaseMainActor.signal() }
+        DispatchQueue.main.async {
+            mainActorBlockStarted.signal()
+            releaseMainActor.wait()
+        }
+        guard waitForFeedTestSignal(mainActorBlockStarted, timeout: .now() + 1) == .success else {
+            Issue.record("failed to block Feed acceptance on the main actor")
             return
         }
-        #expect(waitForFeedTestSignal(activeDeliveryStarted, timeout: .now() + 1) == .success)
 
         let event = WorkstreamEvent(
             sessionId: "single-deadline-test",
@@ -504,6 +495,7 @@ struct FeedCoordinatorTests {
         )
         let done = DispatchSemaphore(value: 0)
         let resultBox = IngestResultBox()
+        let ingestStartedAt = ContinuousClock.now
         DispatchQueue.global(qos: .userInitiated).async {
             resultBox.value = FeedCoordinator.shared.ingestBlocking(
                 event: event,
@@ -511,18 +503,30 @@ struct FeedCoordinatorTests {
             )
             done.signal()
         }
-        DispatchQueue.global(qos: .userInitiated).asyncAfter(deadline: .now() + 0.4) {
-            releaseActiveDelivery.signal()
-        }
 
-        let returnedWithinBudget = waitForFeedTestSignal(done, timeout: .now() + 1.25)
+        let admissionDeadline = ContinuousClock.now + .seconds(1)
+        while !FeedCoordinator.shared.isAwaitingDecision(requestId: "single-deadline-request"),
+              ContinuousClock.now < admissionDeadline {
+            await Task.yield()
+        }
+        guard FeedCoordinator.shared.isAwaitingDecision(requestId: "single-deadline-request") else {
+            Issue.record("blocking ingress never reached the ordered Feed lane")
+            return
+        }
+        // Consume part of the one-second deadline only after deterministic
+        // waiter registration proves the delivery is admitted and executing.
+        try? await Task.sleep(for: .milliseconds(400))
+        releaseMainActor.signal()
+
+        guard waitForFeedTestSignal(done, timeout: .now() + 2) == .success else {
+            Issue.record("blocking ingress did not return")
+            return
+        }
+        let elapsed = ingestStartedAt.duration(to: .now)
         #expect(
-            returnedWithinBudget == .success,
+            elapsed < .milliseconds(1_250),
             "ordered admission and user decision must share one timeout budget"
         )
-        if returnedWithinBudget == .timedOut {
-            _ = waitForFeedTestSignal(done, timeout: .now() + 1)
-        }
         guard case .timedOut = resultBox.value else {
             Issue.record("expected the unresolved permission request to time out")
             return

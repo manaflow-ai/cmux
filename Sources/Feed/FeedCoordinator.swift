@@ -413,7 +413,7 @@ final class FeedCoordinator: @unchecked Sendable {
         cancelNotification(requestId: requestId)
     }
 
-    fileprivate func isAwaitingDecision(requestId: String) -> Bool {
+    func isAwaitingDecision(requestId: String) -> Bool {
         waiterLock.lock()
         defer { waiterLock.unlock() }
         guard let waiter = waiters[requestId] else { return false }
