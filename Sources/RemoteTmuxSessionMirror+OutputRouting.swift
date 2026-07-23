@@ -41,7 +41,10 @@ extension RemoteTmuxSessionMirror {
         {
             let nextCount = (pendingPaneSeedByteCounts[paneId] ?? 0) + renderedBytes.count
             guard nextCount <= perPanePendingSeedByteCeiling else {
-                reconnectForPendingPaneSeedOverflow(paneId: paneId)
+                deferFullPaneReseed(
+                    paneId: paneId,
+                    event: "pane-consumer-visible-after-full-overflow"
+                )
                 return
             }
             guard appendPendingPaneSeedContinuation(paneId: paneId, data: renderedBytes) else {
@@ -74,7 +77,7 @@ extension RemoteTmuxSessionMirror {
             return
         }
         guard renderedBytes.count <= perPanePendingSeedByteCeiling else {
-            reconnectForPendingPaneSeedOverflow(paneId: paneId)
+            deferFullPaneReseed(paneId: paneId, event: "pane-consumer-seed-overflow")
             return
         }
         let previousCount = pendingPaneSeedByteCounts[paneId] ?? 0
@@ -154,7 +157,7 @@ extension RemoteTmuxSessionMirror {
         }
         let nextCount = (pendingPaneSeedByteCounts[paneId] ?? 0) + data.count
         guard nextCount <= perPanePendingSeedByteCeiling else {
-            reconnectForPendingPaneSeedOverflow(paneId: paneId)
+            deferFullPaneReseed(paneId: paneId, event: "pane-consumer-live-overflow")
             return
         }
         guard appendPendingPaneSeedContinuation(paneId: paneId, data: data) else {
@@ -270,11 +273,6 @@ extension RemoteTmuxSessionMirror {
     /// ``RemoteTmuxSessionMirror/pendingPaneSeedByteLimit`` that the per-pane comparison ignored.
     private var perPanePendingSeedByteCeiling: Int {
         min(RemoteTmuxControlConnection.maximumPendingPaneSeedDeliveryBytes, pendingPaneSeedByteLimit)
-    }
-
-    private func reconnectForPendingPaneSeedOverflow(paneId: Int) {
-        connection.record("pane-consumer-seed-backpressure %\(paneId)")
-        connection.beginReconnecting()
     }
 
     private func retainPaneSeedReadinessSignalsIfNeeded() {
