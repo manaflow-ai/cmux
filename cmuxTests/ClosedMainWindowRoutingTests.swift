@@ -845,6 +845,68 @@ struct RecoverableWindowlessMainWindowRoutingTests {
         #expect(managerA.tabs.map(\.id) == [workspaceA.id])
     }
 
+    @Test("Windowless registered context rejects a foreign manager")
+    func windowlessRegisteredContextRejectsForeignManager() throws {
+        _ = NSApplication.shared
+        let previousAppDelegate = AppDelegate.shared
+        let app = AppDelegate()
+        defer {
+            TerminalController.shared.setActiveTabManager(nil)
+            AppDelegate.shared = previousAppDelegate
+        }
+
+        let windowId = UUID()
+        let owner = TabManager()
+        let ownerWorkspace = try #require(owner.selectedWorkspace)
+        app.registerMainWindowContextForTesting(windowId: windowId, tabManager: owner)
+
+        let foreignWindow = NonDestructiveCloseWindow(
+            contentRect: NSRect(x: 0, y: 0, width: 500, height: 320),
+            styleMask: [.titled, .closable],
+            backing: .buffered,
+            defer: false
+        )
+        foreignWindow.identifier = NSUserInterfaceItemIdentifier("cmux.main.\(windowId.uuidString)")
+        let foreign = TabManager()
+        let foreignWorkspace = try #require(foreign.selectedWorkspace)
+        let foreignPanel = try #require(foreignWorkspace.focusedTerminalPanel)
+        defer {
+            app.unregisterMainWindowContextForTesting(windowId: windowId)
+            if !owner.isFinalizedForWindowClose {
+                owner.finalizeAllWorkspacesForWindowClose()
+            }
+            if !foreign.isFinalizedForWindowClose {
+                foreign.finalizeAllWorkspacesForWindowClose()
+            }
+            ownerWorkspace.teardownAllPanels()
+            ownerWorkspace.teardownRemoteConnection()
+            foreignWorkspace.teardownAllPanels()
+            foreignWorkspace.teardownRemoteConnection()
+            foreignWindow.orderOut(nil)
+        }
+
+        app.registerMainWindow(
+            foreignWindow,
+            windowId: windowId,
+            tabManager: foreign,
+            sidebarState: SidebarState(),
+            sidebarSelectionState: SidebarSelectionState(),
+            fileExplorerState: FileExplorerState()
+        )
+
+        #expect(foreignWindow.closeCallCount == 1)
+        #expect(!foreignWindow.isVisible)
+        #expect(foreign.isFinalizedForWindowClose)
+        #expect(foreign.tabs.isEmpty)
+        #expect(GhosttyApp.terminalSurfaceRegistry.surface(id: foreignPanel.id) == nil)
+        #expect(app.tabManagerFor(windowId: windowId) === owner)
+        #expect(app.mainWindowContexts.values.contains {
+            $0.windowId == windowId && $0.tabManager === owner && $0.window == nil
+        })
+        #expect(!owner.isFinalizedForWindowClose)
+        #expect(owner.tabs.map(\.id) == [ownerWorkspace.id])
+    }
+
     @Test("Visible owner rejects a duplicate manager and retires its terminal graph")
     func visibleOwnerRejectsDuplicateManagerAndRetiresItsTerminalGraph() throws {
         _ = NSApplication.shared
