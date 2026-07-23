@@ -681,7 +681,7 @@ def test_required_macos_topology_collapses_display_and_release_helper_jobs() -> 
     package_block = workflow_job_block("swift-package-tests")
     release_block = workflow_job_block("release-build")
 
-    assert "vars.MACOS_RUNNER_DUAL_XCODE" in package_block
+    assert "runs-on: warp-macos-15-arm64-6x" in package_block
     assert "\n  ui-regressions:" not in workflow
     assert "\n  release-ghostty-cli-helper:" not in workflow
     assert "build-for-testing" in runtime_block
@@ -691,7 +691,7 @@ def test_required_macos_topology_collapses_display_and_release_helper_jobs() -> 
     assert 'kill -9 "$VDISPLAY_PID"' in runtime_block
     assert "scripts/ci/virtual-display-lock.sh reap-strays" in runtime_block
     assert runtime_block.rfind("scripts/ci/virtual-display-lock.sh reap-strays") < runtime_block.rfind("scripts/ci/virtual-display-lock.sh release")
-    assert "timeout-minutes: 40" in package_block
+    assert "timeout-minutes: 75" in package_block
     assert "CMUX_CI_HELPER_XCODE_APP" in package_block
     assert "/Applications/Xcode_16.4.app" not in package_block
     assert "Select helper Xcode" in package_block
