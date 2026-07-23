@@ -154,7 +154,10 @@ class FakeCmuxSocket:
                         "ok": True,
                         "result": result,
                     }
-                    conn.sendall(json.dumps(response).encode("utf-8") + b"\n")
+                    try:
+                        conn.sendall(json.dumps(response).encode("utf-8") + b"\n")
+                    except BrokenPipeError:
+                        return
 
 
 def monitor_pids_for_session(session_id: str) -> list[int]:
@@ -946,7 +949,7 @@ def test_install_collapses_consecutive_codex_hook_positions(cli_path: str, root:
     if result.returncode != 0:
         raise AssertionError(
             f"hooks codex install failed exit={result.returncode}\nstdout={result.stdout}\nstderr={result.stderr}"
-        )
+    )
 
     hooks = json.loads((codex_home / "hooks.json").read_text(encoding="utf-8"))
     commands = [group["hooks"][0]["command"] for group in hooks["hooks"]["PreToolUse"]]
@@ -1138,7 +1141,7 @@ def test_install_codex_hooks_only_edits_real_features_table(cli_path: str, root:
     if result.returncode != 0:
         raise AssertionError(
             f"hooks codex install failed exit={result.returncode}\nstdout={result.stdout}\nstderr={result.stderr}"
-    )
+        )
 
     config_toml = config_path.read_text(encoding="utf-8")
     if _toml_line_count(config_toml, "hooks = true") != 1:
@@ -2362,6 +2365,89 @@ def test_non_codex_post_tool_use_keeps_request_input(cli_path: str, root: Path) 
         raise AssertionError(f"non-Codex request input should not be sanitized: {event!r}")
 
 
+def test_pi_compacted_post_tool_use_expands_to_distinct_frames(cli_path: str, root: Path) -> None:
+    socket_path = root / "cmux-pi-compacted-posttool.sock"
+    payload = {
+        "session_id": "pi-session",
+        "turn_id": "turn-compact",
+        "cwd": "/tmp/pi-project",
+        "hook_event_name": "PostToolUse",
+        "tool_call_id": "overflow-tool-8",
+        "tool_name": "bash",
+        "tool_result": {"status": "ok", "value": 8},
+        "cmux_compacted_terminal_count": 2,
+        "cmux_compacted_terminal_omitted_count": 0,
+        "cmux_compacted_terminal_events": [
+            {
+                "session_id": "pi-session",
+                "turn_id": "turn-compact",
+                "tool_call_id": "overflow-tool-8",
+                "tool_name": "bash",
+                "is_error": False,
+                "tool_result": {"kind": "object", "preview": '{"status":"ok","value":8}'},
+            },
+            {
+                "session_id": "pi-session",
+                "turn_id": "turn-compact",
+                "tool_call_id": "overflow-tool-9",
+                "tool_name": "bash",
+                "is_error": True,
+                "tool_result": {"kind": "object", "preview": '{"status":"failed","value":9}'},
+            },
+        ],
+    }
+    env = os.environ.copy()
+    for key in ("CMUX_SOCKET", "CMUX_SOCKET_CAPABILITY", "CMUX_SOCKET_PATH", "CMUX_SOCKET_PASSWORD"):
+        env.pop(key, None)
+    env["CMUX_SURFACE_ID"] = FAKE_SURFACE_ID
+    env["CMUX_WORKSPACE_ID"] = FAKE_WORKSPACE_ID
+
+    with FakeCmuxSocket(socket_path, None) as fake:
+        result = subprocess.run(
+            [
+                cli_path,
+                "--socket",
+                str(socket_path),
+                "hooks",
+                "feed",
+                "--source",
+                "pi",
+                "--event",
+                "PostToolUse",
+            ],
+            input=json.dumps(payload),
+            capture_output=True,
+            text=True,
+            check=False,
+            env=env,
+            timeout=10,
+        )
+        if result.returncode != 0:
+            raise AssertionError(
+                f"compacted Pi hooks feed failed exit={result.returncode}\n"
+                f"stdout={result.stdout}\nstderr={result.stderr}"
+            )
+        deadline = time.monotonic() + 3
+        while time.monotonic() < deadline:
+            if len([frame for frame in fake.frames if frame.get("method") == "feed.push"]) >= 2:
+                break
+            time.sleep(0.02)
+        feed_frames = [frame for frame in fake.frames if frame.get("method") == "feed.push"]
+
+    if len(feed_frames) != 2:
+        raise AssertionError(
+            f"compacted Pi terminal events should produce two Feed frames: feed={feed_frames!r}, all={fake.frames!r}"
+        )
+    events = [frame["params"]["event"] for frame in feed_frames]
+    request_ids = [event.get("_opencode_request_id", "") for event in events]
+    if not any("overflow-tool-8" in request_id for request_id in request_ids):
+        raise AssertionError(f"first compacted Pi terminal event was lost: {events!r}")
+    if not any("overflow-tool-9" in request_id for request_id in request_ids):
+        raise AssertionError(f"second compacted Pi terminal event was lost: {events!r}")
+    if any(event.get("hook_event_name") != "PostToolUse" or event.get("_source") != "pi" for event in events):
+        raise AssertionError(f"compacted Pi terminal events changed Feed identity: {events!r}")
+
+
 def test_claude_subagent_stop_stays_distinct_feed_telemetry(cli_path: str, root: Path) -> None:
     stdout, frame = run_feed_hook(
         cli_path,
@@ -2437,6 +2523,7 @@ def main() -> int:
             test_codex_post_tool_use_keeps_cwd_from_tool_input(cli_path, root)
             test_codex_post_tool_use_without_response_keeps_request_input(cli_path, root)
             test_non_codex_post_tool_use_keeps_request_input(cli_path, root)
+            test_pi_compacted_post_tool_use_expands_to_distinct_frames(cli_path, root)
             test_claude_subagent_stop_stays_distinct_feed_telemetry(cli_path, root)
         except Exception as exc:
             print(f"FAIL: {exc}")
