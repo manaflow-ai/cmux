@@ -7,6 +7,11 @@ struct FilePreviewImageLoadResult: @unchecked Sendable {
     init(url: URL) {
         image = NSImage(contentsOf: url)
     }
+
+    @concurrent
+    static func load(url: URL) async -> FilePreviewImageLoadResult {
+        FilePreviewImageLoadResult(url: url)
+    }
 }
 
 @MainActor

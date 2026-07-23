@@ -8,6 +8,11 @@ struct FilePreviewPDFLoadResult: @unchecked Sendable {
     init(url: URL) {
         document = PDFDocument(url: url)
     }
+
+    @concurrent
+    static func load(url: URL) async -> FilePreviewPDFLoadResult {
+        FilePreviewPDFLoadResult(url: url)
+    }
 }
 
 @MainActor

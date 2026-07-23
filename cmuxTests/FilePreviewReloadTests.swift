@@ -267,10 +267,12 @@ struct FilePreviewReloadTests {
     @Test("Latest preview load state keeps one active and one latest pending request")
     func latestPreviewLoadStateConflatesPendingRequests() throws {
         var state = FilePreviewLatestRequestState<String>()
-        let active = try #require(state.submit("active"))
+        let active = try #require(state.submit("active").start)
 
-        #expect(state.submit("superseded") == nil)
-        #expect(state.submit("latest") == nil)
+        #expect(state.submit("superseded").start == nil)
+        let replacement = state.submit("latest")
+        #expect(replacement.start == nil)
+        #expect(replacement.superseded?.request == "superseded")
         let activeCompletion = state.complete(id: active.id)
 
         #expect(!activeCompletion.shouldDeliver)
@@ -284,10 +286,12 @@ struct FilePreviewReloadTests {
     @Test("Canceling preview load state drops pending work and suppresses active delivery")
     func latestPreviewLoadStateCancelsPendingRequests() throws {
         var state = FilePreviewLatestRequestState<String>()
-        let active = try #require(state.submit("active"))
-        #expect(state.submit("pending") == nil)
+        let active = try #require(state.submit("active").start)
+        #expect(state.submit("pending").start == nil)
 
-        state.cancel()
+        let cancellation = state.cancel()
+        #expect(cancellation.active?.request == "active")
+        #expect(cancellation.pending?.request == "pending")
         let completion = state.complete(id: active.id)
 
         #expect(!completion.shouldDeliver)

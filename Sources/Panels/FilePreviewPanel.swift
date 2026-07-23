@@ -912,10 +912,9 @@ enum FilePreviewTextLoader {
         case unavailable
     }
 
+    @concurrent
     static func load(url: URL) async -> Result {
-        await Task.detached(priority: .userInitiated) {
-            loadSynchronously(url: url)
-        }.value
+        loadSynchronously(url: url)
     }
 
     static func loadSynchronously(url: URL) -> Result {
@@ -997,7 +996,6 @@ final class FilePreviewPanel: Panel, ObservableObject, FilePreviewTextEditingPan
     private var originalTextContent = ""
     private var textEncoding: String.Encoding = .utf8
     private var previewModeGeneration = 0
-    private var textLoadGeneration = 0
     private var saveGeneration = 0
     private var activeSaveGeneration: Int?
     var fileChangeWatcher: FileWatcher?
@@ -1008,6 +1006,7 @@ final class FilePreviewPanel: Panel, ObservableObject, FilePreviewTextEditingPan
     weak var textView: NSTextView?
     let focusCoordinator: FilePreviewFocusCoordinator
     private let textLoader: @Sendable (URL) async -> FilePreviewTextLoader.Result
+    private let textLoadCoordinator = FilePreviewLatestLoadCoordinator<FilePreviewTextLoader.Result>()
 
     var fileURL: URL {
         URL(fileURLWithPath: filePath)
@@ -1053,6 +1052,7 @@ final class FilePreviewPanel: Panel, ObservableObject, FilePreviewTextEditingPan
     func close() {
         isClosed = true
         stopWatchingForFileChanges()
+        textLoadCoordinator.cancel()
         nativeViewSessions.closeAll()
         textView = nil
         focusCoordinator.unregisterAll()
@@ -1213,7 +1213,7 @@ final class FilePreviewPanel: Panel, ObservableObject, FilePreviewTextEditingPan
     private func applyResolvedPreviewMode(_ mode: FilePreviewMode) {
         guard previewMode != mode else { return }
         if mode != .text {
-            textLoadGeneration += 1
+            textLoadCoordinator.cancel()
         }
         previewMode = mode
         displayIcon = FilePreviewKindResolver.iconName(for: mode)
@@ -1227,16 +1227,13 @@ final class FilePreviewPanel: Panel, ObservableObject, FilePreviewTextEditingPan
         guard previewMode == .text else {
             return Task {}
         }
-        textLoadGeneration += 1
-        let generation = textLoadGeneration
         let fileURL = fileURL
         let textLoader = textLoader
 
-        return Task { [weak self, fileURL, generation, replacingDirtyContent, textLoader] in
-            let result = await textLoader(fileURL)
-            guard let self,
-                  self.textLoadGeneration == generation,
-                  self.previewMode == .text else { return }
+        return textLoadCoordinator.submit(load: {
+            await textLoader(fileURL)
+        }) { [weak self] result in
+            guard let self, self.previewMode == .text else { return }
             self.applyTextLoadResult(result, replacingDirtyContent: replacingDirtyContent)
         }
     }
@@ -1283,7 +1280,7 @@ final class FilePreviewPanel: Panel, ObservableObject, FilePreviewTextEditingPan
             return nil
         }
 
-        textLoadGeneration += 1
+        textLoadCoordinator.cancel()
         saveGeneration += 1
         let generation = saveGeneration
         textContent = currentContent
@@ -1301,6 +1298,7 @@ final class FilePreviewPanel: Panel, ObservableObject, FilePreviewTextEditingPan
                 self.originalTextContent = currentContent
                 self.isDirty = self.textContent != currentContent
                 self.isFileUnavailable = false
+                self.lastObservedFileState = .capture(path: self.filePath)
             case .failed(let fileExists):
                 self.isFileUnavailable = !fileExists
             }
@@ -2359,9 +2357,7 @@ final class FilePreviewPDFContainerView: NSView, NSSplitViewDelegate, NSOutlineV
     private var drawsPreviewBackground = true
     private var lastAppliedPDFScrollBackgroundAppearance: PDFScrollBackgroundAppearance?
     private var fontMagnificationObserver: GlobalFontMagnificationChangeObserver?
-    private let documentLoader = FilePreviewLatestLoadCoordinator<FilePreviewPDFLoadResult>(
-        name: "com.cmux.file-preview.pdf-document-load"
-    )
+    private let documentLoader = FilePreviewLatestLoadCoordinator<FilePreviewPDFLoadResult>()
 
     private struct PDFScrollBackgroundAppearance {
         let hostIdentifiers: Set<ObjectIdentifier>
@@ -2494,7 +2490,7 @@ final class FilePreviewPDFContainerView: NSView, NSSplitViewDelegate, NSOutlineV
         refreshPDFSmartFitWithoutViewportRestore()
 
         let loadURL = url
-        documentLoader.submit(load: { FilePreviewPDFLoadResult(url: loadURL) }) { [weak self] result in
+        documentLoader.submit(load: { await FilePreviewPDFLoadResult.load(url: loadURL) }) { [weak self] result in
             guard let self,
                   self.currentURL == loadURL,
                   self.loadGeneration == generation else { return }
@@ -2515,6 +2511,7 @@ final class FilePreviewPDFContainerView: NSView, NSSplitViewDelegate, NSOutlineV
         thumbnailView.setDocument(document)
         outlineRoot = document?.outlineRoot
         titleLabel.stringValue = url.lastPathComponent
+        applyDisplayMode()
         if let reloadWasAutoScaled {
             pdfView.autoScales = reloadWasAutoScaled
             if !reloadWasAutoScaled, let reloadScale {
@@ -2523,7 +2520,6 @@ final class FilePreviewPDFContainerView: NSView, NSSplitViewDelegate, NSOutlineV
         } else {
             pdfView.autoScales = true
         }
-        applyDisplayMode()
         updatePDFScrollObserver()
         outlineView.reloadData()
         updateSidebarContent()
@@ -3634,9 +3630,7 @@ final class FilePreviewImageContainerView: NSView {
     private var rotationAccumulator: CGFloat = 0
     private var previewBackgroundColor = NSColor.textBackgroundColor
     private var drawsPreviewBackground = true
-    private let imageLoader = FilePreviewLatestLoadCoordinator<FilePreviewImageLoadResult>(
-        name: "com.cmux.file-preview.image-load"
-    )
+    private let imageLoader = FilePreviewLatestLoadCoordinator<FilePreviewImageLoadResult>()
 
     override init(frame frameRect: NSRect) {
         super.init(frame: frameRect)
@@ -3722,7 +3716,7 @@ final class FilePreviewImageContainerView: NSView {
         }
 
         let loadURL = url
-        imageLoader.submit(load: { FilePreviewImageLoadResult(url: loadURL) }) { [weak self] result in
+        imageLoader.submit(load: { await FilePreviewImageLoadResult.load(url: loadURL) }) { [weak self] result in
             guard let self,
                   self.currentURL == loadURL,
                   self.loadGeneration == generation else { return }
