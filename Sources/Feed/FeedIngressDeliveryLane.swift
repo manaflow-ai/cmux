@@ -1,69 +1,198 @@
 import Foundation
 
-/// Serializes accepted Feed work while bounding best-effort zero-wait admission.
+/// Serializes typed Feed work with bounded zero-wait admission and per-key ordering.
 ///
-/// Safety: event closures execute only on `queue`; the admission fields are accessed only
-/// while holding `zeroWaitAdmissionLock`.
+/// Safety: event closures execute only on `executionQueue`; scheduler state is accessed only
+/// while holding `admissionLock`.
 final class FeedIngressDeliveryLane: @unchecked Sendable {
     private typealias Delivery = @Sendable () -> Void
-    private static let maximumPendingZeroWaitDeliveries = 32
 
-    private let queue = DispatchQueue(
+    struct Key: Hashable, Sendable {
+        let source: String
+        let sessionId: String
+    }
+
+    enum Importance: Sendable, Equatable {
+        case ordinary
+        case lifecycle
+        case acknowledged
+
+        fileprivate var isPriority: Bool {
+            self != .ordinary
+        }
+    }
+
+    struct Metadata: Sendable {
+        let keys: Set<Key>
+        let importance: Importance
+
+        init(keys: Set<Key>, importance: Importance) {
+            precondition(!keys.isEmpty, "Feed ingress delivery requires at least one ordering key")
+            self.keys = keys
+            self.importance = importance
+        }
+    }
+
+    private struct PendingDelivery: Sendable {
+        let metadata: Metadata
+        let isZeroWait: Bool
+        let execute: Delivery
+    }
+
+    private static let maximumPendingZeroWaitDeliveries = 32
+    private static let maximumPendingOrdinaryZeroWaitDeliveries = 24
+    private static let maximumPriorityBurst = 8
+
+    private let executionQueue = DispatchQueue(
         label: "cmux.feed.ingressDelivery",
         qos: .userInitiated
     )
 
-    /// Narrow synchronous-admission carve-out: this guards only a Boolean and a bounded FIFO;
-    /// the critical section never waits, blocks, or executes event work.
-    private let zeroWaitAdmissionLock = NSLock()
-    private var zeroWaitDeliveryScheduled = false
-    private var pendingZeroWaitDeliveries: [Delivery] = []
+    /// Synchronous-admission carve-out: callers must get overload/results inline, so this lock
+    /// guards only short counter/queue mutations; it never waits or executes event work.
+    private let admissionLock = NSLock()
+    private var pendingDeliveries: [PendingDelivery] = []
+    private var pendingZeroWaitCount = 0
+    private var pendingOrdinaryZeroWaitCount = 0
+    private var drainScheduled = false
+    private var consecutivePrioritySelections = 0
 
-    /// Runs acknowledged or actionable ingress in order with accepted Feed delivery.
+    /// Runs acknowledged or actionable ingress after its earlier same-key deliveries.
     func perform<Result: Sendable>(
-        _ delivery: @Sendable () -> Result
+        metadata: Metadata,
+        _ delivery: @escaping @Sendable () -> Result
     ) -> Result {
-        queue.sync(execute: delivery)
+        let result = FeedIngressSynchronousResult<Result>()
+        let shouldScheduleDrain = append(
+            PendingDelivery(
+                metadata: metadata,
+                isZeroWait: false,
+                execute: {
+                    result.resolve(delivery())
+                }
+            )
+        )
+        scheduleDrainIfNeeded(shouldScheduleDrain)
+        return result.wait()
     }
 
-    /// Admits a zero-wait delivery when the bounded pending FIFO has capacity.
-    func enqueueZeroWait(_ delivery: @escaping @Sendable () -> Void) -> Bool {
-        zeroWaitAdmissionLock.lock()
-        if zeroWaitDeliveryScheduled {
-            guard pendingZeroWaitDeliveries.count < Self.maximumPendingZeroWaitDeliveries else {
-                zeroWaitAdmissionLock.unlock()
+    /// Admits a typed zero-wait delivery when its bounded capacity class has room.
+    func enqueueZeroWait(
+        metadata: Metadata,
+        _ delivery: @escaping @Sendable () -> Void
+    ) -> Bool {
+        admissionLock.lock()
+        guard pendingZeroWaitCount < Self.maximumPendingZeroWaitDeliveries else {
+            admissionLock.unlock()
+            return false
+        }
+        if metadata.importance == .ordinary {
+            guard pendingOrdinaryZeroWaitCount < Self.maximumPendingOrdinaryZeroWaitDeliveries else {
+                admissionLock.unlock()
                 return false
             }
-            pendingZeroWaitDeliveries.append(delivery)
-            zeroWaitAdmissionLock.unlock()
-            return true
+            pendingOrdinaryZeroWaitCount += 1
         }
-        zeroWaitDeliveryScheduled = true
-        zeroWaitAdmissionLock.unlock()
-        schedule(delivery)
+        pendingZeroWaitCount += 1
+        pendingDeliveries.append(
+            PendingDelivery(
+                metadata: metadata,
+                isZeroWait: true,
+                execute: delivery
+            )
+        )
+        let shouldScheduleDrain = beginDrainIfNeeded()
+        admissionLock.unlock()
+        scheduleDrainIfNeeded(shouldScheduleDrain)
         return true
     }
 
-    private func schedule(_ delivery: @escaping Delivery) {
-        queue.async {
-            delivery()
-            self.scheduleNextZeroWaitDelivery()
+    private func append(_ delivery: PendingDelivery) -> Bool {
+        admissionLock.lock()
+        pendingDeliveries.append(delivery)
+        let shouldScheduleDrain = beginDrainIfNeeded()
+        admissionLock.unlock()
+        return shouldScheduleDrain
+    }
+
+    /// Called only while `admissionLock` is held.
+    private func beginDrainIfNeeded() -> Bool {
+        guard !drainScheduled else { return false }
+        drainScheduled = true
+        return true
+    }
+
+    private func scheduleDrainIfNeeded(_ shouldSchedule: Bool) {
+        guard shouldSchedule else { return }
+        executionQueue.async {
+            self.drainNext()
         }
     }
 
-    private func scheduleNextZeroWaitDelivery() {
-        zeroWaitAdmissionLock.lock()
-        let nextDelivery: Delivery?
-        if pendingZeroWaitDeliveries.isEmpty {
-            nextDelivery = nil
-            zeroWaitDeliveryScheduled = false
-        } else {
-            nextDelivery = pendingZeroWaitDeliveries.removeFirst()
+    private func drainNext() {
+        admissionLock.lock()
+        guard let selection = nextDeliverySelection() else {
+            drainScheduled = false
+            consecutivePrioritySelections = 0
+            admissionLock.unlock()
+            return
         }
-        zeroWaitAdmissionLock.unlock()
+        let delivery = pendingDeliveries.remove(at: selection.index)
+        consecutivePrioritySelections = selection.countsAsPriority
+            ? consecutivePrioritySelections + 1
+            : 0
+        if delivery.isZeroWait {
+            pendingZeroWaitCount -= 1
+            if delivery.metadata.importance == .ordinary {
+                pendingOrdinaryZeroWaitCount -= 1
+            }
+        }
+        admissionLock.unlock()
 
-        if let nextDelivery {
-            schedule(nextDelivery)
+        delivery.execute()
+        executionQueue.async {
+            self.drainNext()
+        }
+    }
+
+    /// Called only while `admissionLock` is held.
+    private func nextDeliverySelection() -> (index: Int, countsAsPriority: Bool)? {
+        var firstEligibleIndex: Int?
+        var firstPriorityIndex: Int?
+        for index in pendingDeliveries.indices where isEligible(index) {
+            if firstEligibleIndex == nil {
+                firstEligibleIndex = index
+            }
+            if isPrioritySelection(index) {
+                firstPriorityIndex = index
+                break
+            }
+        }
+        guard let firstEligibleIndex else { return nil }
+        if consecutivePrioritySelections < Self.maximumPriorityBurst,
+           let firstPriorityIndex {
+            return (firstPriorityIndex, true)
+        }
+        return (firstEligibleIndex, false)
+    }
+
+    /// An entry is eligible only after every earlier entry sharing any key.
+    private func isEligible(_ index: Int) -> Bool {
+        let keys = pendingDeliveries[index].metadata.keys
+        return pendingDeliveries[..<index].allSatisfy {
+            $0.metadata.keys.isDisjoint(with: keys)
+        }
+    }
+
+    /// Priority includes the same-key dependency chain leading to priority work.
+    private func isPrioritySelection(_ index: Int) -> Bool {
+        let delivery = pendingDeliveries[index]
+        if delivery.metadata.importance.isPriority {
+            return true
+        }
+        return pendingDeliveries[(index + 1)...].contains {
+            $0.metadata.importance.isPriority
+                && !$0.metadata.keys.isDisjoint(with: delivery.metadata.keys)
         }
     }
 }

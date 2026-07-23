@@ -128,9 +128,16 @@ final class FeedCoordinator: @unchecked Sendable {
 
     /// Runs synchronous acknowledged ingress on the same ordered lane as zero-wait telemetry.
     func performAcceptedEventDelivery<Result: Sendable>(
-        _ delivery: @Sendable () -> Result
+        for events: [WorkstreamEvent],
+        _ delivery: @escaping @Sendable () -> Result
     ) -> Result {
-        feedIngressDeliveryLane.perform(delivery)
+        feedIngressDeliveryLane.perform(
+            metadata: Self.ingressMetadata(
+                for: events,
+                importance: .acknowledged
+            ),
+            delivery
+        )
     }
 
     /// Ingests a wire-frame event and, when `waitTimeout` > 0, blocks the
@@ -153,7 +160,7 @@ final class FeedCoordinator: @unchecked Sendable {
             return .acknowledged(itemId: nil)
         }
         guard let requestId = event.requestId else {
-            let acceptance = performAcceptedEventDelivery {
+            let acceptance = performAcceptedEventDelivery(for: [event]) {
                 let acceptance = DispatchQueue.main.sync {
                     MainActor.assumeIsolated {
                         let acceptance = FeedCoordinator.shared.acceptOnMainActor(event)
@@ -181,7 +188,7 @@ final class FeedCoordinator: @unchecked Sendable {
         let semaphore = DispatchSemaphore(value: 0)
         let waiter = PendingWaiter(semaphore: semaphore)
 
-        let acceptance = performAcceptedEventDelivery {
+        let acceptance = performAcceptedEventDelivery(for: [event]) {
             // Register inside the ingress lane before the store sees the event,
             // so a fast reply cannot slip through or a later event overtake it.
             FeedCoordinator.shared.waiterLock.lock()
@@ -291,7 +298,12 @@ final class FeedCoordinator: @unchecked Sendable {
         onAcceptedOnMainActor: @escaping @MainActor @Sendable (WorkstreamEvent) -> Void,
         onAccepted: @escaping @Sendable (WorkstreamEvent) -> Void
     ) -> Bool {
-        return feedIngressDeliveryLane.enqueueZeroWait {
+        return feedIngressDeliveryLane.enqueueZeroWait(
+            metadata: Self.ingressMetadata(
+                for: [event],
+                importance: event.zeroWaitFeedIngressImportance
+            )
+        ) {
             let acceptedEvent: WorkstreamEvent? = DispatchQueue.main.sync {
                 MainActor.assumeIsolated {
                     guard case .accepted(let event, _) = FeedCoordinator.shared.acceptOnMainActor(event) else {
@@ -305,6 +317,16 @@ final class FeedCoordinator: @unchecked Sendable {
                 onAccepted(acceptedEvent)
             }
         }
+    }
+
+    private static func ingressMetadata(
+        for events: [WorkstreamEvent],
+        importance: FeedIngressDeliveryLane.Importance
+    ) -> FeedIngressDeliveryLane.Metadata {
+        FeedIngressDeliveryLane.Metadata(
+            keys: Set(events.map(\.feedIngressDeliveryKey)),
+            importance: importance
+        )
     }
 
     /// Concludes an attention overlay (if any) on the main actor, hopping if

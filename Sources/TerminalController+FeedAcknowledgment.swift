@@ -6,7 +6,7 @@ extension TerminalController {
     nonisolated func v2IngestAcknowledgedFeedEvents(
         _ events: [WorkstreamEvent]
     ) -> V2CallResult {
-        let ingestion = FeedCoordinator.shared.performAcceptedEventDelivery {
+        let ingestion = FeedCoordinator.shared.performAcceptedEventDelivery(for: events) {
             let ingestion = v2MainSync { () -> FeedBatchIngestion in
                 guard FeedCoordinator.shared.store != nil else { return .unavailable }
                 let authoritativeEvents: [WorkstreamEvent]
