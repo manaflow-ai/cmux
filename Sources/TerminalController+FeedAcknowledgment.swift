@@ -140,14 +140,7 @@ extension TerminalController {
             return .ok(FeedSocketEncoding.payload(for: result))
         }
         guard let acceptedEvent = acceptedEvent?.value else {
-            return .err(
-                code: "unavailable",
-                message: String(
-                    localized: "agent.deliveryTarget.error.unavailable",
-                    defaultValue: "Delivery target resolution is unavailable; retry after cmux finishes starting."
-                ),
-                data: nil
-            )
+            return v2FeedTargetUnavailable()
         }
         CmuxEventBus.shared.publishWorkstreamEvent(
             acceptedEvent,

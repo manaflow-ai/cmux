@@ -8,7 +8,7 @@ extension FeedCoordinator {
         case unavailable
     }
 
-    /// Reconciles a surface-scoped Feed event with the app's live ownership map.
+    /// Reconciles scoped Feed events with the app's live ownership map.
     ///
     /// This runs on the main actor immediately before store insertion, making
     /// pane movement and Feed ownership one serialized decision. Exact UUID
@@ -18,7 +18,29 @@ extension FeedCoordinator {
     func resolveDeliveryTarget(for events: [WorkstreamEvent]) -> DeliveryTargetResolution {
         guard let first = events.first else { return .accepted([]) }
         guard let claimedSurfaceId = first.surfaceId else {
-            return events.allSatisfy { $0.surfaceId == nil } ? .accepted(events) : .notFound
+            guard events.allSatisfy({ $0.surfaceId == nil }) else { return .notFound }
+            guard let claimedWorkspaceId = first.workspaceId else {
+                return events.allSatisfy { $0.workspaceId == nil } ? .accepted(events) : .notFound
+            }
+            guard let workspaceId = normalizedUUID(claimedWorkspaceId),
+                  events.allSatisfy({ $0.workspaceId.flatMap(normalizedUUID) == workspaceId })
+            else { return .notFound }
+            guard let appDelegate = AppDelegate.shared else { return .unavailable }
+            guard let owner = appDelegate.tabManagerFor(tabId: workspaceId),
+                  owner.workspacesById[workspaceId] != nil
+            else {
+                return appDelegate.shouldDeferNavigationURLRequestsForStartupRestore
+                    ? .unavailable
+                    : .notFound
+            }
+
+            return .accepted(events.map {
+                event(
+                    $0,
+                    rehomedToWorkspaceId: workspaceId.uuidString,
+                    surfaceId: nil
+                )
+            })
         }
         guard let surfaceId = normalizedUUID(claimedSurfaceId),
               events.allSatisfy({ $0.surfaceId.flatMap(normalizedUUID) == surfaceId })
@@ -45,7 +67,7 @@ extension FeedCoordinator {
     private func event(
         _ event: WorkstreamEvent,
         rehomedToWorkspaceId workspaceId: String,
-        surfaceId: String
+        surfaceId: String?
     ) -> WorkstreamEvent {
         return WorkstreamEvent(
             sessionId: event.sessionId,
