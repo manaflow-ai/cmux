@@ -1265,6 +1265,46 @@ import Testing
         XCTAssertFalse(openArguments.contains(workingDirectory.standardizedFileURL.path), openArguments.joined(separator: " "))
     }
 
+    @Test func testSSHShortPortConfiguresRemoteWorkspacePort() throws {
+        let cliPath = try bundledCLIPath()
+        let socketPath = "/tmp/cmux-ssh-short-port-\(UUID().uuidString.prefix(8)).sock"
+        let responder = try UnixSocketResponder(
+            path: socketPath,
+            response: #"{"ok":true,"result":{"workspace_id":"workspace:test","surface_id":"surface:test","window_id":"window:test","remote":{"state":"connected"}}}"#
+        )
+        defer { responder.stop() }
+
+        var environment = ProcessInfo.processInfo.environment
+        for key in Array(environment.keys) where key.hasPrefix("CMUX_") {
+            environment.removeValue(forKey: key)
+        }
+        environment["CMUX_CLI_SENTRY_DISABLED"] = "1"
+
+        let result = runProcess(
+            executablePath: cliPath,
+            arguments: [
+                "--socket", socketPath,
+                "ssh", "--no-focus", "dev@example.com", "-p", "45221",
+            ],
+            environment: environment,
+            timeout: 5
+        )
+
+        XCTAssertFalse(result.timedOut, result.stdout)
+        XCTAssertEqual(result.status, 0, result.stdout)
+
+        let configureRequest = try XCTUnwrap(
+            responder.receivedRequests
+                .compactMap { request -> [String: Any]? in
+                    guard let data = request.data(using: .utf8) else { return nil }
+                    return try? JSONSerialization.jsonObject(with: data) as? [String: Any]
+                }
+                .first { ($0["method"] as? String) == "workspace.remote.configure" }
+        )
+        let params = try XCTUnwrap(configureRequest["params"] as? [String: Any])
+        XCTAssertEqual(params["port"] as? Int, 45221)
+    }
+
     func bundledCLIPath() throws -> String {
         try BundledCLITestSupport.bundledCLIPath(for: BundledCLILinkageTests.self)
     }
