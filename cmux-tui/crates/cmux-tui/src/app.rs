@@ -10648,7 +10648,7 @@ mod tests {
             key_event: KeyEvent::new(KeyCode::Char('&'), KeyModifiers::ALT | KeyModifiers::SHIFT),
             shifted_key: Some('1'),
             base_layout_key: Some('1'),
-            text: "1".to_string(),
+            text: String::new(),
         };
         let input = crate::keys::KeyboardInput::from(enhanced);
         let (key, fallback) = input.shortcut_keys();

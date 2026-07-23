@@ -31,8 +31,7 @@ impl From<KeyEvent> for KeyboardInput {
 
 impl From<EnhancedKeyEvent> for KeyboardInput {
     fn from(event: EnhancedKeyEvent) -> Self {
-        let consumed_alt =
-            option_generated_text(&event.key_event, event.shifted_key, event.text.as_str());
+        let consumed_alt = option_generated_text(&event.key_event, event.text.as_str());
         Self {
             key_event: event.key_event,
             shifted_key: event.shifted_key,
@@ -267,7 +266,7 @@ pub fn key_input_from_enhanced(event: &EnhancedKeyEvent) -> Option<KeyInput> {
         event.shifted_key,
         event.base_layout_key,
         &event.text,
-        option_generated_text(&event.key_event, event.shifted_key, &event.text),
+        option_generated_text(&event.key_event, &event.text),
     )
 }
 
@@ -307,20 +306,8 @@ fn key_input_from_parts(
     Some(input)
 }
 
-fn option_generated_text(
-    event: &KeyEvent,
-    shifted_key: Option<char>,
-    associated_text: &str,
-) -> bool {
-    if associated_text.is_empty() || !event.modifiers.contains(KeyModifiers::ALT) {
-        return false;
-    }
-    let layout_char = match event.code {
-        KeyCode::Char(unshifted) => shifted_key.unwrap_or(unshifted),
-        _ => return true,
-    };
-    let mut chars = associated_text.chars();
-    chars.next() != Some(layout_char) || chars.next().is_some()
+fn option_generated_text(event: &KeyEvent, associated_text: &str) -> bool {
+    !associated_text.is_empty() && event.modifiers.contains(KeyModifiers::ALT)
 }
 
 #[cfg(test)]
@@ -355,7 +342,7 @@ mod tests {
                 ),
                 shifted_key: Some(shifted),
                 base_layout_key: Some(code),
-                text: shifted.to_string(),
+                text: String::new(),
             };
             let input = key_input_from_enhanced(&event).unwrap();
             let mut terminal = Terminal::new(80, 24, 0, Callbacks::default()).unwrap();

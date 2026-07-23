@@ -286,7 +286,6 @@
     },
     {
       "name": "send-read-screen-round-trip",
-      "requires": { "commands": ["clear-history"] },
       "steps": [
         {
           "type": "command",
@@ -307,11 +306,24 @@
           "path": "data.text",
           "contains": "cmux-conformance-marker",
           "timeout_ms": 10000
+        }
+      ]
+    },
+    {
+      "name": "clear-history-round-trip",
+      "requires": { "commands": ["clear-history"] },
+      "steps": [
+        {
+          "type": "command",
+          "request": { "id": 1, "cmd": "new-workspace", "name": "conf-clear-history", "cols": 80, "rows": 24 },
+          "expect": { "id": 1, "ok": true },
+          "match": "partial",
+          "bind": { "surface0": "data.surface" }
         },
         {
           "type": "command",
-          "request": { "id": 4, "cmd": "clear-history", "surface": "$surface0" },
-          "expect": { "id": 4, "ok": true, "data": {} },
+          "request": { "id": 2, "cmd": "clear-history", "surface": "$surface0" },
+          "expect": { "id": 2, "ok": true, "data": {} },
           "match": "exact"
         }
       ]

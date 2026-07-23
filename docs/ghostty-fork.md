@@ -17,7 +17,7 @@ hard-newline link continuations, the presentation-token runtime from
 `24284c3ba`, and consumed Alt associated-text encoding. The latest patch is
 published through https://github.com/manaflow-ai/ghostty/pull/131.
 The corresponding universal ReleaseFast GhosttyKit archive is published at
-https://github.com/manaflow-ai/ghostty/releases/tag/xcframework-b211341be1ba902e772f57fc67c3e65d35205676-crashsubdir-cmux-crash-v1
+https://github.com/manaflow-ai/ghostty/releases/tag/xcframework-130463c38f14f951a3e9913a691745146d079ec5-crashsubdir-cmux-crash-v1
 and pinned in `scripts/ghosttykit-checksums.txt`.
 
 ### Associated text from consumed Alt input

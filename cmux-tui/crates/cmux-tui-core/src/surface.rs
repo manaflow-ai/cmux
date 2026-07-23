@@ -453,6 +453,11 @@ enum PromptSubmissionState {
     AwaitingPromptMarker(u64),
 }
 
+struct PromptSubmission {
+    previous: PromptSubmissionState,
+    revision_before_write: u64,
+}
+
 fn input_may_submit_prompt(bytes: &[u8]) -> bool {
     const PASTE_START: &[u8] = b"\x1b[200~";
     const PASTE_END: &[u8] = b"\x1b[201~";
@@ -1398,23 +1403,30 @@ impl ChildKiller for TestChildKiller {
 }
 
 impl PtySurface {
-    fn begin_prompt_submission(&self, bytes: &[u8]) -> Option<PromptSubmissionState> {
+    fn begin_prompt_submission(&self, bytes: &[u8]) -> Option<PromptSubmission> {
         if !input_may_submit_prompt(bytes) {
             return None;
         }
-        Some(std::mem::replace(
+        let revision_before_write = self.term.lock().unwrap().prompt_semantic_revision();
+        let previous = std::mem::replace(
             &mut *self.prompt_submission.lock().unwrap(),
             PromptSubmissionState::Writing,
-        ))
+        );
+        Some(PromptSubmission { previous, revision_before_write })
     }
 
-    fn finish_prompt_submission(&self, previous: Option<PromptSubmissionState>, succeeded: bool) {
-        let Some(previous) = previous else { return };
+    fn finish_prompt_submission(&self, submission: Option<PromptSubmission>, succeeded: bool) {
+        let Some(submission) = submission else { return };
         let next = if succeeded {
-            let revision = self.term.lock().unwrap().prompt_semantic_revision();
-            PromptSubmissionState::AwaitingPromptMarker(revision)
+            let term = self.term.lock().unwrap();
+            let revision = term.prompt_semantic_revision();
+            if revision != submission.revision_before_write && term.cursor_is_at_prompt() {
+                PromptSubmissionState::Idle
+            } else {
+                PromptSubmissionState::AwaitingPromptMarker(revision)
+            }
         } else {
-            previous
+            submission.previous
         };
         *self.prompt_submission.lock().unwrap() = next;
     }
