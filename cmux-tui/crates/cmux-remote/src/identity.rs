@@ -34,7 +34,7 @@ impl std::fmt::Debug for EnrollmentRelayAccess {
     fn fmt(&self, formatter: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         formatter
             .debug_struct("EnrollmentRelayAccess")
-            .field("route", &self.route)
+            .field("route", &route_debug_label(&self.route))
             .field("slot", &self.slot)
             .field("ticket", &"[REDACTED]")
             .finish()
@@ -66,7 +66,7 @@ impl std::fmt::Debug for EnrollmentInvitation {
             .field("daemon_fingerprint", &self.daemon_fingerprint)
             .field("daemon_name", &self.daemon_name)
             .field("expires_at_unix", &self.expires_at_unix)
-            .field("route_hints", &self.route_hints)
+            .field("route_hints", &route_debug_labels(&self.route_hints))
             .field("relay_access_count", &self.relay_access.len())
             .field("approval_required", &self.approval_required)
             .finish()
@@ -119,7 +119,7 @@ impl EnrollmentInvitation {
     }
 }
 
-#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+#[derive(Clone, Serialize, Deserialize, PartialEq, Eq)]
 pub struct KnownDaemon {
     pub fingerprint: String,
     pub name: String,
@@ -129,6 +129,20 @@ pub struct KnownDaemon {
     pub auth: KnownDaemonAuth,
     pub first_seen_at_unix: u64,
     pub last_used_at_unix: u64,
+}
+
+impl std::fmt::Debug for KnownDaemon {
+    fn fmt(&self, formatter: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        formatter
+            .debug_struct("KnownDaemon")
+            .field("fingerprint", &self.fingerprint)
+            .field("name", &self.name)
+            .field("route_hints", &route_debug_labels(&self.route_hints))
+            .field("auth", &self.auth)
+            .field("first_seen_at_unix", &self.first_seen_at_unix)
+            .field("last_used_at_unix", &self.last_used_at_unix)
+            .finish_non_exhaustive()
+    }
 }
 
 #[derive(Debug, Clone, Copy, Default, Serialize, Deserialize, PartialEq, Eq)]
@@ -161,7 +175,7 @@ impl ClientIdentityStore {
         secure_directory(&state_dir)?;
         let identity = load_or_create_identity(&state_dir.join("client-identity.json"))?;
         let path = state_dir.join("known-daemons.json");
-        let state = if path.exists() {
+        let mut state = if path.exists() {
             let data = fs::read(&path).map_err(IdentityError::Io)?;
             let state: PersistedClientState =
                 serde_json::from_slice(&data).map_err(IdentityError::Json)?;
@@ -175,6 +189,13 @@ impl ClientIdentityStore {
         } else {
             PersistedClientState::default()
         };
+        let mut routes_changed = false;
+        for daemon in state.daemons.values_mut() {
+            routes_changed |= sanitize_loaded_known_daemon(daemon);
+        }
+        if routes_changed {
+            atomic_json(&path, &state)?;
+        }
         Ok(Arc::new(Self { state_dir, identity, state: Mutex::new(state) }))
     }
 
@@ -222,6 +243,7 @@ impl ClientIdentityStore {
         route_hints: Vec<String>,
         auth: KnownDaemonAuth,
     ) -> Result<KnownDaemon, IdentityError> {
+        let route_hints = credential_free_route_hints(route_hints)?;
         let fingerprint = public_key_fingerprint(&public_key);
         let now = unix_time()?;
         let mut state = self.state.lock().await;
@@ -258,6 +280,26 @@ impl ClientIdentityStore {
         state.daemons.insert(fingerprint, record.clone());
         self.persist_client_locked(&state)?;
         Ok(record)
+    }
+
+    pub async fn remember_verified_route(
+        &self,
+        fingerprint: &str,
+        route: &str,
+    ) -> Result<Option<KnownDaemon>, IdentityError> {
+        let route = credential_free_route_hint(route)?;
+        let now = unix_time()?;
+        let mut state = self.state.lock().await;
+        let Some(existing) = state.daemons.get_mut(fingerprint) else {
+            return Ok(None);
+        };
+        existing.last_used_at_unix = now;
+        if !existing.route_hints.contains(&route) {
+            existing.route_hints.push(route);
+        }
+        let record = existing.clone();
+        self.persist_client_locked(&state)?;
+        Ok(Some(record))
     }
 
     pub async fn daemon_key(&self, fingerprint: &str) -> Result<Option<[u8; 32]>, IdentityError> {
@@ -384,11 +426,15 @@ impl AuthDatabase {
         &self,
         ttl: Duration,
         route_hints: Vec<String>,
-        relay_access: Vec<EnrollmentRelayAccess>,
+        mut relay_access: Vec<EnrollmentRelayAccess>,
     ) -> Result<EnrollmentInvitation, IdentityError> {
         let ttl = ttl.min(MAX_INVITATION_TTL);
         if ttl.is_zero() {
             return Err(IdentityError::Invalid("invitation ttl must be positive".into()));
+        }
+        let route_hints = credential_free_route_hints(route_hints)?;
+        for access in &mut relay_access {
+            access.route = credential_free_route_hint(&access.route)?;
         }
         validate_relay_access(&route_hints, &relay_access)?;
         let now = unix_time()?;
@@ -752,10 +798,20 @@ struct PendingDecision {
     decision: oneshot::Sender<Result<AuthGrant, String>>,
 }
 
-#[derive(Debug, Serialize, Deserialize)]
+#[derive(Serialize, Deserialize)]
 struct PersistedIdentity {
     version: u32,
     private_key: String,
+}
+
+impl std::fmt::Debug for PersistedIdentity {
+    fn fmt(&self, formatter: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        formatter
+            .debug_struct("PersistedIdentity")
+            .field("version", &self.version)
+            .field("private_key", &"[REDACTED]")
+            .finish()
+    }
 }
 
 #[derive(Debug, Serialize, Deserialize)]
@@ -780,7 +836,7 @@ impl Default for PersistedState {
     }
 }
 
-#[derive(Debug, Serialize, Deserialize)]
+#[derive(Serialize, Deserialize)]
 struct PersistedInvitation {
     id: String,
     secret: String,
@@ -788,6 +844,19 @@ struct PersistedInvitation {
     route_hints: Vec<String>,
     #[serde(default)]
     claimed_by: Option<String>,
+}
+
+impl std::fmt::Debug for PersistedInvitation {
+    fn fmt(&self, formatter: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        formatter
+            .debug_struct("PersistedInvitation")
+            .field("id", &self.id)
+            .field("secret", &"[REDACTED]")
+            .field("expires_at_unix", &self.expires_at_unix)
+            .field("route_hints", &route_debug_labels(&self.route_hints))
+            .field("claimed_by", &self.claimed_by)
+            .finish()
+    }
 }
 
 fn load_or_create_identity(path: &Path) -> Result<StaticIdentity, IdentityError> {
@@ -819,12 +888,21 @@ fn load_state(path: &Path) -> Result<PersistedState, IdentityError> {
         return Ok(PersistedState::default());
     }
     let data = fs::read(path).map_err(IdentityError::Io)?;
-    let state: PersistedState = serde_json::from_slice(&data).map_err(IdentityError::Json)?;
+    let mut state: PersistedState = serde_json::from_slice(&data).map_err(IdentityError::Json)?;
     if state.version != STATE_VERSION {
         return Err(IdentityError::Invalid(format!(
             "device state version {} is unsupported",
             state.version
         )));
+    }
+    let mut routes_changed = false;
+    for invitation in &mut state.invitations {
+        let sanitized = credential_free_route_hints_lossy(&invitation.route_hints);
+        routes_changed |= sanitized != invitation.route_hints;
+        invitation.route_hints = sanitized;
+    }
+    if routes_changed {
+        atomic_json(path, &state)?;
     }
     Ok(state)
 }
@@ -903,6 +981,134 @@ pub fn default_state_dir() -> Option<PathBuf> {
                     .map(|home| home.join(".local/state/cmux/remote"))
             })
     }
+}
+
+/// Normalizes a reconnect route before identity state persists it.
+///
+/// Carrier credentials, fragments, and capability-bearing network paths are
+/// removed. SSH usernames, Unix socket paths, Iroh node IDs, and Iroh's
+/// explicitly non-secret routing hints remain because reconnect needs them.
+pub fn credential_free_route_hint(route: &str) -> Result<String, IdentityError> {
+    let mut endpoint = url::Url::parse(route)
+        .map_err(|_| IdentityError::Invalid("route hint is not a valid URL".into()))?;
+    let scheme = endpoint.scheme().to_string();
+    clear_url_password(&mut endpoint)?;
+    endpoint.set_fragment(None);
+
+    match scheme.as_str() {
+        "ssh" => {
+            endpoint.set_path("");
+            endpoint.set_query(None);
+        }
+        "unix" => {
+            clear_url_username(&mut endpoint)?;
+            endpoint.set_query(None);
+        }
+        "iroh" => {
+            clear_url_username(&mut endpoint)?;
+            let routing = endpoint
+                .query_pairs()
+                .filter_map(|(key, value)| match key.as_ref() {
+                    "node_id" | "direct" | "direct_addrs" => {
+                        Some((key.into_owned(), value.into_owned()))
+                    }
+                    "relay" | "relay_url" => {
+                        sanitize_nested_route(&value).map(|route| (key.into_owned(), route))
+                    }
+                    _ => None,
+                })
+                .collect::<Vec<_>>();
+            endpoint.set_query(None);
+            if !routing.is_empty() {
+                let mut query = endpoint.query_pairs_mut();
+                for (key, value) in routing {
+                    query.append_pair(&key, &value);
+                }
+            }
+        }
+        _ => {
+            clear_url_username(&mut endpoint)?;
+            endpoint.set_path("");
+            endpoint.set_query(None);
+        }
+    }
+    Ok(endpoint.to_string())
+}
+
+fn credential_free_route_hints(routes: Vec<String>) -> Result<Vec<String>, IdentityError> {
+    let mut sanitized = Vec::with_capacity(routes.len());
+    for route in routes {
+        let route = credential_free_route_hint(&route)?;
+        if !sanitized.contains(&route) {
+            sanitized.push(route);
+        }
+    }
+    Ok(sanitized)
+}
+
+fn credential_free_route_hints_lossy(routes: &[String]) -> Vec<String> {
+    let mut sanitized = Vec::with_capacity(routes.len());
+    for route in routes {
+        if let Ok(route) = credential_free_route_hint(route)
+            && !sanitized.contains(&route)
+        {
+            sanitized.push(route);
+        }
+    }
+    sanitized
+}
+
+fn sanitize_loaded_known_daemon(daemon: &mut KnownDaemon) -> bool {
+    let original_routes = std::mem::take(&mut daemon.route_hints);
+    let mut changed = false;
+    if original_routes.iter().any(|route| route == &daemon.name)
+        && let Ok(name) = credential_free_route_hint(&daemon.name)
+    {
+        changed |= name != daemon.name;
+        daemon.name = name;
+    }
+    daemon.route_hints = credential_free_route_hints_lossy(&original_routes);
+    changed || daemon.route_hints != original_routes
+}
+
+fn clear_url_username(endpoint: &mut url::Url) -> Result<(), IdentityError> {
+    if !endpoint.username().is_empty() {
+        endpoint
+            .set_username("")
+            .map_err(|_| IdentityError::Invalid("route hint user information is invalid".into()))?;
+    }
+    Ok(())
+}
+
+fn clear_url_password(endpoint: &mut url::Url) -> Result<(), IdentityError> {
+    if endpoint.password().is_some() {
+        endpoint
+            .set_password(None)
+            .map_err(|_| IdentityError::Invalid("route hint user information is invalid".into()))?;
+    }
+    Ok(())
+}
+
+fn sanitize_nested_route(route: &str) -> Option<String> {
+    let mut endpoint = url::Url::parse(route).ok()?;
+    if !endpoint.username().is_empty() && endpoint.set_username("").is_err() {
+        return None;
+    }
+    if endpoint.password().is_some() && endpoint.set_password(None).is_err() {
+        return None;
+    }
+    endpoint.set_path("");
+    endpoint.set_query(None);
+    endpoint.set_fragment(None);
+    Some(endpoint.to_string())
+}
+
+fn route_debug_labels(routes: &[String]) -> Vec<String> {
+    routes.iter().map(|route| route_debug_label(route)).collect()
+}
+
+fn route_debug_label(route: &str) -> String {
+    crate::provider::sanitized_route_text(route)
 }
 
 fn validate_relay_access(
@@ -1117,6 +1323,88 @@ mod tests {
         assert_eq!(daemon.route_hints, vec!["wss://example.test/"]);
         let persisted = fs::read_to_string(temp.path().join("known-daemons.json")).unwrap();
         for secret in ["user", "password", "private-capability", "ticket", "secret", "fragment"] {
+            assert!(!persisted.contains(secret), "{secret:?} leaked in {persisted:?}");
+        }
+    }
+
+    #[test]
+    fn credential_free_routes_preserve_only_reconnect_material() {
+        let websocket = url::Url::parse(
+            &credential_free_route_hint(
+                "wss://user:password@example.test/private?ticket=secret#fragment",
+            )
+            .unwrap(),
+        )
+        .unwrap();
+        assert_eq!(websocket.as_str(), "wss://example.test/");
+
+        let ssh = url::Url::parse(
+            &credential_free_route_hint(
+                "ssh://alice:password@example.test:2222/private?ticket=secret#fragment",
+            )
+            .unwrap(),
+        )
+        .unwrap();
+        assert_eq!(ssh.username(), "alice");
+        assert_eq!(ssh.password(), None);
+        assert_eq!(ssh.host_str(), Some("example.test"));
+        assert_eq!(ssh.port(), Some(2222));
+        assert!(matches!(ssh.path(), "" | "/"));
+        assert!(ssh.query().is_none());
+        assert!(ssh.fragment().is_none());
+
+        let unix = url::Url::parse(
+            &credential_free_route_hint("unix:///tmp/cmux-remote.sock?ticket=secret#fragment")
+                .unwrap(),
+        )
+        .unwrap();
+        assert_eq!(unix.path(), "/tmp/cmux-remote.sock");
+        assert!(unix.query().is_none());
+        assert!(unix.fragment().is_none());
+
+        let iroh = url::Url::parse(
+            &credential_free_route_hint(
+                "iroh://node-id?direct=127.0.0.1%3A7777&relay=\
+                 https%3A%2F%2Fuser%3Apassword%40relay.test%2Fprivate%3Fticket%3Dsecret&\
+                 ticket=drop-me",
+            )
+            .unwrap(),
+        )
+        .unwrap();
+        let routing = iroh.query_pairs().into_owned().collect::<std::collections::HashMap<_, _>>();
+        assert_eq!(routing["direct"], "127.0.0.1:7777");
+        assert_eq!(routing["relay"], "https://relay.test/");
+        assert!(!routing.contains_key("ticket"));
+    }
+
+    #[tokio::test]
+    async fn verified_route_refreshes_known_daemon_route_and_last_used_time() {
+        let temp = tempfile::tempdir().unwrap();
+        let key = StaticIdentity::generate().unwrap().public_key();
+        let store = ClientIdentityStore::load_or_create(temp.path()).unwrap();
+        let known = store
+            .pin_daemon("host".into(), key, vec!["wss://old.example/v1/link".into()])
+            .await
+            .unwrap();
+        {
+            let mut state = store.state.lock().await;
+            state.daemons.get_mut(&known.fingerprint).unwrap().last_used_at_unix = 1;
+            store.persist_client_locked(&state).unwrap();
+        }
+
+        let refreshed = store
+            .remember_verified_route(
+                &known.fingerprint,
+                "wss://user:password@new.example/private?ticket=secret",
+            )
+            .await
+            .unwrap()
+            .unwrap();
+
+        assert!(refreshed.last_used_at_unix > 1);
+        assert_eq!(refreshed.route_hints, ["wss://old.example/", "wss://new.example/"]);
+        let persisted = fs::read_to_string(temp.path().join("known-daemons.json")).unwrap();
+        for secret in ["user", "password", "private", "ticket", "secret"] {
             assert!(!persisted.contains(secret), "{secret:?} leaked in {persisted:?}");
         }
     }

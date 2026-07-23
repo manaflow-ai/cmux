@@ -281,6 +281,7 @@ fn parse_args(args: impl IntoIterator<Item = String>) -> Args {
                         .unwrap_or_else(|| usage_exit("--remote-state-dir needs a value"))
                         .into(),
                 );
+                out.remote = true;
             }
             "--remote-link-socket" => {
                 out.remote_link_socket = Some(
@@ -458,9 +459,9 @@ fn relay_daemon_options(
                 }
             };
             Ok(remote_runtime::RelayDaemonOptions {
-                endpoint: endpoint.parse().map_err(|error| {
-                    anyhow::anyhow!("invalid relay endpoint {endpoint:?}: {error}")
-                })?,
+                endpoint: endpoint
+                    .parse()
+                    .map_err(|error| anyhow::anyhow!("invalid relay endpoint: {error}"))?,
                 slot,
                 credentials,
             })
@@ -495,9 +496,9 @@ fn run_server(args: Args) -> anyhow::Result<()> {
         let direct_websocket = args
             .remote_ws
             .map(|address| {
-                address.parse().map_err(|error| {
-                    anyhow::anyhow!("invalid remote WebSocket address {address:?}: {error}")
-                })
+                address
+                    .parse()
+                    .map_err(|error| anyhow::anyhow!("invalid remote WebSocket address: {error}"))
             })
             .transpose()?;
         (relays, direct_websocket)
@@ -522,7 +523,7 @@ fn run_server(args: Args) -> anyhow::Result<()> {
         Some(addr) => {
             let addr = addr
                 .parse()
-                .map_err(|error| anyhow::anyhow!("invalid WebSocket address {addr:?}: {error}"))?;
+                .map_err(|error| anyhow::anyhow!("invalid WebSocket address: {error}"))?;
             Some(cmux_tui_core::server::serve_websocket(
                 mux.clone(),
                 addr,

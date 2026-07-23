@@ -23,11 +23,11 @@ use cmux_remote::connection::ReconnectPolicy;
 use cmux_remote::crypto::ClientAuthMode;
 use cmux_remote::identity::{
     ClientIdentityStore, EnrollmentInvitation, EnrollmentRelayAccess, KnownDaemon, KnownDaemonAuth,
-    default_state_dir,
+    credential_free_route_hint, default_state_dir,
 };
 use cmux_remote::provider::{
     IrohPathMode, ProviderError, ROUTING_DIRECT_ADDRS, ROUTING_NODE_ID, ROUTING_RELAY_URL,
-    RelayCredentialSource, SshProviderConfig, SupportedClientAuthModes,
+    RelayCredentialSource, SshProviderConfig, SupportedClientAuthModes, sanitized_route,
 };
 use cmux_remote::ssh_bootstrap::{BUILD_IDENTITY, DISTRIBUTION_VERSION, NPM_BOOTSTRAP_VERSION};
 use cmux_remote_protocol::{
@@ -243,7 +243,11 @@ OPTIONS:
   connect accepts every option documented by `cmux-tui connect`.
 "#
         }
-        Some("known-daemons") => "USAGE: cmux-tui known-daemons [--state-dir PATH] [--json]\n",
+        Some("known-daemons") => {
+            r#"USAGE: cmux-tui known-daemons [list] [--state-dir PATH] [--json]
+       cmux-tui known-daemons forget FINGERPRINT [--state-dir PATH] [--json]
+"#
+        }
         Some("remote-probe") => "USAGE: cmux-tui remote-probe [--json]\n",
         Some("remote-link") => {
             "USAGE: cmux-tui remote-link --stdio [--session NAME] [--state-dir PATH]\n"
@@ -588,15 +592,17 @@ fn start_connected(mut flags: ConnectFlags) -> anyhow::Result<ConnectedRuntime> 
     if let Some(invitation) = &invitation {
         let mut invitation_routes = BTreeMap::new();
         for access in &invitation.relay_access {
-            let route = Url::parse(&access.route)
-                .with_context(|| format!("invalid invitation relay route {:?}", access.route))?
-                .to_string();
+            let endpoint = parse_route(&access.route, "invitation relay route")?;
+            let route = endpoint.to_string();
             let options = RelayClientOptions {
                 slot: access.slot.clone(),
                 credentials: RelayCredentialSource::static_ticket(access.ticket.clone())?,
             };
             if invitation_routes.insert(route.clone(), options).is_some() {
-                return Err(anyhow!("invitation repeats relay bootstrap route {route:?}"));
+                return Err(anyhow!(
+                    "invitation repeats relay bootstrap route {}",
+                    sanitized_route(&endpoint)
+                ));
             }
         }
         for (route, options) in invitation_routes {
@@ -620,9 +626,17 @@ fn start_connected(mut flags: ConnectFlags) -> anyhow::Result<ConnectedRuntime> 
     let providers =
         Arc::new(client_provider_registry(ssh.clone(), relay, relay_routes, flags.iroh_path)?);
     let explicit_route = flags.route.take();
+    let explicit_route_for_refresh = explicit_route.clone();
     let (route_strings, auth, expected_daemon, known, carrier_auth) = if let Some(invitation) =
         &invitation
     {
+        if let Some(fingerprint) = flags.daemon.as_deref()
+            && fingerprint != invitation.daemon_fingerprint
+        {
+            return Err(anyhow!(
+                "invitation daemon fingerprint does not match --daemon {fingerprint:?}"
+            ));
+        }
         let mut routes = Vec::new();
         if let Some(route) = explicit_route {
             push_unique(&mut routes, route);
@@ -644,28 +658,20 @@ fn start_connected(mut flags: ConnectFlags) -> anyhow::Result<ConnectedRuntime> 
             false,
         )
     } else if let Some(route) = explicit_route {
-        let endpoint = Url::parse(&route).with_context(|| format!("invalid route {route:?}"))?;
-        if providers.supported_client_auth(endpoint.scheme())?
-            == SupportedClientAuthModes::DeviceOrCarrier
-        {
-            (vec![route], ClientAuthMode::Carrier, None, None, true)
-        } else {
-            let known = async_runtime.block_on(select_known_daemon(
-                &store,
-                flags.daemon.as_deref(),
-                Some(&route),
-            ))?;
-            if known.auth == KnownDaemonAuth::Carrier {
-                return Err(anyhow!(
-                    "daemon {} is known only through a trusted SSH or Unix carrier; use that carrier route or enroll this device for network access",
-                    known.fingerprint
-                ));
-            }
-            let key = async_runtime
-                .block_on(store.daemon_key(&known.fingerprint))?
-                .ok_or_else(|| anyhow!("known daemon key disappeared"))?;
-            (vec![route], ClientAuthMode::Enrolled, Some(key), Some(known), false)
-        }
+        let endpoint = parse_route(&route, "route")?;
+        let selected = async_runtime.block_on(select_explicit_route_identity(
+            &store,
+            flags.daemon.as_deref(),
+            &route,
+            providers.supported_client_auth(endpoint.scheme())?,
+        ))?;
+        (
+            vec![route],
+            selected.auth,
+            selected.expected_daemon,
+            selected.known,
+            selected.carrier_discovery,
+        )
     } else {
         let known =
             async_runtime.block_on(select_known_daemon(&store, flags.daemon.as_deref(), None))?;
@@ -692,8 +698,11 @@ fn start_connected(mut flags: ConnectFlags) -> anyhow::Result<ConnectedRuntime> 
     }
     for route in relay_route_names {
         if !routes.iter().any(|candidate| candidate.endpoint.as_str() == route) {
+            let display = parse_route(&route, "relay credential route")
+                .map(|route| sanitized_route(&route))
+                .unwrap_or_else(|_| "<invalid route>".into());
             return Err(anyhow!(
-                "relay credential route {route:?} is not one of this connection's route candidates"
+                "relay credential route {display} is not one of this connection's route candidates"
             ));
         }
     }
@@ -728,20 +737,71 @@ fn start_connected(mut flags: ConnectFlags) -> anyhow::Result<ConnectedRuntime> 
             route_strings,
         ))?;
     } else if carrier_auth {
-        let name = route_strings[0].clone();
+        let name = credential_free_route_hint(&route_strings[0])?;
         async_runtime.block_on(store.pin_carrier_daemon(
             name,
             runtime.info().daemon_public_key,
             route_strings,
         ))?;
-    } else if let Some(known) = known
-        && expected_daemon != Some(runtime.info().daemon_public_key)
-    {
-        return Err(anyhow!("daemon key changed for {}", known.name));
+    } else if let Some(known) = known {
+        if expected_daemon != Some(runtime.info().daemon_public_key) {
+            return Err(anyhow!("daemon key changed for {}", known.name));
+        }
+        if let Some(route) = explicit_route_for_refresh {
+            async_runtime
+                .block_on(store.remember_verified_route(&known.fingerprint, &route))?
+                .ok_or_else(|| anyhow!("known daemon disappeared while refreshing its route"))?;
+        }
     }
 
     let connected_route = runtime.info().route.clone();
     Ok(ConnectedRuntime { runtime, route: connected_route })
+}
+
+struct ExplicitRouteIdentity {
+    auth: ClientAuthMode,
+    expected_daemon: Option<[u8; 32]>,
+    known: Option<KnownDaemon>,
+    carrier_discovery: bool,
+}
+
+async fn select_explicit_route_identity(
+    store: &ClientIdentityStore,
+    fingerprint: Option<&str>,
+    route: &str,
+    supported_auth: SupportedClientAuthModes,
+) -> anyhow::Result<ExplicitRouteIdentity> {
+    if supported_auth == SupportedClientAuthModes::DeviceOrCarrier && fingerprint.is_none() {
+        return Ok(ExplicitRouteIdentity {
+            auth: ClientAuthMode::Carrier,
+            expected_daemon: None,
+            known: None,
+            carrier_discovery: true,
+        });
+    }
+    let known = select_known_daemon(store, fingerprint, Some(route)).await?;
+    if supported_auth != SupportedClientAuthModes::DeviceOrCarrier
+        && known.auth == KnownDaemonAuth::Carrier
+    {
+        return Err(anyhow!(
+            "daemon {} is known only through a trusted SSH or Unix carrier; use that carrier route or enroll this device for network access",
+            known.fingerprint
+        ));
+    }
+    let key = store
+        .daemon_key(&known.fingerprint)
+        .await?
+        .ok_or_else(|| anyhow!("known daemon key disappeared"))?;
+    Ok(ExplicitRouteIdentity {
+        auth: if supported_auth == SupportedClientAuthModes::DeviceOrCarrier {
+            ClientAuthMode::Carrier
+        } else {
+            ClientAuthMode::Enrolled
+        },
+        expected_daemon: Some(key),
+        known: Some(known),
+        carrier_discovery: false,
+    })
 }
 
 fn push_unique(values: &mut Vec<String>, value: String) {
@@ -786,16 +846,16 @@ fn client_relay_options(
     }
     let mut by_route = BTreeMap::new();
     for ((route, slot), credential) in routes.into_iter().zip(slots).zip(credentials) {
-        let endpoint = Url::parse(&route)
-            .with_context(|| format!("invalid relay credential route {route:?}"))?;
+        let endpoint = parse_route(&route, "relay credential route")?;
+        let display = sanitized_route(&endpoint);
         if !matches!(endpoint.scheme(), "relay+ws" | "relay+wss" | "relay+https" | "relay+do") {
-            return Err(anyhow!("relay credential route {route:?} is not a relay route"));
+            return Err(anyhow!("relay credential route {display} is not a relay route"));
         }
         let route = endpoint.to_string();
         let options =
             RelayClientOptions { slot, credentials: client_relay_credential(credential)? };
         if by_route.insert(route.clone(), options).is_some() {
-            return Err(anyhow!("relay credential route {route:?} is repeated"));
+            return Err(anyhow!("relay credential route {display} is repeated"));
         }
     }
     Ok((None, by_route))
@@ -873,13 +933,11 @@ fn run_forward(args: &[String]) -> anyhow::Result<()> {
     let runtime = tokio_runtime()?;
     let result = runtime.block_on(async {
         let client = WorkspaceClient::connect(connected.runtime.multiplexer().clone()).await?;
-        let workspace = match client
-            .request(WorkspaceRequest::OpenWorkspace { root: workspace_root })
-            .await?
-        {
-            WorkspaceResponse::Workspace { id, .. } => id,
-            response => return Err(anyhow!("unexpected open-workspace response: {response:?}")),
-        };
+        let workspace =
+            match client.request(WorkspaceRequest::OpenWorkspace { root: workspace_root }).await? {
+                WorkspaceResponse::Workspace { id, .. } => id,
+                _ => return Err(anyhow!("unexpected open-workspace response")),
+            };
         let route = match client
             .request(WorkspaceRequest::CreateRoute {
                 workspace,
@@ -890,7 +948,7 @@ fn run_forward(args: &[String]) -> anyhow::Result<()> {
             .await?
         {
             WorkspaceResponse::RouteCreated { route, .. } => route,
-            response => return Err(anyhow!("unexpected create-route response: {response:?}")),
+            _ => return Err(anyhow!("unexpected create-route response")),
         };
         let forward =
             LocalPortForward::bind(connected.runtime.multiplexer().clone(), route, listen).await?;
@@ -926,8 +984,8 @@ fn run_rpc(args: &[String]) -> anyhow::Result<()> {
             if line.trim().is_empty() {
                 continue;
             }
-            let request: WorkspaceRequest = serde_json::from_str(&line)
-                .with_context(|| format!("invalid WorkspaceRequest: {line}"))?;
+            let request: WorkspaceRequest =
+                serde_json::from_str(&line).context("invalid WorkspaceRequest")?;
             let response = client.request(request).await?;
             println!("{}", serde_json::to_string(&response)?);
         }
@@ -964,55 +1022,339 @@ fn ssh_url(destination: &str) -> anyhow::Result<String> {
     Ok(url)
 }
 
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum EnrollAdminAction {
+    Status,
+    Create,
+    Pending,
+    Approve,
+    Deny,
+    Devices,
+    Connections,
+    Revoke,
+    Disconnect,
+}
+
+impl EnrollAdminAction {
+    fn parse(action: &str) -> anyhow::Result<Self> {
+        match action {
+            "status" => Ok(Self::Status),
+            "create" => Ok(Self::Create),
+            "pending" => Ok(Self::Pending),
+            "approve" => Ok(Self::Approve),
+            "deny" => Ok(Self::Deny),
+            "devices" => Ok(Self::Devices),
+            "connections" => Ok(Self::Connections),
+            "revoke" => Ok(Self::Revoke),
+            "disconnect" => Ok(Self::Disconnect),
+            other => Err(anyhow!("unknown enroll action {other:?}")),
+        }
+    }
+
+    fn name(self) -> &'static str {
+        match self {
+            Self::Status => "status",
+            Self::Create => "create",
+            Self::Pending => "pending",
+            Self::Approve => "approve",
+            Self::Deny => "deny",
+            Self::Devices => "devices",
+            Self::Connections => "connections",
+            Self::Revoke => "revoke",
+            Self::Disconnect => "disconnect",
+        }
+    }
+
+    fn positional_arity(self) -> usize {
+        match self {
+            Self::Approve | Self::Deny | Self::Revoke => 1,
+            Self::Disconnect => 2,
+            Self::Status | Self::Create | Self::Pending | Self::Devices | Self::Connections => 0,
+        }
+    }
+}
+
+enum InvitationTicketArg {
+    Inline(String),
+    File(PathBuf),
+}
+
+struct EnrollAdminArgs {
+    action: EnrollAdminAction,
+    positionals: Vec<String>,
+    session: String,
+    state_dir: Option<PathBuf>,
+    admin_socket: Option<PathBuf>,
+    json: bool,
+    ttl_seconds: u64,
+    advertised_routes: Vec<String>,
+    relay_routes: Vec<String>,
+    relay_slots: Vec<String>,
+    relay_tickets: Vec<InvitationTicketArg>,
+}
+
+fn parse_enroll_admin_args(args: &[String]) -> anyhow::Result<EnrollAdminArgs> {
+    let (action, mut index) = match args.first() {
+        Some(action) => (EnrollAdminAction::parse(action)?, 1),
+        None => (EnrollAdminAction::Status, 0),
+    };
+    let mut parsed = EnrollAdminArgs {
+        action,
+        positionals: Vec::new(),
+        session: "main".into(),
+        state_dir: None,
+        admin_socket: None,
+        json: false,
+        ttl_seconds: 300,
+        advertised_routes: Vec::new(),
+        relay_routes: Vec::new(),
+        relay_slots: Vec::new(),
+        relay_tickets: Vec::new(),
+    };
+    let mut seen = BTreeSet::new();
+    let mut options_ended = false;
+    while index < args.len() {
+        let argument = &args[index];
+        index += 1;
+        if !options_ended && argument == "--" {
+            options_ended = true;
+            continue;
+        }
+        if options_ended || !argument.starts_with("--") {
+            parsed.positionals.push(argument.clone());
+            continue;
+        }
+        match argument.as_str() {
+            "--session" => {
+                require_unique_flag(&mut seen, "--session")?;
+                parsed.session = strict_option_value(args, &mut index, "--session")?;
+            }
+            "--state-dir" => {
+                require_unique_flag(&mut seen, "--state-dir")?;
+                parsed.state_dir =
+                    Some(strict_option_value(args, &mut index, "--state-dir")?.into());
+            }
+            "--admin-socket" => {
+                require_unique_flag(&mut seen, "--admin-socket")?;
+                parsed.admin_socket =
+                    Some(strict_option_value(args, &mut index, "--admin-socket")?.into());
+            }
+            "--json" => {
+                require_unique_flag(&mut seen, "--json")?;
+                parsed.json = true;
+            }
+            "--ttl" => {
+                require_create_action(action, "--ttl")?;
+                require_unique_flag(&mut seen, "--ttl")?;
+                parsed.ttl_seconds = strict_option_value(args, &mut index, "--ttl")?
+                    .parse()
+                    .context("--ttl must be seconds")?;
+                if parsed.ttl_seconds == 0 {
+                    return Err(anyhow!("--ttl must be positive"));
+                }
+            }
+            "--advertise" => {
+                require_create_action(action, "--advertise")?;
+                parsed.advertised_routes.push(strict_option_value(
+                    args,
+                    &mut index,
+                    "--advertise",
+                )?);
+            }
+            "--relay-route" => {
+                require_create_action(action, "--relay-route")?;
+                parsed.relay_routes.push(strict_option_value(args, &mut index, "--relay-route")?);
+            }
+            "--relay-slot" => {
+                require_create_action(action, "--relay-slot")?;
+                parsed.relay_slots.push(strict_option_value(args, &mut index, "--relay-slot")?);
+            }
+            "--relay-ticket" => {
+                require_create_action(action, "--relay-ticket")?;
+                parsed.relay_tickets.push(InvitationTicketArg::Inline(strict_option_value(
+                    args,
+                    &mut index,
+                    "--relay-ticket",
+                )?));
+            }
+            "--relay-ticket-file" => {
+                require_create_action(action, "--relay-ticket-file")?;
+                parsed.relay_tickets.push(InvitationTicketArg::File(
+                    strict_option_value(args, &mut index, "--relay-ticket-file")?.into(),
+                ));
+            }
+            option => {
+                return Err(anyhow!("unknown option {option:?} for enroll {}", action.name()));
+            }
+        }
+    }
+    let expected = action.positional_arity();
+    if parsed.positionals.len() != expected {
+        return Err(anyhow!(
+            "enroll {} expects exactly {expected} positional argument{}",
+            action.name(),
+            if expected == 1 { "" } else { "s" }
+        ));
+    }
+    Ok(parsed)
+}
+
+fn require_create_action(action: EnrollAdminAction, option: &str) -> anyhow::Result<()> {
+    if action != EnrollAdminAction::Create {
+        return Err(anyhow!("{option} is only valid for enroll create"));
+    }
+    Ok(())
+}
+
+fn require_unique_flag(
+    seen: &mut BTreeSet<&'static str>,
+    option: &'static str,
+) -> anyhow::Result<()> {
+    if !seen.insert(option) {
+        return Err(anyhow!("{option} may only be specified once"));
+    }
+    Ok(())
+}
+
+fn strict_option_value(args: &[String], index: &mut usize, option: &str) -> anyhow::Result<String> {
+    let value = args.get(*index).filter(|value| !value.starts_with("--")).cloned();
+    let Some(value) = value else {
+        return Err(anyhow!("{option} needs a value"));
+    };
+    *index += 1;
+    Ok(value)
+}
+
 fn run_enroll(args: &[String]) -> anyhow::Result<()> {
-    let action = args.first().map(String::as_str).unwrap_or("status");
-    if action == "connect" {
+    if args.first().is_some_and(|action| action == "connect") {
         return run_connect(&args[1..], None);
     }
-    let session = flag_value(args, "--session").unwrap_or_else(|| "main".into());
-    let state_dir = flag_value(args, "--state-dir").map(PathBuf::from);
-    let admin_socket = flag_value(args, "--admin-socket").map(PathBuf::from).unwrap_or_else(|| {
-        load_runtime_info(&session, state_dir.as_deref())
+    let parsed = parse_enroll_admin_args(args)?;
+    let admin_socket = parsed.admin_socket.clone().unwrap_or_else(|| {
+        load_runtime_info(&parsed.session, parsed.state_dir.as_deref())
             .map(|runtime| runtime.admin_socket)
-            .or_else(|_| daemon_paths(&session, state_dir.as_deref()).map(|(_, _, admin)| admin))
+            .or_else(|_| {
+                daemon_paths(&parsed.session, parsed.state_dir.as_deref())
+                    .map(|(_, _, admin)| admin)
+            })
             .unwrap_or_else(|_| PathBuf::from("/nonexistent"))
     });
-    let request = match action {
-        "status" => AdminRequest::Status,
-        "create" => AdminRequest::CreateInvitation {
-            ttl_seconds: flag_value(args, "--ttl")
-                .map(|value| value.parse())
-                .transpose()
-                .context("--ttl must be seconds")?
-                .unwrap_or(300),
-            route_hints: repeated_flag_values(args, "--advertise"),
-            relay_access: invitation_relay_access(args)?,
+    let request = match parsed.action {
+        EnrollAdminAction::Status => AdminRequest::Status,
+        EnrollAdminAction::Create => AdminRequest::CreateInvitation {
+            ttl_seconds: parsed.ttl_seconds,
+            route_hints: parsed.advertised_routes.clone(),
+            relay_access: invitation_relay_access(&parsed)?,
         },
-        "pending" => AdminRequest::Pending,
-        "approve" => AdminRequest::Approve { invitation_id: required_positional(args, 1)? },
-        "deny" => AdminRequest::Deny { invitation_id: required_positional(args, 1)? },
-        "devices" => AdminRequest::Devices,
-        "connections" => AdminRequest::Connections,
-        "revoke" => AdminRequest::Revoke { device_id: required_positional(args, 1)? },
-        "disconnect" => AdminRequest::Disconnect {
-            device_id: required_positional(args, 1)?,
-            session_id: required_positional(args, 2)?,
+        EnrollAdminAction::Pending => AdminRequest::Pending,
+        EnrollAdminAction::Approve => {
+            AdminRequest::Approve { invitation_id: parsed.positionals[0].clone() }
+        }
+        EnrollAdminAction::Deny => {
+            AdminRequest::Deny { invitation_id: parsed.positionals[0].clone() }
+        }
+        EnrollAdminAction::Devices => AdminRequest::Devices,
+        EnrollAdminAction::Connections => AdminRequest::Connections,
+        EnrollAdminAction::Revoke => {
+            AdminRequest::Revoke { device_id: parsed.positionals[0].clone() }
+        }
+        EnrollAdminAction::Disconnect => AdminRequest::Disconnect {
+            device_id: parsed.positionals[0].clone(),
+            session_id: parsed.positionals[1].clone(),
         },
-        other => return Err(anyhow!("unknown enroll action {other:?}")),
     };
     let response = tokio_runtime()?.block_on(call_admin(&admin_socket, &request))?;
-    print_admin_response(action, response, args.iter().any(|argument| argument == "--json"))
+    print_admin_response(parsed.action.name(), response, parsed.json)
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+enum KnownDaemonsAction {
+    List,
+    Forget(String),
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+struct KnownDaemonsArgs {
+    action: KnownDaemonsAction,
+    state_dir: Option<PathBuf>,
+    json: bool,
+}
+
+fn parse_known_daemons_args(args: &[String]) -> anyhow::Result<KnownDaemonsArgs> {
+    let mut state_dir = None;
+    let mut json = false;
+    let mut seen = BTreeSet::new();
+    let mut positionals = Vec::new();
+    let mut options_ended = false;
+    let mut index = 0;
+    while index < args.len() {
+        let argument = &args[index];
+        index += 1;
+        if !options_ended && argument == "--" {
+            options_ended = true;
+            continue;
+        }
+        if options_ended || !argument.starts_with("--") {
+            positionals.push(argument.clone());
+            continue;
+        }
+        match argument.as_str() {
+            "--state-dir" => {
+                require_unique_flag(&mut seen, "--state-dir")?;
+                state_dir = Some(strict_option_value(args, &mut index, "--state-dir")?.into());
+            }
+            "--json" => {
+                require_unique_flag(&mut seen, "--json")?;
+                json = true;
+            }
+            option => return Err(anyhow!("unknown option {option:?} for known-daemons")),
+        }
+    }
+    let action = match positionals.as_slice() {
+        [] => KnownDaemonsAction::List,
+        [action] if action == "list" => KnownDaemonsAction::List,
+        [action, fingerprint] if action == "forget" => {
+            KnownDaemonsAction::Forget(fingerprint.clone())
+        }
+        [action] if action == "forget" => {
+            return Err(anyhow!("known-daemons forget expects exactly one fingerprint"));
+        }
+        [action, ..] if action == "forget" => {
+            return Err(anyhow!("known-daemons forget expects exactly one fingerprint"));
+        }
+        [action, ..] => return Err(anyhow!("unknown known-daemons action {action:?}")),
+    };
+    Ok(KnownDaemonsArgs { action, state_dir, json })
 }
 
 fn run_known_daemons(args: &[String]) -> anyhow::Result<()> {
-    let client_root = flag_value(args, "--state-dir")
-        .map(PathBuf::from)
+    let parsed = parse_known_daemons_args(args)?;
+    let client_root = parsed
+        .state_dir
         .or_else(default_state_dir)
         .ok_or_else(|| anyhow!("cannot determine remote state directory; use --state-dir"))?
         .join("client");
     let store = ClientIdentityStore::load_or_create(client_root)?;
+    if let KnownDaemonsAction::Forget(fingerprint) = parsed.action {
+        let forgotten = tokio_runtime()?.block_on(store.forget_daemon(&fingerprint))?;
+        if !forgotten {
+            return Err(anyhow!("daemon {fingerprint:?} is not known"));
+        }
+        if parsed.json {
+            println!(
+                "{}",
+                serde_json::json!({
+                    "forgotten": true,
+                    "fingerprint": fingerprint,
+                })
+            );
+        } else {
+            println!("Forgot daemon {fingerprint}.");
+        }
+        return Ok(());
+    }
     let daemons = tokio_runtime()?.block_on(store.known_daemons());
-    if args.iter().any(|argument| argument == "--json") {
+    if parsed.json {
         println!("{}", serde_json::to_string_pretty(&daemons)?);
         return Ok(());
     }
@@ -1037,37 +1379,32 @@ fn run_known_daemons(args: &[String]) -> anyhow::Result<()> {
     Ok(())
 }
 
-fn invitation_relay_access(args: &[String]) -> anyhow::Result<Vec<EnrollmentRelayAccess>> {
-    let routes = repeated_flag_values(args, "--relay-route");
-    let slots = repeated_flag_values(args, "--relay-slot");
-    let ticket_sources = args
-        .windows(2)
-        .filter_map(|pair| match pair[0].as_str() {
-            "--relay-ticket" => Some((false, pair[1].clone())),
-            "--relay-ticket-file" => Some((true, pair[1].clone())),
-            _ => None,
-        })
-        .collect::<Vec<_>>();
-    if routes.is_empty() && slots.is_empty() && ticket_sources.is_empty() {
+fn invitation_relay_access(args: &EnrollAdminArgs) -> anyhow::Result<Vec<EnrollmentRelayAccess>> {
+    if args.relay_routes.is_empty() && args.relay_slots.is_empty() && args.relay_tickets.is_empty()
+    {
         return Ok(Vec::new());
     }
-    if routes.len() != slots.len() || routes.len() != ticket_sources.len() {
+    if args.relay_routes.len() != args.relay_slots.len()
+        || args.relay_routes.len() != args.relay_tickets.len()
+    {
         return Err(anyhow!(
             "each invitation relay needs one --relay-route, one --relay-slot, and one --relay-ticket or --relay-ticket-file"
         ));
     }
-    if routes.len() > 2 {
+    if args.relay_routes.len() > 2 {
         return Err(anyhow!("an invitation supports at most two relay bootstrap routes"));
     }
 
-    routes
-        .into_iter()
-        .zip(slots)
-        .zip(ticket_sources)
-        .map(|((route, slot), (is_file, source))| {
-            let ticket =
-                if is_file { read_invitation_ticket_file(Path::new(&source))? } else { source };
-            Ok(EnrollmentRelayAccess { route, slot, ticket })
+    args.relay_routes
+        .iter()
+        .zip(&args.relay_slots)
+        .zip(&args.relay_tickets)
+        .map(|((route, slot), source)| {
+            let ticket = match source {
+                InvitationTicketArg::Inline(ticket) => ticket.clone(),
+                InvitationTicketArg::File(path) => read_invitation_ticket_file(path)?,
+            };
+            Ok(EnrollmentRelayAccess { route: route.clone(), slot: slot.clone(), ticket })
         })
         .collect()
 }
@@ -1510,10 +1847,11 @@ async fn select_known_daemon(
             .find(|daemon| daemon.fingerprint == fingerprint)
             .ok_or_else(|| anyhow!("daemon {fingerprint:?} is not known"));
     }
+    let route = route.and_then(|route| credential_free_route_hint(route).ok());
     let matching = daemons
         .iter()
         .filter(|daemon| {
-            route.is_some_and(|route| daemon.route_hints.iter().any(|hint| hint == route))
+            route.as_ref().is_some_and(|route| daemon.route_hints.iter().any(|hint| hint == route))
         })
         .cloned()
         .collect::<Vec<_>>();
@@ -1527,6 +1865,10 @@ async fn select_known_daemon(
         [] => Err(anyhow!("no known daemons; connect with an invitation or trusted carrier")),
         _ => Err(anyhow!("multiple known daemons match this route; use --daemon FINGERPRINT")),
     }
+}
+
+fn parse_route(route: &str, description: &str) -> anyhow::Result<Url> {
+    Url::parse(route).with_context(|| format!("invalid {description}"))
 }
 
 fn invitation_daemon_key(invitation: &EnrollmentInvitation) -> anyhow::Result<[u8; 32]> {
@@ -1543,7 +1885,7 @@ fn resolve_route_candidates(
     let mut candidates = Vec::new();
     let mut unsupported_schemes = BTreeSet::new();
     for route in routes {
-        let mut endpoint = Url::parse(route).with_context(|| format!("invalid route {route:?}"))?;
+        let mut endpoint = parse_route(route, "route")?;
         let mut routing =
             if endpoint.scheme() == "iroh" { iroh_routing.clone() } else { BTreeMap::new() };
         extract_iroh_routing(&mut endpoint, &mut routing)?;
@@ -1603,41 +1945,6 @@ fn tokio_runtime() -> anyhow::Result<tokio::runtime::Runtime> {
 
 fn flag_value(args: &[String], flag: &str) -> Option<String> {
     args.windows(2).find(|pair| pair[0] == flag).map(|pair| pair[1].clone())
-}
-
-fn repeated_flag_values(args: &[String], flag: &str) -> Vec<String> {
-    args.windows(2).filter(|pair| pair[0] == flag).map(|pair| pair[1].clone()).collect()
-}
-
-fn required_positional(args: &[String], skip: usize) -> anyhow::Result<String> {
-    const VALUE_OPTIONS: &[&str] = &[
-        "--session",
-        "--state-dir",
-        "--admin-socket",
-        "--ttl",
-        "--advertise",
-        "--relay-route",
-        "--relay-slot",
-        "--relay-ticket",
-        "--relay-ticket-file",
-    ];
-
-    let mut index = 1;
-    let mut position = 0;
-    while index < args.len() {
-        if args[index] == "--json" {
-            index += 1;
-        } else if VALUE_OPTIONS.contains(&args[index].as_str()) {
-            index += 2;
-        } else {
-            position += 1;
-            if position == skip {
-                return Ok(args[index].clone());
-            }
-            index += 1;
-        }
-    }
-    Err(anyhow!("missing identifier"))
 }
 
 fn expand_home(path: String) -> anyhow::Result<PathBuf> {
@@ -1878,6 +2185,59 @@ esac
         assert!(explicit.lanes_explicit);
     }
 
+    #[tokio::test]
+    async fn explicit_daemon_pins_carrier_routes_while_unpinned_routes_discover() {
+        let directory = tempfile::tempdir().unwrap();
+        let store = ClientIdentityStore::load_or_create(directory.path()).unwrap();
+        let key = cmux_remote::crypto::StaticIdentity::generate().unwrap().public_key();
+        let known = store
+            .pin_carrier_daemon("remote".into(), key, vec!["ssh://remote.example".into()])
+            .await
+            .unwrap();
+
+        for route in ["ssh://remote.example", "unix:///tmp/cmux-remote.sock"] {
+            let pinned = select_explicit_route_identity(
+                &store,
+                Some(&known.fingerprint),
+                route,
+                SupportedClientAuthModes::DeviceOrCarrier,
+            )
+            .await
+            .unwrap();
+            assert!(matches!(pinned.auth, ClientAuthMode::Carrier));
+            assert_eq!(pinned.expected_daemon, Some(key));
+            assert_eq!(
+                pinned.known.as_ref().map(|daemon| &daemon.fingerprint),
+                Some(&known.fingerprint)
+            );
+            assert!(!pinned.carrier_discovery);
+
+            let unpinned = select_explicit_route_identity(
+                &store,
+                None,
+                route,
+                SupportedClientAuthModes::DeviceOrCarrier,
+            )
+            .await
+            .unwrap();
+            assert!(matches!(unpinned.auth, ClientAuthMode::Carrier));
+            assert!(unpinned.expected_daemon.is_none());
+            assert!(unpinned.known.is_none());
+            assert!(unpinned.carrier_discovery);
+        }
+
+        assert!(
+            select_explicit_route_identity(
+                &store,
+                Some("unknown"),
+                "ssh://remote.example",
+                SupportedClientAuthModes::DeviceOrCarrier,
+            )
+            .await
+            .is_err()
+        );
+    }
+
     #[test]
     fn connection_json_diagnostics_require_headless_mode() {
         assert!(parse_connect_flags(&["unix:///tmp/cmux.sock".into(), "--json".into()]).is_err());
@@ -2106,8 +2466,10 @@ esac
             "0123456789abcdef0123456789abcdef",
         ]
         .map(str::to_string);
-        assert_eq!(required_positional(&args, 1).unwrap(), "device-id");
-        assert_eq!(required_positional(&args, 2).unwrap(), "0123456789abcdef0123456789abcdef");
+        let parsed = parse_enroll_admin_args(&args).unwrap();
+        assert_eq!(parsed.positionals, ["device-id", "0123456789abcdef0123456789abcdef"]);
+        assert_eq!(parsed.session, "dev");
+        assert!(parsed.json);
     }
 
     #[test]
@@ -2120,17 +2482,64 @@ esac
             "--json",
         ]
         .map(str::to_string);
-        assert_eq!(required_positional(&approve, 1).unwrap(), "-mRUA1nkvEa07LQJx8XtvQ");
+        assert_eq!(
+            parse_enroll_admin_args(&approve).unwrap().positionals,
+            ["-mRUA1nkvEa07LQJx8XtvQ"]
+        );
 
         let deny =
             ["deny", "--admin-socket", "/tmp/cmux-admin.sock", "-another-url-safe-id", "--json"]
                 .map(str::to_string);
-        assert_eq!(required_positional(&deny, 1).unwrap(), "-another-url-safe-id");
+        assert_eq!(parse_enroll_admin_args(&deny).unwrap().positionals, ["-another-url-safe-id"]);
 
         let disconnect = ["disconnect", "--session", "dev", "-device-id", "-session-id", "--json"]
             .map(str::to_string);
-        assert_eq!(required_positional(&disconnect, 1).unwrap(), "-device-id");
-        assert_eq!(required_positional(&disconnect, 2).unwrap(), "-session-id");
+        assert_eq!(
+            parse_enroll_admin_args(&disconnect).unwrap().positionals,
+            ["-device-id", "-session-id"]
+        );
+    }
+
+    #[test]
+    fn enrollment_admin_parser_rejects_unknown_duplicate_missing_and_inapplicable_arguments() {
+        for args in [
+            vec!["status", "--wat"],
+            vec!["status", "--json", "--json"],
+            vec!["status", "--state-dir"],
+            vec!["status", "--ttl", "60"],
+            vec!["status", "unexpected"],
+            vec!["approve"],
+            vec!["approve", "id", "extra"],
+            vec!["disconnect", "device-only"],
+            vec!["disconnect", "device", "session", "extra"],
+        ] {
+            let args = args.into_iter().map(str::to_string).collect::<Vec<_>>();
+            assert!(parse_enroll_admin_args(&args).is_err(), "unexpectedly accepted {args:?}");
+        }
+    }
+
+    #[test]
+    fn known_daemon_parser_is_strict_and_supports_forget() {
+        let parsed = parse_known_daemons_args(
+            &["forget", "fingerprint", "--state-dir", "/tmp/client-state", "--json"]
+                .map(str::to_string),
+        )
+        .unwrap();
+        assert_eq!(parsed.action, KnownDaemonsAction::Forget("fingerprint".into()));
+        assert_eq!(parsed.state_dir, Some("/tmp/client-state".into()));
+        assert!(parsed.json);
+
+        for args in [
+            vec!["forget"],
+            vec!["forget", "fingerprint", "extra"],
+            vec!["list", "extra"],
+            vec!["--json", "--json"],
+            vec!["--state-dir"],
+            vec!["--unknown"],
+        ] {
+            let args = args.into_iter().map(str::to_string).collect::<Vec<_>>();
+            assert!(parse_known_daemons_args(&args).is_err(), "unexpectedly accepted {args:?}");
+        }
     }
 
     #[test]
@@ -2147,7 +2556,8 @@ esac
             "--relay-ticket-file".into(),
             ticket.to_string_lossy().into_owned(),
         ];
-        let access = invitation_relay_access(&args).unwrap();
+        let parsed = parse_enroll_admin_args(&args).unwrap();
+        let access = invitation_relay_access(&parsed).unwrap();
         assert_eq!(access[0].ticket, "short-lived-ticket");
         assert!(!format!("{:?}", access[0]).contains("short-lived-ticket"));
     }
@@ -2171,7 +2581,8 @@ esac
         ]
         .map(str::to_string);
 
-        let access = invitation_relay_access(&args).unwrap();
+        let parsed = parse_enroll_admin_args(&args).unwrap();
+        let access = invitation_relay_access(&parsed).unwrap();
         assert_eq!(access.len(), 2);
         assert_eq!(access[0].slot, "native-slot");
         assert_eq!(access[1].slot, "do-slot");
@@ -2180,6 +2591,7 @@ esac
     #[test]
     fn relay_invitation_access_rejects_incomplete_groups() {
         let args = ["create", "--relay-route", "relay+do://worker.example"].map(str::to_string);
-        assert!(invitation_relay_access(&args).is_err());
+        let parsed = parse_enroll_admin_args(&args).unwrap();
+        assert!(invitation_relay_access(&parsed).is_err());
     }
 }
