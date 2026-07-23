@@ -38,6 +38,7 @@ use tungstenite::protocol::CloseFrame;
 use tungstenite::protocol::frame::coding::CloseCode;
 use tungstenite::protocol::{Role, WebSocketConfig};
 use tungstenite::{Message, WebSocket, accept_with_config};
+use zeroize::Zeroize;
 
 use crate::model::{Screen, State, Workspace};
 use crate::mux::clamp_terminal_size;
@@ -54,6 +55,8 @@ use crate::{
 const ATTACH_INITIAL_SIZE_CAPABILITY: &str = "attach-initial-size";
 const WORKSPACE_REGISTRY_CAPABILITY: &str = "workspace-registry-v1";
 pub const CLEAR_HISTORY_CAPABILITY: &str = "clear-history-v1";
+pub const PROVIDER_MANAGED_WORKSPACE_GUARD_CAPABILITY: &str =
+    "provider-managed-workspace-authority-v2";
 const INITIAL_BROWSER_RESIZE_TIMEOUT: Duration = Duration::from_secs(10);
 pub const STABLE_SPLIT_IDS_PROTOCOL_VERSION: u32 = 8;
 pub const STACK_LAYOUT_PROTOCOL_VERSION: u32 = 9;
@@ -162,6 +165,13 @@ enum Command {
         pane: Option<PaneId>,
         #[serde(default)]
         new_workspace: bool,
+        /// Optional stable key for a newly-created workspace.
+        ///
+        /// This is rejected unless `new_workspace` is true. Detached and
+        /// provider-backed frontends use it to keep workspace identity stable
+        /// across display-name changes and reconciliation.
+        #[serde(default)]
+        key: Option<String>,
         #[serde(default)]
         name: Option<String>,
         #[serde(default)]
@@ -425,6 +435,16 @@ enum Command {
         #[serde(default)]
         expected_revision: Option<u64>,
     },
+    /// Verifies that this provider frontend holds the authority provisioned
+    /// before the mux accepted control clients.
+    MarkWorkspacesProviderManaged {
+        authority: String,
+    },
+    CloseProviderManagedWorkspace {
+        workspace: WorkspaceId,
+        key: String,
+        authority: String,
+    },
     RenamePane {
         pane: PaneId,
         /// Empty clears the name (falls back to the tab title).
@@ -448,6 +468,12 @@ enum Command {
         name: String,
         #[serde(default)]
         expected_revision: Option<u64>,
+    },
+    RenameProviderManagedWorkspace {
+        workspace: WorkspaceId,
+        key: String,
+        name: String,
+        authority: String,
     },
     ResizeSurface {
         surface: SurfaceId,
@@ -1538,11 +1564,14 @@ fn handle_connection(mux: Arc<Mux>, stream: Box<dyn transport::Stream>) {
     let client = mux.control_clients.register(ClientTransport::Unix, writer.clone());
     let reader = BufReader::new(stream);
     for line in reader.lines() {
-        let Ok(line) = line else { break };
+        let Ok(mut line) = line else { break };
         if line.trim().is_empty() {
+            zeroize_string(&mut line);
             continue;
         }
-        if !handle_message(&mux, client, &line, &writer) {
+        let keep_open = handle_message(&mux, client, &line, &writer);
+        zeroize_string(&mut line);
+        if !keep_open {
             break;
         }
     }
@@ -1619,7 +1648,10 @@ fn handle_websocket_connection(
         let incoming = websocket.read();
         match incoming {
             Ok(Message::Text(text)) => {
-                if !handle_message(&mux, client, &text, &writer) {
+                let mut text = text.to_string();
+                let keep_open = handle_message(&mux, client, &text, &writer);
+                zeroize_string(&mut text);
+                if !keep_open {
                     break;
                 }
             }
@@ -1643,14 +1675,20 @@ fn authenticate_websocket(
     configured_token: Option<&str>,
 ) -> bool {
     let Ok(Message::Text(text)) = websocket.read() else { return false };
-    if let Some(provided) = auth_token(&text) {
-        return configured_token
+    let mut text = text.to_string();
+    if let Some(mut provided) = auth_token(&text) {
+        let authenticated = configured_token
             .is_some_and(|expected| constant_time_eq(provided.as_bytes(), expected.as_bytes()))
             || mux.authenticate_pairing_credential(&provided);
+        zeroize_string(&mut provided);
+        zeroize_string(&mut text);
+        return authenticated;
     }
     if !pairing_request(&text) {
+        zeroize_string(&mut text);
         return false;
     }
+    zeroize_string(&mut text);
 
     let (challenge, decision) = match mux.begin_pairing(peer.ip()) {
         Ok(pairing) => pairing,
@@ -1774,6 +1812,27 @@ fn constant_time_eq(a: &[u8], b: &[u8]) -> bool {
             usize::from(a.get(index).copied().unwrap_or(0) ^ b.get(index).copied().unwrap_or(0));
     }
     difference == 0
+}
+
+fn authorize_provider_workspace_command(mux: &Mux, mut authority: String) -> anyhow::Result<()> {
+    let result = mux.authorize_provider_workspace_authority(&authority);
+    zeroize_string(&mut authority);
+    result
+}
+
+fn with_provider_workspace_authority<T>(
+    mut authority: String,
+    operation: impl FnOnce(&str) -> anyhow::Result<T>,
+) -> anyhow::Result<T> {
+    let result = operation(&authority);
+    zeroize_string(&mut authority);
+    result
+}
+
+fn zeroize_string(value: &mut str) {
+    // NUL remains valid UTF-8, so decoded control frames can be cleared in
+    // place immediately after dispatch.
+    value.zeroize();
 }
 
 fn node_json(node: &Node, active_pane: PaneId) -> Value {
@@ -2699,6 +2758,7 @@ fn handle_command(
                 ATTACH_INITIAL_SIZE_CAPABILITY,
                 WORKSPACE_REGISTRY_CAPABILITY,
                 CLEAR_HISTORY_CAPABILITY,
+                PROVIDER_MANAGED_WORKSPACE_GUARD_CAPABILITY
             ],
             "session": mux.session,
             "pid": std::process::id(),
@@ -2897,7 +2957,7 @@ fn handle_command(
                 }
             }
         }
-        Command::Run { argv, command, cwd, pane, new_workspace, name, cols, rows } => {
+        Command::Run { argv, command, cwd, pane, new_workspace, key, name, cols, rows } => {
             if argv.is_some() && command.is_some() {
                 anyhow::bail!("argv and command are mutually exclusive");
             }
@@ -2911,13 +2971,19 @@ fn handle_command(
             if new_workspace && pane.is_some() {
                 anyhow::bail!("pane and new_workspace are mutually exclusive");
             }
-            let placement = mux.run_command_surface(
+            if key.is_some() && !new_workspace {
+                anyhow::bail!("key requires new_workspace");
+            }
+            let placement = mux.run_command_surface_with_options(
                 argv,
-                pane,
-                new_workspace,
-                cwd,
-                name,
-                optional_surface_size(cols, rows),
+                crate::mux::RunCommandOptions {
+                    pane,
+                    new_workspace,
+                    workspace_key: key,
+                    cwd,
+                    name,
+                    size: optional_surface_size(cols, rows),
+                },
             )?;
             Ok(json!({
                 "surface": placement.surface,
@@ -3298,6 +3364,19 @@ fn handle_command(
             };
             Ok(json!({"workspace": workspace, "key": key, "workspace_revision": revision}))
         }
+        Command::MarkWorkspacesProviderManaged { authority } => {
+            authorize_provider_workspace_command(mux, authority)?;
+            Ok(json!({}))
+        }
+        Command::CloseProviderManagedWorkspace { workspace, key, authority } => {
+            let Some(revision) = with_provider_workspace_authority(authority, |authority| {
+                mux.close_provider_managed_workspace_authorized(workspace, &key, authority)
+            })?
+            else {
+                anyhow::bail!("unknown provider-managed workspace selector");
+            };
+            Ok(json!({"workspace": workspace, "key": key, "workspace_revision": revision}))
+        }
         Command::RenamePane { pane, name } => {
             if !mux.rename_pane(pane, name) {
                 anyhow::bail!("unknown pane {pane}");
@@ -3325,6 +3404,15 @@ fn handle_command(
             )?
             else {
                 anyhow::bail!("unknown workspace selector");
+            };
+            Ok(json!({"workspace": workspace, "key": key, "workspace_revision": revision}))
+        }
+        Command::RenameProviderManagedWorkspace { workspace, key, name, authority } => {
+            let Some(revision) = with_provider_workspace_authority(authority, |authority| {
+                mux.rename_provider_managed_workspace_authorized(workspace, &key, name, authority)
+            })?
+            else {
+                anyhow::bail!("unknown provider-managed workspace selector");
             };
             Ok(json!({"workspace": workspace, "key": key, "workspace_revision": revision}))
         }
@@ -3991,12 +4079,22 @@ pub fn cleanup(path: &Path) {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::SurfaceOptions;
+    use crate::{ProviderWorkspaceAuthority, SurfaceOptions};
     use std::sync::mpsc::TryRecvError;
     use std::time::Duration;
 
     fn test_mux() -> Arc<Mux> {
         Mux::new_for_test("test", SurfaceOptions::default())
+    }
+
+    const PROVIDER_AUTHORITY: &str = "provider-workspace-authority-for-server-tests-00000001";
+
+    fn provider_test_mux() -> Arc<Mux> {
+        Mux::new_provider_managed_for_test(
+            "provider-test",
+            SurfaceOptions::default(),
+            ProviderWorkspaceAuthority::new(PROVIDER_AUTHORITY).unwrap(),
+        )
     }
 
     fn test_writer() -> MessageWriter {
@@ -5376,12 +5474,186 @@ mod tests {
     }
 
     #[test]
+    fn provider_managed_mux_is_locked_before_authority_handshake() {
+        let mux = provider_test_mux();
+        let workspace = mux
+            .create_empty_workspace(Some("managed".into()), Some("managed-key".into()), None)
+            .unwrap();
+        let writer = test_writer();
+        let ordinary = mux.control_clients.register(ClientTransport::Unix, writer.clone());
+
+        let mutation_error = handle_command(
+            &mux,
+            ordinary,
+            Command::RenameWorkspace {
+                workspace: Some(workspace.workspace),
+                key: Some(workspace.key),
+                name: "won the race".into(),
+                expected_revision: None,
+            },
+            &writer,
+        )
+        .unwrap_err();
+        let handshake_error = handle_command(
+            &mux,
+            ordinary,
+            Command::MarkWorkspacesProviderManaged { authority: "ordinary-control-client".into() },
+            &writer,
+        )
+        .unwrap_err();
+
+        assert!(mutation_error.to_string().contains("provider-managed workspace directly"));
+        assert_eq!(handshake_error.to_string(), "invalid provider workspace authority");
+        assert_eq!(mux.with_state(|state| state.workspaces[0].name.clone()), "managed");
+    }
+
+    #[test]
+    fn provider_managed_workspaces_reject_ordinary_server_mutations() {
+        let mux = provider_test_mux();
+        let workspace = mux
+            .create_empty_workspace(Some("managed".into()), Some("managed-key".into()), None)
+            .unwrap();
+        let writer = test_writer();
+        let client = mux.control_clients.register(ClientTransport::Unix, writer.clone());
+
+        handle_command(
+            &mux,
+            client,
+            Command::MarkWorkspacesProviderManaged { authority: PROVIDER_AUTHORITY.into() },
+            &writer,
+        )
+        .unwrap();
+        for (command, expected_error) in [
+            (
+                Command::RenameWorkspace {
+                    workspace: Some(workspace.workspace),
+                    key: Some(workspace.key.clone()),
+                    name: "raw rename".into(),
+                    expected_revision: None,
+                },
+                "cannot rename a provider-managed workspace directly; use the managed workspace lifecycle controls",
+            ),
+            (
+                Command::CloseWorkspace {
+                    workspace: Some(workspace.workspace),
+                    key: Some(workspace.key.clone()),
+                    expected_revision: None,
+                },
+                "cannot close a provider-managed workspace directly; use the managed workspace lifecycle controls",
+            ),
+        ] {
+            let error = handle_command(&mux, client, command, &writer).unwrap_err();
+            assert_eq!(error.to_string(), expected_error);
+        }
+        mux.with_state(|state| {
+            assert_eq!(state.workspace_revision, 1);
+            let current = state
+                .workspaces
+                .iter()
+                .find(|candidate| candidate.id == workspace.workspace)
+                .unwrap();
+            assert_eq!(current.name, "managed");
+        });
+
+        handle_command(
+            &mux,
+            client,
+            Command::RenameProviderManagedWorkspace {
+                workspace: workspace.workspace,
+                key: workspace.key.clone(),
+                name: "provider rename".into(),
+                authority: PROVIDER_AUTHORITY.into(),
+            },
+            &writer,
+        )
+        .unwrap();
+        assert_eq!(
+            mux.with_state(|state| state
+                .workspaces
+                .iter()
+                .find(|candidate| candidate.id == workspace.workspace)
+                .unwrap()
+                .name
+                .clone()),
+            "provider rename"
+        );
+
+        handle_command(
+            &mux,
+            client,
+            Command::CloseProviderManagedWorkspace {
+                workspace: workspace.workspace,
+                key: workspace.key,
+                authority: PROVIDER_AUTHORITY.into(),
+            },
+            &writer,
+        )
+        .unwrap();
+        assert!(mux.with_state(|state| state.workspaces.is_empty()));
+    }
+
+    #[test]
+    fn ordinary_control_client_cannot_forge_provider_workspace_commits() {
+        let mux = provider_test_mux();
+        let workspace = mux
+            .create_empty_workspace(Some("managed".into()), Some("managed-key".into()), None)
+            .unwrap();
+        let writer = test_writer();
+        let provider = mux.control_clients.register(ClientTransport::Unix, writer.clone());
+        let ordinary = mux.control_clients.register(ClientTransport::Unix, writer.clone());
+        handle_command(
+            &mux,
+            provider,
+            Command::MarkWorkspacesProviderManaged { authority: PROVIDER_AUTHORITY.into() },
+            &writer,
+        )
+        .unwrap();
+
+        let rename_error = handle_command(
+            &mux,
+            ordinary,
+            Command::RenameProviderManagedWorkspace {
+                workspace: workspace.workspace,
+                key: workspace.key.clone(),
+                name: "forged rename".into(),
+                authority: "ordinary-control-client".into(),
+            },
+            &writer,
+        )
+        .unwrap_err();
+        let close_error = handle_command(
+            &mux,
+            ordinary,
+            Command::CloseProviderManagedWorkspace {
+                workspace: workspace.workspace,
+                key: workspace.key,
+                authority: "ordinary-control-client".into(),
+            },
+            &writer,
+        )
+        .unwrap_err();
+
+        assert!(rename_error.to_string().contains("provider workspace authority"));
+        assert!(close_error.to_string().contains("provider workspace authority"));
+        mux.with_state(|state| {
+            assert_eq!(state.workspaces.len(), 1);
+            assert_eq!(state.workspaces[0].name, "managed");
+            assert_eq!(state.workspace_revision, 1);
+        });
+    }
+
+    #[test]
     fn identify_advertises_additive_capabilities() {
         let mux = test_mux();
         let identity = handle_command(&mux, 0, Command::Identify, &test_writer()).unwrap();
 
         let capabilities = identity["capabilities"].as_array().expect("capabilities");
-        for expected in ["attach-initial-size", "workspace-registry-v1", "clear-history-v1"] {
+        for expected in [
+            "attach-initial-size",
+            "workspace-registry-v1",
+            CLEAR_HISTORY_CAPABILITY,
+            PROVIDER_MANAGED_WORKSPACE_GUARD_CAPABILITY,
+        ] {
             assert!(capabilities.iter().any(|value| value.as_str() == Some(expected)));
         }
     }
