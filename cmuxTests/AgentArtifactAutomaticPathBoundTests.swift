@@ -100,6 +100,7 @@ struct AgentArtifactAutomaticPathBoundTests {
             workspaceID: "workspace",
             surfaceID: nil,
             workingDirectory: projectRoot.path,
+            workingDirectoryAuthority: .hook,
             transcriptPath: nil,
             state: .idle,
             lastActivityAt: .now,

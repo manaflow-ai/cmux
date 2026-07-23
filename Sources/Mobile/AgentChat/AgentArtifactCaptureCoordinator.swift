@@ -223,7 +223,8 @@ actor AgentArtifactCaptureCoordinator {
     }
 
     private func projectRoot(for record: AgentChatSessionRecord) -> URL? {
-        guard let workingDirectory = record.workingDirectory,
+        guard record.workingDirectoryAuthority.authorizesArtifactPersistence,
+              let workingDirectory = record.workingDirectory,
               !workingDirectory.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty else {
             return nil
         }

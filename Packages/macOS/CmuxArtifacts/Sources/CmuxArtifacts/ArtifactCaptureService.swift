@@ -155,9 +155,30 @@ public actor ArtifactCaptureService: ArtifactCapturing {
     }
 
     private func distinct(_ candidates: [ArtifactCandidate]) -> [ArtifactCandidate] {
-        var paths: Set<String> = []
-        return candidates.filter {
-            paths.insert($0.sourceURL.standardizedFileURL.path).inserted
+        var indexByPath: [String: Int] = [:]
+        var distinct: [ArtifactCandidate] = []
+        for candidate in candidates {
+            let path = candidate.sourceURL.standardizedFileURL.path
+            guard let existingIndex = indexByPath[path] else {
+                indexByPath[path] = distinct.count
+                distinct.append(candidate)
+                continue
+            }
+            if candidate.provenance.captureAuthority
+                > distinct[existingIndex].provenance.captureAuthority {
+                distinct[existingIndex] = candidate
+            }
+        }
+        return distinct
+    }
+}
+
+private extension ArtifactProvenance {
+    var captureAuthority: Int {
+        switch self {
+        case .manual: return 3
+        case .created, .attached: return 2
+        case .referenced: return 1
         }
     }
 }

@@ -141,6 +141,7 @@ final class AgentChatSessionRegistry {
                     workspaceID: session.workspaceID,
                     surfaceID: session.surfaceID,
                     workingDirectory: session.workingDirectory,
+                    workingDirectoryAuthority: session.workingDirectoryAuthority,
                     transcriptPath: session.transcriptPath,
                     state: .idle,
                     lastActivityAt: now,
@@ -158,9 +159,15 @@ final class AgentChatSessionRegistry {
                 if reviveEndedObservedSessionIfNeeded(current: current, observed: session, now: now) {
                     continue
                 }
+                var observedCandidate = current
+                observedCandidate.adoptObservedWorkingDirectory(
+                    session.workingDirectory,
+                    authority: session.workingDirectoryAuthority
+                )
                 let needsBackfill = current.surfaceID == nil
                     || (current.workspaceID == nil && session.workspaceID != nil)
-                    || (current.workingDirectory == nil && session.workingDirectory != nil)
+                    || observedCandidate.workingDirectory != current.workingDirectory
+                    || observedCandidate.workingDirectoryAuthority != current.workingDirectoryAuthority
                     || (current.transcriptPath == nil && session.transcriptPath != nil)
                     || current.pid == nil
                     || (
@@ -175,7 +182,10 @@ final class AgentChatSessionRegistry {
                     }
                     if rec.surfaceID == nil { rec.surfaceID = session.surfaceID }
                     if rec.workspaceID == nil { rec.workspaceID = session.workspaceID }
-                    if rec.workingDirectory == nil { rec.workingDirectory = session.workingDirectory }
+                    rec.adoptObservedWorkingDirectory(
+                        session.workingDirectory,
+                        authority: session.workingDirectoryAuthority
+                    )
                     if rec.transcriptPath == nil { rec.transcriptPath = session.transcriptPath }
                     if rec.pid == nil { rec.pid = session.pid }
                 }
@@ -371,7 +381,9 @@ final class AgentChatSessionRegistry {
                     guard candidate.surfaceID != current.surfaceID
                         || candidate.workspaceID != current.workspaceID
                         || candidate.transcriptPath != current.transcriptPath
-                        || candidate.workingDirectory != current.workingDirectory || candidate.hookStoreSessionID != current.hookStoreSessionID else { continue }
+                        || candidate.workingDirectory != current.workingDirectory
+                        || candidate.workingDirectoryAuthority != current.workingDirectoryAuthority
+                        || candidate.hookStoreSessionID != current.hookStoreSessionID else { continue }
                     update(sessionID: sessionID) { record in
                         record.adoptMissingBindings(from: entry, includingPID: false)
                     }
@@ -384,6 +396,7 @@ final class AgentChatSessionRegistry {
                     workspaceID: entry.workspaceID,
                     surfaceID: entry.surfaceID,
                     workingDirectory: entry.workingDirectory,
+                    workingDirectoryAuthority: entry.workingDirectory == nil ? .unknown : .hook,
                     transcriptPath: entry.transcriptPath,
                     state: alive ? .idle : .ended,
                     lastActivityAt: entry.updatedAt ?? .distantPast,
@@ -467,7 +480,7 @@ final class AgentChatSessionRegistry {
             record.surfaceID = surfaceID
         }
         if let cwd = event.cwd, !cwd.isEmpty {
-            record.workingDirectory = cwd
+            record.setAuthoritativeWorkingDirectory(cwd, authority: .hook)
         }
         if let transcriptPath = event.transcriptPath, !transcriptPath.isEmpty {
             record.transcriptPath = transcriptPath
@@ -614,7 +627,9 @@ final class AgentChatSessionRegistry {
             update(sessionID: sessionID) { record in
                 if let normalizedSurface { record.surfaceID = normalizedSurface }
                 if let normalizedWorkspace { record.workspaceID = normalizedWorkspace }
-                if let normalizedCwd { record.workingDirectory = normalizedCwd }
+                if let normalizedCwd {
+                    record.setAuthoritativeWorkingDirectory(normalizedCwd, authority: .cmuxLaunch)
+                }
                 record.pid = nil
                 record.setProcessObservedIdle()
                 record.lastActivityAt = now
@@ -630,6 +645,7 @@ final class AgentChatSessionRegistry {
             workspaceID: normalizedWorkspace,
             surfaceID: normalizedSurface,
             workingDirectory: normalizedCwd,
+            workingDirectoryAuthority: normalizedCwd == nil ? .unknown : .cmuxLaunch,
             transcriptPath: nil,
             state: .idle,
             lastActivityAt: now,
@@ -673,6 +689,7 @@ final class AgentChatSessionRegistry {
             || candidate.workspaceID != current.workspaceID
             || candidate.transcriptPath != current.transcriptPath
             || candidate.workingDirectory != current.workingDirectory
+            || candidate.workingDirectoryAuthority != current.workingDirectoryAuthority
             || candidate.pid != current.pid || candidate.hookStoreSessionID != current.hookStoreSessionID else { return }
         update(sessionID: sessionID) { record in
             record.adoptMissingBindings(from: entry, includingPID: record.pid == nil)
