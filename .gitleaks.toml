@@ -1,0 +1,157 @@
+title = "cmux gitleaks configuration"
+
+[extend]
+useDefault = true
+
+# The Sentry scrubber fixtures are split per rule and scoped to exactly the
+# files that contain each fixture. Production source (SentryScrubber.swift) only
+# carries a single generic-api-key doc example, so it must NOT be exempt from the
+# github-pat / jwt / private-key rules — otherwise a real key accidentally added
+# to that production file would be silently ignored by the scan.
+
+# Note: gitleaks ignores its own config file (.gitleaks.toml is excluded by the
+# default ruleset), so the fixture strings embedded below as allowlist regexes
+# are never scanned in this file. No self-reference allowlist entry is needed,
+# and adding one for a strong rule (e.g. private-key) would read as a deliberate
+# blind spot.
+
+# Production scrubber source: a single doc-comment example token only.
+[[allowlists]]
+description = "Sentry scrubber production source doc-comment example token"
+targetRules = ["generic-api-key"]
+condition = "AND"
+paths = ['''^Packages/macOS/CmuxFoundation/Sources/CmuxFoundation/SentryScrubber\.swift$''']
+regexTarget = "line"
+regexes = [
+  '''token=sk-abc123def456ghij''',
+]
+
+# Generic-api-key example tokens in scrubber tests.
+[[allowlists]]
+description = "Sentry scrubber test generic-api-key fixtures"
+targetRules = ["generic-api-key"]
+condition = "AND"
+paths = [
+  '''^Packages/macOS/CmuxFoundation/Tests/CmuxFoundationTests/ScrubberDenylistsTests\.swift$''',
+  '''^Packages/macOS/CmuxFoundation/Tests/CmuxFoundationTests/SentryScrubberTests\.swift$''',
+  '''^cmuxTests/SentryEventScrubberTests\.swift$''',
+]
+regexTarget = "line"
+regexes = [
+  '''token=abcdef0123456789(?:secret|zz)''',
+  '''sk-proj-abcdef0123456789ABCDEF''',
+]
+
+# GitHub PAT fixtures in scrubber tests.
+[[allowlists]]
+description = "Sentry scrubber test github-pat fixtures"
+targetRules = ["github-pat"]
+condition = "AND"
+paths = [
+  '''^Packages/macOS/CmuxFoundation/Tests/CmuxFoundationTests/ScrubberDenylistsTests\.swift$''',
+  '''^Packages/macOS/CmuxFoundation/Tests/CmuxFoundationTests/SentryScrubberTests\.swift$''',
+]
+regexTarget = "line"
+regexes = [
+  '''ghp_0123456789abcdefABCDEF0123456789abcd''',
+]
+
+# JWT fixture in scrubber tests.
+[[allowlists]]
+description = "Sentry scrubber test jwt fixture"
+targetRules = ["jwt"]
+condition = "AND"
+paths = [
+  '''^Packages/macOS/CmuxFoundation/Tests/CmuxFoundationTests/SentryScrubberTests\.swift$''',
+]
+regexTarget = "line"
+regexes = [
+  '''eyJhbGciOiJIUzI1NiJ9\.eyJzdWIiOiIxMjM0In0\.dozjgNryP4J3jVmNHl0w5N_XgL0n3I9PlFUP0THsR8U''',
+]
+
+# PEM private-key fixture in scrubber tests. Scoped to the exact synthetic key
+# body so any other (real) private key accidentally committed to this test file
+# is still caught instead of being suppressed by a broad PEM-header exemption.
+[[allowlists]]
+description = "Sentry scrubber test private-key (PEM) fixture (exact synthetic body)"
+targetRules = ["private-key"]
+condition = "AND"
+paths = [
+  '''^Packages/macOS/CmuxFoundation/Tests/CmuxFoundationTests/ScrubberDenylistsTests\.swift$''',
+]
+regexTarget = "line"
+# Anchored to each synthetic body immediately followed by its END marker. A real
+# private key has a long body before END, so these cannot match realistic key
+# material even though MIIBVwIBADANBgkqhkiG9w0BAQEFAAS alone is a generic PKCS#8
+# prefix. (\\n matches the literal backslash-n in the Swift source string.)
+regexes = [
+  '''MIIEpAIBAAKCAQEAsecretbodyabc/def\+ghi==\\n-----END RSA PRIVATE KEY-----''',
+  '''MIIBVwIBADANBgkqhkiG9w0BAQEFAAS\\n-----END PRIVATE KEY-----''',
+]
+
+[[allowlists]]
+description = "Intentional attach-token and relay-token test fixtures"
+targetRules = ["generic-api-key"]
+condition = "AND"
+paths = [
+  '''^Packages/Shared/CMUXMobileCore/Tests/CMUXMobileCoreTests/CmxAttachTicketCompactCoderTests\.swift$''',
+  '''^Packages/macOS/CmuxRemoteWorkspace/Tests/CmuxRemoteWorkspaceTests/RemoteCLIRelayServerTests\.swift$''',
+  '''^cmuxTests/DiffCommentStoreTests\.swift$''',
+  '''^daemon/remote/cmd/cmuxd-remote/ws_pty_fuzz_test\.go$''',
+  '''^ios/cmuxPackage/Tests/cmuxFeatureTests/cmuxFeatureTests\.swift$''',
+  '''^scripts/lib/attach-url\.test\.mjs$''',
+]
+regexTarget = "line"
+regexes = [
+  '''authToken: "(?:ticket-secret|active-ticket-secret|expired-ticket-secret|ui-test-ticket|secret-token|legacy-token|dev-token|camel-secret|canonical-secret|minted-but-never-in-the-qr|minted-but-not-in-qr|3q2-7wDqzfQqzKpQ4XB8x1n0o5pYkz9jW2sT8uVbLwM)"''',
+  '''"(?:auth_token|authToken)": "(?:ticket-secret|camel-secret|canonical-secret)"''',
+  '''private let tokenHex = "00112233445566778899aabbccddeeff"''',
+  '''private let token = "0c33124b-9f59-4ba2-a2c2-9bd3b1cba001"''',
+  '''"token_sha256":"2bb80d537b1da3e38bd30361aa855686bde0ba2cf9c27ffb6b3874b764d66e16"''',
+]
+
+[[allowlists]]
+description = "Checked-in public client keys"
+targetRules = ["generic-api-key"]
+condition = "AND"
+paths = [
+  '''^Packages/Shared/CmuxAuthRuntime/Sources/CmuxAuthRuntime/Coordinator/AuthConfig\.swift$''',
+  '''^Sources/Auth/AuthEnvironment\.swift$''',
+  '''^scripts/setup-team-dev\.sh$''',
+  '''^Sources/PostHogAnalytics\.swift$''',
+  '''^web/app/\[locale\]/posthog\.tsx$''',
+  '''^web/services/analytics/iosEventPolicy\.ts$''',
+]
+regexTarget = "line"
+regexes = [
+  '''pck_xb63160bwe9699vtxfzfj6emmxpafg5mkjrtp6ehzxv5g''',
+  '''pck_kzj80gx4mh2jrzn1cx6y5e8jk0kwa01vkevh2p9zd4twr''',
+  '''phc_opOVu7oFzR9wD3I6ZahFGOV2h3mqGpl5EHyQvmHciDP''',
+]
+
+[[allowlists]]
+description = "Pinned sentry-cli release checksum"
+targetRules = ["sentry-access-token"]
+condition = "AND"
+paths = [
+  '''^scripts/ensure-sentry-cli\.sh$''',
+  '''^tests/test_ci_self_hosted_guard\.sh$''',
+]
+regexTarget = "line"
+regexes = [
+  '''SENTRY_CLI_SHA256="dcede3b42632886a32753ad9d763f785d46afd5fa4580b5c979aad2d465d1cf5"''',
+]
+
+[[allowlists]]
+description = "Non-secret variable-name and probe-token fixtures"
+targetRules = ["generic-api-key"]
+condition = "AND"
+paths = [
+  '''^tests_v2/test_command_palette_focus\.py$''',
+  '''^web/app/api/notifications/push/route\.ts$''',
+]
+regexTarget = "line"
+regexes = [
+  '''CMUX_PALETTE_(?:FOCUS|RESTORE)_PROBE_[0-9]+''',
+  '''const keyP8 = env\.CMUX_APNS_KEY_P8;''',
+]
