@@ -3,6 +3,23 @@ import Foundation
 
 @MainActor
 extension RemoteTmuxController {
+    /// How long a fresh mirror gets to publish its first topology before the attach gives up on it
+    /// (seconds). Shared by both readiness barriers: ``mirrorsWithPublishedTopology(host:workspaceIds:in:timeoutSeconds:)``,
+    /// which the caller waits on, and ``dropMirrorIfTopologyNeverPublishes(host:sessionName:in:timeoutSeconds:)``,
+    /// which arrives late for the paths that have already returned.
+    ///
+    /// The wait has to be generous in the product: a real host answers in well under a second, but
+    /// a slow link plus a session-heavy host legitimately takes longer, and dropping a mirror that
+    /// was about to work is worse than waiting. A test driving a stream that will never publish
+    /// anything pays the full 15 seconds per case, so DEBUG builds honor
+    /// `CMUX_REMOTE_TMUX_TOPOLOGY_BARRIER_SECONDS`; see ``RemoteTmuxDebugTimers``.
+    static let mirrorTopologyBarrierSeconds: Double = {
+        #if DEBUG
+        if let override = RemoteTmuxDebugTimers.topologyBarrierSeconds { return override }
+        #endif
+        return 15
+    }()
+
     @discardableResult
     func attachHost(
         host: RemoteTmuxHost,
@@ -99,7 +116,15 @@ extension RemoteTmuxController {
             bootstrapWorkspaceId = nil
         }
 
-        let workspaceIds = mirrorDiscoveredSessions(host: host, sessions: sessions, into: targetManager)
+        let mirroredWorkspaceIds = mirrorDiscoveredSessions(
+            host: host, sessions: sessions, into: targetManager)
+        // Reaching control mode is not the same as having something to mirror: a stream can send
+        // the DCS intro, the attach block, and then `%exit` without ever publishing a window.
+        // Measured on a real host, and cmux reported that RPC as success, leaving an empty
+        // workspace whose only surface was a local placeholder shell. So a mirror only counts once
+        // its connection has published a topology.
+        let workspaceIds = await mirrorsWithPublishedTopology(
+            host: host, workspaceIds: mirroredWorkspaceIds, in: targetManager)
         guard !workspaceIds.isEmpty else {
             cleanUpTransportAfterFailedMirror(host: host)
             if windowTarget == .dedicatedNewWindow {
@@ -158,6 +183,140 @@ extension RemoteTmuxController {
     /// After an attach that mirrored nothing: live mirrors in other windows
     /// still share this host's ControlMaster, so tear the transport down only
     /// when nothing live remains on the connection.
+    /// Waits for the freshly created mirrors to publish a topology, and drops the ones that never
+    /// do — closing their workspace so a dead stream cannot leave an empty mirror behind.
+    ///
+    /// The waits run CONCURRENTLY under one deadline, not one after another. Sequentially they cost
+    /// the per-mirror budget times the session count, which measured longer than the socket RPC's
+    /// own 60-second timeout on a host with eight sessions: the RPC gave up first and every empty
+    /// workspace survived, which is the bug this function exists to prevent.
+    func mirrorsWithPublishedTopology(
+        host: RemoteTmuxHost,
+        workspaceIds: [UUID],
+        in tabManager: TabManager,
+        timeoutSeconds: Double = RemoteTmuxController.mirrorTopologyBarrierSeconds
+    ) async -> [UUID] {
+        guard !workspaceIds.isEmpty else { return [] }
+
+        // Pair each workspace with the connection to wait on, if any. A source that is not a
+        // dedicated control connection (the multiplexer's channel) already gates on its own
+        // readiness, and a connection that was never started has no process to publish anything,
+        // so both count as ready without waiting.
+        var pending: [(workspaceId: UUID, connection: RemoteTmuxControlConnection)] = []
+        var ready: [UUID] = []
+        for workspaceId in workspaceIds {
+            guard let mirror = sessionMirrors.values.first(where: { $0.workspace?.id == workspaceId })
+            else { continue }
+            guard let connection = mirror.connection as? RemoteTmuxControlConnection,
+                  connection.started
+            else {
+                ready.append(workspaceId)
+                continue
+            }
+            pending.append((workspaceId, connection))
+        }
+        guard !pending.isEmpty else { return ready }
+
+        let published: [UUID: Bool] = await withTaskGroup(
+            of: (UUID, Bool).self
+        ) { group -> [UUID: Bool] in
+            for entry in pending {
+                group.addTask {
+                    (entry.workspaceId, await entry.connection.waitUntilInitialTopology())
+                }
+            }
+            // One deadline for the whole set.
+            group.addTask {
+                try? await Task.sleep(nanoseconds: UInt64(timeoutSeconds * 1_000_000_000))
+                return (UUID(), false)
+            }
+            var results: [UUID: Bool] = [:]
+            let expected = pending.count
+            while let (workspaceId, isReady) = await group.next() {
+                if pending.contains(where: { $0.workspaceId == workspaceId }) {
+                    results[workspaceId] = isReady
+                    if results.count == expected { break }
+                } else {
+                    // The deadline fired: whatever has not answered is unusable for this attach.
+                    break
+                }
+            }
+            group.cancelAll()
+            return results
+        }
+
+        for entry in pending {
+            if published[entry.workspaceId] == true {
+                ready.append(entry.workspaceId)
+            } else {
+                #if DEBUG
+                cmuxDebugLog(
+                    "remote-tmux: mirror for \(entry.connection.sessionName) published no topology; dropping it")
+                #endif
+                detach(host: host, sessionName: entry.connection.sessionName)
+                if let workspace = tabManager.tabs.first(where: { $0.id == entry.workspaceId }) {
+                    tabManager.closeWorkspace(workspace, recordHistory: false)
+                }
+            }
+        }
+        return ready
+    }
+
+    /// Drops a just-created mirror if its stream never publishes a topology.
+    ///
+    /// `attachHost` can wait for readiness before it answers, because the caller is waiting for a
+    /// result anyway. The paths that mirror a session the user just created cannot — they have
+    /// already returned by the time the stream would prove itself — so the same guarantee has to
+    /// arrive late here rather than not at all. Without it those paths reproduce the bug the barrier
+    /// exists for: a workspace named after a session, wired to nothing.
+    ///
+    /// Late is visible, so it reports rather than just closing: a tab that appears and silently
+    /// vanishes is worse than one that appears and explains itself.
+    func dropMirrorIfTopologyNeverPublishes(
+        host: RemoteTmuxHost,
+        sessionName: String,
+        in manager: TabManager,
+        timeoutSeconds: Double = RemoteTmuxController.mirrorTopologyBarrierSeconds
+    ) {
+        let key = Self.connectionKey(host: host, sessionName: sessionName)
+        guard let mirror = sessionMirrors[key],
+              let connection = mirror.connection as? RemoteTmuxControlConnection,
+              connection.started,
+              connection.initialTopologyState == .pending
+        else { return }
+        Task { @MainActor [weak self] in
+            let ready = await withTaskGroup(of: Bool.self) { group -> Bool in
+                group.addTask { await connection.waitUntilInitialTopology() }
+                group.addTask {
+                    try? await Task.sleep(for: .seconds(timeoutSeconds))
+                    return false
+                }
+                let first = await group.next() ?? false
+                group.cancelAll()
+                return first
+            }
+            guard !ready, let self else { return }
+            guard let workspaceId = self.sessionMirrors[key]?.mirroredWorkspaceId,
+                  AppDelegate.shared?.windowId(for: manager) != nil
+            else { return }
+            #if DEBUG
+            cmuxDebugLog("remote-tmux: new mirror for \(sessionName) published no topology; dropping it")
+            #endif
+            self.detach(host: host, sessionName: sessionName)
+            if let workspace = manager.tabs.first(where: { $0.id == workspaceId }) {
+                manager.closeWorkspace(workspace, recordHistory: false)
+            }
+            self.reportNewSessionFailure(
+                host,
+                String(
+                    localized: "remoteTmux.mirrorPublishedNoTopology",
+                    defaultValue: "the connection reached tmux but no window ever arrived"
+                ),
+                manager
+            )
+        }
+    }
+
     func cleanUpTransportAfterFailedMirror(host: RemoteTmuxHost) {
         let hasLiveMirror = sessionMirrors.values.contains { mirror in
             mirror.host.connectionHash == host.connectionHash

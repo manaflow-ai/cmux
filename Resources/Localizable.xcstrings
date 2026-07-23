@@ -529209,6 +529209,23 @@
         }
       }
     },
+    "remoteTmux.mirrorPublishedNoTopology": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "the connection reached tmux but no window ever arrived"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "tmux には接続できましたが、ウィンドウが届きませんでした"
+          }
+        }
+      }
+    },
     "socket.remoteTmux.brokerMalformed": {
       "extractionState": "manual",
       "localizations": {
