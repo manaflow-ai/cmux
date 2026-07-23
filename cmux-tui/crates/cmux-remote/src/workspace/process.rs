@@ -624,13 +624,14 @@ struct ProcessCatalogMetadata {
 }
 
 struct ProcessTarget {
+    serial: StdMutex<()>,
     exited: AtomicBool,
     notify: Notify,
 }
 
 impl ProcessTarget {
     fn new() -> Self {
-        Self { exited: AtomicBool::new(false), notify: Notify::new() }
+        Self { serial: StdMutex::new(()), exited: AtomicBool::new(false), notify: Notify::new() }
     }
 
     fn is_exited(&self) -> bool {
@@ -638,13 +639,32 @@ impl ProcessTarget {
     }
 
     fn mark_exited(&self) {
+        let _guard = self.serial.lock().unwrap_or_else(std::sync::PoisonError::into_inner);
+        self.mark_exited_locked();
+    }
+
+    fn mark_exited_locked(&self) {
         self.exited.store(true, Ordering::Release);
         self.notify.notify_waiters();
     }
 
     #[cfg(unix)]
     fn signal_if_live<T>(&self, signal: impl FnOnce() -> T) -> Option<T> {
+        let _guard = self.serial.lock().unwrap_or_else(std::sync::PoisonError::into_inner);
         (!self.is_exited()).then(signal)
+    }
+
+    #[cfg(unix)]
+    fn try_reap<T>(
+        &self,
+        try_wait: impl FnOnce() -> std::io::Result<Option<T>>,
+    ) -> std::io::Result<Option<T>> {
+        let _guard = self.serial.lock().unwrap_or_else(std::sync::PoisonError::into_inner);
+        let status = try_wait()?;
+        if status.is_some() {
+            self.mark_exited_locked();
+        }
+        Ok(status)
     }
 }
 
@@ -759,6 +779,43 @@ struct PendingProcessGuard {
     killer: Option<Arc<StdMutex<Box<dyn ChildKiller + Send + Sync>>>>,
 }
 
+struct PendingPtyChild {
+    child: Option<Box<dyn portable_pty::Child + Send + Sync>>,
+    pid: Option<u32>,
+}
+
+impl PendingPtyChild {
+    fn new(child: Box<dyn portable_pty::Child + Send + Sync>) -> Self {
+        let pid = child.process_id();
+        Self { child: Some(child), pid }
+    }
+
+    fn child_mut(&mut self) -> &mut (dyn portable_pty::Child + Send + Sync) {
+        self.child.as_deref_mut().expect("pending PTY child was already handed off")
+    }
+
+    fn take(&mut self) -> Box<dyn portable_pty::Child + Send + Sync> {
+        self.child.take().expect("pending PTY child was already handed off")
+    }
+}
+
+impl Drop for PendingPtyChild {
+    fn drop(&mut self) {
+        let Some(mut child) = self.child.take() else { return };
+        #[cfg(unix)]
+        if let Some(pid) = self.pid.and_then(|pid| i32::try_from(pid).ok()) {
+            if unsafe { libc::kill(-pid, libc::SIGKILL) } != 0 {
+                let _ = child.kill();
+            }
+        } else {
+            let _ = child.kill();
+        }
+        #[cfg(not(unix))]
+        let _ = child.kill();
+        let _ = child.wait();
+    }
+}
+
 impl PendingProcessGuard {
     #[cfg(unix)]
     fn new(pid: Option<u32>, signal_process_group: bool) -> Self {
@@ -787,13 +844,14 @@ impl Drop for PendingProcessGuard {
             return;
         }
         #[cfg(unix)]
-        if self.target.as_ref().is_some_and(|target| target.is_exited()) {
-            return;
-        }
-        #[cfg(unix)]
         if let Some(pid) = self.pid.and_then(|pid| i32::try_from(pid).ok()) {
             let target = if self.signal_process_group { -pid } else { pid };
-            let _ = unsafe { libc::kill(target, libc::SIGKILL) };
+            if let Some(process_target) = &self.target {
+                let _ =
+                    process_target.signal_if_live(|| unsafe { libc::kill(target, libc::SIGKILL) });
+            } else {
+                let _ = unsafe { libc::kill(target, libc::SIGKILL) };
+            }
         }
         #[cfg(not(unix))]
         if let Some(killer) = &self.killer {
@@ -1084,6 +1142,10 @@ impl ProcessManager {
             use std::os::unix::process::CommandExt as _;
             command.as_std_mut().process_group(0);
         }
+        #[cfg(unix)]
+        let mut child_events =
+            tokio::signal::unix::signal(tokio::signal::unix::SignalKind::child())
+                .map_err(|error| RpcError::new("process-spawn-failed", error.to_string()))?;
         let mut child = command
             .spawn()
             .map_err(|error| RpcError::new("process-spawn-failed", error.to_string()))?;
@@ -1143,6 +1205,11 @@ impl ProcessManager {
         let waiter_record = record.clone();
         let processes = self.processes.clone();
         tokio::spawn(async move {
+            #[cfg(unix)]
+            let status =
+                wait_and_reap_pipe_child(&waiter_record.target, &mut child, &mut child_events)
+                    .await;
+            #[cfg(not(unix))]
             let status = child.wait().await;
             mark_target_exited(&waiter_record);
             for reason in drain_output_tasks(
@@ -1216,11 +1283,16 @@ impl ProcessManager {
             command.env(key, value);
         }
         command.env("TERM", &term);
-        let mut child = pair
+        #[cfg(unix)]
+        let mut child_events =
+            tokio::signal::unix::signal(tokio::signal::unix::SignalKind::child())
+                .map_err(|error| RpcError::new("process-spawn-failed", error.to_string()))?;
+        let child = pair
             .slave
             .spawn_command(command)
             .map_err(|error| RpcError::new("process-spawn-failed", error.to_string()))?;
-        let pid = child.process_id();
+        let mut pending_child = PendingPtyChild::new(child);
+        let pid = pending_child.pid;
         #[cfg(test)]
         self.pty_setup_child_pid
             .store(pid.and_then(|pid| usize::try_from(pid).ok()).unwrap_or(0), Ordering::Release);
@@ -1234,7 +1306,7 @@ impl ProcessManager {
             return Err(RpcError::new("pty-open-failed", "synthetic PTY reader setup failure"));
         }
         #[cfg(not(unix))]
-        let killer = Arc::new(StdMutex::new(child.clone_killer()));
+        let killer = Arc::new(StdMutex::new(pending_child.child_mut().clone_killer()));
         #[cfg(not(unix))]
         let mut pending = PendingProcessGuard::new(Some(killer.clone()));
         #[cfg(unix)]
@@ -1251,11 +1323,9 @@ impl ProcessManager {
             .take_writer()
             .map_err(|error| RpcError::new("pty-open-failed", error.to_string()))?;
         #[cfg(unix)]
-        let process_group_pid =
-            pair.master.process_group_leader().and_then(|pid| u32::try_from(pid).ok());
+        let record_pid = pty_process_pid(pid, None);
         #[cfg(not(unix))]
-        let process_group_pid = pid;
-        let record_pid = pty_process_pid(pid, process_group_pid);
+        let record_pid = pid;
         #[cfg(unix)]
         let input_writer = InputWriter::Pty(pty_io.clone());
         #[cfg(not(unix))]
@@ -1299,25 +1369,23 @@ impl ProcessManager {
                 return Err(RpcError::new("pty-open-failed", "synthetic PTY waiter setup failure"));
             }
             let target = record.target.clone();
-            std::thread::Builder::new()
-                .name(format!("cmux-remote-pty-wait-{id}"))
-                .spawn(move || {
-                    let _pty_slot = pty_slot;
-                    let child: &mut dyn portable_pty::Child = child.as_mut();
-                    let outcome =
-                        if let Some(native_child) = child.downcast_mut::<std::process::Child>() {
-                            native_child.wait().map(exit_outcome)
-                        } else {
-                            child.wait().map(portable_pty_exit_outcome)
-                        };
-                    // A reaped PID or process-group ID may be reused while
-                    // the async output-drain task is still finishing. Tell
-                    // the cancellation guard immediately so it never signals
-                    // an unrelated replacement process.
-                    target.mark_exited();
-                    let _ = status_tx.send(outcome);
-                })
-                .map_err(|error| RpcError::new("pty-open-failed", error.to_string()))?;
+            tokio::spawn(async move {
+                let _pty_slot = pty_slot;
+                let outcome =
+                    wait_and_reap_pty_child(&target, pending_child.child_mut(), &mut child_events)
+                        .await;
+                if outcome.is_ok() {
+                    drop(pending_child.take());
+                } else {
+                    drop(pending_child);
+                }
+                // A reaped PID or process-group ID may be reused while
+                // the async output-drain task is still finishing. Tell
+                // the cancellation guard immediately so it never signals
+                // an unrelated replacement process.
+                target.mark_exited();
+                let _ = status_tx.send(outcome);
+            });
             let waiter_record = record.clone();
             let processes = self.processes.clone();
             tokio::spawn(async move {
@@ -1364,6 +1432,7 @@ impl ProcessManager {
                 .name(format!("cmux-remote-pty-wait-{id}"))
                 .spawn(move || {
                     let _pty_slot = pty_slot;
+                    let mut child = pending_child.take();
                     let status = child.wait();
                     waiter_record.target.mark_exited();
                     let _ = reader_thread.join();
@@ -2242,11 +2311,62 @@ fn validate_pty_size(cols: u16, rows: u16) -> Result<(), RpcError> {
 }
 
 #[cfg(unix)]
+async fn wait_and_reap_pipe_child(
+    target: &ProcessTarget,
+    child: &mut tokio::process::Child,
+    child_events: &mut tokio::signal::unix::Signal,
+) -> std::io::Result<std::process::ExitStatus> {
+    loop {
+        match target.try_reap(|| child.try_wait()) {
+            Ok(Some(status)) => return Ok(status),
+            Ok(None) => {}
+            Err(error) if error.kind() == std::io::ErrorKind::Interrupted => continue,
+            Err(error) => return Err(error),
+        }
+        child_events.recv().await.ok_or_else(|| {
+            std::io::Error::other("SIGCHLD listener closed before the child exited")
+        })?;
+    }
+}
+
+#[cfg(unix)]
+async fn wait_and_reap_pty_child(
+    target: &ProcessTarget,
+    child: &mut dyn portable_pty::Child,
+    child_events: &mut tokio::signal::unix::Signal,
+) -> std::io::Result<ExitOutcome> {
+    if let Some(native_child) = child.downcast_mut::<std::process::Child>() {
+        loop {
+            match target.try_reap(|| native_child.try_wait()) {
+                Ok(Some(status)) => return Ok(exit_outcome(status)),
+                Ok(None) => {}
+                Err(error) if error.kind() == std::io::ErrorKind::Interrupted => continue,
+                Err(error) => return Err(error),
+            }
+            child_events.recv().await.ok_or_else(|| {
+                std::io::Error::other("SIGCHLD listener closed before the PTY child exited")
+            })?;
+        }
+    }
+    loop {
+        match target.try_reap(|| child.try_wait()) {
+            Ok(Some(status)) => return Ok(portable_pty_exit_outcome(status)),
+            Ok(None) => {}
+            Err(error) if error.kind() == std::io::ErrorKind::Interrupted => continue,
+            Err(error) => return Err(error),
+        }
+        child_events.recv().await.ok_or_else(|| {
+            std::io::Error::other("SIGCHLD listener closed before the PTY child exited")
+        })?;
+    }
+}
+
+#[cfg(unix)]
 fn pty_process_pid(
     direct_child_pid: Option<u32>,
-    foreground_process_group: Option<u32>,
+    _foreground_process_group: Option<u32>,
 ) -> Option<u32> {
-    foreground_process_group.or(direct_child_pid)
+    direct_child_pid
 }
 
 fn schedule_process_timeout(record: Arc<ProcessRecord>, timeout_ms: Option<u64>) {
@@ -2290,9 +2410,26 @@ fn signal_record(record: &ProcessRecord, signal: ProcessSignal) -> Result<(), Rp
         ProcessSignal::Kill => libc::SIGKILL,
         ProcessSignal::Hangup => libc::SIGHUP,
     };
-    let target = if record.signal_process_group { -pid } else { pid };
-    let Some(result) = record.target.signal_if_live(|| unsafe { libc::kill(target, native) })
-    else {
+    let Some(result) = record.target.signal_if_live(|| {
+        let signal_pid = if signal == ProcessSignal::Interrupt {
+            record
+                .master
+                .as_ref()
+                .and_then(|master| {
+                    master
+                        .lock()
+                        .unwrap_or_else(std::sync::PoisonError::into_inner)
+                        .as_ref()
+                        .and_then(|master| master.process_group_leader())
+                })
+                .filter(|foreground| *foreground > 0)
+                .unwrap_or(pid)
+        } else {
+            pid
+        };
+        let target = if record.signal_process_group { -signal_pid } else { signal_pid };
+        unsafe { libc::kill(target, native) }
+    }) else {
         return Ok(());
     };
     if result == 0 {
@@ -2445,6 +2582,12 @@ mod tests {
             !reaped_before_signal,
             "reap completed after the live check but before the signal syscall"
         );
+        let signaled_after_reap = AtomicBool::new(false);
+        assert!(
+            target.signal_if_live(|| signaled_after_reap.store(true, Ordering::Release)).is_none(),
+            "a reaped target was still considered live"
+        );
+        assert!(!signaled_after_reap.load(Ordering::Acquire));
     }
 
     #[cfg(unix)]
