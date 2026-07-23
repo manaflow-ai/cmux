@@ -6,7 +6,12 @@ import Foundation
 
 extension Workspace {
 
-    func applyCustomLayout(_ layout: CmuxLayoutNode, baseCwd: String, setupCommand: String? = nil) {
+    func applyCustomLayout(
+        _ layout: CmuxLayoutNode,
+        baseCwd: String,
+        setupCommand: String? = nil,
+        terminalColorCommand: String? = nil
+    ) {
         guard let rootPaneId = bonsplitController.allPaneIds.first else { return }
 
         var leaves: [(paneId: PaneID, surfaces: [CmuxSurfaceDefinition])] = []
@@ -22,6 +27,7 @@ extension Workspace {
                 leaf.paneId,
                 surfaces: leaf.surfaces,
                 baseCwd: baseCwd,
+                terminalColorCommand: terminalColorCommand,
                 focusPanelId: &focusPanelId,
                 pendingSetup: &pendingSetup
             )
@@ -101,6 +107,7 @@ extension Workspace {
         _ paneId: PaneID,
         surfaces: [CmuxSurfaceDefinition],
         baseCwd: String,
+        terminalColorCommand: String?,
         focusPanelId: inout UUID?,
         pendingSetup: inout String?
     ) {
@@ -117,6 +124,7 @@ extension Workspace {
                 inPane: paneId,
                 surface: firstSurface,
                 baseCwd: baseCwd,
+                terminalColorCommand: terminalColorCommand,
                 focusPanelId: &focusPanelId,
                 pendingSetup: &pendingSetup
             )
@@ -127,6 +135,7 @@ extension Workspace {
                 inPane: paneId,
                 surface: surfaces[surfaceIndex],
                 baseCwd: baseCwd,
+                terminalColorCommand: terminalColorCommand,
                 focusPanelId: &focusPanelId,
                 pendingSetup: &pendingSetup
             )
@@ -134,12 +143,17 @@ extension Workspace {
     }
 
     /// Consumes the workspace-level setup command on the first terminal surface it
-    /// reaches, sequencing it ahead of that surface's own `command`.
+    /// reaches, sequencing it ahead of that surface's own `command`. The terminal
+    /// color command is not consumed — it runs on every terminal surface.
     private static func dequeueInitialTerminalInput(
+        terminalColorCommand: String?,
         pendingSetup: inout String?,
         command: String?
     ) -> String? {
         var lines: [String] = []
+        if let terminalColorCommand {
+            lines.append(terminalColorCommand)
+        }
         if let setup = pendingSetup {
             lines.append(setup)
             pendingSetup = nil
@@ -156,6 +170,7 @@ extension Workspace {
         inPane paneId: PaneID,
         surface: CmuxSurfaceDefinition,
         baseCwd: String,
+        terminalColorCommand: String?,
         focusPanelId: inout UUID?,
         pendingSetup: inout String?
     ) {
@@ -172,7 +187,11 @@ extension Workspace {
                 _ = closePanel(panelId, force: true)
                 if let name = surface.name { setPanelCustomTitle(panelId: panel.id, title: name) }
                 if surface.focus == true { focusPanelId = panel.id }
-                if let input = Self.dequeueInitialTerminalInput(pendingSetup: &pendingSetup, command: surface.command) {
+                if let input = Self.dequeueInitialTerminalInput(
+                    terminalColorCommand: terminalColorCommand,
+                    pendingSetup: &pendingSetup,
+                    command: surface.command
+                ) {
                     sendInputWhenReady(input, to: panel)
                 }
             }
@@ -180,7 +199,11 @@ extension Workspace {
         case .terminal:
             if let name = surface.name { setPanelCustomTitle(panelId: panelId, title: name) }
             if surface.focus == true { focusPanelId = panelId }
-            if let input = Self.dequeueInitialTerminalInput(pendingSetup: &pendingSetup, command: surface.command),
+            if let input = Self.dequeueInitialTerminalInput(
+                terminalColorCommand: terminalColorCommand,
+                pendingSetup: &pendingSetup,
+                command: surface.command
+            ),
                let terminal = terminalPanel(for: panelId) {
                 sendInputWhenReady(input, to: terminal)
             }
@@ -215,6 +238,7 @@ extension Workspace {
         inPane paneId: PaneID,
         surface: CmuxSurfaceDefinition,
         baseCwd: String,
+        terminalColorCommand: String?,
         focusPanelId: inout UUID?,
         pendingSetup: inout String?
     ) {
@@ -229,7 +253,11 @@ extension Workspace {
             ) {
                 if let name = surface.name { setPanelCustomTitle(panelId: panel.id, title: name) }
                 if surface.focus == true { focusPanelId = panel.id }
-                if let input = Self.dequeueInitialTerminalInput(pendingSetup: &pendingSetup, command: surface.command) {
+                if let input = Self.dequeueInitialTerminalInput(
+                    terminalColorCommand: terminalColorCommand,
+                    pendingSetup: &pendingSetup,
+                    command: surface.command
+                ) {
                     sendInputWhenReady(input, to: panel)
                 }
             }

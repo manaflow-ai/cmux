@@ -161,10 +161,19 @@ extension CmuxConfigExecutor {
             tabManager.closeWorkspace(existingWorkspaceToClose)
         }
 
+        let terminalColorCommand = wsDef.terminalColorCommand
         if let layout = wsDef.layout {
-            newWorkspace.applyCustomLayout(layout, baseCwd: resolvedCwd, setupCommand: wsDef.setup)
-        } else if let setup = wsDef.setup {
-            newWorkspace.sendConfigSetupCommand(setup)
+            newWorkspace.applyCustomLayout(
+                layout,
+                baseCwd: resolvedCwd,
+                setupCommand: wsDef.setup,
+                terminalColorCommand: terminalColorCommand
+            )
+        } else {
+            let startupCommands = [terminalColorCommand, wsDef.setup].compactMap { $0 }
+            if !startupCommands.isEmpty {
+                newWorkspace.sendConfigSetupCommand(startupCommands.joined(separator: "\n"))
+            }
         }
         return true
     }
