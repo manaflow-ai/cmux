@@ -316,6 +316,64 @@ pub struct PendingEnrollment {
     pub requested_at_unix: u64,
 }
 
+/// The non-authoritative network path that delivered an inbound link.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum NetworkPeer {
+    Tcp,
+    Tls,
+    Relay,
+    Iroh,
+}
+
+/// Kernel credentials verified to belong to the daemon's effective user.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub struct VerifiedKernelPeer {
+    uid: u32,
+}
+
+impl VerifiedKernelPeer {
+    pub fn uid(&self) -> u32 {
+        self.uid
+    }
+}
+
+/// An SSH principal verified by a future SSH server boundary.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct VerifiedSshPrincipal {
+    principal: String,
+}
+
+impl VerifiedSshPrincipal {
+    pub fn principal(&self) -> &str {
+        &self.principal
+    }
+}
+
+/// Server-side evidence established by the transport boundary.
+///
+/// Network evidence identifies provenance for diagnostics but never
+/// authorizes carrier authentication.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub enum InboundAuthEvidence {
+    Kernel(VerifiedKernelPeer),
+    Ssh(VerifiedSshPrincipal),
+    Network(NetworkPeer),
+}
+
+impl InboundAuthEvidence {
+    pub(crate) fn verified_same_owner_kernel_peer(
+        peer_uid: u32,
+        effective_uid: u32,
+    ) -> Option<Self> {
+        (peer_uid == effective_uid).then_some(Self::Kernel(VerifiedKernelPeer { uid: peer_uid }))
+    }
+
+    pub(crate) fn verified_ssh_principal(principal: impl Into<String>) -> Option<Self> {
+        let principal = principal.into();
+        (!principal.is_empty()).then_some(Self::Ssh(VerifiedSshPrincipal { principal }))
+    }
+}
+
 pub struct AuthDatabase {
     state_dir: PathBuf,
     daemon_name: String,
@@ -451,6 +509,23 @@ impl AuthDatabase {
                 .devices
                 .get(&grant.device_id)
                 .is_some_and(|device| device.revoked_at_unix.is_none())
+    }
+
+    pub(crate) fn authorize_carrier(
+        &self,
+        device_public_key: [u8; 32],
+        evidence: &InboundAuthEvidence,
+    ) -> Result<AuthGrant, String> {
+        if !self.allow_carrier
+            || !matches!(evidence, InboundAuthEvidence::Kernel(_) | InboundAuthEvidence::Ssh(_))
+        {
+            return Err("trusted carrier access is disabled or unavailable".into());
+        }
+        Ok(AuthGrant {
+            device_id: format!("carrier:{}", public_key_fingerprint(&device_public_key)),
+            daemon_name: self.daemon_name.clone(),
+            revocation_generation: *self.revocation_tx.borrow(),
+        })
     }
 
     pub async fn pending_enrollments(&self) -> Vec<PendingEnrollment> {
@@ -608,15 +683,9 @@ impl ServerAuthenticator for AuthDatabase {
                     revocation_generation: generation,
                 })
             }
-            AuthKind::Carrier if self.allow_carrier && request.carrier_trusted => Ok(AuthGrant {
-                device_id: format!(
-                    "carrier:{}",
-                    public_key_fingerprint(&request.device_public_key)
-                ),
-                daemon_name: self.daemon_name.clone(),
-                revocation_generation: *self.revocation_tx.borrow(),
-            }),
-            AuthKind::Carrier => Err("trusted carrier access is disabled or unavailable".into()),
+            AuthKind::Carrier => {
+                Err("carrier authentication requires verified ingress evidence".into())
+            }
             AuthKind::Invitation => {
                 let invitation_id = request
                     .invitation_id
@@ -1160,9 +1229,7 @@ mod tests {
         });
         let server_task = tokio::spawn({
             let database = database.clone();
-            async move {
-                accept_secure_link(Box::new(server_link), &daemon_identity, &*database, false).await
-            }
+            async move { accept_secure_link(Box::new(server_link), &daemon_identity, &*database).await }
         });
 
         let pending = database.wait_for_pending(Duration::from_secs(2)).await.unwrap();
@@ -1195,7 +1262,6 @@ mod tests {
             lane: Lane::Control,
             lanes: vec![Lane::Control],
             generation: 0,
-            carrier_trusted: false,
         };
         let first = tokio::spawn({
             let database = database.clone();
@@ -1252,7 +1318,6 @@ mod tests {
                 lane: Lane::Control,
                 lanes: vec![Lane::Control],
                 generation: 0,
-                carrier_trusted: false,
             })
             .await;
         assert_eq!(result.unwrap_err(), "device has been revoked");

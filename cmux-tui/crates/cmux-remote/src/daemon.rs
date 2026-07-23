@@ -27,9 +27,13 @@ use tokio::sync::{Mutex, Notify, OwnedSemaphorePermit, RwLock, Semaphore, mpsc, 
 
 use crate::connection::{ConnectionError, send_link_ready};
 use crate::crypto::{
-    AcceptedSecureLink, AuthKind, CryptoError, authorize_secure_link, verify_secure_link,
+    AcceptedSecureLink, AuthKind, CryptoError, authorize_secure_link,
+    complete_secure_link_authorization, verify_secure_link,
 };
 use crate::identity::AuthDatabase;
+pub use crate::identity::{
+    InboundAuthEvidence, NetworkPeer, VerifiedKernelPeer, VerifiedSshPrincipal,
+};
 use crate::link::{FrameLink, LaneMuxLink, LinkError, LinkRoute};
 use crate::observability::{ConnectionState, ServerConnectionSnapshot};
 use crate::provider::AxumWebSocketLink;
@@ -47,6 +51,58 @@ const DIRECT_HTTP_UPGRADE_TIMEOUT: Duration = Duration::from_secs(10);
 const TERMINAL_CLOSE_TIMEOUT: Duration = Duration::from_secs(1);
 pub const DEFAULT_RESUME_LEASE: Duration = Duration::from_secs(2 * 60);
 pub const MAX_RESUME_LEASE: Duration = Duration::from_secs(24 * 60 * 60);
+
+/// A raw inbound transport link paired with server-established auth evidence.
+pub struct InboundLink {
+    link: Box<dyn FrameLink>,
+    evidence: InboundAuthEvidence,
+}
+
+impl InboundLink {
+    pub fn new(link: Box<dyn FrameLink>, evidence: InboundAuthEvidence) -> Self {
+        Self { link, evidence }
+    }
+
+    pub fn network(link: Box<dyn FrameLink>, peer: NetworkPeer) -> Self {
+        Self::new(link, InboundAuthEvidence::Network(peer))
+    }
+
+    pub fn evidence(&self) -> &InboundAuthEvidence {
+        &self.evidence
+    }
+
+    pub(crate) fn same_owner_kernel_peer(
+        link: Box<dyn FrameLink>,
+        peer_uid: u32,
+        effective_uid: u32,
+    ) -> Option<Self> {
+        let evidence =
+            InboundAuthEvidence::verified_same_owner_kernel_peer(peer_uid, effective_uid)?;
+        Some(Self::new(link, evidence))
+    }
+
+    pub(crate) fn verified_ssh_principal(
+        link: Box<dyn FrameLink>,
+        principal: impl Into<String>,
+    ) -> Option<Self> {
+        let evidence = InboundAuthEvidence::verified_ssh_principal(principal)?;
+        Some(Self::new(link, evidence))
+    }
+
+    fn into_parts(self) -> (Box<dyn FrameLink>, InboundAuthEvidence) {
+        (self.link, self.evidence)
+    }
+}
+
+impl fmt::Debug for InboundLink {
+    fn fmt(&self, formatter: &mut fmt::Formatter<'_>) -> fmt::Result {
+        formatter
+            .debug_struct("InboundLink")
+            .field("description", &self.link.description())
+            .field("evidence", &self.evidence)
+            .finish()
+    }
+}
 
 #[derive(Debug, Clone, Copy)]
 pub struct DaemonSessionPolicy {
@@ -660,45 +716,43 @@ impl RemoteDaemon {
         &self.auth
     }
 
-    pub async fn accept(self: &Arc<Self>, raw: Box<dyn FrameLink>) -> Result<(), DaemonError> {
-        self.accept_with_trust(raw, false).await
-    }
-
-    pub(crate) async fn accept_trusted_carrier(
-        self: &Arc<Self>,
-        raw: Box<dyn FrameLink>,
-    ) -> Result<(), DaemonError> {
-        self.accept_with_trust(raw, true).await
-    }
-
-    async fn accept_with_trust(
-        self: &Arc<Self>,
-        raw: Box<dyn FrameLink>,
-        carrier_trusted: bool,
-    ) -> Result<(), DaemonError> {
+    pub async fn accept(self: &Arc<Self>, inbound: InboundLink) -> Result<(), DaemonError> {
+        let (raw, evidence) = inbound.into_parts();
         let permit = self.handshakes.try_acquire().map_err(|_| DaemonError::HandshakeBusy)?;
         let verified = tokio::time::timeout(
             PREAUTH_HANDSHAKE_TIMEOUT,
-            verify_secure_link(raw, &self.auth.identity(), &*self.auth, carrier_trusted),
+            verify_secure_link(raw, &self.auth.identity(), &*self.auth),
         )
         .await
         .map_err(|_| DaemonError::HandshakeTimeout)??;
         drop(permit);
-        let accepted = if verified.auth_kind() == AuthKind::Invitation {
-            let approval = self.approvals.try_acquire().map_err(|_| DaemonError::ApprovalBusy)?;
-            // AuthDatabase owns the five-minute approval deadline and its
-            // cancellation cleanup. An outer timeout would cancel that cleanup
-            // and leave a stale pending invitation.
-            let accepted = authorize_secure_link(verified, &*self.auth).await?;
-            drop(approval);
-            accepted
-        } else {
-            tokio::time::timeout(
+        let accepted = match verified.auth_kind() {
+            AuthKind::Invitation => {
+                let approval =
+                    self.approvals.try_acquire().map_err(|_| DaemonError::ApprovalBusy)?;
+                // AuthDatabase owns the five-minute approval deadline and its
+                // cancellation cleanup. An outer timeout would cancel that cleanup
+                // and leave a stale pending invitation.
+                let accepted = authorize_secure_link(verified, &*self.auth).await?;
+                drop(approval);
+                accepted
+            }
+            AuthKind::Carrier => {
+                let authorization =
+                    self.auth.authorize_carrier(verified.device_public_key(), &evidence);
+                tokio::time::timeout(
+                    AUTHORIZATION_TIMEOUT,
+                    complete_secure_link_authorization(verified, authorization),
+                )
+                .await
+                .map_err(|_| DaemonError::HandshakeTimeout)??
+            }
+            AuthKind::Enrolled => tokio::time::timeout(
                 AUTHORIZATION_TIMEOUT,
                 authorize_secure_link(verified, &*self.auth),
             )
             .await
-            .map_err(|_| DaemonError::HandshakeTimeout)??
+            .map_err(|_| DaemonError::HandshakeTimeout)??,
         };
         self.register(accepted).await
     }
@@ -1222,7 +1276,8 @@ async fn upgrade_websocket(
             admission.upgraded.store(true, Ordering::Release);
             let link =
                 AxumWebSocketLink::new("direct-websocket", state.maximum_frame_bytes, socket);
-            let _ = state.daemon.accept(Box::new(link)).await;
+            let inbound = InboundLink::network(Box::new(link), NetworkPeer::Tcp);
+            let _ = state.daemon.accept(inbound).await;
         })
 }
 
@@ -1323,19 +1378,23 @@ pub async fn serve_unix(
                     let Ok((stream, _)) = accepted else { break };
                     let Ok(peer) = stream.peer_cred() else { continue };
                     let owner = unsafe { libc::geteuid() };
-                    if peer.uid() != owner {
+                    let (reader, writer) = stream.into_split();
+                    let link = crate::provider::LengthDelimitedLink::new(
+                        "unix-daemon",
+                        maximum_frame_bytes,
+                        reader,
+                        writer,
+                    );
+                    let Some(inbound) = InboundLink::same_owner_kernel_peer(
+                        Box::new(link),
+                        peer.uid(),
+                        owner,
+                    ) else {
                         continue;
-                    }
+                    };
                     let daemon = daemon.clone();
                     tokio::spawn(async move {
-                        let (reader, writer) = stream.into_split();
-                        let link = crate::provider::LengthDelimitedLink::new(
-                            "unix-daemon",
-                            maximum_frame_bytes,
-                            reader,
-                            writer,
-                        );
-                        let _ = daemon.accept_trusted_carrier(Box::new(link)).await;
+                        let _ = daemon.accept(inbound).await;
                     });
                 }
             }
@@ -1473,7 +1532,8 @@ mod tests {
     async fn carrier_authorization_requires_verified_ingress_and_policy() {
         let allowed_directory = tempdir().unwrap();
         let allowed =
-            AuthDatabase::load_or_create(allowed_directory.path(), "carrier-allowed", true).unwrap();
+            AuthDatabase::load_or_create(allowed_directory.path(), "carrier-allowed", true)
+                .unwrap();
         let denied_directory = tempdir().unwrap();
         let denied =
             AuthDatabase::load_or_create(denied_directory.path(), "carrier-denied", false).unwrap();
@@ -1481,23 +1541,14 @@ mod tests {
         let public_key = client.public_key();
 
         let verified = [
-            (
-                "kernel",
-                InboundAuthEvidence::verified_same_owner_kernel_peer(501, 501).unwrap(),
-            ),
-            (
-                "ssh",
-                InboundAuthEvidence::verified_ssh_principal("alice@example.test"),
-            ),
+            ("kernel", InboundAuthEvidence::verified_same_owner_kernel_peer(501, 501).unwrap()),
+            ("ssh", InboundAuthEvidence::verified_ssh_principal("alice@example.test").unwrap()),
         ];
         for (carrier, evidence) in verified {
             let grant = allowed
                 .authorize_carrier(public_key, &evidence)
                 .unwrap_or_else(|error| panic!("{carrier} evidence was rejected: {error}"));
-            assert_eq!(
-                grant.device_id,
-                format!("carrier:{}", public_key_fingerprint(&public_key))
-            );
+            assert_eq!(grant.device_id, format!("carrier:{}", public_key_fingerprint(&public_key)));
             assert!(
                 denied.authorize_carrier(public_key, &evidence).is_err(),
                 "{carrier} evidence bypassed disabled carrier policy"
@@ -1651,7 +1702,9 @@ mod tests {
             self.epochs.lock().await.push(epoch);
             let remote = self.daemon.clone();
             tokio::spawn(async move {
-                let _ = remote.accept_trusted_carrier(Box::new(daemon)).await;
+                let inbound =
+                    InboundLink::same_owner_kernel_peer(Box::new(daemon), 501, 501).unwrap();
+                let _ = remote.accept(inbound).await;
             });
             Ok(Box::new(client))
         }

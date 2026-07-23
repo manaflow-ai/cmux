@@ -6,7 +6,7 @@ use std::time::Duration;
 use bytes::Bytes;
 use cmux_remote::connection::{ClientConnection, ClientConnectionConfig, ReconnectPolicy};
 use cmux_remote::crypto::{ClientAuthMode, StaticIdentity};
-use cmux_remote::daemon::{RemoteDaemon, ServerConnection};
+use cmux_remote::daemon::{InboundLink, NetworkPeer, RemoteDaemon, ServerConnection};
 use cmux_remote::identity::AuthDatabase;
 use cmux_remote::observability::{ConnectionState, TransportPathKind};
 use cmux_remote::provider::{
@@ -150,7 +150,9 @@ impl TlsWebSocketServer {
                                 MAXIMUM_FRAME_BYTES,
                                 socket,
                             );
-                            let _ = daemon.accept(Box::new(link)).await;
+                            let inbound =
+                                InboundLink::network(Box::new(link), NetworkPeer::Tls);
+                            let _ = daemon.accept(inbound).await;
                         });
                     }
                     Some(_) = connections.join_next(), if !connections.is_empty() => {}

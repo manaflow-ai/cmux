@@ -25,7 +25,7 @@ use tokio_tungstenite::{MaybeTlsStream, WebSocketStream, connect_async};
 use url::Url;
 use zeroize::{Zeroize, Zeroizing};
 
-use crate::daemon::RemoteDaemon;
+use crate::daemon::{InboundLink, NetworkPeer, RemoteDaemon};
 use crate::link::FrameLink;
 use crate::observability::{TransportPathKind, TransportPathSnapshot, TransportSnapshot};
 use crate::provider::{
@@ -824,7 +824,8 @@ async fn run_registration_once(
                                 maximum,
                                 timeout,
                             ).await {
-                                let _ = daemon.accept(link).await;
+                                let inbound = InboundLink::network(link, NetworkPeer::Relay);
+                                let _ = daemon.accept(inbound).await;
                             }
                         });
                     }

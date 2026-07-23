@@ -17,7 +17,7 @@ use cmux_remote_protocol::MAX_WIRE_FRAME_BYTES;
 use tokio::sync::{Mutex, OnceCell, Semaphore, mpsc, oneshot};
 use tokio::task::{JoinHandle, JoinSet};
 
-use crate::daemon::RemoteDaemon;
+use crate::daemon::{InboundLink, NetworkPeer, RemoteDaemon};
 use crate::link::FrameLink;
 use crate::observability::{TransportPathKind, TransportPathSnapshot, TransportSnapshot};
 use crate::provider::{
@@ -773,9 +773,10 @@ async fn serve_iroh_connection(
                         receiver,
                         sender,
                     );
+                    let inbound = InboundLink::network(Box::new(link), NetworkPeer::Iroh);
                     let result = tokio::time::timeout(
                         pre_auth_timeout,
-                        daemon.accept(Box::new(link)),
+                        daemon.accept(inbound),
                     ).await;
                     let result = match result {
                         Ok(Ok(())) => IrohAcceptResult::Succeeded,

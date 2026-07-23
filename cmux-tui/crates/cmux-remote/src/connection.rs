@@ -928,7 +928,7 @@ mod tests {
     use tokio::sync::{Notify, Semaphore, mpsc};
 
     use super::*;
-    use crate::daemon::RemoteDaemon;
+    use crate::daemon::{InboundLink, RemoteDaemon};
     use crate::identity::AuthDatabase;
     use crate::provider::{CarrierEvidence, ProviderCapabilities};
     use crate::service::{EndpointRole, ServiceError, ServiceMultiplexer};
@@ -1132,7 +1132,9 @@ mod tests {
             self.epochs.lock().await.push(epoch);
             let remote = self.daemon.clone();
             tokio::spawn(async move {
-                let _ = remote.accept_trusted_carrier(Box::new(daemon)).await;
+                let inbound =
+                    InboundLink::same_owner_kernel_peer(Box::new(daemon), 501, 501).unwrap();
+                let _ = remote.accept(inbound).await;
             });
             Ok(Box::new(client))
         }
@@ -1208,7 +1210,9 @@ mod tests {
             self.epochs.lock().await.push(epoch);
             let remote = self.daemon.clone();
             tokio::spawn(async move {
-                let _ = remote.accept_trusted_carrier(Box::new(daemon)).await;
+                let inbound =
+                    InboundLink::same_owner_kernel_peer(Box::new(daemon), 501, 501).unwrap();
+                let _ = remote.accept(inbound).await;
             });
             Ok(Box::new(BlockingReplayClientLink {
                 inner: client,
@@ -1266,7 +1270,9 @@ mod tests {
             *self.epoch.lock().unwrap_or_else(std::sync::PoisonError::into_inner) = Some(epoch);
             let remote = self.daemon.clone();
             tokio::spawn(async move {
-                let _ = remote.accept_trusted_carrier(Box::new(daemon)).await;
+                let inbound =
+                    InboundLink::same_owner_kernel_peer(Box::new(daemon), 501, 501).unwrap();
+                let _ = remote.accept(inbound).await;
             });
             Ok(Box::new(client))
         }

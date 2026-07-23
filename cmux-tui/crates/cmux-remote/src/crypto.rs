@@ -111,7 +111,6 @@ pub struct AuthRequest {
     pub lane: Lane,
     pub lanes: Vec<Lane>,
     pub generation: u64,
-    pub carrier_trusted: bool,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -140,6 +139,10 @@ pub(crate) struct VerifiedSecureLink {
 impl VerifiedSecureLink {
     pub(crate) fn auth_kind(&self) -> AuthKind {
         self.request.mode
+    }
+
+    pub(crate) fn device_public_key(&self) -> [u8; 32] {
+        self.request.device_public_key
     }
 }
 
@@ -348,9 +351,8 @@ pub async fn accept_secure_link(
     link: Box<dyn FrameLink>,
     identity: &StaticIdentity,
     authenticator: &dyn ServerAuthenticator,
-    carrier_trusted: bool,
 ) -> Result<AcceptedSecureLink, CryptoError> {
-    let verified = verify_secure_link(link, identity, authenticator, carrier_trusted).await?;
+    let verified = verify_secure_link(link, identity, authenticator).await?;
     authorize_secure_link(verified, authenticator).await
 }
 
@@ -358,7 +360,6 @@ pub(crate) async fn verify_secure_link(
     link: Box<dyn FrameLink>,
     identity: &StaticIdentity,
     authenticator: &dyn ServerAuthenticator,
-    carrier_trusted: bool,
 ) -> Result<VerifiedSecureLink, CryptoError> {
     let prelude_bytes = receive_bytes(&*link).await?;
     let prelude: ClientPrelude =
@@ -415,7 +416,6 @@ pub(crate) async fn verify_secure_link(
             lane: prelude.lane,
             lanes: prelude.lanes,
             generation: prelude.generation,
-            carrier_trusted,
         },
         resume: hello.resume,
     })
@@ -425,7 +425,18 @@ pub(crate) async fn authorize_secure_link(
     verified: VerifiedSecureLink,
     authenticator: &dyn ServerAuthenticator,
 ) -> Result<AcceptedSecureLink, CryptoError> {
-    let authorization = authenticator.authorize(verified.request.clone()).await;
+    let authorization = if verified.auth_kind() == AuthKind::Carrier {
+        Err("carrier authentication requires verified ingress evidence".into())
+    } else {
+        authenticator.authorize(verified.request.clone()).await
+    };
+    complete_secure_link_authorization(verified, authorization).await
+}
+
+pub(crate) async fn complete_secure_link_authorization(
+    verified: VerifiedSecureLink,
+    authorization: Result<AuthGrant, String>,
+) -> Result<AcceptedSecureLink, CryptoError> {
     let grant = match authorization {
         Ok(grant) => {
             send_secure_json(
@@ -683,7 +694,7 @@ mod tests {
 
         let (client_result, server_result) = tokio::join!(
             initiate_secure_link(Box::new(client_link), client_config),
-            accept_secure_link(Box::new(server_link), &daemon, &auth, false),
+            accept_secure_link(Box::new(server_link), &daemon, &auth),
         );
         let client_secure = client_result.unwrap();
         let accepted = server_result.unwrap();
@@ -715,7 +726,7 @@ mod tests {
 
         let (client_result, _) = tokio::join!(
             initiate_secure_link(Box::new(client_link), config),
-            accept_secure_link(Box::new(server_link), &daemon, &auth, false),
+            accept_secure_link(Box::new(server_link), &daemon, &auth),
         );
         assert!(matches!(client_result, Err(CryptoError::DaemonKeyMismatch { .. })));
     }
@@ -738,7 +749,7 @@ mod tests {
 
         let (client_result, server_result) = tokio::join!(
             initiate_secure_link(Box::new(client_link), config),
-            accept_secure_link(Box::new(server_link), &daemon, &auth, false),
+            accept_secure_link(Box::new(server_link), &daemon, &auth),
         );
         assert!(client_result.is_err());
         assert!(server_result.is_err());
