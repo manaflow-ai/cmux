@@ -3018,10 +3018,14 @@ class TabManager: ObservableObject {
         AppDelegate.shared?.notificationStore?.clearNotifications(forTabId: tab.id, surfaceId: surfaceId)
     }
 
-    /// Close a panel because its child process exited (e.g. the user hit Ctrl+D).
-    /// This should never prompt: the process is already gone, and Ghostty emits the
-    /// `SHOW_CHILD_EXITED` action specifically so the host app can decide what to do.
-    func closePanelAfterChildExited(tabId: UUID, surfaceId: UUID, runtimeSurface: TerminalSurface? = nil) {
+    /// Handles Ghostty's `SHOW_CHILD_EXITED` action without prompting because the
+    /// process is already gone; startup failures may keep the addressed surface visible.
+    func closePanelAfterChildExited(
+        tabId: UUID,
+        surfaceId: UUID,
+        runtimeSurface: TerminalSurface? = nil,
+        keepSurfaceVisible: Bool = false
+    ) {
         guard let tab = tabs.first(where: { $0.id == tabId }) else { return }
         if tab.panels[surfaceId] == nil { tab.closeDockPanelAndClearNotifications(surfaceId, force: true); return }
         if let runtimeSurface, tab.terminalPanel(for: surfaceId)?.surface !== runtimeSurface { return }
@@ -3052,16 +3056,16 @@ class TabManager: ObservableObject {
         )
 #endif
 
-        // A persistent SSH workspace must never silently replace a failed remote attach with
-        // a local login shell. Keep the exited surface visible so the user can see the error
-        // and retry instead of making a detached remote workspace look local after relaunch.
+        // A persistent SSH workspace must keep the exited surface visible so the user can
+        // inspect the failure and retry instead of silently falling back to a local shell.
         if keepsPersistentRemoteSurfaceOpen {
             tab.markPersistentRemotePTYAttachFailed(surfaceId: surfaceId)
             return
         }
 
-        // Workspace owns the remote terminal's active -> disconnected transition so the
-        // logical pane and its rendered history survive the runtime replacement.
+        if keepSurfaceVisible { return }
+
+        // Workspace owns remote active -> disconnected transitions and preserves pane history.
         if handlesRemoteExitThroughWorkspace {
             guard !tab.transitionRemoteTerminalToDisconnectedPlaceholder(surfaceId: surfaceId) else { return }
             closeRuntimeSurface(tabId: tabId, surfaceId: surfaceId)

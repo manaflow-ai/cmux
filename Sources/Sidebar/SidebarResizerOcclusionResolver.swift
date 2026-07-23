@@ -1,6 +1,43 @@
 import AppKit
 
 @MainActor
+final class SidebarResizerCursorReleaseScheduler {
+    private var pendingTask: Task<Void, Never>?
+    private var generation: UInt64 = 0
+
+    func cancelPendingRelease() {
+        generation &+= 1
+        pendingTask?.cancel()
+        pendingTask = nil
+    }
+
+    func schedule(
+        force: Bool,
+        delay: Duration,
+        release: @escaping @MainActor (Bool) -> Void
+    ) {
+        cancelPendingRelease()
+
+        let scheduledGeneration = generation
+        pendingTask = Task { @MainActor [weak self] in
+            if delay > .zero {
+                do {
+                    try await Task.sleep(for: delay)
+                } catch {
+                    return
+                }
+            } else {
+                await Task.yield()
+                guard !Task.isCancelled else { return }
+            }
+            guard let self, generation == scheduledGeneration else { return }
+            pendingTask = nil
+            release(force)
+        }
+    }
+}
+
+@MainActor
 struct SidebarResizerOcclusionResolver {
     var topmostMouseEventWindowNumber: (NSPoint) -> Int? = { screenPoint in
         let windowNumber = NSWindow.windowNumber(at: screenPoint, belowWindowWithWindowNumber: 0)
