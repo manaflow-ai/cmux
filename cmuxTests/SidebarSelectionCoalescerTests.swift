@@ -48,7 +48,9 @@ private actor SidebarTestSleeperRegistrationGate {
     }
 }
 
-/// Deterministic clock: sleeps suspend until the test advances time.
+/// Deterministic clock: sleeps suspend until the test advances time. Every
+/// mutable field is protected by `lock`; `Clock` requires synchronous `now`
+/// and sleep registration, so actor isolation cannot provide the same API.
 final class SidebarTestManualClock: Clock, @unchecked Sendable {
     struct Instant: InstantProtocol, Sendable {
         var offset: Duration
@@ -104,6 +106,18 @@ final class SidebarTestManualClock: Clock, @unchecked Sendable {
         return waiters
     }
 
+    private func takeSleepWaitersLocked(
+        matching deadline: Instant
+    ) -> [CheckedContinuation<Void, Never>] {
+        var matchedWaiters: [CheckedContinuation<Void, Never>] = []
+        sleepWaiters.removeAll { waiter in
+            let matches = waiter.deadline == nil || waiter.deadline == deadline
+            if matches { matchedWaiters.append(waiter.continuation) }
+            return matches
+        }
+        return matchedWaiters
+    }
+
     var now: Instant {
         lock.lock()
         defer { lock.unlock() }
@@ -136,19 +150,16 @@ final class SidebarTestManualClock: Clock, @unchecked Sendable {
                     return
                 }
                 if deadline <= _now {
-                    let waiters = takeIdleWaitersIfIdleLocked()
+                    let sleepWaiters = takeSleepWaitersLocked(matching: deadline)
+                    let idleWaiters = takeIdleWaitersIfIdleLocked()
                     lock.unlock()
                     continuation.resume()
-                    for waiter in waiters { waiter.resume() }
+                    for waiter in sleepWaiters { waiter.resume() }
+                    for waiter in idleWaiters { waiter.resume() }
                     return
                 }
                 sleepers[id] = Sleeper(deadline: deadline, continuation: continuation)
-                var matchedWaiters: [CheckedContinuation<Void, Never>] = []
-                sleepWaiters.removeAll { waiter in
-                    let matches = waiter.deadline == nil || waiter.deadline == deadline
-                    if matches { matchedWaiters.append(waiter.continuation) }
-                    return matches
-                }
+                let matchedWaiters = takeSleepWaitersLocked(matching: deadline)
                 lock.unlock()
                 for waiter in matchedWaiters { waiter.resume() }
             }
