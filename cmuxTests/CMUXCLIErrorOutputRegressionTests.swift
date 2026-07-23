@@ -28,6 +28,70 @@ import Testing
         XCTAssertTrue(result.stdout.contains("Usage:"), result.stdout)
     }
 
+    @Test func testHerdrCompatTranslatesCommandsAndPreservesChildExit() throws {
+        let cliPath = try bundledCLIPath()
+        let tempDirectory = FileManager.default.temporaryDirectory
+            .appendingPathComponent("cmux-herdr-compat-\(UUID().uuidString)", isDirectory: true)
+        try FileManager.default.createDirectory(at: tempDirectory, withIntermediateDirectories: true)
+        defer { try? FileManager.default.removeItem(at: tempDirectory) }
+
+        let fakeHerdr = tempDirectory.appendingPathComponent("herdr")
+        try "#!/bin/sh\nprintf '%s\\n' \"$*\"\nexit \"${HERDR_TEST_EXIT:-0}\"\n".write(to: fakeHerdr, atomically: true, encoding: .utf8)
+        try FileManager.default.setAttributes([.posixPermissions: 0o755], ofItemAtPath: fakeHerdr.path)
+
+        var environment = ProcessInfo.processInfo.environment
+        environment["PATH"] = tempDirectory.path
+        environment["CMUX_CLI_SENTRY_DISABLED"] = "1"
+        environment["HERDR_TEST_EXIT"] = "23"
+        let result = runProcess(
+            executablePath: cliPath,
+            arguments: ["--json", "__herdr-compat", "status", "server"],
+            environment: environment,
+            timeout: 5
+        )
+        XCTAssertFalse(result.timedOut, result.stdout)
+        XCTAssertEqual(result.status, 23, result.stdout)
+        XCTAssertEqual(result.stdout, "status --json server\n")
+    }
+
+    @Test func testHerdrCompatAliasesAndUnknownCommand() throws {
+        let cliPath = try bundledCLIPath()
+        let tempDirectory = FileManager.default.temporaryDirectory
+            .appendingPathComponent("cmux-herdr-aliases-\(UUID().uuidString)", isDirectory: true)
+        try FileManager.default.createDirectory(at: tempDirectory, withIntermediateDirectories: true)
+        defer { try? FileManager.default.removeItem(at: tempDirectory) }
+
+        let fakeHerdr = tempDirectory.appendingPathComponent("herdr")
+        try "#!/bin/sh\nprintf '%s\\n' \"$*\"\n".write(to: fakeHerdr, atomically: true, encoding: .utf8)
+        try FileManager.default.setAttributes([.posixPermissions: 0o755], ofItemAtPath: fakeHerdr.path)
+
+        var environment = ProcessInfo.processInfo.environment
+        environment["PATH"] = tempDirectory.path
+        environment["CMUX_CLI_SENTRY_DISABLED"] = "1"
+
+        let cases: [([String], String)] = [
+            (["__herdr-compat", "snapshot"], "api snapshot\n"),
+            (["__herdr-compat", "list-workspaces"], "workspace list\n"),
+            (["__herdr-compat", "list-tabs", "--workspace", "w1"], "tab list --workspace w1\n"),
+            (["__herdr-compat", "list-panes"], "pane list\n"),
+        ]
+        for (arguments, expected) in cases {
+            let result = runProcess(executablePath: cliPath, arguments: arguments, environment: environment, timeout: 5)
+            XCTAssertFalse(result.timedOut, result.stdout)
+            XCTAssertEqual(result.status, 0, result.stdout)
+            XCTAssertEqual(result.stdout, expected)
+        }
+
+        let unknown = runProcess(
+            executablePath: cliPath,
+            arguments: ["__herdr-compat", "delete-everything"],
+            environment: environment,
+            timeout: 5
+        )
+        XCTAssertFalse(unknown.timedOut, unknown.stdout)
+        XCTAssertEqual(unknown.status, 2, unknown.stdout)
+    }
+
     @Test func testAgentTeamsHelpDoesNotLaunchExternalAgentCLI() throws {
         let cliPath = try bundledCLIPath()
         var environment = ProcessInfo.processInfo.environment
