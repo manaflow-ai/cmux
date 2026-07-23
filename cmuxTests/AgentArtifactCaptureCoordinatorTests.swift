@@ -10,7 +10,8 @@ import Testing
 #endif
 
 struct AgentArtifactCaptureCoordinatorTests {
-    @Test func oneCaptureRequestDoesNotDrainPolicyBacklog() async throws {
+    @MainActor
+    @Test func scheduledCaptureContinuesPolicyBacklogWithoutNewEvent() async throws {
         let projectRoot = try temporaryProjectRoot()
         defer { try? FileManager.default.removeItem(at: projectRoot) }
         let store = OutOfOrderCaptureStore(
@@ -20,6 +21,10 @@ struct AgentArtifactCaptureCoordinatorTests {
         let coordinator = AgentArtifactCaptureCoordinator(
             captureService: ArtifactCaptureService(store: store)
         )
+        let service = AgentChatTranscriptService(
+            registry: AgentChatSessionRegistry(),
+            artifactCaptureCoordinator: coordinator
+        )
         let record = captureRecord(projectRoot: projectRoot)
         let snapshot = snapshot(
             revision: 1,
@@ -28,9 +33,12 @@ struct AgentArtifactCaptureCoordinatorTests {
             }
         )
 
-        await coordinator.capture(record: record, snapshot: snapshot)
+        service.scheduleIndexedArtifactCapture(record: record, snapshot: snapshot)
+        let task = try #require(service.artifactCaptureTasks[record.sessionID]?.task)
+        await task.value
 
-        #expect(await store.importedPaths.count == 1)
+        #expect(await store.importedPaths.count == 3)
+        #expect(await store.importCount == 3)
     }
 
     @Test func newerSnapshotCapturesOnlyNewTranscriptReferences() async throws {
