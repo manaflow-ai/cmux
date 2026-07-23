@@ -13,7 +13,7 @@ struct CmuxConfigActionCatalogTests {
     private let codec = CmuxConfigActionCatalogFrameCodec.shared
 
     @Test @MainActor
-    func loadAllDetectsChangedBytesWhenSizeAndModificationDateMatch() async throws {
+    func loadAllDetectsChangedBytesWhenSizeAndModificationDateMatch() throws {
         let root = try temporaryDirectory()
         defer { try? FileManager.default.removeItem(at: root) }
         let configURL = root.appendingPathComponent("cmux.json")
@@ -33,7 +33,6 @@ struct CmuxConfigActionCatalogTests {
             [.modificationDate: modificationDate],
             ofItemAtPath: configURL.path
         )
-        try await ContinuousClock().sleep(for: .milliseconds(250))
         #expect(store.resolvedAction(id: "first") != nil)
         #expect(store.resolvedAction(id: "other") == nil)
 
@@ -734,14 +733,13 @@ struct CmuxConfigActionCatalogTests {
 
         deliveryGate.continuation.yield(())
         #expect(await admissionCompletionIterator.next() != nil)
-        try await ContinuousClock().sleep(for: .milliseconds(50))
-        #expect(await quarantine.releaseAttemptCount(for: lease) == 1)
         switch await runTask.value {
         case .completed(let output):
             #expect(output == nil)
         case .quarantined:
             Issue.record("reaped session was handed off after admission")
         }
+        #expect(await quarantine.releaseAttemptCount(for: lease) == 1)
         #expect(await quarantine.state().reservedCount == 0)
         let recoveredLease = await quarantine.reserve(key: quarantineKey, lane: .general)
         #expect(recoveredLease != nil)
