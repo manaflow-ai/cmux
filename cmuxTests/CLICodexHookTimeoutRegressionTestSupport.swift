@@ -266,7 +266,18 @@ func waitForFile(_ url: URL, containing expected: String, timeout: TimeInterval)
     return false
 }
 
-func waitForCondition(timeout: TimeInterval, pollInterval: TimeInterval = 0.02, _ condition: () -> Bool) -> Bool {
+/// Polls `condition` while blocking the calling thread with `Thread.sleep`.
+///
+/// Use it only for conditions a background thread satisfies, such as a socket
+/// accumulator or a file a child process writes. It runs no run loop, so on the
+/// main thread it starves main-queue and main-actor work and the condition can
+/// never become true. Main-thread waits belong in the per-file XCTWaiter
+/// helpers, which pump the main queue between polls.
+func waitForConditionBlocking(
+    timeout: TimeInterval,
+    pollInterval: TimeInterval = 0.02,
+    _ condition: () -> Bool
+) -> Bool {
     let deadline = Date().addingTimeInterval(timeout)
     while Date() < deadline {
         if condition() {
