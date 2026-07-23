@@ -143,6 +143,32 @@ struct AgentChatArtifactIndexSafetyTests {
         #expect(!replacementSnapshot.referencedPaths.contains(oldArtifactPath))
     }
 
+    @Test func retainedArtifactAuthorizationIsBoundedByRecency() async throws {
+        let root = FileManager.default.temporaryDirectory
+            .appendingPathComponent(UUID().uuidString, isDirectory: true)
+        try FileManager.default.createDirectory(at: root, withIntermediateDirectories: true)
+        defer { try? FileManager.default.removeItem(at: root) }
+        let transcript = root.appendingPathComponent("transcript.jsonl")
+        let artifactPaths = (0...1_024).map {
+            root.appendingPathComponent("artifact-\($0).md").path
+        }
+        let lines = try artifactPaths.map(codexArtifactLine(path:))
+        try Data(lines.joined(separator: "\n").utf8).write(to: transcript)
+
+        let snapshot = try await AgentChatArtifactIndex().snapshot(
+            sessionID: "session",
+            agentKind: .codex,
+            transcriptPath: transcript.path,
+            workingDirectory: root.path,
+            maximumFileBytes: 4 * 1024 * 1024
+        )
+
+        #expect(snapshot.artifacts.count == 1_024)
+        #expect(snapshot.referencedPaths.count == 1_024)
+        #expect(snapshot.referencedPaths.contains(try #require(artifactPaths.last)))
+        #expect(!snapshot.referencedPaths.contains(try #require(artifactPaths.first)))
+    }
+
     private func codexArtifactLine(path: String) throws -> String {
         let data = try JSONSerialization.data(withJSONObject: [
             "timestamp": "2026-07-21T12:00:00.000Z",

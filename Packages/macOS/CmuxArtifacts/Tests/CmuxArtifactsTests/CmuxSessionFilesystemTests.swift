@@ -221,6 +221,56 @@ struct CmuxSessionFilesystemTests {
         #expect(firstRoot != secondRoot)
     }
 
+    @Test("A fallback directory with a different session marker is never reused")
+    func rejectsMismatchedFallbackSessionMarker() async throws {
+        let root = try ArtifactTestSupport.temporaryDirectory()
+        defer { ArtifactTestSupport.remove(root) }
+        let paths = ArtifactStorePaths(projectRoot: root)
+        let context = ArtifactCaptureContext(
+            projectRoot: root,
+            sessionID: "session:expected",
+            agentName: "codex"
+        )
+        let fallback = ArtifactPathResolver().contentDirectory(
+            paths: paths,
+            context: context,
+            kind: .artifacts
+        )
+        let markerURL = fallback.deletingLastPathComponent()
+            .appendingPathComponent(ArtifactPathResolver.sessionMarkerName)
+        try FileManager.default.createDirectory(
+            at: fallback,
+            withIntermediateDirectories: true
+        )
+        let encoder = JSONEncoder()
+        encoder.dateEncodingStrategy = .iso8601
+        try encoder.encode(
+            ArtifactSessionMarker(
+                sessionID: "session:different",
+                agentName: "codex",
+                createdAt: Date(timeIntervalSince1970: 1)
+            )
+        ).write(to: markerURL)
+        let source = try ArtifactTestSupport.write(
+            "private",
+            named: "outside/private.md",
+            under: root
+        )
+
+        await #expect(throws: ArtifactStoreError.corruptProvenance(markerURL.path)) {
+            _ = try await LocalArtifactRepository().importFile(
+                sourceURL: source,
+                context: context,
+                provenance: .manual,
+                configuration: .defaultValue,
+                capturedAt: Date(timeIntervalSince1970: 2)
+            )
+        }
+        #expect(!FileManager.default.fileExists(
+            atPath: fallback.appendingPathComponent(source.lastPathComponent).path
+        ))
+    }
+
     @Test("Capture fails closed when moved-session discovery exceeds its node budget")
     func rejectsIncompleteMovedSessionDiscovery() async throws {
         let root = try ArtifactTestSupport.temporaryDirectory()

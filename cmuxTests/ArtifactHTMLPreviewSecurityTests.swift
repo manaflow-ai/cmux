@@ -38,6 +38,27 @@ struct ArtifactHTMLPreviewSecurityTests {
         #expect(!wrapper.contains(source.path))
     }
 
+    @Test("Artifact previews reject symbolic links and oversized sources")
+    func rejectsUntrustedSourceEntries() throws {
+        let root = FileManager.default.temporaryDirectory
+            .appendingPathComponent("cmux-artifact-html-\(UUID().uuidString)", isDirectory: true)
+        defer { try? FileManager.default.removeItem(at: root) }
+        try FileManager.default.createDirectory(at: root, withIntermediateDirectories: true)
+        let target = root.appendingPathComponent("target.html", isDirectory: false)
+        try "<p>private</p>".write(to: target, atomically: true, encoding: .utf8)
+        let symbolicLink = root.appendingPathComponent("linked.html", isDirectory: false)
+        try FileManager.default.createSymbolicLink(at: symbolicLink, withDestinationURL: target)
+        let oversized = root.appendingPathComponent("oversized.html", isDirectory: false)
+        try Data(repeating: 0x20, count: 8 * 1024 * 1024 + 1).write(to: oversized)
+
+        #expect(throws: CocoaError.self) {
+            _ = try ArtifactHTMLPreviewDocument(sourceURL: symbolicLink)
+        }
+        #expect(throws: CocoaError.self) {
+            _ = try ArtifactHTMLPreviewDocument(sourceURL: oversized)
+        }
+    }
+
     @Test("Artifact previews use an ephemeral script-free WebKit configuration")
     @MainActor
     func configuresAnIsolatedWebView() {
