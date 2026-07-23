@@ -1123,6 +1123,8 @@ fn frame_read_io_error(failure: FrameReadFailure) -> io::Error {
 
 #[cfg(all(test, unix))]
 mod tests {
+    use std::fs;
+    use std::os::unix::fs::PermissionsExt;
     use std::os::unix::net::{UnixListener, UnixStream};
     use std::path::PathBuf;
     use std::sync::atomic::{AtomicU64, AtomicUsize, Ordering};
@@ -1150,7 +1152,7 @@ mod tests {
             let id = NEXT_SOCKET_ID.fetch_add(1, Ordering::Relaxed);
             let path = std::env::temp_dir()
                 .join(format!("cmux-machine-provider-client-{}-{id}.sock", std::process::id()));
-            let _ = std::fs::remove_file(&path);
+            let _ = fs::remove_file(&path);
             let listener = UnixListener::bind(&path).expect("bind fake provider socket");
             Self { path, listener }
         }
@@ -1178,7 +1180,7 @@ mod tests {
 
     impl Drop for TestSocket {
         fn drop(&mut self) {
-            let _ = std::fs::remove_file(&self.path);
+            let _ = fs::remove_file(&self.path);
         }
     }
 
@@ -1667,6 +1669,64 @@ mod tests {
         drop(provider);
         server.join().expect("join fake provider");
         assert_eq!(handshakes.load(Ordering::Relaxed), 1);
+    }
+
+    #[test]
+    fn redacts_transport_ticket_from_command_stream_diagnostics() {
+        let script_path = std::env::temp_dir().join(format!(
+            "cmux-machine-provider-ticket-redaction-{}-{}.sh",
+            std::process::id(),
+            NEXT_SOCKET_ID.fetch_add(1, Ordering::Relaxed)
+        ));
+        fs::write(
+            &script_path,
+            concat!(
+                "#!/bin/sh\n",
+                "set -eu\n",
+                "role=$1\n",
+                "if [ \"$role\" = control ]; then\n",
+                "  IFS= read -r _hello\n",
+                "  printf '%s\\n' '{\"protocol\":\"cmux.machine-provider\",\"version\":1,\"id\":\"cmux-1\",\"result\":{\"provider_id\":\"fake-provider\",\"provider_name\":\"Fake Provider\",\"negotiated_version\":1}}'\n",
+                "  IFS= read -r _open\n",
+                "  printf '%s\\n' '{\"protocol\":\"cmux.machine-provider\",\"version\":1,\"id\":\"cmux-2\",\"result\":{\"connection_id\":\"connection-1\",\"transport\":{\"kind\":\"provider_stream\",\"ticket\":\"one-use-ticket\",\"expires_at\":\"2026-07-21T12:00:00Z\"}}}'\n",
+                "  while IFS= read -r _line; do :; done\n",
+                "else\n",
+                "  IFS= read -r handshake\n",
+                "  printf '%s\\n' \"$handshake\" >&2\n",
+                // Fill more than the stderr pipe so the diagnostic worker must
+                // consume the handshake before the process can close stdout.
+                "  i=0\n",
+                "  while [ \"$i\" -lt 20000 ]; do\n",
+                "    printf ' diagnostic-padding' >&2\n",
+                "    i=$((i + 1))\n",
+                "  done\n",
+                "fi\n",
+            ),
+        )
+        .expect("write provider command");
+        fs::set_permissions(&script_path, fs::Permissions::from_mode(0o700))
+            .expect("make provider command executable");
+
+        let connector = Arc::new(
+            CommandProviderConnector::new([script_path.clone().into_os_string()])
+                .expect("create command connector"),
+        );
+        let (provider, _) =
+            ProviderClient::connect_authenticated_with(connector, client_descriptor())
+                .expect("authenticate command provider");
+        let opened = provider.open_machine(id("machine-1"), false).expect("open machine");
+        let Err(error) = provider.consume_transport(opened.transport) else {
+            panic!("stream command must disconnect during its handshake");
+        };
+        let diagnostic = error.to_string();
+
+        drop(provider);
+        let _ = fs::remove_file(script_path);
+        assert!(diagnostic.contains("[redacted]"), "credential was not redacted: {diagnostic}");
+        assert!(
+            !diagnostic.contains("one-use-ticket"),
+            "one-use transport ticket leaked through diagnostics"
+        );
     }
 
     #[test]
