@@ -16,6 +16,7 @@ public import UserNotifications
 public final class NotificationDeliveryCoordinator {
     private let center: any UserNotificationCenterConfiguring
     private let terminalNavigation: any NotificationDeliveryTerminalNavigating
+    private let terminalReplying: any NotificationTerminalReplying
     private let feedReplying: any NotificationFeedReplying
     private let applicationActivation: any NotificationApplicationActivating
     private let terminalIdentifiers: TerminalNotificationDeliveryIdentifiers
@@ -26,6 +27,7 @@ public final class NotificationDeliveryCoordinator {
     public init(
         center: any UserNotificationCenterConfiguring,
         terminalNavigation: any NotificationDeliveryTerminalNavigating,
+        terminalReplying: any NotificationTerminalReplying,
         feedReplying: any NotificationFeedReplying,
         applicationActivation: any NotificationApplicationActivating,
         terminalIdentifiers: TerminalNotificationDeliveryIdentifiers,
@@ -33,6 +35,7 @@ public final class NotificationDeliveryCoordinator {
     ) {
         self.center = center
         self.terminalNavigation = terminalNavigation
+        self.terminalReplying = terminalReplying
         self.feedReplying = feedReplying
         self.applicationActivation = applicationActivation
         self.terminalIdentifiers = terminalIdentifiers
@@ -42,7 +45,11 @@ public final class NotificationDeliveryCoordinator {
     /// Installs every terminal and Feed notification category, then assigns the
     /// `UNUserNotificationCenter` delegate.
     public func configureUserNotifications(delegate: any UNUserNotificationCenterDelegate) {
-        center.setNotificationCategories(notificationCategories())
+        Task { @MainActor [weak self] in
+            guard let self else { return }
+            let current = await center.currentNotificationCategories()
+            center.setNotificationCategories(current.union(notificationCategories()))
+        }
         center.setDelegate(delegate)
     }
 
@@ -81,6 +88,19 @@ public final class NotificationDeliveryCoordinator {
         let terminalCategory = UNNotificationCategory(
             identifier: terminalIdentifiers.categoryIdentifier,
             actions: [terminalShowAction],
+            intentIdentifiers: [],
+            options: [.customDismissAction]
+        )
+        let terminalReplyAction = UNTextInputNotificationAction(
+            identifier: terminalIdentifiers.replyActionIdentifier,
+            title: actionTitles.reply,
+            options: [],
+            textInputButtonTitle: actionTitles.replySend,
+            textInputPlaceholder: actionTitles.replyPlaceholder
+        )
+        let terminalTextReplyCategory = UNNotificationCategory(
+            identifier: terminalIdentifiers.textReplyCategoryIdentifier,
+            actions: [terminalReplyAction, terminalShowAction],
             intentIdentifiers: [],
             options: [.customDismissAction]
         )
@@ -137,6 +157,13 @@ public final class NotificationDeliveryCoordinator {
                     identifier: "feed.exit_plan.autoAccept",
                     title: actionTitles.feedExitPlanAutoAccept
                 ),
+                UNTextInputNotificationAction(
+                    identifier: "feed.exit_plan.revise",
+                    title: actionTitles.feedExitPlanRevise,
+                    options: [],
+                    textInputButtonTitle: actionTitles.replySend,
+                    textInputPlaceholder: actionTitles.replyPlaceholder
+                ),
             ],
             intentIdentifiers: [],
             options: []
@@ -154,7 +181,7 @@ public final class NotificationDeliveryCoordinator {
             options: []
         )
 
-        return Set([terminalCategory, exitPlanCategory, questionCategory] + permissionCategories)
+        return Set([terminalCategory, terminalTextReplyCategory, exitPlanCategory, questionCategory] + permissionCategories)
     }
 
     private func feedPermissionNotificationCategoryIds() -> [String] {
@@ -176,9 +203,13 @@ public final class NotificationDeliveryCoordinator {
         guard categoryId.hasPrefix("CMUXFeedPermission")
            || categoryId == "CMUXFeedExitPlan"
            || categoryId == "CMUXFeedQuestion"
+           || categoryId.hasPrefix("CMUXFeedQuestion.")
         else { return false }
 
         guard let requestId = response.userInfo["requestId"] as? String else {
+            if categoryId.hasPrefix("CMUXFeedQuestion.") {
+                applicationActivation.activateApplication()
+            }
             return true
         }
 
@@ -201,20 +232,43 @@ public final class NotificationDeliveryCoordinator {
         case "feed.permission.deny":
             feedReplying.deliverReply(requestId: requestId, decision: .permission(.deny))
         case "feed.exit_plan.ultraplan":
-            feedReplying.deliverReply(requestId: requestId, decision: .exitPlan(.ultraplan))
+            feedReplying.deliverReply(requestId: requestId, decision: .exitPlan(.ultraplan, feedback: nil))
         case "feed.exit_plan.bypassPermissions":
-            feedReplying.deliverReply(requestId: requestId, decision: .exitPlan(.bypassPermissions))
+            feedReplying.deliverReply(requestId: requestId, decision: .exitPlan(.bypassPermissions, feedback: nil))
         case "feed.exit_plan.autoAccept":
-            feedReplying.deliverReply(requestId: requestId, decision: .exitPlan(.autoAccept))
+            feedReplying.deliverReply(requestId: requestId, decision: .exitPlan(.autoAccept, feedback: nil))
         case "feed.exit_plan.manual":
-            feedReplying.deliverReply(requestId: requestId, decision: .exitPlan(.manual))
+            feedReplying.deliverReply(requestId: requestId, decision: .exitPlan(.manual, feedback: nil))
+        case "feed.exit_plan.revise":
+            let feedback = response.userText?.trimmingCharacters(in: .whitespacesAndNewlines)
+            feedReplying.deliverReply(
+                requestId: requestId,
+                decision: .exitPlan(.manual, feedback: feedback?.isEmpty == false ? feedback : nil)
+            )
+        case let action where action.hasPrefix("feed.question.option."):
+            guard let index = Int(action.dropFirst("feed.question.option.".count)),
+                  let optionIds = response.userInfo["questionOptionIds"] as? [String],
+                  optionIds.indices.contains(index) else {
+                applicationActivation.activateApplication()
+                return true
+            }
+            feedReplying.deliverReply(requestId: requestId, decision: .question(selections: [optionIds[index]]))
+        case "feed.question.other":
+            guard let text = response.userText,
+                  !text.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty else {
+                applicationActivation.activateApplication()
+                return true
+            }
+            feedReplying.deliverReply(requestId: requestId, decision: .question(selections: [text]))
         case "feed.question.open":
             applicationActivation.activateApplication()
         case UNNotificationDismissActionIdentifier,
              UNNotificationDefaultActionIdentifier:
             applicationActivation.activateApplication()
         default:
-            break
+            if categoryId.hasPrefix("CMUXFeedQuestion.") {
+                applicationActivation.activateApplication()
+            }
         }
         return true
     }
@@ -253,21 +307,41 @@ public final class NotificationDeliveryCoordinator {
 
     private func handleTerminalNotificationResponse(_ response: NotificationDeliveryResponse) {
         switch response.actionIdentifier {
-        case UNNotificationDefaultActionIdentifier, terminalIdentifiers.showActionIdentifier:
-            guard let tabIdString = response.userInfo["tabId"] as? String,
-                  let tabId = UUID(uuidString: tabIdString) else {
+        case terminalIdentifiers.replyActionIdentifier:
+            guard let target = terminalTarget(response) else { return }
+            let text = response.userText?.trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
+            guard !text.isEmpty else {
+                openTerminalNotification(response, target: target)
                 return
             }
-            let surfaceId: UUID? = {
-                guard let surfaceIdString = response.userInfo["surfaceId"] as? String else {
-                    return nil
-                }
-                return UUID(uuidString: surfaceIdString)
-            }()
+            let didSend = terminalReplying.sendReply(
+                text: text,
+                tabId: target.tabId,
+                surfaceId: target.surfaceId,
+                retargetsToLiveSurfaceOwner: target.retargetsToLiveSurfaceOwner
+            )
+            if didSend, let notificationId = notificationId(response) {
+                terminalNavigation.markNotificationRead(id: notificationId)
+            } else if !didSend {
+                openTerminalNotification(response, target: target)
+            }
+        case UNNotificationDefaultActionIdentifier, terminalIdentifiers.showActionIdentifier:
+            guard let target = terminalTarget(response) else { return }
+            openTerminalNotification(response, target: target)
+        case UNNotificationDismissActionIdentifier:
+            if let notificationId = notificationId(response) {
+                terminalNavigation.markNotificationRead(id: notificationId)
+            }
+        default:
+            break
+        }
+    }
+
+    private func openTerminalNotification(
+        _ response: NotificationDeliveryResponse,
+        target: (tabId: UUID, surfaceId: UUID?, retargetsToLiveSurfaceOwner: Bool)
+    ) {
             let notificationId = notificationId(response)
-            let retargetsToLiveSurfaceOwner = response.userInfo[
-                terminalIdentifiers.retargetsToLiveSurfaceOwnerUserInfoKey
-            ] as? Bool ?? true
             if let clickAction = NotificationNavClickAction(userInfo: response.userInfo) {
                 let didPerform = terminalNavigation.performClickAction(clickAction)
                 if didPerform, let notificationId {
@@ -278,20 +352,25 @@ public final class NotificationDeliveryCoordinator {
             if let notificationId {
                 _ = terminalNavigation.openNotification(
                     id: notificationId,
-                    fallbackTabId: tabId,
-                    fallbackSurfaceId: surfaceId,
-                    fallbackRetargetsToLiveSurfaceOwner: retargetsToLiveSurfaceOwner
+                    fallbackTabId: target.tabId,
+                    fallbackSurfaceId: target.surfaceId,
+                    fallbackRetargetsToLiveSurfaceOwner: target.retargetsToLiveSurfaceOwner
                 )
             } else {
-                _ = terminalNavigation.open(tabId: tabId, surfaceId: surfaceId, notificationId: nil)
+                _ = terminalNavigation.open(tabId: target.tabId, surfaceId: target.surfaceId, notificationId: nil)
             }
-        case UNNotificationDismissActionIdentifier:
-            if let notificationId = notificationId(response) {
-                terminalNavigation.markNotificationRead(id: notificationId)
-            }
-        default:
-            break
-        }
+    }
+
+    private func terminalTarget(
+        _ response: NotificationDeliveryResponse
+    ) -> (tabId: UUID, surfaceId: UUID?, retargetsToLiveSurfaceOwner: Bool)? {
+        guard let tabIdString = response.userInfo["tabId"] as? String,
+              let tabId = UUID(uuidString: tabIdString) else { return nil }
+        let surfaceId = (response.userInfo["surfaceId"] as? String).flatMap(UUID.init(uuidString:))
+        let retargets = response.userInfo[
+            terminalIdentifiers.retargetsToLiveSurfaceOwnerUserInfoKey
+        ] as? Bool ?? true
+        return (tabId, surfaceId, retargets)
     }
 
     private func notificationId(_ response: NotificationDeliveryResponse) -> UUID? {

@@ -5,8 +5,14 @@ import CmuxMobileShell
 import CmuxMobileShellModel
 import Foundation
 import Observation
+import OSLog
 import UIKit
 import UserNotifications
+
+private let mobilePushLog = Logger(
+    subsystem: Bundle.main.bundleIdentifier ?? "dev.cmux.ios",
+    category: "push"
+)
 
 /// Bridges APNs push between the app-target `AppDelegate` and the mobile shell
 /// store: drives opt-in registration, hands device tokens to the injected
@@ -37,13 +43,17 @@ public final class MobilePushCoordinator {
     private nonisolated(unsafe) let defaults: UserDefaults
     private static let enabledKey = "cmux.notifications.pushEnabled"
 
-    /// APNs `aps.category` the web sets on every cmux terminal push (see
-    /// `CMUX_APNS_CATEGORY` in `web/services/apns/payload.ts`). The matching
-    /// ``UNNotificationCategory`` registered below carries
+    /// Base APNs `aps.category` the web sets on non-replyable cmux terminal
+    /// pushes (see `CMUX_APNS_CATEGORY` in `web/services/apns/payload.ts`). The
+    /// matching ``UNNotificationCategory`` registered below carries
     /// `.customDismissAction`, so a swipe/clear delivers
     /// `UNNotificationDismissActionIdentifier` to the app and we can forward the
     /// dismiss to the Mac. Keep these two ids in sync.
     public static let dismissSyncCategoryIdentifier = "cmux.terminal"
+    /// APNs category for terminal notifications that accept text input.
+    public static let replyCategoryIdentifier = "cmux.terminal.reply"
+    /// Notification action identifier delivered for a submitted inline reply.
+    public static let replyActionIdentifier = "cmux.reply"
 
     @ObservationIgnored private weak var store: CMUXMobileShellStore?
 
@@ -68,6 +78,8 @@ public final class MobilePushCoordinator {
     /// launch plus sign-in plus a slow attach.
     private static let pendingDeeplinkLifetime: TimeInterval = 120
     @ObservationIgnored private let now: () -> Date
+    @ObservationIgnored private var pendingReplyState = PendingReplyState()
+    @ObservationIgnored private var replySendInFlight = false
 
     /// Creates a push coordinator.
     /// - Parameters:
@@ -82,8 +94,8 @@ public final class MobilePushCoordinator {
     ///   - pendingDismissQueue: The durable phone→Mac dismiss outbox shared (via
     ///     `UserDefaults`) with the shell store, used when a swipe arrives before
     ///     any store exists. Defaults to the standard-defaults-backed queue.
-    ///   - now: Clock seam for the pending-deeplink expiry. Defaults to
-    ///     `Date.init`.
+    ///   - now: Clock seam for pending deep-link and inline-reply expiry. Defaults
+    ///     to `Date.init`.
     public init(
         registration: any PushRegistering,
         analytics: any AnalyticsEmitting = NoopAnalytics(),
@@ -107,6 +119,9 @@ public final class MobilePushCoordinator {
     public func bind(store: CMUXMobileShellStore) {
         self.store = store
         applyPendingDeeplinkIfReady()
+        Task { @MainActor [weak self] in
+            await self?.applyPendingReplyIfReady()
+        }
     }
 
     /// Re-apply a parked notification tap once its target can exist. Called by
@@ -114,10 +129,13 @@ public final class MobilePushCoordinator {
     /// empty until the Mac attach completes).
     public func workspacesDidChange() {
         applyPendingDeeplinkIfReady()
+        Task { @MainActor [weak self] in
+            await self?.applyPendingReplyIfReady()
+        }
     }
 
-    /// Install the notification-center delegate, register the dismiss-sync
-    /// notification category, and, if already opted in, re-assert remote
+    /// Install the notification-center delegate, register the terminal
+    /// notification categories, and, if already opted in, re-assert remote
     /// registration so a rotated token re-uploads. Call once at launch from the
     /// AppDelegate.
     public func configure(delegate: any UNUserNotificationCenterDelegate) {
@@ -132,7 +150,24 @@ public final class MobilePushCoordinator {
             intentIdentifiers: [],
             options: [.customDismissAction]
         )
-        center.setNotificationCategories([dismissSyncCategory])
+        let replyAction = UNTextInputNotificationAction(
+            identifier: Self.replyActionIdentifier,
+            title: String(localized: "mobile.push.reply.action", defaultValue: "Reply", bundle: .module),
+            options: [],
+            textInputButtonTitle: String(localized: "mobile.push.reply.send", defaultValue: "Send", bundle: .module),
+            textInputPlaceholder: String(
+                localized: "mobile.push.reply.placeholder",
+                defaultValue: "Message the agent…",
+                bundle: .module
+            )
+        )
+        let replyCategory = UNNotificationCategory(
+            identifier: Self.replyCategoryIdentifier,
+            actions: [replyAction],
+            intentIdentifiers: [],
+            options: [.customDismissAction]
+        )
+        center.setNotificationCategories([dismissSyncCategory, replyCategory])
         if isEnabled {
             UIApplication.shared.registerForRemoteNotifications()
         }
@@ -252,6 +287,35 @@ public final class MobilePushCoordinator {
         applyPendingDeeplinkIfReady()
     }
 
+    /// Parks an inline notification reply and sends it once its exact Mac, workspace, surface, and RPC channel are ready.
+    ///
+    /// This path never changes the selected Mac, workspace, terminal, or navigation state.
+    /// - Parameters:
+    ///   - text: The user's reply text, without the submit Return.
+    ///   - workspaceId: The Mac-local workspace claim carried by the push.
+    ///   - surfaceId: The exact terminal claim carried by the push.
+    ///   - macDeviceId: The Mac that owns the claimed ids.
+    ///   - retargetsToLiveSurfaceOwner: Whether a moved terminal may resolve in a
+    ///     workspace other than the explicit claim.
+    public func handleReply(
+        text: String,
+        workspaceId: String?,
+        surfaceId: String?,
+        macDeviceId: String?,
+        retargetsToLiveSurfaceOwner: Bool
+    ) async {
+        guard !text.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty else { return }
+        pendingReplyState.park(PendingReply(
+            text: text,
+            workspaceId: workspaceId,
+            surfaceId: surfaceId,
+            macDeviceId: macDeviceId,
+            retargetsToLiveSurfaceOwner: retargetsToLiveSurfaceOwner,
+            createdAt: now()
+        ))
+        await applyPendingReplyIfReady()
+    }
+
     /// Apply the parked tap if its target can be navigated to right now;
     /// otherwise keep it parked for the next ``bind(store:)`` or
     /// ``workspacesDidChange()``.
@@ -346,6 +410,92 @@ public final class MobilePushCoordinator {
             "resolved_workspace": .bool(pending.workspaceId != nil),
             "resolved_surface": .bool(pending.surfaceId != nil),
         ])
+    }
+
+    /// Applies the parked reply without mutating UI selection; later topology changes retry only unresolved prerequisites.
+    private func applyPendingReplyIfReady() async {
+        guard !replySendInFlight else { return }
+        let initialDecision = pendingReplyState.evaluate(
+            now: now(),
+            isStoreBound: store != nil,
+            isTargetReachable: false,
+            isChannelAvailable: false
+        )
+        switch initialDecision {
+        case .noPending:
+            return
+        case .expired:
+            mobilePushLog.info("dropping expired inline reply")
+            return
+        case .waiting:
+            break
+        case .ready:
+            return
+        }
+
+        guard let pending = pendingReplyState.pending, let store else { return }
+        guard let surfaceId = pending.surfaceId, !surfaceId.isEmpty else {
+            pendingReplyState.discard()
+            mobilePushLog.info("dropping inline reply without a surface id")
+            return
+        }
+
+        var workspaceTarget: MobileWorkspacePreview.ID
+        if let workspaceId = pending.workspaceId {
+            guard let resolved = store.workspaceID(
+                matchingRemoteWorkspaceID: workspaceId,
+                macDeviceID: pending.macDeviceId
+            ) else { return }
+            workspaceTarget = resolved
+        } else if pending.retargetsToLiveSurfaceOwner {
+            guard let owner = store.workspaceID(
+                containingSurfaceID: surfaceId,
+                macDeviceID: pending.macDeviceId
+            ) else { return }
+            workspaceTarget = owner
+        } else {
+            pendingReplyState.discard()
+            mobilePushLog.info("dropping confined inline reply without a workspace id")
+            return
+        }
+
+        if !store.workspace(workspaceTarget, containsSurfaceID: surfaceId) {
+            guard pending.retargetsToLiveSurfaceOwner,
+                  let liveOwner = store.workspaceID(
+                      containingSurfaceID: surfaceId,
+                      macDeviceID: pending.macDeviceId
+                  ) else {
+                pendingReplyState.discard()
+                mobilePushLog.info("dropping inline reply because the target surface has no permitted live owner")
+                return
+            }
+            workspaceTarget = liveOwner
+        }
+
+        let decision = pendingReplyState.evaluate(
+            now: now(),
+            isStoreBound: true,
+            isTargetReachable: true,
+            isChannelAvailable: store.canSendTerminalInput(to: workspaceTarget)
+        )
+        guard case .ready(let ready) = decision else {
+            if case .expired = decision {
+                mobilePushLog.info("dropping expired inline reply")
+            }
+            return
+        }
+
+        replySendInFlight = true
+        let sent = await store.sendTerminalInput(
+            ready.text + "\r",
+            workspaceID: workspaceTarget,
+            terminalID: MobileTerminalPreview.ID(rawValue: surfaceId)
+        )
+        replySendInFlight = false
+        if !sent {
+            mobilePushLog.error("inline reply terminal input failed")
+        }
+        await applyPendingReplyIfReady()
     }
 
     /// Forward a phone-side notification dismissal to the paired Mac so it marks

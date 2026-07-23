@@ -193,6 +193,7 @@ final class PhonePushClient {
                 title: "",
                 subtitle: "",
                 body: "",
+                replyShape: "",
                 workspaceId: nil,
                 surfaceId: nil,
                 retargetsToLiveSurfaceOwner: false,
@@ -235,6 +236,7 @@ final class PhonePushClient {
             bodyDict["title"] = payload.hideContent ? "cmux" : payload.title
             bodyDict["subtitle"] = payload.hideContent ? "" : payload.subtitle
             bodyDict["body"] = payload.hideContent ? "New terminal activity" : payload.body
+            bodyDict["replyShape"] = payload.replyShape
             if let workspaceId = payload.workspaceId { bodyDict["workspaceId"] = workspaceId }
             if let surfaceId = payload.surfaceId { bodyDict["surfaceId"] = surfaceId }
             bodyDict["retargetsToLiveSurfaceOwner"] = payload.retargetsToLiveSurfaceOwner

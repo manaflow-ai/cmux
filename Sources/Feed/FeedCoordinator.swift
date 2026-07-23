@@ -764,7 +764,9 @@ private extension FeedCoordinator {
                     defaultValue: "Review and approve the plan"
                 )
             case .askUserQuestion:
-                categoryId = "CMUXFeedQuestion"
+                categoryId = Self.inlineQuestionOptions(for: event) == nil
+                    ? "CMUXFeedQuestion"
+                    : "CMUXFeedQuestion.\(requestId)"
                 title = String(
                     localized: "feed.notification.question.title",
                     defaultValue: "\(event.source.capitalized) question"
@@ -854,6 +856,17 @@ private extension FeedCoordinator {
         return suffix.isEmpty ? "CMUXFeedPermissionDeny" : "CMUXFeedPermission\(suffix)"
     }
 
+    private static func inlineQuestionOptions(
+        for event: WorkstreamEvent
+    ) -> [WorkstreamQuestionOption]? {
+        let questions = WorkstreamQuestionPrompt.parse(toolInputJSON: event.toolInputJSON)
+        guard questions.count == 1,
+              let question = questions.first,
+              !question.multiSelect,
+              (1...4).contains(question.options.count) else { return nil }
+        return question.options
+    }
+
     @MainActor
     func deliverFeedNotificationIfStillAwaiting(
         requestId: String,
@@ -890,6 +903,9 @@ private extension FeedCoordinator {
             "requestId": requestId,
             "workstreamId": event.sessionId,
         ]
+        if let options = Self.inlineQuestionOptions(for: event) {
+            content.userInfo["questionOptionIds"] = options.map(\.id)
+        }
 
         let request = UNNotificationRequest(
             identifier: "feed.\(requestId)",
@@ -903,9 +919,10 @@ private extension FeedCoordinator {
                 guard let self, self.isAwaitingDecision(requestId: requestId) else { return }
                 switch settings.authorizationStatus {
                 case .authorized, .provisional:
-                    self.addNotificationIfStillAwaiting(
+                    self.registerQuestionCategoryAndAddIfStillAwaiting(
                         center: center,
                         request: request,
+                        event: event,
                         requestId: requestId,
                         effects: effects
                     )
@@ -919,9 +936,10 @@ private extension FeedCoordinator {
                     }
                     guard self.isAwaitingDecision(requestId: requestId) else { return }
                     if granted {
-                        self.addNotificationIfStillAwaiting(
+                        self.registerQuestionCategoryAndAddIfStillAwaiting(
                             center: center,
                             request: request,
+                            event: event,
                             requestId: requestId,
                             effects: effects
                         )
@@ -959,6 +977,84 @@ private extension FeedCoordinator {
                 }
             }
         }
+    }
+
+    @MainActor
+    func registerQuestionCategoryAndAddIfStillAwaiting(
+        center: UNUserNotificationCenter,
+        request: UNNotificationRequest,
+        event: WorkstreamEvent,
+        requestId: String,
+        effects: TerminalNotificationPolicyEffects
+    ) {
+        guard request.content.categoryIdentifier.hasPrefix("CMUXFeedQuestion."),
+              let options = Self.inlineQuestionOptions(for: event) else {
+            addNotificationIfStillAwaiting(
+                center: center,
+                request: request,
+                requestId: requestId,
+                effects: effects
+            )
+            return
+        }
+
+        let optionActions = options.enumerated().map { index, option in
+            UNNotificationAction(
+                identifier: "feed.question.option.\(index)",
+                title: option.label
+            )
+        }
+        var actions = optionActions
+        if options.count <= 3 {
+            actions.append(UNTextInputNotificationAction(
+                identifier: "feed.question.other",
+                title: String(
+                    localized: "feed.notification.question.other",
+                    defaultValue: "Other…"
+                ),
+                options: [],
+                textInputButtonTitle: String(
+                    localized: "terminal.notification.action.replySend",
+                    defaultValue: "Send"
+                ),
+                textInputPlaceholder: String(
+                    localized: "terminal.notification.action.replyPlaceholder",
+                    defaultValue: "Message the agent…"
+                )
+            ))
+        }
+        let minted = UNNotificationCategory(
+            identifier: request.content.categoryIdentifier,
+            actions: actions,
+            intentIdentifiers: [],
+            options: []
+        )
+        center.getNotificationCategories { [weak self] current in
+            Task { @MainActor [weak self] in
+                guard let self, self.isAwaitingDecision(requestId: requestId) else { return }
+                let liveCategoryIds = self.liveWaiterRequestIds().map { "CMUXFeedQuestion.\($0)" }
+                var categories = Set(current.filter { category in
+                    !category.identifier.hasPrefix("CMUXFeedQuestion.")
+                        || liveCategoryIds.contains(category.identifier)
+                })
+                categories.insert(minted)
+                center.setNotificationCategories(categories)
+                self.addNotificationIfStillAwaiting(
+                    center: center,
+                    request: request,
+                    requestId: requestId,
+                    effects: effects
+                )
+            }
+        }
+    }
+
+    func liveWaiterRequestIds() -> Set<String> {
+        waiterLock.lock()
+        defer { waiterLock.unlock() }
+        return Set(waiters.compactMap { requestId, waiter in
+            waiter.decision == nil ? requestId : nil
+        })
     }
 
     @MainActor
@@ -1025,6 +1121,11 @@ private extension FeedCoordinator {
         let center = UNUserNotificationCenter.current()
         center.removePendingNotificationRequestsOffMain(withIdentifiers: [identifier])
         center.removeDeliveredNotificationsOffMain(withIdentifiers: [identifier])
+        let categoryId = "CMUXFeedQuestion.\(requestId)"
+        center.getNotificationCategories { current in
+            let categories = Set(current.filter { $0.identifier != categoryId })
+            center.setNotificationCategories(categories)
+        }
     }
 }
 

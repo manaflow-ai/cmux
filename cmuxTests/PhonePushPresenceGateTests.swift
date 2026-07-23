@@ -106,7 +106,8 @@ import Testing
             subtitle: "Completed",
             body: "May follow its live surface",
             createdAt: Self.now,
-            isRead: false
+            isRead: false,
+            replyShape: .text
         )
 
         let confinedPayload = PhonePushPayload(
@@ -125,9 +126,11 @@ import Testing
         #expect(confinedPayload.workspaceId == workspaceId.uuidString)
         #expect(confinedPayload.surfaceId == surfaceId.uuidString)
         #expect(!confinedPayload.retargetsToLiveSurfaceOwner)
+        #expect(confinedPayload.replyShape == "none")
         #expect(trustedPayload.workspaceId == workspaceId.uuidString)
         #expect(trustedPayload.surfaceId == surfaceId.uuidString)
         #expect(trustedPayload.retargetsToLiveSurfaceOwner)
+        #expect(trustedPayload.replyShape == "text")
     }
 
     // MARK: - Heuristic details

@@ -29,6 +29,7 @@ export type PushPayload = {
   readonly title: string;
   readonly subtitle: string | null;
   readonly body: string;
+  readonly replyShape?: "none" | "text";
   readonly workspaceId: string | null;
   readonly surfaceId: string | null;
   /** Whether iOS may resolve the surface outside the explicit workspace. */
@@ -105,6 +106,7 @@ export function parsePushPayload(body: Record<string, unknown>): PushPayloadResu
   const surfaceId = body.surfaceId == null ? "" : boundedString(body.surfaceId, MAX_PUSH_ID_CHARS);
   const macDeviceId = body.macDeviceId == null ? "" : boundedString(body.macDeviceId, MAX_PUSH_ID_CHARS);
   const notificationId = body.notificationId == null ? "" : boundedString(body.notificationId, MAX_PUSH_ID_CHARS);
+  const replyShape = body.replyShape === "none" || body.replyShape === "text" ? body.replyShape : undefined;
 
   if (title == null) return { ok: false, error: "title_too_long" };
   if (subtitle == null) return { ok: false, error: "subtitle_too_long" };
@@ -129,6 +131,7 @@ export function parsePushPayload(body: Record<string, unknown>): PushPayloadResu
       title,
       subtitle: subtitle || null,
       body: text,
+      ...(kind === "notify" && replyShape ? { replyShape } : {}),
       workspaceId: workspaceId || null,
       surfaceId: surfaceId || null,
       macDeviceId: macDeviceId || null,

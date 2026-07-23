@@ -5,6 +5,8 @@ struct PhonePushPayload: Sendable {
     let title: String
     let subtitle: String
     let body: String
+    /// Inline-reply affordance requested by the Mac notification (`none` or `text`).
+    let replyShape: String
     let workspaceId: String?
     let surfaceId: String?
     /// Whether iOS may resolve `surfaceId` outside the explicit workspace.
@@ -36,6 +38,7 @@ extension PhonePushPayload {
             title: notification.title,
             subtitle: notification.subtitle,
             body: notification.body,
+            replyShape: notification.replyShape.rawValue,
             workspaceId: notification.tabId.uuidString,
             surfaceId: notification.surfaceId?.uuidString,
             retargetsToLiveSurfaceOwner: notification.retargetsToLiveSurfaceOwner,
