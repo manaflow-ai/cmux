@@ -1,4 +1,5 @@
 import CMUXAgentLaunch
+import Foundation
 import Testing
 
 @Suite("Codex resume trust policy")
@@ -89,6 +90,31 @@ struct CodexResumeTrustPolicyTests {
                 userConfigContents:
                     #"projects = { "/Users/me/repo" = { trust_level = "trusted" } }"#
             ).isEmpty
+        )
+    }
+
+    @Test("Undecided override targets Codex's canonical working directory")
+    func undecidedOverrideTargetsCanonicalWorkingDirectory() throws {
+        let fileManager = FileManager.default
+        let root = fileManager.temporaryDirectory
+            .appendingPathComponent("cmux-codex-trust-\(UUID().uuidString)", isDirectory: true)
+        let actual = root.appendingPathComponent("actual", isDirectory: true)
+        let alias = root.appendingPathComponent("alias", isDirectory: true)
+        try fileManager.createDirectory(at: actual, withIntermediateDirectories: true)
+        try fileManager.createSymbolicLink(at: alias, withDestinationURL: actual)
+        defer { try? fileManager.removeItem(at: root) }
+
+        let canonical = actual.resolvingSymlinksInPath().standardizedFileURL.path
+        #expect(
+            policy.undecidedProjectOverride(
+                arguments: ["codex", "resume", "SID"],
+                currentDirectory: alias.path,
+                repositoryRoot: nil,
+                userConfigContents: nil
+            ) == [
+                "-c",
+                "projects.\"\(canonical)\".trust_level=\"untrusted\"",
+            ]
         )
     }
 }

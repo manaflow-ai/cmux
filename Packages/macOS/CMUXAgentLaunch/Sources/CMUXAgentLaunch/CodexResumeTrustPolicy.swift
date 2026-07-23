@@ -34,7 +34,11 @@ public struct CodexResumeTrustPolicy: Sendable, Equatable {
             return []
         }
 
-        let escapedDirectory = tomlBasicStringContents(currentDirectory)
+        // Codex canonicalizes its cwd before looking up `projects.<path>`.
+        // macOS exposes `/tmp` as a symlink to `/private/tmp`, so targeting the
+        // logical path would leave the trust prompt unresolved after restore.
+        let overrideDirectory = projectLookupPaths(currentDirectory).first ?? currentDirectory
+        let escapedDirectory = tomlBasicStringContents(overrideDirectory)
         return [
             "-c",
             "projects.\"\(escapedDirectory)\".trust_level=\"untrusted\"",
