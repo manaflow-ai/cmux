@@ -160,6 +160,15 @@ extension AppDelegate {
         return route
     }
 
+    func ownsMainWindowTabManager(_ tabManager: TabManager) -> Bool {
+        if mainWindowContexts.values.contains(where: { $0.tabManager === tabManager }) {
+            return true
+        }
+        return mainWindowRouteLedger.routesByWindowId.values.contains { route in
+            route.tabManager === tabManager
+        }
+    }
+
     func recoverableMainWindowRoutes() -> [RecoverableMainWindowRoute] {
         let validWindowIds = Set(recoverableMainWindowRouteSnapshots().map(\.windowId))
         return sortedRecoverableMainWindowRoutes().filter { validWindowIds.contains($0.windowId) }

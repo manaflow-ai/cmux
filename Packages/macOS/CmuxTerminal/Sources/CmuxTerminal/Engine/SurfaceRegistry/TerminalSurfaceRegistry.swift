@@ -19,14 +19,16 @@ public import GhosttyKit
 /// to the main actor, as it always did.
 public final class TerminalSurfaceRegistry: TerminalSurfaceRegistering, Sendable {
     private let lock = NSLock()
-    // SAFETY: all five are guarded by `lock`; callers arrive on the main
+    // SAFETY: all seven are guarded by `lock`; callers arrive on the main
     // actor and from nonisolated `deinit` paths.
     nonisolated(unsafe) private let surfaces = NSHashTable<AnyObject>.weakObjects()
+    nonisolated(unsafe) private var registeredSurfaceCountsById: [UUID: Int] = [:]
     nonisolated(unsafe) private var runtimeSurfaceOwners: [UInt: UUID] = [:]
     nonisolated(unsafe) private var surfaceFocusPlacements: [UUID: TerminalSurfaceFocusPlacement] = [:]
     // SAFETY: every read and write is guarded by `lock`.
     nonisolated(unsafe) private var generation: UInt64 = 0
     nonisolated(unsafe) private weak var routeRetirer: (any MainWindowRouteRetiring)?
+    nonisolated(unsafe) private var routeRetireSweepScheduled = false
 
     /// Creates an empty registry.
     public init() {}
@@ -50,9 +52,13 @@ public final class TerminalSurfaceRegistry: TerminalSurfaceRegistering, Sendable
     public func register(_ surface: any TerminalSurfacing) {
         lock.lock()
         defer { lock.unlock() }
+        let wasRegistered = surfaces.contains(surface)
         surfaces.add(surface)
         surfaceFocusPlacements[surface.id] = surface.focusPlacement
-        generation &+= 1
+        if !wasRegistered {
+            registeredSurfaceCountsById[surface.id, default: 0] += 1
+            generation &+= 1
+        }
     }
 
     /// Removes a surface; drops its focus placement when no other surface
@@ -60,23 +66,44 @@ public final class TerminalSurfaceRegistry: TerminalSurfaceRegistering, Sendable
     /// main-window routes.
     public func unregister(_ surface: any TerminalSurfacing) {
         lock.lock()
+        guard surfaces.contains(surface) else {
+            lock.unlock()
+            return
+        }
         let surfaceId = surface.id
         surfaces.remove(surface)
-        let stillRegistered = surfaces.allObjects
-            .compactMap { $0 as? any TerminalSurfacing }
-            .contains { $0 !== surface && $0.id == surfaceId }
-        if !stillRegistered {
+        let remainingCount = max(0, (registeredSurfaceCountsById[surfaceId] ?? 1) - 1)
+        if remainingCount == 0 {
+            registeredSurfaceCountsById.removeValue(forKey: surfaceId)
             surfaceFocusPlacements.removeValue(forKey: surfaceId)
+        } else {
+            registeredSurfaceCountsById[surfaceId] = remainingCount
         }
         generation &+= 1
-        let routeRetirer = routeRetirer
+        let shouldScheduleRouteRetireSweep = !routeRetireSweepScheduled
+        if shouldScheduleRouteRetireSweep {
+            routeRetireSweepScheduled = true
+        }
         lock.unlock()
 
-        Task { @MainActor in
+        guard shouldScheduleRouteRetireSweep else { return }
+        Task { @MainActor [weak self] in
+            let routeRetirer = self?.beginScheduledRouteRetireSweep()
             routeRetirer?.retireRecoverableMainWindowRoutesWithoutRegisteredTerminalSurfaces(
                 reason: "terminalSurface.unregister"
             )
         }
+    }
+
+    /// Consumes the scheduled bit as the main-actor sweep begins. Clearing it
+    /// before the callback lets an unregister performed by that callback queue
+    /// the required follow-up sweep without fanning out synchronous bulk close.
+    private func beginScheduledRouteRetireSweep() -> (any MainWindowRouteRetiring)? {
+        lock.lock()
+        routeRetireSweepScheduled = false
+        let routeRetirer = routeRetirer
+        lock.unlock()
+        return routeRetirer
     }
 
     /// Records `ownerId` as the owner of a live runtime surface pointer.
