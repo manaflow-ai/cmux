@@ -10,6 +10,7 @@ from pathlib import Path
 import re
 import sys
 import threading
+import time
 from typing import Any
 
 import pytest
@@ -669,6 +670,12 @@ def test_churn_calls_every_planned_surface_and_records_real_metrics(tmp_path: Pa
         if event[:2] == ("rpc", "surface.focus")
     ]
     assert surface_focuses == list(adapter._browser_actual_ids.values())
+    webview_focuses = [
+        event
+        for event in runner.events
+        if event[:2] == ("rpc", "browser.focus_webview")
+    ]
+    assert len(webview_focuses) == len(adapter._browser_actual_ids)
     screenshot_calls = [
         event for event in runner.events if event[:2] == ("rpc", "browser.screenshot")
     ]
@@ -927,6 +934,31 @@ def test_cleanup_unlinks_exact_owned_screenshot_path(
     assert str(screenshot_path) in cleanup["owned_paths"]
 
 
+def test_churn_rejects_browser_work_that_outlives_fixed_measurement_window(
+    tmp_path: Path,
+) -> None:
+    cfg = config(tmp_path, scenario=scenario(terminals=0, browsers=2, scrollback=0))
+    runner = FakeRunner()
+    runner.top_payloads = [top_payload(), top_payload()]
+    adapter = adapter_module.CmuxRuntimeAdapter(
+        cfg, runner=runner, clock=FakeClock()
+    )
+    prepare_fixture(adapter, runner, cfg)
+    original_batch = adapter._browser_churn_batch
+
+    def delayed_batch(cycles: int) -> list[tuple[str, dict[str, Any]]]:
+        time.sleep(0.05)
+        return original_batch(cycles)
+
+    adapter._browser_churn_batch = delayed_batch
+    result = adapter.run_churn([])
+
+    assert any(
+        failure["phase"] == "browser_measurement_window"
+        for failure in result["failures"]
+    )
+
+
 def test_enabled_profiles_overlap_churn_and_record_work_units(tmp_path: Path) -> None:
     cfg = config(tmp_path, profile_enabled=True)
     runner = FakeRunner()
@@ -966,7 +998,7 @@ def test_enabled_profiles_overlap_churn_and_record_work_units(tmp_path: Path) ->
         call["work_units"]
         == {
             "terminal_ansi_lines": 3_200,
-            "browser_churn_rpc_operations": 16,
+            "browser_churn_rpc_operations": 10,
             "temporary_browser_open_close_operations": 2,
         }
         for call in profile_calls
