@@ -48,12 +48,13 @@ struct AgentStatusReconcilerTests {
         #expect(resolution == AgentStatusResolution(lifecycle: .unknown, confidence: .uncertain))
     }
 
-    @Test func unrelatedForegroundOutputCannotKeepAgentRunning() {
+    @Test func recentOutputAndTitleFromMatchingForegroundAgentInfersRunning() {
         let evidence = AgentStatusEvidence(
             lifecycle: .running,
             lifecycleObservedAt: now.addingTimeInterval(-121),
             outputObservedAt: now.addingTimeInterval(-2),
-            foregroundAgentStatusKey: "claude_code",
+            titleObservedAt: now.addingTimeInterval(-2),
+            foregroundAgentStatusKey: "codex",
             foregroundObservedAt: now.addingTimeInterval(-2),
             shellActivity: .commandRunning
         )
@@ -63,7 +64,7 @@ struct AgentStatusReconcilerTests {
             hasLiveRuntime: true,
             now: now
         )
-        #expect(resolution == AgentStatusResolution(lifecycle: .unknown, confidence: .uncertain))
+        #expect(resolution == AgentStatusResolution(lifecycle: .running, confidence: .inferred))
     }
 
     @Test func promptIdleOverridesRecentTerminalActivity() {

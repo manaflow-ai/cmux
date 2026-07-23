@@ -29,30 +29,37 @@ struct AgentStatusReconciler: Sendable {
             return AgentStatusResolution(lifecycle: .needsInput, confidence: .confident)
         }
 
-        let latestActivity = [evidence.outputObservedAt, evidence.titleObservedAt]
+        let corroboratedActivityAt = [evidence.outputObservedAt, evidence.titleObservedAt]
             .compactMap { $0 }
-            .max()
+            .min()
         let foregroundIsFresh = evidence.foregroundObservedAt.map {
             age(of: $0, now: now) <= Self.foregroundObservationLifetime
         } ?? false
-        let activityIsFresh = latestActivity.map {
+        let outputIsFresh = evidence.outputObservedAt.map {
             age(of: $0, now: now) <= Self.activityLifetime
         } ?? false
-        let hasAttributedActivity = foregroundIsFresh
-            && activityIsFresh
+        let titleIsFresh = evidence.titleObservedAt.map {
+            age(of: $0, now: now) <= Self.activityLifetime
+        } ?? false
+        // A foreground TUI can redraw while waiting at an empty prompt. PTY
+        // output is only active-turn evidence when a title transition
+        // independently corroborates it.
+        let hasCorroboratedActivity = foregroundIsFresh
+            && outputIsFresh
+            && titleIsFresh
             && evidence.foregroundAgentStatusKey == statusKey
 
         switch evidence.lifecycle {
         case .needsInput?:
-            return inferredRunningOrUnknown(hasAttributedActivity: hasAttributedActivity)
+            return inferredRunningOrUnknown(hasCorroboratedActivity: hasCorroboratedActivity)
 
         case .idle?:
             guard let observedAt = evidence.lifecycleObservedAt else {
-                return inferredRunningOrUnknown(hasAttributedActivity: hasAttributedActivity)
+                return inferredRunningOrUnknown(hasCorroboratedActivity: hasCorroboratedActivity)
             }
-            if hasAttributedActivity,
-               let latestActivity,
-               activityCanOverrideTransition(activityAt: latestActivity, transitionAt: observedAt) {
+            if hasCorroboratedActivity,
+               let corroboratedActivityAt,
+               activityCanOverrideTransition(activityAt: corroboratedActivityAt, transitionAt: observedAt) {
                 return AgentStatusResolution(lifecycle: .running, confidence: .inferred)
             }
             return AgentStatusResolution(lifecycle: .idle, confidence: .confident)
@@ -62,28 +69,28 @@ struct AgentStatusReconciler: Sendable {
                age(of: observedAt, now: now) <= Self.runningSignalLifetime {
                 return AgentStatusResolution(lifecycle: .running, confidence: .confident)
             }
-            return inferredRunningOrUnknown(hasAttributedActivity: hasAttributedActivity)
+            return inferredRunningOrUnknown(hasCorroboratedActivity: hasCorroboratedActivity)
 
         case .unknown?:
             guard let observedAt = evidence.lifecycleObservedAt else {
-                return inferredRunningOrUnknown(hasAttributedActivity: hasAttributedActivity)
+                return inferredRunningOrUnknown(hasCorroboratedActivity: hasCorroboratedActivity)
             }
-            if hasAttributedActivity,
-               let latestActivity,
-               activityCanOverrideTransition(activityAt: latestActivity, transitionAt: observedAt) {
+            if hasCorroboratedActivity,
+               let corroboratedActivityAt,
+               activityCanOverrideTransition(activityAt: corroboratedActivityAt, transitionAt: observedAt) {
                 return AgentStatusResolution(lifecycle: .running, confidence: .inferred)
             }
             return AgentStatusResolution(lifecycle: .idle, confidence: .inferred)
 
         case nil:
-            return inferredRunningOrUnknown(hasAttributedActivity: hasAttributedActivity)
+            return inferredRunningOrUnknown(hasCorroboratedActivity: hasCorroboratedActivity)
         }
     }
 
     private func inferredRunningOrUnknown(
-        hasAttributedActivity: Bool
+        hasCorroboratedActivity: Bool
     ) -> AgentStatusResolution {
-        if hasAttributedActivity {
+        if hasCorroboratedActivity {
             return AgentStatusResolution(lifecycle: .running, confidence: .inferred)
         }
         return AgentStatusResolution(lifecycle: .unknown, confidence: .uncertain)
