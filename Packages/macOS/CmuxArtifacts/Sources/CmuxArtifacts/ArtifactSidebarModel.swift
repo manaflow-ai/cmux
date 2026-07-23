@@ -27,9 +27,7 @@ public final class ArtifactSidebarModel {
     private var nodes: [ArtifactNode] = []
     private var expandedPaths: Set<String> = []
     private var hasInitializedExpansion = false
-    private var watcherTask: Task<Void, Never>?
-    private var searchTask: Task<Void, Never>?
-    private var actionTask: Task<Void, Never>?
+    private let tasks = ArtifactSidebarTaskBag()
     private var bindingRequestRevision: UInt64 = 0
     private var bindingRevision: UInt64 = 0
     private var latestWorkspaceTitle: (id: String, title: String?)?
@@ -51,16 +49,6 @@ public final class ArtifactSidebarModel {
         self.captureService = captureService
         self.searchDebounce = searchDebounce
         self.searchClock = searchClock
-    }
-
-    deinit {
-        // This model is created and released by SwiftUI on the main actor.
-        // `isolated deinit` is unavailable in Xcode 16.4.
-        MainActor.assumeIsolated {
-            watcherTask?.cancel()
-            searchTask?.cancel()
-            actionTask?.cancel()
-        }
     }
 
     /// Binds the model to a selected local workspace and loads its initial tree.
@@ -92,12 +80,7 @@ public final class ArtifactSidebarModel {
 
         bindingRevision &+= 1
         let revision = bindingRevision
-        watcherTask?.cancel()
-        watcherTask = nil
-        searchTask?.cancel()
-        searchTask = nil
-        actionTask?.cancel()
-        actionTask = nil
+        tasks.cancelAll()
         self.workspace = workspace
         projectRoot = nil
         nodes = []
@@ -123,9 +106,10 @@ public final class ArtifactSidebarModel {
 
     /// Starts a refresh owned by this model and cancels any obsolete sidebar action.
     public func requestRefresh() {
-        actionTask?.cancel()
-        actionTask = Task { [weak self] in
-            await self?.refresh()
+        tasks.replaceAction {
+            Task { [weak self] in
+                await self?.refresh()
+            }
         }
     }
 
@@ -133,12 +117,7 @@ public final class ArtifactSidebarModel {
     public func stop() {
         bindingRequestRevision &+= 1
         bindingRevision &+= 1
-        watcherTask?.cancel()
-        watcherTask = nil
-        searchTask?.cancel()
-        searchTask = nil
-        actionTask?.cancel()
-        actionTask = nil
+        tasks.cancelAll()
         workspace = nil
         projectRoot = nil
         nodes = []
@@ -212,9 +191,10 @@ public final class ArtifactSidebarModel {
     ///
     /// - Parameter urls: Existing local regular files selected by the user.
     public func requestAddFiles(_ urls: [URL]) {
-        actionTask?.cancel()
-        actionTask = Task { [weak self] in
-            await self?.addFiles(urls)
+        tasks.replaceAction {
+            Task { [weak self] in
+                await self?.addFiles(urls)
+            }
         }
     }
 
@@ -228,10 +208,12 @@ public final class ArtifactSidebarModel {
         projectRoot: URL,
         revision: UInt64
     ) {
-        watcherTask = Task { [weak self] in
-            for await _ in changes {
-                guard !Task.isCancelled else { break }
-                await self?.reload(projectRoot: projectRoot, revision: revision)
+        tasks.replaceWatcher {
+            Task { [weak self] in
+                for await _ in changes {
+                    guard !Task.isCancelled else { break }
+                    await self?.reload(projectRoot: projectRoot, revision: revision)
+                }
             }
         }
     }
@@ -259,7 +241,7 @@ public final class ArtifactSidebarModel {
     }
 
     private func scheduleSearch() {
-        searchTask?.cancel()
+        tasks.cancelSearch()
         let trimmedQuery = query.trimmingCharacters(in: .whitespacesAndNewlines)
         guard !trimmedQuery.isEmpty else {
             rebuildTreeRows()
@@ -273,18 +255,20 @@ public final class ArtifactSidebarModel {
         let store = self.store
         let searchDebounce = self.searchDebounce
         let searchClock = self.searchClock
-        searchTask = Task { [weak self] in
-            do {
-                // This bounded, injected deadline is the intended search debounce and is cancelled on new input.
-                try await searchClock.sleep(for: searchDebounce)
-                let results = try await store.search(projectRoot: projectRoot, query: trimmedQuery)
-                guard !Task.isCancelled else { return }
-                self?.applySearchResults(results, revision: revision, query: trimmedQuery)
-            } catch is CancellationError {
-                return
-            } catch {
-                guard !Task.isCancelled else { return }
-                self?.applySearchFailure(revision: revision, query: trimmedQuery)
+        tasks.replaceSearch {
+            Task { [weak self] in
+                do {
+                    // This bounded, injected deadline is the intended search debounce and is cancelled on new input.
+                    try await searchClock.sleep(for: searchDebounce)
+                    let results = try await store.search(projectRoot: projectRoot, query: trimmedQuery)
+                    guard !Task.isCancelled else { return }
+                    self?.applySearchResults(results, revision: revision, query: trimmedQuery)
+                } catch is CancellationError {
+                    return
+                } catch {
+                    guard !Task.isCancelled else { return }
+                    self?.applySearchFailure(revision: revision, query: trimmedQuery)
+                }
             }
         }
     }
