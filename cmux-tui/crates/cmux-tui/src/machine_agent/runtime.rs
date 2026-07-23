@@ -41,8 +41,8 @@ pub(super) trait WaitStrategy: Send + Sync {
 pub(super) trait Reporter: Send + Sync {
     fn pairing_code(&self, code: &str);
     fn registered(&self, session: &str);
-    fn retrying(&self, delay: Duration, error: &str);
-    fn migration_failed(&self, error: &str);
+    fn retrying(&self, delay: Duration);
+    fn migration_failed(&self);
 }
 
 pub(super) struct SystemWait;
@@ -131,10 +131,10 @@ impl MachineAgent {
                         self.report_registration(&started.registered);
                         workers.insert(started.worker_id, started.handle);
                     }
-                    Err(error) => {
+                    Err(_) => {
                         let delay = reconnect_delay(reconnect_attempt, self.wait.as_ref());
                         reconnect_attempt = reconnect_attempt.saturating_add(1);
-                        self.reporter.retrying(delay, &error.to_string());
+                        self.reporter.retrying(delay);
                         if !self.wait.wait(delay, self.stop.as_ref()) {
                             break;
                         }
@@ -152,7 +152,7 @@ impl MachineAgent {
                         || request.generation <= highest_generation
                         || replayed
                     {
-                        send_worker_command(
+                        try_send_worker_command(
                             &workers,
                             worker_id,
                             WorkerCommand::ResumeMigration {
@@ -176,7 +176,7 @@ impl MachineAgent {
                         Ok(started) if started.generation == request.generation => {
                             if started.registered.pairing_code.is_some() {
                                 started.handle.close();
-                                send_worker_command(
+                                try_send_worker_command(
                                     &workers,
                                     worker_id,
                                     WorkerCommand::ResumeMigration {
@@ -184,23 +184,25 @@ impl MachineAgent {
                                         code: error_code("invalid_migration"),
                                     },
                                 );
-                                self.reporter.migration_failed(
-                                    "replacement generation returned a pairing code",
-                                );
+                                self.reporter.migration_failed();
                                 continue;
                             }
-                            send_worker_command(
+                            if !try_send_worker_command(
                                 &workers,
                                 worker_id,
                                 WorkerCommand::CommitMigration { generation: started.generation },
-                            );
+                            ) {
+                                started.handle.close();
+                                self.reporter.migration_failed();
+                                continue;
+                            }
                             highest_generation = started.generation;
                             latest_worker = Some(started.worker_id);
                             workers.insert(started.worker_id, started.handle);
                         }
                         Ok(started) => {
                             started.handle.close();
-                            send_worker_command(
+                            try_send_worker_command(
                                 &workers,
                                 worker_id,
                                 WorkerCommand::ResumeMigration {
@@ -208,11 +210,10 @@ impl MachineAgent {
                                     code: error_code("generation_mismatch"),
                                 },
                             );
-                            self.reporter
-                                .migration_failed("replacement acknowledged the wrong generation");
+                            self.reporter.migration_failed();
                         }
-                        Err(error) => {
-                            send_worker_command(
+                        Err(_) => {
+                            try_send_worker_command(
                                 &workers,
                                 worker_id,
                                 WorkerCommand::ResumeMigration {
@@ -220,7 +221,7 @@ impl MachineAgent {
                                     code: error_code("migration_failed"),
                                 },
                             );
-                            self.reporter.migration_failed(&error.to_string());
+                            self.reporter.migration_failed();
                         }
                     }
                 }
@@ -367,13 +368,18 @@ impl WorkerHandle {
     }
 }
 
-fn send_worker_command(
+fn try_send_worker_command(
     workers: &HashMap<u64, WorkerHandle>,
     worker_id: u64,
     command: WorkerCommand,
-) {
-    if let Some(worker) = workers.get(&worker_id) {
-        let _ = worker.commands.send(WorkerInput::Command(command));
+) -> bool {
+    let Some(worker) = workers.get(&worker_id) else { return false };
+    match worker.commands.try_send(WorkerInput::Command(command)) {
+        Ok(()) => true,
+        Err(TrySendError::Full(_) | TrySendError::Disconnected(_)) => {
+            worker.control.close();
+            false
+        }
     }
 }
 
@@ -974,7 +980,7 @@ mod tests {
     struct TestReporter {
         codes: Mutex<Vec<String>>,
         retries: Mutex<Vec<Duration>>,
-        migrations: Mutex<Vec<String>>,
+        migrations: AtomicUsize,
     }
 
     impl Reporter for TestReporter {
@@ -984,13 +990,39 @@ mod tests {
 
         fn registered(&self, _: &str) {}
 
-        fn retrying(&self, delay: Duration, _: &str) {
+        fn retrying(&self, delay: Duration) {
             self.retries.lock().unwrap().push(delay);
         }
 
-        fn migration_failed(&self, error: &str) {
-            self.migrations.lock().unwrap().push(error.to_string());
+        fn migration_failed(&self) {
+            self.migrations.fetch_add(1, Ordering::Relaxed);
         }
+    }
+
+    #[derive(Default)]
+    struct RecordingControl(AtomicBool);
+
+    impl ConnectionControl for RecordingControl {
+        fn close(&self) {
+            self.0.store(true, Ordering::Release);
+        }
+    }
+
+    #[test]
+    fn saturated_worker_command_queue_closes_connection_without_blocking() {
+        let (commands, _inputs) = mpsc::sync_channel(1);
+        commands.send(WorkerInput::Command(WorkerCommand::Stop)).unwrap();
+        let control = Arc::new(RecordingControl::default());
+        let erased_control: Arc<dyn ConnectionControl> = control.clone();
+        let workers =
+            HashMap::from([(7, WorkerHandle { commands, control: erased_control, join: None })]);
+
+        assert!(!try_send_worker_command(
+            &workers,
+            7,
+            WorkerCommand::ResumeMigration { generation: 2, code: error_code("migration_failed") },
+        ));
+        assert!(control.0.load(Ordering::Acquire));
     }
 
     struct TestWait;

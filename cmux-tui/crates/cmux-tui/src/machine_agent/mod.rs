@@ -168,16 +168,15 @@ impl Reporter for StderrReporter {
         eprintln!("{}: {session}", crate::localization::catalog().machine_agent.registered);
     }
 
-    fn retrying(&self, delay: Duration, error: &str) {
+    fn retrying(&self, delay: Duration) {
         eprintln!(
-            "{} in {} ms: {error}",
-            crate::localization::catalog().machine_agent.retrying,
-            delay.as_millis()
+            "{}",
+            crate::localization::catalog().machine_agent.retrying_message(delay.as_millis())
         );
     }
 
-    fn migration_failed(&self, error: &str) {
-        eprintln!("{}: {error}", crate::localization::catalog().machine_agent.migration_failed);
+    fn migration_failed(&self) {
+        eprintln!("{}", crate::localization::catalog().machine_agent.migration_failed);
     }
 }
 
