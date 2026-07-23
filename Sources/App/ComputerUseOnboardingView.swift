@@ -4,8 +4,8 @@ import SwiftUI
 /// Two-card onboarding for the standalone local computer-use helper.
 ///
 /// Permissions belong to `cmux Computer Use`, which raises the native TCC
-/// requests itself. A file-URL drag companion remains available only as a
-/// recovery path when the helper cannot request a permission normally.
+/// requests itself. A file-URL drag companion remains available as a recovery
+/// path whenever a native request has not resulted in a completed grant.
 @MainActor
 struct ComputerUseOnboardingView: View {
     static let initialStep = ComputerUseOnboardingStep.overview
@@ -25,6 +25,7 @@ struct ComputerUseOnboardingView: View {
     @State private var isPermissionCompanionVisible: Bool
     @State private var initialPermissionFlowStarted = false
     @State private var permissionSetupInFlight = false
+    @State private var nativePermissionRequestsAttempted: Set<ComputerUseOnboardingStep> = []
 
     init(
         runtimeService: ComputerUseRuntimeService,
@@ -50,6 +51,7 @@ struct ComputerUseOnboardingView: View {
             }
         }
         .frame(maxWidth: .infinity, maxHeight: .infinity)
+        .ignoresSafeArea()
         .background(onboardingBackground)
         .preferredColorScheme(.dark)
         .onAppear {
@@ -62,8 +64,43 @@ struct ComputerUseOnboardingView: View {
         }
     }
 
-    private var onboardingBackground: Color {
-        Color(nsColor: .windowBackgroundColor)
+    private var onboardingBackground: some View {
+        ZStack {
+            Color(red: 0.157, green: 0.180, blue: 0.200)
+
+            RadialGradient(
+                colors: [.white.opacity(0.035), .clear],
+                center: UnitPoint(x: 0.22, y: 0.02),
+                startRadius: 0,
+                endRadius: 220
+            )
+            RadialGradient(
+                colors: [.black.opacity(0.22), .clear],
+                center: UnitPoint(x: 0.08, y: 0.27),
+                startRadius: 0,
+                endRadius: 260
+            )
+            RadialGradient(
+                colors: [.white.opacity(0.035), .clear],
+                center: UnitPoint(x: 0.04, y: 0.96),
+                startRadius: 0,
+                endRadius: 290
+            )
+            RadialGradient(
+                colors: [.black.opacity(0.10), .clear],
+                center: UnitPoint(x: 0.70, y: 0.76),
+                startRadius: 0,
+                endRadius: 280
+            )
+        }
+    }
+
+    private var overviewSecondaryText: Color {
+        Color(red: 0.66, green: 0.69, blue: 0.71)
+    }
+
+    private var permissionCardBackground: Color {
+        Color(red: 0.161, green: 0.184, blue: 0.204)
     }
 
     /// The reference-style overview shown before entering a macOS permission pane.
@@ -74,6 +111,7 @@ struct ComputerUseOnboardingView: View {
             VStack(spacing: 0) {
                 helperHeroIcon
                     .padding(.top, 55)
+                    .offset(x: -1)
 
                 Text(String(
                     localized: "computerUse.onboarding.hero.title",
@@ -81,20 +119,23 @@ struct ComputerUseOnboardingView: View {
                 ))
                 .font(.system(size: 26, weight: .bold))
                 .padding(.top, 19)
+                .offset(y: -4)
 
                 Text(String(
                     localized: "computerUse.onboarding.hero.detail",
                     defaultValue: "cmux Computer Use needs these permissions to use apps on your Mac.\nThese permissions are used when you ask cmux to perform tasks."
                 ))
                 .font(.system(size: 14, weight: .medium))
-                .foregroundStyle(.secondary)
+                .foregroundStyle(overviewSecondaryText)
                 .multilineTextAlignment(.center)
                 .lineSpacing(2)
                 .fixedSize(horizontal: false, vertical: true)
                 .padding(.top, 15)
+                .offset(y: -5)
 
                 permissionOverview
                     .padding(.top, 12)
+                    .offset(y: 1.5)
 
                 Spacer(minLength: 35)
             }
@@ -114,6 +155,10 @@ struct ComputerUseOnboardingView: View {
                 Image(nsImage: helperIcon)
                     .resizable()
                     .interpolation(.high)
+                    // The macOS app-icon canvas carries transparent safe-area
+                    // padding. Scale the artwork, not its 52-point layout frame,
+                    // so it reads at the same visual size as the reference icon.
+                    .scaleEffect(1.24)
             } else {
                 ZStack {
                     RoundedRectangle(cornerRadius: 13, style: .continuous)
@@ -172,7 +217,7 @@ struct ComputerUseOnboardingView: View {
                     .font(.system(size: 17, weight: .bold))
                 Text(detail)
                     .font(.system(size: 14, weight: .medium))
-                    .foregroundStyle(.secondary)
+                    .foregroundStyle(overviewSecondaryText)
                     .lineLimit(1)
             }
 
@@ -184,7 +229,7 @@ struct ComputerUseOnboardingView: View {
         .frame(maxWidth: .infinity)
         .frame(height: 80)
         .background(
-            Color(nsColor: .controlBackgroundColor),
+            permissionCardBackground,
             in: RoundedRectangle(cornerRadius: 25, style: .continuous)
         )
         .overlay {
@@ -218,12 +263,18 @@ struct ComputerUseOnboardingView: View {
             .frame(width: 56, height: 56)
             .accessibilityHidden(true)
         } else {
-            Image(systemName: "camera.viewfinder")
-                .symbolRenderingMode(.hierarchical)
-                .font(.system(size: 43, weight: .semibold))
-                .foregroundStyle(.white.opacity(0.72))
-                .frame(width: 56, height: 56)
-                .accessibilityHidden(true)
+            ZStack {
+                Image(systemName: "camera.viewfinder")
+                    .symbolRenderingMode(.hierarchical)
+                    .font(.system(size: 43, weight: .semibold))
+                    .foregroundStyle(.white.opacity(0.72))
+                Circle()
+                    .fill(Color(red: 0.98, green: 0.76, blue: 0.16))
+                    .frame(width: 5, height: 5)
+                    .offset(x: 15, y: -9)
+            }
+            .frame(width: 56, height: 56)
+            .accessibilityHidden(true)
         }
     }
 
@@ -232,7 +283,11 @@ struct ComputerUseOnboardingView: View {
         for permissionStep: ComputerUseOnboardingStep,
         granted: Bool
     ) -> some View {
-        if granted {
+        let action = ComputerUsePermissionRowAction.resolve(
+            granted: granted,
+            nativeRequestAttempted: nativePermissionRequestsAttempted.contains(permissionStep)
+        )
+        if action == .done {
             HStack(spacing: 7) {
                 Text(String(localized: "computerUse.onboarding.done", defaultValue: "Done"))
                 Image(systemName: "checkmark")
@@ -248,14 +303,28 @@ struct ComputerUseOnboardingView: View {
                         ProgressView()
                             .controlSize(.small)
                             .tint(.white)
+                    } else if action == .completeInSystemSettings {
+                        Text(String(
+                            localized: "computerUse.onboarding.completeInSystemSettings.short",
+                            defaultValue: "Complete in System Settings"
+                        ))
+                        .font(.system(size: 11, weight: .semibold))
                     } else {
                         Text(String(localized: "computerUse.onboarding.allow", defaultValue: "Allow"))
                             .font(.system(size: 14, weight: .medium))
                     }
                 }
-                .frame(width: 57, height: 24)
+                .frame(
+                    width: action == .completeInSystemSettings ? 157 : 57,
+                    height: 24
+                )
                 .foregroundStyle(.white)
-                .background(Color.accentColor, in: Capsule())
+                .background(
+                    action == .completeInSystemSettings
+                        ? Color.white.opacity(0.12)
+                        : Color.accentColor,
+                    in: Capsule()
+                )
             }
             .buttonStyle(.plain)
             .disabled(helperAppURL == nil || permissionSetupInFlight)
@@ -301,7 +370,7 @@ struct ComputerUseOnboardingView: View {
                         defaultValue: "Open System Settings"
                     )
                 ) {
-                    beginPermissionSetup(for: step)
+                    openPermissionSettings(for: step)
                 }
 
                 Spacer()
@@ -458,6 +527,19 @@ struct ComputerUseOnboardingView: View {
         else {
             return
         }
+
+        let action = ComputerUsePermissionRowAction.resolve(
+            granted: permissionStep == .accessibility
+                ? accessibilityGranted
+                : screenRecordingGranted,
+            nativeRequestAttempted: nativePermissionRequestsAttempted.contains(permissionStep)
+        )
+        if action == .completeInSystemSettings {
+            presentPermissionCompanion(for: permissionStep)
+            return
+        }
+        guard action == .allow else { return }
+
         step = permissionStep
         permissionSetupInFlight = true
         permissionCheckArmed = true
@@ -467,29 +549,35 @@ struct ComputerUseOnboardingView: View {
             } else {
                 await runtimeService.requestScreenRecording()
             }
+            nativePermissionRequestsAttempted.insert(permissionStep)
+            permissionSetupInFlight = false
 
-            guard !didRequestPermission else {
-                permissionSetupInFlight = false
-                return
-            }
+            guard !didRequestPermission else { return }
 
             // The pinned helper normally raises the native TCC request itself.
-            // Keep the legacy drag companion as a recovery path for a stale or
-            // unavailable helper, rather than replacing the reference UI during
-            // the normal permission flow.
-            isPermissionCompanionVisible = true
-            onSystemSettingsOpened()
-            let didOpenSettings = if permissionStep == .accessibility {
-                await runtimeService.openAccessibilitySettings()
+            // Its real app drag tile remains available as recovery when the
+            // request cannot be issued, and after any accepted-but-unfinished
+            // request through the row's "Complete in System Settings" action.
+            presentPermissionCompanion(for: permissionStep)
+        }
+    }
+
+    private func presentPermissionCompanion(for permissionStep: ComputerUseOnboardingStep) {
+        step = permissionStep
+        permissionCheckArmed = true
+        isPermissionCompanionVisible = true
+        openPermissionSettings(for: permissionStep)
+    }
+
+    private func openPermissionSettings(for permissionStep: ComputerUseOnboardingStep) {
+        guard permissionStep == .accessibility || permissionStep == .screenRecording else { return }
+        permissionCheckArmed = true
+        onSystemSettingsOpened()
+        Task { @MainActor in
+            if permissionStep == .accessibility {
+                _ = await runtimeService.openAccessibilitySettings()
             } else {
-                await runtimeService.openScreenRecordingSettings()
-            }
-            permissionSetupInFlight = false
-            guard didOpenSettings else {
-                permissionCheckArmed = false
-                isPermissionCompanionVisible = false
-                onExpandedRequested()
-                return
+                _ = await runtimeService.openScreenRecordingSettings()
             }
         }
     }

@@ -19,8 +19,8 @@ final class ComputerUseOnboardingWindowController: NSObject, NSWindowDelegate {
     }
 
     static let seenDefaultsKey = "cmux.computerUse.onboarding.seen"
-    private static let expandedContentSize = NSSize(width: 596, height: 435)
-    private static let permissionCompanionContentSize = NSSize(width: 680, height: 250)
+    private static let expandedWindowSize = NSSize(width: 596, height: 435)
+    private static let permissionCompanionWindowSize = NSSize(width: 680, height: 250)
     private static let systemSettingsBundleIdentifier = "com.apple.systempreferences"
 
     private var window: NSWindow?
@@ -73,6 +73,11 @@ final class ComputerUseOnboardingWindowController: NSObject, NSWindowDelegate {
             onExpandedRequested: { [weak self] in self?.showExpandedOnboarding() }
         )
         let hostingController = NSHostingController(rootView: rootView)
+        // These onboarding surfaces have exact reference window sizes. Disable
+        // SwiftUI's intrinsic sizing feedback so the title-bar safe area cannot
+        // silently add 32 points to the requested AppKit frame.
+        hostingController.sizingOptions = []
+        hostingController.safeAreaRegions = []
         let window = NSWindow(contentViewController: hostingController)
         window.title = String(localized: "computerUse.onboarding.windowTitle", defaultValue: "Computer Use Setup")
         window.styleMask = [.titled, .closable, .fullSizeContentView]
@@ -82,7 +87,7 @@ final class ComputerUseOnboardingWindowController: NSObject, NSWindowDelegate {
         window.isMovableByWindowBackground = false
         configure(
             window,
-            contentSize: Self.expandedContentSize,
+            windowSize: Self.expandedWindowSize,
             showsStandardButtons: true
         )
         window.center()
@@ -93,7 +98,7 @@ final class ComputerUseOnboardingWindowController: NSObject, NSWindowDelegate {
         guard let window else { return }
         configure(
             window,
-            contentSize: Self.permissionCompanionContentSize,
+            windowSize: Self.permissionCompanionWindowSize,
             showsStandardButtons: false
         )
         permissionSettingsWillOpen()
@@ -238,7 +243,7 @@ final class ComputerUseOnboardingWindowController: NSObject, NSWindowDelegate {
         guard let window else { return }
         configure(
             window,
-            contentSize: Self.expandedContentSize,
+            windowSize: Self.expandedWindowSize,
             showsStandardButtons: true
         )
         window.center()
@@ -248,12 +253,15 @@ final class ComputerUseOnboardingWindowController: NSObject, NSWindowDelegate {
 
     private func configure(
         _ window: NSWindow,
-        contentSize: NSSize,
+        windowSize: NSSize,
         showsStandardButtons: Bool
     ) {
-        window.contentMinSize = contentSize
-        window.contentMaxSize = contentSize
-        window.setContentSize(contentSize)
+        window.minSize = windowSize
+        window.maxSize = windowSize
+        window.setFrame(
+            NSRect(origin: window.frame.origin, size: windowSize),
+            display: window.isVisible
+        )
         for buttonType in [NSWindow.ButtonType.closeButton, .miniaturizeButton, .zoomButton] {
             let button = window.standardWindowButton(buttonType)
             button?.isHidden = !showsStandardButtons
