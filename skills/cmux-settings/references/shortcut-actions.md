@@ -49,6 +49,12 @@ Values for `shortcuts.bindings.<action>`:
 - `shortcuts.bindings.prevSurface`
 - `shortcuts.bindings.moveSurfaceLeft`
 - `shortcuts.bindings.moveSurfaceRight`
+- `shortcuts.bindings.moveSurfaceToPreviousPane`
+- `shortcuts.bindings.moveSurfaceToNextPane`
+- `shortcuts.bindings.moveSurfaceToPaneLeft`
+- `shortcuts.bindings.moveSurfaceToPaneRight`
+- `shortcuts.bindings.moveSurfaceToPaneUp`
+- `shortcuts.bindings.moveSurfaceToPaneDown`
 - `shortcuts.bindings.selectSurfaceByNumber`
 - `shortcuts.bindings.newSurface`
 - `shortcuts.bindings.toggleTerminalCopyMode`

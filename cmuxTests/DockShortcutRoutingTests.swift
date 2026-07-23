@@ -310,6 +310,43 @@ struct DockShortcutRoutingTests {
             }
         }
     }
+
+    @Test("Move-to-pane shortcut does not mutate the background workspace while Dock is focused")
+    @MainActor
+    func moveToPaneDoesNotMutateBackgroundWorkspaceWhileDockFocused() async throws {
+        try await AppContextSerialGate.withExclusiveAppContext {
+            try Self.withHarness { harness in
+                let movedPanelId = try #require(
+                    harness.mainWorkspace.focusedPanelId
+                )
+                let sourcePaneId = try #require(
+                    harness.mainWorkspace.paneId(forPanelId: movedPanelId)
+                )
+                _ = try #require(
+                    harness.mainWorkspace.newTerminalSplit(
+                        from: movedPanelId,
+                        orientation: .horizontal,
+                        focus: false
+                    )
+                )
+                harness.mainWorkspace.focusPanel(movedPanelId)
+                let dockPanelBefore = harness.dock.focusedPanelId
+                let shortcut = Self.customShortcut(key: "y")
+                KeyboardShortcutSettings.setShortcut(
+                    shortcut,
+                    for: .moveSurfaceToPaneRight
+                )
+
+                #expect(Self.dispatch(shortcut, in: harness))
+                #expect(
+                    harness.mainWorkspace.paneId(forPanelId: movedPanelId) ==
+                        sourcePaneId
+                )
+                #expect(harness.mainWorkspace.focusedPanelId == movedPanelId)
+                #expect(harness.dock.focusedPanelId == dockPanelBefore)
+            }
+        }
+    }
 }
 
 private extension DockShortcutRoutingTests {

@@ -119,10 +119,16 @@ struct ReorderShortcutActionTests {
         #expect(manager.tabs.map(\.id) == [secondPinned.id, firstPinned.id, secondUnpinned.id, firstUnpinned.id])
     }
 
-    @Test func reorderActionsArePublicAndHaveAlignedCollisionFreeDefaults() throws {
+    @Test func movementActionsArePublicAndHaveAlignedCollisionFreeDefaults() throws {
         let actions: [KeyboardShortcutSettings.Action] = [
             .moveSurfaceLeft,
             .moveSurfaceRight,
+            .moveSurfaceToPreviousPane,
+            .moveSurfaceToNextPane,
+            .moveSurfaceToPaneLeft,
+            .moveSurfaceToPaneRight,
+            .moveSurfaceToPaneUp,
+            .moveSurfaceToPaneDown,
             .moveWorkspaceUp,
             .moveWorkspaceDown,
         ]
@@ -148,6 +154,45 @@ struct ReorderShortcutActionTests {
 
         #expect(ContentView.commandPaletteShortcutAction(forCommandID: "palette.moveWorkspaceUp") == .moveWorkspaceUp)
         #expect(ContentView.commandPaletteShortcutAction(forCommandID: "palette.moveWorkspaceDown") == .moveWorkspaceDown)
+        for movement in SurfacePaneMovement.allCases {
+            #expect(
+                ContentView.commandPaletteShortcutAction(
+                    forCommandID: movement.commandID
+                ) == movement.shortcutAction
+            )
+        }
+
+        let previousDefault =
+            KeyboardShortcutSettings.Action.moveSurfaceToPreviousPane.defaultShortcut
+        #expect(previousDefault.key == "[")
+        #expect(previousDefault.command)
+        #expect(previousDefault.shift)
+        #expect(!previousDefault.option)
+        #expect(previousDefault.control)
+
+        let nextDefault =
+            KeyboardShortcutSettings.Action.moveSurfaceToNextPane.defaultShortcut
+        #expect(nextDefault.key == "]")
+        #expect(nextDefault.command)
+        #expect(nextDefault.shift)
+        #expect(!nextDefault.option)
+        #expect(nextDefault.control)
+        let directionalDefaults: [
+            KeyboardShortcutSettings.Action: String
+        ] = [
+            .moveSurfaceToPaneLeft: "←",
+            .moveSurfaceToPaneRight: "→",
+            .moveSurfaceToPaneUp: "↑",
+            .moveSurfaceToPaneDown: "↓",
+        ]
+        for (action, key) in directionalDefaults {
+            let shortcut = action.defaultShortcut
+            #expect(shortcut.key == key)
+            #expect(shortcut.command)
+            #expect(shortcut.shift)
+            #expect(shortcut.option)
+            #expect(!shortcut.control)
+        }
     }
 
     private func panelOrder(in workspace: Workspace, paneId: PaneID) -> [UUID] {

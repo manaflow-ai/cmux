@@ -48,6 +48,18 @@ public enum ShortcutAction: String, CaseIterable, Sendable, Hashable, SettingCod
     case moveSurfaceLeft
     /// Moves the selected surface one position right.
     case moveSurfaceRight
+    /// Moves the selected surface to the previous pane in spatial order.
+    case moveSurfaceToPreviousPane
+    /// Moves the selected surface to the next pane in spatial order.
+    case moveSurfaceToNextPane
+    /// Moves the selected surface to the pane on the left.
+    case moveSurfaceToPaneLeft
+    /// Moves the selected surface to the pane on the right.
+    case moveSurfaceToPaneRight
+    /// Moves the selected surface to the pane above.
+    case moveSurfaceToPaneUp
+    /// Moves the selected surface to the pane below.
+    case moveSurfaceToPaneDown
     case selectSurfaceByNumber
     case nextSidebarTab
     case prevSidebarTab
@@ -173,52 +185,6 @@ public enum ShortcutAction: String, CaseIterable, Sendable, Hashable, SettingCod
 }
 
 extension ShortcutAction {
-    /// Which group this action belongs to in the settings pane.
-    public var group: Group {
-        switch self {
-        case .openSettings, .reloadConfiguration, .showHideAllWindows, .globalSearch,
-             .newWindow, .closeWindow, .toggleFullScreen, .quit:
-            return .app
-        case .toggleSidebar, .newTab, .newBrowserWorkspace, .saveLayoutTemplate, .openFolder, .reopenPreviousSession, .goToWorkspace,
-             .commandPalette, .commandPaletteNext, .commandPalettePrevious, .sendFeedback,
-             .showNotifications, .jumpToUnread, .toggleUnread, .markOldestUnreadAndJumpNext,
-             .focusRightSidebar, .switchRightSidebarToFiles, .switchRightSidebarToFind,
-             .switchRightSidebarToSessions, .switchRightSidebarToFeed,
-             .switchRightSidebarToDock, .triggerFlash:
-            return .workspace
-        case .nextSurface, .prevSurface, .moveSurfaceLeft, .moveSurfaceRight, .selectSurfaceByNumber,
-             .nextSidebarTab, .prevSidebarTab, .moveWorkspaceUp, .moveWorkspaceDown, .focusHistoryBack, .focusHistoryForward,
-             .selectWorkspaceByNumber, .renameTab, .renameWorkspace,
-             .editWorkspaceDescription, .markWorkspaceDone, .cycleWorkspaceStatus, .toggleChecklistItemComplete, .closeTab, .closeOtherTabsInPane, .closeWorkspace,
-             .newWorkspaceGroup, .groupSelectedWorkspaces, .toggleFocusedWorkspaceGroupCollapsed,
-             .reopenClosedBrowserPanel, .newSurface, .toggleTerminalCopyMode,
-             .focusTextBoxInput, .cycleTextBoxSubmitAction, .attachTextBoxFile, .sendCtrlFToTerminal,
-             .clearScreenKeepScrollback:
-            return .navigation
-        case .focusLeft, .focusRight, .focusUp, .focusDown, .splitRight, .splitDown,
-             .toggleSplitZoom, .equalizeSplits, .splitBrowserRight, .splitBrowserDown,
-             .toggleRightSidebar, .fileExplorerOpenSelection, .fileExplorerOpenSelectionFinderAlias,
-             .toggleCanvasLayout, .canvasRevealFocusedPane, .canvasOverview,
-             .canvasZoomIn, .canvasZoomOut, .canvasZoomReset, .canvasTidy,
-             .canvasAlignLeft, .canvasAlignRight, .canvasAlignTop, .canvasAlignBottom,
-             .canvasEqualizeWidths, .canvasEqualizeHeights,
-             .canvasDistributeHorizontally, .canvasDistributeVertically:
-            return .panes
-        case .openDiffViewer, .saveFilePreview, .openBrowser, .focusBrowserAddressBar, .browserBack,
-             .browserForward, .browserReload, .browserHardReload, .browserZoomIn, .browserZoomOut,
-             .browserZoomReset, .markdownZoomIn, .markdownZoomOut, .markdownZoomReset,
-             .find, .findInDirectory, .findNext, .findPrevious,
-             .hideFind, .useSelectionForFind, .toggleBrowserDeveloperTools,
-             .showBrowserJavaScriptConsole, .toggleBrowserFocusMode, .toggleReactGrab,
-             .diffViewerScrollDown, .diffViewerScrollUp,
-             .diffViewerScrollHalfPageDown, .diffViewerScrollHalfPageUp,
-             .diffViewerScrollDownEmacs, .diffViewerScrollUpEmacs, .diffViewerScrollToBottom,
-             .diffViewerScrollToTop, .diffViewerOpenFileSearch,
-             .diffViewerNextFile, .diffViewerPreviousFile:
-            return .browser
-        }
-    }
-
     /// Whether this action binds the whole `1…9` digit range through a
     /// single stored placeholder.
     ///
@@ -360,8 +326,20 @@ extension ShortcutAction {
         case .triggerFlash: return "Flash Focused Panel"
         case .nextSurface: return "Next Surface"
         case .prevSurface: return "Previous Surface"
-        case .moveSurfaceLeft: return String(localized: "shortcut.moveSurfaceLeft.label", defaultValue: "Move Surface Left")
-        case .moveSurfaceRight: return String(localized: "shortcut.moveSurfaceRight.label", defaultValue: "Move Surface Right")
+        case .moveSurfaceLeft: return String(localized: "shortcut.moveSurfaceLeft.label", defaultValue: "Reorder Surface Left")
+        case .moveSurfaceRight: return String(localized: "shortcut.moveSurfaceRight.label", defaultValue: "Reorder Surface Right")
+        case .moveSurfaceToPreviousPane:
+            return String(localized: "shortcut.moveSurfaceToPreviousPane.label", defaultValue: "Move Surface to Previous Pane")
+        case .moveSurfaceToNextPane:
+            return String(localized: "shortcut.moveSurfaceToNextPane.label", defaultValue: "Move Surface to Next Pane")
+        case .moveSurfaceToPaneLeft:
+            return String(localized: "shortcut.moveSurfaceToPaneLeft.label", defaultValue: "Move Surface to Pane on Left")
+        case .moveSurfaceToPaneRight:
+            return String(localized: "shortcut.moveSurfaceToPaneRight.label", defaultValue: "Move Surface to Pane on Right")
+        case .moveSurfaceToPaneUp:
+            return String(localized: "shortcut.moveSurfaceToPaneUp.label", defaultValue: "Move Surface to Pane Above")
+        case .moveSurfaceToPaneDown:
+            return String(localized: "shortcut.moveSurfaceToPaneDown.label", defaultValue: "Move Surface to Pane Below")
         case .selectSurfaceByNumber: return "Select Surface 1…9"
         case .nextSidebarTab: return "Next Workspace"
         case .prevSidebarTab: return "Previous Workspace"
