@@ -15,6 +15,17 @@ struct SidebarWorkspaceTableActions {
     let isValidWorkspaceDrag: () -> Bool
     let updateWorkspaceDrag: (CGPoint, [SidebarWorkspaceReorderDropOverlay.Target]) -> Bool
     let performWorkspaceDrop: (CGPoint, [SidebarWorkspaceReorderDropOverlay.Target]) -> Bool
+    /// Plan resolution/commit for the local live-reorder preview. Both run
+    /// the same resolver as `performWorkspaceDrop`, split so the preview can
+    /// show a plan continuously and commit exactly what it last showed. The
+    /// sticky destination biases group/root-ambiguous boundary slots toward
+    /// where the drag already previews.
+    let resolveWorkspaceReorderPlan: (
+        CGPoint,
+        [SidebarWorkspaceReorderDropOverlay.Target],
+        SidebarWorkspaceReorderStickyDestination
+    ) -> SidebarWorkspaceReorderDropPlan?
+    let commitWorkspaceReorderPlan: (SidebarWorkspaceReorderDropPlan) -> Bool
     let clearWorkspaceDropIndicator: () -> Void
     let currentDropIndicator: () -> SidebarDropIndicator?
     let currentDropIndicatorScope: () -> SidebarWorkspaceReorderDropIndicatorScope

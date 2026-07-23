@@ -138,8 +138,43 @@ public struct SidebarWorkspaceReorderDropResolver: Sendable {
             return nil
         }
         guard candidate.isAmbiguous else { return candidate.groupId }
-        // Ambiguous group/root dividers use a coarse hierarchy lane: the left
-        // half of the sidebar means root, the right half means the group.
+        // Ambiguous group/root dividers (a group's last-member boundary)
+        // resolve toward where the drag already is when the caller supplies
+        // its current destination: a drag inside the group stays in it, a
+        // top-level drag stays out. This is what makes the last slot of a
+        // group easy to enter and leave — no pointer-lane precision needed.
+        switch request.stickyDestination {
+        case .group(let stickyGroupId):
+            guard stickyGroupId == candidate.groupId else { return nil }
+            // Immutable live-reorder targets do not chatter when the preview
+            // moves, so the nearest row can own the boundary directly. Once
+            // the next root row is nearer than the last group member, leave
+            // the group without requiring a pointer lane or a second half-row.
+            if context.target?.groupId == nil {
+                return nil
+            }
+            // Stickiness holds through the boundary band, not forever: a
+            // floating-row center half a row past the group's last visible row has
+            // clearly left (otherwise a group at the end of the list could
+            // never be exited downward).
+            if context.target == nil, let previous = context.previousTarget,
+               request.point.y > previous.frame.maxY + max(previous.frame.height, 1) / 2 {
+                return nil
+            }
+            return candidate.groupId
+        case .topLevel:
+            // A top-level drag enters the tail slot while its floating center
+            // still overlaps the last group member. Once it reaches the next
+            // root row, it stays root. This makes the last slot easy to enter
+            // without making the adjacent root slot hard to select.
+            return context.target?.groupId == candidate.groupId
+                ? candidate.groupId
+                : nil
+        case .none:
+            break
+        }
+        // Legacy lane fallback (indicator-line paths): the left half of the
+        // sidebar means root, the right half means the group.
         return request.point.x >= sidebarHorizontalMidpoint(targets: request.targets)
             ? candidate.groupId
             : nil

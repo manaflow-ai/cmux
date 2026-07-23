@@ -11464,6 +11464,22 @@ struct VerticalTabsSidebar: View, Equatable {
             performWorkspaceDrop: { point, targets in
                 performWorkspaceReorderDrop(point: point, targets: targets, renderContext: renderContext)
             },
+            resolveWorkspaceReorderPlan: { point, targets, stickyDestination in
+                guard activateSidebarWorkspaceDragIfNeeded() else { return nil }
+                return workspaceReorderPlan(
+                    point: point,
+                    targets: targets,
+                    renderContext: renderContext,
+                    stickyDestination: stickyDestination
+                )
+            },
+            commitWorkspaceReorderPlan: { plan in
+                defer {
+                    dragState.clearDrag()
+                    dragAutoScrollController.stop()
+                }
+                return performWorkspaceReorderPlan(plan)
+            },
             clearWorkspaceDropIndicator: {
                 dragState.clearDropIndicator()
                 dragAutoScrollController.stop()
@@ -13219,7 +13235,8 @@ struct VerticalTabsSidebar: View, Equatable {
     private func workspaceReorderPlan(
         point: CGPoint,
         targets: [SidebarWorkspaceReorderDropOverlay.Target],
-        renderContext: WorkspaceListRenderContext
+        renderContext: WorkspaceListRenderContext,
+        stickyDestination: SidebarWorkspaceReorderStickyDestination = .none
     ) -> SidebarWorkspaceReorderDropPlan? {
         guard let draggedTabId = dragState.draggedTabId else { return nil }
         return SidebarWorkspaceReorderDropResolver().plan(
@@ -13248,7 +13265,8 @@ struct VerticalTabsSidebar: View, Equatable {
                         isGroupHeader: $0.isGroupHeader,
                         frame: $0.frame
                     )
-                }
+                },
+                stickyDestination: stickyDestination
             )
         )
     }

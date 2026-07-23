@@ -12,6 +12,52 @@ import Testing
 struct SidebarWorkspaceTableTests {
     @Test
     @MainActor
+    func localReorderCorridorExtendsPastSidebarWithoutChangingSidebarLayout() {
+        let band = CGRect(x: 0, y: 0, width: 240, height: 600)
+        let corridor = SidebarWorkspaceTableLocalReorderController.reorderCorridor(for: band)
+
+        #expect(corridor.contains(CGPoint(x: -79, y: 300)))
+        #expect(corridor.contains(CGPoint(x: 479, y: 300)))
+        #expect(corridor.contains(CGPoint(x: 120, y: -59)))
+        #expect(corridor.contains(CGPoint(x: 120, y: 699)))
+        #expect(!corridor.contains(CGPoint(x: -81, y: 300)))
+        #expect(!corridor.contains(CGPoint(x: 481, y: 300)))
+    }
+
+    @Test
+    @MainActor
+    func localReorderCorridorCommitsResolvedDropsButPreservesExplicitCancellation() {
+        let band = CGRect(x: 0, y: 0, width: 240, height: 600)
+        let outsideSidebarPoint = CGPoint(x: 400, y: 300)
+
+        #expect(SidebarWorkspaceTableLocalReorderController.shouldCommitSourceDrop(
+            hasResolvedPlan: true,
+            explicitlyCancelled: false,
+            point: outsideSidebarPoint,
+            sidebarBand: band
+        ))
+        #expect(!SidebarWorkspaceTableLocalReorderController.shouldCommitSourceDrop(
+            hasResolvedPlan: false,
+            explicitlyCancelled: false,
+            point: outsideSidebarPoint,
+            sidebarBand: band
+        ))
+        #expect(!SidebarWorkspaceTableLocalReorderController.shouldCommitSourceDrop(
+            hasResolvedPlan: true,
+            explicitlyCancelled: true,
+            point: outsideSidebarPoint,
+            sidebarBand: band
+        ))
+        #expect(!SidebarWorkspaceTableLocalReorderController.shouldCommitSourceDrop(
+            hasResolvedPlan: true,
+            explicitlyCancelled: false,
+            point: CGPoint(x: 600, y: 300),
+            sidebarBand: band
+        ))
+    }
+
+    @Test
+    @MainActor
     func containerHasNoStructuralHorizontalRowInsetAndAlwaysActiveHoverTracking() throws {
         let container = SidebarWorkspaceTableController().makeContainerView()
         let column = try #require(container.tableView.tableColumns.first)
@@ -374,6 +420,8 @@ struct SidebarWorkspaceTableTests {
             isValidWorkspaceDrag: { true },
             updateWorkspaceDrag: { _, _ in false },
             performWorkspaceDrop: { _, _ in false },
+            resolveWorkspaceReorderPlan: { _, _, _ in nil },
+            commitWorkspaceReorderPlan: { _ in false },
             clearWorkspaceDropIndicator: {},
             currentDropIndicator: { nil },
             currentDropIndicatorScope: { .raw },
