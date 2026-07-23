@@ -445,15 +445,8 @@ impl ProviderMachineRuntime {
                 )?;
                 Ok(self.finish_accepted_machine_selection(created.machine_id, created.notice))
             }
-            MachineRequest::Connect(specifier) => {
-                if !self.connect_external_enabled()? {
-                    anyhow::bail!(
-                        localization::catalog()
-                            .sidebar
-                            .machine_provider_external_connect_unsupported
-                    )
-                }
-                self.connect_external_after_refresh(specifier)
+            MachineRequest::Connect(_) => {
+                unreachable!("external connect requests are routed by ProviderMachineController")
             }
             MachineRequest::SelectProviderScope(scope_id) => {
                 let selected =
@@ -1252,23 +1245,6 @@ impl ProviderMachineRuntime {
             .ok_or_else(|| anyhow::anyhow!("unknown machine {}", key.0))
     }
 
-    fn connect_external_enabled(&self) -> anyhow::Result<bool> {
-        if !self.snapshot.capabilities.connect_external_machine {
-            return Ok(false);
-        }
-        self.external_connect_negotiated()
-    }
-
-    fn external_connect_negotiated(&self) -> anyhow::Result<bool> {
-        match self.client.supports_capability(protocol::EXTERNAL_MACHINE_CONNECT_CAPABILITY) {
-            Ok(enabled) => Ok(enabled),
-            Err(ProviderClientError::Disconnected | ProviderClientError::NotAuthenticated) => {
-                Ok(false)
-            }
-            Err(error) => Err(error.into()),
-        }
-    }
-
     fn next_mutation_id(&self) -> anyhow::Result<protocol::OpaqueId> {
         let sequence = self.mutation_sequence.fetch_add(1, Ordering::Relaxed);
         if sequence == u64::MAX {
@@ -1403,28 +1379,6 @@ fn random_mutation_nonce() -> anyhow::Result<String> {
     }
     bytes.zeroize();
     Ok(encoded)
-}
-
-impl MachineController for ProviderMachineRuntime {
-    fn perform(&mut self, request: MachineRequest) -> anyhow::Result<MachineActionResult> {
-        self.perform_request(request)
-    }
-
-    fn subscribe_updates(&self) -> anyhow::Result<Option<MachineUpdateStream>> {
-        self.subscribe_ui_updates().map(Some)
-    }
-
-    fn commit_replacement(&mut self) -> anyhow::Result<()> {
-        ProviderMachineRuntime::commit_replacement(self)
-    }
-
-    fn abort_replacement(&mut self) {
-        ProviderMachineRuntime::abort_replacement(self);
-    }
-
-    fn close(&mut self) {
-        ProviderMachineRuntime::close(self);
-    }
 }
 
 fn connect_client(
