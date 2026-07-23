@@ -110,7 +110,7 @@ struct AgentStatusReconcilerTests {
             hasLiveRuntime: true,
             now: now
         )
-        #expect(resolution?.lifecycle == .idle)
+        #expect(resolution?.lifecycle == lifecycle)
     }
 
     @Test func freshNeedsInputOverridesStalePromptIdleShellState() {
@@ -144,7 +144,7 @@ struct AgentStatusReconcilerTests {
         #expect(resolution == nil)
     }
 
-    @Test @MainActor func newlyRegisteredClaudeRuntimeStartsIdle() throws {
+    @Test @MainActor func newlyRegisteredClaudeRuntimeStartsHidden() throws {
         let workspace = Workspace()
         let panelId = try #require(workspace.focusedPanelId)
         defer { workspace.clearAllAgentPIDs(refreshPorts: false) }
@@ -154,7 +154,7 @@ struct AgentStatusReconcilerTests {
             panelId: panelId,
             refreshPorts: false
         )
-        #expect(workspace.statusEntries["claude_code"]?.icon == "pause.circle.fill")
+        #expect(workspace.statusEntries["claude_code"] == nil)
     }
 
     @Test @MainActor func workspacePeriodicReconciliationReplacesStaleRunningPill() throws {
