@@ -353,7 +353,7 @@ public struct CMUXMobileRootScene: View {
             buildCompatibilityPolicy: buildCompatibilityPolicy
         )
         let deviceRegistry = makeDeviceRegistry(pairedMacStore: backedUpPairedMacStore)
-        let forgottenMacStore = UserDefaultsPairedMacForgottenStore()
+        let hiddenMacStore = UserDefaultsPairedMacHiddenStore()
         let feedbackEmailSubmitter = MobileFeedbackEmailClient(apiBaseURL: auth.config.apiBaseURL)
         let feedbackStampProvider: @MainActor () -> MobileFeedbackStamp = {
             MobileFeedbackStamp.current()
@@ -369,7 +369,7 @@ public struct CMUXMobileRootScene: View {
             identityProvider: identityProvider,
             teamIDProvider: { await coordinator.resolvedTeamID },
             reachability: reachability,
-            forgottenMacStore: forgottenMacStore,
+            hiddenMacStore: hiddenMacStore,
             analytics: analytics,
             diagnosticLog: diagnosticLog,
             feedbackEmailSubmitter: feedbackEmailSubmitter,

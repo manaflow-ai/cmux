@@ -35,6 +35,20 @@
 //!       "cwd": "/optional"
 //!     }
 //!   },
+//!   "machine_sidebar": {
+//!     "enabled": false,
+//!     "width": 22,
+//!     "max_width": 0
+//!   },
+//!   "machine_provider": {
+//!     "cloud": {
+//!       "enabled": false,
+//!       "host": "cmux.cloud",
+//!       "user": null,
+//!       "port": null,
+//!       "identity_file": null
+//!     }
+//!   },
 //!   "browser": {
 //!     "chrome_binary": "/Applications/Google Chrome.app/Contents/MacOS/Google Chrome",
 //!     "mode": "headful",
@@ -95,7 +109,7 @@
 //! deliberate non-goal because they conflict with shell/editor control
 //! keys.
 
-use std::collections::HashMap;
+use std::collections::{HashMap, HashSet};
 use std::io::{Read, Write};
 use std::path::{Path, PathBuf};
 use std::process::{Command, Stdio};
@@ -133,6 +147,12 @@ struct RawConfig {
     #[serde(default)]
     sidebar: RawSidebar,
     #[serde(default)]
+    machine_sidebar: RawMachineSidebar,
+    #[serde(default)]
+    machine_provider: RawMachineProvider,
+    #[serde(default)]
+    machines: Vec<RawMachine>,
+    #[serde(default)]
     browser: RawBrowser,
     #[serde(default)]
     scrollbar: RawScrollbar,
@@ -150,6 +170,23 @@ struct RawConfig {
 struct RawServer {
     ws: Option<String>,
     ws_token: Option<String>,
+}
+
+#[derive(Debug, Default, Deserialize)]
+#[serde(deny_unknown_fields)]
+struct RawMachineProvider {
+    #[serde(default)]
+    cloud: RawCloudProvider,
+}
+
+#[derive(Debug, Default, Deserialize)]
+#[serde(deny_unknown_fields)]
+struct RawCloudProvider {
+    enabled: Option<bool>,
+    host: Option<String>,
+    user: Option<String>,
+    port: Option<u16>,
+    identity_file: Option<String>,
 }
 
 #[derive(Debug, Default, Deserialize)]
@@ -392,6 +429,107 @@ struct RawSidebarPlugin {
 
 #[derive(Debug, Default, Deserialize)]
 #[serde(deny_unknown_fields)]
+struct RawMachineSidebar {
+    enabled: Option<bool>,
+    width: Option<u16>,
+    max_width: Option<u16>,
+}
+
+#[derive(Debug)]
+struct RawMachine {
+    id: String,
+    name: String,
+    subtitle: String,
+    target: RawMachineTarget,
+}
+
+#[derive(Debug)]
+enum RawMachineTarget {
+    Unix {
+        socket: String,
+    },
+    Ssh {
+        host: String,
+        user: Option<String>,
+        port: Option<u16>,
+        identity_file: Option<String>,
+        session: Option<String>,
+        binary: Option<String>,
+    },
+}
+
+#[derive(Debug, Deserialize)]
+#[serde(rename_all = "kebab-case")]
+enum RawMachineTransport {
+    Unix,
+    Ssh,
+}
+
+/// The public machine shape stays flat for compatibility, while this wire
+/// type gives serde one exact field set to validate before transport-specific
+/// checks run. `flatten` and `deny_unknown_fields` cannot safely be combined.
+#[derive(Debug, Deserialize)]
+#[serde(deny_unknown_fields)]
+struct RawMachineWire {
+    id: String,
+    name: String,
+    #[serde(default)]
+    subtitle: String,
+    transport: RawMachineTransport,
+    socket: Option<String>,
+    host: Option<String>,
+    user: Option<String>,
+    port: Option<u16>,
+    identity_file: Option<String>,
+    session: Option<String>,
+    binary: Option<String>,
+}
+
+impl<'de> Deserialize<'de> for RawMachine {
+    fn deserialize<D>(deserializer: D) -> Result<Self, D::Error>
+    where
+        D: Deserializer<'de>,
+    {
+        let raw = RawMachineWire::deserialize(deserializer)?;
+        let target = match raw.transport {
+            RawMachineTransport::Unix => {
+                if raw.host.is_some()
+                    || raw.user.is_some()
+                    || raw.port.is_some()
+                    || raw.identity_file.is_some()
+                    || raw.session.is_some()
+                    || raw.binary.is_some()
+                {
+                    return Err(serde::de::Error::custom(
+                        "SSH fields are not valid for a unix machine transport",
+                    ));
+                }
+                RawMachineTarget::Unix {
+                    socket: raw.socket.ok_or_else(|| serde::de::Error::missing_field("socket"))?,
+                }
+            }
+            RawMachineTransport::Ssh => {
+                if raw.socket.is_some() {
+                    return Err(serde::de::Error::custom(
+                        "socket is not valid for an ssh machine transport",
+                    ));
+                }
+                RawMachineTarget::Ssh {
+                    host: raw.host.ok_or_else(|| serde::de::Error::missing_field("host"))?,
+                    user: raw.user,
+                    port: raw.port,
+                    identity_file: raw.identity_file,
+                    session: raw.session,
+                    binary: raw.binary,
+                }
+            }
+        };
+        Ok(Self { id: raw.id, name: raw.name, subtitle: raw.subtitle, target })
+    }
+}
+
+#[derive(Debug, Default, Deserialize)]
+#[serde(deny_unknown_fields)]
 struct RawBrowser {
     chrome_binary: Option<String>,
     mode: Option<ConfigBrowserMode>,
@@ -539,6 +677,70 @@ pub struct Sidebar {
 impl Default for Sidebar {
     fn default() -> Self {
         Sidebar { view: SidebarView::Workspaces, width: 22, max_width: 0, plugin: None }
+    }
+}
+
+/// Optional client-local rail listing connection targets. It is disabled for
+/// ordinary local cmux sessions and enabled by a machine provider or config.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct MachineSidebar {
+    pub enabled: bool,
+    pub width: u16,
+    pub max_width: u16,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Default)]
+pub struct MachineProviderConfig {
+    pub cloud: CloudProviderConfig,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct CloudProviderConfig {
+    pub enabled: bool,
+    pub host: String,
+    pub user: Option<String>,
+    pub port: Option<u16>,
+    pub identity_file: Option<PathBuf>,
+}
+
+impl Default for CloudProviderConfig {
+    fn default() -> Self {
+        Self {
+            enabled: false,
+            host: "cmux.cloud".to_string(),
+            user: None,
+            port: None,
+            identity_file: None,
+        }
+    }
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct MachineConfig {
+    pub id: String,
+    pub name: String,
+    pub subtitle: String,
+    pub target: MachineTargetConfig,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum MachineTargetConfig {
+    Unix {
+        socket: PathBuf,
+    },
+    Ssh {
+        host: String,
+        user: Option<String>,
+        port: Option<u16>,
+        identity_file: Option<PathBuf>,
+        session: String,
+        binary: String,
+    },
+}
+
+impl Default for MachineSidebar {
+    fn default() -> Self {
+        Self { enabled: false, width: 22, max_width: 0 }
     }
 }
 
@@ -1003,6 +1205,9 @@ pub struct Config {
     pub chrome: ChromeMode,
     pub tabs: Tabs,
     pub sidebar: Sidebar,
+    pub machine_sidebar: MachineSidebar,
+    pub machine_provider: MachineProviderConfig,
+    pub machines: Vec<MachineConfig>,
     pub browser: Browser,
     pub scrollbar: Scrollbar,
     pub server: Server,
@@ -1154,6 +1359,79 @@ pub fn load() -> Config {
             });
         }
     }
+    if let Some(enabled) = raw.machine_sidebar.enabled {
+        config.machine_sidebar.enabled = enabled;
+    }
+    if let Some(width) = raw.machine_sidebar.width {
+        config.machine_sidebar.width = width.clamp(10, 60);
+    }
+    if let Some(max_width) = raw.machine_sidebar.max_width {
+        config.machine_sidebar.max_width = max_width;
+    }
+    let cloud = raw.machine_provider.cloud;
+    if let Some(enabled) = cloud.enabled {
+        config.machine_provider.cloud.enabled = enabled;
+    }
+    if let Some(host) = cloud.host {
+        let host = host.trim();
+        if host.is_empty() {
+            eprintln!("cmux-tui: ignoring empty machine_provider.cloud.host");
+        } else {
+            config.machine_provider.cloud.host = host.to_string();
+        }
+    }
+    config.machine_provider.cloud.user =
+        cloud.user.map(|user| user.trim().to_string()).filter(|user| !user.is_empty());
+    config.machine_provider.cloud.port = match cloud.port {
+        Some(0) => {
+            eprintln!("cmux-tui: ignoring zero machine_provider.cloud.port");
+            None
+        }
+        port => port,
+    };
+    config.machine_provider.cloud.identity_file = cloud
+        .identity_file
+        .map(|path| path.trim().to_string())
+        .filter(|path| !path.is_empty())
+        .map(PathBuf::from);
+    let mut machine_ids = HashSet::new();
+    for machine in raw.machines {
+        let id = machine.id.trim().to_string();
+        let name = machine.name.trim().to_string();
+        if id.is_empty() || name.is_empty() || !machine_ids.insert(id.clone()) {
+            eprintln!("cmux-tui: ignoring machine with an empty or duplicate id/name");
+            continue;
+        }
+        let target = match machine.target {
+            RawMachineTarget::Unix { socket } if !socket.trim().is_empty() => {
+                MachineTargetConfig::Unix { socket: PathBuf::from(socket) }
+            }
+            RawMachineTarget::Ssh { host, user, port, identity_file, session, binary }
+                if !host.trim().is_empty() =>
+            {
+                let port = normalize_ssh_machine_port(&id, port);
+                MachineTargetConfig::Ssh {
+                    host: host.trim().to_string(),
+                    user: user.filter(|value| !value.trim().is_empty()),
+                    port,
+                    identity_file: identity_file
+                        .filter(|value| !value.trim().is_empty())
+                        .map(PathBuf::from),
+                    session: session
+                        .filter(|value| !value.trim().is_empty())
+                        .unwrap_or_else(|| "main".to_string()),
+                    binary: binary
+                        .filter(|value| !value.trim().is_empty())
+                        .unwrap_or_else(|| "cmux-tui".to_string()),
+                }
+            }
+            _ => {
+                eprintln!("cmux-tui: ignoring machine {id:?} with an empty transport target");
+                continue;
+            }
+        };
+        config.machines.push(MachineConfig { id, name, subtitle: machine.subtitle, target });
+    }
     config.browser.chrome_binary = raw.browser.chrome_binary.filter(|s| !s.trim().is_empty());
     if let Some(mode) = raw.browser.mode {
         config.browser.mode = mode.into();
@@ -1197,6 +1475,16 @@ pub fn load() -> Config {
     config.server.ws_token = raw.server.ws_token.filter(|value| !value.trim().is_empty());
     config.keys.apply(&raw.keys);
     config
+}
+
+fn normalize_ssh_machine_port(id: &str, port: Option<u16>) -> Option<u16> {
+    match port {
+        Some(0) => {
+            eprintln!("cmux-tui: ignoring zero SSH machine port for {id:?}");
+            None
+        }
+        port => port,
+    }
 }
 
 pub fn apply_browser_to_surface_options(config: &Config, options: &mut SurfaceOptions) {
@@ -1929,12 +2217,41 @@ mod tests {
     }
 
     #[test]
+    fn machine_config_rejects_misspelled_and_cross_transport_fields() {
+        for invalid in [
+            r#"{"machines":[{"id":"mini","name":"Mini","transport":"ssh","host":"mini","sesion":"main"}]}"#,
+            r#"{"machines":[{"id":"mini","name":"Mini","transport":"ssh","host":"mini","socket":"/tmp/mux.sock"}]}"#,
+            r#"{"machines":[{"id":"mini","name":"Mini","transport":"unix","socket":"/tmp/mux.sock","host":"mini"}]}"#,
+        ] {
+            assert!(serde_json::from_str::<RawConfig>(invalid).is_err(), "accepted {invalid}");
+        }
+    }
+
+    #[test]
+    fn zero_static_ssh_port_falls_back_to_the_ssh_default() {
+        assert_eq!(normalize_ssh_machine_port("mini", Some(0)), None);
+        assert_eq!(normalize_ssh_machine_port("mini", Some(22)), Some(22));
+        assert_eq!(normalize_ssh_machine_port("mini", None), None);
+    }
+
+    #[test]
     fn parses_websocket_server_config() {
         let raw: RawConfig =
             serde_json::from_str(r#"{"server":{"ws":"127.0.0.1:7681","ws_token":"secret"}}"#)
                 .unwrap();
         assert_eq!(raw.server.ws.as_deref(), Some("127.0.0.1:7681"));
         assert_eq!(raw.server.ws_token.as_deref(), Some("secret"));
+    }
+
+    #[test]
+    fn cloud_provider_defaults_are_inert_and_target_cmux_cloud() {
+        let config = Config::default();
+
+        assert!(!config.machine_provider.cloud.enabled);
+        assert_eq!(config.machine_provider.cloud.host, "cmux.cloud");
+        assert_eq!(config.machine_provider.cloud.user, None);
+        assert_eq!(config.machine_provider.cloud.port, None);
+        assert_eq!(config.machine_provider.cloud.identity_file, None);
     }
 
     #[test]
@@ -2009,6 +2326,31 @@ mod tests {
                         "cwd": "/tmp"
                     }
                 },
+                "machine_sidebar": {
+                    "enabled": true,
+                    "width": 26,
+                    "max_width": 34
+                },
+                "machine_provider": {
+                    "cloud": {
+                        "enabled": true,
+                        "host": "edge.example.com",
+                        "user": "lawrence",
+                        "port": 2200,
+                        "identity_file": "/tmp/cloud-key"
+                    }
+                },
+                "machines": [
+                    {
+                        "id": "mini",
+                        "name": "Mac mini",
+                        "subtitle": "studio",
+                        "transport": "ssh",
+                        "host": "mini.local",
+                        "user": "lawrence",
+                        "session": "main"
+                    }
+                ],
                 "scrollbar": {"position": "border"},
                 "keys": {
                     "alt_shortcuts": false,
@@ -2040,6 +2382,28 @@ mod tests {
         assert_eq!(config.sidebar.width, 30);
         assert_eq!(config.sidebar.max_width, 38);
         assert_eq!(config.sidebar.view, SidebarView::Workspaces);
+        assert_eq!(
+            config.machine_sidebar,
+            MachineSidebar { enabled: true, width: 26, max_width: 34 }
+        );
+        assert_eq!(
+            config.machine_provider.cloud,
+            CloudProviderConfig {
+                enabled: true,
+                host: "edge.example.com".into(),
+                user: Some("lawrence".into()),
+                port: Some(2200),
+                identity_file: Some(PathBuf::from("/tmp/cloud-key")),
+            }
+        );
+        assert_eq!(config.machines.len(), 1);
+        assert_eq!(config.machines[0].id, "mini");
+        assert_eq!(config.machines[0].name, "Mac mini");
+        assert!(matches!(
+            &config.machines[0].target,
+            MachineTargetConfig::Ssh { host, user: Some(user), session, .. }
+                if host == "mini.local" && user == "lawrence" && session == "main"
+        ));
         let plugin = config.sidebar.plugin.as_ref().expect("sidebar plugin config");
         assert_eq!(plugin.command, vec!["/tmp/sidebar-plugin", "--mode", "test"]);
         assert_eq!(plugin.cwd.as_deref(), Some("/tmp"));
