@@ -54,48 +54,112 @@ extension WorkspaceShellView {
     /// One shared action path for customization sheets opened from the sidebar
     /// row or workspace title. Only fields edited from the sheet's initial
     /// snapshot are applied, so a concurrent update to an untouched field is
-    /// preserved. The Mac protocol applies one field per request; failed partial
-    /// saves keep the sheet open, and retry skips fields that already landed.
+    /// preserved. The Mac protocol applies one field per request, so this batches
+    /// the requests with a single owner-scoped refresh and rebases the sheet after
+    /// any partial success.
     var customizeWorkspaceClosure: WorkspaceCustomizationAction? {
         let store = store
         return { id, initialDraft, submittedDraft in
-            guard !Task.isCancelled else { return false }
+            guard !Task.isCancelled else { return .failure() }
             guard let workspace = store.workspaces.first(where: { $0.id == id }) else {
-                return true
+                return .success
             }
             let current = WorkspaceCustomizationDraft(workspace: workspace)
+            var landedDraft = current
+            var shouldRefresh = false
+
+            func failureResult() async -> WorkspaceCustomizationSaveResult {
+                if shouldRefresh {
+                    await store.refreshAfterWorkspaceMutation(id: id)
+                    shouldRefresh = false
+                }
+                return .failure(rebasedTo: landedDraft == initialDraft ? nil : landedDraft)
+            }
 
             if initialDraft.name != submittedDraft.name,
                current.name != submittedDraft.name {
-                let result = await store.renameWorkspace(id: id, title: submittedDraft.name)
+                let result = await store.renameWorkspace(
+                    id: id,
+                    title: submittedDraft.name,
+                    refreshAfterMutation: false
+                )
                 handleWorkspaceActionResult(result, action: .renameWorkspace)
-                guard case .success = result, !Task.isCancelled else { return false }
+                guard case .success = result, !Task.isCancelled else {
+                    return await failureResult()
+                }
+                shouldRefresh = true
+                landedDraft = WorkspaceCustomizationDraft(
+                    name: submittedDraft.name,
+                    customDescription: landedDraft.customDescription,
+                    customColorHex: landedDraft.customColorHex,
+                    isPinned: landedDraft.isPinned
+                )
             }
             if initialDraft.customDescription != submittedDraft.customDescription,
                current.customDescription != submittedDraft.customDescription {
                 let result = await store.setWorkspaceDescription(
                     id: id,
-                    submittedDraft.customDescription
+                    submittedDraft.customDescription,
+                    refreshAfterMutation: false
                 )
                 handleWorkspaceActionResult(result, action: .updateWorkspaceDescription)
-                guard case .success = result, !Task.isCancelled else { return false }
+                guard case .success = result, !Task.isCancelled else {
+                    return await failureResult()
+                }
+                shouldRefresh = true
+                landedDraft = WorkspaceCustomizationDraft(
+                    name: landedDraft.name,
+                    customDescription: submittedDraft.customDescription,
+                    customColorHex: landedDraft.customColorHex,
+                    isPinned: landedDraft.isPinned
+                )
             }
             if initialDraft.customColorHex != submittedDraft.customColorHex,
                current.customColorHex != submittedDraft.customColorHex {
-                let result = await store.setWorkspaceColor(id: id, submittedDraft.customColorHex)
+                let result = await store.setWorkspaceColor(
+                    id: id,
+                    submittedDraft.customColorHex,
+                    refreshAfterMutation: false
+                )
                 handleWorkspaceActionResult(result, action: .updateWorkspaceColor)
-                guard case .success = result, !Task.isCancelled else { return false }
+                guard case .success = result, !Task.isCancelled else {
+                    return await failureResult()
+                }
+                shouldRefresh = true
+                landedDraft = WorkspaceCustomizationDraft(
+                    name: landedDraft.name,
+                    customDescription: landedDraft.customDescription,
+                    customColorHex: submittedDraft.customColorHex,
+                    isPinned: landedDraft.isPinned
+                )
             }
             if initialDraft.isPinned != submittedDraft.isPinned,
                current.isPinned != submittedDraft.isPinned {
-                let result = await store.setWorkspacePinned(id: id, submittedDraft.isPinned)
+                let result = await store.setWorkspacePinned(
+                    id: id,
+                    submittedDraft.isPinned,
+                    refreshAfterMutation: false
+                )
                 handleWorkspaceActionResult(
                     result,
                     action: submittedDraft.isPinned ? .pinWorkspace : .unpinWorkspace
                 )
-                guard case .success = result else { return false }
+                guard case .success = result, !Task.isCancelled else {
+                    return await failureResult()
+                }
+                shouldRefresh = true
+                landedDraft = WorkspaceCustomizationDraft(
+                    name: landedDraft.name,
+                    customDescription: landedDraft.customDescription,
+                    customColorHex: landedDraft.customColorHex,
+                    isPinned: submittedDraft.isPinned
+                )
             }
-            return !Task.isCancelled
+            if shouldRefresh {
+                await store.refreshAfterWorkspaceMutation(id: id)
+                shouldRefresh = false
+            }
+            return Task.isCancelled ? await failureResult() : .success
         }
     }
 

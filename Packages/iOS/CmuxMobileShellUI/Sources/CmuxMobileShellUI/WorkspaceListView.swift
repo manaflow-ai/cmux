@@ -416,7 +416,7 @@ struct WorkspaceListView: View {
             if let workspaceID = workspacePendingCustomizationID,
                let workspace = workspaces.first(where: { $0.id == workspaceID }) {
                 WorkspaceCustomizationSheet(workspace: workspace) { initialDraft, submittedDraft in
-                    await customizeWorkspace?(workspaceID, initialDraft, submittedDraft) ?? false
+                    await customizeWorkspace?(workspaceID, initialDraft, submittedDraft) ?? .failure()
                 }
             }
         }

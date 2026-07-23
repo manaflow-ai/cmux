@@ -95,7 +95,7 @@ struct WorkspaceNavigationRow: View {
         }
         .sheet(isPresented: $isCustomizing) {
             WorkspaceCustomizationSheet(workspace: workspace) { initialDraft, submittedDraft in
-                await customizeWorkspace?(workspace.id, initialDraft, submittedDraft) ?? false
+                await customizeWorkspace?(workspace.id, initialDraft, submittedDraft) ?? .failure()
             }
         }
         .confirmationDialog(

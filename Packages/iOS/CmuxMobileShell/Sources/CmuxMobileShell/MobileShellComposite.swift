@@ -3962,11 +3962,15 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
     }
 
     /// Re-sync the authoritative workspace list for the Mac a mutation actually hit:
-    /// the foreground's coalesced refresh, or the owning secondary's coalesced
-    /// re-fetch (so a pin/close on a secondary row snaps to the Mac's real state).
+    /// the foreground Mac's own list, or the owning secondary's coalesced re-fetch
+    /// (so a pin/close on a secondary row snaps to the Mac's real state).
+    public func refreshAfterWorkspaceMutation(id: MobileWorkspacePreview.ID) async {
+        await refreshAfterWorkspaceMutation(workspaceMutationTarget(for: id))
+    }
+
     func refreshAfterWorkspaceMutation(_ target: WorkspaceMutationTarget) async {
         if target.isForeground {
-            await refreshWorkspaces()
+            await reloadWorkspaceListFromMac()
         } else if let macID = target.macDeviceID, let sub = secondaryMacSubscriptions[macID] {
             scheduleSecondaryRefresh(
                 macID: macID, client: sub.client, displayName: workspacesByMac[macID]?.displayName)

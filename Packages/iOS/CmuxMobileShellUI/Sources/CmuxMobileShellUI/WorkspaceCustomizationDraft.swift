@@ -32,8 +32,21 @@ struct WorkspaceCustomizationDraft: Equatable {
     }
 }
 
+struct WorkspaceCustomizationSaveResult: Equatable {
+    let succeeded: Bool
+    let rebasedDraft: WorkspaceCustomizationDraft?
+
+    static let success = WorkspaceCustomizationSaveResult(succeeded: true, rebasedDraft: nil)
+
+    static func failure(
+        rebasedTo rebasedDraft: WorkspaceCustomizationDraft? = nil
+    ) -> WorkspaceCustomizationSaveResult {
+        WorkspaceCustomizationSaveResult(succeeded: false, rebasedDraft: rebasedDraft)
+    }
+}
+
 typealias WorkspaceCustomizationAction = @MainActor (
     MobileWorkspacePreview.ID,
     WorkspaceCustomizationDraft,
     WorkspaceCustomizationDraft
-) async -> Bool
+) async -> WorkspaceCustomizationSaveResult

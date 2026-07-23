@@ -139,7 +139,8 @@ struct WorkspaceDetailView: View {
             )
             .sheet(isPresented: $isCustomizationPresented) {
                 WorkspaceCustomizationSheet(workspace: workspace) { initialDraft, submittedDraft in
-                    await customizeWorkspace?(workspace.id, initialDraft, submittedDraft) ?? false
+                    await customizeWorkspace?(workspace.id, initialDraft, submittedDraft)
+                        ?? .failure()
                 }
             }
             .mobileConnectionRecoveryOverlay(store: store, signOut: signOut)

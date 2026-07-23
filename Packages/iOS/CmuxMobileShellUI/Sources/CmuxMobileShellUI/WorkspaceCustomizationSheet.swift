@@ -8,7 +8,7 @@ struct WorkspaceCustomizationSheet: View {
     private let save: @MainActor (
         WorkspaceCustomizationDraft,
         WorkspaceCustomizationDraft
-    ) async -> Bool
+    ) async -> WorkspaceCustomizationSaveResult
     @Environment(\.dismiss) private var dismiss
     @State private var name: String
     @State private var customDescription: String
@@ -22,7 +22,7 @@ struct WorkspaceCustomizationSheet: View {
         save: @escaping @MainActor (
             WorkspaceCustomizationDraft,
             WorkspaceCustomizationDraft
-        ) async -> Bool
+        ) async -> WorkspaceCustomizationSaveResult
     ) {
         let draft = WorkspaceCustomizationDraft(workspace: workspace)
         _initialDraft = State(initialValue: draft)
@@ -169,10 +169,13 @@ struct WorkspaceCustomizationSheet: View {
         guard saveTask == nil else { return }
         let submittedDraft = draft
         saveTask = Task { @MainActor in
-            let succeeded = await save(initialDraft, submittedDraft)
+            let result = await save(initialDraft, submittedDraft)
             guard !Task.isCancelled else { return }
             saveTask = nil
-            if succeeded {
+            if let rebasedDraft = result.rebasedDraft {
+                initialDraft = rebasedDraft
+            }
+            if result.succeeded {
                 dismiss()
             }
         }
