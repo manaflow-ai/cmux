@@ -116,6 +116,30 @@ extension TerminalController {
         )
         return .ok(FeedSocketEncoding.payload(for: result))
     }
+
+    nonisolated func v2FeedPushExclusiveEventShapeMessage() -> String {
+        String(
+            localized: "feed.push.error.exclusiveEventShape",
+            defaultValue: "feed.push accepts either `event` or `events`, not both"
+        )
+    }
+
+    nonisolated func v2FeedPushRequiresEventMessage() -> String {
+        String(
+            localized: "feed.push.error.requiresEvent",
+            defaultValue: "feed.push requires an `event` object"
+        )
+    }
+
+    nonisolated func v2FeedPushDecodeFailedMessage(_ error: Error) -> String {
+        String.localizedStringWithFormat(
+            String(
+                localized: "feed.push.error.decodeFailed",
+                defaultValue: "feed.push event failed to decode: %@"
+            ),
+            error.localizedDescription
+        )
+    }
 }
 
 /// Written on the main actor and read after the blocking callback returns.

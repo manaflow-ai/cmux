@@ -5603,7 +5603,7 @@ class TerminalController {
         guard params["event"] == nil || params["events"] == nil else {
             return .err(
                 code: "invalid_params",
-                message: "feed.push accepts either `event` or `events`, not both",
+                message: v2FeedPushExclusiveEventShapeMessage(),
                 data: nil
             )
         }
@@ -5622,7 +5622,7 @@ class TerminalController {
         } else {
             return .err(
                 code: "invalid_params",
-                message: "feed.push requires an `event` object",
+                message: v2FeedPushRequiresEventMessage(),
                 data: nil
             )
         }
@@ -5636,7 +5636,7 @@ class TerminalController {
         } catch {
             return .err(
                 code: "invalid_params",
-                message: "feed.push event failed to decode: \(error)",
+                message: v2FeedPushDecodeFailedMessage(error),
                 data: nil
             )
         }
@@ -5648,7 +5648,7 @@ class TerminalController {
         }) else {
             return .err(
                 code: "invalid_params",
-                message: "feed.push requires an `event` object",
+                message: v2FeedPushRequiresEventMessage(),
                 data: nil
             )
         }
@@ -5658,7 +5658,7 @@ class TerminalController {
         guard let event = events.first, events.count == 1 else {
             return .err(
                 code: "invalid_params",
-                message: "feed.push requires an `event` object",
+                message: v2FeedPushRequiresEventMessage(),
                 data: nil
             )
         }
