@@ -157,6 +157,11 @@ extension RemoteTmuxController {
                 throw multiplexedMirrorFailure(
                     host: host, view: multiplexedViewsByHost[host.connectionHash])
             }
+            // Mirroring something is proof the credentials were accepted. Retiring the note here rather
+            // than only on a mirror's `.connected` edge matters because a mirror created after the
+            // shared stream is already connected never observes that transition, so a fresh attach
+            // would leave the note set and misreport the next unrelated failure as a login.
+            Self.hostsAwaitingCredentials.remove(host.connectionHash)
             if activate {
                 selectFirstMirrorWorkspace(for: host, in: targetManager)
                 _ = appDelegate.focusMainWindow(windowId: resolvedWindowId)
@@ -235,6 +240,7 @@ extension RemoteTmuxController {
             stopMultiplexedHost(host: host)
             throw failure
         }
+        Self.hostsAwaitingCredentials.remove(host.connectionHash)
         if activate {
             selectFirstMirrorWorkspace(for: host, in: targetManager)
             _ = appDelegate.focusMainWindow(windowId: resolvedWindowId)

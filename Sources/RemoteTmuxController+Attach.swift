@@ -134,6 +134,8 @@ extension RemoteTmuxController {
             throw Self.mirrorFailure(
                 destination: host.destination, awaitingCredentials: readiness.awaitingCredentials)
         }
+        // Same on the dedicated path: a mirror published, so the host authenticated.
+        Self.hostsAwaitingCredentials.remove(host.connectionHash)
 
         if let bootstrapWorkspaceId,
            targetManager.tabs.count > 1,
@@ -513,6 +515,12 @@ extension RemoteTmuxController {
     /// different case and is already handled by the wait loop.
     func noteMirrorConnected(host: RemoteTmuxHost) {
         let key = host.connectionHash
+        // Reaching `.connected` is what proves the credentials were accepted, so it is also what
+        // retires the "this host is waiting for a login" note. Left set, the note would outlive the
+        // prompt that produced it and every later failure on this host — a plain network outage
+        // included — would be reported as needing a login: the misdiagnosis this note exists to
+        // prevent, in mirror image and permanent.
+        Self.hostsAwaitingCredentials.remove(key)
         if loginOffers.hasOffer(host: key) {
             Self.logger.info("reconnect-auth: \(host.destination, privacy: .public) reconnected; offer released")
             if let offer = loginOffers.openedWorkspace(host: key) {
