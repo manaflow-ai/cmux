@@ -280,7 +280,10 @@ function MachineView() {
         <div className="space-y-2">
           {sessions.data?.map((session) => (
             <article key={session.id} className="flex items-center gap-3 rounded-xl border border-border p-3">
-              <span aria-hidden="true" className="size-2 rounded-full bg-emerald-500" />
+              <span
+                aria-hidden="true"
+                className={`size-2 rounded-full ${sessionStatusDotClass(session.status)}`}
+              />
               <div className="min-w-0 flex-1">
                 <h4 className="truncate text-sm font-medium">{session.title || t("untitledSession")}</h4>
                 <p className="mt-0.5 text-xs text-muted">{t("sessionUpdated", { date: formatDate(session.updatedAt) })}</p>
@@ -328,6 +331,12 @@ function StatusPill({ status }: { status: CloudMachine["status"] }) {
       ? "bg-red-500/12 text-red-700 dark:text-red-400"
       : "bg-amber-500/12 text-amber-700 dark:text-amber-400";
   return <span className={`rounded-full px-2 py-1 text-[11px] font-semibold ${tone}`}>{t(status)}</span>;
+}
+
+function sessionStatusDotClass(status: "running" | "detached" | "exited" | "closed"): string {
+  if (status === "running") return "bg-emerald-500";
+  if (status === "detached") return "bg-amber-500";
+  return "bg-muted";
 }
 
 function EmptyMachines() {

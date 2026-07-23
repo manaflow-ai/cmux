@@ -3,6 +3,8 @@ import { readFile } from "node:fs/promises";
 import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
 
+import { loadMessages } from "../i18n/messages";
+
 const webDir = join(dirname(fileURLToPath(import.meta.url)), "..");
 
 describe("authenticated cloud portal routing", () => {
@@ -34,5 +36,12 @@ describe("authenticated cloud portal routing", () => {
     expect(portal).toContain('path: "/activity"');
     expect(portal).toContain('path: "/machines/$machineId"');
     expect(portal).toContain("<RouterProvider router={router} />");
+  });
+
+  test("falls back to the complete English portal catalog for other locales", async () => {
+    const messages = await loadMessages("fr");
+    const cloud = (messages.dashboard as { cloud: { title: string } }).cloud;
+
+    expect(cloud.title).toBe("Cloud workspace");
   });
 });
