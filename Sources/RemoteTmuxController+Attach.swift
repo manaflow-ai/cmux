@@ -123,14 +123,16 @@ extension RemoteTmuxController {
         // Measured on a real host, and cmux reported that RPC as success, leaving an empty
         // workspace whose only surface was a local placeholder shell. So a mirror only counts once
         // its connection has published a topology.
-        let workspaceIds = await mirrorsWithPublishedTopology(
+        let readiness = await mirrorsWithPublishedTopology(
             host: host, workspaceIds: mirroredWorkspaceIds, in: targetManager)
+        let workspaceIds = readiness.readyWorkspaceIds
         guard !workspaceIds.isEmpty else {
             cleanUpTransportAfterFailedMirror(host: host)
             if windowTarget == .dedicatedNewWindow {
                 appDelegate.discardMainWindowWithoutClosedHistory(windowId: resolvedWindowId)
             }
-            throw RemoteTmuxError.unreachable("could not mirror any tmux session on \(host.destination)")
+            throw Self.mirrorFailure(
+                destination: host.destination, awaitingCredentials: readiness.awaitingCredentials)
         }
 
         if let bootstrapWorkspaceId,
@@ -190,13 +192,32 @@ extension RemoteTmuxController {
     /// the per-mirror budget times the session count, which measured longer than the socket RPC's
     /// own 60-second timeout on a host with eight sessions: the RPC gave up first and every empty
     /// workspace survived, which is the bug this function exists to prevent.
+    /// What a readiness barrier learned: which mirrors are usable, and whether the ones that are not
+    /// were waiting to be authenticated.
+    struct MirrorReadiness {
+        let readyWorkspaceIds: [UUID]
+        let awaitingCredentials: Bool
+    }
+
+    /// The single place that decides what a host with nothing mirrored should say.
+    ///
+    /// A transport that authenticates itself produces no error — it prints a prompt and waits — so
+    /// without this the deadline expires first and the user is told the host is unreachable, which
+    /// sends them to the network instead of their second factor. The host answered.
+    static func mirrorFailure(destination: String, awaitingCredentials: Bool) -> RemoteTmuxError {
+        if awaitingCredentials { return .authenticationRequired(destination) }
+        return .unreachable("could not mirror any tmux session on \(destination)")
+    }
+
     func mirrorsWithPublishedTopology(
         host: RemoteTmuxHost,
         workspaceIds: [UUID],
         in tabManager: TabManager,
         timeoutSeconds: Double = RemoteTmuxController.mirrorTopologyBarrierSeconds
-    ) async -> [UUID] {
-        guard !workspaceIds.isEmpty else { return [] }
+    ) async -> MirrorReadiness {
+        guard !workspaceIds.isEmpty else {
+            return MirrorReadiness(readyWorkspaceIds: [], awaitingCredentials: false)
+        }
 
         // Pair each workspace with the connection to wait on, if any. A source that is not a
         // dedicated control connection (the multiplexer's channel) already gates on its own
@@ -215,7 +236,9 @@ extension RemoteTmuxController {
             }
             pending.append((workspaceId, connection))
         }
-        guard !pending.isEmpty else { return ready }
+        guard !pending.isEmpty else {
+            return MirrorReadiness(readyWorkspaceIds: ready, awaitingCredentials: false)
+        }
 
         let published: [UUID: Bool] = await withTaskGroup(
             of: (UUID, Bool).self
@@ -245,10 +268,14 @@ extension RemoteTmuxController {
             return results
         }
 
+        var awaitingCredentials = false
         for entry in pending {
             if published[entry.workspaceId] == true {
                 ready.append(entry.workspaceId)
             } else {
+                // Ask before detaching. This is the only moment the connection that saw the prompt is
+                // still around to be asked; the caller decides what to report long after it is gone.
+                if entry.connection.isAwaitingCredentials { awaitingCredentials = true }
                 #if DEBUG
                 cmuxDebugLog(
                     "remote-tmux: mirror for \(entry.connection.sessionName) published no topology; dropping it")
@@ -259,7 +286,7 @@ extension RemoteTmuxController {
                 }
             }
         }
-        return ready
+        return MirrorReadiness(readyWorkspaceIds: ready, awaitingCredentials: awaitingCredentials)
     }
 
     /// Drops a just-created mirror if its stream never publishes a topology.
@@ -306,14 +333,14 @@ extension RemoteTmuxController {
             if let workspace = manager.tabs.first(where: { $0.id == workspaceId }) {
                 manager.closeWorkspace(workspace, recordHistory: false)
             }
-            self.reportNewSessionFailure(
-                host,
-                String(
+            // Same question, asked while this connection is still in scope.
+            let detail = connection.isAwaitingCredentials
+                ? RemoteTmuxError.authenticationRequired(host.destination).message
+                : String(
                     localized: "remoteTmux.mirrorPublishedNoTopology",
                     defaultValue: "the connection reached tmux but no window ever arrived"
-                ),
-                manager
-            )
+                )
+            self.reportNewSessionFailure(host, detail, manager)
         }
     }
 
