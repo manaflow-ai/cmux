@@ -67,6 +67,74 @@ struct ArtifactRuntimeLifecycleTests {
         #expect(service.debugSessionDump().first?["tailer_active"] as? Bool == true)
     }
 
+    @Test("Enabling automatic capture does not resolve unrecorded Codex transcripts")
+    func enablingCaptureSkipsUnrecordedCodexTranscripts() throws {
+        let root = try temporaryDirectory()
+        defer { try? FileManager.default.removeItem(at: root) }
+        var captureEnabled = false
+        let service = AgentChatTranscriptService(
+            registry: AgentChatSessionRegistry(),
+            resolver: AgentChatTranscriptResolver(homeDirectory: root, environment: [:]),
+            hasEventSubscribers: { false },
+            artifactCaptureCoordinator: AgentArtifactCaptureCoordinator(
+                captureService: ArtifactCaptureService(store: LocalArtifactRepository())
+            ),
+            isAutomaticArtifactCaptureEnabled: { captureEnabled }
+        )
+        service.noteHookEvent(WorkstreamEvent(
+            sessionId: UUID().uuidString,
+            hookEventName: .sessionStart,
+            source: "codex",
+            workspaceId: UUID().uuidString,
+            surfaceId: nil,
+            transcriptPath: nil,
+            cwd: root.path,
+            ppid: nil,
+            receivedAt: .now
+        ))
+
+        captureEnabled = true
+        service.reconcileAutomaticArtifactCaptureAvailability()
+
+        let session = try #require(service.debugSessionDump().first)
+        #expect(session["tailer_active"] as? Bool == false)
+        #expect(session["resolution_failed"] as? Bool == false)
+    }
+
+    @Test("Enabling automatic capture adopts a recorded Codex transcript")
+    func enablingCaptureAdoptsRecordedCodexTranscript() throws {
+        let root = try temporaryDirectory()
+        defer { try? FileManager.default.removeItem(at: root) }
+        let transcript = root.appendingPathComponent("recorded.jsonl")
+        try Data().write(to: transcript)
+        var captureEnabled = false
+        let service = AgentChatTranscriptService(
+            registry: AgentChatSessionRegistry(),
+            resolver: AgentChatTranscriptResolver(homeDirectory: root, environment: [:]),
+            hasEventSubscribers: { false },
+            artifactCaptureCoordinator: AgentArtifactCaptureCoordinator(
+                captureService: ArtifactCaptureService(store: LocalArtifactRepository())
+            ),
+            isAutomaticArtifactCaptureEnabled: { captureEnabled }
+        )
+        service.noteHookEvent(WorkstreamEvent(
+            sessionId: UUID().uuidString,
+            hookEventName: .sessionStart,
+            source: "codex",
+            workspaceId: UUID().uuidString,
+            surfaceId: nil,
+            transcriptPath: transcript.path,
+            cwd: root.path,
+            ppid: nil,
+            receivedAt: .now
+        ))
+
+        captureEnabled = true
+        service.reconcileAutomaticArtifactCaptureAvailability()
+
+        #expect(service.debugSessionDump().first?["tailer_active"] as? Bool == true)
+    }
+
     private func transcriptFixture() throws -> (root: URL, event: WorkstreamEvent) {
         let root = try temporaryDirectory()
         let transcript = root.appendingPathComponent("transcript.jsonl")
