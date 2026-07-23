@@ -186,11 +186,11 @@ _DURATION_COMPARE = re.compile(
     """
 )
 
-# High-confidence real-sleep call sites. The receiver-qualified forms are
-# limited to well-known runtime APIs. Arbitrary `clock.sleep(...)` calls and
-# implicit Swift enum values such as `.sleep(...)` stay silent because resolving
-# those correctly requires compiler semantics.
-_SLEEP_CALL = re.compile(
+# High-confidence real-sleep call sites, scoped to the source language where
+# each spelling identifies a known runtime API. Arbitrary `clock.sleep(...)`
+# calls and implicit Swift enum values such as `.sleep(...)` stay silent because
+# resolving those correctly requires compiler semantics.
+_SWIFT_SLEEP_CALL = re.compile(
     r"""(?x)
     (?<![.\w])sleep\s*\(                  # unqualified POSIX sleep(...)
   | (?<![.\w])usleep\s*\(
@@ -198,11 +198,46 @@ _SLEEP_CALL = re.compile(
   | (?<![.\w])(?:Darwin|Glibc)\.(?:sleep|usleep|nanosleep)\s*\(
   | (?<![.\w])(?:Foundation\.)?Thread\.sleep\s*\(
   | (?<![.\w])Task(?:\s*<[^>\n]+>)?\s*\.sleep\s*\(
-  | (?<![.\w])(?:time|asyncio|trio|anyio|gevent)\.sleep\s*\(
-  | (?<![.\w])Bun\.sleep\s*\(
+    """
+)
+_PYTHON_SLEEP_MODULES = frozenset(("time", "asyncio", "trio", "anyio", "gevent"))
+_PYTHON_QUALIFIED_SLEEP = re.compile(
+    r"(?<![.\w])(?P<name>[A-Za-z_]\w*)\.sleep\s*\("
+)
+_PYTHON_BARE_CALL = re.compile(r"(?<![.\w])(?P<name>[A-Za-z_]\w*)\s*\(")
+_PYTHON_MODULE_IMPORT = re.compile(
+    r"^\s*import\s+"
+    r"(?P<module>time|asyncio|trio|anyio|gevent)"
+    r"(?:\s+as\s+(?P<alias>[A-Za-z_]\w*))?\b"
+)
+_PYTHON_SLEEP_IMPORT = re.compile(
+    r"^\s*from\s+(?P<module>time|asyncio)\s+import\s+sleep"
+    r"(?:\s+as\s+(?P<alias>[A-Za-z_]\w*))?\b"
+)
+_PYTHON_ASSIGNMENT = re.compile(
+    r"^(?!\s*(?:if|while|assert|return|def|class)\b)\s*"
+    r"(?P<targets>[^=]+?)\s*(?::[^=]+)?=(?!=)"
+)
+_PYTHON_FUNCTION_START = re.compile(
+    r"^\s*(?:async\s+)?def\s+(?P<name>[A-Za-z_]\w*)\s*"
+    r"\((?P<parameters>.*)$"
+)
+_PYTHON_PARAMETER = re.compile(
+    r"(?:^|,)\s*\*{0,2}(?P<name>[A-Za-z_]\w*)"
+)
+_PYTHON_CLASS = re.compile(r"^\s*class\s+(?P<name>[A-Za-z_]\w*)\b")
+_PYTHON_DEL = re.compile(r"^\s*del\s+(?P<names>.+)$")
+_PYTHON_FOR_TARGET = re.compile(
+    r"^\s*(?:async\s+)?for\s+(?P<targets>.+?)\s+in\b"
+)
+_PYTHON_AS_TARGET = re.compile(r"\bas\s+(?P<name>[A-Za-z_]\w*)\b")
+_JS_SLEEP_CALL = re.compile(
+    r"""(?x)
+    (?<![.\w])Bun\.sleep\s*\(
   | (?<![.\w])setTimeout\s*\(
     """
 )
+_JS_SUFFIXES = (".ts", ".tsx", ".js", ".mjs")
 
 _SLASH_NONCODE_MARKER = re.compile(r'//|/\*|"""|\'\'\'|["\'`]')
 _HASH_NONCODE_MARKER = re.compile(r'#|"""|\'\'\'|["\']')
@@ -218,7 +253,9 @@ _BIND_HINTS = ("bind", "connect", "connect_ex", "createServer")
 # literal ("sleep 5" inside a terminal fixture), never a real delay. Requiring
 # the bare form to sit at statement start (optionally after `;`, `&&`, `||`, or a
 # pipe) keeps it from firing on `"... sleep 5 ..."` substrings.
-_SHELL_BARE_SLEEP = re.compile(r"""(?x) (?:^|[;&|]) \s* sleep \s+ [\d.]""")
+_SHELL_BARE_SLEEP = re.compile(
+    r"""(?x) (?:^|[;&|]|\$\() \s* sleep \s+ [\d.]"""
+)
 
 # Loop-body markers: if the sleep line itself is a loop header or sits in an
 # obvious poll, we treat it as an allowed deadline-bounded poll, not a sync hack.
@@ -451,6 +488,139 @@ def _sleep_in_loop(lines: list[str], idx: int) -> bool:
     return False
 
 
+def _sleep_call_pattern(path_suffix: str) -> Optional[re.Pattern[str]]:
+    if path_suffix == ".swift":
+        return _SWIFT_SLEEP_CALL
+    if path_suffix in _JS_SUFFIXES:
+        return _JS_SLEEP_CALL
+    return None
+
+
+def _python_shadowed_names(line: str, candidates: set[str]) -> set[str]:
+    """Return conservatively rebound Python sleep module/function names."""
+    shadowed: set[str] = set()
+    for pattern in (_PYTHON_ASSIGNMENT, _PYTHON_FOR_TARGET):
+        match = pattern.search(line)
+        if match:
+            target_names = set(
+                re.findall(r"\b[A-Za-z_]\w*\b", match.group("targets"))
+            )
+            shadowed.update(target_names & candidates)
+
+    class_definition = _PYTHON_CLASS.search(line)
+    if class_definition and class_definition.group("name") in candidates:
+        shadowed.add(class_definition.group("name"))
+
+    if not line.lstrip().startswith(("import ", "from ")):
+        shadowed.update(
+            match.group("name")
+            for match in _PYTHON_AS_TARGET.finditer(line)
+            if match.group("name") in candidates
+        )
+
+    deletion = _PYTHON_DEL.search(line)
+    if deletion:
+        deleted = set(re.findall(r"\b[A-Za-z_]\w*\b", deletion.group("names")))
+        shadowed.update(deleted & candidates)
+    return shadowed
+
+
+def _python_real_sleep_lines(masked_lines: list[str]) -> set[int]:
+    """Locate direct Python sleep APIs while aliases remain unshadowed."""
+    active_modules = set(_PYTHON_SLEEP_MODULES)
+    active_functions: set[str] = set()
+    sleep_lines: set[int] = set()
+    pending_parameters: Optional[str] = None
+
+    for idx, line in enumerate(masked_lines):
+        candidates = active_modules | active_functions
+        shadowed = _python_shadowed_names(line, candidates)
+
+        function = _PYTHON_FUNCTION_START.search(line)
+        in_function_header = function is not None or pending_parameters is not None
+        if function:
+            if function.group("name") in candidates:
+                shadowed.add(function.group("name"))
+            pending_parameters = function.group("parameters")
+        elif pending_parameters is not None:
+            pending_parameters += "\n" + line
+
+        if pending_parameters is not None and ")" in pending_parameters:
+            parameters = pending_parameters.split(")", maxsplit=1)[0]
+            shadowed.update(
+                match.group("name")
+                for match in _PYTHON_PARAMETER.finditer(parameters)
+                if match.group("name") in candidates
+            )
+            pending_parameters = None
+
+        active_modules.difference_update(shadowed)
+        active_functions.difference_update(shadowed)
+
+        # Only module-scope imports establish aliases. Propagating an alias out
+        # of a nested scope would create a false positive elsewhere in the file.
+        if line == line.lstrip():
+            module_import = _PYTHON_MODULE_IMPORT.search(line)
+            if module_import:
+                active_modules.add(
+                    module_import.group("alias")
+                    or module_import.group("module")
+                )
+            sleep_import = _PYTHON_SLEEP_IMPORT.search(line)
+            if sleep_import:
+                active_functions.add(sleep_import.group("alias") or "sleep")
+
+        if in_function_header:
+            continue
+
+        qualified_sleep = any(
+            match.group("name") in active_modules
+            for match in _PYTHON_QUALIFIED_SLEEP.finditer(line)
+        )
+        bare_sleep = any(
+            match.group("name") in active_functions
+            for match in _PYTHON_BARE_CALL.finditer(line)
+        )
+        if qualified_sleep or bare_sleep:
+            sleep_lines.add(idx)
+
+    return sleep_lines
+
+
+def _matching_delimiter_end(
+    line: str,
+    open_index: int,
+    open_delimiter: str,
+    close_delimiter: str,
+) -> Optional[int]:
+    """Return the index after a same-line balanced interpolation delimiter."""
+    depth = 0
+    quote: Optional[str] = None
+    i = open_index
+    while i < len(line):
+        char = line[i]
+        if quote:
+            if char == "\\":
+                i += 2
+                continue
+            if char == quote:
+                quote = None
+            i += 1
+            continue
+        if char in ('"', "'", "`"):
+            quote = char
+            i += 1
+            continue
+        if char == open_delimiter:
+            depth += 1
+        elif char == close_delimiter:
+            depth -= 1
+            if depth == 0:
+                return i + 1
+        i += 1
+    return None
+
+
 def _mask_noncode(lines: list[str], path_suffix: str) -> list[str]:
     """Replace quoted strings and comments while preserving line positions."""
     masked_lines: list[str] = []
@@ -481,6 +651,41 @@ def _mask_noncode(lines: list[str], path_suffix: str) -> list[str]:
             if quote:
                 quote_end = line.find(quote, i)
                 escape = line.find("\\", i)
+                interpolation = None
+                if path_suffix == ".sh" and quote == '"':
+                    interpolation = ("$(", "(", ")")
+                elif path_suffix in _JS_SUFFIXES and quote == "`":
+                    interpolation = ("${", "{", "}")
+                if interpolation is not None:
+                    token, open_delimiter, close_delimiter = interpolation
+                    interpolation_start = line.find(token, i)
+                    if interpolation_start >= 0 and (
+                        quote_end < 0 or interpolation_start < quote_end
+                    ) and (
+                        escape < 0 or interpolation_start < escape
+                    ):
+                        interpolation_end = _matching_delimiter_end(
+                            line,
+                            interpolation_start + 1,
+                            open_delimiter,
+                            close_delimiter,
+                        )
+                        if interpolation_end is not None:
+                            masked[i:interpolation_start] = " " * (
+                                interpolation_start - i
+                            )
+                            inner_start = interpolation_start + len(token)
+                            inner_end = interpolation_end - 1
+                            inner = line[inner_start:inner_end]
+                            inner_masked = _mask_noncode(
+                                [inner],
+                                path_suffix,
+                            )[0]
+                            masked[interpolation_start:interpolation_end] = (
+                                list(token + inner_masked + close_delimiter)
+                            )
+                            i = interpolation_end
+                            continue
                 if escape >= 0 and (quote_end < 0 or escape < quote_end):
                     end = min(len(line), escape + 2)
                     masked[i:end] = " " * (end - i)
@@ -524,10 +729,16 @@ def detect_sleep_then_assert(
     masked_lines: list[str],
     idx: int,
     path_suffix: str,
+    python_sleep_lines: Optional[set[int]] = None,
 ) -> bool:
     """Sleep on lines[idx] followed by an assertion within 3 non-blank lines."""
     line = masked_lines[idx]
-    is_sleep = bool(_SLEEP_CALL.search(line))
+    sleep_pattern = _sleep_call_pattern(path_suffix)
+    is_sleep = (
+        idx in python_sleep_lines
+        if python_sleep_lines is not None
+        else bool(sleep_pattern and sleep_pattern.search(line))
+    )
     if not is_sleep and path_suffix == ".sh":
         is_sleep = bool(_SHELL_BARE_SLEEP.search(line))
     if not is_sleep:
@@ -575,12 +786,24 @@ def scan_text(rel_posix: str, text: str) -> list[Finding]:
     suffix = pathlib.PurePosixPath(rel_posix).suffix
     raw_lines = text.splitlines()
     code_lines = [_strip_comment(line, suffix) for line in raw_lines]
-    has_sleep_candidate = bool(_SLEEP_CALL.search(text))
+    sleep_pattern = _sleep_call_pattern(suffix)
+    has_sleep_candidate = (
+        "sleep" in text
+        if suffix == ".py"
+        else bool(sleep_pattern and sleep_pattern.search(text))
+    )
     if not has_sleep_candidate and suffix == ".sh":
         has_sleep_candidate = bool(_SHELL_BARE_SLEEP.search(text))
     masked_lines = (
         _mask_noncode(raw_lines, suffix) if has_sleep_candidate else code_lines
     )
+    python_sleep_lines = (
+        _python_real_sleep_lines(masked_lines)
+        if suffix == ".py" and has_sleep_candidate
+        else None
+    )
+    if suffix == ".py":
+        has_sleep_candidate = bool(python_sleep_lines)
     findings: list[Finding] = []
 
     for i, code in enumerate(code_lines):
@@ -599,8 +822,18 @@ def scan_text(rel_posix: str, text: str) -> list[Finding]:
             findings.append(Finding(rel_posix, line_no, RULE_FIXED_PORT_BIND, snippet))
         if (
             has_sleep_candidate
-            and ("sleep" in code or "setTimeout" in code)
-            and detect_sleep_then_assert(code_lines, masked_lines, i, suffix)
+            and (
+                (python_sleep_lines is not None and i in python_sleep_lines)
+                or "sleep" in code
+                or "setTimeout" in code
+            )
+            and detect_sleep_then_assert(
+                code_lines,
+                masked_lines,
+                i,
+                suffix,
+                python_sleep_lines,
+            )
         ):
             findings.append(Finding(rel_posix, line_no, RULE_SLEEP_THEN_ASSERT, snippet))
 
@@ -735,6 +968,20 @@ def _self_test() -> int:
             {RULE_SLEEP_THEN_ASSERT},
         ),
         (
+            "tests/time-alias.py",
+            "import time as clock_time\n"
+            "clock_time.sleep(0.3)\n"
+            "assert widget.is_rendered()\n",
+            {RULE_SLEEP_THEN_ASSERT},
+        ),
+        (
+            "tests/sleep-alias.py",
+            "from asyncio import sleep as pause\n"
+            "await pause(0.3)\n"
+            "assert widget.is_rendered()\n",
+            {RULE_SLEEP_THEN_ASSERT},
+        ),
+        (
             "cmuxUITests/f.swift",
             "try await Task.sleep(nanoseconds: 300_000_000)\nXCTAssertTrue(view.exists)\n",
             {RULE_SLEEP_THEN_ASSERT},
@@ -747,6 +994,24 @@ def _self_test() -> int:
         (
             "cmuxTests/glibc-nanosleep.swift",
             "Glibc.nanosleep(nil, nil)\n#expect(finished)\n",
+            {RULE_SLEEP_THEN_ASSERT},
+        ),
+        (
+            "tests/interpolation.sh",
+            'actual="$(start_job; sleep 1; read_state)"\n'
+            'assert "$actual" "$expected"\n',
+            {RULE_SLEEP_THEN_ASSERT},
+        ),
+        (
+            "tests/direct-interpolation.sh",
+            'actual="$(sleep 1)"\n'
+            'assert "$actual" "$expected"\n',
+            {RULE_SLEEP_THEN_ASSERT},
+        ),
+        (
+            "web/tests/interpolation.ts",
+            "const actual = `${await Bun.sleep(1)}`\n"
+            "expect(actual).toBeTruthy()\n",
             {RULE_SLEEP_THEN_ASSERT},
         ),
         (
@@ -787,6 +1052,37 @@ def _self_test() -> int:
             "fixture.time.sleep(0.1)\n"
             "assert completed\n",
         ),
+        (
+            "tests/shadowed-runtime.py",
+            "time = fake_clock\n"
+            "time.sleep(0.1)\n"
+            "assert completed\n"
+            "def wait(asyncio):\n"
+            "    asyncio.sleep(0.1)\n"
+            "    assert completed\n",
+        ),
+        # Runtime spellings only identify direct APIs in their own language.
+        (
+            "cmuxTests/cross-language.swift",
+            "Bun.sleep(1)\n"
+            "#expect(completed)\n"
+            "time.sleep(1)\n"
+            "#expect(completed)\n",
+        ),
+        (
+            "tests/cross-language.py",
+            "Bun.sleep(1)\n"
+            "assert completed\n"
+            "setTimeout(done, 1)\n"
+            "assert completed\n",
+        ),
+        (
+            "web/tests/cross-language.ts",
+            "time.sleep(1)\n"
+            "expect(completed).toBe(true)\n"
+            "Task.sleep(1)\n"
+            "expect(completed).toBe(true)\n",
+        ),
         # Known sleep API names inside strings or comments are fixture data.
         (
             "cmuxTests/sleep-text.swift",
@@ -794,6 +1090,22 @@ def _self_test() -> int:
             "#expect(source.isEmpty == false)\n"
             "// Thread.sleep(forTimeInterval: 1)\n"
             "#expect(finished)\n",
+        ),
+        (
+            "web/tests/sleep-text.ts",
+            "const source = `setTimeout(resolve, 1)`\n"
+            "expect(source).toBeTruthy()\n"
+            'const nested = `${"Bun.sleep(1)"}`\n'
+            "expect(nested).toBeTruthy()\n"
+            "const escaped = `\\${Bun.sleep(1)}`\n"
+            "expect(escaped).toBeTruthy()\n",
+        ),
+        (
+            "tests/sleep-text.sh",
+            "actual=\"$(printf 'sleep 1')\"\n"
+            'assert "$actual" "$expected"\n'
+            'escaped="\\$(sleep 1)"\n'
+            'assert "$escaped" "$expected"\n',
         ),
         # Deterministic scenario-pacing sleep with NO following assertion.
         (
