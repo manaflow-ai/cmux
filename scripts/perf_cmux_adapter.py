@@ -381,24 +381,39 @@ class CmuxRuntimeAdapter:
         self._terminal_actual_ids.clear()
         self._browser_actual_ids.clear()
         terminals = expected["terminal_surfaces"]
-        for index in range(1, terminals + 1):
-            self._terminal_actual_ids[f"terminal-{index:03d}"] = self._new_surface(
-                "terminal"
+        if terminals:
+            respawned = self._runner.rpc(
+                "surface.respawn",
+                {
+                    "workspace_id": self._workspace_id,
+                    "surface_id": initial_terminal,
+                    "working_directory": str(self.config.output_root),
+                    "focus": False,
+                },
+                timeout=self.config.rpc_timeout_s,
             )
+            if _extract_ref(respawned, "surface") != initial_terminal:
+                raise ValueError("startup terminal identity changed while setting fixture cwd")
+            self._terminal_actual_ids["terminal-001"] = initial_terminal
+            for index in range(2, terminals + 1):
+                self._terminal_actual_ids[f"terminal-{index:03d}"] = self._new_surface(
+                    "terminal"
+                )
         for browser in plan.browser_surfaces:
             self._browser_actual_ids[browser.surface_id] = self._new_surface(
                 "browser", url=browser.url
             )
-        self._runner.run_cli(
-            [
-                "close-surface",
-                "--workspace",
-                self._workspace_id,
-                "--surface",
-                initial_terminal,
-            ],
-            timeout=self.config.rpc_timeout_s,
-        )
+        if terminals == 0:
+            self._runner.run_cli(
+                [
+                    "close-surface",
+                    "--workspace",
+                    self._workspace_id,
+                    "--surface",
+                    initial_terminal,
+                ],
+                timeout=self.config.rpc_timeout_s,
+            )
 
         self._runner.run_cli(
             ["select-workspace", "--workspace", self._workspace_id],
