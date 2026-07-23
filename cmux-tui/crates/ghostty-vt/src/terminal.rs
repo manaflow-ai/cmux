@@ -1640,6 +1640,14 @@ mod tests {
     }
 
     #[test]
+    fn cursor_prompt_detection_follows_live_semantics_after_input_wraps() {
+        let mut terminal = Terminal::new(10, 3, 0, Callbacks::default()).unwrap();
+        terminal.vt_write(b"\x1b]133;A\x07$ \x1b]133;B\x07123456789\x1b[B");
+
+        assert!(terminal.cursor_is_at_prompt());
+    }
+
+    #[test]
     fn bounded_vt_replay_keeps_the_latest_screen_after_large_history() {
         let mut source = Terminal::new(80, 24, 2 * 1024 * 1024, Callbacks::default()).unwrap();
         let wide_line = "x".repeat(2048);

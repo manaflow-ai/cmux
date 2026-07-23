@@ -230,4 +230,17 @@ mod tests {
             );
         }
     }
+
+    #[test]
+    fn shifted_punctuation_does_not_invent_a_us_layout_identity() {
+        let event = KeyEvent::new(
+            KeyCode::Char('&'),
+            KeyModifiers::ALT | KeyModifiers::SHIFT,
+        );
+        let input = key_input_from(&event).unwrap();
+
+        assert_eq!(input.key, sys::GHOSTTY_KEY_UNIDENTIFIED);
+        assert_eq!(input.unshifted_codepoint, '&' as u32);
+        assert_eq!(input.utf8, "&");
+    }
 }
