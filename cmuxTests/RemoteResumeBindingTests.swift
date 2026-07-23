@@ -380,6 +380,87 @@ struct RemoteResumeBindingTests {
     }
 
     @Test
+    func hookResumeBindingClearRejectsStaleEventTimeButManualClearRemainsAuthoritative() throws {
+        _ = NSApplication.shared
+        let previousAppDelegate = AppDelegate.shared
+        let app = AppDelegate()
+        let windowID = UUID()
+        let window = makeMainWindow(id: windowID)
+        defer {
+            TerminalController.shared.setActiveTabManager(nil)
+            app.unregisterMainWindowContextForTesting(windowId: windowID)
+            AppDelegate.shared = previousAppDelegate
+            window.orderOut(nil)
+        }
+
+        let manager = TabManager(autoWelcomeIfNeeded: false)
+        app.registerMainWindow(
+            window,
+            windowId: windowID,
+            tabManager: manager,
+            sidebarState: SidebarState(),
+            sidebarSelectionState: SidebarSelectionState(),
+            fileExplorerState: FileExplorerState()
+        )
+        TerminalController.shared.setActiveTabManager(manager)
+
+        let workspace = try #require(manager.selectedWorkspace)
+        let surfaceID = try #require(workspace.focusedPanelId)
+        let setResult = try v2Result(request: [
+            "id": "ordered-resume-set",
+            "method": "surface.resume.set",
+            "params": [
+                "window_id": windowID.uuidString,
+                "surface_id": surfaceID.uuidString,
+                "command": "codex resume ordered-session",
+                "checkpoint_id": "ordered-session",
+                "source": "agent-hook",
+                "agent_event_time": 200.0,
+            ],
+        ])
+        let setBinding = try #require(setResult["resume_binding"] as? [String: Any])
+        #expect(setBinding["updated_at"] as? Double == 200)
+
+        let staleClear = try v2Result(request: [
+            "id": "stale-resume-clear",
+            "method": "surface.resume.clear",
+            "params": [
+                "window_id": windowID.uuidString,
+                "surface_id": surfaceID.uuidString,
+                "checkpoint_id": "ordered-session",
+                "source": "agent-hook",
+                "agent_event_time": 100.0,
+            ],
+        ])
+        #expect(staleClear["cleared"] as? Bool == false)
+        #expect(workspace.surfaceResumeBinding(panelId: surfaceID)?.checkpointId == "ordered-session")
+
+        let invalidClear = try v2Envelope(request: [
+            "id": "invalid-resume-clear-time",
+            "method": "surface.resume.clear",
+            "params": [
+                "window_id": windowID.uuidString,
+                "surface_id": surfaceID.uuidString,
+                "agent_event_time": 0,
+            ],
+        ])
+        #expect(invalidClear["ok"] as? Bool == false)
+
+        let manualClear = try v2Result(request: [
+            "id": "manual-resume-clear",
+            "method": "surface.resume.clear",
+            "params": [
+                "window_id": windowID.uuidString,
+                "surface_id": surfaceID.uuidString,
+                "checkpoint_id": "ordered-session",
+                "source": "agent-hook",
+            ],
+        ])
+        #expect(manualClear["cleared"] as? Bool == true)
+        #expect(workspace.surfaceResumeBinding(panelId: surfaceID) == nil)
+    }
+
+    @Test
     func remoteRegistrationRejectsMissingProvenanceAndInvalidPersistentOwnership() throws {
         _ = NSApplication.shared
         let previousAppDelegate = AppDelegate.shared

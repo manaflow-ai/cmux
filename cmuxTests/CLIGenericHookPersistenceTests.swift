@@ -719,10 +719,13 @@ extension CLINotifyProcessIntegrationRegressionTests {
         let workspaceId = "11111111-1111-1111-1111-111111111111"
         let surfaceId = "22222222-2222-2222-2222-222222222222"
         let sessionId = "hermes-session-end-123"
-        let sessionStartTime: TimeInterval = 1_893_456_100
-        let stopTime: TimeInterval = 1_893_456_200
-        let turnBoundaryTime: TimeInterval = 1_893_456_300
-        let staleRecreationTime: TimeInterval = 1_893_456_250
+        let baseEventTime = Date().timeIntervalSince1970 - 1_000
+        let sessionStartTime = baseEventTime
+        let stopTime = baseEventTime + 100
+        let turnBoundaryTime = baseEventTime + 200
+        let staleFinalizeTime = baseEventTime + 150
+        let validFinalizeTime = baseEventTime + 300
+        let staleRecreationTime = baseEventTime + 250
 
         try FileManager.default.createDirectory(at: root, withIntermediateDirectories: true)
         defer {
@@ -832,6 +835,20 @@ extension CLINotifyProcessIntegrationRegressionTests {
             turnBoundaryTime,
             "Every accepted timestamped turn boundary must advance detached-hook ordering authority"
         )
+        let staleFinalizeCommandStart = state.snapshot().count
+        let staleFinalize = runHermesHook(
+            "session-finalize",
+            input: #"{"session_id":"\#(sessionId)","cwd":"\#(root.path)","hook_event_name":"on_session_finalize","timestamp":\#(staleFinalizeTime)}"#
+        )
+        XCTAssertFalse(staleFinalize.timedOut, staleFinalize.stderr)
+        XCTAssertEqual(staleFinalize.status, 0, staleFinalize.stderr)
+        let staleFinalizeCommands = Array(state.snapshot().dropFirst(staleFinalizeCommandStart))
+        XCTAssertFalse(staleFinalizeCommands.contains { $0.hasPrefix("clear_agent_pid hermes-agent.") })
+        XCTAssertFalse(staleFinalizeCommands.contains { $0.contains("surface.resume.clear") })
+        XCTAssertNotNil(
+            try storedHermesSessionIfPresent(),
+            "A stale finalizer must not consume a session updated by a newer turn-boundary event"
+        )
         // The genuine teardown hook (on_session_finalize) routes to the dedicated
         // session-finalize subcommand and must perform the destructive cleanup the
         // per-turn path suppresses: consume the record, clear the resume binding, and
@@ -839,7 +856,7 @@ extension CLINotifyProcessIntegrationRegressionTests {
         let finalizeCommandStart = state.snapshot().count
         let finalize = runHermesHook(
             "session-finalize",
-            input: #"{"session_id":"\#(sessionId)","cwd":"\#(root.path)","hook_event_name":"on_session_finalize"}"#
+            input: #"{"session_id":"\#(sessionId)","cwd":"\#(root.path)","hook_event_name":"on_session_finalize","timestamp":\#(validFinalizeTime)}"#
         )
         XCTAssertFalse(finalize.timedOut, finalize.stderr)
         XCTAssertEqual(finalize.status, 0, finalize.stderr)
@@ -847,7 +864,10 @@ extension CLINotifyProcessIntegrationRegressionTests {
 
         let finalizeCommands = Array(state.snapshot().dropFirst(finalizeCommandStart))
         XCTAssertTrue(
-            finalizeCommands.contains { $0.hasPrefix("clear_agent_pid hermes-agent.") },
+            finalizeCommands.contains {
+                $0.hasPrefix("clear_agent_pid hermes-agent.")
+                    && $0.contains("--agent-event-time=")
+            },
             "Hermes on_session_finalize is a true teardown and must clear agent PID routing, saw \(finalizeCommands)"
         )
         XCTAssertTrue(

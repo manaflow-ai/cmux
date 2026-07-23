@@ -109,4 +109,85 @@ struct ClaudeNotificationStatusLifecycleTests {
         #expect(record["agentLifecycle"] as? String == "running")
         #expect(record["runtimeStatusEventTime"] as? Double == 1_893_456_200)
     }
+
+    @Test func staleClaudeSessionEndDoesNotConsumeNewerRunningSession() throws {
+        let harness = ClaudeHookSurfaceResolutionSwiftTests()
+        let context = try harness.makeClaudeHookContext(name: "claude-stale-session-end")
+        defer { context.cleanup() }
+        let sessionId = "claude-stale-session-end-session"
+        let storeURL = context.root.appendingPathComponent("claude-hook-sessions.json")
+        _ = harness.startClaudeSurfaceResolutionServer(
+            context: context,
+            surfaces: [(context.surfaceId, "surface:1", true)],
+            ttyName: "ttys-claude-stale-session-end",
+            ttySurfaceId: context.surfaceId
+        )
+        var environment = harness.claudeHookEnvironment(
+            context: context,
+            surfaceId: context.surfaceId,
+            ttyName: "ttys-claude-stale-session-end",
+            storeURL: storeURL
+        )
+        environment["CMUX_AGENT_HOOK_CAPTURED_AT"] = "1893456200.000000"
+        let start = harness.runProcess(
+            executablePath: context.cliPath,
+            arguments: ["hooks", "claude", "session-start"],
+            environment: environment,
+            standardInput: #"{"session_id":"\#(sessionId)","source":"clear","cwd":"\#(context.root.path)","hook_event_name":"SessionStart"}"#,
+            timeout: 5
+        )
+        harness.assertSuccessfulHook(start)
+        let teardownCommandStart = context.state.snapshot().count
+
+        environment["CMUX_AGENT_HOOK_CAPTURED_AT"] = "1893456100.000000"
+        let staleEnd = harness.runProcess(
+            executablePath: context.cliPath,
+            arguments: ["hooks", "claude", "session-end"],
+            environment: environment,
+            standardInput: #"{"session_id":"\#(sessionId)","cwd":"\#(context.root.path)","hook_event_name":"SessionEnd"}"#,
+            timeout: 5
+        )
+        harness.assertSuccessfulHook(staleEnd)
+
+        let commands = Array(context.state.snapshot().dropFirst(teardownCommandStart))
+        #expect(!commands.contains { $0.hasPrefix("clear_agent_pid claude_code ") })
+        #expect(!commands.contains { $0.contains("surface.resume.clear") })
+        let state = try #require(JSONSerialization.jsonObject(with: Data(contentsOf: storeURL)) as? [String: Any])
+        let sessions = try #require(state["sessions"] as? [String: Any])
+        #expect(sessions[sessionId] != nil, "A stale SessionEnd must leave the newer running record intact")
+    }
+
+    @Test func farFuturePayloadTimestampDoesNotBecomeOrderingAuthority() throws {
+        let harness = ClaudeHookSurfaceResolutionSwiftTests()
+        let context = try harness.makeClaudeHookContext(name: "claude-future-payload-time")
+        defer { context.cleanup() }
+        let sessionId = "claude-future-payload-time-session"
+        let storeURL = context.root.appendingPathComponent("claude-hook-sessions.json")
+        _ = harness.startClaudeSurfaceResolutionServer(
+            context: context,
+            surfaces: [(context.surfaceId, "surface:1", true)],
+            ttyName: "ttys-claude-future-payload-time",
+            ttySurfaceId: context.surfaceId
+        )
+        let environment = harness.claudeHookEnvironment(
+            context: context,
+            surfaceId: context.surfaceId,
+            ttyName: "ttys-claude-future-payload-time",
+            storeURL: storeURL
+        )
+        let futureTime = Date().timeIntervalSince1970 + 86_400
+        let start = harness.runProcess(
+            executablePath: context.cliPath,
+            arguments: ["hooks", "claude", "session-start"],
+            environment: environment,
+            standardInput: #"{"session_id":"\#(sessionId)","source":"clear","cwd":"\#(context.root.path)","hook_event_name":"SessionStart","timestamp":\#(futureTime)}"#,
+            timeout: 5
+        )
+        harness.assertSuccessfulHook(start)
+
+        let state = try #require(JSONSerialization.jsonObject(with: Data(contentsOf: storeURL)) as? [String: Any])
+        let sessions = try #require(state["sessions"] as? [String: Any])
+        let record = try #require(sessions[sessionId] as? [String: Any])
+        #expect(record["runtimeStatusEventTime"] == nil)
+    }
 }

@@ -458,6 +458,37 @@ extension AgentNotificationRegressionTests {
         #expect(fixture.source.agentPIDs["claude_code"] == nil)
     }
 
+    @Test("An untimestamped teardown cannot clear timestamped agent runtime")
+    func untimestampedAgentPIDClearCannotBypassOrderingWatermark() throws {
+        let fixture = try makeFixture()
+        defer { fixture.restore() }
+        let pidKey = "claude_code.session"
+        fixture.source.setAgentLifecycle(
+            key: "claude_code",
+            panelId: fixture.panelId,
+            lifecycle: .running,
+            agentEventTime: 200
+        )
+        _ = fixture.source.recordAgentPID(key: pidKey, pid: 43_210, panelId: fixture.panelId)
+        _ = fixture.source.upsertSidebarStatusEntry(
+            key: "claude_code",
+            value: "Running",
+            icon: "bolt.fill",
+            color: "#4C8DFF",
+            url: nil,
+            priority: 0,
+            format: .plain,
+            panelId: fixture.panelId,
+            pid: nil,
+            agentEventTime: 200
+        )
+
+        #expect(!fixture.source.clearAgentPID(key: pidKey, panelId: fixture.panelId, clearStatus: true))
+        #expect(fixture.source.agentPIDs[pidKey] == 43_210)
+        #expect(fixture.source.statusEntries["claude_code"]?.value == "Running")
+        #expect(fixture.source.hasRunningAgentLifecycle(key: "claude_code", panelId: fixture.panelId))
+    }
+
     @Test("An authorized-workspace clear cancels a confined in-flight relay delivery")
     func authorizedWorkspaceClearCancelsConfinedInFlightRelayDelivery() async throws {
         let fixture = try makeFixture(policyHookCommand: "cat")
