@@ -22,11 +22,13 @@ final class ComputerUseRuntimeService {
     private var installedHelperURL: URL?
     private var installationTask: Task<URL?, Never>?
     private var helperTerminationObservationTask: Task<Void, Never>?
+    private var helperHealthTask: Task<Void, Never>?
     private var recoveryTask: Task<Void, Never>?
     private var cachedStatus = ComputerUsePermissionStatus.missing
     private var acceptsNewLaunches = true
     private var desiredEnabled = false
     private var runningHelperProcessIdentifier: pid_t?
+    private var missedHelperHealthChecks = 0
     private var expectedTerminationProcessIdentifiers: Set<pid_t> = []
 
     init(
@@ -49,6 +51,7 @@ final class ComputerUseRuntimeService {
 
     deinit {
         helperTerminationObservationTask?.cancel()
+        helperHealthTask?.cancel()
         recoveryTask?.cancel()
     }
 
@@ -81,7 +84,11 @@ final class ComputerUseRuntimeService {
         desiredEnabled = newValue
         if newValue {
             await startIfNeeded()
+            startMonitoringHelperHealth()
         } else {
+            helperHealthTask?.cancel()
+            helperHealthTask = nil
+            missedHelperHealthChecks = 0
             recoveryTask?.cancel()
             recoveryTask = nil
             await stopDaemon()
@@ -283,6 +290,9 @@ final class ComputerUseRuntimeService {
         installationTask = nil
         helperTerminationObservationTask?.cancel()
         helperTerminationObservationTask = nil
+        helperHealthTask?.cancel()
+        helperHealthTask = nil
+        missedHelperHealthChecks = 0
         recoveryTask?.cancel()
         recoveryTask = nil
         _ = Self.sendDaemonRequestSynchronously(
@@ -370,11 +380,53 @@ final class ComputerUseRuntimeService {
         ) else {
             return
         }
+        scheduleHelperRecovery()
+    }
+
+    private func startMonitoringHelperHealth() {
+        guard helperHealthTask == nil else { return }
+        helperHealthTask = Task { @MainActor [weak self] in
+            let clock = ContinuousClock()
+            while !Task.isCancelled {
+                do {
+                    try await clock.sleep(for: .seconds(2))
+                } catch {
+                    return
+                }
+                guard let self else { return }
+                await self.checkHelperHealth()
+            }
+        }
+    }
+
+    private func checkHelperHealth() async {
+        let daemonListening = await Self.isDaemonListening(paths: paths, transport: transport)
+        guard !Task.isCancelled else { return }
+        if daemonListening {
+            missedHelperHealthChecks = 0
+            return
+        }
+
+        missedHelperHealthChecks += 1
+        guard missedHelperHealthChecks >= 2 else { return }
+        missedHelperHealthChecks = 0
+        guard Self.shouldScheduleHelperRecovery(
+            desiredEnabled: desiredEnabled,
+            acceptsNewLaunches: acceptsNewLaunches,
+            daemonListening: daemonListening,
+            recoveryInFlight: recoveryTask != nil
+        ) else {
+            return
+        }
+        scheduleHelperRecovery()
+    }
+
+    private func scheduleHelperRecovery() {
         guard recoveryTask == nil else { return }
         recoveryTask = Task { @MainActor [weak self] in
             guard let self else { return }
-            await startIfNeeded()
-            recoveryTask = nil
+            await self.startIfNeeded()
+            self.recoveryTask = nil
         }
     }
 
@@ -404,7 +456,10 @@ final class ComputerUseRuntimeService {
         daemonListening: Bool,
         recoveryInFlight: Bool
     ) -> Bool {
-        false
+        desiredEnabled
+            && acceptsNewLaunches
+            && !daemonListening
+            && !recoveryInFlight
     }
 
     nonisolated private static func ensurePrivateDirectory(_ directoryURL: URL) -> Bool {
