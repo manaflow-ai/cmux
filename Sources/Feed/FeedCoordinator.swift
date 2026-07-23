@@ -526,7 +526,7 @@ extension FeedCoordinator {
         // A live event's explicit workspace/surface pair outranks persisted
         // session routing. Otherwise trust a stored surface only when its
         // workspace agrees with the selected workspace.
-        let surfaceId = if eventWorkspaceId == workspaceId, let eventSurfaceId {
+        let surfaceId: UUID? = if eventWorkspaceId == workspaceId, let eventSurfaceId {
             eventSurfaceId
         } else if sessionMatch?.workspaceId == workspaceId {
             sessionMatch?.surfaceId
