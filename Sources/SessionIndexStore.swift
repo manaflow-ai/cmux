@@ -665,6 +665,8 @@ final class SessionIndexStore: ObservableObject {
     private static let perAgentLimit = 30
     nonisolated static let headByteCap = 64 * 1024
     nonisolated static let tailByteCap = 32 * 1024
+    /// Bounded rescue scan for oversized first Claude JSONL records.
+    nonisolated static let firstCompleteClaudeCwdByteCap = 256 * 1024
     /// Hard cap on candidate files inspected per call to keep deep-page searches bounded.
     nonisolated static let searchMaxFiles = 1500
 
@@ -693,6 +695,7 @@ final class SessionIndexStore: ObservableObject {
         var pr: PullRequestLink?
         var model: String?
         var permissionMode: String?
+        var resumeCwd: String?
     }
 
     private struct ClaudeSessionRoot: Hashable {
@@ -766,16 +769,27 @@ final class SessionIndexStore: ObservableObject {
         return roots
     }
 
-    nonisolated private static func extractClaudeMetadata(head: String, tail: String, projectDir: String) -> ClaudeParsed {
+    nonisolated private static func extractClaudeMetadata(
+        head: String,
+        tail: String,
+        projectDir: String,
+        transcriptURL: URL? = nil
+    ) -> ClaudeParsed {
         var out = ClaudeParsed()
-        out.cwd = decodeClaudeProjectDir(projectDir)
+        let folderDecodedCwd = decodeClaudeProjectDir(projectDir)
+        out.cwd = folderDecodedCwd
+        var firstCwd: String?
+        var parsedCwdFromTranscript = false
 
         for line in head.split(separator: "\n", omittingEmptySubsequences: true) {
-            guard let data = line.data(using: .utf8),
-                  let obj = try? JSONSerialization.jsonObject(with: data) as? [String: Any] else { continue }
+            guard let obj = parseJSONLine(line) else { continue }
             let isMeta = (obj["isMeta"] as? Bool) ?? false
-            if let cwdField = obj["cwd"] as? String, !cwdField.isEmpty {
+            if let cwdField = claudeCwd(from: obj) {
+                if firstCwd == nil {
+                    firstCwd = cwdField
+                }
                 out.cwd = cwdField
+                parsedCwdFromTranscript = true
             }
             if let branchField = obj["gitBranch"] as? String, !branchField.isEmpty {
                 out.branch = branchField
@@ -809,9 +823,12 @@ final class SessionIndexStore: ObservableObject {
         }
 
         for line in tail.split(separator: "\n", omittingEmptySubsequences: true) {
-            guard let data = line.data(using: .utf8),
-                  let obj = try? JSONSerialization.jsonObject(with: data) as? [String: Any] else { continue }
+            guard let obj = parseJSONLine(line) else { continue }
             let type = obj["type"] as? String
+            if let cwdField = claudeCwd(from: obj) {
+                out.cwd = cwdField
+                parsedCwdFromTranscript = true
+            }
             if type == "pr-link", let number = obj["prNumber"] as? Int,
                let url = obj["prUrl"] as? String {
                 out.pr = PullRequestLink(
@@ -832,11 +849,83 @@ final class SessionIndexStore: ObservableObject {
                 out.model = model
             }
         }
+        if firstCwd == nil,
+           let transcriptURL,
+           let completeFirstCwd = readFirstCompleteClaudeCwd(url: transcriptURL) {
+            firstCwd = completeFirstCwd
+            if !parsedCwdFromTranscript {
+                out.cwd = completeFirstCwd
+            }
+        }
         // Strip the [1m] suffix some Claude internal model IDs carry (claude-opus-4-7[1m]).
         if let m = out.model, let bracket = m.firstIndex(of: "[") {
             out.model = String(m[..<bracket])
         }
+        // The JSONL cwd is authoritative when present; project directory decoding is lossy.
+        let transcriptCwd = parsedCwdFromTranscript ? out.cwd : nil
+        out.resumeCwd = firstCwd ?? transcriptCwd ?? folderDecodedCwd ?? out.cwd
         return out
+    }
+
+    nonisolated private static func parseJSONLine(_ line: Substring) -> [String: Any]? {
+        guard let data = line.data(using: .utf8) else { return nil }
+        return parseJSONLine(data)
+    }
+
+    nonisolated private static func parseJSONLine(_ data: Data) -> [String: Any]? {
+        guard !data.isEmpty else { return nil }
+        return (try? JSONSerialization.jsonObject(with: data)) as? [String: Any]
+    }
+
+    nonisolated private static func claudeCwd(from object: [String: Any]) -> String? {
+        guard let cwd = object["cwd"] as? String, !cwd.isEmpty else { return nil }
+        return cwd
+    }
+
+    nonisolated private static func readFirstCompleteClaudeCwd(
+        url: URL,
+        maxBytes: Int = firstCompleteClaudeCwdByteCap
+    ) -> String? {
+        guard maxBytes > 0 else { return nil }
+        guard let handle = try? FileHandle(forReadingFrom: url) else { return nil }
+        defer { try? handle.close() }
+
+        var buffer = Data()
+        var bytesRead = 0
+        var reachedEOF = false
+        while bytesRead < maxBytes {
+            let readLimit = min(16 * 1024, maxBytes - bytesRead)
+            let chunk: Data
+            if #available(macOS 10.15.4, *) {
+                chunk = (try? handle.read(upToCount: readLimit)) ?? Data()
+            } else {
+                chunk = handle.readData(ofLength: readLimit)
+            }
+            if chunk.isEmpty {
+                reachedEOF = true
+                break
+            }
+            bytesRead += chunk.count
+            buffer.append(chunk)
+
+            while let newlineIndex = buffer.firstIndex(of: 0x0A) {
+                let lineData = buffer.subdata(in: buffer.startIndex..<newlineIndex)
+                let afterNewline = buffer.index(after: newlineIndex)
+                buffer.removeSubrange(buffer.startIndex..<afterNewline)
+                if let object = parseJSONLine(lineData),
+                   let cwd = claudeCwd(from: object) {
+                    return cwd
+                }
+            }
+        }
+
+        guard reachedEOF,
+              !buffer.isEmpty,
+              let object = parseJSONLine(buffer),
+              let cwd = claudeCwd(from: object) else {
+            return nil
+        }
+        return cwd
     }
 
     /// Returns a usable user-prompt string from a Codex `user_message` /
@@ -1412,6 +1501,40 @@ final class SessionIndexStore: ObservableObject {
         needle: String, cwdFilter: String?, offset: Int, limit: Int
     ) async -> [SessionEntry] {
         let roots = claudeSessionRoots()
+        return await loadClaudeEntries(
+            roots: roots,
+            needle: needle,
+            cwdFilter: cwdFilter,
+            offset: offset,
+            limit: limit
+        )
+    }
+
+    #if DEBUG
+    nonisolated static func loadClaudeEntriesForTesting(
+        projectsRoot: String,
+        needle: String = "",
+        cwdFilter: String? = nil,
+        offset: Int = 0,
+        limit: Int = 100
+    ) async -> [SessionEntry] {
+        // Test fixtures pass Claude's standard <configDir>/projects layout; strip
+        // the trailing "projects" component to recover the config directory.
+        let configDir = (projectsRoot as NSString).deletingLastPathComponent
+        let root = ClaudeSessionRoot(configDir: configDir, resumeConfigDirectory: nil)
+        return await loadClaudeEntries(
+            roots: [root],
+            needle: needle,
+            cwdFilter: cwdFilter,
+            offset: offset,
+            limit: limit
+        )
+    }
+    #endif
+
+    nonisolated private static func loadClaudeEntries(
+        roots: [ClaudeSessionRoot], needle: String, cwdFilter: String?, offset: Int, limit: Int
+    ) async -> [SessionEntry] {
         guard !roots.isEmpty else { return [] }
         let fm = FileManager.default
 
@@ -1520,7 +1643,12 @@ final class SessionIndexStore: ObservableObject {
                             true
                         )
                     }
-                    let parsed = extractClaudeMetadata(head: head, tail: tail, projectDir: candidate.dirName)
+                    let parsed = extractClaudeMetadata(
+                        head: head,
+                        tail: tail,
+                        projectDir: candidate.dirName,
+                        transcriptURL: candidate.url
+                    )
                     if let cwdFilter, parsed.cwd != cwdFilter { return (idx, nil, false) }
                     let sid = candidate.url.deletingPathExtension().lastPathComponent
                     let entry = SessionEntry(
@@ -1536,7 +1664,8 @@ final class SessionIndexStore: ObservableObject {
                         specifics: .claude(
                             model: parsed.model,
                             permissionMode: parsed.permissionMode,
-                            configDirectoryForResume: candidate.resumeConfigDirectory
+                            configDirectoryForResume: candidate.resumeConfigDirectory,
+                            resumeWorkingDirectory: parsed.resumeCwd
                         )
                     )
                     if needle.isEmpty {

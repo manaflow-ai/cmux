@@ -2466,7 +2466,8 @@ final class SocketListenerAcceptPolicyTests: XCTestCase {
             specifics: .claude(
                 model: nil,
                 permissionMode: nil,
-                configDirectoryForResume: nil
+                configDirectoryForResume: nil,
+                resumeWorkingDirectory: nil
             )
         )
 
@@ -2499,7 +2500,8 @@ final class SocketListenerAcceptPolicyTests: XCTestCase {
             specifics: .claude(
                 model: "gpt-5.5",
                 permissionMode: "bypassPermissions",
-                configDirectoryForResume: nil
+                configDirectoryForResume: nil,
+                resumeWorkingDirectory: nil
             )
         )
 

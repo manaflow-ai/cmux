@@ -196,7 +196,12 @@ struct PullRequestLink: Hashable {
 
 /// Agent-specific fields used to build the resume command with appropriate flags.
 enum AgentSpecifics: Hashable {
-    case claude(model: String?, permissionMode: String?, configDirectoryForResume: String?)
+    case claude(
+        model: String?,
+        permissionMode: String?,
+        configDirectoryForResume: String?,
+        resumeWorkingDirectory: String?
+    )
     case codex(model: String?, approvalPolicy: String?, sandboxMode: String?, effort: String?)
     case grok(model: String?, permissionMode: String?, sandboxMode: String?, grokHome: String?)
     case opencode(providerModel: String?, agentName: String?)
@@ -266,6 +271,10 @@ struct SessionEntry: Identifiable, Hashable {
     let specifics: AgentSpecifics
 
     var resumeWorkingDirectory: String? {
+        if case let .claude(_, _, _, claudeResumeCwd) = specifics,
+           let claudeResumeCwd, !claudeResumeCwd.isEmpty {
+            return claudeResumeCwd
+        }
         guard let cwd, !cwd.isEmpty else { return nil }
         if case .registered(let registration) = specifics,
            registration.cwd == .ignore {
@@ -275,7 +284,7 @@ struct SessionEntry: Identifiable, Hashable {
     }
 
     func withClaudeConfigDirectoryForResume(_ configDirectory: String?) -> SessionEntry {
-        guard case let .claude(model, permissionMode, currentConfigDirectory) = specifics,
+        guard case let .claude(model, permissionMode, currentConfigDirectory, resumeWD) = specifics,
               currentConfigDirectory != configDirectory else {
             return self
         }
@@ -292,7 +301,8 @@ struct SessionEntry: Identifiable, Hashable {
             specifics: .claude(
                 model: model,
                 permissionMode: permissionMode,
-                configDirectoryForResume: configDirectory
+                configDirectoryForResume: configDirectory,
+                resumeWorkingDirectory: resumeWD
             )
         )
     }
@@ -314,7 +324,7 @@ struct SessionEntry: Identifiable, Hashable {
 
     private var resumeCommandWithoutWorkingDirectory: String? {
         switch specifics {
-        case let .claude(model, permissionMode, configDirectoryForResume):
+        case let .claude(model, permissionMode, configDirectoryForResume, _):
             // Route through the wrapper resolver token so a manually-resumed claude session
             // re-injects cmux hooks even when the command runs in a shell where the
             // integration's PATH shim / `claude()` function are not active (e.g. the
