@@ -272935,6 +272935,23 @@
           }
         }
       }
+    },
+    "cli.herdrCompat.usage": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Usage: cmux __herdr-compat <command> [options]\n\nHidden compatibility bridge to an installed Herdr CLI.\nCommands: %@"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "使用法: cmux __herdr-compat <command> [options]\n\nインストール済みの Herdr CLI への非表示の互換ブリッジです。\nコマンド: %@"
+          }
+        }
+      }
     }
   },
   "version": "1.0"
