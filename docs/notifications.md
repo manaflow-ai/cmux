@@ -123,6 +123,116 @@ Hook input and output use this shape:
 
 Global hooks from `~/.config/cmux/cmux.json` run first. Project hooks from parent directories to the current workspace append after that. Project hooks use the same trust prompt as other project `cmux.json` commands before they run. Feed approval banners also pass through these hooks; disabling `desktop` suppresses the native banner while keeping the Feed item available in cmux. Set `"hooksMode": "replace"` in a project `notifications` section to ignore inherited hooks. If any hook fails, times out, or returns invalid JSON, cmux uses the default notification behavior and posts a hook failure alert.
 
+### AI Suppression Hook
+
+Use a notification hook when you want an agent to decide whether a notification is ready for user action. The hook receives the notification envelope on stdin. Return a partial JSON patch on stdout. Return nothing to keep the notification unchanged.
+
+To suppress only the macOS banner and sound while keeping the notification in cmux:
+
+```json
+{
+  "effects": {
+    "desktop": false,
+    "sound": false
+  }
+}
+```
+
+To suppress every visible effect and stop later hooks:
+
+```json
+{
+  "effects": {
+    "record": false,
+    "markUnread": false,
+    "reorderWorkspace": false,
+    "desktop": false,
+    "sound": false,
+    "command": false,
+    "paneFlash": false
+  },
+  "stop": true
+}
+```
+
+Example `~/.local/bin/cmux-codex-notification-filter.sh`:
+
+```bash
+#!/usr/bin/env bash
+set -euo pipefail
+
+input="$(cat)"
+
+if [[ "${CMUX_CODEX_HOOKS_DISABLED:-}" == "1" ]]; then
+  exit 0
+fi
+
+command -v codex >/dev/null || exit 0
+command -v jq >/dev/null || exit 0
+
+prompt="$(jq -r '
+  "Decide whether this cmux notification should be suppressed.\n" +
+  "Suppress it unless the user can take action now.\n" +
+  "Reply with only one JSON object: {\"suppress\":true} or {\"suppress\":false}.\n\n" +
+  "title: " + (.notification.title // "") + "\n" +
+  "subtitle: " + (.notification.subtitle // "") + "\n" +
+  "body: " + (.notification.body // "")
+' <<<"$input")"
+
+output_file="$(mktemp "${TMPDIR:-/tmp}/cmux-codex-notification-filter.XXXXXX")"
+trap 'rm -f "$output_file"' EXIT
+
+if ! CMUX_CODEX_HOOKS_DISABLED=1 codex exec \
+  -c default_tools_enabled=false \
+  -c tools={} \
+  -c mcp_servers={} \
+  -c web_search=false \
+  -c approval_policy=never \
+  -c shell_environment_policy.inherit=none \
+  --skip-git-repo-check \
+  --ephemeral \
+  --ignore-user-config \
+  --ignore-rules \
+  --sandbox read-only \
+  --output-last-message "$output_file" \
+  - <<<"$prompt" >/dev/null; then
+  exit 0
+fi
+
+answer="$(cat "$output_file")"
+
+if jq -e '.suppress == true' >/dev/null 2>&1 <<<"$answer"; then
+  jq -cn '{
+    effects: {
+      record: false,
+      markUnread: false,
+      reorderWorkspace: false,
+      desktop: false,
+      sound: false,
+      command: false,
+      paneFlash: false
+    },
+    stop: true
+  }'
+fi
+```
+
+Then add it to `~/.config/cmux/cmux.json`:
+
+```json
+{
+  "notifications": {
+    "hooks": [
+      {
+        "id": "codex-actionability-filter",
+        "command": "~/.local/bin/cmux-codex-notification-filter.sh",
+        "timeoutSeconds": 20
+      }
+    ]
+  }
+}
+```
+
 ## Integration Examples
 
 ### Claude Code
