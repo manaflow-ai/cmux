@@ -938,7 +938,7 @@ printf '%s\n' "$*" >> "$CMUX_TEST_PI_AMBIGUOUS_LOG"
 cat >/dev/null
 if [ ! -f "$CMUX_TEST_PI_AMBIGUOUS_MARKER" ]; then
   touch "$CMUX_TEST_PI_AMBIGUOUS_MARKER"
-  printf 'not_found: hook metadata references surface settings\n' >&2
+  printf 'Error: Surface not found\n' >&2
   exit 1
 fi
 printf '{}\n'
@@ -1035,8 +1035,8 @@ def check_explicit_surface_routing(bun: str, root: Path, extension_path: Path) -
 set -euo pipefail
 printf '%s\n' "$*" >> "$CMUX_TEST_PI_EXPLICIT_LOG"
 cat >/dev/null
-printf 'Error: not_found: Surface not found\n' >&2
-exit 1
+printf 'エラー: 対象を解決できません\n' >&2
+exit 69
 """,
     )
     explicit_source = """
@@ -1087,8 +1087,8 @@ set -euo pipefail
 payload="$(cat)"
 printf '%s|%s\n' "$*" "$payload" >> "$CMUX_TEST_PI_RUNTIME_LOG"
 if [[ "$payload" == *'"session_id":"pi-runtime-stale"'* ]]; then
-  printf 'Error: not_found: Surface not found\n' >&2
-  exit 1
+  printf 'エラー: 対象を解決できません\n' >&2
+  exit 69
 fi
 printf '{}\n'
 """,
@@ -1141,8 +1141,8 @@ def check_stale_surface(bun: str, root: Path, extension_path: Path) -> int:
 set -euo pipefail
 printf '%s\n' "$*" >> "$CMUX_TEST_PI_STALE_LOG"
 cat >/dev/null
-printf 'Error: not_found: Surface not found\n' >&2
-exit 1
+printf 'エラー: 対象を解決できません\n' >&2
+exit 69
 """,
     )
     stale_source = """

@@ -2718,13 +2718,144 @@ def test_pi_hook_rejects_invalid_explicit_surface(cli_path: str, root: Path) -> 
             timeout=10,
         )
 
-    if result.returncode == 0:
+    if result.returncode != 69:
         raise AssertionError(
-            "Pi hook accepted an invalid explicit surface: "
+            "Pi hook did not report the stable unavailable-surface status: "
             f"stdout={result.stdout!r} stderr={result.stderr!r} frames={fake.frames!r}"
         )
     if any(frame.get("method") == "feed.push" for frame in fake.frames):
         raise AssertionError(f"invalid explicit Pi surface emitted Feed telemetry: {fake.frames!r}")
+
+
+def test_pi_hook_rejects_malformed_explicit_surface(cli_path: str, root: Path) -> None:
+    socket_path = root / "cmux-pi-malformed-explicit-surface.sock"
+    env = os.environ.copy()
+    for key in ("CMUX_SOCKET", "CMUX_SOCKET_CAPABILITY", "CMUX_SOCKET_PATH", "CMUX_SOCKET_PASSWORD"):
+        env.pop(key, None)
+    env["CMUX_SURFACE_ID"] = "not-a-surface-handle"
+    env["CMUX_WORKSPACE_ID"] = FAKE_WORKSPACE_ID
+    payload = {
+        "session_id": "pi-malformed-surface-session",
+        "cwd": "/tmp/pi-malformed-surface-project",
+        "hook_event_name": "UserPromptSubmit",
+        "prompt": "strict malformed target",
+    }
+
+    with FakeCmuxSocket(socket_path, None) as fake:
+        result = subprocess.run(
+            [
+                cli_path,
+                "--socket",
+                str(socket_path),
+                "hooks",
+                "pi",
+                "prompt-submit",
+                "--workspace",
+                FAKE_WORKSPACE_ID,
+                "--surface",
+                "not-a-surface-handle",
+            ],
+            input=json.dumps(payload),
+            capture_output=True,
+            text=True,
+            check=False,
+            env=env,
+            timeout=10,
+        )
+
+    if result.returncode != 69:
+        raise AssertionError(
+            "Pi hook did not reject a malformed surface with the stable unavailable status: "
+            f"stdout={result.stdout!r} stderr={result.stderr!r} frames={fake.frames!r}"
+        )
+
+
+def test_pi_compacted_feed_bounds_untrusted_batch(cli_path: str, root: Path) -> None:
+    socket_path = root / "cmux-pi-untrusted-compaction.sock"
+    env = os.environ.copy()
+    for key in ("CMUX_SOCKET", "CMUX_SOCKET_CAPABILITY", "CMUX_SOCKET_PATH", "CMUX_SOCKET_PASSWORD"):
+        env.pop(key, None)
+    env["CMUX_SURFACE_ID"] = FAKE_SURFACE_ID
+    env["CMUX_WORKSPACE_ID"] = FAKE_WORKSPACE_ID
+    payload = {
+        "session_id": "pi-untrusted-compaction-session",
+        "hook_event_name": "PostToolUse",
+        "cmux_compacted_terminal_events": [
+            {
+                "session_id": "pi-untrusted-compaction-session",
+                "tool_call_id": f"untrusted-tool-{index}",
+                "tool_name": "bash",
+            }
+            for index in range(65)
+        ],
+    }
+
+    with FakeCmuxSocket(socket_path, None) as fake:
+        result = subprocess.run(
+            [
+                cli_path,
+                "--socket",
+                str(socket_path),
+                "hooks",
+                "feed",
+                "--source",
+                "pi",
+                "--event",
+                "PostToolUse",
+            ],
+            input=json.dumps(payload),
+            capture_output=True,
+            text=True,
+            check=False,
+            env=env,
+            timeout=10,
+        )
+
+    if result.returncode != 0:
+        raise AssertionError(f"bounded Pi compaction failed: {result.stderr!r}")
+    feed_frames = [frame for frame in fake.frames if frame.get("method") == "feed.push"]
+    if len(feed_frames) > 1:
+        raise AssertionError(f"untrusted Pi compaction expanded past its CLI bound: {len(feed_frames)}")
+
+
+def test_pi_feed_rejects_oversized_input(cli_path: str, root: Path) -> None:
+    socket_path = root / "cmux-pi-oversized-feed.sock"
+    env = os.environ.copy()
+    for key in ("CMUX_SOCKET", "CMUX_SOCKET_CAPABILITY", "CMUX_SOCKET_PATH", "CMUX_SOCKET_PASSWORD"):
+        env.pop(key, None)
+    env["CMUX_SURFACE_ID"] = FAKE_SURFACE_ID
+    env["CMUX_WORKSPACE_ID"] = FAKE_WORKSPACE_ID
+    payload = {
+        "session_id": "pi-oversized-feed-session",
+        "hook_event_name": "PostToolUse",
+        "padding": "x" * (128 * 1024),
+    }
+
+    with FakeCmuxSocket(socket_path, None) as fake:
+        result = subprocess.run(
+            [
+                cli_path,
+                "--socket",
+                str(socket_path),
+                "hooks",
+                "feed",
+                "--source",
+                "pi",
+                "--event",
+                "PostToolUse",
+            ],
+            input=json.dumps(payload),
+            capture_output=True,
+            text=True,
+            check=False,
+            env=env,
+            timeout=10,
+        )
+
+    if result.returncode != 0:
+        raise AssertionError(f"oversized Pi feed should fail closed without hook failure: {result.stderr!r}")
+    if any(frame.get("method") == "feed.push" for frame in fake.frames):
+        raise AssertionError(f"oversized Pi feed reached the socket: {fake.frames!r}")
 
 
 def test_claude_subagent_stop_stays_distinct_feed_telemetry(cli_path: str, root: Path) -> None:
@@ -2808,6 +2939,9 @@ def main() -> int:
             test_pi_feed_rejects_failed_server_ack(cli_path, root)
             test_pi_feed_rejects_connection_failure(cli_path, root)
             test_pi_hook_rejects_invalid_explicit_surface(cli_path, root)
+            test_pi_hook_rejects_malformed_explicit_surface(cli_path, root)
+            test_pi_compacted_feed_bounds_untrusted_batch(cli_path, root)
+            test_pi_feed_rejects_oversized_input(cli_path, root)
             test_claude_subagent_stop_stays_distinct_feed_telemetry(cli_path, root)
         except Exception as exc:
             print(f"FAIL: {exc}")
