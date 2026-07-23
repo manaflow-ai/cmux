@@ -49,11 +49,14 @@ actor AgentChatArtifactIndex {
         let workingDirectory: String?
         let fileSize: UInt64
         let modifiedAt: Date
+        let changedAt: Date
         let transcriptLineage: String
         let maximumFileBytes: UInt64
 
         var generation: String {
-            "\(fileSize)-\(Int64(modifiedAt.timeIntervalSince1970 * 1_000_000))"
+            let modified = Int64(modifiedAt.timeIntervalSince1970 * 1_000_000)
+            let changed = Int64(changedAt.timeIntervalSince1970 * 1_000_000)
+            return "\(fileSize)-\(modified)-\(changed)"
         }
     }
 
@@ -90,7 +93,7 @@ actor AgentChatArtifactIndex {
             return previous.snapshot
         }
         let reader = AgentChatTranscriptReader()
-        let matchesPreviousContent = try previous.map { entry in
+        let matchesPreviousSlice = try previous.map { entry in
             let hasSameSource = entry.key.transcriptLineage == key.transcriptLineage
                 && entry.key.transcriptPath == key.transcriptPath
                 && entry.key.workingDirectory == key.workingDirectory
@@ -107,7 +110,9 @@ actor AgentChatArtifactIndex {
                 expectedDigest: entry.continuityDigest
             )
         } ?? false
-        if matchesPreviousContent,
+        let fullyObservedPreviousContent = previous?.continuityStartOffset == 0
+        if matchesPreviousSlice,
+           fullyObservedPreviousContent,
            let previous,
            previous.key.fileSize == key.fileSize {
             cacheBySessionID.insert(
@@ -122,7 +127,8 @@ actor AgentChatArtifactIndex {
             )
             return previous.snapshot
         }
-        let extendsPreviousTranscript = matchesPreviousContent
+        let safelyExtendsPreviousTranscript = matchesPreviousSlice
+            && fullyObservedPreviousContent
             && (previous?.key.fileSize ?? key.fileSize) < key.fileSize
         let slice = try reader.read(
             handle: opened.handle,
@@ -138,7 +144,9 @@ actor AgentChatArtifactIndex {
             generation: "\(key.generation)-\(sliceDigest.base64EncodedString())",
             revision: nextSnapshotRevision,
             transcriptLineage: key.transcriptLineage,
-            previousArtifacts: extendsPreviousTranscript ? previous?.snapshot.artifacts ?? [] : []
+            previousArtifacts: safelyExtendsPreviousTranscript
+                ? previous?.snapshot.artifacts ?? []
+                : []
         )
         cacheBySessionID.insert(
             CacheEntry(
@@ -212,11 +220,16 @@ actor AgentChatArtifactIndex {
             timeIntervalSince1970: Double(status.st_mtimespec.tv_sec)
                 + Double(status.st_mtimespec.tv_nsec) / 1_000_000_000
         )
+        let changedAt = Date(
+            timeIntervalSince1970: Double(status.st_ctimespec.tv_sec)
+                + Double(status.st_ctimespec.tv_nsec) / 1_000_000_000
+        )
         let key = CacheKey(
             transcriptPath: path,
             workingDirectory: workingDirectory,
             fileSize: size,
             modifiedAt: modifiedAt,
+            changedAt: changedAt,
             transcriptLineage: "\(path):\(status.st_dev):\(status.st_ino)",
             maximumFileBytes: maximumFileBytes
         )
