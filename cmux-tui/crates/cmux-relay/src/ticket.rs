@@ -320,6 +320,88 @@ mod tests {
         }
     }
 
+    fn wire_join_claims(issued_at_unix: u64, expires_at_unix: u64) -> RelayTicketClaims {
+        serde_json::from_value(serde_json::json!({
+            "version": RelayTicketClaims::VERSION,
+            "issuer": ISSUER,
+            "permission": "join",
+            "role": "client",
+            "slot": "slot-a",
+            "circuit": "circuit-a",
+            "lane": "interactive",
+            "generation": 7,
+            "issued_at_unix": issued_at_unix,
+            "expires_at_unix": expires_at_unix,
+        }))
+        .unwrap()
+    }
+
+    fn intended_signing_payload(claims: &RelayTicketClaims, issued_at_unix: u64) -> Vec<u8> {
+        let permission = match claims.permission {
+            RelayPermission::Register => "register",
+            RelayPermission::Connect => "connect",
+            RelayPermission::Join => "join",
+        };
+        let role = match claims.role {
+            RelayRole::Daemon => "daemon",
+            RelayRole::Client => "client",
+        };
+        format!(
+            "cmux-relay-ticket-v2\n{}\n{}\n{}\n{}\n{}\n{}\n{}\n{}\n{}\n{}",
+            claims.version,
+            claims.issuer,
+            permission,
+            role,
+            claims.slot,
+            claims.circuit.as_ref().map_or("", |value| value.0.as_str()),
+            claims.lane.as_ref().map_or("", |value| value.0.as_str()),
+            claims.generation.map_or_else(String::new, |value| value.to_string()),
+            issued_at_unix,
+            claims.expires_at_unix,
+        )
+        .into_bytes()
+    }
+
+    fn intended_ticket(claims: &RelayTicketClaims, issued_at_unix: u64) -> String {
+        let mut wire_claims = serde_json::to_value(claims).unwrap();
+        wire_claims["issued_at_unix"] = serde_json::json!(issued_at_unix);
+        let payload = URL_SAFE_NO_PAD.encode(serde_json::to_vec(&wire_claims).unwrap());
+        let mut mac = HmacSha256::new_from_slice(&[7; 32]).unwrap();
+        mac.update(&intended_signing_payload(claims, issued_at_unix));
+        let signature = URL_SAFE_NO_PAD.encode(mac.finalize().into_bytes());
+        format!("{SIGNED_TICKET_PREFIX}.{payload}.{signature}")
+    }
+
+    fn tamper_issued_at(ticket: &str, issued_at_unix: u64) -> String {
+        let parts = ticket.split('.').collect::<Vec<_>>();
+        let mut claims: serde_json::Value =
+            serde_json::from_slice(&URL_SAFE_NO_PAD.decode(parts[1]).unwrap()).unwrap();
+        claims["issued_at_unix"] = serde_json::json!(issued_at_unix);
+        let payload = URL_SAFE_NO_PAD.encode(serde_json::to_vec(&claims).unwrap());
+        format!("{}.{}.{}", parts[0], payload, parts[2])
+    }
+
+    fn legacy_v1_ticket() -> String {
+        let claims = serde_json::json!({
+            "version": 1,
+            "issuer": ISSUER,
+            "permission": "join",
+            "role": "client",
+            "slot": "slot-a",
+            "circuit": "circuit-a",
+            "lane": "interactive",
+            "generation": 7,
+            "expires_at_unix": 1_100,
+        });
+        let payload = URL_SAFE_NO_PAD.encode(serde_json::to_vec(&claims).unwrap());
+        let mut mac = HmacSha256::new_from_slice(&[7; 32]).unwrap();
+        mac.update(
+            b"cmux-relay-ticket-v2\n1\nrelay.example\njoin\nclient\nslot-a\ncircuit-a\ninteractive\n7\n1100",
+        );
+        let signature = URL_SAFE_NO_PAD.encode(mac.finalize().into_bytes());
+        format!("{SIGNED_TICKET_PREFIX}.{payload}.{signature}")
+    }
+
     #[test]
     fn v2_ticket_round_trip_binds_permission_route_and_expiry() {
         let authority = TicketAuthority::hmac_with_issuer(vec![7; 32], ISSUER.into()).unwrap();
@@ -396,5 +478,119 @@ mod tests {
         assert!(first.starts_with("o2."));
         assert_ne!(first, second);
         assert!(first.len() >= 40);
+    }
+
+    #[test]
+    fn rejects_ticket_lifetime_over_five_minutes() {
+        let authority = TicketAuthority::hmac_with_issuer(vec![7; 32], ISSUER.into()).unwrap();
+        let claims = wire_join_claims(1_000, 1_301);
+        let ticket = intended_ticket(&claims, 1_000);
+        let circuit = claims.circuit.clone().unwrap();
+        let lane = claims.lane.clone().unwrap();
+
+        assert_eq!(
+            authority.verify_join(
+                &ticket,
+                join_expectation(&circuit, &lane),
+                UNIX_EPOCH + Duration::from_secs(1_000),
+            ),
+            Err(TicketError::Claims)
+        );
+    }
+
+    #[test]
+    fn rejects_ticket_issued_more_than_five_minutes_ago() {
+        let authority = TicketAuthority::hmac_with_issuer(vec![7; 32], ISSUER.into()).unwrap();
+        let claims = wire_join_claims(699, 1_001);
+        let ticket = intended_ticket(&claims, 699);
+        let circuit = claims.circuit.clone().unwrap();
+        let lane = claims.lane.clone().unwrap();
+
+        assert_eq!(
+            authority.verify_join(
+                &ticket,
+                join_expectation(&circuit, &lane),
+                UNIX_EPOCH + Duration::from_secs(1_000),
+            ),
+            Err(TicketError::Claims)
+        );
+    }
+
+    #[test]
+    fn rejects_ticket_issued_beyond_clock_skew() {
+        let authority = TicketAuthority::hmac_with_issuer(vec![7; 32], ISSUER.into()).unwrap();
+        let claims = wire_join_claims(1_031, 1_100);
+        let ticket = intended_ticket(&claims, 1_031);
+        let circuit = claims.circuit.clone().unwrap();
+        let lane = claims.lane.clone().unwrap();
+
+        assert_eq!(
+            authority.verify_join(
+                &ticket,
+                join_expectation(&circuit, &lane),
+                UNIX_EPOCH + Duration::from_secs(1_000),
+            ),
+            Err(TicketError::Claims)
+        );
+    }
+
+    #[test]
+    fn accepts_lifetime_and_clock_skew_boundaries() {
+        let authority = TicketAuthority::hmac_with_issuer(vec![7; 32], ISSUER.into()).unwrap();
+        for (issued_at_unix, expires_at_unix) in [(1_000, 1_300), (1_030, 1_300)] {
+            let claims = wire_join_claims(issued_at_unix, expires_at_unix);
+            let ticket = intended_ticket(&claims, issued_at_unix);
+            let circuit = claims.circuit.clone().unwrap();
+            let lane = claims.lane.clone().unwrap();
+
+            let verified = authority
+                .verify_join(
+                    &ticket,
+                    join_expectation(&circuit, &lane),
+                    UNIX_EPOCH + Duration::from_secs(1_000),
+                )
+                .unwrap()
+                .unwrap();
+            assert_eq!(verified, claims);
+        }
+    }
+
+    #[test]
+    fn issued_at_is_covered_by_signature() {
+        let authority = TicketAuthority::hmac_with_issuer(vec![7; 32], ISSUER.into()).unwrap();
+        let claims = wire_join_claims(1_000, 1_100);
+        let ticket = intended_ticket(&claims, 1_000);
+        let circuit = claims.circuit.clone().unwrap();
+        let lane = claims.lane.clone().unwrap();
+        let expectation = join_expectation(&circuit, &lane);
+
+        assert!(
+            authority
+                .verify_join(&ticket, expectation, UNIX_EPOCH + Duration::from_secs(1_000),)
+                .is_ok()
+        );
+        assert_eq!(
+            authority.verify_join(
+                &tamper_issued_at(&ticket, 1_001),
+                expectation,
+                UNIX_EPOCH + Duration::from_secs(1_000),
+            ),
+            Err(TicketError::InvalidSignature)
+        );
+    }
+
+    #[test]
+    fn rejects_legacy_claims_version_explicitly() {
+        let authority = TicketAuthority::hmac_with_issuer(vec![7; 32], ISSUER.into()).unwrap();
+        let circuit = CircuitId("circuit-a".into());
+        let lane = LaneToken("interactive".into());
+        let error = authority
+            .verify_join(
+                &legacy_v1_ticket(),
+                join_expectation(&circuit, &lane),
+                UNIX_EPOCH + Duration::from_secs(1_000),
+            )
+            .expect_err("legacy claims must be rejected");
+        assert!(error.to_string().contains("version"));
     }
 }

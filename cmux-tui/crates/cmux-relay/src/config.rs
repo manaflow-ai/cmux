@@ -605,4 +605,33 @@ mod tests {
         let command = RelayCommand::parse(config, [OsString::from("--allow-open")]).unwrap();
         assert!(matches!(command, RelayCommand::Serve(config) if config.allow_open));
     }
+
+    #[test]
+    fn ticket_command_rejects_ttl_over_five_minutes() {
+        let config = RelayConfig { ticket_secret: Some(vec![7; 32]), ..RelayConfig::default() };
+        let result = RelayCommand::parse(
+            config,
+            ["ticket", "--permission", "register", "--slot", "slot-a", "--ttl-seconds", "301"]
+                .map(OsString::from),
+        );
+
+        let error = result.err().expect("ticket TTL above five minutes must be rejected");
+        assert!(error.to_string().contains("cannot exceed 300 seconds"));
+    }
+
+    #[test]
+    fn ticket_command_accepts_five_minute_ttl_boundary() {
+        let config = RelayConfig { ticket_secret: Some(vec![7; 32]), ..RelayConfig::default() };
+        let command = RelayCommand::parse(
+            config,
+            ["ticket", "--permission", "register", "--slot", "slot-a", "--ttl-seconds", "300"]
+                .map(OsString::from),
+        )
+        .unwrap();
+
+        assert!(matches!(
+            command,
+            RelayCommand::Ticket { ttl, .. } if ttl == Duration::from_secs(300)
+        ));
+    }
 }

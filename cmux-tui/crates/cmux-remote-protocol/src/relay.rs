@@ -248,6 +248,26 @@ mod tests {
     }
 
     #[test]
+    fn ticket_scope_canonical_payload_binds_issued_at() {
+        let claims: RelayTicketClaims = serde_json::from_value(serde_json::json!({
+            "version": RelayTicketClaims::VERSION,
+            "issuer": "relay.example",
+            "permission": "join",
+            "role": "client",
+            "slot": "slot",
+            "circuit": "circuit",
+            "lane": "lane",
+            "generation": 4,
+            "issued_at_unix": 40,
+            "expires_at_unix": 99,
+        }))
+        .unwrap();
+
+        let payload = String::from_utf8(claims.signing_payload()).unwrap();
+        assert!(payload.ends_with("\n4\n40\n99"));
+    }
+
+    #[test]
     fn relay_control_debug_redacts_all_credentials() {
         let messages = [
             RelayControl::Register {
