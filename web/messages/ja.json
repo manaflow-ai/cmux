@@ -2244,7 +2244,14 @@
       "mapReadText": "cmuxサーフェスからターミナルテキストを読み取り",
       "mapFocus": "cmuxペインまたはワークスペースにフォーカス",
       "mapClose": "cmuxサーフェスまたはワークスペースを閉じる",
-      "mapList": "cmuxペインまたはワークスペースを一覧表示"
+      "mapList": "cmuxペインまたはワークスペースを一覧表示",
+      "authTitle": "複数同時セッションでの認証",
+      "authProblem": "複数のClaude Codeセッションを同時に動かす場合（チームメイトエージェント、または各cmuxワークスペースでそれぞれclaudeを起動している場合）に、サブスクリプションのログインが不安定になりがちです。すべてのセッションが1つのOAuth認証情報を共有し、そのリフレッシュトークンは更新のたびにローテーションされます。そのため、しばらくアイドル状態が続いた後に1つのセッションが更新すると、他のセッションが保持しているトークンが無効化され、残りのセッションは再ログインを求められます。",
+      "authFix": "すべてのセッションに同じ長期トークンを渡すことで、このローテーション競合を回避できます。claude setup-token で1つ生成し（システムブラウザが開き、ローテーションされない sk-ant-oat01-… トークンが表示されます）、cmuxが起動する各エージェントに渡されるようエクスポートします。",
+      "authRestart": "実行後はcmuxを再起動し、すでに動作中のエージェントにも変数を反映させます。以降の新規セッションは固定トークンを使い、互いにトークンを無効化しなくなります。",
+      "authNoteShell": "この例はzsh向けです。cmuxは非対話型シェルでエージェントを起動し、それらは ~/.zshrc や ~/.zprofile を読み込まないため ~/.zshenv を使います。bashの場合は同じexportを ~/.bash_profile に追加し、fishの場合は set -x CLAUDE_CODE_OAUTH_TOKEN sk-ant-oat01-… を ~/.config/fish/config.fish に追加してください。",
+      "authNoteSecret": "トークンはディスク上の平文の秘密情報です。chmod 600 ~/.zshenv を実行し、コミットしないでください。",
+      "authNoteExpiry": "セットアップトークンは約1年で失効します（取り消しも可能）。失効したら claude setup-token を再実行し、exportを更新してください。"
     },
     "ohMyOpenCode": {
       "title": "oh-my-opencode",

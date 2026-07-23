@@ -2383,7 +2383,14 @@
       "mapReadText": "reads terminal text from a cmux surface",
       "mapFocus": "focuses a cmux pane or workspace",
       "mapClose": "closes a cmux surface or workspace",
-      "mapList": "lists cmux panes or workspaces"
+      "mapList": "lists cmux panes or workspaces",
+      "authTitle": "Authentication across concurrent sessions",
+      "authProblem": "Running several Claude Code sessions at once — teammate agents, or just many cmux workspaces each with their own claude — is where subscription logins get flaky. Every session shares one OAuth credential whose refresh token rotates on each renewal, so after an idle stretch one session refreshes, invalidates the token the others still hold, and the rest are forced to log in again.",
+      "authFix": "Avoid the rotation race by giving every session the same long-lived token. Generate one with claude setup-token (it opens your system browser and prints an sk-ant-oat01-… token that does not rotate), then export it so cmux passes it to every agent it launches:",
+      "authRestart": "Restart cmux afterwards so already-running agents pick up the variable. New sessions then use the fixed token and stop rotating each other out.",
+      "authNoteShell": "The example targets zsh — ~/.zshenv is used because cmux launches agents through non-interactive shells, which skip ~/.zshrc and ~/.zprofile. For bash, add the same export to ~/.bash_profile; for fish, add set -x CLAUDE_CODE_OAUTH_TOKEN sk-ant-oat01-… to ~/.config/fish/config.fish.",
+      "authNoteSecret": "The token is a plaintext secret on disk — run chmod 600 ~/.zshenv and do not commit it.",
+      "authNoteExpiry": "Setup tokens expire after about a year (and can be revoked); when yours lapses, re-run claude setup-token and update the export."
     },
     "ohMyOpenCode": {
       "title": "oh-my-opencode",
