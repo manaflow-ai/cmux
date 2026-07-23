@@ -203,8 +203,8 @@ jobs:
   build-nightly-ghostty-cli-helper:
     needs: decide
     if: needs.decide.outputs.should_build == 'true' && (github.event_name != 'schedule' || github.event.schedule == '47 8 * * *')
-    # Zig 0.15.2 cannot link the real helper on macOS 26. Match the stable
-    # release workflow by building and verifying it on macOS 15 instead.
+    # Match the stable release workflow by building and verifying the universal
+    # helper separately before injection into the nightly app.
     runs-on: ${{ vars.MACOS_RUNNER_15 || 'blacksmith-6vcpu-macos-15' }}
     timeout-minutes: 20
     steps:

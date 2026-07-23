@@ -30,7 +30,7 @@ jobs:
             run_unit_tests: true
             startup_smoke: true
             virtual_display: false
-            skip_zig: true  # zig 0.15.2 MachO linker can't resolve libSystem on macOS 26
+            skip_zig: false
             expected_arch: ""
             expected_os_major: ""
     runs-on: ${{ matrix.os }}

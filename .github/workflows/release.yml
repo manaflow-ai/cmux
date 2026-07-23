@@ -63,8 +63,8 @@ jobs:
   build-sign-notarize:
     needs: build-ghostty-cli-helper
     # Build the app on macOS 26 so SDK-gated SwiftUI Liquid Glass code compiles
-    # into stable releases. The real universal Ghostty CLI helper is built on
-    # macOS 15 above because Zig 0.15.2 cannot link it on macOS 26.
+    # into stable releases. Build the universal Ghostty CLI helper separately
+    # so its two slices are verified before injection into the signed app.
     # Import the Apple Developer ID intermediate chain into the build keychain
     # below so signing does not depend on mutable runner login-keychain state.
     runs-on: ${{ vars.MACOS_RUNNER_26 || 'blacksmith-6vcpu-macos-26' }}

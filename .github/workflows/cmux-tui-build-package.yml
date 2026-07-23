@@ -86,9 +86,9 @@ jobs:
           sudo apt-get install -y clang libclang-dev pkg-config
 
       - name: Install zig
-        uses: mlugg/setup-zig@8d6198c65fb0feaa111df26e6b467fea8345e46f # v2.0.5
+        uses: mlugg/setup-zig@d1434d08867e3ee9daa34448df10607b98908d29 # v2.2.1
         with:
-          version: 0.15.2
+          version: 0.16.0
 
       - name: Install Rust target
         shell: bash
@@ -165,9 +165,9 @@ jobs:
         run: git submodule update --init --depth 1 ghostty
 
       - name: Install zig
-        uses: mlugg/setup-zig@8d6198c65fb0feaa111df26e6b467fea8345e46f # v2.0.5
+        uses: mlugg/setup-zig@d1434d08867e3ee9daa34448df10607b98908d29 # v2.2.1
         with:
-          version: 0.15.2
+          version: 0.16.0
 
       - name: Install Rust target
         shell: bash

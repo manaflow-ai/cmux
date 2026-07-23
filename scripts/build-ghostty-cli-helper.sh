@@ -16,7 +16,7 @@ EOF
 SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
 REPO_ROOT="$(cd "$SCRIPT_DIR/.." && pwd)"
 GHOSTTY_DIR="$REPO_ROOT/ghostty"
-ZIG_REQUIRED="${ZIG_REQUIRED:-0.15.2}"
+ZIG_REQUIRED="${ZIG_REQUIRED:-0.16.0}"
 
 OUTPUT_PATH=""
 TARGET_TRIPLE=""
@@ -245,8 +245,8 @@ build_helper() {
   desired_arch="$(target_arch_for_triple "$target")"
   local effective_target="$target"
   if [[ -n "$desired_arch" && "$zig_arch" == "$desired_arch" ]]; then
-    # Native compilation avoids Zig 0.15.x cross-linker failures against newer
-    # macOS SDKs while still producing the requested helper architecture.
+    # Native compilation avoids an unnecessary cross-link while still
+    # producing the requested helper architecture.
     effective_target=""
   fi
 
@@ -270,9 +270,8 @@ build_helper() {
   echo "Building Ghostty CLI helper with $zig_bin${target:+ for $target}"
   (
     cd "$GHOSTTY_DIR"
-    # Zig 0.15.x treats SDKROOT as a sysroot override. Xcode exports SDKROOT to
-    # the macOS SDK, which makes Zig look for SDK paths under that SDK again and
-    # leaves build-runner binaries unlinked against libSystem on a cold cache.
+    # Xcode exports SDKROOT to the macOS SDK. Clear it so Zig selects its target
+    # sysroot consistently in direct invocations and Xcode build phases.
     env -u SDKROOT "${args[@]}"
   )
 }

@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 set -euo pipefail
 
-ZIG_REQUIRED="${ZIG_REQUIRED:-0.15.2}"
+ZIG_REQUIRED="${ZIG_REQUIRED:-0.16.0}"
 ZIG_MINISIGN_PUBLIC_KEY="${ZIG_MINISIGN_PUBLIC_KEY:-RWSGOq2NVecA2UPNdBUZykf1CCb147pkmdtYxgb3Ti+JO/wCYvhbAb/U}"
 ZIG_INDEX_URL="${ZIG_INDEX_URL:-https://ziglang.org/download/index.json}"
 ZIG_EXPECTED_SHA256="${ZIG_EXPECTED_SHA256:-}"
@@ -107,8 +107,8 @@ ZIG_TAR="${ZIG_WORK_ROOT}/${ZIG_NAME}.tar.xz"
 ZIG_SIG="${ZIG_TAR}.minisig"
 ZIG_DIR="${ZIG_WORK_ROOT}/${ZIG_NAME}"
 ZIG_OFFICIAL_URL="https://ziglang.org/download/${ZIG_REQUIRED}/${ZIG_NAME}.tar.xz"
-ZIG_MIRROR_URL="${ZIG_MIRROR_URL:-https://zigmirror.hryx.net/zig/${ZIG_NAME}.tar.xz}"
-ZIG_SECONDARY_MIRROR_URL="${ZIG_SECONDARY_MIRROR_URL:-https://pkg.hexops.org/zig/${ZIG_NAME}.tar.xz}"
+ZIG_MIRROR_URL="${ZIG_MIRROR_URL:-https://pkg.hexops.org/zig/${ZIG_NAME}.tar.xz}"
+ZIG_SECONDARY_MIRROR_URL="${ZIG_SECONDARY_MIRROR_URL:-https://zigmirror.hryx.net/zig/${ZIG_NAME}.tar.xz}"
 ZIG_INDEX_ARCH="${ZIG_ARCH}-${ZIG_OS}"
 
 download_file() {
