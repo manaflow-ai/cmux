@@ -379,7 +379,7 @@ async fn select_initial_route<T: Send>(
             && let Err(error) = attempt.bootstrap_ssh(&endpoint, upgrade_candidate).await
         {
             if upgrade_candidate {
-                return Err(error.context(format!("SSH bootstrap failed for {endpoint}")));
+                return Err(anyhow!("SSH bootstrap failed for {endpoint}: {error:#}"));
             }
             failures.push(format!("{endpoint}: SSH bootstrap failed: {error:#}"));
             continue;
