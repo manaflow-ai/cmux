@@ -94,6 +94,13 @@ extension CMUXCLI {
         do {
             resolvedWorkspaceId = try resolveWorkspaceId(trimmedWorkspace, client: client)
         } catch let error as CLIError where error.v2Code == "not_found" {
+            if trimmedWorkspace != nil {
+                throw CLIError(
+                    message: error.message,
+                    exitCode: Self.piHookSurfaceUnavailableExitCode,
+                    v2Code: error.v2Code
+                )
+            }
             resolvedWorkspaceId = nil
         }
         if isUUID(surface) {

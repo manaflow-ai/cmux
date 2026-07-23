@@ -3151,9 +3151,9 @@ def test_pi_feed_rejects_missing_explicit_workspace(cli_path: str, root: Path) -
             timeout=10,
         )
 
-    if result.returncode == 0:
+    if result.returncode != 69:
         raise AssertionError(
-            "Pi feed discarded its missing explicit workspace and routed by surface alone: "
+            "Pi feed did not report its missing explicit workspace as an unavailable target: "
             f"stdout={result.stdout!r} stderr={result.stderr!r} frames={fake.frames!r}"
         )
     forbidden_methods = {"agent.resolve_delivery_target", "feed.push"}
