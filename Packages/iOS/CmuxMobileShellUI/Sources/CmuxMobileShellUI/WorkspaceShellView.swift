@@ -166,6 +166,8 @@ struct WorkspaceShellView: View {
     @State private var rootToolbarSelectionTask: Task<Void, Never>?
     @State private var rootToolbarSelectionGeneration: UInt64 = 0
     #endif
+    @State private var workspaceSearchText = ""
+    @State private var notificationSearchText = ""
     @State private var hasPresentedSplitDetail = false
     @State private var splitColumnVisibility: NavigationSplitViewVisibility = .automatic
     @State private var macSelection: WorkspaceMacSelection = .all
@@ -214,6 +216,8 @@ struct WorkspaceShellView: View {
         GeometryReader { geometry in
             MobilePrimaryTabScaffold(
                 selection: $selectedPrimaryTab,
+                workspaceSearchText: $workspaceSearchText,
+                notificationSearchText: $notificationSearchText,
                 notificationUnreadCount: presentation.notificationUnreadCount
             ) {
                 workspaceTabContent(
@@ -224,7 +228,8 @@ struct WorkspaceShellView: View {
                     NotificationFeedStoreView(
                         store: store,
                         items: presentation.notificationFeedItems,
-                        status: presentation.notificationFeedStatus
+                        status: presentation.notificationFeedStatus,
+                        searchText: notificationSearchText
                     )
                         .toolbar {
                             if notificationNavigationPath.isEmpty {
@@ -238,7 +243,7 @@ struct WorkspaceShellView: View {
                                 canCreateWorkspaceForSelection: presentation.canCreateWorkspaceForSelection
                             )
                             .toolbarVisibility(.hidden, for: .tabBar)
-                        }
+                    }
                 }
             }
             .environment(\.workspaceRootToolbarContentWidth, geometry.size.width)
@@ -350,7 +355,10 @@ struct WorkspaceShellView: View {
 
     private func stackLayout(canCreateWorkspaceForSelection: Bool) -> some View {
         NavigationStack(path: $compactNavigationPath) {
-            WorkspaceListSearchHost { searchText in
+            WorkspaceListSearchHost(
+                searchText: $workspaceSearchText,
+                taskComposerAction: taskComposerAction
+            ) { searchText in
                 workspaceList(
                     navigationStyle: .push,
                     searchText: searchText,
@@ -379,7 +387,7 @@ struct WorkspaceShellView: View {
                     )
                 )
                     #if os(iOS)
-                    .toolbarVisibility(.hidden, for: .tabBar)
+                    .toolbarVisibility(.hidden, for: .tabBar, .bottomBar)
                     #endif
                     // Only on the pushed compact stack (where a back button
                     // exists): replace the system back button with a custom one
@@ -431,9 +439,18 @@ struct WorkspaceShellView: View {
         }
     }
 
+    private func openTaskComposer() {
+        isTaskComposerPresented = true
+    }
+
+    private var taskComposerAction: (() -> Void)? {
+        guard displaySettings.taskComposerEnabled else { return nil }
+        return openTaskComposer
+    }
+
     private func splitLayout(canCreateWorkspaceForSelection: Bool) -> some View {
         NavigationSplitView(columnVisibility: $splitColumnVisibility) {
-            WorkspaceListSearchHost { searchText in
+            WorkspaceListSearchHost(searchText: $workspaceSearchText) { searchText in
                 workspaceList(
                     navigationStyle: .sidebar,
                     searchText: searchText,
@@ -668,14 +685,20 @@ struct WorkspaceShellView: View {
         }
     }
 
+    private var showsTaskComposerButtonOverlay: Bool {
+        guard displaySettings.taskComposerEnabled else { return false }
+        if #available(iOS 26.0, *) {
+            return !usesCompactStack
+        }
+        return true
+    }
+
     @ViewBuilder
     private var taskComposerButtonOverlay: some View {
-        if displaySettings.taskComposerEnabled {
-            TaskComposerButton {
-                isTaskComposerPresented = true
-            }
-            .padding(.trailing, 20)
-            .padding(.bottom, 6)
+        if showsTaskComposerButtonOverlay {
+            TaskComposerButton(action: openTaskComposer)
+                .padding(.trailing, 20)
+                .padding(.bottom, 6)
         }
     }
     #endif

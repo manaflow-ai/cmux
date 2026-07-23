@@ -17,6 +17,7 @@ struct NotificationFeedActions {
 struct NotificationFeedView: View {
     let items: [MobileNotificationFeedItem]
     let status: MobileNotificationFeedStatus
+    let searchText: String
     let actions: NotificationFeedActions
 
     @State private var projection = NotificationFeedProjection()
@@ -31,6 +32,7 @@ struct NotificationFeedView: View {
                 sections: projection.sections,
                 sourceItemCount: projection.sourceItemCount,
                 filter: projection.filter,
+                hasSearchQuery: !projection.searchText.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty,
                 status: status,
                 actions: actions
             )
@@ -56,6 +58,9 @@ struct NotificationFeedView: View {
         }
         .onChange(of: items, initial: true) { _, items in
             projection.update(items: items)
+        }
+        .onChange(of: searchText, initial: true) { _, searchText in
+            projection.searchText = searchText
         }
         .task {
             await actions.refresh()
@@ -91,6 +96,7 @@ private struct NotificationFeedList: View {
     let sections: [NotificationFeedDaySection]
     let sourceItemCount: Int
     let filter: MobileNotificationFeedFilter
+    let hasSearchQuery: Bool
     let status: MobileNotificationFeedStatus
     let actions: NotificationFeedActions
 
@@ -129,6 +135,7 @@ private struct NotificationFeedList: View {
         NotificationFeedEmptyState.resolve(
             sourceItemCount: sourceItemCount,
             filter: filter,
+            hasSearchQuery: hasSearchQuery,
             status: status
         )
     }

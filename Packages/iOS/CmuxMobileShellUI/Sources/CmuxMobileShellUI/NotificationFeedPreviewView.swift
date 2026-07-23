@@ -7,6 +7,8 @@ import SwiftUI
 /// verification. It mounts the production tab scaffold and production feed.
 public struct NotificationFeedPreviewView: View {
     @State private var selectedTab: MobilePrimaryTab = .notifications
+    @State private var workspaceSearchText = ""
+    @State private var notificationSearchText = ""
     @State private var items: [MobileNotificationFeedItem]
     @State private var notificationNavigationPath: [MobileWorkspacePreview.ID] = []
     @State private var macSelection: WorkspaceMacSelection = .all
@@ -19,6 +21,8 @@ public struct NotificationFeedPreviewView: View {
         GeometryReader { geometry in
             MobilePrimaryTabScaffold(
                 selection: $selectedTab,
+                workspaceSearchText: $workspaceSearchText,
+                notificationSearchText: $notificationSearchText,
                 notificationUnreadCount: items.lazy.filter { !$0.isRead }.count
             ) {
                 NotificationFeedPreviewWorkspacesView()
@@ -27,6 +31,7 @@ public struct NotificationFeedPreviewView: View {
                     NotificationFeedView(
                         items: items,
                         status: .ready,
+                        searchText: notificationSearchText,
                         actions: actions
                     )
                     .toolbar {
