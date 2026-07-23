@@ -214,6 +214,60 @@ struct ArtifactGitPrivacyTests {
         #expect(try String(contentsOf: trackedNote, encoding: .utf8) == "tracked original")
     }
 
+    @Test("Reorganized project files stay ignored while root configuration stays trackable")
+    func ignoresReorganizedFilesButNotConfiguration() async throws {
+        let root = try gitRepository()
+        defer { ArtifactTestSupport.remove(root) }
+        _ = try await LocalArtifactRepository().snapshot(projectRoot: root)
+        _ = try ArtifactTestSupport.write(
+            "private",
+            named: "organized/final.txt",
+            under: root.appendingPathComponent(".cmux")
+        )
+        _ = try ArtifactTestSupport.write(
+            #"{"automaticCaptureEnabled":false}"#,
+            named: "artifacts.json",
+            under: root.appendingPathComponent(".cmux")
+        )
+
+        #expect(try runGit([
+            "-C", root.path, "check-ignore", "--quiet", "--",
+            ".cmux/organized/final.txt",
+        ]) == 0)
+        #expect(try runGit([
+            "-C", root.path, "check-ignore", "--quiet", "--",
+            ".cmux/artifacts.json",
+        ]) == 1)
+    }
+
+    @Test("Tracked reorganized content blocks later automatic capture")
+    func rejectsTrackedReorganizedStoreContent() async throws {
+        let root = try gitRepository()
+        defer { ArtifactTestSupport.remove(root) }
+        let repository = LocalArtifactRepository()
+        _ = try await repository.snapshot(projectRoot: root)
+        _ = try ArtifactTestSupport.write(
+            "tracked",
+            named: "organized/final.txt",
+            under: root.appendingPathComponent(".cmux")
+        )
+        #expect(try runGit([
+            "-C", root.path, "add", "--force", ".cmux/organized/final.txt",
+        ]) == 0)
+        let source = try ArtifactTestSupport.write(
+            "new private output",
+            named: "outside/new.md",
+            under: root
+        )
+
+        let outcomes = await ArtifactCaptureService(store: repository).capture(
+            candidates: [ArtifactCandidate(sourceURL: source, provenance: .created)],
+            context: ArtifactCaptureContext(projectRoot: root)
+        )
+
+        #expect(outcomes.first == .skipped(.gitPrivacyUnavailable))
+    }
+
     private func gitRepository() throws -> URL {
         let root = try ArtifactTestSupport.temporaryDirectory()
         #expect(try runGit(["init", "--quiet", root.path]) == 0)

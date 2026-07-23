@@ -188,6 +188,28 @@ struct ArtifactMutationAuthorizationTests {
         #expect(artifact.provenance == .referenced)
     }
 
+    @Test("Shell read-write redirection does not authorize artifact creation")
+    func shellReadWriteRedirectionFailsClosed() throws {
+        let call = codexLine(type: "response_item", payload: [
+            "type": "function_call",
+            "name": "exec_command",
+            "arguments": #"{"cmd":"cat <> /Users/me/private.json"}"#,
+            "call_id": "read-write",
+        ])
+        let output = codexLine(type: "response_item", payload: [
+            "type": "function_call_output",
+            "call_id": "read-write",
+            "output": "Process exited with code 0\nOutput:\nprivate contents",
+        ])
+
+        let result = CodexTranscriptParser().parse(lines: [call, output], startingSeq: 0)
+        let artifact = try #require(
+            indexedArtifacts(result).first { $0.path == "/Users/me/private.json" }
+        )
+
+        #expect(artifact.provenance == .referenced)
+    }
+
     @Test("Shell comments do not authorize artifact mutations")
     func shellCommentRedirectionFailsClosed() throws {
         let call = codexLine(type: "response_item", payload: [
