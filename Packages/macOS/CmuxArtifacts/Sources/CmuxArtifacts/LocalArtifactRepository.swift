@@ -124,6 +124,7 @@ public actor LocalArtifactRepository: ArtifactStoring {
             candidates: [ArtifactCandidate(sourceURL: sourceURL, provenance: provenance)],
             context: context,
             configuration: configuration,
+            maximumBatchBytes: nil,
             capturedAt: capturedAt
         )
         guard let attempt = attempts.first else {

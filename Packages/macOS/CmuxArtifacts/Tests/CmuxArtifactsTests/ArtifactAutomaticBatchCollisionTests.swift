@@ -32,6 +32,7 @@ struct ArtifactAutomaticBatchCollisionTests {
                 sessionID: "session:batch"
             ),
             configuration: .defaultValue,
+            maximumBatchBytes: nil,
             capturedAt: Date(timeIntervalSince1970: 1_700_000_000)
         )
         let records = attempts.compactMap { attempt -> ArtifactRecord? in

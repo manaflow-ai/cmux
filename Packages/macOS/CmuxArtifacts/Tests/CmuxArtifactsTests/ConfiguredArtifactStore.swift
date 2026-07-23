@@ -48,6 +48,7 @@ actor ConfiguredArtifactStore: ArtifactStoring {
         candidates: [ArtifactCandidate],
         context: ArtifactCaptureContext,
         configuration: ArtifactCaptureConfiguration,
+        maximumBatchBytes _: Int64?,
         capturedAt: Date
     ) -> [ArtifactImportAttempt] {
         batchImportCount += 1

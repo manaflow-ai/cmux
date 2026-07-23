@@ -47,14 +47,15 @@ struct ArtifactSidebarPanelView: View {
         HStack(spacing: 8) {
             Image(systemName: "magnifyingglass")
                 .foregroundStyle(.secondary)
-            TextField(
-                String(
+            ArtifactSidebarSearchField(
+                value: model.query,
+                placeholder: String(
                     localized: "rightSidebar.artifacts.search.placeholder",
                     defaultValue: "Search artifacts and notes"
                 ),
-                text: Binding(get: { model.query }, set: model.setQuery)
+                onChange: model.setQuery
             )
-            .textFieldStyle(.plain)
+            .frame(maxWidth: .infinity)
             .accessibilityIdentifier("ArtifactSidebarSearchField")
             Button(action: presentAddPanel) {
                 Image(systemName: "plus")

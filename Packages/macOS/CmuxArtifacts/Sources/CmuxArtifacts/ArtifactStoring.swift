@@ -19,10 +19,19 @@ public protocol ArtifactStoring: Sendable {
         capturedAt: Date
     ) async throws -> ArtifactImportOutcome
     /// Imports one homogeneous candidate batch with shared filesystem work.
+    ///
+    /// - Parameters:
+    ///   - candidates: Ordered source files and their provenance.
+    ///   - context: Project and session destination identity.
+    ///   - configuration: Per-file persistence and safety limits.
+    ///   - maximumBatchBytes: Optional aggregate staging limit; `nil` permits every per-file-valid source.
+    ///   - capturedAt: Timestamp recorded in provenance.
+    /// - Returns: One import attempt per candidate, preserving input order.
     func importFiles(
         candidates: [ArtifactCandidate],
         context: ArtifactCaptureContext,
         configuration: ArtifactCaptureConfiguration,
+        maximumBatchBytes: Int64?,
         capturedAt: Date
     ) async -> [ArtifactImportAttempt]
     /// Resolves an exact relative path, unique basename, or unique fuzzy filename.
@@ -37,6 +46,7 @@ extension ArtifactStoring {
         candidates: [ArtifactCandidate],
         context: ArtifactCaptureContext,
         configuration: ArtifactCaptureConfiguration,
+        maximumBatchBytes: Int64?,
         capturedAt: Date
     ) async -> [ArtifactImportAttempt] {
         var attempts: [ArtifactImportAttempt] = []

@@ -162,10 +162,14 @@ struct ArtifactRuntimeLifecycleTests {
         let fallbackHost = RightSidebarKeyboardFocusView(
             frame: NSRect(x: 0, y: 0, width: 24, height: 24)
         )
+        let searchField = ArtifactSidebarSearchFieldView(
+            frame: NSRect(x: 0, y: 0, width: 160, height: 24)
+        )
         contentView.addSubview(fallbackHost)
         controller.registerRightSidebarHost(fallbackHost)
         defer {
             _ = window.makeFirstResponder(nil)
+            searchField.removeFromSuperview()
             fallbackHost.removeFromSuperview()
             window.contentView = nil
             window.orderOut(nil)
@@ -173,6 +177,16 @@ struct ArtifactRuntimeLifecycleTests {
 
         #expect(controller.focusRightSidebar(mode: .artifacts, focusFirstItem: true))
         #expect(controller.debugPendingRightSidebarFocusMode == .artifacts)
+
+        contentView.addSubview(searchField)
+        controller.registerArtifactSearchField(searchField)
+
+        #expect(controller.debugPendingRightSidebarFocusMode == nil)
+        if let responder = window.firstResponder {
+            #expect(searchField.ownsKeyboardFocus(responder))
+        } else {
+            Issue.record("Expected the Artifacts search field to own keyboard focus")
+        }
     }
 
     private func transcriptFixture() throws -> (root: URL, event: WorkstreamEvent) {

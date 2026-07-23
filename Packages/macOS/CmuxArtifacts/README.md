@@ -34,7 +34,8 @@ project-relative paths such as `.cmux/<agent-session>/notes/plan.md`.
 Projects can override the conservative defaults with a partial
 `.cmux/artifacts.json` file. Supported keys are `automaticCaptureEnabled`,
 `captureCreatedAndAttached`, `captureReferencedEphemeral`, `maximumFileBytes`,
-`maximumTextFileBytes`, `maximumTranscriptScanBytes`, `maximumFilesPerCapture`,
+`maximumTextFileBytes`, `maximumTranscriptScanBytes`,
+`maximumAutomaticCaptureBytes`, `maximumFilesPerCapture`,
 `deduplicationScanNodeLimit`,
 `deduplicationHashByteLimit`, `contentSearchMaximumBytes`,
 `contentSearchTotalMaximumBytes`, `maximumSearchResults`, `allowedExtensions`, and

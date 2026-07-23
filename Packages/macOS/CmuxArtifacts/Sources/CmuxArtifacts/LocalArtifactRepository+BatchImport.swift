@@ -6,6 +6,7 @@ extension LocalArtifactRepository {
         candidates: [ArtifactCandidate],
         context: ArtifactCaptureContext,
         configuration: ArtifactCaptureConfiguration,
+        maximumBatchBytes: Int64?,
         capturedAt: Date
     ) async -> [ArtifactImportAttempt] {
         guard !candidates.isEmpty else { return [] }
@@ -51,17 +52,22 @@ extension LocalArtifactRepository {
         if Task.isCancelled {
             return finalizedAttempts(attempts, candidates: candidates)
         }
+        let batchByteLimit = maximumBatchBytes.map { max(0, $0) }
+        var stagedBytes: Int64 = 0
         for (index, candidate) in candidates.enumerated() {
             guard attempts[index] == nil else { continue }
             let source = candidate.sourceURL.standardizedFileURL
             let stagedURL = stagedURLs[index]
             do {
+                let remainingBytes = batchByteLimit.map { max(0, $0 - stagedBytes) }
                 let snapshot = try ArtifactSourceSnapshotter(fileManager: fileManager).snapshot(
                     source: source,
                     paths: paths,
                     configuration: configuration,
+                    maximumBytes: remainingBytes,
                     stagedURL: stagedURL
                 )
+                stagedBytes += snapshot.size
                 preparedByIndex[index] = PreparedArtifactImport(
                     candidate: ArtifactCandidate(sourceURL: source, provenance: candidate.provenance),
                     snapshot: snapshot,

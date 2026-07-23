@@ -35,6 +35,7 @@ struct ArtifactGitBatchingTests {
                 sessionID: "session"
             ),
             configuration: .defaultValue,
+            maximumBatchBytes: nil,
             capturedAt: Date(timeIntervalSince1970: 1)
         )
 
