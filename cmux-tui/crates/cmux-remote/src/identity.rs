@@ -35,7 +35,7 @@ impl std::fmt::Debug for EnrollmentRelayAccess {
         formatter
             .debug_struct("EnrollmentRelayAccess")
             .field("route", &route_debug_label(&self.route))
-            .field("slot", &self.slot)
+            .field("slot", &"[REDACTED]")
             .field("ticket", &"[REDACTED]")
             .finish()
     }
@@ -136,7 +136,7 @@ impl std::fmt::Debug for KnownDaemon {
         formatter
             .debug_struct("KnownDaemon")
             .field("fingerprint", &self.fingerprint)
-            .field("name", &self.name)
+            .field("name", &daemon_name_debug_label(&self.name))
             .field("route_hints", &route_debug_labels(&self.route_hints))
             .field("auth", &self.auth)
             .field("first_seen_at_unix", &self.first_seen_at_unix)
@@ -1111,6 +1111,10 @@ fn route_debug_label(route: &str) -> String {
     crate::provider::sanitized_route_text(route)
 }
 
+fn daemon_name_debug_label(name: &str) -> String {
+    if url::Url::parse(name).is_ok() { route_debug_label(name) } else { name.to_string() }
+}
+
 fn validate_relay_access(
     route_hints: &[String],
     relay_access: &[EnrollmentRelayAccess],
@@ -1426,7 +1430,7 @@ mod tests {
     fn identity_debug_output_redacts_keys_secrets_and_route_credentials() {
         let relay = EnrollmentRelayAccess {
             route: "relay+wss://user:password@relay.test/private?ticket=secret".into(),
-            slot: "slot".into(),
+            slot: "slot-secret-marker".into(),
             ticket: "relay-ticket".into(),
         };
         let invitation = EnrollmentInvitation {
@@ -1445,7 +1449,7 @@ mod tests {
         };
         let known = KnownDaemon {
             fingerprint: "fingerprint".into(),
-            name: "known".into(),
+            name: "wss://name-user-marker:name-password-marker@known.test/name-path-marker".into(),
             public_key: "public-key".into(),
             route_hints: invitation.route_hints.clone(),
             auth: KnownDaemonAuth::Enrolled,
@@ -1470,9 +1474,13 @@ mod tests {
             "private?",
             "route-secret",
             "relay-ticket",
+            "slot-secret-marker",
             "invitation-secret",
             "private-key",
             "persisted-secret",
+            "name-user-marker",
+            "name-password-marker",
+            "name-path-marker",
         ] {
             assert!(!output.contains(secret), "{secret:?} leaked in {output:?}");
         }

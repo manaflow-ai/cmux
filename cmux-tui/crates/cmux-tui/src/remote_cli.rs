@@ -1954,7 +1954,7 @@ fn extract_iroh_routing(
             "node_id" => ROUTING_NODE_ID,
             "relay" | "relay_url" => ROUTING_RELAY_URL,
             "direct" | "direct_addrs" => ROUTING_DIRECT_ADDRS,
-            other => return Err(anyhow!("unknown Iroh route parameter {other:?}")),
+            _ => return Err(anyhow!("Iroh route contains an unsupported parameter")),
         };
         routing.entry(routing_key.into()).or_insert(value);
     }
@@ -2186,6 +2186,17 @@ esac
             .expect("malformed route should fail");
 
         assert!(!error.to_string().contains("dont-leak-me"));
+    }
+
+    #[test]
+    fn unsupported_route_parameters_do_not_echo_query_credentials() {
+        let routes = ["iroh://node?query-secret-marker=value".to_string()];
+
+        let error = resolve_route_candidates(&routes, &BTreeMap::new(), &test_provider_registry())
+            .err()
+            .expect("unsupported route parameter should fail");
+
+        assert!(!error.to_string().contains("query-secret-marker"));
     }
 
     #[test]
