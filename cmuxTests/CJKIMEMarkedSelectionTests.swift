@@ -163,7 +163,19 @@ struct CJKIMEMarkedSelectionTests {
         ])
     }
 
-    @Test(arguments: ["大", "한", "あ", "é"])
+    @Test(arguments: [
+        "你",
+        "臺",
+        "한",
+        "日本",
+        "ф",
+        "ع",
+        "ש",
+        "क",
+        "ก",
+        "a\u{301}",
+        "👨🏽‍💻",
+    ])
     func insertTextCommitsWithoutInspectingLanguage(_ text: String) {
         let view = GhosttyNSView(frame: .zero)
         defer { view.setKeyTextAccumulatorForTesting(nil) }
