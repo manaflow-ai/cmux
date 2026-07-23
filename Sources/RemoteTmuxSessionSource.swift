@@ -9,6 +9,9 @@ import Foundation
 @MainActor
 struct RemoteTmuxSessionObservers {
     var onPaneOutput: ((_ paneId: Int, _ data: Data) -> Void)?
+    /// An authoritative pane snapshot and the live output ordered after it. Delivered separately from
+    /// `onPaneOutput` because the consumer has to hold it until its surface grid can accept it.
+    var onPaneSeed: ((_ paneId: Int, _ seed: RemoteTmuxPaneSeed) -> Void)?
     var onPaneCwd: ((_ paneId: Int, _ path: String) -> Void)?
     var onPaneReflow: ((_ paneId: Int, _ noReflow: Bool) -> Void)?
     var onActivePaneChanged: ((_ windowId: Int, _ paneId: Int) -> Void)?
@@ -28,6 +31,7 @@ struct RemoteTmuxSessionObservers {
 
     init(
         onPaneOutput: ((_ paneId: Int, _ data: Data) -> Void)? = nil,
+        onPaneSeed: ((_ paneId: Int, _ seed: RemoteTmuxPaneSeed) -> Void)? = nil,
         onPaneCwd: ((_ paneId: Int, _ path: String) -> Void)? = nil,
         onPaneReflow: ((_ paneId: Int, _ noReflow: Bool) -> Void)? = nil,
         onActivePaneChanged: ((_ windowId: Int, _ paneId: Int) -> Void)? = nil,
@@ -39,6 +43,7 @@ struct RemoteTmuxSessionObservers {
         onAuthRequired: ((_ sshArgv: [String]) -> Bool)? = nil
     ) {
         self.onPaneOutput = onPaneOutput
+        self.onPaneSeed = onPaneSeed
         self.onPaneCwd = onPaneCwd
         self.onPaneReflow = onPaneReflow
         self.onActivePaneChanged = onActivePaneChanged
@@ -64,6 +69,12 @@ struct RemoteTmuxSessionObservers {
 protocol RemoteTmuxSessionSource: AnyObject {
     /// Live transport state (host-global under a shared connection).
     var connectionState: RemoteTmuxConnectionState { get }
+    /// Notes a diagnostic event against this session.
+    ///
+    /// The ring behind it is host-global when one stream carries several sessions, so an
+    /// implementation that shares a stream scopes the text to its own session — otherwise two
+    /// sessions' pane events are indistinguishable in the same ring.
+    func record(_ event: String)
     /// `true` once the session has permanently ended.
     var exited: Bool { get }
     /// The tmux session id (`$N`), stable across renames, once known.
@@ -122,7 +133,8 @@ protocol RemoteTmuxSessionSource: AnyObject {
     @discardableResult func sendTracked(_ command: String, completion: @escaping (Bool) -> Void) -> Bool
     /// Replaces a pane's visible screen from a fresh capture (home+clear+rows),
     /// used to repaint after a resize the terminal didn't reflow.
-    func repaintPaneVisibleScreen(paneId: Int)
+    @discardableResult
+    func repaintPaneVisibleScreen(paneId: Int) -> UUID?
     /// Drops cached window-size claims for windows no longer live (sizing GC).
     func retainWindowSizeClaims(for liveWindowIDs: Set<Int>)
     /// Drops the cached window-size claim for a single window (e.g. on its close).
@@ -134,7 +146,8 @@ protocol RemoteTmuxSessionSource: AnyObject {
     /// Forwards typed input to a pane.
     @discardableResult func sendKeys(paneId: Int, data: Data) -> Bool
     /// Replays a pane's captured contents into a freshly-mounted surface.
-    func seedPane(paneId: Int)
+    @discardableResult
+    func seedPane(paneId: Int, clearScrollback: Bool) -> UUID?
     /// Ends per-pane cwd / reflow / header subscriptions when a pane's mirror goes away.
     func unsubscribePanePath(paneId: Int)
     func unsubscribePaneReflow(paneId: Int)
@@ -168,6 +181,7 @@ extension RemoteTmuxControlConnection: RemoteTmuxSessionSource {
     func addObserver(_ observers: RemoteTmuxSessionObservers) -> UUID {
         addObserver(
             onPaneOutput: observers.onPaneOutput,
+            onPaneSeed: observers.onPaneSeed,
             onPaneCwd: observers.onPaneCwd,
             onPaneReflow: observers.onPaneReflow,
             onActivePaneChanged: observers.onActivePaneChanged,
@@ -178,5 +192,14 @@ extension RemoteTmuxControlConnection: RemoteTmuxSessionSource {
             onConnectionStateChanged: observers.onConnectionStateChanged,
             onAuthRequired: observers.onAuthRequired
         )
+    }
+}
+
+extension RemoteTmuxSessionSource {
+    /// `clearScrollback: true` is the default the concrete connection declares; a protocol cannot
+    /// carry a default argument, so it lives here instead.
+    @discardableResult
+    func seedPane(paneId: Int) -> UUID? {
+        seedPane(paneId: paneId, clearScrollback: true)
     }
 }
