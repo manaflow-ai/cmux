@@ -30110,6 +30110,9 @@ export default CMUXSessionRestore;
         let hookWsFlag = optionValue(hookArgs, name: "--workspace")
         let directWorkspaceArg = hookWsFlag ?? normalizedHookValue(env["CMUX_WORKSPACE_ID"])
         let explicitSurfaceFlag = optionValue(hookArgs, name: "--surface")
+        let strictPiTarget = def.name == "pi"
+            ? try resolveExplicitPiHookTarget(commandArgs: hookArgs, client: client)
+            : nil
         let directSurfaceArg = explicitSurfaceFlag
             ?? (hookWsFlag == nil ? normalizedHookValue(env["CMUX_SURFACE_ID"]) : nil)
         func resolveAccessibleWorkspaceId(_ raw: String?) -> String? {
@@ -30136,7 +30139,8 @@ export default CMUXSessionRestore;
         func resolveDefaultSurfaceId(workspaceId: String) -> String? {
             try? resolveSurfaceId(nil, workspaceId: workspaceId, client: client)
         }
-        let resolvedDirectWorkspaceArg = resolveAccessibleWorkspaceId(directWorkspaceArg)
+        let resolvedDirectWorkspaceArg = strictPiTarget?.workspaceId
+            ?? resolveAccessibleWorkspaceId(directWorkspaceArg)
         // Only an EXPLICIT --workspace flag that fails to resolve is a hard, hook-dropping error. A
         // stale/invalid AMBIENT CMUX_WORKSPACE_ID must not abort routing — treated as absent, it falls
         // through to the PID/TTY binding below, which is ground truth.
@@ -30165,6 +30169,7 @@ export default CMUXSessionRestore;
         }
 #endif
         let resolvedDirectSurfaceArg: String? = {
+            if let strictPiTarget { return strictPiTarget.surfaceId }
             guard let directSurfaceArg else { return nil }
             guard let workspaceId = resolvedDirectWorkspaceArg ?? processBinding()?.workspaceId else { return nil }
             return resolveAccessibleSurfaceId(directSurfaceArg, workspaceId: workspaceId)
@@ -30175,9 +30180,6 @@ export default CMUXSessionRestore;
         // that is the stale-env variant of the codex jumble.
         let hasInvalidDirectSurfaceArg = explicitSurfaceFlag != nil && resolvedDirectSurfaceArg == nil
         let hasUnusableDirectBinding = hasInvalidDirectWorkspaceArg || hasInvalidDirectSurfaceArg
-        if hasUnusableDirectBinding, let explicitSurfaceFlag {
-            throw piHookSurfaceNotFoundError(explicitSurfaceFlag)
-        }
         func workspaceArg() -> String? {
             resolvedDirectWorkspaceArg ?? processBinding()?.workspaceId
         }
@@ -33702,16 +33704,18 @@ export default CMUXSessionRestore;
 
         let commandEvent = optionValue(commandArgs, name: "--event")
 
-        // Read stdin. Claude, Codex, and the other agents all pipe hook
-        // JSON through stdin; unknown inputs fall through to `{}`. Codex feed
-        // events are telemetry, and native lifecycle hooks can carry arbitrary
-        // transcript fragments or tool output, so cap every Codex feed
-        // invocation before JSON decoding without changing other agents'
-        // actionable hook reads.
+        // Read stdin. Claude, Codex, and the other agents all pipe hook JSON
+        // through stdin; unknown inputs fall through to `{}`. Codex lifecycle
+        // payloads and Pi's compacted terminal batches are bounded before JSON
+        // decoding without changing other agents' actionable hook reads.
         let stdinData: Data
-        let shouldBoundCodexFeedStdin = source == "codex"
-        if shouldBoundCodexFeedStdin {
-            guard let boundedData = Self.readBoundedFeedHookStdin() else {
+        let feedHookStdinLimit: Int? = switch source {
+        case "codex": Self.feedHookMaxStdinBytes
+        case "pi": Self.piFeedHookMaxStdinBytes
+        default: nil
+        }
+        if let feedHookStdinLimit {
+            guard let boundedData = Self.readBoundedFeedHookStdin(maxBytes: feedHookStdinLimit) else {
                 print("{}")
                 return
             }
@@ -33907,7 +33911,7 @@ export default CMUXSessionRestore;
         }
 
         if shouldAwaitTelemetryIngestion {
-            try validateExplicitPiHookTarget(commandArgs: commandArgs, client: activeClient)
+            _ = try resolveExplicitPiHookTarget(commandArgs: commandArgs, client: activeClient)
         }
         let response: String
         do {
@@ -33957,19 +33961,21 @@ export default CMUXSessionRestore;
     }
 
     private static let feedHookMaxStdinBytes = 1 * 1024 * 1024
+    private static let piFeedHookMaxStdinBytes = 128 * 1024
 
     private static func readBoundedFeedHookStdin(
+        maxBytes: Int,
         handle: FileHandle = .standardInput
     ) -> Data? {
         var data = Data()
-        while data.count <= feedHookMaxStdinBytes {
-            let remainingBytes = feedHookMaxStdinBytes + 1 - data.count
+        while data.count <= maxBytes {
+            let remainingBytes = maxBytes + 1 - data.count
             let chunkSize = min(64 * 1024, remainingBytes)
             let chunk = (try? handle.read(upToCount: chunkSize)) ?? Data()
             guard !chunk.isEmpty else { return data }
             data.append(chunk)
         }
-        guard data.count <= feedHookMaxStdinBytes else {
+        guard data.count <= maxBytes else {
             while !((try? handle.read(upToCount: 64 * 1024)) ?? Data()).isEmpty {}
             return nil
         }

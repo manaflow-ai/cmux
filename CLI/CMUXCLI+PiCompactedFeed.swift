@@ -18,7 +18,7 @@ extension CMUXCLI {
         guard !requestLines.isEmpty else { return false }
 
         if let client {
-            try validateExplicitPiHookTarget(commandArgs: commandArgs, client: client)
+            _ = try resolveExplicitPiHookTarget(commandArgs: commandArgs, client: client)
             for line in requestLines {
                 try sendAcknowledgedPiFeed(line, client: client)
             }
@@ -32,7 +32,7 @@ extension CMUXCLI {
                 socketPath: socketPath,
                 responseTimeout: 0.05
             )
-            try validateExplicitPiHookTarget(commandArgs: commandArgs, client: batchClient)
+            _ = try resolveExplicitPiHookTarget(commandArgs: commandArgs, client: batchClient)
             for line in requestLines {
                 try sendAcknowledgedPiFeed(line, client: batchClient)
             }
@@ -40,35 +40,63 @@ extension CMUXCLI {
         return true
     }
 
-    /// Validates a Pi extension's explicit surface without falling back to another pane.
-    func validateExplicitPiHookTarget(commandArgs: [String], client: SocketClient) throws {
-        guard let rawSurface = optionValue(commandArgs, name: "--surface") else { return }
+    /// Resolves a Pi extension's explicit surface without falling back to another pane.
+    func resolveExplicitPiHookTarget(
+        commandArgs: [String],
+        client: SocketClient
+    ) throws -> (workspaceId: String, surfaceId: String)? {
+        guard let rawSurface = optionValue(commandArgs, name: "--surface") else { return nil }
+        let surface = rawSurface.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard isUUID(surface)
+            || Int(surface) != nil
+            || piHookHandleRef(surface, kind: "surface")
+        else {
+            throw piHookSurfaceNotFoundError(rawSurface)
+        }
         let rawWorkspace = optionValue(commandArgs, name: "--workspace")
             ?? ProcessInfo.processInfo.environment["CMUX_WORKSPACE_ID"]
-        let workspaceId: String
-        do {
-            workspaceId = try resolveWorkspaceId(rawWorkspace, client: client)
-        } catch {
-            throw piHookSurfaceNotFoundError(rawSurface)
+        if let rawWorkspace {
+            let workspace = rawWorkspace.trimmingCharacters(in: .whitespacesAndNewlines)
+            guard isUUID(workspace)
+                || Int(workspace) != nil
+                || piHookHandleRef(workspace, kind: "workspace")
+            else {
+                throw piHookSurfaceNotFoundError(rawSurface)
+            }
         }
-        let surfaceId: String
-        do {
-            surfaceId = try resolveSurfaceId(rawSurface, workspaceId: workspaceId, client: client)
-        } catch {
-            throw piHookSurfaceNotFoundError(rawSurface)
-        }
+        let workspaceId = try resolveWorkspaceId(rawWorkspace, client: client)
         let listed: [String: Any]
         do {
             listed = try client.sendV2(method: "surface.list", params: ["workspace_id": workspaceId])
-        } catch {
+        } catch let error as CLIError where error.v2Code == "not_found" {
             throw piHookSurfaceNotFoundError(rawSurface)
         }
         let surfaces = listed["surfaces"] as? [[String: Any]] ?? []
-        guard surfaces.contains(where: {
-            ($0["id"] as? String) == surfaceId || ($0["ref"] as? String) == surfaceId
-        }) else {
+        let surfaceId: String? = if isUUID(surface) {
+            surfaces.first(where: { ($0["id"] as? String) == surface })?["id"] as? String
+        } else if let index = Int(surface) {
+            surfaces.first(where: { piHookInteger($0["index"]) == index })?["id"] as? String
+        } else {
+            surfaces.first(where: { ($0["ref"] as? String) == surface })?["id"] as? String
+        }
+        guard let surfaceId else {
             throw piHookSurfaceNotFoundError(rawSurface)
         }
+        return (workspaceId, surfaceId)
+    }
+
+    private func piHookHandleRef(_ raw: String, kind: String) -> Bool {
+        let pieces = raw.split(separator: ":", omittingEmptySubsequences: false)
+        return pieces.count == 2
+            && pieces[0].lowercased() == kind
+            && Int(pieces[1]) != nil
+    }
+
+    private func piHookInteger(_ value: Any?) -> Int? {
+        if let value = value as? Int { return value }
+        if let value = value as? NSNumber { return value.intValue }
+        if let value = value as? String { return Int(value) }
+        return nil
     }
 
     /// Builds the localized failure shared by strict Pi lifecycle and feed routing.
@@ -79,8 +107,11 @@ extension CMUXCLI {
                 defaultValue: "Surface not found: %@"
             ),
             rawSurface
-        ))
+        ), exitCode: Self.piHookSurfaceUnavailableExitCode, v2Code: "not_found")
     }
+
+    /// Stable process status consumed by the generated extension without parsing localized stderr.
+    static let piHookSurfaceUnavailableExitCode: Int32 = 69
 
     private func sendAcknowledgedPiFeed(_ line: String, client: SocketClient) throws {
         let response = try client.send(command: line, responseTimeout: 4)

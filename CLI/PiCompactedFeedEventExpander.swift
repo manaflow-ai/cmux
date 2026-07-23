@@ -2,6 +2,7 @@ import Foundation
 
 /// Expands a bounded Pi terminal-event batch into ordinary Feed socket requests.
 struct PiCompactedFeedEventExpander {
+    private static let maxCompactedTerminalEvents = 64
     private let agentPid: Int
     private let workspaceId: String?
 
@@ -12,7 +13,8 @@ struct PiCompactedFeedEventExpander {
 
     func requestLines(from rawObject: [String: Any]) -> [String] {
         guard let summaries = rawObject["cmux_compacted_terminal_events"] as? [[String: Any]],
-              !summaries.isEmpty
+              !summaries.isEmpty,
+              summaries.count <= Self.maxCompactedTerminalEvents
         else {
             return []
         }

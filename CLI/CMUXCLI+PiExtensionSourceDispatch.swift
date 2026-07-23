@@ -16,6 +16,7 @@ interface PiCommandCancellation {
 }
 
 class PiCmuxCommandDispatcher {
+  private static readonly surfaceUnavailableExitCode = 69;
   private static readonly maxPendingFeedCommands = 8;
   private static readonly maxCompactedTerminalSummaries = 64;
   private static readonly maxFeedInputBytes = 128 * 1024;
@@ -459,12 +460,7 @@ class PiCmuxCommandDispatcher {
   }
 
   private isSurfaceResolutionFailure(result: CommandResult): boolean {
-    if (result.ok) return false;
-    const output = `${result.stderr}\n${result.stdout}`.toLowerCase();
-    return output.includes("invalid surface handle") ||
-      output.includes("surface not found") ||
-      output.includes("invalid workspace handle") ||
-      output.includes("workspace not found");
+    return !result.ok && result.status === PiCmuxCommandDispatcher.surfaceUnavailableExitCode;
   }
 
   private surfaceUnavailableResult(): CommandResult {
