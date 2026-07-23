@@ -328,6 +328,8 @@ function settleTurn(sessionStates: Map<string, SessionState>, sessionId: string)
   if (!state || !completion || state.stopped) return undefined;
   state.activeTurnId = undefined;
   state.pendingCompletion = undefined;
+  // Keep the settlement claim after a failed terminal-feed drain so session_shutdown
+  // cannot publish a stop that falsely declares undelivered tool telemetry complete.
   state.stopped = true;
   return completion;
 }

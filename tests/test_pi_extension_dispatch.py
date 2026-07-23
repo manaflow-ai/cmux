@@ -813,6 +813,7 @@ await handlers.get("agent_end")({
   messages: [{ role: "assistant", content: "done" }],
   stopReason: "completed"
 }, ctx);
+await handlers.get("session_shutdown")({ reason: "quit" }, ctx);
 """
 
     log_path = root / "terminal-feed-failure.log"
