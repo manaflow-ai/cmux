@@ -86,6 +86,11 @@ class FakeRunner:
         self.screenshot_path: str | None = None
         self.restore_count = 0
         self.browser_wait_errors: list[BaseException] = []
+        self.snapshot_fingerprint = {
+            "algorithm": "sha256",
+            "digest": "a" * 64,
+            "byte_count": 4096,
+        }
 
     def _restore_with_fresh_ids(self) -> None:
         self.restore_count += 1
@@ -100,10 +105,17 @@ class FakeRunner:
         }
         self.workspace = f"workspace:{suffix}"
         self.pane = f"pane:{suffix}"
-        self.surfaces = [
+        restored_surfaces = [
             {**item, "surface_id": mapping[item["surface_id"]]}
             for item in old_surfaces
         ]
+        self.surfaces = [
+            item for item in restored_surfaces if item["type"] == "terminal"
+        ] + list(
+            reversed(
+                [item for item in restored_surfaces if item["type"] == "browser"]
+            )
+        )
         self.browser_state = {
             mapping[surface_id]: state
             for surface_id, state in old_browser_state.items()
@@ -126,6 +138,10 @@ class FakeRunner:
 
     def clean_persisted_state(self) -> None:
         self.events.append("clean_persisted_state")
+
+    def persisted_snapshot_fingerprint(self) -> dict[str, Any]:
+        self.events.append("persisted_snapshot_fingerprint")
+        return deepcopy(self.snapshot_fingerprint)
 
     def launch(self, label: str) -> float:
         self.events.append(("launch", label))
@@ -745,6 +761,7 @@ def test_snapshot_restore_relaunches_without_cleaning_and_strictly_verifies_shap
 
     captured = adapter.snapshot()
     assert captured["elapsed_ms"] == 4.5
+    assert runner.events[-1] == "persisted_snapshot_fingerprint"
     before_restore = len(runner.events)
     adapter.restore(captured)
     restored_events = runner.events[before_restore:]
@@ -764,9 +781,24 @@ def test_snapshot_restore_relaunches_without_cleaning_and_strictly_verifies_shap
     assert [item["type"] for item in runner.surfaces] == [
         "terminal", "terminal", "browser", "browser"
     ]
+    planned_browsers = {item.surface_id: item for item in plan.browser_surfaces}
+    assert {
+        planned_id: runner.browser_state[actual_id]["url"]
+        for planned_id, actual_id in adapter._browser_actual_ids.items()
+    } == {
+        planned_id: planned.url for planned_id, planned in planned_browsers.items()
+    }
+    benchmark_calls = [
+        event
+        for event in runner.events
+        if event[:2] == ("rpc", "debug.session_snapshot_benchmark")
+    ]
+    assert len(benchmark_calls) == 1
+    assert adapter.raw_details["snapshot"]["persisted_before"] == runner.snapshot_fingerprint
+    assert adapter.raw_details["snapshot"]["persisted_after"] == runner.snapshot_fingerprint
     assert adapter.observe_fixture()["browsers"][0]["content_marker"] == plan.browser_surfaces[0].content_marker
-    runner.snapshot_payload["shape"]["browsers"] = 1
-    with pytest.raises(ValueError, match="snapshot"):
+    runner.snapshot_fingerprint["digest"] = "0" * 64
+    with pytest.raises(ValueError, match="persisted snapshot fingerprint"):
         adapter.restore(captured)
 
 
