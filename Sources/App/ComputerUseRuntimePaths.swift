@@ -27,12 +27,19 @@ struct ComputerUseRuntimePaths: Sendable {
         bundleIdentifier: String? = Bundle.main.bundleIdentifier,
         authenticationToken: String? = nil
     ) {
-        let candidateScope = Self.sanitizedScope(
-            environment["CMUX_TAG"]
-                ?? environment[Self.runtimeScopeEnvironmentKey]
-                ?? environment["CMUX_BUNDLE_ID"]
-                ?? bundleIdentifier
-        )
+        let candidateScope: String
+        if let rawTag = environment["CMUX_TAG"], !rawTag.isEmpty {
+            // CMUX_TAG is user-controlled and sanitization is intentionally
+            // lossy. Include a digest of the raw value so tags such as
+            // "foo/bar" and "foo?bar" cannot share one helper daemon.
+            candidateScope = Self.taggedScope(rawTag)
+        } else {
+            candidateScope = Self.sanitizedScope(
+                environment[Self.runtimeScopeEnvironmentKey]
+                    ?? environment["CMUX_BUNDLE_ID"]
+                    ?? bundleIdentifier
+            )
+        }
         scope = Self.socketSafeScope(
             candidateScope,
             rootDirectoryURL: socketRootDirectoryURL,
@@ -69,6 +76,10 @@ struct ComputerUseRuntimePaths: Sendable {
         // performs the length bound and adds a stable hash when truncation is
         // required, so two long tags with the same prefix remain isolated.
         return candidate.isEmpty ? "default" : candidate
+    }
+
+    private static func taggedScope(_ rawTag: String) -> String {
+        "\(sanitizedScope(rawTag))-\(stableScopeHash(rawTag))"
     }
 
     private static func socketSafeScope(
