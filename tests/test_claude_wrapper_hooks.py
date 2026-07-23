@@ -1134,8 +1134,14 @@ def expect_cua_driver_config(
             failures,
         )
     expect(
-        not isinstance(command, str) or "cmux Computer Use.app" not in Path(command).parts,
-        f"{context}: proxy command must not execute from the helper app, got {command}",
+        isinstance(command, str)
+        and Path(command).parts[-4:] == (
+            "cmux Computer Use.app",
+            "Contents",
+            "MacOS",
+            expected_name,
+        ),
+        f"{context}: proxy command must use the signed cmux Computer Use helper, got {command}",
         failures,
     )
     expect_computer_use_env_scrubbed(server, failures, context, helper_owned=helper_owned)

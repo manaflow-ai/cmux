@@ -331,8 +331,18 @@ def test_codex_gets_cmux_cua_driver(failures: list[str]) -> None:
     expect(mcp_args_raw is not None, f"missing computer-use args config in {args}", failures)
     if cmd is not None:
         command = json.loads(cmd)
-        expect(Path(command).name == "cmux-cua-driver", f"expected bundled driver command, got {cmd}", failures)
-        expect("cmux Computer Use.app" not in Path(command).parts, f"proxy must not run from helper bundle: {command}", failures)
+        command_path = Path(command)
+        expect(command_path.name == "cmux-cua-driver", f"expected bundled driver command, got {cmd}", failures)
+        expect(
+            command_path.parts[-4:] == (
+                "cmux Computer Use.app",
+                "Contents",
+                "MacOS",
+                "cmux-cua-driver",
+            ),
+            f"expected signed cmux Computer Use proxy command, got {command}",
+            failures,
+        )
     if mcp_args_raw is not None:
         mcp_args = json.loads(mcp_args_raw)
         expect(
