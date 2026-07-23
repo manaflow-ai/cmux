@@ -934,6 +934,46 @@ def test_cleanup_unlinks_exact_owned_screenshot_path(
     assert str(screenshot_path) in cleanup["owned_paths"]
 
 
+def test_browser_batch_parallelizes_hidden_safe_work_after_ordered_activation(
+    tmp_path: Path,
+) -> None:
+    cfg = config(tmp_path, scenario=scenario(terminals=0, browsers=2, scrollback=0))
+    runner = FakeRunner()
+    adapter = adapter_module.CmuxRuntimeAdapter(
+        cfg, runner=runner, clock=FakeClock()
+    )
+    prepare_fixture(adapter, runner, cfg)
+    original_rpc = runner.rpc
+    entered_reload: set[str] = set()
+    entered_lock = threading.Lock()
+    both_reloading = threading.Event()
+
+    def rpc_with_reload_barrier(
+        method: str, params: dict[str, Any] | None = None, timeout: float = 60
+    ) -> dict[str, Any]:
+        if method == "browser.reload" and params is not None:
+            with entered_lock:
+                entered_reload.add(params["surface_id"])
+                if len(entered_reload) == 2:
+                    both_reloading.set()
+            assert both_reloading.wait(timeout=1.0)
+        return original_rpc(method, params, timeout)
+
+    runner.rpc = rpc_with_reload_barrier
+    results = adapter._browser_churn_batch(1)
+
+    assert [planned for planned, _result in results] == list(
+        adapter._browser_actual_ids
+    )
+    assert entered_reload == set(adapter._browser_actual_ids.values())
+    activations = [
+        event[2]["surface_id"]
+        for event in runner.events
+        if event[:2] == ("rpc", "surface.focus")
+    ]
+    assert activations == list(adapter._browser_actual_ids.values())
+
+
 def test_churn_rejects_browser_work_that_outlives_fixed_measurement_window(
     tmp_path: Path,
 ) -> None:
