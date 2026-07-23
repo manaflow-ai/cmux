@@ -623,6 +623,31 @@ struct ProcessCatalogMetadata {
     io: ProcessIoKind,
 }
 
+struct ProcessTarget {
+    exited: AtomicBool,
+    notify: Notify,
+}
+
+impl ProcessTarget {
+    fn new() -> Self {
+        Self { exited: AtomicBool::new(false), notify: Notify::new() }
+    }
+
+    fn is_exited(&self) -> bool {
+        self.exited.load(Ordering::Acquire)
+    }
+
+    fn mark_exited(&self) {
+        self.exited.store(true, Ordering::Release);
+        self.notify.notify_waiters();
+    }
+
+    #[cfg(unix)]
+    fn signal_if_live<T>(&self, signal: impl FnOnce() -> T) -> Option<T> {
+        (!self.is_exited()).then(signal)
+    }
+}
+
 struct ProcessRecord {
     id: ProcessId,
     owner: ClientScope,
@@ -642,8 +667,7 @@ struct ProcessRecord {
     exit: watch::Receiver<Option<ExitOutcome>>,
     /// Set immediately after the direct child is reaped. PID and process-group
     /// IDs may be reused after this point, even while output is still draining.
-    target_exited: Arc<AtomicBool>,
-    target_exit_notify: Arc<Notify>,
+    target: Arc<ProcessTarget>,
     /// Set after bounded output drain and exit-event publication complete.
     finished: Arc<AtomicBool>,
 }
@@ -730,7 +754,7 @@ struct PendingProcessGuard {
     #[cfg(unix)]
     signal_process_group: bool,
     #[cfg(unix)]
-    target_exited: Option<Arc<AtomicBool>>,
+    target: Option<Arc<ProcessTarget>>,
     #[cfg(not(unix))]
     killer: Option<Arc<StdMutex<Box<dyn ChildKiller + Send + Sync>>>>,
 }
@@ -738,13 +762,13 @@ struct PendingProcessGuard {
 impl PendingProcessGuard {
     #[cfg(unix)]
     fn new(pid: Option<u32>, signal_process_group: bool) -> Self {
-        Self { armed: true, pid, signal_process_group, target_exited: None }
+        Self { armed: true, pid, signal_process_group, target: None }
     }
 
     #[cfg(unix)]
-    fn update_target(&mut self, pid: Option<u32>, target_exited: Arc<AtomicBool>) {
+    fn update_target(&mut self, pid: Option<u32>, target: Arc<ProcessTarget>) {
         self.pid = pid;
-        self.target_exited = Some(target_exited);
+        self.target = Some(target);
     }
 
     #[cfg(not(unix))]
@@ -763,7 +787,7 @@ impl Drop for PendingProcessGuard {
             return;
         }
         #[cfg(unix)]
-        if self.target_exited.as_ref().is_some_and(|exited| exited.load(Ordering::Acquire)) {
+        if self.target.as_ref().is_some_and(|target| target.is_exited()) {
             return;
         }
         #[cfg(unix)]
@@ -834,6 +858,10 @@ pub(crate) struct ProcessManager {
     processes: Arc<RwLock<ProcessStore>>,
     reservations: Mutex<HashMap<ProcessId, ProcessReservation>>,
     pty_slots: Arc<Semaphore>,
+    #[cfg(test)]
+    pty_setup_failure: StdMutex<Option<PtySetupFailure>>,
+    #[cfg(test)]
+    pty_setup_child_pid: AtomicUsize,
 }
 
 impl Default for ProcessManager {
@@ -843,8 +871,19 @@ impl Default for ProcessManager {
             processes: Arc::new(RwLock::new(ProcessStore::default())),
             reservations: Mutex::new(HashMap::new()),
             pty_slots: Arc::new(Semaphore::new(MAX_PTY_PROCESSES)),
+            #[cfg(test)]
+            pty_setup_failure: StdMutex::new(None),
+            #[cfg(test)]
+            pty_setup_child_pid: AtomicUsize::new(0),
         }
     }
+}
+
+#[cfg(test)]
+#[derive(Clone, Copy, PartialEq, Eq)]
+enum PtySetupFailure {
+    Reader,
+    Waiter,
 }
 
 impl ProcessManager {
@@ -1090,12 +1129,11 @@ impl ProcessManager {
             killer: None,
             events: events.clone(),
             exit: exit_rx,
-            target_exited: Arc::new(AtomicBool::new(false)),
-            target_exit_notify: Arc::new(Notify::new()),
+            target: Arc::new(ProcessTarget::new()),
             finished: Arc::new(AtomicBool::new(false)),
         });
         #[cfg(unix)]
-        pending.update_target(pid, record.target_exited.clone());
+        pending.update_target(pid, record.target.clone());
         let (output_activity, output_activity_rx) = watch::channel(0_u64);
         let mut output_tasks = JoinSet::new();
         output_tasks.spawn(read_pipe(stdout, events.clone(), id, false, output_activity.clone()));
@@ -1183,9 +1221,18 @@ impl ProcessManager {
             .spawn_command(command)
             .map_err(|error| RpcError::new("process-spawn-failed", error.to_string()))?;
         let pid = child.process_id();
+        #[cfg(test)]
+        self.pty_setup_child_pid
+            .store(pid.and_then(|pid| usize::try_from(pid).ok()).unwrap_or(0), Ordering::Release);
         #[cfg(unix)]
         let mut pending = PendingProcessGuard::new(pid, true);
         drop(pair.slave);
+        #[cfg(test)]
+        if *self.pty_setup_failure.lock().unwrap_or_else(std::sync::PoisonError::into_inner)
+            == Some(PtySetupFailure::Reader)
+        {
+            return Err(RpcError::new("pty-open-failed", "synthetic PTY reader setup failure"));
+        }
         #[cfg(not(unix))]
         let killer = Arc::new(StdMutex::new(child.clone_killer()));
         #[cfg(not(unix))]
@@ -1208,7 +1255,7 @@ impl ProcessManager {
             pair.master.process_group_leader().and_then(|pid| u32::try_from(pid).ok());
         #[cfg(not(unix))]
         let process_group_pid = pid;
-        let record_pid = process_group_pid.or(pid);
+        let record_pid = pty_process_pid(pid, process_group_pid);
         #[cfg(unix)]
         let input_writer = InputWriter::Pty(pty_io.clone());
         #[cfg(not(unix))]
@@ -1233,12 +1280,11 @@ impl ProcessManager {
             killer: Some(killer),
             events: events.clone(),
             exit: exit_rx,
-            target_exited: Arc::new(AtomicBool::new(false)),
-            target_exit_notify: Arc::new(Notify::new()),
+            target: Arc::new(ProcessTarget::new()),
             finished: Arc::new(AtomicBool::new(false)),
         });
         #[cfg(unix)]
-        pending.update_target(record_pid, record.target_exited.clone());
+        pending.update_target(record_pid, record.target.clone());
         #[cfg(unix)]
         {
             let (output_activity, output_activity_rx) = watch::channel(0_u64);
@@ -1246,8 +1292,13 @@ impl ProcessManager {
             output_tasks.spawn(read_pty(pty_io, events.clone(), id, output_activity.clone()));
             drop(output_activity);
             let (status_tx, status_rx) = oneshot::channel();
-            let target_exited = record.target_exited.clone();
-            let target_exit_notify = record.target_exit_notify.clone();
+            #[cfg(test)]
+            if *self.pty_setup_failure.lock().unwrap_or_else(std::sync::PoisonError::into_inner)
+                == Some(PtySetupFailure::Waiter)
+            {
+                return Err(RpcError::new("pty-open-failed", "synthetic PTY waiter setup failure"));
+            }
+            let target = record.target.clone();
             std::thread::Builder::new()
                 .name(format!("cmux-remote-pty-wait-{id}"))
                 .spawn(move || {
@@ -1263,8 +1314,7 @@ impl ProcessManager {
                     // the async output-drain task is still finishing. Tell
                     // the cancellation guard immediately so it never signals
                     // an unrelated replacement process.
-                    target_exited.store(true, Ordering::Release);
-                    target_exit_notify.notify_waiters();
+                    target.mark_exited();
                     let _ = status_tx.send(outcome);
                 })
                 .map_err(|error| RpcError::new("pty-open-failed", error.to_string()))?;
@@ -1315,8 +1365,7 @@ impl ProcessManager {
                 .spawn(move || {
                     let _pty_slot = pty_slot;
                     let status = child.wait();
-                    waiter_record.target_exited.store(true, Ordering::Release);
-                    waiter_record.target_exit_notify.notify_waiters();
+                    waiter_record.target.mark_exited();
                     let _ = reader_thread.join();
                     let outcome = status
                         .map(portable_pty_exit_outcome)
@@ -1854,14 +1903,13 @@ async fn wait_for_process_exit(exit: &mut watch::Receiver<Option<ExitOutcome>>) 
 }
 
 fn mark_target_exited(record: &ProcessRecord) {
-    record.target_exited.store(true, Ordering::Release);
-    record.target_exit_notify.notify_waiters();
+    record.target.mark_exited();
 }
 
 async fn wait_for_target_exit(record: &ProcessRecord) {
     loop {
-        let notified = record.target_exit_notify.notified();
-        if record.target_exited.load(Ordering::Acquire) {
+        let notified = record.target.notify.notified();
+        if record.target.is_exited() {
             return;
         }
         notified.await;
@@ -2193,6 +2241,14 @@ fn validate_pty_size(cols: u16, rows: u16) -> Result<(), RpcError> {
     Ok(())
 }
 
+#[cfg(unix)]
+fn pty_process_pid(
+    direct_child_pid: Option<u32>,
+    foreground_process_group: Option<u32>,
+) -> Option<u32> {
+    foreground_process_group.or(direct_child_pid)
+}
+
 fn schedule_process_timeout(record: Arc<ProcessRecord>, timeout_ms: Option<u64>) {
     let Some(timeout_ms) = timeout_ms else { return };
     let mut exit = record.exit.clone();
@@ -2224,9 +2280,6 @@ fn terminate_with_escalation(record: Arc<ProcessRecord>) -> Result<(), RpcError>
 
 #[cfg(unix)]
 fn signal_record(record: &ProcessRecord, signal: ProcessSignal) -> Result<(), RpcError> {
-    if record.target_exited.load(Ordering::Acquire) {
-        return Ok(());
-    }
     let pid = record
         .pid
         .and_then(|pid| i32::try_from(pid).ok())
@@ -2238,7 +2291,10 @@ fn signal_record(record: &ProcessRecord, signal: ProcessSignal) -> Result<(), Rp
         ProcessSignal::Hangup => libc::SIGHUP,
     };
     let target = if record.signal_process_group { -pid } else { pid };
-    let result = unsafe { libc::kill(target, native) };
+    let Some(result) = record.target.signal_if_live(|| unsafe { libc::kill(target, native) })
+    else {
+        return Ok(());
+    };
     if result == 0 {
         Ok(())
     } else {
@@ -2253,7 +2309,7 @@ fn signal_record(record: &ProcessRecord, signal: ProcessSignal) -> Result<(), Rp
 
 #[cfg(not(unix))]
 fn signal_record(record: &ProcessRecord, signal: ProcessSignal) -> Result<(), RpcError> {
-    if record.target_exited.load(Ordering::Acquire) {
+    if record.target.is_exited() {
         return Ok(());
     }
     if !matches!(signal, ProcessSignal::Terminate | ProcessSignal::Kill) {
@@ -2348,6 +2404,47 @@ mod tests {
             output_drain_idle_timeout_ms: None,
             output_drain_total_timeout_ms: None,
         }
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn pty_identity_uses_the_direct_child_instead_of_the_foreground_job() {
+        assert_eq!(pty_process_pid(Some(41), Some(73)), Some(41));
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn signal_target_cannot_be_reaped_between_its_live_check_and_signal() {
+        let target = Arc::new(ProcessTarget::new());
+        let signal_entered = Arc::new(std::sync::Barrier::new(2));
+        let resume_signal = Arc::new(std::sync::Barrier::new(2));
+        let signal_target = target.clone();
+        let signal_entered_thread = signal_entered.clone();
+        let resume_signal_thread = resume_signal.clone();
+        let signaler = std::thread::spawn(move || {
+            signal_target.signal_if_live(|| {
+                signal_entered_thread.wait();
+                resume_signal_thread.wait();
+            });
+        });
+        signal_entered.wait();
+
+        let (reaped_tx, reaped_rx) = std::sync::mpsc::channel();
+        let reap_target = target.clone();
+        let reaper = std::thread::spawn(move || {
+            reap_target.mark_exited();
+            reaped_tx.send(()).unwrap();
+        });
+        let reaped_before_signal =
+            reaped_rx.recv_timeout(std::time::Duration::from_millis(100)).is_ok();
+        resume_signal.wait();
+        signaler.join().unwrap();
+        reaper.join().unwrap();
+
+        assert!(
+            !reaped_before_signal,
+            "reap completed after the live check but before the signal syscall"
+        );
     }
 
     #[cfg(unix)]
@@ -3126,6 +3223,18 @@ mod tests {
 
     #[cfg(unix)]
     #[tokio::test]
+    async fn pty_reader_setup_failure_kills_and_reaps_the_child_before_returning() {
+        assert_pty_setup_failure_reaps(PtySetupFailure::Reader).await;
+    }
+
+    #[cfg(unix)]
+    #[tokio::test]
+    async fn pty_waiter_setup_failure_kills_and_reaps_the_child_before_returning() {
+        assert_pty_setup_failure_reaps(PtySetupFailure::Waiter).await;
+    }
+
+    #[cfg(unix)]
+    #[tokio::test]
     async fn client_cleanup_unblocks_a_full_process_stdin_pipe() {
         let (_directory, root) = root().await;
         let manager = Arc::new(ProcessManager::default());
@@ -3414,5 +3523,56 @@ mod tests {
         })
         .await
         .expect("canceled spawn should kill and reap its child");
+    }
+
+    #[cfg(unix)]
+    async fn assert_pty_setup_failure_reaps(failure: PtySetupFailure) {
+        let (_directory, root) = root().await;
+        let manager = ProcessManager::default();
+        *manager.pty_setup_failure.lock().unwrap_or_else(std::sync::PoisonError::into_inner) =
+            Some(failure);
+        let error = manager
+            .spawn_pty(
+                ProcessId::from_u128(9_003),
+                ProcessEventLog::new(PROCESS_EVENT_BYTES),
+                ClientScope::local(),
+                root.id.clone(),
+                vec!["/bin/sleep".into(), "30".into()],
+                root.canonical_root().to_owned(),
+                BTreeMap::new(),
+                80,
+                24,
+                "xterm-256color".into(),
+                PtyEofPolicy::Reject,
+                ProcessLifetime::Workspace,
+                None,
+                None,
+                DEFAULT_PROCESS_OUTPUT_DRAIN_IDLE_TIMEOUT,
+                DEFAULT_PROCESS_OUTPUT_DRAIN_TOTAL_TIMEOUT,
+                ProcessEnvironment::Inherit,
+            )
+            .await
+            .expect_err("injected PTY setup failure should be returned");
+        assert_eq!(error.code, "pty-open-failed");
+        let pid = manager.pty_setup_child_pid.load(Ordering::Acquire);
+        assert_ne!(pid, 0, "PTY setup did not capture the direct child pid");
+
+        let pid = i32::try_from(pid).unwrap();
+        let mut status = 0;
+        let waited = loop {
+            let waited = unsafe { libc::waitpid(pid, &mut status, 0) };
+            if waited == -1
+                && std::io::Error::last_os_error().kind() == std::io::ErrorKind::Interrupted
+            {
+                continue;
+            }
+            break waited;
+        };
+        let error = std::io::Error::last_os_error();
+        assert_eq!(
+            (waited, error.raw_os_error()),
+            (-1, Some(libc::ECHILD)),
+            "PTY setup returned before synchronously reaping child {pid}"
+        );
     }
 }
