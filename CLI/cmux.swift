@@ -28112,291 +28112,6 @@ struct CMUXCLI {
         }
     }
 
-    private static let openCodeSessionPluginMarker = "cmux-opencode-session-plugin-marker"
-    private static let openCodeSessionPluginFilename = "cmux-session.js"
-    private static let openCodeSessionPluginSource = #"""
-// cmux-opencode-session-plugin-marker v1
-// Bridges OpenCode session lifecycle events into cmux's restorable session store.
-// Installed by `cmux hooks opencode install` or `cmux hooks setup`.
-// DO NOT EDIT MANUALLY. cmux upgrades this file in place.
-
-import { spawnSync } from "node:child_process";
-import * as fs from "node:fs";
-import * as path from "node:path";
-
-const CMUX_PLUGIN_INSTALLED_KEY = Symbol.for("cmux.session.restore.plugin.installed");
-const MAX_TRACKED_SESSIONS = 100;
-const messageRoles = new Map();
-const sessions = new Map();
-
-function firstString(...values) {
-  for (const value of values) {
-    if (typeof value === "string" && value.trim().length > 0) return value.trim();
-  }
-  return null;
-}
-
-function eventProperties(event) {
-  return (event && typeof event === "object" && event.properties) || {};
-}
-
-function normalizeText(value, max = 1000) {
-  if (typeof value !== "string") return null;
-  const normalized = value.replace(/\s+/g, " ").trim();
-  if (!normalized) return null;
-  return normalized.length > max ? `${normalized.slice(0, max - 3)}...` : normalized;
-}
-
-function sessionState(sessionId) {
-  const key = sessionId || "unknown";
-  if (!sessions.has(key)) {
-    sessions.set(key, {
-      lastUserMessage: null,
-      assistantPreamble: null,
-      cwd: null,
-      updatedAt: Date.now(),
-    });
-  }
-  const state = sessions.get(key);
-  state.updatedAt = Date.now();
-  pruneSessions();
-  return state;
-}
-
-function pruneSessions() {
-  while (sessions.size > MAX_TRACKED_SESSIONS) {
-    let oldestKey = null;
-    let oldestUpdatedAt = Infinity;
-    for (const [key, state] of sessions.entries()) {
-      const updatedAt = Number(state && state.updatedAt) || 0;
-      if (updatedAt < oldestUpdatedAt) {
-        oldestUpdatedAt = updatedAt;
-        oldestKey = key;
-      }
-    }
-    if (!oldestKey) break;
-    dropSession(oldestKey);
-  }
-}
-
-function dropSession(sessionId) {
-  const key = sessionId || "unknown";
-  sessions.delete(key);
-  for (const [messageId, meta] of messageRoles.entries()) {
-    if (meta && meta.sessionId === key) {
-      messageRoles.delete(messageId);
-    }
-  }
-}
-
-function contextForSession(sessionId) {
-  const state = sessionState(sessionId);
-  const context = {};
-  if (state.lastUserMessage) context.lastUserMessage = state.lastUserMessage;
-  if (state.assistantPreamble) context.assistantPreamble = state.assistantPreamble;
-  return Object.keys(context).length > 0 ? context : undefined;
-}
-
-function sessionIdFor(event) {
-  const props = eventProperties(event);
-  return firstString(
-    props.info && props.info.id,
-    props.sessionID,
-    props.sessionId,
-    props.session_id,
-    props.session && props.session.id,
-    event && event.sessionID,
-    event && event.sessionId,
-    event && event.id
-  );
-}
-
-function cwdFor(ctx, event) {
-  const props = eventProperties(event);
-  return firstString(
-    props.info && props.info.directory,
-    props.cwd,
-    props.directory,
-    ctx && ctx.directory,
-    process.cwd()
-  );
-}
-
-function resolveExecutable(name) {
-  const pathEnv = process.env.PATH || "";
-  for (const dir of pathEnv.split(path.delimiter)) {
-    if (!dir) continue;
-    const candidate = path.join(dir, name);
-    try {
-      fs.accessSync(candidate, fs.constants.X_OK);
-      return candidate;
-    } catch (_) {}
-  }
-  return name;
-}
-
-function looksLikeOpenCodeScript(value) {
-  if (!value) return false;
-  const lower = String(value).toLowerCase();
-  return lower.includes("opencode") || lower.includes("open-code");
-}
-
-function isOpenCodeInternalWorkerArg(value) {
-  if (!value) return false;
-  const normalized = String(value).replaceAll("\\", "/");
-  return normalized.includes("/$bunfs/") && normalized.endsWith("/tui/worker.js");
-}
-
-function withoutOpenCodeInternalWorkerArgs(argv) {
-  const result = [];
-  for (let i = 0; i < argv.length; i += 1) {
-    const value = argv[i];
-    if (i > 0 && isOpenCodeInternalWorkerArg(value)) continue;
-    result.push(value);
-  }
-  return result.length > 0 ? result : [resolveExecutable("opencode")];
-}
-
-function normalizedLaunchArgv() {
-  const raw = Array.isArray(process.argv) ? process.argv.map((value) => String(value)) : [];
-  if (raw.length === 0) return [resolveExecutable("opencode")];
-
-  const firstBase = path.basename(raw[0]).toLowerCase();
-  if (looksLikeOpenCodeScript(firstBase)) return withoutOpenCodeInternalWorkerArgs(raw);
-
-  let tail = raw.slice(1);
-  if (tail.length > 0 && looksLikeOpenCodeScript(tail[0])) {
-    tail = tail.slice(1);
-  }
-  return withoutOpenCodeInternalWorkerArgs([resolveExecutable("opencode"), ...tail]);
-}
-
-function base64NulSeparated(values) {
-  const bytes = [];
-  for (const value of values) {
-    bytes.push(Buffer.from(String(value), "utf8"));
-    bytes.push(Buffer.from([0]));
-  }
-  return Buffer.concat(bytes).toString("base64");
-}
-
-function hookEnvironment(cwd) {
-  const env = { ...process.env };
-  delete env.AMP_API_KEY;
-  if (!env.CMUX_AGENT_LAUNCH_ARGV_B64) {
-    const argv = normalizedLaunchArgv();
-    env.CMUX_AGENT_LAUNCH_KIND = "opencode";
-    env.CMUX_AGENT_LAUNCH_EXECUTABLE = argv[0] || resolveExecutable("opencode");
-    env.CMUX_AGENT_LAUNCH_ARGV_B64 = base64NulSeparated(argv);
-    env.CMUX_AGENT_LAUNCH_CWD = cwd || process.cwd();
-  }
-  return env;
-}
-
-function sendHook(subcommand, ctx, event, extra = {}) {
-  if (process.env.CMUX_OPENCODE_HOOKS_DISABLED === "1") return;
-  if (!process.env.CMUX_SURFACE_ID) return;
-
-  const sessionId = sessionIdFor(event);
-  if (!sessionId) return;
-
-  const cwd = cwdFor(ctx, event);
-  const state = sessionState(sessionId);
-  state.cwd = cwd || state.cwd;
-  const payload = {
-    session_id: sessionId,
-    cwd,
-    event: event && event.type,
-    hook_event_name: event && event.type,
-    ...extra,
-  };
-  const context = extra.context || contextForSession(sessionId);
-  if (context) payload.context = context;
-  const cmux = process.env.CMUX_OPENCODE_CMUX_BIN || "cmux";
-  try {
-    spawnSync(cmux, ["hooks", "opencode", subcommand], {
-      input: JSON.stringify(payload),
-      encoding: "utf8",
-      env: hookEnvironment(cwd),
-      stdio: ["pipe", "ignore", "ignore"],
-      timeout: 5000,
-    });
-  } catch (_) {}
-}
-
-function trackMessage(event) {
-  const props = eventProperties(event);
-  if (event && event.type === "message.updated") {
-    const info = props.info || props.message || {};
-    const messageId = info.id || props.messageID;
-    const sessionId = info.sessionID || props.sessionID;
-    const role = info.role || props.role;
-    if (messageId && sessionId && role) {
-      messageRoles.set(messageId, { sessionId, role });
-      if (messageRoles.size > 300) {
-        messageRoles.delete(messageRoles.keys().next().value);
-      }
-    }
-    return;
-  }
-
-  if (!event || event.type !== "message.part.updated") return;
-  const part = props.part || {};
-  if (part.type !== "text" || !part.messageID) return;
-  const meta = messageRoles.get(part.messageID);
-  if (!meta) return;
-  const text = normalizeText(part.text || part.textDelta || part.content);
-  if (!text) return;
-  const state = sessionState(meta.sessionId);
-  if (meta.role === "user") {
-    state.lastUserMessage = text;
-  } else if (meta.role === "assistant") {
-    state.assistantPreamble = text;
-  }
-}
-
-const CMUXSessionRestore = async (ctx) => {
-  if (globalThis[CMUX_PLUGIN_INSTALLED_KEY]) return {};
-  globalThis[CMUX_PLUGIN_INSTALLED_KEY] = true;
-  return {
-    event: async ({ event }) => {
-      trackMessage(event);
-      const props = eventProperties(event);
-      switch (event && event.type) {
-        case "session.created":
-          sendHook("session-start", ctx, event);
-          break;
-        case "session.updated":
-          if (props.info && props.info.time && props.info.time.archived) {
-            sendHook("session-end", ctx, event);
-            dropSession(sessionIdFor(event));
-          } else {
-            sendHook("session-start", ctx, event);
-          }
-          break;
-        case "session.status":
-          if (props.status && props.status.type === "idle") {
-            sendHook("stop", ctx, event);
-          }
-          break;
-        case "session.idle":
-          sendHook("stop", ctx, event);
-          break;
-        case "session.deleted":
-          sendHook("session-end", ctx, event);
-          dropSession(sessionIdFor(event));
-          break;
-        default:
-          break;
-      }
-    },
-  };
-};
-
-export { CMUXSessionRestore };
-export default CMUXSessionRestore;
-"""#
-
     private func openCodeSessionPluginURL(for def: AgentHookDef) -> URL {
         URL(fileURLWithPath: def.resolvedConfigDir(), isDirectory: true)
             .appendingPathComponent("plugins", isDirectory: true)
@@ -31361,6 +31076,61 @@ export default CMUXSessionRestore;
             let surfaceId = target.surfaceId
 
             let notificationCwd = hookCwd ?? mapped?.cwd
+            if def.name == "opencode",
+               (input.rawObject?["cmux_status"] as? String)?.trimmingCharacters(in: .whitespacesAndNewlines).lowercased() == "retrying" {
+                let pid = mapped?.pid ?? inferredPID
+                let launchCommand = agentLaunchCommandFromEnvironment(
+                    env,
+                    fallbackPID: pid,
+                    fallbackKind: def.name,
+                    cwd: notificationCwd
+                )
+                if !sessionId.isEmpty {
+                    try? store.upsert(
+                        sessionId: sessionId,
+                        workspaceId: workspaceId,
+                        surfaceId: surfaceId,
+                        cwd: notificationCwd,
+                        transcriptPath: input.transcriptPath ?? mapped?.transcriptPath,
+                        pid: pid,
+                        launchCommand: launchCommand,
+                        agentLifecycle: .running,
+                        runtimeStatus: .running,
+                        updateRuntimeStatus: true
+                    )
+                    publishAgentSurfaceResumeBinding(
+                        client: client,
+                        workspaceId: workspaceId,
+                        surfaceId: surfaceId,
+                        kind: def.name,
+                        displayName: def.displayName,
+                        sessionId: sessionId,
+                        cwd: notificationCwd,
+                        launchCommand: launchCommand ?? mapped?.launchCommand
+                    )
+                }
+                if let pid {
+                    _ = try? sendV1Command(
+                        "set_agent_pid \(pidKey) \(pid) --tab=\(workspaceId)\(socketPanelOption(surfaceId))",
+                        client: client
+                    )
+                }
+                setAgentLifecycle(
+                    client: client,
+                    key: def.statusKey,
+                    lifecycle: .running,
+                    workspaceId: workspaceId,
+                    surfaceId: surfaceId
+                )
+                let retryingStatus = String(localized: "agent.generic.status.retrying", defaultValue: "Retrying")
+                _ = try? sendV1Command(
+                    "set_status \(def.statusKey) \(retryingStatus) --icon=arrow.triangle.2.circlepath --color=#FF9500 --tab=\(workspaceId)\(socketPanelOption(surfaceId))",
+                    client: client
+                )
+                sendAgentFeedTelemetryUnlessSuppressed(workspaceId: workspaceId, surfaceId: surfaceId)
+                print("{}")
+                return
+            }
 #if DEBUG
             agentHookDebugLog(
                 "agentHook.notification.target agent=\(def.name) session=\(agentHookDebugShort(sessionId)) workspace=\(agentHookDebugShort(workspaceId)) surface=\(agentHookDebugShort(surfaceId)) mapped=\(mapped == nil ? 0 : 1) hasCwd=\(notificationCwd == nil ? 0 : 1)",
