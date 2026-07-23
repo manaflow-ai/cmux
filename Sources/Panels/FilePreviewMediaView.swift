@@ -1,15 +1,16 @@
 import AppKit
+import AVKit
 import SwiftUI
 
-struct FilePreviewImageView: NSViewRepresentable {
+struct FilePreviewMediaView: NSViewRepresentable {
     let panel: FilePreviewPanel
     let revision: Int
     let isVisibleInUI: Bool
     let backgroundColor: NSColor
     let drawsBackground: Bool
 
-    func makeNSView(context: Context) -> FilePreviewImageContainerView {
-        panel.nativeViewSessions.image.view(
+    func makeNSView(context: Context) -> AVPlayerView {
+        panel.nativeViewSessions.media.view(
             panel: panel,
             revision: revision,
             isVisibleInUI: isVisibleInUI,
@@ -18,8 +19,8 @@ struct FilePreviewImageView: NSViewRepresentable {
         )
     }
 
-    func updateNSView(_ nsView: FilePreviewImageContainerView, context: Context) {
-        panel.nativeViewSessions.image.update(
+    func updateNSView(_ nsView: AVPlayerView, context: Context) {
+        panel.nativeViewSessions.media.update(
             nsView,
             panel: panel,
             revision: revision,

@@ -2951,24 +2951,28 @@ final class FilePreviewPanelTextSavingTests: XCTestCase {
 
         let pdfView = sessions.pdf.view(
             panel: panel,
+            revision: panel.previewRevision,
             isVisibleInUI: true,
             backgroundColor: NSColor.textBackgroundColor,
             drawsBackground: true
         )
         let imageView = sessions.image.view(
             panel: panel,
+            revision: panel.previewRevision,
             isVisibleInUI: true,
             backgroundColor: NSColor.textBackgroundColor,
             drawsBackground: true
         )
         let mediaView = sessions.media.view(
             panel: panel,
+            revision: panel.previewRevision,
             isVisibleInUI: true,
             backgroundColor: NSColor.textBackgroundColor,
             drawsBackground: true
         )
         let quickLookView = sessions.quickLook.view(
             panel: panel,
+            revision: panel.previewRevision,
             isVisibleInUI: true,
             backgroundColor: NSColor.textBackgroundColor,
             drawsBackground: true
@@ -2982,6 +2986,7 @@ final class FilePreviewPanelTextSavingTests: XCTestCase {
 
         XCTAssertTrue(pdfView === sessions.pdf.view(
             panel: panel,
+            revision: panel.previewRevision,
             isVisibleInUI: true,
             backgroundColor: NSColor.textBackgroundColor,
             drawsBackground: true
@@ -2990,6 +2995,7 @@ final class FilePreviewPanelTextSavingTests: XCTestCase {
 
         XCTAssertTrue(imageView === sessions.image.view(
             panel: panel,
+            revision: panel.previewRevision,
             isVisibleInUI: true,
             backgroundColor: NSColor.textBackgroundColor,
             drawsBackground: true
@@ -2998,6 +3004,7 @@ final class FilePreviewPanelTextSavingTests: XCTestCase {
 
         XCTAssertTrue(mediaView === sessions.media.view(
             panel: panel,
+            revision: panel.previewRevision,
             isVisibleInUI: true,
             backgroundColor: NSColor.textBackgroundColor,
             drawsBackground: true
@@ -3006,6 +3013,7 @@ final class FilePreviewPanelTextSavingTests: XCTestCase {
 
         let remountedQuickLookView = sessions.quickLook.view(
             panel: panel,
+            revision: panel.previewRevision,
             isVisibleInUI: true,
             backgroundColor: NSColor.textBackgroundColor,
             drawsBackground: true

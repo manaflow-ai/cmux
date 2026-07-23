@@ -245,6 +245,7 @@ struct FilePreviewReloadTests {
 
         let view = panel.nativeViewSessions.quickLook.view(
             panel: panel,
+            revision: panel.previewRevision,
             isVisibleInUI: true,
             backgroundColor: .textBackgroundColor,
             drawsBackground: true
@@ -257,6 +258,7 @@ struct FilePreviewReloadTests {
         panel.nativeViewSessions.quickLook.update(
             view,
             panel: panel,
+            revision: panel.previewRevision,
             isVisibleInUI: true,
             backgroundColor: .textBackgroundColor,
             drawsBackground: true

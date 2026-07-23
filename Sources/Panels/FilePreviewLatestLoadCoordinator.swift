@@ -3,11 +3,11 @@ import Foundation
 /// Runs one load at a time while retaining only the latest pending submission.
 @MainActor
 final class FilePreviewLatestLoadCoordinator<Output: Sendable> {
-    private struct Request: Sendable {
-        let load: @Sendable () async -> Output
-        let completion: @MainActor @Sendable (Output) async -> Void
-        let finish: @Sendable () -> Void
-    }
+    private typealias Request = (
+        load: @Sendable () async -> Output,
+        completion: @MainActor @Sendable (Output) async -> Void,
+        finish: @Sendable () -> Void
+    )
 
     private var state = FilePreviewLatestRequestState<Request>()
     private var activeTask: Task<Void, Never>?
@@ -21,7 +21,7 @@ final class FilePreviewLatestLoadCoordinator<Output: Sendable> {
             of: Void.self,
             bufferingPolicy: .bufferingNewest(1)
         )
-        let request = Request(
+        let request: Request = (
             load: load,
             completion: completion,
             finish: { continuation.finish() }

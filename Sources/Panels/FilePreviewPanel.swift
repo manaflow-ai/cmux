@@ -1,6 +1,5 @@
 import CmuxFoundation
 import AppKit
-import AVKit
 import Bonsplit
 import Combine
 import Foundation
@@ -987,7 +986,7 @@ final class FilePreviewPanel: Panel, ObservableObject, FilePreviewTextEditingPan
     @Published private(set) var isSaving = false
     @Published private(set) var focusFlashToken = 0
     @Published private(set) var previewMode: FilePreviewMode
-    @Published private(set) var previewRevision = 0
+    let previewRevisionState = FilePreviewRevision()
 
     let nativeViewSessions = FilePreviewNativeViewSessions()
 
@@ -1010,6 +1009,10 @@ final class FilePreviewPanel: Panel, ObservableObject, FilePreviewTextEditingPan
 
     var fileURL: URL {
         URL(fileURLWithPath: filePath)
+    }
+
+    var previewRevision: Int {
+        previewRevisionState.value
     }
 
     init(
@@ -1188,7 +1191,7 @@ final class FilePreviewPanel: Panel, ObservableObject, FilePreviewTextEditingPan
             } else {
                 self.isFileUnavailable = !FileManager.default.fileExists(atPath: self.filePath)
                 if !self.isFileUnavailable {
-                    self.previewRevision &+= 1
+                    self.previewRevisionState.increment()
                 }
             }
         }
@@ -1361,7 +1364,7 @@ struct FilePreviewPanelView: View {
                 header
                 Divider()
             }
-            content
+            content(previewRevision: panel.previewRevisionState.value)
         }
         .frame(maxWidth: .infinity, maxHeight: .infinity)
         .background(Color(nsColor: contentBackgroundColor))
@@ -1411,7 +1414,7 @@ struct FilePreviewPanelView: View {
     }
 
     @ViewBuilder
-    private var content: some View {
+    private func content(previewRevision: Int) -> some View {
         if panel.isFileUnavailable {
             fileUnavailableView
         } else {
@@ -1428,6 +1431,7 @@ struct FilePreviewPanelView: View {
             case .pdf:
                 FilePreviewPDFView(
                     panel: panel,
+                    revision: previewRevision,
                     isVisibleInUI: isVisibleInUI,
                     backgroundColor: contentBackgroundColor,
                     drawsBackground: appearance.drawsContentBackground
@@ -1435,6 +1439,7 @@ struct FilePreviewPanelView: View {
             case .image:
                 FilePreviewImageView(
                     panel: panel,
+                    revision: previewRevision,
                     isVisibleInUI: isVisibleInUI,
                     backgroundColor: contentBackgroundColor,
                     drawsBackground: appearance.drawsContentBackground
@@ -1442,6 +1447,7 @@ struct FilePreviewPanelView: View {
             case .media:
                 FilePreviewMediaView(
                     panel: panel,
+                    revision: previewRevision,
                     isVisibleInUI: isVisibleInUI,
                     backgroundColor: contentBackgroundColor,
                     drawsBackground: appearance.drawsContentBackground
@@ -1449,6 +1455,7 @@ struct FilePreviewPanelView: View {
             case .quickLook:
                 QuickLookPreviewView(
                     panel: panel,
+                    revision: previewRevision,
                     isVisibleInUI: isVisibleInUI,
                     backgroundColor: contentBackgroundColor,
                     drawsBackground: appearance.drawsContentBackground
@@ -4354,79 +4361,6 @@ private final class FilePreviewMagnifyingImageView: NSImageView {
             width: max(1, imageSize.width * scale),
             height: max(1, imageSize.height * scale)
         )
-    }
-}
-
-private struct FilePreviewMediaView: NSViewRepresentable {
-    let panel: FilePreviewPanel
-    let isVisibleInUI: Bool
-    let backgroundColor: NSColor
-    let drawsBackground: Bool
-
-    func makeNSView(context: Context) -> AVPlayerView {
-        panel.nativeViewSessions.media.view(
-            panel: panel,
-            isVisibleInUI: isVisibleInUI,
-            backgroundColor: backgroundColor,
-            drawsBackground: drawsBackground
-        )
-    }
-
-    func updateNSView(_ nsView: AVPlayerView, context: Context) {
-        panel.nativeViewSessions.media.update(
-            nsView,
-            panel: panel,
-            isVisibleInUI: isVisibleInUI,
-            backgroundColor: backgroundColor,
-            drawsBackground: drawsBackground
-        )
-    }
-}
-
-private struct QuickLookPreviewView: NSViewRepresentable {
-    let panel: FilePreviewPanel
-    let isVisibleInUI: Bool
-    let backgroundColor: NSColor
-    let drawsBackground: Bool
-
-    final class Coordinator {
-        var quickLook: FilePreviewQuickLookSession?
-
-        init(panel: FilePreviewPanel) {
-            quickLook = panel.nativeViewSessions.quickLook
-        }
-    }
-
-    func makeCoordinator() -> Coordinator {
-        Coordinator(panel: panel)
-    }
-
-    func makeNSView(context: Context) -> NSView {
-        let quickLook = panel.nativeViewSessions.quickLook
-        context.coordinator.quickLook = quickLook
-        return quickLook.view(
-            panel: panel,
-            isVisibleInUI: isVisibleInUI,
-            backgroundColor: backgroundColor,
-            drawsBackground: drawsBackground
-        )
-    }
-
-    func updateNSView(_ nsView: NSView, context: Context) {
-        let quickLook = panel.nativeViewSessions.quickLook
-        context.coordinator.quickLook = quickLook
-        quickLook.update(
-            nsView,
-            panel: panel,
-            isVisibleInUI: isVisibleInUI,
-            backgroundColor: backgroundColor,
-            drawsBackground: drawsBackground
-        )
-    }
-
-    static func dismantleNSView(_ nsView: NSView, coordinator: Coordinator) {
-        coordinator.quickLook?.dismantle(nsView)
-        coordinator.quickLook = nil
     }
 }
 

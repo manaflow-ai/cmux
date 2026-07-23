@@ -1,19 +1,4 @@
 import AppKit
-import PDFKit
-
-/// Immutable ownership transfer from the background parser to the main actor.
-struct FilePreviewPDFLoadResult: @unchecked Sendable {
-    let document: PDFDocument?
-
-    init(url: URL) {
-        document = PDFDocument(url: url)
-    }
-
-    @concurrent
-    static func load(url: URL) async -> FilePreviewPDFLoadResult {
-        FilePreviewPDFLoadResult(url: url)
-    }
-}
 
 @MainActor
 final class FilePreviewPDFSession {
@@ -28,6 +13,7 @@ final class FilePreviewPDFSession {
 
     func view(
         panel: FilePreviewPanel,
+        revision: Int,
         isVisibleInUI: Bool,
         backgroundColor: NSColor,
         drawsBackground: Bool
@@ -36,6 +22,7 @@ final class FilePreviewPDFSession {
             configure(
                 $0,
                 panel: panel,
+                revision: revision,
                 isVisibleInUI: isVisibleInUI,
                 backgroundColor: backgroundColor,
                 drawsBackground: drawsBackground
@@ -46,6 +33,7 @@ final class FilePreviewPDFSession {
     func update(
         _ view: FilePreviewPDFContainerView,
         panel: FilePreviewPanel,
+        revision: Int,
         isVisibleInUI: Bool,
         backgroundColor: NSColor,
         drawsBackground: Bool
@@ -54,6 +42,7 @@ final class FilePreviewPDFSession {
             configure(
                 $0,
                 panel: panel,
+                revision: revision,
                 isVisibleInUI: isVisibleInUI,
                 backgroundColor: backgroundColor,
                 drawsBackground: drawsBackground
@@ -68,6 +57,7 @@ final class FilePreviewPDFSession {
     private func configure(
         _ view: FilePreviewPDFContainerView,
         panel: FilePreviewPanel,
+        revision: Int,
         isVisibleInUI: Bool,
         backgroundColor: NSColor,
         drawsBackground: Bool
@@ -75,6 +65,6 @@ final class FilePreviewPDFSession {
         view.isHidden = !isVisibleInUI
         view.setBackgroundAppearance(backgroundColor: backgroundColor, drawsBackground: drawsBackground)
         view.setPanel(panel)
-        view.setURL(panel.fileURL, revision: panel.previewRevision)
+        view.setURL(panel.fileURL, revision: revision)
     }
 }

@@ -2,24 +2,6 @@ import AppKit
 import Foundation
 import Quartz
 
-private final class FilePreviewQLItem: NSObject, QLPreviewItem {
-    let url: URL
-    let title: String
-
-    init(url: URL, title: String) {
-        self.url = url
-        self.title = title
-    }
-
-    var previewItemURL: URL? {
-        url
-    }
-
-    var previewItemTitle: String? {
-        title
-    }
-}
-
 @MainActor
 final class FilePreviewQuickLookSession {
     private let liveViews = NSHashTable<NSView>.weakObjects()
@@ -32,6 +14,7 @@ final class FilePreviewQuickLookSession {
 
     func view(
         panel: FilePreviewPanel,
+        revision: Int,
         isVisibleInUI: Bool,
         backgroundColor: NSColor,
         drawsBackground: Bool
@@ -41,6 +24,7 @@ final class FilePreviewQuickLookSession {
         configure(
             view,
             panel: panel,
+            revision: revision,
             isVisibleInUI: isVisibleInUI,
             backgroundColor: backgroundColor,
             drawsBackground: drawsBackground
@@ -51,6 +35,7 @@ final class FilePreviewQuickLookSession {
     func update(
         _ view: NSView,
         panel: FilePreviewPanel,
+        revision: Int,
         isVisibleInUI: Bool,
         backgroundColor: NSColor,
         drawsBackground: Bool
@@ -59,6 +44,7 @@ final class FilePreviewQuickLookSession {
         configure(
             view,
             panel: panel,
+            revision: revision,
             isVisibleInUI: isVisibleInUI,
             backgroundColor: backgroundColor,
             drawsBackground: drawsBackground
@@ -99,6 +85,7 @@ final class FilePreviewQuickLookSession {
     private func configure(
         _ view: NSView,
         panel: FilePreviewPanel,
+        revision: Int,
         isVisibleInUI: Bool,
         backgroundColor: NSColor,
         drawsBackground: Bool
@@ -110,7 +97,7 @@ final class FilePreviewQuickLookSession {
             previewView.previewItem = previewItem(
                 for: panel.fileURL,
                 title: panel.displayTitle,
-                revision: panel.previewRevision
+                revision: revision
             )
         }
         FilePreviewNativeBackground.applyRootLayer(

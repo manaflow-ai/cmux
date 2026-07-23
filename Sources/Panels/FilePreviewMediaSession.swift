@@ -21,6 +21,7 @@ final class FilePreviewMediaSession {
 
     func view(
         panel: FilePreviewPanel,
+        revision: Int,
         isVisibleInUI: Bool,
         backgroundColor: NSColor,
         drawsBackground: Bool
@@ -29,6 +30,7 @@ final class FilePreviewMediaSession {
             configure(
                 $0,
                 panel: panel,
+                revision: revision,
                 isVisibleInUI: isVisibleInUI,
                 backgroundColor: backgroundColor,
                 drawsBackground: drawsBackground
@@ -39,6 +41,7 @@ final class FilePreviewMediaSession {
     func update(
         _ view: AVPlayerView,
         panel: FilePreviewPanel,
+        revision: Int,
         isVisibleInUI: Bool,
         backgroundColor: NSColor,
         drawsBackground: Bool
@@ -47,6 +50,7 @@ final class FilePreviewMediaSession {
             configure(
                 $0,
                 panel: panel,
+                revision: revision,
                 isVisibleInUI: isVisibleInUI,
                 backgroundColor: backgroundColor,
                 drawsBackground: drawsBackground
@@ -73,6 +77,7 @@ final class FilePreviewMediaSession {
     private func configure(
         _ view: AVPlayerView,
         panel: FilePreviewPanel,
+        revision: Int,
         isVisibleInUI: Bool,
         backgroundColor: NSColor,
         drawsBackground: Bool
@@ -84,7 +89,7 @@ final class FilePreviewMediaSession {
             drawsBackground: drawsBackground
         )
         panel.attachPreviewFocus(root: view, primaryResponder: view, intent: .mediaPlayer)
-        updatePlayer(in: view, url: panel.fileURL, revision: panel.previewRevision)
+        updatePlayer(in: view, url: panel.fileURL, revision: revision)
     }
 
     private func updatePlayer(in playerView: AVPlayerView, url: URL, revision: Int) {

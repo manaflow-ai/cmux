@@ -1,19 +1,5 @@
 import AppKit
 
-/// Immutable ownership transfer from the background decoder to the main actor.
-struct FilePreviewImageLoadResult: @unchecked Sendable {
-    let image: NSImage?
-
-    init(url: URL) {
-        image = NSImage(contentsOf: url)
-    }
-
-    @concurrent
-    static func load(url: URL) async -> FilePreviewImageLoadResult {
-        FilePreviewImageLoadResult(url: url)
-    }
-}
-
 @MainActor
 final class FilePreviewImageSession {
     private let viewSession = PanelOwnedNativeViewSession(
@@ -27,6 +13,7 @@ final class FilePreviewImageSession {
 
     func view(
         panel: FilePreviewPanel,
+        revision: Int,
         isVisibleInUI: Bool,
         backgroundColor: NSColor,
         drawsBackground: Bool
@@ -35,6 +22,7 @@ final class FilePreviewImageSession {
             configure(
                 $0,
                 panel: panel,
+                revision: revision,
                 isVisibleInUI: isVisibleInUI,
                 backgroundColor: backgroundColor,
                 drawsBackground: drawsBackground
@@ -45,6 +33,7 @@ final class FilePreviewImageSession {
     func update(
         _ view: FilePreviewImageContainerView,
         panel: FilePreviewPanel,
+        revision: Int,
         isVisibleInUI: Bool,
         backgroundColor: NSColor,
         drawsBackground: Bool
@@ -53,6 +42,7 @@ final class FilePreviewImageSession {
             configure(
                 $0,
                 panel: panel,
+                revision: revision,
                 isVisibleInUI: isVisibleInUI,
                 backgroundColor: backgroundColor,
                 drawsBackground: drawsBackground
@@ -67,6 +57,7 @@ final class FilePreviewImageSession {
     private func configure(
         _ view: FilePreviewImageContainerView,
         panel: FilePreviewPanel,
+        revision: Int,
         isVisibleInUI: Bool,
         backgroundColor: NSColor,
         drawsBackground: Bool
@@ -74,6 +65,6 @@ final class FilePreviewImageSession {
         view.isHidden = !isVisibleInUI
         view.setBackgroundAppearance(backgroundColor: backgroundColor, drawsBackground: drawsBackground)
         view.setPanel(panel)
-        view.setURL(panel.fileURL, revision: panel.previewRevision)
+        view.setURL(panel.fileURL, revision: revision)
     }
 }
