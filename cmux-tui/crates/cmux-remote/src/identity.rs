@@ -1313,7 +1313,8 @@ mod tests {
                 "host".into(),
                 key,
                 vec![
-                    "wss://user:password@example.test/private-capability?ticket=secret#fragment"
+                    "wss://route-user-marker:route-password-marker@example.test/\
+                     route-private-marker?ticket=route-secret-marker#route-fragment-marker"
                         .into(),
                 ],
             )
@@ -1322,7 +1323,13 @@ mod tests {
 
         assert_eq!(daemon.route_hints, vec!["wss://example.test/"]);
         let persisted = fs::read_to_string(temp.path().join("known-daemons.json")).unwrap();
-        for secret in ["user", "password", "private-capability", "ticket", "secret", "fragment"] {
+        for secret in [
+            "route-user-marker",
+            "route-password-marker",
+            "route-private-marker",
+            "route-secret-marker",
+            "route-fragment-marker",
+        ] {
             assert!(!persisted.contains(secret), "{secret:?} leaked in {persisted:?}");
         }
     }
@@ -1395,7 +1402,8 @@ mod tests {
         let refreshed = store
             .remember_verified_route(
                 &known.fingerprint,
-                "wss://user:password@new.example/private?ticket=secret",
+                "wss://refresh-user-marker:refresh-password-marker@new.example/\
+                 refresh-path-marker?ticket=refresh-query-marker",
             )
             .await
             .unwrap()
@@ -1404,7 +1412,12 @@ mod tests {
         assert!(refreshed.last_used_at_unix > 1);
         assert_eq!(refreshed.route_hints, ["wss://old.example/", "wss://new.example/"]);
         let persisted = fs::read_to_string(temp.path().join("known-daemons.json")).unwrap();
-        for secret in ["user", "password", "private", "ticket", "secret"] {
+        for secret in [
+            "refresh-user-marker",
+            "refresh-password-marker",
+            "refresh-path-marker",
+            "refresh-query-marker",
+        ] {
             assert!(!persisted.contains(secret), "{secret:?} leaked in {persisted:?}");
         }
     }
