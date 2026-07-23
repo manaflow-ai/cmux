@@ -32,10 +32,6 @@ struct DisconnectedWorkspaceShellView: View {
 
     #if os(iOS)
     @State private var isShowingSetupHelp = false
-    /// The computer whose destructive remove action is awaiting confirmation.
-    /// Stored at list scope so reusable rows do not own transient presentation
-    /// state while `List` is recycling swipe-action rows.
-    @State private var computerPendingRemovalID: String?
     /// The computer a reconnect attempt is in flight for. Also the re-entry
     /// guard: while non-nil, row taps are ignored.
     @State private var connectingMacID: String?
@@ -142,15 +138,15 @@ struct DisconnectedWorkspaceShellView: View {
         store.map { MacComputerSnapshot.snapshots(from: $0) } ?? []
     }
 
-    var showsDeletedComputerRecoveryAction: Bool {
-        store?.hasRecoverableDeletedComputers == true
+    var showsHiddenComputers: Bool {
+        store?.hasHiddenComputers == true
     }
 
     var shouldAutoPresentAddDeviceAfterLoadingSavedMacs: Bool {
         guard let store else { return false }
         return store.pairedMacLoadState == .loaded
             && store.pairedMacs.isEmpty
-            && !showsDeletedComputerRecoveryAction
+            && !showsHiddenComputers
     }
 
     @ViewBuilder
@@ -164,7 +160,7 @@ struct DisconnectedWorkspaceShellView: View {
 
     /// The returning-user state: a real list of the saved computers, one row per
     /// logical Mac, with presence, last-seen, tap-to-reconnect, and
-    /// swipe-to-remove — the same row component as the Computers screen.
+    /// swipe-to-hide — the same row component as the Computers screen.
     /// Snapshot boundary (see AGENTS.md): rows receive immutable
     /// ``MacComputerSnapshot`` values and closures only, never the store.
     private func savedComputersList(_ computers: [MacComputerSnapshot]) -> some View {
@@ -173,9 +169,7 @@ struct DisconnectedWorkspaceShellView: View {
                 ForEach(computers) { computer in
                     MacComputerRow(
                         computer: computer,
-                        requestRemove: { computerPendingRemovalID = $0 },
-                        isConfirmingRemove: removalConfirmationBinding(for: computer.id),
-                        confirmRemove: { _ in confirmComputerRemoval() },
+                        hide: { _ in hideComputer(computer) },
                         style: .reconnect,
                         connect: { _ in connect(to: computer) },
                         isConnecting: connectingMacID == computer.id
@@ -186,11 +180,11 @@ struct DisconnectedWorkspaceShellView: View {
             } footer: {
                 Text(L10n.string(
                     "mobile.disconnected.listFooter",
-                    defaultValue: "Tap a computer to reconnect. Swipe left to remove one."
+                    defaultValue: "Tap a computer to reconnect. Swipe left to hide one."
                 ))
             }
-            if showsDeletedComputerRecoveryAction, let store {
-                deletedComputerRecoverySection(store: store)
+            if showsHiddenComputers, let store {
+                hiddenComputersSection(store: store)
             }
             Section {
                 Button(action: showAddDevice) {
@@ -235,19 +229,24 @@ struct DisconnectedWorkspaceShellView: View {
                 defaultValue: "Add a computer to start syncing terminal workspaces."
             ))
         } actions: {
-            if showsDeletedComputerRecoveryAction, let store {
-                DeletedComputerRecoveryButton(
-                    isProminent: true,
-                    isRecovering: store.isRecoveringDeletedComputer,
-                    recover: { await store.recoverForgottenIrohMacFromAccount() },
-                    reloadAfterFailure: { await reloadAfterFailedDeletedComputerRecovery() }
-                )
-                DeletedComputerRecoveryFooter()
+            if showsHiddenComputers, let store {
+                VStack(alignment: .leading, spacing: 8) {
+                    Text(L10n.string(
+                        "mobile.computers.hidden.title",
+                        defaultValue: "Hidden Computers"
+                    ))
+                    .font(.headline)
+                    ForEach(store.hiddenComputers) { computer in
+                        hiddenComputerRow(computer, store: store)
+                    }
+                    Text(L10n.string(
+                        "mobile.computers.hidden.footer",
+                        defaultValue: "Hidden computers stay signed in to your account and are only hidden on this iPhone. A computer removed with an older version of cmux needs its Mac online and signed in once to restore."
+                    ))
                     .font(.footnote)
                     .foregroundStyle(.secondary)
-                    .multilineTextAlignment(.center)
-                    .frame(maxWidth: 320)
-                    .padding(.top, 2)
+                }
+                .frame(maxWidth: 320)
                 Button(action: showAddDevice) {
                     Text(L10n.string("mobile.addDevice.title", defaultValue: "Add Computer"))
                 }
@@ -271,16 +270,44 @@ struct DisconnectedWorkspaceShellView: View {
         }
     }
 
-    private func deletedComputerRecoverySection(store: CMUXMobileShellStore) -> some View {
+    private func hiddenComputersSection(store: CMUXMobileShellStore) -> some View {
         Section {
-            DeletedComputerRecoveryButton(
-                isRecovering: store.isRecoveringDeletedComputer,
-                recover: { await store.recoverForgottenIrohMacFromAccount() },
-                reloadAfterFailure: { await reloadAfterFailedDeletedComputerRecovery() }
-            )
+            ForEach(store.hiddenComputers) { computer in
+                hiddenComputerRow(computer, store: store)
+            }
+        } header: {
+            Text(L10n.string(
+                "mobile.computers.hidden.title",
+                defaultValue: "Hidden Computers"
+            ))
         } footer: {
-            DeletedComputerRecoveryFooter()
+            Text(L10n.string(
+                "mobile.computers.hidden.footer",
+                defaultValue: "Hidden computers stay signed in to your account and are only hidden on this iPhone. A computer removed with an older version of cmux needs its Mac online and signed in once to restore."
+            ))
         }
+    }
+
+    private func hiddenComputerRow(
+        _ computer: MobileHiddenComputer,
+        store: CMUXMobileShellStore
+    ) -> some View {
+        HiddenComputerRow(
+            computer: computer,
+            isRecoveringLegacyComputer: store.isRecoveringHiddenComputer,
+            unhide: {
+                await store.unhideMacDeviceID(
+                    computer.macDeviceID,
+                    instanceTag: computer.instanceTag
+                )
+            },
+            recoverLegacyComputer: {
+                await store.recoverHiddenIrohMacFromAccount(
+                    macDeviceID: computer.macDeviceID,
+                    instanceTag: computer.instanceTag
+                )
+            }
+        )
     }
 
     /// Reconnect this row's computer. `switchToMac` promotes a live secondary
@@ -332,37 +359,11 @@ struct DisconnectedWorkspaceShellView: View {
         )
     }
 
-    private func removalConfirmationBinding(for deviceID: String) -> Binding<Bool> {
-        Binding(
-            get: { computerPendingRemovalID == deviceID },
-            set: { isPresented in
-                if isPresented {
-                    computerPendingRemovalID = deviceID
-                } else if computerPendingRemovalID == deviceID {
-                    computerPendingRemovalID = nil
-                }
-            }
-        )
-    }
-
-    private func confirmComputerRemoval() {
-        guard let pairingID = computerPendingRemovalID,
-              let computer = savedComputers.first(where: { $0.id == pairingID }) else {
-            return
-        }
-        computerPendingRemovalID = nil
+    private func hideComputer(_ computer: MacComputerSnapshot) {
         Task {
-            await store?.forgetMac(
-                macDeviceID: computer.deviceId,
-                instanceTag: computer.instanceTag
-            )
+            await store?.hideMac(macDeviceID: computer.deviceId)
             await store?.loadPairedMacs()
         }
-    }
-
-    private func reloadAfterFailedDeletedComputerRecovery() async {
-        await store?.loadPairedMacs()
-        await store?.loadRegistryDevices()
     }
     #else
     /// Saved Macs restored/known on this device (macOS fallback shell).

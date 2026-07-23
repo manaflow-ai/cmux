@@ -1,6 +1,6 @@
 #if DEBUG
-/// One workspace row captured by the delete-computers simulator verifier.
-public struct MobileDeleteComputersVerificationWorkspace: Codable, Equatable, Sendable {
+/// One workspace row captured by the hide-computers simulator verifier.
+public struct MobileHideComputersVerificationWorkspace: Codable, Equatable, Sendable {
     /// Stable workspace identifier shown in the workspace list.
     public var id: String
     /// Display name shown for the workspace.

@@ -145,7 +145,7 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
             } else {
                 deactivateAllTerminalLanes()
             }
-            // Intentional teardown (sign-out, forget, switch) must not look like
+            // Intentional teardown (sign-out, hide, switch) must not look like
             // a network outage: swallow this edge and reset the throttle so a
             // later real reconnect doesn't emit `recovered` with a bogus duration.
             if suppressNextConnectionOutageEdge {
@@ -243,7 +243,7 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
 
     /// Monotonically-increasing token identifying the latest stored-Mac reconnect
     /// attempt. Overlapping reconnects (multiple launch paths, network recovery,
-    /// sign-out, forget) each claim a generation; only the current generation may
+    /// sign-out, hide) each claim a generation; only the current generation may
     /// resolve the restoring-gate flags, so a superseded older attempt can't clear
     /// the gate while a newer reconnect is still in progress.
     var storedMacReconnectGeneration = 0
@@ -646,7 +646,7 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
     let pendingDismissQueue: PendingNotificationDismissQueue
     private let pairingHintDefaults: UserDefaults
     private let multiMacAggregationDefaults: UserDefaults
-    let forgottenMacStore: any PairedMacForgottenStoring
+    let hiddenMacStore: any PairedMacHiddenStoring
     let clientID: String
     /// Delivers the email path of Send Feedback (`/api/feedback`). `nil` when the
     /// web API base URL is unavailable; the email path then fails closed and the
@@ -1003,7 +1003,7 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
         pendingDismissQueue: PendingNotificationDismissQueue = PendingNotificationDismissQueue(),
         pairingHintDefaults: UserDefaults = .standard,
         multiMacAggregationDefaults: UserDefaults = .standard,
-        forgottenMacStore: any PairedMacForgottenStoring = InMemoryPairedMacForgottenStore(),
+        hiddenMacStore: any PairedMacHiddenStoring = InMemoryPairedMacHiddenStore(),
         analytics: any AnalyticsEmitting = NoopAnalytics(),
         diagnosticLog: DiagnosticLog? = nil,
         feedbackEmailSubmitter: (any MobileFeedbackEmailSubmitting)? = nil,
@@ -1032,7 +1032,7 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
         self.pendingDismissQueue = pendingDismissQueue
         self.pairingHintDefaults = pairingHintDefaults
         self.multiMacAggregationDefaults = multiMacAggregationDefaults
-        self.forgottenMacStore = forgottenMacStore
+        self.hiddenMacStore = hiddenMacStore
         self.analytics = analytics
         self.diagnosticLog = diagnosticLog
         self.feedbackEmailSubmitter = feedbackEmailSubmitter
@@ -1257,16 +1257,19 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
         // Drop the cached paired Macs so the next signed-in user never sees the
         // previous user's hosts in the switcher.
         storedPairedMacs = []
+        storedPairedMacsIncludingHidden = []
         pairedMacAliasIDsByRepresentativeID = [:]
         pairedMacs = []
         pairedMacLoadState = .notLoaded
-        hasRecoverableDeletedComputers = false
+        hiddenComputers = []
+        hasHiddenComputers = false
         resetTerminalThemes()
         // Likewise drop the registry-backed device tree so a shared device never
         // shows the previous user's team devices after sign-out.
         registryDevices = []
+        hiddenRegistryDisplayNamesByDeviceID = [:]
         // Reset the in-memory restoring flags; hasKnownPairedMac stays driven by
-        // the forget path. On a real account switch the next reconnect's no-mac
+        // the hide path. On a real account switch the next reconnect's no-mac
         // branch clears the hint. Bump the reconnect generation so any in-flight
         // reconnect is superseded and can't re-set these flags after sign-out.
         storedMacReconnectGeneration &+= 1
@@ -1370,12 +1373,15 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
         // new team. The foreground workspace list (derived from the kept entry) is
         // unaffected.
         storedPairedMacs = []
+        storedPairedMacsIncludingHidden = []
         pairedMacAliasIDsByRepresentativeID = [:]
         pairedMacs = []
         pairedMacLoadState = .notLoaded
-        forgottenMacDeviceIDsByScope = [:]
-        hasRecoverableDeletedComputers = false
+        hiddenMacDeviceIDsByScope = [:]
+        hiddenComputers = []
+        hasHiddenComputers = false
         registryDevices = []
+        hiddenRegistryDisplayNamesByDeviceID = [:]
         teamScopeReconnectTask?.cancel()
         teamScopeReconnectTask = Task { @MainActor [weak self] in
             guard let self,
@@ -1910,7 +1916,7 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
         if let result = storedMacReconnectInterruptionResult(generation: generation) {
             return result ? .connected : .superseded
         }
-        let forgottenIDs = await forgottenMacDeviceIDs(scope: scope)
+        let hiddenIDs = await hiddenMacDeviceIDs(scope: scope)
         if let result = storedMacReconnectInterruptionResult(generation: generation) {
             return result ? .connected : .superseded
         }
@@ -1921,11 +1927,11 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
         if let result = storedMacReconnectInterruptionResult(generation: generation) {
             return result ? .connected : .superseded
         }
-        let isForgotten: (MobilePairedMac) -> Bool = { mac in
-            forgottenIDs.contains(mac.macDeviceID) || forgottenIDs.contains(mac.id)
+        let isHidden: (MobilePairedMac) -> Bool = { mac in
+            hiddenIDs.contains(mac.macDeviceID) || hiddenIDs.contains(mac.id)
         }
-        let activeMac = loadedActiveMac.flatMap { isForgotten($0) ? nil : $0 }
-        let allMacs = loadedMacs.filter { !isForgotten($0) }
+        let activeMac = loadedActiveMac.flatMap { isHidden($0) ? nil : $0 }
+        let allMacs = loadedMacs.filter { !isHidden($0) }
         // Candidate Macs in priority order: the active Mac first, then every
         // other saved Mac. Rows with no locally usable route stay in the list so
         // one authenticated registry snapshot can upgrade an older Tailscale
@@ -1997,7 +2003,7 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
                   await isScopeCurrent(scope) else { break }
             guard generation == storedMacReconnectGeneration,
                   await isScopeCurrent(scope),
-                  await !isForgottenMacDeviceID(
+                  await !isHiddenMacDeviceID(
                       mac.macDeviceID,
                       instanceTag: mac.instanceTag,
                       scope: scope
@@ -2090,7 +2096,7 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
                connectionState != .connected,
                !connectionRequiresReauth,
                isStillLegacy,
-               await !isForgottenMacDeviceID(
+               await !isHiddenMacDeviceID(
                    firstCandidateNeedingMacUpdate.macDeviceID,
                    instanceTag: firstCandidateNeedingMacUpdate.instanceTag,
                    scope: scope
@@ -2120,7 +2126,7 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
     }
 
     /// Every Mac paired with this device, for the host switcher. Refreshed via
-    /// ``loadPairedMacs()`` and after switch/forget. Cleared on sign-out so a
+    /// ``loadPairedMacs()`` and after switch/hide. Cleared on sign-out so a
     /// shared device never shows the previous user's Macs. The active row is
     /// marked by each ``MobilePairedMac/isActive`` flag (the live connection's
     /// attach ticket carries a transient manual id, so it is not a reliable
@@ -2132,27 +2138,24 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
         }
     }
 
-    /// Full store rows for identity-sensitive paths; ``pairedMacs`` is display-coalesced.
+    /// Visible store rows for identity-sensitive paths; ``pairedMacs`` is display-coalesced.
     private var storedPairedMacs: [MobilePairedMac] = []
+    /// Every scoped SQLite row, including hidden rows, for route refresh and hidden presentation.
+    @ObservationIgnored var storedPairedMacsIncludingHidden: [MobilePairedMac] = []
     /// Load status for ``pairedMacs`` in the current signed-in account/team scope.
     public internal(set) var pairedMacLoadState: PairedMacLoadState = .notLoaded
     /// Visible representative id to all stored ids for that logical paired Mac.
     public private(set) var pairedMacAliasIDsByRepresentativeID: [String: [String]] = [:]
-    /// Same-session delete tombstones keyed by signed-in account/team scope.
-    ///
-    /// The durable backup layer already preserves deletes across relaunch and
-    /// failed cloud tombstone uploads. This in-memory set covers the remaining
-    /// race: a presence or registry refresh task that started before `forgetMac`
-    /// can write the removed row back into the local store after the remove
-    /// completes. Filtering the current scope keeps that late write hidden until
-    /// the user explicitly pairs/connects that Mac again.
-    @ObservationIgnored var forgottenMacDeviceIDsByScope: [String: Set<String>] = [:]
-    /// True when the current account/team scope has a deleted-computer marker
-    /// that can be recovered through explicit same-account Iroh discovery.
-    public internal(set) var hasRecoverableDeletedComputers = false
-    /// True while the explicit deleted-computer recovery path is scanning and
-    /// reconnecting through account-scoped Iroh discovery.
-    public internal(set) var isRecoveringDeletedComputer = false
+    /// Cached device-local hidden ids keyed by signed-in account/team scope.
+    @ObservationIgnored var hiddenMacDeviceIDsByScope: [String: Set<String>] = [:]
+    /// Hidden entries for the current account/team, including legacy markers without rows.
+    public internal(set) var hiddenComputers: [MobileHiddenComputer] = []
+    /// Best registry name seen for hidden legacy device ids.
+    @ObservationIgnored var hiddenRegistryDisplayNamesByDeviceID: [String: String] = [:]
+    /// True when the current account/team scope has at least one hidden computer.
+    public internal(set) var hasHiddenComputers = false
+    /// True while a legacy hidden-computer recovery is scanning and reconnecting.
+    public internal(set) var isRecoveringHiddenComputer = false
 
     var pairedMacsForIdentityMatching: [MobilePairedMac] {
         storedPairedMacs.isEmpty ? pairedMacs : storedPairedMacs
@@ -2249,10 +2252,29 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
         // or same-account team switch.
         guard await isScopeCurrent(scope) else { return }
         let connectedID = connectedMacDeviceID
-        let forgottenIDs = await forgottenMacDeviceIDs(scope: scope)
+        let hiddenIDs = await hiddenMacDeviceIDs(scope: scope)
         guard await isScopeCurrent(scope) else { return }
-        registryDevices = compatibleRegistryDevices(loaded)
-            .filter { !forgottenIDs.contains($0.deviceId) }.sorted { lhs, rhs in
+        let compatible = compatibleRegistryDevices(loaded)
+        for device in compatible where hiddenIDs.contains(device.deviceId)
+            || hiddenIDs.contains(where: {
+                MobilePairedMac.pairingIdentity(from: $0).macDeviceID == device.deviceId
+            }) {
+            if let displayName = device.displayName, !displayName.isEmpty {
+                hiddenRegistryDisplayNamesByDeviceID[device.deviceId] = displayName
+            }
+        }
+        updateHiddenComputers(
+            loadedMacs: storedPairedMacsIncludingHidden,
+            hiddenIDs: hiddenIDs
+        )
+        registryDevices = compatible
+            .filter { device in
+                !hiddenIDs.contains(device.deviceId)
+                    && !hiddenIDs.contains(where: {
+                        MobilePairedMac.pairingIdentity(from: $0).macDeviceID == device.deviceId
+                    })
+            }
+            .sorted { lhs, rhs in
             let lhsConnected = lhs.deviceId == connectedID
             let rhsConnected = rhs.deviceId == connectedID
             if lhsConnected != rhsConnected { return lhsConnected }
@@ -2385,10 +2407,12 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
         guard let pairedMacStore,
               let scope = await currentScopeSnapshot() else {
             storedPairedMacs = []
+            storedPairedMacsIncludingHidden = []
             pairedMacAliasIDsByRepresentativeID = [:]
             pairedMacs = []
             pairedMacLoadState = .failed
-            hasRecoverableDeletedComputers = false
+            hiddenComputers = []
+            hasHiddenComputers = false
             return
         }
         pairedMacLoadState = .notLoaded
@@ -2399,7 +2423,8 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
             mobileShellLog.error("paired mac store loadAll failed: \(String(describing: error), privacy: .public)")
             if await isScopeCurrent(scope) {
                 pairedMacLoadState = .failed
-                hasRecoverableDeletedComputers = false
+                hiddenComputers = []
+                hasHiddenComputers = false
             }
             return
         }
@@ -2410,11 +2435,12 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
             return
         }
         let visibleLoaded = await visibleStoredPairedMacs(from: loaded, scope: scope)
-        let hasForgottenMacs = !(await forgottenMacDeviceIDs(scope: scope)).isEmpty
+        let hiddenIDs = await hiddenMacDeviceIDs(scope: scope)
         guard await isScopeCurrent(scope) else {
             return
         }
-        hasRecoverableDeletedComputers = hasForgottenMacs
+        storedPairedMacsIncludingHidden = loaded
+        updateHiddenComputers(loadedMacs: loaded, hiddenIDs: hiddenIDs)
         pairedMacLoadState = .loaded
         storedPairedMacs = visibleLoaded
         let supportedRouteKinds = runtime?.supportedRouteKinds ?? []
@@ -2691,7 +2717,7 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
                    && remoteClient != nil
                    && foregroundMacDeviceID == macDeviceID),
                isStillLegacy,
-               await !isForgottenMacDeviceID(
+               await !isHiddenMacDeviceID(
                    macDeviceID,
                    instanceTag: refreshedTarget.instanceTag,
                    scope: scope
@@ -2783,7 +2809,7 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
         return restored
     }
 
-    func clearSavedMacHintAfterDeletingLastVisibleMacIfNeeded() {
+    func clearSavedMacHintAfterHidingLastVisibleMacIfNeeded() {
         guard pairedMacs.isEmpty else { return }
         storedMacReconnectGeneration &+= 1
         hasKnownPairedMac = false
@@ -3266,9 +3292,9 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
 
     /// Tear down the live connection and reset connection UI state, without
     /// touching the paired-Mac store or the restoring-gate hint. The switcher's
-    /// ``forgetMac(macDeviceID:)`` and ``switchToMac(macDeviceID:)`` reuse this,
+    /// ``hideMac(macDeviceID:)`` and ``switchToMac(macDeviceID:)`` reuse this,
     /// so it must not clear ``hasKnownPairedMac`` (that belongs to the explicit
-    /// forget-active path below).
+    /// hide-active path below).
     func disconnectLiveConnection(preservingOtherMacWorkspaceState: Bool = false) {
         suppressNextConnectionOutageEdge = true
         invalidatePairingAttempt()
@@ -3280,36 +3306,26 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
         clearRemoteConnectionContext(preservingOtherMacWorkspaceState: preservingOtherMacWorkspaceState)
     }
 
-    /// Disconnect from the currently paired Mac and forget it so the next
-    /// session starts from a fresh QR scan. Clears in-memory state and the
-    /// persisted active flag (other macs in SQLite stay, but none are marked
-    /// active so reconnect-on-launch is a no-op until the user pairs again).
+    /// Disconnect from and hide the currently paired Mac so the next session
+    /// starts from a fresh QR scan without deleting local or server state.
     /// Backs the "Rescan QR" action.
-    public func disconnectAndForgetActiveMac() {
-        let staleMacID = activeTicket?.macDeviceID
+    public func disconnectAndHideActiveMac() {
+        let staleMacID = connectedMacDeviceID ?? activeTicket?.macDeviceID
         disconnectLiveConnection()
-        // Forgetting the active Mac clears the restoring hint so the next launch
+        // Hiding the active Mac clears the restoring hint so the next launch
         // (and the current disconnected view) shows add-device immediately. Bump
         // the reconnect generation first so an in-flight reconnect can't re-set the
-        // hint or the gate flags after the user forgot the Mac.
+        // hint or the gate flags after the user hid the Mac.
         storedMacReconnectGeneration &+= 1
         hasKnownPairedMac = false
         isReconnectingStoredMac = false
         didFinishStoredMacReconnectAttempt = false
-        if let pairedMacStore, let macID = staleMacID {
-            // Fire-and-forget: forgetting the persisted mac is cleanup that must
-            // not block the synchronous disconnect UI state update above.
+        if let macID = staleMacID {
+            // The shell action is synchronous for its UI caller; the device-local
+            // marker and list pruning continue on the main actor without deleting
+            // the retained paired-Mac row.
             Task {
-                do {
-                    let scope = await self.currentScopeSnapshot()
-                    try await pairedMacStore.remove(
-                        macDeviceID: macID,
-                        stackUserID: scope?.userID,
-                        teamID: scope?.teamID
-                    )
-                } catch {
-                    mobileShellLog.error("forgetActiveMac removal failed: \(String(describing: error), privacy: .private)")
-                }
+                await self.hideMac(macDeviceID: macID)
             }
         }
     }
@@ -3590,7 +3606,7 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
         guard let pairedMacStore,
               await isAggregationScopeValid(scope),
               secondaryMacSubscriptions[macDeviceID] === subscription,
-              await !isForgottenMacDeviceID(
+              await !isHiddenMacDeviceID(
                   macDeviceID,
                   instanceTag: subscription.storedInstanceTag,
                   scope: scope
@@ -3621,7 +3637,7 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
         scope: MobileShellScopeSnapshot
     ) async -> Bool {
         guard await isAggregationScopeValid(scope) else { return false }
-        return await !isForgottenMacDeviceID(
+        return await !isHiddenMacDeviceID(
             macDeviceID,
             instanceTag: instanceTag,
             scope: scope
