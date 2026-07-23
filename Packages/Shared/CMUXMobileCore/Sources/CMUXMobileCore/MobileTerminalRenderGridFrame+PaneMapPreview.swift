@@ -25,6 +25,14 @@ public struct MobileTerminalPaneMapPreview: Equatable, Sendable {
     public let styles: [MobileTerminalRenderGridFrame.Style]
     public let stylesByID: [Int: MobileTerminalRenderGridFrame.Style]
     public let rows: [[Cell]]
+    /// Renderer-effective theme captured for this surface, when supplied by
+    /// the producer.
+    public let terminalTheme: TerminalTheme?
+    /// Legacy raw OSC 10 foreground override.
+    public let terminalForeground: String?
+    /// Legacy raw OSC 11 background override.
+    public let terminalBackground: String?
+    private let usesDECReverseVideo: Bool
 
     fileprivate init(
         surfaceID: String,
@@ -32,6 +40,10 @@ public struct MobileTerminalPaneMapPreview: Equatable, Sendable {
         sourceRows: Int,
         firstSourceRow: Int,
         styles: [MobileTerminalRenderGridFrame.Style],
+        terminalTheme: TerminalTheme?,
+        terminalForeground: String?,
+        terminalBackground: String?,
+        usesDECReverseVideo: Bool,
         rows: [[Cell]]
     ) {
         self.surfaceID = surfaceID
@@ -42,12 +54,39 @@ public struct MobileTerminalPaneMapPreview: Equatable, Sendable {
         self.stylesByID = styles.reduce(into: [:]) { result, style in
             result[style.id] = style
         }
+        self.terminalTheme = terminalTheme
+        self.terminalForeground = terminalForeground
+        self.terminalBackground = terminalBackground
+        self.usesDECReverseVideo = usesDECReverseVideo
         self.rows = rows
     }
 
     /// Plain terminal-width rows retained for text-only consumers and tests.
     public var textRows: [String] {
         rows.map { $0.map(\.text).joined() }
+    }
+
+    /// Resolves the terminal theme that painted this preview.
+    ///
+    /// Modern producers carry a renderer-effective theme directly. Legacy
+    /// producers carry raw OSC 10/11 defaults plus DEC reverse-video state, so
+    /// apply those values to the caller's surface theme before reversing them.
+    public func resolvedTerminalTheme(fallback: TerminalTheme) -> TerminalTheme {
+        if let terminalTheme {
+            return terminalTheme.validatedOrDefault()
+        }
+
+        var resolved = fallback.validatedOrDefault()
+        if let foreground = TerminalTheme.canonicalHex(terminalForeground) {
+            resolved.foreground = foreground
+        }
+        if let background = TerminalTheme.canonicalHex(terminalBackground) {
+            resolved.background = background
+        }
+        if usesDECReverseVideo {
+            swap(&resolved.foreground, &resolved.background)
+        }
+        return resolved
     }
 }
 
@@ -69,11 +108,16 @@ private struct MutablePaneMapPreviewCell {
 public extension MobileTerminalRenderGridFrame {
     /// Resolves this frame into fixed terminal cells for a compact visual preview.
     ///
-    /// Passing `nil` renders the complete visible terminal grid. A finite limit
-    /// preserves the previous tail-window behavior for text-only callers.
+    /// Passing `nil` renders the complete primary-screen history followed by
+    /// the visible grid. Alternate-screen previews exclude primary scrollback.
+    /// A finite limit retains the latest history-backed rows, while a preview
+    /// without history preserves its previous content-aware window.
     func paneMapPreview(
         maximumRows: Int? = nil
     ) -> MobileTerminalPaneMapPreview {
+        let usesDECReverseVideo = modes.contains {
+            !$0.ansi && $0.code == 5 && $0.on
+        }
         guard columns > 0, rows > 0 else {
             return MobileTerminalPaneMapPreview(
                 surfaceID: surfaceID,
@@ -81,15 +125,28 @@ public extension MobileTerminalRenderGridFrame {
                 sourceRows: max(0, rows),
                 firstSourceRow: 0,
                 styles: styles,
+                terminalTheme: terminalTheme,
+                terminalForeground: terminalForeground,
+                terminalBackground: terminalBackground,
+                usesDECReverseVideo: usesDECReverseVideo,
                 rows: []
             )
         }
 
+        let includedScrollbackRows = activeScreen == .primary ? scrollbackRows : 0
+        let sourceRows = includedScrollbackRows + rows
         var spansByRow: [Int: [RowSpan]] = [:]
         var lastSpanRow: Int?
+        if includedScrollbackRows > 0 {
+            for span in scrollbackSpans where !span.text.isEmpty {
+                spansByRow[span.row, default: []].append(span)
+                lastSpanRow = max(lastSpanRow ?? span.row, span.row)
+            }
+        }
         for span in rowSpans where !span.text.isEmpty {
-            spansByRow[span.row, default: []].append(span)
-            lastSpanRow = max(lastSpanRow ?? span.row, span.row)
+            let sourceRow = includedScrollbackRows + span.row
+            spansByRow[sourceRow, default: []].append(span)
+            lastSpanRow = max(lastSpanRow ?? sourceRow, sourceRow)
         }
 
         let rowRange: Range<Int>
@@ -98,19 +155,28 @@ public extension MobileTerminalRenderGridFrame {
                 return MobileTerminalPaneMapPreview(
                     surfaceID: surfaceID,
                     columns: columns,
-                    sourceRows: rows,
+                    sourceRows: sourceRows,
                     firstSourceRow: 0,
                     styles: styles,
+                    terminalTheme: terminalTheme,
+                    terminalForeground: terminalForeground,
+                    terminalBackground: terminalBackground,
+                    usesDECReverseVideo: usesDECReverseVideo,
                     rows: []
                 )
             }
-            let boundedMaximumRows = min(rows, maximumRows)
-            let lastContentRow = max(lastSpanRow ?? 0, cursor?.row ?? 0)
-            let endRow = min(rows, max(lastContentRow + 1, boundedMaximumRows))
-            let firstRow = max(0, endRow - boundedMaximumRows)
-            rowRange = firstRow..<endRow
+            let boundedMaximumRows = min(sourceRows, maximumRows)
+            if includedScrollbackRows > 0 {
+                let firstRow = sourceRows - boundedMaximumRows
+                rowRange = firstRow..<sourceRows
+            } else {
+                let lastContentRow = max(lastSpanRow ?? 0, cursor?.row ?? 0)
+                let endRow = min(sourceRows, max(lastContentRow + 1, boundedMaximumRows))
+                let firstRow = max(0, endRow - boundedMaximumRows)
+                rowRange = firstRow..<endRow
+            }
         } else {
-            rowRange = 0..<rows
+            rowRange = 0..<sourceRows
         }
 
         let previewRows = rowRange.map { row in
@@ -119,9 +185,13 @@ public extension MobileTerminalRenderGridFrame {
         return MobileTerminalPaneMapPreview(
             surfaceID: surfaceID,
             columns: columns,
-            sourceRows: rows,
+            sourceRows: sourceRows,
             firstSourceRow: rowRange.lowerBound,
             styles: styles,
+            terminalTheme: terminalTheme,
+            terminalForeground: terminalForeground,
+            terminalBackground: terminalBackground,
+            usesDECReverseVideo: usesDECReverseVideo,
             rows: previewRows
         )
     }

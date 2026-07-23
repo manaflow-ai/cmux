@@ -1,5 +1,6 @@
 import CMUXMobileCore
 import CmuxMobileShellModel
+import Foundation
 import SwiftUI
 import UIKit
 
@@ -30,8 +31,42 @@ struct PaneMapOverflowLabels {
 }
 
 struct PaneMapInteractiveZoomGeometry {
+    private static let fullTransitionScale: CGFloat = 2.15
+    private static let fullSettlementDuration: TimeInterval = 0.34
+
     static func progress(forPinchScale scale: CGFloat) -> CGFloat {
         min(1, max(0, (scale - 1) / 1.15))
+    }
+
+    static func progress(
+        startingAt initialProgress: CGFloat,
+        forPinchScale scale: CGFloat
+    ) -> CGFloat {
+        guard scale > 0 else { return clamped(initialProgress) }
+        let scaleProgress = log(Double(scale)) / log(Double(fullTransitionScale))
+        return clamped(initialProgress + CGFloat(scaleProgress))
+    }
+
+    static func settlementDuration(
+        from initialProgress: CGFloat,
+        to targetProgress: CGFloat
+    ) -> TimeInterval {
+        let distance = abs(clamped(targetProgress) - clamped(initialProgress))
+        return max(0.08, fullSettlementDuration * TimeInterval(distance))
+    }
+
+    static func progress(
+        forRenderedFrame frame: CGRect,
+        from initialFrame: CGRect,
+        to targetFrame: CGRect
+    ) -> CGFloat {
+        let widthDistance = targetFrame.width - initialFrame.width
+        let heightDistance = targetFrame.height - initialFrame.height
+        if abs(widthDistance) >= abs(heightDistance), abs(widthDistance) > 0.001 {
+            return clamped((frame.width - initialFrame.width) / widthDistance)
+        }
+        guard abs(heightDistance) > 0.001 else { return 0 }
+        return clamped((frame.height - initialFrame.height) / heightDistance)
     }
 
     static func frame(
@@ -70,6 +105,62 @@ struct PaneMapInteractiveZoomGeometry {
 
     private static func interpolate(_ start: CGFloat, _ end: CGFloat, progress: CGFloat) -> CGFloat {
         start + (end - start) * progress
+    }
+
+    private static func clamped(_ progress: CGFloat) -> CGFloat {
+        min(1, max(0, progress))
+    }
+}
+
+struct PaneMapZoomTransitionState {
+    enum Destination: Equatable {
+        case map
+        case terminal
+    }
+
+    private(set) var progress: CGFloat
+    private(set) var generation: UInt64 = 0
+    private(set) var settlingDestination: Destination?
+    private var gestureStartProgress: CGFloat
+
+    init(progress: CGFloat) {
+        let progress = min(1, max(0, progress))
+        self.progress = progress
+        self.gestureStartProgress = progress
+    }
+
+    mutating func beginGesture(at renderedProgress: CGFloat) {
+        generation &+= 1
+        progress = min(1, max(0, renderedProgress))
+        gestureStartProgress = progress
+        settlingDestination = nil
+    }
+
+    mutating func interruptSettlement(at renderedProgress: CGFloat) {
+        beginGesture(at: renderedProgress)
+    }
+
+    mutating func updateGesture(pinchScale: CGFloat) {
+        progress = PaneMapInteractiveZoomGeometry.progress(
+            startingAt: gestureStartProgress,
+            forPinchScale: pinchScale
+        )
+    }
+
+    mutating func beginSettlement(toward destination: Destination) -> UInt64 {
+        generation &+= 1
+        settlingDestination = destination
+        return generation
+    }
+
+    mutating func completeSettlement(generation: UInt64) -> Destination? {
+        guard generation == self.generation, let destination = settlingDestination else {
+            return nil
+        }
+        progress = destination == .terminal ? 1 : 0
+        gestureStartProgress = progress
+        settlingDestination = nil
+        return destination
     }
 }
 
@@ -146,6 +237,8 @@ struct PaneMapCollectionView: UIViewRepresentable {
         private var isMovingItem = false
         private var pendingItems: [PaneMapCollectionItem]?
         private var zoomSession: ZoomSession?
+        private var zoomAnimator: UIViewPropertyAnimator?
+        private var activeZoomGestureGeneration: UInt64?
 
         init(parent: PaneMapCollectionView) {
             self.parent = parent
@@ -298,27 +391,59 @@ struct PaneMapCollectionView: UIViewRepresentable {
             switch gesture.state {
             case .began:
                 let location = gesture.location(in: collectionView)
-                guard let indexPath = collectionView.indexPathForItem(at: location),
-                      startZoom(at: indexPath, gestureLocationInCollectionView: location) else { return }
+                if zoomSession != nil {
+                    guard let window = zoomSession?.wrapper.superview,
+                          interruptZoomSettlement(
+                            gestureLocation: gesture.location(in: window)
+                          ) else {
+                        return
+                    }
+                } else {
+                    guard let indexPath = collectionView.indexPathForItem(at: location),
+                          startZoom(
+                            at: indexPath,
+                            gestureLocationInCollectionView: location
+                          ),
+                          beginZoomGesture() else {
+                        return
+                    }
+                }
                 collectionView.isScrollEnabled = false
             case .changed:
-                guard let session = zoomSession else { return }
+                guard var session = zoomSession,
+                      activeZoomGestureGeneration == session.transition.generation else {
+                    return
+                }
                 guard session.wrapper.window?.bounds == session.targetFrame else {
                     finishZoom()
                     return
                 }
-                let progress = PaneMapInteractiveZoomGeometry.progress(
-                    forPinchScale: gesture.scale
-                )
+                session.transition.updateGesture(pinchScale: gesture.scale)
+                let progress = session.transition.progress
+                zoomSession = session
                 let gestureLocation = gesture.location(in: session.wrapper.superview)
                 updateInteractiveZoom(progress: progress, gestureLocation: gestureLocation)
             case .ended:
-                guard let session = zoomSession else { return }
-                let shouldCommit = session.progress > 0.32 || gesture.velocity > 1.4
-                shouldCommit ? commitZoom() : cancelZoom()
+                guard let session = zoomSession,
+                      activeZoomGestureGeneration == session.transition.generation else {
+                    return
+                }
+                activeZoomGestureGeneration = nil
+                let normalizedVelocity = gesture.velocity
+                    / max(gesture.scale, 0.001)
+                    / CGFloat(log(2.15))
+                let projectedProgress = session.transition.progress
+                    + normalizedVelocity * 0.12
+                settleZoom(
+                    toward: projectedProgress >= 0.5 ? .terminal : .map
+                )
             default:
-                guard zoomSession != nil else { return }
-                cancelZoom()
+                guard let session = zoomSession,
+                      activeZoomGestureGeneration == session.transition.generation else {
+                    return
+                }
+                activeZoomGestureGeneration = nil
+                settleZoom(toward: .map)
             }
         }
 
@@ -338,7 +463,7 @@ struct PaneMapCollectionView: UIViewRepresentable {
                   startZoom(at: IndexPath(item: itemIndex, section: 0)) else {
                 return
             }
-            commitZoom()
+            settleZoom(toward: .terminal)
         }
 
         private func startZoom(
@@ -385,13 +510,16 @@ struct PaneMapCollectionView: UIViewRepresentable {
                     ? (gestureLocation.y - initialFrame.minY) / initialFrame.height
                     : 0.5
             )
+            let previewTheme = orderedItems[indexPath.item].preview?
+                .resolvedTerminalTheme(fallback: parent.terminalTheme)
+                ?? parent.terminalTheme
             let backdrop = UIView(frame: window.bounds)
-            backdrop.backgroundColor = UIColor(terminalHex: parent.terminalTheme.background)
+            backdrop.backgroundColor = UIColor(terminalHex: previewTheme.background)
             backdrop.alpha = 0
             backdrop.isUserInteractionEnabled = false
 
             let wrapper = UIView(frame: initialFrame)
-            wrapper.backgroundColor = UIColor(terminalHex: parent.terminalTheme.background)
+            wrapper.backgroundColor = UIColor(terminalHex: previewTheme.background)
             wrapper.clipsToBounds = true
             wrapper.layer.cornerCurve = .continuous
             wrapper.layer.cornerRadius = PaneMapTileMetrics.cornerRadius
@@ -411,14 +539,64 @@ struct PaneMapCollectionView: UIViewRepresentable {
                 initialFrame: initialFrame,
                 targetFrame: window.bounds,
                 normalizedAnchor: normalizedAnchor,
-                progress: 0
+                transition: PaneMapZoomTransitionState(progress: 0)
             )
             return true
         }
 
+        private func beginZoomGesture() -> Bool {
+            guard var session = zoomSession else { return false }
+            session.transition.beginGesture(at: session.transition.progress)
+            activeZoomGestureGeneration = session.transition.generation
+            zoomSession = session
+            return true
+        }
+
+        private func interruptZoomSettlement(gestureLocation: CGPoint) -> Bool {
+            guard var session = zoomSession, let animator = zoomAnimator else {
+                return false
+            }
+
+            let presentationFrame = session.wrapper.layer.presentation()?.frame
+                ?? session.wrapper.frame
+            let presentationCornerRadius = session.wrapper.layer.presentation()?.cornerRadius
+                ?? session.wrapper.layer.cornerRadius
+            let presentationBackdropAlpha = session.backdrop.layer.presentation()?.opacity
+                ?? Float(session.backdrop.alpha)
+            let renderedProgress = PaneMapInteractiveZoomGeometry.progress(
+                forRenderedFrame: presentationFrame,
+                from: session.initialFrame,
+                to: session.targetFrame
+            )
+
+            zoomAnimator = nil
+            animator.stopAnimation(true)
+            session.wrapper.layer.removeAllAnimations()
+            session.snapshot.layer.removeAllAnimations()
+            session.backdrop.layer.removeAllAnimations()
+            session.wrapper.frame = presentationFrame
+            session.snapshot.frame = session.wrapper.bounds
+            session.wrapper.layer.cornerRadius = presentationCornerRadius
+            session.backdrop.alpha = CGFloat(presentationBackdropAlpha)
+
+            session.normalizedAnchor = CGPoint(
+                x: session.wrapper.bounds.width > 0
+                    ? (gestureLocation.x - presentationFrame.minX) / presentationFrame.width
+                    : 0.5,
+                y: session.wrapper.bounds.height > 0
+                    ? (gestureLocation.y - presentationFrame.minY) / presentationFrame.height
+                    : 0.5
+            )
+            session.normalizedAnchor.x = min(1, max(0, session.normalizedAnchor.x))
+            session.normalizedAnchor.y = min(1, max(0, session.normalizedAnchor.y))
+            session.transition.interruptSettlement(at: renderedProgress)
+            activeZoomGestureGeneration = session.transition.generation
+            zoomSession = session
+            return true
+        }
+
         private func updateInteractiveZoom(progress: CGFloat, gestureLocation: CGPoint) {
-            guard var session = zoomSession else { return }
-            session.progress = progress
+            guard let session = zoomSession else { return }
             session.wrapper.frame = PaneMapInteractiveZoomGeometry.frame(
                 initialFrame: session.initialFrame,
                 targetFrame: session.targetFrame,
@@ -429,12 +607,10 @@ struct PaneMapCollectionView: UIViewRepresentable {
             session.snapshot.frame = session.wrapper.bounds
             session.wrapper.layer.cornerRadius = PaneMapTileMetrics.cornerRadius * (1 - progress)
             session.backdrop.alpha = progress
-            zoomSession = session
         }
 
-        private func updateZoom(progress: CGFloat) {
-            guard var session = zoomSession else { return }
-            session.progress = progress
+        private func renderSettledZoom(progress: CGFloat) {
+            guard let session = zoomSession else { return }
             session.wrapper.frame = PaneMapInteractiveZoomGeometry.settledFrame(
                 from: session.initialFrame,
                 to: session.targetFrame,
@@ -443,48 +619,86 @@ struct PaneMapCollectionView: UIViewRepresentable {
             session.snapshot.frame = session.wrapper.bounds
             session.wrapper.layer.cornerRadius = PaneMapTileMetrics.cornerRadius * (1 - progress)
             session.backdrop.alpha = progress
-            zoomSession = session
         }
 
-        private func commitZoom() {
-            guard let session = zoomSession else { return }
-            let remaining = max(0.16, 0.34 * (1 - session.progress))
-            UIView.animate(
-                withDuration: remaining,
-                delay: 0,
-                usingSpringWithDamping: 0.92,
-                initialSpringVelocity: 0.2,
-                options: [.beginFromCurrentState, .curveEaseOut]
-            ) { [weak self] in
-                self?.updateZoom(progress: 1)
-            } completion: { [weak self] _ in
-                guard let self, let committedSession = self.zoomSession else { return }
-                self.parent.jumpToTerminal(committedSession.surfaceID)
-                Task { @MainActor [self] in
+        private func settleZoom(toward destination: PaneMapZoomTransitionState.Destination) {
+            guard var session = zoomSession else { return }
+            let targetProgress: CGFloat = destination == .terminal ? 1 : 0
+            let initialProgress = session.transition.progress
+            let generation = session.transition.beginSettlement(toward: destination)
+            zoomSession = session
+
+            let defaultDuration = PaneMapInteractiveZoomGeometry.settlementDuration(
+                from: initialProgress,
+                to: targetProgress
+            )
+            let duration = zoomSettlementDurationOverride ?? defaultDuration
+            let timing = UISpringTimingParameters(dampingRatio: 0.92)
+            let animator = UIViewPropertyAnimator(
+                duration: duration,
+                timingParameters: timing
+            )
+            zoomAnimator = animator
+            animator.addAnimations { [weak self] in
+                self?.renderSettledZoom(progress: targetProgress)
+            }
+            animator.addCompletion { [weak self, weak animator] position in
+                guard let self, let animator, self.zoomAnimator === animator else {
+                    return
+                }
+                self.completeZoomSettlement(
+                    generation: generation,
+                    position: position
+                )
+            }
+            animator.startAnimation()
+        }
+
+        private func completeZoomSettlement(
+            generation: UInt64,
+            position: UIViewAnimatingPosition
+        ) {
+            zoomAnimator = nil
+            guard position == .end, var session = zoomSession else { return }
+            guard let destination = session.transition.completeSettlement(
+                generation: generation
+            ) else {
+                return
+            }
+            zoomSession = session
+            switch destination {
+            case .map:
+                finishZoom()
+            case .terminal:
+                parent.jumpToTerminal(session.surfaceID)
+                Task { @MainActor [weak self] in
                     await Task.yield()
-                    finishZoom()
+                    self?.finishZoom()
                 }
             }
         }
 
-        private func cancelZoom() {
-            guard let session = zoomSession else { return }
-            let remaining = max(0.16, 0.26 * session.progress)
-            UIView.animate(
-                withDuration: remaining,
-                delay: 0,
-                usingSpringWithDamping: 0.9,
-                initialSpringVelocity: 0,
-                options: [.beginFromCurrentState, .curveEaseOut]
-            ) { [weak self] in
-                self?.updateZoom(progress: 0)
-            } completion: { [weak self] _ in
-                self?.finishZoom()
+        private var zoomSettlementDurationOverride: TimeInterval? {
+#if DEBUG
+            guard let rawValue = ProcessInfo.processInfo.environment[
+                "CMUX_UITEST_PANE_ZOOM_SETTLE_DURATION"
+            ],
+                let duration = TimeInterval(rawValue),
+                duration > 0 else {
+                return nil
             }
+            return duration
+#else
+            nil
+#endif
         }
 
         private func finishZoom() {
             guard let session = zoomSession else { return }
+            let animator = zoomAnimator
+            zoomAnimator = nil
+            animator?.stopAnimation(true)
+            activeZoomGestureGeneration = nil
             session.cell.alpha = 1
             session.wrapper.removeFromSuperview()
             session.backdrop.removeFromSuperview()
@@ -528,8 +742,8 @@ struct PaneMapCollectionView: UIViewRepresentable {
             let backdrop: UIView
             let initialFrame: CGRect
             let targetFrame: CGRect
-            let normalizedAnchor: CGPoint
-            var progress: CGFloat
+            var normalizedAnchor: CGPoint
+            var transition: PaneMapZoomTransitionState
         }
     }
 }

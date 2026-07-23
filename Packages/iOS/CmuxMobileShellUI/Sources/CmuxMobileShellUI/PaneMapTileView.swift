@@ -8,6 +8,85 @@ enum PaneMapTileMetrics {
     static let cornerRadius: CGFloat = 16
 }
 
+struct PaneMapTerminalCanvasLayout: Equatable {
+    static let lineHeightRatio: CGFloat = 1.82
+    static let glyphWidthRatio: CGFloat = 0.61
+
+    let contentRect: CGRect
+    let visibleRowRange: Range<Int>
+    let drawOrigin: CGPoint
+    let cellWidth: CGFloat
+    let lineHeight: CGFloat
+    let fontSize: CGFloat
+
+    init(
+        size: CGSize,
+        columns: Int,
+        rowCount: Int,
+        inset: CGFloat
+    ) {
+        let safeSize = CGSize(
+            width: max(0, size.width),
+            height: max(0, size.height)
+        )
+        let safeInset = max(0, inset)
+        contentRect = CGRect(
+            x: safeInset,
+            y: safeInset,
+            width: max(0, safeSize.width - (safeInset * 2)),
+            height: max(0, safeSize.height - (safeInset * 2))
+        )
+
+        guard columns > 0, rowCount > 0, contentRect.width > 0 else {
+            visibleRowRange = 0..<0
+            drawOrigin = contentRect.origin
+            cellWidth = 0
+            lineHeight = 0
+            fontSize = 0
+            return
+        }
+
+        cellWidth = contentRect.width / CGFloat(columns)
+        lineHeight = cellWidth * Self.lineHeightRatio
+        fontSize = cellWidth / Self.glyphWidthRatio
+
+        let rowsThatFit = max(
+            1,
+            Int((contentRect.height / max(lineHeight, 0.1)).rounded(.down))
+        )
+        let visibleRowCount = min(rowCount, rowsThatFit)
+        let isCropped = visibleRowCount < rowCount
+        let firstVisibleRow = isCropped ? rowCount - visibleRowCount : 0
+        visibleRowRange = firstVisibleRow..<(firstVisibleRow + visibleRowCount)
+        drawOrigin = CGPoint(
+            x: contentRect.minX,
+            y: isCropped
+                ? contentRect.maxY - (CGFloat(visibleRowCount) * lineHeight)
+                : contentRect.minY
+        )
+    }
+
+    var lastRowMaxY: CGFloat {
+        drawOrigin.y + (CGFloat(visibleRowRange.count) * lineHeight)
+    }
+}
+
+enum PaneMapTabStripMetrics {
+    static let tabWidth: CGFloat = 28
+    static let spacing: CGFloat = 2
+    static let padding: CGFloat = 3
+    static let maximumWidth: CGFloat = 132
+
+    static func width(tabCount: Int) -> CGFloat {
+        guard tabCount > 0 else { return 0 }
+        let contentWidth =
+            (CGFloat(tabCount) * tabWidth)
+            + (CGFloat(max(0, tabCount - 1)) * spacing)
+            + (padding * 2)
+        return min(maximumWidth, contentWidth)
+    }
+}
+
 /// One floating Safari-style pane card rendered from immutable snapshots.
 struct PaneMapTileView: View {
     let item: PaneMapCollectionItem
@@ -66,7 +145,7 @@ private struct PaneMapPreviewCard: View {
         )
 
         ZStack {
-            terminalTheme.terminalBackgroundColor
+            previewTerminalTheme.terminalBackgroundColor
 
             if let selectedSurface {
                 PaneMapSurfacePreview(
@@ -80,11 +159,6 @@ private struct PaneMapPreviewCard: View {
 
             VStack {
                 HStack(alignment: .top) {
-                    PaneMapPaneNumberBadge(
-                        paneID: item.pane.id,
-                        paneNumber: item.paneNumber,
-                        terminalTheme: terminalTheme
-                    )
                     Spacer(minLength: 0)
                     if item.isFocusedOnMac {
                         PaneMapMacFocusBadge(terminalTheme: terminalTheme)
@@ -103,7 +177,7 @@ private struct PaneMapPreviewCard: View {
             .padding(8)
         }
         .frame(maxWidth: .infinity, maxHeight: .infinity)
-        .background(terminalTheme.terminalBackgroundColor)
+        .background(previewTerminalTheme.terminalBackgroundColor)
         .overlay {
             shape.stroke(.white.opacity(0.16), lineWidth: 1)
         }
@@ -114,6 +188,10 @@ private struct PaneMapPreviewCard: View {
         }
         .clipShape(shape)
         .shadow(color: .black.opacity(0.28), radius: 9, y: 5)
+    }
+
+    private var previewTerminalTheme: TerminalTheme {
+        item.preview?.resolvedTerminalTheme(fallback: terminalTheme) ?? terminalTheme
     }
 }
 
@@ -167,10 +245,16 @@ private struct PaneMapTerminalPreview: View {
     let terminalTheme: TerminalTheme
 
     var body: some View {
+        let resolvedTerminalTheme =
+            preview?.resolvedTerminalTheme(fallback: terminalTheme) ?? terminalTheme
+
         ZStack(alignment: .topLeading) {
-            terminalTheme.terminalBackgroundColor
+            resolvedTerminalTheme.terminalBackgroundColor
             if let preview {
-                PaneMapTerminalCanvas(preview: preview, terminalTheme: terminalTheme)
+                PaneMapTerminalCanvas(
+                    preview: preview,
+                    terminalTheme: resolvedTerminalTheme
+                )
             } else if isLoadingPreview {
                 ProgressView()
                     .controlSize(.mini)
@@ -195,27 +279,32 @@ private struct PaneMapTerminalCanvas: View {
             )
             guard preview.columns > 0, !preview.rows.isEmpty else { return }
 
-            let lineHeightRatio: CGFloat = 1.82
-            let widthCell = size.width / CGFloat(preview.columns)
-            let heightCell = size.height / (CGFloat(preview.rows.count) * lineHeightRatio)
-            let cellWidth = max(0.1, min(widthCell, heightCell))
-            let lineHeight = cellWidth * lineHeightRatio
-            let fontSize = max(0.5, cellWidth / 0.61)
+            let layout = PaneMapTerminalCanvasLayout(
+                size: size,
+                columns: preview.columns,
+                rowCount: preview.rows.count,
+                inset: 6
+            )
+            guard !layout.visibleRowRange.isEmpty else { return }
+            context.clip(to: Path(layout.contentRect))
 
-            for (rowIndex, row) in preview.rows.enumerated() {
+            for (visibleRowIndex, sourceRowIndex) in layout.visibleRowRange.enumerated() {
+                let row = preview.rows[sourceRowIndex]
                 drawBackgrounds(
                     row,
-                    rowIndex: rowIndex,
-                    cellWidth: cellWidth,
-                    lineHeight: lineHeight,
+                    rowIndex: visibleRowIndex,
+                    origin: layout.drawOrigin,
+                    cellWidth: layout.cellWidth,
+                    lineHeight: layout.lineHeight,
                     context: &context
                 )
                 drawGlyphs(
                     row,
-                    rowIndex: rowIndex,
-                    cellWidth: cellWidth,
-                    lineHeight: lineHeight,
-                    fontSize: fontSize,
+                    rowIndex: visibleRowIndex,
+                    origin: layout.drawOrigin,
+                    cellWidth: layout.cellWidth,
+                    lineHeight: layout.lineHeight,
+                    fontSize: layout.fontSize,
                     context: &context
                 )
             }
@@ -226,6 +315,7 @@ private struct PaneMapTerminalCanvas: View {
     private func drawBackgrounds(
         _ row: [MobileTerminalPaneMapPreview.Cell],
         rowIndex: Int,
+        origin: CGPoint,
         cellWidth: CGFloat,
         lineHeight: CGFloat,
         context: inout GraphicsContext
@@ -240,8 +330,8 @@ private struct PaneMapTerminalCanvas: View {
             if let background = resolvedStyle(styleID).background {
                 context.fill(
                     Path(CGRect(
-                        x: CGFloat(startColumn) * cellWidth,
-                        y: CGFloat(rowIndex) * lineHeight,
+                        x: origin.x + (CGFloat(startColumn) * cellWidth),
+                        y: origin.y + (CGFloat(rowIndex) * lineHeight),
                         width: CGFloat(endColumn - startColumn) * cellWidth,
                         height: lineHeight
                     )),
@@ -255,6 +345,7 @@ private struct PaneMapTerminalCanvas: View {
     private func drawGlyphs(
         _ row: [MobileTerminalPaneMapPreview.Cell],
         rowIndex: Int,
+        origin: CGPoint,
         cellWidth: CGFloat,
         lineHeight: CGFloat,
         fontSize: CGFloat,
@@ -277,8 +368,8 @@ private struct PaneMapTerminalCanvas: View {
             context.draw(
                 text,
                 at: CGPoint(
-                    x: CGFloat(column) * cellWidth,
-                    y: CGFloat(rowIndex) * lineHeight
+                    x: origin.x + (CGFloat(column) * cellWidth),
+                    y: origin.y + (CGFloat(rowIndex) * lineHeight)
                 ),
                 anchor: .topLeading
             )
@@ -286,8 +377,8 @@ private struct PaneMapTerminalCanvas: View {
                 let width = CGFloat(max(1, cell.columnSpan)) * cellWidth
                 context.stroke(
                     Path(CGRect(
-                        x: CGFloat(column) * cellWidth,
-                        y: CGFloat(rowIndex) * lineHeight,
+                        x: origin.x + (CGFloat(column) * cellWidth),
+                        y: origin.y + (CGFloat(rowIndex) * lineHeight),
                         width: width,
                         height: 0.5
                     )),
@@ -361,21 +452,6 @@ private struct PaneMapUnavailableSurfacePreview: View {
     }
 }
 
-private struct PaneMapPaneNumberBadge: View {
-    let paneID: String
-    let paneNumber: Int
-    let terminalTheme: TerminalTheme
-
-    var body: some View {
-        Text(paneNumber, format: .number)
-            .font(.caption2.weight(.bold))
-            .foregroundStyle(terminalTheme.terminalChromeForegroundColor)
-            .frame(width: 26, height: 26)
-            .mobileGlassCircle()
-            .accessibilityIdentifier("MobilePaneMapPaneNumber-\(paneID)")
-    }
-}
-
 private struct PaneMapMacFocusBadge: View {
     let terminalTheme: TerminalTheme
 
@@ -430,9 +506,12 @@ private struct PaneMapTabSwitcher: View {
             .padding(3)
         }
         .scrollIndicators(.hidden)
-        .fixedSize(horizontal: true, vertical: true)
-        .frame(maxWidth: 132)
+        .frame(
+            width: PaneMapTabStripMetrics.width(tabCount: pane.surfaces.count),
+            height: 34
+        )
         .mobileGlassPill()
+        .accessibilityIdentifier("MobilePaneMapTabStrip-\(pane.id)")
     }
 }
 
