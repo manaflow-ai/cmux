@@ -642,6 +642,9 @@ def test_platform_bridge_passes_exact_variant_scenario_and_profile_scope(
             "output_root": tmp_path / "invocations" / "terminal-light-AB-r1-A",
             "warmup": False,
             "profile_enabled": True,
+            "churn_duration_s": 5.0,
+            "churn_measurement_duration_s": 5.0,
+            "profile_duration_s": 5.0,
         }
     ]
     assert calls[0]["scenario_id"] == "terminal-light"

@@ -120,6 +120,7 @@ class AdapterConfig:
     steady_duration_s: float = 5.0
     steady_interval_s: float = 1.0
     churn_duration_s: float = 5.0
+    churn_measurement_duration_s: float = 5.0
     churn_interval_s: float = 1.0
     profile_duration_s: float = 5.0
 
@@ -142,6 +143,7 @@ class AdapterConfig:
             "steady_duration_s",
             "steady_interval_s",
             "churn_duration_s",
+            "churn_measurement_duration_s",
             "churn_interval_s",
             "profile_duration_s",
         ):
@@ -150,6 +152,14 @@ class AdapterConfig:
             raise ValueError("steady_interval_s cannot exceed steady_duration_s")
         if self.churn_interval_s > self.churn_duration_s:
             raise ValueError("churn_interval_s cannot exceed churn_duration_s")
+        if self.churn_measurement_duration_s < self.churn_duration_s:
+            raise ValueError(
+                "churn_measurement_duration_s cannot be shorter than churn_duration_s"
+            )
+        if self.profile_enabled and self.profile_duration_s < self.churn_measurement_duration_s:
+            raise ValueError(
+                "profile_duration_s cannot be shorter than the churn measurement window"
+            )
 
 
 class _SystemClock:
@@ -288,6 +298,7 @@ class CmuxRuntimeAdapter:
                     "steady_duration_s": config.steady_duration_s,
                     "steady_interval_s": config.steady_interval_s,
                     "churn_duration_s": config.churn_duration_s,
+                    "churn_measurement_duration_s": config.churn_measurement_duration_s,
                     "churn_interval_s": config.churn_interval_s,
                     "profile_duration_s": config.profile_duration_s,
                 },
@@ -1004,7 +1015,13 @@ class CmuxRuntimeAdapter:
                 )
                 futures[browser_batch_future] = ("browser_batch", "browser-batch")
 
-            sample_count = max(1, cycles)
+            sample_count = max(
+                1,
+                math.ceil(
+                    self.config.churn_measurement_duration_s
+                    / self.config.churn_interval_s
+                ),
+            )
             samples: list[dict[str, Any]] = []
             for index in range(sample_count):
                 self._clock.sleep(self.config.churn_interval_s)
@@ -1174,7 +1191,8 @@ class CmuxRuntimeAdapter:
         }
         self._details["churn"] = {
             "requested_operations": _plain(operations),
-            "fixed_duration_s": self.config.churn_duration_s,
+            "fixed_duration_s": self.config.churn_measurement_duration_s,
+            "workload_target_duration_s": self.config.churn_duration_s,
             "measured_elapsed_s": churn_elapsed_s,
             "cycles_per_surface": {
                 "terminal": cycles if self._terminal_actual_ids else 0,

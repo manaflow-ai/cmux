@@ -686,6 +686,18 @@ def _invocation_result_evidence(result: Any) -> dict[str, Any]:
     return {name: _plain_json(getattr(result, name)) for name in fields}
 
 
+def _scenario_timing(scenario: Any) -> dict[str, float]:
+    workload_duration_s = 5.0
+    measurement_duration_s = (
+        12.0 if getattr(scenario, "scenario_id", None) == "mixed-heavy" else 5.0
+    )
+    return {
+        "churn_duration_s": workload_duration_s,
+        "churn_measurement_duration_s": measurement_duration_s,
+        "profile_duration_s": measurement_duration_s,
+    }
+
+
 def build_platform_run_variant(
     *,
     output_root: Path | str,
@@ -710,6 +722,7 @@ def build_platform_run_variant(
             output_root=invocation_root,
             warmup=run.warmup,
             profile_enabled=not run.warmup and run.repetition == 1,
+            **_scenario_timing(scenario),
         )
         adapter = adapter_api.CmuxRuntimeAdapter(config)
         try:
