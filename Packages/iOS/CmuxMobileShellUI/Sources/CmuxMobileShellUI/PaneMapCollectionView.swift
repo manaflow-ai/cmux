@@ -29,6 +29,50 @@ struct PaneMapOverflowLabels {
     let bottom: String
 }
 
+struct PaneMapInteractiveZoomGeometry {
+    static func progress(forPinchScale scale: CGFloat) -> CGFloat {
+        min(1, max(0, (scale - 1) / 1.15))
+    }
+
+    static func frame(
+        initialFrame: CGRect,
+        targetFrame: CGRect,
+        normalizedAnchor: CGPoint,
+        gestureLocation: CGPoint,
+        progress: CGFloat
+    ) -> CGRect {
+        let progress = min(1, max(0, progress))
+        let size = CGSize(
+            width: interpolate(initialFrame.width, targetFrame.width, progress: progress),
+            height: interpolate(initialFrame.height, targetFrame.height, progress: progress)
+        )
+        return CGRect(
+            x: gestureLocation.x - normalizedAnchor.x * size.width,
+            y: gestureLocation.y - normalizedAnchor.y * size.height,
+            width: size.width,
+            height: size.height
+        )
+    }
+
+    static func settledFrame(
+        from initialFrame: CGRect,
+        to targetFrame: CGRect,
+        progress: CGFloat
+    ) -> CGRect {
+        let progress = min(1, max(0, progress))
+        return CGRect(
+            x: interpolate(initialFrame.minX, targetFrame.minX, progress: progress),
+            y: interpolate(initialFrame.minY, targetFrame.minY, progress: progress),
+            width: interpolate(initialFrame.width, targetFrame.width, progress: progress),
+            height: interpolate(initialFrame.height, targetFrame.height, progress: progress)
+        )
+    }
+
+    private static func interpolate(_ start: CGFloat, _ end: CGFloat, progress: CGFloat) -> CGFloat {
+        start + (end - start) * progress
+    }
+}
+
 /// UIKit collection surface for native interactive movement and continuous zoom.
 struct PaneMapCollectionView: UIViewRepresentable {
     let items: [PaneMapCollectionItem]
@@ -124,7 +168,7 @@ struct PaneMapCollectionView: UIViewRepresentable {
         }
 
         func reconcile(items: [PaneMapCollectionItem]) {
-            guard !isMovingItem else {
+            guard !isMovingItem, zoomSession == nil else {
                 pendingItems = items
                 return
             }
@@ -255,12 +299,19 @@ struct PaneMapCollectionView: UIViewRepresentable {
             case .began:
                 let location = gesture.location(in: collectionView)
                 guard let indexPath = collectionView.indexPathForItem(at: location),
-                      startZoom(at: indexPath) else { return }
+                      startZoom(at: indexPath, gestureLocationInCollectionView: location) else { return }
                 collectionView.isScrollEnabled = false
             case .changed:
-                guard zoomSession != nil else { return }
-                let progress = min(1, max(0, (gesture.scale - 1) / 1.15))
-                updateZoom(progress: progress)
+                guard let session = zoomSession else { return }
+                guard session.wrapper.window?.bounds == session.targetFrame else {
+                    finishZoom()
+                    return
+                }
+                let progress = PaneMapInteractiveZoomGeometry.progress(
+                    forPinchScale: gesture.scale
+                )
+                let gestureLocation = gesture.location(in: session.wrapper.superview)
+                updateInteractiveZoom(progress: progress, gestureLocation: gestureLocation)
             case .ended:
                 guard let session = zoomSession else { return }
                 let shouldCommit = session.progress > 0.32 || gesture.velocity > 1.4
@@ -290,8 +341,12 @@ struct PaneMapCollectionView: UIViewRepresentable {
             commitZoom()
         }
 
-        private func startZoom(at indexPath: IndexPath) -> Bool {
+        private func startZoom(
+            at indexPath: IndexPath,
+            gestureLocationInCollectionView: CGPoint? = nil
+        ) -> Bool {
             guard zoomSession == nil,
+                  !isMovingItem,
                   orderedItems.indices.contains(indexPath.item),
                   let surface = orderedItems[indexPath.item].selectedSurface,
                   surface.type.isTerminal,
@@ -307,6 +362,10 @@ struct PaneMapCollectionView: UIViewRepresentable {
                 width: cell.bounds.width,
                 height: max(0, cell.bounds.height - PaneMapTileMetrics.captionHeight)
             )
+            if let gestureLocationInCollectionView {
+                let locationInCell = collectionView.convert(gestureLocationInCollectionView, to: cell)
+                guard previewBounds.contains(locationInCell) else { return false }
+            }
             guard let snapshot = cell.resizableSnapshotView(
                 from: previewBounds,
                 afterScreenUpdates: true,
@@ -315,6 +374,17 @@ struct PaneMapCollectionView: UIViewRepresentable {
                 return false
             }
             let initialFrame = cell.convert(previewBounds, to: window)
+            let gestureLocation = gestureLocationInCollectionView.map {
+                collectionView.convert($0, to: window)
+            } ?? CGPoint(x: initialFrame.midX, y: initialFrame.midY)
+            let normalizedAnchor = CGPoint(
+                x: initialFrame.width > 0
+                    ? (gestureLocation.x - initialFrame.minX) / initialFrame.width
+                    : 0.5,
+                y: initialFrame.height > 0
+                    ? (gestureLocation.y - initialFrame.minY) / initialFrame.height
+                    : 0.5
+            )
             let backdrop = UIView(frame: window.bounds)
             backdrop.backgroundColor = UIColor(terminalHex: parent.terminalTheme.background)
             backdrop.alpha = 0
@@ -340,15 +410,32 @@ struct PaneMapCollectionView: UIViewRepresentable {
                 backdrop: backdrop,
                 initialFrame: initialFrame,
                 targetFrame: window.bounds,
+                normalizedAnchor: normalizedAnchor,
                 progress: 0
             )
             return true
         }
 
+        private func updateInteractiveZoom(progress: CGFloat, gestureLocation: CGPoint) {
+            guard var session = zoomSession else { return }
+            session.progress = progress
+            session.wrapper.frame = PaneMapInteractiveZoomGeometry.frame(
+                initialFrame: session.initialFrame,
+                targetFrame: session.targetFrame,
+                normalizedAnchor: session.normalizedAnchor,
+                gestureLocation: gestureLocation,
+                progress: progress
+            )
+            session.snapshot.frame = session.wrapper.bounds
+            session.wrapper.layer.cornerRadius = PaneMapTileMetrics.cornerRadius * (1 - progress)
+            session.backdrop.alpha = progress
+            zoomSession = session
+        }
+
         private func updateZoom(progress: CGFloat) {
             guard var session = zoomSession else { return }
             session.progress = progress
-            session.wrapper.frame = interpolate(
+            session.wrapper.frame = PaneMapInteractiveZoomGeometry.settledFrame(
                 from: session.initialFrame,
                 to: session.targetFrame,
                 progress: progress
@@ -373,9 +460,9 @@ struct PaneMapCollectionView: UIViewRepresentable {
             } completion: { [weak self] _ in
                 guard let self, let committedSession = self.zoomSession else { return }
                 self.parent.jumpToTerminal(committedSession.surfaceID)
-                Task { @MainActor [weak self] in
+                Task { @MainActor [self] in
                     await Task.yield()
-                    self?.finishZoom()
+                    finishZoom()
                 }
             }
         }
@@ -403,15 +490,10 @@ struct PaneMapCollectionView: UIViewRepresentable {
             session.backdrop.removeFromSuperview()
             collectionView?.isScrollEnabled = true
             zoomSession = nil
-        }
-
-        private func interpolate(from start: CGRect, to end: CGRect, progress: CGFloat) -> CGRect {
-            CGRect(
-                x: start.minX + (end.minX - start.minX) * progress,
-                y: start.minY + (end.minY - start.minY) * progress,
-                width: start.width + (end.width - start.width) * progress,
-                height: start.height + (end.height - start.height) * progress
-            )
+            if let pendingItems {
+                self.pendingItems = nil
+                reconcile(items: pendingItems)
+            }
         }
 
         func scrollOneViewport(_ direction: PaneMapOverflowDirection) {
@@ -446,6 +528,7 @@ struct PaneMapCollectionView: UIViewRepresentable {
             let backdrop: UIView
             let initialFrame: CGRect
             let targetFrame: CGRect
+            let normalizedAnchor: CGPoint
             var progress: CGFloat
         }
     }

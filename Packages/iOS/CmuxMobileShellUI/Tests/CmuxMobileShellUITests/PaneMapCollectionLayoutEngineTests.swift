@@ -144,3 +144,127 @@ import Testing
         MobilePaneNode(id: id, selectedSurfaceID: nil, surfaces: [])
     }
 }
+
+@Suite struct PaneMapInteractiveZoomGeometryTests {
+    private let initialFrame = CGRect(x: 100, y: 200, width: 120, height: 240)
+    private let targetFrame = CGRect(x: 0, y: 0, width: 390, height: 844)
+    private let anchor = CGPoint(x: 0.25, y: 0.75)
+
+    @Test func zeroProgressPreservesTheSourceFrame() {
+        let sourceAnchor = CGPoint(
+            x: initialFrame.minX + initialFrame.width * anchor.x,
+            y: initialFrame.minY + initialFrame.height * anchor.y
+        )
+
+        let frame = PaneMapInteractiveZoomGeometry.frame(
+            initialFrame: initialFrame,
+            targetFrame: targetFrame,
+            normalizedAnchor: anchor,
+            gestureLocation: sourceAnchor,
+            progress: 0
+        )
+
+        #expect(frame == initialFrame)
+    }
+
+    @Test func intermediateProgressTracksTheGestureCenter() {
+        let progress: CGFloat = 0.4
+        let gestureLocation = CGPoint(x: 250, y: 500)
+
+        let frame = PaneMapInteractiveZoomGeometry.frame(
+            initialFrame: initialFrame,
+            targetFrame: targetFrame,
+            normalizedAnchor: anchor,
+            gestureLocation: gestureLocation,
+            progress: progress
+        )
+
+        let renderedAnchor = CGPoint(
+            x: frame.minX + frame.width * anchor.x,
+            y: frame.minY + frame.height * anchor.y
+        )
+
+        #expect(abs(frame.width - 228) < 0.001)
+        #expect(abs(frame.height - 481.6) < 0.001)
+        #expect(abs(renderedAnchor.x - gestureLocation.x) < 0.001)
+        #expect(abs(renderedAnchor.y - gestureLocation.y) < 0.001)
+    }
+
+    @Test func movingTheGestureCenterMovesTheFrameOneForOne() {
+        let first = PaneMapInteractiveZoomGeometry.frame(
+            initialFrame: initialFrame,
+            targetFrame: targetFrame,
+            normalizedAnchor: anchor,
+            gestureLocation: CGPoint(x: 200, y: 400),
+            progress: 0.5
+        )
+        let second = PaneMapInteractiveZoomGeometry.frame(
+            initialFrame: initialFrame,
+            targetFrame: targetFrame,
+            normalizedAnchor: anchor,
+            gestureLocation: CGPoint(x: 237, y: 381),
+            progress: 0.5
+        )
+
+        #expect(abs(second.minX - first.minX - 37) < 0.001)
+        #expect(abs(second.minY - first.minY + 19) < 0.001)
+        #expect(second.size == first.size)
+    }
+
+    @Test func settlementUsesExactSourceAndTargetFrames() {
+        let source = PaneMapInteractiveZoomGeometry.settledFrame(
+            from: initialFrame,
+            to: targetFrame,
+            progress: 0
+        )
+        let target = PaneMapInteractiveZoomGeometry.settledFrame(
+            from: initialFrame,
+            to: targetFrame,
+            progress: 1
+        )
+
+        #expect(source == initialFrame)
+        #expect(target == targetFrame)
+    }
+
+    @Test func pinchScaleProgressIsAbsoluteAndClamped() {
+        #expect(PaneMapInteractiveZoomGeometry.progress(forPinchScale: 0.5) == 0)
+        #expect(PaneMapInteractiveZoomGeometry.progress(forPinchScale: 1) == 0)
+        #expect(abs(
+            PaneMapInteractiveZoomGeometry.progress(forPinchScale: 1.575) - 0.5
+        ) < 0.001)
+        #expect(PaneMapInteractiveZoomGeometry.progress(forPinchScale: 2.15) == 1)
+        #expect(PaneMapInteractiveZoomGeometry.progress(forPinchScale: 4) == 1)
+    }
+
+    @Test func reversingScaleDoesNotAccumulateGeometry() {
+        let sourceAnchor = CGPoint(
+            x: initialFrame.minX + initialFrame.width * anchor.x,
+            y: initialFrame.minY + initialFrame.height * anchor.y
+        )
+        let expanded = PaneMapInteractiveZoomGeometry.frame(
+            initialFrame: initialFrame,
+            targetFrame: targetFrame,
+            normalizedAnchor: anchor,
+            gestureLocation: sourceAnchor,
+            progress: 0.7
+        )
+        let reversed = PaneMapInteractiveZoomGeometry.frame(
+            initialFrame: initialFrame,
+            targetFrame: targetFrame,
+            normalizedAnchor: anchor,
+            gestureLocation: sourceAnchor,
+            progress: 0.25
+        )
+        let returned = PaneMapInteractiveZoomGeometry.frame(
+            initialFrame: initialFrame,
+            targetFrame: targetFrame,
+            normalizedAnchor: anchor,
+            gestureLocation: sourceAnchor,
+            progress: 0
+        )
+
+        #expect(expanded.width > reversed.width)
+        #expect(returned == initialFrame)
+    }
+}
