@@ -41,6 +41,10 @@ const MAX_SEARCH_PATHS: usize = 256;
 const MAX_SEARCH_GLOBS: usize = 256;
 const MAX_SEARCH_ARGUMENT_BYTES: usize = 1024 * 1024;
 const MAX_SEARCH_RESPONSE_BYTES: usize = 8 * 1024 * 1024;
+#[cfg(any(target_os = "linux", target_os = "android", target_vendor = "apple"))]
+const GUARDED_CONTENT_MUTATIONS_SUPPORTED: bool = true;
+#[cfg(all(unix, not(any(target_os = "linux", target_os = "android", target_vendor = "apple"))))]
+const GUARDED_CONTENT_MUTATIONS_SUPPORTED: bool = false;
 
 #[cfg(test)]
 #[derive(Clone, Copy, Debug, Eq, Hash, PartialEq)]
@@ -168,6 +172,8 @@ fn pause_at_mutation_test_barrier_blocking(target: &Path, point: MutationTestPoi
 pub(crate) enum MutationTestFault {
     CommitSync,
     ExchangeUnsupported,
+    PrePublishHash,
+    PrePublishStat,
     RollbackExchange,
     RollbackSync,
     UnpublishedCleanup,
@@ -676,6 +682,56 @@ pub(crate) async fn read_full_file(
     }
 }
 
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub(crate) enum MutationOutcome {
+    Unchanged,
+    Applied,
+    Restored,
+    Unknown,
+}
+
+#[derive(Debug)]
+pub(crate) struct MutationFailure {
+    pub(crate) error: RpcError,
+    pub(crate) outcome: MutationOutcome,
+    pub(crate) recovery_path: Option<PathBuf>,
+}
+
+impl MutationFailure {
+    fn unchanged(error: RpcError) -> Self {
+        Self { error, outcome: MutationOutcome::Unchanged, recovery_path: None }
+    }
+
+    fn unknown(error: RpcError) -> Self {
+        Self { error, outcome: MutationOutcome::Unknown, recovery_path: None }
+    }
+}
+
+#[derive(Debug)]
+struct MutationProgress {
+    outcome: MutationOutcome,
+    recovery_path: Option<PathBuf>,
+}
+
+impl MutationProgress {
+    fn unchanged() -> Self {
+        Self { outcome: MutationOutcome::Unchanged, recovery_path: None }
+    }
+
+    #[cfg(unix)]
+    fn retain(&mut self, target: &UnixWorkspaceTarget, name: &CStr) {
+        self.recovery_path = Some(temporary_display(target, name));
+    }
+
+    fn cleaned(&mut self) {
+        self.recovery_path = None;
+    }
+
+    fn fail(self, error: RpcError) -> MutationFailure {
+        MutationFailure { error, outcome: self.outcome, recovery_path: self.recovery_path }
+    }
+}
+
 pub(crate) async fn write_bytes_locked(
     root: &WorkspaceRoot,
     path: &str,
@@ -683,11 +739,23 @@ pub(crate) async fn write_bytes_locked(
     precondition: &FilePrecondition,
     create_parents: bool,
 ) -> Result<String, RpcError> {
+    write_bytes_locked_with_outcome(root, path, bytes, precondition, create_parents)
+        .await
+        .map_err(|failure| failure.error)
+}
+
+pub(crate) async fn write_bytes_locked_with_outcome(
+    root: &WorkspaceRoot,
+    path: &str,
+    bytes: &[u8],
+    precondition: &FilePrecondition,
+    create_parents: bool,
+) -> Result<String, MutationFailure> {
     if bytes.len() > MAX_WRITE_BYTES {
-        return Err(RpcError::new(
+        return Err(MutationFailure::unchanged(RpcError::new(
             "resource-exhausted",
             format!("write exceeds {MAX_WRITE_BYTES} bytes"),
-        ));
+        )));
     }
     #[cfg(unix)]
     {
@@ -698,23 +766,31 @@ pub(crate) async fn write_bytes_locked(
             prepare_unix_write(root_handle, prepared_path, prepared_precondition, create_parents)
         })
         .await
-        .map_err(blocking_task_error)??;
+        .map_err(|error| MutationFailure::unchanged(blocking_task_error(error)))?
+        .map_err(MutationFailure::unchanged)?;
         #[cfg(test)]
         pause_at_mutation_test_barrier(root, path, MutationTestPoint::AfterPrecondition).await;
         let bytes = bytes.to_vec();
-        return tokio::task::spawn_blocking(move || commit_unix_write(prepared, &bytes))
-            .await
-            .map_err(blocking_task_error)?;
+        let (result, progress) = tokio::task::spawn_blocking(move || {
+            let mut progress = MutationProgress::unchanged();
+            let result = commit_unix_write(prepared, &bytes, &mut progress);
+            (result, progress)
+        })
+        .await
+        .map_err(|error| MutationFailure::unknown(blocking_task_error(error)))?;
+        return result.map_err(|error| progress.fail(error));
     }
     #[cfg(not(unix))]
     {
         if !matches!(precondition, FilePrecondition::Any) {
-            return Err(RpcError::new(
+            return Err(MutationFailure::unchanged(RpcError::new(
                 "unsupported-platform",
                 "guarded workspace writes require Unix descriptor-relative file operations",
-            ));
+            )));
         }
-        write_bytes_locked_path(root, path, bytes, precondition, create_parents).await
+        write_bytes_locked_path(root, path, bytes, precondition, create_parents)
+            .await
+            .map_err(MutationFailure::unknown)
     }
 }
 
@@ -812,6 +888,16 @@ pub(crate) async fn remove_file_precondition_locked(
     path: &str,
     precondition: &FilePrecondition,
 ) -> Result<(), RpcError> {
+    remove_file_precondition_locked_with_outcome(root, path, precondition)
+        .await
+        .map_err(|failure| failure.error)
+}
+
+pub(crate) async fn remove_file_precondition_locked_with_outcome(
+    root: &WorkspaceRoot,
+    path: &str,
+    precondition: &FilePrecondition,
+) -> Result<(), MutationFailure> {
     #[cfg(unix)]
     {
         let root_handle = root.unix_root();
@@ -821,22 +907,30 @@ pub(crate) async fn remove_file_precondition_locked(
             prepare_unix_remove(root_handle, prepared_path, prepared_precondition)
         })
         .await
-        .map_err(blocking_task_error)??;
+        .map_err(|error| MutationFailure::unchanged(blocking_task_error(error)))?
+        .map_err(MutationFailure::unchanged)?;
         #[cfg(test)]
         pause_at_mutation_test_barrier(root, path, MutationTestPoint::AfterPrecondition).await;
-        return tokio::task::spawn_blocking(move || commit_unix_remove(prepared))
-            .await
-            .map_err(blocking_task_error)?;
+        let (result, progress) = tokio::task::spawn_blocking(move || {
+            let mut progress = MutationProgress::unchanged();
+            let result = commit_unix_remove(prepared, &mut progress);
+            (result, progress)
+        })
+        .await
+        .map_err(|error| MutationFailure::unknown(blocking_task_error(error)))?;
+        return result.map_err(|error| progress.fail(error));
     }
     #[cfg(not(unix))]
     {
         if !matches!(precondition, FilePrecondition::Any) {
-            return Err(RpcError::new(
+            return Err(MutationFailure::unchanged(RpcError::new(
                 "unsupported-platform",
                 "guarded workspace removals require Unix descriptor-relative file operations",
-            ));
+            )));
         }
-        remove_file_precondition_locked_path(root, path, precondition).await
+        remove_file_precondition_locked_path(root, path, precondition)
+            .await
+            .map_err(MutationFailure::unknown)
     }
 }
 
@@ -901,13 +995,14 @@ impl RawEntryState {
     }
 
     fn from_stat(status: &libc::stat) -> Self {
+        let (modified, changed) = raw_stat_timestamps(status);
         Self {
             dev: status.st_dev as u64,
             ino: status.st_ino as u64,
             mode: status.st_mode as u32,
             size: u64::try_from(status.st_size).unwrap_or(0),
-            modified: (status.st_mtime, status.st_mtime_nsec),
-            changed: (status.st_ctime, status.st_ctime_nsec),
+            modified,
+            changed,
         }
     }
 
@@ -931,6 +1026,22 @@ impl RawEntryState {
             && self.size == other.size
             && self.modified == other.modified
     }
+}
+
+#[cfg(any(target_os = "linux", target_os = "android", target_vendor = "apple"))]
+fn raw_stat_timestamps(status: &libc::stat) -> ((i64, i64), (i64, i64)) {
+    (
+        (status.st_mtime as i64, status.st_mtime_nsec as i64),
+        (status.st_ctime as i64, status.st_ctime_nsec as i64),
+    )
+}
+
+#[cfg(all(unix, not(any(target_os = "linux", target_os = "android", target_vendor = "apple"))))]
+fn raw_stat_timestamps(_status: &libc::stat) -> ((i64, i64), (i64, i64)) {
+    // The libc timestamp field names vary across less common Unix targets.
+    // Guarded content mutations are rejected there, so unconditional and
+    // missing-only operations do not compare these placeholder values.
+    ((0, 0), (0, 0))
 }
 
 #[cfg(unix)]
@@ -961,6 +1072,12 @@ fn prepare_unix_write(
         }
         FilePrecondition::Missing => {}
         FilePrecondition::ContentHash(expected) => {
+            if !GUARDED_CONTENT_MUTATIONS_SUPPORTED {
+                return Err(RpcError::new(
+                    "unsupported-platform",
+                    "content-guarded workspace writes require Linux, Android, or Apple atomic file exchange",
+                ));
+            }
             validate_content_hash(expected)?;
             if existing.is_none() {
                 return Err(RpcError::new("conflict", "file does not exist"));
@@ -985,50 +1102,59 @@ fn prepare_unix_write(
 }
 
 #[cfg(unix)]
-fn commit_unix_write(prepared: PreparedUnixWrite, bytes: &[u8]) -> Result<String, RpcError> {
+fn commit_unix_write(
+    prepared: PreparedUnixWrite,
+    bytes: &[u8],
+    progress: &mut MutationProgress,
+) -> Result<String, RpcError> {
     use std::io::Write as _;
 
     let PreparedUnixWrite { target, precondition, initial_mode, mut pinned } = prepared;
     target.verify_parent_identity()?;
     let (temporary_name, mut temporary) = create_temporary(&target, "write")?;
-    let temporary_display = temporary_display(&target, &temporary_name);
+    progress.retain(&target, &temporary_name);
+    let temporary_path = temporary_display(&target, &temporary_name);
     let stage_result = (|| {
         temporary
             .write_all(bytes)
-            .map_err(|error| io_error("write-temporary", &temporary_display, error))?;
-        temporary
-            .flush()
-            .map_err(|error| io_error("flush-temporary", &temporary_display, error))?;
+            .map_err(|error| io_error("write-temporary", &temporary_path, error))?;
+        temporary.flush().map_err(|error| io_error("flush-temporary", &temporary_path, error))?;
         if let Some(mode) = initial_mode {
             temporary
                 .set_permissions(std::fs::Permissions::from_mode(mode))
-                .map_err(|error| io_error("set-permissions", &temporary_display, error))?;
+                .map_err(|error| io_error("set-permissions", &temporary_path, error))?;
         }
-        temporary
-            .sync_all()
-            .map_err(|error| io_error("sync-temporary", &temporary_display, error))?;
+        temporary.sync_all().map_err(|error| io_error("sync-temporary", &temporary_path, error))?;
         let temporary_metadata = temporary
             .metadata()
-            .map_err(|error| io_error("stat-temporary", &temporary_display, error))?;
+            .map_err(|error| io_error("stat-temporary", &temporary_path, error))?;
         target.verify_parent_identity()?;
         Ok(temporary_metadata)
     })();
-    let temporary_metadata = match stage_result {
+    let mut temporary_metadata = match stage_result {
         Ok(metadata) => metadata,
         Err(error) => {
-            return Err(cleanup_unpublished_temporary(&target, &temporary_name, error));
+            return Err(cleanup_unpublished_temporary(&target, &temporary_name, error, progress));
         }
     };
     match &precondition {
         FilePrecondition::Missing => {
             if let Err(error) = link_name(target.parent_fd(), &temporary_name, target.name()) {
                 let error = if error.kind() == std::io::ErrorKind::AlreadyExists {
+                    progress.outcome = MutationOutcome::Unchanged;
                     RpcError::new("conflict", "file appeared before commit")
                 } else {
+                    progress.outcome = MutationOutcome::Unknown;
                     io_error("create", target.display(), error)
                 };
-                return Err(cleanup_unpublished_temporary(&target, &temporary_name, error));
+                return Err(cleanup_unpublished_temporary(
+                    &target,
+                    &temporary_name,
+                    error,
+                    progress,
+                ));
             }
+            progress.outcome = MutationOutcome::Applied;
             if let Err(error) = unlink_published_name(&target, &temporary_name) {
                 return Err(partial_write_with_recovery(
                     &target,
@@ -1036,20 +1162,33 @@ fn commit_unix_write(prepared: PreparedUnixWrite, bytes: &[u8]) -> Result<String
                     &format!("file was created but temporary link cleanup failed: {error}"),
                 ));
             }
+            progress.cleaned();
         }
         FilePrecondition::Any => {
-            commit_any_write(&target, &temporary_name)?;
+            commit_any_write(&target, &temporary_name, progress)?;
         }
         FilePrecondition::ContentHash(expected) => {
-            let pinned = pinned.as_mut().ok_or_else(|| {
-                RpcError::new("internal", "content-hash write lost its pinned target")
-            })?;
+            let pinned = match pinned.as_mut() {
+                Some(pinned) => pinned,
+                None => {
+                    let error =
+                        RpcError::new("internal", "content-hash write lost its pinned target");
+                    return Err(cleanup_unpublished_temporary(
+                        &target,
+                        &temporary_name,
+                        error,
+                        progress,
+                    ));
+                }
+            };
             commit_content_hash_write(
                 &target,
                 &temporary_name,
-                &temporary_metadata,
+                &mut temporary,
+                &mut temporary_metadata,
                 pinned,
                 expected,
+                progress,
             )?;
         }
     }
@@ -1062,10 +1201,17 @@ fn cleanup_unpublished_temporary(
     target: &UnixWorkspaceTarget,
     temporary_name: &CStr,
     error: RpcError,
+    progress: &mut MutationProgress,
 ) -> RpcError {
     match unlink_unpublished_name(target, temporary_name) {
-        Ok(()) => error,
-        Err(cleanup) if cleanup.kind() == std::io::ErrorKind::NotFound => error,
+        Ok(()) => {
+            progress.cleaned();
+            error
+        }
+        Err(cleanup) if cleanup.kind() == std::io::ErrorKind::NotFound => {
+            progress.cleaned();
+            error
+        }
         Err(cleanup) => partial_write_with_recovery(
             target,
             temporary_name,
@@ -1075,16 +1221,49 @@ fn cleanup_unpublished_temporary(
 }
 
 #[cfg(unix)]
-fn commit_any_write(target: &UnixWorkspaceTarget, temporary_name: &CStr) -> Result<(), RpcError> {
-    let existing = stat_entry(target, "stat-before-replace")?;
+fn stat_before_publish(target: &UnixWorkspaceTarget) -> Result<Option<RawEntryState>, RpcError> {
+    #[cfg(test)]
+    if mutation_test_fault(target.display(), MutationTestFault::PrePublishStat) {
+        return Err(RpcError::new("injected-failure", "injected pre-publish stat failure"));
+    }
+    stat_entry(target, "stat-before-replace")
+}
+
+#[cfg(unix)]
+fn hash_before_publish(
+    pinned: &mut File,
+    target: &UnixWorkspaceTarget,
+) -> Result<(String, std::fs::Metadata), RpcError> {
+    #[cfg(test)]
+    if mutation_test_fault(target.display(), MutationTestFault::PrePublishHash) {
+        return Err(RpcError::new("injected-failure", "injected pre-publish hash failure"));
+    }
+    hash_file_sync(pinned, target.display(), MAX_HASH_BYTES)
+}
+
+#[cfg(unix)]
+fn commit_any_write(
+    target: &UnixWorkspaceTarget,
+    temporary_name: &CStr,
+    progress: &mut MutationProgress,
+) -> Result<(), RpcError> {
+    let existing = match stat_before_publish(target) {
+        Ok(existing) => existing,
+        Err(error) => {
+            return Err(cleanup_unpublished_temporary(target, temporary_name, error, progress));
+        }
+    };
     if existing.as_ref().is_some_and(|entry| !entry.is_regular()) {
         let error = non_regular_entry_error(target, existing.as_ref());
-        return Err(cleanup_unpublished_temporary(target, temporary_name, error));
+        return Err(cleanup_unpublished_temporary(target, temporary_name, error, progress));
     }
     if let Err(error) = rename_name(target.parent_fd(), temporary_name, target.name()) {
+        progress.outcome = MutationOutcome::Unknown;
         let error = io_error("replace", target.display(), error);
-        return Err(cleanup_unpublished_temporary(target, temporary_name, error));
+        return Err(cleanup_unpublished_temporary(target, temporary_name, error, progress));
     }
+    progress.outcome = MutationOutcome::Applied;
+    progress.cleaned();
     Ok(())
 }
 
@@ -1092,16 +1271,23 @@ fn commit_any_write(target: &UnixWorkspaceTarget, temporary_name: &CStr) -> Resu
 fn commit_content_hash_write(
     target: &UnixWorkspaceTarget,
     temporary_name: &CStr,
-    temporary_metadata: &std::fs::Metadata,
+    temporary: &mut File,
+    temporary_metadata: &mut std::fs::Metadata,
     pinned: &mut File,
     expected: &str,
+    progress: &mut MutationProgress,
 ) -> Result<(), RpcError> {
     #[cfg(test)]
     pause_at_mutation_test_barrier_blocking(
         target.display(),
         MutationTestPoint::BeforeContentHashValidation,
     );
-    let (actual, pinned_metadata) = hash_file_sync(pinned, target.display(), MAX_HASH_BYTES)?;
+    let (actual, pinned_metadata) = match hash_before_publish(pinned, target) {
+        Ok(result) => result,
+        Err(error) => {
+            return Err(cleanup_unpublished_temporary(target, temporary_name, error, progress));
+        }
+    };
     if !actual.eq_ignore_ascii_case(expected) {
         return Err(cleanup_unpublished_temporary(
             target,
@@ -1110,45 +1296,94 @@ fn commit_content_hash_write(
                 "conflict",
                 format!("content hash changed before commit: expected {expected}, found {actual}"),
             ),
+            progress,
         ));
     }
     let pinned_identity = RawEntryState::from_metadata(&pinned_metadata);
-    let current = stat_entry(target, "stat-before-replace")?;
+    let current = match stat_before_publish(target) {
+        Ok(current) => current,
+        Err(error) => {
+            return Err(cleanup_unpublished_temporary(target, temporary_name, error, progress));
+        }
+    };
     if current.as_ref().is_none_or(|entry| !entry.matches_snapshot(&pinned_identity)) {
         return Err(cleanup_unpublished_temporary(
             target,
             temporary_name,
             RpcError::new("conflict", "file identity changed before commit"),
+            progress,
         ));
     }
+    let temporary_path = temporary_display(target, temporary_name);
+    let refreshed_temporary = (|| {
+        temporary
+            .set_permissions(std::fs::Permissions::from_mode(pinned_identity.mode & 0o7777))
+            .map_err(|error| io_error("set-permissions", &temporary_path, error))?;
+        temporary.sync_all().map_err(|error| io_error("sync-temporary", &temporary_path, error))?;
+        temporary.metadata().map_err(|error| io_error("stat-temporary", &temporary_path, error))
+    })();
+    *temporary_metadata = match refreshed_temporary {
+        Ok(metadata) => metadata,
+        Err(error) => {
+            return Err(cleanup_unpublished_temporary(target, temporary_name, error, progress));
+        }
+    };
     #[cfg(test)]
     pause_at_mutation_test_barrier_blocking(
         target.display(),
         MutationTestPoint::BeforeContentHashExchange,
     );
     if let Err(error) = exchange_guarded_write(target, temporary_name) {
+        let unsupported = error.kind() == std::io::ErrorKind::Unsupported
+            || matches!(
+                error.raw_os_error(),
+                Some(code) if code == libc::ENOTSUP || code == libc::EINVAL
+            );
+        progress.outcome =
+            if unsupported { MutationOutcome::Unchanged } else { MutationOutcome::Unknown };
         let error = if error.kind() == std::io::ErrorKind::NotFound {
             RpcError::new("conflict", "file disappeared before commit")
         } else {
             exchange_error(target.display(), error)
         };
-        return Err(cleanup_unpublished_temporary(target, temporary_name, error));
+        return Err(cleanup_unpublished_temporary(target, temporary_name, error, progress));
     }
-    let published = stat_entry(target, "stat-published")
-        .map_err(|error| partial_write_with_recovery(target, temporary_name, &error.message))?
-        .ok_or_else(|| {
-            partial_write_with_recovery(target, temporary_name, "published entry disappeared")
-        })?;
-    let recovery = stat_named(
+    progress.outcome = MutationOutcome::Applied;
+    let published = match stat_entry(target, "stat-published") {
+        Ok(Some(published)) => published,
+        Ok(None) => {
+            progress.outcome = MutationOutcome::Unknown;
+            return Err(partial_write_with_recovery(
+                target,
+                temporary_name,
+                "published entry disappeared",
+            ));
+        }
+        Err(error) => {
+            progress.outcome = MutationOutcome::Unknown;
+            return Err(partial_write_with_recovery(target, temporary_name, &error.message));
+        }
+    };
+    let recovery = match stat_named(
         target.parent_fd(),
         temporary_name,
         &temporary_display(target, temporary_name),
         "stat-recovery",
-    )
-    .map_err(|error| partial_write_with_recovery(target, temporary_name, &error.message))?
-    .ok_or_else(|| {
-        partial_write_with_recovery(target, temporary_name, "recovery entry disappeared")
-    })?;
+    ) {
+        Ok(Some(recovery)) => recovery,
+        Ok(None) => {
+            progress.outcome = MutationOutcome::Unknown;
+            return Err(partial_write_with_recovery(
+                target,
+                temporary_name,
+                "recovery entry disappeared",
+            ));
+        }
+        Err(error) => {
+            progress.outcome = MutationOutcome::Unknown;
+            return Err(partial_write_with_recovery(target, temporary_name, &error.message));
+        }
+    };
     #[cfg(test)]
     pause_at_mutation_test_barrier_blocking(
         target.display(),
@@ -1157,7 +1392,7 @@ fn commit_content_hash_write(
     let staged_identity = RawEntryState::from_metadata(temporary_metadata);
     if !published.matches_snapshot(&staged_identity) || !recovery.matches_snapshot(&pinned_identity)
     {
-        rollback_exchange(target, temporary_name, &published, &recovery)?;
+        rollback_exchange(target, temporary_name, &published, &recovery, progress)?;
         return Err(RpcError::new("conflict", "file identity changed during commit"));
     }
     unlink_published_name(target, temporary_name).map_err(|error| {
@@ -1166,7 +1401,9 @@ fn commit_content_hash_write(
             temporary_name,
             &format!("replacement committed but recovery cleanup failed: {error}"),
         )
-    })
+    })?;
+    progress.cleaned();
+    Ok(())
 }
 
 #[cfg(unix)]
@@ -1175,30 +1412,44 @@ fn rollback_exchange(
     temporary_name: &CStr,
     published: &RawEntryState,
     recovery: &RawEntryState,
+    progress: &mut MutationProgress,
 ) -> Result<(), RpcError> {
-    let current_target = stat_entry(target, "rollback")
-        .map_err(|error| partial_write_with_recovery(target, temporary_name, &error.message))?;
-    let current_recovery = stat_named(
+    let current_target = match stat_entry(target, "rollback") {
+        Ok(current) => current,
+        Err(error) => {
+            progress.outcome = MutationOutcome::Unknown;
+            return Err(partial_write_with_recovery(target, temporary_name, &error.message));
+        }
+    };
+    let current_recovery = match stat_named(
         target.parent_fd(),
         temporary_name,
         &temporary_display(target, temporary_name),
         "rollback",
-    )
-    .map_err(|error| partial_write_with_recovery(target, temporary_name, &error.message))?;
+    ) {
+        Ok(current) => current,
+        Err(error) => {
+            progress.outcome = MutationOutcome::Unknown;
+            return Err(partial_write_with_recovery(target, temporary_name, &error.message));
+        }
+    };
     if current_target.as_ref() != Some(published) || current_recovery.as_ref() != Some(recovery) {
+        progress.outcome = MutationOutcome::Unknown;
         return Err(partial_write_with_recovery(
             target,
             temporary_name,
             "replacement validation failed and an exchanged entry changed before restoration",
         ));
     }
-    exchange_rollback(target, temporary_name).map_err(|error| {
-        partial_write_with_recovery(
+    if let Err(error) = exchange_rollback(target, temporary_name) {
+        progress.outcome = MutationOutcome::Unknown;
+        return Err(partial_write_with_recovery(
             target,
             temporary_name,
             &format!("restoring exchanged entries failed: {error}"),
-        )
-    })?;
+        ));
+    }
+    progress.outcome = MutationOutcome::Restored;
     unlink_published_name(target, temporary_name).map_err(|error| {
         partial_write_with_recovery(
             target,
@@ -1206,6 +1457,7 @@ fn rollback_exchange(
             &format!("original restored but staged-entry cleanup failed: {error}"),
         )
     })?;
+    progress.cleaned();
     sync_rollback_parent(target)
 }
 
@@ -1235,6 +1487,12 @@ fn prepare_unix_remove(
             return Err(RpcError::new("conflict", "file exists"));
         }
         FilePrecondition::ContentHash(expected) => {
+            if !GUARDED_CONTENT_MUTATIONS_SUPPORTED {
+                return Err(RpcError::new(
+                    "unsupported-platform",
+                    "content-guarded workspace removals require Linux, Android, or Apple atomic no-replace rename",
+                ));
+            }
             validate_content_hash(expected)?;
             let mut file = open_regular_entry(&target, "hash-before-remove")?;
             let (actual, _) = hash_file_sync(&mut file, target.display(), MAX_HASH_BYTES)?;
@@ -1251,12 +1509,18 @@ fn prepare_unix_remove(
 }
 
 #[cfg(unix)]
-fn commit_unix_remove(prepared: PreparedUnixRemove) -> Result<(), RpcError> {
+fn commit_unix_remove(
+    prepared: PreparedUnixRemove,
+    progress: &mut MutationProgress,
+) -> Result<(), RpcError> {
     let PreparedUnixRemove { target, precondition, mut pinned } = prepared;
     target.verify_parent_identity()?;
     if matches!(precondition, FilePrecondition::Any) {
-        unlink_name(target.parent_fd(), target.name())
-            .map_err(|error| io_error("remove", target.display(), error))?;
+        if let Err(error) = unlink_name(target.parent_fd(), target.name()) {
+            progress.outcome = MutationOutcome::Unknown;
+            return Err(io_error("remove", target.display(), error));
+        }
+        progress.outcome = MutationOutcome::Applied;
         return sync_committed_parent(&target);
     }
     let FilePrecondition::ContentHash(expected) = &precondition else {
@@ -1278,46 +1542,85 @@ fn commit_unix_remove(prepared: PreparedUnixRemove) -> Result<(), RpcError> {
         return Err(RpcError::new("conflict", "file identity changed before removal"));
     }
     let quarantine = unique_name(".cmux-remove")?;
-    rename_noreplace(target.parent_fd(), target.name(), &quarantine).map_err(|error| {
-        if error.kind() == std::io::ErrorKind::NotFound {
+    progress.retain(&target, &quarantine);
+    if let Err(error) = rename_noreplace(target.parent_fd(), target.name(), &quarantine) {
+        let unsupported = error.kind() == std::io::ErrorKind::Unsupported
+            || matches!(
+                error.raw_os_error(),
+                Some(code) if code == libc::ENOTSUP || code == libc::EINVAL
+            );
+        if unsupported {
+            progress.outcome = MutationOutcome::Unchanged;
+            progress.cleaned();
+        } else {
+            progress.outcome = MutationOutcome::Unknown;
+        }
+        return Err(if error.kind() == std::io::ErrorKind::NotFound {
             RpcError::new("conflict", "file disappeared before commit")
         } else {
             rename_noreplace_error(target.display(), error)
-        }
-    })?;
+        });
+    }
+    progress.outcome = MutationOutcome::Applied;
     let quarantine_display = temporary_display(&target, &quarantine);
-    let recovery =
-        stat_named(target.parent_fd(), &quarantine, &quarantine_display, "stat-remove-recovery")
-            .map_err(|error| partial_write_with_recovery(&target, &quarantine, &error.message))?
-            .ok_or_else(|| {
-                partial_write_with_recovery(
-                    &target,
-                    &quarantine,
-                    "remove recovery entry disappeared",
-                )
-            })?;
+    let recovery = match stat_named(
+        target.parent_fd(),
+        &quarantine,
+        &quarantine_display,
+        "stat-remove-recovery",
+    ) {
+        Ok(Some(recovery)) => recovery,
+        Ok(None) => {
+            progress.outcome = MutationOutcome::Unknown;
+            return Err(partial_write_with_recovery(
+                &target,
+                &quarantine,
+                "remove recovery entry disappeared",
+            ));
+        }
+        Err(error) => {
+            progress.outcome = MutationOutcome::Unknown;
+            return Err(partial_write_with_recovery(&target, &quarantine, &error.message));
+        }
+    };
     if !recovery.matches_snapshot(&pinned_identity) {
-        let current_target = stat_entry(&target, "restore-remove")
-            .map_err(|error| partial_write_with_recovery(&target, &quarantine, &error.message))?;
-        let current_recovery =
-            stat_named(target.parent_fd(), &quarantine, &quarantine_display, "restore-remove")
-                .map_err(|error| {
-                    partial_write_with_recovery(&target, &quarantine, &error.message)
-                })?;
+        let current_target = match stat_entry(&target, "restore-remove") {
+            Ok(current) => current,
+            Err(error) => {
+                progress.outcome = MutationOutcome::Unknown;
+                return Err(partial_write_with_recovery(&target, &quarantine, &error.message));
+            }
+        };
+        let current_recovery = match stat_named(
+            target.parent_fd(),
+            &quarantine,
+            &quarantine_display,
+            "restore-remove",
+        ) {
+            Ok(current) => current,
+            Err(error) => {
+                progress.outcome = MutationOutcome::Unknown;
+                return Err(partial_write_with_recovery(&target, &quarantine, &error.message));
+            }
+        };
         if current_target.is_some() || current_recovery.as_ref() != Some(&recovery) {
+            progress.outcome = MutationOutcome::Unknown;
             return Err(partial_write_with_recovery(
                 &target,
                 &quarantine,
                 "remove recovery changed before restoration",
             ));
         }
-        rename_noreplace(target.parent_fd(), &quarantine, target.name()).map_err(|error| {
-            partial_write_with_recovery(
+        if let Err(error) = rename_noreplace(target.parent_fd(), &quarantine, target.name()) {
+            progress.outcome = MutationOutcome::Unknown;
+            return Err(partial_write_with_recovery(
                 &target,
                 &quarantine,
                 &format!("remove restoration failed: {error}"),
-            )
-        })?;
+            ));
+        }
+        progress.outcome = MutationOutcome::Restored;
+        progress.cleaned();
         sync_rollback_parent(&target)?;
         return Err(RpcError::new("conflict", "file identity changed during removal"));
     }
@@ -1328,6 +1631,7 @@ fn commit_unix_remove(prepared: PreparedUnixRemove) -> Result<(), RpcError> {
             &format!("file removed but recovery cleanup failed: {error}"),
         )
     })?;
+    progress.cleaned();
     sync_committed_parent(&target)
 }
 
@@ -2143,6 +2447,14 @@ mod tests {
     }
 
     #[cfg(unix)]
+    fn has_recovery_entry(root: &WorkspaceRoot, prefix: &str) -> bool {
+        std::fs::read_dir(root.canonical_root())
+            .unwrap()
+            .flatten()
+            .any(|entry| entry.file_name().to_string_lossy().starts_with(prefix))
+    }
+
+    #[cfg(any(target_os = "linux", target_os = "android", target_vendor = "apple"))]
     #[tokio::test]
     async fn atomic_write_enforces_content_preconditions() {
         let (_directory, root) = root().await;
@@ -2223,7 +2535,7 @@ mod tests {
         assert!(!outside.path().join("value.txt").exists());
     }
 
-    #[cfg(unix)]
+    #[cfg(any(target_os = "linux", target_os = "android", target_vendor = "apple"))]
     #[tokio::test]
     async fn content_hash_write_rejects_a_target_rewrite_before_commit() {
         let (_directory, root) = root().await;
@@ -2254,7 +2566,7 @@ mod tests {
         assert_eq!(tokio::fs::read(&target).await.unwrap(), b"external-change");
     }
 
-    #[cfg(unix)]
+    #[cfg(any(target_os = "linux", target_os = "android", target_vendor = "apple"))]
     #[tokio::test]
     async fn content_hash_write_rejects_same_inode_same_length_rewrite_at_exchange() {
         let (_directory, root) = root().await;
@@ -2288,7 +2600,7 @@ mod tests {
         assert_eq!(tokio::fs::read(&target).await.unwrap(), b"changed!");
     }
 
-    #[cfg(unix)]
+    #[cfg(any(target_os = "linux", target_os = "android", target_vendor = "apple"))]
     #[tokio::test]
     async fn content_hash_write_preserves_a_mode_changed_after_the_precondition_check() {
         use std::os::unix::fs::PermissionsExt as _;
@@ -2325,7 +2637,7 @@ mod tests {
         );
     }
 
-    #[cfg(unix)]
+    #[cfg(any(target_os = "linux", target_os = "android", target_vendor = "apple"))]
     #[tokio::test]
     async fn content_hash_write_rejects_an_in_place_staged_file_mutation() {
         use std::os::unix::fs::MetadataExt as _;
@@ -2366,7 +2678,7 @@ mod tests {
         assert!(!staged.exists());
     }
 
-    #[cfg(unix)]
+    #[cfg(any(target_os = "linux", target_os = "android", target_vendor = "apple"))]
     #[tokio::test]
     async fn stale_content_hash_never_publishes_new_bytes_during_validation_or_cancellation() {
         let (_directory, root) = root().await;
@@ -2418,7 +2730,7 @@ mod tests {
         assert_eq!(tokio::fs::read(&target).await.unwrap(), b"external-change");
     }
 
-    #[cfg(unix)]
+    #[cfg(any(target_os = "linux", target_os = "android", target_vendor = "apple"))]
     #[tokio::test]
     async fn content_hash_rollback_never_exchanges_an_uncertain_recovery_entry() {
         use std::os::unix::fs::symlink;
@@ -2597,7 +2909,7 @@ mod tests {
         );
     }
 
-    #[cfg(unix)]
+    #[cfg(any(target_os = "linux", target_os = "android", target_vendor = "apple"))]
     #[tokio::test]
     async fn guarded_exchange_unavailable_does_not_disable_unconditional_writes() {
         let (_directory, root) = root().await;
@@ -2631,7 +2943,107 @@ mod tests {
         assert_eq!(tokio::fs::read(&target).await.unwrap(), b"unconditional");
     }
 
+    #[cfg(any(target_os = "linux", target_os = "android", target_vendor = "apple"))]
+    #[tokio::test]
+    async fn prepublish_hash_failure_cleans_the_staged_write() {
+        let (_directory, root) = root().await;
+        let target = root.canonical_root().join("value.txt");
+        tokio::fs::write(&target, b"old").await.unwrap();
+        let _hash =
+            install_mutation_test_fault(&root, "value.txt", MutationTestFault::PrePublishHash);
+
+        let error = write_file(
+            &root,
+            "value.txt",
+            &ByteString::from_bytes(b"new"),
+            &FilePrecondition::ContentHash(hash_bytes(b"old")),
+            false,
+        )
+        .await
+        .unwrap_err();
+
+        assert_eq!(error.code, "injected-failure");
+        assert_eq!(tokio::fs::read(&target).await.unwrap(), b"old");
+        assert!(!has_recovery_entry(&root, ".cmux-write-"));
+    }
+
+    #[cfg(any(target_os = "linux", target_os = "android", target_vendor = "apple"))]
+    #[tokio::test]
+    async fn prepublish_hash_failure_retains_the_staged_write_when_cleanup_fails() {
+        let (_directory, root) = root().await;
+        let target = root.canonical_root().join("value.txt");
+        tokio::fs::write(&target, b"old").await.unwrap();
+        let _hash =
+            install_mutation_test_fault(&root, "value.txt", MutationTestFault::PrePublishHash);
+        let _cleanup =
+            install_mutation_test_fault(&root, "value.txt", MutationTestFault::UnpublishedCleanup);
+
+        let error = write_file(
+            &root,
+            "value.txt",
+            &ByteString::from_bytes(b"new"),
+            &FilePrecondition::ContentHash(hash_bytes(b"old")),
+            false,
+        )
+        .await
+        .unwrap_err();
+
+        let recovery = recovery_entry(&root, ".cmux-write-");
+        assert_eq!(error.code, "partial-write");
+        assert!(error.message.contains(&recovery.display().to_string()));
+        assert_eq!(tokio::fs::read(&target).await.unwrap(), b"old");
+        assert_eq!(tokio::fs::read(&recovery).await.unwrap(), b"new");
+    }
+
     #[cfg(unix)]
+    #[tokio::test]
+    async fn prepublish_stat_failure_cleans_an_unconditional_staged_write() {
+        let (_directory, root) = root().await;
+        let target = root.canonical_root().join("value.txt");
+        tokio::fs::write(&target, b"old").await.unwrap();
+        let _stat =
+            install_mutation_test_fault(&root, "value.txt", MutationTestFault::PrePublishStat);
+
+        let error = write_file(
+            &root,
+            "value.txt",
+            &ByteString::from_bytes(b"new"),
+            &FilePrecondition::Any,
+            false,
+        )
+        .await
+        .unwrap_err();
+
+        assert_eq!(error.code, "injected-failure");
+        assert_eq!(tokio::fs::read(&target).await.unwrap(), b"old");
+        assert!(!has_recovery_entry(&root, ".cmux-write-"));
+    }
+
+    #[cfg(any(target_os = "linux", target_os = "android", target_vendor = "apple"))]
+    #[tokio::test]
+    async fn prepublish_stat_failure_cleans_a_content_guarded_staged_write() {
+        let (_directory, root) = root().await;
+        let target = root.canonical_root().join("value.txt");
+        tokio::fs::write(&target, b"old").await.unwrap();
+        let _stat =
+            install_mutation_test_fault(&root, "value.txt", MutationTestFault::PrePublishStat);
+
+        let error = write_file(
+            &root,
+            "value.txt",
+            &ByteString::from_bytes(b"new"),
+            &FilePrecondition::ContentHash(hash_bytes(b"old")),
+            false,
+        )
+        .await
+        .unwrap_err();
+
+        assert_eq!(error.code, "injected-failure");
+        assert_eq!(tokio::fs::read(&target).await.unwrap(), b"old");
+        assert!(!has_recovery_entry(&root, ".cmux-write-"));
+    }
+
+    #[cfg(any(target_os = "linux", target_os = "android", target_vendor = "apple"))]
     #[tokio::test]
     async fn failed_unpublished_cleanup_reports_the_retained_recovery_path() {
         let (_directory, root) = root().await;
@@ -2665,7 +3077,7 @@ mod tests {
         tokio::fs::remove_file(recovery).await.unwrap();
     }
 
-    #[cfg(unix)]
+    #[cfg(any(target_os = "linux", target_os = "android", target_vendor = "apple"))]
     #[tokio::test]
     async fn failed_published_cleanup_reports_the_retained_recovery_path() {
         let (_directory, root) = root().await;
@@ -2711,7 +3123,7 @@ mod tests {
         tokio::fs::remove_file(recovery).await.unwrap();
     }
 
-    #[cfg(unix)]
+    #[cfg(any(target_os = "linux", target_os = "android", target_vendor = "apple"))]
     #[tokio::test]
     async fn rollback_exchange_failure_reports_the_retained_recovery_path() {
         let (_directory, root) = root().await;
@@ -2758,7 +3170,7 @@ mod tests {
         tokio::fs::remove_file(recovery).await.unwrap();
     }
 
-    #[cfg(unix)]
+    #[cfg(any(target_os = "linux", target_os = "android", target_vendor = "apple"))]
     #[tokio::test]
     async fn rollback_sync_failure_reports_restored_but_not_durable() {
         let (_directory, root) = root().await;
@@ -2856,6 +3268,33 @@ mod tests {
         )
         .await
         .unwrap_err();
+        assert_eq!(remove_error.code, "unsupported-platform");
+    }
+
+    #[cfg(all(
+        unix,
+        not(any(target_os = "linux", target_os = "android", target_vendor = "apple"))
+    ))]
+    #[tokio::test]
+    async fn content_guarded_mutations_report_unsupported_unix_platform() {
+        let (_directory, root) = root().await;
+        let target = root.canonical_root().join("value.txt");
+        tokio::fs::write(&target, b"value").await.unwrap();
+        let precondition = FilePrecondition::ContentHash(hash_bytes(b"value"));
+
+        let write_error = write_file(
+            &root,
+            "value.txt",
+            &ByteString::from_bytes(b"updated"),
+            &precondition,
+            false,
+        )
+        .await
+        .unwrap_err();
+        assert_eq!(write_error.code, "unsupported-platform");
+
+        let remove_error =
+            remove_file_precondition_locked(&root, "value.txt", &precondition).await.unwrap_err();
         assert_eq!(remove_error.code, "unsupported-platform");
     }
 

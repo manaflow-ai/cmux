@@ -6,8 +6,8 @@ use cmux_remote_protocol::{
 };
 
 use super::files::{
-    MAX_WRITE_BYTES, hash_bytes, read_full_file, remove_file_precondition_locked,
-    write_bytes_locked,
+    MAX_WRITE_BYTES, MutationFailure, MutationOutcome, hash_bytes, read_full_file,
+    remove_file_precondition_locked_with_outcome, write_bytes_locked_with_outcome,
 };
 use super::path::{WorkspaceRoot, normalize_protocol_path};
 
@@ -27,9 +27,83 @@ enum AppliedState {
     Missing,
 }
 
+struct AppliedMutation {
+    path: String,
+    state: AppliedState,
+}
+
+#[derive(Default)]
+struct CommitTracker {
+    applied: Vec<AppliedMutation>,
+    uncertain: BTreeSet<String>,
+    recovery_paths: BTreeMap<String, BTreeSet<String>>,
+}
+
 struct CommitFailure {
     error: RpcError,
-    applied: BTreeMap<String, AppliedState>,
+    applied: Vec<AppliedMutation>,
+    uncertain: BTreeSet<String>,
+    recovery_paths: BTreeMap<String, BTreeSet<String>>,
+}
+
+struct RollbackFailure {
+    path: String,
+    error: RpcError,
+    outcome: MutationOutcome,
+    recovery_path: Option<String>,
+}
+
+#[derive(Default)]
+struct RollbackReport {
+    failures: Vec<RollbackFailure>,
+}
+
+impl CommitTracker {
+    fn applied(&mut self, path: &str, state: AppliedState) {
+        self.applied.push(AppliedMutation { path: path.to_owned(), state });
+    }
+
+    fn failure(self, error: RpcError) -> CommitFailure {
+        CommitFailure {
+            error,
+            applied: self.applied,
+            uncertain: self.uncertain,
+            recovery_paths: self.recovery_paths,
+        }
+    }
+
+    fn mutation_failure(
+        mut self,
+        path: &str,
+        applied_state: AppliedState,
+        failure: MutationFailure,
+    ) -> CommitFailure {
+        match failure.outcome {
+            MutationOutcome::Unchanged | MutationOutcome::Restored => {}
+            MutationOutcome::Applied => self.applied(path, applied_state),
+            MutationOutcome::Unknown => {
+                self.uncertain.insert(path.to_owned());
+            }
+        }
+        if let Some(recovery_path) = failure.recovery_path {
+            self.recovery_paths
+                .entry(path.to_owned())
+                .or_default()
+                .insert(recovery_path.to_string_lossy().into_owned());
+        }
+        self.failure(failure.error)
+    }
+}
+
+impl RollbackReport {
+    fn failure(&mut self, path: &str, failure: MutationFailure) {
+        self.failures.push(RollbackFailure {
+            path: path.to_owned(),
+            error: failure.error,
+            outcome: failure.outcome,
+            recovery_path: failure.recovery_path.map(|path| path.to_string_lossy().into_owned()),
+        });
+    }
 }
 
 pub(crate) async fn apply_patch(
@@ -126,19 +200,68 @@ pub(crate) async fn apply_patch(
     }
 
     if let Err(failure) = commit_changes(root, &changes, &snapshots).await {
-        let rollback_failures = rollback(root, &snapshots, &failure.applied).await;
-        if rollback_failures.is_empty() {
-            return Err(failure.error);
+        let CommitFailure { error, applied, mut uncertain, mut recovery_paths } = failure;
+        let rollback = rollback(root, &snapshots, &applied).await;
+        let mut unresolved = uncertain.clone();
+        let mut rollback_errors = Vec::new();
+        for rollback_failure in rollback.failures {
+            let RollbackFailure { path, error: rollback_error, outcome, recovery_path } =
+                rollback_failure;
+            unresolved.insert(path.clone());
+            if outcome == MutationOutcome::Unknown {
+                uncertain.insert(path.clone());
+            }
+            if let Some(recovery_path) = recovery_path {
+                recovery_paths.entry(path.clone()).or_default().insert(recovery_path);
+            }
+            rollback_errors.push(format!(
+                "{path} ({outcome:?}): {}: {}",
+                rollback_error.code, rollback_error.message
+            ));
         }
+        if unresolved.is_empty() {
+            return Err(error);
+        }
+        let unresolved = unresolved.into_iter().collect::<Vec<_>>();
+        let recovery = if recovery_paths.is_empty() {
+            String::new()
+        } else {
+            format!(
+                "; retained recovery entries: {}",
+                recovery_paths
+                    .iter()
+                    .flat_map(|(path, recoveries)| {
+                        recoveries.iter().map(move |recovery| format!("{path} at {recovery}"))
+                    })
+                    .collect::<Vec<_>>()
+                    .join(", ")
+            )
+        };
+        let uncertain = if uncertain.is_empty() {
+            String::new()
+        } else {
+            format!(
+                "; unknown mutation outcomes: {}",
+                uncertain.into_iter().collect::<Vec<_>>().join(", ")
+            )
+        };
+        let rollback_errors = if rollback_errors.is_empty() {
+            String::new()
+        } else {
+            format!("; rollback errors: {}", rollback_errors.join("; "))
+        };
         return Err(RpcError::new(
             "partial-patch",
             format!(
-                "patch failed: {}; rollback also failed for {}",
-                failure.error.message,
-                rollback_failures.join(", ")
+                "patch failed: {}; unresolved paths: {}{}{}{}",
+                error.message,
+                unresolved.join(", "),
+                uncertain,
+                recovery,
+                rollback_errors,
             ),
         )
-        .with_details(RpcErrorDetails::PatchRollback { failed_paths: rollback_failures }));
+        .with_details(RpcErrorDetails::PatchRollback { failed_paths: unresolved }));
     }
     Ok(WorkspaceResponse::Patch { changed_paths, applied: true, files })
 }
@@ -313,12 +436,12 @@ async fn commit_changes(
     changes: &[PreparedChange],
     snapshots: &BTreeMap<String, Option<Vec<u8>>>,
 ) -> Result<(), CommitFailure> {
-    let mut applied = BTreeMap::new();
+    let mut tracker = CommitTracker::default();
     macro_rules! commit_try {
         ($operation:expr) => {
             match $operation {
                 Ok(value) => value,
-                Err(error) => return Err(CommitFailure { error, applied }),
+                Err(error) => return Err(tracker.failure(error)),
             }
         };
     }
@@ -327,36 +450,53 @@ async fn commit_changes(
             (Some(old), Some(new), Some(contents)) if old != new => {
                 let destination = commit_try!(snapshot_precondition(snapshots, new));
                 let source = commit_try!(snapshot_precondition(snapshots, old));
-                let hash =
-                    commit_try!(write_bytes_locked(root, new, contents, &destination, true).await);
-                applied.insert(new.clone(), AppliedState::Present(hash));
-                if let Err(error) = remove_file_precondition_locked(root, old, &source).await {
-                    return Err(CommitFailure { error, applied });
+                match write_bytes_locked_with_outcome(root, new, contents, &destination, true).await
+                {
+                    Ok(hash) => tracker.applied(new, AppliedState::Present(hash)),
+                    Err(failure) => {
+                        return Err(tracker.mutation_failure(
+                            new,
+                            AppliedState::Present(hash_bytes(contents)),
+                            failure,
+                        ));
+                    }
                 }
-                applied.insert(old.clone(), AppliedState::Missing);
+                match remove_file_precondition_locked_with_outcome(root, old, &source).await {
+                    Ok(()) => tracker.applied(old, AppliedState::Missing),
+                    Err(failure) => {
+                        return Err(tracker.mutation_failure(old, AppliedState::Missing, failure));
+                    }
+                }
             }
             (_, Some(new), Some(contents)) => {
                 let precondition = commit_try!(snapshot_precondition(snapshots, new));
-                let hash =
-                    commit_try!(write_bytes_locked(root, new, contents, &precondition, true).await);
-                applied.insert(new.clone(), AppliedState::Present(hash));
+                match write_bytes_locked_with_outcome(root, new, contents, &precondition, true)
+                    .await
+                {
+                    Ok(hash) => tracker.applied(new, AppliedState::Present(hash)),
+                    Err(failure) => {
+                        return Err(tracker.mutation_failure(
+                            new,
+                            AppliedState::Present(hash_bytes(contents)),
+                            failure,
+                        ));
+                    }
+                }
             }
             (Some(old), None, None) => {
                 let precondition = commit_try!(snapshot_precondition(snapshots, old));
-                if let Err(error) = remove_file_precondition_locked(root, old, &precondition).await
-                {
-                    return Err(CommitFailure { error, applied });
+                match remove_file_precondition_locked_with_outcome(root, old, &precondition).await {
+                    Ok(()) => tracker.applied(old, AppliedState::Missing),
+                    Err(failure) => {
+                        return Err(tracker.mutation_failure(old, AppliedState::Missing, failure));
+                    }
                 }
-                applied.insert(old.clone(), AppliedState::Missing);
             }
             _ => {
-                return Err(CommitFailure {
-                    error: RpcError::new(
-                        "invalid-patch",
-                        "patch produced an invalid file transition",
-                    ),
-                    applied,
-                });
+                return Err(tracker.failure(RpcError::new(
+                    "invalid-patch",
+                    "patch produced an invalid file transition",
+                )));
             }
         }
     }
@@ -377,28 +517,34 @@ fn snapshot_precondition(
 async fn rollback(
     root: &WorkspaceRoot,
     snapshots: &BTreeMap<String, Option<Vec<u8>>>,
-    applied: &BTreeMap<String, AppliedState>,
-) -> Vec<String> {
-    let mut failures = Vec::new();
-    for (path, state) in applied.iter().rev() {
+    applied: &[AppliedMutation],
+) -> RollbackReport {
+    let mut report = RollbackReport::default();
+    for AppliedMutation { path, state } in applied.iter().rev() {
         let snapshot = snapshots.get(path).and_then(Option::as_ref);
         let result = match (snapshot, state) {
-            (Some(contents), AppliedState::Present(current_hash)) => write_bytes_locked(
+            (Some(contents), AppliedState::Present(current_hash)) => {
+                write_bytes_locked_with_outcome(
+                    root,
+                    path,
+                    contents,
+                    &FilePrecondition::ContentHash(current_hash.clone()),
+                    true,
+                )
+                .await
+                .map(|_| ())
+            }
+            (Some(contents), AppliedState::Missing) => write_bytes_locked_with_outcome(
                 root,
                 path,
                 contents,
-                &FilePrecondition::ContentHash(current_hash.clone()),
+                &FilePrecondition::Missing,
                 true,
             )
             .await
             .map(|_| ()),
-            (Some(contents), AppliedState::Missing) => {
-                write_bytes_locked(root, path, contents, &FilePrecondition::Missing, true)
-                    .await
-                    .map(|_| ())
-            }
             (None, AppliedState::Present(current_hash)) => {
-                match remove_file_precondition_locked(
+                match remove_file_precondition_locked_with_outcome(
                     root,
                     path,
                     &FilePrecondition::ContentHash(current_hash.clone()),
@@ -406,17 +552,17 @@ async fn rollback(
                 .await
                 {
                     Ok(()) => Ok(()),
-                    Err(error) if error.code == "not-found" => Ok(()),
-                    Err(error) => Err(error),
+                    Err(failure) if failure.error.code == "not-found" => Ok(()),
+                    Err(failure) => Err(failure),
                 }
             }
             (None, AppliedState::Missing) => Ok(()),
         };
-        if result.is_err() {
-            failures.push(path.clone());
+        if let Err(failure) = result {
+            report.failure(path, failure);
         }
     }
-    failures
+    report
 }
 
 #[cfg(test)]
@@ -426,7 +572,7 @@ mod tests {
     use cmux_remote_protocol::WorkspaceId;
     use tempfile::tempdir;
 
-    #[cfg(unix)]
+    #[cfg(any(target_os = "linux", target_os = "android", target_vendor = "apple"))]
     use super::super::files::{
         MutationTestFault, MutationTestPoint, install_mutation_test_barrier,
         install_mutation_test_fault,
@@ -442,7 +588,7 @@ mod tests {
         (directory, root)
     }
 
-    #[cfg(unix)]
+    #[cfg(any(target_os = "linux", target_os = "android", target_vendor = "apple"))]
     #[tokio::test]
     async fn unified_patch_supports_dry_run_then_apply() {
         let (_directory, root) = root().await;
@@ -504,7 +650,7 @@ mod tests {
         );
     }
 
-    #[cfg(unix)]
+    #[cfg(any(target_os = "linux", target_os = "android", target_vendor = "apple"))]
     #[tokio::test]
     async fn patch_rejects_a_target_rewrite_between_snapshot_and_commit() {
         let (_directory, root) = root().await;
@@ -535,7 +681,7 @@ mod tests {
         assert_eq!(error.code, "invalid-path");
     }
 
-    #[cfg(unix)]
+    #[cfg(any(target_os = "linux", target_os = "android", target_vendor = "apple"))]
     #[tokio::test]
     async fn git_format_patch_applies_multiple_files() {
         let (_directory, root) = root().await;
@@ -570,7 +716,7 @@ mod tests {
         );
     }
 
-    #[cfg(unix)]
+    #[cfg(any(target_os = "linux", target_os = "android", target_vendor = "apple"))]
     #[tokio::test]
     async fn creation_patch_refuses_to_replace_an_existing_file() {
         let (_directory, root) = root().await;
@@ -585,28 +731,31 @@ mod tests {
         );
     }
 
-    #[cfg(unix)]
+    #[cfg(any(target_os = "linux", target_os = "android", target_vendor = "apple"))]
     #[tokio::test]
     async fn rollback_uses_digest_compare_and_swap() {
         let (_directory, root) = root().await;
         let path = root.canonical_root().join("value.txt");
         tokio::fs::write(&path, b"written-by-patch").await.unwrap();
         let snapshots = BTreeMap::from([("value.txt".into(), Some(b"original".to_vec()))]);
-        let applied = BTreeMap::from([(
-            "value.txt".into(),
-            AppliedState::Present(hash_bytes(b"written-by-patch")),
-        )]);
+        let applied = vec![AppliedMutation {
+            path: "value.txt".into(),
+            state: AppliedState::Present(hash_bytes(b"written-by-patch")),
+        }];
 
-        assert!(rollback(&root, &snapshots, &applied).await.is_empty());
+        assert!(rollback(&root, &snapshots, &applied).await.failures.is_empty());
         assert_eq!(tokio::fs::read(&path).await.unwrap(), b"original");
 
         tokio::fs::write(&path, b"external-change").await.unwrap();
         let failures = rollback(&root, &snapshots, &applied).await;
-        assert_eq!(failures, ["value.txt"]);
+        assert_eq!(failures.failures.len(), 1);
+        assert_eq!(failures.failures[0].path, "value.txt");
+        assert_eq!(failures.failures[0].error.code, "conflict");
+        assert_eq!(failures.failures[0].outcome, MutationOutcome::Unchanged);
         assert_eq!(tokio::fs::read(&path).await.unwrap(), b"external-change");
     }
 
-    #[cfg(unix)]
+    #[cfg(any(target_os = "linux", target_os = "android", target_vendor = "apple"))]
     #[tokio::test]
     async fn patch_rolls_back_the_current_write_after_a_committed_sync_failure() {
         let (_directory, root) = root().await;
@@ -621,7 +770,7 @@ mod tests {
         assert_eq!(tokio::fs::read(&target).await.unwrap(), b"old\n");
     }
 
-    #[cfg(unix)]
+    #[cfg(any(target_os = "linux", target_os = "android", target_vendor = "apple"))]
     #[tokio::test]
     async fn patch_rolls_back_the_current_write_after_recovery_cleanup_fails() {
         let (_directory, root) = root().await;
@@ -647,7 +796,52 @@ mod tests {
         assert_eq!(tokio::fs::read(recovery).await.unwrap(), b"old\n");
     }
 
-    #[cfg(unix)]
+    #[cfg(any(target_os = "linux", target_os = "android", target_vendor = "apple"))]
+    #[tokio::test]
+    async fn patch_reports_the_nested_rollback_error_and_retained_recovery_entry() {
+        let (_directory, root) = root().await;
+        let target = root.canonical_root().join("hello.txt");
+        tokio::fs::write(&target, b"old\n").await.unwrap();
+        let after_exchange = install_mutation_test_barrier(
+            &root,
+            "hello.txt",
+            MutationTestPoint::AfterContentHashExchange,
+        );
+        let patch = "--- a/hello.txt\n+++ b/hello.txt\n@@ -1 +1 @@\n-old\n+new\n";
+        let patcher = {
+            let root = Arc::clone(&root);
+            tokio::spawn(async move { apply_patch(&root, patch, false, &BTreeMap::new()).await })
+        };
+
+        after_exchange.wait_until_reached().await;
+        let _commit_cleanup =
+            install_mutation_test_fault(&root, "hello.txt", MutationTestFault::PublishedCleanup);
+        let _rollback_stat =
+            install_mutation_test_fault(&root, "hello.txt", MutationTestFault::PrePublishStat);
+        after_exchange.resume();
+
+        let error = patcher.await.unwrap().unwrap_err();
+        let recovery = std::fs::read_dir(root.canonical_root())
+            .unwrap()
+            .flatten()
+            .map(|entry| entry.path())
+            .find(|path| {
+                path.file_name()
+                    .is_some_and(|name| name.to_string_lossy().starts_with(".cmux-write-"))
+            })
+            .expect("the failed commit retains an explicit recovery entry");
+        assert_eq!(error.code, "partial-patch");
+        assert!(error.message.contains("hello.txt (Unchanged): injected-failure"));
+        assert!(error.message.contains(&recovery.display().to_string()));
+        assert_eq!(
+            error.details,
+            Some(RpcErrorDetails::PatchRollback { failed_paths: vec!["hello.txt".into()] })
+        );
+        assert_eq!(tokio::fs::read(&target).await.unwrap(), b"new\n");
+        assert_eq!(tokio::fs::read(recovery).await.unwrap(), b"old\n");
+    }
+
+    #[cfg(any(target_os = "linux", target_os = "android", target_vendor = "apple"))]
     #[tokio::test]
     async fn patch_rename_restores_the_source_after_its_removal_was_committed() {
         let (_directory, root) = root().await;
