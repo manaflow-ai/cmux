@@ -398,6 +398,15 @@ final class ComputerUseRuntimeService {
         return terminatedBundleURL?.standardizedFileURL == helperBundleURL.standardizedFileURL
     }
 
+    static func shouldScheduleHelperRecovery(
+        desiredEnabled: Bool,
+        acceptsNewLaunches: Bool,
+        daemonListening: Bool,
+        recoveryInFlight: Bool
+    ) -> Bool {
+        false
+    }
+
     nonisolated private static func ensurePrivateDirectory(_ directoryURL: URL) -> Bool {
         let path = directoryURL.path
         var metadata = stat()

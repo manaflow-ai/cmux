@@ -455,6 +455,33 @@ struct ComputerUseUXTests {
         ))
     }
 
+    @Test func enabledRuntimeRepairsADeadDaemonWithoutATerminationNotification() {
+        #expect(ComputerUseRuntimeService.shouldScheduleHelperRecovery(
+            desiredEnabled: true,
+            acceptsNewLaunches: true,
+            daemonListening: false,
+            recoveryInFlight: false
+        ))
+        #expect(!ComputerUseRuntimeService.shouldScheduleHelperRecovery(
+            desiredEnabled: false,
+            acceptsNewLaunches: true,
+            daemonListening: false,
+            recoveryInFlight: false
+        ))
+        #expect(!ComputerUseRuntimeService.shouldScheduleHelperRecovery(
+            desiredEnabled: true,
+            acceptsNewLaunches: true,
+            daemonListening: true,
+            recoveryInFlight: false
+        ))
+        #expect(!ComputerUseRuntimeService.shouldScheduleHelperRecovery(
+            desiredEnabled: true,
+            acceptsNewLaunches: true,
+            daemonListening: false,
+            recoveryInFlight: true
+        ))
+    }
+
     @Test func untaggedRuntimeUsesBundleIdentityToIsolateAppVariants() {
         let production = ComputerUseRuntimePaths(
             homeDirectoryURL: URL(fileURLWithPath: "/Users/tester"),
