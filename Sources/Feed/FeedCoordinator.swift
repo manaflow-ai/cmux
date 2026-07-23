@@ -881,9 +881,9 @@ private extension FeedCoordinator {
         }
 
         let content = UNMutableNotificationContent()
-        content.title = title
-        content.subtitle = subtitle
-        content.body = body
+        content.title = NativeNotificationText.textForBanner(title)
+        content.subtitle = NativeNotificationText.textForBanner(subtitle)
+        content.body = NativeNotificationText.textForBanner(body)
         content.sound = effects.sound ? NotificationSoundSettings.sound() : nil
         content.categoryIdentifier = categoryId
         content.userInfo = [
@@ -907,7 +907,10 @@ private extension FeedCoordinator {
                         center: center,
                         request: request,
                         requestId: requestId,
-                        effects: effects
+                        effects: effects,
+                        fallbackTitle: title,
+                        fallbackSubtitle: subtitle,
+                        fallbackBody: body
                     )
                 case .notDetermined:
                     var granted = false
@@ -923,7 +926,10 @@ private extension FeedCoordinator {
                             center: center,
                             request: request,
                             requestId: requestId,
-                            effects: effects
+                            effects: effects,
+                            fallbackTitle: title,
+                            fallbackSubtitle: subtitle,
+                            fallbackBody: body
                         )
                     } else {
                         // A non-grant without an error is the user declining
@@ -966,12 +972,12 @@ private extension FeedCoordinator {
         center: UNUserNotificationCenter,
         request: UNNotificationRequest,
         requestId: String,
-        effects: TerminalNotificationPolicyEffects
+        effects: TerminalNotificationPolicyEffects,
+        fallbackTitle: String,
+        fallbackSubtitle: String,
+        fallbackBody: String
     ) {
         guard isAwaitingDecision(requestId: requestId) else { return }
-        let title = request.content.title
-        let subtitle = request.content.subtitle
-        let body = request.content.body
         center.add(request) { error in
             let didFail = error != nil
             Task { @MainActor [weak self] in
@@ -983,9 +989,9 @@ private extension FeedCoordinator {
                 if didFail {
                     self.runFallbackEffectsIfStillAwaiting(
                         requestId: requestId,
-                        title: title,
-                        subtitle: subtitle,
-                        body: body,
+                        title: fallbackTitle,
+                        subtitle: fallbackSubtitle,
+                        body: fallbackBody,
                         effects: effects,
                         runCommand: false
                     )
@@ -993,9 +999,9 @@ private extension FeedCoordinator {
                 }
                 if effects.command {
                     NotificationSoundSettings.runCustomCommand(
-                        title: title,
-                        subtitle: subtitle,
-                        body: body
+                        title: fallbackTitle,
+                        subtitle: fallbackSubtitle,
+                        body: fallbackBody
                     )
                 }
             }
