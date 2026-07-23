@@ -84,6 +84,48 @@ struct AgentChatArtifactIndexSafetyTests {
         }
     }
 
+    @Test func inPlaceTranscriptRewriteDropsPreviousAuthorization() async throws {
+        let root = FileManager.default.temporaryDirectory
+            .appendingPathComponent(UUID().uuidString, isDirectory: true)
+        try FileManager.default.createDirectory(at: root, withIntermediateDirectories: true)
+        defer { try? FileManager.default.removeItem(at: root) }
+        let transcript = root.appendingPathComponent("transcript.jsonl")
+        let oldArtifactPath = root.appendingPathComponent("old.md").path
+        let newArtifactPath = root.appendingPathComponent("new.md").path
+        let initialTranscript = try codexArtifactLine(path: oldArtifactPath)
+        try Data(initialTranscript.utf8).write(to: transcript)
+        let index = AgentChatArtifactIndex()
+
+        let initialSnapshot = try await index.snapshot(
+            sessionID: "session",
+            agentKind: .codex,
+            transcriptPath: transcript.path,
+            workingDirectory: root.path,
+            maximumFileBytes: 4_096
+        )
+        #expect(initialSnapshot.referencedPaths == [oldArtifactPath])
+
+        let replacementTranscript = try codexArtifactLine(path: newArtifactPath)
+            + "\n"
+            + String(repeating: "{}\n", count: 512)
+        #expect(replacementTranscript.utf8.count > initialTranscript.utf8.count)
+        let handle = try FileHandle(forWritingTo: transcript)
+        try handle.truncate(atOffset: 0)
+        try handle.write(contentsOf: Data(replacementTranscript.utf8))
+        try handle.close()
+
+        let replacementSnapshot = try await index.snapshot(
+            sessionID: "session",
+            agentKind: .codex,
+            transcriptPath: transcript.path,
+            workingDirectory: root.path,
+            maximumFileBytes: 4_096
+        )
+
+        #expect(replacementSnapshot.referencedPaths == [newArtifactPath])
+        #expect(!replacementSnapshot.referencedPaths.contains(oldArtifactPath))
+    }
+
     private func codexArtifactLine(path: String) throws -> String {
         let data = try JSONSerialization.data(withJSONObject: [
             "timestamp": "2026-07-21T12:00:00.000Z",
