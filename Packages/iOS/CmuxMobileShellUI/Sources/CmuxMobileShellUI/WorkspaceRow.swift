@@ -3,8 +3,8 @@ import CmuxMobileSupport
 import SwiftUI
 
 struct WorkspaceRow: View {
-    private static let unreadDotAvatarVisualGap: CGFloat = 10
-    private static let avatarTextVisualGap: CGFloat = 8
+    private static let unreadDotColorCircleVisualGap: CGFloat = 10
+    private static let colorCircleTextVisualGap: CGFloat = 8
 
     let workspace: MobileWorkspacePreview
     let connectionStatus: MobileMacConnectionStatus
@@ -21,21 +21,24 @@ struct WorkspaceRow: View {
     var profilePictureSize: Double = MobileDisplaySettings.defaultProfilePictureSize
 
     var body: some View {
-        let selectedAccent = workspace.workspaceAccentColor ?? Color.accentColor
         HStack(alignment: .top, spacing: 0) {
-            // Unread is JUST this dot, left of the icon like iMessage. The
+            // Unread is JUST this dot, left of the color circle like iMessage. The
             // gutter is always present (hidden dot when read) so read and
-            // unread rows line up. Centered against the avatar's height.
+            // unread rows line up. Centered against the color circle's height.
             WorkspaceUnreadDot(isUnread: workspace.hasUnread, leftShift: unreadIndicatorLeftShift)
                 .frame(height: CGFloat(profilePictureSize))
 
             Spacer()
-                .frame(width: unreadDotAvatarLayoutGap)
+                .frame(width: unreadDotColorCircleLayoutGap)
 
-            WorkspaceAvatar(workspace: workspace, size: profilePictureSize, leftShift: profilePictureLeftShift)
+            WorkspaceColorCircle(
+                color: workspace.workspaceAccentColor,
+                size: profilePictureSize,
+                leftShift: profilePictureLeftShift
+            )
 
             Spacer()
-                .frame(width: avatarTextLayoutGap)
+                .frame(width: colorCircleTextLayoutGap)
 
             VStack(alignment: .leading, spacing: 4) {
                 HStack(alignment: .firstTextBaseline, spacing: 8) {
@@ -48,7 +51,7 @@ struct WorkspaceRow: View {
 
                     Text(workspace.name)
                         .font(.headline)
-                        .foregroundStyle(isSelected ? selectedAccent : Color.primary)
+                        .foregroundStyle(isSelected ? Color.accentColor : Color.primary)
                         .lineLimit(wrapWorkspaceTitles ? nil : 1)
 
                     Spacer(minLength: 8)
@@ -79,59 +82,37 @@ struct WorkspaceRow: View {
         .background {
             if isSelected {
                 RoundedRectangle(cornerRadius: 14, style: .continuous)
-                    .fill(selectedAccent.opacity(0.14))
-            }
-        }
-        .overlay(alignment: .leading) {
-            if let workspaceAccentColor = workspace.workspaceAccentColor {
-                Capsule()
-                    .fill(workspaceAccentColor)
-                    .frame(width: 3)
-                    .padding(.vertical, 6)
-                    .accessibilityIdentifier("MobileWorkspaceColorAccent-\(workspace.id.rawValue)")
+                    .fill(Color.accentColor.opacity(0.14))
             }
         }
         .contentShape(Rectangle())
     }
 
-    private var unreadDotAvatarLayoutGap: CGFloat {
+    private var unreadDotColorCircleLayoutGap: CGFloat {
         let dotTrailing = (WorkspaceUnreadDot.gutterWidth + WorkspaceUnreadDot.dotDiameter) / 2
             - CGFloat(unreadIndicatorLeftShift)
         return max(
             0,
-            Self.unreadDotAvatarVisualGap + dotTrailing - WorkspaceUnreadDot.gutterWidth
+            Self.unreadDotColorCircleVisualGap + dotTrailing - WorkspaceUnreadDot.gutterWidth
                 + CGFloat(profilePictureLeftShift)
         )
     }
 
-    private var avatarTextLayoutGap: CGFloat {
-        max(0, Self.avatarTextVisualGap - CGFloat(profilePictureLeftShift))
+    private var colorCircleTextLayoutGap: CGFloat {
+        max(0, Self.colorCircleTextVisualGap - CGFloat(profilePictureLeftShift))
     }
 }
 
-struct WorkspaceAvatar: View {
-    let workspace: MobileWorkspacePreview
+struct WorkspaceColorCircle: View {
+    let color: Color?
     var size: Double = MobileDisplaySettings.defaultProfilePictureSize
     var leftShift: Double = MobileDisplaySettings.defaultProfilePictureLeftShift
 
     var body: some View {
-        ZStack {
-            Circle()
-                .fill(workspace.avatarGradient)
-                .frame(width: CGFloat(size), height: CGFloat(size))
-
-            switch workspace.avatarIcon {
-            case .symbol(let name):
-                Image(systemName: name)
-                    .font(.system(size: CGFloat(size) * 0.38, weight: .semibold))
-                    .foregroundStyle(.white)
-                    .accessibilityHidden(true)
-            case .emoji(let emoji):
-                Text(emoji)
-                    .font(.system(size: CGFloat(size) * 0.5))
-                    .accessibilityHidden(true)
-            }
-        }
-        .offset(x: -CGFloat(leftShift))
+        Circle()
+            .fill(color ?? Color.clear)
+            .frame(width: CGFloat(size), height: CGFloat(size))
+            .accessibilityHidden(true)
+            .offset(x: -CGFloat(leftShift))
     }
 }
