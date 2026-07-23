@@ -69,7 +69,7 @@ final class SocketClient {{
 let client = SocketClient()
 _ = try client.sendSingleLineBatch(
     commands: ["first", "second", "third"],
-    responseTimeout: 0.2
+    responseTimeout: 0.35
 )
 guard client.observedConnectTimeouts.count == 3 else {{
     fatalError("batch did not budget all three relay authentications: \\(client.observedConnectTimeouts)")

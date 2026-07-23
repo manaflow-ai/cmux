@@ -20,7 +20,15 @@ extension SocketClient {
                         defaultValue: "Command timed out"
                     ))
                 }
-                responses.append(try send(command: command, responseTimeout: remaining))
+                try connectWithoutRetry(responseTimeout: remaining)
+                let responseRemaining = deadline.timeIntervalSinceNow
+                guard responseRemaining > 0 else {
+                    throw CLIError(message: String(
+                        localized: "cli.socket.error.commandTimedOut",
+                        defaultValue: "Command timed out"
+                    ))
+                }
+                responses.append(try send(command: command, responseTimeout: responseRemaining))
             }
             return responses
         }
