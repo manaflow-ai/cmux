@@ -1,7 +1,27 @@
 import Foundation
+import os
+
+private struct CodexRolloutSessionMetadata: Sendable {
+    let sessionID: String?
+    let canonicalSessionID: String?
+    let parentSessionID: String?
+}
+
+private struct CodexRolloutMetadataCacheState {
+    var metadataByPath: [String: CodexRolloutSessionMetadata] = [:]
+    var pathsByRecency: [String] = []
+}
+
+// A rollout's session_meta line is immutable once complete and its path embeds
+// a unique session UUID. Keep only the parsed identity strings so forced mobile
+// listings do not repeatedly read and JSON-decode active transcripts.
+private nonisolated let codexRolloutMetadataCache = OSAllocatedUnfairLock(
+    initialState: CodexRolloutMetadataCacheState()
+)
 
 /// Collapses open Codex rollout files into one logical parent session.
 nonisolated struct CodexRolloutIdentityResolver: Sendable {
+    private let metadataCacheCapacity = 128
     private let maximumSessionMetaBytes = 4 * 1_024 * 1_024
     private let sessionMetaReadChunkBytes = 4 * 1_024
 
@@ -20,16 +40,16 @@ nonisolated struct CodexRolloutIdentityResolver: Sendable {
             guard !Task.isCancelled else { return nil }
             let fallbackSessionID = sessionIDFromPath((path as NSString).lastPathComponent)
             let metadata = sessionMetadata(atPath: path)
-            guard let sessionID = metadata.sessionID ?? fallbackSessionID else { continue }
+            guard let sessionID = metadata?.sessionID ?? fallbackSessionID else { continue }
             if pathBySessionID[sessionID] == nil {
                 orderedSessionIDs.append(sessionID)
                 pathBySessionID[sessionID] = path
             }
-            if let parentSessionID = metadata.parentSessionID,
+            if let parentSessionID = metadata?.parentSessionID,
                parentSessionID != sessionID {
                 parentBySessionID[sessionID] = parentSessionID
             }
-            if let canonicalSessionID = metadata.canonicalSessionID {
+            if let canonicalSessionID = metadata?.canonicalSessionID {
                 canonicalSessionIDBySessionID[sessionID] = canonicalSessionID
             }
         }
@@ -88,19 +108,42 @@ nonisolated struct CodexRolloutIdentityResolver: Sendable {
 
     private func sessionMetadata(
         atPath path: String
-    ) -> (sessionID: String?, canonicalSessionID: String?, parentSessionID: String?) {
-        guard let handle = FileHandle(forReadingAtPath: path) else { return (nil, nil, nil) }
+    ) -> CodexRolloutSessionMetadata? {
+        if let cached = codexRolloutMetadataCache.withLock({ state -> CodexRolloutSessionMetadata? in
+            guard let metadata = state.metadataByPath[path] else { return nil }
+            state.pathsByRecency.removeAll { $0 == path }
+            state.pathsByRecency.append(path)
+            return metadata
+        }) {
+            return cached
+        }
+
+        guard let metadata = parseSessionMetadata(atPath: path) else { return nil }
+        codexRolloutMetadataCache.withLock { state in
+            state.metadataByPath[path] = metadata
+            state.pathsByRecency.removeAll { $0 == path }
+            state.pathsByRecency.append(path)
+            while state.pathsByRecency.count > metadataCacheCapacity {
+                let evictedPath = state.pathsByRecency.removeFirst()
+                state.metadataByPath.removeValue(forKey: evictedPath)
+            }
+        }
+        return metadata
+    }
+
+    private func parseSessionMetadata(atPath path: String) -> CodexRolloutSessionMetadata? {
+        guard let handle = FileHandle(forReadingAtPath: path) else { return nil }
         defer { try? handle.close() }
         guard let data = sessionMetaLine(from: handle),
               let object = try? JSONSerialization.jsonObject(with: data) as? [String: Any],
               object["type"] as? String == "session_meta",
               let payload = object["payload"] as? [String: Any] else {
-            return (nil, nil, nil)
+            return nil
         }
-        return (
-            normalized(payload["id"] as? String),
-            normalized(payload["session_id"] as? String),
-            normalized(payload["parent_thread_id"] as? String)
+        return CodexRolloutSessionMetadata(
+            sessionID: normalized(payload["id"] as? String),
+            canonicalSessionID: normalized(payload["session_id"] as? String),
+            parentSessionID: normalized(payload["parent_thread_id"] as? String)
         )
     }
 
