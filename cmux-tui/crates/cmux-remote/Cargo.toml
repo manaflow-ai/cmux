@@ -43,4 +43,6 @@ zeroize.workspace = true
 
 [dev-dependencies]
 cmux-relay = { path = "../cmux-relay" }
+rcgen = "0.14"
 tempfile = "3"
+tokio-rustls = { version = "0.26", default-features = false, features = ["ring", "tls12"] }
