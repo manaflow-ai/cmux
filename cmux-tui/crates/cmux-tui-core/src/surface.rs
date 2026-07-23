@@ -1987,6 +1987,91 @@ mod tests {
     }
 
     #[test]
+    fn clear_history_waits_after_kitty_encoded_enter() {
+        let mux = Mux::new_for_test("clear-kitty-enter", SurfaceOptions::default());
+        let surface =
+            Surface::spawn_for_test(1, SurfaceOptions::default(), Arc::downgrade(&mux)).unwrap();
+        let writer = CapturingWriter::default();
+        *surface.as_pty().unwrap().writer.lock().unwrap() = Box::new(writer.clone());
+        let before = surface
+            .with_terminal(|term| {
+                for line in 0..40 {
+                    term.vt_write(format!("history-{line}\r\n").as_bytes());
+                }
+                term.vt_write(b"\x1b]133;A\x07prompt> \x1b]133;B\x07sleep 1");
+                term.viewport_text().unwrap()
+            })
+            .unwrap();
+
+        surface.write_bytes(b"\x1b[13u").unwrap();
+        surface.clear_history().unwrap();
+
+        surface.with_terminal(|term| {
+            assert_eq!(term.history_rows(), 0);
+            assert_eq!(term.viewport_text().unwrap(), before);
+        });
+        assert_eq!(&*writer.0.lock().unwrap(), b"\x1b[13u");
+    }
+
+    #[test]
+    fn prompt_submission_detector_recognizes_encoded_enter_forms() {
+        for input in [
+            b"\x1b[13u".as_slice(),
+            b"\x1b[13;2u",
+            b"\x1b[57414u",
+            b"\x1bOM",
+            b"\x1bO2M",
+            b"\x1b[27;2;13~",
+        ] {
+            assert!(input_may_submit_prompt(input), "missed {input:?}");
+        }
+        assert!(!input_may_submit_prompt(b"\x1b[200~\x1b[13u\n\x1bOM\x1b[201~"));
+    }
+
+    #[test]
+    fn clear_history_serializes_prompt_check_with_concurrent_input() {
+        let mux = Mux::new_for_test("clear-concurrent-enter", SurfaceOptions::default());
+        let surface =
+            Surface::spawn_for_test(1, SurfaceOptions::default(), Arc::downgrade(&mux)).unwrap();
+        let writer = CapturingWriter::default();
+        *surface.as_pty().unwrap().writer.lock().unwrap() = Box::new(writer.clone());
+        surface.with_terminal(|term| {
+            for line in 0..40 {
+                term.vt_write(format!("history-{line}\r\n").as_bytes());
+            }
+            term.vt_write(b"\x1b]133;A\x07prompt> \x1b]133;B\x07sleep 1");
+        });
+
+        let pty = surface.as_pty().unwrap();
+        let mut writer_guard = pty.writer.lock().unwrap();
+        let clear_surface = surface.clone();
+        let clear = std::thread::spawn(move || clear_surface.clear_history());
+        let deadline = Instant::now() + Duration::from_millis(200);
+        let cleared_before_writer_release = loop {
+            let cleared = surface
+                .with_terminal(|term| term.viewport_text().unwrap().trim().is_empty())
+                .unwrap();
+            if cleared || Instant::now() >= deadline {
+                break cleared;
+            }
+            std::thread::sleep(Duration::from_millis(1));
+        };
+
+        let submission = pty.begin_prompt_submission(b"\r");
+        let result = writer_guard.write_all(b"\r").and_then(|()| writer_guard.flush());
+        pty.finish_prompt_submission(submission, result.is_ok());
+        result.unwrap();
+        drop(writer_guard);
+        clear.join().unwrap().unwrap();
+
+        assert!(
+            !cleared_before_writer_release,
+            "clear-history inspected the prompt without owning the PTY writer"
+        );
+        assert_eq!(&*writer.0.lock().unwrap(), b"\r");
+    }
+
+    #[test]
     fn clear_history_accepts_prompt_metadata_processed_during_the_input_write() {
         let mux = Mux::new_for_test("clear-fast-prompt-output", SurfaceOptions::default());
         let surface =
