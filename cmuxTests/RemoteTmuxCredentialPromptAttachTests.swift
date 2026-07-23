@@ -156,6 +156,42 @@ struct RemoteTmuxCredentialPromptAttachTests {
         #expect(connection.isAwaitingCredentials)
     }
 
+    /// The note has to be retired, or the fix becomes the bug it replaced.
+    ///
+    /// Storing the verdict per host is what lets it outlive the connection and the view that observed
+    /// it. Left set, it also outlives the prompt: every later failure on that host — a plain network
+    /// outage included — would report a login, which is the same misdiagnosis in mirror image and
+    /// permanent. Reaching `.connected` is what proves the credentials were accepted.
+    @Test func theHostNoteIsRetiredOnceTheHostConnects() {
+        let host = RemoteTmuxHost(destination: "user@host", transport: .et, transportPort: 2039)
+        let controller = RemoteTmuxController()
+        RemoteTmuxController.hostsAwaitingCredentials.remove(host.connectionHash)
+
+        controller.noteAwaitingCredentials(host: host)
+        #expect(
+            RemoteTmuxController.mirrorFailure(
+                destination: host.destination,
+                awaitingCredentials: RemoteTmuxController.hostsAwaitingCredentials
+                    .contains(host.connectionHash)
+            ) == .authenticationRequired(host.destination)
+        )
+
+        controller.noteMirrorConnected(host: host)
+
+        #expect(
+            !RemoteTmuxController.hostsAwaitingCredentials.contains(host.connectionHash),
+            "a host that connected is no longer waiting for a login"
+        )
+        #expect(
+            RemoteTmuxController.mirrorFailure(
+                destination: host.destination,
+                awaitingCredentials: RemoteTmuxController.hostsAwaitingCredentials
+                    .contains(host.connectionHash)
+            ) == .unreachable("could not mirror any tmux session on \(host.destination)"),
+            "a later failure on a host that authenticated is not a login problem"
+        )
+    }
+
     /// The message the user reads. "host unreachable" is the wrong classification for a host that
     /// answered and asked for credentials.
     @Test func theErrorNamesTheLoginRatherThanTheNetwork() {
