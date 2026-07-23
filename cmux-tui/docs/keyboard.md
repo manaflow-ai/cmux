@@ -6,6 +6,8 @@
 
 Unknown prefixed keys are swallowed. Unprefixed non-Alt keys go to the active surface. Alt chords that are bound in the key table are modeless commands by default.
 
+Pressing the prefix replaces the bottom status bar with the active prefix commands and their resolved suffix keys. `Ctrl-b ?` opens a scrollable shortcut modal built from the same resolved action catalog. Use Up/Down, PageUp/PageDown, Home, or End to scroll, then Esc or `?` to close it.
+
 ## Default Bindings
 
 These defaults come from `Keys::default`.
@@ -41,6 +43,7 @@ These defaults come from `Keys::default`.
 | `Ctrl-b m` | Toggle the sidebar between compact and full width; shows it when hidden |
 | `Ctrl-b e` | Toggle the built-in sidebar between files and workspaces |
 | `Ctrl-b S` | Focus the built-in sidebar or configured sidebar plugin; a prefixed command returns focus to the pane |
+| `Ctrl-b ?` | Open the keyboard shortcut modal |
 | `Ctrl-b h` or `Ctrl-b Left` | Focus left |
 | `Alt-h` or `Alt-Left` | Focus left |
 | `Ctrl-b l` or `Ctrl-b Right` | Focus right |
@@ -66,7 +69,7 @@ The screen bindings intentionally match tmux: `c` creates a screen, `n` and `p` 
 
 ## Focused Sidebar
 
-When the built-in sidebar is focused, `Tab` toggles files/workspaces without leaving sidebar focus. In the files view, Up/Down and Ctrl-J/Ctrl-K move the selection, Right descends into a directory, Enter descends or opens a file in a new `$EDITOR` tab, Left goes to the parent, `c` sends a safely quoted `cd` to the focused pane, `o` opens `.html` and `.md` files in a browser tab, `.` toggles dotfiles, `/` enters filter mode, and `~` follows the focused pane cwd again. Esc clears a nonempty filter before leaving filter mode.
+When the built-in sidebar is focused, its header gains an accent background and its divider becomes a bold accent rail. `Tab` toggles files/workspaces without leaving sidebar focus. In the files view, Up/Down and Ctrl-J/Ctrl-K move the selection, Right descends into a directory, Enter descends or opens a file in a new `$EDITOR` tab, Left goes to the parent, `c` sends a safely quoted `cd` to the focused pane, `o` opens `.html` and `.md` files in a browser tab, `.` toggles dotfiles, `/` enters filter mode, and `~` follows the focused pane cwd again. Esc clears a nonempty filter before leaving filter mode.
 
 In the workspaces view, Up/Down move the selection and Enter activates it. Any normal prefixed command leaves sidebar focus and runs through the usual action table; `prefix S` only returns focus to the pane. A configured sidebar plugin keeps its existing PTY forwarding behavior.
 
@@ -104,6 +107,7 @@ Each action accepts a string, an array of strings, or `"none"`. Setting an actio
     "rename-screen": ",",
     "close-pane": "x",
     "close-tab": "X",
+    "show-shortcuts": "?",
     "select-tab-0": "none"
   }
 }
@@ -170,6 +174,7 @@ browser-back
 browser-forward
 browser-reload
 browser-edit-url
+show-shortcuts
 detach
 ```
 

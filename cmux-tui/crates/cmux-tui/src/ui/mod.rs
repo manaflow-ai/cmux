@@ -17,8 +17,11 @@ use cmux_tui_core::Rect;
 use ratatui::Frame;
 use ratatui::layout::Position;
 use ratatui::style::{Color, Modifier, Style};
+use unicode_width::UnicodeWidthStr;
 
 use crate::app::{App, Hit};
+use crate::config::Action;
+use crate::localization::catalog;
 
 pub(crate) use scrollbar::thumb_geometry;
 
@@ -39,6 +42,7 @@ pub fn draw(app: &mut App, frame: &mut Frame) {
     }
     overlay::draw_toast(app, frame);
     overlay::draw_menu(app, frame);
+    overlay::draw_shortcut_help(app, frame);
 
     if app.pairing_dialog.is_some() {
         overlay::draw_pairing_dialog(app, frame);
@@ -46,6 +50,7 @@ pub fn draw(app: &mut App, frame: &mut Frame) {
     } else if app.prompt.is_some() {
         overlay::draw_prompt(app, frame);
     } else if app.menu.is_none()
+        && app.shortcut_help.is_none()
         && let Some((x, y)) = cursor
     {
         frame.set_cursor_position(Position::new(x, y));
@@ -63,6 +68,10 @@ fn draw_status_bar(app: &mut App, frame: &mut Frame) {
     let base = Style::default().bg(chrome.status_bg).fg(chrome.status_fg);
     for x in bar_x..area.width {
         frame.buffer_mut()[(x, status_y)].set_symbol(" ").set_style(base);
+    }
+    if app.prefix_armed {
+        draw_prefix_help_bar(app, frame, bar_x, status_y);
+        return;
     }
 
     let active_style = Style::default()
@@ -108,7 +117,7 @@ fn draw_status_bar(app: &mut App, frame: &mut Frame) {
         .map(|msg| format!(" {} ", truncate(msg, area.width.saturating_sub(x) as usize)))
         .unwrap_or_else(|| format!("[{}] ", app.session_label));
     let label_w = label.chars().count() as u16;
-    if !app.prefix_armed && x + label_w < area.width {
+    if x + label_w < area.width {
         frame.buffer_mut().set_stringn(
             area.width - label_w,
             status_y,
@@ -121,17 +130,59 @@ fn draw_status_bar(app: &mut App, frame: &mut Frame) {
             },
         );
     }
+}
 
-    if app.prefix_armed {
-        let indicator = " C-b ";
-        let x = area.width.saturating_sub(indicator.len() as u16);
+fn draw_prefix_help_bar(app: &App, frame: &mut Frame, bar_x: u16, y: u16) {
+    let area = frame.area();
+    let chrome = app.chrome;
+    let base = Style::default()
+        .bg(chrome.status_active_bg)
+        .fg(chrome.status_active_fg)
+        .add_modifier(Modifier::BOLD);
+    for x in bar_x..area.width {
+        frame.buffer_mut()[(x, y)].set_symbol(" ").set_style(base);
+    }
+
+    let mut x = bar_x;
+    let prefix = app
+        .config
+        .keys
+        .prefix
+        .display_label()
+        .map(|label| format!(" {label} "))
+        .unwrap_or_default();
+    let prefix_width = prefix.width() as u16;
+    if prefix_width > 0 && x.saturating_add(prefix_width) <= area.width {
         frame.buffer_mut().set_stringn(
             x,
-            status_y,
-            indicator,
-            indicator.len(),
-            Style::default().bg(Color::Yellow).fg(Color::Black),
+            y,
+            &prefix,
+            prefix_width as usize,
+            base.fg(app.config.theme.border_active),
         );
+        x += prefix_width;
+    }
+
+    let actions = [
+        Action::ShowShortcuts,
+        Action::NewTab,
+        Action::SplitRight,
+        Action::SplitDown,
+        Action::ZoomPane,
+        Action::ToggleSidebar,
+        Action::ToggleSidebarCompact,
+        Action::ClosePane,
+        Action::Detach,
+    ];
+    for action in actions {
+        let Some(key) = app.config.keys.prefixed_key_label(action) else { continue };
+        let hint = format!(" {key} {} ", catalog().action_label(action));
+        let width = hint.width() as u16;
+        if x.saturating_add(width) > area.width {
+            break;
+        }
+        frame.buffer_mut().set_stringn(x, y, &hint, width as usize, base);
+        x += width;
     }
 }
 

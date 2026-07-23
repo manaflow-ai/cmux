@@ -53,15 +53,14 @@ fn draw_plugin(app: &mut App, frame: &mut Frame) {
     let content = app.sidebar_plugin_rect();
     let border_x = width - 1;
     let focused = app.sidebar_focused;
-    let border_style = Style::default().fg(if focused {
-        app.config.theme.border_active
-    } else {
-        app.config.theme.border_inactive
-    });
+    let border_style = Style::default()
+        .fg(if focused { app.config.theme.border_active } else { app.config.theme.border_inactive })
+        .add_modifier(if focused { Modifier::BOLD } else { Modifier::empty() });
+    let border_symbol = if focused { "┃" } else { "│" };
     {
         let buf = frame.buffer_mut();
         for y in 0..height {
-            buf[(border_x, y)].set_symbol("│").set_style(border_style);
+            buf[(border_x, y)].set_symbol(border_symbol).set_style(border_style);
         }
     }
     // The divider column is a drag handle exactly like the built-in sidebar's;
@@ -88,7 +87,7 @@ fn draw_plugin(app: &mut App, frame: &mut Frame) {
             {
                 let buf = frame.buffer_mut();
                 for y in 0..height {
-                    buf[(border_x, y)].set_symbol("│").set_style(border_style);
+                    buf[(border_x, y)].set_symbol(border_symbol).set_style(border_style);
                 }
             }
             return;
@@ -133,13 +132,25 @@ fn draw_workspaces(app: &mut App, frame: &mut Frame) {
         .bg(selected_bg)
         .fg(chrome.sidebar_selected_fg)
         .add_modifier(Modifier::BOLD);
-    let border = base.fg(chrome.sidebar_border);
+    let focused = app.sidebar_focused;
+    let border = base
+        .fg(if focused { app.config.theme.border_active } else { chrome.sidebar_border })
+        .add_modifier(if focused { Modifier::BOLD } else { Modifier::empty() });
+    let border_symbol = if focused { "┃" } else { "│" };
+    let header_style = if focused {
+        Style::default()
+            .bg(chrome.status_active_bg)
+            .fg(app.config.theme.border_active)
+            .add_modifier(Modifier::BOLD)
+    } else {
+        dim
+    };
 
     for y in 0..height {
         for x in 0..width - 1 {
             buf[(x, y)].set_symbol(" ").set_style(base);
         }
-        buf[(width - 1, y)].set_symbol("│").set_style(border);
+        buf[(width - 1, y)].set_symbol(border_symbol).set_style(border);
     }
 
     let set_line = |buf: &mut ratatui::buffer::Buffer, y: u16, text: &str, style: Style| {
@@ -151,7 +162,12 @@ fn draw_workspaces(app: &mut App, frame: &mut Frame) {
         };
     let row_rect = |y: u16| Rect { x: 0, y, width: width.saturating_sub(1), height: 1 };
 
-    set_line(buf, 0, " workspaces", dim);
+    if focused {
+        for x in 0..width - 1 {
+            buf[(x, 0)].set_style(header_style);
+        }
+    }
+    set_line(buf, 0, " workspaces", header_style);
 
     // Header, a blank line, then per workspace: two reserved lines (name
     // + active pane title) and one blank separator line.
@@ -245,11 +261,19 @@ fn draw_files(app: &mut App, frame: &mut Frame) {
         .bg(selected_bg)
         .fg(chrome.sidebar_selected_fg)
         .add_modifier(Modifier::BOLD);
-    let border = base.fg(if app.sidebar_focused {
-        app.config.theme.border_active
+    let focused = app.sidebar_focused;
+    let border = base
+        .fg(if focused { app.config.theme.border_active } else { chrome.sidebar_border })
+        .add_modifier(if focused { Modifier::BOLD } else { Modifier::empty() });
+    let border_symbol = if focused { "┃" } else { "│" };
+    let header_style = if focused {
+        Style::default()
+            .bg(chrome.status_active_bg)
+            .fg(app.config.theme.border_active)
+            .add_modifier(Modifier::BOLD)
     } else {
-        chrome.sidebar_border
-    });
+        base
+    };
 
     let entries = app
         .sidebar_files
@@ -272,16 +296,21 @@ fn draw_files(app: &mut App, frame: &mut Frame) {
         for x in 0..content_width {
             buf[(x, y)].set_symbol(" ").set_style(base);
         }
-        buf[(width - 1, y)].set_symbol("│").set_style(border);
+        buf[(width - 1, y)].set_symbol(border_symbol).set_style(border);
     }
 
+    if focused {
+        for x in 0..content_width {
+            buf[(x, 0)].set_style(header_style);
+        }
+    }
     let marker = if pinned { "● " } else { "  " };
-    buf.set_stringn(0, 0, marker, content_w, dim);
+    buf.set_stringn(0, 0, marker, content_w, if focused { header_style } else { dim });
     let badge = unread.map(|(count, _)| format!("• {count}"));
     let badge_width = badge.as_ref().map(|text| text.chars().count()).unwrap_or(0);
     let path_width = content_w.saturating_sub(2 + badge_width + usize::from(badge_width > 0));
     let path = middle_truncate(&current_dir, path_width);
-    buf.set_stringn(2, 0, &path, path_width, base.add_modifier(Modifier::BOLD));
+    buf.set_stringn(2, 0, &path, path_width, header_style.add_modifier(Modifier::BOLD));
     if let (Some(text), Some((_, color))) = (badge, unread) {
         let badge_x = content_width.saturating_sub(text.chars().count() as u16);
         buf.set_stringn(
@@ -289,7 +318,7 @@ fn draw_files(app: &mut App, frame: &mut Frame) {
             0,
             &text,
             text.chars().count(),
-            base.fg(color).add_modifier(Modifier::BOLD),
+            header_style.fg(color).add_modifier(Modifier::BOLD),
         );
     }
 

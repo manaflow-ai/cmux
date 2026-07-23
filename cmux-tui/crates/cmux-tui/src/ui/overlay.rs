@@ -283,6 +283,80 @@ pub fn draw_menu(app: &mut App, frame: &mut Frame) {
     }
 }
 
+pub fn draw_shortcut_help(app: &mut App, frame: &mut Frame) {
+    let screen = frame.area();
+    if screen.width < 24 || screen.height < 7 || app.shortcut_help.is_none() {
+        return;
+    }
+    let catalog = catalog();
+    let rows = app
+        .config
+        .keys
+        .resolved_shortcuts()
+        .into_iter()
+        .map(|(definition, shortcuts)| {
+            (catalog.action_label(definition.action), shortcuts.join(", "))
+        })
+        .collect::<Vec<_>>();
+    let desired_width = rows
+        .iter()
+        .map(|(label, shortcuts)| label.width() + shortcuts.width() + 7)
+        .max()
+        .unwrap_or(44)
+        .max(catalog.shortcuts.title.width() + 4);
+    let width = (desired_width as u16).min(76).min(screen.width.saturating_sub(2)).max(24);
+    let height = (rows.len() as u16 + 4).min(screen.height.saturating_sub(2)).max(7);
+    let x = (screen.width - width) / 2;
+    let y = (screen.height - height) / 2;
+    let visible_rows = height.saturating_sub(4) as usize;
+    let chrome = app.chrome;
+    let base = Style::default().bg(chrome.prompt_bg).fg(chrome.prompt_fg);
+    let border = base.fg(chrome.prompt_border);
+    let title = base.fg(chrome.prompt_title_fg).add_modifier(Modifier::BOLD);
+    let shortcut_style = base.fg(chrome.prompt_button_accent_fg).add_modifier(Modifier::BOLD);
+    let rect = Rect { x, y, width, height };
+    let Some(help) = app.shortcut_help.as_mut() else { return };
+    help.rect = rect;
+    help.visible_rows = visible_rows;
+    help.scroll_offset = help.scroll_offset.min(rows.len().saturating_sub(visible_rows));
+    let scroll_offset = help.scroll_offset;
+
+    let buf = frame.buffer_mut();
+    for dy in 0..height {
+        for dx in 0..width {
+            set_cell(buf, x + dx, y + dy, " ", base);
+        }
+    }
+    draw_border(buf, rect, border);
+    buf.set_stringn(x + 2, y + 1, catalog.shortcuts.title, width.saturating_sub(4) as usize, title);
+
+    let inner_width = width.saturating_sub(4);
+    for (line, (label, shortcuts)) in rows.iter().skip(scroll_offset).take(visible_rows).enumerate()
+    {
+        let row_y = y + 2 + line as u16;
+        let shortcut_width = (shortcuts.width() as u16).min(inner_width / 2);
+        let shortcut_x = x + width.saturating_sub(shortcut_width + 2);
+        let label_width = shortcut_x.saturating_sub(x + 3);
+        buf.set_stringn(x + 2, row_y, label, label_width as usize, base);
+        buf.set_stringn(shortcut_x, row_y, shortcuts, shortcut_width as usize, shortcut_style);
+    }
+
+    let footer = if rows.len() > visible_rows {
+        let start = scroll_offset.saturating_add(1).min(rows.len());
+        let end = (scroll_offset + visible_rows).min(rows.len());
+        format!("{}  {start}-{end}/{}", catalog.shortcuts.footer, rows.len())
+    } else {
+        catalog.shortcuts.footer.to_string()
+    };
+    buf.set_stringn(
+        x + 2,
+        y + height - 2,
+        &footer,
+        width.saturating_sub(4) as usize,
+        base.fg(chrome.status_dim_fg),
+    );
+}
+
 pub fn draw_toast(app: &App, frame: &mut Frame) {
     let Some(toast) = app.toast.as_ref() else { return };
     let area = app.content_area;

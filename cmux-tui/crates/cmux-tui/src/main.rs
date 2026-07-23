@@ -83,15 +83,17 @@ KEYS (prefix: Ctrl-b)
   w  next workspace    W    new workspace       z    maximize/restore pane
   s  show/hide sidebar m    compact/full sidebar
   e  toggle sidebar view                       S    focus sidebar
+  ?  keyboard shortcuts
   <  browser back      >    browser forward     r/u  browser reload/edit URL
   Ctrl-b  send a literal Ctrl-b
 
 MOUSE
   Mouse-aware PTYs receive clicks, motion, and wheel events. Hold Shift
   to select text or open the cmux pane menu. Right-click a pane for
-  rename/new tab/split/close, maximize, and sidebar controls; menus show
-  their configured keyboard shortcuts. Right-click a
-  workspace-sidebar row or a status-bar screen for rename/close. Click
+  rename, new pane/tab, split/close, and maximize; menus show configured
+  keyboard shortcuts. Right-click anywhere in the sidebar for sidebar
+  controls. Right-click a workspace row or status-bar screen for its
+  local rename/close actions. Click
   tab-bar entries to switch tabs (+ for a new tab), and status-bar
   screen entries to switch screens (+ for a new screen).
 

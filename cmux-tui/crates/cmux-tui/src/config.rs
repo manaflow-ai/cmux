@@ -86,7 +86,8 @@
 //! `focus-left`, `focus-right`, `focus-up`, `focus-down`, `focus-next-pane`,
 //! `swap-pane-prev`, `swap-pane-next`, `zoom-pane`, `resize-grow`,
 //! `resize-shrink`, `scroll-up`, `scroll-down`, `browser-back`,
-//! `browser-forward`, `browser-reload`, `browser-edit-url`, and `detach`.
+//! `browser-forward`, `browser-reload`, `browser-edit-url`, `show-shortcuts`,
+//! and `detach`.
 //!
 //! The defaults intentionally match tmux where cmux has the same
 //! capability. `x` closes the active pane and `X` closes the active tab;
@@ -650,54 +651,245 @@ pub enum Action {
     BrowserForward,
     BrowserReload,
     BrowserEditUrl,
+    ShowShortcuts,
     Detach,
 }
 
-impl Action {
-    fn config_key(&self) -> String {
-        match self {
-            Action::NewTab => "new-tab".to_string(),
-            Action::NewBrowserTab => "new-browser-tab".to_string(),
-            Action::NewPaneSmart => "new-pane-smart".to_string(),
-            Action::NextTab => "next-tab".to_string(),
-            Action::PrevTab => "prev-tab".to_string(),
-            Action::SelectTab(number) => format!("select-tab-{number}"),
-            Action::SplitRight => "split-right".to_string(),
-            Action::SplitDown => "split-down".to_string(),
-            Action::CloseTab => "close-tab".to_string(),
-            Action::ClosePane => "close-pane".to_string(),
-            Action::RenameTab => "rename-tab".to_string(),
-            Action::RenameScreen => "rename-screen".to_string(),
-            Action::RenameWorkspace => "rename-workspace".to_string(),
-            Action::CloseScreen => "close-screen".to_string(),
-            Action::PrevScreen => "prev-screen".to_string(),
-            Action::NextScreen => "next-screen".to_string(),
-            Action::SelectScreen(number) => format!("select-screen-{number}"),
-            Action::NewScreen => "new-screen".to_string(),
-            Action::NextWorkspace => "next-workspace".to_string(),
-            Action::NewWorkspace => "new-workspace".to_string(),
-            Action::ToggleSidebar => "toggle-sidebar".to_string(),
-            Action::ToggleSidebarCompact => "toggle-sidebar-compact".to_string(),
-            Action::ToggleSidebarView => "toggle-sidebar-view".to_string(),
-            Action::FocusSidebar => "focus-sidebar".to_string(),
-            Action::FocusLeft => "focus-left".to_string(),
-            Action::FocusRight => "focus-right".to_string(),
-            Action::FocusUp => "focus-up".to_string(),
-            Action::FocusDown => "focus-down".to_string(),
-            Action::FocusNextPane => "focus-next-pane".to_string(),
-            Action::SwapPanePrev => "swap-pane-prev".to_string(),
-            Action::SwapPaneNext => "swap-pane-next".to_string(),
-            Action::ZoomPane => "zoom-pane".to_string(),
-            Action::ResizeGrow => "resize-grow".to_string(),
-            Action::ResizeShrink => "resize-shrink".to_string(),
-            Action::ScrollUp => "scroll-up".to_string(),
-            Action::ScrollDown => "scroll-down".to_string(),
-            Action::BrowserBack => "browser-back".to_string(),
-            Action::BrowserForward => "browser-forward".to_string(),
-            Action::BrowserReload => "browser-reload".to_string(),
-            Action::BrowserEditUrl => "browser-edit-url".to_string(),
-            Action::Detach => "detach".to_string(),
+/// One executable TUI action and the metadata shared by key configuration,
+/// context menus, shortcut help, and future command surfaces.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct ActionDefinition {
+    pub action: Action,
+    pub config_key: &'static str,
+    pub label_en: &'static str,
+    pub label_ja: &'static str,
+}
+
+macro_rules! action_definition {
+    ($action:expr, $config_key:literal, $label_en:literal, $label_ja:literal) => {
+        ActionDefinition {
+            action: $action,
+            config_key: $config_key,
+            label_en: $label_en,
+            label_ja: $label_ja,
         }
+    };
+}
+
+/// The canonical action catalog. Presentation surfaces derive their labels
+/// and ordering from this list instead of maintaining parallel registries.
+pub fn action_definitions() -> &'static [ActionDefinition] {
+    static DEFINITIONS: &[ActionDefinition] = &[
+        action_definition!(Action::NewTab, "new-tab", "New tab", "新しいタブ"),
+        action_definition!(
+            Action::NewBrowserTab,
+            "new-browser-tab",
+            "New browser tab",
+            "新しいブラウザタブ"
+        ),
+        action_definition!(Action::NewPaneSmart, "new-pane-smart", "New pane", "新しいペイン"),
+        action_definition!(Action::NextTab, "next-tab", "Next tab", "次のタブ"),
+        action_definition!(Action::PrevTab, "prev-tab", "Previous tab", "前のタブ"),
+        action_definition!(Action::SelectTab(0), "select-tab-0", "Select tab 0", "タブ 0 を選択"),
+        action_definition!(Action::SelectTab(1), "select-tab-1", "Select tab 1", "タブ 1 を選択"),
+        action_definition!(Action::SelectTab(2), "select-tab-2", "Select tab 2", "タブ 2 を選択"),
+        action_definition!(Action::SelectTab(3), "select-tab-3", "Select tab 3", "タブ 3 を選択"),
+        action_definition!(Action::SelectTab(4), "select-tab-4", "Select tab 4", "タブ 4 を選択"),
+        action_definition!(Action::SelectTab(5), "select-tab-5", "Select tab 5", "タブ 5 を選択"),
+        action_definition!(Action::SelectTab(6), "select-tab-6", "Select tab 6", "タブ 6 を選択"),
+        action_definition!(Action::SelectTab(7), "select-tab-7", "Select tab 7", "タブ 7 を選択"),
+        action_definition!(Action::SelectTab(8), "select-tab-8", "Select tab 8", "タブ 8 を選択"),
+        action_definition!(Action::SelectTab(9), "select-tab-9", "Select tab 9", "タブ 9 を選択"),
+        action_definition!(Action::SplitRight, "split-right", "Split right", "右に分割"),
+        action_definition!(Action::SplitDown, "split-down", "Split down", "下に分割"),
+        action_definition!(Action::CloseTab, "close-tab", "Close tab", "タブを閉じる"),
+        action_definition!(Action::ClosePane, "close-pane", "Close pane", "ペインを閉じる"),
+        action_definition!(Action::RenameTab, "rename-tab", "Rename tab", "タブ名を変更"),
+        action_definition!(
+            Action::RenameScreen,
+            "rename-screen",
+            "Rename screen",
+            "スクリーン名を変更"
+        ),
+        action_definition!(
+            Action::RenameWorkspace,
+            "rename-workspace",
+            "Rename workspace",
+            "ワークスペース名を変更"
+        ),
+        action_definition!(
+            Action::CloseScreen,
+            "close-screen",
+            "Close screen",
+            "スクリーンを閉じる"
+        ),
+        action_definition!(Action::PrevScreen, "prev-screen", "Previous screen", "前のスクリーン"),
+        action_definition!(Action::NextScreen, "next-screen", "Next screen", "次のスクリーン"),
+        action_definition!(
+            Action::SelectScreen(0),
+            "select-screen-0",
+            "Select screen 0",
+            "スクリーン 0 を選択"
+        ),
+        action_definition!(
+            Action::SelectScreen(1),
+            "select-screen-1",
+            "Select screen 1",
+            "スクリーン 1 を選択"
+        ),
+        action_definition!(
+            Action::SelectScreen(2),
+            "select-screen-2",
+            "Select screen 2",
+            "スクリーン 2 を選択"
+        ),
+        action_definition!(
+            Action::SelectScreen(3),
+            "select-screen-3",
+            "Select screen 3",
+            "スクリーン 3 を選択"
+        ),
+        action_definition!(
+            Action::SelectScreen(4),
+            "select-screen-4",
+            "Select screen 4",
+            "スクリーン 4 を選択"
+        ),
+        action_definition!(
+            Action::SelectScreen(5),
+            "select-screen-5",
+            "Select screen 5",
+            "スクリーン 5 を選択"
+        ),
+        action_definition!(
+            Action::SelectScreen(6),
+            "select-screen-6",
+            "Select screen 6",
+            "スクリーン 6 を選択"
+        ),
+        action_definition!(
+            Action::SelectScreen(7),
+            "select-screen-7",
+            "Select screen 7",
+            "スクリーン 7 を選択"
+        ),
+        action_definition!(
+            Action::SelectScreen(8),
+            "select-screen-8",
+            "Select screen 8",
+            "スクリーン 8 を選択"
+        ),
+        action_definition!(
+            Action::SelectScreen(9),
+            "select-screen-9",
+            "Select screen 9",
+            "スクリーン 9 を選択"
+        ),
+        action_definition!(Action::NewScreen, "new-screen", "New screen", "新しいスクリーン"),
+        action_definition!(
+            Action::NextWorkspace,
+            "next-workspace",
+            "Next workspace",
+            "次のワークスペース"
+        ),
+        action_definition!(
+            Action::NewWorkspace,
+            "new-workspace",
+            "New workspace",
+            "新しいワークスペース"
+        ),
+        action_definition!(
+            Action::ToggleSidebar,
+            "toggle-sidebar",
+            "Show or hide sidebar",
+            "サイドバーの表示を切り替え"
+        ),
+        action_definition!(
+            Action::ToggleSidebarCompact,
+            "toggle-sidebar-compact",
+            "Compact or expand sidebar",
+            "サイドバーの幅を切り替え"
+        ),
+        action_definition!(
+            Action::ToggleSidebarView,
+            "toggle-sidebar-view",
+            "Switch sidebar view",
+            "サイドバー表示を切り替え"
+        ),
+        action_definition!(
+            Action::FocusSidebar,
+            "focus-sidebar",
+            "Focus sidebar",
+            "サイドバーにフォーカス"
+        ),
+        action_definition!(Action::FocusLeft, "focus-left", "Focus left", "左へフォーカス"),
+        action_definition!(Action::FocusRight, "focus-right", "Focus right", "右へフォーカス"),
+        action_definition!(Action::FocusUp, "focus-up", "Focus up", "上へフォーカス"),
+        action_definition!(Action::FocusDown, "focus-down", "Focus down", "下へフォーカス"),
+        action_definition!(
+            Action::FocusNextPane,
+            "focus-next-pane",
+            "Focus next pane",
+            "次のペインにフォーカス"
+        ),
+        action_definition!(
+            Action::SwapPanePrev,
+            "swap-pane-prev",
+            "Move pane backward",
+            "ペインを前へ移動"
+        ),
+        action_definition!(
+            Action::SwapPaneNext,
+            "swap-pane-next",
+            "Move pane forward",
+            "ペインを後ろへ移動"
+        ),
+        action_definition!(
+            Action::ZoomPane,
+            "zoom-pane",
+            "Maximize or restore pane",
+            "ペインを最大化または復元"
+        ),
+        action_definition!(Action::ResizeGrow, "resize-grow", "Grow pane", "ペインを拡大"),
+        action_definition!(Action::ResizeShrink, "resize-shrink", "Shrink pane", "ペインを縮小"),
+        action_definition!(Action::ScrollUp, "scroll-up", "Scroll up", "上にスクロール"),
+        action_definition!(Action::ScrollDown, "scroll-down", "Scroll down", "下にスクロール"),
+        action_definition!(Action::BrowserBack, "browser-back", "Browser back", "ブラウザで戻る"),
+        action_definition!(
+            Action::BrowserForward,
+            "browser-forward",
+            "Browser forward",
+            "ブラウザで進む"
+        ),
+        action_definition!(
+            Action::BrowserReload,
+            "browser-reload",
+            "Reload browser",
+            "ブラウザを再読み込み"
+        ),
+        action_definition!(
+            Action::BrowserEditUrl,
+            "browser-edit-url",
+            "Edit browser URL",
+            "ブラウザ URL を編集"
+        ),
+        action_definition!(
+            Action::ShowShortcuts,
+            "show-shortcuts",
+            "Keyboard shortcuts",
+            "キーボードショートカット"
+        ),
+        action_definition!(Action::Detach, "detach", "Detach", "デタッチ"),
+    ];
+    DEFINITIONS
+}
+
+impl Action {
+    pub fn definition(self) -> &'static ActionDefinition {
+        action_definitions()
+            .iter()
+            .find(|definition| definition.action == self)
+            .expect("every executable action must be registered")
     }
 
     pub fn screen_index(&self) -> Option<usize> {
@@ -855,6 +1047,7 @@ impl Default for Keys {
                 bind(KeyCode::Char('>'), Action::BrowserForward),
                 bind(KeyCode::Char('r'), Action::BrowserReload),
                 bind(KeyCode::Char('u'), Action::BrowserEditUrl),
+                bind(KeyCode::Char('?'), Action::ShowShortcuts),
                 bind(KeyCode::Char('d'), Action::Detach),
             ],
         }
@@ -879,13 +1072,45 @@ impl Keys {
     /// The first configured shortcut for an action, including the prefix
     /// for prefix-only chords. Returns `None` when the action is unbound.
     pub fn shortcut_label(&self, action: Action) -> Option<String> {
-        let chord = self.bindings.iter().find(|(_, bound)| *bound == action)?.0;
-        let chord_label = chord.display_label()?;
-        if chord.mods.contains(KeyModifiers::ALT) {
-            Some(chord_label)
-        } else {
-            Some(format!("{} {chord_label}", self.prefix.display_label()?))
-        }
+        self.shortcut_labels(action).into_iter().next()
+    }
+
+    /// Every configured shortcut for an action. Prefix-only chords include
+    /// the resolved prefix, while Alt chords are shown as modeless shortcuts.
+    pub fn shortcut_labels(&self, action: Action) -> Vec<String> {
+        self.bindings
+            .iter()
+            .filter(|(_, bound)| *bound == action)
+            .filter_map(|(chord, _)| {
+                let chord_label = chord.display_label()?;
+                if chord.mods.contains(KeyModifiers::ALT) {
+                    Some(chord_label)
+                } else {
+                    Some(format!("{} {chord_label}", self.prefix.display_label()?))
+                }
+            })
+            .collect()
+    }
+
+    /// The first suffix key that invokes an action after the prefix. Used by
+    /// the prefix help bar, which must not advertise modeless-only bindings.
+    pub fn prefixed_key_label(&self, action: Action) -> Option<String> {
+        self.bindings
+            .iter()
+            .find(|(chord, bound)| *bound == action && !chord.mods.contains(KeyModifiers::ALT))
+            .and_then(|(chord, _)| chord.display_label())
+    }
+
+    /// Bound actions in canonical catalog order, ready for shortcut help and
+    /// future command surfaces.
+    pub fn resolved_shortcuts(&self) -> Vec<(&'static ActionDefinition, Vec<String>)> {
+        action_definitions()
+            .iter()
+            .filter_map(|definition| {
+                let shortcuts = self.shortcut_labels(definition.action);
+                (!shortcuts.is_empty()).then_some((definition, shortcuts))
+            })
+            .collect()
     }
 
     /// Apply config overrides: `"prefix"` rebinds the prefix; any action
@@ -918,13 +1143,13 @@ impl Keys {
                 } else {
                     name.clone()
                 };
-            match all_actions().iter().find(|a| {
-                a.config_key() == normalized.as_str()
-                    || (**a == Action::RenameTab && name == "rename-pane")
-                    || (**a == Action::NewBrowserTab && name == "new_browser_tab")
+            match action_definitions().iter().find(|definition| {
+                definition.config_key == normalized.as_str()
+                    || (definition.action == Action::RenameTab && name == "rename-pane")
+                    || (definition.action == Action::NewBrowserTab && name == "new_browser_tab")
             }) {
-                Some(action) => {
-                    self.bindings.retain(|(_, a)| a != action);
+                Some(definition) => {
+                    self.bindings.retain(|(_, action)| *action != definition.action);
                     for raw_chord in key_values(value) {
                         if raw_chord.eq_ignore_ascii_case("none") {
                             continue;
@@ -936,7 +1161,7 @@ impl Keys {
                             continue;
                         };
                         self.bindings.retain(|(existing, _)| existing != &chord);
-                        self.bindings.push((chord, *action));
+                        self.bindings.push((chord, definition.action));
                     }
                 }
                 None => eprintln!("cmux-tui: ignoring unknown key action {name:?}"),
@@ -951,70 +1176,6 @@ fn key_values(value: &Value) -> Vec<&str> {
         Value::Array(values) => values.iter().filter_map(Value::as_str).collect(),
         _ => Vec::new(),
     }
-}
-
-fn all_actions() -> &'static [Action] {
-    &[
-        Action::NewTab,
-        Action::NewBrowserTab,
-        Action::NewPaneSmart,
-        Action::NextTab,
-        Action::PrevTab,
-        Action::SelectTab(0),
-        Action::SelectTab(1),
-        Action::SelectTab(2),
-        Action::SelectTab(3),
-        Action::SelectTab(4),
-        Action::SelectTab(5),
-        Action::SelectTab(6),
-        Action::SelectTab(7),
-        Action::SelectTab(8),
-        Action::SelectTab(9),
-        Action::SplitRight,
-        Action::SplitDown,
-        Action::CloseTab,
-        Action::ClosePane,
-        Action::RenameTab,
-        Action::RenameScreen,
-        Action::RenameWorkspace,
-        Action::CloseScreen,
-        Action::PrevScreen,
-        Action::NextScreen,
-        Action::SelectScreen(0),
-        Action::SelectScreen(1),
-        Action::SelectScreen(2),
-        Action::SelectScreen(3),
-        Action::SelectScreen(4),
-        Action::SelectScreen(5),
-        Action::SelectScreen(6),
-        Action::SelectScreen(7),
-        Action::SelectScreen(8),
-        Action::SelectScreen(9),
-        Action::NewScreen,
-        Action::NextWorkspace,
-        Action::NewWorkspace,
-        Action::ToggleSidebar,
-        Action::ToggleSidebarCompact,
-        Action::ToggleSidebarView,
-        Action::FocusSidebar,
-        Action::FocusLeft,
-        Action::FocusRight,
-        Action::FocusUp,
-        Action::FocusDown,
-        Action::FocusNextPane,
-        Action::SwapPanePrev,
-        Action::SwapPaneNext,
-        Action::ZoomPane,
-        Action::ResizeGrow,
-        Action::ResizeShrink,
-        Action::ScrollUp,
-        Action::ScrollDown,
-        Action::BrowserBack,
-        Action::BrowserForward,
-        Action::BrowserReload,
-        Action::BrowserEditUrl,
-        Action::Detach,
-    ]
 }
 
 /// Parse "c", "%", "ctrl+b", "alt+enter", "tab", "pageup", ...
@@ -2271,6 +2432,7 @@ mod tests {
             ("scroll-up", Action::ScrollUp),
             ("toggle-sidebar-compact", Action::ToggleSidebarCompact),
             ("toggle-sidebar-view", Action::ToggleSidebarView),
+            ("show-shortcuts", Action::ShowShortcuts),
         ];
         for (name, action) in cases {
             let mut keys = Keys::default();
@@ -2290,8 +2452,8 @@ mod tests {
         for number in 0..=9 {
             let action = Action::SelectScreen(number);
             let name = format!("select-screen-{number}");
-            assert_eq!(action.config_key(), name);
-            assert!(all_actions().contains(&action));
+            assert_eq!(action.definition().config_key, name);
+            assert!(action_definitions().iter().any(|definition| definition.action == action));
 
             let mut keys = Keys::default();
             let mut raw = HashMap::new();
@@ -2336,6 +2498,11 @@ mod tests {
         let mut keys = Keys::default();
         assert_eq!(keys.shortcut_label(Action::ZoomPane).as_deref(), Some("Ctrl-b z"));
         assert_eq!(keys.shortcut_label(Action::NewPaneSmart).as_deref(), Some("Alt-n"));
+        assert_eq!(keys.prefixed_key_label(Action::ShowShortcuts).as_deref(), Some("?"));
+        assert_eq!(
+            keys.shortcut_labels(Action::FocusLeft),
+            ["Ctrl-b h", "Ctrl-b Left", "Alt-h", "Alt-Left"]
+        );
 
         let mut raw = HashMap::new();
         raw.insert("prefix".to_string(), Value::String("ctrl+a".to_string()));
@@ -2345,6 +2512,29 @@ mod tests {
 
         assert_eq!(keys.shortcut_label(Action::ZoomPane).as_deref(), Some("Ctrl-a f"));
         assert_eq!(keys.shortcut_label(Action::ToggleSidebar), None);
+        assert!(
+            keys.resolved_shortcuts()
+                .iter()
+                .all(|(definition, shortcuts)| definition.action != Action::ToggleSidebar
+                    && !shortcuts.is_empty())
+        );
+    }
+
+    #[test]
+    fn action_catalog_has_unique_actions_keys_and_complete_localized_labels() {
+        let mut actions = std::collections::HashSet::new();
+        let mut keys = std::collections::HashSet::new();
+        for definition in action_definitions() {
+            assert!(actions.insert(definition.action), "duplicate action: {:?}", definition.action);
+            assert!(keys.insert(definition.config_key), "duplicate key: {}", definition.config_key);
+            assert!(!definition.label_en.is_empty());
+            assert!(!definition.label_ja.is_empty());
+        }
+        for (_, action) in Keys::default().bindings {
+            assert!(actions.contains(&action), "default binding is not registered: {action:?}");
+        }
+        assert!(actions.contains(&Action::NewPaneSmart));
+        assert!(actions.contains(&Action::ShowShortcuts));
     }
 
     #[test]

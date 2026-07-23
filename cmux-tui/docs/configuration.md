@@ -155,6 +155,7 @@ WebSocket clients pair through a six-digit browser/TUI comparison by default. We
 | `keys.browser-forward` | chord string or array or `"none"` | `">"` | Browser forward |
 | `keys.browser-reload` | chord string or array or `"none"` | `"r"` | Browser reload |
 | `keys.browser-edit-url` | chord string or array or `"none"` | `"u"` | Browser URL prompt |
+| `keys.show-shortcuts` | chord string or array or `"none"` | `"?"` | Open the resolved keyboard shortcut modal |
 | `keys.detach` | chord string or array or `"none"` | `"d"` | Quit local TUI or detach attached TUI |
 
 Each action override replaces all default chords for that action. Values may be a string, an array of strings, or `"none"`. Non-string array entries are ignored. Set `keys.alt_shortcuts` to `false` to remove default Alt chords before applying user overrides; explicitly configured Alt chords still work.
@@ -236,6 +237,7 @@ Chord strings can be single characters or a key name with optional `ctrl`, `cont
     "zoom-pane": "z",
     "swap-pane-prev": "{",
     "swap-pane-next": "}",
+    "show-shortcuts": "?",
     "detach": "d"
   }
 }

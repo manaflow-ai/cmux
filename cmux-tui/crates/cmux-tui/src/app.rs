@@ -1851,6 +1851,7 @@ pub enum MenuAction {
     RenameTab(PaneId),
     CopyTabId(PaneId),
     CopyPaneId(PaneId),
+    NewPaneSmart(PaneId),
     NewTab(PaneId),
     NewBrowserTab(PaneId),
     SplitRight(PaneId),
@@ -1860,8 +1861,8 @@ pub enum MenuAction {
     TogglePaneZoom { pane: PaneId, zoomed: bool },
     ToggleSidebar { visible: bool },
     ToggleSidebarCompact { compact: bool },
-    ToggleSidebarView { view: SidebarView },
     FocusSidebar,
+    ShowShortcuts,
     SetClientSizing { client: u64, enabled: bool },
     UseClientSize(u64),
     RestoreAllClientSizing,
@@ -1872,35 +1873,35 @@ impl MenuAction {
     pub fn label(&self) -> &'static str {
         let menu = &catalog().menu;
         match self {
-            MenuAction::RenameWorkspace(_) => "Rename workspace",
+            MenuAction::RenameWorkspace(_) => catalog().action_label(Action::RenameWorkspace),
             MenuAction::CopyWorkspaceId(_) => "Copy workspace id",
             MenuAction::CloseWorkspace(_) => "Close workspace",
-            MenuAction::RenameScreen(_) => "Rename screen",
-            MenuAction::CloseScreen(_) => "Close screen",
-            MenuAction::BrowserBack(_) => "Back",
-            MenuAction::BrowserForward(_) => "Forward",
-            MenuAction::BrowserReload(_) => "Reload",
-            MenuAction::BrowserEditUrl(_) => "Edit URL",
+            MenuAction::RenameScreen(_) => catalog().action_label(Action::RenameScreen),
+            MenuAction::CloseScreen(_) => catalog().action_label(Action::CloseScreen),
+            MenuAction::BrowserBack(_) => catalog().action_label(Action::BrowserBack),
+            MenuAction::BrowserForward(_) => catalog().action_label(Action::BrowserForward),
+            MenuAction::BrowserReload(_) => catalog().action_label(Action::BrowserReload),
+            MenuAction::BrowserEditUrl(_) => catalog().action_label(Action::BrowserEditUrl),
             MenuAction::BrowserCopyUrl(_) => "Copy URL",
             MenuAction::BrowserActivate(_) => "Show in Chrome",
-            MenuAction::RenameTab(_) => "Rename tab",
+            MenuAction::RenameTab(_) => catalog().action_label(Action::RenameTab),
             MenuAction::CopyTabId(_) => "Copy tab id",
             MenuAction::CopyPaneId(_) => "Copy pane id",
-            MenuAction::NewTab(_) => "New tab",
-            MenuAction::NewBrowserTab(_) => "New browser tab",
-            MenuAction::SplitRight(_) => "Split right",
-            MenuAction::SplitDown(_) => "Split down",
-            MenuAction::CloseTab(_) => "Close tab",
-            MenuAction::ClosePane(_) => "Close pane",
+            MenuAction::NewPaneSmart(_) => catalog().action_label(Action::NewPaneSmart),
+            MenuAction::NewTab(_) => catalog().action_label(Action::NewTab),
+            MenuAction::NewBrowserTab(_) => catalog().action_label(Action::NewBrowserTab),
+            MenuAction::SplitRight(_) => catalog().action_label(Action::SplitRight),
+            MenuAction::SplitDown(_) => catalog().action_label(Action::SplitDown),
+            MenuAction::CloseTab(_) => catalog().action_label(Action::CloseTab),
+            MenuAction::ClosePane(_) => catalog().action_label(Action::ClosePane),
             MenuAction::TogglePaneZoom { zoomed: false, .. } => menu.maximize_pane,
             MenuAction::TogglePaneZoom { zoomed: true, .. } => menu.restore_pane_layout,
             MenuAction::ToggleSidebar { visible: false } => menu.show_sidebar,
             MenuAction::ToggleSidebar { visible: true } => menu.hide_sidebar,
             MenuAction::ToggleSidebarCompact { compact: false } => menu.compact_sidebar,
             MenuAction::ToggleSidebarCompact { compact: true } => menu.full_sidebar,
-            MenuAction::ToggleSidebarView { view: SidebarView::Workspaces } => menu.sidebar_files,
-            MenuAction::ToggleSidebarView { view: SidebarView::Files } => menu.sidebar_workspaces,
             MenuAction::FocusSidebar => menu.focus_sidebar,
+            MenuAction::ShowShortcuts => catalog().action_label(Action::ShowShortcuts),
             MenuAction::SetClientSizing { enabled: true, .. } => "Use for sizing",
             MenuAction::SetClientSizing { enabled: false, .. } => "Exclude from sizing",
             MenuAction::UseClientSize(_) => "Use only this client size",
@@ -1920,6 +1921,7 @@ fn keyboard_action_for_menu(action: MenuAction) -> Option<Action> {
         MenuAction::BrowserReload(_) => Some(Action::BrowserReload),
         MenuAction::BrowserEditUrl(_) => Some(Action::BrowserEditUrl),
         MenuAction::RenameTab(_) => Some(Action::RenameTab),
+        MenuAction::NewPaneSmart(_) => Some(Action::NewPaneSmart),
         MenuAction::NewTab(_) => Some(Action::NewTab),
         MenuAction::NewBrowserTab(_) => Some(Action::NewBrowserTab),
         MenuAction::SplitRight(_) => Some(Action::SplitRight),
@@ -1929,8 +1931,8 @@ fn keyboard_action_for_menu(action: MenuAction) -> Option<Action> {
         MenuAction::TogglePaneZoom { .. } => Some(Action::ZoomPane),
         MenuAction::ToggleSidebar { .. } => Some(Action::ToggleSidebar),
         MenuAction::ToggleSidebarCompact { .. } => Some(Action::ToggleSidebarCompact),
-        MenuAction::ToggleSidebarView { .. } => Some(Action::ToggleSidebarView),
         MenuAction::FocusSidebar => Some(Action::FocusSidebar),
+        MenuAction::ShowShortcuts => Some(Action::ShowShortcuts),
         _ => None,
     }
 }
@@ -2234,7 +2236,11 @@ fn pane_context_menu_groups(
     }
     vec![
         vec![MenuAction::RenameTab(pane), MenuAction::CloseTab(pane)],
-        vec![MenuAction::NewTab(pane), MenuAction::NewBrowserTab(pane)],
+        vec![
+            MenuAction::NewPaneSmart(pane),
+            MenuAction::NewTab(pane),
+            MenuAction::NewBrowserTab(pane),
+        ],
         browser_actions,
         vec![
             MenuAction::SplitRight(pane),
@@ -2328,6 +2334,24 @@ pub struct PairingDialog {
 impl PairingDialog {
     fn new(challenge: PairingChallenge) -> Self {
         Self { challenge, rect: Rect::default(), approve: Rect::default(), deny: Rect::default() }
+    }
+}
+
+#[derive(Debug, Default)]
+pub struct ShortcutHelp {
+    pub rect: Rect,
+    pub scroll_offset: usize,
+    pub visible_rows: usize,
+}
+
+impl ShortcutHelp {
+    fn max_scroll(&self, total_rows: usize) -> usize {
+        total_rows.saturating_sub(self.visible_rows)
+    }
+
+    fn scroll_by(&mut self, delta: isize, total_rows: usize) {
+        self.scroll_offset =
+            self.scroll_offset.saturating_add_signed(delta).min(self.max_scroll(total_rows));
     }
 }
 
@@ -2592,6 +2616,7 @@ pub struct App {
     pub prompt: Option<Prompt>,
     pub pairing_dialog: Option<PairingDialog>,
     pairing_queue: VecDeque<PairingChallenge>,
+    pub shortcut_help: Option<ShortcutHelp>,
     pub omnibar: Option<OmnibarState>,
     pub toast: Option<Toast>,
     pub(crate) shake_frames: u8,
@@ -2930,6 +2955,7 @@ pub fn run(
         prompt: None,
         pairing_dialog: None,
         pairing_queue: VecDeque::new(),
+        shortcut_help: None,
         omnibar: None,
         toast: None,
         shake_frames: 0,
@@ -4327,7 +4353,7 @@ impl App {
             AppEvent::Input(Event::Mouse(mouse)) => self.handle_mouse(mouse),
             AppEvent::Input(Event::Paste(text)) => {
                 self.status_message = None;
-                if self.pairing_dialog.is_some() {
+                if self.pairing_dialog.is_some() || self.shortcut_help.is_some() {
                     Ok(RenderAction::Draw)
                 } else if let Some(prompt) = self.prompt.as_mut() {
                     prompt.input.insert_str(&text);
@@ -4491,7 +4517,10 @@ impl App {
     fn input_destination(&self, input: &Event) -> Option<SurfaceId> {
         match input {
             Event::Key(_) | Event::Paste(_)
-                if self.prompt.is_none() && self.omnibar.is_none() && !self.sidebar_focused =>
+                if self.prompt.is_none()
+                    && self.shortcut_help.is_none()
+                    && self.omnibar.is_none()
+                    && !self.sidebar_focused =>
             {
                 self.active_surface()
             }
@@ -4774,8 +4803,8 @@ impl App {
         }
     }
 
-    fn new_pane_smart(&mut self) -> anyhow::Result<()> {
-        let Some(pane) = self.active_pane() else {
+    fn new_pane_smart(&mut self, pane: Option<PaneId>) -> anyhow::Result<()> {
+        let Some(pane) = pane.or_else(|| self.active_pane()) else {
             return Ok(());
         };
         let Some(hint) = self.tree.active_screen().and_then(|screen| {
@@ -4817,6 +4846,9 @@ impl App {
         self.status_message = None;
         if self.pairing_dialog.is_some() {
             return self.handle_pairing_key(key);
+        }
+        if self.shortcut_help.is_some() {
+            return Ok(self.handle_shortcut_help_key(key));
         }
         if self.prompt.is_some() {
             return self.handle_prompt_key(key);
@@ -5009,6 +5041,46 @@ impl App {
         Ok(RenderAction::Draw)
     }
 
+    fn handle_shortcut_help_key(&mut self, key: KeyEvent) -> RenderAction {
+        let total_rows = self.config.keys.resolved_shortcuts().len();
+        let Some(help) = self.shortcut_help.as_mut() else { return RenderAction::None };
+        let page = help.visible_rows.max(1) as isize;
+        match key.code {
+            KeyCode::Esc => self.shortcut_help = None,
+            KeyCode::Char('?')
+                if !key.modifiers.intersects(
+                    KeyModifiers::CONTROL | KeyModifiers::ALT | KeyModifiers::SUPER,
+                ) =>
+            {
+                self.shortcut_help = None;
+            }
+            KeyCode::Up | KeyCode::Char('k') => help.scroll_by(-1, total_rows),
+            KeyCode::Down | KeyCode::Char('j') => help.scroll_by(1, total_rows),
+            KeyCode::PageUp => help.scroll_by(-page, total_rows),
+            KeyCode::PageDown => help.scroll_by(page, total_rows),
+            KeyCode::Home => help.scroll_offset = 0,
+            KeyCode::End => help.scroll_offset = help.max_scroll(total_rows),
+            _ => {}
+        }
+        RenderAction::Draw
+    }
+
+    fn handle_shortcut_help_mouse(&mut self, mouse: MouseEvent) -> RenderAction {
+        let total_rows = self.config.keys.resolved_shortcuts().len();
+        let Some(help) = self.shortcut_help.as_mut() else { return RenderAction::None };
+        match mouse.kind {
+            MouseEventKind::ScrollUp => help.scroll_by(-1, total_rows),
+            MouseEventKind::ScrollDown => help.scroll_by(1, total_rows),
+            MouseEventKind::Down(MouseButton::Left | MouseButton::Right)
+                if !help.rect.contains(mouse.column, mouse.row) =>
+            {
+                self.shortcut_help = None;
+            }
+            _ => {}
+        }
+        RenderAction::Draw
+    }
+
     fn handle_pairing_click(&mut self, x: u16, y: u16) -> anyhow::Result<RenderAction> {
         let Some(dialog) = self.pairing_dialog.as_ref() else { return Ok(RenderAction::None) };
         if dialog.approve.contains(x, y) {
@@ -5184,7 +5256,7 @@ impl App {
                 self.new_terminal_tab(pane)?;
             }
             Action::NewBrowserTab => self.create_browser_tab_for_edit(pane)?,
-            Action::NewPaneSmart => self.new_pane_smart()?,
+            Action::NewPaneSmart => self.new_pane_smart(pane)?,
             Action::NextTab => self.select_tab_for_client(pane, None, Some(1)),
             Action::PrevTab => self.select_tab_for_client(pane, None, Some(-1)),
             Action::SelectTab(_) => {
@@ -5274,6 +5346,15 @@ impl App {
                 if let Some(pane) = pane {
                     self.focus_omnibar(pane);
                 }
+                return Ok(RenderAction::Draw);
+            }
+            Action::ShowShortcuts => {
+                self.shortcut_help =
+                    if self.shortcut_help.is_some() { None } else { Some(ShortcutHelp::default()) };
+                self.menu = None;
+                self.prompt = None;
+                self.omnibar = None;
+                self.selection = None;
                 return Ok(RenderAction::Draw);
             }
             Action::Detach => {
@@ -5459,6 +5540,10 @@ impl App {
                 self.run_action_for_pane(Action::ZoomPane, Some(pane))?;
                 return Ok(());
             }
+            MenuAction::NewPaneSmart(pane) => {
+                self.run_action_for_pane(Action::NewPaneSmart, Some(pane))?;
+                return Ok(());
+            }
             MenuAction::ToggleSidebar { .. } => {
                 self.run_action(Action::ToggleSidebar)?;
                 return Ok(());
@@ -5467,12 +5552,12 @@ impl App {
                 self.run_action(Action::ToggleSidebarCompact)?;
                 return Ok(());
             }
-            MenuAction::ToggleSidebarView { .. } => {
-                self.run_action(Action::ToggleSidebarView)?;
-                return Ok(());
-            }
             MenuAction::FocusSidebar => {
                 self.run_action(Action::FocusSidebar)?;
+                return Ok(());
+            }
+            MenuAction::ShowShortcuts => {
+                self.run_action(Action::ShowShortcuts)?;
                 return Ok(());
             }
             _ => {}
@@ -5542,6 +5627,7 @@ impl App {
                     self.copy_short_id(short_id);
                 }
             }
+            MenuAction::NewPaneSmart(_) => unreachable!("shared menu actions return above"),
             MenuAction::NewTab(id) => {
                 self.new_terminal_tab(Some(id))?;
             }
@@ -5558,8 +5644,8 @@ impl App {
             MenuAction::TogglePaneZoom { .. }
             | MenuAction::ToggleSidebar { .. }
             | MenuAction::ToggleSidebarCompact { .. }
-            | MenuAction::ToggleSidebarView { .. }
-            | MenuAction::FocusSidebar => unreachable!("shared menu actions return above"),
+            | MenuAction::FocusSidebar
+            | MenuAction::ShowShortcuts => unreachable!("shared menu actions return above"),
             MenuAction::SetClientSizing { client, enabled } => {
                 self.session.set_client_sizing(client, enabled);
             }
@@ -5930,6 +6016,9 @@ impl App {
     }
 
     fn handle_mouse(&mut self, mouse: MouseEvent) -> anyhow::Result<RenderAction> {
+        if self.pairing_dialog.is_none() && self.shortcut_help.is_some() {
+            return Ok(self.handle_shortcut_help_mouse(mouse));
+        }
         // This TUI tracks one active pointer button. Ignore additional presses
         // until its release so a second button cannot orphan the inner app's
         // pressed state.
@@ -7452,15 +7541,15 @@ impl App {
     }
 
     fn sidebar_menu_actions(&self) -> Vec<MenuAction> {
-        let mut actions = vec![
+        vec![
             MenuAction::ToggleSidebar { visible: self.sidebar_visible },
             MenuAction::ToggleSidebarCompact { compact: self.sidebar_compact },
-        ];
-        if self.config.sidebar.plugin.is_none() {
-            actions.push(MenuAction::ToggleSidebarView { view: self.sidebar_view });
-        }
-        actions.push(MenuAction::FocusSidebar);
-        actions
+            MenuAction::FocusSidebar,
+        ]
+    }
+
+    fn global_menu_actions(&self) -> Vec<MenuAction> {
+        vec![MenuAction::ShowShortcuts]
     }
 
     fn open_context_menu(&mut self, x: u16, y: u16) {
@@ -7468,7 +7557,24 @@ impl App {
         self.menu = None;
         self.omnibar = None;
         self.session.refresh_clients_background();
-        match self.hit_at(x, y) {
+        let hit = self.hit_at(x, y);
+        if self.sidebar_width > 0 && x < self.sidebar_width {
+            let mut groups = Vec::new();
+            if let Some(Hit::Workspace { id, .. }) = hit {
+                groups.push(
+                    self.menu_group([
+                        MenuAction::RenameWorkspace(id),
+                        MenuAction::CloseWorkspace(id),
+                    ]),
+                );
+                groups.push(self.menu_group([MenuAction::CopyWorkspaceId(id)]));
+            }
+            groups.push(self.menu_group(self.sidebar_menu_actions()));
+            groups.push(self.menu_group(self.global_menu_actions()));
+            self.menu = Some(ContextMenu::with_groups(x, y, groups));
+            return;
+        }
+        match hit {
             Some(Hit::Workspace { id, .. }) => {
                 self.menu = Some(ContextMenu::with_groups(
                     x,
@@ -7493,21 +7599,13 @@ impl App {
                             MenuAction::RenameScreen(id),
                             MenuAction::CloseScreen(id),
                         ]),
-                        self.menu_group(self.sidebar_menu_actions()),
+                        self.menu_group(self.global_menu_actions()),
                     ],
                 ));
                 return;
             }
             Some(Hit::Clients { surface }) => {
                 self.open_clients_menu(x, y, surface);
-                return;
-            }
-            Some(Hit::SidebarFile { .. } | Hit::SidebarResize) => {
-                self.menu = Some(ContextMenu::with_groups(
-                    x,
-                    y,
-                    vec![self.menu_group(self.sidebar_menu_actions())],
-                ));
                 return;
             }
             _ => {}
@@ -7528,11 +7626,11 @@ impl App {
                 groups.push(
                     self.menu_group([MenuAction::TogglePaneZoom { pane: area.pane, zoomed }]),
                 );
-                groups.push(self.menu_group(self.sidebar_menu_actions()));
             }
             if let Some(clients) = client_menu_item(&self.clients, area.surface) {
                 groups.push(vec![clients]);
             }
+            groups.push(self.menu_group(self.global_menu_actions()));
             self.menu = Some(ContextMenu::with_groups(x, y, groups));
         }
     }
@@ -7762,6 +7860,7 @@ fn action_prepares_pty_release(action: Action) -> bool {
             | Action::ScrollUp
             | Action::ScrollDown
             | Action::BrowserEditUrl
+            | Action::ShowShortcuts
     )
 }
 
@@ -7834,7 +7933,7 @@ fn browser_key_mapping(
 mod tests {
     use super::{
         App, AppEvent, BACKGROUND_REFRESH_RETRIES, ContextMenu, DeferredInput, Drag,
-        ForwardMuxOutcome, MenuAction, MenuItem, MuxTitleIngress, OrderedSession, PaneArea,
+        ForwardMuxOutcome, Hit, MenuAction, MenuItem, MuxTitleIngress, OrderedSession, PaneArea,
         PaneFocusHistory, PendingSessionMutation, PendingSessionMutationState, PtyFailureIngress,
         PtyMousePressResult, RenderAction, Selection, SessionCompletion, SessionCompletionAction,
         SidebarPluginSyncClaim, SidebarPluginSyncState, SurfaceResizeDecision,
@@ -7862,6 +7961,7 @@ mod tests {
     };
     use ratatui::Terminal;
     use ratatui::backend::TestBackend;
+    use ratatui::style::Modifier;
 
     use crate::browser_input::{BrowserInputDispatcher, BrowserInputEvent, BrowserInputKind};
     use crate::config::{Action, ChromeTheme, Config, ScrollbarPosition, SidebarView};
@@ -7890,6 +7990,7 @@ mod tests {
                 MenuItem::Action(MenuAction::RenameTab(pane)),
                 MenuItem::Action(MenuAction::CloseTab(pane)),
                 MenuItem::Separator,
+                MenuItem::Action(MenuAction::NewPaneSmart(pane)),
                 MenuItem::Action(MenuAction::NewTab(pane)),
                 MenuItem::Action(MenuAction::NewBrowserTab(pane)),
                 MenuItem::Separator,
@@ -7904,43 +8005,171 @@ mod tests {
     }
 
     #[test]
-    fn pane_context_menu_teaches_shortcuts_for_zoom_and_sidebar_controls() {
+    fn context_menus_scope_pane_and_sidebar_actions_to_the_clicked_region() {
         let mux = Mux::new("shortcut-menu-test", SurfaceOptions::default());
         let mut app = test_app(Session::Local(mux));
         app.tree = notify_tree(41, false);
         app.sidebar_view = SidebarView::Workspaces;
+        app.sidebar_width = 20;
         app.pane_areas.push(PaneArea {
             pane: 2,
             surface: 41,
-            rect: Rect { x: 0, y: 0, width: 80, height: 24 },
+            rect: Rect { x: 20, y: 0, width: 80, height: 24 },
             bar: None,
             omnibar: None,
-            content: Rect { x: 0, y: 0, width: 80, height: 24 },
+            content: Rect { x: 20, y: 0, width: 80, height: 24 },
             track: None,
         });
 
-        app.open_context_menu(10, 10);
+        app.open_context_menu(30, 10);
         let items = &app.menu.as_ref().unwrap().levels[0].items;
         let shortcut = |target| {
             items.iter().find(|item| item.action() == Some(target)).and_then(MenuItem::shortcut)
         };
+        assert_eq!(shortcut(MenuAction::NewPaneSmart(2)), Some("Alt-n"));
         assert_eq!(
             shortcut(MenuAction::TogglePaneZoom { pane: 2, zoomed: false }),
             Some("Ctrl-b z")
         );
-        assert_eq!(shortcut(MenuAction::ToggleSidebar { visible: true }), Some("Ctrl-b s"));
-        assert_eq!(shortcut(MenuAction::ToggleSidebarCompact { compact: false }), Some("Ctrl-b m"));
-        assert_eq!(
-            shortcut(MenuAction::ToggleSidebarView { view: SidebarView::Workspaces }),
-            Some("Ctrl-b e")
-        );
-        assert_eq!(shortcut(MenuAction::FocusSidebar), Some("Ctrl-b S"));
+        assert_eq!(shortcut(MenuAction::ToggleSidebar { visible: true }), None);
+        assert_eq!(shortcut(MenuAction::ToggleSidebarCompact { compact: false }), None);
+        assert_eq!(shortcut(MenuAction::FocusSidebar), None);
+        assert_eq!(shortcut(MenuAction::ShowShortcuts), Some("Ctrl-b ?"));
 
         let mut terminal = Terminal::new(TestBackend::new(100, 40)).unwrap();
         terminal.draw(|frame| crate::ui::draw(&mut app, frame)).unwrap();
         let rendered = buffer_text(terminal.backend().buffer());
+        assert!(rendered.contains("Alt-n"));
         assert!(rendered.contains("Ctrl-b z"));
-        assert!(rendered.contains("Ctrl-b m"));
+
+        app.open_context_menu(5, 10);
+        let items = &app.menu.as_ref().unwrap().levels[0].items;
+        let shortcut = |target| {
+            items.iter().find(|item| item.action() == Some(target)).and_then(MenuItem::shortcut)
+        };
+        assert_eq!(shortcut(MenuAction::ToggleSidebar { visible: true }), Some("Ctrl-b s"));
+        assert_eq!(shortcut(MenuAction::ToggleSidebarCompact { compact: false }), Some("Ctrl-b m"));
+        assert_eq!(shortcut(MenuAction::FocusSidebar), Some("Ctrl-b S"));
+        assert_eq!(shortcut(MenuAction::ShowShortcuts), Some("Ctrl-b ?"));
+        assert!(!items.iter().any(|item| item.label() == Some("Show files in sidebar")));
+
+        let screen = app.tree.active_screen().unwrap().id;
+        app.hits.push((
+            Rect { x: 30, y: 30, width: 10, height: 1 },
+            Hit::ScreenEntry { index: 0, id: screen },
+        ));
+        app.open_context_menu(30, 30);
+        let items = &app.menu.as_ref().unwrap().levels[0].items;
+        assert!(items.iter().any(|item| item.action() == Some(MenuAction::RenameScreen(screen))));
+        assert!(items.iter().any(|item| item.action() == Some(MenuAction::ShowShortcuts)));
+        assert!(!items.iter().any(|item| {
+            matches!(
+                item.action(),
+                Some(
+                    MenuAction::ToggleSidebar { .. }
+                        | MenuAction::ToggleSidebarCompact { .. }
+                        | MenuAction::FocusSidebar
+                )
+            )
+        }));
+        app.activate_menu(MenuAction::ShowShortcuts).unwrap();
+        assert!(app.shortcut_help.is_some());
+    }
+
+    #[test]
+    fn pane_context_new_pane_runs_the_same_smart_layout_action_as_alt_n() {
+        let (mux, _) = test_mux("context-new-pane-test", None);
+        let (mut app, events) = test_app_with_events(Session::Local(mux.clone()));
+        app.sidebar_visible = false;
+        app.replace_tree(app.session.tree());
+        app.sync_layout((120, 30));
+        let pane = app.active_pane().unwrap();
+        let before = app.tree.active_screen().unwrap().panes.len();
+        let content = app.pane_areas.iter().find(|area| area.pane == pane).unwrap().content;
+
+        app.open_context_menu(content.x, content.y);
+        assert!(
+            app.menu.as_ref().unwrap().levels[0]
+                .items
+                .iter()
+                .any(|item| item.action() == Some(MenuAction::NewPaneSmart(pane)))
+        );
+        app.activate_menu(MenuAction::NewPaneSmart(pane)).unwrap();
+        while app.session.has_pending_mutations() {
+            let event = events.recv_timeout(Duration::from_secs(1)).unwrap();
+            app.handle(event).unwrap();
+        }
+
+        assert_eq!(app.tree.active_screen().unwrap().panes.len(), before + 1);
+        let surfaces = mux.with_state(|state| state.surfaces.keys().copied().collect::<Vec<_>>());
+        for surface in surfaces {
+            mux.close_surface(surface);
+        }
+    }
+
+    #[test]
+    fn prefix_bar_and_shortcut_modal_use_the_resolved_action_catalog() {
+        let (mux, _) = test_mux("shortcut-help-test", None);
+        let mut app = test_app(Session::Local(mux.clone()));
+        app.sidebar_visible = false;
+        app.replace_tree(app.session.tree());
+        app.sync_layout((180, 30));
+
+        app.handle_key(KeyEvent::new(KeyCode::Char('b'), KeyModifiers::CONTROL)).unwrap();
+        assert!(app.prefix_armed);
+        let mut terminal = Terminal::new(TestBackend::new(180, 30)).unwrap();
+        terminal.draw(|frame| crate::ui::draw(&mut app, frame)).unwrap();
+        let bottom = buffer_text(terminal.backend().buffer()).lines().last().unwrap().to_string();
+        assert!(bottom.contains("Ctrl-b"), "{bottom}");
+        assert!(bottom.contains("? Keyboard shortcuts"), "{bottom}");
+        assert!(bottom.contains("z Maximize or restore pane"), "{bottom}");
+
+        app.handle_key(KeyEvent::new(KeyCode::Char('?'), KeyModifiers::SHIFT)).unwrap();
+        assert!(app.shortcut_help.is_some());
+        terminal.draw(|frame| crate::ui::draw(&mut app, frame)).unwrap();
+        let rendered = buffer_text(terminal.backend().buffer());
+        assert!(rendered.contains("Keyboard shortcuts"), "{rendered}");
+        assert!(rendered.contains("New pane"), "{rendered}");
+        assert!(rendered.contains("Alt-n"), "{rendered}");
+
+        app.handle_key(KeyEvent::new(KeyCode::End, KeyModifiers::NONE)).unwrap();
+        assert!(app.shortcut_help.as_ref().unwrap().scroll_offset > 0);
+        app.handle_key(KeyEvent::new(KeyCode::Esc, KeyModifiers::NONE)).unwrap();
+        assert!(app.shortcut_help.is_none());
+
+        let surfaces = mux.with_state(|state| state.surfaces.keys().copied().collect::<Vec<_>>());
+        for surface in surfaces {
+            mux.close_surface(surface);
+        }
+    }
+
+    #[test]
+    fn focused_sidebar_uses_an_accent_header_and_divider() {
+        let (mux, _) = test_mux("focused-sidebar-style-test", None);
+        let mut app = test_app(Session::Local(mux.clone()));
+        app.replace_tree(app.session.tree());
+        app.config.sidebar.width = 20;
+        app.sidebar_view = SidebarView::Workspaces;
+        app.sync_layout((60, 12));
+
+        let mut terminal = Terminal::new(TestBackend::new(60, 12)).unwrap();
+        terminal.draw(|frame| crate::ui::draw(&mut app, frame)).unwrap();
+        assert_eq!(terminal.backend().buffer()[(19, 0)].symbol(), "│");
+
+        app.sidebar_focused = true;
+        terminal.draw(|frame| crate::ui::draw(&mut app, frame)).unwrap();
+        let divider = &terminal.backend().buffer()[(19, 0)];
+        assert_eq!(divider.symbol(), "┃");
+        assert_eq!(divider.fg, app.config.theme.border_active);
+        assert!(divider.modifier.contains(Modifier::BOLD));
+        let header = &terminal.backend().buffer()[(1, 0)];
+        assert_eq!(header.bg, app.chrome.status_active_bg);
+        assert_eq!(header.fg, app.config.theme.border_active);
+
+        let surfaces = mux.with_state(|state| state.surfaces.keys().copied().collect::<Vec<_>>());
+        for surface in surfaces {
+            mux.close_surface(surface);
+        }
     }
 
     #[test]
@@ -8516,7 +8745,7 @@ mod tests {
             .position(|item| item.action() == Some(MenuAction::CopyPaneId(pane)))
             .unwrap();
 
-        assert_eq!(menu.levels[0].items.len(), 19);
+        assert_eq!(menu.levels[0].items.len(), 20);
         assert_eq!(
             menu.levels[0].items.iter().filter(|item| **item == MenuItem::Separator).count(),
             4
@@ -8525,13 +8754,13 @@ mod tests {
         assert_eq!(menu.levels[0].items.len(), 18);
         assert_eq!(
             menu.levels[0].items.iter().filter(|item| **item == MenuItem::Separator).count(),
-            3
+            2
         );
         assert_eq!(menu.selected_action(), Some(MenuAction::CopyPaneId(pane)));
         assert_eq!(menu.levels[0].rect.height, 20);
 
-        menu.fit_to_rows(19);
-        assert_eq!(menu.levels[0].items.len(), 19);
+        menu.fit_to_rows(20);
+        assert_eq!(menu.levels[0].items.len(), 20);
         assert_eq!(
             menu.levels[0].items.iter().filter(|item| **item == MenuItem::Separator).count(),
             4
@@ -11465,7 +11694,7 @@ mod tests {
         // drag handle, exactly like the built-in sidebar.
         let divider_x = app.sidebar_width - 1;
         assert!(
-            app.hits.iter().any(|(rect, hit)| matches!(hit, super::Hit::SidebarResize)
+            app.hits.iter().any(|(rect, hit)| matches!(hit, Hit::SidebarResize)
                 && rect.x == divider_x
                 && rect.width == 1),
             "plugin sidebar must register the SidebarResize hit on the divider column"
@@ -11627,7 +11856,7 @@ mod tests {
             terminal.draw(|frame| crate::ui::draw(&mut app, frame)).unwrap();
             assert!(
                 app.hits.iter().any(|(rect, hit)| {
-                    matches!(hit, super::Hit::SidebarResize)
+                    matches!(hit, Hit::SidebarResize)
                         && rect.x == app.sidebar_width - 1
                         && rect.width == 1
                 }),
@@ -11689,6 +11918,7 @@ mod tests {
             prompt: None,
             pairing_dialog: None,
             pairing_queue: VecDeque::new(),
+            shortcut_help: None,
             omnibar: None,
             toast: None,
             shake_frames: 0,

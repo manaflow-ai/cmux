@@ -3,6 +3,8 @@ use std::sync::OnceLock;
 
 use unicode_width::UnicodeWidthStr;
 
+use crate::config::Action;
+
 const FOREIGN_VIEWPORT_HINT_CAPACITY: usize = 64;
 
 #[derive(Debug, PartialEq, Eq)]
@@ -27,9 +29,13 @@ pub(crate) struct MenuMessages {
     pub hide_sidebar: &'static str,
     pub compact_sidebar: &'static str,
     pub full_sidebar: &'static str,
-    pub sidebar_files: &'static str,
-    pub sidebar_workspaces: &'static str,
     pub focus_sidebar: &'static str,
+}
+
+#[derive(Debug, PartialEq, Eq)]
+pub(crate) struct ShortcutMessages {
+    pub title: &'static str,
+    pub footer: &'static str,
 }
 
 impl ForeignViewportMessages {
@@ -72,12 +78,22 @@ const fn decimal_width(mut value: u16) -> usize {
 
 #[derive(Debug, PartialEq, Eq)]
 pub(crate) struct Catalog {
+    japanese: bool,
     pub pairing: PairingMessages,
     pub foreign_viewport: ForeignViewportMessages,
     pub menu: MenuMessages,
+    pub shortcuts: ShortcutMessages,
+}
+
+impl Catalog {
+    pub fn action_label(&self, action: Action) -> &'static str {
+        let definition = action.definition();
+        if self.japanese { definition.label_ja } else { definition.label_en }
+    }
 }
 
 static ENGLISH: Catalog = Catalog {
+    japanese: false,
     pairing: PairingMessages {
         title: "Approve browser?",
         confirm: "Confirm this code matches the browser:",
@@ -93,13 +109,16 @@ static ENGLISH: Catalog = Catalog {
         hide_sidebar: "Hide sidebar",
         compact_sidebar: "Use compact sidebar",
         full_sidebar: "Use full sidebar",
-        sidebar_files: "Show files in sidebar",
-        sidebar_workspaces: "Show workspaces in sidebar",
         focus_sidebar: "Focus sidebar",
+    },
+    shortcuts: ShortcutMessages {
+        title: "Keyboard shortcuts",
+        footer: "↑/↓ scroll · Esc or ? close",
     },
 };
 
 static JAPANESE: Catalog = Catalog {
+    japanese: true,
     pairing: PairingMessages {
         title: "ブラウザを承認しますか？",
         confirm: "ブラウザのコードと一致するか確認:",
@@ -115,9 +134,11 @@ static JAPANESE: Catalog = Catalog {
         hide_sidebar: "サイドバーを隠す",
         compact_sidebar: "サイドバーをコンパクト表示",
         full_sidebar: "サイドバーを通常表示",
-        sidebar_files: "サイドバーにファイルを表示",
-        sidebar_workspaces: "サイドバーにワークスペースを表示",
         focus_sidebar: "サイドバーにフォーカス",
+    },
+    shortcuts: ShortcutMessages {
+        title: "キーボードショートカット",
+        footer: "↑/↓ スクロール · Esc または ? で閉じる",
     },
 };
 
@@ -148,6 +169,10 @@ mod tests {
         assert_eq!(catalog_for_locale("C"), &ENGLISH);
         assert_eq!(ENGLISH.menu.maximize_pane, "Maximize pane");
         assert_eq!(JAPANESE.menu.maximize_pane, "ペインを最大化");
+        assert_eq!(ENGLISH.action_label(Action::NewPaneSmart), "New pane");
+        assert_eq!(JAPANESE.action_label(Action::NewPaneSmart), "新しいペイン");
+        assert_eq!(ENGLISH.shortcuts.title, "Keyboard shortcuts");
+        assert_eq!(JAPANESE.shortcuts.title, "キーボードショートカット");
     }
 
     #[test]
