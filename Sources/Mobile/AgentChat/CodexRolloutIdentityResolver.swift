@@ -69,14 +69,6 @@ nonisolated struct CodexRolloutIdentityResolver: Sendable {
             return CodexRolloutIdentity(sessionID: preferred, transcriptPath: path)
         }
 
-        if orderedSessionIDs.count == 1,
-           let onlySessionID = orderedSessionIDs.first,
-           canonicalSessionIDBySessionID[onlySessionID].map({ $0 == onlySessionID }) ?? true,
-           parentBySessionID[onlySessionID] == nil,
-           let path = pathBySessionID[onlySessionID] {
-            return CodexRolloutIdentity(sessionID: onlySessionID, transcriptPath: path)
-        }
-
         return nil
     }
 
@@ -87,8 +79,7 @@ nonisolated struct CodexRolloutIdentityResolver: Sendable {
     ) -> String? {
         var current = sessionID
         var visited: Set<String> = []
-        while let parent = parentBySessionID[current] {
-            guard openSessionIDs.contains(parent) else { return nil }
+        while let parent = parentBySessionID[current], openSessionIDs.contains(parent) {
             guard visited.insert(current).inserted else { return nil }
             current = parent
         }

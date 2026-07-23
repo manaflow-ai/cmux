@@ -82,6 +82,26 @@ struct CodexCodeModeRolloutIdentityTests {
     }
 
     @Test
+    func singleOpenChildWithClosedParentKeepsCurrentIdentity() throws {
+        let fixture = try makeFixtureDirectory()
+        defer { try? FileManager.default.removeItem(at: fixture.root) }
+        let child = try writeRollout(
+            directory: fixture.rollouts,
+            sessionID: Self.childID,
+            canonicalSessionID: Self.primaryID,
+            parentThreadID: Self.primaryID
+        )
+
+        let session = try #require(observedSession(
+            openRollouts: [child],
+            preferredSessionID: nil
+        ))
+
+        #expect(session.sessionID == Self.childID)
+        #expect(session.transcriptPath == child)
+    }
+
+    @Test
     func partialMetadataFallsBackToStoredSurfaceBinding() throws {
         let fixture = try makeFixtureDirectory()
         defer { try? FileManager.default.removeItem(at: fixture.root) }
