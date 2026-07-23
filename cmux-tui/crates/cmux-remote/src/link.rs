@@ -1,21 +1,25 @@
 use std::collections::{BTreeMap, BTreeSet};
 use std::fmt;
 use std::future::pending;
-use std::sync::Arc;
 use std::sync::atomic::{AtomicBool, Ordering};
+use std::sync::{Arc, Mutex as StdMutex};
 
 use async_trait::async_trait;
 use bytes::Bytes;
-use cmux_remote_protocol::{Lane, WireFrame};
+use cmux_remote_protocol::{Lane, MAX_WIRE_FRAME_BYTES, WireFrame};
 use futures_util::future::join_all;
-use tokio::sync::{Mutex, OwnedSemaphorePermit, Semaphore, mpsc, oneshot};
+use tokio::sync::{Mutex, OwnedSemaphorePermit, Semaphore, mpsc, oneshot, watch};
+use tokio::task::JoinHandle;
 
 const INGRESS_BYTES_PER_LANE: usize = 8 * 1_024 * 1_024;
 const INGRESS_ACCOUNTING_FLOOR_BYTES: usize = 1_024;
 const INGRESS_FRAMES_PER_LANE: usize = INGRESS_BYTES_PER_LANE / INGRESS_ACCOUNTING_FLOOR_BYTES;
 const PRIORITY_BURST_FRAMES: usize = 32;
 const PRIORITY_LANES: [Lane; 4] = [Lane::Interactive, Lane::Control, Lane::Tunnel, Lane::Bulk];
+// ReliableSession owns one physical send loop per lane, so at most one caller
+// per lane can wait for LaneMuxLink queue admission in production.
 const OUTBOUND_FRAMES_PER_LANE: usize = PRIORITY_BURST_FRAMES * PRIORITY_LANES.len();
+const _: () = assert!(MAX_WIRE_FRAME_BYTES <= INGRESS_BYTES_PER_LANE);
 
 /// An ordered binary-message link supplied by a direct transport or relay.
 ///
@@ -30,7 +34,7 @@ pub trait FrameLink: Send + Sync {
     async fn close(&self) -> Result<(), LinkError>;
 }
 
-#[derive(Debug)]
+#[derive(Clone, Debug)]
 pub enum LinkError {
     Closed,
     FrameTooLarge { actual: usize, maximum: usize },
@@ -58,9 +62,89 @@ pub struct LinkRoute {
     pub link: Arc<dyn FrameLink>,
 }
 
+#[derive(Clone)]
+struct LinkLifecycle {
+    terminal: watch::Sender<Option<TerminalState>>,
+}
+
+type PhysicalId = usize;
+
+#[derive(Clone, Copy, Debug)]
+struct TerminalFence {
+    physical: PhysicalId,
+    admitted_ordinal: u64,
+}
+
+#[derive(Clone, Debug)]
+struct TerminalState {
+    error: LinkError,
+    fence: Option<TerminalFence>,
+}
+
+impl LinkLifecycle {
+    fn new() -> Self {
+        let (terminal, _) = watch::channel(None);
+        Self { terminal }
+    }
+
+    fn error(&self) -> Option<LinkError> {
+        self.terminal.borrow().as_ref().map(|terminal| terminal.error.clone())
+    }
+
+    fn subscribe(&self) -> watch::Receiver<Option<TerminalState>> {
+        self.terminal.subscribe()
+    }
+
+    fn terminate(&self, error: LinkError) -> LinkError {
+        self.terminate_with_fence(error, None).error
+    }
+
+    fn terminate_after_ingress(
+        &self,
+        error: LinkError,
+        physical: PhysicalId,
+        admitted_ordinal: u64,
+    ) -> TerminalState {
+        self.terminate_with_fence(error, Some(TerminalFence { physical, admitted_ordinal }))
+    }
+
+    fn terminate_with_fence(
+        &self,
+        error: LinkError,
+        fence: Option<TerminalFence>,
+    ) -> TerminalState {
+        let candidate = TerminalState { error, fence };
+        let mut winner = None;
+        self.terminal.send_if_modified(|terminal| {
+            if let Some(existing) = terminal {
+                winner = Some(existing.clone());
+                false
+            } else {
+                winner = Some(candidate.clone());
+                *terminal = Some(candidate.clone());
+                true
+            }
+        });
+        winner.expect("terminal update closure always runs")
+    }
+}
+
+async fn wait_for_terminal(terminal: &mut watch::Receiver<Option<TerminalState>>) -> TerminalState {
+    loop {
+        if let Some(terminal) = terminal.borrow_and_update().clone() {
+            return terminal;
+        }
+        if terminal.changed().await.is_err() {
+            return TerminalState { error: LinkError::Closed, fence: None };
+        }
+    }
+}
+
 struct IngressFrame {
     encoded: Bytes,
     _permit: OwnedSemaphorePermit,
+    physical: PhysicalId,
+    ordinal: u64,
 }
 
 #[derive(Clone)]
@@ -75,34 +159,85 @@ impl IngressSender {
         (Self { frames, budget: Arc::new(Semaphore::new(INGRESS_BYTES_PER_LANE)) }, receiver)
     }
 
-    async fn send(&self, encoded: Bytes) -> Result<(), ()> {
+    #[cfg(test)]
+    async fn send(&self, encoded: Bytes) -> Result<(), LinkError> {
+        self.send_admitted(encoded, 0, 1).await
+    }
+
+    async fn send_admitted(
+        &self,
+        encoded: Bytes,
+        physical: PhysicalId,
+        ordinal: u64,
+    ) -> Result<(), LinkError> {
         let accounted = encoded.len().max(INGRESS_ACCOUNTING_FLOOR_BYTES);
-        let permits = u32::try_from(accounted).expect("wire frames fit the ingress byte budget");
-        let permit = self.budget.clone().acquire_many_owned(permits).await.map_err(|_| ())?;
-        self.frames.send(IngressFrame { encoded, _permit: permit }).await.map_err(|_| ())
+        if accounted > INGRESS_BYTES_PER_LANE {
+            return Err(LinkError::FrameTooLarge {
+                actual: encoded.len(),
+                maximum: INGRESS_BYTES_PER_LANE,
+            });
+        }
+        let permits = u32::try_from(accounted).map_err(|_| LinkError::FrameTooLarge {
+            actual: encoded.len(),
+            maximum: INGRESS_BYTES_PER_LANE,
+        })?;
+        let permit =
+            self.budget.clone().acquire_many_owned(permits).await.map_err(|_| LinkError::Closed)?;
+        self.frames
+            .send(IngressFrame { encoded, _permit: permit, physical, ordinal })
+            .await
+            .map_err(|_| LinkError::Closed)
     }
 }
 
 struct Ingress {
     frames: PriorityReceivers<IngressFrame>,
-    errors: mpsc::UnboundedReceiver<LinkError>,
+    terminal: watch::Receiver<Option<TerminalState>>,
+    physical_by_lane: [PhysicalId; 4],
+    delivered_by_physical: Vec<u64>,
 }
 
 impl Ingress {
     async fn receive(&mut self) -> Result<Option<Bytes>, LinkError> {
-        if let Ok(error) = self.errors.try_recv() {
-            return Err(error);
-        }
-        tokio::select! {
-            biased;
-            error = self.errors.recv() => match error {
-                Some(error) => Err(error),
-                None => Ok(self.frames.receive().await.map(|frame| frame.encoded)),
-            },
-            frame = self.frames.receive() => {
-                Ok(frame.map(|frame| frame.encoded))
+        loop {
+            let terminal = { self.terminal.borrow_and_update().clone() };
+            if let Some(terminal) = terminal {
+                let Some(fence) = terminal.fence else {
+                    return Err(terminal.error);
+                };
+                if self.delivered_by_physical[fence.physical] >= fence.admitted_ordinal {
+                    return Err(terminal.error);
+                }
+
+                let allowed = self.physical_by_lane.map(|physical| physical == fence.physical);
+                let Some(frame) = self.frames.receive_from(allowed).await else {
+                    debug_assert_eq!(
+                        self.delivered_by_physical[fence.physical], fence.admitted_ordinal,
+                        "fenced physical ingress closed before all admitted frames were delivered",
+                    );
+                    return Err(terminal.error);
+                };
+                return Ok(Some(self.deliver(frame)));
+            }
+
+            tokio::select! {
+                biased;
+                _ = wait_for_terminal(&mut self.terminal) => continue,
+                frame = self.frames.receive() => {
+                    return Ok(frame.map(|frame| self.deliver(frame)));
+                }
             }
         }
+    }
+
+    fn deliver(&mut self, frame: IngressFrame) -> Bytes {
+        debug_assert!(frame.ordinal > 0);
+        self.delivered_by_physical[frame.physical] += 1;
+        frame.encoded
+    }
+
+    fn discard(&mut self) {
+        self.frames.discard();
     }
 }
 
@@ -146,10 +281,16 @@ impl<T> PriorityReceivers<T> {
         Self { receivers: receivers.map(Some), priority_deliveries: 0, fair_cursor: 0 }
     }
 
-    fn try_receive(&mut self) -> Option<T> {
+    fn discard(&mut self) {
+        self.receivers = [None, None, None, None];
+    }
+
+    fn try_receive_from(&mut self, allowed: [bool; 4]) -> Option<T> {
         if self.priority_deliveries < PRIORITY_BURST_FRAMES {
             for lane in PRIORITY_LANES {
-                if let Some(item) = self.try_receive_lane(lane) {
+                if allowed[lane_index(lane)]
+                    && let Some(item) = self.try_receive_lane(lane)
+                {
                     self.priority_deliveries += 1;
                     return Some(item);
                 }
@@ -159,7 +300,10 @@ impl<T> PriorityReceivers<T> {
 
         for offset in 0..PRIORITY_LANES.len() {
             let index = (self.fair_cursor + offset) % PRIORITY_LANES.len();
-            if let Some(item) = self.try_receive_lane(PRIORITY_LANES[index]) {
+            let lane = PRIORITY_LANES[index];
+            if allowed[lane_index(lane)]
+                && let Some(item) = self.try_receive_lane(lane)
+            {
                 self.fair_cursor = (index + 1) % PRIORITY_LANES.len();
                 self.priority_deliveries = 0;
                 return Some(item);
@@ -181,11 +325,20 @@ impl<T> PriorityReceivers<T> {
     }
 
     async fn receive(&mut self) -> Option<T> {
+        self.receive_from([true; 4]).await
+    }
+
+    async fn receive_from(&mut self, allowed: [bool; 4]) -> Option<T> {
         loop {
-            if let Some(item) = self.try_receive() {
+            if let Some(item) = self.try_receive_from(allowed) {
                 return Some(item);
             }
-            if self.receivers.iter().all(Option::is_none) {
+            if self
+                .receivers
+                .iter()
+                .enumerate()
+                .all(|(index, receiver)| !allowed[index] || receiver.is_none())
+            {
                 return None;
             }
 
@@ -194,10 +347,10 @@ impl<T> PriorityReceivers<T> {
                 let [interactive, control, bulk, tunnel] = &mut self.receivers;
                 tokio::select! {
                     biased;
-                    item = receive_or_pending(interactive) => (Lane::Interactive, item),
-                    item = receive_or_pending(control) => (Lane::Control, item),
-                    item = receive_or_pending(tunnel) => (Lane::Tunnel, item),
-                    item = receive_or_pending(bulk) => (Lane::Bulk, item),
+                    item = receive_or_pending(interactive, allowed[0]) => (Lane::Interactive, item),
+                    item = receive_or_pending(control, allowed[1]) => (Lane::Control, item),
+                    item = receive_or_pending(tunnel, allowed[3]) => (Lane::Tunnel, item),
+                    item = receive_or_pending(bulk, allowed[2]) => (Lane::Bulk, item),
                 }
             };
             let Some(item) = item else {
@@ -216,8 +369,12 @@ impl<T> PriorityReceivers<T> {
     }
 }
 
-async fn receive_or_pending<T>(receiver: &mut Option<mpsc::Receiver<T>>) -> Option<T> {
+async fn receive_or_pending<T>(
+    receiver: &mut Option<mpsc::Receiver<T>>,
+    allowed: bool,
+) -> Option<T> {
     match receiver {
+        _ if !allowed => pending().await,
         Some(receiver) => receiver.recv().await,
         None => pending().await,
     }
@@ -235,7 +392,8 @@ const fn lane_index(lane: Lane) -> usize {
 fn spawn_outbound_dispatcher(
     link: Arc<dyn FrameLink>,
     lanes: &BTreeSet<Lane>,
-) -> BTreeMap<Lane, OutboundSender> {
+    lifecycle: LinkLifecycle,
+) -> (BTreeMap<Lane, OutboundSender>, JoinHandle<()>) {
     let (interactive_tx, interactive_rx) = mpsc::channel(OUTBOUND_FRAMES_PER_LANE);
     let (control_tx, control_rx) = mpsc::channel(OUTBOUND_FRAMES_PER_LANE);
     let (bulk_tx, bulk_rx) = mpsc::channel(OUTBOUND_FRAMES_PER_LANE);
@@ -246,18 +404,39 @@ fn spawn_outbound_dispatcher(
         .map(|lane| (*lane, OutboundSender { frames: senders[lane_index(*lane)].clone() }))
         .collect();
     drop(senders);
-    tokio::spawn(async move {
+    let task = tokio::spawn(async move {
         let mut frames = PriorityReceivers::new([interactive_rx, control_rx, bulk_rx, tunnel_rx]);
-        while let Some(frame) = frames.receive().await {
-            let result = link.send(frame.encoded).await;
-            let failed = result.is_err();
-            let _ = frame.completion.send(result);
-            if failed {
-                break;
+        let mut terminal = lifecycle.subscribe();
+        loop {
+            let frame = tokio::select! {
+                biased;
+                _ = wait_for_terminal(&mut terminal) => return,
+                frame = frames.receive() => {
+                    let Some(frame) = frame else { return; };
+                    frame
+                }
+            };
+            let result = tokio::select! {
+                biased;
+                terminal = wait_for_terminal(&mut terminal) => {
+                    let _ = frame.completion.send(Err(terminal.error));
+                    return;
+                }
+                result = link.send(frame.encoded) => result,
+            };
+            match result {
+                Ok(()) => {
+                    let _ = frame.completion.send(Ok(()));
+                }
+                Err(error) => {
+                    let error = lifecycle.terminate(error);
+                    let _ = frame.completion.send(Err(error));
+                    return;
+                }
             }
         }
     });
-    routes
+    (routes, task)
 }
 
 /// Presents several independently authenticated physical links as one frame
@@ -269,6 +448,8 @@ pub struct LaneMuxLink {
     routes: BTreeMap<Lane, OutboundSender>,
     links: Vec<Arc<dyn FrameLink>>,
     incoming: Mutex<Ingress>,
+    lifecycle: LinkLifecycle,
+    tasks: StdMutex<Vec<JoinHandle<()>>>,
     closed: AtomicBool,
     #[cfg(test)]
     outbound_admitted: Arc<Semaphore>,
@@ -322,25 +503,41 @@ impl LaneMuxLink {
         let maximum =
             physical_routes.iter().map(|route| route.link.maximum_frame_bytes()).min().unwrap();
         let links = physical_routes.iter().map(|route| route.link.clone()).collect::<Vec<_>>();
+        let physical_count = links.len();
         let mut routes = BTreeMap::new();
         let (interactive_tx, interactive_rx) = IngressSender::channel();
         let (control_tx, control_rx) = IngressSender::channel();
         let (bulk_tx, bulk_rx) = IngressSender::channel();
         let (tunnel_tx, tunnel_rx) = IngressSender::channel();
         let ingress_senders = [interactive_tx, control_tx, bulk_tx, tunnel_tx];
-        let (errors_tx, errors) = mpsc::unbounded_channel();
-        for route in physical_routes {
+        let lifecycle = LinkLifecycle::new();
+        let mut tasks = Vec::with_capacity(physical_routes.len() * 2);
+        let mut physical_by_lane = [usize::MAX; 4];
+        for (physical, route) in physical_routes.into_iter().enumerate() {
             let allowed = route.lanes;
             let link = route.link;
-            routes.extend(spawn_outbound_dispatcher(link.clone(), &allowed));
+            for lane in &allowed {
+                physical_by_lane[lane_index(*lane)] = physical;
+            }
+            let (outbound, dispatcher) =
+                spawn_outbound_dispatcher(link.clone(), &allowed, lifecycle.clone());
+            routes.extend(outbound);
+            tasks.push(dispatcher);
             let lane_senders = allowed
                 .iter()
                 .map(|lane| (*lane, ingress_senders[lane_index(*lane)].clone()))
                 .collect::<BTreeMap<_, _>>();
-            let errors_tx = errors_tx.clone();
-            tokio::spawn(async move {
+            let reader_lifecycle = lifecycle.clone();
+            let reader = tokio::spawn(async move {
+                let mut terminal = reader_lifecycle.subscribe();
+                let mut admitted_ordinal = 0_u64;
                 loop {
-                    match link.receive().await {
+                    let received = tokio::select! {
+                        biased;
+                        _ = wait_for_terminal(&mut terminal) => return,
+                        received = link.receive() => received,
+                    };
+                    match received {
                         Ok(Some(encoded)) => {
                             let validity = WireFrame::decode(&encoded)
                                 .map_err(|error| LinkError::Protocol(error.to_string()))
@@ -356,35 +553,61 @@ impl LaneMuxLink {
                                 });
                             match validity {
                                 Ok(lane) => {
-                                    if lane_senders
+                                    let ordinal = admitted_ordinal
+                                        .checked_add(1)
+                                        .expect("physical ingress ordinal overflowed");
+                                    let admission = lane_senders
                                         .get(&lane)
                                         .expect("allowed lanes have ingress queues")
-                                        .send(encoded)
-                                        .await
-                                        .is_err()
-                                    {
-                                        break;
+                                        .send_admitted(encoded, physical, ordinal);
+                                    let result = tokio::select! {
+                                        biased;
+                                        _ = wait_for_terminal(&mut terminal) => return,
+                                        result = admission => result,
+                                    };
+                                    match result {
+                                        Ok(()) => admitted_ordinal = ordinal,
+                                        Err(error) => {
+                                            reader_lifecycle.terminate_after_ingress(
+                                                error,
+                                                physical,
+                                                admitted_ordinal,
+                                            );
+                                            return;
+                                        }
                                     }
                                 }
                                 Err(error) => {
-                                    let _ = errors_tx.send(error);
-                                    break;
+                                    reader_lifecycle.terminate_after_ingress(
+                                        error,
+                                        physical,
+                                        admitted_ordinal,
+                                    );
+                                    return;
                                 }
                             }
                         }
                         Ok(None) => {
-                            let _ = errors_tx.send(LinkError::Closed);
-                            break;
+                            reader_lifecycle.terminate_after_ingress(
+                                LinkError::Closed,
+                                physical,
+                                admitted_ordinal,
+                            );
+                            return;
                         }
                         Err(error) => {
-                            let _ = errors_tx.send(error);
-                            break;
+                            reader_lifecycle.terminate_after_ingress(
+                                error,
+                                physical,
+                                admitted_ordinal,
+                            );
+                            return;
                         }
                     }
                 }
             });
+            tasks.push(reader);
         }
-        drop(errors_tx);
         drop(ingress_senders);
         Ok(Self {
             description: description.into(),
@@ -393,12 +616,29 @@ impl LaneMuxLink {
             links,
             incoming: Mutex::new(Ingress {
                 frames: PriorityReceivers::new([interactive_rx, control_rx, bulk_rx, tunnel_rx]),
-                errors,
+                terminal: lifecycle.subscribe(),
+                physical_by_lane,
+                delivered_by_physical: vec![0; physical_count],
             }),
+            lifecycle,
+            tasks: StdMutex::new(tasks),
             closed: AtomicBool::new(false),
             #[cfg(test)]
             outbound_admitted: Arc::new(Semaphore::new(0)),
         })
+    }
+
+    fn take_tasks(&self) -> Vec<JoinHandle<()>> {
+        let mut tasks = self.tasks.lock().unwrap_or_else(|poisoned| poisoned.into_inner());
+        std::mem::take(&mut *tasks)
+    }
+
+    async fn abort_tasks(&self) {
+        let tasks = self.take_tasks();
+        for task in &tasks {
+            task.abort();
+        }
+        let _ = join_all(tasks).await;
     }
 }
 
@@ -413,6 +653,9 @@ impl FrameLink for LaneMuxLink {
     }
 
     async fn send(&self, frame: Bytes) -> Result<(), LinkError> {
+        if let Some(error) = self.lifecycle.error() {
+            return Err(error);
+        }
         if self.closed.load(Ordering::Acquire) {
             return Err(LinkError::Closed);
         }
@@ -422,10 +665,25 @@ impl FrameLink for LaneMuxLink {
         let decoded =
             WireFrame::decode(&frame).map_err(|error| LinkError::Protocol(error.to_string()))?;
         let route = self.routes.get(&decoded.lane).expect("all lanes checked at construction");
-        let completion = route.enqueue(frame).await?;
+        let mut terminal = self.lifecycle.subscribe();
+        let completion = tokio::select! {
+            biased;
+            terminal = wait_for_terminal(&mut terminal) => return Err(terminal.error),
+            result = route.enqueue(frame) => match result {
+                Ok(completion) => completion,
+                Err(error) => return Err(self.lifecycle.error().unwrap_or(error)),
+            },
+        };
         #[cfg(test)]
         self.outbound_admitted.add_permits(1);
-        completion.await.map_err(|_| LinkError::Closed)?
+        tokio::select! {
+            biased;
+            terminal = wait_for_terminal(&mut terminal) => Err(terminal.error),
+            result = completion => match result {
+                Ok(result) => result,
+                Err(_) => Err(self.lifecycle.error().unwrap_or(LinkError::Closed)),
+            },
+        }
     }
 
     async fn receive(&self) -> Result<Option<Bytes>, LinkError> {
@@ -436,11 +694,24 @@ impl FrameLink for LaneMuxLink {
         if self.closed.swap(true, Ordering::AcqRel) {
             return Ok(());
         }
+        self.lifecycle.terminate(LinkError::Closed);
+        self.abort_tasks().await;
+        self.incoming.lock().await.discard();
         let results = join_all(self.links.iter().map(|link| link.close())).await;
         for result in results {
             result?;
         }
         Ok(())
+    }
+}
+
+impl Drop for LaneMuxLink {
+    fn drop(&mut self) {
+        self.lifecycle.terminate(LinkError::Closed);
+        let tasks = self.tasks.get_mut().unwrap_or_else(|poisoned| poisoned.into_inner());
+        for task in tasks.drain(..) {
+            task.abort();
+        }
     }
 }
 
@@ -1081,16 +1352,18 @@ mod tests {
         let (_control_tx, control_rx) = IngressSender::channel();
         let (bulk_tx, bulk_rx) = IngressSender::channel();
         let (_tunnel_tx, tunnel_rx) = IngressSender::channel();
-        let (errors_tx, errors) = mpsc::unbounded_channel();
+        let lifecycle = LinkLifecycle::new();
         let mut ingress = Ingress {
             frames: PriorityReceivers::new([interactive_rx, control_rx, bulk_rx, tunnel_rx]),
-            errors,
+            terminal: lifecycle.subscribe(),
+            physical_by_lane: [0; 4],
+            delivered_by_physical: vec![0],
         };
         let bulk_frame = encoded_frame(Lane::Bulk, FRAME_BYTES - WIRE_HEADER_BYTES);
         for _ in 0..BUFFERED_FRAMES {
             bulk_tx.send(bulk_frame.clone()).await.unwrap();
         }
-        errors_tx.send(LinkError::Closed).unwrap();
+        lifecycle.terminate(LinkError::Closed);
 
         let result = tokio::time::timeout(Duration::from_secs(1), ingress.receive()).await.unwrap();
         assert!(matches!(result, Err(LinkError::Closed)));
