@@ -58,6 +58,9 @@ struct cmuxApp: App {
     /// hosted-browser sign-in flow). Constructed once at app launch and
     /// injected into AppDelegate and the auth-consuming services.
     private let authComposition: MacAuthComposition
+    /// Process-wide action-catalog process and read-limit ownership, injected
+    /// into AppDelegate so every production config store shares the same caps.
+    private let actionCatalogComposition: CmuxConfigActionCatalogComposition
     @StateObject private var tabManager: TabManager
     @StateObject private var notificationStore = TerminalNotificationStore.shared
     @StateObject var closedItemHistoryStore = ClosedItemHistoryStore.shared
@@ -126,6 +129,8 @@ struct cmuxApp: App {
         )
         let authComposition = MacAuthComposition()
         self.authComposition = authComposition
+        let actionCatalogComposition = CmuxConfigActionCatalogComposition()
+        self.actionCatalogComposition = actionCatalogComposition
 
         // If invoked with CLI-style arguments (e.g. `cmux hooks setup`), exec the
         // bundled CLI at Contents/Resources/bin/cmux. The GUI binary and the CLI
@@ -230,7 +235,8 @@ struct cmuxApp: App {
             notificationStore: notificationStore,
             sidebarState: sidebarState,
             settingsRuntime: settingsRuntime,
-            auth: authComposition
+            auth: authComposition,
+            actionCatalogComposition: actionCatalogComposition
         )
         StartupBreadcrumbLog.append("app.init.delegate.configured")
     }

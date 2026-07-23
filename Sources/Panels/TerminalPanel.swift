@@ -383,13 +383,7 @@ final class TerminalPanel: Panel, ObservableObject {
         guard !standardizedURLs.isEmpty else { return .invalidFiles }
         guard enqueuePendingTextBoxAttachments(standardizedURLs) else { return .queueFull }
 
-        textBoxInputFocusIntent = .textBox
-        isTextBoxActive = true
-        shouldFocusTextBoxWhenAvailable = true
-        shouldOpenTextBoxFilePickerWhenAvailable = false
-        shouldHideTextBoxOnNextEscape = false
-
-        _ = focusTextBoxIfNeeded()
+        _ = preferTextBoxInputWhenActivated()
         if let textBoxInputView, textBoxInputView.window != nil {
             return flushPendingTextBoxAttachmentsIfPossible(in: textBoxInputView)
                 ? .completed

@@ -146,6 +146,29 @@ enum ProUpgradePresenter {
         sourceWorkspaceID: UUID?,
         sourcePanelID: UUID?
     ) -> Bool {
+        presentDedicatedProWorkspace(
+            url: url,
+            title: String(localized: "pricing.pro.workspace.title", defaultValue: "cmux Pro"),
+            debugSource: "proUpgradePresenter",
+            workspaceIDKeyPath: \.proPricingWorkspaceId,
+            tabManager: tabManager,
+            sourceWindowID: sourceWindowID,
+            sourceWorkspaceID: sourceWorkspaceID,
+            sourcePanelID: sourcePanelID
+        )
+    }
+
+    @MainActor
+    static func presentDedicatedProWorkspace(
+        url: URL,
+        title: String,
+        debugSource: String,
+        workspaceIDKeyPath: ReferenceWritableKeyPath<AppDelegate.MainWindowContext, UUID?>,
+        tabManager: TabManager?,
+        sourceWindowID: UUID?,
+        sourceWorkspaceID: UUID?,
+        sourcePanelID: UUID?
+    ) -> Bool {
         guard let appDelegate = AppDelegate.shared else { return false }
         guard capturedSourceIsAvailable(
             appDelegate: appDelegate,
@@ -156,41 +179,37 @@ enum ProUpgradePresenter {
         ) else { return false }
         let reuseContext = appDelegate.proUpgradeWorkspaceReuseContext(
             tabManager: tabManager,
-            debugSource: "proUpgradePresenter.reuse"
+            debugSource: "\(debugSource).reuse"
         )
         let targetManager = reuseContext?.tabManager ?? tabManager
         if let reuseContext,
-           let workspaceId = reuseContext.reusableProPricingWorkspaceID(
-               exists: {
-                   appDelegate.proUpgradeWorkspaceExists(
-                       workspaceId: $0,
-                       tabManager: reuseContext.tabManager
-                   )
-               }
-           ) {
-            if appDelegate.focusProUpgradeWorkspace(
+           let workspaceId = reuseContext[keyPath: workspaceIDKeyPath] {
+            if appDelegate.proUpgradeWorkspaceExists(
+                workspaceId: workspaceId,
+                tabManager: reuseContext.tabManager
+            ),
+               appDelegate.focusProUpgradeWorkspace(
                 workspaceId: workspaceId,
                 url: url,
                 tabManager: reuseContext.tabManager
             ) {
                 return true
             }
-            reuseContext.proPricingWorkspaceId = nil
+            reuseContext[keyPath: workspaceIDKeyPath] = nil
         }
 
-        let title = String(localized: "pricing.pro.workspace.title", defaultValue: "cmux Pro")
         guard let workspace = appDelegate.performProUpgradeWorkspaceAction(
             title: title,
             url: url,
             tabManager: targetManager,
             sourceWorkspaceID: sourceWorkspaceID,
-            debugSource: "proUpgradePresenter"
+            debugSource: debugSource
         ) else {
             return false
         }
         if let ownerManager = workspace.owningTabManager,
            let ownerContext = appDelegate.mainWindowContext(for: ownerManager) {
-            ownerContext.proPricingWorkspaceId = workspace.id
+            ownerContext[keyPath: workspaceIDKeyPath] = workspace.id
         }
         return true
     }

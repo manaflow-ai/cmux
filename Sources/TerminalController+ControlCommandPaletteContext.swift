@@ -87,12 +87,15 @@ extension TerminalController: ControlCommandPaletteContext, ControlInlineVSCodeC
             guard case .listed(let listedTarget, let commands) = result else {
                 return .windowNotFound
             }
+            guard let configSnapshotID = listedTarget.configSnapshotID else {
+                return .configurationPending
+            }
             return .listed(
                 target: ControlCommandPaletteTarget(
                     windowID: listedTarget.windowID,
                     workspaceID: listedTarget.workspaceID,
                     panelID: listedTarget.panelID,
-                    configSnapshotID: listedTarget.configSnapshotID
+                    configSnapshotID: configSnapshotID
                 ),
                 commands: commands.map(controlCommandPaletteItem)
             )
@@ -193,16 +196,14 @@ extension TerminalController: ControlCommandPaletteContext, ControlInlineVSCodeC
         guard controlPaletteSelectorsBelongToTarget(routing, tabManager: tabManager) else {
             return .workspaceNotFound
         }
-        guard let workspace = controlInlineVSCodeWorkspace(routing: routing, tabManager: tabManager) else {
-            return .workspaceNotFound
-        }
         guard TerminalDirectoryOpenTarget.vscodeInline.isAvailable() else {
             return .vscodeUnavailable
         }
-        guard let windowID = AppDelegate.shared?.windowId(for: tabManager)
-                ?? v2ResolveWindowId(tabManager: tabManager) else {
+        guard let appDelegate = AppDelegate.shared,
+              let context = appDelegate.mainWindowContext(for: tabManager) else {
             return .tabManagerUnavailable
         }
+        let windowID = context.windowId
         guard let actionTarget = controlCommandPaletteActionTarget(
             routing: routing,
             tabManager: tabManager,
@@ -210,18 +211,24 @@ extension TerminalController: ControlCommandPaletteContext, ControlInlineVSCodeC
         ) else {
             return .workspaceNotFound
         }
-        guard AppDelegate.shared?.openDirectoryInInlineVSCode(
+        // Resolve without creating. The AppDelegate launch path creates a
+        // fallback workspace only after every synchronous prerequisite passes.
+        let workspace = controlInlineVSCodeWorkspace(
+            routing: routing,
+            tabManager: tabManager
+        )
+        guard let queuedWorkspaceID = appDelegate.openDirectoryInInlineVSCodeWorkspaceID(
             URL(fileURLWithPath: directoryPath, isDirectory: true),
             tabManager: tabManager,
             windowID: windowID,
-            workspaceID: workspace.id,
+            workspaceID: workspace?.id,
             panelID: actionTarget.panelID
-        ) == true else {
+        ) else {
             return .openFailed
         }
         return .accepted(
             windowID: windowID,
-            workspaceID: workspace.id
+            workspaceID: queuedWorkspaceID
         )
     }
 
@@ -268,9 +275,6 @@ extension TerminalController: ControlCommandPaletteContext, ControlInlineVSCodeC
             return .windowNotFound
         }
         guard let handler = context.commandPaletteControlHandler else {
-            return .targetUnavailable
-        }
-        guard target.configSnapshotID != nil else {
             return .targetUnavailable
         }
 
@@ -616,7 +620,8 @@ extension TerminalController: ControlCommandPaletteContext, ControlInlineVSCodeC
         )
     }
 
-    /// Resolves the main-area workspace used when a palette action needs one.
+    /// Resolves an existing main-area workspace used by a palette action.
+    /// Workspace creation belongs to the fully validated execution boundary.
     /// A terminal in a window Dock exports its Dock owner (the window id) as
     /// `workspace_id`, so that route inherits the owning window's selection.
     func controlInlineVSCodeWorkspace(
@@ -663,7 +668,7 @@ extension TerminalController: ControlCommandPaletteContext, ControlInlineVSCodeC
         if let first = tabManager.tabs.first {
             return first
         }
-        return tabManager.addWorkspace(select: true)
+        return nil
     }
 
     /// Resolves both real workspace ids and the two window-Dock routing forms.

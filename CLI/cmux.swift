@@ -35384,14 +35384,14 @@ private enum CMUXCLIOutput {
 @main
 struct CMUXTermMain {
     static func main() {
+        let initialSIGPIPEInspectionPayload = CMUXCLI.currentSIGPIPEInspectionPayload()
+        _ = signal(SIGPIPE, SIG_DFL)
+        configureCLIStdioNoSIGPIPE()
         if let exitCode = CMUXActionCatalogReadHelper().runIfRequested(
             arguments: CommandLine.arguments
         ) {
             exit(exitCode)
         }
-        let initialSIGPIPEInspectionPayload = CMUXCLI.currentSIGPIPEInspectionPayload()
-        _ = signal(SIGPIPE, SIG_DFL)
-        configureCLIStdioNoSIGPIPE()
         let cli = CMUXCLI(
             args: CommandLine.arguments,
             initialSIGPIPEInspectionPayload: initialSIGPIPEInspectionPayload

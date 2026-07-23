@@ -594,6 +594,7 @@ C0DE71B10000000000000001 /* AppDelegate+AgentChatNotifications.swift in Sources 
 		5E55500000000000000000E4 /* CmuxCommandPalette in Frameworks */ = {isa = PBXBuildFile; productRef = 5E55500000000000000000E2 /* CmuxCommandPalette */; };
 		A5001650 /* CmuxConfig.swift in Sources */ = {isa = PBXBuildFile; fileRef = A5001651 /* CmuxConfig.swift */; };
 		C0ACCB700000000000000027 /* CmuxConfigActionCatalog.swift in Sources */ = {isa = PBXBuildFile; fileRef = C0ACCB700000000000000028 /* CmuxConfigActionCatalog.swift */; };
+		C0ACCC700000000000000001 /* CmuxConfigActionCatalogComposition.swift in Sources */ = {isa = PBXBuildFile; fileRef = C0ACCC700000000000000002 /* CmuxConfigActionCatalogComposition.swift */; };
 		E8639D000000000000000001 /* CmuxConfigActionCatalogDirectoryIndex.swift in Sources */ = {isa = PBXBuildFile; fileRef = E8639D000000000000000002 /* CmuxConfigActionCatalogDirectoryIndex.swift */; };
 		E8639D000000000000000003 /* CmuxConfigActionCatalogDirectoryIndexMutation.swift in Sources */ = {isa = PBXBuildFile; fileRef = E8639D000000000000000004 /* CmuxConfigActionCatalogDirectoryIndexMutation.swift */; };
 		E8639D000000000000000009 /* CmuxConfigActionCatalogDirectoryIndexTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = E8639D00000000000000000A /* CmuxConfigActionCatalogDirectoryIndexTests.swift */; };
@@ -2926,6 +2927,7 @@ C0DE71B10000000000000002 /* AppDelegate+AgentChatNotifications.swift */ = {isa =
 		C0DE64950000000000000004 /* CMUXCLITestAssertions.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CMUXCLITestAssertions.swift; sourceTree = "<group>"; };
 		A5001651 /* CmuxConfig.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CmuxConfig.swift; sourceTree = "<group>"; };
 		C0ACCB700000000000000028 /* CmuxConfigActionCatalog.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CmuxConfigActionCatalog.swift; sourceTree = "<group>"; };
+		C0ACCC700000000000000002 /* CmuxConfigActionCatalogComposition.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CmuxConfigActionCatalogComposition.swift; sourceTree = "<group>"; };
 		E8639D000000000000000002 /* CmuxConfigActionCatalogDirectoryIndex.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CmuxConfigActionCatalogDirectoryIndex.swift; sourceTree = "<group>"; };
 		E8639D000000000000000004 /* CmuxConfigActionCatalogDirectoryIndexMutation.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CmuxConfigActionCatalogDirectoryIndexMutation.swift; sourceTree = "<group>"; };
 		E8639D00000000000000000A /* CmuxConfigActionCatalogDirectoryIndexTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CmuxConfigActionCatalogDirectoryIndexTests.swift; sourceTree = "<group>"; };
@@ -6078,6 +6080,7 @@ C0DE71B10000000000000002 /* AppDelegate+AgentChatNotifications.swift */ = {isa =
 				C0DE43000000000000000002 /* CmuxAgentChatConfig.swift */,
 				A5001651 /* CmuxConfig.swift */,
 				C0ACCB700000000000000028 /* CmuxConfigActionCatalog.swift */,
+				C0ACCC700000000000000002 /* CmuxConfigActionCatalogComposition.swift */,
 				E8639D000000000000000002 /* CmuxConfigActionCatalogDirectoryIndex.swift */,
 				E8639D000000000000000004 /* CmuxConfigActionCatalogDirectoryIndexMutation.swift */,
 				E8639D000000000000000006 /* CmuxConfigActionCatalogDirectorySource.swift */,
@@ -7734,6 +7737,7 @@ C0DE71B10000000000000002 /* AppDelegate+AgentChatNotifications.swift */ = {isa =
 				A72C9F4179B54DF38E99A021 /* CmuxCLIPathInstaller.swift in Sources */,
 				A5001650 /* CmuxConfig.swift in Sources */,
 				C0ACCB700000000000000027 /* CmuxConfigActionCatalog.swift in Sources */,
+				C0ACCC700000000000000001 /* CmuxConfigActionCatalogComposition.swift in Sources */,
 				E8639D000000000000000001 /* CmuxConfigActionCatalogDirectoryIndex.swift in Sources */,
 				E8639D000000000000000003 /* CmuxConfigActionCatalogDirectoryIndexMutation.swift in Sources */,
 				E8639D000000000000000005 /* CmuxConfigActionCatalogDirectorySource.swift in Sources */,

@@ -12,11 +12,20 @@ extension ControlCommandCoordinator {
         _ request: ControlRequest,
         deadline: Date?
     ) async -> ControlCallResult? {
+        guard let commandPaletteContext else { return nil }
         switch request.method {
         case "palette.list":
-            return await commandPaletteList(request.params, deadline: deadline)
+            return await commandPaletteList(
+                request.params,
+                context: commandPaletteContext,
+                deadline: deadline
+            )
         case "palette.run":
-            return await commandPaletteRun(request.params, deadline: deadline)
+            return await commandPaletteRun(
+                request.params,
+                context: commandPaletteContext,
+                deadline: deadline
+            )
         default:
             return nil
         }
@@ -25,13 +34,14 @@ extension ControlCommandCoordinator {
     /// `palette.list` — list the exact live actions exposed by Cmd+Shift+P.
     func commandPaletteList(
         _ params: [String: JSONValue],
+        context: any ControlCommandPaletteContext,
         deadline: Date?
     ) async -> ControlCallResult {
-        let strings = commandPaletteStrings
-        let resolution = await commandPaletteContext?.controlCommandPaletteList(
+        let strings = context.controlCommandPaletteStrings()
+        let resolution = await context.controlCommandPaletteList(
             routing: routingSelectors(params),
             deadline: deadline
-        ) ?? .windowNotFound
+        )
         switch resolution {
         case .windowNotFound:
             return .err(
@@ -46,13 +56,6 @@ extension ControlCommandCoordinator {
                 data: nil
             )
         case .listed(let target, let commands):
-            guard target.configSnapshotID != nil else {
-                return .err(
-                    code: "configuration_pending",
-                    message: strings.configurationPending,
-                    data: nil
-                )
-            }
             return .ok(.object([
                 // Keep the original flat fields so existing clients can feed
                 // them back as ordinary routing selectors. New clients should
@@ -73,9 +76,10 @@ extension ControlCommandCoordinator {
     /// `palette.run` — invoke the live handler for one stable action id.
     func commandPaletteRun(
         _ params: [String: JSONValue],
+        context: any ControlCommandPaletteContext,
         deadline: Date?
     ) async -> ControlCallResult {
-        let strings = commandPaletteStrings
+        let strings = context.controlCommandPaletteStrings()
         guard let commandID = string(params, "command_id") else {
             return .err(
                 code: "invalid_params",
@@ -123,21 +127,21 @@ extension ControlCommandCoordinator {
         }
         let resolution: ControlCommandPaletteRunResolution
         if let target {
-            resolution = await commandPaletteContext?.controlCommandPaletteRun(
+            resolution = await context.controlCommandPaletteRun(
                 target: target,
                 commandID: commandID,
                 arguments: arguments,
                 workingDirectory: rawString(params, "cwd"),
                 deadline: deadline
-            ) ?? .windowNotFound
+            )
         } else {
-            resolution = await commandPaletteContext?.controlCommandPaletteRun(
+            resolution = await context.controlCommandPaletteRun(
                 routing: routingSelectors(params),
                 commandID: commandID,
                 arguments: arguments,
                 workingDirectory: rawString(params, "cwd"),
                 deadline: deadline
-            ) ?? .windowNotFound
+            )
         }
         switch resolution {
         case .windowNotFound:
@@ -248,22 +252,6 @@ extension ControlCommandCoordinator {
         }
     }
 
-    /// Uses app-resolved strings in production and stable English fallbacks
-    /// when a partial test context omits the palette domain.
-    private var commandPaletteStrings: ControlCommandPaletteStrings {
-        commandPaletteContext?.controlCommandPaletteStrings() ?? ControlCommandPaletteStrings(
-            windowNotFound: "Command palette window not found",
-            targetUnavailable: "The command palette target is no longer available",
-            missingCommandID: "Missing 'command_id' parameter",
-            invalidTarget: "Invalid command palette target",
-            argumentsMustBeStringObject: "'arguments' must be an object of string values",
-            commandNotFound: "Command palette action not found in the current context",
-            missingArgumentsFormat: "Missing required action arguments: %@",
-            unknownArgumentsFormat: "Unknown action arguments: %@",
-            invalidArgumentValuesFormat: "Invalid values for action arguments: %@"
-        )
-    }
-
     /// Encodes one action description for both list and run responses.
     private func commandPalettePayload(_ command: ControlCommandPaletteItem) -> JSONValue {
         .object([
@@ -307,15 +295,12 @@ extension ControlCommandCoordinator {
     /// Encodes the exact target identity returned by `palette.list` and
     /// accepted by `palette.run`.
     private func commandPaletteTargetPayload(_ target: ControlCommandPaletteTarget) -> JSONValue {
-        var payload: [String: JSONValue] = [
+        .object([
             "window_id": .string(target.windowID.uuidString),
             "workspace_id": target.workspaceID.map { .string($0.uuidString) } ?? .null,
             "panel_id": target.panelID.map { .string($0.uuidString) } ?? .null,
-        ]
-        if let configSnapshotID = target.configSnapshotID {
-            payload["config_snapshot_id"] = .string(configSnapshotID.uuidString)
-        }
-        return .object(payload)
+            "config_snapshot_id": .string(target.configSnapshotID.uuidString),
+        ])
     }
 
     /// Parses an immutable target returned by `palette.list`. Its presence is

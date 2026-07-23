@@ -421,6 +421,28 @@ extension BrowserPanel {
             var desiredActive = true;
             var desiredRequestGeneration = \(requestGenerationLiteral);
             var pendingStateTransitions = [];
+            var publishVerifiedState = function() {
+                if (!apiReference || typeof apiReference.isActive !== 'function' || !handler) return false;
+                var actualActive = !!apiReference.isActive();
+                if (actualActive !== desiredActive) return false;
+                try {
+                    handler.postMessage({
+                        type: 'stateChange',
+                        isActive: actualActive,
+                        requestGeneration: desiredRequestGeneration
+                    });
+                } catch (_) {
+                    return false;
+                }
+                for (var i = pendingStateTransitions.length - 1; i >= 0; i--) {
+                    if (pendingStateTransitions[i].active === actualActive &&
+                        pendingStateTransitions[i].requestGeneration === desiredRequestGeneration) {
+                        pendingStateTransitions.splice(i, 1);
+                        break;
+                    }
+                }
+                return true;
+            };
             var applyDesiredState = function() {
                 if (!apiReference) return true;
                 pendingStateTransitions.push({
@@ -432,7 +454,7 @@ extension BrowserPanel {
                 }
                 if (desiredActive) apiReference.activate();
                 else apiReference.deactivate();
-                return true;
+                return publishVerifiedState();
             };
             var updateDesiredState = function(active, requestGeneration) {
                 desiredActive = !!active;
@@ -508,12 +530,17 @@ extension BrowserPanel {
             return true;
         })();
         \(scriptSource)
+        (function() {
+            var activationUpdaterName = '\(activationUpdaterName)';
+            if (typeof window[activationUpdaterName] !== 'function') return false;
+            return !!\(fallbackActivationUpdaterInvocation);
+        })();
         """
         #if DEBUG
         cmuxDebugLog("reactGrab.inject.evalJS len=\(combined.count)")
         #endif
         do {
-            _ = try await evaluateJavaScript(combined)
+            let result = try await evaluateJavaScript(combined)
             guard !Task.isCancelled, !isClosingWebViewLifecycle else { return false }
             #if DEBUG
             cmuxDebugLog("reactGrab.inject.evalJS.done error=none")
@@ -521,7 +548,7 @@ extension BrowserPanel {
             #if DEBUG
             cmuxDebugLog("reactGrab.inject.end")
             #endif
-            return true
+            return (result as? Bool) ?? (result as? NSNumber)?.boolValue ?? false
         } catch {
             #if DEBUG
             cmuxDebugLog("reactGrab.inject.evalJS.done error=\(error.localizedDescription)")
@@ -651,12 +678,13 @@ extension BrowserPanel {
             return false
         }
 
-        // The bridge callback may have arrived synchronously during script
-        // evaluation. Otherwise this preserves the requested intent until the
-        // authoritative state callback or the bounded timeout.
-        if isReactGrabActive == active {
-            confirmation.receive(active)
-        }
+        // Each accepted script result has already checked the API state for
+        // this generation. Feed that verified state through the same path as a
+        // bridge callback so a delayed WebKit message cannot strand the task.
+        handleReactGrabBridgeMessage(.stateChange(
+            isActive: active,
+            requestGeneration: requestGeneration
+        ))
         let confirmed = await confirmation.wait()
         if reactGrabStateConfirmation === confirmation {
             reactGrabStateConfirmation = nil
@@ -680,17 +708,34 @@ extension BrowserPanel {
                 active: false,
                 requestGeneration: requestGeneration
             )
+            let generationLiteral = reactGrabRequestGenerationJavaScriptLiteral(requestGeneration)
             let result = try await evaluateJavaScript(
                 """
                 (function() {
+                    var handler = window.webkit && window.webkit.messageHandlers && window.webkit.messageHandlers.\(reactGrabMessageHandlerName);
+                    var requestGeneration = \(generationLiteral);
+                    var publishVerifiedState = function(actualActive) {
+                        if (actualActive !== false || !handler) return false;
+                        try {
+                            handler.postMessage({
+                                type: 'stateChange',
+                                isActive: false,
+                                requestGeneration: requestGeneration
+                            });
+                            return true;
+                        } catch (_) {
+                            return false;
+                        }
+                    };
                     var updateDesiredState = window['\(updaterName)'];
                     if (typeof updateDesiredState === 'function') {
                         return !!\(deactivationUpdaterInvocation);
                     }
                     var api = window.__REACT_GRAB__;
-                    if (!api) return true;
+                    if (!api) return publishVerifiedState(false);
+                    if (typeof api.deactivate !== 'function' || typeof api.isActive !== 'function') return false;
                     api.deactivate();
-                    return true;
+                    return publishVerifiedState(!!api.isActive());
                 })();
                 """
             )

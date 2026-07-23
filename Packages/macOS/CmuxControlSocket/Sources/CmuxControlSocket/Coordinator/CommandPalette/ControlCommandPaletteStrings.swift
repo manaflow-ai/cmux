@@ -37,8 +37,8 @@ public struct ControlCommandPaletteStrings: Sendable, Equatable {
         missingArgumentsFormat: String,
         unknownArgumentsFormat: String,
         invalidArgumentValuesFormat: String,
-        configurationPending: String = "The command palette configuration is still loading; retry the command.",
-        configurationChanged: String = "Command palette configuration changed; run palette list again."
+        configurationPending: String,
+        configurationChanged: String
     ) {
         self.windowNotFound = windowNotFound
         self.targetUnavailable = targetUnavailable

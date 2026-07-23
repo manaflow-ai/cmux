@@ -1884,15 +1884,18 @@ final class CmuxConfigStore: ObservableObject {
         globalConfigPath: String = CmuxConfigStore.defaultGlobalConfigPath(),
         localConfigPath: String? = nil,
         startFileWatchers: Bool = false,
-        actionCatalogRawReader: any CmuxConfigActionCatalogRawReading =
-            CmuxConfigActionCatalogProcessReader.shared,
-        actionCatalogReadCoordinator: CmuxConfigActionCatalogReadCoordinator = .shared
+        actionCatalogComposition: CmuxConfigActionCatalogComposition =
+            CmuxConfigActionCatalogComposition(),
+        actionCatalogRawReader: (any CmuxConfigActionCatalogRawReading)? = nil,
+        actionCatalogReadCoordinator: CmuxConfigActionCatalogReadCoordinator? = nil
     ) {
         self.globalConfigPath = globalConfigPath
         self.localConfigPath = localConfigPath
         self.fileWatchingEnabled = startFileWatchers
-        self.actionCatalogRawReader = actionCatalogRawReader
-        self.actionCatalogReadCoordinator = actionCatalogReadCoordinator
+        self.actionCatalogRawReader =
+            actionCatalogRawReader ?? actionCatalogComposition.rawReader
+        self.actionCatalogReadCoordinator =
+            actionCatalogReadCoordinator ?? actionCatalogComposition.readCoordinator
         self.localConfigSearchDirectory = localConfigPath.map(Self.searchDirectoryForLocalConfigPath(_:))
         NotificationCenter.default.publisher(for: CmuxActionTrust.didChangeNotification)
             .receive(on: DispatchQueue.main)

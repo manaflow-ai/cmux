@@ -115,53 +115,19 @@ extension ProUpgradePresenter {
         sourceWorkspaceID: UUID?,
         sourcePanelID: UUID?
     ) -> Bool {
-        guard let appDelegate = AppDelegate.shared else { return false }
-        guard capturedSourceIsAvailable(
-            appDelegate: appDelegate,
+        presentDedicatedProWorkspace(
+            url: url,
+            title: String(
+                localized: "proWelcome.workspace.title",
+                defaultValue: "Welcome to cmux Pro"
+            ),
+            debugSource: "proWelcomeChecklist",
+            workspaceIDKeyPath: \.proWelcomeWorkspaceId,
             tabManager: tabManager,
             sourceWindowID: sourceWindowID,
             sourceWorkspaceID: sourceWorkspaceID,
             sourcePanelID: sourcePanelID
-        ) else { return false }
-        let reuseContext = appDelegate.proUpgradeWorkspaceReuseContext(
-            tabManager: tabManager,
-            debugSource: "proWelcomeChecklist.reuse"
         )
-        let targetManager = reuseContext?.tabManager ?? tabManager
-        if let reuseContext,
-           let workspaceId = reuseContext.reusableProWelcomeWorkspaceID(
-               exists: {
-                   appDelegate.proUpgradeWorkspaceExists(
-                       workspaceId: $0,
-                       tabManager: reuseContext.tabManager
-                   )
-               }
-           ) {
-            if appDelegate.focusProUpgradeWorkspace(
-                workspaceId: workspaceId,
-                url: url,
-                tabManager: reuseContext.tabManager
-            ) {
-                return true
-            }
-            reuseContext.proWelcomeWorkspaceId = nil
-        }
-
-        let title = String(localized: "proWelcome.workspace.title", defaultValue: "Welcome to cmux Pro")
-        guard let workspace = appDelegate.performProUpgradeWorkspaceAction(
-            title: title,
-            url: url,
-            tabManager: targetManager,
-            sourceWorkspaceID: sourceWorkspaceID,
-            debugSource: "proWelcomeChecklist"
-        ) else {
-            return false
-        }
-        if let ownerManager = workspace.owningTabManager,
-           let ownerContext = appDelegate.mainWindowContext(for: ownerManager) {
-            ownerContext.proWelcomeWorkspaceId = workspace.id
-        }
-        return true
     }
 
     /// Builds an app web URL (pricing or Pro welcome) decorated with the current

@@ -42,9 +42,11 @@ extension TabManager {
             closeWorkspace(workspace, recordHistory: recordHistory)
             return !tabs.contains(where: { $0.id == workspace.id })
         }
-        guard let appDelegate = AppDelegate.shared,
-              let windowId = appDelegate.windowId(for: self),
-              appDelegate.mainWindow(for: windowId) != nil else { return false }
+        guard let windowCloseTarget = nonInteractiveWindowCloseTarget() else {
+            return false
+        }
+        let appDelegate = windowCloseTarget.appDelegate
+        let windowId = windowCloseTarget.windowID
         if workspace.isRemoteTmuxMirror {
             appDelegate.remoteTmuxController.detachMirrorWorkspaceKeptOpenLocally(workspaceId: workspace.id)
         }
@@ -75,7 +77,13 @@ extension TabManager {
         guard !requestedIDs.isEmpty else { return false }
         let orderedWorkspaces = tabs.filter { requestedIDs.contains($0.id) }
         guard orderedWorkspaces.count == requestedIDs.count,
-              allowPinned || orderedWorkspaces.allSatisfy({ !$0.isPinned }) else {
+              orderedWorkspaces.allSatisfy({
+                  canCloseWorkspace($0, allowPinned: allowPinned)
+              }) else {
+            return false
+        }
+        if orderedWorkspaces.count == tabs.count,
+           nonInteractiveWindowCloseTarget() == nil {
             return false
         }
         for workspace in orderedWorkspaces {
@@ -87,5 +95,17 @@ extension TabManager {
             }
         }
         return true
+    }
+
+    private func nonInteractiveWindowCloseTarget() -> (
+        appDelegate: AppDelegate,
+        windowID: UUID
+    )? {
+        guard let appDelegate = AppDelegate.shared,
+              let windowID = appDelegate.windowId(for: self),
+              appDelegate.mainWindow(for: windowID) != nil else {
+            return nil
+        }
+        return (appDelegate, windowID)
     }
 }

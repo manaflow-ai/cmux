@@ -1,27 +1,18 @@
 import Foundation
 
 actor CmuxConfigActionCatalogProcessQuarantine {
-    static let shared = CmuxConfigActionCatalogProcessQuarantine(
-        generalCapacity: 4,
-        globalCapacity: 2
-    )
-
     private let generalCapacity: Int
     private let globalCapacity: Int
-    private let recordsReleaseAttempts: Bool
     private var entries: [UUID: CmuxConfigActionCatalogProcessQuarantineEntry] = [:]
-    private var releaseAttemptCounts: [UUID: Int] = [:]
 
     init(
-        generalCapacity: Int,
-        globalCapacity: Int,
-        recordsReleaseAttempts: Bool = false
+        generalCapacity: Int = 4,
+        globalCapacity: Int = 2
     ) {
         precondition(generalCapacity > 0)
         precondition(globalCapacity > 0)
         self.generalCapacity = generalCapacity
         self.globalCapacity = globalCapacity
-        self.recordsReleaseAttempts = recordsReleaseAttempts
     }
 
     func reserve(
@@ -63,17 +54,8 @@ actor CmuxConfigActionCatalogProcessQuarantine {
     }
 
     func release(_ lease: CmuxConfigActionCatalogProcessQuarantineLease) {
-        if recordsReleaseAttempts {
-            releaseAttemptCounts[lease.id, default: 0] += 1
-        }
         let removed = entries.removeValue(forKey: lease.id)
         assert(removed != nil, "action catalog quarantine lease released more than once")
-    }
-
-    func releaseAttemptCount(
-        for lease: CmuxConfigActionCatalogProcessQuarantineLease
-    ) -> Int {
-        releaseAttemptCounts[lease.id, default: 0]
     }
 
     func state() -> CmuxConfigActionCatalogProcessQuarantineState {

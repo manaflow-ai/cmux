@@ -48,9 +48,10 @@ public final class FocusedNotificationMarker {
     init(
         resolver: any FocusedNotificationResolving,
         jumpToLatestUnread: @escaping (_ excludingNotificationId: UUID?, _ excludingWorkspaceId: UUID?) -> UUID?,
-        jumpToLatestUnreadWithOutcome: @escaping
-            (_ excludingNotificationId: UUID?, _ excludingWorkspaceId: UUID?) ->
-            (openedNotificationId: UUID?, didOpen: Bool)
+        jumpToLatestUnreadWithOutcome: @escaping (
+            _ excludingNotificationId: UUID?,
+            _ excludingWorkspaceId: UUID?
+        ) -> (openedNotificationId: UUID?, didOpen: Bool)
     ) {
         self.resolver = resolver
         self.jumpToLatestUnread = jumpToLatestUnread
@@ -133,7 +134,7 @@ public final class FocusedNotificationMarker {
         panel: FocusedPanel?
     ) -> Bool {
         let state = notificationUnreadState(target: target, panel: panel)
-        return setNotificationUnread(
+        return setExactNotificationUnread(
             target: target,
             panel: panel,
             unread: !state.isUnread,
@@ -204,34 +205,6 @@ public final class FocusedNotificationMarker {
         }
         if state.clearsWorkspaceManualUnread {
             resolver.storeClearManualUnread(forTabId: target.tabId)
-        }
-        return true
-    }
-
-    private func setNotificationUnread(
-        target: FocusedNotificationTarget,
-        panel: FocusedPanel?,
-        unread: Bool,
-        state: UnreadState
-    ) -> Bool {
-        guard state.isUnread != unread else { return false }
-        if let panel {
-            if unread {
-                resolver.markPanelUnread(panel)
-            } else if state.readsWorkspace {
-                resolver.storeMarkRead(forTabId: target.tabId)
-            } else {
-                resolver.markPanelRead(panel)
-                if state.clearsWorkspaceManualUnread {
-                    resolver.storeClearManualUnread(forTabId: target.tabId)
-                }
-            }
-            return true
-        }
-        if unread {
-            resolver.storeMarkUnread(forTabId: target.tabId)
-        } else {
-            resolver.storeMarkRead(forTabId: target.tabId)
         }
         return true
     }

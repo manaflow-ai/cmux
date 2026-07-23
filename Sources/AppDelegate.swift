@@ -822,6 +822,10 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
     /// `ContentView` environment so `@LiveSetting` can resolve the stores it
     /// observes inside the sidebar.
     var settingsRuntime: SettingsRuntime?
+    /// Injected by `cmuxApp` before production windows are created. Direct
+    /// AppDelegate construction gets a per-instance graph for isolated tests.
+    private lazy var actionCatalogComposition =
+        CmuxConfigActionCatalogComposition()
     weak var fileExplorerState: FileExplorerState?
     weak var fullscreenControlsViewModel: TitlebarControlsViewModel?
     weak var sidebarSelectionState: SidebarSelectionState?
@@ -2068,7 +2072,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
         notificationStore: TerminalNotificationStore,
         sidebarState: SidebarState,
         settingsRuntime: SettingsRuntime,
-        auth: MacAuthComposition
+        auth: MacAuthComposition,
+        actionCatalogComposition: CmuxConfigActionCatalogComposition
     ) {
         self.tabManager = tabManager
         // SwiftUI constructs the initial TabManager before this delegate is
@@ -2078,6 +2083,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
         self.notificationStore = notificationStore
         self.sidebarState = sidebarState
         self.auth = auth
+        self.actionCatalogComposition = actionCatalogComposition
         VMClient.bootstrap(auth: auth.coordinator)
         RemotesClient.bootstrap(auth: auth.coordinator)
         AIAccountsClient.bootstrap(auth: auth.coordinator)
@@ -8346,45 +8352,66 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
         workspaceID preferredWorkspaceID: UUID? = nil,
         panelID preferredPanelID: UUID? = nil
     ) -> Bool {
+        openDirectoryInInlineVSCodeWorkspaceID(
+            directoryURL,
+            tabManager: preferredTabManager,
+            windowID: preferredWindowID,
+            workspaceID: preferredWorkspaceID,
+            panelID: preferredPanelID
+        ) != nil
+    }
+
+    /// Validates the complete synchronous launch target before creating a
+    /// fallback workspace, then returns the workspace whose launch was queued.
+    @discardableResult
+    func openDirectoryInInlineVSCodeWorkspaceID(
+        _ directoryURL: URL,
+        tabManager preferredTabManager: TabManager? = nil,
+        windowID preferredWindowID: UUID? = nil,
+        workspaceID preferredWorkspaceID: UUID? = nil,
+        panelID preferredPanelID: UUID? = nil
+    ) -> UUID? {
         guard let vscodeApplicationURL = TerminalDirectoryOpenTarget.vscodeInline.applicationURL() else {
-            return false
+            return nil
         }
 
         let targetContext: MainWindowContext
         if let preferredTabManager {
             guard let context = liveMainWindowContextForAction(tabManager: preferredTabManager),
                   preferredWindowID.map({ $0 == context.windowId }) ?? true else {
-                return false
+                return nil
             }
             targetContext = context
         } else {
             guard let context = preferredMainWindowContextForWorkspaceCreation(
                 debugSource: "inlineVSCode.open.target"
             ), preferredWindowID.map({ $0 == context.windowId }) ?? true else {
-                return false
+                return nil
             }
             targetContext = context
         }
         let targetTabs = targetContext.tabManager
         let targetWindowID = preferredWindowID ?? targetContext.windowId
         guard liveMainWindowContextForAction(tabManager: targetTabs)?.windowId == targetWindowID else {
-            return false
+            return nil
         }
 
-        let targetWorkspace: Workspace
+        let existingWorkspace: Workspace?
         if let preferredWorkspaceID {
             guard let workspace = targetTabs.tabs.first(where: { $0.id == preferredWorkspaceID }) else {
-                return false
+                return nil
             }
-            targetWorkspace = workspace
+            existingWorkspace = workspace
         } else {
-            targetWorkspace = targetTabs.selectedWorkspace
-                ?? targetTabs.tabs.first
-                ?? targetTabs.addWorkspace(select: true)
+            existingWorkspace = targetTabs.selectedWorkspace ?? targetTabs.tabs.first
         }
-        if let preferredPanelID, targetWorkspace.panels[preferredPanelID] == nil {
-            return false
+        if let preferredPanelID, existingWorkspace?.panels[preferredPanelID] == nil {
+            return nil
         }
+        // Workspace creation is the only synchronous mutation in this path.
+        // Keep it after application, window, workspace, and panel validation so
+        // a rejected CLI request cannot leave behind an empty workspace.
+        let targetWorkspace = existingWorkspace ?? targetTabs.addWorkspace(select: true)
         let targetWorkspaceId = targetWorkspace.id
         let normalizedDirectoryURL = directoryURL.standardizedFileURL
 
@@ -8416,7 +8443,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
             }
         }
 
-        return true
+        return targetWorkspaceId
     }
 
     func showOpenFolderInInlineVSCodePanel(
@@ -9225,7 +9252,9 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
         tabManager.syncWorkspaceTabBarLeadingInset(initialTabBarLeadingInset)
         let notificationStore = TerminalNotificationStore.shared
 
-        let cmuxConfigStore = CmuxConfigStore()
+        let cmuxConfigStore = CmuxConfigStore(
+            actionCatalogComposition: actionCatalogComposition
+        )
         cmuxConfigStore.wireDirectoryTracking(tabManager: tabManager)
         cmuxConfigStore.loadAll()
 

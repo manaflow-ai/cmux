@@ -6,7 +6,6 @@ struct CmuxConfigActionCatalogProcessReader: CmuxConfigActionCatalogRawReading {
         CmuxConfigActionCatalogRawReadRequest
     ) -> LaunchSpecification?
 
-    static let shared = CmuxConfigActionCatalogProcessReader()
     static let helperCommand = "__action-catalog-read-v1"
     static let defaultMaximumConfigBytes = 1 << 20
     static let maximumAllowedConfigBytes = 4 << 20
@@ -30,7 +29,8 @@ struct CmuxConfigActionCatalogProcessReader: CmuxConfigActionCatalogRawReading {
         timing: Timing = .continuous,
         codec: CmuxConfigActionCatalogFrameCodec = .shared,
         processOperations: ProcessOperations = .live,
-        quarantine: CmuxConfigActionCatalogProcessQuarantine = .shared,
+        quarantine: CmuxConfigActionCatalogProcessQuarantine =
+            CmuxConfigActionCatalogProcessQuarantine(),
         launchProvider: @escaping LaunchProvider =
             CmuxConfigActionCatalogProcessReader.bundledLaunchProvider
     ) {

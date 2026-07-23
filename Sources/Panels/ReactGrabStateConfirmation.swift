@@ -1,8 +1,8 @@
-import Foundation
-
 /// One bridge-confirmed React Grab state transition. JavaScript evaluation
 /// only proves that a request was issued; this waiter completes from the
-/// plugin's structured `stateChange` callback or a bounded timeout.
+/// plugin's matching structured `stateChange` callback, a request-correlated
+/// API state verification, explicit or task cancellation, navigation, or
+/// web-view teardown.
 @MainActor
 final class ReactGrabStateConfirmation {
     let target: Bool
@@ -27,10 +27,7 @@ final class ReactGrabStateConfirmation {
         continuation.finish()
     }
 
-    func wait(timeout: Duration = .seconds(3)) async -> Bool {
-        let timeoutTimer = makeTimeoutTimer(after: timeout)
-        defer { timeoutTimer.invalidate() }
-
+    func wait() async -> Bool {
         let stream = stream
         let continuation = continuation
         return await withTaskCancellationHandler {
@@ -42,21 +39,5 @@ final class ReactGrabStateConfirmation {
             continuation.yield(false)
             continuation.finish()
         }
-    }
-
-    private func makeTimeoutTimer(after timeout: Duration) -> Timer {
-        let components = timeout.components
-        let interval = max(
-            0,
-            TimeInterval(components.seconds)
-                + TimeInterval(components.attoseconds) / 1_000_000_000_000_000_000
-        )
-        let continuation = continuation
-        let timer = Timer(timeInterval: interval, repeats: false) { _ in
-            continuation.yield(false)
-            continuation.finish()
-        }
-        RunLoop.main.add(timer, forMode: .common)
-        return timer
     }
 }

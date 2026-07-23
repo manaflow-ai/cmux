@@ -12,8 +12,9 @@ extension ControlCommandCoordinator {
     nonisolated func inlineVSCodeOpen(
         _ params: [String: JSONValue],
         context: (any ControlCommandContext)?
-    ) -> ControlCallResult {
-        let strings = context?.controlInlineVSCodeStrings() ?? Self.fallbackInlineVSCodeStrings
+    ) -> ControlCallResult? {
+        guard let context else { return nil }
+        let strings = context.controlInlineVSCodeStrings()
         guard case .string(let rawPath)? = params["path"],
               !rawPath.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty else {
             return .err(code: "invalid_params", message: strings.missingPath, data: nil)
@@ -41,10 +42,6 @@ extension ControlCommandCoordinator {
                 data: .object(["path": .string(resolved)])
             )
         }
-        guard let context else {
-            return .err(code: "unavailable", message: strings.tabManagerUnavailable, data: nil)
-        }
-
         let mainResult: ControlInlineVSCodeMainResult = context.controlResolveOnMain { seam in
             let routing = self.routingSelectors(params)
             // Every explicit selector must resolve. Otherwise the app cannot
@@ -94,17 +91,6 @@ extension ControlCommandCoordinator {
         }
     }
 
-    /// Stable English fallbacks for nil/partial test contexts. Production
-    /// always obtains app-bundle-resolved strings through the context seam.
-    private nonisolated static let fallbackInlineVSCodeStrings = ControlInlineVSCodeStrings(
-        missingPath: "Missing 'path' parameter",
-        directoryNotFound: "Directory not found",
-        notDirectory: "Path is not a directory",
-        tabManagerUnavailable: "The inline editor is unavailable",
-        workspaceNotFound: "Workspace not found",
-        vscodeUnavailable: "VS Code Inline is unavailable",
-        openFailed: "Failed to open VS Code Inline"
-    )
 }
 
 private struct ControlInlineVSCodeMainResult: Sendable {

@@ -8,9 +8,4 @@ import Foundation
 struct CmuxActionModelTarget: Sendable, Equatable {
     let workspaceID: UUID?
     let panelID: UUID?
-
-    init(workspaceID: UUID?, panelID: UUID?) {
-        self.workspaceID = workspaceID
-        self.panelID = panelID
-    }
 }

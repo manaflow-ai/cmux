@@ -237,8 +237,13 @@ extension Workspace {
     ) -> UUID? {
         guard layoutMode == .canvas else { return nil }
         let anchorPanelId = sourcePanelID ?? focusedPanelId
-        guard let focusedPaneId = anchorPanelId.flatMap({ paneId(forPanelId: $0) })
-                ?? bonsplitController.focusedPaneId else { return nil }
+        let focusedPaneId = if let sourcePanelID {
+            paneId(forPanelId: sourcePanelID)
+        } else {
+            focusedPanelId.flatMap { paneId(forPanelId: $0) }
+                ?? bonsplitController.focusedPaneId
+        }
+        guard let focusedPaneId else { return nil }
         let preferredSize: CanvasSize? = anchorPanelId
             .flatMap { canvasModel.frame(of: $0) }
             .map { CanvasSize(width: Double($0.width), height: Double($0.height)) }

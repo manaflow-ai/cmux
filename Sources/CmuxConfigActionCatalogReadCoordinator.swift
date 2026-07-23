@@ -5,8 +5,6 @@ import Foundation
 /// wait for the old read of the same key, while a dedicated global lane remains
 /// available if cwd reads block on disconnected volumes.
 actor CmuxConfigActionCatalogReadCoordinator {
-    static let shared = CmuxConfigActionCatalogReadCoordinator()
-
     private let maximumGlobalReadCount: Int
     private let maximumGeneralReadCount: Int
     private let maximumPendingReadCount: Int
