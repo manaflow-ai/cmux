@@ -85,6 +85,7 @@ class FakeCmuxSocket:
         surfaces_by_workspace: dict[str, list[dict]] | None = None,
         surface_delivery_target: tuple[str, str] | None = None,
         method_errors: dict[str, tuple[str, str]] | None = None,
+        single_batch_item_id: bool = False,
     ):
         self.path = path
         self.decision = decision
@@ -97,6 +98,7 @@ class FakeCmuxSocket:
         self.surfaces_by_workspace = surfaces_by_workspace
         self.surface_delivery_target = surface_delivery_target
         self.method_errors = method_errors or {}
+        self.single_batch_item_id = single_batch_item_id
         self._dropped_surface_list = False
         self.frames: list[dict] = []
         self.frames_with_connection: list[tuple[int, dict]] = []
@@ -186,10 +188,13 @@ class FakeCmuxSocket:
                     if frame.get("method") == "feed.push" and self.include_feed_item_id:
                         events = frame.get("params", {}).get("events")
                         if isinstance(events, list):
-                            result["item_ids"] = [
-                                f"33333333-3333-3333-3333-{index:012d}"
-                                for index in range(len(events))
-                            ]
+                            if len(events) == 1 and self.single_batch_item_id:
+                                result["item_id"] = "33333333-3333-3333-3333-333333333333"
+                            else:
+                                result["item_ids"] = [
+                                    f"33333333-3333-3333-3333-{index:012d}"
+                                    for index in range(len(events))
+                                ]
                         else:
                             result["item_id"] = "33333333-3333-3333-3333-333333333333"
                     if frame.get("method") == "surface.list":
@@ -2868,6 +2873,66 @@ def test_pi_feed_rejects_unconfirmed_server_ack(cli_path: str, root: Path) -> No
         )
 
 
+def test_pi_compacted_feed_accepts_single_item_ack(cli_path: str, root: Path) -> None:
+    socket_path = root / "cmux-pi-single-compacted-ack.sock"
+    env = os.environ.copy()
+    for key in ("CMUX_SOCKET", "CMUX_SOCKET_CAPABILITY", "CMUX_SOCKET_PATH", "CMUX_SOCKET_PASSWORD"):
+        env.pop(key, None)
+    env["CMUX_SURFACE_ID"] = FAKE_SURFACE_ID
+    env["CMUX_WORKSPACE_ID"] = FAKE_WORKSPACE_ID
+    payload = {
+        "session_id": "pi-single-compacted-session",
+        "cwd": "/tmp/pi-single-compacted-project",
+        "cmux_compacted_terminal_omitted_count": 0,
+        "cmux_compacted_terminal_events": [
+            {
+                "session_id": "pi-single-compacted-session",
+                "tool_call_id": "pi-single-compacted-tool",
+                "tool_name": "bash",
+            }
+        ],
+    }
+
+    with FakeCmuxSocket(
+        socket_path,
+        None,
+        surface_delivery_target=(FAKE_WORKSPACE_ID, FAKE_SURFACE_ID),
+        single_batch_item_id=True,
+    ) as fake:
+        result = subprocess.run(
+            [
+                cli_path,
+                "--socket",
+                str(socket_path),
+                "hooks",
+                "feed",
+                "--source",
+                "pi",
+                "--event",
+                "PostToolUse",
+                "--workspace",
+                FAKE_WORKSPACE_ID,
+                "--surface",
+                FAKE_SURFACE_ID,
+            ],
+            input=json.dumps(payload),
+            capture_output=True,
+            text=True,
+            check=False,
+            env=env,
+            timeout=10,
+        )
+
+    if result.returncode != 0:
+        raise AssertionError(
+            "Pi compacted Feed rejected a valid singular acknowledgment for its one-event batch: "
+            f"stdout={result.stdout!r} stderr={result.stderr!r} frames={fake.frames!r}"
+        )
+    feed_frames = [frame for frame in fake.frames if frame.get("method") == "feed.push"]
+    if len(feed_frames) != 1 or len(feed_frames[0].get("params", {}).get("events", [])) != 1:
+        raise AssertionError(f"Pi compacted Feed did not send one batch-shaped event: {fake.frames!r}")
+
+
 def test_pi_feed_rejects_connection_failure(cli_path: str, root: Path) -> None:
     socket_path = root / "missing-pi-feed.sock"
     env = os.environ.copy()
@@ -3378,6 +3443,7 @@ def main() -> int:
             test_pi_feed_waits_for_server_ack(cli_path, root)
             test_pi_feed_rejects_failed_server_ack(cli_path, root)
             test_pi_feed_rejects_unconfirmed_server_ack(cli_path, root)
+            test_pi_compacted_feed_accepts_single_item_ack(cli_path, root)
             test_pi_feed_rejects_connection_failure(cli_path, root)
             test_pi_hook_rejects_invalid_explicit_surface(cli_path, root)
             test_pi_hook_rehomes_moved_explicit_surface(cli_path, root)

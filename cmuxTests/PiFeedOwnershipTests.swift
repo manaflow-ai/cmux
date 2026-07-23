@@ -1,4 +1,5 @@
 import CMUXAgentLaunch
+import Foundation
 import Testing
 
 #if canImport(cmux_DEV)
@@ -151,5 +152,124 @@ struct PiFeedOwnershipTests {
         #expect(insertedEvents.count == 64)
         #expect(insertedEvents.allSatisfy { $0.workspaceId == liveWorkspace.id.uuidString })
         #expect(insertedEvents.allSatisfy { $0.surfaceId == surfaceId.uuidString })
+    }
+
+    @MainActor
+    @Test
+    func blockingInsertionUsesOneLiveWorkspaceSnapshotForEveryConsumer() async throws {
+        let previousAppDelegate = AppDelegate.shared
+        let appDelegate = AppDelegate()
+        AppDelegate.shared = appDelegate
+        let tabManager = TabManager(autoWelcomeIfNeeded: false)
+        appDelegate.tabManager = tabManager
+
+        let staleWorkspace = tabManager.addWorkspace(select: false)
+        let liveWorkspace = tabManager.addWorkspace(select: true)
+        let surfaceId = try #require(liveWorkspace.focusedPanelId)
+        defer {
+            FeedCoordinatorTestHooks.afterBlockingEventIngested = nil
+            FeedCoordinatorTestHooks.attentionSurfaceObserver = nil
+            for workspace in [staleWorkspace, liveWorkspace]
+                where tabManager.tabs.contains(where: { $0.id == workspace.id }) {
+                tabManager.closeWorkspace(workspace)
+            }
+            appDelegate.tabManager = nil
+            AppDelegate.shared = previousAppDelegate
+        }
+
+        let insertedEvents = PiFeedEventRecorder()
+        let attentionEvents = PiFeedEventRecorder()
+        let requestId = "pi-live-blocking-request"
+        let store = WorkstreamStore(
+            ringCapacity: 10,
+            titleProvider: { event in
+                insertedEvents.record(event)
+                return nil
+            }
+        )
+        FeedCoordinator.shared.install(store: store)
+        FeedCoordinatorTestHooks.attentionSurfaceObserver = { event in
+            attentionEvents.record(event)
+        }
+        FeedCoordinatorTestHooks.afterBlockingEventIngested = { _, ingestedRequestId in
+            guard ingestedRequestId == requestId else { return }
+            FeedCoordinator.shared.deliverReply(
+                requestId: ingestedRequestId,
+                decision: .permission(.once)
+            )
+        }
+
+        let event = WorkstreamEvent(
+            sessionId: "pi-live-blocking-test",
+            hookEventName: .permissionRequest,
+            source: "pi",
+            workspaceId: staleWorkspace.id.uuidString,
+            surfaceId: surfaceId.uuidString,
+            toolName: "Bash",
+            requestId: requestId
+        )
+        let result = await Task.detached {
+            FeedCoordinator.shared.ingestBlocking(event: event, waitTimeout: 1)
+        }.value
+
+        guard case .resolved(_, .permission(.once)) = result else {
+            Issue.record("expected blocking Feed event to resolve")
+            return
+        }
+        #expect(insertedEvents.events.first?.workspaceId == liveWorkspace.id.uuidString)
+        #expect(insertedEvents.events.first?.surfaceId == surfaceId.uuidString)
+        #expect(attentionEvents.events.first?.workspaceId == liveWorkspace.id.uuidString)
+        #expect(attentionEvents.events.first?.surfaceId == surfaceId.uuidString)
+    }
+
+    @MainActor
+    @Test
+    func blockingInsertionRejectsUnavailableSurfaceWithoutTimingOut() async {
+        let previousAppDelegate = AppDelegate.shared
+        let appDelegate = AppDelegate()
+        AppDelegate.shared = appDelegate
+        let tabManager = TabManager(autoWelcomeIfNeeded: false)
+        appDelegate.tabManager = tabManager
+        defer {
+            appDelegate.tabManager = nil
+            AppDelegate.shared = previousAppDelegate
+        }
+
+        let store = WorkstreamStore(ringCapacity: 10)
+        FeedCoordinator.shared.install(store: store)
+        let event = WorkstreamEvent(
+            sessionId: "pi-unavailable-blocking-test",
+            hookEventName: .permissionRequest,
+            source: "pi",
+            workspaceId: UUID().uuidString,
+            surfaceId: UUID().uuidString,
+            toolName: "Bash",
+            requestId: "pi-unavailable-blocking-request"
+        )
+        let result = await Task.detached {
+            FeedCoordinator.shared.ingestBlocking(event: event, waitTimeout: 0.01)
+        }.value
+
+        if case .timedOut = result {
+            Issue.record("unavailable Feed targets must fail before entering the decision wait")
+        }
+        #expect(store.items.isEmpty)
+    }
+}
+
+private final class PiFeedEventRecorder: @unchecked Sendable {
+    private let lock = NSLock()
+    private var recordedEvents: [WorkstreamEvent] = []
+
+    var events: [WorkstreamEvent] {
+        lock.lock()
+        defer { lock.unlock() }
+        return recordedEvents
+    }
+
+    func record(_ event: WorkstreamEvent) {
+        lock.lock()
+        recordedEvents.append(event)
+        lock.unlock()
     }
 }
