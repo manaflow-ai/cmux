@@ -1,6 +1,7 @@
 extension CMUXCLI {
     static let piExtensionSourcePart2 = #"""
 async function sendHook(
+  dispatcher: PiCmuxCommandDispatcher,
   subcommand: string,
   context: PiExtensionContextSnapshot,
   extra: HookExtra = {},
@@ -19,7 +20,7 @@ async function sendHook(
     event: eventName(subcommand),
     ...extra,
   };
-  const result = await runCmux(["hooks", "pi", subcommand], cwd, JSON.stringify(payload), context);
+  const result = await dispatcher.run(["hooks", "pi", subcommand], cwd, JSON.stringify(payload), context);
   if (!result.ok && !result.surfaceUnavailable) {
     warn(context, "cmux hook command failed", {
       subcommand,
@@ -131,14 +132,18 @@ function sanitizedResumeArgv(sessionId: string): string[] {
   return out;
 }
 
-async function ensureResumeBinding(context: PiExtensionContextSnapshot, sessionId: string): Promise<void> {
+async function ensureResumeBinding(
+  dispatcher: PiCmuxCommandDispatcher,
+  context: PiExtensionContextSnapshot,
+  sessionId: string,
+): Promise<void> {
   if (process.env.CMUX_PI_HOOKS_DISABLED === "1") return;
   const target = surfaceTargetArgs();
   if (!target) return;
 
   const cwd = context.cwd;
   const resumeArgv = sanitizedResumeArgv(sessionId);
-  const set = await runCmux([
+  const set = await dispatcher.run([
     "--json",
     "surface",
     "resume",
@@ -167,7 +172,7 @@ async function ensureResumeBinding(context: PiExtensionContextSnapshot, sessionI
   }
   if (set.surfaceUnavailable) return;
 
-  const verification = await runCmux(
+  const verification = await dispatcher.run(
     ["--json", "surface", "resume", "get", ...target],
     cwd,
     undefined,
@@ -181,12 +186,16 @@ async function ensureResumeBinding(context: PiExtensionContextSnapshot, sessionI
   }
 }
 
-async function clearResumeBinding(context: PiExtensionContextSnapshot, sessionId: string): Promise<boolean> {
+async function clearResumeBinding(
+  dispatcher: PiCmuxCommandDispatcher,
+  context: PiExtensionContextSnapshot,
+  sessionId: string,
+): Promise<boolean> {
   if (process.env.CMUX_PI_HOOKS_DISABLED === "1") return true;
   const target = surfaceTargetArgs();
   if (!target) return true;
   const cwd = context.cwd;
-  const result = await runCmux([
+  const result = await dispatcher.run([
     "--json",
     "surface",
     "resume",
@@ -209,6 +218,8 @@ async function clearResumeBinding(context: PiExtensionContextSnapshot, sessionId
 }
 
 function sendFeed(
+  dispatcher: PiCmuxCommandDispatcher,
+  sessionStates: Map<string, SessionState>,
   eventName: "PreToolUse" | "PostToolUse",
   context: PiExtensionContextSnapshot,
   event: unknown,
@@ -216,7 +227,7 @@ function sendFeed(
 ): void {
   if (process.env.CMUX_PI_HOOKS_DISABLED === "1") return;
   if (!process.env.CMUX_SURFACE_ID) return;
-  if (!cmuxCommandDispatcher.canDispatch) return;
+  if (!dispatcher.canDispatch) return;
   const sessionId = context.sessionId;
   if (!sessionId) return;
   if (sessionStates.get(sessionId)?.stopped) return;
@@ -228,13 +239,13 @@ function sendFeed(
     cwd,
     hook_event_name: eventName,
     event: eventName,
-    turn_id: currentTurnId(sessionId, event),
+    turn_id: currentTurnId(sessionStates, sessionId, event),
     tool_call_id: toolCallId,
     tool_name: toolName,
     tool_input: objectValue(event, ["args", "input"]),
     ...extra,
   };
-  enqueueCmuxFeed(`${sessionId}:${toolCallId || toolName || "unknown"}`, {
+  dispatcher.enqueueFeed(`${sessionId}:${toolCallId || toolName || "unknown"}`, {
     args: ["hooks", "feed", "--source", "pi", "--event", eventName],
     cwd,
     input: JSON.stringify(payload),
@@ -244,13 +255,15 @@ function sendFeed(
 }
 
 async function publishPendingCompletion(
+  dispatcher: PiCmuxCommandDispatcher,
+  sessionStates: Map<string, SessionState>,
   context: PiExtensionContextSnapshot,
   sessionId: string,
 ): Promise<void> {
-  const completion = settleTurn(sessionId);
+  const completion = settleTurn(sessionStates, sessionId);
   if (!completion) return;
-  await cmuxCommandDispatcher.finishFeedForSession(sessionId);
-  const notificationRouted = await sendHook("notification", context, {
+  await dispatcher.finishFeedForSession(sessionId);
+  const notificationRouted = await sendHook(dispatcher, "notification", context, {
     message: completion.lastAssistantMessage || "Task completed",
     turn_id: completion.turnId,
     notification: { type: completion.notificationType },
@@ -260,37 +273,40 @@ async function publishPendingCompletion(
     turn_id: completion.turnId,
   };
   if (notificationRouted) stopPayload.cmux_notification_routed = true;
-  await sendHook("stop", context, stopPayload);
+  await sendHook(dispatcher, "stop", context, stopPayload);
 }
 
 export default function cmuxPiSessionExtension(pi: ExtensionAPI) {
+  const dispatcher = new PiCmuxCommandDispatcher();
+  const sessionStates = new Map<string, SessionState>();
+
   pi.on("session_start", async (_event, ctx) => {
     const context = snapshotContext(ctx);
     const sessionId = context.sessionId;
     if (sessionId) {
-      const state = stateFor(sessionId);
+      const state = stateFor(sessionStates, sessionId);
       state.pendingCompletion = undefined;
       state.stopped = false;
     }
-    const ok = await sendHook("session-start", context);
-    if (ok && sessionId) await ensureResumeBinding(context, sessionId);
+    const ok = await sendHook(dispatcher, "session-start", context);
+    if (ok && sessionId) await ensureResumeBinding(dispatcher, context, sessionId);
   });
 
   pi.on("before_agent_start", async (event, ctx) => {
     const context = snapshotContext(ctx);
     const sessionId = context.sessionId;
-    const turnId = sessionId ? beginTurn(sessionId, event) : undefined;
-    await sendHook("prompt-submit", context, { prompt: event.prompt, turn_id: turnId });
+    const turnId = sessionId ? beginTurn(sessionStates, sessionId, event) : undefined;
+    await sendHook(dispatcher, "prompt-submit", context, { prompt: event.prompt, turn_id: turnId });
   });
 
   pi.on("tool_execution_start", async (event, ctx) => {
     const context = snapshotContext(ctx);
-    sendFeed("PreToolUse", context, event);
+    sendFeed(dispatcher, sessionStates, "PreToolUse", context, event);
   });
 
   pi.on("tool_execution_end", async (event, ctx) => {
     const context = snapshotContext(ctx);
-    sendFeed("PostToolUse", context, event, {
+    sendFeed(dispatcher, sessionStates, "PostToolUse", context, event, {
       tool_result: objectValue(event, ["result", "details", "content"]),
       is_error: objectValue(event, ["isError", "is_error"]),
     });
@@ -300,16 +316,18 @@ export default function cmuxPiSessionExtension(pi: ExtensionAPI) {
     const context = snapshotContext(ctx);
     const sessionId = context.sessionId;
     if (!sessionId) return;
-    const state = stateFor(sessionId);
+    const state = stateFor(sessionStates, sessionId);
     const message = lastAssistantMessage(event);
     // Preserve the latest low-level result until Pi confirms no automatic work remains.
     state.pendingCompletion = {
       lastAssistantMessage: message || state.pendingCompletion?.lastAssistantMessage,
       notificationType: firstString(objectValue(event, ["stopReason", "reason", "terminationReason"])) || "completed",
-      turnId: currentTurnId(sessionId, event),
+      turnId: currentTurnId(sessionStates, sessionId, event),
     };
     // Older Pi versions do not emit agent_settled, so retain their established completion behavior.
-    if (!supportsAgentSettled()) await publishPendingCompletion(context, sessionId);
+    if (!supportsAgentSettled()) {
+      await publishPendingCompletion(dispatcher, sessionStates, context, sessionId);
+    }
   });
 
   pi.on("agent_settled", async (_event, ctx) => {
@@ -318,25 +336,25 @@ export default function cmuxPiSessionExtension(pi: ExtensionAPI) {
     const sessionId = context.sessionId;
     if (!sessionId || !isIdle) return;
     // Consume pending completion before subprocess calls so duplicate settlement cannot notify twice.
-    await publishPendingCompletion(context, sessionId);
+    await publishPendingCompletion(dispatcher, sessionStates, context, sessionId);
   });
 
   pi.on("session_shutdown", async (event, ctx) => {
     const context = snapshotContext(ctx);
     const sessionId = context.sessionId;
     if (!sessionId) return;
-    const state = stateFor(sessionId);
+    const state = stateFor(sessionStates, sessionId);
     let stopPayload: HookExtra | undefined;
     if (!state.stopped) {
-      const turnId = finishTurn(sessionId, event);
+      const turnId = finishTurn(sessionStates, sessionId, event);
       stopPayload = {
         turn_id: turnId,
         terminationReason: firstString(objectValue(event, ["reason"])) || "session_shutdown",
       };
     }
-    await cmuxCommandDispatcher.finishFeedForSession(sessionId);
-    if (stopPayload) await sendHook("stop", context, stopPayload);
-    if (await clearResumeBinding(context, sessionId)) sessionStates.delete(sessionId);
+    await dispatcher.finishFeedForSession(sessionId);
+    if (stopPayload) await sendHook(dispatcher, "stop", context, stopPayload);
+    if (await clearResumeBinding(dispatcher, context, sessionId)) sessionStates.delete(sessionId);
   });
 }
 """#

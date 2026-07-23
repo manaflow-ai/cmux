@@ -40,8 +40,6 @@ interface PiExtensionContextSnapshot {
   readonly notifyWarning?: () => void;
 }
 
-const sessionStates = new Map<string, SessionState>();
-
 function firstString(...values: unknown[]): string | null {
   for (const value of values) {
     if (typeof value === "string" && value.trim().length > 0) return value.trim();
@@ -281,7 +279,7 @@ function snapshotContext(ctx: ExtensionContext): PiExtensionContextSnapshot {
   };
 }
 
-function stateFor(sessionId: string): SessionState {
+function stateFor(sessionStates: Map<string, SessionState>, sessionId: string): SessionState {
   let state = sessionStates.get(sessionId);
   if (!state) {
     state = { nextTurn: 0, stopped: false };
@@ -296,8 +294,8 @@ function eventTurnId(event: unknown): string | null {
   );
 }
 
-function beginTurn(sessionId: string, event: unknown): string {
-  const state = stateFor(sessionId);
+function beginTurn(sessionStates: Map<string, SessionState>, sessionId: string, event: unknown): string {
+  const state = stateFor(sessionStates, sessionId);
   const turnId = eventTurnId(event) || `${sessionId}:turn-${state.nextTurn + 1}`;
   if (!eventTurnId(event)) state.nextTurn += 1;
   state.activeTurnId = turnId;
@@ -306,15 +304,15 @@ function beginTurn(sessionId: string, event: unknown): string {
   return turnId;
 }
 
-function currentTurnId(sessionId: string, event: unknown): string {
-  const state = stateFor(sessionId);
+function currentTurnId(sessionStates: Map<string, SessionState>, sessionId: string, event: unknown): string {
+  const state = stateFor(sessionStates, sessionId);
   const turnId = eventTurnId(event) || state.activeTurnId || `${sessionId}:turn-${state.nextTurn + 1}`;
   if (!eventTurnId(event) && !state.activeTurnId) state.nextTurn += 1;
   return turnId;
 }
 
-function finishTurn(sessionId: string, event: unknown): string {
-  const state = stateFor(sessionId);
+function finishTurn(sessionStates: Map<string, SessionState>, sessionId: string, event: unknown): string {
+  const state = stateFor(sessionStates, sessionId);
   const turnId = eventTurnId(event) || state.activeTurnId || `${sessionId}:turn-${state.nextTurn + 1}`;
   if (!eventTurnId(event) && !state.activeTurnId) state.nextTurn += 1;
   state.activeTurnId = undefined;
@@ -323,7 +321,7 @@ function finishTurn(sessionId: string, event: unknown): string {
   return turnId;
 }
 
-function settleTurn(sessionId: string): PendingCompletion | undefined {
+function settleTurn(sessionStates: Map<string, SessionState>, sessionId: string): PendingCompletion | undefined {
   const state = sessionStates.get(sessionId);
   const completion = state?.pendingCompletion;
   if (!state || !completion || state.stopped) return undefined;

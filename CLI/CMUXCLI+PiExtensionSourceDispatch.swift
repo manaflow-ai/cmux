@@ -285,20 +285,5 @@ class PiCmuxCommandDispatcher {
   }
 }
 
-const cmuxCommandDispatcher = new PiCmuxCommandDispatcher();
-
-function runCmux(
-  args: string[],
-  cwd: string,
-  input: string | undefined,
-  context: PiExtensionContextSnapshot,
-  scope: PiCmuxCommandScope = "routable",
-): Promise<CommandResult> {
-  return cmuxCommandDispatcher.run(args, cwd, input, context, scope);
-}
-
-function enqueueCmuxFeed(key: string, command: PiFeedCommand): void {
-  cmuxCommandDispatcher.enqueueFeed(key, command);
-}
 """#
 }
