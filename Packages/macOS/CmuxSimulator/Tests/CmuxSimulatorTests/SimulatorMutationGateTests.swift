@@ -21,6 +21,20 @@ struct SimulatorMutationGateTests {
         #expect(firstProcess.isCurrent(second, namespace: "camera", components: components))
     }
 
+    @Test("A claim fails when ownership cannot be published")
+    func failedOwnershipPublicationThrows() throws {
+        let blockingFile = temporaryLockDirectory()
+        defer { try? FileManager.default.removeItem(at: blockingFile) }
+        try Data().write(to: blockingFile)
+        let store = SimulatorCrossProcessOwnershipStore(
+            directory: blockingFile.appendingPathComponent("ownership", isDirectory: true)
+        )
+
+        #expect(throws: CocoaError.self) {
+            _ = try store.claim(namespace: "camera", components: ["DEVICE", "com.example.app"])
+        }
+    }
+
     @Test("Lock descriptors cannot leak through exec")
     func descriptorIsCloseOnExec() throws {
         let directory = temporaryLockDirectory()
