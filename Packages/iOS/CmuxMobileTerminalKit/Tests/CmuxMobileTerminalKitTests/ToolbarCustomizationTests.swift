@@ -276,11 +276,43 @@ struct CustomToolbarActionTests {
         #expect(action.output == nil)
     }
 
-    @Test("Codable round-trips both payload kinds and identity")
+    @Test("macro payload concatenates text and key-combo steps")
+    func macroOutput() {
+        let action = CustomToolbarAction(
+            title: "Rotate",
+            payload: .macro([
+                .keyCombo(modifiers: [.shift], key: .tab),
+                .keyCombo(modifiers: [.shift], key: .tab),
+                .text("status\n"),
+            ])
+        )
+
+        #expect(action.output == Data([0x1B, 0x5B, 0x5A, 0x1B, 0x5B, 0x5A]) + Data("status\r".utf8))
+    }
+
+    @Test("macro payload rejects partial output when a step is unencodable")
+    func macroRejectsPartialOutput() {
+        let action = CustomToolbarAction(
+            title: "Bad",
+            payload: .macro([
+                .text("prefix"),
+                .keyCombo(modifiers: [.control], key: .upArrow),
+            ])
+        )
+
+        #expect(action.output == nil)
+        #expect(CustomToolbarAction(title: "Empty", payload: .macro([])).output == nil)
+    }
+
+    @Test("Codable round-trips all payload kinds and identity")
     func codable() throws {
         let actions = [
             CustomToolbarAction(title: "Claude", symbolName: "sparkles", payload: .text("claude\n")),
             CustomToolbarAction(title: "⇧Tab", payload: .keyCombo(modifiers: [.shift], key: .tab)),
+            CustomToolbarAction(title: "Macro", payload: .macro([
+                .keyCombo(modifiers: [.alternate], key: .leftArrow),
+                .text("suffix"),
+            ])),
         ]
         let data = try JSONEncoder().encode(actions)
         let decoded = try JSONDecoder().decode([CustomToolbarAction].self, from: data)
