@@ -60,6 +60,7 @@ impl BoundedDiagnosticBuffer {
         state.redactions.sort_by_key(|secret| std::cmp::Reverse(secret.len()));
     }
 
+    #[cfg(any(not(unix), test))]
     pub(crate) fn drain(&self, mut reader: impl Read) {
         let mut buffer = [0_u8; 4096];
         loop {
