@@ -197,6 +197,8 @@ class FakeCmuxSocket:
                                 ]
                         else:
                             result["item_id"] = "33333333-3333-3333-3333-333333333333"
+                        if self.surface_delivery_target is not None:
+                            result["workspace_id"], result["surface_id"] = self.surface_delivery_target
                     if frame.get("method") == "surface.list":
                         if self.drop_first_surface_list and not self._dropped_surface_list:
                             self._dropped_surface_list = True
@@ -3227,6 +3229,15 @@ def test_pi_feed_uses_resolved_explicit_workspace(cli_path: str, root: Path) -> 
         )
     if any(frame.get("method") == "agent.resolve_delivery_target" for frame in fake.frames):
         raise AssertionError(f"Pi feed redundantly preflighted its exact target: {fake.frames!r}")
+    try:
+        feed_result = json.loads(result.stdout)
+    except json.JSONDecodeError as exc:
+        raise AssertionError(f"Pi feed did not report its authoritative target: {result.stdout!r}") from exc
+    if feed_result != {
+        "workspace_id": explicit_workspace_id,
+        "surface_id": FAKE_SURFACE_ID,
+    }:
+        raise AssertionError(f"Pi feed reported the wrong authoritative target: {feed_result!r}")
 
 
 def test_pi_feed_rejects_missing_explicit_workspace(cli_path: str, root: Path) -> None:
