@@ -84,6 +84,7 @@ private struct GlobalSearchPaletteView: View {
                 )
                 .textFieldStyle(.plain)
                 .cmuxFont(size: 18, weight: .regular)
+                .accessibilityIdentifier("GlobalSearchSearchField")
                 .focused($searchFieldFocused)
             }
             .padding(.horizontal, 18)
