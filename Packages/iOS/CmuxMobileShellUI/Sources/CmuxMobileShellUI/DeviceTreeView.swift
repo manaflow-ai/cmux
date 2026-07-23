@@ -134,36 +134,22 @@ struct DeviceTreeView: View {
 
     @ViewBuilder
     private var hiddenComputersSection: some View {
-        Section {
-            ForEach(store.hiddenComputers) { computer in
-                HiddenComputerRow(
-                    computer: computer,
-                    isRecoveringLegacyComputer: store.isRecoveringHiddenComputer,
-                    unhide: {
-                        await store.unhideMacDeviceID(
-                            computer.macDeviceID,
-                            instanceTag: computer.instanceTag
-                        )
-                    },
-                    recoverLegacyComputer: {
-                        await store.recoverHiddenIrohMacFromAccount(
-                            macDeviceID: computer.macDeviceID,
-                            instanceTag: computer.instanceTag
-                        )
-                    }
+        HiddenComputersSection(
+            computers: store.hiddenComputers,
+            isRecoveringLegacyComputer: store.isRecoveringHiddenComputer,
+            unhide: { computer in
+                await store.unhideMacDeviceID(
+                    computer.macDeviceID,
+                    instanceTag: computer.instanceTag
+                )
+            },
+            recoverLegacyComputer: { computer in
+                await store.recoverHiddenIrohMacFromAccount(
+                    macDeviceID: computer.macDeviceID,
+                    instanceTag: computer.instanceTag
                 )
             }
-        } header: {
-            Text(L10n.string(
-                "mobile.computers.hidden.title",
-                defaultValue: "Hidden Computers"
-            ))
-        } footer: {
-            Text(L10n.string(
-                "mobile.computers.hidden.footer",
-                defaultValue: "Hidden computers stay signed in to your account and are only hidden on this iPhone. A computer removed with an older version of cmux needs its Mac online and signed in once to restore."
-            ))
-        }
+        )
     }
 
     @ViewBuilder

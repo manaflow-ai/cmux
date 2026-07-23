@@ -231,20 +231,12 @@ struct DisconnectedWorkspaceShellView: View {
         } actions: {
             if showsHiddenComputers, let store {
                 VStack(alignment: .leading, spacing: 8) {
-                    Text(L10n.string(
-                        "mobile.computers.hidden.title",
-                        defaultValue: "Hidden Computers"
-                    ))
-                    .font(.headline)
-                    ForEach(store.hiddenComputers) { computer in
-                        hiddenComputerRow(computer, store: store)
-                    }
-                    Text(L10n.string(
-                        "mobile.computers.hidden.footer",
-                        defaultValue: "Hidden computers stay signed in to your account and are only hidden on this iPhone. A computer removed with an older version of cmux needs its Mac online and signed in once to restore."
-                    ))
-                    .font(.footnote)
-                    .foregroundStyle(.secondary)
+                    Text(HiddenComputersCopy.title)
+                        .font(.headline)
+                    hiddenComputersRows(store: store)
+                    Text(HiddenComputersCopy.footer)
+                        .font(.footnote)
+                        .foregroundStyle(.secondary)
                 }
                 .frame(maxWidth: 320)
                 Button(action: showAddDevice) {
@@ -271,37 +263,35 @@ struct DisconnectedWorkspaceShellView: View {
     }
 
     private func hiddenComputersSection(store: CMUXMobileShellStore) -> some View {
-        Section {
-            ForEach(store.hiddenComputers) { computer in
-                hiddenComputerRow(computer, store: store)
-            }
-        } header: {
-            Text(L10n.string(
-                "mobile.computers.hidden.title",
-                defaultValue: "Hidden Computers"
-            ))
-        } footer: {
-            Text(L10n.string(
-                "mobile.computers.hidden.footer",
-                defaultValue: "Hidden computers stay signed in to your account and are only hidden on this iPhone. A computer removed with an older version of cmux needs its Mac online and signed in once to restore."
-            ))
-        }
-    }
-
-    private func hiddenComputerRow(
-        _ computer: MobileHiddenComputer,
-        store: CMUXMobileShellStore
-    ) -> some View {
-        HiddenComputerRow(
-            computer: computer,
+        HiddenComputersSection(
+            computers: store.hiddenComputers,
             isRecoveringLegacyComputer: store.isRecoveringHiddenComputer,
-            unhide: {
+            unhide: { computer in
                 await store.unhideMacDeviceID(
                     computer.macDeviceID,
                     instanceTag: computer.instanceTag
                 )
             },
-            recoverLegacyComputer: {
+            recoverLegacyComputer: { computer in
+                await store.recoverHiddenIrohMacFromAccount(
+                    macDeviceID: computer.macDeviceID,
+                    instanceTag: computer.instanceTag
+                )
+            }
+        )
+    }
+
+    private func hiddenComputersRows(store: CMUXMobileShellStore) -> some View {
+        HiddenComputersRows(
+            computers: store.hiddenComputers,
+            isRecoveringLegacyComputer: store.isRecoveringHiddenComputer,
+            unhide: { computer in
+                await store.unhideMacDeviceID(
+                    computer.macDeviceID,
+                    instanceTag: computer.instanceTag
+                )
+            },
+            recoverLegacyComputer: { computer in
                 await store.recoverHiddenIrohMacFromAccount(
                     macDeviceID: computer.macDeviceID,
                     instanceTag: computer.instanceTag
@@ -362,7 +352,6 @@ struct DisconnectedWorkspaceShellView: View {
     private func hideComputer(_ computer: MacComputerSnapshot) {
         Task {
             await store?.hideMac(macDeviceID: computer.deviceId)
-            await store?.loadPairedMacs()
         }
     }
     #else

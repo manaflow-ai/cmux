@@ -433,9 +433,12 @@ struct MacComputerDetailView: View {
             }
             Button {
                 let id = macDeviceID
+                let tag = instanceTag
                 Task {
-                    await store.hideMac(macDeviceID: id)
-                    await store.loadPairedMacs()
+                    // Scope the hide to this exact pairing; the alias-based
+                    // overload would also hide sibling app instances (e.g. DEV
+                    // vs. stable) the user is not viewing here.
+                    await store.hideMac(macDeviceID: id, instanceTag: tag)
                 }
                 dismiss()
             } label: {
