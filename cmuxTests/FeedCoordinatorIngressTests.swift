@@ -234,7 +234,48 @@ extension FeedCoordinatorTests {
             return
         }
 
+        let overflowSessionCriticalStarted = DispatchSemaphore(value: 0)
+        let overflowSessionCriticalReturned = DispatchSemaphore(value: 0)
+        let overflowSessionCriticalDelivered = DispatchSemaphore(value: 0)
+        let overflowSessionCriticalEvent = WorkstreamEvent(
+            sessionId: "pi-session-critical-overflow",
+            hookEventName: .notification,
+            source: "pi",
+            requestId: "pi-session-critical-overflow-request"
+        )
+        let overflowSessionCriticalTask = Task.detached {
+            overflowSessionCriticalStarted.signal()
+            let result = FeedCoordinator.shared.ingestBlocking(
+                event: overflowSessionCriticalEvent,
+                waitTimeout: 0,
+                onAccepted: { _ in overflowSessionCriticalDelivered.signal() }
+            )
+            overflowSessionCriticalReturned.signal()
+            return result
+        }
+        #expect(overflowSessionCriticalStarted.wait(timeout: .now() + 1) == .success)
+        let returnedWhileSaturated = overflowSessionCriticalReturned.wait(timeout: .now() + 0.1)
+        #expect(
+            returnedWhileSaturated == .timedOut,
+            "session-critical overflow must backpressure instead of returning unavailable"
+        )
+
         releaseFirstDelivery.signal()
+        if returnedWhileSaturated == .timedOut {
+            #expect(overflowSessionCriticalReturned.wait(timeout: .now() + 2) == .success)
+        }
+        let overflowSessionCriticalResult = await overflowSessionCriticalTask.value
+        guard case .acknowledged(itemId: nil) = overflowSessionCriticalResult else {
+            Issue.record("session-critical overflow was dropped while ordinary telemetry remained queued")
+            for _ in sessionCriticalEventNames {
+                _ = sessionCriticalDeliveryFinished.wait(timeout: .now() + 2)
+            }
+            for _ in 0..<admittedOrdinaryCount {
+                _ = ordinaryDeliveryFinished.wait(timeout: .now() + 2)
+            }
+            return
+        }
+        #expect(overflowSessionCriticalDelivered.wait(timeout: .now() + 2) == .success)
         for _ in sessionCriticalEventNames {
             #expect(sessionCriticalDeliveryFinished.wait(timeout: .now() + 2) == .success)
         }
