@@ -9,34 +9,34 @@ struct ArtifactCaptureDirectoryFinder {
     func resolve(
         paths: ArtifactStorePaths,
         context: ArtifactCaptureContext,
-        pathResolver: ArtifactPathResolver
+        pathResolver: ArtifactPathResolver,
+        kind: CmuxSessionContentKind = .artifacts
     ) -> ArtifactCaptureDirectoryResolution {
         if let sessionID = normalized(context.sessionID),
-           let directory = markerDirectories(
+           let sessionRoot = markerDirectories(
                paths: paths,
                markerName: ArtifactPathResolver.sessionMarkerName,
                pathResolver: pathResolver,
                matches: { (marker: ArtifactSessionMarker) in marker.sessionID == sessionID }
            ).first {
-            return ArtifactCaptureDirectoryResolution(directory: directory, reusedSessionMarker: true)
+            return ArtifactCaptureDirectoryResolution(
+                directory: sessionRoot.appendingPathComponent(kind.rawValue, isDirectory: true)
+            )
         }
 
-        let fallback = pathResolver.captureDirectory(paths: paths, context: context)
-        guard let workspaceID = normalized(context.workspaceID),
-              let workspaceDirectory = markerDirectories(
+        let fallback = pathResolver.contentDirectory(paths: paths, context: context, kind: kind)
+        guard normalized(context.sessionID) == nil,
+              let workspaceID = normalized(context.workspaceID),
+              let sessionRoot = markerDirectories(
                   paths: paths,
                   markerName: ArtifactPathResolver.workspaceMarkerName,
                   pathResolver: pathResolver,
                   matches: { (marker: ArtifactWorkspaceMarker) in marker.workspaceID == workspaceID }
               ).first else {
-            return ArtifactCaptureDirectoryResolution(directory: fallback, reusedSessionMarker: false)
+            return ArtifactCaptureDirectoryResolution(directory: fallback)
         }
         return ArtifactCaptureDirectoryResolution(
-            directory: workspaceDirectory.appendingPathComponent(
-                fallback.lastPathComponent,
-                isDirectory: true
-            ),
-            reusedSessionMarker: false
+            directory: sessionRoot.appendingPathComponent(kind.rawValue, isDirectory: true)
         )
     }
 
@@ -47,7 +47,7 @@ struct ArtifactCaptureDirectoryFinder {
         matches: (Marker) -> Bool
     ) -> [URL] {
         guard let enumerator = fileManager.enumerator(
-            at: paths.artifactsRoot,
+            at: paths.filesystemRoot,
             includingPropertiesForKeys: [
                 .isRegularFileKey, .isDirectoryKey, .isSymbolicLinkKey, .fileSizeKey,
             ],
@@ -76,11 +76,11 @@ struct ArtifactCaptureDirectoryFinder {
                 continue
             }
             let directory = url.deletingLastPathComponent()
-            guard let relativePath = pathResolver.relativePath(directory, root: paths.artifactsRoot) else {
+            guard let relativePath = pathResolver.relativePath(directory, root: paths.filesystemRoot) else {
                 continue
             }
             directories.append(
-                paths.artifactsRoot.appendingPathComponent(relativePath, isDirectory: true)
+                paths.filesystemRoot.appendingPathComponent(relativePath, isDirectory: true)
             )
         }
         return directories.sorted {

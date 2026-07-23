@@ -16,7 +16,7 @@ struct ArtifactDeduplicationIndexBuilder {
             let size = item.snapshot.size
             if let document = try recorder.document(paths: paths, digest: item.digest),
                document.size == size {
-                let lastKnownURL = paths.artifactsRoot
+                let lastKnownURL = paths.filesystemRoot
                     .appendingPathComponent(document.lastKnownRelativePath, isDirectory: false)
                 if pathResolver.isInsideStore(lastKnownURL, paths: paths),
                    matches(file: lastKnownURL, digest: item.digest, size: size) {

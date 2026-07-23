@@ -60,7 +60,7 @@ struct AgentArtifactAutomaticPathBoundTests {
         await task.value
 
         #expect(!FileManager.default.fileExists(
-            atPath: ArtifactStorePaths(projectRoot: projectRoot).artifactsRoot.path
+            atPath: ArtifactStorePaths(projectRoot: projectRoot).filesystemRoot.path
         ))
     }
 

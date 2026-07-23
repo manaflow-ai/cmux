@@ -5,21 +5,31 @@ struct ArtifactGitPrivacyValidator: Sendable {
     let worktreeRoot: URL?
     let commandRunner: any ArtifactGitCommandRunning
 
-    func storeIsUntracked(artifactsRoot: URL) async -> Bool {
+    func storeIsUntracked(filesystemRoot: URL) async -> Bool {
         guard let worktreeRoot else { return true }
-        guard let relativeArtifactsPath = ArtifactPathResolver().relativePath(
-            artifactsRoot,
+        guard let relativeCmuxPath = ArtifactPathResolver().relativePath(
+            filesystemRoot,
             root: worktreeRoot
         ) else {
             return false
         }
-        guard let trackedStatus = try? await commandRunner.terminationStatus(arguments: [
-            "-C", worktreeRoot.path,
-            "ls-files", "--error-unmatch", "--", relativeArtifactsPath,
-        ]) else {
+        let trackedContentPathspecs = [
+            ":(glob)\(relativeCmuxPath)/**/artifacts/**",
+            ":(glob)\(relativeCmuxPath)/**/notes/**",
+            ":(glob)\(relativeCmuxPath)/**/_session.json",
+            ":(glob)\(relativeCmuxPath)/**/_workspace.json",
+            ":(glob)\(relativeCmuxPath)/.metadata/**",
+        ]
+        guard let trackedResult = try? await commandRunner.run(
+            arguments: [
+                "-C", worktreeRoot.path,
+                "ls-files", "-z", "--",
+            ] + trackedContentPathspecs,
+            standardInput: nil
+        ), trackedResult.terminationStatus == 0 else {
             return false
         }
-        return trackedStatus == 1
+        return trackedResult.standardOutput.isEmpty
     }
 
     func permits(destinations: [URL]) async -> Bool {

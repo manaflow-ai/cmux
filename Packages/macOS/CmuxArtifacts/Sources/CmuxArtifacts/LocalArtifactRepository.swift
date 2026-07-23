@@ -3,7 +3,7 @@ public import Foundation
 
 /// Actor-backed local repository for one or more project artifact stores.
 ///
-/// Ordinary files under `.cmux/artifacts` are authoritative. Hidden metadata is
+/// Ordinary files under session folders in `.cmux` are authoritative. Hidden metadata is
 /// content-addressed so user-driven file moves and renames do not invalidate
 /// deduplication or provenance.
 public actor LocalArtifactRepository: ArtifactStoring {
@@ -84,7 +84,7 @@ public actor LocalArtifactRepository: ArtifactStoring {
         }
         guard let data = try? reader.data(
             url: url,
-            allowedRoot: paths.cmuxDirectory,
+            allowedRoot: paths.filesystemRoot,
             maximumBytes: Self.maximumConfigurationBytes
         ),
               let configuration = try? decoder.decode(ArtifactCaptureConfiguration.self, from: data) else {
@@ -139,7 +139,10 @@ public actor LocalArtifactRepository: ArtifactStoring {
 
     /// Resolves an exact relative path, unique basename, or unique fuzzy match.
     public func resolve(projectRoot: URL, name rawName: String) throws -> ArtifactNode {
-        let name = rawName.trimmingCharacters(in: .whitespacesAndNewlines)
+        let trimmedName = rawName.trimmingCharacters(in: .whitespacesAndNewlines)
+        let name = trimmedName.hasPrefix(".cmux/")
+            ? String(trimmedName.dropFirst(".cmux/".count))
+            : trimmedName
         let paths = ArtifactStorePaths(projectRoot: projectRoot)
         try prepare(paths: paths)
         if let exact = try ArtifactExactPathResolver().fileNode(
@@ -179,7 +182,7 @@ public actor LocalArtifactRepository: ArtifactStoring {
         } catch {
             return AsyncStream { $0.finish() }
         }
-        guard let watcher = RecursivePathWatcher(paths: [paths.artifactsRoot.path]) else {
+        guard let watcher = RecursivePathWatcher(paths: [paths.filesystemRoot.path]) else {
             return AsyncStream { $0.finish() }
         }
         return AsyncStream(bufferingPolicy: .bufferingNewest(1)) { continuation in
@@ -204,26 +207,24 @@ public actor LocalArtifactRepository: ArtifactStoring {
         )
     }
 
-    private func completeSnapshot(paths: ArtifactStorePaths) throws -> ArtifactSnapshot {
+    func completeSnapshot(paths: ArtifactStorePaths) throws -> ArtifactSnapshot {
         let snapshot = try scanner.snapshot(paths: paths)
         guard !snapshot.isTruncated else {
-            throw ArtifactStoreError.scanIncomplete(paths.artifactsRoot.path)
+            throw ArtifactStoreError.scanIncomplete(paths.filesystemRoot.path)
         }
         return snapshot
     }
 
     func prepare(paths: ArtifactStorePaths) throws {
-        try rejectSymbolicLink(at: paths.cmuxDirectory)
-        try rejectSymbolicLink(at: paths.artifactsRoot)
-        try fileManager.createDirectory(at: paths.artifactsRoot, withIntermediateDirectories: true)
-        try rejectSymbolicLink(at: paths.cmuxDirectory)
-        try rejectSymbolicLink(at: paths.artifactsRoot)
+        try rejectSymbolicLink(at: paths.filesystemRoot)
+        try fileManager.createDirectory(at: paths.filesystemRoot, withIntermediateDirectories: true)
+        try rejectSymbolicLink(at: paths.filesystemRoot)
         try rejectSymbolicLinks(
-            from: paths.artifactsRoot,
+            from: paths.filesystemRoot,
             through: paths.provenanceRoot
         )
         try rejectSymbolicLinks(
-            from: paths.artifactsRoot,
+            from: paths.filesystemRoot,
             through: paths.importStagingRoot
         )
         ArtifactImportStagingCleaner(fileManager: fileManager, now: now)
@@ -232,26 +233,23 @@ public actor LocalArtifactRepository: ArtifactStoring {
     }
 
     func createCaptureDirectory(
-        _ sessionDirectory: URL,
+        _ contentDirectory: URL,
         paths: ArtifactStorePaths,
         context: ArtifactCaptureContext,
-        capturedAt: Date,
-        writesWorkspaceMarker: Bool
+        capturedAt: Date
     ) throws {
-        try rejectSymbolicLinks(from: paths.artifactsRoot, through: sessionDirectory)
-        try fileManager.createDirectory(at: sessionDirectory, withIntermediateDirectories: true)
-        try rejectSymbolicLinks(from: paths.artifactsRoot, through: sessionDirectory)
-        let workspaceDirectory = sessionDirectory.deletingLastPathComponent()
-        if writesWorkspaceMarker {
-            try writeMarkerIfMissing(
-                ArtifactWorkspaceMarker(
-                    workspaceID: context.workspaceID,
-                    workspaceTitle: context.workspaceTitle,
-                    createdAt: capturedAt
-                ),
-                to: workspaceDirectory.appendingPathComponent(ArtifactPathResolver.workspaceMarkerName)
-            )
-        }
+        try rejectSymbolicLinks(from: paths.filesystemRoot, through: contentDirectory)
+        try fileManager.createDirectory(at: contentDirectory, withIntermediateDirectories: true)
+        try rejectSymbolicLinks(from: paths.filesystemRoot, through: contentDirectory)
+        let sessionDirectory = contentDirectory.deletingLastPathComponent()
+        try writeMarkerIfMissing(
+            ArtifactWorkspaceMarker(
+                workspaceID: context.workspaceID,
+                workspaceTitle: context.workspaceTitle,
+                createdAt: capturedAt
+            ),
+            to: sessionDirectory.appendingPathComponent(ArtifactPathResolver.workspaceMarkerName)
+        )
         try writeMarkerIfMissing(
             ArtifactSessionMarker(
                 sessionID: context.sessionID,
@@ -267,7 +265,7 @@ public actor LocalArtifactRepository: ArtifactStoring {
         try encoder.encode(value).write(to: url, options: .atomic)
     }
 
-    private func rejectSymbolicLinks(from root: URL, through descendant: URL) throws {
+    func rejectSymbolicLinks(from root: URL, through descendant: URL) throws {
         let pathResolver = ArtifactPathResolver()
         try rejectSymbolicLink(at: root)
         guard !pathResolver.refersToSameLocation(descendant, root) else { return }
@@ -281,7 +279,7 @@ public actor LocalArtifactRepository: ArtifactStoring {
         }
     }
 
-    private func rejectSymbolicLink(at url: URL) throws {
+    func rejectSymbolicLink(at url: URL) throws {
         guard fileManager.fileExists(atPath: url.path) else { return }
         let values = try url.resourceValues(forKeys: [.isSymbolicLinkKey])
         guard values.isSymbolicLink != true else {

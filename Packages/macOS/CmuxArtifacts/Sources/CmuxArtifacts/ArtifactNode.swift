@@ -6,7 +6,7 @@ public struct ArtifactNode: Identifiable, Equatable, Sendable {
     public let id: String
     /// Basename shown in the tree.
     public let name: String
-    /// Path relative to `.cmux/artifacts`.
+    /// Path relative to the project's `.cmux` filesystem.
     public let relativePath: String
     /// Absolute local path used by open, reveal, copy, and drag actions.
     public let absolutePath: String
@@ -26,7 +26,7 @@ public struct ArtifactNode: Identifiable, Equatable, Sendable {
     /// - Parameters:
     ///   - id: Stable node identity.
     ///   - name: Basename shown in the tree.
-    ///   - relativePath: Path relative to the artifact root.
+    ///   - relativePath: Path relative to the project `.cmux` filesystem.
     ///   - absolutePath: Absolute local path.
     ///   - isDirectory: Whether the node is a directory.
     ///   - fileKind: Preview classification for a file.

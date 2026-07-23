@@ -6,7 +6,7 @@ public struct ArtifactSidebarRowSnapshot: Identifiable, Equatable, Sendable {
     public let id: String
     /// Basename shown as the primary row label.
     public let name: String
-    /// Path relative to `.cmux/artifacts`.
+    /// Path relative to the project's `.cmux` filesystem.
     public let relativePath: String
     /// Absolute local file URL used by preview and drag actions.
     public let fileURL: URL
@@ -28,7 +28,7 @@ public struct ArtifactSidebarRowSnapshot: Identifiable, Equatable, Sendable {
     /// - Parameters:
     ///   - id: Stable row identity.
     ///   - name: Basename shown in the row.
-    ///   - relativePath: Path relative to the artifact root.
+    ///   - relativePath: Path relative to the project `.cmux` filesystem.
     ///   - fileURL: Absolute local file URL.
     ///   - depth: Tree indentation depth.
     ///   - isDirectory: Whether the row is a directory.

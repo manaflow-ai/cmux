@@ -4,8 +4,8 @@ public import Foundation
 public struct ArtifactSnapshot: Equatable, Sendable {
     /// Project root used for the scan.
     public let projectRoot: URL
-    /// Absolute `.cmux/artifacts` directory.
-    public let artifactsRoot: URL
+    /// Absolute project `.cmux` directory.
+    public let filesystemRoot: URL
     /// Top-level tree nodes.
     public let nodes: [ArtifactNode]
     /// Whether the scan stopped at its defensive node budget.
@@ -15,12 +15,12 @@ public struct ArtifactSnapshot: Equatable, Sendable {
     ///
     /// - Parameters:
     ///   - projectRoot: Project root used for the scan.
-    ///   - artifactsRoot: Absolute artifact filesystem root.
+    ///   - filesystemRoot: Absolute project `.cmux` filesystem root.
     ///   - nodes: Top-level immutable tree nodes.
     ///   - isTruncated: Whether a defensive scan limit stopped traversal.
-    public init(projectRoot: URL, artifactsRoot: URL, nodes: [ArtifactNode], isTruncated: Bool) {
+    public init(projectRoot: URL, filesystemRoot: URL, nodes: [ArtifactNode], isTruncated: Bool) {
         self.projectRoot = projectRoot
-        self.artifactsRoot = artifactsRoot
+        self.filesystemRoot = filesystemRoot
         self.nodes = nodes
         self.isTruncated = isTruncated
     }

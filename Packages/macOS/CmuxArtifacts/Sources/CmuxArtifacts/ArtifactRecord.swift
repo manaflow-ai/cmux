@@ -6,7 +6,7 @@ public struct ArtifactRecord: Codable, Equatable, Sendable {
     public let digest: String
     /// Original absolute source path at capture time.
     public let sourcePath: String
-    /// Current artifact path relative to `.cmux/artifacts` at capture time.
+    /// Current artifact path relative to `.cmux` at capture time.
     public let relativePath: String
     /// Workspace identity attached to the capture.
     public let workspaceID: String?
@@ -24,7 +24,7 @@ public struct ArtifactRecord: Codable, Equatable, Sendable {
     /// - Parameters:
     ///   - digest: SHA-256 content digest.
     ///   - sourcePath: Original absolute source path.
-    ///   - relativePath: Artifact-root-relative path at capture time.
+    ///   - relativePath: Project `.cmux`-relative path at capture time.
     ///   - workspaceID: Associated workspace identity.
     ///   - sessionID: Associated agent-session identity.
     ///   - provenance: How cmux learned about the file.

@@ -6,7 +6,7 @@ public enum ArtifactImportOutcome: Equatable, Sendable {
     case copied(ArtifactRecord)
     /// Identical bytes already existed; provenance was recorded without another copy.
     case deduplicated(ArtifactRecord)
-    /// The source already lived inside `.cmux/artifacts` and was recorded in place.
+    /// The source already lived inside the project `.cmux` filesystem and was recorded in place.
     case alreadyStored(ArtifactRecord)
     /// Policy rejected the candidate without mutating the store.
     case skipped(ArtifactSkipReason)

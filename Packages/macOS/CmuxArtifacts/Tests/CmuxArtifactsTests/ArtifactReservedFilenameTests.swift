@@ -55,9 +55,10 @@ struct ArtifactReservedFilenameTests {
 
         let record = try #require(outcome.record)
         #expect(record.relativePath.hasSuffix("/\(expectedArtifactName)"))
-        let artifactURL = root.appendingPathComponent(".cmux/artifacts/\(record.relativePath)")
+        let artifactURL = root.appendingPathComponent(".cmux/\(record.relativePath)")
         #expect(try String(contentsOf: artifactURL, encoding: .utf8) == "user artifact")
         let markerURL = artifactURL.deletingLastPathComponent()
+            .deletingLastPathComponent()
             .appendingPathComponent(ArtifactPathResolver.sessionMarkerName)
         #expect(FileManager.default.fileExists(atPath: markerURL.path))
         #expect(markerURL != artifactURL)

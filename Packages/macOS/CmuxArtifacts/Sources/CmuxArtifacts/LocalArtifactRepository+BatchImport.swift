@@ -15,7 +15,7 @@ extension LocalArtifactRepository {
         } catch let error as ArtifactStoreError {
             return candidates.map { _ in .rejected(error) }
         } catch {
-            return candidates.map { _ in .rejected(.pathOutsideStore(paths.artifactsRoot.path)) }
+            return candidates.map { _ in .rejected(.pathOutsideStore(paths.filesystemRoot.path)) }
         }
         var attempts = Array<ArtifactImportAttempt?>(repeating: nil, count: candidates.count)
         var preparedByIndex: [Int: PreparedArtifactImport] = [:]
@@ -39,7 +39,7 @@ extension LocalArtifactRepository {
                     commandRunner: gitCommandRunner
                 )
             if let candidateValidator,
-               await candidateValidator.storeIsUntracked(artifactsRoot: paths.artifactsRoot) {
+               await candidateValidator.storeIsUntracked(filesystemRoot: paths.filesystemRoot) {
                 privacyValidator = candidateValidator
             }
             let stagingDestinations = automaticIndices.map { stagedURLs[$0] }
@@ -50,7 +50,7 @@ extension LocalArtifactRepository {
             }
             if !permitsStaging {
                 for index in automaticIndices {
-                    attempts[index] = .rejected(.gitPrivacyUnavailable(paths.artifactsRoot.path))
+                    attempts[index] = .rejected(.gitPrivacyUnavailable(paths.filesystemRoot.path))
                 }
                 privacyValidator = nil
             }
@@ -107,13 +107,13 @@ extension LocalArtifactRepository {
                     authorizedAutomaticPlan = plan
                 } else {
                     for (index, _) in automaticPrepared {
-                        attempts[index] = .rejected(.gitPrivacyUnavailable(paths.artifactsRoot.path))
+                        attempts[index] = .rejected(.gitPrivacyUnavailable(paths.filesystemRoot.path))
                     }
                     orderedPrepared.removeAll { $0.value.candidate.provenance != .manual }
                 }
             } catch {
                 let rejection = (error as? ArtifactStoreError)
-                    ?? ArtifactStoreError.pathOutsideStore(paths.artifactsRoot.path)
+                    ?? ArtifactStoreError.pathOutsideStore(paths.filesystemRoot.path)
                 for index in preparedByIndex.keys {
                     attempts[index] = .rejected(rejection)
                 }
@@ -129,13 +129,13 @@ extension LocalArtifactRepository {
 
         let mutationLease: ArtifactStoreMutationLease
         do {
-            mutationLease = try ArtifactStoreMutationLease.acquire(directory: paths.artifactsRoot)
+            mutationLease = try ArtifactStoreMutationLease.acquire(directory: paths.filesystemRoot)
         } catch let error as ArtifactStoreError {
             for (index, _) in orderedPrepared { attempts[index] = .rejected(error) }
             return finalizedAttempts(attempts, candidates: candidates)
         } catch {
             for (index, _) in orderedPrepared {
-                attempts[index] = .rejected(.pathOutsideStore(paths.artifactsRoot.path))
+                attempts[index] = .rejected(.pathOutsideStore(paths.filesystemRoot.path))
             }
             return finalizedAttempts(attempts, candidates: candidates)
         }
@@ -150,7 +150,7 @@ extension LocalArtifactRepository {
             )
         } catch {
             let rejection = (error as? ArtifactStoreError)
-                ?? ArtifactStoreError.pathOutsideStore(paths.artifactsRoot.path)
+                ?? ArtifactStoreError.pathOutsideStore(paths.filesystemRoot.path)
             for (index, _) in orderedPrepared { attempts[index] = .rejected(rejection) }
             return finalizedAttempts(attempts, candidates: candidates)
         }
@@ -167,7 +167,7 @@ extension LocalArtifactRepository {
                 automaticWritePlan = refreshedPlan
             } else {
                 for (index, _) in refreshedAutomatic {
-                    attempts[index] = .rejected(.storeBusy(paths.artifactsRoot.path))
+                    attempts[index] = .rejected(.storeBusy(paths.filesystemRoot.path))
                 }
                 orderedPrepared.removeAll { $0.value.candidate.provenance != .manual }
             }

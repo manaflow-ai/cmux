@@ -8,7 +8,7 @@ extension CMUXCLI {
         processEnvironment: [String: String]
     ) async throws {
         let parsed = try artifactArguments(commandArgs)
-        let projectRoot = artifactProjectRoot(explicitPath: parsed.projectPath)
+        let projectRoot = projectFilesProjectRoot(explicitPath: parsed.projectPath)
         let repository = LocalArtifactRepository()
         let terminalText = ArtifactTerminalTextSanitizer()
 
@@ -23,7 +23,7 @@ extension CMUXCLI {
                 if jsonOutput {
                     print(jsonString([
                         "project_root": projectRoot.path,
-                        "artifacts_root": snapshot.artifactsRoot.path,
+                        "filesystem_root": snapshot.filesystemRoot.path,
                         "artifacts": files.map(artifactPayload),
                     ]))
                 } else if files.isEmpty {
@@ -52,8 +52,8 @@ extension CMUXCLI {
 
             case "add":
                 let rawPath = try artifactRequiredOperand(parsed.operands, subcommand: "add")
-                let sourceURL = artifactFileURL(rawPath)
-                let context = artifactCaptureContext(
+                let sourceURL = projectFilesURL(rawPath)
+                let context = projectFilesCaptureContext(
                     projectRoot: projectRoot,
                     environment: processEnvironment
                 )
@@ -70,12 +70,13 @@ extension CMUXCLI {
                     }
                     throw CLIError(message: artifactSkipMessage(reason), exitCode: 2)
                 }
-                let absolutePath = ArtifactStorePaths(projectRoot: projectRoot).artifactsRoot
+                let absolutePath = ArtifactStorePaths(projectRoot: projectRoot).filesystemRoot
                     .appendingPathComponent(record.relativePath, isDirectory: false).path
                 if jsonOutput {
                     print(jsonString([
                         "path": absolutePath,
                         "relative_path": record.relativePath,
+                        "reference": ".cmux/\(record.relativePath)",
                         "digest": record.digest,
                         "result": artifactOutcomeName(outcome),
                     ]))
@@ -130,7 +131,7 @@ extension CMUXCLI {
                cmux artifact add <path> [--project <path>]
                cmux artifact search <query> [--project <path>]
 
-        Browse and add ordinary files under <project>/.cmux/artifacts.
+        Browse and add ordinary files under agent-session folders in <project>/.cmux.
         Commands work without a running cmux app or socket. The project defaults
         to the nearest ancestor containing .cmux or .git.
         """)
@@ -186,23 +187,6 @@ extension CMUXCLI {
         )
     }
 
-    private func artifactProjectRoot(explicitPath: String?) -> URL {
-        let start = explicitPath.map(artifactFileURL)
-            ?? URL(fileURLWithPath: FileManager.default.currentDirectoryPath, isDirectory: true)
-        return ArtifactProjectLocator().projectRoot(startingAt: start, fileManager: .default)
-    }
-
-    private func artifactFileURL(_ rawPath: String) -> URL {
-        let expanded = NSString(string: rawPath).expandingTildeInPath
-        if expanded.hasPrefix("/") {
-            return URL(fileURLWithPath: expanded).standardizedFileURL
-        }
-        return URL(
-            fileURLWithPath: expanded,
-            relativeTo: URL(fileURLWithPath: FileManager.default.currentDirectoryPath, isDirectory: true)
-        ).standardizedFileURL
-    }
-
     private func artifactRequiredOperand(_ operands: [String], subcommand: String) throws -> String {
         let value = operands.joined(separator: " ").trimmingCharacters(in: .whitespacesAndNewlines)
         guard !value.isEmpty else {
@@ -217,26 +201,12 @@ extension CMUXCLI {
         return value
     }
 
-    private func artifactCaptureContext(
-        projectRoot: URL,
-        environment: [String: String]
-    ) -> ArtifactCaptureContext {
-        let codexSession = environment["CMUX_CODEX_SESSION_ID"]
-        let claudeSession = environment["CMUX_CLAUDE_SESSION_ID"]
-        return ArtifactCaptureContext(
-            projectRoot: projectRoot,
-            workspaceID: environment["CMUX_WORKSPACE_ID"],
-            workspaceTitle: environment["CMUX_WORKSPACE_TITLE"],
-            sessionID: codexSession ?? claudeSession ?? environment["CMUX_AGENT_SESSION_ID"],
-            agentName: codexSession == nil ? (claudeSession == nil ? environment["CMUX_AGENT_NAME"] : "claude") : "codex"
-        )
-    }
-
     private func artifactPayload(_ node: ArtifactNode) -> [String: Any] {
         [
             "name": node.name,
             "relative_path": node.relativePath,
             "path": node.absolutePath,
+            "reference": ".cmux/\(node.relativePath)",
             "kind": node.fileKind?.rawValue ?? "other",
             "size": node.size ?? 0,
         ]
@@ -307,21 +277,16 @@ extension CMUXCLI {
     }
 
     private func openArtifact(_ node: ArtifactNode) throws {
-        let process = Process()
-        process.executableURL = URL(fileURLWithPath: "/usr/bin/open")
-        process.arguments = [node.absolutePath]
-        try process.run()
-        process.waitUntilExit()
-        guard process.terminationStatus == 0 else {
-            let message = String(
+        openProjectFile(
+            path: node.absolutePath,
+            failureMessage: String(
                 format: String(
                     localized: "cli.artifact.error.openFailed",
                     defaultValue: "Could not open artifact at %@"
                 ),
                 node.absolutePath
             )
-            throw CLIError(message: ArtifactTerminalTextSanitizer().sanitize(message))
-        }
+        )
     }
 
     private func artifactErrorMessage(_ error: ArtifactStoreError) -> String {

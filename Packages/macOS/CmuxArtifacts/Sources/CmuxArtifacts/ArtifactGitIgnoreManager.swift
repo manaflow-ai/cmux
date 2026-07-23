@@ -4,11 +4,17 @@ import Foundation
 /// Adds the local artifact store to Git's per-checkout exclude file.
 struct ArtifactGitIgnoreManager {
     let fileManager: FileManager
-    static let ignoreEntry = ".cmux/artifacts/"
+    static let ignoreEntries = [
+        ".cmux/**/artifacts/",
+        ".cmux/**/notes/",
+        ".cmux/**/_session.json",
+        ".cmux/**/_workspace.json",
+        ".cmux/.metadata/",
+    ]
 
     func ensureIgnored(projectRoot: URL) throws {
         guard let repository = locateGitRepository(startingAt: projectRoot) else { return }
-        let ignoreEntry = relativeIgnoreEntry(
+        let ignoreEntries = relativeIgnoreEntries(
             projectRoot: projectRoot,
             worktreeRoot: repository.worktreeRoot
         )
@@ -23,10 +29,11 @@ struct ArtifactGitIgnoreManager {
             existing = ""
         }
         let lines = existing.split(separator: "\n", omittingEmptySubsequences: false).map(String.init)
-        guard !lines.contains(ignoreEntry) else { return }
+        let missingEntries = ignoreEntries.filter { !lines.contains($0) }
+        guard !missingEntries.isEmpty else { return }
         var updated = existing
         if !updated.isEmpty, !updated.hasSuffix("\n") { updated += "\n" }
-        updated += ignoreEntry + "\n"
+        updated += missingEntries.joined(separator: "\n") + "\n"
         try ensureTrustedDirectory(infoDirectory)
         try rejectUntrustedFileEntry(excludeURL)
         try updated.write(to: excludeURL, atomically: true, encoding: .utf8)
@@ -230,14 +237,15 @@ struct ArtifactGitIgnoreManager {
         return values.isSymbolicLink != true
     }
 
-    private func relativeIgnoreEntry(projectRoot: URL, worktreeRoot: URL) -> String {
+    private func relativeIgnoreEntries(projectRoot: URL, worktreeRoot: URL) -> [String] {
         guard let relativePath = ArtifactPathResolver().relativePath(
             projectRoot,
             root: worktreeRoot
         ) else {
-            return Self.ignoreEntry
+            return Self.ignoreEntries
         }
-        return escapedGitPattern(relativePath) + "/" + Self.ignoreEntry
+        let prefix = escapedGitPattern(relativePath) + "/"
+        return Self.ignoreEntries.map { prefix + $0 }
     }
 
     private func escapedGitPattern(_ path: String) -> String {

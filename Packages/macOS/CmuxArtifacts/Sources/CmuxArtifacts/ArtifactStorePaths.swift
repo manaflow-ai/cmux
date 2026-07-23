@@ -1,6 +1,6 @@
 public import Foundation
 
-/// Deterministic paths inside one project's `.cmux` directory.
+/// Deterministic paths inside one project's session-oriented `.cmux` filesystem.
 public struct ArtifactStorePaths: Equatable, Sendable {
     /// Normalized project root.
     public let projectRoot: URL
@@ -12,24 +12,22 @@ public struct ArtifactStorePaths: Equatable, Sendable {
         self.projectRoot = projectRoot.standardizedFileURL
     }
 
-    /// Project-local cmux directory.
-    public var cmuxDirectory: URL {
+    /// Ordinary cmux filesystem root.
+    ///
+    /// Agent sessions are immediate or user-organized descendants whose
+    /// `artifacts` and `notes` directories remain ordinary movable folders.
+    public var filesystemRoot: URL {
         projectRoot.appendingPathComponent(".cmux", isDirectory: true)
-    }
-
-    /// Ordinary artifact filesystem root.
-    public var artifactsRoot: URL {
-        cmuxDirectory.appendingPathComponent("artifacts", isDirectory: true)
     }
 
     /// Optional project capture configuration.
     public var configurationFile: URL {
-        cmuxDirectory.appendingPathComponent("artifacts.json", isDirectory: false)
+        filesystemRoot.appendingPathComponent("artifacts.json", isDirectory: false)
     }
 
     /// Hidden cmux-managed metadata root excluded from the sidebar tree.
     public var metadataRoot: URL {
-        artifactsRoot.appendingPathComponent(".cmux", isDirectory: true)
+        filesystemRoot.appendingPathComponent(".metadata", isDirectory: true)
     }
 
     /// Private import staging directory excluded from the sidebar tree.

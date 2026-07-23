@@ -2,7 +2,7 @@ import AppKit
 import CmuxArtifacts
 import SwiftUI
 
-/// Beta-gated Artifacts sidebar with live filesystem tree and search.
+/// Beta-gated project-file sidebar with a live `.cmux` tree and search.
 struct ArtifactSidebarPanelView: View {
     let model: ArtifactSidebarModel
     let workspace: ArtifactSidebarWorkspace?
@@ -48,7 +48,10 @@ struct ArtifactSidebarPanelView: View {
             Image(systemName: "magnifyingglass")
                 .foregroundStyle(.secondary)
             TextField(
-                String(localized: "rightSidebar.artifacts.search.placeholder", defaultValue: "Search artifacts"),
+                String(
+                    localized: "rightSidebar.artifacts.search.placeholder",
+                    defaultValue: "Search artifacts and notes"
+                ),
                 text: Binding(get: { model.query }, set: model.setQuery)
             )
             .textFieldStyle(.plain)
@@ -73,18 +76,27 @@ struct ArtifactSidebarPanelView: View {
             emptyState(
                 symbol: "shippingbox",
                 title: String(localized: "rightSidebar.artifacts.noWorkspace.title", defaultValue: "No Local Workspace"),
-                message: String(localized: "rightSidebar.artifacts.noWorkspace.message", defaultValue: "Open a local workspace to browse its artifacts."),
+                message: String(
+                    localized: "rightSidebar.artifacts.noWorkspace.message",
+                    defaultValue: "Open a local workspace to browse its artifacts and notes."
+                ),
                 showsAddButton: false
             )
         case .loading:
             ProgressView()
                 .frame(maxWidth: .infinity, maxHeight: .infinity)
-                .accessibilityLabel(String(localized: "rightSidebar.artifacts.loading", defaultValue: "Loading artifacts"))
+                .accessibilityLabel(String(
+                    localized: "rightSidebar.artifacts.loading",
+                    defaultValue: "Loading artifacts and notes"
+                ))
         case .failed:
             VStack(spacing: 10) {
                 emptyState(
                     symbol: "exclamationmark.triangle",
-                    title: String(localized: "rightSidebar.artifacts.loadFailed.title", defaultValue: "Couldn’t Load Artifacts"),
+                    title: String(
+                        localized: "rightSidebar.artifacts.loadFailed.title",
+                        defaultValue: "Couldn’t Load Project Files"
+                    ),
                     message: String(localized: "rightSidebar.artifacts.loadFailed.message", defaultValue: "Check the project folder and try again."),
                     showsAddButton: false
                 )
@@ -98,10 +110,16 @@ struct ArtifactSidebarPanelView: View {
                 emptyState(
                     symbol: model.query.isEmpty ? "shippingbox" : "magnifyingglass",
                     title: model.query.isEmpty
-                        ? String(localized: "rightSidebar.artifacts.empty.title", defaultValue: "No Artifacts Yet")
+                        ? String(
+                            localized: "rightSidebar.artifacts.empty.title",
+                            defaultValue: "No Artifacts or Notes Yet"
+                        )
                         : String(localized: "rightSidebar.artifacts.noResults.title", defaultValue: "No Matches"),
                     message: model.query.isEmpty
-                        ? String(localized: "rightSidebar.artifacts.empty.message", defaultValue: "Files saved or added to this project’s Artifacts will appear here.")
+                        ? String(
+                            localized: "rightSidebar.artifacts.empty.message",
+                            defaultValue: "Files in each agent session’s artifacts and notes folders will appear here."
+                        )
                         : String(localized: "rightSidebar.artifacts.noResults.message", defaultValue: "Try another filename or text search."),
                     showsAddButton: model.query.isEmpty
                 )
@@ -117,7 +135,7 @@ struct ArtifactSidebarPanelView: View {
             toggleExpansion: { model.toggleExpansion(relativePath: $0.relativePath) },
             revealInFinder: { NSWorkspace.shared.activateFileViewerSelecting([$0.fileURL]) },
             copyPath: { copyToPasteboard($0.fileURL.path) },
-            copyReference: { copyToPasteboard(".cmux/artifacts/\($0.relativePath)") }
+            copyReference: { copyToPasteboard(".cmux/\($0.relativePath)") }
         )
         return ScrollView {
             LazyVStack(spacing: 0) {
@@ -193,7 +211,10 @@ struct ArtifactSidebarPanelView: View {
         case .add:
             return String(localized: "rightSidebar.artifacts.addFailed.title", defaultValue: "Couldn’t Add Artifact")
         case .search:
-            return String(localized: "rightSidebar.artifacts.searchFailed.title", defaultValue: "Couldn’t Search Artifacts")
+            return String(
+                localized: "rightSidebar.artifacts.searchFailed.title",
+                defaultValue: "Couldn’t Search Project Files"
+            )
         }
     }
 
@@ -202,7 +223,10 @@ struct ArtifactSidebarPanelView: View {
         case .add:
             return String(localized: "rightSidebar.artifacts.addFailed.message", defaultValue: "The file may be unsupported or larger than this project’s capture limit.")
         case .search:
-            return String(localized: "rightSidebar.artifacts.searchFailed.message", defaultValue: "Check the artifact folder and try again.")
+            return String(
+                localized: "rightSidebar.artifacts.searchFailed.message",
+                defaultValue: "Check the project’s .cmux folder and try again."
+            )
         }
     }
 }

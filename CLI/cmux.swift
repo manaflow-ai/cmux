@@ -3267,6 +3267,7 @@ struct CMUXCLI {
         if command == "welcome" { printWelcome(); return }
         if command == "sessions" || command == "session-debug" { try runSessionsCommand(commandArgs: command == "session-debug" ? ["debug"] + commandArgs : commandArgs, jsonOutput: jsonOutput, processEnv: processEnv); return }
         if command == "artifact" { try await runArtifactCommand(commandArgs: commandArgs, jsonOutput: jsonOutput, processEnvironment: processEnv); return }
+        if command == "note" { try await runNoteCommand(commandArgs: commandArgs, jsonOutput: jsonOutput, processEnvironment: processEnv); return }
         if command == "__sigpipe-probe" { try runSIGPIPEProbe(commandArgs: commandArgs); return }
         if command == "__sigpipe-stdin-pipe-probe" { try runSIGPIPEStdinPipeProbe(); return }
         if command == "__sigpipe-inspect" { try runSIGPIPEInspect(commandArgs: commandArgs); return }
@@ -14947,6 +14948,7 @@ struct CMUXCLI {
             Check connectivity to the cmux socket server.
             """
         case "artifact": return artifactUsage()
+        case "note": return noteUsage()
         case "capabilities":
             return """
             Usage: cmux capabilities
@@ -35122,6 +35124,7 @@ export default CMUXSessionRestore;
         Commands:
           welcome
           \(String(localized: "cli.artifact.helpLine", defaultValue: "artifact <list|path|open|add|search> [--project <path>]"))
+          \(String(localized: "cli.note.helpLine", defaultValue: "note <list|path|read|write|append|search|open|rm> [--project <path>]"))
           docs [settings|shortcuts|api|browser|agents|dock|sidebars]
           settings [open [target]|path|docs|<target>]
           config <doctor|check|validate|path|paths|docs|documentation|reload>

@@ -418,7 +418,15 @@ enum SettingsSearchIndex {
         setting(.sidebarAppearance, "right-max-width", String(localized: "settings.sidebar.rightMaxWidth", defaultValue: "Dock Max Width"), "dock right sidebar max width terminal reservation cap logs lazygit"),
         setting(.customSidebars, "enabled", String(localized: "settings.customSidebars.enabled", defaultValue: "Show Custom Sidebars"), "custom sidebars enable show vibe swift json interpreted picker"),
         setting(.customSidebars, "renderer", String(localized: "settings.customSidebars.renderer", defaultValue: "Renderer"), "renderer in-process in app remote worker isolated process hover focus typing input"),
-        setting(.betaFeatures, "artifacts", String(localized: "settings.betaFeatures.artifacts", defaultValue: "Artifacts"), "artifacts capture files project local right sidebar agent output"),
+        setting(
+            .betaFeatures,
+            "artifacts",
+            String(
+                localized: "settings.betaFeatures.artifacts",
+                defaultValue: "Artifacts & Notes"
+            ),
+            "artifacts notes capture files project local right sidebar agent output"
+        ),
         setting(.betaFeatures, "feed", String(localized: "settings.betaFeatures.feed", defaultValue: "Feed"), "feed right sidebar agent decisions permissions questions"),
         setting(.betaFeatures, "dock", String(localized: "settings.betaFeatures.dock", defaultValue: "Dock"), "dock right sidebar terminal controls tui"),
         setting(.betaFeatures, "workspace-todo-controls", String(localized: "settings.betaFeatures.workspaceTodoControls", defaultValue: "Workspace Todo Controls"), "workspace todo todos task status checklist add item controls beta"),

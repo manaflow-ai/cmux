@@ -35,7 +35,7 @@ struct ArtifactDeduplicationScanner {
             .isDirectoryKey, .isRegularFileKey, .isSymbolicLinkKey, .fileSizeKey,
         ]
         guard let enumerator = fileManager.enumerator(
-            at: paths.artifactsRoot,
+            at: paths.filesystemRoot,
             includingPropertiesForKeys: Array(keys),
             options: []
         ) else { return }
@@ -56,7 +56,7 @@ struct ArtifactDeduplicationScanner {
                 continue
             }
             if values.isDirectory == true {
-                let relativeDepth = pathResolver.relativePath(url, root: paths.artifactsRoot)?
+                let relativeDepth = pathResolver.relativePath(url, root: paths.filesystemRoot)?
                     .split(separator: "/").count ?? Int.max
                 if relativeDepth > maximumDepth {
                     enumerator.skipDescendants()
@@ -66,6 +66,7 @@ struct ArtifactDeduplicationScanner {
             guard values.isRegularFile == true,
                   url.lastPathComponent != ArtifactPathResolver.workspaceMarkerName,
                   url.lastPathComponent != ArtifactPathResolver.sessionMarkerName,
+                  !isProjectControlFile(url, root: paths.filesystemRoot),
                   let rawSize = values.fileSize else {
                 continue
             }
@@ -74,5 +75,13 @@ struct ArtifactDeduplicationScanner {
             remainingHashBytes -= size
             if visitor(url, size) { return }
         }
+    }
+
+    private func isProjectControlFile(_ url: URL, root: URL) -> Bool {
+        guard url.deletingLastPathComponent().standardizedFileURL == root.standardizedFileURL else {
+            return false
+        }
+        return url.lastPathComponent.hasPrefix(".")
+            || ["artifacts.json", "cmux.json", "dock.json"].contains(url.lastPathComponent)
     }
 }

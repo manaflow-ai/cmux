@@ -128,6 +128,7 @@ extension CMUXCLI {
         "mark-notification-read",
         "memory",
         "mobile",
+        "note",
         "mosh",
         "mosh-tmux",
         "move-surface",

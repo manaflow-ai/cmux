@@ -27,7 +27,7 @@ public protocol ArtifactStoring: Sendable {
     ) async -> [ArtifactImportAttempt]
     /// Resolves an exact relative path, unique basename, or unique fuzzy filename.
     func resolve(projectRoot: URL, name: String) async throws -> ArtifactNode
-    /// Emits recursive filesystem changes for one project's artifact root.
+    /// Emits recursive filesystem changes for one project's `.cmux` filesystem.
     func changes(projectRoot: URL) async -> AsyncStream<Void>
 }
 

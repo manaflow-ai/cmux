@@ -1,6 +1,6 @@
 import CmuxArtifacts
 
-/// Closure-only action bundle passed below the Artifacts lazy-list boundary.
+/// Closure-only action bundle passed below the project-file lazy-list boundary.
 struct ArtifactSidebarRowActions {
     let activate: (ArtifactSidebarRowSnapshot) -> Void
     let toggleExpansion: (ArtifactSidebarRowSnapshot) -> Void

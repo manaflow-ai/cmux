@@ -428,7 +428,7 @@ struct AgentChatSessionRegistryLifecycleReviewRegressionTests {
 
     private func provenanceEventCount(projectRoot: URL) throws -> Int {
         let provenanceRoot = projectRoot.appendingPathComponent(
-            ".cmux/artifacts/.cmux/provenance",
+            ".cmux/.metadata/provenance",
             isDirectory: true
         )
         let documents = try FileManager.default.contentsOfDirectory(

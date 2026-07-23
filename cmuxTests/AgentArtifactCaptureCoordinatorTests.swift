@@ -454,7 +454,7 @@ private actor OutOfOrderCaptureStore: ArtifactStoring {
     func snapshot(projectRoot: URL) throws -> ArtifactSnapshot {
         ArtifactSnapshot(
             projectRoot: projectRoot,
-            artifactsRoot: projectRoot.appendingPathComponent(".cmux/artifacts"),
+            filesystemRoot: projectRoot.appendingPathComponent(".cmux"),
             nodes: [],
             isTruncated: false
         )

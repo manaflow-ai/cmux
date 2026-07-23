@@ -36,13 +36,11 @@ struct ArtifactProvenanceRecorder {
         size: Int64,
         event: ArtifactProvenanceEvent
     ) throws {
-        try rejectSymbolicLink(at: paths.cmuxDirectory)
-        try rejectSymbolicLink(at: paths.artifactsRoot)
+        try rejectSymbolicLink(at: paths.filesystemRoot)
         try rejectSymbolicLink(at: paths.metadataRoot)
         try rejectSymbolicLink(at: paths.provenanceRoot)
         try fileManager.createDirectory(at: paths.provenanceRoot, withIntermediateDirectories: true)
-        try rejectSymbolicLink(at: paths.cmuxDirectory)
-        try rejectSymbolicLink(at: paths.artifactsRoot)
+        try rejectSymbolicLink(at: paths.filesystemRoot)
         try rejectSymbolicLink(at: paths.metadataRoot)
         try rejectSymbolicLink(at: paths.provenanceRoot)
         try rejectSymbolicLink(at: metadataURL(paths: paths, digest: digest))

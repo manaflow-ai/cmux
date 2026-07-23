@@ -17,7 +17,7 @@ extension LocalArtifactRepository {
         let pathResolver = ArtifactPathResolver()
 
         if pathResolver.isInsideStore(source, paths: paths),
-           let relativePath = pathResolver.relativePath(source, root: paths.artifactsRoot) {
+           let relativePath = pathResolver.relativePath(source, root: paths.filesystemRoot) {
             let record = makeRecord(
                 digest: digest,
                 source: source,
@@ -33,7 +33,7 @@ extension LocalArtifactRepository {
         }
 
         if let existing = existingByDigest[digest],
-           let relativePath = pathResolver.relativePath(existing, root: paths.artifactsRoot) {
+           let relativePath = pathResolver.relativePath(existing, root: paths.filesystemRoot) {
             let record = makeRecord(
                 digest: digest,
                 source: source,
@@ -76,8 +76,7 @@ extension LocalArtifactRepository {
                 resolution.directory,
                 paths: paths,
                 context: context,
-                capturedAt: capturedAt,
-                writesWorkspaceMarker: !resolution.reusedSessionMarker
+                capturedAt: capturedAt
             )
             captureDirectory = resolution.directory
         }
@@ -89,7 +88,7 @@ extension LocalArtifactRepository {
                 try? fileManager.removeItem(at: destination)
             }
         }
-        guard let relativePath = pathResolver.relativePath(destination, root: paths.artifactsRoot) else {
+        guard let relativePath = pathResolver.relativePath(destination, root: paths.filesystemRoot) else {
             throw ArtifactStoreError.pathOutsideStore(destination.path)
         }
         let record = makeRecord(

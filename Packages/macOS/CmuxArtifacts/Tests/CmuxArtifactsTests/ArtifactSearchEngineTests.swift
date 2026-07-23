@@ -13,7 +13,7 @@ struct ArtifactSearchEngineTests {
         try "needle".write(to: url, atomically: true, encoding: .utf8)
         let snapshot = ArtifactSnapshot(
             projectRoot: root,
-            artifactsRoot: root,
+            filesystemRoot: root,
             nodes: [staleNode],
             isTruncated: false
         )
@@ -51,7 +51,7 @@ struct ArtifactSearchEngineTests {
         )
         let snapshot = ArtifactSnapshot(
             projectRoot: root,
-            artifactsRoot: store,
+            filesystemRoot: store,
             nodes: [linkedNode],
             isTruncated: false
         )
@@ -73,7 +73,7 @@ struct ArtifactSearchEngineTests {
         let nodes = [node(url: firstURL), node(url: secondURL)]
         let snapshot = ArtifactSnapshot(
             projectRoot: root,
-            artifactsRoot: root,
+            filesystemRoot: root,
             nodes: nodes,
             isTruncated: false
         )
@@ -113,7 +113,7 @@ struct ArtifactSearchEngineTests {
         )
         let snapshot = ArtifactSnapshot(
             projectRoot: root,
-            artifactsRoot: root,
+            filesystemRoot: root,
             nodes: [node],
             isTruncated: false
         )

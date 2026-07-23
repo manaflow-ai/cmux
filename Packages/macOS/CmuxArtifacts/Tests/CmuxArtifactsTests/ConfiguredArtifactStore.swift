@@ -19,7 +19,7 @@ actor ConfiguredArtifactStore: ArtifactStoring {
     }
 
     func snapshot(projectRoot: URL) throws -> ArtifactSnapshot {
-        ArtifactSnapshot(projectRoot: projectRoot, artifactsRoot: projectRoot, nodes: [], isTruncated: false)
+        ArtifactSnapshot(projectRoot: projectRoot, filesystemRoot: projectRoot, nodes: [], isTruncated: false)
     }
 
     func search(projectRoot: URL, query: String) -> [ArtifactSearchResult] { [] }

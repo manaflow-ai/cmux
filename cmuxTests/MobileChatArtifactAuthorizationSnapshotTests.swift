@@ -96,8 +96,9 @@ struct MobileChatArtifactAuthorizationSnapshotTests {
             Issue.record("Expected the authorized artifact save to succeed")
             return
         }
-        let authorizedArtifacts = ArtifactStorePaths(projectRoot: authorizedProject).artifactsRoot.path + "/"
+        let authorizedArtifacts = ArtifactStorePaths(projectRoot: authorizedProject).filesystemRoot.path + "/"
         #expect(savedPath.hasPrefix(authorizedArtifacts))
+        #expect(savedPath.hasSuffix("/artifacts/plan.md"))
     }
 
     private func claudeLine(type: String, content: [[String: Any]]) throws -> String {

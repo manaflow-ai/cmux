@@ -20,7 +20,7 @@ struct ArtifactPathResolver: Sendable {
     func isInsideStore(_ url: URL, paths: ArtifactStorePaths) -> Bool {
         contains(
             path: canonicalPath(url),
-            under: canonicalPath(paths.artifactsRoot)
+            under: canonicalPath(paths.filesystemRoot)
         )
     }
 
@@ -35,21 +35,23 @@ struct ArtifactPathResolver: Sendable {
         canonicalPath(lhs) == canonicalPath(rhs)
     }
 
-    func captureDirectory(paths: ArtifactStorePaths, context: ArtifactCaptureContext) -> URL {
-        let workspace = slug(
-            preferred: context.workspaceTitle,
-            fallbackPrefix: "workspace",
-            identity: context.workspaceID
-        )
-        let sessionPrefix = normalized(context.agentName) ?? "session"
+    func contentDirectory(
+        paths: ArtifactStorePaths,
+        context: ArtifactCaptureContext,
+        kind: CmuxSessionContentKind
+    ) -> URL {
+        let hasAgentSession = normalized(context.sessionID) != nil
+        let sessionPrefix = hasAgentSession
+            ? normalized(context.agentName) ?? "session"
+            : normalized(context.agentName) ?? (normalized(context.workspaceID) == nil ? "session" : "workspace")
         let session = slug(
             preferred: nil,
             fallbackPrefix: sessionPrefix,
-            identity: context.sessionID
+            identity: context.sessionID ?? context.workspaceID
         )
-        return paths.artifactsRoot
-            .appendingPathComponent(workspace, isDirectory: true)
+        return paths.filesystemRoot
             .appendingPathComponent(session, isDirectory: true)
+            .appendingPathComponent(kind.rawValue, isDirectory: true)
     }
 
     func slug(preferred: String?, fallbackPrefix: String, identity: String?) -> String {

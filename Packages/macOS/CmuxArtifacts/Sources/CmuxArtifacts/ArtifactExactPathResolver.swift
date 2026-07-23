@@ -22,7 +22,7 @@ struct ArtifactExactPathResolver {
             return nil
         }
 
-        var current = paths.artifactsRoot
+        var current = paths.filesystemRoot
         for (index, component) in components.enumerated() {
             current.appendPathComponent(component, isDirectory: index < components.count - 1)
             guard let entryType = try filesystemEntryType(current) else { return nil }

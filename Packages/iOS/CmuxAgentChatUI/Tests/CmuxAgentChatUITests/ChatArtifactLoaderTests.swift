@@ -119,7 +119,7 @@ struct ChatArtifactLoaderTests {
         let result = try await loader.save(path: "/tmp/plan.md")
 
         #expect(loader.supportsArtifactSave)
-        #expect(result.reference == ".cmux/artifacts/workspace/session/plan.md")
+        #expect(result.reference == ".cmux/codex-session-1/artifacts/plan.md")
         #expect(await source.lastSaveRequest() == "session-1:/tmp/plan.md")
     }
 }
@@ -188,9 +188,9 @@ private actor CountingArtifactSource: ChatEventSource {
     func artifactSave(sessionID: String, path: String) async throws -> ChatArtifactSaveResult {
         saveRequest = "\(sessionID):\(path)"
         return ChatArtifactSaveResult(
-            path: "/project/.cmux/artifacts/workspace/session/plan.md",
-            relativePath: "workspace/session/plan.md",
-            reference: ".cmux/artifacts/workspace/session/plan.md"
+            path: "/project/.cmux/codex-session-1/artifacts/plan.md",
+            relativePath: "codex-session-1/artifacts/plan.md",
+            reference: ".cmux/codex-session-1/artifacts/plan.md"
         )
     }
 }

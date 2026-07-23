@@ -218,7 +218,10 @@ extension Array where Element == CuratedSettingEntry {
             .init(
                 section: .betaFeatures,
                 id: "artifacts",
-                title: String(localized: "settings.betaFeatures.artifacts", defaultValue: "Artifacts"),
+                title: String(
+                    localized: "settings.betaFeatures.artifacts",
+                    defaultValue: "Artifacts & Notes"
+                ),
                 synonyms: String(localized: "settings.search.alias.setting.betaFeatures.artifacts", defaultValue: "artifacts capture files project local right sidebar agent output beta unstable")
             ),
             .init(section: .betaFeatures, id: "feed", title: "Feed", synonyms: "feed right sidebar agent decisions permissions questions approval beta unstable"),

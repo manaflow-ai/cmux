@@ -31,21 +31,22 @@ struct LocalArtifactRepositoryTests {
             Issue.record("Expected a new copy")
             return
         }
-        #expect(record.relativePath == "api-work-workspace-42/codex-session-99/plan.md")
+        #expect(record.relativePath == "codex-session-99/artifacts/plan.md")
         #expect(FileManager.default.fileExists(
-            atPath: root.appendingPathComponent(".cmux/artifacts/\(record.relativePath)").path
+            atPath: root.appendingPathComponent(".cmux/\(record.relativePath)").path
         ))
         #expect(FileManager.default.fileExists(
-            atPath: root.appendingPathComponent(".cmux/artifacts/.cmux/provenance/\(record.digest).json").path
+            atPath: root.appendingPathComponent(".cmux/.metadata/provenance/\(record.digest).json").path
         ))
         let snapshot = try await repository.snapshot(projectRoot: root)
-        #expect(snapshot.nodes.map(\.name) == ["api-work-workspace-42"])
+        #expect(snapshot.nodes.map(\.name) == ["codex-session-99"])
 
         let exclude = try String(
             contentsOf: root.appendingPathComponent(".git/info/exclude"),
             encoding: .utf8
         )
-        #expect(exclude.split(separator: "\n").contains(".cmux/artifacts/"))
+        let excludeLines = Set(exclude.split(separator: "\n").map(String.init))
+        #expect(excludeLines.isSuperset(of: Set(ArtifactGitIgnoreManager.ignoreEntries)))
         _ = try await repository.snapshot(projectRoot: root)
         let secondExclude = try String(
             contentsOf: root.appendingPathComponent(".git/info/exclude"),
@@ -69,8 +70,8 @@ struct LocalArtifactRepositoryTests {
             capturedAt: .now
         )
         let original = try #require(first.record)
-        let originalURL = root.appendingPathComponent(".cmux/artifacts/\(original.relativePath)")
-        let movedURL = root.appendingPathComponent(".cmux/artifacts/organized/final.txt")
+        let originalURL = root.appendingPathComponent(".cmux/\(original.relativePath)")
+        let movedURL = root.appendingPathComponent(".cmux/organized/final.txt")
         try FileManager.default.createDirectory(at: movedURL.deletingLastPathComponent(), withIntermediateDirectories: true)
         try FileManager.default.moveItem(at: originalURL, to: movedURL)
 
@@ -112,8 +113,8 @@ struct LocalArtifactRepositoryTests {
             capturedAt: .now
         )
         let original = try #require(first.record)
-        let originalURL = root.appendingPathComponent(".cmux/artifacts/\(original.relativePath)")
-        let movedURL = root.appendingPathComponent(".cmux/artifacts/organized/final.txt")
+        let originalURL = root.appendingPathComponent(".cmux/\(original.relativePath)")
+        let movedURL = root.appendingPathComponent(".cmux/organized/final.txt")
         try FileManager.default.createDirectory(
             at: movedURL.deletingLastPathComponent(),
             withIntermediateDirectories: true
@@ -147,7 +148,7 @@ struct LocalArtifactRepositoryTests {
         _ = try ArtifactTestSupport.write(
             "same bytes",
             named: "organized/final.txt",
-            under: root.appendingPathComponent(".cmux/artifacts")
+            under: root.appendingPathComponent(".cmux")
         )
         let repository = LocalArtifactRepository()
         let context = ArtifactCaptureContext(projectRoot: root, workspaceID: "one", sessionID: "two")
@@ -187,9 +188,10 @@ struct LocalArtifactRepositoryTests {
             capturedAt: .now
         )
         let firstRecord = try #require(first.record)
-        let originalSession = root.appendingPathComponent(".cmux/artifacts/\(firstRecord.relativePath)")
+        let originalSession = root.appendingPathComponent(".cmux/\(firstRecord.relativePath)")
             .deletingLastPathComponent()
-        let movedSession = root.appendingPathComponent(".cmux/artifacts/organized/renamed-session")
+            .deletingLastPathComponent()
+        let movedSession = root.appendingPathComponent(".cmux/organized/renamed-session")
         try FileManager.default.createDirectory(
             at: movedSession.deletingLastPathComponent(),
             withIntermediateDirectories: true
@@ -205,18 +207,17 @@ struct LocalArtifactRepositoryTests {
             capturedAt: .now
         )
 
-        #expect(second.record?.relativePath == "organized/renamed-session/second.md")
+        #expect(second.record?.relativePath == "organized/renamed-session/artifacts/second.md")
     }
 
-    @Test("A renamed workspace folder remains the parent for new sessions")
-    func reusesMovedWorkspaceFolder() async throws {
+    @Test("A moved workspace-only session remains the capture destination")
+    func reusesMovedWorkspaceOnlySession() async throws {
         let root = try ArtifactTestSupport.temporaryDirectory()
         defer { ArtifactTestSupport.remove(root) }
         let repository = LocalArtifactRepository()
         let firstContext = ArtifactCaptureContext(
             projectRoot: root,
             workspaceID: "workspace-one",
-            sessionID: "session-one",
             agentName: "codex"
         )
         let firstSource = try ArtifactTestSupport.write("first", named: "first.md", under: root)
@@ -228,11 +229,11 @@ struct LocalArtifactRepositoryTests {
             capturedAt: .now
         )
         let firstRecord = try #require(first.record)
-        let originalWorkspace = root.appendingPathComponent(".cmux/artifacts/\(firstRecord.relativePath)")
+        let originalSession = root.appendingPathComponent(".cmux/\(firstRecord.relativePath)")
             .deletingLastPathComponent()
             .deletingLastPathComponent()
-        let movedWorkspace = root.appendingPathComponent(".cmux/artifacts/my-organized-workspace")
-        try FileManager.default.moveItem(at: originalWorkspace, to: movedWorkspace)
+        let movedSession = root.appendingPathComponent(".cmux/my-organized-workspace")
+        try FileManager.default.moveItem(at: originalSession, to: movedSession)
         let secondSource = try ArtifactTestSupport.write("second", named: "second.md", under: root)
 
         let second = try await repository.importFile(
@@ -240,7 +241,6 @@ struct LocalArtifactRepositoryTests {
             context: ArtifactCaptureContext(
                 projectRoot: root,
                 workspaceID: "workspace-one",
-                sessionID: "session-two",
                 agentName: "codex"
             ),
             provenance: .created,
@@ -248,7 +248,7 @@ struct LocalArtifactRepositoryTests {
             capturedAt: .now
         )
 
-        #expect(second.record?.relativePath == "my-organized-workspace/codex-session-two/second.md")
+        #expect(second.record?.relativePath == "my-organized-workspace/artifacts/second.md")
     }
 
     @Test("A nested cmux project is excluded by its enclosing Git repository")
@@ -271,7 +271,9 @@ struct LocalArtifactRepositoryTests {
             contentsOf: root.appendingPathComponent(".git/info/exclude"),
             encoding: .utf8
         )
-        #expect(exclude == "nested/project/.cmux/artifacts/\n")
+        #expect(exclude == ArtifactGitIgnoreManager.ignoreEntries
+            .map { "nested/project/\($0)" }
+            .joined(separator: "\n") + "\n")
     }
 
     @Test("A linked worktree uses the common Git exclude file")
@@ -305,7 +307,7 @@ struct LocalArtifactRepositoryTests {
             contentsOf: commonGitDirectory.appendingPathComponent("info/exclude"),
             encoding: .utf8
         )
-        #expect(exclude == ".cmux/artifacts/\n")
+        #expect(exclude == ArtifactGitIgnoreManager.ignoreEntries.joined(separator: "\n") + "\n")
         #expect(!FileManager.default.fileExists(
             atPath: worktreeGitDirectory.appendingPathComponent("info/exclude").path
         ))
@@ -315,7 +317,7 @@ struct LocalArtifactRepositoryTests {
     func searchesNamesAndContents() async throws {
         let root = try ArtifactTestSupport.temporaryDirectory()
         defer { ArtifactTestSupport.remove(root) }
-        let artifactRoot = root.appendingPathComponent(".cmux/artifacts")
+        let artifactRoot = root.appendingPathComponent(".cmux/session/artifacts")
         _ = try ArtifactTestSupport.write("release checklist", named: "launch-plan.md", under: artifactRoot)
         _ = try ArtifactTestSupport.write("the hidden needle is here", named: "notes.txt", under: artifactRoot)
         let repository = LocalArtifactRepository()
@@ -369,7 +371,7 @@ struct LocalArtifactRepositoryTests {
             )
         }
         #expect(!FileManager.default.fileExists(
-            atPath: root.appendingPathComponent(".cmux/artifacts/workspace/session/oversized.txt").path
+            atPath: root.appendingPathComponent(".cmux/session/artifacts/oversized.txt").path
         ))
         let stagingRoot = ArtifactStorePaths(projectRoot: root).importStagingRoot
         let stagingContents = try FileManager.default.contentsOfDirectory(atPath: stagingRoot.path)
@@ -386,7 +388,7 @@ struct LocalArtifactRepositoryTests {
         _ = try ArtifactTestSupport.write(
             "appeared outside cmux",
             named: "external/new-file.md",
-            under: root.appendingPathComponent(".cmux/artifacts")
+            under: root.appendingPathComponent(".cmux/session/artifacts")
         )
         let observed = await firstResult(
             operation: {
@@ -400,18 +402,14 @@ struct LocalArtifactRepositoryTests {
         #expect(observed == true)
     }
 
-    @Test("A symlinked artifact root is rejected without writing through it")
-    func rejectsSymlinkedArtifactRoot() async throws {
+    @Test("A symlinked cmux filesystem root is rejected without writing through it")
+    func rejectsSymlinkedFilesystemRoot() async throws {
         let root = try ArtifactTestSupport.temporaryDirectory()
         defer { ArtifactTestSupport.remove(root) }
         let outside = try ArtifactTestSupport.temporaryDirectory()
         defer { ArtifactTestSupport.remove(outside) }
-        try FileManager.default.createDirectory(
-            at: root.appendingPathComponent(".cmux"),
-            withIntermediateDirectories: true
-        )
         try FileManager.default.createSymbolicLink(
-            at: root.appendingPathComponent(".cmux/artifacts"),
+            at: root.appendingPathComponent(".cmux"),
             withDestinationURL: outside
         )
         let source = try ArtifactTestSupport.write("safe", named: "safe.md", under: root)
@@ -434,10 +432,10 @@ struct LocalArtifactRepositoryTests {
         defer { ArtifactTestSupport.remove(root) }
         let outside = try ArtifactTestSupport.temporaryDirectory()
         defer { ArtifactTestSupport.remove(outside) }
-        let artifactsRoot = root.appendingPathComponent(".cmux/artifacts")
-        try FileManager.default.createDirectory(at: artifactsRoot, withIntermediateDirectories: true)
+        let cmuxRoot = root.appendingPathComponent(".cmux")
+        try FileManager.default.createDirectory(at: cmuxRoot, withIntermediateDirectories: true)
         try FileManager.default.createSymbolicLink(
-            at: artifactsRoot.appendingPathComponent("workspace"),
+            at: cmuxRoot.appendingPathComponent("session"),
             withDestinationURL: outside
         )
         let source = try ArtifactTestSupport.write("safe", named: "safe.md", under: root)
