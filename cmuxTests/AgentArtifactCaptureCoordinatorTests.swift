@@ -251,6 +251,48 @@ struct AgentArtifactCaptureCoordinatorTests {
         #expect(await store.importCount == 1)
     }
 
+    @MainActor
+    @Test func completedTranscriptTurnsCaptureWithoutMobileSubscribers() async throws {
+        let projectRoot = try temporaryProjectRoot()
+        defer { try? FileManager.default.removeItem(at: projectRoot) }
+        let artifact = projectRoot.appendingPathComponent("completed-plan.md")
+        try "plan".write(to: artifact, atomically: true, encoding: .utf8)
+        let transcript = projectRoot.appendingPathComponent("transcript.jsonl")
+        try "".write(to: transcript, atomically: true, encoding: .utf8)
+        let store = OutOfOrderCaptureStore(suspendsFirstImport: false)
+        let service = AgentChatTranscriptService(
+            registry: AgentChatSessionRegistry(),
+            hasEventSubscribers: { false },
+            artifactCaptureCoordinator: AgentArtifactCaptureCoordinator(
+                captureService: ArtifactCaptureService(store: store)
+            )
+        )
+        let sessionID = "24ec0052-450c-4914-b1dd-2ee80d4bc84b"
+        service.noteHookEvent(WorkstreamEvent(
+            sessionId: sessionID,
+            hookEventName: .userPromptSubmit,
+            source: "claude",
+            workspaceId: "workspace",
+            surfaceId: nil,
+            transcriptPath: transcript.path,
+            cwd: projectRoot.path,
+            ppid: nil,
+            receivedAt: Date(timeIntervalSince1970: 1)
+        ))
+        #expect(service.debugSessionDump().first?["tailer_active"] as? Bool == true)
+        try claudeArtifactLine(path: artifact.path).write(
+            to: transcript,
+            atomically: true,
+            encoding: .utf8
+        )
+
+        service.noteAssistantTurnCompleted(sessionID: sessionID, at: Date(timeIntervalSince1970: 2))
+        let task = try #require(service.artifactCaptureTasks[sessionID]?.task)
+        await task.value
+
+        #expect(await store.importedPaths == [artifact.path])
+    }
+
     @Test func automaticTranscriptSnapshotRejectsFinalSymlinks() async throws {
         let projectRoot = try temporaryProjectRoot()
         defer { try? FileManager.default.removeItem(at: projectRoot) }
@@ -404,6 +446,25 @@ struct AgentArtifactCaptureCoordinatorTests {
                 "type": "message",
                 "role": "assistant",
                 "content": [["type": "output_text", "text": "Saved artifact to \(path)"]],
+            ],
+        ])
+        return String(decoding: data, as: UTF8.self)
+    }
+
+    private func claudeArtifactLine(path: String) throws -> String {
+        let data = try JSONSerialization.data(withJSONObject: [
+            "type": "assistant",
+            "isSidechain": false,
+            "uuid": UUID().uuidString,
+            "timestamp": "2026-07-21T12:00:00.000Z",
+            "message": [
+                "role": "assistant",
+                "content": [[
+                    "type": "tool_use",
+                    "id": "write-plan",
+                    "name": "Write",
+                    "input": ["file_path": path, "content": "plan"],
+                ]],
             ],
         ])
         return String(decoding: data, as: UTF8.self)

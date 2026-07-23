@@ -24,6 +24,27 @@ struct ArtifactScanBoundaryTests {
         #expect(node.relativePath == "one/two/target.md")
     }
 
+    @Test("Exact paths cannot expose cmux-managed metadata")
+    func exactResolutionHidesManagedMetadata() async throws {
+        let root = try ArtifactTestSupport.temporaryDirectory()
+        defer { ArtifactTestSupport.remove(root) }
+        let metadata = try ArtifactTestSupport.write(
+            #"{"sourcePath":"/tmp/private"}"#,
+            named: ".metadata/provenance/private.json",
+            under: ArtifactStorePaths(projectRoot: root).filesystemRoot
+        )
+
+        await #expect(throws: ArtifactStoreError.artifactNotFound(
+            ".metadata/provenance/private.json"
+        )) {
+            _ = try await LocalArtifactRepository().resolve(
+                projectRoot: root,
+                name: ".metadata/provenance/private.json"
+            )
+        }
+        #expect(FileManager.default.fileExists(atPath: metadata.path))
+    }
+
     @Test("Bounded repository snapshots and searches fail instead of appearing complete")
     func incompleteScansFailExplicitly() async throws {
         let root = try ArtifactTestSupport.temporaryDirectory()
