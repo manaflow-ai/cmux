@@ -73,10 +73,15 @@ struct AgentChatSessionRegistryLifecycleReviewRegressionTests {
     }
 
     @MainActor
-    @Test func transcriptInferredIdleIsNotHookAuthoritative() throws {
+    @Test func transcriptInferredIdleCannotCompleteHookLifecycle() throws {
         let registry = AgentChatSessionRegistry()
+        let service = AgentChatTranscriptService(
+            registry: registry,
+            hasEventSubscribers: { false },
+            emitEventPayload: { _ in }
+        )
         let sessionID = "24ec0052-450c-4914-b1dd-2ee80d4bc84b"
-        registry.noteHookEvent(WorkstreamEvent(
+        service.noteHookEvent(WorkstreamEvent(
             sessionId: sessionID,
             hookEventName: .userPromptSubmit,
             source: "claude",
@@ -86,14 +91,24 @@ struct AgentChatSessionRegistryLifecycleReviewRegressionTests {
             receivedAt: Date(timeIntervalSince1970: 10)
         ))
 
-        registry.noteAssistantTurnCompleted(
-            sessionID: sessionID,
-            at: Date(timeIntervalSince1970: 11)
+        service.publishBatch(
+            AgentChatTranscriptTailer.Batch(
+                appended: [ChatMessage(
+                    id: "assistant-prose",
+                    seq: 1,
+                    role: .agent,
+                    timestamp: Date(timeIntervalSince1970: 11),
+                    kind: .prose(ChatProse(text: "I may still call a tool."))
+                )],
+                updated: [],
+                discoveredTitle: nil
+            ),
+            sessionID: sessionID
         )
 
         let record = try #require(registry.record(sessionID: sessionID))
-        #expect(record.state == .idle)
-        #expect(!record.hasHookLifecycleState)
+        #expect(record.state == .working)
+        #expect(record.hasHookLifecycleState)
     }
 
     @MainActor
