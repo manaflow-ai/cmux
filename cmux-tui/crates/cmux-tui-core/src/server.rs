@@ -4727,6 +4727,36 @@ mod tests {
     }
 
     #[test]
+    fn client_sizing_command_only_changes_requested_surface() {
+        let mux = test_mux();
+        let current = mux.new_workspace(None, Some((120, 40))).unwrap();
+        let other = mux.new_workspace(None, Some((110, 35))).unwrap();
+        let writer = test_writer();
+        let first = mux.control_clients.register(ClientTransport::Unix, writer.clone());
+        let second = mux.control_clients.register(ClientTransport::Unix, test_writer());
+
+        mux.resize_surface_for_client(current.id, first, 120, 40).unwrap();
+        mux.resize_surface_for_client(current.id, second, 80, 30).unwrap();
+        mux.resize_surface_for_client(other.id, first, 110, 35).unwrap();
+        mux.resize_surface_for_client(other.id, second, 70, 20).unwrap();
+        assert_eq!(current.size(), (80, 30));
+        assert_eq!(other.size(), (70, 20));
+
+        let request = serde_json::from_value::<Request>(json!({
+            "cmd": "set-client-sizing",
+            "surface": current.id,
+            "client": first,
+            "enabled": true,
+            "exclusive": true,
+        }))
+        .unwrap();
+        handle_command(&mux, first, request.cmd, &writer).unwrap();
+
+        assert_eq!(current.size(), (120, 40));
+        assert_eq!(other.size(), (70, 20));
+    }
+
+    #[test]
     fn releasing_surface_size_keeps_attach_but_removes_visibility_lease() {
         let mux = test_mux();
         let surface = mux.new_workspace(None, Some((120, 40))).unwrap();
