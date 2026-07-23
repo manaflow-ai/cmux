@@ -291,15 +291,30 @@ jobs:
             exit 1
           }
 
-      - name: Run focused prompt detector tests for both commits
+      - name: Run terminal core tests for both commits
         run: |
           set -euo pipefail
-          swift test \
-            --package-path variants/baseline/Packages/macOS/CmuxTerminalCore \
-            --filter PromptLineTurnDetectorTests
-          swift test \
-            --package-path variants/candidate/Packages/macOS/CmuxTerminalCore \
-            --filter PromptLineTurnDetectorTests
+          run_terminal_core_tests() {
+            local checkout="$1"
+            local test_derived_data="$2"
+            rm -rf "$test_derived_data"
+            (
+              cd "$checkout/Packages/macOS/CmuxTerminalCore"
+              xcodebuild \
+                -scheme CmuxTerminalCore-Package \
+                -destination "platform=macOS" \
+                -derivedDataPath "$test_derived_data" \
+                build-for-testing
+            )
+            xcrun xctest \
+              "$test_derived_data/Build/Products/Debug/CmuxTerminalCoreTests.xctest"
+          }
+          run_terminal_core_tests \
+            variants/baseline \
+            "$RUNNER_TEMP/cmux-terminal-core-baseline-${GITHUB_RUN_ID}-${GITHUB_RUN_ATTEMPT}"
+          run_terminal_core_tests \
+            variants/candidate \
+            "$RUNNER_TEMP/cmux-terminal-core-candidate-${GITHUB_RUN_ID}-${GITHUB_RUN_ATTEMPT}"
 
       - name: Run complete paired mixed-workload matrix
         env:
