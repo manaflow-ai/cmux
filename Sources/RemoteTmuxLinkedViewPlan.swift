@@ -38,8 +38,11 @@ enum RemoteTmuxLinkedViewPlan {
         /// acting on it to a host whose view has NEVER surfaced a workspace, so it
         /// never recreates a session the user just closed (see ``RemoteTmuxViewConnection``).
         let needsBootstrapSession: Bool
-        /// Stale same-owner views to garbage-collect (`kill-session`), never
-        /// including the current view or any foreign view.
+        /// Stale same-owner views to garbage-collect (`kill-session`). Foreign views are
+        /// excluded by the classification, and the current view's name is filtered out by
+        /// ``plan(view:snapshot:)`` — the classification alone does not exclude it, because
+        /// a row carrying our name still reads as stale when its version option is missing
+        /// or from another format.
         let staleViewsToKill: [String]
         /// Reconciliation actions to bring the view's contents to the desired set.
         let reconcileActions: [RemoteTmuxViewReconciler.Action]
@@ -52,7 +55,14 @@ enum RemoteTmuxLinkedViewPlan {
 
         // View lifecycle: does our current view exist? what stale ones are ours?
         let needsCreate = !snapshot.sessions.contains { view.isOwnView($0) }
-        let stale = snapshot.sessions.filter { view.isOwnStaleView($0) }.map(\.name)
+        // The name filter is the whole reason this is not just the classification.
+        // `isOwnStaleView` is "one of our views that isn't the current one", and a row with
+        // OUR name satisfies it whenever the version option is absent or from another
+        // format — e.g. a `set-option` that never landed. Killing that name kills the
+        // session the live client is attached to, taking the whole host's mirror with it.
+        let stale = snapshot.sessions
+            .filter { view.isOwnStaleView($0) && $0.name != viewName }
+            .map(\.name)
 
         // Exclude EVERY view session (ours, stale, and any foreign cmux install's)
         // from workspace grouping and from the desired-link set — never surface or
