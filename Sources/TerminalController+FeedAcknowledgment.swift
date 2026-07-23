@@ -7,7 +7,7 @@ extension TerminalController {
         _ events: [WorkstreamEvent]
     ) -> V2CallResult {
         let ingestion = FeedCoordinator.shared.performAcceptedEventDelivery(for: events) {
-            let ingestion = v2MainSync { () -> FeedBatchIngestion in
+            let ingestion = self.v2MainSync { () -> FeedBatchIngestion in
                 guard FeedCoordinator.shared.store != nil else { return .unavailable }
                 let authoritativeEvents: [WorkstreamEvent]
                 switch FeedCoordinator.shared.resolveDeliveryTarget(for: events) {
@@ -22,14 +22,14 @@ extension TerminalController {
                 var itemIds: [UUID] = []
                 itemIds.reserveCapacity(authoritativeEvents.count)
                 for event in authoritativeEvents {
-                    v2ApplyIMessageModeSideEffects(for: event)
+                    self.v2ApplyIMessageModeSideEffects(for: event)
                     guard let itemId = FeedCoordinator.shared.ingestRevalidatedOnMainActor(event) else {
                         continue
                     }
                     itemIds.append(itemId)
                 }
                 if itemIds.count == authoritativeEvents.count {
-                    v2NoteCoalescedFeedTranscriptEvents(authoritativeEvents)
+                    self.v2NoteCoalescedFeedTranscriptEvents(authoritativeEvents)
                 } else {
                     return .unavailable
                 }
