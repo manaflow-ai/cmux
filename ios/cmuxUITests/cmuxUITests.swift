@@ -1675,7 +1675,12 @@ final class cmuxUITests: XCTestCase {
         XCTAssertTrue(app.otherElements["PanesTabsPreviewHost"].waitForExistence(timeout: 8))
         XCTAssertTrue(app.buttons["MobileWorkspaceBackButton"].exists)
         XCTAssertFalse(
-            waitForPaneMap(app.otherElements["MobilePaneMapOverlay"], toBeActive: true, timeout: 0.3),
+            waitForPaneMap(
+                app.otherElements["MobilePaneMapOverlay"],
+                in: app,
+                toBeActive: true,
+                timeout: 0.3
+            ),
             "Opening a workspace must present its restored terminal directly"
         )
 
@@ -1709,7 +1714,7 @@ final class cmuxUITests: XCTestCase {
         tapMenuItem(app.buttons["MobilePaneMapMenuItem"], in: app)
 
         let overlay = app.otherElements["MobilePaneMapOverlay"]
-        XCTAssertTrue(waitForPaneMap(overlay, toBeActive: true))
+        XCTAssertTrue(waitForPaneMap(overlay, in: app, toBeActive: true))
         XCTAssertTrue(
             app.buttons["MobileWorkspaceBackButton"].exists,
             "The shared workspace back button must remain present in pane-layout mode"
@@ -1742,10 +1747,10 @@ final class cmuxUITests: XCTestCase {
         XCTAssertEqual(leftTopTabStrip.frame.width, 64, accuracy: 2)
 
         tap(app.buttons["MobilePaneMapDone"], in: app)
-        XCTAssertTrue(waitForPaneMap(overlay, toBeActive: false))
+        XCTAssertTrue(waitForPaneMap(overlay, in: app, toBeActive: false))
 
         tap(app.buttons["MobileSurfaceDeckPaneMap"], in: app)
-        XCTAssertTrue(waitForPaneMap(overlay, toBeActive: true))
+        XCTAssertTrue(waitForPaneMap(overlay, in: app, toBeActive: true))
         tap(app.buttons["MobilePaneMapTab-preview-zsh"], in: app)
         let zshTile = app.buttons["MobilePaneMapTile-preview-zsh"]
         XCTAssertTrue(zshTile.waitForExistence(timeout: 2))
@@ -1753,7 +1758,7 @@ final class cmuxUITests: XCTestCase {
         XCTAssertTrue(overlay.exists, "Switching tabs must stay inside the pane map")
         tap(zshTile, in: app)
 
-        XCTAssertTrue(waitForPaneMap(overlay, toBeActive: false))
+        XCTAssertTrue(waitForPaneMap(overlay, in: app, toBeActive: false))
         XCTAssertTrue(app.buttons["MobileSurfaceDeckChip-preview-zsh"].isSelected)
     }
 
@@ -1768,7 +1773,7 @@ final class cmuxUITests: XCTestCase {
         tap(app.buttons["MobileSurfaceDeckPaneMap"], in: app)
 
         let overlay = app.otherElements["MobilePaneMapOverlay"]
-        XCTAssertTrue(waitForPaneMap(overlay, toBeActive: true))
+        XCTAssertTrue(waitForPaneMap(overlay, in: app, toBeActive: true))
         let leftTopPane = app.descendants(matching: .any)[
             "MobilePaneMapPane-preview-pane-left-top"
         ]
@@ -1778,7 +1783,7 @@ final class cmuxUITests: XCTestCase {
 
         tap(app.buttons["MobilePaneMapTab-preview-claude"], in: app)
         XCTAssertTrue(
-            waitForPaneMap(overlay, toBeActive: true),
+            waitForPaneMap(overlay, in: app, toBeActive: true),
             "Switching the preview tab must not focus its pane"
         )
         let claudeTile = app.buttons["MobilePaneMapTile-preview-claude"]
@@ -1790,7 +1795,7 @@ final class cmuxUITests: XCTestCase {
         let swipeEnd = overlay.coordinate(withNormalizedOffset: CGVector(dx: 0.3, dy: 0.28))
         swipeStart.press(forDuration: 0.05, thenDragTo: swipeEnd)
         XCTAssertTrue(
-            waitForPaneMap(overlay, toBeActive: true),
+            waitForPaneMap(overlay, in: app, toBeActive: true),
             "A pane-layout swipe must be absorbed by scrolling instead of focusing a pane"
         )
 
@@ -1817,13 +1822,13 @@ final class cmuxUITests: XCTestCase {
             "Dragging a pane card must move its contents into the authoritative destination slot"
         )
         XCTAssertTrue(
-            waitForPaneMap(overlay, toBeActive: true),
+            waitForPaneMap(overlay, in: app, toBeActive: true),
             "A pane relayout drag must not also focus the dragged pane"
         )
 
         tap(claudeTile, in: app)
 
-        XCTAssertTrue(waitForPaneMap(overlay, toBeActive: false))
+        XCTAssertTrue(waitForPaneMap(overlay, in: app, toBeActive: false))
         XCTAssertTrue(app.buttons["MobileSurfaceDeckChip-preview-claude"].isSelected)
 
         let interruptedSwipeStart = app.coordinate(
@@ -1839,20 +1844,20 @@ final class cmuxUITests: XCTestCase {
             thenHoldForDuration: 0
         )
         XCTAssertTrue(
-            waitForPaneMap(overlay, toBeActive: false),
+            waitForPaneMap(overlay, in: app, toBeActive: false),
             "A cancelled interactive return must leave the terminal fully focused"
         )
 
         tap(app.buttons["MobileSurfaceDeckPaneMap"], in: app)
         XCTAssertTrue(
-            waitForPaneMap(overlay, toBeActive: true),
+            waitForPaneMap(overlay, in: app, toBeActive: true),
             "The opened terminal must fluidly return to its pane-map source"
         )
         XCTAssertTrue(claudeTile.waitForExistence(timeout: 2))
 
         tap(claudeTile, in: app)
         XCTAssertTrue(
-            waitForPaneMap(overlay, toBeActive: false),
+            waitForPaneMap(overlay, in: app, toBeActive: false),
             "The same source must zoom back into the opened terminal"
         )
     }
@@ -4033,12 +4038,27 @@ final class cmuxUITests: XCTestCase {
 
     private func waitForPaneMap(
         _ overlay: XCUIElement,
+        in app: XCUIApplication,
         toBeActive isActive: Bool,
         timeout: TimeInterval = 4
     ) -> Bool {
+        // The background marker spans the pane map but is intentionally behind
+        // every card. Its XCUI `isHittable` value therefore depends on whether
+        // the current device's center point lands on a card after relayout.
+        // Use the mode-specific shared-toolbar item as the stable presentation
+        // endpoint, while still requiring the pane-map subtree to exist.
+        let modeControl = app.buttons[
+            isActive ? "MobilePaneMapRefresh" : "MobileWorkspaceUtilitiesMenu"
+        ]
         let expectation = XCTNSPredicateExpectation(
-            predicate: NSPredicate(format: "isHittable == %@", NSNumber(value: isActive)),
-            object: overlay
+            predicate: NSPredicate(
+                block: { _, _ in
+                    modeControl.exists
+                        && modeControl.isHittable
+                        && (!isActive || overlay.exists)
+                }
+            ),
+            object: modeControl
         )
         return XCTWaiter.wait(for: [expectation], timeout: timeout) == .completed
     }
