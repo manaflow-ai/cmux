@@ -910,8 +910,8 @@ mod tests {
 
     use async_trait::async_trait;
     use cmux_remote_protocol::{
-        FrameFlags, ProcessEnvironment, ProcessEvent, ProcessIo, ProcessLifetime, RpcEvent,
-        WorkspaceId, WorkspaceResponse,
+        ByteString, FrameFlags, ProcessEnvironment, ProcessEvent, ProcessIo, ProcessLifetime,
+        ProcessSignal, RpcEvent, WorkspaceId, WorkspaceResponse,
     };
     use tempfile::tempdir;
     #[cfg(unix)]
@@ -921,6 +921,7 @@ mod tests {
     use tokio::sync::{mpsc, watch};
 
     use super::*;
+    use crate::client::WorkspaceClient;
     use crate::service::{ServiceMultiplexer, SessionEndpoint};
     use crate::session::ReceivedFrame;
 
@@ -1092,6 +1093,139 @@ mod tests {
         .await
         .unwrap_err();
         assert!(matches!(error, ServicesError::MessageTooLarge(RPC_CODEC_OFFLOAD_BYTES)));
+    }
+
+    #[cfg(unix)]
+    #[tokio::test(flavor = "current_thread")]
+    async fn blocked_process_input_does_not_delay_process_signal() {
+        tokio::task::LocalSet::new()
+            .run_until(async {
+                let directory = tempdir().unwrap();
+                let workspace = WorkspaceService::new();
+                let services = DaemonServices::new(workspace.clone(), None);
+                let (client_endpoint, daemon_endpoint) = endpoint_pair();
+                let client_multiplexer =
+                    ServiceMultiplexer::new(client_endpoint, EndpointRole::Client);
+                let daemon_multiplexer =
+                    ServiceMultiplexer::new(daemon_endpoint, EndpointRole::Daemon);
+                let server = tokio::task::spawn_local({
+                    let services = services.clone();
+                    let daemon_multiplexer = daemon_multiplexer.clone();
+                    async move {
+                        let scope = ClientScope::new(
+                            "process-control-test",
+                            cmux_remote_protocol::SessionId([8; 16]),
+                        );
+                        let request_slots = RequestAdmission::new();
+                        while let Some(incoming) = daemon_multiplexer.accept().await.unwrap() {
+                            let services = services.clone();
+                            let scope = scope.clone();
+                            let request_slots = request_slots.clone();
+                            tokio::task::spawn_local(async move {
+                                let _ = services.serve_stream(scope, request_slots, incoming).await;
+                            });
+                        }
+                    }
+                });
+                let client = WorkspaceClient::connect(client_multiplexer.clone()).await.unwrap();
+                let opened = client
+                    .request(WorkspaceRequest::OpenWorkspace {
+                        root: directory.path().to_string_lossy().into_owned(),
+                    })
+                    .await
+                    .unwrap();
+                let WorkspaceResponse::Workspace { id: workspace_id, .. } = opened else {
+                    panic!("open-workspace returned the wrong response")
+                };
+                let started = client
+                    .request(WorkspaceRequest::SpawnProcess {
+                        workspace: WorkspaceId(workspace_id.0),
+                        argv: vec!["/bin/sleep".into(), "30".into()],
+                        cwd: None,
+                        env: BTreeMap::new(),
+                        io: ProcessIo::Pipes { stdin: true },
+                        lifetime: ProcessLifetime::Workspace,
+                        operation: None,
+                        timeout_ms: None,
+                        retained_output_bytes: None,
+                        environment: ProcessEnvironment::Inherit,
+                    })
+                    .await
+                    .unwrap();
+                let WorkspaceResponse::ProcessStarted { process, .. } = started else {
+                    panic!("spawn-process returned the wrong response")
+                };
+
+                let data = ByteString::from_bytes(&vec![b'x'; 32 * 1024]);
+                let mut blocked_write = None;
+                for write_id in 1..=64 {
+                    let pending = client
+                        .begin_request(WorkspaceRequest::WriteProcess {
+                            process,
+                            write_id,
+                            data: data.clone(),
+                            eof: false,
+                        })
+                        .await
+                        .unwrap();
+                    let mut write = tokio::spawn(async move { pending.receive().await });
+                    match tokio::time::timeout(std::time::Duration::from_secs(1), &mut write).await
+                    {
+                        Ok(Ok(Ok(WorkspaceResponse::ProcessWriteAccepted { .. }))) => {}
+                        Err(_) => {
+                            blocked_write = Some(write);
+                            break;
+                        }
+                        response => panic!("unexpected process-write response: {response:?}"),
+                    }
+                }
+                let blocked_write =
+                    blocked_write.expect("process stdin did not fill during the regression test");
+
+                let signal = tokio::time::timeout(
+                    std::time::Duration::from_secs(2),
+                    client.request(WorkspaceRequest::SignalProcess {
+                        process,
+                        signal: ProcessSignal::Kill,
+                    }),
+                )
+                .await;
+                if !matches!(&signal, Ok(Ok(WorkspaceResponse::ProcessSignaled { .. }))) {
+                    let _ = workspace
+                        .handle_request(WorkspaceRequest::SignalProcess {
+                            process,
+                            signal: ProcessSignal::Kill,
+                        })
+                        .await;
+                }
+                tokio::time::timeout(
+                    std::time::Duration::from_secs(5),
+                    workspace.handle_request(WorkspaceRequest::WaitProcess { process }),
+                )
+                .await
+                .expect("the regression-test process did not exit")
+                .expect("waiting for the regression-test process failed");
+                blocked_write.abort();
+                let _ = blocked_write.await;
+
+                drop(client);
+                client_multiplexer.shutdown().await;
+                daemon_multiplexer.shutdown().await;
+                server.abort();
+                let _ = server.await;
+
+                assert!(
+                    matches!(
+                        signal,
+                        Ok(Ok(WorkspaceResponse::ProcessSignaled {
+                            process: signaled,
+                            signal: ProcessSignal::Kill,
+                        })) if signaled == process
+                    ),
+                    "process signal stalled behind a blocked stdin write: {signal:?}"
+                );
+            })
+            .await;
     }
 
     #[cfg(unix)]
