@@ -214,10 +214,6 @@ _PYTHON_SLEEP_IMPORT = re.compile(
     r"^\s*from\s+(?P<module>time|asyncio)\s+import\s+sleep"
     r"(?:\s+as\s+(?P<alias>[A-Za-z_]\w*))?\b"
 )
-_PYTHON_ASSIGNMENT = re.compile(
-    r"^(?!\s*(?:if|while|assert|return|def|class)\b)\s*"
-    r"(?P<targets>[^=]+?)\s*(?::[^=]+)?=(?!=)"
-)
 _PYTHON_FUNCTION_START = re.compile(
     r"^\s*(?:async\s+)?def\s+(?P<name>[A-Za-z_]\w*)\s*"
     r"\((?P<parameters>.*)$"
@@ -499,13 +495,29 @@ def _sleep_call_pattern(path_suffix: str) -> Optional[re.Pattern[str]]:
 def _python_shadowed_names(line: str, candidates: set[str]) -> set[str]:
     """Return conservatively rebound Python sleep module/function names."""
     shadowed: set[str] = set()
-    for pattern in (_PYTHON_ASSIGNMENT, _PYTHON_FOR_TARGET):
-        match = pattern.search(line)
-        if match:
+    stripped = line.lstrip()
+    if not stripped.startswith(
+        ("if ", "while ", "assert ", "return ", "def ", "class ")
+    ):
+        for index, char in enumerate(line):
+            if char != "=":
+                continue
+            previous = line[index - 1] if index else ""
+            following = line[index + 1] if index + 1 < len(line) else ""
+            if previous in "<>!=" or following == "=":
+                continue
             target_names = set(
-                re.findall(r"\b[A-Za-z_]\w*\b", match.group("targets"))
+                re.findall(r"\b[A-Za-z_]\w*\b", line[:index])
             )
             shadowed.update(target_names & candidates)
+            break
+
+    for_target = _PYTHON_FOR_TARGET.search(line)
+    if for_target:
+        target_names = set(
+            re.findall(r"\b[A-Za-z_]\w*\b", for_target.group("targets"))
+        )
+        shadowed.update(target_names & candidates)
 
     class_definition = _PYTHON_CLASS.search(line)
     if class_definition and class_definition.group("name") in candidates:
