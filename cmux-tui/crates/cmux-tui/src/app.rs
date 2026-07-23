@@ -1103,7 +1103,19 @@ impl OrderedSession {
                 if let Some(hook) = attach_after_obsolete_check.lock().unwrap().clone() {
                     hook();
                 }
-                match session.try_surface_sized(id, size) {
+                let result = session.try_surface_sized(id, size);
+                // Retirement can race after the preflight above while the
+                // ordered worker is waiting to attach. In that case the
+                // missing mirror is the expected result of teardown, not a
+                // retryable synchronization failure.
+                if exited_surfaces.lock().unwrap().contains(&id)
+                    || (remote && session.remote_tree_is_stale())
+                {
+                    attach_failures.lock().unwrap().remove(&id);
+                    pending.defer(SessionMutationOutcome::Success { tree: None });
+                    return Ok(());
+                }
+                match result {
                     Ok(Some(_)) => {
                         attach_failures.lock().unwrap().remove(&id);
                         pending.defer(SessionMutationOutcome::Success { tree: None });
