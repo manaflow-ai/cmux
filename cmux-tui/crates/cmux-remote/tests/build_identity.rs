@@ -129,15 +129,29 @@ fn assert_success(action: &str, output: &Output) {
 fn dirty_source_states_at_one_head_have_distinct_identities() {
     let fixture = BuildFixture::new();
     let head = fixture.head();
+    assert_eq!(fixture.identity(None), head, "a clean build did not use its exact HEAD");
 
     fixture.write_source("dirty state one\n");
     let first = fixture.identity(None);
+    assert_eq!(fixture.identity(None), first, "one dirty source state was not deterministic");
     fixture.write_source("dirty state two\n");
     let second = fixture.identity(None);
 
     assert_ne!(first, head, "a dirty build reused its clean HEAD identity");
     assert_ne!(second, head, "a dirty build reused its clean HEAD identity");
     assert_ne!(first, second, "two dirty source states at the same HEAD shared an identity");
+
+    fixture.write_source("clean\n");
+    let untracked = fixture.root.join("cmux-tui/new-source.rs");
+    fs::write(&untracked, "const STATE: u8 = 1;\n").unwrap();
+    let untracked_first = fixture.identity(None);
+    fs::write(&untracked, "const STATE: u8 = 2;\n").unwrap();
+    let untracked_second = fixture.identity(None);
+
+    assert_ne!(
+        untracked_first, untracked_second,
+        "two untracked source states at the same HEAD shared an identity"
+    );
 }
 
 #[test]
@@ -153,6 +167,8 @@ fn release_override_remains_exact_and_stable_for_dirty_sources() {
 #[test]
 fn cargo_tracks_source_inputs_without_watching_target() {
     let fixture = BuildFixture::new();
+    let untracked_source = fixture.root.join("cmux-tui/new-source.rs");
+    fs::write(&untracked_source, "const NEW_SOURCE: bool = true;\n").unwrap();
     let target_file = fixture.root.join("cmux-tui/target/generated");
     fs::create_dir_all(target_file.parent().unwrap()).unwrap();
     fs::write(&target_file, "ignored build output\n").unwrap();
@@ -160,13 +176,20 @@ fn cargo_tracks_source_inputs_without_watching_target() {
     let output = fixture.run(None);
     let tracked: Vec<_> =
         output.lines().filter_map(|line| line.strip_prefix("cargo:rerun-if-changed=")).collect();
+    let source_path = fixture.source_path().canonicalize().unwrap();
+    let untracked_source = untracked_source.canonicalize().unwrap();
+    let target_dir = target_file.parent().unwrap().canonicalize().unwrap();
 
     assert!(
-        tracked.iter().any(|path| Path::new(path) == fixture.source_path()),
+        tracked.iter().any(|path| Path::new(path) == source_path),
         "Cargo did not track the source input: {tracked:?}"
     );
     assert!(
-        tracked.iter().all(|path| !Path::new(path).starts_with(target_file.parent().unwrap())),
+        tracked.iter().any(|path| Path::new(path) == untracked_source),
+        "Cargo did not track the untracked source input: {tracked:?}"
+    );
+    assert!(
+        tracked.iter().all(|path| !Path::new(path).starts_with(&target_dir)),
         "Cargo watched target output: {tracked:?}"
     );
 }
