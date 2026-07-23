@@ -37,6 +37,12 @@ extension Array where Element == CuratedSettingEntry {
             .init(section: .app, id: "minimal-mode", title: "Minimal Mode", synonyms: "app.minimalMode presentation compact chrome layout simple titlebar controls"),
             .init(section: .app, id: "keep-workspace-open", title: "Keep Workspace Open When Closing Last Surface", synonyms: "app.keepWorkspaceOpenWhenClosingLastSurface close last pane surface keep tab workspace"),
             .init(section: .app, id: "focus-pane-first-click", title: "Focus Pane on First Click", synonyms: "app.focusPaneOnFirstClick click to focus focus follows mouse first click mouse activation"),
+            .init(
+                section: .app,
+                id: "focus-history-scope",
+                title: String(localized: "settings.app.focusHistoryIncludesPanesAndTabs", defaultValue: "Include Panes and Tabs in Focus History"),
+                synonyms: "app.focusHistoryIncludesPanesAndTabs focus history back forward panes tabs workspaces only navigation"
+            ),
             .init(section: .app, id: "file-drops", title: "File Drops", synonyms: "drag drop files finder path text terminal editor split preview shift"),
             .init(section: .app, id: "preferred-editor", title: "Open Files With", synonyms: "app.preferredEditor editor open file code vscode visual studio zed sublime subl cursor"),
             .init(section: .app, id: "supported-file-previews", title: "Open Supported Files in cmux", synonyms: "app.openSupportedFilesInCmux cmd click file preview pdf image video audio quicklook quick look editor external"),
