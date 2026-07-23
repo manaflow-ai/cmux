@@ -1944,7 +1944,7 @@ final class SocketClient {
 
     func send(command: String, responseTimeout: TimeInterval? = nil) throws -> String {
         let requestedResponseTimeout = responseTimeout ?? Self.responseTimeoutSeconds
-        let responseDeadline = Date().addingTimeInterval(requestedResponseTimeout)
+        let responseDeadline: ContinuousClock.Instant = .now + .seconds(requestedResponseTimeout)
         if relayEndpoint != nil, socketFD < 0 {
             try connectWithoutRetry(responseTimeout: requestedResponseTimeout)
         }
@@ -2222,7 +2222,8 @@ final class SocketClient {
     }
 
     private func connectToRelay(endpoint: RelayEndpoint, responseTimeout: TimeInterval? = nil) throws {
-        let deadline = Date().addingTimeInterval(responseTimeout ?? Self.responseTimeoutSeconds)
+        let deadline: ContinuousClock.Instant = .now
+            + .seconds(responseTimeout ?? Self.responseTimeoutSeconds)
         let credentials = try Self.relayCredentials(for: endpoint)
         let timeout = try remainingSocketTimeout(until: deadline)
 
@@ -2273,8 +2274,10 @@ final class SocketClient {
         }
     }
 
-    private func remainingSocketTimeout(until deadline: Date) throws -> TimeInterval {
-        let remaining = deadline.timeIntervalSinceNow
+    private func remainingSocketTimeout(until deadline: ContinuousClock.Instant) throws -> TimeInterval {
+        let components = ContinuousClock.now.duration(to: deadline).components
+        let remaining = TimeInterval(components.seconds)
+            + TimeInterval(components.attoseconds) / 1_000_000_000_000_000_000
         guard remaining > 0 else {
             throw CLIError(message: String(
                 localized: "cli.socket.error.commandTimedOut",
@@ -2284,7 +2287,10 @@ final class SocketClient {
         return remaining
     }
 
-    private func authenticateRelay(credentials: RelayCredentials, deadline: Date) throws {
+    private func authenticateRelay(
+        credentials: RelayCredentials,
+        deadline: ContinuousClock.Instant
+    ) throws {
         let challengeLine = try readLine(deadline: deadline)
         guard let challengeData = challengeLine.data(using: .utf8),
               let challenge = try JSONSerialization.jsonObject(with: challengeData) as? [String: Any],
@@ -2462,7 +2468,10 @@ final class SocketClient {
 #endif
     }
 
-    private func readLine(maxBytes: Int = 16 * 1024, deadline: Date) throws -> String {
+    private func readLine(
+        maxBytes: Int = 16 * 1024,
+        deadline: ContinuousClock.Instant
+    ) throws -> String {
         var data = Data()
 
         while data.count < maxBytes {

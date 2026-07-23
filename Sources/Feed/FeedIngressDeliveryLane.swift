@@ -58,7 +58,11 @@ final class FeedIngressDeliveryLane: @unchecked Sendable {
         admissionLock.lock()
         guard pendingZeroWaitCount < Self.maximumPendingZeroWaitDeliveries else {
             admissionLock.unlock()
-            return false
+            guard metadata.importance == .sessionCritical else { return false }
+            // Previously acknowledged zero-wait work cannot be evicted. Critical lifecycle
+            // ingress backpressures outside the lock until the ordered lane can deliver it.
+            perform(metadata: metadata, delivery)
+            return true
         }
         if metadata.importance == .ordinary {
             guard pendingOrdinaryZeroWaitCount < Self.maximumPendingOrdinaryZeroWaitDeliveries else {
