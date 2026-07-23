@@ -139,6 +139,80 @@ struct ExtensionWorktreeSpawnArgsTests {
         #expect(try Data(contentsOf: artifact) == changedContents)
     }
 
+    @Test("locked worktree rollback preserves state and can be retried")
+    func lockedWorktreeRollbackPreservesStateAndCanBeRetried() async throws {
+        let fileManager = FileManager.default
+        let projectRoot = try makeTemporaryRepository(label: "locked")
+        defer { try? fileManager.removeItem(at: projectRoot) }
+
+        let result = try await CmuxExtensionWorktreePrototype.createWorktree(
+            projectRootPath: projectRoot.path
+        )
+        let artifact = URL(fileURLWithPath: result.worktreePath, isDirectory: true)
+            .appendingPathComponent(result.generatedArtifactRelativePath)
+        try runGit([
+            "-C", projectRoot.path,
+            "worktree", "lock", "--reason", "cmux rollback regression", result.worktreePath,
+        ])
+
+        do {
+            try await result.rollbackUnclaimedWorktree()
+            Issue.record("Rollback removed a locked worktree")
+        } catch {
+            let error = error as NSError
+            #expect(error.domain == "CmuxExtensionWorktreePrototype")
+        }
+
+        #expect(fileManager.fileExists(atPath: result.worktreePath))
+        #expect(fileManager.fileExists(atPath: artifact.path))
+        #expect(try branchExists(result.branchName, projectRoot: projectRoot))
+
+        try runGit([
+            "-C", projectRoot.path,
+            "worktree", "unlock", result.worktreePath,
+        ])
+        try await result.rollbackUnclaimedWorktree()
+
+        #expect(!fileManager.fileExists(atPath: result.worktreePath))
+        #expect(try !branchExists(result.branchName, projectRoot: projectRoot))
+    }
+
+    @Test("branch deletion failure retains a recoverable artifact backup")
+    func branchDeletionFailureRetainsRecoverableArtifactBackup() async throws {
+        let fileManager = FileManager.default
+        let projectRoot = try makeTemporaryRepository(label: "branch-lock")
+        defer { try? fileManager.removeItem(at: projectRoot) }
+
+        let result = try await CmuxExtensionWorktreePrototype.createWorktree(
+            projectRootPath: projectRoot.path
+        )
+        let branchLock = projectRoot
+            .appendingPathComponent(".git/refs/heads", isDirectory: true)
+            .appendingPathComponent(result.branchName + ".lock")
+        try Data("held by rollback regression\n".utf8).write(to: branchLock)
+
+        do {
+            try await result.rollbackUnclaimedWorktree()
+            Issue.record("Rollback deleted a branch whose ref was locked")
+        } catch {
+            let error = error as NSError
+            #expect(error.domain == "CmuxExtensionWorktreePrototype")
+        }
+
+        #expect(!fileManager.fileExists(atPath: result.worktreePath))
+        #expect(try branchExists(result.branchName, projectRoot: projectRoot))
+
+        let worktreeRoot = URL(fileURLWithPath: result.worktreePath, isDirectory: true)
+            .deletingLastPathComponent()
+        let rollbackBackups = try fileManager.contentsOfDirectory(
+            at: worktreeRoot,
+            includingPropertiesForKeys: nil
+        ).filter { $0.lastPathComponent.hasPrefix(".cmux-rollback-") }
+        let artifactBackup = try #require(rollbackBackups.first)
+        #expect(rollbackBackups.count == 1)
+        #expect(try Data(contentsOf: artifactBackup) == result.generatedArtifactContents)
+    }
+
     @Test("rollback retains checkout and branch after a new commit")
     func rollbackRetainsCheckoutAndBranchAfterCommit() async throws {
         let fileManager = FileManager.default
