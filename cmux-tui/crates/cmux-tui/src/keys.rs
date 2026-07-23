@@ -21,8 +21,64 @@ pub fn mods_from(m: KeyModifiers) -> Mods {
     mods
 }
 
+pub(crate) fn shifted_ascii_char(c: char) -> char {
+    match c {
+        'a'..='z' => c.to_ascii_uppercase(),
+        '`' => '~',
+        '1' => '!',
+        '2' => '@',
+        '3' => '#',
+        '4' => '$',
+        '5' => '%',
+        '6' => '^',
+        '7' => '&',
+        '8' => '*',
+        '9' => '(',
+        '0' => ')',
+        '-' => '_',
+        '=' => '+',
+        '[' => '{',
+        ']' => '}',
+        '\\' => '|',
+        ';' => ':',
+        '\'' => '"',
+        ',' => '<',
+        '.' => '>',
+        '/' => '?',
+        _ => c,
+    }
+}
+
+fn unshifted_ascii_char(c: char) -> char {
+    match c {
+        'A'..='Z' => c.to_ascii_lowercase(),
+        '~' => '`',
+        '!' => '1',
+        '@' => '2',
+        '#' => '3',
+        '$' => '4',
+        '%' => '5',
+        '^' => '6',
+        '&' => '7',
+        '*' => '8',
+        '(' => '9',
+        ')' => '0',
+        '_' => '-',
+        '+' => '=',
+        '{' => '[',
+        '}' => ']',
+        '|' => '\\',
+        ':' => ';',
+        '"' => '\'',
+        '<' => ',',
+        '>' => '.',
+        '?' => '/',
+        _ => c,
+    }
+}
+
 fn physical_key_for_char(c: char) -> sys::GhosttyKey {
-    match c.to_ascii_lowercase() {
+    match unshifted_ascii_char(c) {
         'a' => sys::GHOSTTY_KEY_A,
         'b' => sys::GHOSTTY_KEY_B,
         'c' => sys::GHOSTTY_KEY_C,
@@ -92,12 +148,14 @@ pub fn key_input_from(event: &KeyEvent) -> Option<KeyInput> {
 
     match event.code {
         KeyCode::Char(c) => {
+            let unshifted = unshifted_ascii_char(c);
+            let text = if mods.contains(Mods::SHIFT) { shifted_ascii_char(c) } else { c };
             input.key = physical_key_for_char(c);
-            input.unshifted_codepoint = c.to_ascii_lowercase() as u32;
+            input.unshifted_codepoint = unshifted as u32;
             // The encoder derives Ctrl-modified bytes from key+mods; text
             // is only the layout-produced character.
             if !mods.contains(Mods::CTRL) {
-                input.utf8 = c.to_string();
+                input.utf8 = text.to_string();
                 if mods.contains(Mods::SHIFT) {
                     input.consumed_mods = Mods::SHIFT;
                 }
@@ -154,10 +212,7 @@ mod tests {
     #[test]
     fn alt_shift_base_keys_preserve_shifted_text_for_legacy_terminals() {
         let encode = |code| {
-            let event = KeyEvent::new(
-                KeyCode::Char(code),
-                KeyModifiers::ALT | KeyModifiers::SHIFT,
-            );
+            let event = KeyEvent::new(KeyCode::Char(code), KeyModifiers::ALT | KeyModifiers::SHIFT);
             let input = key_input_from(&event).unwrap();
             let terminal = Terminal::new(80, 24, 0, Callbacks::default()).unwrap();
             let mut encoder = KeyEncoder::new().unwrap();

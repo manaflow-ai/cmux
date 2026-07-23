@@ -4722,6 +4722,12 @@ impl App {
                     "surface attach outcome is unknown; detach and reconnect before sending more input: {}",
                     failure.error
                 )
+            } else if failure.label == "clear terminal history" {
+                format!(
+                    "{}: {}",
+                    localization::catalog().terminal.clear_history_failed,
+                    failure.error
+                )
             } else {
                 format!("{} failed: {}", failure.label, failure.error)
             },

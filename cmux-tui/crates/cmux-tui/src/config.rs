@@ -923,15 +923,20 @@ impl Chord {
             .union(KeyModifiers::SUPER)
             .union(KeyModifiers::HYPER)
             .union(KeyModifiers::META);
-        // Shift is implied by uppercase/symbol chars; compare it only
-        // for non-char codes.
-        let tracked = if matches!(self.code, KeyCode::Char(_)) {
-            TRACKED & !KeyModifiers::SHIFT
-        } else {
-            TRACKED
+        let normalize = |code, mut mods: KeyModifiers| {
+            let code = if let KeyCode::Char(c) = code
+                && mods.contains(KeyModifiers::SHIFT)
+            {
+                mods.remove(KeyModifiers::SHIFT);
+                KeyCode::Char(crate::keys::shifted_ascii_char(c))
+            } else {
+                code
+            };
+            (code, mods)
         };
-        let mods_match = key.modifiers & tracked == self.mods & tracked;
-        self.code == key.code && mods_match
+        let (configured_code, configured_mods) = normalize(self.code, self.mods);
+        let (event_code, event_mods) = normalize(key.code, key.modifiers);
+        configured_code == event_code && configured_mods & TRACKED == event_mods & TRACKED
     }
 }
 
@@ -1210,41 +1215,13 @@ fn parse_chord(s: &str) -> Option<Chord> {
     } else if let KeyCode::Char(c) = code
         && mods.contains(KeyModifiers::SHIFT)
     {
-        code = KeyCode::Char(shifted_ascii_char(c));
-        // Crossterm reports shifted printable keys as their resulting
-        // character. Keeping SHIFT here would make equivalent spellings
-        // such as `D` and `shift+d` resolve to different chords.
+        code = KeyCode::Char(crate::keys::shifted_ascii_char(c));
+        // Store the resulting character so `D` and `shift+d` stay equivalent.
+        // `Chord::matches` applies the same conversion to enhanced base-key
+        // events before comparison.
         mods.remove(KeyModifiers::SHIFT);
     }
     Some(Chord { code, mods })
-}
-
-fn shifted_ascii_char(c: char) -> char {
-    match c {
-        'a'..='z' => c.to_ascii_uppercase(),
-        '`' => '~',
-        '1' => '!',
-        '2' => '@',
-        '3' => '#',
-        '4' => '$',
-        '5' => '%',
-        '6' => '^',
-        '7' => '&',
-        '8' => '*',
-        '9' => '(',
-        '0' => ')',
-        '-' => '_',
-        '=' => '+',
-        '[' => '{',
-        ']' => '}',
-        '\\' => '|',
-        ';' => ':',
-        '\'' => '"',
-        ',' => '<',
-        '.' => '>',
-        '/' => '?',
-        _ => c,
-    }
 }
 
 /// Full resolved configuration.

@@ -20,6 +20,11 @@ pub(crate) struct ForeignViewportMessages {
 }
 
 #[derive(Debug, PartialEq, Eq)]
+pub(crate) struct TerminalMessages {
+    pub clear_history_failed: &'static str,
+}
+
+#[derive(Debug, PartialEq, Eq)]
 pub(crate) struct SidebarMessages {
     pub machines: &'static str,
     pub workspaces: &'static str,
@@ -132,6 +137,7 @@ const fn decimal_width(mut value: u16) -> usize {
 pub(crate) struct Catalog {
     pub pairing: PairingMessages,
     pub foreign_viewport: ForeignViewportMessages,
+    pub terminal: TerminalMessages,
     pub sidebar: SidebarMessages,
 }
 
@@ -144,6 +150,7 @@ static ENGLISH: Catalog = Catalog {
         approve: "[ Approve enter ]",
     },
     foreign_viewport: ForeignViewportMessages { terminal_grid: "terminal grid" },
+    terminal: TerminalMessages { clear_history_failed: "Could not clear terminal history" },
     sidebar: SidebarMessages {
         machines: "machines",
         workspaces: "workspaces",
@@ -224,6 +231,9 @@ static JAPANESE: Catalog = Catalog {
         approve: "[ 承認 enter ]",
     },
     foreign_viewport: ForeignViewportMessages { terminal_grid: "端末グリッド" },
+    terminal: TerminalMessages {
+        clear_history_failed: "ターミナル履歴を消去できませんでした"
+    },
     sidebar: SidebarMessages {
         machines: "マシン",
         workspaces: "ワークスペース",
