@@ -633,7 +633,12 @@ fn connect_request(
 
 #[async_trait]
 trait ReconnectRouteAttempt<T: Send>: Send + Sync {
-    async fn connect(&self, index: usize, request: ConnectRequest) -> Result<T, ProviderError>;
+    async fn connect(
+        &self,
+        index: usize,
+        request: ConnectRequest,
+        auth: AuthKind,
+    ) -> Result<T, ProviderError>;
 }
 
 async fn select_reconnect_route<T: Send>(
@@ -665,7 +670,7 @@ async fn select_reconnect_route<T: Send>(
             .map_err(|error| ProviderError::Configuration(error.to_string()))?;
         let endpoint = request.endpoint.clone();
         let display_endpoint = sanitized_route(&endpoint);
-        match attempt.connect(index, request).await {
+        match attempt.connect(index, request, auth).await {
             Ok(group) => return Ok((index, group)),
             Err(error) => {
                 failures.push(format!("{display_endpoint}: {error}"));
@@ -704,7 +709,7 @@ impl RuntimeReconnectGroups {
         if !self.options.ssh_bootstrap.auto_install {
             return 0;
         }
-        let auth = client_auth_kind(&self.options.auth);
+        let auth = followup_auth_kind(&self.options.auth);
         self.options
             .routes
             .iter()
@@ -721,7 +726,7 @@ impl RuntimeReconnectGroups {
 #[async_trait]
 impl ReconnectGroupSource for RuntimeReconnectGroups {
     fn resolution_timeout(&self, reconnect_attempt_timeout: Duration) -> Duration {
-        let auth = client_auth_kind(&self.options.auth);
+        let auth = followup_auth_kind(&self.options.auth);
         let provider_attempts = u32::try_from(
             self.options
                 .routes
@@ -753,7 +758,7 @@ impl ReconnectGroupSource for RuntimeReconnectGroups {
             start,
             self.options.session,
             self.options.lane_policy,
-            client_auth_kind(&self.options.auth),
+            followup_auth_kind(&self.options.auth),
             &attempt,
         )
         .await?;
@@ -773,6 +778,7 @@ impl ReconnectRouteAttempt<Arc<dyn LinkGroup>> for RuntimeReconnectRouteAttempt<
         &self,
         index: usize,
         request: ConnectRequest,
+        auth: AuthKind,
     ) -> Result<Arc<dyn LinkGroup>, ProviderError> {
         let endpoint = request.endpoint.clone();
         let display_endpoint = sanitized_route(&endpoint);
@@ -793,7 +799,7 @@ impl ReconnectRouteAttempt<Arc<dyn LinkGroup>> for RuntimeReconnectRouteAttempt<
         }
         tokio::time::timeout(
             self.options.reconnect.attempt_timeout,
-            self.options.providers.connect(request, client_auth_kind(&self.options.auth)),
+            self.options.providers.connect(request, auth),
         )
         .await
         .map_err(|_| {
@@ -810,6 +816,13 @@ fn client_auth_kind(auth: &ClientAuthMode) -> AuthKind {
         ClientAuthMode::Enrolled => AuthKind::Enrolled,
         ClientAuthMode::Invitation { .. } => AuthKind::Invitation,
         ClientAuthMode::Carrier => AuthKind::Carrier,
+    }
+}
+
+fn followup_auth_kind(auth: &ClientAuthMode) -> AuthKind {
+    match auth {
+        ClientAuthMode::Invitation { .. } => AuthKind::Enrolled,
+        other => client_auth_kind(other),
     }
 }
 
@@ -1265,6 +1278,7 @@ mod tests {
             &self,
             _index: usize,
             request: ConnectRequest,
+            _auth: AuthKind,
         ) -> Result<String, ProviderError> {
             let endpoint = request.endpoint.to_string();
             self.requests.lock().unwrap().push(request);
@@ -1280,6 +1294,7 @@ mod tests {
             &self,
             _index: usize,
             _request: ConnectRequest,
+            _auth: AuthKind,
         ) -> Result<String, ProviderError> {
             Err(ProviderError::Transport("fake provider is unreachable".into()))
         }
@@ -1897,7 +1912,7 @@ mod tests {
             RuntimeReconnectRouteAttempt { options: &options, prepared_ssh: &prepared_ssh };
         let request = connect_request(&routes[0], options.session, options.lane_policy).unwrap();
 
-        let error = match attempt.connect(0, request).await {
+        let error = match attempt.connect(0, request, AuthKind::Enrolled).await {
             Err(error) => error.to_string(),
             Ok(_) => panic!("SSH reconnect unexpectedly succeeded"),
         };
