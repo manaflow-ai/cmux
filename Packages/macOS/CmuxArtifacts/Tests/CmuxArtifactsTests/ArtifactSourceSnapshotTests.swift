@@ -20,6 +20,7 @@ struct ArtifactSourceSnapshotTests {
             source: source,
             paths: paths,
             configuration: .defaultValue,
+            maximumBytes: nil,
             stagedURL: lease.makeStagedURL()
         )
 
@@ -53,6 +54,7 @@ struct ArtifactSourceSnapshotTests {
                     source: source,
                     paths: paths,
                     configuration: .defaultValue,
+                    maximumBytes: nil,
                     stagedURL: stagedURL
                 )
                 return false
@@ -101,6 +103,7 @@ struct ArtifactSourceSnapshotTests {
                 source: source,
                 paths: paths,
                 configuration: .defaultValue,
+                maximumBytes: nil,
                 stagedURL: stagedURL
             )
         }

@@ -55,6 +55,7 @@ final class MainWindowFocusController {
     private weak var rightSidebarHost: RightSidebarKeyboardFocusView?
     private weak var fileExplorerHost: FileExplorerContainerView?
     private weak var fileSearchHost: FileExplorerContainerView?
+    private weak var artifactSearchField: ArtifactSidebarSearchFieldView?
     private weak var feedHost: FeedKeyboardFocusView?
     private weak var dockHost: DockKeyboardFocusView?
 
@@ -139,6 +140,11 @@ final class MainWindowFocusController {
         focusRegisteredRightSidebarEndpointIfNeeded(mode: .feed)
     }
 
+    func registerArtifactSearchField(_ searchField: ArtifactSidebarSearchFieldView) {
+        artifactSearchField = searchField
+        focusRegisteredRightSidebarEndpointIfNeeded(mode: .artifacts)
+    }
+
     func registerDockHost(_ host: DockKeyboardFocusView) {
         dockHost = host
         focusRegisteredRightSidebarEndpointIfNeeded(mode: .dock)
@@ -206,6 +212,9 @@ final class MainWindowFocusController {
         }
         if fileExplorerHost?.ownsKeyboardFocus(responder) == true ||
             fileSearchHost?.ownsKeyboardFocus(responder) == true {
+            return true
+        }
+        if artifactSearchField?.ownsKeyboardFocus(responder) == true {
             return true
         }
         if feedHost?.ownsKeyboardFocus(responder) == true {
@@ -710,9 +719,9 @@ final class MainWindowFocusController {
         switch mode {
         case .files:
             return .outline
-        case .find:
+        case .find, .artifacts:
             return .searchField
-        case .sessions, .artifacts, .customSidebar:
+        case .sessions, .customSidebar:
             return .host
         case .feed:
             return focusFirstItem ? .firstItem : .host
@@ -730,8 +739,12 @@ final class MainWindowFocusController {
             return fileExplorerHost?.focusOutline() == true
         case .find:
             return fileSearchHost?.focusSearchField() == true
-        case .sessions, .artifacts, .customSidebar:
-            return mode == .sessions ? false : focusFallbackRightSidebarHost()
+        case .artifacts:
+            return artifactSearchField?.focusFromCoordinator() == true
+        case .sessions:
+            return false
+        case .customSidebar:
+            return focusFallbackRightSidebarHost()
         case .feed:
             if target == .firstItem {
                 feedHost?.focusFirstItemFromCoordinator()
@@ -805,6 +818,9 @@ final class MainWindowFocusController {
         }
         if fileSearchHost?.ownsKeyboardFocus(responder) == true {
             return .find
+        }
+        if artifactSearchField?.ownsKeyboardFocus(responder) == true {
+            return .artifacts
         }
         if feedHost?.ownsKeyboardFocus(responder) == true || responder is FeedKeyboardFocusResponder {
             return .feed

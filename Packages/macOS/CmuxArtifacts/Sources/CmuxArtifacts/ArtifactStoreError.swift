@@ -8,6 +8,8 @@ public enum ArtifactStoreError: Error, Equatable, Sendable {
     case unsupportedExtension(String)
     /// The source exceeds the configured byte limit.
     case fileTooLarge(actual: Int64, limit: Int64)
+    /// The capture batch has no remaining aggregate staging budget.
+    case batchByteLimitReached(limit: Int64)
     /// A requested artifact name was missing.
     case artifactNotFound(String)
     /// A name matched more than one artifact and requires a more specific path.

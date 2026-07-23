@@ -34,6 +34,7 @@ struct ArtifactStoreMutationLeaseTests {
             candidates: [ArtifactCandidate(sourceURL: source, provenance: .manual)],
             context: context,
             configuration: .defaultValue,
+            maximumBatchBytes: nil,
             capturedAt: Date(timeIntervalSince1970: 1)
         )
 
@@ -44,6 +45,7 @@ struct ArtifactStoreMutationLeaseTests {
             candidates: [ArtifactCandidate(sourceURL: source, provenance: .manual)],
             context: context,
             configuration: .defaultValue,
+            maximumBatchBytes: nil,
             capturedAt: Date(timeIntervalSince1970: 2)
         )
         guard case .imported = retried.first else {

@@ -16,7 +16,7 @@ public actor ArtifactCaptureService: ArtifactCapturing {
     /// - Parameter projectRoot: Canonical project root containing `.cmux`.
     /// - Returns: Normalized byte limit, or `nil` when automatic capture is disabled.
     public func automaticTranscriptScanByteLimit(projectRoot: URL) async -> UInt64? {
-        let configuration = await store.configuration(projectRoot: projectRoot)
+        let configuration = await store.configuration(projectRoot: projectRoot).normalized
         guard configuration.automaticCaptureEnabled else { return nil }
         return UInt64(configuration.maximumTranscriptScanBytes)
     }
@@ -36,7 +36,7 @@ public actor ArtifactCaptureService: ArtifactCapturing {
         context: ArtifactCaptureContext,
         capturedAt: Date = .now
     ) async -> [ArtifactImportOutcome] {
-        let configuration = await store.configuration(projectRoot: context.projectRoot)
+        let configuration = await store.configuration(projectRoot: context.projectRoot).normalized
         let distinctCandidates = distinct(candidates)
         guard configuration.automaticCaptureEnabled else {
             return distinctCandidates.map { _ in .skipped(.automaticCaptureDisabled) }
@@ -61,6 +61,7 @@ public actor ArtifactCaptureService: ArtifactCapturing {
             candidates: importCandidates,
             context: context,
             configuration: configuration,
+            maximumBatchBytes: configuration.maximumAutomaticCaptureBytes,
             capturedAt: capturedAt
         )
         for (index, attempt) in zip(importIndices, attempts) {
@@ -109,6 +110,7 @@ public actor ArtifactCaptureService: ArtifactCapturing {
                 candidates: candidates,
                 context: context,
                 configuration: configuration,
+                maximumBatchBytes: nil,
                 capturedAt: capturedAt
             ))
             batchStart = batchEnd
@@ -152,6 +154,8 @@ private extension ArtifactStoreError {
             return .unsupportedExtension
         case .fileTooLarge:
             return .exceedsSizeLimit
+        case .batchByteLimitReached:
+            return .candidateLimitReached
         case .artifactNotFound, .ambiguousArtifactName:
             return .notARegularFile
         case .scanIncomplete:

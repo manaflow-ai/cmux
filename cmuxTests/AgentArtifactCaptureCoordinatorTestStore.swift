@@ -69,6 +69,7 @@ actor OutOfOrderCaptureStore: ArtifactStoring {
         candidates: [ArtifactCandidate],
         context _: ArtifactCaptureContext,
         configuration _: ArtifactCaptureConfiguration,
+        maximumBatchBytes _: Int64?,
         capturedAt _: Date
     ) async -> [ArtifactImportAttempt] {
         importCount += 1

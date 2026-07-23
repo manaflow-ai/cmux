@@ -216,6 +216,8 @@ C0DE71B10000000000000001 /* AppDelegate+AgentChatNotifications.swift in Sources 
 		A85870000000000000000031 /* ArtifactSidebarPanelView.swift in Sources */ = {isa = PBXBuildFile; fileRef = A85870000000000000000030 /* ArtifactSidebarPanelView.swift */; };
 		A85870000000000000000033 /* ArtifactSidebarRowActions.swift in Sources */ = {isa = PBXBuildFile; fileRef = A85870000000000000000032 /* ArtifactSidebarRowActions.swift */; };
 		A85870000000000000000035 /* ArtifactSidebarRowView.swift in Sources */ = {isa = PBXBuildFile; fileRef = A85870000000000000000034 /* ArtifactSidebarRowView.swift */; };
+		A8587000000000000000006B /* ArtifactSidebarSearchField.swift in Sources */ = {isa = PBXBuildFile; fileRef = A8587000000000000000006A /* ArtifactSidebarSearchField.swift */; };
+		A8587000000000000000006D /* ArtifactSidebarSearchFieldView.swift in Sources */ = {isa = PBXBuildFile; fileRef = A8587000000000000000006C /* ArtifactSidebarSearchFieldView.swift */; };
 		A85870000000000000000037 /* ArtifactSidebarThumbnailView.swift in Sources */ = {isa = PBXBuildFile; fileRef = A85870000000000000000036 /* ArtifactSidebarThumbnailView.swift */; };
 		A5001100 /* Assets.xcassets in Resources */ = {isa = PBXBuildFile; fileRef = A5001101 /* Assets.xcassets */; };
 		D9FEC58D5BACCF76459F1BBE /* AuthEnvironment.swift in Sources */ = {isa = PBXBuildFile; fileRef = 43430FA5929121E2EAAB3091 /* AuthEnvironment.swift */; };
@@ -2495,6 +2497,8 @@ C0DE71B10000000000000002 /* AppDelegate+AgentChatNotifications.swift */ = {isa =
 		A85870000000000000000030 /* ArtifactSidebarPanelView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ArtifactSidebarPanelView.swift; sourceTree = "<group>"; };
 		A85870000000000000000032 /* ArtifactSidebarRowActions.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ArtifactSidebarRowActions.swift; sourceTree = "<group>"; };
 		A85870000000000000000034 /* ArtifactSidebarRowView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ArtifactSidebarRowView.swift; sourceTree = "<group>"; };
+		A8587000000000000000006A /* ArtifactSidebarSearchField.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ArtifactSidebarSearchField.swift; sourceTree = "<group>"; };
+		A8587000000000000000006C /* ArtifactSidebarSearchFieldView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ArtifactSidebarSearchFieldView.swift; sourceTree = "<group>"; };
 		A85870000000000000000036 /* ArtifactSidebarThumbnailView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ArtifactSidebarThumbnailView.swift; sourceTree = "<group>"; };
 		A5001101 /* Assets.xcassets */ = {isa = PBXFileReference; lastKnownFileType = folder.assetcatalog; path = Assets.xcassets; sourceTree = "<group>"; };
 		43430FA5929121E2EAAB3091 /* AuthEnvironment.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = AuthEnvironment.swift; sourceTree = "<group>"; };
@@ -5915,6 +5919,8 @@ C0DE71B10000000000000002 /* AppDelegate+AgentChatNotifications.swift */ = {isa =
 				A5001641 /* RemoteRelayZshBootstrap.swift */,
 				C0DE43000000000000000002 /* CmuxAgentChatConfig.swift */,
 				A85870000000000000000030 /* ArtifactSidebarPanelView.swift */,
+				A8587000000000000000006A /* ArtifactSidebarSearchField.swift */,
+				A8587000000000000000006C /* ArtifactSidebarSearchFieldView.swift */,
 				A85870000000000000000066 /* ArtifactHTMLPreview.swift */,
 				A8587000000000000000003C /* AppDelegate+Artifacts.swift */,
 				A8587000000000000000003E /* ContentView+Artifacts.swift */,
@@ -7366,6 +7372,8 @@ C0DE71B10000000000000002 /* AppDelegate+AgentChatNotifications.swift */ = {isa =
 				A85870000000000000000031 /* ArtifactSidebarPanelView.swift in Sources */,
 				A85870000000000000000033 /* ArtifactSidebarRowActions.swift in Sources */,
 				A85870000000000000000035 /* ArtifactSidebarRowView.swift in Sources */,
+				A8587000000000000000006B /* ArtifactSidebarSearchField.swift in Sources */,
+				A8587000000000000000006D /* ArtifactSidebarSearchFieldView.swift in Sources */,
 				A85870000000000000000037 /* ArtifactSidebarThumbnailView.swift in Sources */,
 					D9FEC58D5BACCF76459F1BBE /* AuthEnvironment.swift in Sources */,
 					C0DE35860000000000000001 /* BackgroundWorkspacePrimeCoordinator.swift in Sources */,
