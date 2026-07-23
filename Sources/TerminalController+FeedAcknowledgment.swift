@@ -6,10 +6,16 @@ extension TerminalController {
     nonisolated func v2IngestAcknowledgedFeedEvents(
         _ events: [WorkstreamEvent]
     ) -> V2CallResult {
-        let ingestion = v2MainSync { () -> (events: [WorkstreamEvent]?, itemIds: [UUID]) in
-            guard let authoritativeEvents = FeedCoordinator.shared.eventsRehomedToLiveSurface(events)
-            else {
-                return (nil, [])
+        let ingestion = v2MainSync { () -> FeedBatchIngestion in
+            guard FeedCoordinator.shared.store != nil else { return .unavailable }
+            let authoritativeEvents: [WorkstreamEvent]
+            switch FeedCoordinator.shared.resolveDeliveryTarget(for: events) {
+            case .accepted(let events):
+                authoritativeEvents = events
+            case .notFound:
+                return .notFound
+            case .unavailable:
+                return .unavailable
             }
 
             var itemIds: [UUID] = []
@@ -23,32 +29,25 @@ extension TerminalController {
             }
             if itemIds.count == authoritativeEvents.count {
                 v2NoteCoalescedFeedTranscriptEvents(authoritativeEvents)
+            } else {
+                return .unavailable
             }
-            return (authoritativeEvents, itemIds)
+            return .accepted(events: authoritativeEvents, itemIds: itemIds)
         }
 
-        guard let authoritativeEvents = ingestion.events else {
-            return .err(
-                code: "not_found",
-                message: String(
-                    localized: "agent.deliveryTarget.error.notFound",
-                    defaultValue: "No live delivery target"
-                ),
-                data: nil
-            )
-        }
-        guard ingestion.itemIds.count == authoritativeEvents.count else {
-            return .err(
-                code: "unavailable",
-                message: String(
-                    localized: "agent.deliveryTarget.error.unavailable",
-                    defaultValue: "Delivery target resolution is unavailable; retry after cmux finishes starting."
-                ),
-                data: nil
-            )
+        let authoritativeEvents: [WorkstreamEvent]
+        let authoritativeItemIds: [UUID]
+        switch ingestion {
+        case .accepted(let events, let itemIds):
+            authoritativeEvents = events
+            authoritativeItemIds = itemIds
+        case .notFound:
+            return v2FeedTargetNotFound()
+        case .unavailable:
+            return v2FeedTargetUnavailable()
         }
 
-        for (event, itemId) in zip(authoritativeEvents, ingestion.itemIds) {
+        for (event, itemId) in zip(authoritativeEvents, authoritativeItemIds) {
             CmuxEventBus.shared.publishWorkstreamEvent(event, phase: "received")
             let result = FeedCoordinator.IngestBlockingResult.acknowledged(itemId: itemId)
             CmuxEventBus.shared.publishWorkstreamEvent(
@@ -58,17 +57,21 @@ extension TerminalController {
             )
         }
 
-        let itemIds = ingestion.itemIds.map(\.uuidString)
+        let itemIds = authoritativeItemIds.map(\.uuidString)
+        var payload: [String: Any]
         if itemIds.count == 1, let itemId = itemIds.first {
-            return .ok([
+            payload = [
                 "status": "acknowledged",
                 "item_id": itemId,
-            ])
+            ]
+        } else {
+            payload = [
+                "status": "acknowledged",
+                "item_ids": itemIds,
+            ]
         }
-        return .ok([
-            "status": "acknowledged",
-            "item_ids": itemIds,
-        ])
+        v2AppendFeedTarget(from: authoritativeEvents.first, to: &payload)
+        return .ok(payload)
     }
 
     @MainActor
@@ -125,18 +128,18 @@ extension TerminalController {
                 }
             }
         )
-        if case .unavailable = result {
-            return .err(
-                code: "not_found",
-                message: String(
-                    localized: "agent.deliveryTarget.error.notFound",
-                    defaultValue: "No live delivery target"
-                ),
-                data: nil
-            )
+        switch result {
+        case .notFound:
+            return v2FeedTargetNotFound()
+        case .unavailable:
+            return v2FeedTargetUnavailable()
+        default:
+            break
         }
         guard waitsForDecision else {
-            return .ok(FeedSocketEncoding.payload(for: result))
+            var payload = FeedSocketEncoding.payload(for: result)
+            v2AppendFeedTarget(from: acceptedEvent.value, to: &payload)
+            return .ok(payload)
         }
         guard let acceptedEvent = acceptedEvent.value else {
             return .err(
@@ -153,7 +156,40 @@ extension TerminalController {
             phase: "completed",
             result: FeedSocketEncoding.payload(for: result)
         )
-        return .ok(FeedSocketEncoding.payload(for: result))
+        var payload = FeedSocketEncoding.payload(for: result)
+        v2AppendFeedTarget(from: acceptedEvent, to: &payload)
+        return .ok(payload)
+    }
+
+    nonisolated private func v2FeedTargetNotFound() -> V2CallResult {
+        .err(
+            code: "not_found",
+            message: String(
+                localized: "agent.deliveryTarget.error.notFound",
+                defaultValue: "No live delivery target"
+            ),
+            data: nil
+        )
+    }
+
+    nonisolated private func v2FeedTargetUnavailable() -> V2CallResult {
+        .err(
+            code: "unavailable",
+            message: String(
+                localized: "agent.deliveryTarget.error.unavailable",
+                defaultValue: "Delivery target resolution is unavailable; retry after cmux finishes starting."
+            ),
+            data: nil
+        )
+    }
+
+    nonisolated private func v2AppendFeedTarget(
+        from event: WorkstreamEvent?,
+        to payload: inout [String: Any]
+    ) {
+        guard let event else { return }
+        if let workspaceId = event.workspaceId { payload["workspace_id"] = workspaceId }
+        if let surfaceId = event.surfaceId { payload["surface_id"] = surfaceId }
     }
 
     nonisolated func v2FeedPushExclusiveEventShapeMessage() -> String {
@@ -184,4 +220,10 @@ extension TerminalController {
 /// Written on the main actor and read after the blocking callback returns.
 private final class UnsafeAuthoritativeFeedEventSlot: @unchecked Sendable {
     var value: WorkstreamEvent?
+}
+
+private enum FeedBatchIngestion: Sendable {
+    case accepted(events: [WorkstreamEvent], itemIds: [UUID])
+    case notFound
+    case unavailable
 }

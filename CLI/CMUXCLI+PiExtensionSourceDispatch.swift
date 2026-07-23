@@ -22,6 +22,8 @@ function piTerminalFeedSummary(payload: Record<string, unknown>): Record<string,
 class PiCmuxCommandDispatcher {
   private static readonly surfaceUnavailableExitCode = 69;
   private static readonly maxPendingFeedCommands = 8;
+  private static readonly maxQueuedFeedCommands = 32;
+  private static readonly maxActiveFeedCommands = 2;
   private static readonly maxCompactedTerminalSummaries = 64;
   // Leave headroom for the feed.push envelope under the relay's 16 KiB frame limit.
   private static readonly maxFeedInputBytes = 12 * 1024;
@@ -31,6 +33,8 @@ class PiCmuxCommandDispatcher {
   private pendingFeedKeysBySession = new Map<string | null, string[]>();
   private priorityFeedCommands = new Map<string | null, PiFeedCommand[]>();
   private feedDrainWaiters = new Map<string, Array<() => void>>();
+  private feedSessionQueue: Array<string | null> = [];
+  private scheduledFeedSessions = new Set<string | null>();
   private surfaceState: SurfaceDispatchState = "unknown";
   private didWarnSurfaceUnavailable = false;
   private failedFeedSessions = new Set<string>();
@@ -38,7 +42,6 @@ class PiCmuxCommandDispatcher {
     cancellation: PiCommandCancellation;
     command: PiFeedCommand;
   }>();
-
   get canDispatch(): boolean {
     return this.surfaceState !== "unavailable";
   }
@@ -53,11 +56,9 @@ class PiCmuxCommandDispatcher {
     this.controlQueue = scheduled.then(() => undefined, () => undefined);
     return scheduled;
   }
-
   enqueueFeed(key: string, command: PiFeedCommand): void {
     if (!this.canDispatch) return;
     const sessionId = command.context.sessionId;
-
     const existing = this.pendingFeedCommands.get(key);
     if (existing) {
       // Once a completion is pending for a tool, never replace it with a late start event.
@@ -66,7 +67,14 @@ class PiCmuxCommandDispatcher {
       if (this.queuedFeedCount(sessionId) >= PiCmuxCommandDispatcher.maxPendingFeedCommands) {
         if (!command.terminal) return;
         if (!this.evictPendingStartForCompletion(sessionId)) {
-          this.compactPendingCompletion(command);
+          if (!this.compactPendingCompletion(command) && sessionId) this.markFeedSessionFailed(sessionId);
+          return;
+        }
+      }
+      if (this.totalQueuedFeedCount() >= PiCmuxCommandDispatcher.maxQueuedFeedCommands) {
+        if (!command.terminal) return;
+        if (!this.evictAnyPendingStart()) {
+          if (!this.compactPendingCompletion(command) && sessionId) this.markFeedSessionFailed(sessionId);
           return;
         }
       }
@@ -74,9 +82,8 @@ class PiCmuxCommandDispatcher {
     // Reinsert coalesced entries so per-session order reflects event arrival.
     this.removePendingFeed(key);
     this.appendPendingFeed(key, command);
-    this.startNextFeed(sessionId);
+    this.scheduleFeed(sessionId);
   }
-
   async finishFeedForSession(sessionId: string): Promise<boolean> {
     for (const key of [...(this.pendingFeedKeysBySession.get(sessionId) || [])]) {
       const command = this.removePendingFeed(key);
@@ -87,14 +94,24 @@ class PiCmuxCommandDispatcher {
       active.cancellation.cancelled = true;
       active.cancellation.cancel?.();
     }
-    this.startNextFeed(sessionId);
+    this.scheduleFeed(sessionId);
     await this.waitForFeedDrainUntilDeadline(sessionId);
     return !this.failedFeedSessions.delete(sessionId);
   }
-
   private queuedFeedCount(sessionId: string | null): number {
     return (this.pendingFeedKeysBySession.get(sessionId)?.length || 0)
       + (this.priorityFeedCommands.get(sessionId)?.length || 0);
+  }
+
+  private totalQueuedFeedCount(): number {
+    let count = this.pendingFeedCommands.size;
+    for (const commands of this.priorityFeedCommands.values()) count += commands.length;
+    return count;
+  }
+
+  private markFeedSessionFailed(sessionId: string): void {
+    const limit = PiCmuxCommandDispatcher.maxQueuedFeedCommands + PiCmuxCommandDispatcher.maxActiveFeedCommands;
+    if (this.failedFeedSessions.has(sessionId) || this.failedFeedSessions.size < limit) this.failedFeedSessions.add(sessionId);
   }
 
   private appendPendingFeed(key: string, command: PiFeedCommand): void {
@@ -155,7 +172,7 @@ class PiCmuxCommandDispatcher {
         resolve();
       };
       const deadline = setTimeout(() => {
-        if (this.hasTerminalFeedWork(sessionId)) this.failedFeedSessions.add(sessionId);
+        if (this.hasTerminalFeedWork(sessionId)) this.markFeedSessionFailed(sessionId);
         this.discardFeedForSession(sessionId);
         finish();
       }, PiCmuxCommandDispatcher.feedDrainDeadlineMs);
@@ -195,7 +212,17 @@ class PiCmuxCommandDispatcher {
     return false;
   }
 
-  private compactPendingCompletion(command: PiFeedCommand): void {
+  private evictAnyPendingStart(): boolean {
+    for (const [key, command] of this.pendingFeedCommands) {
+      if (!command.terminal) {
+        this.removePendingFeed(key);
+        return true;
+      }
+    }
+    return false;
+  }
+
+  private compactPendingCompletion(command: PiFeedCommand): boolean {
     const sessionId = command.context.sessionId;
     const keys = this.pendingFeedKeysBySession.get(sessionId) || [];
     for (let index = keys.length - 1; index >= 0; index -= 1) {
@@ -204,15 +231,16 @@ class PiCmuxCommandDispatcher {
       if (!pending) continue;
       if (!pending.terminal) continue;
       this.pendingFeedCommands.set(key, this.compactedTerminalCommand(pending, command));
-      return;
+      return true;
     }
     const priority = this.priorityFeedCommands.get(sessionId) || [];
     for (let index = priority.length - 1; index >= 0; index -= 1) {
       const pending = priority[index];
       if (!pending.terminal) continue;
       priority[index] = this.compactedTerminalCommand(pending, command);
-      return;
+      return true;
     }
+    return false;
   }
 
   private compactedTerminalCommand(existing: PiFeedCommand, incoming: PiFeedCommand): PiFeedCommand {
@@ -244,13 +272,14 @@ class PiCmuxCommandDispatcher {
     const count = payload.cmux_compacted_terminal_count;
     return typeof count === "number" && Number.isFinite(count) && count >= fallback ? count : fallback;
   }
-
   private discardFeedForSession(sessionId: string): void {
     for (const key of this.pendingFeedKeysBySession.get(sessionId) || []) {
       this.pendingFeedCommands.delete(key);
     }
     this.pendingFeedKeysBySession.delete(sessionId);
     this.priorityFeedCommands.delete(sessionId);
+    this.scheduledFeedSessions.delete(sessionId);
+    this.feedSessionQueue = this.feedSessionQueue.filter((queued) => queued !== sessionId);
     const active = this.activeFeeds.get(sessionId);
     if (active) {
       active.cancellation.cancelled = true;
@@ -258,39 +287,60 @@ class PiCmuxCommandDispatcher {
     }
     this.resolveDrainedFeedSession(sessionId);
   }
+  private scheduleFeed(sessionId: string | null): void {
+    if (!this.activeFeeds.has(sessionId) && this.queuedFeedCount(sessionId) > 0 &&
+        !this.scheduledFeedSessions.has(sessionId)) {
+      this.scheduledFeedSessions.add(sessionId);
+      this.feedSessionQueue.push(sessionId);
+    }
+    this.startScheduledFeeds();
+  }
 
-  private startNextFeed(sessionId: string | null): void {
-    if (this.activeFeeds.has(sessionId)) return;
+  private startScheduledFeeds(): void {
     if (!this.canDispatch) {
       this.pendingFeedCommands.clear();
       this.pendingFeedKeysBySession.clear();
       this.priorityFeedCommands.clear();
+      this.feedSessionQueue = [];
+      this.scheduledFeedSessions.clear();
       this.resolveAllDrainedFeedSessions();
       return;
     }
-    const command = this.takeNextFeed(sessionId);
-    if (!command) return;
-    const cancellation: PiCommandCancellation = { cancelled: false };
-    this.activeFeeds.set(sessionId, { cancellation, command });
-    const input = boundedPiFeedInput(command.payload, PiCmuxCommandDispatcher.maxFeedInputBytes);
-    void this.execute(command.args, command.cwd, input, command.context, cancellation)
+    while (this.activeFeeds.size < PiCmuxCommandDispatcher.maxActiveFeedCommands) {
+      const sessionId = this.feedSessionQueue.shift();
+      if (sessionId === undefined) return;
+      this.scheduledFeedSessions.delete(sessionId);
+      if (this.activeFeeds.has(sessionId)) continue;
+      const command = this.takeNextFeed(sessionId);
+      if (!command) {
+        if (sessionId) this.resolveDrainedFeedSession(sessionId);
+        continue;
+      }
+      const cancellation: PiCommandCancellation = { cancelled: false };
+      this.activeFeeds.set(sessionId, { cancellation, command });
+      const input = boundedPiFeedInput(command.payload, PiCmuxCommandDispatcher.maxFeedInputBytes);
+      void this.execute(command.args, command.cwd, input, command.context, cancellation)
       .then((result) => {
+        if (result.ok && command.context.sessionId) {
+          rememberSurfaceTarget(this, command.context.sessionId, result);
+        }
         if (result.error instanceof Error && result.error.message.includes("timed out after")) {
           const sessionId = command.context.sessionId;
           if (sessionId) {
-            if (this.hasTerminalFeedWork(sessionId)) this.failedFeedSessions.add(sessionId);
+            if (this.hasTerminalFeedWork(sessionId)) this.markFeedSessionFailed(sessionId);
             this.discardFeedForSession(sessionId);
           }
         } else if (!result.ok && command.terminal && !result.surfaceUnavailable && !cancellation.cancelled) {
-          if (sessionId) this.failedFeedSessions.add(sessionId);
+          if (sessionId) this.markFeedSessionFailed(sessionId);
         }
       })
       .catch(() => {})
       .finally(() => {
         if (this.activeFeeds.get(sessionId)?.cancellation === cancellation) this.activeFeeds.delete(sessionId);
-        this.startNextFeed(sessionId);
+        this.scheduleFeed(sessionId);
         if (sessionId) this.resolveDrainedFeedSession(sessionId);
       });
+    }
   }
 
   private async execute(

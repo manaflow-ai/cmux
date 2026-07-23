@@ -33791,7 +33791,7 @@ export default CMUXSessionRestore;
         // level — close enough to catch most kill scenarios.
         let agentPid = agentPidForFeedSource(source, env: env)
         if source == "pi",
-           try routePiCompactedFeedEvents(
+           let compactedFeedOutput = try routePiCompactedFeedEvents(
                 commandArgs: commandArgs,
                 rawObject: stdinObj,
                 agentPid: agentPid,
@@ -33800,7 +33800,7 @@ export default CMUXSessionRestore;
                 socketPath: socketPath,
                 socketPassword: socketPassword
            ) {
-            print("{}")
+            print(compactedFeedOutput)
             return
         }
         let sessionId = firstString(
@@ -33962,8 +33962,8 @@ export default CMUXSessionRestore;
         }
 
         if shouldAwaitTelemetryIngestion {
-            try validatePiFeedAcknowledgment(response)
-            print("{}")
+            let acknowledgedTarget = try validatePiFeedAcknowledgment(response)
+            print(piHookResolvedTargetOutput(acknowledgedTarget))
             return
         }
         guard let respData = response.data(using: .utf8),

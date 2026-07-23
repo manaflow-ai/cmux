@@ -6,6 +6,12 @@ import Foundation
 import CmuxSettings
 import CmuxSidebar
 
+private enum FeedEventAcceptance: Sendable {
+    case accepted(event: WorkstreamEvent, itemId: UUID)
+    case notFound
+    case unavailable
+}
+
 /// App-level coordinator that owns the shared `WorkstreamStore` and
 /// mediates between the socket thread (which processes `feed.*` V2
 /// commands) and the main-actor store.
@@ -92,14 +98,24 @@ final class FeedCoordinator: @unchecked Sendable {
     @MainActor
     private func acceptOnMainActor(
         _ event: WorkstreamEvent
-    ) -> (event: WorkstreamEvent, itemId: UUID)? {
-        guard let revalidatedEvent = eventRehomedToLiveSurface(event) else { return nil }
-        guard let itemId = ingestRevalidatedOnMainActor(revalidatedEvent) else { return nil }
-        return (revalidatedEvent, itemId)
+    ) -> FeedEventAcceptance {
+        switch resolveDeliveryTarget(for: [event]) {
+        case .accepted(let events):
+            guard let revalidatedEvent = events.first,
+                  let itemId = ingestRevalidatedOnMainActor(revalidatedEvent) else {
+                return .unavailable
+            }
+            return .accepted(event: revalidatedEvent, itemId: itemId)
+        case .notFound:
+            return .notFound
+        case .unavailable:
+            return .unavailable
+        }
     }
 
     @MainActor
     func ingestRevalidatedOnMainActor(_ event: WorkstreamEvent) -> UUID? {
+        guard let store else { return nil }
         store.ingest(event)
         if let ppid = event.ppid, ppid > 0 {
             armPidWatcher(ppid: ppid)
@@ -109,7 +125,14 @@ final class FeedCoordinator: @unchecked Sendable {
 
     @MainActor
     func ingestAcknowledged(_ event: WorkstreamEvent) -> IngestBlockingResult {
-        .acknowledged(itemId: acceptOnMainActor(event)?.itemId)
+        switch acceptOnMainActor(event) {
+        case .accepted(_, let itemId):
+            return .acknowledged(itemId: itemId)
+        case .notFound:
+            return .notFound
+        case .unavailable:
+            return .unavailable
+        }
     }
 
     /// Ingests a wire-frame event and, when `waitTimeout` > 0, blocks the
@@ -122,23 +145,29 @@ final class FeedCoordinator: @unchecked Sendable {
     ) -> IngestBlockingResult {
         if waitTimeout <= 0 {
             Task { @MainActor in
-                guard let accepted = FeedCoordinator.shared.acceptOnMainActor(event) else { return }
-                onAccepted(accepted.event)
+                guard case .accepted(let event, _) = FeedCoordinator.shared.acceptOnMainActor(event) else { return }
+                onAccepted(event)
             }
             return .acknowledged(itemId: nil)
         }
         guard let requestId = event.requestId else {
-            let accepted = DispatchQueue.main.sync {
+            let acceptance = DispatchQueue.main.sync {
                 MainActor.assumeIsolated {
-                    guard let accepted = FeedCoordinator.shared.acceptOnMainActor(event) else {
-                        return nil
+                    let acceptance = FeedCoordinator.shared.acceptOnMainActor(event)
+                    if case .accepted(let event, _) = acceptance {
+                        onAccepted(event)
                     }
-                    onAccepted(accepted.event)
-                    return accepted
+                    return acceptance
                 }
             }
-            guard let accepted else { return .unavailable }
-            return .acknowledged(itemId: accepted.itemId)
+            switch acceptance {
+            case .accepted(_, let itemId):
+                return .acknowledged(itemId: itemId)
+            case .notFound:
+                return .notFound
+            case .unavailable:
+                return .unavailable
+            }
         }
 
         let semaphore = DispatchSemaphore(value: 0)
@@ -157,10 +186,11 @@ final class FeedCoordinator: @unchecked Sendable {
         let resolvedAttentionTarget = Self.isBlockingDecisionEvent(event.hookEventName)
             ? Self.resolveAttentionTarget(event: event)
             : nil
-        let accepted: (event: WorkstreamEvent, itemId: UUID)? = DispatchQueue.main.sync {
+        let acceptance = DispatchQueue.main.sync {
             MainActor.assumeIsolated {
-                guard let accepted = FeedCoordinator.shared.acceptOnMainActor(event) else {
-                    return nil
+                let acceptance = FeedCoordinator.shared.acceptOnMainActor(event)
+                guard case .accepted(let acceptedEvent, let itemId) = acceptance else {
+                    return acceptance
                 }
                 // Surface in-app attention (needs-input status + bell +
                 // workspace elevation) for the blocking decision. This fires
@@ -174,32 +204,41 @@ final class FeedCoordinator: @unchecked Sendable {
                 // ingest `main.sync`, before the card can render and a reply
                 // can fire — so the overlay is cleared exactly once when the
                 // decision concludes (no race with `deliverReply`).
-                let liveWorkspaceId = accepted.event.workspaceId.flatMap {
+                let liveWorkspaceId = acceptedEvent.workspaceId.flatMap {
                     UUID(uuidString: $0.trimmingCharacters(in: .whitespacesAndNewlines))
                 }
-                let liveSurfaceId = accepted.event.surfaceId.flatMap {
+                let liveSurfaceId = acceptedEvent.surfaceId.flatMap {
                     UUID(uuidString: $0.trimmingCharacters(in: .whitespacesAndNewlines))
                 }
                 let attentionTarget = liveWorkspaceId.map {
                     (workspaceId: $0, surfaceId: liveSurfaceId)
                 } ?? resolvedAttentionTarget
                 if let target = FeedCoordinator.shared.surfaceBlockingDecisionAttention(
-                    event: accepted.event,
+                    event: acceptedEvent,
                     resolved: attentionTarget
                 ) {
                     FeedCoordinator.shared.waiterLock.lock()
                     FeedCoordinator.shared.waiters[requestId]?.attentionTarget = target
                     FeedCoordinator.shared.waiterLock.unlock()
                 }
-                onAccepted(accepted.event)
+                onAccepted(acceptedEvent)
                 #if DEBUG
-                FeedCoordinatorTestHooks.afterBlockingEventIngested?(accepted.event, requestId)
+                FeedCoordinatorTestHooks.afterBlockingEventIngested?(acceptedEvent, requestId)
                 #endif
-                return accepted
+                return FeedEventAcceptance.accepted(event: acceptedEvent, itemId: itemId)
             }
         }
 
-        guard let accepted else {
+        let accepted: (event: WorkstreamEvent, itemId: UUID)
+        switch acceptance {
+        case .accepted(let event, let itemId):
+            accepted = (event, itemId)
+        case .notFound:
+            waiterLock.lock()
+            waiters.removeValue(forKey: requestId)
+            waiterLock.unlock()
+            return .notFound
+        case .unavailable:
             waiterLock.lock()
             waiters.removeValue(forKey: requestId)
             waiterLock.unlock()
@@ -330,6 +369,7 @@ final class FeedCoordinator: @unchecked Sendable {
         case acknowledged(itemId: UUID?)
         case resolved(itemId: UUID?, decision: WorkstreamDecision)
         case timedOut(itemId: UUID?)
+        case notFound
         case unavailable
     }
 }
@@ -1154,6 +1194,8 @@ enum FeedSocketEncoding {
             var dict: [String: Any] = ["status": "timed_out"]
             if let itemId { dict["item_id"] = itemId.uuidString }
             return dict
+        case .notFound:
+            return ["status": "not_found"]
         case .unavailable:
             return ["status": "unavailable"]
         }

@@ -10,8 +10,8 @@ extension CMUXCLI {
         client: SocketClient?,
         socketPath: String?,
         socketPassword: String?
-    ) throws -> Bool {
-        guard rawObject["cmux_compacted_terminal_events"] is [[String: Any]] else { return false }
+    ) throws -> String? {
+        guard rawObject["cmux_compacted_terminal_events"] is [[String: Any]] else { return nil }
 
         if let client {
             return try sendPiCompactedFeedEvents(
@@ -48,7 +48,7 @@ extension CMUXCLI {
         agentPid: Int,
         fallbackWorkspaceId: String?,
         client: SocketClient
-    ) throws -> Bool {
+    ) throws -> String {
         let target = try resolvePiFeedClaim(commandArgs: commandArgs, client: client)
         let request = PiCompactedFeedEventExpander(
             agentPid: agentPid,
@@ -56,14 +56,17 @@ extension CMUXCLI {
             surfaceId: target?.surfaceId,
             maximumRequestCount: client.isRelayBacked ? 2 : nil
         ).acknowledgedBatchRequest(from: rawObject)
-        guard let request else { return false }
+        guard let request else { return "{}" }
 
         let response = try client.send(
             command: request.line,
             responseTimeout: 4
         )
-        try validatePiFeedAcknowledgment(response, expectedItemCount: request.eventCount)
-        return true
+        let acknowledgedTarget = try validatePiFeedAcknowledgment(
+            response,
+            expectedItemCount: request.eventCount
+        )
+        return piHookResolvedTargetOutput(acknowledgedTarget)
     }
 
     /// Preserves exact Pi Feed claims for authoritative acceptance by the app.
@@ -232,7 +235,7 @@ extension CMUXCLI {
     func validatePiFeedAcknowledgment(
         _ response: String,
         expectedItemCount: Int? = nil
-    ) throws {
+    ) throws -> (workspaceId: String, surfaceId: String)? {
         let decodedResponse: Any
         do {
             decodedResponse = try JSONSerialization.jsonObject(with: Data(response.utf8))
@@ -264,7 +267,7 @@ extension CMUXCLI {
             if expectedItemCount == 1,
                let itemId = result["item_id"] as? String,
                UUID(uuidString: itemId) != nil {
-                return
+                return piFeedAcknowledgedTarget(result)
             }
             guard expectedItemCount > 0,
                   let itemIds = result["item_ids"] as? [String],
@@ -280,6 +283,19 @@ extension CMUXCLI {
                 throw piFeedAcknowledgmentError()
             }
         }
+        return piFeedAcknowledgedTarget(result)
+    }
+
+    private func piFeedAcknowledgedTarget(
+        _ result: [String: Any]
+    ) -> (workspaceId: String, surfaceId: String)? {
+        guard let workspaceId = normalizedHandleValue(result["workspace_id"] as? String),
+              isUUID(workspaceId),
+              let surfaceId = normalizedHandleValue(result["surface_id"] as? String),
+              isUUID(surfaceId) else {
+            return nil
+        }
+        return (workspaceId, surfaceId)
     }
 
     private func piFeedAcknowledgmentError() -> CLIError {

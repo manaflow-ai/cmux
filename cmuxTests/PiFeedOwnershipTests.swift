@@ -16,6 +16,7 @@ struct PiFeedOwnershipTests {
         let previousAppDelegate = AppDelegate.shared
         let appDelegate = AppDelegate()
         AppDelegate.shared = appDelegate
+        appDelegate.didAttemptStartupSessionRestore = true
         let tabManager = TabManager(autoWelcomeIfNeeded: false)
         appDelegate.tabManager = tabManager
 
@@ -66,6 +67,7 @@ struct PiFeedOwnershipTests {
         let previousAppDelegate = AppDelegate.shared
         let appDelegate = AppDelegate()
         AppDelegate.shared = appDelegate
+        appDelegate.didAttemptStartupSessionRestore = true
         let tabManager = TabManager(autoWelcomeIfNeeded: false)
         appDelegate.tabManager = tabManager
         defer {
@@ -327,10 +329,11 @@ struct PiFeedOwnershipTests {
 
     @MainActor
     @Test
-    func blockingInsertionRejectsUnavailableSurfaceWithoutTimingOut() async {
+    func blockingInsertionRejectsClosedSurfaceWithoutTimingOut() async {
         let previousAppDelegate = AppDelegate.shared
         let appDelegate = AppDelegate()
         AppDelegate.shared = appDelegate
+        appDelegate.didAttemptStartupSessionRestore = true
         let tabManager = TabManager(autoWelcomeIfNeeded: false)
         appDelegate.tabManager = tabManager
         defer {
@@ -353,8 +356,8 @@ struct PiFeedOwnershipTests {
             FeedCoordinator.shared.ingestBlocking(event: event, waitTimeout: 0.01)
         }.value
 
-        guard case .unavailable = result else {
-            Issue.record("unavailable Feed targets must fail before entering the decision wait")
+        guard case .notFound = result else {
+            Issue.record("closed Feed targets must fail before entering the decision wait")
             return
         }
         #expect(store.items.isEmpty)
@@ -366,6 +369,7 @@ struct PiFeedOwnershipTests {
         let previousAppDelegate = AppDelegate.shared
         let appDelegate = AppDelegate()
         AppDelegate.shared = appDelegate
+        appDelegate.didAttemptStartupSessionRestore = true
         let tabManager = TabManager(autoWelcomeIfNeeded: false)
         appDelegate.tabManager = tabManager
         defer {
