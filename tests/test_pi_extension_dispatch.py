@@ -318,14 +318,25 @@ def check_feed_payload_byte_bound(bun: str, root: Path, extension_path: Path) ->
     payload_cmux = root / "bounded-payload-cmux"
     make_executable(
         payload_cmux,
-        """#!/usr/bin/env bash
-set -euo pipefail
-payload="$(cat)"
-printf '%s|%s\n' "$*" "$payload" >> "$CMUX_TEST_PI_PAYLOAD_LOG"
-if [[ "$payload" == *'"tool_call_id":"large-tool-0"'* ]]; then
-  while [ ! -f "$CMUX_TEST_PI_PAYLOAD_RELEASE" ]; do sleep 0.02; done
-fi
-printf '{}\n'
+        """#!/usr/bin/env python3
+import fcntl
+import os
+import pathlib
+import sys
+import time
+
+args = " ".join(sys.argv[1:])
+payload = sys.stdin.read()
+with open(os.environ["CMUX_TEST_PI_PAYLOAD_LOG"], "a", encoding="utf-8") as stream:
+    fcntl.flock(stream, fcntl.LOCK_EX)
+    stream.write(f"{args}|{payload}\\n")
+    stream.flush()
+
+if '"tool_call_id":"large-tool-0"' in payload:
+    release = pathlib.Path(os.environ["CMUX_TEST_PI_PAYLOAD_RELEASE"])
+    while not release.exists():
+        time.sleep(0.02)
+print("{}")
 """,
     )
     payload_source = """

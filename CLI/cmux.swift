@@ -1943,8 +1943,10 @@ final class SocketClient {
     }
 
     func send(command: String, responseTimeout: TimeInterval? = nil) throws -> String {
+        let requestedResponseTimeout = responseTimeout ?? Self.responseTimeoutSeconds
+        let responseDeadline = Date().addingTimeInterval(requestedResponseTimeout)
         if relayEndpoint != nil, socketFD < 0 {
-            try connect()
+            try connectWithoutRetry(responseTimeout: requestedResponseTimeout)
         }
         guard socketFD >= 0 else { throw CLIError(message: "Not connected") }
         let shouldCloseAfterSend = relayEndpoint != nil
@@ -1954,7 +1956,12 @@ final class SocketClient {
             }
         }
 
-        let initialResponseTimeout = responseTimeout ?? Self.responseTimeoutSeconds
+        let initialResponseTimeout: TimeInterval
+        if shouldCloseAfterSend {
+            initialResponseTimeout = try remainingRelayTimeout(until: responseDeadline)
+        } else {
+            initialResponseTimeout = requestedResponseTimeout
+        }
         if lastConfiguredReceiveTimeout != initialResponseTimeout {
             try configureReceiveTimeout(initialResponseTimeout)
         }
@@ -2212,8 +2219,9 @@ final class SocketClient {
     }
 
     private func connectToRelay(endpoint: RelayEndpoint, responseTimeout: TimeInterval? = nil) throws {
+        let deadline = Date().addingTimeInterval(responseTimeout ?? Self.responseTimeoutSeconds)
         let credentials = try Self.relayCredentials(for: endpoint)
-        let timeout = responseTimeout ?? Self.responseTimeoutSeconds
+        let timeout = try remainingRelayTimeout(until: deadline)
 
         socketFD = socket(AF_INET, SOCK_STREAM, 0)
         guard socketFD >= 0 else {
@@ -2255,15 +2263,26 @@ final class SocketClient {
         }
 
         do {
-            try authenticateRelay(credentials: credentials, responseTimeout: timeout)
+            try authenticateRelay(credentials: credentials, deadline: deadline)
         } catch {
             close()
             throw error
         }
     }
 
-    private func authenticateRelay(credentials: RelayCredentials, responseTimeout: TimeInterval) throws {
-        let challengeLine = try readLine(responseTimeout: responseTimeout)
+    private func remainingRelayTimeout(until deadline: Date) throws -> TimeInterval {
+        let remaining = deadline.timeIntervalSinceNow
+        guard remaining > 0 else {
+            throw CLIError(message: String(
+                localized: "cli.socket.error.commandTimedOut",
+                defaultValue: "Command timed out"
+            ))
+        }
+        return remaining
+    }
+
+    private func authenticateRelay(credentials: RelayCredentials, deadline: Date) throws {
+        let challengeLine = try readLine(responseTimeout: remainingRelayTimeout(until: deadline))
         guard let challengeData = challengeLine.data(using: .utf8),
               let challenge = try JSONSerialization.jsonObject(with: challengeData) as? [String: Any],
               (challenge["protocol"] as? String) == "cmux-relay-auth",
@@ -2282,13 +2301,14 @@ final class SocketClient {
             "relay_id": relayID,
             "mac": Self.hexString(from: mac),
         ])
+        try configureSocketWriteSafety(remainingRelayTimeout(until: deadline))
         try writeAll(
             authPayload + Data([0x0A]),
             timeoutMessage: "Relay command timed out",
             failureMessage: "Failed to write to relay socket"
         )
 
-        let authResponseLine = try readLine(responseTimeout: responseTimeout)
+        let authResponseLine = try readLine(responseTimeout: remainingRelayTimeout(until: deadline))
         guard let authResponseData = authResponseLine.data(using: .utf8),
               let authResponse = try JSONSerialization.jsonObject(with: authResponseData) as? [String: Any],
               (authResponse["ok"] as? Bool) == true else {
@@ -31687,7 +31707,7 @@ export default CMUXSessionRestore;
             break
         }
 
-        print("{}")
+        print(def.name == "pi" ? piHookResolvedTargetOutput(strictPiTarget) : "{}")
     }
 
     // MARK: - Feed telemetry helper

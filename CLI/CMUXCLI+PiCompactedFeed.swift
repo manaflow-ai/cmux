@@ -163,6 +163,19 @@ extension CMUXCLI {
     /// Stable process status consumed by the generated extension without parsing localized stderr.
     static let piHookSurfaceUnavailableExitCode: Int32 = 69
 
+    func piHookResolvedTargetOutput(
+        _ target: (workspaceId: String, surfaceId: String)?
+    ) -> String {
+        guard let target,
+              let data = try? JSONSerialization.data(withJSONObject: [
+                  "workspace_id": target.workspaceId,
+                  "surface_id": target.surfaceId,
+              ]),
+              let output = String(data: data, encoding: .utf8)
+        else { return "{}" }
+        return output
+    }
+
     /// Rejects a Pi feed response unless the server confirms ingestion.
     func validatePiFeedAcknowledgment(_ response: String) throws {
         let decodedResponse: Any

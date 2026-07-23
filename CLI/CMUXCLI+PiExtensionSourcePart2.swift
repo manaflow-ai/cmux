@@ -7,11 +7,10 @@ async function sendHook(
   extra: HookExtra = {},
 ): Promise<boolean> {
   if (process.env.CMUX_PI_HOOKS_DISABLED === "1") return true;
-  const target = surfaceTargetArgs();
-  if (!target) return true;
-
   const sessionId = context.sessionId;
   if (!sessionId) return true;
+  const target = surfaceTargetArgs(dispatcher, sessionId);
+  if (!target) return true;
 
   const cwd = context.cwd;
   const payload: HookExtra = {
@@ -27,6 +26,7 @@ async function sendHook(
     JSON.stringify(payload),
     context,
   );
+  if (result.ok) rememberSurfaceTarget(dispatcher, sessionId, result);
   if (!result.ok && !result.surfaceUnavailable) {
     warn(context, "cmux hook command failed", {
       subcommand,
@@ -38,7 +38,20 @@ async function sendHook(
   return result.ok;
 }
 
-function surfaceTargetArgs(): string[] | null {
+const resolvedSurfaceTargets = new WeakMap<PiCmuxCommandDispatcher, Map<string, string[]>>();
+
+function surfaceTargetsFor(dispatcher: PiCmuxCommandDispatcher): Map<string, string[]> {
+  let targets = resolvedSurfaceTargets.get(dispatcher);
+  if (!targets) {
+    targets = new Map();
+    resolvedSurfaceTargets.set(dispatcher, targets);
+  }
+  return targets;
+}
+
+function surfaceTargetArgs(dispatcher: PiCmuxCommandDispatcher, sessionId: string): string[] | null {
+  const resolved = surfaceTargetsFor(dispatcher).get(sessionId);
+  if (resolved) return [...resolved];
   const surfaceId = firstString(process.env.CMUX_SURFACE_ID);
   if (!surfaceId) return null;
   const args: string[] = [];
@@ -46,6 +59,21 @@ function surfaceTargetArgs(): string[] | null {
   if (workspaceId) args.push("--workspace", workspaceId);
   args.push("--surface", surfaceId);
   return args;
+}
+
+function rememberSurfaceTarget(
+  dispatcher: PiCmuxCommandDispatcher,
+  sessionId: string,
+  result: CommandResult,
+): void {
+  const payload = parseJSONOutput(result);
+  const workspaceId = firstString(payload?.workspace_id);
+  const surfaceId = firstString(payload?.surface_id);
+  if (!workspaceId || !surfaceId) return;
+  surfaceTargetsFor(dispatcher).set(
+    sessionId,
+    ["--workspace", workspaceId, "--surface", surfaceId],
+  );
 }
 
 function parseJSONOutput(result: CommandResult): Record<string, unknown> | null {
@@ -144,7 +172,7 @@ async function ensureResumeBinding(
   sessionId: string,
 ): Promise<void> {
   if (process.env.CMUX_PI_HOOKS_DISABLED === "1") return;
-  const target = surfaceTargetArgs();
+  const target = surfaceTargetArgs(dispatcher, sessionId);
   if (!target) return;
 
   const cwd = context.cwd;
@@ -197,7 +225,7 @@ async function clearResumeBinding(
   sessionId: string,
 ): Promise<boolean> {
   if (process.env.CMUX_PI_HOOKS_DISABLED === "1") return true;
-  const target = surfaceTargetArgs();
+  const target = surfaceTargetArgs(dispatcher, sessionId);
   if (!target) return true;
   const cwd = context.cwd;
   const result = await dispatcher.run([
@@ -219,6 +247,7 @@ async function clearResumeBinding(
       error_available: result.error !== undefined,
     });
   }
+  if (result.ok) surfaceTargetsFor(dispatcher).delete(sessionId);
   return result.ok;
 }
 
@@ -231,11 +260,11 @@ function sendFeed(
   extra: HookExtra = {},
 ): void {
   if (process.env.CMUX_PI_HOOKS_DISABLED === "1") return;
-  const target = surfaceTargetArgs();
-  if (!target) return;
   if (!dispatcher.canDispatch) return;
   const sessionId = context.sessionId;
   if (!sessionId) return;
+  const target = surfaceTargetArgs(dispatcher, sessionId);
+  if (!target) return;
   if (sessionStates.get(sessionId)?.stopped) return;
   const cwd = context.cwd;
   const toolCallId = firstString(objectValue(event, ["toolCallId", "tool_call_id", "id"]));

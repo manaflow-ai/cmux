@@ -103,8 +103,25 @@ final class FeedCoordinator: @unchecked Sendable {
     /// timeout elapses.
     func ingestBlocking(
         event: WorkstreamEvent,
-        waitTimeout: TimeInterval
+        waitTimeout: TimeInterval,
+        requiresIngestionAcknowledgment: Bool = false
     ) -> IngestBlockingResult {
+        if waitTimeout <= 0 {
+            guard requiresIngestionAcknowledgment else {
+                DispatchQueue.main.async {
+                    MainActor.assumeIsolated {
+                        _ = FeedCoordinator.shared.ingestOnMainActor(event)
+                    }
+                }
+                return .acknowledged(itemId: nil)
+            }
+            let itemId = DispatchQueue.main.sync {
+                MainActor.assumeIsolated {
+                    FeedCoordinator.shared.ingestOnMainActor(event)
+                }
+            }
+            return .acknowledged(itemId: itemId)
+        }
         guard let requestId = event.requestId else {
             DispatchQueue.main.async {
                 MainActor.assumeIsolated {
@@ -112,14 +129,6 @@ final class FeedCoordinator: @unchecked Sendable {
                 }
             }
             return .acknowledged(itemId: nil)
-        }
-        guard waitTimeout > 0 else {
-            let itemId = DispatchQueue.main.sync {
-                MainActor.assumeIsolated {
-                    FeedCoordinator.shared.ingestOnMainActor(event)
-                }
-            }
-            return .acknowledged(itemId: itemId)
         }
 
         let semaphore = DispatchSemaphore(value: 0)

@@ -1212,7 +1212,13 @@ class TerminalController {
         case "feedback.submit":
             return v2Result(id: request.id, v2FeedbackSubmit(params: request.params))
         case "feed.push":
-            return v2Result(id: request.id, v2FeedPush(params: request.params))
+            return v2Result(
+                id: request.id,
+                v2FeedPush(
+                    params: request.params,
+                    requiresIngestionAcknowledgment: request.id != nil
+                )
+            )
         case "feed.permission.reply":
             return v2Result(id: request.id, v2FeedPermissionReply(params: request.params))
         case "feed.question.reply":
@@ -5560,7 +5566,10 @@ class TerminalController {
 
     // MARK: - V2 Feed (workstream) handlers
 
-    private nonisolated func v2FeedPush(params: [String: Any]) -> V2CallResult {
+    private nonisolated func v2FeedPush(
+        params: [String: Any],
+        requiresIngestionAcknowledgment: Bool
+    ) -> V2CallResult {
         let waitTimeout: TimeInterval
         if let rawTimeout = params["wait_timeout_seconds"] {
             let seconds: Double?
@@ -5624,7 +5633,8 @@ class TerminalController {
 
         let result = FeedCoordinator.shared.ingestBlocking(
             event: event,
-            waitTimeout: waitTimeout
+            waitTimeout: waitTimeout,
+            requiresIngestionAcknowledgment: requiresIngestionAcknowledgment
         )
         CmuxEventBus.shared.publishWorkstreamEvent(
             event,
