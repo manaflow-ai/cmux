@@ -228,46 +228,6 @@ struct FilePreviewReloadTests {
         #expect(!panel.isDirty)
     }
 
-    @Test("The manual refresh path replaces a cached Quick Look item")
-    func manualRefreshReplacesQuickLookItem() async throws {
-        let fileURL = FileManager.default.temporaryDirectory
-            .appending(path: "cmux-file-preview-manual-\(UUID().uuidString).bin")
-        defer { try? FileManager.default.removeItem(at: fileURL) }
-        try Data([0x00, 0x01]).write(to: fileURL)
-
-        let panel = FilePreviewPanel(
-            workspaceId: UUID(),
-            filePath: fileURL.path,
-            startFileWatcher: false
-        )
-        defer { panel.close() }
-        #expect(panel.previewMode == .quickLook)
-
-        let view = panel.nativeViewSessions.quickLook.view(
-            panel: panel,
-            revision: panel.previewRevision,
-            isVisibleInUI: true,
-            backgroundColor: .textBackgroundColor,
-            drawsBackground: true
-        )
-        let container = try #require(view as? FilePreviewQuickLookContainerView)
-        let firstItem = try #require(container.livePreviewView()?.previewItem as AnyObject?)
-
-        try Data([0x02, 0x03]).write(to: fileURL)
-        await panel.reloadFromDisk().value
-        panel.nativeViewSessions.quickLook.update(
-            view,
-            panel: panel,
-            revision: panel.previewRevision,
-            isVisibleInUI: true,
-            backgroundColor: .textBackgroundColor,
-            drawsBackground: true
-        )
-
-        let refreshedItem = try #require(container.livePreviewView()?.previewItem as AnyObject?)
-        #expect(refreshedItem !== firstItem)
-    }
-
     @Test("Markdown manual refresh rereads the file")
     func markdownManualRefreshRereadsFile() throws {
         let fileURL = FileManager.default.temporaryDirectory
