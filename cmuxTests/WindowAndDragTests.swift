@@ -3113,7 +3113,7 @@ final class FilePreviewPanelTextSavingTests: XCTestCase {
         defer { panel.close() }
         await panel.loadTextContent().value
 
-        let textView = SavingTextView()
+        let textView = SavingTextView.makeFilePreviewTextView()
         textView.string = "saved by configured shortcut"
         textView.panel = panel
         panel.attachTextView(textView)
@@ -3152,7 +3152,7 @@ final class FilePreviewPanelTextSavingTests: XCTestCase {
         defer { panel.close() }
         await panel.loadTextContent().value
 
-        let textView = SavingTextView()
+        let textView = SavingTextView.makeFilePreviewTextView()
         textView.string = "should not save through command s"
         textView.panel = panel
         panel.attachTextView(textView)
@@ -3257,7 +3257,7 @@ final class FilePreviewPanelTextSavingTests: XCTestCase {
 
     func testTextEditorInsetsReapplyWhenMovedBetweenWindows() {
         _ = NSApplication.shared
-        let textView = SavingTextView()
+        let textView = SavingTextView.makeFilePreviewTextView()
         textView.textContainerInset = .zero
         textView.textContainer?.lineFragmentPadding = 5
 
@@ -3282,7 +3282,7 @@ final class FilePreviewPanelTextSavingTests: XCTestCase {
     func testTextEditorClearThemeDoesNotDrawAppKitBackgrounds() {
         _ = NSApplication.shared
         let scrollView = NSScrollView()
-        let textView = SavingTextView()
+        let textView = SavingTextView.makeFilePreviewTextView()
         scrollView.documentView = textView
 
         FilePreviewTextEditor<FilePreviewPanel>.applyTheme(
@@ -3305,7 +3305,7 @@ final class FilePreviewPanelTextSavingTests: XCTestCase {
     func testTextEditorOpaqueThemeDrawsAppKitBackgrounds() {
         _ = NSApplication.shared
         let scrollView = NSScrollView()
-        let textView = SavingTextView()
+        let textView = SavingTextView.makeFilePreviewTextView()
         let backgroundColor = NSColor(srgbRed: 0.12, green: 0.14, blue: 0.16, alpha: 1)
         scrollView.documentView = textView
 
@@ -3335,7 +3335,7 @@ final class FilePreviewPanelTextSavingTests: XCTestCase {
         defer { panel.close() }
         panel.focus()
 
-        let textView = SavingTextView()
+        let textView = SavingTextView.makeFilePreviewTextView()
         let window = windowHosting(textView)
         defer { closeWindow(window) }
         panel.attachTextView(textView)
