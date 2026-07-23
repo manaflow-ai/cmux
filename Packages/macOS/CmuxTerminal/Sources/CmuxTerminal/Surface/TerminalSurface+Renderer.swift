@@ -38,6 +38,13 @@ extension TerminalSurface {
             if let view = attachedView,
                let displayID = (view.window?.screen ?? NSScreen.main)?.displayID,
                displayID != 0 {
+#if DEBUG
+                if ProcessInfo.processInfo.environment["CMUX_DEBUG_SATURATE_GHOSTTY_RENDERER_MAILBOX"] == "1" {
+                    for _ in 0..<128 {
+                        ghostty_surface_set_display_id(surface, displayID)
+                    }
+                }
+#endif
                 ghostty_surface_set_display_id(surface, displayID)
             }
         }
