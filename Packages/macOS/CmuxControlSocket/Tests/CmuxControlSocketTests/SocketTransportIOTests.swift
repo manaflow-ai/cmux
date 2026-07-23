@@ -115,6 +115,34 @@ private final class ResultBox: @unchecked Sendable {
         #expect(handled.wait(timeout: .now() + 1.0) == .success)
     }
 
+    @Test func probeCommandRejectsPeerBeforeSendingCommand() throws {
+        let path = UnixSocketFixture.makeTempSocketPath()
+        let listenerFD = try UnixSocketFixture.bindListeningSocket(at: path)
+        defer {
+            Darwin.close(listenerFD)
+            unlink(path)
+        }
+
+        let commandReceived = ResultBox()
+        let handled = UnixSocketFixture.acceptSingleClient(on: listenerFD) {
+            clientFD in
+            var buffer = [UInt8](repeating: 0, count: 256)
+            commandReceived.value =
+                Darwin.read(clientFD, &buffer, buffer.count) > 0
+        }
+
+        let result = transport.probeCommandWithPeerProcessID(
+            "sensitive-command",
+            at: path,
+            timeout: 0.5,
+            validatingPeer: { _ in false }
+        )
+
+        #expect(result?.response == nil)
+        #expect(handled.wait(timeout: .now() + 1.0) == .success)
+        #expect(commandReceived.value == false)
+    }
+
     @Test func probeCommandTimesOutWithoutPollingUntilServerResponds() throws {
         let path = UnixSocketFixture.makeTempSocketPath()
         let listenerFD = try UnixSocketFixture.bindListeningSocket(at: path)
