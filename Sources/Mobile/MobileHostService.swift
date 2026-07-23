@@ -481,16 +481,19 @@ final class MobileHostService {
     /// The preferred TCP port the listener should try to bind, read from
     /// settings.
     ///
-    /// Falls back to the catalog default (which mirrors
-    /// `CmxMobileDefaults.defaultHostPort`) when unset or outside the valid
-    /// `1...65535` range. The listener still falls back to an OS-assigned
-    /// ephemeral port if this port is unavailable at bind time.
-    nonisolated static func configuredPort(defaults: UserDefaults = .standard) -> Int {
-        let fallback = SettingCatalog().mobile.iOSPairingPort.defaultValue
-        guard let raw = defaults.object(forKey: portDefaultsKey) as? Int else {
-            return fallback
-        }
-        return (1...65535).contains(raw) ? raw : fallback
+    /// Falls back to the launch identity's default when unset or outside the
+    /// valid `1...65535` range. Tagged DEBUG builds get a stable per-tag port;
+    /// release and untagged builds keep the catalog default. The listener still
+    /// falls back to an OS-assigned ephemeral port if this port is unavailable
+    /// at bind time.
+    nonisolated static func configuredPort(
+        defaults: UserDefaults = .standard,
+        environment: [String: String] = ProcessInfo.processInfo.environment
+    ) -> Int {
+        MobileHostPortPolicy().configuredPort(
+            defaults: defaults,
+            environment: environment
+        )
     }
 
     /// The port a settings change should reconcile the *running* listener to, or
@@ -499,13 +502,16 @@ final class MobileHostService {
     /// Distinguished from ``configuredPort(defaults:)`` so an invalid value the
     /// user is still editing (the field shows a warning) does not tear down a
     /// running listener and silently rebind it to the default port. Returns the
-    /// catalog default when unset, the override when valid, and `nil` when the
-    /// stored value is out of range.
-    nonisolated static func resolvedDesiredPort(defaults: UserDefaults = .standard) -> Int? {
-        guard let raw = defaults.object(forKey: portDefaultsKey) as? Int else {
-            return SettingCatalog().mobile.iOSPairingPort.defaultValue
-        }
-        return (1...65535).contains(raw) ? raw : nil
+    /// launch identity's default when unset, the override when valid, and `nil`
+    /// when the stored value is out of range.
+    nonisolated static func resolvedDesiredPort(
+        defaults: UserDefaults = .standard,
+        environment: [String: String] = ProcessInfo.processInfo.environment
+    ) -> Int? {
+        MobileHostPortPolicy().resolvedDesiredPort(
+            defaults: defaults,
+            environment: environment
+        )
     }
 
     /// Pure reconciliation between the desired settings and the live listener

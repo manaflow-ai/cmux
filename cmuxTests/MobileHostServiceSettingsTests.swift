@@ -10,6 +10,7 @@ import Testing
 @testable import cmux
 #endif
 
+@Suite
 struct MobileHostServiceSettingsTests {
     @Test func mobileHostListenerHonorsDevelopmentDefaultUntilIOSPairingIsOverridden() throws {
         let suiteName = "MobileHostServiceSettingsTests.\(UUID().uuidString)"
@@ -138,9 +139,72 @@ struct MobileHostServiceSettingsTests {
         let suiteName = "MobileHostServiceSettingsTests.Port.Default.\(UUID().uuidString)"
         let defaults = try #require(UserDefaults(suiteName: suiteName))
         defer { defaults.removePersistentDomain(forName: suiteName) }
+        Self.withoutLaunchTag { environment in
+            let expected = SettingCatalog().mobile.iOSPairingPort.defaultValue
+            #expect(MobileHostService.configuredPort(
+                defaults: defaults,
+                environment: environment
+            ) == expected)
+        }
+    }
 
-        let expected = SettingCatalog().mobile.iOSPairingPort.defaultValue
-        #expect(MobileHostService.configuredPort(defaults: defaults) == expected)
+    #if DEBUG
+    @Test func configuredPortUsesStableTagDerivedDefaultWhenUnset() throws {
+        let suiteName = "MobileHostServiceSettingsTests.Port.Tagged.\(UUID().uuidString)"
+        let defaults = try #require(UserDefaults(suiteName: suiteName))
+        defer { defaults.removePersistentDomain(forName: suiteName) }
+
+        let catalogDefault = SettingCatalog().mobile.iOSPairingPort.defaultValue
+        let nodivs = Self.withLaunchTag("nodivs") { environment in
+            MobileHostService.configuredPort(
+                defaults: defaults,
+                environment: environment
+            )
+        }
+        let nodivsRelaunch = Self.withLaunchTag("nodivs") { environment in
+            MobileHostService.configuredPort(
+                defaults: defaults,
+                environment: environment
+            )
+        }
+        let wtodo = Self.withLaunchTag("wtodo") { environment in
+            MobileHostService.configuredPort(
+                defaults: defaults,
+                environment: environment
+            )
+        }
+
+        #expect(nodivs == nodivsRelaunch)
+        #expect(nodivs != catalogDefault)
+        #expect(wtodo != catalogDefault)
+        #expect(nodivs != wtodo)
+        #expect(MobileHostPortPolicy.taggedDevelopmentPortRange.contains(nodivs))
+        #expect(MobileHostPortPolicy.taggedDevelopmentPortRange.contains(wtodo))
+        Self.withLaunchTag("wtodo") { environment in
+            #expect(MobileHostService.resolvedDesiredPort(
+                defaults: defaults,
+                environment: environment
+            ) == wtodo)
+        }
+    }
+    #endif
+
+    @Test func configuredPortHonorsValidOverrideEvenWhenTagged() throws {
+        let suiteName = "MobileHostServiceSettingsTests.Port.Valid.Tagged.\(UUID().uuidString)"
+        let defaults = try #require(UserDefaults(suiteName: suiteName))
+        defer { defaults.removePersistentDomain(forName: suiteName) }
+
+        defaults.set(9000, forKey: MobileHostService.portDefaultsKey)
+        Self.withLaunchTag("nodivs") { environment in
+            #expect(MobileHostService.configuredPort(
+                defaults: defaults,
+                environment: environment
+            ) == 9000)
+            #expect(MobileHostService.resolvedDesiredPort(
+                defaults: defaults,
+                environment: environment
+            ) == 9000)
+        }
     }
 
     @Test func configuredPortHonorsValidOverride() throws {
@@ -158,9 +222,14 @@ struct MobileHostServiceSettingsTests {
         let defaults = try #require(UserDefaults(suiteName: suiteName))
         defer { defaults.removePersistentDomain(forName: suiteName) }
 
-        defaults.set(invalidPort, forKey: MobileHostService.portDefaultsKey)
-        let expected = SettingCatalog().mobile.iOSPairingPort.defaultValue
-        #expect(MobileHostService.configuredPort(defaults: defaults) == expected)
+        Self.withoutLaunchTag { environment in
+            defaults.set(invalidPort, forKey: MobileHostService.portDefaultsKey)
+            let expected = SettingCatalog().mobile.iOSPairingPort.defaultValue
+            #expect(MobileHostService.configuredPort(
+                defaults: defaults,
+                environment: environment
+            ) == expected)
+        }
     }
 
     @Test func resolvedDesiredPortIsNilForInvalidSoRunningListenerIsNotDisturbed() throws {
@@ -168,32 +237,37 @@ struct MobileHostServiceSettingsTests {
         let defaults = try #require(UserDefaults(suiteName: suiteName))
         defer { defaults.removePersistentDomain(forName: suiteName) }
 
-        // Unset → catalog default (a valid desired port).
-        #expect(MobileHostService.resolvedDesiredPort(defaults: defaults)
-            == SettingCatalog().mobile.iOSPairingPort.defaultValue)
+        Self.withoutLaunchTag { environment in
+            // Unset -> catalog default (a valid desired port).
+            #expect(MobileHostService.resolvedDesiredPort(
+                defaults: defaults,
+                environment: environment
+            )
+                == SettingCatalog().mobile.iOSPairingPort.defaultValue)
+        }
 
-        // Valid override → that port.
+        // Valid override -> that port.
         defaults.set(58_470, forKey: MobileHostService.portDefaultsKey)
         #expect(MobileHostService.resolvedDesiredPort(defaults: defaults) == 58_470)
 
-        // Invalid override → nil, so syncToSettings keeps the running listener
+        // Invalid override -> nil, so syncToSettings keeps the running listener
         // on its applied port instead of restarting onto the default.
         defaults.set(70_000, forKey: MobileHostService.portDefaultsKey)
         #expect(MobileHostService.resolvedDesiredPort(defaults: defaults) == nil)
     }
 
     @Test func portApplyPreBindClassifiesNonBindCases() {
-        // Out of range → invalid, regardless of anything else.
+        // Out of range -> invalid, regardless of anything else.
         #expect(MobileHostService.portApplyPreBindOutcome(enabled: true, currentBoundPort: nil, requestedPort: 0) == .invalid)
         #expect(MobileHostService.portApplyPreBindOutcome(enabled: true, currentBoundPort: nil, requestedPort: 70000) == .invalid)
-        // Pairing off → saved for when it's enabled.
+        // Pairing off -> saved for when it's enabled.
         #expect(MobileHostService.portApplyPreBindOutcome(enabled: false, currentBoundPort: nil, requestedPort: 58465) == .savedWhileDisabled)
-        // Already bound to the requested port → applied, no bind attempt.
+        // Already bound to the requested port -> applied, no bind attempt.
         #expect(MobileHostService.portApplyPreBindOutcome(enabled: true, currentBoundPort: 58465, requestedPort: 58465) == .applied(58465))
     }
 
     @Test func portApplyPreBindReturnsNilWhenABindIsNeeded() {
-        // Enabled, valid, different from the bound port → needs a real bind
+        // Enabled, valid, different from the bound port -> needs a real bind
         // attempt (make-before-break), signalled by nil.
         #expect(MobileHostService.portApplyPreBindOutcome(enabled: true, currentBoundPort: 58465, requestedPort: 58470) == nil)
         // Not running yet, enabled, valid → also needs a bind.
@@ -216,6 +290,23 @@ struct MobileHostServiceSettingsTests {
         #expect(MobileHostService.syncDecision(enabled: true, listenerRunning: true, desiredPort: 9000, appliedPort: 58465) == .restart)
         // Running but the applied port is unknown: restart to reconcile.
         #expect(MobileHostService.syncDecision(enabled: true, listenerRunning: true, desiredPort: 58465, appliedPort: nil) == .restart)
+    }
+
+    private static func withLaunchTag<T>(
+        _ tag: String,
+        _ body: ([String: String]) throws -> T
+    ) rethrows -> T {
+        var environment = ProcessInfo.processInfo.environment
+        environment[SocketControlSettings.launchTagEnvKey] = tag
+        return try body(environment)
+    }
+
+    private static func withoutLaunchTag<T>(
+        _ body: ([String: String]) throws -> T
+    ) rethrows -> T {
+        var environment = ProcessInfo.processInfo.environment
+        environment[SocketControlSettings.launchTagEnvKey] = nil
+        return try body(environment)
     }
 }
 
