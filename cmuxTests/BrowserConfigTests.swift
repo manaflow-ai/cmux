@@ -1878,16 +1878,30 @@ final class BrowserDeveloperToolsConfigurationTests: XCTestCase {
             ]
         )
 
+        // The panel no longer paints the translucent colour itself: it composites it over the
+        // window background and fills opaquely. Derive the expectation from the same helper the
+        // panel uses, because a hardcoded triple would encode the host's appearance -- the
+        // composite blends against `.windowBackgroundColor`, which differs in dark mode. The
+        // accuracy covers WebKit storing `underPageBackgroundColor` at 8 bits per channel.
         guard let actual = panel.webView.underPageBackgroundColor?.usingColorSpace(.sRGB),
-              let expected = updatedColor.withAlphaComponent(updatedOpacity).usingColorSpace(.sRGB) else {
+              let expected = GhosttyBackgroundTheme.color(
+                  backgroundColor: updatedColor,
+                  opacity: updatedOpacity
+              ).usingColorSpace(.sRGB),
+              let translucent = updatedColor.withAlphaComponent(updatedOpacity).usingColorSpace(.sRGB) else {
             XCTFail("Expected sRGB-convertible under-page background colors")
             return
         }
 
-        XCTAssertEqual(actual.redComponent, expected.redComponent, accuracy: 0.005)
-        XCTAssertEqual(actual.greenComponent, expected.greenComponent, accuracy: 0.005)
-        XCTAssertEqual(actual.blueComponent, expected.blueComponent, accuracy: 0.005)
-        XCTAssertEqual(actual.alphaComponent, expected.alphaComponent, accuracy: 0.005)
+        // Guards the derivation above from becoming vacuous: if the helper ever stopped
+        // compositing, `expected` would just be the translucent colour and this test would pass
+        // no matter what the panel did with the notification.
+        XCTAssertNotEqual(expected.alphaComponent, translucent.alphaComponent, accuracy: 0.005)
+
+        XCTAssertEqual(actual.redComponent, expected.redComponent, accuracy: 0.01)
+        XCTAssertEqual(actual.greenComponent, expected.greenComponent, accuracy: 0.01)
+        XCTAssertEqual(actual.blueComponent, expected.blueComponent, accuracy: 0.01)
+        XCTAssertEqual(actual.alphaComponent, 1.0, accuracy: 0.01)
     }
 
     func testBrowserPanelStartsAsNewTabWithoutLoadingAboutBlank() {
@@ -1948,16 +1962,24 @@ final class BrowserDeveloperToolsConfigurationTests: XCTestCase {
             ]
         )
 
+        // Same reasoning as the sibling test above: compare against the composite the panel
+        // actually paints, not the translucent colour it is derived from.
         guard let actual = panel.webView.underPageBackgroundColor?.usingColorSpace(.sRGB),
-              let expected = updatedColor.withAlphaComponent(0.57).usingColorSpace(.sRGB) else {
+              let expected = GhosttyBackgroundTheme.color(
+                  backgroundColor: updatedColor,
+                  opacity: 0.57
+              ).usingColorSpace(.sRGB),
+              let translucent = updatedColor.withAlphaComponent(0.57).usingColorSpace(.sRGB) else {
             XCTFail("Expected sRGB-convertible under-page background colors")
             return
         }
 
-        XCTAssertEqual(actual.redComponent, expected.redComponent, accuracy: 0.005)
-        XCTAssertEqual(actual.greenComponent, expected.greenComponent, accuracy: 0.005)
-        XCTAssertEqual(actual.blueComponent, expected.blueComponent, accuracy: 0.005)
-        XCTAssertEqual(actual.alphaComponent, expected.alphaComponent, accuracy: 0.005)
+        XCTAssertNotEqual(expected.alphaComponent, translucent.alphaComponent, accuracy: 0.005)
+
+        XCTAssertEqual(actual.redComponent, expected.redComponent, accuracy: 0.01)
+        XCTAssertEqual(actual.greenComponent, expected.greenComponent, accuracy: 0.01)
+        XCTAssertEqual(actual.blueComponent, expected.blueComponent, accuracy: 0.01)
+        XCTAssertEqual(actual.alphaComponent, 1.0, accuracy: 0.01)
     }
 }
 

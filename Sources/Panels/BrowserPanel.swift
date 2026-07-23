@@ -4285,7 +4285,13 @@ final class BrowserPanel: Panel, ObservableObject {
             hiddenWebViewDiscardManager.updateRestoredSessionRenderIntent(nil)
             currentURL = initialRequest.url
             shouldRenderWebView = renderInitialNavigation
-            guard renderInitialNavigation else { return }
+            guard renderInitialNavigation else {
+                // `shouldRenderWebView` is already false here, so the assignment above does not
+                // change it and its `didSet` never fires. Without this the panel keeps the
+                // `.newTab` state it was born with and reports a deferred URL as a new tab.
+                refreshWebViewLifecycleState()
+                return
+            }
             if let url = initialRequest.url,
                insecureHTTPBypassHostOnce == nil,
                shouldBlockInsecureHTTPNavigation(to: url) {
@@ -4304,7 +4310,10 @@ final class BrowserPanel: Panel, ObservableObject {
             hiddenWebViewDiscardManager.updateRestoredSessionRenderIntent(nil)
             currentURL = url
             shouldRenderWebView = renderInitialNavigation
-            guard renderInitialNavigation else { return }
+            guard renderInitialNavigation else {
+                refreshWebViewLifecycleState()
+                return
+            }
             if adoptedPrewarmedWebView {
                 // Already navigated while hidden; record for recovery paths.
                 navigationDelegate?.recordAttemptedRequest(URLRequest(url: url), displayURL: url)
