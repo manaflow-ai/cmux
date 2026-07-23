@@ -78,6 +78,7 @@ enum KeyboardShortcutSettings {
         case newBrowserWorkspace
         case saveLayoutTemplate
         case openFolder
+        case openFolderInVSCodeInline
         case reopenPreviousSession
         case goToWorkspace
         case commandPalette
@@ -211,6 +212,7 @@ enum KeyboardShortcutSettings {
             case .newBrowserWorkspace: return String(localized: "shortcut.newBrowserWorkspace.label", defaultValue: "New Browser Workspace")
             case .saveLayoutTemplate: return String(localized: "shortcut.saveLayoutTemplate.label", defaultValue: "Save Layout as Template…")
             case .openFolder: return String(localized: "shortcut.openFolder.label", defaultValue: "Open Folder")
+            case .openFolderInVSCodeInline: return String(localized: "menu.file.openFolderInVSCodeInline", defaultValue: "Open Folder in VS Code (Inline)…")
             case .reopenPreviousSession: return String(localized: "shortcut.reopenPreviousSession.label", defaultValue: "Restore Previous App Launch")
             case .goToWorkspace: return String(localized: "menu.file.goToWorkspace", defaultValue: "Go to Workspace…")
             case .commandPalette: return String(localized: "menu.file.commandPalette", defaultValue: "Command Palette…")
@@ -363,6 +365,8 @@ enum KeyboardShortcutSettings {
                 return StoredShortcut(key: "s", command: true, shift: false, option: false, control: true)
             case .openFolder:
                 return StoredShortcut(key: "o", command: true, shift: false, option: false, control: false)
+            case .openFolderInVSCodeInline:
+                return .unbound
             case .reopenPreviousSession:
                 return StoredShortcut(key: "o", command: true, shift: true, option: false, control: false)
             case .goToWorkspace:
