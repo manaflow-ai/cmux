@@ -846,7 +846,7 @@ await new Promise((resolve) => setTimeout(resolve, 250));
     return 0
 
 
-def check_terminal_feed_failure_is_at_most_once(bun: str, root: Path, extension_path: Path) -> int:
+def check_terminal_feed_failure_emits_one_stop(bun: str, root: Path, extension_path: Path) -> int:
     failure_cmux = root / "terminal-feed-failure-cmux"
     make_executable(
         failure_cmux,
@@ -890,29 +890,55 @@ await handlers.get("agent_end")({
 await handlers.get("session_shutdown")({ reason: "quit" }, ctx);
 """
 
-    log_path = root / "terminal-feed-failure.log"
-    result = run_extension(
-        bun=bun,
-        root=root,
-        extension_path=extension_path,
-        fake_cmux=failure_cmux,
-        source=lifecycle_source,
-        extra_env={"CMUX_TEST_PI_FAILURE_LOG": str(log_path)},
-    )
-    if result.returncode != 0:
-        print(f"FAIL: terminal-feed failure harness failed: {result.stderr!r}")
-        return 1
-    calls = log_path.read_text(encoding="utf-8").splitlines()
-    feed_calls = [line for line in calls if "hooks feed" in line and "PostToolUse" in line]
-    if len(feed_calls) != 1:
-        print(f"FAIL: ambiguous terminal-feed delivery was replayed: {calls!r}")
-        return 1
-    if any("hooks pi notification" in line or "hooks pi stop" in line for line in calls):
-        print(f"FAIL: failed terminal-feed delivery was declared drained: {calls!r}")
-        return 1
-    if '"message":"cmux terminal feed delivery failed"' not in result.stderr:
-        print(f"FAIL: failed terminal-feed delivery was not surfaced: {result.stderr!r}")
-        return 1
+    shutdown_source = """
+const extensionPath = process.env.CMUX_TEST_PI_EXTENSION_PATH;
+const mod = await import(extensionPath);
+const handlers = new Map();
+mod.default({ on(name, handler) { handlers.set(name, handler); } });
+const ctx = {
+  cwd: "/tmp/pi-terminal-feed-shutdown-failure-project",
+  sessionManager: { getSessionId() { return "pi-terminal-feed-shutdown-failure-session"; } }
+};
+handlers.get("tool_execution_end")({
+  toolCallId: "shutdown-failure-tool",
+  toolName: "bash",
+  result: { status: "done" },
+  isError: false
+}, ctx);
+await handlers.get("session_shutdown")({ reason: "quit" }, ctx);
+"""
+
+    for label, source in (
+        ("settled", lifecycle_source),
+        ("shutdown", shutdown_source),
+    ):
+        log_path = root / f"terminal-feed-{label}-failure.log"
+        result = run_extension(
+            bun=bun,
+            root=root,
+            extension_path=extension_path,
+            fake_cmux=failure_cmux,
+            source=source,
+            extra_env={"CMUX_TEST_PI_FAILURE_LOG": str(log_path)},
+        )
+        if result.returncode != 0:
+            print(f"FAIL: terminal-feed {label} failure harness failed: {result.stderr!r}")
+            return 1
+        calls = log_path.read_text(encoding="utf-8").splitlines()
+        feed_calls = [line for line in calls if "hooks feed" in line and "PostToolUse" in line]
+        if len(feed_calls) != 1:
+            print(f"FAIL: ambiguous terminal-feed {label} delivery was replayed: {calls!r}")
+            return 1
+        stop_calls = [line for line in calls if "hooks pi stop" in line]
+        if len(stop_calls) != 1:
+            print(f"FAIL: terminal-feed {label} failure emitted {len(stop_calls)} Stop hooks: {calls!r}")
+            return 1
+        if any("hooks pi notification" in line for line in calls):
+            print(f"FAIL: terminal-feed {label} failure emitted a completion notification: {calls!r}")
+            return 1
+        if '"message":"cmux terminal feed delivery failed"' not in result.stderr:
+            print(f"FAIL: failed terminal-feed {label} delivery was not surfaced: {result.stderr!r}")
+            return 1
 
     return 0
 
@@ -1065,8 +1091,12 @@ console.log(`completion_ms=${performance.now() - startedAt}`);
         print(f"FAIL: stalled terminal feed delayed lifecycle completion by {elapsed_ms:.0f}ms")
         return 1
     deadline_calls = deadline_log.read_text(encoding="utf-8").splitlines()
-    if any("hooks pi notification" in line or "hooks pi stop" in line for line in deadline_calls):
-        print(f"FAIL: terminal-feed drain deadline was declared successful: {deadline_calls!r}")
+    stop_calls = [line for line in deadline_calls if "hooks pi stop" in line]
+    if len(stop_calls) != 1:
+        print(f"FAIL: terminal-feed drain deadline emitted {len(stop_calls)} Stop hooks: {deadline_calls!r}")
+        return 1
+    if any("hooks pi notification" in line for line in deadline_calls):
+        print(f"FAIL: terminal-feed drain deadline emitted a completion notification: {deadline_calls!r}")
         return 1
     if '"message":"cmux terminal feed delivery failed"' not in deadline.stderr:
         print(f"FAIL: terminal-feed drain deadline was not surfaced: {deadline.stderr!r}")
@@ -1576,7 +1606,7 @@ def run_checks(bun: str, root: Path, extension_path: Path) -> int:
         check_cross_session_feed_isolation,
         check_feed_cancellation,
         check_completion_order,
-        check_terminal_feed_failure_is_at_most_once,
+        check_terminal_feed_failure_emits_one_stop,
         check_nonterminal_timeout_marks_dropped_completion,
         check_completion_drain_deadline,
         check_timeout_serialization,
