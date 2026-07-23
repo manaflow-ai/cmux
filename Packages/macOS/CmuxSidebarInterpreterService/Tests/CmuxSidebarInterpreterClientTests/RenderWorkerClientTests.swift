@@ -1,4 +1,5 @@
 import CmuxSwiftRender
+import Darwin
 import Foundation
 import Testing
 @testable import CmuxSidebarInterpreterClient
@@ -124,6 +125,64 @@ import Testing
             return
         }
         #expect(firstContext != recoveryContext, "recovery must come from a fresh worker process")
+    }
+
+    /// A worker can stop draining stdin after it announces its context. The
+    /// supervisor's ack deadline must still discard that worker even while a
+    /// later scene has filled the pipe; otherwise the actor is parked in
+    /// write(2), and the watchdog can never enter it to recover.
+    @Test func ackWatchdogFiresWhileWorkerInputPipeIsFull() async {
+        let previousSIGPIPEHandler = signal(SIGPIPE, SIG_IGN)
+        defer { signal(SIGPIPE, previousSIGPIPEHandler) }
+        let stopReadingMarker = FileManager.default.temporaryDirectory
+            .appendingPathComponent("cmux-render-worker-stop-reading-\(UUID().uuidString)")
+        defer { try? FileManager.default.removeItem(at: stopReadingMarker) }
+        let client = RenderWorkerClient(
+            executableURL: renderFixtureURL(),
+            ackTimeout: .seconds(2),
+            environment: ["CMUX_RENDER_FIXTURE_STOP_READING_ONCE_PATH": stopReadingMarker.path]
+        )
+        let collector = RenderEventCollector(stream: await client.subscribe())
+
+        await client.updateScene(
+            filePath: "/tmp/sidebar.swift",
+            state: [:],
+            topInset: 0,
+            bottomInset: 0
+        )
+        let first = await collector.waitForEvents(count: 1)
+        guard case let .context(workerPID) = first.first else {
+            Issue.record("expected initial context before filling stdin, got \(first)")
+            await client.shutdown()
+            return
+        }
+
+        let workerSurvivedDeadline: Bool = await withCheckedContinuation { continuation in
+            let deadlineThread = Thread {
+                Thread.sleep(forTimeInterval: 3)
+                let workerIsAlive = kill(pid_t(workerPID), 0) == 0
+                if workerIsAlive {
+                    kill(pid_t(workerPID), SIGKILL)
+                }
+                continuation.resume(returning: workerIsAlive)
+            }
+            deadlineThread.name = "cmux-render-worker-watchdog-test"
+            deadlineThread.start()
+            Task.detached {
+                await client.updateScene(
+                    filePath: "/tmp/large-sidebar.swift",
+                    state: ["payload": .string(String(repeating: "x", count: 4 * 1024 * 1024))],
+                    topInset: 0,
+                    bottomInset: 0
+                )
+            }
+        }
+        #expect(
+            !workerSurvivedDeadline,
+            "ack timeout must discard a worker even while its stdin writer is blocked"
+        )
+
+        await client.shutdown()
     }
 
     private func waitForContextReset(
