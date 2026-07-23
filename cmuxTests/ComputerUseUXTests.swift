@@ -224,6 +224,25 @@ struct ComputerUseUXTests {
         #expect(state.belongsToProcessTree(rootProcessIDs: [currentPID]))
     }
 
+    @Test func stateEligibilityRejectsReusedWriterPIDGeneration() throws {
+        let currentIdentity = try #require(AgentPIDProcessIdentity(
+            pid: ProcessInfo.processInfo.processIdentifier
+        ))
+        let json = """
+        {"driver_pid":2,"writer_pid":\(currentIdentity.pid),\
+        "writer_start_seconds":\(currentIdentity.startSeconds + 1),\
+        "writer_start_microseconds":\(currentIdentity.startMicroseconds),\
+        "session":"surface-a","target_app":"Calculator",\
+        "target_pid":\(currentIdentity.pid),"target_window_id":1,\
+        "last_action_at":"2026-07-14T01:09:37.745752Z","schema":3}
+        """
+        let state = try #require(ComputerUseDriverState(data: Data(json.utf8)))
+
+        #expect(!state.belongsToProcessTree(
+            rootProcessIdentities: [currentIdentity]
+        ))
+    }
+
     @Test func computerUseSettingsNavigationRawValuesStayInSync() {
         #expect(SettingsSectionID.computerUse.rawValue == SettingsNavigationTarget.computerUse.rawValue)
     }
