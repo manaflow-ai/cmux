@@ -1840,6 +1840,17 @@ esac
     }
 
     #[test]
+    fn malformed_route_errors_do_not_echo_credentials() {
+        let routes = ["wss://dont-leak-me@[".to_string()];
+
+        let error = resolve_route_candidates(&routes, &BTreeMap::new(), &test_provider_registry())
+            .err()
+            .expect("malformed route should fail");
+
+        assert!(!error.to_string().contains("dont-leak-me"));
+    }
+
+    #[test]
     fn parse_lane_policy_and_relay_flags() {
         let args = [
             "wss://host/v1/link",

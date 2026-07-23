@@ -703,4 +703,25 @@ mod remote_args_tests {
         assert_eq!(relays[0].endpoint.as_str(), "relay+wss://relay.example");
         assert_eq!(relays[1].endpoint.as_str(), "relay+do://worker.example");
     }
+
+    #[test]
+    fn remote_state_directory_enables_remote_daemon_mode() {
+        let args = parse_args(["--remote-state-dir", "/tmp/cmux-remote-state"].map(str::to_string));
+
+        assert!(args.remote);
+        assert_eq!(args.remote_state_dir, Some(PathBuf::from("/tmp/cmux-remote-state")));
+    }
+
+    #[test]
+    fn malformed_relay_endpoint_errors_do_not_echo_credentials() {
+        let error = relay_daemon_options(
+            vec!["relay+wss://dont-leak-me@[".into()],
+            vec!["slot".into()],
+            vec![RelayCredentialArg::Ticket("ticket".into())],
+        )
+        .err()
+        .expect("malformed relay endpoint should fail");
+
+        assert!(!error.to_string().contains("dont-leak-me"));
+    }
 }

@@ -1097,6 +1097,87 @@ mod tests {
     }
 
     #[tokio::test]
+    async fn known_daemon_routes_are_persisted_without_credentials() {
+        let temp = tempfile::tempdir().unwrap();
+        let key = StaticIdentity::generate().unwrap().public_key();
+        let store = ClientIdentityStore::load_or_create(temp.path()).unwrap();
+
+        let daemon = store
+            .pin_daemon(
+                "host".into(),
+                key,
+                vec![
+                    "wss://user:password@example.test/private-capability?ticket=secret#fragment"
+                        .into(),
+                ],
+            )
+            .await
+            .unwrap();
+
+        assert_eq!(daemon.route_hints, vec!["wss://example.test/"]);
+        let persisted = fs::read_to_string(temp.path().join("known-daemons.json")).unwrap();
+        for secret in ["user", "password", "private-capability", "ticket", "secret", "fragment"] {
+            assert!(!persisted.contains(secret), "{secret:?} leaked in {persisted:?}");
+        }
+    }
+
+    #[test]
+    fn identity_debug_output_redacts_keys_secrets_and_route_credentials() {
+        let relay = EnrollmentRelayAccess {
+            route: "relay+wss://user:password@relay.test/private?ticket=secret".into(),
+            slot: "slot".into(),
+            ticket: "relay-ticket".into(),
+        };
+        let invitation = EnrollmentInvitation {
+            version: STATE_VERSION,
+            id: "invitation".into(),
+            secret: "invitation-secret".into(),
+            daemon_public_key: "daemon-public-key".into(),
+            daemon_fingerprint: "daemon-fingerprint".into(),
+            daemon_name: "daemon".into(),
+            expires_at_unix: 1,
+            route_hints: vec![
+                "wss://user:password@example.test/private?ticket=route-secret".into(),
+            ],
+            relay_access: vec![relay.clone()],
+            approval_required: true,
+        };
+        let known = KnownDaemon {
+            fingerprint: "fingerprint".into(),
+            name: "known".into(),
+            public_key: "public-key".into(),
+            route_hints: invitation.route_hints.clone(),
+            auth: KnownDaemonAuth::Enrolled,
+            first_seen_at_unix: 1,
+            last_used_at_unix: 2,
+        };
+        let persisted_identity =
+            PersistedIdentity { version: STATE_VERSION, private_key: "private-key".into() };
+        let persisted_invitation = PersistedInvitation {
+            id: "persisted".into(),
+            secret: "persisted-secret".into(),
+            expires_at_unix: 1,
+            route_hints: invitation.route_hints.clone(),
+            claimed_by: None,
+        };
+
+        let output = format!(
+            "{relay:?} {invitation:?} {known:?} {persisted_identity:?} {persisted_invitation:?}"
+        );
+        for secret in [
+            "password",
+            "private?",
+            "route-secret",
+            "relay-ticket",
+            "invitation-secret",
+            "private-key",
+            "persisted-secret",
+        ] {
+            assert!(!output.contains(secret), "{secret:?} leaked in {output:?}");
+        }
+    }
+
+    #[tokio::test]
     async fn invitation_carries_redacted_short_lived_relay_bootstrap() {
         let temp = tempfile::tempdir().unwrap();
         let database = AuthDatabase::load_or_create(temp.path(), "daemon", false).unwrap();
