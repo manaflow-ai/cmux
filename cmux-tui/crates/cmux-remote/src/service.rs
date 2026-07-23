@@ -21,9 +21,11 @@ const MAX_CLOSED_STREAM_TOMBSTONES: usize = 16 * 1024;
 const MAX_BUFFERED_STREAM_BYTES: usize = 32 * 1024 * 1024;
 const MAX_BUFFERED_NON_INTERACTIVE_BYTES: usize = 28 * 1024 * 1024;
 const MAX_BUFFERED_BULK_TUNNEL_BYTES: usize = 24 * 1024 * 1024;
+const MAX_BUFFERED_BULK_BYTES: usize = 20 * 1024 * 1024;
 const MIN_BUFFERED_FRAME_ACCOUNTING_BYTES: usize = 1024;
 const _: () = assert!(MAX_BUFFERED_NON_INTERACTIVE_BYTES == MAX_BUFFERED_STREAM_BYTES * 7 / 8);
 const _: () = assert!(MAX_BUFFERED_BULK_TUNNEL_BYTES == MAX_BUFFERED_STREAM_BYTES * 3 / 4);
+const _: () = assert!(MAX_BUFFERED_BULK_BYTES == MAX_BUFFERED_STREAM_BYTES * 5 / 8);
 const STREAM_LOCAL_FIN: u8 = 1 << 0;
 const STREAM_REMOTE_FIN: u8 = 1 << 1;
 const STREAM_RESET: u8 = 1 << 2;
@@ -251,17 +253,22 @@ struct IncomingBudget {
     total: Arc<Semaphore>,
     non_interactive: Arc<Semaphore>,
     bulk_tunnel: Arc<Semaphore>,
+    bulk: Arc<Semaphore>,
 }
 
 impl IncomingBudget {
     fn new(total_bytes: usize) -> Self {
-        let non_interactive_bytes = total_bytes.saturating_sub(total_bytes.div_ceil(8));
-        let bulk_tunnel_bytes = total_bytes.saturating_sub(total_bytes.div_ceil(4));
         Self {
             total: Arc::new(Semaphore::new(total_bytes)),
-            non_interactive: Arc::new(Semaphore::new(non_interactive_bytes)),
-            bulk_tunnel: Arc::new(Semaphore::new(bulk_tunnel_bytes)),
+            non_interactive: Arc::new(Semaphore::new(Self::scaled_eighths(total_bytes, 7))),
+            bulk_tunnel: Arc::new(Semaphore::new(Self::scaled_eighths(total_bytes, 6))),
+            bulk: Arc::new(Semaphore::new(Self::scaled_eighths(total_bytes, 5))),
         }
+    }
+
+    fn scaled_eighths(total_bytes: usize, eighths: usize) -> usize {
+        debug_assert!(eighths <= 8);
+        (total_bytes / 8) * eighths + ((total_bytes % 8) * eighths) / 8
     }
 
     fn try_acquire(&self, lane: Lane, bytes: u32) -> Option<StreamBudget> {
@@ -276,10 +283,16 @@ impl IncomingBudget {
         } else {
             None
         };
+        let bulk = if lane == Lane::Bulk {
+            Some(self.bulk.clone().try_acquire_many_owned(bytes).ok()?)
+        } else {
+            None
+        };
         Some(StreamBudget {
             _total: total,
             _non_interactive: non_interactive,
             _bulk_tunnel: bulk_tunnel,
+            _bulk: bulk,
         })
     }
 }
@@ -839,6 +852,7 @@ pub(crate) struct StreamBudget {
     _total: OwnedSemaphorePermit,
     _non_interactive: Option<OwnedSemaphorePermit>,
     _bulk_tunnel: Option<OwnedSemaphorePermit>,
+    _bulk: Option<OwnedSemaphorePermit>,
 }
 
 #[derive(Debug)]
@@ -1910,13 +1924,12 @@ mod tests {
     async fn priority_reserves_keep_control_and_interactive_available_under_bulk_pressure() {
         const KIB: usize = 1024;
         const TOTAL_BUDGET: usize = 8 * KIB;
+        const BULK_CEILING: usize = 5 * KIB;
         const BULK_TUNNEL_CEILING: usize = 6 * KIB;
         const NON_INTERACTIVE_CEILING: usize = 7 * KIB;
 
-        // This 8 KiB model fixes the production ratios: Bulk and Tunnel may
-        // consume 24 of 32 MiB, all non-Interactive traffic may consume 28
-        // MiB, Control plus Interactive retain 8 MiB, and Interactive alone
-        // retains the final 4 MiB.
+        // This 8 KiB model fixes the production 20/24/28/32 MiB hierarchy.
+        assert_eq!(BULK_TUNNEL_CEILING - BULK_CEILING, KIB);
         assert_eq!(TOTAL_BUDGET - BULK_TUNNEL_CEILING, 2 * KIB);
         assert_eq!(TOTAL_BUDGET - NON_INTERACTIVE_CEILING, KIB);
 
@@ -1927,12 +1940,13 @@ mod tests {
             TOTAL_BUDGET,
         );
         let bulk = client.open(Service::MuxControl, BTreeMap::new()).await.unwrap();
+        let tunnel = client.open(Service::TcpTunnel, BTreeMap::new()).await.unwrap();
         let additional_bulk = client.open(Service::MuxControl, BTreeMap::new()).await.unwrap();
         let control = client.open(Service::MuxControl, BTreeMap::new()).await.unwrap();
         let additional_control = client.open(Service::MuxControl, BTreeMap::new()).await.unwrap();
         let interactive = client.open(Service::MuxControl, BTreeMap::new()).await.unwrap();
 
-        for _ in 0..BULK_TUNNEL_CEILING / KIB {
+        for _ in 0..BULK_CEILING / KIB {
             daemon_endpoint
                 .send_frame(
                     None,
@@ -1944,6 +1958,16 @@ mod tests {
                 .await
                 .unwrap();
         }
+        daemon_endpoint
+            .send_frame(
+                None,
+                Lane::Tunnel,
+                tunnel.id(),
+                Bytes::from_static(b"tunnel-marker"),
+                FrameFlags::empty(),
+            )
+            .await
+            .unwrap();
         daemon_endpoint
             .send_frame(
                 None,
@@ -1994,10 +2018,11 @@ mod tests {
                 .expect("reader stalled before applying the priority reserve policy");
         assert_eq!(
             bulk.receiver.lock().await.chunks.len(),
-            BULK_TUNNEL_CEILING / KIB,
+            BULK_CEILING / KIB,
             "the original Bulk backlog must remain undrained"
         );
         assert_eq!(bulk.failure.borrow().clone(), None, "the admitted Bulk stream was reset");
+        let tunnel_result = tunnel.receive().await;
         let additional_bulk_result = additional_bulk.receive().await;
         let control_result = control.receive().await;
         let additional_control_result = additional_control.receive().await;
@@ -2005,6 +2030,12 @@ mod tests {
         let additional_bulk_was_reset = matches!(
             &additional_bulk_result,
             Err(ServiceError::Reset(message)) if message.contains("byte budget")
+        );
+        let tunnel_was_delivered = matches!(
+            &tunnel_result,
+            Ok(Some(chunk))
+                if chunk.lane == Lane::Tunnel
+                    && chunk.payload == b"tunnel-marker".as_slice()
         );
         let control_was_delivered = matches!(
             &control_result,
@@ -2023,13 +2054,14 @@ mod tests {
                     && chunk.payload == b"interactive-marker".as_slice()
         );
         assert!(
-            additional_bulk_was_reset
+            tunnel_was_delivered
+                && additional_bulk_was_reset
                 && control_was_delivered
                 && additional_control_was_reset
                 && interactive_was_delivered,
-            "priority reserve violation: additional_bulk={additional_bulk_result:?}, \
-             control={control_result:?}, additional_control={additional_control_result:?}, \
-             interactive={interactive_result:?}"
+            "priority reserve violation: tunnel={tunnel_result:?}, \
+             additional_bulk={additional_bulk_result:?}, control={control_result:?}, \
+             additional_control={additional_control_result:?}, interactive={interactive_result:?}"
         );
     }
 
