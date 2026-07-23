@@ -201,6 +201,14 @@ jobs:
         shell: bash
         run: cmux-tui/scripts/smoke-remote-release.sh "dist/cmux-tui-${{ matrix.target }}"
 
+      - name: Test release remote sequence rollback
+        if: matrix.target == 'x86_64-unknown-linux-gnu'
+        working-directory: cmux-tui
+        shell: bash
+        run: >-
+          cargo test --release --locked --target ${{ matrix.target }}
+          -p cmux-remote queue_admission_failure_rolls_back_sequence_and_replay
+
       - name: Upload binary artifact
         uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
         with:
