@@ -219,7 +219,7 @@ public final class GhosttySurfaceView: UIView, TerminalSurfaceHosting {
     private var lastScrollMechanicsOffsetY: CGFloat?
     private var lastScrollMechanicsTouchPoint: CGPoint = .zero
     private lazy var scrollMechanicsView: UIScrollView = {
-        let view = UIScrollView()
+        let view = TerminalScrollMechanicsView()
         view.backgroundColor = .clear
         view.isOpaque = false
         view.showsVerticalScrollIndicator = false
