@@ -58,6 +58,9 @@ upstream sources.
 - **Helium:** retain exact patch provenance and GPL-3.0-only terms. A future
   proprietary Browser requires independently reimplementing or separately
   licensing Helium-derived behavior.
+- **Bonsplit:** preserve the MIT notice and exact source revision for adapted
+  split-layout and animation behavior, even though cmux already ships Bonsplit
+  elsewhere in the monorepo.
 - **uBlock Origin:** pin the extension payload digest and upstream source tag,
   preserve GPLv3 notices, and distribute the corresponding source or a valid
   source offer with the binary.
