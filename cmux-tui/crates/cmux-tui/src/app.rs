@@ -24,7 +24,8 @@ use crossterm::ExecutableCommand;
 use crossterm::event::{
     DisableBracketedPaste, DisableFocusChange, DisableMouseCapture, EnableBracketedPaste,
     EnableFocusChange, EnableMouseCapture, Event, KeyCode, KeyEvent, KeyEventKind, KeyModifiers,
-    MouseButton, MouseEvent, MouseEventKind,
+    KeyboardEnhancementFlags, MouseButton, MouseEvent, MouseEventKind, PopKeyboardEnhancementFlags,
+    PushKeyboardEnhancementFlags,
 };
 use crossterm::terminal::{
     EnterAlternateScreen, LeaveAlternateScreen, disable_raw_mode, enable_raw_mode,
@@ -2771,6 +2772,7 @@ pub fn run(
         let _guard = stdout_lock.lock().unwrap();
         let mut stdout = std::io::stdout();
         stdout.execute(EnterAlternateScreen)?;
+        enable_host_keyboard_protocol(&mut stdout)?;
         stdout.execute(EnableMouseCapture)?;
         // Ask the host terminal to report Shift-modified mouse events so
         // Shift remains cmux's selection/context-menu escape while the inner
@@ -2901,6 +2903,18 @@ pub fn run(
     result
 }
 
+fn enable_host_keyboard_protocol(stdout: &mut impl Write) -> std::io::Result<()> {
+    stdout.execute(PushKeyboardEnhancementFlags(
+        KeyboardEnhancementFlags::DISAMBIGUATE_ESCAPE_CODES,
+    ))?;
+    Ok(())
+}
+
+fn disable_host_keyboard_protocol(stdout: &mut impl Write) -> std::io::Result<()> {
+    stdout.execute(PopKeyboardEnhancementFlags)?;
+    Ok(())
+}
+
 fn restore_terminal(stdout_lock: Option<&Arc<Mutex<()>>>) -> anyhow::Result<()> {
     let _guard = stdout_lock.map(|lock| lock.lock().unwrap());
     let mut stdout = std::io::stdout();
@@ -2908,6 +2922,7 @@ fn restore_terminal(stdout_lock: Option<&Arc<Mutex<()>>>) -> anyhow::Result<()> 
     let _ = write!(stdout, "\x1b]22;default\x07");
     // Restore the conventional host behavior where Shift bypasses capture.
     let _ = write!(stdout, "\x1b[>0s");
+    let _ = disable_host_keyboard_protocol(&mut stdout);
     let _ = stdout.execute(DisableBracketedPaste);
     let _ = stdout.execute(DisableFocusChange);
     let _ = stdout.execute(DisableMouseCapture);
@@ -7648,8 +7663,9 @@ mod tests {
         PtyMousePressResult, RenderAction, Selection, SessionCompletion, SessionCompletionAction,
         SidebarPluginSyncClaim, SidebarPluginSyncState, SurfaceResizeDecision,
         SurfaceResizeOwnership, browser_content_size_for_rect, browser_hover_forward_allowed,
-        client_menu_item, forward_mux_event, forward_mux_events, pane_context_menu_groups,
-        pane_parts_for_rect, preserve_client_view, record_surface_resize_dispatch_result,
+        client_menu_item, disable_host_keyboard_protocol, enable_host_keyboard_protocol,
+        forward_mux_event, forward_mux_events, pane_context_menu_groups, pane_parts_for_rect,
+        preserve_client_view, record_surface_resize_dispatch_result,
         sidebar_plugin_status_settles_passive_claim,
     };
     use std::collections::{HashMap, HashSet, VecDeque};
@@ -7686,6 +7702,16 @@ mod tests {
 
     fn settled(outcome: super::SessionMutationOutcome) -> AppEvent {
         AppEvent::SessionMutationSettled { outcome, routing: false }
+    }
+
+    #[test]
+    fn host_keyboard_protocol_reports_command_modifiers_and_is_restored() {
+        let mut output = Vec::new();
+
+        enable_host_keyboard_protocol(&mut output).unwrap();
+        disable_host_keyboard_protocol(&mut output).unwrap();
+
+        assert_eq!(output, b"\x1b[>1u\x1b[<1u");
     }
 
     #[test]

@@ -114,23 +114,23 @@ WebSocket clients pair through a six-digit browser/TUI comparison by default. We
 | `keys.prefix` | chord string | `"ctrl+b"` | Prefix chord |
 | `keys.alt_shortcuts` | boolean | `true` | Enables default modeless Alt bindings when true |
 | `keys.super_shortcuts` | boolean | `true` | Enables default modeless Command/Super bindings when true |
-| `keys.new-tab` | chord string or array or `"none"` | `["t","alt+t","cmd+t"]` | New PTY tab |
+| `keys.new-tab` | chord string or array or `"none"` | `["t","alt+t"]` | New PTY tab |
 | `keys.new_browser_tab` | chord string or array or `"none"` | `"B"` | Browser URL prompt |
 | `keys.new-pane-smart` | chord string or array or `"none"` | `"alt+n"` | New pane using the default automatic layout |
 | `keys.next-tab` | chord string or array or `"none"` | `"tab"` | Next tab |
 | `keys.prev-tab` | chord string or array or `"none"` | `"backtab"` | Previous tab |
 | `keys.select-tab-0` through `keys.select-tab-9` | chord string or array or `"none"` | unbound | Select tab by its zero-based visible index |
-| `keys.split-right` | chord string or array or `"none"` | `["%","cmd+d"]` | Split right |
-| `keys.split-down` | chord string or array or `"none"` | `["\"","cmd+shift+d"]` | Split down |
+| `keys.split-right` | chord string or array or `"none"` | `"%"` | Split right |
+| `keys.split-down` | chord string or array or `"none"` | `"\""` | Split down |
 | `keys.close-pane` | chord string or array or `"none"` | `"x"` | Close active pane |
-| `keys.close-tab` | chord string or array or `"none"` | `["X","cmd+w"]` | Close active tab |
+| `keys.close-tab` | chord string or array or `"none"` | `"X"` | Close active tab |
 | `keys.rename-tab` | chord string or array or `"none"` | unbound | Rename active tab |
 | `keys.rename-pane` | chord string or array or `"none"` | alias | Alias for `rename-tab` |
 | `keys.rename-screen` | chord string or array or `"none"` | `","` | Rename active screen |
 | `keys.rename-workspace` | chord string or array or `"none"` | `"$"` | Rename active workspace |
 | `keys.close-screen` | chord string or array or `"none"` | `"&"` | Close active screen |
-| `keys.prev-screen` | chord string or array or `"none"` | `["p","alt+[","cmd+shift+["]` | Previous screen |
-| `keys.next-screen` | chord string or array or `"none"` | `["n","alt+]","cmd+shift+]"]` | Next screen |
+| `keys.prev-screen` | chord string or array or `"none"` | `["p","alt+["]` | Previous screen |
+| `keys.next-screen` | chord string or array or `"none"` | `["n","alt+]"]` | Next screen |
 | `keys.select-screen-0` through `keys.select-screen-9` | chord string or array or `"none"` | `"0"` through `"9"` | Select visible screen 0 through 9 |
 | `keys.new-screen` | chord string or array or `"none"` | `"c"` | New screen |
 | `keys.next-workspace` | chord string or array or `"none"` | `"w"` | Next workspace |

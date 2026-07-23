@@ -14,28 +14,22 @@ These defaults come from `Keys::default`.
 | --- | --- |
 | `Ctrl-b t` | New PTY tab in the active pane |
 | `Alt-t` | New PTY tab in the active pane |
-| `Cmd-t` / `Super-t` | New PTY tab in the active pane |
 | `Ctrl-b B` | Open the browser-tab URL prompt |
 | `Alt-n` | Create a pane with Zellij's default vertical auto-layout |
 | `Ctrl-b Tab` | Next tab in the active pane |
 | `Ctrl-b BackTab` | Previous tab in the active pane |
 | `Ctrl-b 0` through `Ctrl-b 9` | Select visible screen 0 through 9 |
 | `Ctrl-b %` | Split the active pane right |
-| `Cmd-d` / `Super-d` | Split the active pane right |
 | `Ctrl-b "` | Split the active pane down |
-| `Cmd-Shift-d` / `Super-Shift-d` | Split the active pane down |
 | `Ctrl-b x` | Close the active pane |
 | `Ctrl-b X` | Close the active tab |
-| `Cmd-w` / `Super-w` | Close the active tab |
 | `Ctrl-b ,` | Rename the active screen |
 | `Ctrl-b $` | Rename the active workspace |
 | `Ctrl-b &` | Close the active screen |
 | `Ctrl-b p` | Previous screen in the active workspace |
 | `Alt-[` | Previous screen in the active workspace |
-| `Cmd-Shift-[` / `Super-Shift-[` | Previous screen in the active workspace |
 | `Ctrl-b n` | Next screen in the active workspace |
 | `Alt-]` | Next screen in the active workspace |
-| `Cmd-Shift-]` / `Super-Shift-]` | Next screen in the active workspace |
 | `Ctrl-b c` | New screen in the active workspace |
 | `Ctrl-b z` | Toggle zoom for the active pane |
 | `Ctrl-b o` | Focus the next pane in the current screen |
@@ -86,7 +80,7 @@ Zellij's modal `ctrl+p`, `ctrl+t`, `ctrl+s`, `ctrl+n`, and `ctrl+o` modes are a 
 
 ## Modeless Command/Super Layer
 
-Command/Super defaults mirror common terminal shortcuts: `Cmd-k` clears the active PTY screen and scrollback, `Cmd-t` creates a tab, `Cmd-w` closes a tab, `Cmd-d` and `Cmd-Shift-d` split right and down, and `Cmd-Shift-[` / `Cmd-Shift-]` switch screens. These chords require a host terminal that forwards Super-modified keys. Ghostty forwards its performable `Cmd-k` binding while cmux-tui owns the alternate screen. Other host-level shortcuts may remain owned by the host terminal.
+`Cmd-k` / `Super-k` clears the active PTY screen and scrollback. cmux-tui enables the Kitty keyboard protocol so compatible hosts report the Command/Super modifier. Host-owned shortcuts such as `Cmd-t`, `Cmd-w`, and `Cmd-d` remain unbound because terminals consume them before a nested TUI can receive them. Their working cmux-tui equivalents are `Alt-t`, `Ctrl-b X`, and `Ctrl-b %`.
 
 Set `keys.super_shortcuts` to `false` to remove the default Command/Super bindings. Explicit `cmd+...`, `command+...`, and `super+...` bindings still work.
 

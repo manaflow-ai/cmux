@@ -747,27 +747,21 @@ impl Default for Keys {
             bindings: vec![
                 bind(KeyCode::Char('t'), Action::NewTab),
                 alt(KeyCode::Char('t'), Action::NewTab),
-                command(KeyCode::Char('t'), Action::NewTab),
                 bind(KeyCode::Char('B'), Action::NewBrowserTab),
                 alt(KeyCode::Char('n'), Action::NewPaneSmart),
                 bind(KeyCode::Tab, Action::NextTab),
                 bind(KeyCode::BackTab, Action::PrevTab),
                 bind(KeyCode::Char('%'), Action::SplitRight),
-                command(KeyCode::Char('d'), Action::SplitRight),
                 bind(KeyCode::Char('"'), Action::SplitDown),
-                command(KeyCode::Char('D'), Action::SplitDown),
                 bind(KeyCode::Char('x'), Action::ClosePane),
                 bind(KeyCode::Char('X'), Action::CloseTab),
-                command(KeyCode::Char('w'), Action::CloseTab),
                 bind(KeyCode::Char(','), Action::RenameScreen),
                 bind(KeyCode::Char('$'), Action::RenameWorkspace),
                 bind(KeyCode::Char('&'), Action::CloseScreen),
                 bind(KeyCode::Char('p'), Action::PrevScreen),
                 alt(KeyCode::Char('['), Action::PrevScreen),
-                command(KeyCode::Char('{'), Action::PrevScreen),
                 bind(KeyCode::Char('n'), Action::NextScreen),
                 alt(KeyCode::Char(']'), Action::NextScreen),
-                command(KeyCode::Char('}'), Action::NextScreen),
                 bind(KeyCode::Char('1'), Action::SelectScreen(1)),
                 bind(KeyCode::Char('2'), Action::SelectScreen(2)),
                 bind(KeyCode::Char('3'), Action::SelectScreen(3)),
@@ -2217,25 +2211,13 @@ mod tests {
     }
 
     #[test]
-    fn default_super_shortcuts_match_familiar_terminal_actions() {
+    fn default_super_shortcut_clears_history() {
         let keys = Keys::default();
         let action = |code, modifiers| keys.modeless_action_for(&KeyEvent::new(code, modifiers));
         assert_eq!(action(KeyCode::Char('k'), KeyModifiers::SUPER), Some(Action::ClearHistory));
-        assert_eq!(action(KeyCode::Char('t'), KeyModifiers::SUPER), Some(Action::NewTab));
-        assert_eq!(action(KeyCode::Char('w'), KeyModifiers::SUPER), Some(Action::CloseTab));
-        assert_eq!(action(KeyCode::Char('d'), KeyModifiers::SUPER), Some(Action::SplitRight));
-        assert_eq!(
-            action(KeyCode::Char('D'), KeyModifiers::SUPER | KeyModifiers::SHIFT),
-            Some(Action::SplitDown)
-        );
-        assert_eq!(
-            action(KeyCode::Char('{'), KeyModifiers::SUPER | KeyModifiers::SHIFT),
-            Some(Action::PrevScreen)
-        );
-        assert_eq!(
-            action(KeyCode::Char('}'), KeyModifiers::SUPER | KeyModifiers::SHIFT),
-            Some(Action::NextScreen)
-        );
+        assert_eq!(action(KeyCode::Char('t'), KeyModifiers::SUPER), None);
+        assert_eq!(action(KeyCode::Char('w'), KeyModifiers::SUPER), None);
+        assert_eq!(action(KeyCode::Char('d'), KeyModifiers::SUPER), None);
     }
 
     #[test]
