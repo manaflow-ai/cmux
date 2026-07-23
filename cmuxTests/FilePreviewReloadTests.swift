@@ -1,5 +1,6 @@
 import AppKit
 import Combine
+import Darwin
 import Foundation
 import PDFKit
 import Testing
@@ -70,6 +71,27 @@ struct FilePreviewReloadTests {
         let reloadTask = try #require(panel.handleObservedFileChange())
         await reloadTask.value
         #expect(panel.previewRevision == initialRevision + 1)
+    }
+
+    @Test("Metadata-only changes do not alter the preview content fingerprint")
+    func metadataChangesDoNotAlterFileState() throws {
+        let fileURL = FileManager.default.temporaryDirectory
+            .appending(path: "cmux-file-preview-metadata-\(UUID().uuidString).txt")
+        defer { try? FileManager.default.removeItem(at: fileURL) }
+        try "unchanged\n".write(to: fileURL, atomically: true, encoding: .utf8)
+
+        let initialState = FilePreviewFileState.capture(path: fileURL.path)
+        var initialAttributes = stat()
+        #expect(stat(fileURL.path, &initialAttributes) == 0)
+        #expect(chmod(fileURL.path, 0o600) == 0)
+        var updatedAttributes = stat()
+        #expect(stat(fileURL.path, &updatedAttributes) == 0)
+        #expect(
+            initialAttributes.st_ctimespec.tv_sec != updatedAttributes.st_ctimespec.tv_sec
+                || initialAttributes.st_ctimespec.tv_nsec != updatedAttributes.st_ctimespec.tv_nsec
+        )
+
+        #expect(FilePreviewFileState.capture(path: fileURL.path) == initialState)
     }
 
     @Test("The manual refresh path reloads a text preview")
