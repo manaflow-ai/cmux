@@ -10042,6 +10042,16 @@ struct VerticalTabsSidebar: View {
         Empty<Void, Never>().eraseToAnyPublisher()
     @State private var extensionSidebarDebouncedObservationPublisher: AnyPublisher<Void, Never> =
         Empty<Void, Never>().eraseToAnyPublisher()
+    // Custom-sidebar data-context memoization, same resubscription hazard as
+    // the extension publishers above: the store holds the memoized workspace
+    // snapshots, the revision forces a body re-evaluation when the coalesced
+    // invalidation publisher fires, and the publisher is memoized per
+    // workspace-id list so `.onReceive` never re-subscribes every render.
+    @State private var customSidebarContextStore = CustomSidebarDataContextStore()
+    @State private var customSidebarContextRevision: UInt64 = 0
+    @State private var customSidebarObservationWorkspaceIds: [UUID] = []
+    @State private var customSidebarObservationPublisher: AnyPublisher<Void, Never> =
+        Empty<Void, Never>().eraseToAnyPublisher()
     /// Bumped whenever any workspace's currentDirectory changes; the group
     /// header's resolved cwd-based config (color/icon/context menu /
     /// newWorkspacePlacement) reads it through the body, so a state
@@ -10092,26 +10102,18 @@ struct VerticalTabsSidebar: View {
     /// Live, read-only projection of workspace state handed to custom
     /// sidebars so interpreted Swift can bind to it (e.g.
     /// `ForEach(workspaces) { w in Text(w.title) }`) and re-render when it
-    /// changes. A value snapshot built fresh each render, never the store
-    /// itself, so it respects the sidebar snapshot-boundary rule.
+    /// changes. A value snapshot, never the store itself, so it respects the
+    /// sidebar snapshot-boundary rule. The expensive per-workspace projection
+    /// is memoized in `customSidebarContextStore` and rebuilt only after a
+    /// coalesced invalidation (see `invalidateCustomSidebarDataContext`); the
+    /// 1 Hz TimelineView tick and unrelated body passes only re-derive the
+    /// cheap clock value. Reading `customSidebarContextRevision` re-runs this
+    /// when an invalidation lands.
     private func customSidebarDataContext(now: Date) -> [String: SwiftValue] {
-        let selectedId = tabManager.selectedTabId
-        let workspaces = tabManager.tabs.enumerated().map { index, workspace in
-            workspace.customSidebarWorkspaceSnapshot(
-                index: index,
-                selectedId: selectedId,
-                unreadCount: sidebarUnread.unreadCount(forWorkspaceId: workspace.id)
-            )
+        let _ = customSidebarContextRevision
+        return customSidebarContextStore.dataContext(now: now) {
+            CustomSidebarDataContextStore.input(tabManager: tabManager, sidebarUnread: sidebarUnread)
         }
-        let selectedWorkspace = tabManager.tabs.first { $0.id == selectedId }
-        let snapshot = CustomSidebarContextSnapshot(
-            workspaces: workspaces,
-            selectedWorkspaceId: selectedId,
-            selectedWorkspaceTitle: selectedWorkspace?.customTitle ?? selectedWorkspace?.title ?? "",
-            totalUnreadCount: sidebarUnread.totalUnreadCount,
-            now: now
-        )
-        return CustomSidebarDataContextBuilder().dataContext(for: snapshot)
     }
 
     @AppStorage("sidebarMatchTerminalBackground")
@@ -10691,10 +10693,17 @@ struct VerticalTabsSidebar: View {
 
     private func extensionSidebarScrollArea(renderContext: WorkspaceListRenderContext) -> some View {
         extensionSidebarScrollAreaContent(renderContext: renderContext)
-            .sidebarProcessTitleObservations(ids: renderContext.workspaceIds, models: renderContext.tabs.map(\.sidebarProcessTitleObservation)) { refreshExtensionSidebarSnapshot() }
-            .onAppear { refreshExtensionSidebarObservationPublishers(tabs: renderContext.tabs) }
+            .sidebarProcessTitleObservations(ids: renderContext.workspaceIds, models: renderContext.tabs.map(\.sidebarProcessTitleObservation)) {
+                refreshExtensionSidebarSnapshot()
+                invalidateCustomSidebarDataContext()
+            }
+            .onAppear {
+                refreshExtensionSidebarObservationPublishers(tabs: renderContext.tabs)
+                refreshCustomSidebarObservationPublisher(tabs: renderContext.tabs)
+            }
             .onChange(of: renderContext.workspaceIds) { _, _ in
                 refreshExtensionSidebarObservationPublishers(tabs: renderContext.tabs)
+                refreshCustomSidebarObservationPublisher(tabs: renderContext.tabs)
             }
             .onDisappear {
                 clearExtensionSidebarObservationPublishers()
@@ -10754,6 +10763,9 @@ struct VerticalTabsSidebar: View {
                     rendersInProcess: customSidebarRenderer == .inProcess,
                     client: $sidebarRenderWorkerClient
                 )
+            }
+            .onReceive(customSidebarObservationPublisher) { _ in
+                invalidateCustomSidebarDataContext()
             }
             .mask(
                 SidebarWorkspaceScrollEdgeFadeMask(
@@ -10871,6 +10883,22 @@ struct VerticalTabsSidebar: View {
         extensionSidebarObservationPublishersBuilt = false
         extensionSidebarImmediateObservationPublisher = Empty<Void, Never>().eraseToAnyPublisher()
         extensionSidebarDebouncedObservationPublisher = Empty<Void, Never>().eraseToAnyPublisher()
+    }
+
+    private func invalidateCustomSidebarDataContext() {
+        customSidebarContextStore.invalidate()
+        customSidebarContextRevision &+= 1
+    }
+
+    private func refreshCustomSidebarObservationPublisher(tabs: [Workspace]) {
+        let workspaceIds = tabs.map(\.id)
+        guard workspaceIds != customSidebarObservationWorkspaceIds else { return }
+        customSidebarObservationWorkspaceIds = workspaceIds
+        customSidebarObservationPublisher = CustomSidebarDataContextStore.invalidationPublisher(
+            tabManager: tabManager,
+            sidebarUnread: sidebarUnread,
+            workspaces: tabs
+        )
     }
 
     private func refreshExtensionSidebarObservationPublishers(tabs: [Workspace]) {

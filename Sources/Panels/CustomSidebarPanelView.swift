@@ -1,3 +1,4 @@
+import Combine
 import CmuxAppKitSupportUI
 import CmuxSettings
 import CmuxSettingsUI
@@ -22,6 +23,16 @@ struct CustomSidebarPanelView: View {
     @State private var renderWorkerClient: RenderWorkerClient?
     @State private var focusFlashStartedAt: Date?
     @State private var completedFocusFlashStartedAt: Date?
+    // Data-context memoization, mirroring the window-level custom sidebar in
+    // ContentView: the store rebuilds workspace snapshots only after a
+    // coalesced invalidation; the 1 Hz TimelineView tick only re-derives the
+    // cheap clock value. The publisher is memoized per workspace-id list so
+    // `.onReceive` never re-subscribes every render (issue #5970).
+    @State private var dataContextStore = CustomSidebarDataContextStore()
+    @State private var dataContextRevision: UInt64 = 0
+    @State private var observationWorkspaceIds: [UUID] = []
+    @State private var observationPublisher: AnyPublisher<Void, Never> =
+        Empty<Void, Never>().eraseToAnyPublisher()
 
     var body: some View {
         Group {
@@ -49,6 +60,21 @@ struct CustomSidebarPanelView: View {
         )
         .overlay {
             focusFlashOverlay
+        }
+        .onReceive(observationPublisher) { _ in
+            invalidateDataContext()
+        }
+        .sidebarProcessTitleObservations(
+            ids: tabManager.tabs.map(\.id),
+            models: tabManager.tabs.map(\.sidebarProcessTitleObservation)
+        ) {
+            invalidateDataContext()
+        }
+        .onAppear {
+            refreshObservationPublisher()
+        }
+        .onChange(of: tabManager.tabs.map(\.id)) { _, _ in
+            refreshObservationPublisher()
         }
         .simultaneousGesture(TapGesture().onEnded { requestPanelFocusIfNeeded() })
         .onChange(of: panel.focusFlashToken) { _, _ in
@@ -83,34 +109,27 @@ struct CustomSidebarPanelView: View {
         Task { await client.shutdown() }
     }
 
-    private func customSidebarDataContext(now: Date) -> [String: SwiftValue] {
-        CustomSidebarPaneDataContextCache.shared.dataContext(
-            now: now,
-            tabManager: tabManager,
-            sidebarUnread: sidebarUnread
-        ) {
-            buildCustomSidebarDataContext(now: now)
-        }
+    private func invalidateDataContext() {
+        dataContextStore.invalidate()
+        dataContextRevision &+= 1
     }
 
-    private func buildCustomSidebarDataContext(now: Date) -> [String: SwiftValue] {
-        let selectedId = tabManager.selectedTabId
-        let workspaces = tabManager.tabs.enumerated().map { index, workspace in
-            workspace.customSidebarWorkspaceSnapshot(
-                index: index,
-                selectedId: selectedId,
-                unreadCount: sidebarUnread.unreadCount(forWorkspaceId: workspace.id)
-            )
-        }
-        let selectedWorkspace = tabManager.tabs.first { $0.id == selectedId }
-        let snapshot = CustomSidebarContextSnapshot(
-            workspaces: workspaces,
-            selectedWorkspaceId: selectedId,
-            selectedWorkspaceTitle: selectedWorkspace?.customTitle ?? selectedWorkspace?.title ?? "",
-            totalUnreadCount: sidebarUnread.totalUnreadCount,
-            now: now
+    private func refreshObservationPublisher() {
+        let workspaceIds = tabManager.tabs.map(\.id)
+        guard workspaceIds != observationWorkspaceIds else { return }
+        observationWorkspaceIds = workspaceIds
+        observationPublisher = CustomSidebarDataContextStore.invalidationPublisher(
+            tabManager: tabManager,
+            sidebarUnread: sidebarUnread,
+            workspaces: tabManager.tabs
         )
-        return CustomSidebarDataContextBuilder().dataContext(for: snapshot)
+    }
+
+    private func customSidebarDataContext(now: Date) -> [String: SwiftValue] {
+        let _ = dataContextRevision
+        return dataContextStore.dataContext(now: now) {
+            CustomSidebarDataContextStore.input(tabManager: tabManager, sidebarUnread: sidebarUnread)
+        }
     }
 
     private func requestPanelFocusIfNeeded() {

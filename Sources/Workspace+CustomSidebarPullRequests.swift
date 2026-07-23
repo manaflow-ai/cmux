@@ -9,7 +9,14 @@ extension Workspace {
     /// panel is focused, so it is routinely nil for background workspaces that
     /// do have a known open PR.
     func customSidebarPullRequestValues() -> [SwiftValue] {
-        sidebarPullRequestsInDisplayOrder().map { pullRequest in
+        customSidebarPullRequestValues(orderedPanelIds: sidebarOrderedPanelIds())
+    }
+
+    /// `orderedPanelIds` variant so a caller that already walked the bonsplit
+    /// tree for this build (e.g. `customSidebarWorkspaceSnapshot`) does not
+    /// pay a second `sidebarOrderedPanelIds()` tree walk.
+    func customSidebarPullRequestValues(orderedPanelIds: [UUID]) -> [SwiftValue] {
+        sidebarPullRequestsInDisplayOrder(orderedPanelIds: orderedPanelIds).map { pullRequest in
             var fields: [String: SwiftValue] = [
                 "number": .int(pullRequest.number),
                 "label": .string(pullRequest.label),
