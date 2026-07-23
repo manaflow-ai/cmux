@@ -1,6 +1,12 @@
 import Foundation
 
 extension DockSplitStore {
+    /// Returns a source directory only when it is valid for a new local terminal.
+    func inheritedLocalTerminalWorkingDirectory(for sourcePanelId: UUID) -> String? {
+        guard detachedSurfaceTransfersByPanelId[sourcePanelId]?.isRemoteTerminal != true else { return nil }
+        return terminalWorkingDirectory(for: sourcePanelId)
+    }
+
     /// Returns the best current directory owned by a Dock terminal.
     ///
     /// Local terminals prefer the foreground process because the Dock does not

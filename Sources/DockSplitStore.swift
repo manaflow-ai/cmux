@@ -616,7 +616,7 @@ final class DockSplitStore: BonsplitDelegate {
         guard kind == .terminal else { return currentBaseDirectory() }
         let baseDirectory = currentBaseDirectory()
         let inheritedDirectory = settings.value(for: settingsCatalog.app.workspaceInheritWorkingDirectory)
-            ? sourcePanelId.flatMap { terminalWorkingDirectory(for: $0) }
+            ? sourcePanelId.flatMap { inheritedLocalTerminalWorkingDirectory(for: $0) }
             : nil
         return TerminalWorkingDirectoryResolver.firstAvailable([
             requestedWorkingDirectory,
