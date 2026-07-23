@@ -5248,6 +5248,11 @@ final class Workspace: Identifiable, ObservableObject {
     }
 
     @MainActor
+    func isPreservedEndedRemoteTerminalSurface(_ panelId: UUID) -> Bool {
+        endedPersistentRemotePTYAttachSurfaceIds.contains(panelId)
+    }
+
+    @MainActor
     func markRemoteTerminalSessionClosingIfLast(surfaceId: UUID) {
         guard !isDetachingCloseTransaction,
               activeRemoteTerminalSurfaceIds.count == 1,

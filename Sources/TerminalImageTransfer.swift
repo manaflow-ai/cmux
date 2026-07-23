@@ -497,7 +497,7 @@ extension TerminalSurface {
     @MainActor
     func resolvedImageTransferTarget() -> TerminalImageTransferTarget {
         guard let workspace = owningWorkspace() else { return .local }
-        if workspace.isRemoteTerminalSurface(id) {
+        if workspace.isRemoteTerminalSurface(id) || workspace.isPreservedEndedRemoteTerminalSurface(id) {
             return .remote(.workspaceRemote)
         }
         // Remote tmux mirror surfaces have no local TTY/process, so the SSH
