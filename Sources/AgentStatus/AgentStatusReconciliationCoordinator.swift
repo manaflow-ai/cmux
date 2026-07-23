@@ -16,7 +16,12 @@ final class AgentStatusReconciliationCoordinator {
     private var lastSweepStartedAt: ContinuousClock.Instant?
     private var outputActivityGates: [UUID: AtomicBooleanGate] = [:]
 
-    init(detector: @escaping Detector = AgentStatusReconciliationCoordinator.detectForegroundAgentStatusKeys) {
+    init(detector: @escaping Detector = { foregroundProcessIdentities, rootStatusKeysByPanelId in
+        await AgentStatusReconciliationCoordinator.detectForegroundAgentStatusKeys(
+            foregroundProcessIdentities: foregroundProcessIdentities,
+            rootStatusKeysByPanelId: rootStatusKeysByPanelId
+        )
+    }) {
         self.detector = detector
     }
 
