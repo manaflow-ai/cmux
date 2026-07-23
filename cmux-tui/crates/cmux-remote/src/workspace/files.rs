@@ -165,7 +165,7 @@ fn pause_at_mutation_test_barrier_blocking(target: &Path, point: MutationTestPoi
 
 #[cfg(all(test, unix))]
 #[derive(Clone, Copy, Debug, Eq, Hash, PartialEq)]
-enum MutationTestFault {
+pub(crate) enum MutationTestFault {
     CommitSync,
     ExchangeUnsupported,
     RollbackExchange,
@@ -203,7 +203,7 @@ impl Drop for MutationTestFaultGuard {
 }
 
 #[cfg(all(test, unix))]
-fn install_mutation_test_fault(
+pub(crate) fn install_mutation_test_fault(
     root: &WorkspaceRoot,
     path: &str,
     fault: MutationTestFault,
@@ -225,7 +225,7 @@ fn mutation_test_fault(target: &Path, fault: MutationTestFault) -> bool {
     mutation_test_faults()
         .lock()
         .unwrap_or_else(|error| error.into_inner())
-        .contains(&MutationTestFaultKey { target: target.to_owned(), fault })
+        .remove(&MutationTestFaultKey { target: target.to_owned(), fault })
 }
 
 pub(crate) async fn stat(
@@ -2286,6 +2286,43 @@ mod tests {
         let error = writer.await.unwrap().unwrap_err();
         assert_eq!(error.code, "conflict");
         assert_eq!(tokio::fs::read(&target).await.unwrap(), b"changed!");
+    }
+
+    #[cfg(unix)]
+    #[tokio::test]
+    async fn content_hash_write_preserves_a_mode_changed_after_the_precondition_check() {
+        use std::os::unix::fs::PermissionsExt as _;
+
+        let (_directory, root) = root().await;
+        let target = root.canonical_root().join("value.txt");
+        tokio::fs::write(&target, b"expected").await.unwrap();
+        tokio::fs::set_permissions(&target, std::fs::Permissions::from_mode(0o600)).await.unwrap();
+        let after_precondition =
+            install_mutation_test_barrier(&root, "value.txt", MutationTestPoint::AfterPrecondition);
+        let writer = {
+            let root = Arc::clone(&root);
+            tokio::spawn(async move {
+                write_file(
+                    &root,
+                    "value.txt",
+                    &ByteString::from_bytes(b"new-bytes"),
+                    &FilePrecondition::ContentHash(hash_bytes(b"expected")),
+                    false,
+                )
+                .await
+            })
+        };
+
+        after_precondition.wait_until_reached().await;
+        tokio::fs::set_permissions(&target, std::fs::Permissions::from_mode(0o640)).await.unwrap();
+        after_precondition.resume();
+
+        writer.await.unwrap().unwrap();
+        assert_eq!(tokio::fs::read(&target).await.unwrap(), b"new-bytes");
+        assert_eq!(
+            tokio::fs::metadata(&target).await.unwrap().permissions().mode() & 0o7777,
+            0o640
+        );
     }
 
     #[cfg(unix)]

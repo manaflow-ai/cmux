@@ -427,7 +427,10 @@ mod tests {
     use tempfile::tempdir;
 
     #[cfg(unix)]
-    use super::super::files::{MutationTestPoint, install_mutation_test_barrier};
+    use super::super::files::{
+        MutationTestFault, MutationTestPoint, install_mutation_test_barrier,
+        install_mutation_test_fault,
+    };
     use super::*;
 
     async fn root() -> (tempfile::TempDir, Arc<WorkspaceRoot>) {
@@ -601,5 +604,69 @@ mod tests {
         let failures = rollback(&root, &snapshots, &applied).await;
         assert_eq!(failures, ["value.txt"]);
         assert_eq!(tokio::fs::read(&path).await.unwrap(), b"external-change");
+    }
+
+    #[cfg(unix)]
+    #[tokio::test]
+    async fn patch_rolls_back_the_current_write_after_a_committed_sync_failure() {
+        let (_directory, root) = root().await;
+        let target = root.canonical_root().join("hello.txt");
+        tokio::fs::write(&target, b"old\n").await.unwrap();
+        let _sync = install_mutation_test_fault(&root, "hello.txt", MutationTestFault::CommitSync);
+        let patch = "--- a/hello.txt\n+++ b/hello.txt\n@@ -1 +1 @@\n-old\n+new\n";
+
+        let error = apply_patch(&root, patch, false, &BTreeMap::new()).await.unwrap_err();
+
+        assert_eq!(error.code, "committed-not-durable");
+        assert_eq!(tokio::fs::read(&target).await.unwrap(), b"old\n");
+    }
+
+    #[cfg(unix)]
+    #[tokio::test]
+    async fn patch_rolls_back_the_current_write_after_recovery_cleanup_fails() {
+        let (_directory, root) = root().await;
+        let target = root.canonical_root().join("hello.txt");
+        tokio::fs::write(&target, b"old\n").await.unwrap();
+        let _cleanup =
+            install_mutation_test_fault(&root, "hello.txt", MutationTestFault::PublishedCleanup);
+        let patch = "--- a/hello.txt\n+++ b/hello.txt\n@@ -1 +1 @@\n-old\n+new\n";
+
+        let error = apply_patch(&root, patch, false, &BTreeMap::new()).await.unwrap_err();
+
+        assert_eq!(error.code, "partial-write");
+        assert_eq!(tokio::fs::read(&target).await.unwrap(), b"old\n");
+        let recovery = std::fs::read_dir(root.canonical_root())
+            .unwrap()
+            .flatten()
+            .map(|entry| entry.path())
+            .find(|path| {
+                path.file_name()
+                    .is_some_and(|name| name.to_string_lossy().starts_with(".cmux-write-"))
+            })
+            .expect("the failed cleanup retains an explicit recovery entry");
+        assert_eq!(tokio::fs::read(recovery).await.unwrap(), b"old\n");
+    }
+
+    #[cfg(unix)]
+    #[tokio::test]
+    async fn patch_rename_restores_the_source_after_its_removal_was_committed() {
+        let (_directory, root) = root().await;
+        let source = root.canonical_root().join("source.txt");
+        let destination = root.canonical_root().join("destination.txt");
+        tokio::fs::write(&source, b"contents\n").await.unwrap();
+        let _sync = install_mutation_test_fault(&root, "source.txt", MutationTestFault::CommitSync);
+        let patch = concat!(
+            "--- a/source.txt\n",
+            "+++ b/destination.txt\n",
+            "@@ -1 +1 @@\n",
+            "-contents\n",
+            "+contents\n",
+        );
+
+        let error = apply_patch(&root, patch, false, &BTreeMap::new()).await.unwrap_err();
+
+        assert_eq!(error.code, "committed-not-durable");
+        assert_eq!(tokio::fs::read(&source).await.unwrap(), b"contents\n");
+        assert!(!destination.exists());
     }
 }
