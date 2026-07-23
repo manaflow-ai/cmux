@@ -218,7 +218,7 @@ impl WorkspaceService {
                     id,
                     result: Err(RpcError::new(
                         "duplicate-request-id",
-                        format!("request id {} is already active", id.0),
+                        format!("request id {id} is already active"),
                     )),
                 };
             }
@@ -228,8 +228,8 @@ impl WorkspaceService {
             );
         }
         // A request task can be aborted when its logical stream is reset. The
-        // synchronous guard prevents a stale request ID or cancellation sender
-        // from surviving that future's drop.
+        // synchronous guard prevents stale active state or a cancellation
+        // sender from surviving that future's drop.
         let _active_request = ActiveRequestGuard {
             control: &self.inner.request_control,
             activity_changed: &self.inner.activity_changed,
@@ -627,7 +627,9 @@ impl WorkspaceService {
             } else {
                 // A cancellation stream can overtake its target on another
                 // lane. Record a bounded tombstone so registration and cancel
-                // are atomic under the same lock.
+                // are atomic under the same lock. Clients never reuse request
+                // UUIDs during this session, so a late tombstone cannot match
+                // unrelated later work.
                 if control.pending_cancellations.insert(key.clone()) {
                     control.cancellation_order.push_back(key);
                 }
@@ -859,7 +861,7 @@ mod tests {
         let service = WorkspaceService::new();
         let response = service
             .handle_rpc(RpcRequest {
-                id: RequestId(1),
+                id: RequestId::from_u128(1),
                 timeout_ms: None,
                 request: WorkspaceRequest::OpenWorkspace {
                     root: directory.path().to_string_lossy().into_owned(),
@@ -1055,7 +1057,7 @@ mod tests {
 
         let deadline = service
             .handle_rpc(RpcRequest {
-                id: RequestId(40),
+                id: RequestId::from_u128(40),
                 timeout_ms: Some(10),
                 request: WorkspaceRequest::WaitProcess { process },
             })
@@ -1066,7 +1068,7 @@ mod tests {
         let waiting = tokio::spawn(async move {
             waiting_service
                 .handle_rpc(RpcRequest {
-                    id: RequestId(41),
+                    id: RequestId::from_u128(41),
                     timeout_ms: None,
                     request: WorkspaceRequest::WaitProcess { process },
                 })
@@ -1078,20 +1080,23 @@ mod tests {
             .lock()
             .unwrap_or_else(std::sync::PoisonError::into_inner)
             .active
-            .contains_key(&(ClientScope::local(), RequestId(41)))
+            .contains_key(&(ClientScope::local(), RequestId::from_u128(41)))
         {
             tokio::task::yield_now().await;
         }
         let canceled = service
             .handle_rpc(RpcRequest {
-                id: RequestId(42),
+                id: RequestId::from_u128(42),
                 timeout_ms: None,
-                request: WorkspaceRequest::CancelRequest { request: RequestId(41) },
+                request: WorkspaceRequest::CancelRequest { request: RequestId::from_u128(41) },
             })
             .await;
         assert_eq!(
             canceled.result.unwrap(),
-            WorkspaceResponse::RequestCanceled { request: RequestId(41), accepted: true }
+            WorkspaceResponse::RequestCanceled {
+                request: RequestId::from_u128(41),
+                accepted: true,
+            }
         );
         assert_eq!(waiting.await.unwrap().result.unwrap_err().code, "canceled");
 
@@ -1134,7 +1139,7 @@ mod tests {
         let WorkspaceResponse::ProcessStarted { process, .. } = started else { panic!() };
         let first_scope = ClientScope::new("device-a", SessionId([1; 16]));
         let second_scope = ClientScope::new("device-b", SessionId([2; 16]));
-        let request_id = RequestId(77);
+        let request_id = RequestId::from_u128(77);
 
         let first = tokio::spawn({
             let service = service.clone();
@@ -1188,7 +1193,7 @@ mod tests {
             .handle_rpc_for(
                 first_scope,
                 RpcRequest {
-                    id: RequestId(78),
+                    id: RequestId::from_u128(78),
                     timeout_ms: None,
                     request: WorkspaceRequest::CancelRequest { request: request_id },
                 },
@@ -1213,7 +1218,7 @@ mod tests {
 
     #[cfg(unix)]
     #[tokio::test]
-    async fn aborting_a_request_future_releases_its_request_id() {
+    async fn aborting_a_request_future_releases_its_active_state() {
         let directory = tempdir().unwrap();
         let service = WorkspaceService::new();
         let opened = service
@@ -1240,7 +1245,7 @@ mod tests {
             .unwrap();
         let WorkspaceResponse::ProcessStarted { process, .. } = started else { panic!() };
         let scope = ClientScope::new("aborted-device", SessionId([3; 16]));
-        let request_id = RequestId(91);
+        let request_id = RequestId::from_u128(91);
         let waiting = tokio::spawn({
             let service = service.clone();
             let scope = scope.clone();
@@ -1283,17 +1288,17 @@ mod tests {
                 .active
                 .contains_key(&(scope.clone(), request_id))
         );
-        let reused = service
+        let subsequent = service
             .handle_rpc_for(
                 scope,
                 RpcRequest {
-                    id: request_id,
+                    id: RequestId::from_u128(92),
                     timeout_ms: None,
                     request: WorkspaceRequest::Capabilities,
                 },
             )
             .await;
-        assert!(reused.result.is_ok());
+        assert!(subsequent.result.is_ok());
 
         service
             .handle_request(WorkspaceRequest::SignalProcess {
@@ -1308,12 +1313,12 @@ mod tests {
     async fn cancellation_that_overtakes_its_request_prevents_execution() {
         let service = WorkspaceService::new();
         let scope = ClientScope::new("racing-device", SessionId([4; 16]));
-        let target = RequestId(120);
+        let target = RequestId::from_u128(120);
         let canceled = service
             .handle_rpc_for(
                 scope.clone(),
                 RpcRequest {
-                    id: RequestId(121),
+                    id: RequestId::from_u128(121),
                     timeout_ms: None,
                     request: WorkspaceRequest::CancelRequest { request: target },
                 },
@@ -1347,7 +1352,7 @@ mod tests {
             .handle_rpc_for(
                 scope,
                 RpcRequest {
-                    id: RequestId(130),
+                    id: RequestId::from_u128(130),
                     timeout_ms: None,
                     request: WorkspaceRequest::Capabilities,
                 },
@@ -1367,7 +1372,7 @@ mod tests {
             .handle_rpc_for(
                 scope,
                 RpcRequest {
-                    id: RequestId(131),
+                    id: RequestId::from_u128(131),
                     timeout_ms: None,
                     request: WorkspaceRequest::Capabilities,
                 },

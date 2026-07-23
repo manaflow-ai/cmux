@@ -1,6 +1,6 @@
 # Remote workspace RPC contract
 
-Status: normative schema for remote protocol 2.
+Status: normative schema for remote protocol 3.
 
 This contract describes the `workspace-rpc`, `process-stream`, and `tcp-tunnel` services. Rust enum variant names serialize as kebab-case `type` values. Struct field names remain snake_case. Identifier wrappers serialize as their underlying JSON string or unsigned integer.
 
@@ -18,7 +18,7 @@ The server accepts it with:
 {"type":"opened","service":"workspace-rpc"}
 ```
 
-It may instead return `{"type":"rejected","code":"...","message":"..."}`. The implemented service names are `mux-control`, `workspace-rpc`, `process-stream`, `tcp-tunnel`, and `computer-use`.
+It may instead return `{"type":"rejected","code":"...","message":"..."}`. A rejected stream never receives `opened`. The implemented service names are `mux-control`, `workspace-rpc`, `process-stream`, `tcp-tunnel`, and `computer-use`.
 
 After service opening, each `workspace-rpc` or `process-stream` JSON message is prefixed by one unsigned 32-bit big-endian byte length. A message may contain at most 16 MiB of JSON. A `tcp-tunnel` stream carries raw bytes after its open response.
 
@@ -39,19 +39,19 @@ A direct service request is:
 
 ```json
 {
-  "id": 42,
+  "id": "018f47a2-17d6-4c16-a8b1-7b3d5d998271",
   "timeout_ms": 5000,
   "request": {"type":"list-workspaces"}
 }
 ```
 
-`id` is an unsigned 64-bit integer unique among active requests in one authenticated client session. `timeout_ms` is optional. A timeout is accepted only for cancel-safe requests: `capabilities`, `list-workspaces`, `stat`, `read-file`, `list-directory`, `search`, `git-status`, `diff`, `wait-process`, `read-process-events`, and both computer-use capability queries. A mutating request with `timeout_ms` returns `deadline-unsupported`.
+`id` is an opaque UUID string allocated synchronously by the client and never reused during one authenticated session. Its JSON representation is safe for JavaScript clients. `timeout_ms` is optional. A timeout is accepted only for cancel-safe requests: `capabilities`, `list-workspaces`, `stat`, `read-file`, `list-directory`, `search`, `git-status`, `diff`, `wait-process`, `read-process-events`, and both computer-use capability queries. A mutating request with `timeout_ms` returns `deadline-unsupported`.
 
 A successful direct service response uses Rust `Result` encoding:
 
 ```json
 {
-  "id": 42,
+  "id": "018f47a2-17d6-4c16-a8b1-7b3d5d998271",
   "result": {"Ok":{"type":"workspaces","workspaces":[["w:abc","/srv/project"]]}}
 }
 ```
@@ -60,7 +60,7 @@ An error is:
 
 ```json
 {
-  "id": 42,
+  "id": "018f47a2-17d6-4c16-a8b1-7b3d5d998271",
   "result": {
     "Err": {
       "code": "invalid-path",
@@ -120,12 +120,12 @@ Every field in the table is required unless marked optional or given a default.
 | `read-process-events` | `process`, `after_sequence:u64`, `limit:u32` | `process-events` or `process-replay-gap` |
 | `finish-operation` | `operation:string` | `operation-finished` |
 | `close-workspace` | `workspace` | `workspace-closed` |
-| `cancel-request` | `request:u64` | `request-canceled` |
+| `cancel-request` | `request:RequestId` | `request-canceled` |
 | `create-route` | `workspace`, `host:string`, `port:u16`, `policy:RoutePolicy` | `route-created` |
 | `close-route` | `route:u64` | `closed` |
 | `computer-use-capabilities` | none | `computer-use-capabilities` |
 | `computer-use-capabilities-v1` | none | `computer-use-capabilities-v1` |
-| `invoke-computer-use` | `invocation:ComputerUseInvocation` | unavailable in protocol 2 |
+| `invoke-computer-use` | `invocation:ComputerUseInvocation` | unavailable in protocol 3 |
 | `cancel-computer-use` | `invocation:u64` | `computer-use-canceled` with `accepted:false` |
 
 Common response objects have these fields:
@@ -157,7 +157,7 @@ Common response objects have these fields:
 | `route-created` | `route:u64`, `host`, `port` |
 | `closed` | no fields |
 
-Protocol 2 currently advertises `workspace-files-v1`, `workspace-search-v1`, `workspace-patch-v1`, `workspace-diff-v1`, `process-pipes-v1`, `process-pty-v1` on Unix, `tcp-routes-v1`, `computer-use-negotiation-v1`, `workspace-pagination-v1`, `workspace-patch-v2`, `structured-diff-v1`, `process-lifecycle-v2`, `process-replay-v1`, `process-handles-v2`, and `request-control-v1`.
+Protocol 3 currently advertises `workspace-files-v1`, `workspace-search-v1`, `workspace-patch-v1`, `workspace-diff-v1`, `process-pipes-v1`, `process-pty-v1` on Unix, `tcp-routes-v1`, `computer-use-negotiation-v1`, `workspace-pagination-v1`, `workspace-patch-v2`, `structured-diff-v1`, `process-lifecycle-v2`, `process-replay-v1`, `process-handles-v2`, and `request-control-v1`.
 
 ## Files, search, patch, and diff
 
@@ -268,18 +268,23 @@ After the open response, the server sends length-prefixed `RpcEvent` objects and
 
 To close the output-before-subscribe race, add `"reserve":"true"` and use `after:"0"` before `spawn-process-with-handle`. Reservation succeeds only when the UUID has no active, completed, or outstanding reservation, including one owned by the same client. Stream close, reset, send failure, or handler cancellation releases an unclaimed reservation. A spawn atomically claims its matching same-client reservation and retains that stream's event log. Callers use a new UUID after a rejected or canceled reservation.
 
+Every process-stream failure discovered before acceptance returns `rejected` before any `opened` response. Invalid metadata uses `invalid-argument`; process lookup, cursor validation, duplicate reservation, and capacity failures preserve the workspace RPC error code and message. A retained-output replay gap is different: the stream opens successfully, sends one structured `replay-gap` event, then closes.
+
 ## Cancellation
 
 Send cancellation on the dedicated cancellation stream:
 
 ```json
 {
-  "id": 99,
-  "request": {"type":"cancel-request","request":42}
+  "id": "018f47a2-17d6-4c16-a8b1-7b3d5d998272",
+  "request": {
+    "type":"cancel-request",
+    "request":"018f47a2-17d6-4c16-a8b1-7b3d5d998271"
+  }
 }
 ```
 
-The response is `{"type":"request-canceled","request":42,"accepted":true}` when the target was active or its pre-registration cancellation tombstone was recorded. Cancellation is scoped to the authenticated client session. It cannot cancel another client's request with the same numeric ID.
+The response is `{"type":"request-canceled","request":"018f47a2-17d6-4c16-a8b1-7b3d5d998271","accepted":true}` when the target was active or its pre-registration cancellation tombstone was recorded. Cancellation is scoped to the authenticated client session. A client never reuses a request UUID, so a late tombstone cannot cancel a later request.
 
 ## Routes and TCP forwarding
 
@@ -301,7 +306,7 @@ The response is `{"type":"route-created","route":9,"host":"127.0.0.1","port":300
 
 `computer-use-capabilities-v1` returns entries with `feature` and `version`. Feature strings are `screenshot`, `accessibility-tree`, `pointer`, `keyboard`, `text-input`, and `scroll`. The default daemon returns an empty list.
 
-An `invoke-computer-use` request contains an `invocation` with numeric `id`, optional `workspace`, optional `timeout_ms`, and an `action`. Action objects use the types `screenshot`, `accessibility-tree`, `pointer`, `keyboard`, `text-input`, or `scroll`. Protocol 2 returns `computer-use-unavailable` because no platform executor is wired. Future execution belongs on the separate `computer-use` service so media and long actions cannot block process input.
+An `invoke-computer-use` request contains an `invocation` with numeric `id`, optional `workspace`, optional `timeout_ms`, and an `action`. Action objects use the types `screenshot`, `accessibility-tree`, `pointer`, `keyboard`, `text-input`, or `scroll`. Protocol 3 returns `computer-use-unavailable` because no platform executor is wired. Future execution belongs on the separate `computer-use` service so media and long actions cannot block process input.
 
 | Action `type` | Fields |
 | --- | --- |

@@ -1,6 +1,5 @@
 use std::collections::{BTreeMap, HashMap};
 use std::sync::Arc;
-use std::sync::atomic::{AtomicU64, Ordering};
 use std::time::Duration;
 
 use cmux_remote_protocol::{
@@ -22,7 +21,6 @@ pub struct WorkspaceClient {
     control: WorkspaceRpcChannel,
     cancellation: WorkspaceRpcChannel,
     bulk: WorkspaceRpcChannel,
-    next_request: AtomicU64,
 }
 
 struct WorkspaceRpcChannel {
@@ -62,9 +60,6 @@ impl WorkspaceClient {
             control,
             cancellation,
             bulk,
-            // A random start avoids collisions between independently
-            // constructed clients sharing one authenticated session.
-            next_request: AtomicU64::new(request_id_seed()),
         }))
     }
 
@@ -128,7 +123,7 @@ impl WorkspaceClient {
         timeout: Option<(u64, Duration)>,
     ) -> Result<PendingWorkspaceRequest, RpcError> {
         let channel = self.channel(rpc_traffic_class(&request));
-        let id = self.next_request_id()?;
+        let id = self.next_request_id();
         let timeout_ms = timeout.map(|(milliseconds, _)| milliseconds);
         let encoded = serde_json::to_vec(&RpcRequest { id, timeout_ms, request })
             .map_err(|error| RpcError::new("protocol", error.to_string()))?;
@@ -156,11 +151,8 @@ impl WorkspaceClient {
         }
     }
 
-    fn next_request_id(&self) -> Result<RequestId, RpcError> {
-        self.next_request
-            .fetch_update(Ordering::Relaxed, Ordering::Relaxed, |value| value.checked_add(1))
-            .map(RequestId)
-            .map_err(|_| RpcError::new("resource-exhausted", "request identifiers exhausted"))
+    fn next_request_id(&self) -> RequestId {
+        RequestId::new_v4()
     }
 
     pub async fn process_events(
@@ -472,12 +464,6 @@ fn attach_process_handle(
     }
 }
 
-fn request_id_seed() -> u64 {
-    let bytes = uuid::Uuid::new_v4().into_bytes();
-    u64::from_le_bytes(bytes[..8].try_into().expect("UUID contains eight request ID bytes"))
-        & (u64::MAX >> 1)
-}
-
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -526,7 +512,9 @@ mod tests {
         );
         assert_eq!(rpc_traffic_class(&WorkspaceRequest::Capabilities), RpcTrafficClass::Control);
         assert_eq!(
-            rpc_traffic_class(&WorkspaceRequest::CancelRequest { request: RequestId(9) }),
+            rpc_traffic_class(&WorkspaceRequest::CancelRequest {
+                request: RequestId::from_u128(9),
+            }),
             RpcTrafficClass::Cancellation
         );
     }

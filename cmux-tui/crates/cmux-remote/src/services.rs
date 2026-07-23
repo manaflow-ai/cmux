@@ -415,30 +415,24 @@ impl DaemonServices {
         stream: ServiceStream,
         metadata: BTreeMap<String, String>,
     ) -> Result<(), ServicesError> {
-        let process = parse_process_id(&metadata, "process")?;
-        let after = metadata
-            .get("after")
-            .map(|value| value.parse::<u64>())
-            .transpose()
-            .map_err(|_| ServicesError::Metadata("after must be an unsigned integer".into()))?
-            .unwrap_or(0);
-        let reserve = match metadata.get("reserve").map(String::as_str) {
-            None | Some("false") => false,
-            Some("true") => true,
-            Some(_) => {
-                return Err(ServicesError::Metadata("reserve must be true or false".into()));
+        let stream = Arc::new(stream);
+        let (process, after, reserve) = match process_stream_metadata(&metadata) {
+            Ok(metadata) => metadata,
+            Err(error) => {
+                stream.reject(error.code, error.message).await?;
+                return Ok(());
             }
         };
         let subscription =
             workspace.subscribe_or_reserve_process(&scope, process, after, reserve).await;
-        let stream = Arc::new(stream);
         let mut subscription = match subscription {
             Ok(subscription) => subscription,
             Err(error) => {
-                let RpcError { message, details, .. } = error;
+                let RpcError { code, message, details, .. } = error;
                 let Some(RpcErrorDetails::ProcessReplayGap { requested_after, range }) = details
                 else {
-                    return Err(ServicesError::Remote(message));
+                    stream.reject(code, message).await?;
+                    return Ok(());
                 };
                 send_opened(&stream, Lane::Bulk).await?;
                 let messages = MessageStream::with_lane(stream, Lane::Bulk);
@@ -956,14 +950,30 @@ fn parse_u64(metadata: &BTreeMap<String, String>, key: &str) -> Result<u64, Serv
         .map_err(|_| ServicesError::Metadata(format!("{key} must be an unsigned integer")))
 }
 
-fn parse_process_id(
+fn process_stream_metadata(
     metadata: &BTreeMap<String, String>,
-    key: &str,
-) -> Result<ProcessId, ServicesError> {
-    let value =
-        metadata.get(key).ok_or_else(|| ServicesError::Metadata(format!("missing {key}")))?;
-    ProcessId::parse_str(value)
-        .map_err(|_| ServicesError::Metadata(format!("{key} must be a UUID")))
+) -> Result<(ProcessId, u64, bool), RpcError> {
+    let process = metadata
+        .get("process")
+        .ok_or_else(|| RpcError::new("invalid-argument", "missing process"))
+        .and_then(|value| {
+            ProcessId::parse_str(value)
+                .map_err(|_| RpcError::new("invalid-argument", "process must be a UUID"))
+        })?;
+    let after = metadata
+        .get("after")
+        .map(|value| value.parse::<u64>())
+        .transpose()
+        .map_err(|_| RpcError::new("invalid-argument", "after must be an unsigned integer"))?
+        .unwrap_or(0);
+    let reserve = match metadata.get("reserve").map(String::as_str) {
+        None | Some("false") => false,
+        Some("true") => true,
+        Some(_) => {
+            return Err(RpcError::new("invalid-argument", "reserve must be true or false"));
+        }
+    };
+    Ok((process, after, reserve))
 }
 
 fn workspace_rpc_metadata(
@@ -1433,10 +1443,10 @@ mod tests {
         let client = WorkspaceClient::connect(client_multiplexer.clone())
             .await
             .expect("connect workspace client");
-        let error = client
-            .process_events(unknown, 0)
-            .await
-            .expect_err("unknown process stream should be rejected");
+        let error = match client.process_events(unknown, 0).await {
+            Err(error) => error,
+            Ok(_) => panic!("unknown process stream should be rejected"),
+        };
         assert_eq!(error.code, "unknown-process");
         assert_eq!(error.message, format!("unknown process {unknown}"));
         server
@@ -1453,10 +1463,10 @@ mod tests {
     async fn cancellation_rpc_codec_stays_inline_and_bounded() {
         let workspace = WorkspaceService::new();
         let request = RpcRequest {
-            id: cmux_remote_protocol::RequestId(5),
+            id: cmux_remote_protocol::RequestId::from_u128(5),
             timeout_ms: None,
             request: WorkspaceRequest::CancelRequest {
-                request: cmux_remote_protocol::RequestId(4),
+                request: cmux_remote_protocol::RequestId::from_u128(4),
             },
         };
         let decoded = decode_workspace_request(
@@ -1494,7 +1504,7 @@ mod tests {
             .collect();
         assert_oversized_response_falls_back(
             RpcResponse {
-                id: cmux_remote_protocol::RequestId(71),
+                id: cmux_remote_protocol::RequestId::from_u128(71),
                 result: Ok(WorkspaceResponse::Search {
                     matches,
                     truncated: true,
@@ -1510,7 +1520,7 @@ mod tests {
     #[test]
     fn escaped_rpc_errors_use_codec_offload() {
         let response = RpcResponse {
-            id: cmux_remote_protocol::RequestId(72),
+            id: cmux_remote_protocol::RequestId::from_u128(72),
             result: Err(RpcError::new("invalid-data", "\u{1}".repeat(RPC_CODEC_OFFLOAD_BYTES / 4))),
         };
 
@@ -1521,7 +1531,7 @@ mod tests {
     async fn oversized_error_response_returns_same_id_error() {
         assert_oversized_response_falls_back(
             RpcResponse {
-                id: cmux_remote_protocol::RequestId(72),
+                id: cmux_remote_protocol::RequestId::from_u128(72),
                 result: Err(RpcError::new("invalid-data", "\u{1}".repeat(3 * 1024 * 1024))),
             },
             true,
@@ -1567,7 +1577,7 @@ mod tests {
         assert_eq!(error.retryable, expected_retryable);
 
         let next = RpcResponse {
-            id: cmux_remote_protocol::RequestId(expected_id.0 + 1),
+            id: cmux_remote_protocol::RequestId::from_u128(0xfeed),
             result: Ok(WorkspaceResponse::Closed),
         };
         send_workspace_response(&workspace, &outbound, next.clone(), false)
@@ -2000,7 +2010,7 @@ mod tests {
                 let workspace_messages =
                     MessageStream::with_lane(Arc::new(workspace_stream), Lane::Bulk);
                 let list = RpcRequest {
-                    id: cmux_remote_protocol::RequestId(41),
+                    id: cmux_remote_protocol::RequestId::from_u128(41),
                     timeout_ms: None,
                     request: WorkspaceRequest::ListDirectory {
                         workspace: workspace_id,
@@ -2257,7 +2267,7 @@ mod tests {
         let workspace = WorkspaceService::new();
         let opened = workspace
             .handle_rpc(RpcRequest {
-                id: cmux_remote_protocol::RequestId(1),
+                id: cmux_remote_protocol::RequestId::from_u128(1),
                 timeout_ms: None,
                 request: WorkspaceRequest::OpenWorkspace {
                     root: directory.path().to_string_lossy().into_owned(),
@@ -2269,7 +2279,7 @@ mod tests {
         let WorkspaceResponse::Workspace { id: workspace_id, .. } = opened else { panic!() };
         let started = workspace
             .handle_rpc(RpcRequest {
-                id: cmux_remote_protocol::RequestId(2),
+                id: cmux_remote_protocol::RequestId::from_u128(2),
                 timeout_ms: None,
                 request: WorkspaceRequest::SpawnProcess {
                     workspace: WorkspaceId(workspace_id.0),
@@ -2290,7 +2300,7 @@ mod tests {
         let WorkspaceResponse::ProcessStarted { process, .. } = started else { panic!() };
         workspace
             .handle_rpc(RpcRequest {
-                id: cmux_remote_protocol::RequestId(3),
+                id: cmux_remote_protocol::RequestId::from_u128(3),
                 timeout_ms: None,
                 request: WorkspaceRequest::WaitProcess { process },
             })

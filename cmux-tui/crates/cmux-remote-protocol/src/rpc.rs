@@ -25,9 +25,26 @@ impl ByteString {
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize)]
 #[serde(transparent)]
-/// Opaque identifier unique among requests active in one authenticated client
-/// session. Independent humans may safely use the same numeric request ID.
-pub struct RequestId(pub u64);
+/// Opaque UUID allocated once per request and never reused during an
+/// authenticated client session. The JSON string form preserves identity in
+/// JavaScript clients.
+pub struct RequestId(uuid::Uuid);
+
+impl RequestId {
+    pub fn new_v4() -> Self {
+        Self(uuid::Uuid::new_v4())
+    }
+
+    pub const fn from_u128(value: u128) -> Self {
+        Self(uuid::Uuid::from_u128(value))
+    }
+}
+
+impl std::fmt::Display for RequestId {
+    fn fmt(&self, formatter: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        self.0.fmt(formatter)
+    }
+}
 
 #[derive(Debug, Clone, PartialEq, Eq, Hash, Serialize, Deserialize)]
 #[serde(transparent)]
@@ -854,7 +871,7 @@ mod tests {
     #[test]
     fn legacy_spawn_request_defaults_new_lifecycle_fields() {
         let json = serde_json::json!({
-            "id": 7,
+            "id": "00000000-0000-4000-8000-000000000007",
             "request": {
                 "type": "spawn-process",
                 "workspace": "w",

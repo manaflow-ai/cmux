@@ -1,6 +1,6 @@
 # Remote daemon protocol
 
-Status: implementation contract for protocol 2.
+Status: implementation contract for protocol 3.
 
 ## Authority boundary
 
@@ -28,7 +28,7 @@ Each frame declares one lane:
 - `bulk`: file contents, diffs, terminal replay, browser frames, and computer-use media.
 - `tunnel`: forwarded TCP bytes.
 
-Lane policy is configurable as `single`, `isolated`, or `auto`. `single` multiplexes all lanes on one link. `isolated` opens an independent link per lane. On a parallel-link provider, `auto` maps interactive and control to independent links and maps tunnel plus bulk to a third link. A provider without useful parallel links uses one prioritized link. Bulk backpressure must never consume the interactive queue reserve. The current TUI records a private input-to-write latency histogram and backpressure failures for tests; a public telemetry surface with queue depth and provider labels is not implemented in protocol 2.
+Lane policy is configurable as `single`, `isolated`, or `auto`. `single` multiplexes all lanes on one link. `isolated` opens an independent link per lane. On a parallel-link provider, `auto` maps interactive and control to independent links and maps tunnel plus bulk to a third link. A provider without useful parallel links uses one prioritized link. Bulk backpressure must never consume the interactive queue reserve. The current TUI records a private input-to-write latency histogram and backpressure failures for tests; a public telemetry surface with queue depth and provider labels is not implemented in protocol 3.
 
 A service declares every lane one logical stream may use. A multi-lane stream acknowledges setup on each declared lane before exposing buffered application data, and closes only after a terminal marker has arrived in order on every declared lane. This per-lane barrier prevents an isolated fast carrier from overtaking setup or teardown on another carrier. A failed terminal send retries under a bound, then closes the logical session so the peer cannot retain an unreachable stream.
 
@@ -46,7 +46,7 @@ Relays only see slot identifiers, opaque circuit identifiers, timing, lane count
 
 ## Reliability
 
-Every reliable frame carries a session identifier, lane, monotonically increasing sequence number, cumulative acknowledgement, logical stream identifier, flags, and payload. Senders keep bounded per-lane replay buffers. Reconnect resends unacknowledged reliable frames after the receiver reports its last contiguous sequence, and the receiver suppresses duplicate frames before service delivery. Concurrent reuse of an active request identifier is rejected. Repeated process-input `write_id` values return the original result without writing twice. File and patch retries use explicit content preconditions.
+Every reliable frame carries a session identifier, lane, monotonically increasing sequence number, cumulative acknowledgement, logical stream identifier, flags, and payload. Senders keep bounded per-lane replay buffers. Reconnect resends unacknowledged reliable frames after the receiver reports its last contiguous sequence, and the receiver suppresses duplicate frames before service delivery. A client allocates each request identifier as an opaque UUID string and never reuses it during the authenticated session. Concurrent reuse is rejected. Repeated process-input `write_id` values return the original result without writing twice. File and patch retries use explicit content preconditions.
 
 Interactive input, RPC mutations, process lifecycle, and file mutations are reliable. Newly committed frames schedule cumulative acknowledgements asynchronously, so application delivery does not wait on the reverse carrier write. Duplicate frames are acknowledged before suppression. Telemetry and superseded screen snapshots may be lossy. TCP tunnel streams bind to their connection generation. A generation change resets both endpoints, discards tunnel replay state, and closes each affected local connection so the application can reconnect. Resumable workspace and mux services remain open across the same carrier reconnect.
 
@@ -83,9 +83,9 @@ Iroh supplies the same binary-link contract through authenticated QUIC, NAT trav
 
 Pipe I/O is the default and recommended mode for tool calls. Omitting `io` selects writable pipes; an explicit pipes object can start with stdin closed. PTY allocation is explicit and appropriate for interactive programs, terminal emulation, or commands that change behavior when attached to a terminal.
 
-Computer-use RPC variants are negotiation placeholders and report unavailable in protocol 2. A future executor runs on the dedicated `computer-use` service with independent action, cancellation, and bulk-media flow control; it must not share the PTY-input request stream.
+Computer-use RPC variants are negotiation placeholders and report unavailable in protocol 3. A future executor runs on the dedicated `computer-use` service with independent action, cancellation, and bulk-media flow control; it must not share the PTY-input request stream.
 
-Request identifiers, operation identifiers, and cleanup ownership are scoped to one authenticated client session. Session loss cancels that client's active requests, closes its routes, releases its workspace leases, and terminates its non-detached processes. The daemon keeps workspace roots in its global catalog after the last client disconnects, matching tmux-style persistence; an explicit final `close-workspace` removes a root. These scopes do not restrict authority: another authenticated client can list all workspaces and use any explicit workspace, process, or route identifier it learns.
+Request identifiers, operation identifiers, and cleanup ownership are scoped to one authenticated client session. A cancellation that overtakes request registration creates a bounded tombstone for the target UUID. Session-lifetime UUID uniqueness prevents a late cancellation from matching a later request. Session loss cancels that client's active requests, closes its routes, releases its workspace leases, and terminates its non-detached processes. The daemon keeps workspace roots in its global catalog after the last client disconnects, matching tmux-style persistence; an explicit final `close-workspace` removes a root. These scopes do not restrict authority: another authenticated client can list all workspaces and use any explicit workspace, process, or route identifier it learns.
 
 ## SSH and lifecycle
 
