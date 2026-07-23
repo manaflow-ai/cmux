@@ -111,10 +111,10 @@ extension RemoteTmuxController {
         return mirror
     }
 
-    /// The multiplexed analogue of ``attachHost(host:windowTarget:activate:)``:
-    /// discovery + auth classification stay identical (sequential one-shots are safe
-    /// before any `-CC` client holds the host's single session), then ONE shared view
-    /// connection comes up and its reconcile builds the per-session workspaces.
+    /// The multiplexed analogue of ``attachHost(host:windowTarget:activate:)``: ONE shared view
+    /// connection comes up and its reconcile builds the per-session workspaces. Nothing else
+    /// touches the host — no discovery one-shot, no ControlMaster warmup, and no pre-attach
+    /// view creation — so a host that authenticates per connection is authenticated once.
     func attachHostMultiplexed(
         host: RemoteTmuxHost,
         windowTarget: RemoteTmuxAttachWindowTarget,
@@ -164,21 +164,28 @@ extension RemoteTmuxController {
         }
         defer { windowRegistry.endAttach(hostHash: host.connectionHash) }
 
-        // Auth classification via the same one-shot the GA path uses (BatchMode over
-        // the shared master): an interactive-auth failure routes the CLI to its
-        // foreground handoff. `createIfEmpty: false` — the view coordinator has its
-        // own session-less-host bootstrap.
-        do {
-            _ = try await transport(for: host).discoverMirrorSessions(createIfEmpty: false)
-        } catch let error as RemoteTmuxError {
-            if case .commandFailed(_, let stderr) = error,
-               RemoteTmuxSSHTransport.indicatesInteractiveRetryWillHelp(stderr) {
-                return .authRequired(sshArgv: host.interactiveAuthInvocation())
-            }
-            throw error
-        }
+        // No preflight here, deliberately, and this is the point of multiplexing: the view stream is
+        // the ONLY connection this path opens.
+        //
+        // Two preflights used to run first, inherited from the per-session path. A one-shot
+        // `discoverMirrorSessions` whose result was DISCARDED (`_ =`) — it existed only to classify
+        // interactive auth, since the view coordinator does its own session-less bootstrap — and a
+        // ControlMaster warmup for a burst that multiplexed mode does not have.
+        //
+        // Over ssh both are nearly free and merely pointless. Over a transport that authenticates per
+        // connection they are fatal: measured against a corporate ssh broker, each invocation of the
+        // broker performs its own MFA and none of it persists — no shared ssh master ever appears — so
+        // the probe consumed the user's one prompt and the view stream then died silently against pipes
+        // with a passcode prompt it could not show. Four separate prompts in one session, minutes
+        // apart, each authenticating exactly one connection.
+        //
+        // Auth classification therefore comes from the view stream itself, which is the connection
+        // that actually needs credentials: the connection classifies `.authRequired` and calls
+        // `onAuthRequired`, which `RemoteTmuxViewConnection` already forwards. That is strictly better
+        // information than a probe on a different channel, and it needs no per-transport branching —
+        // a transport check would have to be revisited for every new client type, while "one
+        // connection" holds for all of them.
         try Task.checkCancellation()
-        try await ensureControlMasterReadyForBurst(host: host)
 
         let existingMirrorWindowID = existingMirrorManager(for: host)
             .flatMap { appDelegate.windowId(for: $0) }
@@ -191,7 +198,7 @@ extension RemoteTmuxController {
         ), let targetManager = appDelegate.tabManagerFor(windowId: resolvedWindowId) else {
             if existingMirrorWindowID == nil, multiplexedViewsByHost[host.connectionHash] == nil {
                 transportRegistry.remove(connectionHash: host.connectionHash)
-                RemoteTmuxSSHTransport.spawnControlMasterExit(host: host)
+                closeSharedSSHMasterIfAny(host: host)
             }
             throw RemoteTmuxError.unreachable("app not ready")
         }
@@ -232,9 +239,11 @@ extension RemoteTmuxController {
     /// Brings up the host's single shared view connection and wires its reconcile to
     /// build/rescope/tear down the per-session mirrors. Stores the view before the
     /// throwing `start()` so a failed launch is torn down via ``stopMultiplexedHost(host:)``.
+    ///
+    /// The view takes no ssh transport: everything it needs from the host, including creating
+    /// the hidden view session, now rides its own control stream.
     func startMultiplexedHost(host: RemoteTmuxHost, manager: TabManager) async throws {
-        let view = RemoteTmuxViewConnection(
-            host: host, ownerId: Self.multiplexerOwnerId, transport: transport(for: host))
+        let view = RemoteTmuxViewConnection(host: host, ownerId: Self.multiplexerOwnerId)
         view.onWorkspacesChanged = { [weak self, weak manager, weak view] in
             guard let self, let view, let shared = view.connection else { return }
             // Prefer the manager the host's mirrors CURRENTLY live in: the
@@ -256,7 +265,7 @@ extension RemoteTmuxController {
         }
         multiplexedViewsByHost[host.connectionHash] = view
         do {
-            try await view.start()
+            try view.start()
         } catch {
             stopMultiplexedHost(host: host)
             throw error
@@ -439,9 +448,20 @@ extension RemoteTmuxController {
         }
         if !multiplexerHostStillInUse(host) {
             transportRegistry.remove(connectionHash: host.connectionHash)
-            RemoteTmuxSSHTransport.spawnControlMasterExit(host: host)
+            closeSharedSSHMasterIfAny(host: host)
         }
         return true
+    }
+
+    /// Closes the host's shared ssh ControlMaster, for the hosts that have one.
+    ///
+    /// Only ssh carries this stream over the shared master. A multiplexed attach on another
+    /// transport opens its one connection and runs no ssh one-shot, so there is no master
+    /// here to close — and `ssh -O exit` would still spawn an ssh process, which is exactly
+    /// what the "one connection per attach" claim is measured by sampling.
+    private func closeSharedSSHMasterIfAny(host: RemoteTmuxHost) {
+        guard host.transport == .ssh else { return }
+        RemoteTmuxSSHTransport.spawnControlMasterExit(host: host)
     }
 
     /// Whether `host`'s shared transport/master is still needed by any live mirror in

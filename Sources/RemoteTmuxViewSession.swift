@@ -20,8 +20,16 @@ struct RemoteTmuxViewSession: Equatable {
     /// us reattach our own view and avoid other cmux installs' views.
     let ownerId: String
 
-    /// Session name format version, so a future incompatible view layout can be
-    /// recognized and recreated rather than reused.
+    /// Session name format version, so a future incompatible view layout is recreated
+    /// rather than reused.
+    ///
+    /// It is part of the session NAME (see ``sessionName``) because that is the only thing
+    /// that makes a bump take effect. The stream attaches with `new-session -A -s <name>`,
+    /// which happily attaches whatever session carries that name, and the bringup then
+    /// stamps the current version onto it — so a version that lived only in a tmux option
+    /// would reuse the incompatible view and relabel it. A bump changes the name instead,
+    /// which the stale-view reap already handles: the old name is still a view of ours, no
+    /// longer matches ``sessionName``, and gets collected.
     static let formatVersion = 1
 
     /// tmux user-option keys stamped on the view session (read via
@@ -34,7 +42,7 @@ struct RemoteTmuxViewSession: Equatable {
     /// human running `tmux ls` can tell what these are.
     static let namePrefix = "cmux-view-"
 
-    /// The deterministic view session name for this owner.
+    /// The deterministic view session name for this owner and format version.
     ///
     /// tmux session names disallow `.`, `:` and whitespace, so the owner id is
     /// mapped to a safe token. The mapping is **collision-resistant**: distinct
@@ -42,27 +50,39 @@ struct RemoteTmuxViewSession: Equatable {
     /// collapse `a.b` and `a:b` to the same name and let two installs fight over
     /// one view). We append a short FNV-1a/64 hash of the *raw* owner id so the
     /// readable part stays human-friendly while uniqueness is preserved.
+    ///
+    /// The `v<N>` segment carries ``formatVersion``, which is what makes a bump mean
+    /// something at runtime — see that property. An owner id of the usual UUID shape
+    /// gives a name of about 66 bytes, well inside the transport's session-name bound.
     var sessionName: String {
-        Self.namePrefix + Self.sanitizeOwner(ownerId) + "-" + Self.ownerHash(ownerId)
+        Self.namePrefix + "v\(Self.formatVersion)-"
+            + Self.sanitizeOwner(ownerId) + "-" + Self.ownerHash(ownerId)
     }
 
-    /// Raw `tmux` argument vectors (NOT shell-quoted — the one-shot transport
-    /// quotes each token) that create the view detached at an explicit size and
-    /// stamp the ownership options. Run as sequential pre-attach one-shots, before
-    /// any `-CC` client holds the host's single session. Explicit `-x/-y` avoids an
-    /// 80x24 placeholder flash before the first resize.
-    func createArgvs(cols: Int, rows: Int) -> [[String]] {
-        let n = sessionName
+    /// The control-mode commands that stamp ownership on the view session.
+    ///
+    /// Sent over the view's own `-CC` stream, so opening the host costs exactly one
+    /// connection: the stream attaches the view with `new-session -A -s` (creating it when
+    /// it is missing) and these three follow on the same channel.
+    ///
+    /// They run on every attach, not only when the view was just created. All three are
+    /// constant-value writes to a session option, so re-writing the same values on a view
+    /// this owner already has changes nothing, and an attach that reused an existing view
+    /// ends up tagged either way. The coordinator waits for all three to be acknowledged
+    /// before it acts on what it read back: an unstamped view does not classify as ours,
+    /// which both re-links every window and marks the session this client is attached to
+    /// as stale.
+    ///
+    /// Windows keep the default `window-size latest`: the single shared `-CC` client sizes
+    /// each linked window independently via the per-window `refresh-client -C '@id:WxH'`
+    /// form (with the session-wide fallback for servers that reject it) — the same path
+    /// dedicated per-session connections use.
+    func setOptionCommands() -> [String] {
+        let target = RemoteTmuxHost.shellSingleQuoted(sessionName)
         return [
-            ["new-session", "-d", "-s", n, "-x", String(cols), "-y", String(rows)],
-            ["set-option", "-t", n, Self.optView, "1"],
-            ["set-option", "-t", n, Self.optOwner, ownerId],
-            ["set-option", "-t", n, Self.optVersion, String(Self.formatVersion)],
-            // Windows keep the default `window-size latest`: the single shared
-            // `-CC` client sizes each linked window independently via the
-            // per-window `refresh-client -C '@id:WxH'` form (with the session-wide
-            // fallback for servers that reject it) — the same path dedicated
-            // per-session connections use.
+            "set-option -t \(target) \(Self.optView) 1",
+            "set-option -t \(target) \(Self.optOwner) \(RemoteTmuxHost.shellSingleQuoted(ownerId))",
+            "set-option -t \(target) \(Self.optVersion) \(Self.formatVersion)",
         ]
     }
 
