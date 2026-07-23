@@ -626,6 +626,7 @@ impl Surface {
                     }
                 }
                 if let Some(pty) = surface.as_pty() {
+                    pty.publish_final_frame();
                     pty.dead.store(true, Ordering::Release);
                 }
                 if let Some(mux) = mux.upgrade() {
@@ -1379,6 +1380,17 @@ impl PtySurface {
         match self.frame_requests.try_send(generation) {
             Ok(()) | Err(TrySendError::Full(_)) | Err(TrySendError::Disconnected(_)) => {}
         }
+    }
+
+    /// Publish the last PTY generation before the mux drops this surface.
+    ///
+    /// A normal frame request may still be waiting for the cadence deadline,
+    /// and the frame worker holds only a weak reference. Building here keeps
+    /// the final render frame ordered after the byte taps and before detach.
+    fn publish_final_frame(&self) {
+        let mut term = self.term.lock().unwrap();
+        let generation = self.render_generation.load(Ordering::Acquire);
+        let _ = self.build_frame_locked(&mut term, generation, true);
     }
 
     /// Build and fan out one immutable frame while the caller holds `term`.
