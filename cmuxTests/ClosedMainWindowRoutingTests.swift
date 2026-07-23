@@ -639,6 +639,7 @@ struct RecoverableWindowlessMainWindowRoutingTests {
             backing: .buffered,
             defer: false
         )
+        duplicateWindow.isReleasedWhenClosed = false
         duplicateWindow.identifier = NSUserInterfaceItemIdentifier("cmux.main.\(windowId.uuidString)")
 
         let owner = TabManager()
@@ -721,6 +722,7 @@ struct RecoverableWindowlessMainWindowRoutingTests {
             backing: .buffered,
             defer: false
         )
+        duplicateWindow.isReleasedWhenClosed = false
         duplicateWindow.identifier = NSUserInterfaceItemIdentifier("cmux.main.\(reservedWindowId.uuidString)")
         let sharedManager = TabManager()
         let sharedWorkspace = try #require(sharedManager.selectedWorkspace)
