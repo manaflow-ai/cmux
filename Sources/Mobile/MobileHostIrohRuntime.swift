@@ -116,6 +116,7 @@ final class MobileHostIrohRuntime {
     var signOutPreparationTask: Task<Void, Never>?
     var signOutPreparationRevision: UInt64 = 0
     var lifecycleRevision: UInt64 = 0
+    var nextDiagnosticSessionID = 0
 
     private init() {
         let installState = CmxIrohUserDefaultsInstallStateStore()
@@ -290,5 +291,14 @@ final class MobileHostIrohRuntime {
         for error: any Error
     ) -> DiagnosticFailureKind {
         DiagnosticFailureKind.classify(error)
+    }
+
+    func makeDiagnosticSessionID() -> Int {
+        if nextDiagnosticSessionID == Int.max {
+            nextDiagnosticSessionID = 1
+        } else {
+            nextDiagnosticSessionID += 1
+        }
+        return nextDiagnosticSessionID
     }
 }
