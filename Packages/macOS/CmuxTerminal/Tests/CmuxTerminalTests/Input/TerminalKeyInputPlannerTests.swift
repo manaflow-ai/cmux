@@ -129,14 +129,14 @@ import Testing
         let sources = try #require(
             TISCreateInputSourceList(properties, true)?.takeRetainedValue()
         )
-        let modifierStates = [
-            0,
-            shiftKey,
-            optionKey,
-            shiftKey | optionKey,
-            cmdKey,
-            cmdKey | shiftKey,
-        ]
+        let modifierBits = [shiftKey, optionKey, controlKey, cmdKey]
+        let modifierStates = (0..<(1 << modifierBits.count)).map { mask in
+            modifierBits.enumerated().reduce(0) { result, entry in
+                mask & (1 << entry.offset) == 0
+                    ? result
+                    : result | entry.element
+            }
+        }
         var checkedLayouts = 0
         var checkedTranslations = 0
         var mismatches: [String] = []
