@@ -249,15 +249,25 @@ extension TerminalController {
         let focus: Bool? = inputs.hasFocusParam
             ? v2FocusAllowed(requested: inputs.requestedFocus)
             : nil
+        var effectiveCommand = inputs.command
+        var shimRewrite: RemoteShimRespawnRewrite?
+        if let rewrite = ws.remoteShimRespawnRewrite(panelId: surfaceId, rawCommand: inputs.command) {
+            effectiveCommand = rewrite.command
+            shimRewrite = rewrite
+        }
         guard let replacementPanel = ws.respawnTerminalSurface(
             panelId: surfaceId,
-            command: inputs.command,
+            command: effectiveCommand,
             workingDirectory: inputs.workingDirectory,
-            tmuxStartCommand: inputs.tmuxStartCommand,
+            tmuxStartCommand: shimRewrite != nil ? effectiveCommand : inputs.tmuxStartCommand,
             focus: focus,
+            waitAfterCommand: shimRewrite != nil ? true : nil,
             allowTextBoxFocusDefault: focus == true
         ) else {
             return .respawnFailed(surfaceId)
+        }
+        if let shimRewrite {
+            ws.applyRemoteShimRespawnBookkeeping(panelId: surfaceId, sessionID: shimRewrite.sessionID)
         }
         return .respawned(
             windowID: v2ResolveWindowId(tabManager: tabManager),

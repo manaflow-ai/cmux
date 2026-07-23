@@ -5820,7 +5820,7 @@ final class Workspace: Identifiable, ObservableObject {
         syncRemoteRelayIDAliasesToController()
     }
 
-    private func removeRemoteRelaySurfaceAliases(targeting panelId: UUID) {
+    func removeRemoteRelaySurfaceAliases(targeting panelId: UUID) {
         let nextAliases = remoteRelaySurfaceIDAliases.filter { $0.value != panelId }
         guard nextAliases != remoteRelaySurfaceIDAliases else { return }
         remoteRelaySurfaceIDAliases = nextAliases
