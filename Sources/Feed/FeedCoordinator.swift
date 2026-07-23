@@ -321,9 +321,9 @@ final class FeedCoordinator: @unchecked Sendable {
 
     private static func ingressMetadata(
         for events: [WorkstreamEvent],
-        importance: FeedIngressDeliveryLane.Importance
-    ) -> FeedIngressDeliveryLane.Metadata {
-        FeedIngressDeliveryLane.Metadata(
+        importance: FeedIngressDeliveryImportance
+    ) -> FeedIngressDeliveryMetadata {
+        FeedIngressDeliveryMetadata(
             keys: Set(events.map(\.feedIngressDeliveryKey)),
             importance: importance
         )

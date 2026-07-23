@@ -7,34 +7,8 @@ import Foundation
 final class FeedIngressDeliveryLane: @unchecked Sendable {
     private typealias Delivery = @Sendable () -> Void
 
-    struct Key: Hashable, Sendable {
-        let source: String
-        let sessionId: String
-    }
-
-    enum Importance: Sendable, Equatable {
-        case ordinary
-        case lifecycle
-        case acknowledged
-
-        fileprivate var isPriority: Bool {
-            self != .ordinary
-        }
-    }
-
-    struct Metadata: Sendable {
-        let keys: Set<Key>
-        let importance: Importance
-
-        init(keys: Set<Key>, importance: Importance) {
-            precondition(!keys.isEmpty, "Feed ingress delivery requires at least one ordering key")
-            self.keys = keys
-            self.importance = importance
-        }
-    }
-
     private struct PendingDelivery: Sendable {
-        let metadata: Metadata
+        let metadata: FeedIngressDeliveryMetadata
         let isZeroWait: Bool
         let execute: Delivery
     }
@@ -59,7 +33,7 @@ final class FeedIngressDeliveryLane: @unchecked Sendable {
 
     /// Runs acknowledged or actionable ingress after its earlier same-key deliveries.
     func perform<Result: Sendable>(
-        metadata: Metadata,
+        metadata: FeedIngressDeliveryMetadata,
         _ delivery: @escaping @Sendable () -> Result
     ) -> Result {
         let result = FeedIngressSynchronousResult<Result>()
@@ -78,7 +52,7 @@ final class FeedIngressDeliveryLane: @unchecked Sendable {
 
     /// Admits a typed zero-wait delivery when its bounded capacity class has room.
     func enqueueZeroWait(
-        metadata: Metadata,
+        metadata: FeedIngressDeliveryMetadata,
         _ delivery: @escaping @Sendable () -> Void
     ) -> Bool {
         admissionLock.lock()
