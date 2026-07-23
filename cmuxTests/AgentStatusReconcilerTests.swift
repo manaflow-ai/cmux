@@ -30,7 +30,7 @@ struct AgentStatusReconcilerTests {
         #expect(resolution == AgentStatusResolution(lifecycle: .unknown, confidence: .uncertain))
     }
 
-    @Test func recentOutputFromMatchingForegroundAgentInfersRunning() {
+    @Test func recentRedrawFromMatchingForegroundAgentCannotKeepRunning() {
         let evidence = AgentStatusEvidence(
             lifecycle: .running,
             lifecycleObservedAt: now.addingTimeInterval(-121),
@@ -45,7 +45,7 @@ struct AgentStatusReconcilerTests {
             hasLiveRuntime: true,
             now: now
         )
-        #expect(resolution == AgentStatusResolution(lifecycle: .running, confidence: .inferred))
+        #expect(resolution == AgentStatusResolution(lifecycle: .unknown, confidence: .uncertain))
     }
 
     @Test func unrelatedForegroundOutputCannotKeepAgentRunning() {
@@ -86,7 +86,7 @@ struct AgentStatusReconcilerTests {
     }
 
     @Test(
-        "Transition rendering stays idle while later attributed activity can run",
+        "Idle agent redraws never imply a turn",
         arguments: [AgentHibernationLifecycleState.unknown, .idle], [1.0, 20.0]
     )
     func lifecycleTransitionActivityRespectsGrace(
@@ -108,8 +108,7 @@ struct AgentStatusReconcilerTests {
             hasLiveRuntime: true,
             now: now
         )
-        let expected: AgentHibernationLifecycleState = activityDelay > 15 ? .running : .idle
-        #expect(resolution?.lifecycle == expected)
+        #expect(resolution?.lifecycle == .idle)
     }
 
     @Test func freshNeedsInputOverridesStalePromptIdleShellState() {
