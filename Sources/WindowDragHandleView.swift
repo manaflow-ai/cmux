@@ -100,9 +100,10 @@ func windowDragHandleMovedOrigin(
     initialMouseLocation: NSPoint,
     currentMouseLocation: NSPoint
 ) -> NSPoint {
-    NSPoint(
-        x: initialWindowOrigin.x + currentMouseLocation.x - initialMouseLocation.x,
-        y: initialWindowOrigin.y + currentMouseLocation.y - initialMouseLocation.y
+    BonsplitWindowDragSession.movedOrigin(
+        initialWindowOrigin: initialWindowOrigin,
+        initialMouseLocation: initialMouseLocation,
+        currentMouseLocation: currentMouseLocation
     )
 }
 
@@ -1296,8 +1297,7 @@ struct WindowDragHandleView: NSViewRepresentable {
 
     private final class DraggableView: NSView {
         var doubleClickBehavior: TitlebarDoubleClickBehavior
-        private var initialMouseLocation: NSPoint?
-        private var initialWindowOrigin: NSPoint?
+        private var windowDragSession = BonsplitWindowDragSession()
 
         init(doubleClickBehavior: TitlebarDoubleClickBehavior) {
             self.doubleClickBehavior = doubleClickBehavior
@@ -1341,6 +1341,7 @@ struct WindowDragHandleView: NSViewRepresentable {
         }
 
         override func mouseDown(with event: NSEvent) {
+            windowDragSession.end()
             #if DEBUG
             let point = convert(event.locationInWindow, from: nil)
             let depth = windowDragSuppressionDepth(window: window)
@@ -1370,10 +1371,8 @@ struct WindowDragHandleView: NSViewRepresentable {
             }
 
             if let window {
-                window.makeKey()
                 let mouseLocation = window.convertPoint(toScreen: event.locationInWindow)
-                initialMouseLocation = mouseLocation
-                initialWindowOrigin = window.frame.origin
+                windowDragSession.begin(with: event, in: window)
                 #if DEBUG
                 cmuxDebugLog(
                     "titlebar.dragHandle.mouseDownArmed mouse=\(windowDragHandleFormatPoint(mouseLocation)) "
@@ -1386,35 +1385,23 @@ struct WindowDragHandleView: NSViewRepresentable {
         }
 
         override func mouseDragged(with event: NSEvent) {
-            guard let window,
-                  let initialMouseLocation,
-                  let initialWindowOrigin else {
+            guard let window, windowDragSession.isActive else {
                 super.mouseDragged(with: event)
                 return
             }
 
             let mouseLocation = window.convertPoint(toScreen: event.locationInWindow)
-            let proposedOrigin = windowDragHandleMovedOrigin(
-                initialWindowOrigin: initialWindowOrigin,
-                initialMouseLocation: initialMouseLocation,
-                currentMouseLocation: mouseLocation
-            )
-            var proposedFrame = window.frame
-            proposedFrame.origin = proposedOrigin
-            let targetScreen = NSScreen.screens.first { $0.frame.contains(mouseLocation) } ?? window.screen
-            let constrainedFrame = window.constrainFrameRect(proposedFrame, to: targetScreen)
-            window.setFrameOrigin(constrainedFrame.origin)
+            guard let origin = windowDragSession.update(with: event, in: window) else { return }
             #if DEBUG
             cmuxDebugLog(
                 "titlebar.dragHandle.mouseDragged mouse=\(windowDragHandleFormatPoint(mouseLocation)) "
-                    + "origin=\(windowDragHandleFormatPoint(constrainedFrame.origin))"
+                    + "origin=\(windowDragHandleFormatPoint(origin))"
             )
             #endif
         }
 
         override func mouseUp(with event: NSEvent) {
-            initialMouseLocation = nil
-            initialWindowOrigin = nil
+            windowDragSession.end()
             #if DEBUG
             cmuxDebugLog("titlebar.dragHandle.mouseUp")
             #endif
