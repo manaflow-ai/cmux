@@ -1,6 +1,6 @@
 //! User-facing remote daemon, connection, enrollment, and SSH bootstrap CLI.
 
-use std::collections::BTreeMap;
+use std::collections::{BTreeMap, BTreeSet};
 use std::ffi::OsString;
 use std::fs::{self, OpenOptions};
 use std::io::{self, BufRead, Read, Write};
@@ -26,8 +26,8 @@ use cmux_remote::identity::{
     default_state_dir,
 };
 use cmux_remote::provider::{
-    IrohPathMode, ROUTING_DIRECT_ADDRS, ROUTING_NODE_ID, ROUTING_RELAY_URL, RelayCredentialSource,
-    SshProviderConfig, SupportedClientAuthModes,
+    IrohPathMode, ProviderError, ROUTING_DIRECT_ADDRS, ROUTING_NODE_ID, ROUTING_RELAY_URL,
+    RelayCredentialSource, SshProviderConfig, SupportedClientAuthModes,
 };
 use cmux_remote::ssh_bootstrap::{BUILD_IDENTITY, DISTRIBUTION_VERSION, NPM_BOOTSTRAP_VERSION};
 use cmux_remote_protocol::{
@@ -1541,15 +1541,28 @@ fn resolve_route_candidates(
     providers: &cmux_remote::provider::ProviderRegistry,
 ) -> anyhow::Result<Vec<ResolvedRouteCandidate>> {
     let mut candidates = Vec::new();
+    let mut unsupported_schemes = BTreeSet::new();
     for route in routes {
         let mut endpoint = Url::parse(route).with_context(|| format!("invalid route {route:?}"))?;
         let mut routing =
             if endpoint.scheme() == "iroh" { iroh_routing.clone() } else { BTreeMap::new() };
         extract_iroh_routing(&mut endpoint, &mut routing)?;
-        let candidate = ResolvedRouteCandidate::resolve(endpoint, routing, providers)?;
-        if !candidates.contains(&candidate) {
-            candidates.push(candidate);
+        match ResolvedRouteCandidate::resolve(endpoint, routing, providers) {
+            Ok(candidate) if !candidates.contains(&candidate) => candidates.push(candidate),
+            Ok(_) => {}
+            Err(ProviderError::UnsupportedScheme(scheme)) => {
+                unsupported_schemes.insert(scheme);
+            }
+            Err(error) => return Err(error.into()),
         }
+    }
+    if candidates.is_empty() && !unsupported_schemes.is_empty() {
+        let schemes = unsupported_schemes
+            .into_iter()
+            .map(|scheme| format!("{scheme:?}"))
+            .collect::<Vec<_>>()
+            .join(", ");
+        return Err(anyhow!("no local transport provider supports route scheme(s): {schemes}"));
     }
     Ok(candidates)
 }
