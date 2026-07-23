@@ -104,6 +104,11 @@ export interface SendRequest extends CmuxRequestBase {
   paste?: boolean;
 }
 
+export interface ClearHistoryRequest extends CmuxRequestBase {
+  cmd: "clear-history";
+  surface: Id;
+}
+
 export interface ReadScreenRequest extends CmuxRequestBase { cmd: "read-screen"; surface: Id }
 export interface ReadScreenResult { text: string }
 
@@ -427,6 +432,7 @@ export type CmuxRequest =
   | ExportLayoutRequest
   | ApplyLayoutRequest
   | SendRequest
+  | ClearHistoryRequest
   | ReadScreenRequest
   | ReadScrollbackRequest
   | SidebarPluginRequest
@@ -490,6 +496,7 @@ export interface CmuxResponseDataMap {
   "export-layout": ExportLayoutResult;
   "apply-layout": ApplyLayoutResult;
   send: EmptyResult;
+  "clear-history": EmptyResult;
   "read-screen": ReadScreenResult;
   "read-scrollback": ReadScrollbackResult;
   "sidebar-plugin": SidebarPluginResult;

@@ -645,7 +645,7 @@ Example:
 | status | implemented |
 | since | protocol 9 with `clear-history-v1` |
 
-Clears prior output for a live PTY surface, then sends form-feed to the child so it can redraw the active prompt and edit buffer. The authoritative server terminal and attached frontend mirrors receive the same VT erase sequence.
+On the primary screen, clears prior output and sends form-feed to the child so it can redraw the active prompt and edit buffer. The authoritative server terminal and attached frontend mirrors receive the same VT erase sequence. When the alternate screen is active, the command succeeds without changing either screen so full-screen applications retain their state.
 
 Clients must require `identify.capabilities` to contain `clear-history-v1` before sending this command.
 

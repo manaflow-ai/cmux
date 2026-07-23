@@ -172,6 +172,52 @@ test("newPane rejects servers older than protocol 9", async () => {
   await client.close();
 });
 
+test("clearHistory rejects servers without the advertised capability", async () => {
+  let clearRequests = 0;
+  const transport = new ScriptedTransport((request, connection) => {
+    if (request.cmd === "identify") {
+      connection.emit({
+        id: request.id,
+        ok: true,
+        data: { app: "cmux-tui", version: "0.1.2", protocol: 9, session: "main", pid: 1 },
+      });
+      return;
+    }
+    clearRequests += 1;
+  });
+  const client = new CmuxClient({ transport, timeoutMs: 100 });
+
+  await assert.rejects(client.clearHistory(7), /clear-history is not supported/);
+  assert.equal(clearRequests, 0);
+  await client.close();
+});
+
+test("clearHistory sends the capability-gated wire command", async () => {
+  const transport = new ScriptedTransport((request, connection) => {
+    if (request.cmd === "identify") {
+      connection.emit({
+        id: request.id,
+        ok: true,
+        data: {
+          app: "cmux-tui",
+          version: "0.1.2",
+          protocol: 9,
+          capabilities: ["clear-history-v1"],
+          session: "main",
+          pid: 1,
+        },
+      });
+      return;
+    }
+    assert.deepEqual(request, { id: 2, cmd: "clear-history", surface: 7 });
+    connection.emit({ id: request.id, ok: true, data: {} });
+  });
+  const client = new CmuxClient({ transport, timeoutMs: 100 });
+
+  await client.clearHistory(7);
+  await client.close();
+});
+
 test("setSplitRatio rejects servers older than protocol 8", async () => {
   const transport = new ScriptedTransport((request, connection) => {
     assert.equal(request.cmd, "identify");

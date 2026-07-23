@@ -424,6 +424,11 @@ class CmuxClient:
         self._request("send", surface=surface, text=text, bytes=encoded)
         return EmptyResult()
 
+    def clear_history(self, surface: int) -> EmptyResult:
+        self._require_capability("clear-history-v1", "clear-history")
+        self._request("clear-history", surface=surface)
+        return EmptyResult()
+
     def read_screen(self, surface: int) -> ReadScreenResult:
         data = self._request("read-screen", surface=surface)
         return ReadScreenResult(text=str(data["text"]))

@@ -126,6 +126,11 @@ public final class CmuxClient implements AutoCloseable {
         request("send", params);
     }
 
+    public void clearHistory(long surface) throws CmuxException {
+        requireCapability("clear-history-v1", "clear-history");
+        request("clear-history", surfaceParams(surface));
+    }
+
     public ReadScreenResult readScreen(long surface) throws CmuxException {
         return new ReadScreenResult(asString(request("read-screen", surfaceParams(surface)).get("text")));
     }

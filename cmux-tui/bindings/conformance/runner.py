@@ -208,6 +208,7 @@ def dispatch(client: CmuxClient, cmd: str, params: Dict[str, Any]) -> Any:
         "export-layout": client.export_layout,
         "apply-layout": client.apply_layout,
         "send": lambda **kw: client.send(kw["surface"], text=kw.get("text"), bytes_data=kw.get("bytes")),
+        "clear-history": client.clear_history,
         "read-screen": client.read_screen,
         "vt-state": client.vt_state,
         "new-tab": client.new_tab,

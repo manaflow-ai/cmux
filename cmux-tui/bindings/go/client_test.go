@@ -196,6 +196,48 @@ func TestSetSplitRatioRejectsServersOlderThanProtocolEight(t *testing.T) {
 	}
 }
 
+func TestClearHistoryRequiresCapability(t *testing.T) {
+	protocol := uint32(9)
+	client := &Client{protocol: &protocol}
+	err := client.ClearHistory(context.Background(), 7)
+	if err == nil || !errors.Is(err, ErrProtocolMismatch) {
+		t.Fatalf("ClearHistory() error = %v, want protocol mismatch", err)
+	}
+}
+
+func TestClearHistorySendsCapabilityGatedWireCommand(t *testing.T) {
+	clientConn, serverConn := net.Pipe()
+	defer serverConn.Close()
+	protocol := uint32(9)
+	client := &Client{
+		timeout:      time.Second,
+		conn:         &jsonLineConn{conn: clientConn, reader: bufio.NewReader(clientConn)},
+		protocol:     &protocol,
+		capabilities: map[string]struct{}{"clear-history-v1": {}},
+	}
+	defer client.Close()
+
+	requests := make(chan map[string]any, 1)
+	go func() {
+		decoder := json.NewDecoder(serverConn)
+		encoder := json.NewEncoder(serverConn)
+		var request map[string]any
+		if decoder.Decode(&request) != nil {
+			return
+		}
+		requests <- request
+		_ = encoder.Encode(map[string]any{"id": request["id"], "ok": true, "data": map[string]any{}})
+	}()
+
+	if err := client.ClearHistory(context.Background(), 7); err != nil {
+		t.Fatalf("ClearHistory() error = %v", err)
+	}
+	request := <-requests
+	if request["cmd"] != "clear-history" || request["surface"] != float64(7) {
+		t.Fatalf("ClearHistory() request = %#v", request)
+	}
+}
+
 func TestSetSplitRatioAcceptsNewerAdditiveProtocols(t *testing.T) {
 	protocol := uint32(9)
 	client := &Client{protocol: &protocol}

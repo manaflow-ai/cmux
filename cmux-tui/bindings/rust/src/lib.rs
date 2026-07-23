@@ -457,6 +457,11 @@ impl CmuxClient {
         self.request::<Empty>("send", params).map(|_| ())
     }
 
+    pub fn clear_history(&mut self, surface: u64) -> Result<()> {
+        self.require_capability("clear-history-v1", "clear-history")?;
+        self.request::<Empty>("clear-history", surface_params(surface)).map(|_| ())
+    }
+
     pub fn read_screen(&mut self, surface: u64) -> Result<ReadScreenResult> {
         self.request("read-screen", surface_params(surface))
     }
@@ -1274,6 +1279,54 @@ mod tests {
             error.to_string(),
             "set-split-ratio requires protocol 8; server uses protocol 7"
         );
+    }
+
+    #[test]
+    fn clear_history_requires_capability() {
+        let (socket, _peer) = UnixStream::pair().unwrap();
+        let writer = socket.try_clone().unwrap();
+        let mut client = CmuxClient {
+            config: ClientConfig::default(),
+            conn: JsonLineConnection { writer, reader: BufReader::new(socket) },
+            next_id: 1,
+            protocol: Some(9),
+            capabilities: Vec::new(),
+        };
+
+        let error = client.clear_history(7).unwrap_err();
+        assert_eq!(error.to_string(), "clear-history is not supported by this server");
+    }
+
+    #[test]
+    fn clear_history_sends_capability_gated_wire_command() {
+        let (socket, peer) = UnixStream::pair().unwrap();
+        let writer = socket.try_clone().unwrap();
+        let server = std::thread::spawn(move || {
+            let mut response_writer = peer.try_clone().unwrap();
+            let mut reader = BufReader::new(peer);
+            let mut line = String::new();
+            reader.read_line(&mut line).unwrap();
+            let request: Value = serde_json::from_str(&line).unwrap();
+            assert_eq!(
+                request,
+                serde_json::json!({
+                    "id": 1,
+                    "cmd": "clear-history",
+                    "surface": 7,
+                })
+            );
+            response_writer.write_all(b"{\"id\":1,\"ok\":true,\"data\":{}}\n").unwrap();
+        });
+        let mut client = CmuxClient {
+            config: ClientConfig::default(),
+            conn: JsonLineConnection { writer, reader: BufReader::new(socket) },
+            next_id: 1,
+            protocol: Some(9),
+            capabilities: vec!["clear-history-v1".to_string()],
+        };
+
+        client.clear_history(7).unwrap();
+        server.join().unwrap();
     }
 
     #[test]

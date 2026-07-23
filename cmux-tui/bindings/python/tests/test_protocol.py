@@ -124,6 +124,22 @@ class ProtocolTests(unittest.TestCase):
             client.create_terminal()
         with self.assertRaisesRegex(ValueError, "workspace or key is required"):
             client.close_workspace_registry(key="  ")
+
+    def test_clear_history_requires_capability_and_preserves_wire_params(self) -> None:
+        client = CmuxClient.__new__(CmuxClient)
+        client._protocol = 9
+        client._capabilities = set()
+        with self.assertRaisesRegex(ProtocolError, "clear-history is not supported"):
+            client.clear_history(7)
+
+        requests = []
+        client._capabilities = {"clear-history-v1"}
+        client._request = lambda command, **params: requests.append((command, params)) or {}
+
+        client.clear_history(7)
+
+        self.assertEqual(requests, [("clear-history", {"surface": 7})])
+
     def test_new_pane_rejects_servers_older_than_protocol_nine(self) -> None:
         client = CmuxClient.__new__(CmuxClient)
         client._protocol = 8

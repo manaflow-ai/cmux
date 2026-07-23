@@ -286,6 +286,7 @@
     },
     {
       "name": "send-read-screen-round-trip",
+      "requires": { "commands": ["clear-history"] },
       "steps": [
         {
           "type": "command",
@@ -306,6 +307,12 @@
           "path": "data.text",
           "contains": "cmux-conformance-marker",
           "timeout_ms": 10000
+        },
+        {
+          "type": "command",
+          "request": { "id": 4, "cmd": "clear-history", "surface": "$surface0" },
+          "expect": { "id": 4, "ok": true, "data": {} },
+          "match": "exact"
         }
       ]
     },

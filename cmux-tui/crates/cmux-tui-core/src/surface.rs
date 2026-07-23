@@ -16,7 +16,8 @@ use std::sync::{Arc, Mutex, TryLockError, Weak};
 use std::time::{Duration, Instant};
 
 use ghostty_vt::{
-    Callbacks, CursorShape, MouseEncoders, MouseInput, RenderFrame, RenderState, Rgb, Terminal,
+    Callbacks, CursorShape, MouseEncoders, MouseInput, RenderFrame, RenderState, Rgb, Screen,
+    Terminal,
 };
 use portable_pty::{ChildKiller, CommandBuilder, MasterPty, PtySize, native_pty_system};
 
@@ -889,11 +890,11 @@ impl Surface {
         Ok(())
     }
 
-    /// Clear retained output, then ask the child to redraw its current prompt
-    /// and edit buffer. Attached byte frontends receive the same VT erase
-    /// sequence so every mirror stays authoritative and reconnects stay clear.
+    /// Clear retained primary-screen output, then ask the child to redraw its
+    /// current prompt and edit buffer. Attached byte frontends receive the same
+    /// VT erase sequence. Alternate-screen applications are left untouched.
     pub fn clear_history(&self) -> anyhow::Result<()> {
-        const CLEAR_HISTORY_AND_SCREEN: &[u8] = b"\x1b[3J\x1b[2J\x1b[H";
+        const CLEAR_HISTORY_AND_SCREEN: &[u8] = b"\x1b[2J\x1b[3J\x1b[H";
         const REDRAW_PROMPT: &[u8] = b"\x0c";
 
         let Some(pty) = self.as_pty() else {
@@ -901,6 +902,9 @@ impl Surface {
         };
         let scroll_changed = {
             let mut term = pty.term.lock().unwrap();
+            if term.active_screen() == Screen::Alternate {
+                return Ok(());
+            }
             let before = terminal_scroll_position(&term);
             term.vt_write(CLEAR_HISTORY_AND_SCREEN);
             pty.mouse_encoders.lock().unwrap().sync_from_terminal(&term);
@@ -1805,7 +1809,7 @@ mod tests {
                 let history_rows = term.history_rows();
                 term.vt_write(b"\x1b[?1049h");
                 term.vt_write(b"alternate-app");
-                assert_eq!(term.active_screen(), ghostty_vt::Screen::Alternate);
+                assert_eq!(term.active_screen(), Screen::Alternate);
                 history_rows
             })
             .unwrap();
@@ -1813,10 +1817,10 @@ mod tests {
         surface.clear_history().unwrap();
 
         surface.with_terminal(|term| {
-            assert_eq!(term.active_screen(), ghostty_vt::Screen::Alternate);
+            assert_eq!(term.active_screen(), Screen::Alternate);
             assert!(term.viewport_text().unwrap().contains("alternate-app"));
             term.vt_write(b"\x1b[?1049l");
-            assert_eq!(term.active_screen(), ghostty_vt::Screen::Primary);
+            assert_eq!(term.active_screen(), Screen::Primary);
             assert_eq!(term.history_rows(), primary_history_rows);
             assert!(term.viewport_text().unwrap().contains("primary-tail"));
         });
