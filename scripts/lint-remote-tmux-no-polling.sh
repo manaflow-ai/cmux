@@ -41,6 +41,19 @@ BASELINE_FILE="scripts/remote-tmux-polling-baseline.txt"
 ALLOW=(
   "Sources/RemoteTmuxControlConnection.swift:startLivenessMonitorIfNeeded|A transport that reconnects internally emits NO EOF for a network drop: its process stays up and the stream pauses, so a wedged transport is indistinguishable from an idle one. There is no event for 'still carrying the protocol' — the only way to know is to ask, so this probes rather than waits."
   "Sources/RemoteTmuxControlConnection.swift:scheduleReconnectAttempt|Reconnect backoff for a host that is unreachable. The edge would be 'the host came back', which nothing local can observe; retrying IS the observation."
+
+  # Deadline arms, not polls: each of these races `await <edge>` against a sleep inside the same task
+  # group, so the edge is what normally ends the wait and the sleep only bounds it. The lint cannot see
+  # that shape, which is why they are listed rather than fixed — see the task note about making the rule
+  # structural instead.
+  "Sources/RemoteTmuxController+Attach.swift:mirrorsWithPublishedTopology|Deadline arm racing waitUntilInitialTopology() for the whole mirror set"
+  "Sources/RemoteTmuxController+Attach.swift:dropMirrorIfTopologyNeverPublishes|Deadline arm racing waitUntilInitialTopology() for one late mirror"
+  "Sources/RemoteTmuxController+Attach.swift:awaitAuthenticationThenResume|Deadline arm bounding a login the user may never complete"
+  "Sources/RemoteTmuxViewConnection.swift:awaitFirstWorkspaces|Deadline arm racing the view's first workspace publication"
+  "Sources/RemoteTmuxController.swift:awaitNewWorkspace|Deadline arm racing the new-workspace signal"
+  "Sources/RemoteTmuxControlConnection+PaneSubscriptions.swift:queryWithTimeout|Deadline arm racing the reply for this command number"
+  "Sources/RemoteTmuxControlConnection.swift:detachThenStop|Backstop for a stream that has stopped answering; tmux's own %exit ends the wait and cancels it"
+  "Sources/RemoteTmuxViewConnection.swift:scheduleBringupRetry|Bounded backoff. The bringup it retries failed WITHOUT producing an edge to wait on, which is the whole reason it exists"
 )
 
 fail=0
