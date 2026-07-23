@@ -15,7 +15,9 @@ struct WorkspaceExplicitBrowserSourceTests {
     func newBrowserSurfaceUsesExplicitBackgroundSourceProfile() throws {
         let workspace = Workspace()
         let profileA = try makeTemporaryBrowserProfile(named: "Explicit Source")
+        defer { _ = BrowserProfileStore.shared.deleteProfile(id: profileA.id) }
         let profileB = try makeTemporaryBrowserProfile(named: "Live Focus")
+        defer { _ = BrowserProfileStore.shared.deleteProfile(id: profileB.id) }
         let paneID = try #require(workspace.bonsplitController.focusedPaneId)
         let browserA = try #require(workspace.newBrowserSurface(
             inPane: paneID,

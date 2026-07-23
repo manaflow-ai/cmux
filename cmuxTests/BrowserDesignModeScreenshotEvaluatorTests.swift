@@ -166,6 +166,7 @@ struct BrowserDesignModeScreenshotEvaluatorTests {
 
     @Test func sharedDesignModeActivationDeactivatesReactGrab() async throws {
         let panel = await loadedBrowserPanel()
+        defer { panel.close() }
         panel.handleReactGrabBridgeMessage(.stateChange(isActive: true))
 
         let enabled = await panel.setDesignModeEnabled(true, reason: "test.designMode")
@@ -175,8 +176,24 @@ struct BrowserDesignModeScreenshotEvaluatorTests {
         #expect(!panel.isReactGrabActive)
     }
 
+    @Test func designModeDeactivatesObservedReactGrabDespitePendingInactiveIntent() async {
+        let panel = await loadedBrowserPanel()
+        defer { panel.close() }
+        panel.handleReactGrabBridgeMessage(.stateChange(isActive: true))
+        panel.requestedReactGrabActive = false
+        panel.latestReactGrabRequestedState = false
+
+        let enabled = await panel.setDesignModeEnabled(true, reason: "test.pendingDeactivation")
+
+        #expect(enabled)
+        #expect(panel.designModeController.isActive)
+        #expect(!panel.isReactGrabActive)
+        #expect(panel.requestedReactGrabActive == nil)
+    }
+
     @Test func sharedReactGrabActivationPreparationDeactivatesDesignMode() async throws {
         let panel = await loadedBrowserPanel()
+        defer { panel.close() }
         #expect(await panel.setDesignModeEnabled(true, reason: "test.designMode"))
 
         let prepared = await panel.prepareForReactGrabActivation(reason: "test.reactGrab")

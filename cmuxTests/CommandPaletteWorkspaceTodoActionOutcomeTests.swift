@@ -2,6 +2,7 @@ import AppKit
 import CmuxCommandPalette
 import CmuxSettings
 import Foundation
+import Observation
 import Testing
 
 #if canImport(cmux_DEV)
@@ -13,6 +14,22 @@ import Testing
 @MainActor
 @Suite("Command palette workspace todo action outcomes", .serialized)
 struct CommandPaletteWorkspaceTodoActionOutcomeTests {
+    @Test func checklistPresentationRequestRevisionUsesObservation() {
+        let store = WorkspaceTodoChecklistAddRequestStore()
+        let changeFlag = WorkspaceTodoChecklistObservationChangeFlag()
+
+        withObservationTracking {
+            _ = store.revision
+        } onChange: {
+            changeFlag.mark()
+        }
+
+        _ = store.request(workspaceID: UUID())
+
+        #expect(changeFlag.fired)
+        #expect(store.revision == 1)
+    }
+
     @Test func checklistPresentationRequestPersistsUntilMatchingConsumption() {
         let store = WorkspaceTodoChecklistAddRequestStore()
         let firstWorkspaceID = UUID()
@@ -260,5 +277,14 @@ struct CommandPaletteWorkspaceTodoActionOutcomeTests {
         #expect(handler(CmuxActionInvocation(source: .automation)) == .completed)
         #expect(targetWorkspace.focusedPanelId == todoPanel.id)
         #expect(tabManager.selectedTabId == selectedWorkspace.id)
+    }
+}
+
+// Mutable flag captured by Observation's Sendable onChange closure in this test.
+private final class WorkspaceTodoChecklistObservationChangeFlag: @unchecked Sendable {
+    private(set) var fired = false
+
+    func mark() {
+        fired = true
     }
 }

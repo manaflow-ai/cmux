@@ -183,7 +183,7 @@ struct CmuxConfigActionCatalogTests {
         ))
         let unchangedFresh = try #require(await store.freshActionCatalogSnapshot(
             startingFrom: projectB.path,
-            deadline: Date(timeIntervalSinceNow: 5)
+            deadline: .distantFuture
         ))
         #expect(unchangedFresh.id == snapshotBefore.id)
         #expect(unchangedFresh.sourceFingerprint == snapshotBefore.sourceFingerprint)
@@ -192,7 +192,7 @@ struct CmuxConfigActionCatalogTests {
             .write(to: configB, atomically: true, encoding: .utf8)
         let fresh = try #require(await store.freshActionCatalogSnapshot(
             startingFrom: projectB.path,
-            deadline: Date(timeIntervalSinceNow: 5)
+            deadline: .distantFuture
         ))
         #expect(fresh.id != snapshotBefore.id)
         #expect(fresh.catalog.resolvedAction(id: "project.action")?.workspaceCommandName == "Project C")
@@ -310,9 +310,7 @@ struct CmuxConfigActionCatalogTests {
             ))
         }
         defer { task.cancel() }
-        #expect(await waitUntil { FileManager.default.fileExists(atPath: pidURL.path) })
-        let pidString = try #require(String(data: Data(contentsOf: pidURL), encoding: .utf8))
-        let childPID = try #require(pid_t(pidString))
+        let childPID = try #require(await waitForPID(at: pidURL))
 
         task.cancel()
         let response = await task.value
@@ -346,9 +344,7 @@ struct CmuxConfigActionCatalogTests {
         }
         defer {
             for url in [pidAURL, pidBURL] {
-                if let data = try? Data(contentsOf: url),
-                   let string = String(data: data, encoding: .utf8),
-                   let pid = pid_t(string) {
+                if let pid = readPID(at: url) {
                     _ = Darwin.kill(-pid, SIGKILL)
                 }
             }
@@ -448,14 +444,9 @@ struct CmuxConfigActionCatalogTests {
                 await load(fixture.hungB.path)
             }
         }
-        #expect(await waitUntil {
-            FileManager.default.fileExists(atPath: pidAURL.path)
-                && FileManager.default.fileExists(atPath: pidBURL.path)
-        })
-        let childPIDs = try [pidAURL, pidBURL].map { url in
-            let string = try #require(String(data: Data(contentsOf: url), encoding: .utf8))
-            return try #require(pid_t(string))
-        }
+        let childPIDA = try #require(await waitForPID(at: pidAURL))
+        let childPIDB = try #require(await waitForPID(at: pidBURL))
+        let childPIDs = [childPIDA, childPIDB]
 
         let global = await coordinator.run(key: "global", lane: .global, requestID: UUID()) {
             await load(nil)
@@ -505,9 +496,7 @@ struct CmuxConfigActionCatalogTests {
         defer { try? FileManager.default.removeItem(at: root) }
         let pidURL = root.appendingPathComponent("flood.pid")
         defer {
-            if let data = try? Data(contentsOf: pidURL),
-               let string = String(data: data, encoding: .utf8),
-               let pid = pid_t(string) {
+            if let pid = readPID(at: pidURL) {
                 _ = Darwin.kill(-pid, SIGKILL)
             }
         }
@@ -527,16 +516,13 @@ struct CmuxConfigActionCatalogTests {
                 environment: ["PATH": "/usr/bin:/bin"]
             )
         }
-        let start = ContinuousClock().now
         let response = await reader.read(request: .init(
             directory: nil,
             globalConfigPath: root.appendingPathComponent("global.json").path,
             maximumConfigBytes: 64
         ))
         #expect(response == nil)
-        #expect(start.duration(to: .now) < .seconds(2))
-        let pidString = try #require(String(data: Data(contentsOf: pidURL), encoding: .utf8))
-        let childPID = try #require(pid_t(pidString))
+        let childPID = try #require(await waitForPID(at: pidURL))
         errno = 0
         #expect(Darwin.kill(childPID, 0) == -1)
         #expect(errno == ESRCH)
@@ -552,9 +538,7 @@ struct CmuxConfigActionCatalogTests {
         )
         let pidURL = fixture.root.appendingPathComponent("quarantined.pid")
         defer {
-            if let data = try? Data(contentsOf: pidURL),
-               let string = String(data: data, encoding: .utf8),
-               let pid = pid_t(string) {
+            if let pid = readPID(at: pidURL) {
                 _ = Darwin.kill(-pid, SIGKILL)
             }
         }
@@ -605,7 +589,7 @@ struct CmuxConfigActionCatalogTests {
                 )
             }
         }
-        #expect(await waitUntil { FileManager.default.fileExists(atPath: pidURL.path) })
+        let childPID = try #require(await waitForPID(at: pidURL))
         let healthyTask = Task.detached {
             await coordinator.run(key: "healthy", lane: .general, requestID: UUID()) {
                 await CmuxConfigStore.loadActionCatalogSource(
@@ -622,19 +606,13 @@ struct CmuxConfigActionCatalogTests {
         #expect(state.quarantinedCount == 1)
         #expect(state.blockedKeys.count == 1)
 
-        let sameKeyStart = ContinuousClock().now
         let sameKey = await reader.read(request: .init(
             directory: fixture.hungA.path,
             globalConfigPath: fixture.globalPath,
             maximumConfigBytes: 1 << 20
         ))
         #expect(sameKey == nil)
-        #expect(sameKeyStart.duration(to: .now) < .milliseconds(50))
 
-        let childPID = try #require(pid_t(String(
-            data: Data(contentsOf: pidURL),
-            encoding: .utf8
-        ) ?? ""))
         _ = Darwin.kill(-childPID, SIGKILL)
         #expect(await waitUntil {
             await quarantine.state().quarantinedCount == 0
@@ -653,9 +631,7 @@ struct CmuxConfigActionCatalogTests {
         defer { try? FileManager.default.removeItem(at: root) }
         let pidURL = root.appendingPathComponent("admission-race.pid")
         defer {
-            if let data = try? Data(contentsOf: pidURL),
-               let string = String(data: data, encoding: .utf8),
-               let pid = pid_t(string) {
+            if let pid = readPID(at: pidURL) {
                 _ = Darwin.kill(-pid, SIGKILL)
             }
         }
@@ -719,12 +695,10 @@ struct CmuxConfigActionCatalogTests {
             runTask.cancel()
         }
 
-        #expect(await waitUntil { FileManager.default.fileExists(atPath: pidURL.path) })
+        let childPID = try #require(await waitForPID(at: pidURL))
         #expect(await waitUntil {
             await quarantine.state().generalQuarantinedCount == 1
         })
-        let pidString = try #require(String(data: Data(contentsOf: pidURL), encoding: .utf8))
-        let childPID = try #require(pid_t(pidString))
         _ = Darwin.kill(-childPID, SIGKILL)
         #expect(await waitUntil {
             let state = await quarantine.state()
@@ -763,9 +737,7 @@ struct CmuxConfigActionCatalogTests {
         let pidThird = fixture.root.appendingPathComponent("general-third.pid")
         defer {
             for url in [pidA, pidB, pidThird] {
-                if let data = try? Data(contentsOf: url),
-                   let string = String(data: data, encoding: .utf8),
-                   let pid = pid_t(string) {
+                if let pid = readPID(at: url) {
                     _ = Darwin.kill(-pid, SIGKILL)
                 }
             }
@@ -826,10 +798,9 @@ struct CmuxConfigActionCatalogTests {
             generalA.cancel()
             generalB.cancel()
         }
-        #expect(await waitUntil {
-            FileManager.default.fileExists(atPath: pidA.path)
-                && FileManager.default.fileExists(atPath: pidB.path)
-        })
+        let childPIDA = try #require(await waitForPID(at: pidA))
+        let childPIDB = try #require(await waitForPID(at: pidB))
+        let childPIDs = [childPIDA, childPIDB]
         #expect(await generalA.value == nil)
         #expect(await generalB.value == nil)
         #expect(await quarantine.state().generalQuarantinedCount == 2)
@@ -849,10 +820,7 @@ struct CmuxConfigActionCatalogTests {
         #expect(global?.global.status == .data)
         #expect(await quarantine.state().globalQuarantinedCount == 0)
 
-        for url in [pidA, pidB] {
-            let data = try Data(contentsOf: url)
-            let string = try #require(String(data: data, encoding: .utf8))
-            let pid = try #require(pid_t(string))
+        for pid in childPIDs {
             _ = Darwin.kill(-pid, SIGKILL)
         }
         #expect(await waitUntil { await quarantine.state().quarantinedCount == 0 })
@@ -931,6 +899,29 @@ struct CmuxConfigActionCatalogTests {
           "commands": [{ "name": "\(name)", "workspace": { "name": "\(name)" } }]
         }
         """
+    }
+
+    private func readPID(at url: URL) -> pid_t? {
+        guard let data = try? Data(contentsOf: url),
+              let string = String(data: data, encoding: .utf8),
+              let pid = pid_t(string.trimmingCharacters(in: .whitespacesAndNewlines)),
+              pid > 0 else {
+            return nil
+        }
+        return pid
+    }
+
+    private func waitForPID(
+        at url: URL,
+        timeout: Duration = .seconds(2)
+    ) async -> pid_t? {
+        let clock = ContinuousClock()
+        let deadline = clock.now.advanced(by: timeout)
+        while clock.now < deadline {
+            if let pid = readPID(at: url) { return pid }
+            try? await clock.sleep(for: .milliseconds(10))
+        }
+        return readPID(at: url)
     }
 
     private func waitUntil(

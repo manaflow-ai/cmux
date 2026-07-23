@@ -445,6 +445,29 @@ extension CMUXCLIErrorOutputRegressionTests {
         #expect(params["command_id"] as? String == "--json")
     }
 
+    @Test func paletteDoubleDashProtectsActionIDsThatMatchPaletteOptions() throws {
+        let cliPath = try bundledCLIPath()
+        let socketPath = "/tmp/cmux-pal-option-dash-\(UUID().uuidString.prefix(8)).sock"
+        let responder = try UnixSocketResponder(
+            path: socketPath,
+            response: #"{"ok":true,"result":{"status":"completed","command":{"id":"--target","title":"Option-shaped action","subtitle":"Test","shortcut_hint":null,"keywords":[],"dismiss_on_run":true}}}"#
+        )
+        defer { responder.stop() }
+
+        let result = runProcess(
+            executablePath: cliPath,
+            arguments: ["--socket", socketPath, "palette", "--", "--target"],
+            environment: commandPaletteCLIEnvironment(),
+            timeout: 5
+        )
+
+        #expect(!result.timedOut)
+        #expect(result.status == 0)
+        let request = try commandPaletteCLIRequest(try #require(responder.receivedRequests.first))
+        let params = try #require(request["params"] as? [String: Any])
+        #expect(params["command_id"] as? String == "--target")
+    }
+
     @Test func paletteAndVSCodeRejectBlankExplicitSelectors() throws {
         let cliPath = try bundledCLIPath()
         let paletteSocketPath = "/tmp/cmux-pal-blank-\(UUID().uuidString.prefix(8)).sock"
@@ -481,6 +504,38 @@ extension CMUXCLIErrorOutputRegressionTests {
         #expect(vscodeResponder.receivedRequests.isEmpty)
     }
 
+    @Test func paletteAndVSCodeRejectBareValueOptionsBeforeConnecting() throws {
+        let cliPath = try bundledCLIPath()
+        let cases: [(name: String, arguments: [String], option: String)] = [
+            ("palette-target", ["palette", "--target"], "--target"),
+            ("palette-window", ["palette", "--window"], "--window"),
+            ("palette-argument", ["palette", "--arg"], "--arg"),
+            ("vscode-workspace", ["vscode", "--workspace"], "--workspace"),
+            ("vscode-window", ["vscode", "--window"], "--window"),
+        ]
+
+        for testCase in cases {
+            let socketPath = "/tmp/cmux-\(testCase.name)-\(UUID().uuidString.prefix(8)).sock"
+            let responder = try UnixSocketResponder(
+                path: socketPath,
+                response: #"{"ok":true,"result":{"accepted":true,"status":"queued","path":"/tmp"}}"#
+            )
+            defer { responder.stop() }
+
+            let result = runProcess(
+                executablePath: cliPath,
+                arguments: ["--socket", socketPath] + testCase.arguments,
+                environment: commandPaletteCLIEnvironment(),
+                timeout: 5
+            )
+
+            #expect(!result.timedOut)
+            #expect(result.status != 0)
+            #expect(result.stdout.contains(testCase.option))
+            #expect(responder.receivedRequests.isEmpty)
+        }
+    }
+
     @Test func vscodeShorthandDefaultsToTheCurrentDirectory() throws {
         let cliPath = try bundledCLIPath()
         let socketPath = "/tmp/cmux-vscode-\(UUID().uuidString.prefix(8)).sock"
@@ -507,6 +562,45 @@ extension CMUXCLIErrorOutputRegressionTests {
         #expect(request["method"] as? String == "vscode.open")
         let params = try #require(request["params"] as? [String: Any])
         #expect(params["path"] as? String == directoryURL.standardizedFileURL.path)
+    }
+
+    @Test func vscodeNormalizesPathsLexicallyWithoutFollowingSymlinks() throws {
+        let cliPath = try bundledCLIPath()
+        let socketPath = "/tmp/cmux-vscode-lexical-\(UUID().uuidString.prefix(8)).sock"
+        let rootURL = FileManager.default.temporaryDirectory
+            .appendingPathComponent("cmux-vscode-lexical-\(UUID().uuidString)", isDirectory: true)
+        let symlinkDestination = rootURL
+            .appendingPathComponent("elsewhere", isDirectory: true)
+            .appendingPathComponent("nested", isDirectory: true)
+        let symlinkURL = rootURL.appendingPathComponent("link", isDirectory: true)
+        try FileManager.default.createDirectory(
+            at: symlinkDestination,
+            withIntermediateDirectories: true
+        )
+        try FileManager.default.createSymbolicLink(
+            at: symlinkURL,
+            withDestinationURL: symlinkDestination
+        )
+        defer { try? FileManager.default.removeItem(at: rootURL) }
+
+        let expectedPath = rootURL.appendingPathComponent("project", isDirectory: true).path
+        let response = "{\"ok\":true,\"result\":{\"accepted\":true,\"status\":\"queued\",\"path\":\"\(expectedPath)\"}}"
+        let responder = try UnixSocketResponder(path: socketPath, response: response)
+        defer { responder.stop() }
+
+        let result = runProcess(
+            executablePath: cliPath,
+            arguments: ["--socket", socketPath, "vscode", "link/../project"],
+            environment: commandPaletteCLIEnvironment(),
+            currentDirectoryURL: rootURL,
+            timeout: 5
+        )
+
+        #expect(!result.timedOut)
+        #expect(result.status == 0)
+        let request = try commandPaletteCLIRequest(try #require(responder.receivedRequests.first))
+        let params = try #require(request["params"] as? [String: Any])
+        #expect(params["path"] as? String == expectedPath)
     }
 
     @Test func vscodeDefaultsToTheExactCallerSurface() throws {

@@ -243,4 +243,37 @@ struct BrowserPanelReactGrabStateRegressionTests {
         #expect(panel.requestedReactGrabActive == nil)
         #expect(panel.reactGrabStateReconciliationTask == nil)
     }
+
+    @Test func missingPageAPIFailsActivationButConfirmsInactiveState() async {
+        let panel = await loadedBrowserPanel()
+        defer { panel.close() }
+        panel.reactGrabTestingScriptSourceOverride = ""
+
+        let activated = await panel.ensureReactGrabActive()
+        let deactivated = await panel.requestReactGrabActiveAndWait(
+            false,
+            reason: "test.missingAPI.deactivate"
+        )
+
+        #expect(!activated)
+        #expect(deactivated)
+        #expect(!panel.isReactGrabActive)
+        #expect(panel.requestedReactGrabActive == nil)
+        #expect(panel.reactGrabStateReconciliationTask == nil)
+    }
+
+    private func loadedBrowserPanel() async -> BrowserPanel {
+        let panel = BrowserPanel(workspaceId: UUID())
+        let (loaded, loadedContinuation) = AsyncStream<Void>.makeStream()
+        let existingDidFinish = panel.navigationDelegate?.didFinish
+        panel.navigationDelegate?.didFinish = { webView in
+            existingDidFinish?(webView)
+            loadedContinuation.yield()
+            loadedContinuation.finish()
+        }
+        panel.navigate(to: URL(string: "about:blank")!)
+        var iterator = loaded.makeAsyncIterator()
+        _ = await iterator.next()
+        return panel
+    }
 }

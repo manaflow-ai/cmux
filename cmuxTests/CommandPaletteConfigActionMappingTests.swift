@@ -146,8 +146,7 @@ struct CommandPaletteConfigActionMappingTests {
         )
 
         let composition = catalog.composingPaletteActions(
-            reservedActionIDs: ["palette.openSettings"],
-            diagnosticActionID: { "diagnostic.\($0.id)" }
+            reservedActionIDs: ["palette.openSettings"]
         )
 
         #expect(composition.actions.map(\.id) == ["palette.openSettings.extra"])
@@ -155,5 +154,52 @@ struct CommandPaletteConfigActionMappingTests {
         #expect(composition.issues.first?.kind == .paletteActionIDCollision)
         #expect(composition.issues.first?.commandName == "palette.openSettings")
         #expect(composition.issues.first?.sourcePath == "/project-a/.cmux/cmux.json")
+    }
+
+    @Test func configCompositionReservesLargeDiagnosticNamespaceCollisionChain() {
+        let diagnosticPrefix = "palette.cmuxConfig.issue."
+        let collisionIDs = [diagnosticPrefix] + (0..<2_047).map {
+            "\(diagnosticPrefix)\(String($0, radix: 16))"
+        }
+        let allowedIDs = [
+            "palette.cmuxConfig.issue",
+            "palette.cmuxConfig.issues.0",
+        ]
+        let existingIssue = CmuxConfigIssue(
+            kind: .schemaError,
+            settingName: "actions",
+            sourcePath: "/global/cmux.json",
+            message: "existing issue"
+        )
+        let catalog = CmuxConfigActionCatalog(
+            loadedCommands: [],
+            loadedActions: collisionIDs.enumerated().map { index, id in
+                configAction(id: id, sourcePath: "/project/\(index).json")
+            } + allowedIDs.map { configAction(id: $0) },
+            commandSourcePaths: [:],
+            configurationIssues: [existingIssue],
+            resolvedNewWorkspaceAction: nil,
+            resolvedNewWorkspaceCommand: nil,
+            configuredNewWorkspaceActionID: nil,
+            configuredNewWorkspaceActionSourcePath: nil,
+            configuredNewWorkspaceCommandName: nil,
+            configuredNewWorkspaceCommandSourcePath: nil
+        )
+
+        let composition = catalog.composingPaletteActions(
+            reservedActionIDs: [],
+            reservedActionIDPrefixes: [diagnosticPrefix]
+        )
+
+        #expect(composition.actions.map(\.id) == allowedIDs)
+        #expect(composition.issues.first == existingIssue)
+        #expect(
+            composition.issues.dropFirst().compactMap(\.commandName)
+                == collisionIDs
+        )
+        #expect(
+            composition.issues.dropFirst().compactMap(\.sourcePath)
+                == collisionIDs.indices.map { "/project/\($0).json" }
+        )
     }
 }

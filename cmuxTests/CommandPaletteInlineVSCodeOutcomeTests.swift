@@ -29,4 +29,16 @@ struct CommandPaletteInlineVSCodeOutcomeTests {
                 )
         )
     }
+
+    @Test func terminalDirectoryCandidateDoesNotRequireFilesystemAvailability() {
+        let unavailableURL = FileManager.default.temporaryDirectory
+            .appendingPathComponent("cmux-palette-unavailable-\(UUID().uuidString)", isDirectory: true)
+        #expect(!FileManager.default.fileExists(atPath: unavailableURL.path))
+
+        let candidate = ContentView.commandPaletteTerminalDirectoryCandidateURL(
+            "  \(unavailableURL.path)  "
+        )
+
+        #expect(candidate?.path == unavailableURL.path)
+    }
 }

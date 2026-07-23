@@ -3,6 +3,7 @@ import CmuxCommandPalette
 import CmuxControlSocket
 import CmuxSettings
 import CmuxUpdater
+import Darwin
 import Foundation
 import Testing
 
@@ -188,7 +189,7 @@ struct CommandPaletteTypedViewAndIdentifierOutcomeTests {
         #expect(workspace.reorderRemoteTmuxMirrorTabs(toPanelOrder: orderBefore))
     }
 
-    @Test func terminalAttachmentHandlerReportsQueuedAndQueueFull() throws {
+    @Test func terminalAttachmentHandlerReportsQueuedAndQueueFull() async throws {
         let fixture = try makeFixture()
         defer { fixture.cleanup() }
         let terminalPanel = try #require(
@@ -206,16 +207,6 @@ struct CommandPaletteTypedViewAndIdentifierOutcomeTests {
             configuredNewWorkspaceCommandName: nil,
             configuredNewWorkspaceCommandSourcePath: nil
         )
-        var registry = CommandPaletteHandlerRegistry()
-        fixture.contentView.registerCommandPaletteHandlers(
-            &registry,
-            context: fixture.context,
-            configCatalog: emptyCatalog
-        )
-        let handler = try #require(
-            registry.handler(for: "palette.terminalAttachTextBoxFile")
-        )
-
         let directoryURL = FileManager.default.temporaryDirectory
             .appendingPathComponent("cmux-palette-attachment-\(UUID().uuidString)", isDirectory: true)
         try FileManager.default.createDirectory(
@@ -223,13 +214,40 @@ struct CommandPaletteTypedViewAndIdentifierOutcomeTests {
             withIntermediateDirectories: true
         )
         defer { try? FileManager.default.removeItem(at: directoryURL) }
+        let firstTargetURL = directoryURL.appendingPathComponent("first-target.txt")
         let firstURL = directoryURL.appendingPathComponent("first.txt")
-        #expect(FileManager.default.createFile(atPath: firstURL.path, contents: Data()))
+        #expect(FileManager.default.createFile(atPath: firstTargetURL.path, contents: Data()))
+        try FileManager.default.createSymbolicLink(
+            at: firstURL,
+            withDestinationURL: firstTargetURL
+        )
 
-        #expect(handler(CmuxActionInvocation(
-            source: .automation,
-            arguments: ["path": firstURL.path]
-        )) == .queued)
+        var handler: CmuxActionHandler?
+        await confirmation("regular attachment preparation finished") { finished in
+            var registry = CommandPaletteHandlerRegistry()
+            fixture.contentView.registerCommandPaletteHandlers(
+                &registry,
+                context: fixture.context,
+                configCatalog: emptyCatalog,
+                terminalAttachmentDidFinish: { didAttach in
+                    #expect(didAttach)
+                    finished()
+                }
+            )
+            guard let registeredHandler = registry.handler(
+                for: "palette.terminalAttachTextBoxFile"
+            ) else {
+                Issue.record("Expected the attachment handler")
+                finished()
+                return
+            }
+            handler = registeredHandler
+            #expect(registeredHandler(CmuxActionInvocation(
+                source: .automation,
+                arguments: ["path": firstURL.path]
+            )) == .queued)
+        }
+        let handler = try #require(handler)
 
         let fillerURLs = (0..<(TerminalPanel.maximumPendingTextBoxAttachmentCount - 1)).map {
             directoryURL.appendingPathComponent("filler-\($0).txt")
@@ -248,9 +266,300 @@ struct CommandPaletteTypedViewAndIdentifierOutcomeTests {
         #expect(code == "attachment_queue_full")
     }
 
+    @Test func terminalAttachmentHandlerRejectsSpecialFilesWithoutBlocking() async throws {
+        let fixture = try makeFixture()
+        defer { fixture.cleanup() }
+        let terminalPanel = try #require(
+            fixture.targetWorkspace.panels[fixture.targetPanelID] as? TerminalPanel
+        )
+        let emptyCatalog = CmuxConfigActionCatalog(
+            loadedCommands: [],
+            loadedActions: [],
+            commandSourcePaths: [:],
+            configurationIssues: [],
+            resolvedNewWorkspaceAction: nil,
+            resolvedNewWorkspaceCommand: nil,
+            configuredNewWorkspaceActionID: nil,
+            configuredNewWorkspaceActionSourcePath: nil,
+            configuredNewWorkspaceCommandName: nil,
+            configuredNewWorkspaceCommandSourcePath: nil
+        )
+        let fifoURL = FileManager.default.temporaryDirectory
+            .appendingPathComponent("cmux-palette-attachment-\(UUID().uuidString).png")
+        let makeFIFOResult = fifoURL.withUnsafeFileSystemRepresentation { path in
+            guard let path else { return -1 }
+            return Darwin.mkfifo(path, mode_t(0o600))
+        }
+        #expect(makeFIFOResult == 0)
+        defer { try? FileManager.default.removeItem(at: fifoURL) }
+
+        let specialFileURLs = [
+            fifoURL,
+            URL(fileURLWithPath: "/dev/null"),
+        ]
+        await confirmation(
+            "special-file attachment preparation finished",
+            expectedCount: specialFileURLs.count
+        ) { finished in
+            var registry = CommandPaletteHandlerRegistry()
+            fixture.contentView.registerCommandPaletteHandlers(
+                &registry,
+                context: fixture.context,
+                configCatalog: emptyCatalog,
+                terminalAttachmentDidFinish: { didAttach in
+                    #expect(!didAttach)
+                    finished()
+                }
+            )
+            guard let handler = registry.handler(for: "palette.terminalAttachTextBoxFile") else {
+                Issue.record("Expected the attachment handler")
+                for _ in specialFileURLs { finished() }
+                return
+            }
+            for specialFileURL in specialFileURLs {
+                #expect(handler(CmuxActionInvocation(
+                    source: .automation,
+                    arguments: ["path": specialFileURL.path]
+                )) == .queued)
+            }
+        }
+
+        #expect(!terminalPanel.isTextBoxActive)
+        let reservations = (0..<TerminalPanel.maximumPendingTextBoxAttachmentCount)
+            .compactMap { _ in terminalPanel.reservePreparedTextBoxAttachment() }
+        #expect(reservations.count == TerminalPanel.maximumPendingTextBoxAttachmentCount)
+    }
+
+    @Test func suspendedAttachmentPreparationKeepsMainActorResponsive() async throws {
+        let fixture = try makeFixture()
+        defer { fixture.cleanup() }
+        let emptyCatalog = CmuxConfigActionCatalog(
+            loadedCommands: [],
+            loadedActions: [],
+            commandSourcePaths: [:],
+            configurationIssues: [],
+            resolvedNewWorkspaceAction: nil,
+            resolvedNewWorkspaceCommand: nil,
+            configuredNewWorkspaceActionID: nil,
+            configuredNewWorkspaceActionSourcePath: nil,
+            configuredNewWorkspaceCommandName: nil,
+            configuredNewWorkspaceCommandSourcePath: nil
+        )
+        let fileURL = FileManager.default.temporaryDirectory
+            .appendingPathComponent("cmux-palette-suspended-\(UUID().uuidString).txt")
+        try Data("fixture".utf8).write(to: fileURL)
+        defer { try? FileManager.default.removeItem(at: fileURL) }
+        let maybePreparedFile = await TextBoxPreparedFileAttachment.prepare(fileURL: fileURL)
+        let preparedFile = try #require(maybePreparedFile)
+
+        let (startedStream, startedContinuation) = AsyncStream<Void>.makeStream()
+        let (releaseStream, releaseContinuation) = AsyncStream<Void>.makeStream()
+        let (finishedStream, finishedContinuation) = AsyncStream<Bool>.makeStream()
+        defer {
+            startedContinuation.finish()
+            releaseContinuation.finish()
+            finishedContinuation.finish()
+        }
+
+        var registry = CommandPaletteHandlerRegistry()
+        fixture.contentView.registerCommandPaletteHandlers(
+            &registry,
+            context: fixture.context,
+            configCatalog: emptyCatalog,
+            terminalAttachmentPreparer: { _ in
+                #expect(!Thread.isMainThread)
+                startedContinuation.yield()
+                for await _ in releaseStream {
+                    break
+                }
+                return preparedFile
+            },
+            terminalAttachmentDidFinish: { didAttach in
+                finishedContinuation.yield(didAttach)
+            }
+        )
+        let handler = try #require(
+            registry.handler(for: "palette.terminalAttachTextBoxFile")
+        )
+        #expect(handler(CmuxActionInvocation(
+            source: .automation,
+            arguments: ["path": fileURL.path]
+        )) == .queued)
+
+        var startedIterator = startedStream.makeAsyncIterator()
+        _ = await startedIterator.next()
+        await confirmation("main actor heartbeat") { heartbeat in
+            Task { @MainActor in
+                heartbeat()
+            }
+        }
+
+        releaseContinuation.yield()
+        var finishedIterator = finishedStream.makeAsyncIterator()
+        let didAttach = await finishedIterator.next()
+        #expect(didAttach == true)
+    }
+
+    @Test func preparedAttachmentReservationsFlushInInvocationOrder() throws {
+        let fixture = try makeFixture()
+        defer { fixture.cleanup() }
+        let terminalPanel = try #require(
+            fixture.targetWorkspace.panels[fixture.targetPanelID] as? TerminalPanel
+        )
+        let textView = TextBoxInputTextView(
+            frame: NSRect(x: 0, y: 0, width: 320, height: 120)
+        )
+        var insertedFileURLs: [URL] = []
+        textView.onInsertPreparedFileAttachments = { preparedFiles, _ in
+            insertedFileURLs.append(contentsOf: preparedFiles.map(\.fileURL))
+            return true
+        }
+        let window = NSWindow(
+            contentRect: textView.bounds,
+            styleMask: [.borderless],
+            backing: .buffered,
+            defer: false
+        )
+        window.contentView = textView
+        defer { window.close() }
+        terminalPanel.registerTextBoxInputView(textView)
+        terminalPanel.textBoxInputViewDidMoveToWindow(textView)
+
+        let firstURL = URL(fileURLWithPath: "/tmp/cmux-first-prepared.txt")
+        let secondURL = URL(fileURLWithPath: "/tmp/cmux-second-prepared.txt")
+        let firstPrepared = TextBoxPreparedFileAttachment(
+            fileURL: firstURL,
+            thumbnailPixelData: nil,
+            thumbnailPixelWidth: 0,
+            thumbnailPixelHeight: 0,
+            thumbnailBytesPerRow: 0
+        )
+        let secondPrepared = TextBoxPreparedFileAttachment(
+            fileURL: secondURL,
+            thumbnailPixelData: nil,
+            thumbnailPixelWidth: 0,
+            thumbnailPixelHeight: 0,
+            thumbnailBytesPerRow: 0
+        )
+        let firstReservation = try #require(
+            terminalPanel.reservePreparedTextBoxAttachment()
+        )
+        let secondReservation = try #require(
+            terminalPanel.reservePreparedTextBoxAttachment()
+        )
+        let duplicateSecondReservation = try #require(
+            terminalPanel.reservePreparedTextBoxAttachment()
+        )
+
+        #expect(terminalPanel.fulfillPreparedTextBoxAttachment(
+            reservationID: secondReservation,
+            preparedFile: secondPrepared
+        ) == .queued)
+        #expect(insertedFileURLs.isEmpty)
+        #expect(terminalPanel.fulfillPreparedTextBoxAttachment(
+            reservationID: duplicateSecondReservation,
+            preparedFile: secondPrepared
+        ) == .queued)
+        #expect(insertedFileURLs.isEmpty)
+        #expect(terminalPanel.fulfillPreparedTextBoxAttachment(
+            reservationID: firstReservation,
+            preparedFile: firstPrepared
+        ) == .completed)
+        #expect(insertedFileURLs == [firstURL, secondURL])
+    }
+
     @Test func proPresentationOutcomesAreTyped() {
-        #expect(ContentView.commandPaletteProPresentationResult(targetAvailable: true) == .presented)
-        #expect(ContentView.commandPaletteProPresentationResult(targetAvailable: false) == .targetUnavailable)
+        #expect(
+            ContentView.commandPaletteProPresentationResult(
+                targetAvailable: true,
+                didPresent: true
+            ) == .presented
+        )
+        #expect(
+            ContentView.commandPaletteProPresentationResult(
+                targetAvailable: false,
+                didPresent: false
+            ) == .targetUnavailable
+        )
+        #expect(
+            ContentView.commandPaletteProPresentationResult(
+                targetAvailable: true,
+                didPresent: false
+            ) == .failed(
+                code: "presentation_failed",
+                message: String(
+                    localized: "action.error.configuredActionFailed",
+                    defaultValue: "The configured action could not be started."
+                )
+            )
+        )
+    }
+
+    @Test func proHandlersReportExternalPresentationFailure() throws {
+        let fixture = try makeFixture()
+        defer { fixture.cleanup() }
+        let defaults = UserDefaults.standard
+        let previousBrowserDisabled = defaults.object(
+            forKey: BrowserAvailabilitySettings.disabledKey
+        )
+        BrowserAvailabilitySettings.setDisabled(true)
+        defer {
+            if let previousBrowserDisabled {
+                defaults.set(
+                    previousBrowserDisabled,
+                    forKey: BrowserAvailabilitySettings.disabledKey
+                )
+            } else {
+                defaults.removeObject(forKey: BrowserAvailabilitySettings.disabledKey)
+            }
+            NotificationCenter.default.post(
+                name: BrowserAvailabilitySettings.didChangeNotification,
+                object: nil
+            )
+        }
+
+        var attemptedURLs: [URL] = []
+        let failingExternalOpener: (URL) -> Bool = { url in
+            attemptedURLs.append(url)
+            return false
+        }
+        var registry = CommandPaletteHandlerRegistry()
+        fixture.contentView.registerProCommandHandlers(
+            &registry,
+            context: fixture.context,
+            presentUpgrade: { tabManager, target in
+                ProUpgradePresenter.present(
+                    tabManager: tabManager,
+                    sourceWindowID: target.windowID,
+                    sourceWorkspaceID: target.workspaceID,
+                    sourcePanelID: target.panelID,
+                    openExternalURL: failingExternalOpener
+                )
+            },
+            presentWelcomeChecklist: { tabManager, target in
+                ProWelcomeChecklistPresenter.present(
+                    tabManager: tabManager,
+                    sourceWindowID: target.windowID,
+                    sourceWorkspaceID: target.workspaceID,
+                    sourcePanelID: target.panelID,
+                    openExternalURL: failingExternalOpener
+                )
+            }
+        )
+
+        let invocation = CmuxActionInvocation(source: .automation)
+        for commandID in [
+            ContentView.commandPaletteProUpgradeCommandId,
+            ContentView.commandPaletteProWelcomeChecklistCommandId,
+        ] {
+            let handler = try #require(registry.handler(for: commandID))
+            guard case .failed(let code, _) = handler(invocation) else {
+                Issue.record("Expected a typed Pro presentation failure")
+                continue
+            }
+            #expect(code == "presentation_failed")
+        }
+        #expect(attemptedURLs.count == 2)
     }
 
     @Test func proHandlersRejectAStaleExactPanelBeforePresentation() throws {
@@ -387,14 +696,14 @@ struct CommandPaletteTypedViewAndIdentifierOutcomeTests {
         )
         let composition = collisionCatalog.composingPaletteActions(
             reservedActionIDs: registry.commandIDs,
-            diagnosticActionID: { "diagnostic.\($0.id)" }
+            reservedActionIDPrefixes: ["diagnostic."]
         )
 
         #expect(composition.actions.isEmpty)
         #expect(Set(composition.issues.compactMap(\.commandName)) == [agentChatID, hostedExtensionID])
     }
 
-    @Test func authSignInPresentsFromTheExactBackgroundTargetWindow() throws {
+    @Test func authSignInQueuesFromTheExactBackgroundTargetWindow() throws {
         let fixture = try makeFixture()
         defer { fixture.cleanup() }
         var presentedWindow: NSWindow?
@@ -420,7 +729,7 @@ struct CommandPaletteTypedViewAndIdentifierOutcomeTests {
             registry.handler(for: ContentView.commandPaletteAuthSignInCommandId)
         )
 
-        #expect(handler(CmuxActionInvocation(source: .automation)) == .presented)
+        #expect(handler(CmuxActionInvocation(source: .automation)) == .queued)
         #expect(presentedWindow === fixture.window)
         #expect(beeps == 0)
         #expect(fixture.tabManager.selectedTabId == fixture.selectedWorkspace.id)
