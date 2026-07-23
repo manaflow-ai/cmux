@@ -899,6 +899,14 @@ mod tests {
     }
 
     #[test]
+    fn process_handles_are_json_strings() {
+        assert!(
+            serde_json::to_value(ProcessId(0x5a17)).unwrap().is_string(),
+            "numeric process handles lose precision in JavaScript clients"
+        );
+    }
+
+    #[test]
     fn legacy_responses_and_errors_default_new_detail_fields() {
         let patch: WorkspaceResponse = serde_json::from_value(serde_json::json!({
             "type": "patch",

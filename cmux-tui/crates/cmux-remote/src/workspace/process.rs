@@ -1838,10 +1838,25 @@ fn event_size(event: &RpcEvent) -> usize {
 #[cfg(test)]
 mod tests {
     use std::collections::BTreeMap;
+    use std::pin::Pin;
+    use std::task::{Context, Poll};
 
     use tempfile::tempdir;
+    use tokio::io::ReadBuf;
 
     use super::*;
+
+    struct FailingReader;
+
+    impl AsyncRead for FailingReader {
+        fn poll_read(
+            self: Pin<&mut Self>,
+            _context: &mut Context<'_>,
+            _buffer: &mut ReadBuf<'_>,
+        ) -> Poll<std::io::Result<()>> {
+            Poll::Ready(Err(std::io::Error::other("synthetic read failure")))
+        }
+    }
 
     async fn root() -> (tempfile::TempDir, Arc<WorkspaceRoot>) {
         let directory = tempdir().unwrap();
@@ -1902,6 +1917,192 @@ mod tests {
 
         manager.signal(process, ProcessSignal::Kill).await.unwrap();
         manager.wait(process).await.unwrap();
+    }
+
+    #[tokio::test]
+    async fn duplicate_reservation_by_the_same_owner_is_rejected() {
+        let manager = ProcessManager::default();
+        let owner = ClientScope::local();
+        let process = ProcessId(0x8000_0000_0000_5a17);
+        let _first = manager.subscribe_or_reserve(&owner, process, 0, true).await.unwrap();
+
+        let error = match manager.subscribe_or_reserve(&owner, process, 0, true).await {
+            Ok(_) => panic!("one handle must have only one outstanding reservation"),
+            Err(error) => error,
+        };
+        assert_eq!(error.code, "duplicate-process-id");
+        manager.release_reservation(&owner, process).await;
+    }
+
+    #[cfg(unix)]
+    #[tokio::test]
+    async fn reservation_rejects_an_active_and_then_finished_process() {
+        let (_directory, root) = root().await;
+        let manager = ProcessManager::default();
+        let owner = ClientScope::local();
+        let process = ProcessId(0x8000_0000_0000_5a18);
+        let mut options = spawn_options(
+            vec!["/bin/sleep".into(), "30".into()],
+            ProcessIo::Pipes { stdin: false },
+            ProcessLifetime::Workspace,
+        );
+        options.requested_process = Some(process);
+        manager.spawn(root, options).await.unwrap();
+
+        let active = match manager.subscribe_or_reserve(&owner, process, 0, true).await {
+            Ok(_) => panic!("an active process cannot become a reservation"),
+            Err(error) => error,
+        };
+        assert_eq!(active.code, "duplicate-process-id");
+        manager.signal(process, ProcessSignal::Kill).await.unwrap();
+        manager.wait(process).await.unwrap();
+
+        let finished = match manager.subscribe_or_reserve(&owner, process, 0, true).await {
+            Ok(_) => panic!("a retained finished process cannot become a reservation"),
+            Err(error) => error,
+        };
+        assert_eq!(finished.code, "duplicate-process-id");
+    }
+
+    #[cfg(unix)]
+    #[tokio::test]
+    async fn active_capacity_does_not_erase_a_finished_handle_for_reuse() {
+        let (_directory, root) = root().await;
+        let manager = ProcessManager::default();
+        let process = ProcessId(0x8000_0000_0000_5a19);
+        let mut finished = spawn_options(
+            vec!["/bin/true".into()],
+            ProcessIo::Pipes { stdin: false },
+            ProcessLifetime::Workspace,
+        );
+        finished.requested_process = Some(process);
+        manager.spawn(root.clone(), finished).await.unwrap();
+        manager.wait(process).await.unwrap();
+
+        let active = manager
+            .spawn(
+                root.clone(),
+                spawn_options(
+                    vec!["/bin/sleep".into(), "5".into()],
+                    ProcessIo::Pipes { stdin: false },
+                    ProcessLifetime::Workspace,
+                ),
+            )
+            .await
+            .unwrap();
+        let WorkspaceResponse::ProcessStarted { process: active, .. } = active else { panic!() };
+        let active_record = manager.get(active).await.unwrap();
+        let mut records = manager.processes.write().await;
+        for index in 0..(MAX_PROCESSES - 2) {
+            records.insert(ProcessId(10_000 + index as u64), active_record.clone());
+        }
+        assert_eq!(records.len(), MAX_PROCESSES);
+        drop(records);
+
+        let mut reuse = spawn_options(
+            vec!["/bin/true".into()],
+            ProcessIo::Pipes { stdin: false },
+            ProcessLifetime::Workspace,
+        );
+        reuse.requested_process = Some(process);
+        let error = manager
+            .spawn(root, reuse)
+            .await
+            .expect_err("active admission must not erase a completed identity");
+        assert_eq!(error.code, "duplicate-process-id");
+        manager.signal(active, ProcessSignal::Kill).await.unwrap();
+        manager.wait(active).await.unwrap();
+    }
+
+    #[cfg(unix)]
+    #[tokio::test]
+    async fn evicted_replay_history_does_not_allow_process_identity_reuse() {
+        let (_directory, root) = root().await;
+        let manager = ProcessManager::default();
+        let process = ProcessId(0x8000_0000_0000_5a1a);
+        let mut first = spawn_options(
+            vec!["/bin/true".into()],
+            ProcessIo::Pipes { stdin: false },
+            ProcessLifetime::Workspace,
+        );
+        first.requested_process = Some(process);
+        manager.spawn(root.clone(), first).await.unwrap();
+        manager.wait(process).await.unwrap();
+        manager.processes.write().await.remove(&process);
+        let missing = match manager.subscribe(process, 0).await {
+            Ok(_) => panic!("evicted replay history remained attachable"),
+            Err(error) => error,
+        };
+        assert_eq!(missing.code, "unknown-process");
+
+        let mut reuse = spawn_options(
+            vec!["/bin/true".into()],
+            ProcessIo::Pipes { stdin: false },
+            ProcessLifetime::Workspace,
+        );
+        reuse.requested_process = Some(process);
+        let error = manager
+            .spawn(root, reuse)
+            .await
+            .expect_err("an evicted UUID must not be generated again");
+        assert_eq!(error.code, "duplicate-process-id");
+    }
+
+    #[tokio::test]
+    async fn reader_failure_is_reported_as_output_truncation() {
+        let process = ProcessId(7);
+        let events = ProcessEventLog::new(PROCESS_EVENT_BYTES);
+        let (activity, activity_rx) = watch::channel(0_u64);
+        let mut tasks = JoinSet::new();
+        tasks.spawn(read_pipe(FailingReader, events, process, false, activity));
+
+        let reason = drain_output_tasks(
+            tasks,
+            activity_rx,
+            std::time::Duration::from_secs(1),
+            std::time::Duration::from_secs(2),
+        )
+        .await;
+        assert!(reason.is_some(), "a failed output reader was silently treated as EOF");
+    }
+
+    #[tokio::test]
+    async fn reader_task_join_failure_is_reported_as_output_truncation() {
+        let (_activity, activity_rx) = watch::channel(0_u64);
+        let mut tasks = JoinSet::new();
+        tasks.spawn(async { panic!("synthetic output reader panic") });
+
+        let reason = drain_output_tasks(
+            tasks,
+            activity_rx,
+            std::time::Duration::from_secs(1),
+            std::time::Duration::from_secs(2),
+        )
+        .await;
+        assert!(reason.is_some(), "a failed output task was silently treated as EOF");
+    }
+
+    #[tokio::test]
+    async fn reaping_one_reader_does_not_reset_the_output_idle_deadline() {
+        let (_activity, activity_rx) = watch::channel(0_u64);
+        let mut tasks = JoinSet::new();
+        tasks.spawn(async {
+            tokio::time::sleep(std::time::Duration::from_millis(150)).await;
+        });
+        tasks.spawn(std::future::pending());
+
+        let reason = tokio::time::timeout(
+            std::time::Duration::from_millis(300),
+            drain_output_tasks(
+                tasks,
+                activity_rx,
+                std::time::Duration::from_millis(200),
+                std::time::Duration::from_secs(2),
+            ),
+        )
+        .await
+        .expect("task completion reset the output idle deadline");
+        assert!(matches!(reason, Some(ProcessOutputTruncationReason::DrainIdleTimeout { .. })));
     }
 
     #[cfg(unix)]

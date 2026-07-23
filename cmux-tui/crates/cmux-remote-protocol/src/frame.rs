@@ -381,6 +381,11 @@ mod tests {
     use super::*;
 
     #[test]
+    fn closed_remote_enums_use_protocol_two() {
+        assert_eq!(REMOTE_PROTOCOL_VERSION, 2);
+    }
+
+    #[test]
     fn session_id_hex_round_trip_is_strict() {
         let session = SessionId([0x5a; 16]);
         assert_eq!(SessionId::from_hex(&session.to_hex()).unwrap(), session);

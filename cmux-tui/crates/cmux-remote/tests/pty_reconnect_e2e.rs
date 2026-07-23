@@ -379,7 +379,7 @@ async fn real_pty_and_fresh_services_survive_authenticated_carrier_reconnect() {
                     panic!("open-workspace returned the wrong response: {opened:?}");
                 };
                 let started = workspace
-                    .request(WorkspaceRequest::SpawnProcess {
+                    .spawn_process_with_events(WorkspaceRequest::SpawnProcess {
                         workspace: workspace_id.clone(),
                         argv: vec![
                             "/bin/sh".into(),
@@ -411,12 +411,11 @@ async fn real_pty_and_fresh_services_survive_authenticated_carrier_reconnect() {
                     })
                     .await
                     .unwrap();
-                let WorkspaceResponse::ProcessStarted { process, pid, .. } = started else {
-                    panic!("spawn-process returned the wrong response: {started:?}");
-                };
-                let pid =
-                    pid.expect("the Unix PTY process did not report its operating-system PID");
-                let events = workspace.process_events(process, 0).await.unwrap();
+                let process = started.process;
+                let pid = started
+                    .pid
+                    .expect("the Unix PTY process did not report its operating-system PID");
+                let events = started.events;
                 let mut transcript = Vec::new();
                 wait_for_output(&events, &mut transcript, &format!("READY PID={pid}")).await;
 
