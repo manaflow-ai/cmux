@@ -276,6 +276,14 @@ final class RemoteTmuxControlConnection {
     private var preControlOutputBuffer = ""
     /// Whether the bytes before control mode are an unanswered credential prompt: a transport waiting
     /// for a passcode it has no terminal to ask on.
+    /// The pre-control region as the classifier sees it, capped, for diagnostics only. Distinguishes
+    /// "nothing arrived" from "something arrived and did not match", which look identical from outside.
+    var preControlObservationForDebug: String {
+        let combined = preControlOutputBuffer + parser.unterminatedTail
+        let flat = combined.replacingOccurrences(of: "\n", with: "\\n")
+        return flat.count <= 200 ? flat : String(flat.suffix(200))
+    }
+
     var isAwaitingCredentials: Bool {
         guard !enterReceived else { return false }
         return RemoteTmuxSSHTransport.indicatesUnansweredCredentialPrompt(
