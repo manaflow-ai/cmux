@@ -116,7 +116,12 @@ struct CmuxProjectNoteResolver {
             separator: "/",
             omittingEmptySubsequences: false
         ).map(String.init)
-        guard components.allSatisfy({ !$0.isEmpty && $0 != "." && $0 != ".." }) else {
+        guard components.allSatisfy({
+            !$0.isEmpty
+                && $0 != "."
+                && $0 != ".."
+                && !ArtifactStorePaths.isManagedPathComponent($0)
+        }) else {
             throw CmuxNoteStoreError.invalidName(rawName)
         }
         let filename = components.removeLast()

@@ -46,7 +46,7 @@ extension AgentChatTranscriptService {
         let resolver = self.resolver
         let artifactIndex = self.artifactIndex
         let isAutomaticArtifactCaptureEnabled = self.isAutomaticArtifactCaptureEnabled
-        replaceArtifactCaptureTask(sessionID: record.sessionID) {
+        replaceArtifactCaptureTask(sessionID: record.sessionID) { [weak self] in
             guard !Task.isCancelled, await isAutomaticArtifactCaptureEnabled() else { return }
             guard let transcriptPath = resolver.boundedTranscriptPath(for: record) else { return }
             guard !Task.isCancelled else { return }
@@ -65,7 +65,18 @@ extension AgentChatTranscriptService {
                 return
             }
             guard !Task.isCancelled, await isAutomaticArtifactCaptureEnabled() else { return }
-            await artifactCaptureCoordinator.capture(record: record, snapshot: snapshot)
+            let progress = await artifactCaptureCoordinator.capture(record: record, snapshot: snapshot)
+            guard progress == .needsContinuation,
+                  !Task.isCancelled,
+                  await isAutomaticArtifactCaptureEnabled() else {
+                return
+            }
+            await self?.enqueueIndexedArtifactCaptureContinuation(
+                record: record,
+                snapshot: snapshot,
+                coordinator: artifactCaptureCoordinator,
+                isEnabled: isAutomaticArtifactCaptureEnabled
+            )
         }
     }
 
@@ -76,10 +87,58 @@ extension AgentChatTranscriptService {
     ) {
         guard let artifactCaptureCoordinator, isAutomaticArtifactCaptureEnabled() else { return }
         let isAutomaticArtifactCaptureEnabled = self.isAutomaticArtifactCaptureEnabled
-        replaceArtifactCaptureTask(sessionID: record.sessionID) {
-            guard !Task.isCancelled, await isAutomaticArtifactCaptureEnabled() else { return }
-            await artifactCaptureCoordinator.capture(record: record, snapshot: snapshot)
+        replaceArtifactCaptureTask(
+            sessionID: record.sessionID,
+            operation: indexedArtifactCaptureOperation(
+                record: record,
+                snapshot: snapshot,
+                coordinator: artifactCaptureCoordinator,
+                isEnabled: isAutomaticArtifactCaptureEnabled
+            )
+        )
+    }
+
+    private func indexedArtifactCaptureOperation(
+        record: AgentChatSessionRecord,
+        snapshot: AgentChatArtifactIndex.Snapshot,
+        coordinator: AgentArtifactCaptureCoordinator,
+        isEnabled: @escaping @MainActor @Sendable () -> Bool
+    ) -> @Sendable () async -> Void {
+        { [weak self] in
+            guard !Task.isCancelled, await isEnabled() else { return }
+            let progress = await coordinator.capture(record: record, snapshot: snapshot)
+            guard progress == .needsContinuation,
+                  !Task.isCancelled,
+                  await isEnabled() else {
+                return
+            }
+            await self?.enqueueIndexedArtifactCaptureContinuation(
+                record: record,
+                snapshot: snapshot,
+                coordinator: coordinator,
+                isEnabled: isEnabled
+            )
         }
+    }
+
+    private func enqueueIndexedArtifactCaptureContinuation(
+        record: AgentChatSessionRecord,
+        snapshot: AgentChatArtifactIndex.Snapshot,
+        coordinator: AgentArtifactCaptureCoordinator,
+        isEnabled: @escaping @MainActor @Sendable () -> Bool
+    ) {
+        guard isAutomaticArtifactCaptureEnabled(),
+              var active = artifactCaptureTasks[record.sessionID],
+              active.pending == nil else {
+            return
+        }
+        active.pending = indexedArtifactCaptureOperation(
+            record: record,
+            snapshot: snapshot,
+            coordinator: coordinator,
+            isEnabled: isEnabled
+        )
+        artifactCaptureTasks[record.sessionID] = active
     }
 
     func saveArtifact(

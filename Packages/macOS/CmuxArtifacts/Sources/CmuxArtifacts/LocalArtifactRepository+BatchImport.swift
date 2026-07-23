@@ -54,8 +54,17 @@ extension LocalArtifactRepository {
         }
         let batchByteLimit = maximumBatchBytes.map { max(0, $0) }
         var stagedBytes: Int64 = 0
-        for (index, candidate) in candidates.enumerated() {
+        candidateLoop: for (index, candidate) in candidates.enumerated() {
             guard attempts[index] == nil else { continue }
+            if let batchByteLimit, stagedBytes >= batchByteLimit {
+                for remainingIndex in index..<candidates.count {
+                    attempts[remainingIndex] = .rejected(.batchByteLimitReached(
+                        actual: 0,
+                        limit: batchByteLimit
+                    ))
+                }
+                break
+            }
             let source = candidate.sourceURL.standardizedFileURL
             let stagedURL = stagedURLs[index]
             do {
@@ -74,7 +83,25 @@ extension LocalArtifactRepository {
                     digest: try ArtifactDigestCalculator().digest(url: snapshot.url)
                 )
             } catch let error as ArtifactStoreError {
-                attempts[index] = .rejected(error)
+                if case .batchByteLimitReached(let actual, _) = error,
+                   let batchByteLimit {
+                    if stagedBytes == 0 {
+                        attempts[index] = .rejected(.fileTooLarge(
+                            actual: actual,
+                            limit: batchByteLimit
+                        ))
+                    } else {
+                        for remainingIndex in index..<candidates.count {
+                            attempts[remainingIndex] = .rejected(.batchByteLimitReached(
+                                actual: remainingIndex == index ? actual : 0,
+                                limit: batchByteLimit
+                            ))
+                        }
+                        break candidateLoop
+                    }
+                } else {
+                    attempts[index] = .rejected(error)
+                }
             } catch {
                 attempts[index] = .rejected(.sourceNotRegularFile(source.path))
             }
