@@ -359,7 +359,7 @@ impl TransportProvider for RelayProvider {
             endpoint,
             config: self.config.clone(),
             credentials: self.credentials.clone(),
-            control: Mutex::new(control),
+            control: Mutex::new(Some(control)),
             closed: AtomicBool::new(false),
         }))
     }
@@ -372,7 +372,10 @@ struct RelayLinkGroup {
     endpoint: Url,
     config: RelayClientConfig,
     credentials: RelayCredentialSource,
-    control: Mutex<RelaySocket>,
+    // An allocation temporarily takes ownership of the control socket. If the
+    // allocation future is cancelled, the socket is dropped while this slot
+    // remains empty, so a later attempt cannot consume a stale response.
+    control: Mutex<Option<RelaySocket>>,
     closed: AtomicBool,
 }
 
@@ -408,10 +411,14 @@ impl LinkGroup for RelayLinkGroup {
         }
         let lane = LaneToken(random_capability()?);
         let allocation = {
-            let mut control = self.control.lock().await;
+            let mut stored_control = self.control.lock().await;
             if self.closed.load(Ordering::Acquire) {
                 return Err(ProviderError::Transport("relay connection group is closed".into()));
             }
+            let mut control = match stored_control.take() {
+                Some(control) => control,
+                None => connect_provider_control(&self.endpoint, &self.credentials).await?,
+            };
             match request_allocation(
                 &mut control,
                 &self.config,
@@ -421,33 +428,45 @@ impl LinkGroup for RelayLinkGroup {
             )
             .await
             {
-                Ok(allocation) => allocation,
-                Err(AllocationError::Terminal(error)) => return Err(error),
+                Ok(allocation) => {
+                    *stored_control = Some(control);
+                    allocation
+                }
+                Err(AllocationError::Terminal(error)) => {
+                    *stored_control = Some(control);
+                    return Err(error);
+                }
                 Err(
                     error @ (AllocationError::Reconnect(_) | AllocationError::Authentication(_)),
                 ) => {
                     let control_error = error.into_provider_error();
+                    drop(control);
                     if self.closed.load(Ordering::Acquire) {
                         return Err(ProviderError::Transport(
                             "relay connection group is closed".into(),
                         ));
                     }
-                    *control = connect_provider_control(&self.endpoint, &self.credentials)
-                        .await
-                        .map_err(|error| {
-                            ProviderError::Transport(format!(
-                                "relay control failed ({control_error}); reconnect failed: {error}"
-                            ))
-                        })?;
-                    request_allocation(
-                        &mut control,
+                    let mut replacement = connect_provider_control(
+                        &self.endpoint,
+                        &self.credentials,
+                    )
+                    .await
+                    .map_err(|error| {
+                        ProviderError::Transport(format!(
+                            "relay control failed ({control_error}); reconnect failed: {error}"
+                        ))
+                    })?;
+                    let allocation = request_allocation(
+                        &mut replacement,
                         &self.config,
                         &self.credentials,
                         &lane,
                         request.generation,
                     )
                     .await
-                    .map_err(AllocationError::into_provider_error)?
+                    .map_err(AllocationError::into_provider_error)?;
+                    *stored_control = Some(replacement);
+                    allocation
                 }
             }
         };
@@ -466,10 +485,10 @@ impl LinkGroup for RelayLinkGroup {
     }
 
     async fn close(&self) -> Result<(), ProviderError> {
-        if !self.closed.swap(true, Ordering::AcqRel) {
-            self.control
-                .lock()
-                .await
+        if !self.closed.swap(true, Ordering::AcqRel)
+            && let Some(mut control) = self.control.lock().await.take()
+        {
+            control
                 .close(None)
                 .await
                 .map_err(|_| ProviderError::Transport("relay WebSocket close failed".into()))?;
