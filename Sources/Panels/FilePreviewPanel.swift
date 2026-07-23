@@ -1006,6 +1006,8 @@ final class FilePreviewPanel: Panel, ObservableObject, FilePreviewTextEditingPan
     weak var textView: NSTextView?
     let focusCoordinator: FilePreviewFocusCoordinator
     private let textLoader: @Sendable (URL) async -> FilePreviewTextLoader.Result
+    private let textSaver: @Sendable (String, URL, String.Encoding) async -> FilePreviewTextSaver.Result
+    private let modeResolver: @Sendable (URL) async -> FilePreviewMode
     private let textLoadCoordinator = FilePreviewLatestLoadCoordinator<FilePreviewTextLoader.Result>()
 
     var fileURL: URL {
@@ -1018,6 +1020,13 @@ final class FilePreviewPanel: Panel, ObservableObject, FilePreviewTextEditingPan
         startFileWatcher: Bool = true,
         textLoader: @escaping @Sendable (URL) async -> FilePreviewTextLoader.Result = { url in
             await FilePreviewTextLoader.load(url: url)
+        },
+        textSaver: @escaping @Sendable (String, URL, String.Encoding) async -> FilePreviewTextSaver.Result = {
+            content, url, encoding in
+            await FilePreviewTextSaver.save(content: content, to: url, encoding: encoding)
+        },
+        modeResolver: @escaping @Sendable (URL) async -> FilePreviewMode = { url in
+            await FilePreviewKindResolver.resolveMode(url: url)
         }
     ) {
         self.id = UUID()
@@ -1025,6 +1034,8 @@ final class FilePreviewPanel: Panel, ObservableObject, FilePreviewTextEditingPan
         self.filePath = filePath
         self.displayTitle = URL(fileURLWithPath: filePath).lastPathComponent
         self.textLoader = textLoader
+        self.textSaver = textSaver
+        self.modeResolver = modeResolver
         let fileURL = URL(fileURLWithPath: filePath)
         let initialPreviewMode = FilePreviewKindResolver.initialMode(for: fileURL)
         self.previewMode = initialPreviewMode
@@ -1163,9 +1174,10 @@ final class FilePreviewPanel: Panel, ObservableObject, FilePreviewTextEditingPan
         previewModeGeneration += 1
         let generation = previewModeGeneration
         let fileURL = fileURL
+        let modeResolver = modeResolver
 
-        return Task { [weak self, fileURL, generation] in
-            let resolvedMode = await FilePreviewKindResolver.resolveMode(url: fileURL)
+        return Task { [weak self, fileURL, generation, modeResolver] in
+            let resolvedMode = await modeResolver(fileURL)
             guard !Task.isCancelled,
                   let self,
                   !self.isClosed,
@@ -1200,9 +1212,10 @@ final class FilePreviewPanel: Panel, ObservableObject, FilePreviewTextEditingPan
         let initialIcon = displayIcon
         previewModeGeneration += 1
         let generation = previewModeGeneration
+        let modeResolver = modeResolver
 
-        Task { [weak self, fileURL, initialMode, initialIcon, generation] in
-            let resolvedMode = await FilePreviewKindResolver.resolveMode(url: fileURL)
+        Task { [weak self, fileURL, initialMode, initialIcon, generation, modeResolver] in
+            let resolvedMode = await modeResolver(fileURL)
             guard let self, self.previewModeGeneration == generation else { return }
             let resolvedIcon = FilePreviewKindResolver.iconName(for: resolvedMode)
             guard resolvedMode != initialMode || resolvedIcon != initialIcon else { return }
@@ -1288,8 +1301,9 @@ final class FilePreviewPanel: Panel, ObservableObject, FilePreviewTextEditingPan
         activeSaveGeneration = generation
         let fileURL = fileURL
         let encoding = textEncoding
-        return Task { [weak self, currentContent, fileURL, encoding, generation] in
-            let result = await FilePreviewTextSaver.save(content: currentContent, to: fileURL, encoding: encoding)
+        let textSaver = textSaver
+        return Task { [weak self, currentContent, fileURL, encoding, generation, textSaver] in
+            let result = await textSaver(currentContent, fileURL, encoding)
             guard let self, self.activeSaveGeneration == generation else { return }
             self.activeSaveGeneration = nil
             self.isSaving = false

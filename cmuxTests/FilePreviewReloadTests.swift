@@ -144,6 +144,32 @@ struct FilePreviewReloadTests {
         #expect(panel.textContent == "load 2")
     }
 
+    @Test("Rapid file refreshes run only the active and latest mode resolution")
+    func rapidRefreshesConflateModeResolution() async throws {
+        let fileURL = FileManager.default.temporaryDirectory
+            .appending(path: "cmux-file-preview-mode-\(UUID().uuidString).bin")
+        defer { try? FileManager.default.removeItem(at: fileURL) }
+        try Data([0x00]).write(to: fileURL)
+
+        let resolver = ControlledFilePreviewModeResolver()
+        let panel = FilePreviewPanel(
+            workspaceId: UUID(),
+            filePath: fileURL.path,
+            startFileWatcher: false,
+            modeResolver: { _ in await resolver.resolve() }
+        )
+        defer { panel.close() }
+        await resolver.waitForFirstStart()
+
+        let superseded = panel.reloadFromDisk()
+        let latest = panel.reloadFromDisk()
+        await resolver.releaseAll()
+        await superseded.value
+        await latest.value
+
+        #expect(await resolver.count == 2)
+    }
+
     @Test("Saving a text preview does not route its own write through file-change reload")
     func saveUpdatesObservedFileState() async throws {
         let fileURL = FileManager.default.temporaryDirectory
@@ -164,6 +190,42 @@ struct FilePreviewReloadTests {
         await save.value
 
         #expect(panel.handleObservedFileChange() == nil)
+    }
+
+    @Test("An external edit during save is reconciled after the app write")
+    func externalEditDuringSaveIsReconciled() async throws {
+        let fileURL = FileManager.default.temporaryDirectory
+            .appending(path: "cmux-file-preview-save-race-\(UUID().uuidString).txt")
+        defer { try? FileManager.default.removeItem(at: fileURL) }
+        try "before\n".write(to: fileURL, atomically: true, encoding: .utf8)
+
+        let saver = ControlledFilePreviewTextSaver()
+        let panel = FilePreviewPanel(
+            workspaceId: UUID(),
+            filePath: fileURL.path,
+            startFileWatcher: false,
+            textSaver: { content, url, encoding in
+                await saver.save(content: content, to: url, encoding: encoding)
+            }
+        )
+        defer { panel.close() }
+        await panel.loadTextContent().value
+        panel.updateTextContent("saved by cmux\n")
+
+        let save = try #require(panel.saveTextContent())
+        await saver.waitForWrite()
+        try "formatted externally\n".write(to: fileURL, atomically: false, encoding: .utf8)
+        let routedReload = panel.handleObservedFileChange()
+        #expect(routedReload == nil)
+
+        await saver.release()
+        await save.value
+        if let routedReload {
+            await routedReload.value
+        }
+
+        #expect(panel.textContent == "formatted externally\n")
+        #expect(!panel.isDirty)
     }
 
     @Test("The manual refresh path replaces a cached Quick Look item")
@@ -357,5 +419,74 @@ private actor ControlledFilePreviewTextLoader {
         for continuation in continuations {
             continuation.resume()
         }
+    }
+}
+
+private actor ControlledFilePreviewModeResolver {
+    private(set) var count = 0
+    private var isReleased = false
+    private var firstStartContinuation: CheckedContinuation<Void, Never>?
+    private var releaseContinuations: [CheckedContinuation<Void, Never>] = []
+
+    func resolve() async -> FilePreviewMode {
+        count += 1
+        if count == 1 {
+            firstStartContinuation?.resume()
+            firstStartContinuation = nil
+        }
+        if !isReleased {
+            await withCheckedContinuation { releaseContinuations.append($0) }
+        }
+        return .quickLook
+    }
+
+    func waitForFirstStart() async {
+        guard count == 0 else { return }
+        await withCheckedContinuation { firstStartContinuation = $0 }
+    }
+
+    func releaseAll() {
+        isReleased = true
+        let continuations = releaseContinuations
+        releaseContinuations.removeAll()
+        for continuation in continuations {
+            continuation.resume()
+        }
+    }
+}
+
+private actor ControlledFilePreviewTextSaver {
+    private var didWrite = false
+    private var writeContinuation: CheckedContinuation<Void, Never>?
+    private var releaseContinuation: CheckedContinuation<Void, Never>?
+
+    func save(
+        content: String,
+        to url: URL,
+        encoding: String.Encoding
+    ) async -> FilePreviewTextSaver.Result {
+        guard let data = content.data(using: encoding) else {
+            return .failed(fileExists: FileManager.default.fileExists(atPath: url.path))
+        }
+        do {
+            try data.write(to: url)
+        } catch {
+            return .failed(fileExists: FileManager.default.fileExists(atPath: url.path))
+        }
+        didWrite = true
+        writeContinuation?.resume()
+        writeContinuation = nil
+        await withCheckedContinuation { releaseContinuation = $0 }
+        return .saved
+    }
+
+    func waitForWrite() async {
+        guard !didWrite else { return }
+        await withCheckedContinuation { writeContinuation = $0 }
+    }
+
+    func release() {
+        releaseContinuation?.resume()
+        releaseContinuation = nil
     }
 }
