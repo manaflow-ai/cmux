@@ -4601,6 +4601,18 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
             window.close()
             return
         }
+        if let tabManagerOwnerWindowId = self.windowId(for: tabManager),
+           tabManagerOwnerWindowId != windowId {
+#if DEBUG
+            cmuxDebugLog(
+                "mainWindow.register.tabManagerOwnerMismatch supplied=\(String(windowId.uuidString.prefix(8))) " +
+                    "owner=\(String(tabManagerOwnerWindowId.uuidString.prefix(8)))"
+            )
+#endif
+            window.orderOut(nil)
+            window.close()
+            return
+        }
         #if DEBUG
         let priorManagerToken = debugManagerToken(self.tabManager)
         #endif
