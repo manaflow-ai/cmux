@@ -527,18 +527,75 @@ async fn send_workspace_response(
     response: RpcResponse,
     allow_offload: bool,
 ) -> Result<(), ServicesError> {
+    let response_id = response.id;
     let encoded = if allow_offload && workspace_response_needs_codec(&response) {
         workspace
             .run_codec("RPC response encode", move || {
-                serde_json::to_vec(&response)
+                encode_workspace_response(&response)
                     .map_err(|error| RpcError::new("internal", format!("encode response: {error}")))
             })
             .await
             .map_err(|error| ServicesError::Remote(error.message))?
     } else {
-        serde_json::to_vec(&response)?
+        encode_workspace_response(&response)?
     };
-    messages.send(&encoded).await
+    match encoded {
+        EncodedWorkspaceResponse::Message(encoded) => messages.send(&encoded).await,
+        EncodedWorkspaceResponse::TooLarge => {
+            let fallback = RpcResponse {
+                id: response_id,
+                result: Err(RpcError::new(
+                    "resource-exhausted",
+                    "RPC response exceeds the maximum message size",
+                )),
+            };
+            let encoded = serde_json::to_vec(&fallback)?;
+            debug_assert!(encoded.len() <= MAX_RPC_MESSAGE);
+            messages.send(&encoded).await
+        }
+    }
+}
+
+enum EncodedWorkspaceResponse {
+    Message(Vec<u8>),
+    TooLarge,
+}
+
+struct BoundedJsonWriter {
+    encoded: Vec<u8>,
+    exceeded_limit: bool,
+}
+
+impl BoundedJsonWriter {
+    fn new() -> Self {
+        Self { encoded: Vec::new(), exceeded_limit: false }
+    }
+}
+
+impl std::io::Write for BoundedJsonWriter {
+    fn write(&mut self, bytes: &[u8]) -> std::io::Result<usize> {
+        if bytes.len() > MAX_RPC_MESSAGE.saturating_sub(self.encoded.len()) {
+            self.exceeded_limit = true;
+            return Err(std::io::Error::other("RPC response exceeds the maximum message size"));
+        }
+        self.encoded.extend_from_slice(bytes);
+        Ok(bytes.len())
+    }
+
+    fn flush(&mut self) -> std::io::Result<()> {
+        Ok(())
+    }
+}
+
+fn encode_workspace_response(
+    response: &RpcResponse,
+) -> Result<EncodedWorkspaceResponse, serde_json::Error> {
+    let mut writer = BoundedJsonWriter::new();
+    match serde_json::to_writer(&mut writer, response) {
+        Ok(()) => Ok(EncodedWorkspaceResponse::Message(writer.encoded)),
+        Err(_) if writer.exceeded_limit => Ok(EncodedWorkspaceResponse::TooLarge),
+        Err(error) => Err(error),
+    }
 }
 
 fn workspace_response_needs_codec(response: &RpcResponse) -> bool {
@@ -1169,10 +1226,7 @@ mod tests {
         assert_oversized_response_falls_back(
             RpcResponse {
                 id: cmux_remote_protocol::RequestId(72),
-                result: Err(RpcError::new(
-                    "invalid-data",
-                    "\u{1}".repeat(3 * 1024 * 1024),
-                )),
+                result: Err(RpcError::new("invalid-data", "\u{1}".repeat(3 * 1024 * 1024))),
             },
             true,
         )
