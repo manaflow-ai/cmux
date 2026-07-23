@@ -10,6 +10,7 @@ public struct ComputerUseSection: View {
     @State private var accessibilityGranted: Bool
     @State private var screenRecordingGranted: Bool
     @State private var permissionCheckArmed = false
+    @State private var permissionRefreshRequest = 0
 
     private let hostActions: SettingsHostActions
 
@@ -90,10 +91,13 @@ public struct ComputerUseSection: View {
             enabled.startObserving()
             showInMenuBar.startObserving()
         }
+        .task(id: permissionRefreshRequest) {
+            await refreshPermissions()
+        }
         .onReceive(NotificationCenter.default.publisher(for: NSApplication.didBecomeActiveNotification)) { _ in
             guard permissionCheckArmed else { return }
             permissionCheckArmed = false
-            refreshPermissions()
+            permissionRefreshRequest &+= 1
         }
     }
 
@@ -110,7 +114,9 @@ public struct ComputerUseSection: View {
                 request: {
                     beginPermissionFlow(hostActions.requestComputerUseAccessibility)
                 },
-                openSettings: hostActions.openComputerUseAccessibilitySettings
+                openSettings: {
+                    beginPermissionFlow(hostActions.openComputerUseAccessibilitySettings)
+                }
             )
         }
     }
@@ -130,7 +136,9 @@ public struct ComputerUseSection: View {
                 request: {
                     beginPermissionFlow(hostActions.requestComputerUseScreenRecording)
                 },
-                openSettings: hostActions.openComputerUseScreenRecordingSettings
+                openSettings: {
+                    beginPermissionFlow(hostActions.openComputerUseScreenRecordingSettings)
+                }
             )
         }
     }
@@ -164,12 +172,11 @@ public struct ComputerUseSection: View {
         .controlSize(.small)
     }
 
-    private func refreshPermissions() {
-        Task {
-            await hostActions.refreshComputerUsePermissions()
-            accessibilityGranted = hostActions.computerUseAccessibilityGranted()
-            screenRecordingGranted = hostActions.computerUseScreenRecordingGranted()
-        }
+    private func refreshPermissions() async {
+        await hostActions.refreshComputerUsePermissions()
+        guard !Task.isCancelled else { return }
+        accessibilityGranted = hostActions.computerUseAccessibilityGranted()
+        screenRecordingGranted = hostActions.computerUseScreenRecordingGranted()
     }
 
     private func beginPermissionFlow(_ action: () -> Void) {

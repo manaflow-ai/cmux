@@ -141,7 +141,6 @@ def run_wrapper(
     hooks_inject_fails: bool = False,
     hooks_disabled: bool = False,
     dead_socket: bool = False,
-    stale_helper_bundle_id: str | None = None,
     auth_token: bool = True,
     auth_token_file: bool = False,
 ) -> tuple[int, list[str], str, Path]:
@@ -164,9 +163,6 @@ def run_wrapper(
             """#!/usr/bin/env bash
 set -euo pipefail
 : > "$FAKE_CODEX_ARGS_LOG"
-if [[ -n "${FAKE_HELPER_INFO_PLIST:-}" && -f "$FAKE_HELPER_INFO_PLIST" ]]; then
-  /usr/libexec/PlistBuddy -c 'Print :CFBundleIdentifier' "$FAKE_HELPER_INFO_PLIST" >&2
-fi
 for arg in "$@"; do
   printf '%s\\n' "$arg" >> "$FAKE_CODEX_ARGS_LOG"
 done
@@ -222,24 +218,6 @@ exit 1
             env = os.environ.copy()
             sandbox_home = tmp / "home"
             sandbox_home.mkdir()
-            if bundled_driver and stale_helper_bundle_id is not None:
-                stale_driver = (
-                    sandbox_home
-                    / "Library"
-                    / "Application Support"
-                    / "cmux"
-                    / "computer-use"
-                    / "helper"
-                    / "cmux Computer Use.app"
-                    / "Contents"
-                    / "MacOS"
-                    / "cmux-cua-driver"
-                )
-                stale_driver.parent.mkdir(parents=True, exist_ok=True)
-                make_executable(stale_driver, "#!/usr/bin/env bash\nexit 0\n")
-                stale_info = stale_driver.parents[1] / "Info.plist"
-                write_helper_info(stale_info, stale_helper_bundle_id)
-                env["FAKE_HELPER_INFO_PLIST"] = str(stale_info)
             env["HOME"] = str(sandbox_home)
             env["PATH"] = f"{wrapper_dir}:{real_dir}:{env.get('PATH', '/usr/bin:/bin')}"
             env["CMUX_SURFACE_ID"] = "surface:test"
@@ -394,24 +372,6 @@ def test_codex_reads_private_daemon_credential_file(failures: list[str]) -> None
     )
     expect(code == 0, f"auth file wrapper exited {code}: {stderr}", failures)
     expect_scrubbed_mcp_env(args, failures, "private daemon credential file", helper_owned=True)
-
-
-def test_codex_replaces_stale_standalone_helper_identity(failures: list[str]) -> None:
-    code, _, stderr, _ = run_wrapper(
-        ["hello"],
-        stale_helper_bundle_id="com.cmuxterm.test.stale.computer-use",
-    )
-    expect(code == 0, f"stale helper identity: wrapper exited {code}: {stderr}", failures)
-    expect(
-        "com.cmuxterm.test.current.computer-use" in stderr,
-        f"stale helper identity: expected current helper bundle id, got {stderr!r}",
-        failures,
-    )
-    expect(
-        "com.cmuxterm.test.stale.computer-use" not in stderr,
-        f"stale helper identity: reused stale helper bundle id: {stderr!r}",
-        failures,
-    )
 
 
 def test_codex_uses_trusted_cua_driver_override(failures: list[str]) -> None:

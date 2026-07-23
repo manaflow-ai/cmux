@@ -142,6 +142,8 @@ final class ComputerUseWatchTargetController {
     private var pollTimer: Timer?
     private var cancellables: Set<AnyCancellable> = []
     private var refreshCoalesceScheduled = false
+    private var refreshCoalesceTask: Task<Void, Never>?
+    private var scanGeneration = 0
     private var started = false
 
     init(
@@ -173,12 +175,14 @@ final class ComputerUseWatchTargetController {
     }
 
     deinit {
+        refreshCoalesceTask?.cancel()
         directoryWatchSource?.cancel()
     }
 
     func start() {
         guard !started else { return }
         started = true
+        scanGeneration &+= 1
 
         NotificationCenter.default.publisher(for: .cmuxFeatureFlagsDidChange)
             .receive(on: DispatchQueue.main)
@@ -201,7 +205,11 @@ final class ComputerUseWatchTargetController {
 
     func stop() {
         started = false
+        scanGeneration &+= 1
         scanInFlight = false
+        refreshCoalesceTask?.cancel()
+        refreshCoalesceTask = nil
+        refreshCoalesceScheduled = false
         cancellables.removeAll()
         directoryWatchSource?.cancel()
         directoryWatchSource = nil
@@ -248,7 +256,7 @@ final class ComputerUseWatchTargetController {
     func refresh() {
         // Feature off: do nothing and, crucially, leave `lastActivatedTargetPID`
         // untouched so toggling off/on does not re-front the same live target.
-        guard featureEnabled(), !isRunningInBackground else { return }
+        guard started, featureEnabled(), !isRunningInBackground else { return }
 
         // Never scan the untrusted state directory on the main thread. The driver
         // rewrites its state files many times per second while driving, so doing
@@ -259,12 +267,14 @@ final class ComputerUseWatchTargetController {
         // `scanInFlight` collapses a burst of watcher/timer events into one scan.
         guard !scanInFlight else { return }
         scanInFlight = true
+        let generation = scanGeneration
         let feed = self.feed
         let directoryURL = self.stateDirectoryURL
         scanQueue.async { [weak self] in
             let state = feed.scan(directoryURL: directoryURL, now: Date())
             Task { @MainActor [weak self] in
                 guard let self else { return }
+                guard generation == self.scanGeneration else { return }
                 self.scanInFlight = false
                 self.applyScannedState(state)
             }
@@ -272,7 +282,7 @@ final class ComputerUseWatchTargetController {
     }
 
     private func applyScannedState(_ state: ComputerUseDriverState?) {
-        guard featureEnabled() else { return }
+        guard started, featureEnabled() else { return }
 
         let current = validatedTargetPID(from: state)
         guard
@@ -338,10 +348,16 @@ final class ComputerUseWatchTargetController {
     private func scheduleCoalescedRefresh() {
         guard started, !refreshCoalesceScheduled else { return }
         refreshCoalesceScheduled = true
-        Task { @MainActor [weak self] in
-            try? await Task.sleep(nanoseconds: 250_000_000)
-            guard let self else { return }
+        refreshCoalesceTask = Task { @MainActor [weak self] in
+            do {
+                // Genuine bounded debounce for one burst of directory events.
+                try await ContinuousClock().sleep(for: .milliseconds(250))
+            } catch {
+                return
+            }
+            guard let self, self.started, !Task.isCancelled else { return }
             self.refreshCoalesceScheduled = false
+            self.refreshCoalesceTask = nil
             self.refresh()
         }
     }

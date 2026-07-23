@@ -20,6 +20,7 @@ final class ComputerUseMenuBarSnapshotStore: ObservableObject {
 
     private var showInMenuBar: Bool
     private var refreshTask: Task<Void, Never>?
+    private var expiryRefreshTask: Task<Void, Never>?
     private var settingsTask: Task<Void, Never>?
     private var cancellables: Set<AnyCancellable> = []
     private var directoryWatchSource: DispatchSourceFileSystemObject?
@@ -50,6 +51,7 @@ final class ComputerUseMenuBarSnapshotStore: ObservableObject {
 
     deinit {
         refreshTask?.cancel()
+        expiryRefreshTask?.cancel()
         settingsTask?.cancel()
         directoryWatchSource?.cancel()
     }
@@ -84,6 +86,8 @@ final class ComputerUseMenuBarSnapshotStore: ObservableObject {
     func stop() {
         refreshTask?.cancel()
         refreshTask = nil
+        expiryRefreshTask?.cancel()
+        expiryRefreshTask = nil
         settingsTask?.cancel()
         settingsTask = nil
         cancellables.removeAll()
@@ -97,6 +101,8 @@ final class ComputerUseMenuBarSnapshotStore: ObservableObject {
         refreshGeneration += 1
         let generation = refreshGeneration
         refreshTask?.cancel()
+        expiryRefreshTask?.cancel()
+        expiryRefreshTask = nil
 
         guard let reloadDeadline = refreshPolicy.reloadDeadline(
             forEventAt: Date(),
@@ -113,36 +119,6 @@ final class ComputerUseMenuBarSnapshotStore: ObservableObject {
             return
         }
 
-        // Shared-index change notifications already drive this projection. Reading
-        // the cache here must not schedule another machine-wide process scan: state
-        // files can be rewritten many times per second during computer use.
-        let entries = liveAgentIndex.index?.liveEntries() ?? []
-        let pending = entries.map { pair in
-            let snapshot = pair.entry.snapshot
-            let workspaceName = workspaceTitle(pair.panelKey.workspaceId)
-                ?? String(localized: "computerUse.menu.unknownWorkspace", defaultValue: "Unknown Workspace")
-            let rowID = [
-                snapshot.kind.rawValue,
-                snapshot.sessionId,
-                pair.panelKey.workspaceId.uuidString,
-                pair.panelKey.panelId.uuidString,
-            ].joined(separator: "|")
-            let row = ComputerUseMenuBarRow(
-                id: rowID,
-                title: String(
-                    localized: "computerUse.menu.sessionTitle",
-                    defaultValue: "\(snapshot.kind.displayName) · \(workspaceName)"
-                ),
-                sessionID: snapshot.sessionId,
-                workspaceID: pair.panelKey.workspaceId,
-                surfaceID: pair.panelKey.panelId,
-                targetIdentity: nil
-            )
-            return row
-        }
-
-        let repository = stateRepository
-        let directoryURL = stateDirectoryURL
         refreshTask = Task { [weak self] in
             let delay = max(0, reloadDeadline.timeIntervalSinceNow)
             do {
@@ -152,7 +128,47 @@ final class ComputerUseMenuBarSnapshotStore: ObservableObject {
             } catch {
                 return
             }
-            guard !Task.isCancelled else { return }
+            guard
+                let self,
+                !Task.isCancelled,
+                generation == self.refreshGeneration
+            else {
+                return
+            }
+
+            // Shared-index change notifications already drive this projection.
+            // Wait until the debounce has settled before reading the cache and
+            // resolving workspace titles: state files can be rewritten many
+            // times per second during computer use.
+            let entries = self.liveAgentIndex.index?.liveEntries() ?? []
+            let pending = entries.map { pair in
+                let snapshot = pair.entry.snapshot
+                let workspaceName = self.workspaceTitle(pair.panelKey.workspaceId)
+                    ?? String(
+                        localized: "computerUse.menu.unknownWorkspace",
+                        defaultValue: "Unknown Workspace"
+                    )
+                let rowID = [
+                    snapshot.kind.rawValue,
+                    snapshot.sessionId,
+                    pair.panelKey.workspaceId.uuidString,
+                    pair.panelKey.panelId.uuidString,
+                ].joined(separator: "|")
+                return ComputerUseMenuBarRow(
+                    id: rowID,
+                    title: String(
+                        localized: "computerUse.menu.sessionTitle",
+                        defaultValue: "\(snapshot.kind.displayName) · \(workspaceName)"
+                    ),
+                    sessionID: snapshot.sessionId,
+                    workspaceID: pair.panelKey.workspaceId,
+                    surfaceID: pair.panelKey.panelId,
+                    targetIdentity: nil
+                )
+            }
+
+            let repository = self.stateRepository
+            let directoryURL = self.stateDirectoryURL
 
             let result = await withTaskGroup(of: ComputerUseMenuBarScanResult?.self) { group in
                 group.addTask(priority: .utility) {
@@ -179,11 +195,13 @@ final class ComputerUseMenuBarSnapshotStore: ObservableObject {
                 return await group.next() ?? nil
             }
 
-            guard let self, let result, !Task.isCancelled, generation == self.refreshGeneration else { return }
-            let rows = [result.mostRecentlyActiveRow].compactMap { row -> ComputerUseMenuBarRow? in
+            guard let result, !Task.isCancelled, generation == self.refreshGeneration else { return }
+            let activeRow = result.mostRecentlyActiveRow
+            let activeState = activeRow.flatMap { result.scan.newestStateByScopeID[$0.id] }
+            let rows = [activeRow].compactMap { row -> ComputerUseMenuBarRow? in
                 guard
                     let row,
-                    let state = result.scan.newestStateByScopeID[row.id],
+                    let state = activeState,
                     let pid = pid_t(exactly: state.targetPID),
                     let application = NSRunningApplication(processIdentifier: pid),
                     let identity = ComputerUseTargetIdentity(state: state, runningApplication: application)
@@ -198,6 +216,40 @@ final class ComputerUseMenuBarSnapshotStore: ObservableObject {
                 showInMenuBar: currentShowInMenuBar,
                 featureEnabled: currentFeatureEnabled
             )
+            if !rows.isEmpty, let activeState {
+                self.scheduleExpiryRefresh(
+                    lastActionAt: activeState.lastActionAt,
+                    generation: generation
+                )
+            }
+        }
+    }
+
+    private func scheduleExpiryRefresh(lastActionAt: Date, generation: Int) {
+        let deadline = refreshPolicy.stateExpirationDeadline(
+            lastActionAt: lastActionAt,
+            recentActivityInterval: stateRepository.recentActivityInterval
+        )
+        expiryRefreshTask?.cancel()
+        expiryRefreshTask = Task { @MainActor [weak self] in
+            let delay = max(0, deadline.timeIntervalSinceNow)
+            do {
+                // This bounded, cancellable delay is the state-freshness
+                // deadline. It fires once so an idle session disappears even
+                // when no later filesystem event arrives.
+                try await Task.sleep(for: .seconds(delay))
+            } catch {
+                return
+            }
+            guard
+                let self,
+                !Task.isCancelled,
+                generation == self.refreshGeneration
+            else {
+                return
+            }
+            self.expiryRefreshTask = nil
+            self.refresh()
         }
     }
 

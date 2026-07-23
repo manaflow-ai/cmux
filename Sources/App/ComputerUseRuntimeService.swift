@@ -20,7 +20,9 @@ final class ComputerUseRuntimeService {
     private let bundledHelperAppURL: URL?
     private let transport: SocketTransport
     private var installedHelperURL: URL?
-    private var installationTask: Task<URL?, Never>?
+    private var helperLifecycleTask: Task<Void, Never>?
+    private var helperLifecycleCancellationActions: [Int: @Sendable () -> Void] = [:]
+    private var helperLifecycleGeneration = 0
     private var helperTerminationObservationTask: Task<Void, Never>?
     private var helperHealthTask: Task<Void, Never>?
     private var recoveryTask: Task<Void, Never>?
@@ -50,6 +52,10 @@ final class ComputerUseRuntimeService {
     }
 
     deinit {
+        for cancel in helperLifecycleCancellationActions.values {
+            cancel()
+        }
+        helperLifecycleTask?.cancel()
         helperTerminationObservationTask?.cancel()
         helperHealthTask?.cancel()
         recoveryTask?.cancel()
@@ -91,7 +97,10 @@ final class ComputerUseRuntimeService {
             missedHelperHealthChecks = 0
             recoveryTask?.cancel()
             recoveryTask = nil
-            await stopDaemon()
+            await serializeHelperLifecycle(cancelledResult: ()) { [weak self] in
+                guard let self else { return }
+                _ = await self.stopDaemon()
+            }
             try? FileManager.default.removeItem(at: paths.authenticationTokenFileURL)
             cachedStatus = .missing
         }
@@ -100,62 +109,36 @@ final class ComputerUseRuntimeService {
     /// Installs the nested helper at its independently registered top-level URL.
     @discardableResult
     func ensureStandaloneHelperInstalled() async -> URL? {
-        guard acceptsNewLaunches, !Task.isCancelled, prepareRuntimeForLaunch() else { return nil }
-        if let installationTask {
-            let result = await installationTask.value
-            guard acceptsNewLaunches, !Task.isCancelled else { return nil }
-            installedHelperURL = result
-            return result
+        await serializeHelperLifecycle(cancelledResult: nil as URL?) { [weak self] in
+            guard let self else { return nil }
+            return await self.ensureStandaloneHelperInstalledWithinLifecycle()
         }
-        guard let bundledHelperAppURL else { return nil }
-
-        let destination = paths.installedHelperAppURL
-        let isCurrent = await Task.detached(priority: .userInitiated) {
-            Self.helperIsCurrent(nested: bundledHelperAppURL, destination: destination)
-        }.value
-        guard acceptsNewLaunches, !Task.isCancelled else { return nil }
-        if isCurrent {
-            installedHelperURL = destination
-            return destination
-        }
-
-        await stopDaemon()
-        guard acceptsNewLaunches, !Task.isCancelled else { return nil }
-        recoverStaleDaemonIfNeeded(helperURL: destination)
-        let directory = paths.installedHelperDirectoryURL
-        let task = Task.detached(priority: .userInitiated) {
-            Self.installHelper(
-                nested: bundledHelperAppURL,
-                destination: destination,
-                directory: directory
-            )
-        }
-        installationTask = task
-        let result = await task.value
-        installationTask = nil
-        guard acceptsNewLaunches, !Task.isCancelled else { return nil }
-        installedHelperURL = result
-        return result
     }
 
     /// Restarts only the helper, then reads its fresh TCC status over the UDS.
     @discardableResult
     func refreshHelperStatus() async -> (accessibility: Bool, screenRecording: Bool) {
-        guard let helperURL = await ensureStandaloneHelperInstalled() else {
-            cachedStatus = .missing
-            return status()
-        }
+        await serializeHelperLifecycle(cancelledResult: status()) { [weak self] in
+            guard let self else { return (false, false) }
+            guard let helperURL = await self.ensureStandaloneHelperInstalledWithinLifecycle() else {
+                self.cachedStatus = .missing
+                return self.status()
+            }
 
-        await stopDaemon()
-        guard await launchHelper(at: helperURL) else {
-            cachedStatus = .missing
-            return status()
+            guard await self.stopDaemon(),
+                  self.acceptsNewLaunches,
+                  !Task.isCancelled,
+                  await self.launchHelper(at: helperURL)
+            else {
+                self.cachedStatus = .missing
+                return self.status()
+            }
+            self.cachedStatus = await Self.waitForPermissionStatus(
+                paths: self.paths,
+                transport: self.transport
+            ) ?? .missing
+            return self.status()
         }
-        cachedStatus = await Self.waitForPermissionStatus(
-            paths: paths,
-            transport: transport
-        ) ?? .missing
-        return status()
     }
 
     func requestAccessibility() async -> Bool {
@@ -186,8 +169,105 @@ final class ComputerUseRuntimeService {
     }
 
     private func startIfNeeded() async {
+        await serializeHelperLifecycle(cancelledResult: ()) { [weak self] in
+            guard let self else { return }
+            await self.startIfNeededWithinLifecycle()
+        }
+    }
+
+    /// Asks the independently attributed helper to raise one native TCC request.
+    ///
+    /// This host-only daemon method is separate from the MCP tool registry, so an
+    /// agent cannot bypass onboarding with `check_permissions { prompt: true }`.
+    private func requestSystemPermission(named name: String) async -> Bool {
+        guard acceptsNewLaunches, !Task.isCancelled else { return false }
+        return await serializeHelperLifecycle(cancelledResult: false) { [weak self] in
+            guard let self else { return false }
+            await self.startIfNeededWithinLifecycle()
+            guard self.acceptsNewLaunches, !Task.isCancelled else { return false }
+            return await Self.sendDaemonRequest(
+                [
+                    "method": "request_system_permission",
+                    "name": name,
+                ],
+                paths: self.paths,
+                transport: self.transport,
+                timeout: 5
+            )?["ok"] as? Bool == true
+        }
+    }
+
+    private func serializeHelperLifecycle<Result: Sendable>(
+        cancelledResult: Result,
+        _ operation: @escaping @MainActor @Sendable () async -> Result
+    ) async -> Result {
+        let predecessor = helperLifecycleTask
+        helperLifecycleGeneration &+= 1
+        let generation = helperLifecycleGeneration
+        let operationTask = Task { @MainActor in
+            await predecessor?.value
+            guard !Task.isCancelled else { return cancelledResult }
+            return await operation()
+        }
+        helperLifecycleCancellationActions[generation] = {
+            operationTask.cancel()
+        }
+        helperLifecycleTask = Task { @MainActor in
+            _ = await operationTask.value
+        }
+        let result = await withTaskCancellationHandler {
+            await operationTask.value
+        } onCancel: {
+            operationTask.cancel()
+        }
+        helperLifecycleCancellationActions.removeValue(forKey: generation)
+        if generation == helperLifecycleGeneration {
+            helperLifecycleTask = nil
+        }
+        return result
+    }
+
+    private func ensureStandaloneHelperInstalledWithinLifecycle() async -> URL? {
+        guard acceptsNewLaunches, !Task.isCancelled, prepareRuntimeForLaunch() else { return nil }
+        guard let bundledHelperAppURL else { return nil }
+        let destination = paths.installedHelperAppURL
+        let currentCheckTask = Task.detached(priority: .userInitiated) {
+            Self.helperIsCurrent(nested: bundledHelperAppURL, destination: destination)
+        }
+        let isCurrent = await withTaskCancellationHandler {
+            await currentCheckTask.value
+        } onCancel: {
+            currentCheckTask.cancel()
+        }
+        guard acceptsNewLaunches, !Task.isCancelled else { return nil }
+        if isCurrent {
+            installedHelperURL = destination
+            return destination
+        }
+
+        guard await stopDaemon(), acceptsNewLaunches, !Task.isCancelled else { return nil }
+        recoverStaleDaemonIfNeeded(helperURL: destination)
+        let directory = paths.installedHelperDirectoryURL
+        let installationTask = Task.detached(priority: .userInitiated) {
+            Self.installHelper(
+                nested: bundledHelperAppURL,
+                destination: destination,
+                directory: directory
+            )
+        }
+        let result = await withTaskCancellationHandler {
+            await installationTask.value
+        } onCancel: {
+            installationTask.cancel()
+        }
+        guard acceptsNewLaunches, !Task.isCancelled else { return nil }
+        installedHelperURL = result
+        return result
+    }
+
+    private func startIfNeededWithinLifecycle() async {
         guard acceptsNewLaunches, !Task.isCancelled else { return }
-        guard let helperURL = await ensureStandaloneHelperInstalled() else { return }
+        guard let helperURL = await ensureStandaloneHelperInstalledWithinLifecycle() else { return }
         guard acceptsNewLaunches, !Task.isCancelled else { return }
         guard !(await Self.isDaemonListening(paths: paths, transport: transport)) else { return }
         guard acceptsNewLaunches, !Task.isCancelled else { return }
@@ -197,27 +277,8 @@ final class ComputerUseRuntimeService {
         _ = await Self.waitForDaemonStart(paths: paths, transport: transport)
     }
 
-    /// Asks the independently attributed helper to raise one native TCC request.
-    ///
-    /// This host-only daemon method is separate from the MCP tool registry, so an
-    /// agent cannot bypass onboarding with `check_permissions { prompt: true }`.
-    private func requestSystemPermission(named name: String) async -> Bool {
-        guard acceptsNewLaunches, !Task.isCancelled else { return false }
-        await startIfNeeded()
-        guard acceptsNewLaunches, !Task.isCancelled else { return false }
-        return await Self.sendDaemonRequest(
-            [
-                "method": "request_system_permission",
-                "name": name,
-            ],
-            paths: paths,
-            transport: transport,
-            timeout: 5
-        )?["ok"] as? Bool == true
-    }
-
-    private func stopDaemon() async {
-        guard await Self.isDaemonListening(paths: paths, transport: transport) else { return }
+    private func stopDaemon() async -> Bool {
+        guard await Self.isDaemonListening(paths: paths, transport: transport) else { return true }
         recordExpectedTerminationOfRunningHelper(at: installedHelperURL ?? paths.installedHelperAppURL)
         _ = await Self.sendDaemonRequest(
             ["method": "shutdown"],
@@ -225,7 +286,7 @@ final class ComputerUseRuntimeService {
             transport: transport,
             timeout: 2
         )
-        _ = await Self.waitForDaemonStop(paths: paths, transport: transport)
+        return await Self.waitForDaemonStop(paths: paths, transport: transport)
     }
 
     private func launchHelper(at helperURL: URL) async -> Bool {
@@ -286,8 +347,13 @@ final class ComputerUseRuntimeService {
     func stopForTermination() {
         desiredEnabled = false
         acceptsNewLaunches = false
-        installationTask?.cancel()
-        installationTask = nil
+        for cancel in helperLifecycleCancellationActions.values {
+            cancel()
+        }
+        helperLifecycleCancellationActions.removeAll()
+        helperLifecycleTask?.cancel()
+        helperLifecycleTask = nil
+        helperLifecycleGeneration &+= 1
         helperTerminationObservationTask?.cancel()
         helperTerminationObservationTask = nil
         helperHealthTask?.cancel()
@@ -384,7 +450,7 @@ final class ComputerUseRuntimeService {
     }
 
     private func startMonitoringHelperHealth() {
-        guard helperHealthTask == nil else { return }
+        guard desiredEnabled, acceptsNewLaunches, helperHealthTask == nil else { return }
         helperHealthTask = Task { @MainActor [weak self] in
             let clock = ContinuousClock()
             while !Task.isCancelled {
@@ -547,6 +613,7 @@ final class ComputerUseRuntimeService {
     }
 
     nonisolated private static func helperIsCurrent(nested: URL, destination: URL) -> Bool {
+        guard !Task.isCancelled else { return false }
         let fileManager = FileManager.default
         let nestedBinary = nested.appendingPathComponent("Contents/MacOS/cmux-cua-driver")
         let destinationBinary = destination.appendingPathComponent("Contents/MacOS/cmux-cua-driver")
@@ -554,7 +621,7 @@ final class ComputerUseRuntimeService {
         guard fileManager.contentsEqual(
             atPath: nested.appendingPathComponent("Contents/Info.plist").path,
             andPath: destination.appendingPathComponent("Contents/Info.plist").path
-        ) else {
+        ), !Task.isCancelled else {
             return false
         }
         return fileManager.contentsEqual(
@@ -570,13 +637,16 @@ final class ComputerUseRuntimeService {
     ) -> URL? {
         let fileManager = FileManager.default
         do {
+            guard !Task.isCancelled else { return nil }
             try fileManager.createDirectory(at: directory, withIntermediateDirectories: true)
             let temporary = directory.appendingPathComponent(
                 ".cmux Computer Use.\(UUID().uuidString).app",
                 isDirectory: true
             )
             try? fileManager.removeItem(at: temporary)
+            defer { try? fileManager.removeItem(at: temporary) }
             try fileManager.copyItem(at: nested, to: temporary)
+            guard !Task.isCancelled else { return nil }
             try? fileManager.removeItem(at: destination)
             try fileManager.moveItem(at: temporary, to: destination)
             return destination

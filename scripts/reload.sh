@@ -1196,8 +1196,11 @@ if [[ "$LAUNCH" -eq 1 ]]; then
       echo "error: tagged app executable not found: $APP_EXECUTABLE" >&2
       exit 1
     fi
-    TAG_LAUNCH_LOG="/tmp/cmux-launch-${TAG_SLUG}.out"
-    : > "$TAG_LAUNCH_LOG"
+    CMUX_TAG_LAUNCH_LOG_DIRECTORY="$(mktemp -d "${TMPDIR:-/tmp}/cmux-launch-${TAG_SLUG}.XXXXXX")"
+    chmod 0700 "$CMUX_TAG_LAUNCH_LOG_DIRECTORY"
+    TAG_LAUNCH_LOG="$CMUX_TAG_LAUNCH_LOG_DIRECTORY/launch.out"
+    (umask 077 && : > "$TAG_LAUNCH_LOG")
+    chmod 0600 "$TAG_LAUNCH_LOG"
     if [[ -n "${CMUX_SOCKET_PATH_VALUE:-}" ]]; then
       /bin/launchctl submit -l "$TAG_LAUNCHD_LABEL" -o "$TAG_LAUNCH_LOG" -e "$TAG_LAUNCH_LOG" -- \
         "${OPEN_CLEAN_ENV[@]}" "${TAG_LAUNCH_ENV[@]}" CMUX_SOCKET_PATH="$CMUX_SOCKET_PATH_VALUE" CMUXD_UNIX_PATH="$CMUXD_SOCKET" "$APP_EXECUTABLE"

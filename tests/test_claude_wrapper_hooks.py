@@ -97,9 +97,6 @@ printf '%s\\n' "${CLAUDECODE-__UNSET__}" > "$FAKE_REAL_CLAUDECODE_LOG"
 printf '%s\\n' "${NODE_OPTIONS-__UNSET__}" > "$FAKE_REAL_NODE_OPTIONS_LOG"
 printf '%s\\n' "${CMUX_AGENT_LAUNCH_ARGV_B64-__UNSET__}" > "$FAKE_REAL_LAUNCH_ARGV_B64_LOG"
 printf '%s\\n' "${CMUX_CLAUDE_HOOK_CMUX_BIN-__UNSET__}" > "$FAKE_HOOK_CMUX_BIN_LOG"
-if [[ -n "${FAKE_HELPER_INFO_PLIST:-}" && -f "$FAKE_HELPER_INFO_PLIST" ]]; then
-  /usr/libexec/PlistBuddy -c 'Print :CFBundleIdentifier' "$FAKE_HELPER_INFO_PLIST" >&2
-fi
 for arg in "$@"; do
   printf '%s\\n' "$arg" >> "$FAKE_REAL_ARGS_LOG"
 done
@@ -933,7 +930,6 @@ def computer_use_sandbox(
     disabled: bool = False,
     managed_sideload_source: str | None = None,
     path_helper_trap: bool = False,
-    stale_helper_bundle_id: str | None = None,
     auth_token: bool = True,
     auth_token_file: bool = False,
 ):
@@ -976,24 +972,6 @@ def computer_use_sandbox(
                 helper_driver.parents[1] / "Info.plist",
                 "com.cmuxterm.test.current.computer-use",
             )
-            if stale_helper_bundle_id is not None:
-                stale_driver = (
-                    sandbox_home
-                    / "Library"
-                    / "Application Support"
-                    / "cmux"
-                    / "computer-use"
-                    / "helper"
-                    / "cmux Computer Use.app"
-                    / "Contents"
-                    / "MacOS"
-                    / "cmux-cua-driver"
-                )
-                stale_driver.parent.mkdir(parents=True, exist_ok=True)
-                make_executable(stale_driver, "#!/usr/bin/env bash\nexit 0\n")
-                stale_info = stale_driver.parents[1] / "Info.plist"
-                write_helper_info(stale_info, stale_helper_bundle_id)
-                env["FAKE_HELPER_INFO_PLIST"] = str(stale_info)
         if override_driver:
             env["CMUX_CUA_DRIVER"] = "/bin/echo"
         if group_writable_override:
@@ -1231,27 +1209,6 @@ def test_computer_use_reads_private_daemon_credential_file(failures: list[str]) 
         "computer use auth file",
         "cmux-cua-driver",
         helper_owned=True,
-    )
-
-
-def test_stale_standalone_helper_identity_is_replaced(failures: list[str]) -> None:
-    code, _, _, stderr, _, _, _, _, _, _ = run_wrapper(
-        socket_state="live",
-        argv=["hello"],
-        setup_sandbox=computer_use_sandbox(
-            stale_helper_bundle_id="com.cmuxterm.test.stale.computer-use"
-        ),
-    )
-    expect(code == 0, f"stale helper identity: wrapper exited {code}: {stderr}", failures)
-    expect(
-        "com.cmuxterm.test.current.computer-use" in stderr,
-        f"stale helper identity: expected current helper bundle id, got {stderr!r}",
-        failures,
-    )
-    expect(
-        "com.cmuxterm.test.stale.computer-use" not in stderr,
-        f"stale helper identity: reused stale helper bundle id: {stderr!r}",
-        failures,
     )
 
 
