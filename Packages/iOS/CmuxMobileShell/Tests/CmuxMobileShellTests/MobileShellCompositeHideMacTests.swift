@@ -290,6 +290,102 @@ import Testing
         #expect(store.hiddenComputers.map(\.macDeviceID) == ["mac-a"])
     }
 
+    @Test
+    func discardingLegacyHiddenComputerClearsOnlyItsMarkersWithoutBackupUpload() async throws {
+        let directory = FileManager.default.temporaryDirectory
+            .appendingPathComponent(UUID().uuidString, isDirectory: true)
+        try FileManager.default.createDirectory(
+            at: directory,
+            withIntermediateDirectories: true
+        )
+        defer { try? FileManager.default.removeItem(at: directory) }
+        let inner = try MobilePairedMacStore(
+            databaseURL: directory.appendingPathComponent("paired-macs.sqlite3")
+        )
+        let backup = FakeBackup()
+        let pairedStore = BackingUpPairedMacStore(
+            inner: inner,
+            backup: backup,
+            teamIDProvider: { "team-a" }
+        )
+        let hiddenStore = InMemoryPairedMacHiddenStore()
+        let store = MobileShellComposite(
+            isSignedIn: true,
+            pairedMacStore: pairedStore,
+            identityProvider: StaticIdentityProvider(userID: "user-1"),
+            teamIDProvider: { "team-a" },
+            hiddenMacStore: hiddenStore
+        )
+        let scope = try #require(await store.currentScopeSnapshot())
+        let discardedID = MobilePairedMac.pairingID(
+            macDeviceID: "mac-a",
+            instanceTag: "nightly"
+        )
+        let retainedID = MobilePairedMac.pairingID(
+            macDeviceID: "mac-b",
+            instanceTag: "stable"
+        )
+        await store.rememberHiddenMacDeviceID(
+            discardedID,
+            scope: scope,
+            includeUserWideScope: true
+        )
+        await store.rememberHiddenMacDeviceID(
+            retainedID,
+            scope: scope,
+            includeUserWideScope: true
+        )
+        await store.loadPairedMacs()
+        let discarded = try #require(
+            store.hiddenComputers.first { $0.id == discardedID }
+        )
+        #expect(discarded.requiresLegacyRecovery)
+        let uploadCountBeforeDiscard = await backup.uploadedOps().count
+
+        await store.discardLegacyHiddenComputer(discarded)
+
+        #expect(Set(store.hiddenComputers.map(\.id)) == [retainedID])
+        let scopedKey = store.pairedMacScopeKey(scope)
+        let userWideKey = store.pairedMacScopeKey(store.userWideScope(from: scope))
+        #expect(await hiddenStore.load(scope: scopedKey) == [retainedID])
+        #expect(await hiddenStore.load(scope: userWideKey) == [retainedID])
+        #expect(await backup.uploadedOps().count == uploadCountBeforeDiscard)
+    }
+
+    @Test
+    func legacyRecoveryWithoutIrohDiscoveryReportsIrohUnavailable() async throws {
+        let directory = FileManager.default.temporaryDirectory
+            .appendingPathComponent(UUID().uuidString, isDirectory: true)
+        try FileManager.default.createDirectory(
+            at: directory,
+            withIntermediateDirectories: true
+        )
+        defer { try? FileManager.default.removeItem(at: directory) }
+        let inner = try MobilePairedMacStore(
+            databaseURL: directory.appendingPathComponent("paired-macs.sqlite3")
+        )
+        let hiddenStore = InMemoryPairedMacHiddenStore()
+        let store = MobileShellComposite(
+            isSignedIn: true,
+            pairedMacStore: inner,
+            identityProvider: StaticIdentityProvider(userID: "user-1"),
+            teamIDProvider: { "team-a" },
+            hiddenMacStore: hiddenStore
+        )
+        let scope = try #require(await store.currentScopeSnapshot())
+        await store.rememberHiddenMacDeviceID(
+            MobilePairedMac.pairingID(macDeviceID: "mac-a", instanceTag: "nightly"),
+            scope: scope
+        )
+
+        let result = await store.recoverHiddenIrohMacFromAccount(
+            macDeviceID: "mac-a",
+            instanceTag: "nightly"
+        )
+
+        #expect(result == .notFound(reason: .irohUnavailable))
+    }
+
     @Test func hidingMacClearsAnonymousWorkspaceSnapshotOwnedByThatMac() async throws {
         let pairedStore = DelayedTeamPairedMacStore(
             recordsByTeam: [

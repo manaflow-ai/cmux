@@ -1,6 +1,7 @@
 #if os(iOS)
 import CmuxMobileShell
 import CmuxMobileSupport
+import Foundation
 import SwiftUI
 
 /// Immutable hidden-computer row with offline unhide and legacy recovery actions.
@@ -9,6 +10,7 @@ struct HiddenComputerRow: View {
     let isRecoveringLegacyComputer: Bool
     let unhide: @MainActor () async -> Void
     let recoverLegacyComputer: @MainActor () async -> MobileHiddenComputerRecoveryResult
+    let discardLegacyComputer: @MainActor () async -> Void
 
     @State private var actionTask: Task<Void, Never>?
     @State private var alertMessage: String?
@@ -17,9 +19,18 @@ struct HiddenComputerRow: View {
         HStack(spacing: 12) {
             avatar
             VStack(alignment: .leading, spacing: 2) {
-                Text(computer.displayName)
-                    .font(.headline)
-                    .lineLimit(1)
+                HStack(spacing: 6) {
+                    Text(computer.displayName)
+                        .font(.headline)
+                        .lineLimit(1)
+                    if computer.instanceTag != nil,
+                       let buildLabel = MacBuildChannel().label(
+                           bundleID: nil,
+                           tag: computer.instanceTag
+                       ) {
+                        ComputerBuildBadge(label: buildLabel)
+                    }
+                }
                 if computer.requiresLegacyRecovery {
                     Text(L10n.string(
                         "mobile.computers.hidden.legacyStatus",
@@ -52,6 +63,17 @@ struct HiddenComputerRow: View {
             ),
             isPresented: alertPresented
         ) {
+            if computer.requiresLegacyRecovery {
+                Button(
+                    L10n.string(
+                        "mobile.computers.hidden.removeFromList",
+                        defaultValue: "Remove from List"
+                    ),
+                    role: .destructive,
+                    action: performDiscard
+                )
+                .accessibilityIdentifier("MobileComputerRemoveFromList-\(computer.id)")
+            }
             Button(L10n.string("mobile.common.ok", defaultValue: "OK"), role: .cancel) {
                 alertMessage = nil
             }
@@ -108,15 +130,104 @@ struct HiddenComputerRow: View {
             if computer.requiresLegacyRecovery {
                 let result = await recoverLegacyComputer()
                 guard !Task.isCancelled else { return }
-                if result == .notFound {
-                    alertMessage = L10n.string(
-                        "mobile.computers.unhideFailedMessage",
-                        defaultValue: "This computer was removed with an older version of cmux. Open cmux on the Mac, make sure it is online and signed in to this account, then try again."
-                    )
+                if case .notFound(let reason) = result {
+                    alertMessage = recoveryFailureMessage(reason: reason)
                 }
             } else {
                 await unhide()
             }
+        }
+    }
+
+    private func performDiscard() {
+        guard actionTask == nil else { return }
+        alertMessage = nil
+        actionTask = Task { @MainActor in
+            defer { actionTask = nil }
+            await discardLegacyComputer()
+        }
+    }
+
+    private func recoveryFailureMessage(
+        reason: MobileHiddenComputerRecoveryFailureReason?
+    ) -> String {
+        switch reason {
+        case .instanceNotLive(let instanceTag):
+            guard let buildLabel = MacBuildChannel().label(
+                bundleID: nil,
+                tag: instanceTag
+            ), let appName = recoveryAppDisplayName(for: buildLabel) else {
+                return genericRecoveryFailureMessage
+            }
+            return String(
+                format: L10n.string(
+                    "mobile.computers.unhideFailed.instanceNotLiveFormat",
+                    defaultValue: "This entry is the %1$@ build of %2$@. Open %3$@ on that Mac, sign in to this account, then try again."
+                ),
+                buildLabel,
+                computer.displayName,
+                appName
+            )
+        case .deviceNotFound:
+            return L10n.string(
+                "mobile.computers.unhideFailed.deviceNotFoundMessage",
+                defaultValue: "This computer was not found on this account. Make sure it is online and signed in to the same account. If it was wiped or set up again, it cannot be restored; you can remove this entry from the list below."
+            )
+        case .noIrohRoute:
+            return L10n.string(
+                "mobile.computers.unhideFailed.noIrohRouteMessage",
+                defaultValue: "This Mac needs to finish updating its connection before it can be restored. Open cmux on it while it is online, then try again."
+            )
+        case .irohUnavailable:
+            return L10n.string(
+                "mobile.computers.unhideFailed.irohUnavailableMessage",
+                defaultValue: "This iPhone hasn't finished setting up its connection service, so it can't search for the computer. Make sure you are signed in and online, then try again."
+            )
+        case .connectFailed:
+            return L10n.string(
+                "mobile.computers.unhideFailed.connectFailedMessage",
+                defaultValue: "Found the computer, but couldn't connect to it. Check that both devices are online, then try again."
+            )
+        case nil:
+            return genericRecoveryFailureMessage
+        }
+    }
+
+    private var genericRecoveryFailureMessage: String {
+        L10n.string(
+            "mobile.computers.unhideFailedMessage",
+            defaultValue: "This computer was removed with an older version of cmux. Open cmux on the Mac, make sure it is online and signed in to this account, then try again."
+        )
+    }
+
+    private func recoveryAppDisplayName(for buildLabel: String) -> String? {
+        switch buildLabel {
+        case "Stable":
+            return L10n.string("mobile.hostPicker.app.stable", defaultValue: "cmux")
+        case "Nightly":
+            return L10n.string(
+                "mobile.computers.recovery.app.nightly",
+                defaultValue: "cmux NIGHTLY"
+            )
+        case "RC":
+            return L10n.string("mobile.hostPicker.app.rc", defaultValue: "cmux RC")
+        case "Staging":
+            return L10n.string(
+                "mobile.hostPicker.app.staging",
+                defaultValue: "cmux Staging"
+            )
+        case "DEV":
+            return L10n.string("mobile.hostPicker.app.dev", defaultValue: "cmux DEV")
+        default:
+            let prefix = "DEV · "
+            guard buildLabel.hasPrefix(prefix) else { return nil }
+            return String(
+                format: L10n.string(
+                    "mobile.hostPicker.app.devTaggedFormat",
+                    defaultValue: "cmux DEV %@"
+                ),
+                String(buildLabel.dropFirst(prefix.count))
+            )
         }
     }
 }
@@ -144,6 +255,7 @@ struct HiddenComputersRows: View {
     let isRecoveringLegacyComputer: Bool
     let unhide: @MainActor (MobileHiddenComputer) async -> Void
     let recoverLegacyComputer: @MainActor (MobileHiddenComputer) async -> MobileHiddenComputerRecoveryResult
+    let discardLegacyComputer: @MainActor (MobileHiddenComputer) async -> Void
 
     var body: some View {
         ForEach(computers) { computer in
@@ -151,7 +263,8 @@ struct HiddenComputersRows: View {
                 computer: computer,
                 isRecoveringLegacyComputer: isRecoveringLegacyComputer,
                 unhide: { await unhide(computer) },
-                recoverLegacyComputer: { await recoverLegacyComputer(computer) }
+                recoverLegacyComputer: { await recoverLegacyComputer(computer) },
+                discardLegacyComputer: { await discardLegacyComputer(computer) }
             )
         }
     }
@@ -164,6 +277,7 @@ struct HiddenComputersSection: View {
     let isRecoveringLegacyComputer: Bool
     let unhide: @MainActor (MobileHiddenComputer) async -> Void
     let recoverLegacyComputer: @MainActor (MobileHiddenComputer) async -> MobileHiddenComputerRecoveryResult
+    let discardLegacyComputer: @MainActor (MobileHiddenComputer) async -> Void
 
     var body: some View {
         Section {
@@ -171,7 +285,8 @@ struct HiddenComputersSection: View {
                 computers: computers,
                 isRecoveringLegacyComputer: isRecoveringLegacyComputer,
                 unhide: unhide,
-                recoverLegacyComputer: recoverLegacyComputer
+                recoverLegacyComputer: recoverLegacyComputer,
+                discardLegacyComputer: discardLegacyComputer
             )
         } header: {
             Text(HiddenComputersCopy.title)

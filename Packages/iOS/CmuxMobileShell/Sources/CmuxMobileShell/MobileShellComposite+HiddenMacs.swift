@@ -121,6 +121,26 @@ extension MobileShellComposite {
         await loadRegistryDevices()
     }
 
+    /// Removes one dead legacy hidden marker from this iPhone without reviving its Mac.
+    ///
+    /// Normal hidden entries retain a local paired-Mac row and must use
+    /// ``unhideMacDeviceID(_:instanceTag:)`` instead.
+    /// - Parameter computer: The legacy hidden entry whose local markers should be discarded.
+    public func discardLegacyHiddenComputer(_ computer: MobileHiddenComputer) async {
+        guard computer.requiresLegacyRecovery,
+              let scope = await currentScopeSnapshot() else { return }
+        // This is local marker cleanup only: any server tombstone remains, and
+        // explicit QR pairing can still recreate the Mac later.
+        await clearHiddenMacDeviceID(
+            computer.macDeviceID,
+            instanceTag: computer.instanceTag,
+            scope: scope
+        )
+        guard await isScopeCurrent(scope) else { return }
+        await loadPairedMacs()
+        await loadRegistryDevices()
+    }
+
     /// Hides the logical computer represented by a visible stored Mac id.
     public func hideMac(macDeviceID: String) async {
         guard let scope = await currentScopeSnapshot() else { return }

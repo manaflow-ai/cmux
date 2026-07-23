@@ -1514,6 +1514,23 @@
         }
       }
     },
+    "mobile.computers.hidden.removeFromList": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Remove from List"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "リストから削除"
+          }
+        }
+      }
+    },
     "mobile.computers.hidden.title": {
       "extractionState": "manual",
       "localizations": {
@@ -1565,6 +1582,91 @@
         }
       }
     },
+    "mobile.computers.unhideFailed.connectFailedMessage": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Found the computer, but couldn't connect to it. Check that both devices are online, then try again."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "コンピュータは見つかりましたが、接続できませんでした。両方のデバイスがオンラインであることを確認して、もう一度お試しください。"
+          }
+        }
+      }
+    },
+    "mobile.computers.unhideFailed.deviceNotFoundMessage": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "This computer was not found on this account. Make sure it is online and signed in to the same account. If it was wiped or set up again, it cannot be restored; you can remove this entry from the list below."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "このコンピュータはこのアカウントで見つかりませんでした。オンラインで、同じアカウントにサインインしていることを確認してください。消去または再セットアップされた場合は復元できません。下のボタンでこの項目をリストから削除できます。"
+          }
+        }
+      }
+    },
+    "mobile.computers.unhideFailed.instanceNotLiveFormat": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "This entry is the %1$@ build of %2$@. Open %3$@ on that Mac, sign in to this account, then try again."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "この項目は%2$@の%1$@ビルドです。そのMacで%3$@を開き、このアカウントにサインインしてから、もう一度お試しください。"
+          }
+        }
+      }
+    },
+    "mobile.computers.unhideFailed.irohUnavailableMessage": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "This iPhone hasn't finished setting up its connection service, so it can't search for the computer. Make sure you are signed in and online, then try again."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "このiPhoneは接続サービスのセットアップが完了していないため、コンピュータを検索できません。サインインしてオンラインであることを確認して、もう一度お試しください。"
+          }
+        }
+      }
+    },
+    "mobile.computers.unhideFailed.noIrohRouteMessage": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "This Mac needs to finish updating its connection before it can be restored. Open cmux on it while it is online, then try again."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "このMacを復元するには、接続の更新を完了する必要があります。オンラインの状態でMacのcmuxを開いてから、もう一度お試しください。"
+          }
+        }
+      }
+    },
     "mobile.computers.unhideFailedMessage": {
       "extractionState": "manual",
       "localizations": {
@@ -1595,6 +1697,23 @@
           "stringUnit": {
             "state": "translated",
             "value": "コンピュータを再表示できませんでした"
+          }
+        }
+      }
+    },
+    "mobile.computers.recovery.app.nightly": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "cmux NIGHTLY"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "cmux NIGHTLY"
           }
         }
       }

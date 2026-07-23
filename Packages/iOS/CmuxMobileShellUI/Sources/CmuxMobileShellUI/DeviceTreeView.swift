@@ -148,6 +148,9 @@ struct DeviceTreeView: View {
                     macDeviceID: computer.macDeviceID,
                     instanceTag: computer.instanceTag
                 )
+            },
+            discardLegacyComputer: { computer in
+                await store.discardLegacyHiddenComputer(computer)
             }
         )
     }

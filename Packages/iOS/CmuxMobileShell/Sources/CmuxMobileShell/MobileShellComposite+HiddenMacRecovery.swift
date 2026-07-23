@@ -1,13 +1,22 @@
 import CMUXMobileCore
 import CmuxMobilePairedMac
 import Foundation
+internal import OSLog
+
+private let hiddenRecoveryLog = Logger(
+    subsystem: Bundle.main.bundleIdentifier ?? "dev.cmux.ios",
+    category: "mobile-shell"
+)
 
 /// Result of a user-triggered legacy hidden-computer recovery attempt.
 public enum MobileHiddenComputerRecoveryResult: Equatable, Sendable {
     /// A hidden Mac was found through same-account Iroh discovery and persisted again.
     case recovered
     /// No eligible hidden Mac was live for the current account/team scope.
-    case notFound
+    ///
+    /// A `nil` reason retains the generic fallback for failures that cannot be
+    /// attributed to discovery identity or route availability.
+    case notFound(reason: MobileHiddenComputerRecoveryFailureReason? = nil)
     /// A previous recovery attempt is still running, so this tap did not start another scan.
     case alreadyInProgress
     /// The account or team changed while recovery was running.
@@ -36,10 +45,16 @@ extension MobileShellComposite {
         defer { isRecoveringHiddenComputer = false }
 
         guard isSignedIn,
-              let scope = await currentScopeSnapshot(),
-              let personalIrohDiscovery else { return .notFound }
+              let scope = await currentScopeSnapshot() else { return .notFound() }
+        guard let personalIrohDiscovery else {
+            // Signed in but this phone has no Iroh discovery client (e.g. a
+            // legacy Tailscale-only pairing where phone-side Iroh was never
+            // provisioned). Recovery cannot search anything in that state.
+            hiddenRecoveryLog.info("hidden recovery aborted: iroh discovery unavailable on this device")
+            return .notFound(reason: .irohUnavailable)
+        }
         let hiddenIDs = await hiddenMacDeviceIDs(scope: scope)
-        guard !hiddenIDs.isEmpty else { return .notFound }
+        guard !hiddenIDs.isEmpty else { return .notFound() }
 
         connectionRecoveryOwner.cancel()
         applyConnectionRecoveryOwnerState()
@@ -54,6 +69,7 @@ extension MobileShellComposite {
             instanceTag: instanceTag
         )
 
+        var attemptedConnects = 0
         for mac in candidates {
             guard await isScopeCurrent(scope) else { return .staleScope }
             guard await isHiddenMacDeviceID(
@@ -61,6 +77,7 @@ extension MobileShellComposite {
                 instanceTag: mac.instanceTag,
                 scope: scope
             ) else { continue }
+            attemptedConnects += 1
             let recovered = await connectAccountDiscoveredIrohMac(
                 mac,
                 accountID: scope.userID,
@@ -72,12 +89,53 @@ extension MobileShellComposite {
                 }
             )
             guard await isScopeCurrent(scope) else { return .staleScope }
-            guard recovered else { continue }
+            guard recovered else {
+                hiddenRecoveryLog.info(
+                    "hidden recovery connect failed mac=\(mac.deviceID, privacy: .public) tag=\(mac.instanceTag, privacy: .public)"
+                )
+                continue
+            }
             await loadPairedMacs()
             await loadRegistryDevices()
             return .recovered
         }
-        return .notFound
+        // A candidate matched the marker exactly and advertised an Iroh route,
+        // so the residual failure is the authenticated connect, not discovery.
+        let reason: MobileHiddenComputerRecoveryFailureReason? = attemptedConnects > 0
+            ? .connectFailed
+            : hiddenIrohRecoveryFailureReason(
+                from: discovered,
+                macDeviceID: macDeviceID,
+                instanceTag: instanceTag
+            )
+        hiddenRecoveryLog.info(
+            "hidden recovery notFound hidden=\(hiddenIDs.count) discovered=\(discovered.count) candidates=\(candidates.count) attempted=\(attemptedConnects) target=\(macDeviceID.map(cmxCanonicalDeviceID) ?? "-", privacy: .public) tag=\(instanceTag ?? "-", privacy: .public) reason=\(String(describing: reason), privacy: .public)"
+        )
+        return .notFound(reason: reason)
+    }
+
+    private func hiddenIrohRecoveryFailureReason(
+        from discovered: [MobileDiscoveredIrohMac],
+        macDeviceID: String?,
+        instanceTag: String?
+    ) -> MobileHiddenComputerRecoveryFailureReason? {
+        guard let macDeviceID else { return nil }
+        let canonicalDeviceID = cmxCanonicalDeviceID(macDeviceID)
+        let deviceMatches = discovered.filter {
+            cmxCanonicalDeviceID($0.deviceID) == canonicalDeviceID
+        }
+        guard !deviceMatches.isEmpty else { return .deviceNotFound }
+
+        let instanceMatches = deviceMatches.filter { $0.instanceTag == instanceTag }
+        guard !instanceMatches.isEmpty else {
+            return .instanceNotLive(instanceTag: instanceTag)
+        }
+        guard instanceMatches.contains(where: {
+            $0.routes.contains(where: { $0.kind == .iroh })
+        }) else {
+            return .noIrohRoute
+        }
+        return nil
     }
 
     private func hiddenIrohRecoveryCandidates(
