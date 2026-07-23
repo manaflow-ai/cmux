@@ -215,7 +215,7 @@ struct ArtifactRepositorySafetyTests {
             _ = try ArtifactTestSupport.write(
                 "artifact \(index)",
                 named: "artifact-\(index).txt",
-                under: paths.artifactsRoot
+                under: paths.filesystemRoot
             )
         }
         let fileManager = DirectoryEnumerationRecordingFileManager()
@@ -236,12 +236,8 @@ struct ArtifactRepositorySafetyTests {
         defer { ArtifactTestSupport.remove(root) }
         let outside = try ArtifactTestSupport.temporaryDirectory()
         defer { ArtifactTestSupport.remove(outside) }
-        try FileManager.default.createDirectory(
-            at: root.appendingPathComponent(".cmux", isDirectory: true),
-            withIntermediateDirectories: true
-        )
         try FileManager.default.createSymbolicLink(
-            at: root.appendingPathComponent(".cmux/artifacts", isDirectory: true),
+            at: root.appendingPathComponent(".cmux", isDirectory: true),
             withDestinationURL: outside
         )
         let source = try ArtifactTestSupport.write("safe", named: "safe.md", under: root)
@@ -277,7 +273,9 @@ struct ArtifactRepositorySafetyTests {
             contentsOf: root.appendingPathComponent(".git/info/exclude"),
             encoding: .utf8
         )
-        #expect(exclude == "nested/project/.cmux/artifacts/\n")
+        #expect(exclude == ArtifactGitIgnoreManager.ignoreEntries
+            .map { "nested/project/\($0)" }
+            .joined(separator: "\n") + "\n")
     }
 
     @Test("Git excludes artifact stores in paths containing pattern metacharacters")
@@ -291,7 +289,7 @@ struct ArtifactRepositorySafetyTests {
         let artifact = try ArtifactTestSupport.write(
             "private",
             named: "plan.md",
-            under: project.appendingPathComponent(".cmux/artifacts")
+            under: project.appendingPathComponent(".cmux/session/artifacts")
         )
         let relativePath = try #require(
             ArtifactPathResolver().relativePath(artifact, root: root)
@@ -336,7 +334,7 @@ struct ArtifactRepositorySafetyTests {
         let root = try ArtifactTestSupport.temporaryDirectory()
         defer { ArtifactTestSupport.remove(root) }
         let paths = ArtifactStorePaths(projectRoot: root)
-        _ = try ArtifactTestSupport.write("artifact", named: "one.txt", under: paths.artifactsRoot)
+        _ = try ArtifactTestSupport.write("artifact", named: "one.txt", under: paths.filesystemRoot)
         let scan = Task {
             withUnsafeCurrentTask { $0?.cancel() }
             return try ArtifactTreeScanner(
@@ -362,7 +360,7 @@ struct ArtifactRepositorySafetyTests {
         )
         let snapshot = ArtifactSnapshot(
             projectRoot: root,
-            artifactsRoot: ArtifactStorePaths(projectRoot: root).artifactsRoot,
+            filesystemRoot: ArtifactStorePaths(projectRoot: root).filesystemRoot,
             nodes: [node],
             isTruncated: false
         )
@@ -438,7 +436,7 @@ struct ArtifactRepositorySafetyTests {
         let root = try ArtifactTestSupport.temporaryDirectory()
         defer { ArtifactTestSupport.remove(root) }
         let paths = ArtifactStorePaths(projectRoot: root)
-        _ = try ArtifactTestSupport.write("same", named: "one.txt", under: paths.artifactsRoot)
+        _ = try ArtifactTestSupport.write("same", named: "one.txt", under: paths.filesystemRoot)
         let scanTask = Task {
             var visits = 0
             try ArtifactDeduplicationScanner(fileManager: .default).scanFiles(

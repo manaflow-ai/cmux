@@ -70,9 +70,27 @@ struct CmuxSessionFilesystemTests {
         let snapshot = try await LocalArtifactRepository().snapshot(projectRoot: root)
         let paths = snapshot.nodes.flattenedArtifactNodes().map(\.relativePath)
 
-        #expect(snapshot.artifactsRoot == root.appendingPathComponent(".cmux"))
+        #expect(snapshot.filesystemRoot == root.appendingPathComponent(".cmux"))
         #expect(paths.contains("codex-session-one/artifacts/report.txt"))
         #expect(paths.contains("codex-session-one/notes/plan.md"))
+    }
+
+    @Test("Prompt-ready cmux references resolve against the unified filesystem")
+    func resolvesCmuxReference() async throws {
+        let root = try ArtifactTestSupport.temporaryDirectory()
+        defer { ArtifactTestSupport.remove(root) }
+        _ = try ArtifactTestSupport.write(
+            "artifact",
+            named: ".cmux/session/artifacts/report.txt",
+            under: root
+        )
+
+        let node = try await LocalArtifactRepository().resolve(
+            projectRoot: root,
+            name: ".cmux/session/artifacts/report.txt"
+        )
+
+        #expect(node.relativePath == "session/artifacts/report.txt")
     }
 
     @Test("Moving a session keeps it as the destination for later captures")

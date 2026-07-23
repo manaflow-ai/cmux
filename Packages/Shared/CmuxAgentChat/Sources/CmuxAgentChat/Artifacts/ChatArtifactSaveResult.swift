@@ -4,7 +4,7 @@ import Foundation
 public struct ChatArtifactSaveResult: Codable, Equatable, Sendable {
     /// Absolute path to the persisted artifact on the Mac.
     public let path: String
-    /// Path relative to the project's `.cmux/artifacts` directory.
+    /// Path relative to the project's `.cmux` filesystem.
     public let relativePath: String
     /// Prompt-ready project-relative reference.
     public let reference: String
@@ -13,7 +13,7 @@ public struct ChatArtifactSaveResult: Codable, Equatable, Sendable {
     ///
     /// - Parameters:
     ///   - path: Absolute path to the persisted file on the Mac.
-    ///   - relativePath: Path relative to the project's artifact root.
+    ///   - relativePath: Path relative to the project's `.cmux` filesystem.
     ///   - reference: Prompt-ready project-relative reference.
     public init(path: String, relativePath: String, reference: String) {
         self.path = path

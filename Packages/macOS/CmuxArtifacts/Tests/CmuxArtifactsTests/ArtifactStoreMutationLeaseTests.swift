@@ -16,11 +16,11 @@ struct ArtifactStoreMutationLeaseTests {
         )
         let paths = ArtifactStorePaths(projectRoot: root)
         try FileManager.default.createDirectory(
-            at: paths.artifactsRoot,
+            at: paths.filesystemRoot,
             withIntermediateDirectories: true
         )
         let descriptor = Darwin.open(
-            paths.artifactsRoot.path,
+            paths.filesystemRoot.path,
             O_RDONLY | O_DIRECTORY | O_CLOEXEC | O_NOFOLLOW
         )
         #expect(descriptor >= 0)
@@ -37,7 +37,7 @@ struct ArtifactStoreMutationLeaseTests {
             capturedAt: Date(timeIntervalSince1970: 1)
         )
 
-        #expect(blocked.first == .rejected(.storeBusy(paths.artifactsRoot.path)))
+        #expect(blocked.first == .rejected(.storeBusy(paths.filesystemRoot.path)))
         #expect(flock(descriptor, LOCK_UN) == 0)
 
         let retried = await repository.importFiles(

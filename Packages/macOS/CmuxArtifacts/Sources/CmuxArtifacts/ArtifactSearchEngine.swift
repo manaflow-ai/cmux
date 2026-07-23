@@ -16,7 +16,7 @@ struct ArtifactSearchEngine {
             let pathScore = matcher.score(candidate: node.relativePath).map { $0 - 250 }
             let contentMatch = try contentMatch(
                 node: node,
-                artifactsRoot: snapshot.artifactsRoot,
+                filesystemRoot: snapshot.filesystemRoot,
                 query: matcher.contentQuery,
                 remainingBytes: &remainingContentBytes
             )
@@ -40,7 +40,7 @@ struct ArtifactSearchEngine {
 
     private func contentMatch(
         node: ArtifactNode,
-        artifactsRoot: URL,
+        filesystemRoot: URL,
         query: String,
         remainingBytes: inout Int64
     ) throws -> String? {
@@ -51,7 +51,7 @@ struct ArtifactSearchEngine {
         let maximumBytes = min(configuration.contentSearchMaximumBytes, remainingBytes)
         guard let data = try ArtifactBoundedFileReader().data(
             url: URL(fileURLWithPath: node.absolutePath),
-            allowedRoot: artifactsRoot,
+            allowedRoot: filesystemRoot,
             maximumBytes: maximumBytes
         ) else {
             return nil

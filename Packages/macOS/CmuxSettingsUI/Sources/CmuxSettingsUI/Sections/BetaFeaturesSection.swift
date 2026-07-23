@@ -74,10 +74,19 @@ public struct BetaFeaturesSection: View {
         SettingsCardRow(
             configurationReview: .settingsOnly,
             searchAnchorID: "setting:betaFeatures:artifacts",
-            String(localized: "settings.betaFeatures.artifacts", defaultValue: "Artifacts"),
+            String(
+                localized: "settings.betaFeatures.artifacts",
+                defaultValue: "Artifacts & Notes"
+            ),
             subtitle: artifacts.current
-                ? String(localized: "settings.betaFeatures.artifacts.subtitleOn", defaultValue: "Shows the project’s local artifact tree in the right sidebar.")
-                : String(localized: "settings.betaFeatures.artifacts.subtitleOff", defaultValue: "Hides Artifacts from the right sidebar until you enable it here.")
+                ? String(
+                    localized: "settings.betaFeatures.artifacts.subtitleOn",
+                    defaultValue: "Shows the project’s local artifacts and notes tree in the right sidebar."
+                )
+                : String(
+                    localized: "settings.betaFeatures.artifacts.subtitleOff",
+                    defaultValue: "Hides Artifacts & Notes from the right sidebar until you enable it here."
+                )
         ) {
             Toggle("", isOn: Binding(get: { artifacts.current }, set: { artifacts.set($0) }))
                 .labelsHidden()

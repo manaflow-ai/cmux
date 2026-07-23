@@ -1,7 +1,7 @@
 import CmuxArtifacts
 import SwiftUI
 
-/// Immutable Artifacts tree/search row.
+/// Immutable project-file tree/search row.
 struct ArtifactSidebarRowView: View {
     let snapshot: ArtifactSidebarRowSnapshot
     let actions: ArtifactSidebarRowActions
@@ -77,7 +77,7 @@ struct ArtifactSidebarRowView: View {
                 actions.toggleExpansion(snapshot)
             }
         } else {
-            Button(String(localized: "rightSidebar.artifacts.open", defaultValue: "Open Artifact")) {
+            Button(String(localized: "rightSidebar.artifacts.open", defaultValue: "Open File")) {
                 actions.activate(snapshot)
             }
         }

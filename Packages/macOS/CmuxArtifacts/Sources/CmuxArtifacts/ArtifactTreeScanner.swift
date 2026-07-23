@@ -11,15 +11,15 @@ struct ArtifactTreeScanner {
         var remaining = nodeBudget
         var truncated = false
         let nodes = try scanDirectory(
-            paths.artifactsRoot,
-            root: paths.artifactsRoot,
+            paths.filesystemRoot,
+            root: paths.filesystemRoot,
             depth: 0,
             remaining: &remaining,
             truncated: &truncated
         )
         return ArtifactSnapshot(
             projectRoot: paths.projectRoot,
-            artifactsRoot: paths.artifactsRoot,
+            filesystemRoot: paths.filesystemRoot,
             nodes: nodes,
             isTruncated: truncated
         )
@@ -54,7 +54,7 @@ struct ArtifactTreeScanner {
                 truncated = true
                 break
             }
-            guard !isManagedMarker(url), !isManagedMetadataRoot(url, artifactsRoot: root) else {
+            guard !isManagedMarker(url), !isManagedRootEntry(url, root: root) else {
                 continue
             }
             remaining -= 1
@@ -96,11 +96,20 @@ struct ArtifactTreeScanner {
             || url.lastPathComponent == ArtifactPathResolver.sessionMarkerName
     }
 
-    private func isManagedMetadataRoot(_ url: URL, artifactsRoot: URL) -> Bool {
-        ArtifactPathResolver().refersToSameLocation(
+    private func isManagedRootEntry(
+        _ url: URL,
+        root: URL
+    ) -> Bool {
+        let resolver = ArtifactPathResolver()
+        if resolver.refersToSameLocation(
             url,
-            artifactsRoot.appendingPathComponent(".cmux", isDirectory: true)
-        )
+            root.appendingPathComponent(".metadata", isDirectory: true)
+        ) { return true }
+        guard url.deletingLastPathComponent().standardizedFileURL == root.standardizedFileURL else {
+            return false
+        }
+        return url.lastPathComponent.hasPrefix(".")
+            || ["artifacts.json", "cmux.json", "dock.json"].contains(url.lastPathComponent)
     }
 
     private func relativePath(_ url: URL, root: URL) -> String? {

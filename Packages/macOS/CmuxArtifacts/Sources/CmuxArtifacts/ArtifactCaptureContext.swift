@@ -2,7 +2,7 @@ public import Foundation
 
 /// Project, workspace, and agent-session identity used to group a capture.
 public struct ArtifactCaptureContext: Equatable, Sendable {
-    /// Root directory that owns `.cmux/artifacts`.
+    /// Root directory that owns the session-oriented `.cmux` filesystem.
     public let projectRoot: URL
     /// Stable cmux workspace identity, when known.
     public let workspaceID: String?
@@ -16,7 +16,7 @@ public struct ArtifactCaptureContext: Equatable, Sendable {
     /// Creates capture grouping context.
     ///
     /// - Parameters:
-    ///   - projectRoot: Root directory that owns `.cmux/artifacts`.
+    ///   - projectRoot: Root directory that owns `.cmux`.
     ///   - workspaceID: Stable cmux workspace identity, when known.
     ///   - workspaceTitle: Human-readable workspace title, when known.
     ///   - sessionID: Stable agent session identity, when known.

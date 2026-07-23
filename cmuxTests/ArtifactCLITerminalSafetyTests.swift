@@ -29,6 +29,8 @@ struct ArtifactCLITerminalSafetyTests {
         let addedPayload = try jsonObject(added.stdout)
         let relativePath = try #require(addedPayload["relative_path"] as? String)
         #expect(relativePath.contains(controlledName))
+        let reference = try #require(addedPayload["reference"] as? String)
+        #expect(reference == ".cmux/\(relativePath)")
 
         let humanList = try runCLI(
             cliPath,
@@ -39,7 +41,7 @@ struct ArtifactCLITerminalSafetyTests {
 
         let humanPath = try runCLI(
             cliPath,
-            ["artifact", "path", relativePath, "--project", projectRoot.path]
+            ["artifact", "path", reference, "--project", projectRoot.path]
         )
         #expect(humanPath.status == 0)
         #expect(!containsUnsafeTerminalControl(humanPath.stdout))

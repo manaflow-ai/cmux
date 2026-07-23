@@ -9,7 +9,7 @@ struct ArtifactGitPrivacyTests {
     func rejectsNegatedArtifactIgnore() async throws {
         let root = try gitRepository()
         defer { ArtifactTestSupport.remove(root) }
-        try "!/.cmux/artifacts/\n!/.cmux/artifacts/**\n".write(
+        try "!/.cmux/\n!/.cmux/**/artifacts/\n!/.cmux/**/artifacts/**\n".write(
             to: root.appendingPathComponent(".gitignore"),
             atomically: true,
             encoding: .utf8
@@ -37,9 +37,11 @@ struct ArtifactGitPrivacyTests {
         _ = try ArtifactTestSupport.write(
             "tracked",
             named: "tracked.md",
-            under: root.appendingPathComponent(".cmux/artifacts")
+            under: root.appendingPathComponent(".cmux/session/artifacts")
         )
-        #expect(try runGit(["-C", root.path, "add", "--force", ".cmux/artifacts/tracked.md"]) == 0)
+        #expect(try runGit([
+            "-C", root.path, "add", "--force", ".cmux/session/artifacts/tracked.md",
+        ]) == 0)
         let source = try ArtifactTestSupport.write(
             "new secret",
             named: "outside/new-secret.md",
@@ -62,11 +64,10 @@ struct ArtifactGitPrivacyTests {
         _ = try await repository.snapshot(projectRoot: root)
         try """
         !/.cmux/
-        !/.cmux/artifacts/
-        /.cmux/artifacts/**
-        !/.cmux/artifacts/workspace-workspace/
-        !/.cmux/artifacts/workspace-workspace/session-session/
-        !/.cmux/artifacts/**/*.json
+        !/.cmux/session-session/
+        !/.cmux/session-session/artifacts/
+        /.cmux/session-session/artifacts/**
+        !/.cmux/session-session/artifacts/*.json
 
         """.write(
             to: root.appendingPathComponent(".gitignore"),
@@ -75,11 +76,11 @@ struct ArtifactGitPrivacyTests {
         )
         #expect(try runGit([
             "-C", root.path, "check-ignore", "--quiet", "--",
-            ".cmux/artifacts/.__cmux_probe__",
+            ".cmux/.metadata/imports/.__cmux_probe__",
         ]) == 0)
         #expect(try runGit([
             "-C", root.path, "check-ignore", "--quiet", "--",
-            ".cmux/artifacts/workspace-workspace/session-session/secret.json",
+            ".cmux/session-session/artifacts/secret.json",
         ]) == 1)
         let source = try ArtifactTestSupport.write(
             "secret",

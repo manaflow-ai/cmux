@@ -12,7 +12,7 @@ struct ArtifactScanBoundaryTests {
         _ = try ArtifactTestSupport.write(
             "target",
             named: "one/two/target.md",
-            under: ArtifactStorePaths(projectRoot: root).artifactsRoot
+            under: ArtifactStorePaths(projectRoot: root).filesystemRoot
         )
         let repository = LocalArtifactRepository(maximumScanDepth: 1)
 
@@ -28,7 +28,7 @@ struct ArtifactScanBoundaryTests {
     func incompleteScansFailExplicitly() async throws {
         let root = try ArtifactTestSupport.temporaryDirectory()
         defer { ArtifactTestSupport.remove(root) }
-        let artifactRoot = ArtifactStorePaths(projectRoot: root).artifactsRoot
+        let artifactRoot = ArtifactStorePaths(projectRoot: root).filesystemRoot
         _ = try ArtifactTestSupport.write("one", named: "one.md", under: artifactRoot)
         _ = try ArtifactTestSupport.write("two", named: "two.md", under: artifactRoot)
         let repository = LocalArtifactRepository(nodeBudget: 1)
@@ -49,7 +49,7 @@ struct ArtifactScanBoundaryTests {
         _ = try ArtifactTestSupport.write(
             "target",
             named: "one/two/target.md",
-            under: ArtifactStorePaths(projectRoot: root).artifactsRoot
+            under: ArtifactStorePaths(projectRoot: root).filesystemRoot
         )
         let repository = LocalArtifactRepository(maximumScanDepth: 1)
         let model = ArtifactSidebarModel(

@@ -14,7 +14,8 @@ struct ArtifactGitSubmoduleTests {
 
         let exclude = fixture.gitDirectory.appendingPathComponent("info/exclude", isDirectory: false)
         let contents = try String(contentsOf: exclude, encoding: .utf8)
-        #expect(contents.split(separator: "\n").contains(".cmux/artifacts/"))
+        let lines = Set(contents.split(separator: "\n").map(String.init))
+        #expect(lines.isSuperset(of: Set(ArtifactGitIgnoreManager.ignoreEntries)))
     }
 
     @Test("Automatic imports remain private inside submodules")
@@ -35,7 +36,7 @@ struct ArtifactGitSubmoduleTests {
         #expect(try ArtifactTestSupport.runGit([
             "-C", fixture.submodule.path,
             "check-ignore", "--quiet", "--",
-            ".cmux/artifacts/\(record.relativePath)",
+            ".cmux/\(record.relativePath)",
         ]) == 0)
     }
 

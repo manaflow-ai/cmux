@@ -169,7 +169,7 @@ public final class ArtifactSidebarModel {
 
     /// Expands or collapses a directory row.
     ///
-    /// - Parameter relativePath: Directory path relative to the artifact root.
+    /// - Parameter relativePath: Directory path relative to the project `.cmux` filesystem.
     public func toggleExpansion(relativePath: String) {
         if expandedPaths.contains(relativePath) {
             expandedPaths.remove(relativePath)

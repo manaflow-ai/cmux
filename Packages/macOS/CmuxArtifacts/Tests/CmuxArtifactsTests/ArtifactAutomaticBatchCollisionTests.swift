@@ -43,7 +43,7 @@ struct ArtifactAutomaticBatchCollisionTests {
         #expect(Set(records.map(\.relativePath)).count == 2)
         let storedContents = try records.map { record in
             try String(
-                contentsOf: root.appendingPathComponent(".cmux/artifacts/\(record.relativePath)"),
+                contentsOf: root.appendingPathComponent(".cmux/\(record.relativePath)"),
                 encoding: .utf8
             )
         }

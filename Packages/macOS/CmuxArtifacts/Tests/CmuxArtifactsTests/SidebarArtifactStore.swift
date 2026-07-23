@@ -38,7 +38,7 @@ actor SidebarArtifactStore: ArtifactStoring {
         snapshotCount += 1
         return ArtifactSnapshot(
             projectRoot: root,
-            artifactsRoot: root.appendingPathComponent(".cmux/artifacts", isDirectory: true),
+            filesystemRoot: root.appendingPathComponent(".cmux", isDirectory: true),
             nodes: nodes,
             isTruncated: false
         )

@@ -66,15 +66,13 @@ struct ArtifactAutomaticWritePlanner {
         resolution: ArtifactCaptureDirectoryResolution
     ) -> [URL] {
         var urls: [URL] = []
-        if !resolution.reusedSessionMarker {
-            let workspaceMarker = resolution.directory
-                .deletingLastPathComponent()
-                .appendingPathComponent(ArtifactPathResolver.workspaceMarkerName)
-            if !fileManager.fileExists(atPath: workspaceMarker.path) {
-                urls.append(workspaceMarker)
-            }
+        let sessionRoot = resolution.directory.deletingLastPathComponent()
+        let workspaceMarker = sessionRoot
+            .appendingPathComponent(ArtifactPathResolver.workspaceMarkerName)
+        if !fileManager.fileExists(atPath: workspaceMarker.path) {
+            urls.append(workspaceMarker)
         }
-        let sessionMarker = resolution.directory
+        let sessionMarker = sessionRoot
             .appendingPathComponent(ArtifactPathResolver.sessionMarkerName)
         if !fileManager.fileExists(atPath: sessionMarker.path) {
             urls.append(sessionMarker)

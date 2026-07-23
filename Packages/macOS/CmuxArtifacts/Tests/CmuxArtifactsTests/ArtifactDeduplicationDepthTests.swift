@@ -13,7 +13,7 @@ struct ArtifactDeduplicationDepthTests {
         _ = try ArtifactTestSupport.write(
             "same bytes",
             named: "one/two/existing.md",
-            under: paths.artifactsRoot
+            under: paths.filesystemRoot
         )
         let source = try ArtifactTestSupport.write(
             "same bytes",

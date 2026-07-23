@@ -15,7 +15,11 @@ enum RightSidebarMode: String, CaseIterable, Codable, Sendable {
         case .files: return String(localized: "rightSidebar.mode.files", defaultValue: "Files")
         case .find: return String(localized: "rightSidebar.mode.find", defaultValue: "Find")
         case .sessions: return String(localized: "rightSidebar.mode.sessions", defaultValue: "Vault")
-        case .artifacts: return String(localized: "rightSidebar.mode.artifacts", defaultValue: "Artifacts")
+        case .artifacts:
+            return String(
+                localized: "rightSidebar.mode.artifacts",
+                defaultValue: "Artifacts & Notes"
+            )
         case .feed: return String(localized: "rightSidebar.mode.feed", defaultValue: "Feed")
         case .dock: return String(localized: "rightSidebar.mode.dock", defaultValue: "Dock")
         case .customSidebar: return String(localized: "rightSidebar.mode.customSidebar", defaultValue: "Custom")

@@ -730,10 +730,13 @@ enum CommandPaletteSettingsToggleCommands {
                 commandId: commandIdPrefix + "rightSidebarArtifacts",
                 settingsKey: "betaFeatures.artifacts",
                 title: {
-                    String(localized: "settings.betaFeatures.artifacts", defaultValue: "Artifacts")
+                    String(
+                        localized: "settings.betaFeatures.artifacts",
+                        defaultValue: "Artifacts & Notes"
+                    )
                 },
                 sectionTitle: beta,
-                keywords: ["betaFeatures.artifacts", "artifacts", "capture", "files", "project", "right", "sidebar", "beta"],
+                keywords: ["betaFeatures.artifacts", "artifacts", "notes", "capture", "files", "project", "right", "sidebar", "beta"],
                 defaultValue: RightSidebarBetaFeatureSettings.defaultArtifactsEnabled,
                 defaultsKey: RightSidebarBetaFeatureSettings.artifactsEnabledKey
             ),

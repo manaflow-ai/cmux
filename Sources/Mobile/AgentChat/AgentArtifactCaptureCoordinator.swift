@@ -140,12 +140,12 @@ actor AgentArtifactCaptureCoordinator {
         guard let importedRecord = outcome.record else {
             throw AgentArtifactCaptureSaveError.rejected
         }
-        let path = ArtifactStorePaths(projectRoot: context.projectRoot).artifactsRoot
+        let path = ArtifactStorePaths(projectRoot: context.projectRoot).filesystemRoot
             .appendingPathComponent(importedRecord.relativePath, isDirectory: false)
         return ChatArtifactSaveResult(
             path: path.path,
             relativePath: importedRecord.relativePath,
-            reference: ".cmux/artifacts/\(importedRecord.relativePath)"
+            reference: ".cmux/\(importedRecord.relativePath)"
         )
     }
 
