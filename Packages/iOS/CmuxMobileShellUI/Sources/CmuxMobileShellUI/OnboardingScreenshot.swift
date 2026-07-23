@@ -32,6 +32,7 @@ struct OnboardingScreenshot: View {
         }
             .aspectRatio(contentMode: .fill)
             .frame(maxWidth: .infinity)
+            .offset(y: content.cropYOffset)
             .frame(height: 330, alignment: .top)
             .clipped()
             .clipShape(RoundedRectangle(cornerRadius: 24, style: .continuous))
@@ -110,6 +111,17 @@ struct OnboardingScreenshot: View {
         language: OnboardingScreenshotLanguage
     ) -> String {
         "Onboarding-\(content.rawValue)-\(language.rawValue)"
+    }
+}
+
+private extension OnboardingScreenshot.Content {
+    var cropYOffset: CGFloat {
+        switch self {
+        case .workspaces:
+            0
+        case .notifications:
+            -140
+        }
     }
 }
 
