@@ -4,12 +4,11 @@ import SwiftUI
 import UIKit
 
 /// Cropped presentation of full-screen Simulator captures from the production
-/// workspace list, notification feed, and terminal preview entrypoints.
+/// workspace list and notification feed preview entrypoints.
 struct OnboardingScreenshot: View {
     enum Content: String, CaseIterable {
         case workspaces
         case notifications
-        case terminal
 
         var accessibilityIdentifier: String {
             "MobileOnboardingScreenshot-\(rawValue)"
@@ -67,7 +66,7 @@ struct OnboardingScreenshot: View {
 
     @MainActor private static let screenshotCache: NSCache<NSString, UIImage> = {
         let cache = NSCache<NSString, UIImage>()
-        cache.countLimit = OnboardingStage.allCases.count
+        cache.countLimit = Content.allCases.count
         return cache
     }()
 

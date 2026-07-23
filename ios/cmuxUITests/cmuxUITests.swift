@@ -47,8 +47,9 @@ final class cmuxUITests: XCTestCase {
     /// durable progress key to `welcome`; advancing to Connect writes the real
     /// `.connect` milestone. The default connection scene must describe
     /// same-account automatic discovery without presenting QR as the primary
-    /// path. Each product scene uses an actual production-app screenshot, with
-    /// the notification scene showing the shipped chronological feed. Relaunching
+    /// path. The first two product scenes use production-app screenshots, with
+    /// the notification scene showing the shipped chronological feed. The
+    /// connection scene keeps its live connection-state illustration. Relaunching
     /// after the simulated search finishes must resume at Connect and expose QR
     /// as an explicit fallback.
     @MainActor
@@ -168,7 +169,7 @@ final class cmuxUITests: XCTestCase {
         XCTAssertTrue(app.staticTexts[
             "Keep cmux open on your Mac and sign in with the same account. cmux finds it and connects securely."
         ].exists)
-        XCTAssertTrue(element("MobileOnboardingScreenshot-terminal").exists)
+        XCTAssertTrue(app.staticTexts["Looking for your Mac…"].exists)
         XCTAssertFalse(app.buttons["Scan Mac QR"].exists)
         XCTAssertFalse(app.buttons["Use QR Code Instead"].exists)
         assertStableChrome(includeFooter: false)
