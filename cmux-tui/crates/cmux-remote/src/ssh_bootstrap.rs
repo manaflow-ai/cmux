@@ -14,6 +14,7 @@ pub const DISTRIBUTION_VERSION: &str = match option_env!("CMUX_TUI_DISTRIBUTION_
     None => env!("CARGO_PKG_VERSION"),
 };
 pub const NPM_BOOTSTRAP_VERSION: Option<&str> = option_env!("CMUX_TUI_NPM_BOOTSTRAP_VERSION");
+pub const BUILD_IDENTITY: &str = env!("CMUX_TUI_BUILD_IDENTITY");
 
 #[derive(Debug, Clone)]
 pub struct SshBootstrapConfig {
@@ -25,6 +26,7 @@ pub struct SshBootstrapConfig {
     pub npm_package: String,
     pub package_version: String,
     pub package_installable: bool,
+    pub build_identity: String,
     pub auto_install: bool,
     pub timeout: Duration,
 }
@@ -40,6 +42,7 @@ impl SshBootstrapConfig {
             npm_package: "cmux".into(),
             package_version: NPM_BOOTSTRAP_VERSION.unwrap_or(DISTRIBUTION_VERSION).into(),
             package_installable: NPM_BOOTSTRAP_VERSION.is_some(),
+            build_identity: BUILD_IDENTITY.into(),
             auto_install: true,
             timeout: Duration::from_secs(60),
         }
@@ -75,6 +78,8 @@ pub struct RemoteProbe {
     pub distribution_version: Option<String>,
     #[serde(default)]
     pub npm_bootstrap_version: Option<String>,
+    #[serde(default)]
+    pub build_identity: Option<String>,
     pub remote_protocol: u8,
     pub os: String,
     pub arch: String,
@@ -237,6 +242,8 @@ impl SshBootstrapper {
             && (!self.config.package_installable
                 || probe.npm_bootstrap_version.as_deref()
                     == Some(self.config.package_version.as_str()))
+            && (self.config.package_installable
+                || probe.build_identity.as_deref() == Some(self.config.build_identity.as_str()))
             && probe.remote_protocol == REMOTE_PROTOCOL_VERSION
     }
 
@@ -365,6 +372,7 @@ mod tests {
             version: "0.1.0".into(),
             distribution_version: distribution_version.map(str::to_owned),
             npm_bootstrap_version: None,
+            build_identity: Some(BUILD_IDENTITY.into()),
             remote_protocol: REMOTE_PROTOCOL_VERSION,
             os: "linux".into(),
             arch: "x86_64".into(),
@@ -396,7 +404,7 @@ mod tests {
         config.package_version = "0.1.0".into();
         config.package_installable = false;
         let bootstrapper = SshBootstrapper::new(config).unwrap();
-        let installed = serde_json::from_value::<RemoteProbe>(serde_json::json!({
+        let mut installed = serde_json::from_value::<RemoteProbe>(serde_json::json!({
             "app": "cmux-tui",
             "version": "0.1.0",
             "distribution_version": "0.1.0",
@@ -407,6 +415,8 @@ mod tests {
         }))
         .unwrap();
 
+        assert!(!bootstrapper.compatible(&installed));
+        installed.build_identity = None;
         assert!(!bootstrapper.compatible(&installed));
     }
 
@@ -422,6 +432,7 @@ mod tests {
         installed.npm_bootstrap_version = Some("0.9.3".into());
         assert!(!bootstrapper.compatible(&installed));
         installed.npm_bootstrap_version = Some("0.9.4".into());
+        installed.build_identity = Some("different-package-build".into());
         assert!(bootstrapper.compatible(&installed));
     }
 
