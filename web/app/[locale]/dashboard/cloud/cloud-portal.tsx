@@ -12,7 +12,7 @@ import {
 } from "@tanstack/react-router";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { Tabs } from "@base-ui-components/react/tabs";
-import { useTranslations } from "next-intl";
+import { useLocale, useTranslations } from "next-intl";
 import { createContext, useContext, useState, useSyncExternalStore } from "react";
 
 import {
@@ -173,6 +173,7 @@ function MachinesView() {
 
 function MachineCard({ machine }: { machine: CloudMachine }) {
   const t = useTranslations("dashboard.cloud");
+  const locale = useLocale();
   const navigate = useNavigate();
   return (
     <button
@@ -193,7 +194,7 @@ function MachineCard({ machine }: { machine: CloudMachine }) {
         <StatusPill status={machine.status} />
       </div>
       <div className="mt-4 flex items-center justify-between border-t border-border pt-3 text-xs text-muted">
-        <span>{t("created", { date: formatDate(machine.createdAt) })}</span>
+        <span>{t("created", { date: formatDate(machine.createdAt, locale) })}</span>
         <span className="font-medium text-foreground opacity-70 transition-opacity group-hover:opacity-100">
           {t("openMachine")} →
         </span>
@@ -205,6 +206,7 @@ function MachineCard({ machine }: { machine: CloudMachine }) {
 function MachineView() {
   const t = useTranslations("dashboard.cloud");
   const sessionStatus = useTranslations("dashboard.cloud.sessionStatus");
+  const locale = useLocale();
   const queryClient = useQueryClient();
   const { machineId } = machineRoute.useParams();
   const navigate = useNavigate();
@@ -285,7 +287,7 @@ function MachineView() {
               />
               <div className="min-w-0 flex-1">
                 <h4 className="truncate text-sm font-medium">{session.title || t("untitledSession")}</h4>
-                <p className="mt-0.5 text-xs text-muted">{t("sessionUpdated", { date: formatDate(session.updatedAt) })}</p>
+                <p className="mt-0.5 text-xs text-muted">{t("sessionUpdated", { date: formatDate(session.updatedAt, locale) })}</p>
               </div>
               <span className="rounded-md bg-code-bg px-2 py-1 text-[11px] font-medium text-muted">{sessionStatus(session.status)}</span>
             </article>
@@ -298,6 +300,7 @@ function MachineView() {
 
 function ActivityView() {
   const t = useTranslations("dashboard.cloud");
+  const locale = useLocale();
   const machines = useQuery({ queryKey: machinesQueryKey, queryFn: listCloudMachines });
   const orderedMachines = [...(machines.data ?? [])].sort((a, b) => Date.parse(b.createdAt) - Date.parse(a.createdAt));
   return (
@@ -314,7 +317,7 @@ function ActivityView() {
           <li key={machine.id} className="relative pb-6 pl-6 last:pb-0">
             <span className="absolute -left-1.5 top-1 size-3 rounded-full border-2 border-background bg-emerald-500" />
             <p className="text-sm font-medium">{t("machineCreated", { id: shortMachineId(machine.id) })}</p>
-            <p className="mt-1 text-xs text-muted">{formatDate(machine.createdAt)}</p>
+            <p className="mt-1 text-xs text-muted">{formatDate(machine.createdAt, locale)}</p>
           </li>
         ))}
       </ol>
@@ -367,8 +370,8 @@ function MachineGridSkeleton() {
   );
 }
 
-function formatDate(value: string): string {
+function formatDate(value: string, locale: string): string {
   const timestamp = Date.parse(value);
   if (!Number.isFinite(timestamp)) return value;
-  return new Intl.DateTimeFormat(undefined, { dateStyle: "medium", timeStyle: "short" }).format(timestamp);
+  return new Intl.DateTimeFormat(locale, { dateStyle: "medium", timeStyle: "short" }).format(timestamp);
 }
