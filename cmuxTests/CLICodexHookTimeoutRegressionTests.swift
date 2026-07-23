@@ -1268,6 +1268,7 @@ struct CLICodexHookTimeoutRegressionTests {
             ("mktemp", "/usr/bin/mktemp"),
             ("mv", "/bin/mv"),
             ("nohup", "/usr/bin/nohup"),
+            ("printenv", "/usr/bin/printenv"),
             ("rmdir", "/bin/rmdir"),
             ("rm", "/bin/rm"),
             ("sh", "/bin/sh"),

@@ -2376,7 +2376,7 @@ final class CMUXOpenCommandTests: XCTestCase {
             Darwin.close(listenerFD)
             unlink(socketPath)
         }
-        _ = startMockServer(listenerFD: listenerFD, state: state) { line in
+        let mockServer = startMockServer(listenerFD: listenerFD, state: state) { line in
             guard let payload = Self.v2Payload(from: line),
                   let id = payload["id"] as? String else {
                 return Self.v2Response(id: "unknown", ok: false, error: ["code": "unexpected"])
@@ -2391,6 +2391,7 @@ final class CMUXOpenCommandTests: XCTestCase {
             currentDirectoryURL: currentDirectoryURL
         )
         XCTAssertTrue(state.commands.isEmpty, state.commands.joined(separator: "\n"))
+        withExtendedLifetime(mockServer) {}
         return result
     }
 

@@ -21,6 +21,8 @@ public struct SidebarStatusEntry: Equatable, Sendable {
     public let timestamp: Date
     /// Hook-captured agent event time used to order detached deliveries.
     public let agentEventTime: TimeInterval?
+    /// Pane whose detached hook stream owns this agent status row.
+    public let agentOwnerPanelID: UUID?
 
     /// Creates a status row (defaults mirror the legacy initializer).
     public init(
@@ -32,7 +34,8 @@ public struct SidebarStatusEntry: Equatable, Sendable {
         priority: Int = 0,
         format: SidebarMetadataFormat = .plain,
         timestamp: Date = Date(),
-        agentEventTime: TimeInterval? = nil
+        agentEventTime: TimeInterval? = nil,
+        agentOwnerPanelID: UUID? = nil
     ) {
         self.key = key
         self.value = value
@@ -43,6 +46,7 @@ public struct SidebarStatusEntry: Equatable, Sendable {
         self.format = format
         self.timestamp = timestamp
         self.agentEventTime = agentEventTime
+        self.agentOwnerPanelID = agentOwnerPanelID
     }
 
     /// Determines whether an incoming status row should replace the current row.
@@ -58,7 +62,8 @@ public struct SidebarStatusEntry: Equatable, Sendable {
         url: URL?,
         priority: Int,
         format: SidebarMetadataFormat,
-        agentEventTime: TimeInterval? = nil
+        agentEventTime: TimeInterval? = nil,
+        agentOwnerPanelID: UUID? = nil
     ) -> SidebarStatusEntryReplacementDecision {
         guard let current else { return .replace }
         let payloadMatches = current.key == key &&
@@ -67,8 +72,10 @@ public struct SidebarStatusEntry: Equatable, Sendable {
             current.color == color &&
             current.url == url &&
             current.priority == priority &&
-            current.format == format
-        if let currentAgentEventTime = current.agentEventTime {
+            current.format == format &&
+            current.agentOwnerPanelID == agentOwnerPanelID
+        if current.agentOwnerPanelID == agentOwnerPanelID,
+           let currentAgentEventTime = current.agentEventTime {
             guard let agentEventTime else { return .stale }
             if agentEventTime < currentAgentEventTime {
                 return .stale
@@ -90,7 +97,8 @@ public struct SidebarStatusEntry: Equatable, Sendable {
         url: URL?,
         priority: Int,
         format: SidebarMetadataFormat,
-        agentEventTime: TimeInterval? = nil
+        agentEventTime: TimeInterval? = nil,
+        agentOwnerPanelID: UUID? = nil
     ) -> Bool {
         replacementDecision(
             current: current,
@@ -101,7 +109,8 @@ public struct SidebarStatusEntry: Equatable, Sendable {
             url: url,
             priority: priority,
             format: format,
-            agentEventTime: agentEventTime
+            agentEventTime: agentEventTime,
+            agentOwnerPanelID: agentOwnerPanelID
         ) == .replace
     }
 }

@@ -314,7 +314,7 @@ extension CLINotifyProcessIntegrationRegressionTests {
             "CMUX_CLI_SENTRY_DISABLED": "1",
         ]
 
-        startDetachedMockServer(listenerFD: listenerFD, state: state, connectionCount: 128) { line in
+        let mockServer = startDetachedMockServer(listenerFD: listenerFD, state: state, connectionCount: 128) { line in
             guard let payload = self.jsonObject(line) else {
                 return "OK"
             }
@@ -330,6 +330,7 @@ extension CLINotifyProcessIntegrationRegressionTests {
                 return self.v2Response(id: id, ok: false, error: ["code": "unrecognized_method", "message": "unexpected method: \(method)"])
             }
         }
+        defer { mockServer.shutdown() }
 
         func runAntigravityHook(_ subcommand: String, input: String) -> ProcessRunResult {
             runProcess(
@@ -581,7 +582,13 @@ extension CLINotifyProcessIntegrationRegressionTests {
             "CMUX_CLI_SENTRY_DISABLED": "1",
         ]
 
-        startDetachedAgentHookMockServer(listenerFD: listenerFD, state: state, surfaceId: surfaceId, connectionCount: 128)
+        let mockServer = startDetachedAgentHookMockServer(
+            listenerFD: listenerFD,
+            state: state,
+            surfaceId: surfaceId,
+            connectionCount: 128
+        )
+        defer { mockServer.shutdown() }
 
         func runHermesHook(_ subcommand: String, input: String) -> ProcessRunResult {
             let result = runProcess(
@@ -735,7 +742,7 @@ extension CLINotifyProcessIntegrationRegressionTests {
             "CMUX_CLI_SENTRY_DISABLED": "1",
         ]
 
-        startDetachedMockServer(listenerFD: listenerFD, state: state, connectionCount: 128) { line in
+        let mockServer = startDetachedMockServer(listenerFD: listenerFD, state: state, connectionCount: 128) { line in
             guard let payload = self.jsonObject(line) else {
                 return "OK"
             }
@@ -751,6 +758,7 @@ extension CLINotifyProcessIntegrationRegressionTests {
                 return self.v2Response(id: id, ok: false, error: ["code": "unrecognized_method", "message": "unexpected method: \(method)"])
             }
         }
+        defer { mockServer.shutdown() }
 
         func runHermesHook(_ subcommand: String, input: String) -> ProcessRunResult {
             let result = runProcess(
@@ -1566,7 +1574,13 @@ extension CLINotifyProcessIntegrationRegressionTests {
             "GROK_HOME": grokHome.path,
         ]
 
-        startDetachedAgentHookMockServer(listenerFD: listenerFD, state: state, surfaceId: surfaceId, connectionCount: 80)
+        let mockServer = startDetachedAgentHookMockServer(
+            listenerFD: listenerFD,
+            state: state,
+            surfaceId: surfaceId,
+            connectionCount: 80
+        )
+        defer { mockServer.shutdown() }
 
         func runGrokHook(_ subcommand: String, input: String) -> ProcessRunResult {
             let result = runProcess(
@@ -2130,7 +2144,7 @@ extension CLINotifyProcessIntegrationRegressionTests {
             "GROK_HOME": grokHome.path,
         ]
 
-        startDetachedMockServer(listenerFD: listenerFD, state: state, connectionCount: 128) { line in
+        let mockServer = startDetachedMockServer(listenerFD: listenerFD, state: state, connectionCount: 128) { line in
             guard let payload = self.jsonObject(line) else {
                 return "OK"
             }
@@ -2158,6 +2172,7 @@ extension CLINotifyProcessIntegrationRegressionTests {
                 return self.v2Response(id: id, ok: false, error: ["code": "unrecognized_method", "message": "unexpected method: \(method)"])
             }
         }
+        defer { mockServer.shutdown() }
 
         func runGrokHook(_ subcommand: String, input: String, surfaceId: String) -> ProcessRunResult {
             var environment = baseEnvironment
@@ -2305,7 +2320,13 @@ extension CLINotifyProcessIntegrationRegressionTests {
             "CMUX_CLI_SENTRY_DISABLED": "1",
         ]
 
-        startDetachedAgentHookMockServer(listenerFD: listenerFD, state: state, surfaceId: surfaceId, connectionCount: 64)
+        let mockServer = startDetachedAgentHookMockServer(
+            listenerFD: listenerFD,
+            state: state,
+            surfaceId: surfaceId,
+            connectionCount: 64
+        )
+        defer { mockServer.shutdown() }
 
         func runGrokHook(_ subcommand: String, input: String) -> ProcessRunResult {
             let result = runProcess(
@@ -2392,7 +2413,11 @@ extension CLINotifyProcessIntegrationRegressionTests {
             "CMUX_CLI_SENTRY_DISABLED": "1",
         ]
 
-        startDetachedMockServerAllowingNoResponse(listenerFD: listenerFD, state: state, connectionCount: 128) { line in
+        let mockServer = startDetachedMockServerAllowingNoResponse(
+            listenerFD: listenerFD,
+            state: state,
+            connectionCount: 128
+        ) { line in
             guard let payload = self.jsonObject(line) else {
                 return "OK"
             }
@@ -2408,6 +2433,7 @@ extension CLINotifyProcessIntegrationRegressionTests {
                 return self.v2Response(id: id, ok: false, error: ["code": "unrecognized_method", "message": "unexpected method: \(method)"])
             }
         }
+        defer { mockServer.shutdown() }
 
         func runGrokHook(_ subcommand: String, input: String) -> ProcessRunResult {
             runProcess(
@@ -2490,7 +2516,13 @@ extension CLINotifyProcessIntegrationRegressionTests {
             "CMUX_SURFACE_ID": surfaceId,
         ], uniquingKeysWith: { _, new in new })
 
-        startDetachedAgentHookMockServer(listenerFD: listenerFD, state: state, surfaceId: surfaceId, connectionCount: 128)
+        let mockServer = startDetachedAgentHookMockServer(
+            listenerFD: listenerFD,
+            state: state,
+            surfaceId: surfaceId,
+            connectionCount: 128
+        )
+        defer { mockServer.shutdown() }
 
         func runGrokHook(
             _ subcommand: String,
@@ -2683,7 +2715,13 @@ extension CLINotifyProcessIntegrationRegressionTests {
             }
         }
 
-        startDetachedMockServer(listenerFD: listenerFD, state: state, connectionCount: 128, handler: grokSocketResponse)
+        let mockServer = startDetachedMockServer(
+            listenerFD: listenerFD,
+            state: state,
+            connectionCount: 128,
+            handler: grokSocketResponse
+        )
+        defer { mockServer.shutdown() }
 
         func runGrokHook(
             _ subcommand: String,

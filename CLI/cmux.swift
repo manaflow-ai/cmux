@@ -186,6 +186,11 @@ struct ClaudeHookActiveSessionRecord: Codable {
     var updatedAt: TimeInterval
 }
 
+struct ClaudeHookSessionTombstone: Codable {
+    var eventTime: TimeInterval
+    var updatedAt: TimeInterval
+}
+
 struct AgentHookLaunchCommandRecord: Codable {
     var launcher: String?
     var executablePath: String?
@@ -216,12 +221,14 @@ struct ClaudeHookSessionStoreFile: Codable {
     // session in this pane is stale. Keyed by surface id.
     // https://github.com/manaflow-ai/cmux/issues/5908
     var activeSessionsBySurface: [String: ClaudeHookActiveSessionRecord] = [:]
+    var sessionTombstones: [String: ClaudeHookSessionTombstone] = [:]
 
     enum CodingKeys: String, CodingKey {
         case version
         case sessions
         case activeSessionsByWorkspace
         case activeSessionsBySurface
+        case sessionTombstones
     }
 
     init() {}
@@ -238,6 +245,10 @@ struct ClaudeHookSessionStoreFile: Codable {
             [String: ClaudeHookActiveSessionRecord].self,
             forKey: .activeSessionsBySurface
         ) ?? [:]
+        sessionTombstones = try container.decodeIfPresent(
+            [String: ClaudeHookSessionTombstone].self,
+            forKey: .sessionTombstones
+        ) ?? [:]
     }
 }
 
@@ -247,6 +258,7 @@ final class ClaudeHookSessionStore {
     private static let maxRememberedTerminalPromptTurnIds = 32
     private static let maxAutoNameRecentMessages = 24
     private static let maxAutoNameMessageCharacters = 1_000
+    private static let maxSessionTombstones = 1_024
 
     private let statePath: String
     private let fileManager: FileManager
@@ -345,12 +357,12 @@ final class ClaudeHookSessionStore {
             return AutoNamingBeginOutcome(decision: .skipShortTranscript, lastTitle: nil)
         }
         return try withLockedState { state in
-            var record = state.sessions[normalized] ?? ClaudeHookSessionRecord(
+            var record = makeSessionRecord(
+                state: state,
                 sessionId: normalized,
                 workspaceId: workspaceId,
                 surfaceId: surfaceId,
-                startedAt: now.timeIntervalSince1970,
-                updatedAt: now.timeIntervalSince1970
+                now: now.timeIntervalSince1970
             )
             let snapshot = AutoNamingSessionSnapshot(
                 lastTitle: record.autoNameLastTitle,
@@ -693,6 +705,7 @@ final class ClaudeHookSessionStore {
         }
     }
 
+    @discardableResult
     func upsert(
         sessionId: String,
         workspaceId: String,
@@ -714,34 +727,17 @@ final class ClaudeHookSessionStore {
         markActive: Bool = false,
         turnId: String? = nil,
         allowsNewSessionReplacement: Bool = false
-    ) throws {
+    ) throws -> Bool {
         let normalized = normalizeSessionId(sessionId)
-        guard !normalized.isEmpty else { return }
-        try withLockedState { state in
+        guard !normalized.isEmpty else { return false }
+        return try withLockedState { state in
             let now = Date().timeIntervalSince1970
-            var record = state.sessions[normalized] ?? ClaudeHookSessionRecord(
+            var record = makeSessionRecord(
+                state: state,
                 sessionId: normalized,
                 workspaceId: workspaceId,
                 surfaceId: surfaceId,
-                cwd: nil,
-                transcriptPath: nil,
-                pid: nil,
-                launchCommand: nil,
-                isRestorable: nil,
-                agentLifecycle: nil,
-                lastSubtitle: nil,
-                lastBody: nil,
-                lastNotificationStatus: nil,
-                lastEmittedNotificationFingerprint: nil,
-                lastEmittedNotificationAt: nil,
-                runtimeStatus: nil,
-                activePromptDepth: nil,
-                activePromptTurnId: nil,
-                activePromptTurnIds: nil,
-                lastPromptTurnId: nil,
-                terminalPromptTurnIds: nil,
-                startedAt: now,
-                updatedAt: now
+                now: now
             )
             guard update(
                 &record,
@@ -763,7 +759,7 @@ final class ClaudeHookSessionStore {
                 hadPendingBackgroundWorkAtStop: hadPendingBackgroundWorkAtStop,
                 now: now
             ) else {
-                return
+                return false
             }
             state.sessions[normalized] = record
             if markActive {
@@ -780,6 +776,7 @@ final class ClaudeHookSessionStore {
                     state.activeSessionsBySurface[normalizedSurface] = activeRecord
                 }
             }
+            return true
         }
     }
 
@@ -981,7 +978,10 @@ final class ClaudeHookSessionStore {
         surfaceId: String,
         now: TimeInterval
     ) -> ClaudeHookSessionRecord {
-        state.sessions[sessionId] ?? ClaudeHookSessionRecord(
+        if let existing = state.sessions[sessionId] {
+            return existing
+        }
+        var record = ClaudeHookSessionRecord(
             sessionId: sessionId,
             workspaceId: workspaceId,
             surfaceId: surfaceId,
@@ -1005,6 +1005,8 @@ final class ClaudeHookSessionStore {
             startedAt: now,
             updatedAt: now
         )
+        record.runtimeStatusEventTime = state.sessionTombstones[sessionId]?.eventTime
+        return record
     }
 
     private func activePromptTurnStack(from record: ClaudeHookSessionRecord) -> [String] {
@@ -1259,10 +1261,8 @@ final class ClaudeHookSessionStore {
         if updateRuntimeStatus {
             record.runtimeStatus = runtimeStatus
         }
-        if hasRuntimeMutation {
-            if let runtimeStatusEventTime {
-                record.runtimeStatusEventTime = runtimeStatusEventTime
-            }
+        if let runtimeStatusEventTime {
+            record.runtimeStatusEventTime = runtimeStatusEventTime
         }
         if let hadPendingBackgroundWorkAtStop {
             record.hadPendingBackgroundWorkAtStop = hadPendingBackgroundWorkAtStop
@@ -1513,6 +1513,7 @@ final class ClaudeHookSessionStore {
                     return nil
                 }
                 let removed = state.sessions.removeValue(forKey: normalizedSessionId) ?? existing
+                recordSessionTombstone(&state, removed: removed)
                 clearActiveSessionIfMatching(&state, removed: removed, turnId: turnId)
                 return removed
             }
@@ -1528,6 +1529,7 @@ final class ClaudeHookSessionStore {
                 return nil
             }
             state.sessions.removeValue(forKey: fallback.sessionId)
+            recordSessionTombstone(&state, removed: fallback)
             clearActiveSessionIfMatching(&state, removed: fallback, turnId: turnId)
             return fallback
         }
@@ -1587,6 +1589,18 @@ final class ClaudeHookSessionStore {
         for (surfaceId, active) in state.activeSessionsBySurface where matches(active) {
             state.activeSessionsBySurface.removeValue(forKey: surfaceId)
         }
+    }
+
+    private func recordSessionTombstone(
+        _ state: inout ClaudeHookSessionStoreFile,
+        removed: ClaudeHookSessionRecord
+    ) {
+        guard let eventTime = removed.runtimeStatusEventTime else { return }
+        let existingEventTime = state.sessionTombstones[removed.sessionId]?.eventTime
+        state.sessionTombstones[removed.sessionId] = ClaudeHookSessionTombstone(
+            eventTime: max(existingEventTime ?? eventTime, eventTime),
+            updatedAt: Date().timeIntervalSince1970
+        )
     }
 
     private func fallbackRecord(
@@ -1701,6 +1715,15 @@ final class ClaudeHookSessionStore {
         }
         state.activeSessionsBySurface = state.activeSessionsBySurface.filter { surfaceId, active in
             active.updatedAt >= cutoff && normalizeOptional(state.sessions[active.sessionId]?.surfaceId) == surfaceId
+        }
+        state.sessionTombstones = state.sessionTombstones.filter { _, tombstone in
+            tombstone.updatedAt >= cutoff
+        }
+        if state.sessionTombstones.count > Self.maxSessionTombstones {
+            let retained = state.sessionTombstones
+                .sorted { $0.value.updatedAt > $1.value.updatedAt }
+                .prefix(Self.maxSessionTombstones)
+            state.sessionTombstones = Dictionary(uniqueKeysWithValues: retained)
         }
     }
 
@@ -24056,7 +24079,7 @@ struct CMUXCLI {
                 // Non-clear SessionStart can arrive late from startup/resume/compact
                 // after /clear, so only /clear or replacement of a stopped owner
                 // establishes a new active boundary.
-                try? sessionStore.upsert(
+                let acceptedSessionStart = (try? sessionStore.upsert(
                     sessionId: sessionId,
                     workspaceId: workspaceId,
                     surfaceId: surfaceId,
@@ -24069,7 +24092,12 @@ struct CMUXCLI {
                     runtimeStatusEventTime: hookEventTime,
                     markActive: shouldPromoteActiveSession,
                     turnId: parsedInput.turnId
-                )
+                )) == true
+                guard acceptedSessionStart else {
+                    telemetry.breadcrumb("claude-hook.session-start.stale-event")
+                    printClaudeHookAck()
+                    return
+                }
                 if shouldPromoteActiveSession {
                     publishAgentSurfaceResumeBinding(
                         client: client,
@@ -24189,7 +24217,7 @@ struct CMUXCLI {
                     sessionRecord: mappedSession
                 )
                 if let sessionId = parsedInput.sessionId {
-                    try? sessionStore.upsert(
+                    let acceptedStop = (try? sessionStore.upsert(
                         sessionId: sessionId,
                         workspaceId: workspaceId,
                         surfaceId: surfaceId,
@@ -24206,7 +24234,12 @@ struct CMUXCLI {
                         hadPendingBackgroundWorkAtStop: hasPendingBackgroundWork,
                         markActive: true,
                         allowsNewSessionReplacement: true
-                    )
+                    )) == true
+                    guard acceptedStop else {
+                        telemetry.breadcrumb("claude-hook.stop.stale-event")
+                        printClaudeHookAck()
+                        return
+                    }
                     publishAgentSurfaceResumeBinding(
                         client: client,
                         workspaceId: workspaceId,
@@ -24339,7 +24372,7 @@ struct CMUXCLI {
                         cwd: parsedInput.cwd
                     )
                     : nil
-                try? sessionStore.upsert(
+                let acceptedPromptSubmit = (try? sessionStore.upsert(
                     sessionId: sessionId,
                     workspaceId: workspaceId,
                     surfaceId: surfaceId,
@@ -24352,7 +24385,12 @@ struct CMUXCLI {
                     runtimeStatusEventTime: hookEventTime,
                     markActive: true,
                     turnId: parsedInput.turnId
-                )
+                )) == true
+                guard acceptedPromptSubmit else {
+                    telemetry.breadcrumb("claude-hook.prompt-submit.stale-event")
+                    printClaudeHookAck()
+                    return
+                }
                 publishAgentSurfaceResumeBinding(
                     client: client,
                     workspaceId: workspaceId,
@@ -24545,7 +24583,7 @@ struct CMUXCLI {
             )
 
             if let sessionId = parsedInput.sessionId, !suppressNeedsInputState {
-                try? sessionStore.upsert(
+                let acceptedNotification = (try? sessionStore.upsert(
                     sessionId: sessionId,
                     workspaceId: workspaceId,
                     surfaceId: surfaceId,
@@ -24555,7 +24593,12 @@ struct CMUXCLI {
                     lastSubtitle: summary.subtitle,
                     lastBody: summary.body,
                     runtimeStatusEventTime: hookEventTime
-                )
+                )) == true
+                guard acceptedNotification else {
+                    telemetry.breadcrumb("claude-hook.notification.stale-event")
+                    printClaudeHookAck()
+                    return
+                }
             }
 
             if !suppressNeedsInputState {
@@ -24818,7 +24861,7 @@ struct CMUXCLI {
                 let existingSurfaceId = resolvedSurface.isAuthoritative
                     ? surfaceId
                     : (nonEmptyClaudeHookIdentifier(mappedSession?.surfaceId) ?? surfaceId)
-                try? sessionStore.upsert(
+                let acceptedBlockingTool = (try? sessionStore.upsert(
                     sessionId: sessionId,
                     workspaceId: workspaceId,
                     surfaceId: existingSurfaceId,
@@ -24828,7 +24871,12 @@ struct CMUXCLI {
                     lastSubtitle: waitingSubtitle,
                     lastBody: needsInputBody,
                     runtimeStatusEventTime: hookEventTime
-                )
+                )) == true
+                guard acceptedBlockingTool else {
+                    telemetry.breadcrumb("claude-hook.pre-tool-use.stale-event")
+                    printClaudeHookAck()
+                    return
+                }
                 setAgentLifecycle(
                     client: client,
                     key: Self.claudeCodeStatusKey,
@@ -24886,7 +24934,7 @@ struct CMUXCLI {
             }
 
             if let sessionId = parsedInput.sessionId {
-                try? sessionStore.upsert(
+                let acceptedPreToolUse = (try? sessionStore.upsert(
                     sessionId: sessionId,
                     workspaceId: workspaceId,
                     surfaceId: surfaceId,
@@ -24894,7 +24942,12 @@ struct CMUXCLI {
                     transcriptPath: parsedInput.transcriptPath,
                     agentLifecycle: .running,
                     runtimeStatusEventTime: hookEventTime
-                )
+                )) == true
+                guard acceptedPreToolUse else {
+                    telemetry.breadcrumb("claude-hook.pre-tool-use.stale-event")
+                    printClaudeHookAck()
+                    return
+                }
             }
             _ = try? sendV1Command("clear_notifications --tab=\(workspaceId)\(socketPanelOption(surfaceId))", client: client)
             setAgentLifecycle(
@@ -30635,7 +30688,7 @@ export default CMUXSessionRestore;
                         runtimeStatusEventTime: hookEventTime
                     )) ?? false
                 } else {
-                    try? store.upsert(
+                    acceptedSessionStart = (try? store.upsert(
                         sessionId: sessionId,
                         workspaceId: workspaceId,
                         surfaceId: surfaceId,
@@ -30647,8 +30700,7 @@ export default CMUXSessionRestore;
                         runtimeStatus: suppressVisibleMutations ? nil : .running,
                         updateRuntimeStatus: !suppressVisibleMutations,
                         runtimeStatusEventTime: hookEventTime
-                    )
-                    acceptedSessionStart = true
+                    )) == true
                 }
                 if !acceptedSessionStart {
                     telemetry.breadcrumb("\(def.name)-hook.session-start.stale-after-turn")
@@ -30959,7 +31011,7 @@ export default CMUXSessionRestore;
                         runtimeStatusEventTime: hookEventTime
                     )) ?? false
                 } else {
-                    try? store.upsert(
+                    acceptedRunningUpdate = (try? store.upsert(
                         sessionId: sessionId,
                         workspaceId: workspaceId,
                         surfaceId: surfaceId,
@@ -30971,8 +31023,7 @@ export default CMUXSessionRestore;
                         runtimeStatus: .running,
                         updateRuntimeStatus: true,
                         runtimeStatusEventTime: hookEventTime
-                    )
-                    acceptedRunningUpdate = true
+                    )) == true
                 }
                 if !acceptedRunningUpdate || codexPromptTurnWentTerminal() {
                     stopStaleCodexPromptSubmit()
@@ -31245,18 +31296,29 @@ export default CMUXSessionRestore;
                 || codexSubagentSignals.hasSubagentNotificationRelay
 
             if !sessionId.isEmpty, !suppressVisibleMutations {
-                try? store.upsert(sessionId: sessionId, workspaceId: workspaceId, surfaceId: surfaceId, cwd: cwd,
-                                  transcriptPath: input.transcriptPath ?? mapped?.transcriptPath,
-                                  pid: pid,
-                                  launchCommand: resumeLaunchCommand,
-                                  agentLifecycle: lifecycleAfterStop,
-                                  lastSubtitle: subtitle,
-                                  lastBody: body,
-                                  lastNotificationStatus: stopNotificationStatus,
-                                  updateLastNotificationStatus: true,
-                                  runtimeStatus: (antigravityHasActiveBackgroundWork && stopNotificationStatus == .idle) ? .running : runtimeStatus(for: stopNotificationStatus),
-                                  updateRuntimeStatus: true,
-                                  runtimeStatusEventTime: hookEventTime)
+                let acceptedStop = (try? store.upsert(
+                    sessionId: sessionId,
+                    workspaceId: workspaceId,
+                    surfaceId: surfaceId,
+                    cwd: cwd,
+                    transcriptPath: input.transcriptPath ?? mapped?.transcriptPath,
+                    pid: pid,
+                    launchCommand: resumeLaunchCommand,
+                    agentLifecycle: lifecycleAfterStop,
+                    lastSubtitle: subtitle,
+                    lastBody: body,
+                    lastNotificationStatus: stopNotificationStatus,
+                    updateLastNotificationStatus: true,
+                    runtimeStatus: (antigravityHasActiveBackgroundWork && stopNotificationStatus == .idle) ? .running : runtimeStatus(for: stopNotificationStatus),
+                    updateRuntimeStatus: true,
+                    runtimeStatusEventTime: hookEventTime
+                )) == true
+                guard acceptedStop else {
+                    telemetry.breadcrumb("\(def.name)-hook.stop.stale-event")
+                    didSendFeedTelemetry = true
+                    print("{}")
+                    return
+                }
                 publishAgentSurfaceResumeBinding(
                     client: client,
                     workspaceId: workspaceId,
@@ -31680,7 +31742,7 @@ export default CMUXSessionRestore;
                         )
                     )
                 } else {
-                    try? store.upsert(
+                    let acceptedNotification = (try? store.upsert(
                         sessionId: sessionId,
                         workspaceId: workspaceId,
                         surfaceId: surfaceId,
@@ -31696,7 +31758,13 @@ export default CMUXSessionRestore;
                         runtimeStatus: storedRuntimeStatus,
                         updateRuntimeStatus: summary.status != nil,
                         runtimeStatusEventTime: hookEventTime
-                    )
+                    )) == true
+                    guard acceptedNotification else {
+                        telemetry.breadcrumb("\(def.name)-hook.notification.stale-event")
+                        didSendFeedTelemetry = true
+                        print("{}")
+                        return
+                    }
                 }
             }
 

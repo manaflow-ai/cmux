@@ -129,6 +129,7 @@ extension CLINotifyProcessIntegrationRegressionTests {
         let cliPath: String
         let socketPath: String
         let listenerFD: Int32
+        let mockServer: MockSocketServerToken
         let state: MockSocketServerState
         let root: URL
         let workspaceId: String
@@ -138,6 +139,7 @@ extension CLINotifyProcessIntegrationRegressionTests {
         let environment: [String: String]
 
         func cleanup() {
+            mockServer.shutdown()
             Darwin.close(listenerFD)
             unlink(socketPath)
             try? FileManager.default.removeItem(at: root)
@@ -173,11 +175,17 @@ extension CLINotifyProcessIntegrationRegressionTests {
             "GROK_HOME": grokHome.path,
         ]
 
-        startDetachedAgentHookMockServer(listenerFD: listenerFD, state: state, surfaceId: surfaceId, connectionCount: 128)
+        let mockServer = startDetachedAgentHookMockServer(
+            listenerFD: listenerFD,
+            state: state,
+            surfaceId: surfaceId,
+            connectionCount: 128
+        )
         return GrokNoiseContext(
             cliPath: cliPath,
             socketPath: socketPath,
             listenerFD: listenerFD,
+            mockServer: mockServer,
             state: state,
             root: root,
             workspaceId: workspaceId,

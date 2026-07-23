@@ -226,6 +226,19 @@ extension CMUXCLI {
         noOpCommand == "echo '{}'" ? noOpCommand : "{ \(noOpCommand); }"
     }
 
+    static func agentHookCaptureTimeShell(lockStem: String) -> String {
+        let fallback = #"{ date_bin=`printenv CMUX_AGENT_HOOK_DATE_BIN 2>/dev/null || true`; if [ -z "$date_bin" ]; then date_bin=/bin/date; fi; epoch=`"$date_bin" +%s 2>/dev/null || printf 946684800`; lock="${TMPDIR:-/tmp}/\#(lockStem).lock"; claim="$lock.recovery"; state="${TMPDIR:-/tmp}/\#(lockStem).state"; tries=0; unowned_checks=0; claim_unowned_checks=0; recovery_seq=0; while ! mkdir "$lock" 2>/dev/null; do tries=$((tries + 1)); if [ "$tries" -ge 100 ]; then have_claim=0; if mkdir "$claim" 2>/dev/null; then claim_started=`"$date_bin" +%s 2>/dev/null || printf 946684800`; printf '%s\n' "$claim_started" >"$claim/started"; printf '%s\n' "$$" >"$claim/owner"; have_claim=1; else claim_owner=; claim_started=; if IFS= read -r claim_owner 2>/dev/null <"$claim/owner"; then :; fi; if IFS= read -r claim_started 2>/dev/null <"$claim/started"; then :; fi; now_epoch=`"$date_bin" +%s 2>/dev/null || printf 946684800`; claim_is_stale=0; if [ "$claim_started" -ge 0 ] 2>/dev/null && [ "$now_epoch" -ge "$claim_started" ] 2>/dev/null && [ $((now_epoch - claim_started)) -ge 10 ]; then claim_is_stale=1; fi; if [ "$claim_is_stale" -eq 1 ] || { [ "$claim_owner" -gt 0 ] 2>/dev/null && ! kill -0 "$claim_owner" 2>/dev/null; }; then recovery_seq=$((recovery_seq + 1)); recovered_claim="$claim.recovered.$$.$recovery_seq"; if mv "$claim" "$recovered_claim" 2>/dev/null; then rm -f "$recovered_claim/owner" "$recovered_claim/started" 2>/dev/null || true; rmdir "$recovered_claim" 2>/dev/null || true; fi; claim_unowned_checks=0; elif [ "$claim_owner" -gt 0 ] 2>/dev/null || [ "$claim_started" -ge 0 ] 2>/dev/null; then claim_unowned_checks=0; else claim_unowned_checks=$((claim_unowned_checks + 1)); if [ "$claim_unowned_checks" -ge 2 ]; then recovery_seq=$((recovery_seq + 1)); recovered_claim="$claim.recovered.$$.$recovery_seq"; if mv "$claim" "$recovered_claim" 2>/dev/null; then rm -f "$recovered_claim/owner" "$recovered_claim/started" 2>/dev/null || true; rmdir "$recovered_claim" 2>/dev/null || true; fi; claim_unowned_checks=0; fi; fi; if mkdir "$claim" 2>/dev/null; then claim_started=`"$date_bin" +%s 2>/dev/null || printf 946684800`; printf '%s\n' "$claim_started" >"$claim/started"; printf '%s\n' "$$" >"$claim/owner"; have_claim=1; fi; fi; if [ "$have_claim" -eq 1 ]; then owner=; owner_started=; if IFS= read -r owner 2>/dev/null <"$lock/owner"; then :; fi; if IFS= read -r owner_started 2>/dev/null <"$lock/started"; then :; fi; now_epoch=`"$date_bin" +%s 2>/dev/null || printf 946684800`; owner_is_stale=0; if [ "$owner_started" -ge 0 ] 2>/dev/null && [ "$now_epoch" -ge "$owner_started" ] 2>/dev/null && [ $((now_epoch - owner_started)) -ge 10 ]; then owner_is_stale=1; fi; recover_lock=0; if [ "$owner_is_stale" -eq 1 ] || { [ "$owner" -gt 0 ] 2>/dev/null && ! kill -0 "$owner" 2>/dev/null; }; then recover_lock=1; unowned_checks=0; elif [ "$owner" -gt 0 ] 2>/dev/null || [ "$owner_started" -ge 0 ] 2>/dev/null; then unowned_checks=0; else unowned_checks=$((unowned_checks + 1)); if [ "$unowned_checks" -ge 2 ]; then recover_lock=1; unowned_checks=0; fi; fi; if [ "$recover_lock" -eq 1 ]; then recovery_seq=$((recovery_seq + 1)); recovered_lock="$lock.recovered.$$.$recovery_seq"; if mv "$lock" "$recovered_lock" 2>/dev/null; then rm -f "$recovered_lock/owner" "$recovered_lock/started" 2>/dev/null || true; rmdir "$recovered_lock" 2>/dev/null || true; fi; fi; current_claim_owner=; current_claim_started=; if IFS= read -r current_claim_owner 2>/dev/null <"$claim/owner"; then :; fi; if IFS= read -r current_claim_started 2>/dev/null <"$claim/started"; then :; fi; if [ "$current_claim_owner" = "$$" ] && [ "$current_claim_started" = "$claim_started" ]; then rm -f "$claim/owner" "$claim/started" 2>/dev/null || true; rmdir "$claim" 2>/dev/null || true; fi; fi; tries=0; fi; sleep 0.01 2>/dev/null || sleep 1; done; owner_started=`"$date_bin" +%s 2>/dev/null || printf 946684800`; printf '%s\n' "$owner_started" >"$lock/started"; printf '%s\n' "$$" >"$lock/owner"; last_epoch=; last_seq=-1; if IFS=' ' read -r last_epoch last_seq 2>/dev/null <"$state"; then :; fi; if [ "$last_epoch" = "$epoch" ] && [ "$last_seq" -ge 0 ] 2>/dev/null; then seq=$((last_seq + 1)); else seq=0; fi; if [ "$seq" -gt 999999 ] 2>/dev/null; then while [ "$epoch" = "$last_epoch" ]; do sleep 0.01 2>/dev/null || sleep 1; epoch=`"$date_bin" +%s 2>/dev/null || printf 946684800`; done; seq=0; fi; printf '%s %s\n' "$epoch" "$seq" >"$state"; current_owner=; current_owner_started=; if IFS= read -r current_owner 2>/dev/null <"$lock/owner"; then :; fi; if IFS= read -r current_owner_started 2>/dev/null <"$lock/started"; then :; fi; if [ "$current_owner" = "$$" ] && [ "$current_owner_started" = "$owner_started" ]; then rm -f "$lock/owner" "$lock/started" 2>/dev/null || true; rmdir "$lock" 2>/dev/null || true; fi; printf '%s.%06d' "$epoch" "$seq"; }"#
+        return #"perl -MTime::HiRes=time -e 'printf "%.6f", time' 2>/dev/null || python3 -c 'import time; print(f"{time.time():.6f}", end="")' 2>/dev/null || \#(fallback)"#
+    }
+
+    private static func timestampedAgentHookInvocation(
+        executable: String,
+        arguments: String
+    ) -> String {
+        let captureTime = agentHookCaptureTimeShell(lockStem: "cmux-agent-hook-time")
+        return #"CMUX_AGENT_HOOK_CAPTURED_AT="$(\#(captureTime))" \#(executable) \#(arguments)"#
+    }
+
     private static let grokPinnedHookMarker = "cmux-grok-hook-v2"
     private static let antigravityPinnedHookMarker = "cmux-antigravity-hook-v2"
 
@@ -239,7 +252,15 @@ extension CMUXCLI {
         }
         let routedArguments = command.hasPrefix("cmux ") ? String(command.dropFirst("cmux ".count)) : command
         let noOpSnippet = shellNoOpSnippet(noOpCommand)
-        return "cmux_cli=\"${CMUX_BUNDLED_CLI_PATH:-}\"; if [ -z \"$cmux_cli\" ] || [ ! -x \"$cmux_cli\" ]; then cmux_cli=\"$(command -v cmux 2>/dev/null || true)\"; fi; if [ -n \"$CMUX_SURFACE_ID\" ] && [ \"$\(def.disableEnvVar)\" != \"1\" ] && [ -n \"$cmux_cli\" ]; then { if [ -n \"${CMUX_SOCKET_PATH:-}\" ]; then \"$cmux_cli\" --socket \"$CMUX_SOCKET_PATH\" \(routedArguments); else \"$cmux_cli\" \(routedArguments); fi; } || \(noOpSnippet); else \(noOpSnippet); fi"
+        let socketInvocation = timestampedAgentHookInvocation(
+            executable: #""$cmux_cli""#,
+            arguments: #"--socket "$CMUX_SOCKET_PATH" \#(routedArguments)"#
+        )
+        let directInvocation = timestampedAgentHookInvocation(
+            executable: #""$cmux_cli""#,
+            arguments: routedArguments
+        )
+        return "cmux_cli=\"${CMUX_BUNDLED_CLI_PATH:-}\"; if [ -z \"$cmux_cli\" ] || [ ! -x \"$cmux_cli\" ]; then cmux_cli=\"$(command -v cmux 2>/dev/null || true)\"; fi; if [ -n \"$CMUX_SURFACE_ID\" ] && [ \"$\(def.disableEnvVar)\" != \"1\" ] && [ -n \"$cmux_cli\" ]; then { if [ -n \"${CMUX_SOCKET_PATH:-}\" ]; then \(socketInvocation); else \(directInvocation); fi; } || \(noOpSnippet); else \(noOpSnippet); fi"
     }
 
     private static func exitTwoPropagatingAgentHookShellCommand(
@@ -249,7 +270,15 @@ extension CMUXCLI {
     ) -> String {
         let routedArguments = command.hasPrefix("cmux ") ? String(command.dropFirst("cmux ".count)) : command
         let noOpSnippet = shellNoOpSnippet(noOpCommand)
-        return "cmux_cli=\"${CMUX_BUNDLED_CLI_PATH:-}\"; if [ -z \"$cmux_cli\" ] || [ ! -x \"$cmux_cli\" ]; then cmux_cli=\"$(command -v cmux 2>/dev/null || true)\"; fi; if [ -n \"$CMUX_SURFACE_ID\" ] && [ \"$\(def.disableEnvVar)\" != \"1\" ] && [ -n \"$cmux_cli\" ]; then if [ -n \"${CMUX_SOCKET_PATH:-}\" ]; then \"$cmux_cli\" --socket \"$CMUX_SOCKET_PATH\" \(routedArguments); else \"$cmux_cli\" \(routedArguments); fi; status=$?; if [ \"$status\" -eq 2 ]; then exit 2; fi; if [ \"$status\" -ne 0 ]; then \(noOpSnippet); fi; else \(noOpSnippet); fi"
+        let socketInvocation = timestampedAgentHookInvocation(
+            executable: #""$cmux_cli""#,
+            arguments: #"--socket "$CMUX_SOCKET_PATH" \#(routedArguments)"#
+        )
+        let directInvocation = timestampedAgentHookInvocation(
+            executable: #""$cmux_cli""#,
+            arguments: routedArguments
+        )
+        return "cmux_cli=\"${CMUX_BUNDLED_CLI_PATH:-}\"; if [ -z \"$cmux_cli\" ] || [ ! -x \"$cmux_cli\" ]; then cmux_cli=\"$(command -v cmux 2>/dev/null || true)\"; fi; if [ -n \"$CMUX_SURFACE_ID\" ] && [ \"$\(def.disableEnvVar)\" != \"1\" ] && [ -n \"$cmux_cli\" ]; then if [ -n \"${CMUX_SOCKET_PATH:-}\" ]; then \(socketInvocation); else \(directInvocation); fi; status=$?; if [ \"$status\" -eq 2 ]; then exit 2; fi; if [ \"$status\" -ne 0 ]; then \(noOpSnippet); fi; else \(noOpSnippet); fi"
     }
 
     private static func usesPinnedHookDispatch(_ def: AgentHookDef) -> Bool {
@@ -313,9 +342,15 @@ extension CMUXCLI {
         socketPath: String?
     ) -> String {
         if let socketPath {
-            return "\(executable) --socket \(shellSingleQuote(socketPath)) \(routedArguments)"
+            return timestampedAgentHookInvocation(
+                executable: executable,
+                arguments: "--socket \(shellSingleQuote(socketPath)) \(routedArguments)"
+            )
         }
-        return "\(executable) \(routedArguments)"
+        return timestampedAgentHookInvocation(
+            executable: executable,
+            arguments: routedArguments
+        )
     }
 
     private static func pinnedAgentHookCLIPath(

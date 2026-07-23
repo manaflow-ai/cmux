@@ -31,8 +31,7 @@ extension TerminalController: ControlSidebarContext {
     ) {
         let appFormat = SidebarMetadataFormat(rawValue: format.rawValue) ?? .plain
         controlSidebarSchedulePanelOwnedMutation(target: target, panelID: panelID) { _, tab in
-            let replacementDecision = SidebarStatusEntry.replacementDecision(
-                current: tab.statusEntries[key],
+            tab.upsertSidebarStatusEntry(
                 key: key,
                 value: value,
                 icon: icon,
@@ -40,33 +39,10 @@ extension TerminalController: ControlSidebarContext {
                 url: url,
                 priority: priority,
                 format: appFormat,
+                panelId: panelID,
+                pid: pid,
                 agentEventTime: agentEventTime
             )
-            switch replacementDecision {
-            case .replace:
-                break
-            case .unchanged:
-                if let pid {
-                    tab.recordAgentPID(key: key, pid: pid, panelId: panelID)
-                }
-                return
-            case .stale:
-                return
-            }
-            tab.statusEntries[key] = SidebarStatusEntry(
-                key: key,
-                value: value,
-                icon: icon,
-                color: color,
-                url: url,
-                priority: priority,
-                format: appFormat,
-                timestamp: Date(),
-                agentEventTime: agentEventTime
-            )
-            if let pid {
-                tab.recordAgentPID(key: key, pid: pid, panelId: panelID)
-            }
         }
     }
 

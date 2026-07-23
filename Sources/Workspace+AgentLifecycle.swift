@@ -38,10 +38,21 @@ extension Workspace {
         panelId: UUID,
         observation: RestorableAgentSessionIndex.Entry
     ) {
-        let eventTime = observation.runtimeStatusEventTime ?? observation.updatedAt
+        let statusKey = agentLifecycleStatusKey(for: observation.snapshot.kind)
+        let lifecycleWatermark = statusKey.flatMap {
+            agentLifecycleEventTimesByPanelId[panelId]?[$0]
+        }
+        let eventTime: TimeInterval
+        if let runtimeStatusEventTime = observation.runtimeStatusEventTime {
+            eventTime = runtimeStatusEventTime
+        } else if lifecycleWatermark == nil {
+            eventTime = observation.updatedAt
+        } else {
+            return
+        }
         guard observation.lifecycle == .idle,
               Date().timeIntervalSince1970 - eventTime >= Self.agentRunningStatusReconciliationDelay,
-              let statusKey = agentLifecycleStatusKey(for: observation.snapshot.kind),
+              let statusKey,
               agentLifecycleStatesByPanelId[panelId]?[statusKey] == .running else {
             return
         }
@@ -49,8 +60,7 @@ extension Workspace {
             return
         }
         guard let current = statusEntries[statusKey] else { return }
-        guard SidebarStatusEntry.shouldReplace(
-            current: current,
+        _ = upsertSidebarStatusEntry(
             key: statusKey,
             value: String(localized: "agent.generic.notification.status.idle", defaultValue: "Idle"),
             icon: "pause.circle.fill",
@@ -58,21 +68,69 @@ extension Workspace {
             url: current.url,
             priority: current.priority,
             format: current.format,
-            agentEventTime: eventTime
-        ) else {
-            return
-        }
-        statusEntries[statusKey] = SidebarStatusEntry(
-            key: statusKey,
-            value: String(localized: "agent.generic.notification.status.idle", defaultValue: "Idle"),
-            icon: "pause.circle.fill",
-            color: "#8E8E93",
-            url: current.url,
-            priority: current.priority,
-            format: current.format,
-            timestamp: Date(),
+            panelId: panelId,
+            pid: nil,
             agentEventTime: eventTime
         )
+    }
+
+    @discardableResult
+    func upsertSidebarStatusEntry(
+        key: String,
+        value: String,
+        icon: String?,
+        color: String?,
+        url: URL?,
+        priority: Int,
+        format: SidebarMetadataFormat,
+        panelId: UUID?,
+        pid: pid_t?,
+        agentEventTime: TimeInterval?
+    ) -> SidebarStatusEntryReplacementDecision {
+        let ownerPanelId = panelId ?? focusedPanelId
+        if let ownerPanelId,
+           let lifecycleWatermark = agentLifecycleEventTimesByPanelId[ownerPanelId]?[key] {
+            guard let agentEventTime, agentEventTime >= lifecycleWatermark else {
+                return .stale
+            }
+        }
+        let replacementDecision = SidebarStatusEntry.replacementDecision(
+            current: statusEntries[key],
+            key: key,
+            value: value,
+            icon: icon,
+            color: color,
+            url: url,
+            priority: priority,
+            format: format,
+            agentEventTime: agentEventTime,
+            agentOwnerPanelID: ownerPanelId
+        )
+        switch replacementDecision {
+        case .replace:
+            statusEntries[key] = SidebarStatusEntry(
+                key: key,
+                value: value,
+                icon: icon,
+                color: color,
+                url: url,
+                priority: priority,
+                format: format,
+                timestamp: Date(),
+                agentEventTime: agentEventTime,
+                agentOwnerPanelID: ownerPanelId
+            )
+            if let pid {
+                recordAgentPID(key: key, pid: pid, panelId: ownerPanelId)
+            }
+        case .unchanged:
+            if let pid {
+                recordAgentPID(key: key, pid: pid, panelId: ownerPanelId)
+            }
+        case .stale:
+            break
+        }
+        return replacementDecision
     }
 
     func markRestoredAgentCompleted(
@@ -293,10 +351,6 @@ extension Workspace {
             agentLifecycleStatesByPanelId[panelId]?.removeValue(forKey: key)
             if agentLifecycleStatesByPanelId[panelId]?.isEmpty == true {
                 agentLifecycleStatesByPanelId.removeValue(forKey: panelId)
-            }
-            agentLifecycleEventTimesByPanelId[panelId]?.removeValue(forKey: key)
-            if agentLifecycleEventTimesByPanelId[panelId]?.isEmpty == true {
-                agentLifecycleEventTimesByPanelId.removeValue(forKey: panelId)
             }
             didClear = true
             if recordsHibernationActivity {

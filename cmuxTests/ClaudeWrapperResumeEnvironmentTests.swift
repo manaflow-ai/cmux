@@ -171,10 +171,10 @@ import Testing
         let stopHooks = try #require(stopMatchers.first?["hooks"] as? [[String: Any]])
         let command = try #require(stopHooks.first?["command"] as? String)
 
-        for tool in ["mkdir", "mv", "rm", "rmdir", "sleep"] {
+        for tool in ["mkdir", "mv", "printenv", "rm", "rmdir", "sleep"] {
             try fileManager.createSymbolicLink(
                 at: toolBin.appendingPathComponent(tool, isDirectory: false),
-                withDestinationURL: URL(fileURLWithPath: "/bin/\(tool)")
+                withDestinationURL: URL(fileURLWithPath: tool == "printenv" ? "/usr/bin/printenv" : "/bin/\(tool)")
             )
         }
         let fakeDateURL = toolBin.appendingPathComponent("date", isDirectory: false)

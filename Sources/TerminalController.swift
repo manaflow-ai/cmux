@@ -13754,8 +13754,7 @@ class TerminalController {
             if let panelId = panelResolution.panelId, !tab.panels.keys.contains(panelId) {
                 return
             }
-            let replacementDecision = SidebarStatusEntry.replacementDecision(
-                current: tab.statusEntries[key],
+            tab.upsertSidebarStatusEntry(
                 key: key,
                 value: value,
                 icon: icon,
@@ -13763,33 +13762,10 @@ class TerminalController {
                 url: parsedURL,
                 priority: priority,
                 format: format,
+                panelId: panelResolution.panelId,
+                pid: pidValue,
                 agentEventTime: agentEventTime
             )
-            switch replacementDecision {
-            case .replace:
-                break
-            case .unchanged:
-                if let pidValue {
-                    tab.recordAgentPID(key: key, pid: pidValue, panelId: panelResolution.panelId)
-                }
-                return
-            case .stale:
-                return
-            }
-            tab.statusEntries[key] = SidebarStatusEntry(
-                key: key,
-                value: value,
-                icon: icon,
-                color: color,
-                url: parsedURL,
-                priority: priority,
-                format: format,
-                timestamp: Date(),
-                agentEventTime: agentEventTime
-            )
-            if let pidValue {
-                tab.recordAgentPID(key: key, pid: pidValue, panelId: panelResolution.panelId)
-            }
         }
         return "OK"
     }
