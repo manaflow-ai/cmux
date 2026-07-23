@@ -143,11 +143,13 @@ final class FeedCoordinator: @unchecked Sendable {
         onAccepted: @escaping @Sendable (WorkstreamEvent) -> Void = { _ in }
     ) -> IngestBlockingResult {
         if waitTimeout <= 0 {
-            enqueueZeroWaitAcceptance(
+            guard enqueueZeroWaitAcceptance(
                 event,
                 onAcceptedOnMainActor: onAcceptedOnMainActor,
                 onAccepted: onAccepted
-            )
+            ) else {
+                return .unavailable
+            }
             return .acknowledged(itemId: nil)
         }
         guard let requestId = event.requestId else {
@@ -288,8 +290,8 @@ final class FeedCoordinator: @unchecked Sendable {
         _ event: WorkstreamEvent,
         onAcceptedOnMainActor: @escaping @MainActor @Sendable (WorkstreamEvent) -> Void,
         onAccepted: @escaping @Sendable (WorkstreamEvent) -> Void
-    ) {
-        feedIngressDeliveryLane.enqueueLatestZeroWait {
+    ) -> Bool {
+        return feedIngressDeliveryLane.enqueueZeroWait {
             let acceptedEvent: WorkstreamEvent? = DispatchQueue.main.sync {
                 MainActor.assumeIsolated {
                     guard case .accepted(let event, _) = FeedCoordinator.shared.acceptOnMainActor(event) else {
