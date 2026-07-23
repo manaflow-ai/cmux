@@ -12,7 +12,8 @@ struct ArtifactCaptureDirectoryFinder {
         pathResolver: ArtifactPathResolver,
         kind: CmuxSessionContentKind = .artifacts
     ) throws -> ArtifactCaptureDirectoryResolution {
-        if let sessionID = normalized(context.sessionID),
+        let sessionID = normalized(context.sessionID)
+        if let sessionID,
            let sessionRoot = try markerDirectories(
                paths: paths,
                markerName: ArtifactPathResolver.sessionMarkerName,
@@ -25,7 +26,15 @@ struct ArtifactCaptureDirectoryFinder {
         }
 
         let fallback = pathResolver.contentDirectory(paths: paths, context: context, kind: kind)
-        guard normalized(context.sessionID) == nil,
+        if let sessionID {
+            try validateFallbackSessionMarker(
+                fallback: fallback,
+                sessionID: sessionID,
+                paths: paths
+            )
+            return ArtifactCaptureDirectoryResolution(directory: fallback)
+        }
+        guard sessionID == nil,
               let workspaceID = normalized(context.workspaceID),
               let sessionRoot = try markerDirectories(
                   paths: paths,
@@ -38,6 +47,25 @@ struct ArtifactCaptureDirectoryFinder {
         return ArtifactCaptureDirectoryResolution(
             directory: sessionRoot.appendingPathComponent(kind.rawValue, isDirectory: true)
         )
+    }
+
+    private func validateFallbackSessionMarker(
+        fallback: URL,
+        sessionID: String,
+        paths: ArtifactStorePaths
+    ) throws {
+        let markerURL = fallback.deletingLastPathComponent()
+            .appendingPathComponent(ArtifactPathResolver.sessionMarkerName)
+        let reader = ArtifactBoundedFileReader()
+        guard try reader.pathEntryExists(url: markerURL) else { return }
+        guard let data = try reader.data(
+            url: markerURL,
+            allowedRoot: paths.filesystemRoot,
+            maximumBytes: 256 * 1024
+        ), let marker = try? decoder.decode(ArtifactSessionMarker.self, from: data),
+              marker.sessionID == sessionID else {
+            throw ArtifactStoreError.corruptProvenance(markerURL.path)
+        }
     }
 
     private func markerDirectories<Marker: Decodable>(

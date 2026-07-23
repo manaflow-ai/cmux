@@ -220,7 +220,7 @@ extension LocalArtifactRepository: NoteStoring {
         paths: ArtifactStorePaths
     ) async throws {
         let validator = ArtifactGitIgnoreManager(fileManager: fileManager)
-            .automaticWriteValidator(
+            .writeValidator(
                 projectRoot: paths.projectRoot,
                 commandRunner: gitCommandRunner
             )

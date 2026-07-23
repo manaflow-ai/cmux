@@ -11,7 +11,7 @@ import WebKit
 @Suite("Artifact HTML preview security")
 struct ArtifactHTMLPreviewSecurityTests {
     @Test("Untrusted HTML is wrapped in an isolated non-navigating data document")
-    func wrapsActiveContentInASandbox() throws {
+    func wrapsActiveContentInASandbox() async throws {
         let root = FileManager.default.temporaryDirectory
             .appendingPathComponent("cmux-artifact-html-\(UUID().uuidString)", isDirectory: true)
         defer { try? FileManager.default.removeItem(at: root) }
@@ -23,7 +23,7 @@ struct ArtifactHTMLPreviewSecurityTests {
         <a href="file:///private/sibling.txt">sibling</a>
         """.write(to: source, atomically: true, encoding: .utf8)
 
-        let document = try ArtifactHTMLPreviewDocument(sourceURL: source)
+        let document = try await ArtifactHTMLPreviewDocument.load(sourceURL: source)
         let prefix = "data:text/html;base64,"
         #expect(document.url.absoluteString.hasPrefix(prefix))
         let encoded = String(document.url.absoluteString.dropFirst(prefix.count))
@@ -39,7 +39,7 @@ struct ArtifactHTMLPreviewSecurityTests {
     }
 
     @Test("Artifact previews reject symbolic links and oversized sources")
-    func rejectsUntrustedSourceEntries() throws {
+    func rejectsUntrustedSourceEntries() async throws {
         let root = FileManager.default.temporaryDirectory
             .appendingPathComponent("cmux-artifact-html-\(UUID().uuidString)", isDirectory: true)
         defer { try? FileManager.default.removeItem(at: root) }
@@ -51,11 +51,11 @@ struct ArtifactHTMLPreviewSecurityTests {
         let oversized = root.appendingPathComponent("oversized.html", isDirectory: false)
         try Data(repeating: 0x20, count: 8 * 1024 * 1024 + 1).write(to: oversized)
 
-        #expect(throws: CocoaError.self) {
-            _ = try ArtifactHTMLPreviewDocument(sourceURL: symbolicLink)
+        await #expect(throws: CocoaError.self) {
+            _ = try await ArtifactHTMLPreviewDocument.load(sourceURL: symbolicLink)
         }
-        #expect(throws: CocoaError.self) {
-            _ = try ArtifactHTMLPreviewDocument(sourceURL: oversized)
+        await #expect(throws: CocoaError.self) {
+            _ = try await ArtifactHTMLPreviewDocument.load(sourceURL: oversized)
         }
     }
 
