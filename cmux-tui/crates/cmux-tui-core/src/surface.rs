@@ -476,10 +476,46 @@ fn input_may_submit_prompt(bytes: &[u8]) -> bool {
             if !in_bracketed_paste && matches!(bytes[offset], b'\r' | b'\n') {
                 return true;
             }
+            if !in_bracketed_paste && encoded_enter_sequence(&bytes[offset..]) {
+                return true;
+            }
             offset += 1;
         }
     }
     false
+}
+
+fn encoded_enter_sequence(bytes: &[u8]) -> bool {
+    if let Some(params) = bytes.strip_prefix(b"\x1bO") {
+        let modifier_len = params.iter().take_while(|byte| byte.is_ascii_digit()).count();
+        return params.get(modifier_len) == Some(&b'M');
+    }
+
+    let Some(csi) = bytes.strip_prefix(b"\x1b[") else {
+        return false;
+    };
+    let Some(final_offset) = csi.iter().position(|byte| (0x40..=0x7e).contains(byte)) else {
+        return false;
+    };
+    let params = &csi[..final_offset];
+    match csi[final_offset] {
+        b'u' => {
+            let primary_end =
+                params.iter().position(|byte| matches!(byte, b':' | b';')).unwrap_or(params.len());
+            matches!(&params[..primary_end], b"13" | b"57414")
+                && params.iter().all(|byte| byte.is_ascii_digit() || matches!(byte, b':' | b';'))
+        }
+        b'~' => {
+            let mut fields = params.split(|byte| *byte == b';');
+            fields.next() == Some(b"27".as_slice())
+                && fields
+                    .next()
+                    .is_some_and(|field| !field.is_empty() && field.iter().all(u8::is_ascii_digit))
+                && fields.next() == Some(b"13".as_slice())
+                && fields.next().is_none()
+        }
+        _ => false,
+    }
 }
 
 impl std::fmt::Debug for Surface {
@@ -952,6 +988,7 @@ impl Surface {
         let Some(pty) = self.as_pty() else {
             anyhow::bail!("browser surface does not have a VT terminal");
         };
+        let mut writer = pty.writer.lock().unwrap();
         let (scroll_changed, redraw_prompt) = {
             let mut term = pty.term.lock().unwrap();
             if term.active_screen() == Screen::Alternate {
@@ -976,13 +1013,19 @@ impl Surface {
             let _ = pty.build_frame_locked(&mut term, generation, false);
             ((before != after).then_some(after), redraw_prompt)
         };
+        let redraw_result = if redraw_prompt {
+            writer.write_all(REDRAW_PROMPT).and_then(|()| writer.flush())
+        } else {
+            Ok(())
+        };
+        drop(writer);
         if let Some((offset, at_bottom)) = scroll_changed
             && let Some(mux) = pty.mux.upgrade()
         {
             mux.emit(MuxEvent::ScrollChanged { surface: self.id, offset, at_bottom });
         }
         pty.mark_output_dirty();
-        if redraw_prompt { self.write_bytes(REDRAW_PROMPT).map_err(Into::into) } else { Ok(()) }
+        redraw_result.map_err(Into::into)
     }
 
     pub fn set_default_colors(&self, colors: DefaultColors) {
