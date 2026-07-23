@@ -120,7 +120,7 @@ struct PiCompactedFeedEventExpander {
             event["is_error"] = isError
         }
         if let toolResult = summary["tool_result"] {
-            event["tool_input"] = terminalResultMetadata(toolResult)
+            event["tool_input"] = CMUXCLI.sanitizedPiPostToolUseFeedValue(toolResult)
         }
 
         return event
@@ -129,41 +129,5 @@ struct PiCompactedFeedEventExpander {
     private func string(_ value: Any?) -> String? {
         guard let value = value as? String, !value.isEmpty else { return nil }
         return value
-    }
-
-    private func terminalResultMetadata(_ result: Any) -> [String: Any] {
-        if result is NSNull {
-            return ["kind": "null"]
-        }
-        if let value = result as? String {
-            return ["kind": "text", "length": value.count]
-        }
-        if result is Bool {
-            return ["kind": "boolean"]
-        }
-        if result is NSNumber {
-            return ["kind": "number"]
-        }
-        if let value = result as? [Any] {
-            return ["kind": "array", "count": value.count]
-        }
-        guard let value = result as? [String: Any] else {
-            return ["kind": "unknown"]
-        }
-
-        var metadata: [String: Any] = [:]
-        let allowedKinds = Set(["null", "text", "boolean", "number", "array", "object", "undefined"])
-        if let kind = string(value["kind"]), allowedKinds.contains(kind) {
-            metadata["kind"] = kind
-        }
-        for key in ["length", "count", "key_count", "omitted_terminal_count"] {
-            if let count = value[key] as? Int, count >= 0 {
-                metadata[key] = count
-            }
-        }
-        if metadata.isEmpty {
-            metadata = ["kind": "object", "key_count": value.count]
-        }
-        return metadata
     }
 }

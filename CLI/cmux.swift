@@ -33862,9 +33862,13 @@ export default CMUXSessionRestore;
         }
         let promptText = hookEventName == "UserPromptSubmit" ? feedPromptText(from: stdinObj) : nil
         if let feedToolInput {
-            eventDict["tool_input"] = shouldUseCodexPostToolUseResponse
-                ? Self.sanitizedPostToolUseFeedValue(feedToolInput)
-                : feedToolInput
+            if shouldUseCodexPostToolUseResponse {
+                eventDict["tool_input"] = Self.sanitizedPostToolUseFeedValue(feedToolInput)
+            } else if shouldUsePiPostToolUseResult {
+                eventDict["tool_input"] = Self.sanitizedPiPostToolUseFeedValue(feedToolInput)
+            } else {
+                eventDict["tool_input"] = feedToolInput
+            }
         }
         if let context = feedContextForEvent(
             source: source,

@@ -2488,12 +2488,51 @@ def test_pi_post_tool_use_uses_projected_result(cli_path: str, root: Path) -> No
     if stdout != {}:
         raise AssertionError(f"Pi PostToolUse telemetry should not emit a decision: {stdout!r}")
     event = frame["params"]["event"]
-    if event.get("tool_input") != projected_result:
+    tool_input = event.get("tool_input")
+    if not isinstance(tool_input, dict):
         raise AssertionError(f"Pi PostToolUse dropped its projected tool result: {event!r}")
-    if event["tool_input"].get("_cmux_sanitized") is True:
-        raise AssertionError(f"Pi projected result was sanitized a second time: {event!r}")
+    if (
+        tool_input.get("_cmux_sanitized") is not True
+        or tool_input.get("kind") != "object"
+        or tool_input.get("key_count") != 3
+        or tool_input.get("truncated") is not True
+    ):
+        raise AssertionError(f"Pi projected result was not validated at the CLI boundary: {event!r}")
     if event.get("is_error") is not True:
         raise AssertionError(f"Pi PostToolUse dropped its failure status: {event!r}")
+
+
+def test_legacy_pi_post_tool_use_redacts_raw_result(cli_path: str, root: Path) -> None:
+    secret = "PRIVATE-KEY-SHOULD-NOT-PERSIST"
+    payload = {
+        "session_id": "pi-legacy-raw-result-session",
+        "hook_event_name": "PostToolUse",
+        "tool_call_id": "pi-legacy-raw-result-tool",
+        "tool_name": "bash",
+        "tool_result": {
+            "stdout": secret,
+            "exit_code": 0,
+            "nested": {"file_contents": secret},
+        },
+    }
+
+    stdout, frame = run_feed_hook(
+        cli_path,
+        root / "cmux-pi-legacy-raw-result.sock",
+        payload,
+        None,
+        source="pi",
+    )
+    if stdout != {}:
+        raise AssertionError(f"legacy Pi PostToolUse telemetry should not emit a decision: {stdout!r}")
+    event = frame["params"]["event"]
+    tool_input = event.get("tool_input")
+    if not isinstance(tool_input, dict) or tool_input.get("_cmux_sanitized") is not True:
+        raise AssertionError(f"legacy Pi result was not sanitized at the CLI boundary: {event!r}")
+    if tool_input.get("kind") != "object" or tool_input.get("key_count") != 3:
+        raise AssertionError(f"legacy Pi result lost bounded structural metadata: {event!r}")
+    if secret in json.dumps(event):
+        raise AssertionError(f"legacy Pi result leaked raw output into Feed: {event!r}")
 
 
 def test_pi_compacted_post_tool_use_sends_one_ordered_batch(cli_path: str, root: Path) -> None:
@@ -3661,6 +3700,7 @@ def main() -> int:
             test_codex_post_tool_use_without_response_keeps_request_input(cli_path, root)
             test_non_codex_post_tool_use_keeps_request_input(cli_path, root)
             test_pi_post_tool_use_uses_projected_result(cli_path, root)
+            test_legacy_pi_post_tool_use_redacts_raw_result(cli_path, root)
             test_pi_compacted_post_tool_use_sends_one_ordered_batch(cli_path, root)
             test_pi_compacted_feed_sends_bounded_acknowledged_batch(cli_path, root)
             test_pi_compacted_feed_rejects_failed_server_ack(cli_path, root)

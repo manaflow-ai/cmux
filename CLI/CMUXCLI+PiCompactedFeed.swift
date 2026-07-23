@@ -1,6 +1,72 @@
 import Foundation
 
 extension CMUXCLI {
+    /// Reduces any Pi tool result to structural metadata at the CLI trust boundary.
+    ///
+    /// Generated extensions project results before dispatch, but installed older
+    /// versions can still send raw output. Treat both forms as untrusted so a cmux
+    /// upgrade cannot persist command output before the extension is reinstalled.
+    static func sanitizedPiPostToolUseFeedValue(_ value: Any) -> [String: Any] {
+        var summary: [String: Any] = ["_cmux_sanitized": true]
+
+        if value is NSNull {
+            summary["kind"] = "null"
+            return summary
+        }
+        if value is Bool {
+            summary["kind"] = "boolean"
+            return summary
+        }
+        if value is NSNumber {
+            summary["kind"] = "number"
+            return summary
+        }
+        if let text = value as? String {
+            summary["kind"] = "text"
+            summary["length"] = text.count
+            return summary
+        }
+        if let array = value as? [Any] {
+            summary["kind"] = "array"
+            summary["count"] = array.count
+            return summary
+        }
+        guard let dictionary = value as? [String: Any] else {
+            summary["kind"] = "unknown"
+            return summary
+        }
+
+        summary["_cmux_original_key_count"] = dictionary.count
+        let allowedKinds = Set(["null", "text", "boolean", "number", "array", "object", "undefined"])
+        var retainedKeyCount = 0
+        if let kind = dictionary["kind"] as? String, allowedKinds.contains(kind) {
+            summary["kind"] = kind
+            retainedKeyCount += 1
+        } else {
+            summary["kind"] = "object"
+        }
+        for key in ["length", "count", "key_count", "omitted_terminal_count"] {
+            if let count = dictionary[key] as? Int, count >= 0 {
+                summary[key] = count
+                retainedKeyCount += 1
+            }
+        }
+        for key in ["truncated", "cmux_truncated"] {
+            if let flag = dictionary[key] as? Bool {
+                summary[key] = flag
+                retainedKeyCount += 1
+            }
+        }
+        if summary["kind"] as? String == "object", summary["key_count"] == nil {
+            summary["key_count"] = dictionary.count
+        }
+        let omittedKeyCount = dictionary.count - retainedKeyCount
+        if omittedKeyCount > 0 {
+            summary["_cmux_omitted_key_count"] = omittedKeyCount
+        }
+        return summary
+    }
+
     /// Routes a bounded Pi terminal-event batch through the ordinary Feed protocol.
     func routePiCompactedFeedEvents(
         commandArgs: [String],
