@@ -118,7 +118,15 @@ pub enum SupportedClientAuthModes {
 
 impl SupportedClientAuthModes {
     pub fn supports(self, auth: AuthKind) -> bool {
-        auth != AuthKind::Carrier || self == Self::DeviceOrCarrier
+        // Keep both enums exhaustive so new modes require an explicit trust-boundary decision.
+        match (self, auth) {
+            (Self::DeviceOnly, AuthKind::Enrolled | AuthKind::Invitation) => true,
+            (Self::DeviceOnly, AuthKind::Carrier) => false,
+            (
+                Self::DeviceOrCarrier,
+                AuthKind::Enrolled | AuthKind::Invitation | AuthKind::Carrier,
+            ) => true,
+        }
     }
 }
 
