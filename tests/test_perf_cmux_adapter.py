@@ -69,7 +69,7 @@ class FakeRunner:
         self.workspaces = [self.startup_workspace]
         self.pane = "pane:4"
         self.initial_terminal = "surface:initial"
-        self.initial_terminal_id = "00000000-0000-0000-0000-000000000009"
+        self.initial_terminal_id = self.initial_terminal
         self.surfaces: list[dict[str, Any]] = [
             {"surface_id": self.initial_terminal, "type": "terminal", "title": "shell"}
         ]
@@ -131,7 +131,7 @@ class FakeRunner:
                 surfaces = [
                     {
                         **{key: value for key, value in surface.items() if key != "surface_id"},
-                        "id": self.initial_terminal_id,
+                        "id": surface["surface_id"],
                         "ref": surface["surface_id"],
                     }
                     for surface in surfaces
@@ -408,7 +408,7 @@ def test_fixture_uses_one_workspace_and_pane_exact_local_identity_and_scrollback
     pane_calls = [
         event
         for event in runner.events
-        if event[0] == "json_cli" and event[1][0] == "new-surface"
+        if event[0] == "json_cli" and "new-surface" in event[1]
     ]
     assert pane_calls and all(
         "--pane" in event[1]
@@ -452,7 +452,7 @@ def test_fixture_rejects_nonunique_clean_startup_workspace(tmp_path: Path) -> No
         prepare_fixture(adapter, runner, cfg)
 
     assert not any(
-        event[0] == "json_cli" and event[1][0] == "new-surface"
+        event[0] == "json_cli" and "new-surface" in event[1]
         for event in runner.events
     )
 
@@ -464,11 +464,11 @@ def test_fixture_rejects_nonterminal_startup_surface_before_mutation(tmp_path: P
     runner.surfaces[0]["type"] = "browser"
     adapter = adapter_module.CmuxRuntimeAdapter(cfg, runner=runner, clock=FakeClock())
 
-    with pytest.raises(ValueError, match="startup surface must be a terminal"):
+    with pytest.raises(ValueError, match="owned fixture workspace must start with one terminal"):
         prepare_fixture(adapter, runner, cfg)
 
     assert not any(
-        (event[0] == "json_cli" and event[1][0] == "new-surface")
+        (event[0] == "json_cli" and "new-surface" in event[1])
         or (event[0] == "run_cli" and event[1][0] == "close-surface")
         or (event[0] == "rpc" and event[1] == "surface.respawn")
         for event in runner.events

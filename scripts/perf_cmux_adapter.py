@@ -303,6 +303,40 @@ class CmuxRuntimeAdapter:
         self._details["invocation"]["launch_socket_ready_ms"] = elapsed
 
 
+    def _json_cli(self, args: list[str]) -> dict[str, Any]:
+        return self._runner.json_cli(
+            ["--id-format", "both", *args], timeout=self.config.rpc_timeout_s
+        )
+
+    def _create_workspace(self) -> str:
+        payload = self._json_cli(
+            [
+                "workspace",
+                "create",
+                "--name",
+                f"cmux-perf-{self.config.scenario['scenario_id']}",
+                "--cwd",
+                str(self.config.output_root),
+            ]
+        )
+        return _extract_ref(payload, "workspace")
+
+    def _close_workspace(self, workspace_id: str) -> None:
+        self._runner.run_cli(
+            [
+                "workspace-action",
+                "--workspace",
+                workspace_id,
+                "--action",
+                "unpin",
+            ],
+            timeout=self.config.rpc_timeout_s,
+        )
+        self._runner.run_cli(
+            ["close-workspace", "--workspace", workspace_id],
+            timeout=self.config.rpc_timeout_s,
+        )
+
     def _new_surface(self, kind: str, *, url: str | None = None) -> str:
         if self._workspace_id is None or self._pane_id is None:
             raise RuntimeError("fixture pane is not initialized")
@@ -322,7 +356,7 @@ class CmuxRuntimeAdapter:
                 raise ValueError("browser fixture URLs must be local file URLs")
             args.extend(("--url", url))
         args.extend(("--focus", "false"))
-        payload = self._runner.json_cli(args, timeout=self.config.rpc_timeout_s)
+        payload = self._json_cli(args)
         if _extract_ref(payload, "pane") != self._pane_id:
             raise ValueError("surface was created outside the owned fixture pane")
         return _extract_ref(payload, "surface")
@@ -348,60 +382,55 @@ class CmuxRuntimeAdapter:
             if not fixture_path.resolve().is_relative_to(self.config.output_root):
                 raise ValueError("browser fixture is outside the owned output root")
 
-        before = self._runner.json_cli(
-            ["list-workspaces"], timeout=self.config.rpc_timeout_s
-        ).get("workspaces", [])
+        before = self._json_cli(["list-workspaces"]).get("workspaces", [])
         if not isinstance(before, list) or len(before) != 1 or not isinstance(before[0], Mapping):
             raise ValueError("fixture requires exactly one clean startup workspace")
-        self._workspace_id = _extract_ref(before[0], "workspace")
-        panes_payload = self._runner.json_cli(
-            ["list-panes", "--workspace", self._workspace_id],
-            timeout=self.config.rpc_timeout_s,
+        startup_workspace_id = _extract_ref(before[0], "workspace")
+
+        self._workspace_id = self._create_workspace()
+        panes_payload = self._json_cli(
+            ["list-panes", "--workspace", self._workspace_id]
         )
         panes = panes_payload.get("panes", [])
-        if not isinstance(panes, list) or len(panes) != 1:
-            raise ValueError("clean startup workspace must contain exactly one pane")
+        if not isinstance(panes, list) or len(panes) != 1 or not isinstance(panes[0], Mapping):
+            raise ValueError("owned fixture workspace must contain exactly one pane")
         self._pane_id = _extract_ref(panes[0], "pane")
         initial_refs = panes[0].get("surface_ids") or panes[0].get("surface_refs") or []
         if not isinstance(initial_refs, list) or len(initial_refs) != 1:
-            raise ValueError("clean startup workspace must contain one initial terminal")
+            raise ValueError("owned fixture workspace must contain one initial terminal")
         initial_terminal = initial_refs[0]
         if not isinstance(initial_terminal, str):
-            raise ValueError("initial terminal reference is invalid")
-        startup_surfaces = self._surfaces(include_uuids=True)
-        if len(startup_surfaces) != 1 or not isinstance(startup_surfaces[0], Mapping):
-            raise ValueError("clean startup workspace must contain one observable surface")
-        startup_surface = startup_surfaces[0]
-        if not any(
-            startup_surface.get(key) == initial_terminal
-            for key in ("surface_id", "surface_ref", "id", "ref")
+            raise ValueError("initial terminal identity is invalid")
+        initial_payload = self._json_cli(
+            [
+                "list-pane-surfaces",
+                "--workspace",
+                self._workspace_id,
+                "--pane",
+                self._pane_id,
+            ]
+        )
+        initial_surfaces = initial_payload.get("surfaces", [])
+        if (
+            not isinstance(initial_surfaces, list)
+            or len(initial_surfaces) != 1
+            or not isinstance(initial_surfaces[0], Mapping)
+            or _extract_ref(initial_surfaces[0], "surface") != initial_terminal
+            or _surface_type(initial_surfaces[0]) != "terminal"
         ):
-            raise ValueError("startup surface identity changed before fixture creation")
-        if _surface_type(startup_surface) != "terminal":
-            raise ValueError("startup surface must be a terminal")
-        startup_surface_id = startup_surface.get("surface_id") or startup_surface.get("id")
-        if not isinstance(startup_surface_id, str) or not startup_surface_id:
-            raise ValueError("startup surface listing is missing its UUID")
+            raise ValueError("owned fixture workspace must start with one terminal surface")
+
+        self._close_workspace(startup_workspace_id)
+        self._runner.run_cli(
+            ["select-workspace", "--workspace", self._workspace_id],
+            timeout=self.config.rpc_timeout_s,
+        )
 
         self._plan = plan
         self._terminal_actual_ids.clear()
         self._browser_actual_ids.clear()
         terminals = expected["terminal_surfaces"]
         if terminals:
-            respawned = self._runner.rpc(
-                "surface.respawn",
-                {
-                    "surface_id": startup_surface_id,
-                    "working_directory": str(self.config.output_root),
-                    "focus": False,
-                },
-                timeout=self.config.rpc_timeout_s,
-            )
-            if not isinstance(respawned, Mapping) or not any(
-                respawned.get(key) == startup_surface_id
-                for key in ("surface_id", "surface_ref", "id", "ref")
-            ):
-                raise ValueError("startup terminal identity changed while setting fixture cwd")
             self._terminal_actual_ids["terminal-001"] = initial_terminal
             for index in range(2, terminals + 1):
                 self._terminal_actual_ids[f"terminal-{index:03d}"] = self._new_surface(
@@ -423,12 +452,6 @@ class CmuxRuntimeAdapter:
                 timeout=self.config.rpc_timeout_s,
             )
 
-        self._runner.run_cli(
-            ["select-workspace", "--workspace", self._workspace_id],
-            timeout=self.config.rpc_timeout_s,
-            check=False,
-        )
-
         scrollback = expected["aggregate_scrollback_chars"]
         seed_evidence: dict[str, Any] | None = None
         if terminals:
@@ -445,7 +468,9 @@ class CmuxRuntimeAdapter:
                 "scrollback_chars": scrollback,
             }
             if any(seed_evidence.get(key) != value for key, value in required.items()):
-                raise ValueError("synthetic scrollback seed did not produce the exact aggregate")
+                raise ValueError(
+                    f"synthetic scrollback seed mismatch: expected={required!r} actual={seed_evidence!r}"
+                )
 
         mapping = dict(self._terminal_actual_ids)
         mapping.update(self._browser_actual_ids)
@@ -462,12 +487,10 @@ class CmuxRuntimeAdapter:
             "scrollback_evidence": seed_evidence,
         }
 
-    def _surfaces(self, *, include_uuids: bool = False) -> list[Mapping[str, Any]]:
+    def _surfaces(self) -> list[Mapping[str, Any]]:
         if self._workspace_id is None or self._pane_id is None:
             raise RuntimeError("fixture has not been created")
-        workspaces = self._runner.json_cli(
-            ["list-workspaces"], timeout=self.config.rpc_timeout_s
-        ).get("workspaces", [])
+        workspaces = self._json_cli(["list-workspaces"]).get("workspaces", [])
         workspace_ids = {
             _extract_ref(item, "workspace")
             for item in workspaces
@@ -475,26 +498,21 @@ class CmuxRuntimeAdapter:
         }
         if workspace_ids != {self._workspace_id}:
             raise ValueError("fixture must occupy exactly one owned workspace")
-        panes = self._runner.json_cli(
-            ["list-panes", "--workspace", self._workspace_id],
-            timeout=self.config.rpc_timeout_s,
+        panes = self._json_cli(
+            ["list-panes", "--workspace", self._workspace_id]
         ).get("panes", [])
         if not isinstance(panes, list) or len(panes) != 1:
             raise ValueError("fixture workspace must contain exactly one pane")
         if _extract_ref(panes[0], "pane") != self._pane_id:
             raise ValueError("fixture pane identity changed")
-        surface_args = [
-            "list-pane-surfaces",
-            "--workspace",
-            self._workspace_id,
-            "--pane",
-            self._pane_id,
-        ]
-        if include_uuids:
-            surface_args[0:0] = ["--id-format", "both"]
-        payload = self._runner.json_cli(
-            surface_args,
-            timeout=self.config.rpc_timeout_s,
+        payload = self._json_cli(
+            [
+                "list-pane-surfaces",
+                "--workspace",
+                self._workspace_id,
+                "--pane",
+                self._pane_id,
+            ]
         )
         if any(key in payload for key in ("pane_id", "pane_ref")) and not any(
             payload.get(key) == self._pane_id for key in ("pane_id", "pane_ref")
@@ -1098,6 +1116,30 @@ class CmuxRuntimeAdapter:
         self._details["snapshot"]["captured"] = captured
         return captured
 
+    def _reconcile_restored_workspace(self) -> None:
+        if self._workspace_id is None:
+            raise RuntimeError("fixture workspace is not initialized")
+        deadline = self._clock.monotonic() + self.config.rpc_timeout_s
+        while True:
+            workspaces = self._json_cli(["list-workspaces"]).get("workspaces", [])
+            workspace_ids = [
+                _extract_ref(item, "workspace")
+                for item in workspaces
+                if isinstance(item, Mapping)
+            ]
+            if self._workspace_id in workspace_ids:
+                self._runner.run_cli(
+                    ["select-workspace", "--workspace", self._workspace_id],
+                    timeout=self.config.rpc_timeout_s,
+                )
+                for workspace_id in workspace_ids:
+                    if workspace_id != self._workspace_id:
+                        self._close_workspace(workspace_id)
+                return
+            if self._clock.monotonic() >= deadline:
+                raise ValueError("restored fixture workspace did not appear before timeout")
+            self._clock.sleep(0.1)
+
     def restore(self, snapshot: Any) -> None:
         _contract.validate_snapshot(
             self.config.scenario, self._snapshot_contract(snapshot)
@@ -1106,6 +1148,7 @@ class CmuxRuntimeAdapter:
         self._launched = False
         elapsed = self._runner.launch("restore")
         self._launched = True
+        self._reconcile_restored_workspace()
         restored = self._runner.rpc(
             "debug.session_snapshot_benchmark",
             {"include_scrollback": True, "persist": True},
