@@ -684,6 +684,66 @@ struct FeedCoordinatorTests {
         #expect(FeedCoordinator.lifecycleStatusKey(forSource: "opencode") == "opencode")
     }
 
+    @Test func workstreamPublicationCarriesAuthoritativeTargetAndError() throws {
+        let bus = CmuxEventBus(retainedEventLimit: 4)
+        let workspaceId = UUID().uuidString
+        let surfaceId = UUID().uuidString
+        let event = WorkstreamEvent(
+            sessionId: "pi-event-publishing-test",
+            hookEventName: .postToolUse,
+            source: "pi",
+            workspaceId: workspaceId,
+            surfaceId: surfaceId,
+            toolName: "Bash",
+            isError: true,
+            requestId: "pi-event-publishing-request"
+        )
+
+        bus.publishWorkstreamEvent(event, phase: "received")
+
+        let publishedEvents = bus.retainedSnapshot()
+        #expect(
+            publishedEvents.compactMap { $0["name"] as? String }
+                == ["agent.hook.PostToolUse", "feed.item.received"]
+        )
+        for publishedEvent in publishedEvents {
+            #expect(publishedEvent["workspace_id"] as? String == workspaceId)
+            #expect(publishedEvent["surface_id"] as? String == surfaceId)
+            let payload = try #require(publishedEvent["payload"] as? [String: Any])
+            #expect(payload["workspace_id"] as? String == workspaceId)
+            #expect(payload["surface_id"] as? String == surfaceId)
+            #expect(payload["is_error"] as? Bool == true)
+        }
+    }
+
+    @Test func zeroWaitAcceptedEventCallbackRunsOffMainActor() async {
+        await MainActor.run {
+            FeedCoordinator.shared.install(store: WorkstreamStore(ringCapacity: 10))
+        }
+        let event = WorkstreamEvent(
+            sessionId: "pi-off-main-publication-test",
+            hookEventName: .postToolUse,
+            source: "pi",
+            requestId: "pi-off-main-publication-request"
+        )
+
+        let callbackWasOnMain = await withCheckedContinuation { continuation in
+            let result = FeedCoordinator.shared.ingestBlocking(
+                event: event,
+                waitTimeout: 0,
+                onAccepted: { _ in
+                    continuation.resume(returning: Thread.isMainThread)
+                }
+            )
+            guard case .acknowledged(itemId: nil) = result else {
+                Issue.record("zero-wait telemetry must acknowledge before asynchronous acceptance")
+                return
+            }
+        }
+
+        #expect(!callbackWasOnMain)
+    }
+
     private static func resetFeedCoordinatorTestHooks() {
         let reset: @Sendable () -> Void = {
             MainActor.assumeIsolated {
