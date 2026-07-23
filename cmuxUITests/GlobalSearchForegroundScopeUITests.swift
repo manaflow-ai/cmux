@@ -1,3 +1,4 @@
+import CoreGraphics
 import XCTest
 
 final class GlobalSearchForegroundScopeUITests: XCTestCase {
@@ -56,7 +57,7 @@ final class GlobalSearchForegroundScopeUITests: XCTestCase {
             "Expected cmux to be backgrounded. state=\(app.state.rawValue)"
         )
 
-        finder.typeKey("f", modifierFlags: [.command, .option])
+        postCommandOptionF()
 
         let finderSearchField = finder.searchFields.firstMatch
         XCTAssertTrue(
@@ -78,6 +79,31 @@ final class GlobalSearchForegroundScopeUITests: XCTestCase {
             object: application,
             timeout: timeout
         )
+    }
+
+    private func postCommandOptionF() {
+        let source = CGEventSource(stateID: .hidSystemState)
+        guard
+            let keyDown = CGEvent(
+                keyboardEventSource: source,
+                virtualKey: 0x03,
+                keyDown: true
+            ),
+            let keyUp = CGEvent(
+                keyboardEventSource: source,
+                virtualKey: 0x03,
+                keyDown: false
+            )
+        else {
+            XCTFail("Could not create Cmd-Option-F keyboard events")
+            return
+        }
+
+        let modifierFlags: CGEventFlags = [.maskCommand, .maskAlternate]
+        keyDown.flags = modifierFlags
+        keyUp.flags = modifierFlags
+        keyDown.post(tap: .cghidEventTap)
+        keyUp.post(tap: .cghidEventTap)
     }
 
     private func waitForKeyboardFocus(_ element: XCUIElement, timeout: TimeInterval) -> Bool {
