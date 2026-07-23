@@ -82,6 +82,8 @@ class FakeCmuxSocket:
         feed_response_ok: bool = True,
         deferred_feed_response_count: int | None = None,
         raw_response_delay: float = 0,
+        surfaces_by_workspace: dict[str, list[dict]] | None = None,
+        surface_delivery_target: tuple[str, str] | None = None,
     ):
         self.path = path
         self.decision = decision
@@ -91,6 +93,8 @@ class FakeCmuxSocket:
         self.feed_response_ok = feed_response_ok
         self.deferred_feed_response_count = deferred_feed_response_count
         self.raw_response_delay = raw_response_delay
+        self.surfaces_by_workspace = surfaces_by_workspace
+        self.surface_delivery_target = surface_delivery_target
         self._dropped_surface_list = False
         self.frames: list[dict] = []
         self.frames_with_connection: list[tuple[int, dict]] = []
@@ -167,7 +171,23 @@ class FakeCmuxSocket:
                         if self.drop_first_surface_list and not self._dropped_surface_list:
                             self._dropped_surface_list = True
                             continue
-                        result = {"surfaces": self.surfaces}
+                        workspace_id = frame.get("params", {}).get("workspace_id")
+                        surfaces = (
+                            self.surfaces_by_workspace.get(workspace_id, [])
+                            if self.surfaces_by_workspace is not None
+                            else self.surfaces
+                        )
+                        result = {"surfaces": surfaces}
+                    elif (
+                        frame.get("method") == "agent.resolve_delivery_target"
+                        and self.surface_delivery_target is not None
+                    ):
+                        workspace_id, surface_id = self.surface_delivery_target
+                        result = {
+                            "source": "surface",
+                            "workspace_id": workspace_id,
+                            "surface_id": surface_id,
+                        }
                     elif self.decision is not None:
                         result = {
                             "status": "resolved",
@@ -2580,6 +2600,8 @@ def test_pi_compacted_feed_pipelines_bounded_acknowledged_batch(cli_path: str, r
     events = [frame["params"]["event"] for frame in feed_frames]
     if any(event.get("workspace_id") != FAKE_WORKSPACE_ID for event in events):
         raise AssertionError(f"compacted Pi feed pipeline accepted untrusted workspace routing: {events!r}")
+    if not any(event.get("tool_call_id") == f"pipeline-tool-{event_count - 1}" for event in events):
+        raise AssertionError(f"compacted Pi feed overflow displaced its newest retained event: {events!r}")
     final_event = events[-1]
     if final_event.get("tool_name") != "cmux_compacted_terminal_overflow":
         raise AssertionError(f"compacted Pi feed omitted its overflow marker: {final_event!r}")
@@ -2877,6 +2899,128 @@ def test_pi_hook_rejects_invalid_explicit_surface(cli_path: str, root: Path) -> 
         raise AssertionError(f"invalid explicit Pi surface emitted Feed telemetry: {fake.frames!r}")
 
 
+def test_pi_hook_rehomes_moved_explicit_surface(cli_path: str, root: Path) -> None:
+    socket_path = root / "cmux-pi-moved-explicit-surface.sock"
+    moved_workspace_id = "44444444-4444-4444-4444-444444444444"
+    env = os.environ.copy()
+    for key in ("CMUX_SOCKET", "CMUX_SOCKET_CAPABILITY", "CMUX_SOCKET_PATH", "CMUX_SOCKET_PASSWORD"):
+        env.pop(key, None)
+    env["CMUX_SURFACE_ID"] = FAKE_SURFACE_ID
+    env["CMUX_WORKSPACE_ID"] = FAKE_WORKSPACE_ID
+    payload = {
+        "session_id": "pi-moved-surface-session",
+        "cwd": "/tmp/pi-moved-surface-project",
+        "hook_event_name": "UserPromptSubmit",
+        "prompt": "moved target",
+    }
+
+    with FakeCmuxSocket(
+        socket_path,
+        None,
+        surfaces_by_workspace={
+            FAKE_WORKSPACE_ID: [],
+            moved_workspace_id: [{"id": FAKE_SURFACE_ID}],
+        },
+        surface_delivery_target=(moved_workspace_id, FAKE_SURFACE_ID),
+    ) as fake:
+        result = subprocess.run(
+            [
+                cli_path,
+                "--socket",
+                str(socket_path),
+                "hooks",
+                "pi",
+                "prompt-submit",
+                "--workspace",
+                FAKE_WORKSPACE_ID,
+                "--surface",
+                FAKE_SURFACE_ID,
+            ],
+            input=json.dumps(payload),
+            capture_output=True,
+            text=True,
+            check=False,
+            env=env,
+            timeout=10,
+        )
+
+    if result.returncode != 0:
+        raise AssertionError(
+            "Pi hook rejected a live surface after it moved workspaces: "
+            f"exit={result.returncode} stdout={result.stdout!r} stderr={result.stderr!r} frames={fake.frames!r}"
+        )
+    resolver_frames = [
+        frame
+        for frame in fake.frames
+        if frame.get("method") == "agent.resolve_delivery_target"
+    ]
+    if not resolver_frames:
+        raise AssertionError(f"Pi hook did not resolve the moved surface's live owner: {fake.frames!r}")
+
+
+def test_pi_feed_uses_resolved_explicit_workspace(cli_path: str, root: Path) -> None:
+    socket_path = root / "cmux-pi-explicit-feed-workspace.sock"
+    explicit_workspace_id = "55555555-5555-5555-5555-555555555555"
+    env = os.environ.copy()
+    for key in ("CMUX_SOCKET", "CMUX_SOCKET_CAPABILITY", "CMUX_SOCKET_PATH", "CMUX_SOCKET_PASSWORD"):
+        env.pop(key, None)
+    env["CMUX_SURFACE_ID"] = FAKE_SURFACE_ID
+    env["CMUX_WORKSPACE_ID"] = FAKE_WORKSPACE_ID
+    payload = {
+        "session_id": "pi-explicit-workspace-session",
+        "cwd": "/tmp/pi-explicit-workspace-project",
+        "hook_event_name": "PostToolUse",
+        "tool_call_id": "pi-explicit-workspace-tool",
+        "tool_name": "bash",
+    }
+
+    with FakeCmuxSocket(
+        socket_path,
+        None,
+        surfaces_by_workspace={
+            explicit_workspace_id: [{"id": FAKE_SURFACE_ID}],
+        },
+    ) as fake:
+        result = subprocess.run(
+            [
+                cli_path,
+                "--socket",
+                str(socket_path),
+                "hooks",
+                "feed",
+                "--source",
+                "pi",
+                "--event",
+                "PostToolUse",
+                "--workspace",
+                explicit_workspace_id,
+                "--surface",
+                FAKE_SURFACE_ID,
+            ],
+            input=json.dumps(payload),
+            capture_output=True,
+            text=True,
+            check=False,
+            env=env,
+            timeout=10,
+        )
+
+    if result.returncode != 0:
+        raise AssertionError(
+            "Pi feed rejected its explicit workspace target: "
+            f"exit={result.returncode} stdout={result.stdout!r} stderr={result.stderr!r} frames={fake.frames!r}"
+        )
+    feed_frames = [frame for frame in fake.frames if frame.get("method") == "feed.push"]
+    if len(feed_frames) != 1:
+        raise AssertionError(f"Pi feed did not emit one explicit-workspace event: {fake.frames!r}")
+    workspace_id = feed_frames[0]["params"]["event"].get("workspace_id")
+    if workspace_id != explicit_workspace_id:
+        raise AssertionError(
+            "Pi feed serialized its ambient workspace instead of its validated explicit target: "
+            f"{feed_frames[0]!r}"
+        )
+
+
 def test_pi_hook_rejects_malformed_explicit_surface(cli_path: str, root: Path) -> None:
     socket_path = root / "cmux-pi-malformed-explicit-surface.sock"
     env = os.environ.copy()
@@ -3091,6 +3235,8 @@ def main() -> int:
             test_pi_feed_rejects_failed_server_ack(cli_path, root)
             test_pi_feed_rejects_connection_failure(cli_path, root)
             test_pi_hook_rejects_invalid_explicit_surface(cli_path, root)
+            test_pi_hook_rehomes_moved_explicit_surface(cli_path, root)
+            test_pi_feed_uses_resolved_explicit_workspace(cli_path, root)
             test_pi_hook_rejects_malformed_explicit_surface(cli_path, root)
             test_pi_compacted_feed_bounds_untrusted_batch(cli_path, root)
             test_pi_feed_rejects_oversized_input(cli_path, root)

@@ -3,8 +3,8 @@
 
 from __future__ import annotations
 
-import tempfile
 import subprocess
+import tempfile
 from pathlib import Path
 
 from claude_teams_test_utils import resolve_cmux_cli
@@ -13,6 +13,8 @@ from test_codex_feed_hooks import (
     test_pi_compacted_feed_pipelines_bounded_acknowledged_batch,
     test_pi_compacted_feed_rejects_failed_server_ack,
     test_pi_compacted_post_tool_use_expands_to_distinct_frames,
+    test_pi_feed_uses_resolved_explicit_workspace,
+    test_pi_hook_rehomes_moved_explicit_surface,
 )
 
 
@@ -99,6 +101,76 @@ guard client.observedTimeouts[0] > client.observedTimeouts[1],
         )
 
 
+def test_expander_preserves_newest_retained_summary(root: Path) -> None:
+    source_path = Path(__file__).resolve().parents[1] / "CLI" / "PiCompactedFeedEventExpander.swift"
+    source = source_path.read_text()
+    source = "\n".join(
+        line for line in source.splitlines()
+        if line != "import Foundation"
+    )
+    harness_path = root / "CompactedFeedNewestHarness.swift"
+    harness_path.write_text(
+        f"""
+import Foundation
+
+{source}
+
+let summaries: [[String: Any]] = (0..<64).map {{ index in
+    [
+        "session_id": "pi-expander-session",
+        "tool_call_id": "tool-\\(index)",
+        "tool_name": "bash",
+    ]
+}}
+let requestLines = PiCompactedFeedEventExpander(
+    agentPid: 42,
+    workspaceId: "11111111-1111-1111-1111-111111111111"
+).requestLines(from: [
+    "session_id": "pi-expander-session",
+    "cmux_compacted_terminal_omitted_count": 1,
+    "cmux_compacted_terminal_events": summaries,
+])
+let toolCallIds = try requestLines.map {{ line -> String? in
+    let object = try JSONSerialization.jsonObject(with: Data(line.utf8)) as? [String: Any]
+    let params = object?["params"] as? [String: Any]
+    let event = params?["event"] as? [String: Any]
+    return event?["tool_call_id"] as? String
+}}
+guard requestLines.count == 64 else {{
+    fatalError("expected a bounded 64-request expansion, got \\(requestLines.count)")
+}}
+guard toolCallIds.contains("tool-63") else {{
+    fatalError("overflow marker displaced the newest retained terminal event: \\(toolCallIds)")
+}}
+"""
+    )
+    binary_path = root / "compacted-feed-newest"
+    compile_result = subprocess.run(
+        ["swiftc", str(harness_path), "-o", str(binary_path)],
+        capture_output=True,
+        text=True,
+        check=False,
+        timeout=30,
+    )
+    if compile_result.returncode != 0:
+        raise AssertionError(
+            "failed to compile compacted Feed newest-event harness: "
+            f"{compile_result.stdout}\n{compile_result.stderr}"
+        )
+    result = subprocess.run(
+        [str(binary_path)],
+        capture_output=True,
+        text=True,
+        check=False,
+        timeout=10,
+    )
+    if result.returncode != 0:
+        raise AssertionError(
+            "compacted Pi feed expansion did not preserve its newest retained summary: "
+            f"{result.stdout}\n{result.stderr}"
+        )
+
+
 def main() -> int:
     try:
         cli_path = resolve_cmux_cli()
@@ -110,10 +182,13 @@ def main() -> int:
         root = Path(td)
         try:
             test_relay_batch_uses_one_response_deadline(root)
+            test_expander_preserves_newest_retained_summary(root)
             test_pi_compacted_post_tool_use_expands_to_distinct_frames(cli_path, root)
             test_pi_compacted_feed_pipelines_bounded_acknowledged_batch(cli_path, root)
             test_pi_compacted_feed_rejects_failed_server_ack(cli_path, root)
             test_pi_compacted_feed_allows_brief_auth_delay(cli_path, root)
+            test_pi_hook_rehomes_moved_explicit_surface(cli_path, root)
+            test_pi_feed_uses_resolved_explicit_workspace(cli_path, root)
         except Exception as exc:
             print(f"FAIL: {exc}")
             return 1
