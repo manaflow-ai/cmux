@@ -7,7 +7,8 @@ async function sendHook(
   extra: HookExtra = {},
 ): Promise<boolean> {
   if (process.env.CMUX_PI_HOOKS_DISABLED === "1") return true;
-  if (!process.env.CMUX_SURFACE_ID) return true;
+  const target = surfaceTargetArgs();
+  if (!target) return true;
 
   const sessionId = context.sessionId;
   if (!sessionId) return true;
@@ -20,7 +21,12 @@ async function sendHook(
     event: eventName(subcommand),
     ...extra,
   };
-  const result = await dispatcher.run(["hooks", "pi", subcommand], cwd, JSON.stringify(payload), context);
+  const result = await dispatcher.run(
+    ["hooks", "pi", subcommand, ...target],
+    cwd,
+    JSON.stringify(payload),
+    context,
+  );
   if (!result.ok && !result.surfaceUnavailable) {
     warn(context, "cmux hook command failed", {
       subcommand,
@@ -161,7 +167,7 @@ async function ensureResumeBinding(
     cwd,
     "--",
     ...resumeArgv,
-  ], cwd, undefined, context, "explicit-surface");
+  ], cwd, undefined, context);
   if (!set.ok && !set.surfaceUnavailable) {
     warn(context, "failed to set Pi resume binding", {
       status: set.status,
@@ -177,7 +183,6 @@ async function ensureResumeBinding(
     cwd,
     undefined,
     context,
-    "explicit-surface",
   );
   if (verification.surfaceUnavailable) return;
   const verified = parseJSONOutput(verification);
@@ -205,7 +210,7 @@ async function clearResumeBinding(
     sessionId,
     "--source",
     "agent-hook",
-  ], cwd, undefined, context, "explicit-surface");
+  ], cwd, undefined, context);
   if (result.surfaceUnavailable) return true;
   if (!result.ok) {
     warn(context, "failed to clear Pi resume binding", {
@@ -226,7 +231,8 @@ function sendFeed(
   extra: HookExtra = {},
 ): void {
   if (process.env.CMUX_PI_HOOKS_DISABLED === "1") return;
-  if (!process.env.CMUX_SURFACE_ID) return;
+  const target = surfaceTargetArgs();
+  if (!target) return;
   if (!dispatcher.canDispatch) return;
   const sessionId = context.sessionId;
   if (!sessionId) return;
@@ -254,7 +260,7 @@ function sendFeed(
     return;
   }
   dispatcher.enqueueFeed(`${sessionId}:${toolCallId || toolName || "unknown"}`, {
-    args: ["hooks", "feed", "--source", "pi", "--event", eventName],
+    args: ["hooks", "feed", "--source", "pi", "--event", eventName, ...target],
     cwd,
     input,
     context,

@@ -1,7 +1,6 @@
 extension CMUXCLI {
     static let piExtensionSourceDispatch = #"""
 type SurfaceDispatchState = "unknown" | "available" | "unavailable";
-type PiCmuxCommandScope = "routable" | "explicit-surface";
 
 interface PiFeedCommand {
   readonly args: string[];
@@ -25,8 +24,7 @@ class PiCmuxCommandDispatcher {
   private pendingFeedCommands = new Map<string, PiFeedCommand>();
   private priorityFeedCommands: PiFeedCommand[] = [];
   private feedDrainWaiters = new Map<string, Array<() => void>>();
-  private routableState: SurfaceDispatchState = "unknown";
-  private explicitSurfaceUnavailable = false;
+  private surfaceState: SurfaceDispatchState = "unknown";
   private didWarnSurfaceUnavailable = false;
   private activeFeeds = new Map<string | null, {
     cancellation: PiCommandCancellation;
@@ -34,7 +32,7 @@ class PiCmuxCommandDispatcher {
   }>();
 
   get canDispatch(): boolean {
-    return this.routableState !== "unavailable";
+    return this.surfaceState !== "unavailable";
   }
 
   run(
@@ -42,9 +40,8 @@ class PiCmuxCommandDispatcher {
     cwd: string,
     input: string | undefined,
     context: PiExtensionContextSnapshot,
-    scope: PiCmuxCommandScope = "routable",
   ): Promise<CommandResult> {
-    const scheduled = this.controlQueue.then(() => this.execute(args, cwd, input, context, undefined, scope));
+    const scheduled = this.controlQueue.then(() => this.execute(args, cwd, input, context));
     this.controlQueue = scheduled.then(() => undefined, () => undefined);
     return scheduled;
   }
@@ -331,23 +328,14 @@ class PiCmuxCommandDispatcher {
     input: string | undefined,
     context: PiExtensionContextSnapshot,
     cancellation?: PiCommandCancellation,
-    scope: PiCmuxCommandScope = "routable",
   ): Promise<CommandResult> {
-    if (scope === "routable" && this.routableState === "unavailable") {
-      return this.surfaceUnavailableResult();
-    }
-    if (scope === "explicit-surface" && this.explicitSurfaceUnavailable) {
+    if (this.surfaceState === "unavailable") {
       return this.surfaceUnavailableResult();
     }
 
     const result = await this.spawnCmux(args, cwd, input, cancellation);
     if (this.isSurfaceResolutionFailure(result)) {
-      if (scope === "explicit-surface") {
-        this.explicitSurfaceUnavailable = true;
-      } else {
-        this.routableState = "unavailable";
-        this.explicitSurfaceUnavailable = true;
-      }
+      this.surfaceState = "unavailable";
       if (!this.didWarnSurfaceUnavailable) {
         this.didWarnSurfaceUnavailable = true;
         warn(context, "cmux hook command failed", {
@@ -360,8 +348,8 @@ class PiCmuxCommandDispatcher {
       }
       return { ...result, surfaceUnavailable: true };
     }
-    if (scope === "routable" && result.ok && this.routableState === "unknown") {
-      this.routableState = "available";
+    if (result.ok && this.surfaceState === "unknown") {
+      this.surfaceState = "available";
     }
     return result;
   }
@@ -474,7 +462,9 @@ class PiCmuxCommandDispatcher {
     if (result.ok) return false;
     const output = `${result.stderr}\n${result.stdout}`.toLowerCase();
     return output.includes("invalid surface handle") ||
-      output.includes("surface not found");
+      output.includes("surface not found") ||
+      output.includes("invalid workspace handle") ||
+      output.includes("workspace not found");
   }
 
   private surfaceUnavailableResult(): CommandResult {

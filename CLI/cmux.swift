@@ -30175,6 +30175,9 @@ export default CMUXSessionRestore;
         // that is the stale-env variant of the codex jumble.
         let hasInvalidDirectSurfaceArg = explicitSurfaceFlag != nil && resolvedDirectSurfaceArg == nil
         let hasUnusableDirectBinding = hasInvalidDirectWorkspaceArg || hasInvalidDirectSurfaceArg
+        if hasUnusableDirectBinding, let explicitSurfaceFlag {
+            throw piHookSurfaceNotFoundError(explicitSurfaceFlag)
+        }
         func workspaceArg() -> String? {
             resolvedDirectWorkspaceArg ?? processBinding()?.workspaceId
         }
@@ -33762,6 +33765,7 @@ export default CMUXSessionRestore;
         let agentPid = agentPidForFeedSource(source, env: env)
         if source == "pi",
            try routePiCompactedFeedEvents(
+                commandArgs: commandArgs,
                 rawObject: stdinObj,
                 agentPid: agentPid,
                 fallbackWorkspaceId: env["CMUX_WORKSPACE_ID"],
@@ -33889,6 +33893,9 @@ export default CMUXSessionRestore;
                 )
             } catch {
                 feedClient.close()
+                if source == "pi" {
+                    throw error
+                }
                 print("{}")
                 return
             }
@@ -33899,6 +33906,9 @@ export default CMUXSessionRestore;
             return
         }
 
+        if shouldAwaitTelemetryIngestion {
+            try validateExplicitPiHookTarget(commandArgs: commandArgs, client: activeClient)
+        }
         let response: String
         do {
             response = try activeClient.send(
