@@ -461,7 +461,7 @@ async fn run_client(
 ) -> anyhow::Result<()> {
     let setup = async {
         let (connection, route) = tokio::select! {
-            result = connect_first_available(&options) => result?,
+            result = connect_first_available(&options, shutdown.clone()) => result?,
             _ = wait_for_shutdown(&mut shutdown) => return Ok(()),
         };
         let local_socket = options
@@ -520,8 +520,9 @@ async fn run_client(
 
 async fn connect_first_available(
     options: &ClientRuntimeOptions,
+    shutdown: watch::Receiver<bool>,
 ) -> anyhow::Result<(Arc<ClientConnection>, String)> {
-    let mut attempt = RuntimeInitialRouteAttempt { options };
+    let mut attempt = RuntimeInitialRouteAttempt { options, shutdown };
     select_initial_route(
         &options.routes,
         options.session,
@@ -605,6 +606,7 @@ async fn select_initial_route<T: Send>(
 
 struct RuntimeInitialRouteAttempt<'a> {
     options: &'a ClientRuntimeOptions,
+    shutdown: watch::Receiver<bool>,
 }
 
 #[async_trait]
@@ -615,6 +617,7 @@ impl InitialRouteAttempt<(Arc<ClientConnection>, String)> for RuntimeInitialRout
             &self.options.ssh,
             self.options.ssh_bootstrap,
             upgrade,
+            Some(self.shutdown.clone()),
         )
         .await
     }
@@ -632,7 +635,11 @@ impl InitialRouteAttempt<(Arc<ClientConnection>, String)> for RuntimeInitialRout
             .map_err(|error| InitialRouteAttemptError::Route(error.into()))?;
         let route = group.description().to_string();
         let reconnect_groups: Arc<dyn ReconnectGroupSource> =
-            Arc::new(RuntimeReconnectGroups::new(self.options.clone(), index));
+            Arc::new(RuntimeReconnectGroups::with_shutdown(
+                self.options.clone(),
+                index,
+                self.shutdown.clone(),
+            ));
         let connection = ClientConnection::connect_with_reconnect_groups(
             group.clone(),
             ClientConnectionConfig {
@@ -664,6 +671,7 @@ async fn bootstrap_initial_ssh_route(
     ssh: &SshProviderConfig,
     options: SshBootstrapOptions,
     upgrade: bool,
+    shutdown: Option<watch::Receiver<bool>>,
 ) -> anyhow::Result<()> {
     let (destination, port) = ssh_bootstrap_destination(endpoint)?;
     let mut config = SshBootstrapConfig::defaults(destination);
@@ -692,13 +700,29 @@ async fn bootstrap_initial_ssh_route(
             ))??;
             Ok(())
         }
-        () = wait_for_shutdown_request() => Err(anyhow!("SSH bootstrap interrupted")),
+        () = wait_for_shutdown_request(shutdown) => Err(anyhow!("SSH bootstrap interrupted")),
     }
 }
 
-async fn wait_for_shutdown_request() {
-    while !crate::shutdown_requested() {
-        tokio::time::sleep(Duration::from_millis(50)).await;
+async fn wait_for_shutdown_request(mut shutdown: Option<watch::Receiver<bool>>) {
+    loop {
+        if crate::shutdown_requested()
+            || shutdown.as_ref().is_some_and(|receiver| *receiver.borrow())
+        {
+            return;
+        }
+        if let Some(receiver) = &mut shutdown {
+            tokio::select! {
+                result = receiver.changed() => {
+                    if result.is_err() {
+                        shutdown = None;
+                    }
+                }
+                _ = tokio::time::sleep(Duration::from_millis(50)) => {}
+            }
+        } else {
+            tokio::time::sleep(Duration::from_millis(50)).await;
+        }
     }
 }
 
@@ -792,10 +816,28 @@ struct RuntimeReconnectGroups {
     options: ClientRuntimeOptions,
     next: AtomicUsize,
     prepared_ssh: Vec<AtomicBool>,
+    shutdown: Option<watch::Receiver<bool>>,
 }
 
 impl RuntimeReconnectGroups {
+    #[cfg(test)]
     fn new(options: ClientRuntimeOptions, selected_index: usize) -> Self {
+        Self::new_inner(options, selected_index, None)
+    }
+
+    fn with_shutdown(
+        options: ClientRuntimeOptions,
+        selected_index: usize,
+        shutdown: watch::Receiver<bool>,
+    ) -> Self {
+        Self::new_inner(options, selected_index, Some(shutdown))
+    }
+
+    fn new_inner(
+        options: ClientRuntimeOptions,
+        selected_index: usize,
+        shutdown: Option<watch::Receiver<bool>>,
+    ) -> Self {
         let selected_ssh = options
             .routes
             .get(selected_index)
@@ -806,13 +848,15 @@ impl RuntimeReconnectGroups {
             .enumerate()
             .map(|(index, _)| AtomicBool::new(selected_ssh && index == selected_index))
             .collect();
-        Self { options, next: AtomicUsize::new(selected_index.saturating_add(1)), prepared_ssh }
+        Self {
+            options,
+            next: AtomicUsize::new(selected_index.saturating_add(1)),
+            prepared_ssh,
+            shutdown,
+        }
     }
 
-    fn unprepared_installable_ssh_count(&self) -> usize {
-        if !self.options.ssh_bootstrap.auto_install {
-            return 0;
-        }
+    fn unprepared_ssh_probe_count(&self) -> usize {
         let auth = followup_auth_kind(&self.options.auth);
         self.options
             .routes
@@ -840,8 +884,7 @@ impl ReconnectGroupSource for RuntimeReconnectGroups {
                 .max(1),
         )
         .unwrap_or(u32::MAX);
-        let ssh_bootstraps =
-            u32::try_from(self.unprepared_installable_ssh_count()).unwrap_or(u32::MAX);
+        let ssh_bootstraps = u32::try_from(self.unprepared_ssh_probe_count()).unwrap_or(u32::MAX);
         reconnect_attempt_timeout.saturating_mul(provider_attempts).saturating_add(
             self.options.ssh_bootstrap.attempt_timeout.saturating_mul(ssh_bootstraps),
         )
@@ -855,6 +898,7 @@ impl ReconnectGroupSource for RuntimeReconnectGroups {
         let attempt = RuntimeReconnectRouteAttempt {
             options: &self.options,
             prepared_ssh: &self.prepared_ssh,
+            shutdown: self.shutdown.clone(),
         };
         let start = self.next.fetch_add(1, Ordering::Relaxed) % count;
         let (index, group) = select_reconnect_route(
@@ -874,6 +918,7 @@ impl ReconnectGroupSource for RuntimeReconnectGroups {
 struct RuntimeReconnectRouteAttempt<'a> {
     options: &'a ClientRuntimeOptions,
     prepared_ssh: &'a [AtomicBool],
+    shutdown: Option<watch::Receiver<bool>>,
 }
 
 #[async_trait]
@@ -892,6 +937,7 @@ impl ReconnectRouteAttempt<Arc<dyn LinkGroup>> for RuntimeReconnectRouteAttempt<
                 &self.options.ssh,
                 self.options.ssh_bootstrap,
                 false,
+                self.shutdown.clone(),
             )
             .await
             .map_err(|error| {
@@ -2351,8 +2397,11 @@ mod tests {
         let routes = vec![test_route("ssh://ssh-user:ssh-password-marker@ssh.example:2222")];
         let options = reconnect_test_options(routes.clone());
         let prepared_ssh = [AtomicBool::new(false)];
-        let attempt =
-            RuntimeReconnectRouteAttempt { options: &options, prepared_ssh: &prepared_ssh };
+        let attempt = RuntimeReconnectRouteAttempt {
+            options: &options,
+            prepared_ssh: &prepared_ssh,
+            shutdown: None,
+        };
         let request = connect_request(&routes[0], options.session, options.lane_policy).unwrap();
 
         let error = match attempt.connect(0, request, AuthKind::Enrolled).await {
@@ -2398,6 +2447,7 @@ mod tests {
             &ssh,
             options,
             false,
+            None,
         )
         .await
         .unwrap_err();
