@@ -7,7 +7,7 @@ extension FilePreviewPanel {
     func startWatchingForFileChanges() {
         stopWatchingForFileChanges()
         lastObservedFileState = .capture(path: filePath)
-        let watcher = FileWatcher(path: filePath)
+        let watcher = FileWatcher(path: filePath, throttle: .milliseconds(300))
         fileChangeWatcher = watcher
         let events = watcher.events
         fileChangeTask = Task { @MainActor [weak self] in

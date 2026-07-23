@@ -1182,6 +1182,10 @@ final class FilePreviewPanel: Panel, ObservableObject, FilePreviewTextEditingPan
             guard let self, !self.isClosed else { return }
 
             if resolvedMode != self.previewMode {
+                if self.previewMode == .text, self.isDirty {
+                    await self.loadTextContent(replacingDirtyContent: false).value
+                    return
+                }
                 await self.applyResolvedPreviewMode(resolvedMode)?.value
                 return
             }
