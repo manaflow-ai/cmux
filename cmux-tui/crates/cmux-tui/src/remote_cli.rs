@@ -13,7 +13,9 @@ use std::time::{Duration, Instant, SystemTime, UNIX_EPOCH};
 
 use anyhow::{Context, anyhow};
 use base64::Engine;
-use cmux_remote::admin::{AdminRequest, AdminResponse, call_admin};
+use cmux_remote::admin::{
+    AdminRequest, AdminResponse, UnixPeerAuthError, call_admin, verify_unix_peer_owner,
+};
 use cmux_remote::bridge::LocalPortForward;
 use cmux_remote::client::WorkspaceClient;
 use cmux_remote::connection::ReconnectPolicy;
@@ -1461,12 +1463,25 @@ fn combine_sidecar_results(
 }
 
 async fn proxy_stdio(link: &Path) -> anyhow::Result<()> {
+    proxy_stdio_with_io(link, tokio::io::stdin(), tokio::io::stdout(), verify_unix_peer_owner).await
+}
+
+async fn proxy_stdio_with_io<R, W, V>(
+    link: &Path,
+    mut stdin: R,
+    mut stdout: W,
+    verify_peer: V,
+) -> anyhow::Result<()>
+where
+    R: tokio::io::AsyncRead + Unpin,
+    W: tokio::io::AsyncWrite + Unpin,
+    V: FnOnce(&tokio::net::UnixStream) -> Result<(), UnixPeerAuthError>,
+{
     use tokio::io::{AsyncWriteExt, copy};
 
     let stream = tokio::net::UnixStream::connect(link).await?;
+    verify_peer(&stream)?;
     let (mut socket_read, mut socket_write) = stream.into_split();
-    let mut stdin = tokio::io::stdin();
-    let mut stdout = tokio::io::stdout();
     let upload = async {
         copy(&mut stdin, &mut socket_write).await?;
         socket_write.shutdown().await
@@ -1644,12 +1659,9 @@ mod tests {
         let expected_uid = unsafe { libc::geteuid() };
         let peer_uid = expected_uid.wrapping_add(1);
 
-        let error = proxy_stdio_with_io(
-            &socket,
-            tokio::io::empty(),
-            tokio::io::sink(),
-            |_| Err(UnixPeerAuthError::WrongUid { peer_uid, expected_uid }),
-        )
+        let error = proxy_stdio_with_io(&socket, tokio::io::empty(), tokio::io::sink(), |_| {
+            Err(UnixPeerAuthError::WrongUid { peer_uid, expected_uid })
+        })
         .await
         .unwrap_err();
 
@@ -1657,11 +1669,7 @@ mod tests {
             error.downcast_ref::<UnixPeerAuthError>(),
             Some(UnixPeerAuthError::WrongUid { .. })
         ));
-        assert_eq!(
-            responder.await.unwrap(),
-            0,
-            "stdio data leaked to the rejected Unix responder"
-        );
+        assert_eq!(responder.await.unwrap(), 0, "stdio data leaked to the rejected Unix responder");
     }
 
     #[cfg(unix)]
