@@ -104,6 +104,16 @@ class DeterminismCheckerCLITests(unittest.TestCase):
                 'actual="before `sleep 1` after"\n'
                 'assert "$actual" "$expected"\n'
             ),
+            "shell-multiline-substitution.sh": (
+                'actual="$(sleep 1\n'
+                ')"\n'
+                'assert "$actual" "$expected"\n'
+            ),
+            "shell-multiline-backtick.sh": (
+                'actual="`sleep 1\n'
+                '`"\n'
+                'assert "$actual" "$expected"\n'
+            ),
             "template-interpolation.ts": (
                 "const actual = `${await Bun.sleep(1)}`\n"
                 "expect(actual).toBeTruthy()\n"
@@ -251,6 +261,17 @@ class DeterminismCheckerCLITests(unittest.TestCase):
                     "):\n"
                     "    time.sleep(0.01)\n"
                     "    assert finished\n"
+                ),
+                "nested-default-parameter-shadow.py": (
+                    "def wait(factory=make(), time=fake_clock):\n"
+                    "    time.sleep(0.01)\n"
+                    "    assert finished\n"
+                ),
+                "walrus-shadow.py": (
+                    "if (time := fake_clock):\n"
+                    "    pass\n"
+                    "time.sleep(0.01)\n"
+                    "assert finished\n"
                 ),
                 "deleted-module.py": (
                     "import asyncio\n"
