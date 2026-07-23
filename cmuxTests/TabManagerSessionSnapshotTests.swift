@@ -1982,23 +1982,23 @@ final class TabManagerSessionSnapshotTests: XCTestCase {
         XCTAssertFalse(restoredInitialCommand.contains("stale websocket connect command"), restoredInitialCommand)
     }
 
-    func testRestoreSessionSnapshotDropsStaleLocalCloudVMWorkspaces() {
+    func testRestoreSessionSnapshotDropsUnselectedManagedCloudVMWorkspaces() {
         let localPanelId = UUID()
         let snapshot = SessionTabManagerSnapshot(
-            selectedWorkspaceIndex: 0,
+            selectedWorkspaceIndex: 1,
             workspaces: [
-                Self.cloudVMWorkspaceSnapshot(panelId: UUID()),
+                Self.cloudVMWorkspaceSnapshot(panelId: UUID(), managedCloudVMID: "vm-kept-cloud"),
                 Self.localWorkspaceSnapshot(title: "Local", panelId: localPanelId),
-                Self.cloudVMWorkspaceSnapshot(panelId: UUID()),
+                Self.cloudVMWorkspaceSnapshot(panelId: UUID(), managedCloudVMID: "vm-dropped-cloud"),
             ]
         )
 
         let restored = TabManager()
         restored.restoreSessionSnapshot(snapshot)
 
-        XCTAssertEqual(restored.tabs.count, 1)
-        XCTAssertEqual(restored.tabs.first?.customTitle, "Local")
-        XCTAssertEqual(restored.selectedTabId, restored.tabs.first?.id)
+        XCTAssertEqual(restored.tabs.map(\.customTitle), ["Cloud VM", "Local"])
+        XCTAssertEqual(restored.tabs.first?.remoteConfiguration?.managedCloudVMID, "vm-kept-cloud")
+        XCTAssertEqual(restored.selectedTabId, restored.tabs.last?.id)
     }
 
     func testRestoreSessionSnapshotKeepsSingleManagedCloudVMInSavedOrder() throws {
@@ -2007,13 +2007,13 @@ final class TabManagerSessionSnapshotTests: XCTestCase {
         let snapshot = SessionTabManagerSnapshot(
             selectedWorkspaceIndex: 2,
             workspaces: [
-                Self.cloudVMWorkspaceSnapshot(panelId: UUID()),
+                Self.cloudVMWorkspaceSnapshot(panelId: UUID(), managedCloudVMID: "vm-stale-cloud-a"),
                 Self.localWorkspaceSnapshot(title: "Local", panelId: localPanelId),
                 Self.cloudVMWorkspaceSnapshot(
                     panelId: managedPanelId,
                     managedCloudVMID: "vm-single-cloud"
                 ),
-                Self.cloudVMWorkspaceSnapshot(panelId: UUID()),
+                Self.cloudVMWorkspaceSnapshot(panelId: UUID(), managedCloudVMID: "vm-stale-cloud-b"),
             ]
         )
 
