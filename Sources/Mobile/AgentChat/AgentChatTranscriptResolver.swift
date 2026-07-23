@@ -12,6 +12,8 @@ struct AgentChatTranscriptResolver: Sendable {
     private let claudeConfigRoot: URL
     /// Config-dir root for Codex (`$CODEX_HOME` or `~/.codex`).
     private let codexConfigRoot: URL
+    /// Maximum directory entries visited by a Codex fallback scan.
+    private let maximumCodexFallbackEntries: Int
 
     /// Creates a resolver.
     ///
@@ -27,9 +29,12 @@ struct AgentChatTranscriptResolver: Sendable {
     ///   - homeDirectory: Injectable home directory for tests.
     ///   - environment: Injectable environment for tests; defaults to the
     ///     process environment. Empty/whitespace override values are ignored.
+    ///   - maximumCodexFallbackEntries: Maximum entries visited by a Codex
+    ///     sessions-tree fallback before returning no match.
     init(
         homeDirectory: URL = FileManager.default.homeDirectoryForCurrentUser,
-        environment: [String: String] = ProcessInfo.processInfo.environment
+        environment: [String: String] = ProcessInfo.processInfo.environment,
+        maximumCodexFallbackEntries: Int = 20_000
     ) {
         self.homeDirectory = homeDirectory
         self.claudeConfigRoot = Self.configRoot(
@@ -40,6 +45,7 @@ struct AgentChatTranscriptResolver: Sendable {
             override: environment["CODEX_HOME"],
             default: homeDirectory.appendingPathComponent(".codex", isDirectory: true)
         )
+        self.maximumCodexFallbackEntries = max(0, maximumCodexFallbackEntries)
     }
 
     /// Resolves a config-dir root from an env override, expanding a leading `~`,
@@ -120,8 +126,11 @@ struct AgentChatTranscriptResolver: Sendable {
             options: [.skipsHiddenFiles]
         ) else { return nil }
         let needle = sessionID.lowercased()
+        var visitedEntryCount = 0
         for case let url as URL in enumerator {
             try Task.checkCancellation()
+            guard visitedEntryCount < maximumCodexFallbackEntries else { return nil }
+            visitedEntryCount += 1
             guard url.pathExtension == "jsonl" else { continue }
             if url.lastPathComponent.lowercased().contains(needle) {
                 return url.path

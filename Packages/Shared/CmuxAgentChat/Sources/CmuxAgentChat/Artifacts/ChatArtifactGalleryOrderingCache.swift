@@ -50,6 +50,13 @@ public actor ChatArtifactGalleryOrderingCache {
         return ordered
     }
 
+    /// Removes every retained generation for one transcript index.
+    ///
+    /// - Parameter indexID: Stable identity of the transcript index to evict.
+    public func remove(indexID: String) {
+        entries = entries.filter { $0.key.indexID != indexID }
+    }
+
     private func evictIfNeeded() {
         while entries.count > maximumEntryCount,
               let leastRecent = entries.min(by: { $0.value.access < $1.value.access })?.key {

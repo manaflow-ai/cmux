@@ -3,10 +3,6 @@ import CmuxArtifacts
 import CmuxSettings
 import Foundation
 
-private enum TerminalControllerChatArtifactIndexProvider {
-    static let ordering = ChatArtifactGalleryOrderingCache()
-}
-
 extension TerminalController {
     func v2MobileChatArtifactGallery(params: [String: Any]) async -> V2CallResult {
         guard let sessionID = v2RawString(params, "session_id")?.trimmingCharacters(in: .whitespacesAndNewlines),
@@ -44,7 +40,10 @@ extension TerminalController {
             let pageSize = min(max(v2Int(params, "page_size") ?? 60, 1), 100)
             let query = v2RawString(params, "query")
             let includeDirectories = v2Bool(params, "include_directories") ?? false
-            let orderedItems = await TerminalControllerChatArtifactIndexProvider.ordering.ordered(
+            guard let service = agentChatTranscriptService else {
+                return mobileChatArtifactError(.notFound, path: "")
+            }
+            let orderedItems = await service.artifactGalleryOrderingCache.ordered(
                 indexedSession.snapshot.artifacts,
                 indexID: indexedSession.sessionID,
                 generation: indexedSession.snapshot.generation
@@ -73,18 +72,17 @@ extension TerminalController {
         sessionID: String
     ) async throws -> (sessionID: String, snapshot: AgentChatArtifactIndex.Snapshot)? {
         guard let service = agentChatTranscriptService,
-              let record = service.sessionRecord(sessionID: sessionID) else {
+              let resolved = try await service.resolvedTranscript(sessionID: sessionID) else {
             return nil
         }
-        guard let transcriptPath = try service.resolver.transcriptPath(for: record) else { return nil }
         let snapshot = try await service.artifactIndex.snapshot(
-            sessionID: record.sessionID,
-            agentKind: record.agentKind,
-            transcriptPath: transcriptPath,
-            workingDirectory: record.workingDirectory
+            sessionID: resolved.record.sessionID,
+            agentKind: resolved.record.agentKind,
+            transcriptPath: resolved.path,
+            workingDirectory: resolved.record.workingDirectory
         )
-        service.scheduleIndexedArtifactCapture(record: record, snapshot: snapshot)
-        return (record.sessionID, snapshot)
+        service.scheduleIndexedArtifactCapture(record: resolved.record, snapshot: snapshot)
+        return (resolved.record.sessionID, snapshot)
     }
 
     func v2MobileChatArtifactStat(params: [String: Any]) async -> V2CallResult {
@@ -314,24 +312,21 @@ extension TerminalController {
         guard let service = agentChatTranscriptService else {
             return .failure(.err(code: "unavailable", message: Self.chatServiceUnavailableErrorMessage, data: nil))
         }
-        guard let record = service.sessionRecord(sessionID: sessionID) else {
-            return .failure(mobileChatArtifactError(.notFound, path: requestedPath))
-        }
-        let transcriptPath: String
+        let resolved: (record: AgentChatSessionRecord, path: String)
         do {
-            guard let resolved = try service.resolver.transcriptPath(for: record) else {
+            guard let transcript = try await service.resolvedTranscript(sessionID: sessionID) else {
                 return .failure(mobileChatArtifactError(.notFound, path: requestedPath))
             }
-            transcriptPath = resolved
+            resolved = transcript
         } catch {
             return .failure(mobileChatArtifactError(.notFound, path: requestedPath))
         }
         do {
             let pathResult = try await service.artifactIndex.canonicalPath(
-                sessionID: record.sessionID,
-                agentKind: record.agentKind,
-                transcriptPath: transcriptPath,
-                workingDirectory: record.workingDirectory,
+                sessionID: resolved.record.sessionID,
+                agentKind: resolved.record.agentKind,
+                transcriptPath: resolved.path,
+                workingDirectory: resolved.record.workingDirectory,
                 requestedPath: requestedPath,
                 operation: operation.indexOperation,
                 directoryAccessMode: mobileArtifactDirectoryAccessMode()
@@ -339,7 +334,7 @@ extension TerminalController {
             switch pathResult {
             case .success(let canonicalPath):
                 let captureContext = operation.resolvesCaptureProject
-                    ? await service.artifactCaptureContext(for: record)
+                    ? await service.artifactCaptureContext(for: resolved.record)
                     : nil
                 return .success(ResolvedChatArtifact(
                     authorizedCaptureContext: captureContext,

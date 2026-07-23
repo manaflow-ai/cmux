@@ -12,7 +12,7 @@ extension AgentChatTranscriptService {
     func ensureTailerForEagerObservation(for record: AgentChatSessionRecord) {
         let hasSubscribers = hasEventSubscribers()
         guard hasSubscribers || observesTranscriptsForAutomaticArtifactCapture else { return }
-        ensureTailer(for: record, usesBoundedResolution: !hasSubscribers)
+        ensureTailer(for: record)
     }
 
     /// Reconciles transcript ownership after the Artifacts beta setting changes.
@@ -23,7 +23,7 @@ extension AgentChatTranscriptService {
 
         if isEnabled {
             for record in registry.sessions(workspaceID: nil) where record.state != .ended {
-                ensureTailer(for: record, usesBoundedResolution: true)
+                ensureTailer(for: record)
             }
             return
         }
@@ -38,13 +38,6 @@ extension AgentChatTranscriptService {
         for tailer in artifactOnlyTailers {
             Task { await tailer.stop() }
         }
-    }
-
-    /// Applies one authoritative transcript completion and captures its artifact generation.
-    func noteAssistantTurnCompleted(sessionID: String, at timestamp: Date) {
-        registry.noteAssistantTurnCompleted(sessionID: sessionID, at: timestamp)
-        guard let record = registry.record(sessionID: sessionID) else { return }
-        scheduleArtifactCapture(for: record)
     }
 
     /// Captures one authoritative transcript generation after an agent turn.

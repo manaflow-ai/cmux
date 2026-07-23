@@ -339,21 +339,6 @@ final class AgentChatSessionRegistry {
     }
     #endif
 
-    /// A transcript tail can observe a completed assistant turn even when
-    /// the agent hook stream never emits Stop (Claude weekly-limit replies
-    /// do this). Use that transcript fact only to clear an active working
-    /// state; later hooks remain authoritative and can move the session
-    /// back to working or needs-input.
-    func noteAssistantTurnCompleted(sessionID: String, at timestamp: Date) {
-        update(sessionID: sessionID) { record in
-            guard case .working = record.state else { return }
-            record.setTranscriptObservedIdle()
-            if timestamp > record.lastActivityAt {
-                record.lastActivityAt = timestamp
-            }
-        }
-    }
-
     /// Seeds the registry from the on-disk hook stores so sessions started
     /// before app launch are listable. The whole-file JSON read+parse runs off
     /// the main actor; only the (cheap) record application touches main state.
