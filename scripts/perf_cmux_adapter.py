@@ -9,6 +9,7 @@ from __future__ import annotations
 
 from argparse import Namespace
 from concurrent.futures import ThreadPoolExecutor, as_completed
+from contextlib import ExitStack
 from copy import deepcopy
 from dataclasses import dataclass
 import importlib.util
@@ -1377,9 +1378,7 @@ class CmuxRuntimeAdapter:
         browser_fixture_root = self.config.output_root / "browser-fixtures"
         runtime_paths = [browser_fixture_root, *self._owned_browser_screenshot_paths]
         runner_cleanup = getattr(self._runner, "cleanup_owned", None)
-        if runner_cleanup is not None:
-            runner_evidence = runner_cleanup()
-        else:
+        if runner_cleanup is None:
             for name in (
                 "socket_path",
                 "cmuxd_socket_path",
@@ -1390,13 +1389,18 @@ class CmuxRuntimeAdapter:
                 value = getattr(self._runner, name, None)
                 if value is not None:
                     runtime_paths.append(Path(value))
-            self._runner.clean_persisted_state()
-            runner_evidence = {"tag_state_removed": True}
-        for path in runtime_paths:
-            if path.is_dir():
-                shutil.rmtree(path)
+
+        with ExitStack() as owned_path_cleanup:
+            for path in runtime_paths:
+                if path.is_dir():
+                    owned_path_cleanup.callback(shutil.rmtree, path)
+                else:
+                    owned_path_cleanup.callback(path.unlink, missing_ok=True)
+            if runner_cleanup is not None:
+                runner_evidence = runner_cleanup()
             else:
-                path.unlink(missing_ok=True)
+                self._runner.clean_persisted_state()
+                runner_evidence = {"tag_state_removed": True}
         evidence = {
             "stopped": not self._launched,
             "owned_state_removed": all(not path.exists() for path in runtime_paths),
