@@ -2602,6 +2602,8 @@ def test_pi_compacted_feed_sends_bounded_acknowledged_batch(cli_path: str, root:
     feed_frames = [frame for frame in fake.frames if frame.get("method") == "feed.push"]
     if len(feed_frames) != 1:
         raise AssertionError(f"compacted Pi feed emitted {len(feed_frames)} requests instead of one")
+    if any(frame.get("method") == "agent.resolve_delivery_target" for frame in fake.frames):
+        raise AssertionError(f"compacted Pi feed redundantly preflighted its exact target: {fake.frames!r}")
     events = feed_frames[0]["params"]["events"]
     if len(events) != event_count:
         raise AssertionError(f"compacted Pi feed exceeded its {event_count}-event bound: {len(events)}")
@@ -2991,7 +2993,11 @@ def test_legacy_pi_feed_rejects_invalid_ambient_surface(cli_path: str, root: Pat
         "tool_name": "bash",
     }
 
-    with FakeCmuxSocket(socket_path, None) as fake:
+    with FakeCmuxSocket(
+        socket_path,
+        None,
+        method_errors={"feed.push": ("not_found", "No live delivery target")},
+    ) as fake:
         result = subprocess.run(
             [
                 cli_path,
@@ -3017,8 +3023,14 @@ def test_legacy_pi_feed_rejects_invalid_ambient_surface(cli_path: str, root: Pat
             "Legacy Pi feed did not validate its ambient surface before ingestion: "
             f"stdout={result.stdout!r} stderr={result.stderr!r} frames={fake.frames!r}"
         )
-    if any(frame.get("method") == "feed.push" for frame in fake.frames):
-        raise AssertionError(f"Legacy Pi feed emitted telemetry for a stale ambient surface: {fake.frames!r}")
+    feed_frames = [frame for frame in fake.frames if frame.get("method") == "feed.push"]
+    if len(feed_frames) != 1:
+        raise AssertionError(
+            "Legacy Pi feed did not rely on one authoritative ingestion attempt: "
+            f"{fake.frames!r}"
+        )
+    if any(frame.get("method") == "agent.resolve_delivery_target" for frame in fake.frames):
+        raise AssertionError(f"Legacy Pi feed redundantly preflighted its exact surface: {fake.frames!r}")
 
 
 def test_pi_hook_rejects_invalid_explicit_surface(cli_path: str, root: Path) -> None:
@@ -3213,6 +3225,8 @@ def test_pi_feed_uses_resolved_explicit_workspace(cli_path: str, root: Path) -> 
             "Pi feed dropped its validated explicit surface target: "
             f"{feed_frames[0]!r}"
         )
+    if any(frame.get("method") == "agent.resolve_delivery_target" for frame in fake.frames):
+        raise AssertionError(f"Pi feed redundantly preflighted its exact target: {fake.frames!r}")
 
 
 def test_pi_feed_rejects_missing_explicit_workspace(cli_path: str, root: Path) -> None:
