@@ -163,7 +163,7 @@ static ENGLISH: Catalog = Catalog {
         pairing_code: "Pairing code",
         registered: "Sharing local cmux session",
         retrying: "Cloud connection lost; retrying in {milliseconds} ms",
-        migration_failed: "Cloud upgrade handoff failed",
+        migration_failed: "Could not reconnect the machine; please try again",
     },
     sidebar: SidebarMessages {
         machines: "machines",
@@ -249,7 +249,7 @@ static JAPANESE: Catalog = Catalog {
         pairing_code: "ペアリングコード",
         registered: "ローカル cmux セッションを共有中",
         retrying: "クラウド接続が切断されました。{milliseconds} ミリ秒後に再接続します",
-        migration_failed: "クラウド更新の引き継ぎに失敗しました",
+        migration_failed: "マシンを再接続できませんでした。もう一度お試しください",
     },
     sidebar: SidebarMessages {
         machines: "マシン",
@@ -363,6 +363,14 @@ mod tests {
         assert_eq!(
             catalog_for_locale("ja_JP.UTF-8").machine_agent.retrying_message(250),
             "クラウド接続が切断されました。250 ミリ秒後に再接続します"
+        );
+        assert_eq!(
+            catalog_for_locale("en_US.UTF-8").machine_agent.migration_failed,
+            "Could not reconnect the machine; please try again"
+        );
+        assert_eq!(
+            catalog_for_locale("ja_JP.UTF-8").machine_agent.migration_failed,
+            "マシンを再接続できませんでした。もう一度お試しください"
         );
         assert_eq!(
             catalog_for_locale("en_US.UTF-8").sidebar.machine_action_failed,

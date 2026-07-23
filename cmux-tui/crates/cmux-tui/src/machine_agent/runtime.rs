@@ -43,6 +43,49 @@ pub(super) trait Reporter: Send + Sync {
     fn registered(&self, session: &str);
     fn retrying(&self, delay: Duration);
     fn migration_failed(&self);
+    fn diagnostic(&self, diagnostic: MachineAgentDiagnostic);
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub(super) enum GenerationFailureKind {
+    Transport,
+    InvalidFrame,
+    Registration,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub(super) enum MachineAgentDiagnostic {
+    GenerationStart(GenerationFailureKind),
+    MigrationReplacementStart(GenerationFailureKind),
+    MigrationPairingCode,
+    MigrationGenerationMismatch,
+    MigrationCommitDelivery,
+}
+
+impl MachineAgentDiagnostic {
+    pub(super) fn code(self) -> &'static str {
+        match self {
+            Self::GenerationStart(GenerationFailureKind::Transport) => "generation_start.transport",
+            Self::GenerationStart(GenerationFailureKind::InvalidFrame) => {
+                "generation_start.invalid_frame"
+            }
+            Self::GenerationStart(GenerationFailureKind::Registration) => {
+                "generation_start.registration"
+            }
+            Self::MigrationReplacementStart(GenerationFailureKind::Transport) => {
+                "migration_replacement.transport"
+            }
+            Self::MigrationReplacementStart(GenerationFailureKind::InvalidFrame) => {
+                "migration_replacement.invalid_frame"
+            }
+            Self::MigrationReplacementStart(GenerationFailureKind::Registration) => {
+                "migration_replacement.registration"
+            }
+            Self::MigrationPairingCode => "migration_replacement.pairing_code",
+            Self::MigrationGenerationMismatch => "migration_replacement.generation_mismatch",
+            Self::MigrationCommitDelivery => "migration_commit.delivery",
+        }
+    }
 }
 
 pub(super) struct SystemWait;
@@ -131,9 +174,12 @@ impl MachineAgent {
                         self.report_registration(&started.registered);
                         workers.insert(started.worker_id, started.handle);
                     }
-                    Err(_) => {
+                    Err(error) => {
                         let delay = reconnect_delay(reconnect_attempt, self.wait.as_ref());
                         reconnect_attempt = reconnect_attempt.saturating_add(1);
+                        self.reporter.diagnostic(MachineAgentDiagnostic::GenerationStart(
+                            generation_failure_kind(&error),
+                        ));
                         self.reporter.retrying(delay);
                         if !self.wait.wait(delay, self.stop.as_ref()) {
                             break;
@@ -184,21 +230,23 @@ impl MachineAgent {
                                         code: error_code("invalid_migration"),
                                     },
                                 );
+                                self.reporter
+                                    .diagnostic(MachineAgentDiagnostic::MigrationPairingCode);
                                 self.reporter.migration_failed();
                                 continue;
                             }
-                            if !try_send_worker_command(
+                            let Some(replacement) = commit_migration_replacement(
                                 &workers,
                                 worker_id,
-                                WorkerCommand::CommitMigration { generation: started.generation },
-                            ) {
-                                started.handle.close();
-                                self.reporter.migration_failed();
+                                started.generation,
+                                started.handle,
+                                self.reporter.as_ref(),
+                            ) else {
                                 continue;
-                            }
+                            };
                             highest_generation = started.generation;
                             latest_worker = Some(started.worker_id);
-                            workers.insert(started.worker_id, started.handle);
+                            workers.insert(started.worker_id, replacement);
                         }
                         Ok(started) => {
                             started.handle.close();
@@ -210,9 +258,11 @@ impl MachineAgent {
                                     code: error_code("generation_mismatch"),
                                 },
                             );
+                            self.reporter
+                                .diagnostic(MachineAgentDiagnostic::MigrationGenerationMismatch);
                             self.reporter.migration_failed();
                         }
-                        Err(_) => {
+                        Err(error) => {
                             try_send_worker_command(
                                 &workers,
                                 worker_id,
@@ -220,6 +270,11 @@ impl MachineAgent {
                                     generation: request.generation,
                                     code: error_code("migration_failed"),
                                 },
+                            );
+                            self.reporter.diagnostic(
+                                MachineAgentDiagnostic::MigrationReplacementStart(
+                                    generation_failure_kind(&error),
+                                ),
                             );
                             self.reporter.migration_failed();
                         }
@@ -383,6 +438,22 @@ fn try_send_worker_command(
     }
 }
 
+fn commit_migration_replacement(
+    workers: &HashMap<u64, WorkerHandle>,
+    worker_id: u64,
+    generation: u64,
+    replacement: WorkerHandle,
+    reporter: &dyn Reporter,
+) -> Option<WorkerHandle> {
+    if try_send_worker_command(workers, worker_id, WorkerCommand::CommitMigration { generation }) {
+        return Some(replacement);
+    }
+    reporter.diagnostic(MachineAgentDiagnostic::MigrationCommitDelivery);
+    reporter.migration_failed();
+    replacement.close();
+    None
+}
+
 #[derive(Clone)]
 struct SeenMigration {
     generation: u64,
@@ -395,6 +466,25 @@ fn remember_migration(recent: &mut VecDeque<SeenMigration>, request: &ReconnectG
     while recent.len() > protocol::MAX_RECENT_MIGRATIONS {
         recent.pop_front();
     }
+}
+
+fn generation_failure_kind(error: &anyhow::Error) -> GenerationFailureKind {
+    for cause in error.chain() {
+        if let Some(frame) = cause.downcast_ref::<FrameReadError>() {
+            return match frame {
+                FrameReadError::TooLarge | FrameReadError::Invalid(_) => {
+                    GenerationFailureKind::InvalidFrame
+                }
+                FrameReadError::Io(_)
+                | FrameReadError::Disconnected
+                | FrameReadError::Truncated => GenerationFailureKind::Transport,
+            };
+        }
+        if cause.downcast_ref::<io::Error>().is_some() {
+            return GenerationFailureKind::Transport;
+        }
+    }
+    GenerationFailureKind::Registration
 }
 
 fn reconnect_delay(attempt: u32, wait: &dyn WaitStrategy) -> Duration {
@@ -981,6 +1071,7 @@ mod tests {
         codes: Mutex<Vec<String>>,
         retries: Mutex<Vec<Duration>>,
         migrations: AtomicUsize,
+        diagnostics: Mutex<Vec<MachineAgentDiagnostic>>,
     }
 
     impl Reporter for TestReporter {
@@ -996,6 +1087,10 @@ mod tests {
 
         fn migration_failed(&self) {
             self.migrations.fetch_add(1, Ordering::Relaxed);
+        }
+
+        fn diagnostic(&self, diagnostic: MachineAgentDiagnostic) {
+            self.diagnostics.lock().unwrap().push(diagnostic);
         }
     }
 
@@ -1023,6 +1118,52 @@ mod tests {
             WorkerCommand::ResumeMigration { generation: 2, code: error_code("migration_failed") },
         ));
         assert!(control.0.load(Ordering::Acquire));
+    }
+
+    #[test]
+    fn failed_migration_commit_closes_both_generations_and_reports_diagnostic() {
+        let (old_commands, _old_inputs) = mpsc::sync_channel(1);
+        old_commands.send(WorkerInput::Command(WorkerCommand::Stop)).unwrap();
+        let old_control = Arc::new(RecordingControl::default());
+        let erased_old_control: Arc<dyn ConnectionControl> = old_control.clone();
+        let workers = HashMap::from([(
+            7,
+            WorkerHandle { commands: old_commands, control: erased_old_control, join: None },
+        )]);
+
+        let (replacement_commands, _replacement_inputs) = mpsc::sync_channel(1);
+        let replacement_control = Arc::new(RecordingControl::default());
+        let erased_replacement_control: Arc<dyn ConnectionControl> = replacement_control.clone();
+        let replacement = WorkerHandle {
+            commands: replacement_commands,
+            control: erased_replacement_control,
+            join: None,
+        };
+        let reporter = TestReporter::default();
+
+        assert!(commit_migration_replacement(&workers, 7, 2, replacement, &reporter).is_none());
+        assert!(old_control.0.load(Ordering::Acquire));
+        assert!(replacement_control.0.load(Ordering::Acquire));
+        assert_eq!(reporter.migrations.load(Ordering::Relaxed), 1);
+        assert_eq!(
+            *reporter.diagnostics.lock().unwrap(),
+            vec![MachineAgentDiagnostic::MigrationCommitDelivery]
+        );
+    }
+
+    #[test]
+    fn generation_failures_map_to_fixed_sanitized_diagnostic_categories() {
+        let transport = anyhow::Error::new(io::Error::other("private upstream detail"));
+        let invalid_frame = anyhow::Error::new(FrameReadError::TooLarge);
+        let registration = anyhow::anyhow!("private registration detail");
+
+        assert_eq!(generation_failure_kind(&transport), GenerationFailureKind::Transport);
+        assert_eq!(generation_failure_kind(&invalid_frame), GenerationFailureKind::InvalidFrame);
+        assert_eq!(generation_failure_kind(&registration), GenerationFailureKind::Registration);
+        assert_eq!(
+            MachineAgentDiagnostic::GenerationStart(generation_failure_kind(&transport)).code(),
+            "generation_start.transport"
+        );
     }
 
     struct TestWait;

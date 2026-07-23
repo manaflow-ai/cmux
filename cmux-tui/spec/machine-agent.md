@@ -69,3 +69,5 @@ The default identity is stored in `identity.json` inside the private `machine-ag
 The identity file contains only schema version, machine id, and machine secret. It must be a current-user-owned regular file with mode 0600 and exactly one link. Symlinks and hard links are rejected. A process-lifetime nonblocking lock keyed by machine id and session prevents two agents from flapping one registration.
 
 Secrets, pairing codes, migration tokens, and data payloads redact debug output. Owned serialization and relay buffers are overwritten before release, including error paths.
+
+Set `CMUX_MACHINE_AGENT_DEBUG=1` to emit fixed diagnostic codes for connection and migration failure categories. Diagnostic codes contain no upstream text, filesystem paths, hostnames, identities, or credentials.

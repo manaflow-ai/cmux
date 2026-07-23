@@ -11,7 +11,7 @@ use std::time::Duration;
 
 use cmux_tui_machine_agent_protocol::SessionName;
 
-use self::runtime::{MachineAgent, Reporter, StopSignal, SystemWait};
+use self::runtime::{MachineAgent, MachineAgentDiagnostic, Reporter, StopSignal, SystemWait};
 use self::transport::{SocketSessionConnector, SshCloudConnector, SshOptions};
 
 pub(super) const USAGE: &str = "\
@@ -177,6 +177,12 @@ impl Reporter for StderrReporter {
 
     fn migration_failed(&self) {
         eprintln!("{}", crate::localization::catalog().machine_agent.migration_failed);
+    }
+
+    fn diagnostic(&self, diagnostic: MachineAgentDiagnostic) {
+        if std::env::var_os("CMUX_MACHINE_AGENT_DEBUG").is_some() {
+            eprintln!("cmux-machine-agent diagnostic={}", diagnostic.code());
+        }
     }
 }
 
