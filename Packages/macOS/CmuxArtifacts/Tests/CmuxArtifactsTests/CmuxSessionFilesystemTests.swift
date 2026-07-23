@@ -137,6 +137,42 @@ struct CmuxSessionFilesystemTests {
         #expect(second.record?.relativePath == "organized/renamed-session/artifacts/second.md")
     }
 
+    @Test("Different agent providers never share a session root when raw IDs match")
+    func separatesProvidersWithTheSameSessionIdentifier() async throws {
+        let root = try ArtifactTestSupport.temporaryDirectory()
+        defer { ArtifactTestSupport.remove(root) }
+        let repository = LocalArtifactRepository()
+        let firstSource = try ArtifactTestSupport.write("codex", named: "outside/codex.md", under: root)
+        let secondSource = try ArtifactTestSupport.write("claude", named: "outside/claude.md", under: root)
+
+        let codex = try await repository.importFile(
+            sourceURL: firstSource,
+            context: ArtifactCaptureContext(
+                projectRoot: root,
+                sessionID: "shared-session-id",
+                agentName: "codex"
+            ),
+            provenance: .manual,
+            configuration: .defaultValue,
+            capturedAt: Date(timeIntervalSince1970: 1)
+        )
+        let claude = try await repository.importFile(
+            sourceURL: secondSource,
+            context: ArtifactCaptureContext(
+                projectRoot: root,
+                sessionID: "shared-session-id",
+                agentName: "claude"
+            ),
+            provenance: .manual,
+            configuration: .defaultValue,
+            capturedAt: Date(timeIntervalSince1970: 2)
+        )
+
+        let codexRoot = try #require(codex.record?.relativePath.split(separator: "/").first)
+        let claudeRoot = try #require(claude.record?.relativePath.split(separator: "/").first)
+        #expect(codexRoot != claudeRoot)
+    }
+
     @Test("Similar pending session identifiers never share a capture directory")
     func separatesPendingSessionIdentifiersWithTheSameReadablePrefix() async throws {
         let root = try ArtifactTestSupport.temporaryDirectory()
@@ -254,6 +290,56 @@ struct CmuxSessionFilesystemTests {
         let source = try ArtifactTestSupport.write(
             "private",
             named: "outside/private.md",
+            under: root
+        )
+
+        await #expect(throws: ArtifactStoreError.corruptProvenance(markerURL.path)) {
+            _ = try await LocalArtifactRepository().importFile(
+                sourceURL: source,
+                context: context,
+                provenance: .manual,
+                configuration: .defaultValue,
+                capturedAt: Date(timeIntervalSince1970: 2)
+            )
+        }
+        #expect(!FileManager.default.fileExists(
+            atPath: fallback.appendingPathComponent(source.lastPathComponent).path
+        ))
+    }
+
+    @Test("A fallback directory owned by another provider is never reused")
+    func rejectsFallbackSessionMarkerForAnotherProvider() async throws {
+        let root = try ArtifactTestSupport.temporaryDirectory()
+        defer { ArtifactTestSupport.remove(root) }
+        let paths = ArtifactStorePaths(projectRoot: root)
+        let context = ArtifactCaptureContext(
+            projectRoot: root,
+            sessionID: "shared-session-id",
+            agentName: "codex"
+        )
+        let fallback = ArtifactPathResolver().contentDirectory(
+            paths: paths,
+            context: context,
+            kind: .artifacts
+        )
+        let markerURL = fallback.deletingLastPathComponent()
+            .appendingPathComponent(ArtifactPathResolver.sessionMarkerName)
+        try FileManager.default.createDirectory(
+            at: fallback,
+            withIntermediateDirectories: true
+        )
+        let encoder = JSONEncoder()
+        encoder.dateEncodingStrategy = .iso8601
+        try encoder.encode(
+            ArtifactSessionMarker(
+                sessionID: "shared-session-id",
+                agentName: "claude",
+                createdAt: Date(timeIntervalSince1970: 1)
+            )
+        ).write(to: markerURL)
+        let source = try ArtifactTestSupport.write(
+            "private",
+            named: "outside/provider-private.md",
             under: root
         )
 

@@ -207,6 +207,19 @@ struct NoteCLIIntegrationTests {
                 "CMUX_AGENT_LAUNCH_KIND": "codex",
                 "CLAUDE_CODE_SESSION_ID": "current-child-claude",
             ],
+            [
+                "CMUX_AGENT_LAUNCH_KIND": "amp",
+                "CMUX_AGENT_SESSION_ID": "current-child-amp",
+                "CODEX_THREAD_ID": "inherited-parent-codex",
+            ],
+            [
+                "CMUX_AGENT_LAUNCH_KIND": "codexTeams",
+                "CLAUDE_CODE_SESSION_ID": "current-child-claude",
+            ],
+            [
+                "CMUX_AGENT_LAUNCH_KIND": "claudeTeams",
+                "CODEX_THREAD_ID": "current-child-codex",
+            ],
         ]
 
         for (index, environment) in conflictingEnvironments.enumerated() {
