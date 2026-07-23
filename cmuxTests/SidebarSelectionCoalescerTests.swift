@@ -119,8 +119,8 @@ final class SidebarTestManualClock: Clock, @unchecked Sendable {
         lock.lock()
         pendingSleeperRegistrationIDs.insert(id)
         lock.unlock()
-        await beforeRegisteringSleeper()
         try await withTaskCancellationHandler {
+            await beforeRegisteringSleeper()
             try await withCheckedThrowingContinuation { (continuation: CheckedContinuation<Void, any Error>) in
                 lock.lock()
                 pendingSleeperRegistrationIDs.remove(id)
