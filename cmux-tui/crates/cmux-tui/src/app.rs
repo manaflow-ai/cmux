@@ -855,6 +855,8 @@ pub struct OrderedSession {
     config_generation: Arc<AtomicU64>,
     sidebar_plugin_sync: Arc<Mutex<SidebarPluginSyncState>>,
     exited_surfaces: Arc<Mutex<HashSet<SurfaceId>>>,
+    #[cfg(test)]
+    surface_attach_after_obsolete_check: Arc<Mutex<Option<Arc<dyn Fn() + Send + Sync>>>>,
 }
 
 impl OrderedSession {
@@ -895,6 +897,8 @@ impl OrderedSession {
             config_generation: Arc::new(AtomicU64::new(0)),
             sidebar_plugin_sync: Arc::new(Mutex::new(SidebarPluginSyncState::default())),
             exited_surfaces: Arc::new(Mutex::new(HashSet::new())),
+            #[cfg(test)]
+            surface_attach_after_obsolete_check: Arc::new(Mutex::new(None)),
         }
     }
 
@@ -1076,6 +1080,8 @@ impl OrderedSession {
         let attach_failures = self.surface_attach_failures.clone();
         let enqueue_failures = attach_failures.clone();
         let remote = self.remote;
+        #[cfg(test)]
+        let attach_after_obsolete_check = self.surface_attach_after_obsolete_check.clone();
         let pending = self.pending_mutation();
         let superseded = pending.clone();
         let settlement = pending.clone();
@@ -1092,6 +1098,10 @@ impl OrderedSession {
                 {
                     pending.defer(SessionMutationOutcome::Success { tree: None });
                     return Ok(());
+                }
+                #[cfg(test)]
+                if let Some(hook) = attach_after_obsolete_check.lock().unwrap().clone() {
+                    hook();
                 }
                 match session.try_surface_sized(id, size) {
                     Ok(Some(_)) => {
@@ -10320,7 +10330,7 @@ mod tests {
     use std::path::PathBuf;
     use std::sync::atomic::{AtomicBool, AtomicU64, Ordering};
     use std::sync::mpsc::Receiver;
-    use std::sync::{Arc, Mutex};
+    use std::sync::{Arc, Barrier, Mutex};
     use std::time::{Duration, Instant};
 
     use cmux_tui_core::{
@@ -12590,6 +12600,42 @@ mod tests {
             app.session.surface_resize_decision(88, (100, 30), true),
             SurfaceResizeDecision::NeedsQueue(_)
         ));
+    }
+
+    #[test]
+    fn retiring_surface_during_queued_attach_is_not_a_sync_failure() {
+        let mux = Mux::new("surface-retired-during-attach-test", SurfaceOptions::default());
+        let surface = 77;
+        let (mut app, events) = test_app_with_events(Session::Local(mux));
+        app.session.remote = true;
+        app.replace_tree(notify_tree(surface, false));
+
+        let reached = Arc::new(Barrier::new(2));
+        let release = Arc::new(Barrier::new(2));
+        let hook_reached = reached.clone();
+        let hook_release = release.clone();
+        *app.session.surface_attach_after_obsolete_check.lock().unwrap() =
+            Some(Arc::new(move || {
+                hook_reached.wait();
+                hook_release.wait();
+            }));
+
+        app.session.attach_surface(surface, Some((80, 24)));
+        reached.wait();
+        app.session.forget_surface(surface);
+        release.wait();
+
+        let settled = events.recv_timeout(Duration::from_secs(1)).unwrap();
+        assert!(matches!(
+            &settled,
+            AppEvent::SessionMutationSettled {
+                outcome: super::SessionMutationOutcome::Success { tree: None },
+                ..
+            }
+        ));
+        app.handle(settled).unwrap();
+        assert!(app.status_message.is_none());
+        assert!(!app.session.surface_attach_failures.lock().unwrap().contains_key(&surface));
     }
 
     #[test]
