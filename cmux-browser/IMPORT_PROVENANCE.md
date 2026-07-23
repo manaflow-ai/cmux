@@ -53,7 +53,9 @@ upstream sources.
 - **Chromium:** pin a full source commit and DEPS state. Generate the shipped
   target's license/credits output with Chromium's license tooling.
 - **Ghostty:** use the root gitlink, retain its MIT notice, and include licenses
-  for linked libraries, fonts, themes, and shell-integration resources.
+  for linked libraries, fonts, themes, and shell-integration resources. Do not
+  infer that every converted theme is MIT from the theme collection's license;
+  ship only themes with verified per-theme redistribution provenance.
 - **cmux TUI:** build the sibling workspace and record the exact helper receipt.
 - **Helium:** retain exact patch provenance and GPL-3.0-only terms. A future
   proprietary Browser requires independently reimplementing or separately
@@ -81,6 +83,9 @@ upstream sources.
   commit, uBlock payload digest, and all packaged resource manifests are exact.
 - [ ] Generated Chromium, Cargo, Ghostty/Zig, resource, and extension notices
   are included in the app and its About UI.
+- [ ] Static LGPL dependencies have an explicit GPL-compliance path; any
+  commercial build instead omits them, links them appropriately, or ships the
+  relinkable material and permissions their license requires.
 - [ ] Complete corresponding source can be reconstructed for the distributed
   GPL build.
 - [ ] Fast public CI passes without private infrastructure.
