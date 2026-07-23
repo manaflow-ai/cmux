@@ -22,7 +22,8 @@ use crate::link::FrameLink;
 use crate::observability::{TransportPathKind, TransportPathSnapshot, TransportSnapshot};
 use crate::provider::{
     CarrierEvidence, ConnectRequest, LengthDelimitedLink, LinkGroup, LinkRequest,
-    ProviderCapabilities, ProviderError, TransportProvider, sanitized_route,
+    ProviderCapabilities, ProviderError, SupportedClientAuthModes, TransportProvider,
+    sanitized_route,
 };
 
 /// ALPN negotiated by cmux remote sessions over Iroh.
@@ -496,6 +497,10 @@ impl TransportProvider for IrohProvider {
 
     fn schemes(&self) -> &'static [&'static str] {
         &["iroh"]
+    }
+
+    fn supported_client_auth(&self) -> SupportedClientAuthModes {
+        SupportedClientAuthModes::DeviceOnly
     }
 
     async fn connect(&self, request: ConnectRequest) -> Result<Arc<dyn LinkGroup>, ProviderError> {

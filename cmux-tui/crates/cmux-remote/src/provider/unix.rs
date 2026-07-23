@@ -12,7 +12,7 @@ use crate::link::FrameLink;
 use crate::observability::{TransportPathKind, TransportPathSnapshot, TransportSnapshot};
 use crate::provider::{
     CarrierEvidence, ConnectRequest, LengthDelimitedLink, LinkGroup, LinkRequest,
-    ProviderCapabilities, ProviderError, TransportProvider,
+    ProviderCapabilities, ProviderError, SupportedClientAuthModes, TransportProvider,
 };
 
 #[derive(Debug, Clone)]
@@ -45,6 +45,10 @@ impl TransportProvider for UnixProvider {
 
     fn schemes(&self) -> &'static [&'static str] {
         &["unix"]
+    }
+
+    fn supported_client_auth(&self) -> SupportedClientAuthModes {
+        SupportedClientAuthModes::DeviceOrCarrier
     }
 
     async fn connect(&self, request: ConnectRequest) -> Result<Arc<dyn LinkGroup>, ProviderError> {

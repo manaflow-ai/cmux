@@ -30,7 +30,7 @@ use crate::link::FrameLink;
 use crate::observability::{TransportPathKind, TransportPathSnapshot, TransportSnapshot};
 use crate::provider::{
     CarrierEvidence, ConnectRequest, LinkGroup, LinkRequest, ProviderCapabilities, ProviderError,
-    TransportProvider, TungsteniteWebSocketLink, sanitized_route,
+    SupportedClientAuthModes, TransportProvider, TungsteniteWebSocketLink, sanitized_route,
 };
 
 type RelaySocket = WebSocketStream<MaybeTlsStream<TcpStream>>;
@@ -343,6 +343,10 @@ impl TransportProvider for RelayProvider {
 
     fn schemes(&self) -> &'static [&'static str] {
         &["relay+ws", "relay+wss", "relay+https", "relay+do"]
+    }
+
+    fn supported_client_auth(&self) -> SupportedClientAuthModes {
+        SupportedClientAuthModes::DeviceOnly
     }
 
     async fn connect(&self, request: ConnectRequest) -> Result<Arc<dyn LinkGroup>, ProviderError> {

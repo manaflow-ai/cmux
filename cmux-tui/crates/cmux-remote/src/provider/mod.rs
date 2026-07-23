@@ -21,6 +21,7 @@ use async_trait::async_trait;
 use cmux_remote_protocol::{Lane, LanePolicy, SessionId};
 use url::Url;
 
+use crate::crypto::AuthKind;
 use crate::link::{FrameLink, LinkError};
 use crate::observability::TransportSnapshot;
 
@@ -104,6 +105,23 @@ pub struct LinkRequest {
     pub generation: u64,
 }
 
+/// Client authentication modes a locally configured transport provider accepts.
+///
+/// Device authentication includes enrolled devices and invitation enrollment.
+/// Carrier authentication is restricted to transports whose local endpoint
+/// verifies the peer independently, currently Unix sockets and SSH.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum SupportedClientAuthModes {
+    DeviceOnly,
+    DeviceOrCarrier,
+}
+
+impl SupportedClientAuthModes {
+    pub fn supports(self, auth: AuthKind) -> bool {
+        auth != AuthKind::Carrier || self == Self::DeviceOrCarrier
+    }
+}
+
 /// One logical connection to a daemon. A group can open one carrier link for
 /// every lane, or map all lanes to the same carrier when policy/capability
 /// requires it.
@@ -139,12 +157,26 @@ pub fn sanitized_route(endpoint: &Url) -> String {
 pub trait TransportProvider: Send + Sync {
     fn name(&self) -> &'static str;
     fn schemes(&self) -> &'static [&'static str];
+    fn supported_client_auth(&self) -> SupportedClientAuthModes;
     async fn connect(&self, request: ConnectRequest) -> Result<Arc<dyn LinkGroup>, ProviderError>;
 }
 
-#[derive(Default)]
+#[derive(Clone, Default)]
 pub struct ProviderRegistry {
     providers: Vec<Arc<dyn TransportProvider>>,
+}
+
+impl fmt::Debug for ProviderRegistry {
+    fn fmt(&self, formatter: &mut fmt::Formatter<'_>) -> fmt::Result {
+        let providers = self
+            .providers
+            .iter()
+            .map(|provider| {
+                (provider.name(), provider.schemes(), provider.supported_client_auth())
+            })
+            .collect::<Vec<_>>();
+        formatter.debug_struct("ProviderRegistry").field("providers", &providers).finish()
+    }
 }
 
 impl ProviderRegistry {
@@ -160,16 +192,31 @@ impl ProviderRegistry {
         Ok(())
     }
 
+    pub fn supported_client_auth(
+        &self,
+        scheme: &str,
+    ) -> Result<SupportedClientAuthModes, ProviderError> {
+        Ok(self.provider(scheme)?.supported_client_auth())
+    }
+
     pub async fn connect(
         &self,
         request: ConnectRequest,
+        auth: AuthKind,
     ) -> Result<Arc<dyn LinkGroup>, ProviderError> {
-        let scheme = request.endpoint.scheme();
-        let Some(provider) = self.providers.iter().find(|item| item.schemes().contains(&scheme))
-        else {
-            return Err(ProviderError::UnsupportedScheme(scheme.into()));
-        };
+        let scheme = request.endpoint.scheme().to_owned();
+        let provider = self.provider(&scheme)?;
+        if !provider.supported_client_auth().supports(auth) {
+            return Err(ProviderError::UnsupportedClientAuth { scheme, auth });
+        }
         provider.connect(request).await
+    }
+
+    fn provider(&self, scheme: &str) -> Result<&Arc<dyn TransportProvider>, ProviderError> {
+        self.providers
+            .iter()
+            .find(|provider| provider.schemes().contains(&scheme))
+            .ok_or_else(|| ProviderError::UnsupportedScheme(scheme.into()))
     }
 }
 
@@ -190,6 +237,7 @@ pub fn lane_bindings(policy: LanePolicy, capabilities: ProviderCapabilities) -> 
 #[derive(Debug)]
 pub enum ProviderError {
     UnsupportedScheme(String),
+    UnsupportedClientAuth { scheme: String, auth: AuthKind },
     Configuration(String),
     Link(LinkError),
     Transport(String),
@@ -200,6 +248,17 @@ impl fmt::Display for ProviderError {
         match self {
             Self::UnsupportedScheme(scheme) => {
                 write!(formatter, "no transport provider handles scheme {scheme:?}")
+            }
+            Self::UnsupportedClientAuth { scheme, auth } => {
+                let auth = match auth {
+                    AuthKind::Enrolled => "enrolled-device",
+                    AuthKind::Invitation => "invitation",
+                    AuthKind::Carrier => "carrier",
+                };
+                write!(
+                    formatter,
+                    "transport scheme {scheme:?} does not support {auth} client authentication"
+                )
             }
             Self::Configuration(message) => {
                 write!(formatter, "invalid transport configuration: {message}")

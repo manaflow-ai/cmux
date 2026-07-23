@@ -12,7 +12,8 @@ use crate::link::{FrameLink, LinkError};
 use crate::observability::{TransportPathKind, TransportPathSnapshot, TransportSnapshot};
 use crate::provider::{
     CarrierEvidence, ConnectRequest, LengthDelimitedLink, LinkGroup, LinkRequest,
-    ProviderCapabilities, ProviderError, TransportProvider, sanitized_route,
+    ProviderCapabilities, ProviderError, SupportedClientAuthModes, TransportProvider,
+    sanitized_route,
 };
 
 #[derive(Debug, Clone)]
@@ -62,6 +63,10 @@ impl TransportProvider for SshProvider {
 
     fn schemes(&self) -> &'static [&'static str] {
         &["ssh"]
+    }
+
+    fn supported_client_auth(&self) -> SupportedClientAuthModes {
+        SupportedClientAuthModes::DeviceOrCarrier
     }
 
     async fn connect(&self, request: ConnectRequest) -> Result<Arc<dyn LinkGroup>, ProviderError> {
