@@ -304,7 +304,7 @@ export CMUX_AGENT_LAUNCH_CWD="$PWD"
 cmux_codex_resume_sid="$(cmux_codex_resume_session_id "$@")"
 if [[ -n "$cmux_codex_resume_sid" \
       && -n "$CMUX_CODEX_HOOK_CMUX_BIN" && -x "$CMUX_CODEX_HOOK_CMUX_BIN" ]]; then
-    cmux_codex_resume_payload="{\"session_id\":\"$cmux_codex_resume_sid\",\"cwd\":\"$PWD\"}"
+    cmux_codex_resume_payload="{\"session_id\":\"$cmux_codex_resume_sid\",\"cwd\":\"$PWD\",\"cmux_resume_rebind\":true}"
     if [[ -n "${CMUX_SOCKET_PATH:-}" ]]; then
         ( printf '%s' "$cmux_codex_resume_payload" \
             | nohup "$CMUX_CODEX_HOOK_CMUX_BIN" --socket "$CMUX_SOCKET_PATH" hooks codex session-start >/dev/null 2>&1 ) &

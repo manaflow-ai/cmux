@@ -771,7 +771,8 @@ final class ClaudeHookSessionStore {
         launchCommand: AgentHookLaunchCommandRecord? = nil,
         agentLifecycle: AgentHibernationLifecycleState? = nil,
         runtimeStatus: AgentHookRuntimeStatus? = nil,
-        updateRuntimeStatus: Bool = false
+        updateRuntimeStatus: Bool = false,
+        allowResumedProcessReplacement: Bool = false
     ) throws -> Bool {
         let normalized = normalizeSessionId(sessionId)
         guard !normalized.isEmpty else { return false }
@@ -784,7 +785,11 @@ final class ClaudeHookSessionStore {
                 surfaceId: surfaceId,
                 now: now
             )
-            if codexSessionStartIsStale(record, incomingPID: pid) {
+            if codexSessionStartIsStale(
+                record,
+                incomingPID: pid,
+                allowResumedProcessReplacement: allowResumedProcessReplacement
+            ) {
                 return false
             }
             clearCodexSessionStartTurnState(on: &record)
@@ -863,7 +868,8 @@ final class ClaudeHookSessionStore {
     func codexSessionStartIsStale(
         sessionId: String,
         incomingPID: Int?,
-        includeTerminalPromptTurnIds: Bool = true
+        includeTerminalPromptTurnIds: Bool = true,
+        allowResumedProcessReplacement: Bool = false
     ) throws -> Bool {
         let normalized = normalizeSessionId(sessionId)
         guard !normalized.isEmpty else { return false }
@@ -872,7 +878,8 @@ final class ClaudeHookSessionStore {
             return codexSessionStartIsStale(
                 record,
                 incomingPID: incomingPID,
-                includeTerminalPromptTurnIds: includeTerminalPromptTurnIds
+                includeTerminalPromptTurnIds: includeTerminalPromptTurnIds,
+                allowResumedProcessReplacement: allowResumedProcessReplacement
             )
         }
     }
@@ -1004,8 +1011,18 @@ final class ClaudeHookSessionStore {
     private func codexSessionStartIsStale(
         _ record: ClaudeHookSessionRecord,
         incomingPID: Int?,
-        includeTerminalPromptTurnIds: Bool = true
+        includeTerminalPromptTurnIds: Bool = true,
+        allowResumedProcessReplacement: Bool = false
     ) -> Bool {
+        // A wrapper-confirmed resume is the only SessionStart allowed to replace
+        // an interrupted active turn. Requiring a different PID preserves the
+        // stale same-process guard for delayed or nested Codex hook events.
+        if allowResumedProcessReplacement,
+           let incomingPID,
+           let existingPID = record.pid,
+           incomingPID != existingPID {
+            return false
+        }
         if max(record.activePromptDepth ?? 0, record.activePromptTurnIds?.count ?? 0) > 0 {
             return true
         }
@@ -30489,6 +30506,8 @@ export default CMUXSessionRestore;
                 fallbackKind: def.name,
                 cwd: hookCwd ?? mapped?.cwd
             )
+            let isCodexResumeRebind = def.name == "codex"
+                && (input.rawObject?["cmux_resume_rebind"] as? Bool) == true
             let resumeLaunchCommand = preferredAgentHookResumeLaunchCommand(
                 kind: def.name, current: launchCommand, mapped: mapped,
                 transcriptPath: input.transcriptPath ?? mapped?.transcriptPath, currentPID: pid
@@ -30497,7 +30516,8 @@ export default CMUXSessionRestore;
                 def.name == "codex" && ((try? store.codexSessionStartIsStale(
                     sessionId: sessionId,
                     incomingPID: pid,
-                    includeTerminalPromptTurnIds: false
+                    includeTerminalPromptTurnIds: false,
+                    allowResumedProcessReplacement: isCodexResumeRebind
                 )) == true)
             }
             if !sessionId.isEmpty {
@@ -30513,7 +30533,8 @@ export default CMUXSessionRestore;
                         launchCommand: resumeLaunchCommand,
                         agentLifecycle: .unknown,
                         runtimeStatus: suppressVisibleMutations ? nil : .running,
-                        updateRuntimeStatus: !suppressVisibleMutations
+                        updateRuntimeStatus: !suppressVisibleMutations,
+                        allowResumedProcessReplacement: isCodexResumeRebind
                     )) ?? false
                 } else {
                     try? store.upsert(
