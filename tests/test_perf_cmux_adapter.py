@@ -78,6 +78,7 @@ class FakeRunner:
             {"surface_id": self.initial_terminal, "type": "terminal", "title": "shell"}
         ]
         self.browser_state: dict[str, dict[str, str]] = {}
+        self.focused_surface: str | None = None
         self.snapshot_payload: dict[str, Any] | None = None
         self.top_payloads: list[dict[str, Any]] = []
         self.terminal_markers: dict[str, str] = {}
@@ -295,7 +296,14 @@ class FakeRunner:
             return {"title": self.browser_state[params["surface_id"]]["title"]}
         if method == "browser.eval":
             return {"value": self.browser_state[params["surface_id"]]["content_marker"]}
-        if method in {"browser.focus_webview", "browser.reload", "browser.snapshot"}:
+        if method == "surface.focus":
+            self.focused_surface = params["surface_id"]
+            return {"ok": True, "surface_id": params["surface_id"]}
+        if method == "browser.focus_webview":
+            if self.focused_surface != params["surface_id"]:
+                raise RuntimeError("invalid_state: WebView is hidden")
+            return {"ok": True, "surface_id": params["surface_id"]}
+        if method in {"browser.reload", "browser.snapshot"}:
             return {"ok": True, "surface_id": params["surface_id"]}
         if method == "browser.screenshot":
             result = {
@@ -655,6 +663,12 @@ def test_churn_calls_every_planned_surface_and_records_real_metrics(tmp_path: Pa
             if event[:2] == ("rpc", method)
         }
         assert actual == set(adapter._browser_actual_ids.values())
+    surface_focuses = [
+        event[2]["surface_id"]
+        for event in runner.events
+        if event[:2] == ("rpc", "surface.focus")
+    ]
+    assert surface_focuses == list(adapter._browser_actual_ids.values())
     screenshot_calls = [
         event for event in runner.events if event[:2] == ("rpc", "browser.screenshot")
     ]
