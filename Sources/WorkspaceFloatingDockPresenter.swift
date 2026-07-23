@@ -45,13 +45,6 @@ final class WorkspaceFloatingDockPresenter {
                                 tabManager: tabManager
                             )
                         },
-                        onCreateRequest: { [weak self] in
-                            guard let tabManager = self?.tabManager else { return }
-                            _ = AppDelegate.shared?.createWorkspaceFloatingDock(
-                                in: tabManager,
-                                focus: true
-                            )
-                        },
                         onBecomeKey: { [weak self] dockId in
                             self?.lastActiveDockId = dockId
                         }

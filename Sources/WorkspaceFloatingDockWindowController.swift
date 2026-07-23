@@ -61,7 +61,6 @@ final class WorkspaceFloatingDockWindowController: NSWindowController, NSWindowD
         dock: WorkspaceFloatingDock,
         parentWindow: NSWindow,
         onCloseRequest: @escaping (UUID) -> Void,
-        onCreateRequest: @escaping () -> Void,
         onBecomeKey: @escaping (UUID) -> Void = { _ in }
     ) {
         self.dock = dock
@@ -90,15 +89,12 @@ final class WorkspaceFloatingDockWindowController: NSWindowController, NSWindowD
         panel.isOpaque = false
         panel.backgroundColor = .clear
         panel.hasShadow = true
-        // Content owns mouse drags by default. The explicit AppKit titlebar
-        // handle moves the window from its own mouse-drag sequence.
+        // Bonsplit's empty tab-bar chrome owns window drags. Keeping the panel
+        // immovable prevents tab drags and other content gestures from moving it.
         panel.isMovable = false
         panel.isMovableByWindowBackground = false
         panel.contentView = WorkspaceFloatingDockHostingView(
-            rootView: WorkspaceFloatingDockContentView(
-                dock: dock,
-                onCreateDock: onCreateRequest
-            ),
+            rootView: WorkspaceFloatingDockContentView(dock: dock),
             minimumContentSize: NSSize(width: 320, height: 220)
         )
 

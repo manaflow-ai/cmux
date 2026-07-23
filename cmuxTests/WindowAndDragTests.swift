@@ -3105,8 +3105,7 @@ final class FilePreviewPanelTextSavingTests: XCTestCase {
         let controller = WorkspaceFloatingDockWindowController(
             dock: dock,
             parentWindow: parent,
-            onCloseRequest: { _ in },
-            onCreateRequest: {}
+            onCloseRequest: { _ in }
         )
         defer { controller.teardown() }
         let panel = try XCTUnwrap(controller.window)
@@ -3259,8 +3258,7 @@ final class FilePreviewPanelTextSavingTests: XCTestCase {
         let controller = WorkspaceFloatingDockWindowController(
             dock: dock,
             parentWindow: parent,
-            onCloseRequest: { _ in },
-            onCreateRequest: {}
+            onCloseRequest: { _ in }
         )
         defer { controller.teardown() }
         let panel = try XCTUnwrap(controller.window)
