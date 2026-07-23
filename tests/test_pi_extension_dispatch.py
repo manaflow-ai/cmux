@@ -338,6 +338,12 @@ const ctx = {
   cwd: "/tmp/pi-bounded-payload-project",
   sessionManager: { getSessionId() { return "pi-bounded-payload-session"; } }
 };
+handlers.get("tool_execution_end")({
+  toolCallId: "relay-sized-tool",
+  toolName: "bash",
+  result: `PRIVATE-RELAY-TOOL-OUTPUT-${"x".repeat(20 * 1024)}`,
+  isError: false
+}, ctx);
 const largeResult = `PRIVATE-TOOL-OUTPUT-${"x".repeat(512 * 1024)}`;
 for (let index = 0; index < 10; index += 1) {
   handlers.get("tool_execution_end")({
@@ -382,12 +388,12 @@ await handlers.get("agent_end")({
     oversized = [
         len(encoded)
         for payload in feed_payloads
-        if len(encoded := payload.encode("utf-8")) > 128 * 1024
+        if len(encoded := payload.encode("utf-8")) > 12 * 1024
     ]
     if oversized:
-        print(f"FAIL: Pi feed queue retained oversized payloads: {oversized!r}")
+        print(f"FAIL: Pi feed queue exceeded the relay-safe input budget: {oversized!r}")
         return 1
-    if any("PRIVATE-TOOL-OUTPUT" in payload for payload in feed_payloads):
+    if any("PRIVATE-" in payload for payload in feed_payloads):
         print("FAIL: bounded Pi feed payload retained raw tool output")
         return 1
 
@@ -831,6 +837,80 @@ await handlers.get("agent_end")({
         return 1
     if '"message":"cmux terminal feed delivery failed"' not in result.stderr:
         print(f"FAIL: failed terminal-feed delivery was not surfaced: {result.stderr!r}")
+        return 1
+
+    return 0
+
+
+def check_nonterminal_timeout_marks_dropped_completion(
+    bun: str,
+    root: Path,
+    extension_path: Path,
+) -> int:
+    inspectable_extension = root / "inspectable-cmux-session.ts"
+    inspectable_extension.write_text(
+        extension_path.read_text(encoding="utf-8")
+        + "\nexport { PiCmuxCommandDispatcher };\n",
+        encoding="utf-8",
+    )
+    timeout_source = """
+const extensionPath = process.env.CMUX_TEST_PI_EXTENSION_PATH;
+const mod = await import(extensionPath);
+const dispatcher = new mod.PiCmuxCommandDispatcher();
+const context = {
+  sessionId: "pi-queued-completion-timeout-session",
+  workspaceId: "00000000-0000-0000-0000-000000008673",
+  surfaceId: "00000000-0000-0000-0000-000000008672"
+};
+let resolveActive;
+dispatcher.execute = () => new Promise((resolve) => {
+  resolveActive = resolve;
+});
+dispatcher.enqueueFeed("timeout-tool", {
+  args: ["hooks", "feed", "--source", "pi", "--event", "PreToolUse"],
+  cwd: "/tmp/pi-queued-completion-timeout",
+  input: JSON.stringify({ session_id: context.sessionId, hook_event_name: "PreToolUse" }),
+  context,
+  terminal: false
+});
+dispatcher.enqueueFeed("timeout-tool", {
+  args: ["hooks", "feed", "--source", "pi", "--event", "PostToolUse"],
+  cwd: "/tmp/pi-queued-completion-timeout",
+  input: JSON.stringify({ session_id: context.sessionId, hook_event_name: "PostToolUse" }),
+  context,
+  terminal: true
+});
+if (!resolveActive) throw new Error("nonterminal feed did not become active");
+resolveActive({
+  ok: false,
+  status: null,
+  stdout: "",
+  stderr: "",
+  error: new Error("cmux command timed out after 5000ms"),
+  surfaceUnavailable: false
+});
+const settleDeadline = Date.now() + 1_000;
+while (dispatcher.activeFeeds.size > 0) {
+  if (Date.now() >= settleDeadline) throw new Error("timed-out feed did not settle");
+  await new Promise((resolve) => setTimeout(resolve, 5));
+}
+if (await dispatcher.finishFeedForSession(context.sessionId)) {
+  throw new Error("queued terminal completion was discarded as successfully delivered");
+}
+"""
+    result = run_extension(
+        bun=bun,
+        root=root,
+        extension_path=inspectable_extension,
+        fake_cmux=Path("/usr/bin/true"),
+        source=timeout_source,
+        extra_env={},
+    )
+    if result.returncode != 0:
+        print(
+            "FAIL: nonterminal timeout accepted a dropped queued completion: "
+            f"{result.stderr!r}"
+        )
         return 1
 
     return 0
@@ -1283,6 +1363,7 @@ def run_checks(bun: str, root: Path, extension_path: Path) -> int:
         check_feed_cancellation,
         check_completion_order,
         check_terminal_feed_failure_is_at_most_once,
+        check_nonterminal_timeout_marks_dropped_completion,
         check_completion_drain_deadline,
         check_timeout_serialization,
         check_error_classification,
