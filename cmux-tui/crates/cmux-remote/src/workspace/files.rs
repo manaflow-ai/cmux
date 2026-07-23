@@ -1647,67 +1647,15 @@ fn commit_unix_remove(
     }
     progress.outcome = MutationOutcome::Applied;
     let quarantine_display = temporary_display(&target, &quarantine);
-    let recovery = match stat_named(
-        target.parent_fd(),
-        &quarantine,
-        &quarantine_display,
-        "stat-remove-recovery",
-    ) {
-        Ok(Some(recovery)) => recovery,
-        Ok(None) => {
-            progress.outcome = MutationOutcome::Unknown;
-            return Err(partial_write_with_recovery(
-                &target,
-                &quarantine,
-                "remove recovery entry disappeared",
-            ));
-        }
-        Err(error) => {
-            progress.outcome = MutationOutcome::Unknown;
-            return Err(partial_write_with_recovery(&target, &quarantine, &error.message));
-        }
-    };
-    if !recovery.matches_snapshot(&pinned_identity) {
-        let current_target = match stat_entry(&target, "restore-remove") {
-            Ok(current) => current,
-            Err(error) => {
-                progress.outcome = MutationOutcome::Unknown;
-                return Err(partial_write_with_recovery(&target, &quarantine, &error.message));
-            }
-        };
-        let current_recovery = match stat_named(
-            target.parent_fd(),
-            &quarantine,
-            &quarantine_display,
-            "restore-remove",
-        ) {
-            Ok(current) => current,
-            Err(error) => {
-                progress.outcome = MutationOutcome::Unknown;
-                return Err(partial_write_with_recovery(&target, &quarantine, &error.message));
-            }
-        };
-        if current_target.is_some() || current_recovery.as_ref() != Some(&recovery) {
-            progress.outcome = MutationOutcome::Unknown;
-            return Err(partial_write_with_recovery(
-                &target,
-                &quarantine,
-                "remove recovery changed before restoration",
-            ));
-        }
-        if let Err(error) = rename_noreplace(target.parent_fd(), &quarantine, target.name()) {
-            progress.outcome = MutationOutcome::Unknown;
-            return Err(partial_write_with_recovery(
-                &target,
-                &quarantine,
-                &format!("remove restoration failed: {error}"),
-            ));
-        }
-        progress.outcome = MutationOutcome::Restored;
-        progress.cleaned();
-        sync_rollback_parent(&target)?;
-        return Err(RpcError::new("conflict", "file identity changed during removal"));
+    if let Err(error) =
+        validate_quarantined_remove(&target, &quarantine, &quarantine_display, pinned, expected)
+    {
+        restore_quarantined_remove(&target, &quarantine, pinned, progress)?;
+        return Err(error);
     }
+    // The final quarantine stat is the removal's validation point. A
+    // non-cooperating process can mutate the inode after that check and before
+    // unlink; compare-and-unlink is not available through portable Unix APIs.
     unlink_published_name(&target, &quarantine).map_err(|error| {
         partial_write_with_recovery(
             &target,
@@ -1717,6 +1665,139 @@ fn commit_unix_remove(
     })?;
     progress.cleaned();
     sync_committed_parent(&target)
+}
+
+#[cfg(unix)]
+fn validate_quarantined_remove(
+    target: &UnixWorkspaceTarget,
+    quarantine: &CStr,
+    quarantine_display: &Path,
+    pinned: &mut File,
+    expected: &str,
+) -> Result<(), RpcError> {
+    let (actual, pinned_metadata) = hash_file_sync(pinned, quarantine_display, MAX_HASH_BYTES)?;
+    if !actual.eq_ignore_ascii_case(expected) {
+        return Err(RpcError::new("conflict", "file content changed during removal"));
+    }
+    let pinned_after_rename = RawEntryState::from_metadata(&pinned_metadata);
+    let current =
+        stat_named(target.parent_fd(), quarantine, quarantine_display, "validate-remove-recovery")?
+            .ok_or_else(|| {
+                RpcError::new("conflict", "remove recovery disappeared during validation")
+            })?;
+    if !current.matches_snapshot(&pinned_after_rename)
+        || current.changed != pinned_after_rename.changed
+    {
+        return Err(RpcError::new(
+            "conflict",
+            "remove recovery identity changed during validation",
+        ));
+    }
+    Ok(())
+}
+
+#[cfg(unix)]
+fn restore_quarantined_remove(
+    target: &UnixWorkspaceTarget,
+    quarantine: &CStr,
+    pinned: &File,
+    progress: &mut MutationProgress,
+) -> Result<(), RpcError> {
+    let pinned_identity = match pinned.metadata() {
+        Ok(metadata) => RawEntryState::from_metadata(&metadata),
+        Err(error) => {
+            progress.outcome = MutationOutcome::Unknown;
+            return Err(partial_write_with_recovery(
+                target,
+                quarantine,
+                &format!("could not inspect pinned remove recovery before restoration: {error}"),
+            ));
+        }
+    };
+    let current_target = match stat_entry(target, "restore-remove") {
+        Ok(current) => current,
+        Err(error) => {
+            progress.outcome = MutationOutcome::Unknown;
+            return Err(partial_write_with_recovery(target, quarantine, &error.message));
+        }
+    };
+    let current_recovery = match stat_named(
+        target.parent_fd(),
+        quarantine,
+        &temporary_display(target, quarantine),
+        "restore-remove",
+    ) {
+        Ok(current) => current,
+        Err(error) => {
+            progress.outcome = MutationOutcome::Unknown;
+            return Err(partial_write_with_recovery(target, quarantine, &error.message));
+        }
+    };
+    if current_target.is_some()
+        || current_recovery.as_ref().is_none_or(|recovery| {
+            !recovery.matches_snapshot(&pinned_identity)
+                || recovery.changed != pinned_identity.changed
+        })
+    {
+        progress.outcome = MutationOutcome::Unknown;
+        return Err(partial_write_with_recovery(
+            target,
+            quarantine,
+            "remove recovery changed before restoration",
+        ));
+    }
+    if let Err(error) = rename_noreplace(target.parent_fd(), quarantine, target.name()) {
+        progress.outcome = MutationOutcome::Unknown;
+        return Err(partial_write_with_recovery(
+            target,
+            quarantine,
+            &format!("remove restoration failed: {error}"),
+        ));
+    }
+    progress.cleaned();
+    let restored = match stat_entry(target, "verify-remove-restoration") {
+        Ok(Some(restored)) => restored,
+        Ok(None) => {
+            progress.outcome = MutationOutcome::Unknown;
+            return Err(RpcError::new(
+                "partial-write",
+                "remove restoration completed but the restored entry disappeared",
+            ));
+        }
+        Err(error) => {
+            progress.outcome = MutationOutcome::Unknown;
+            return Err(RpcError::new(
+                "partial-write",
+                format!(
+                    "remove restoration completed but could not be verified: {}",
+                    error.message
+                ),
+            ));
+        }
+    };
+    let pinned_after_restore = match pinned.metadata() {
+        Ok(metadata) => RawEntryState::from_metadata(&metadata),
+        Err(error) => {
+            progress.outcome = MutationOutcome::Unknown;
+            return Err(RpcError::new(
+                "partial-write",
+                format!(
+                    "remove restoration completed but pinned identity could not be verified: {error}"
+                ),
+            ));
+        }
+    };
+    if !restored.matches_snapshot(&pinned_after_restore)
+        || restored.changed != pinned_after_restore.changed
+    {
+        progress.outcome = MutationOutcome::Unknown;
+        return Err(RpcError::new(
+            "partial-write",
+            "remove restoration completed but restored the wrong entry",
+        ));
+    }
+    progress.outcome = MutationOutcome::Restored;
+    sync_rollback_parent(target)
 }
 
 #[cfg(unix)]
