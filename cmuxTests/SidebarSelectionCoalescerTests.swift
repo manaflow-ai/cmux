@@ -82,6 +82,8 @@ final class SidebarTestManualClock: Clock, @unchecked Sendable {
     private var pendingSleeperRegistrationIDs: Set<UUID> = []
     private var cancelledSleeperIDs: Set<UUID> = []
     private var sleepWaiters: [SleepWaiter] = []
+    private var sleepWaiterRegistrationCount = 0
+    private var sleepWaiterRegistrationWaiters: [(count: Int, continuation: CheckedContinuation<Void, Never>)] = []
     private var idleWaiters: [CheckedContinuation<Void, Never>] = []
     private var idleWaiterRegistrationCount = 0
     private var idleWaiterRegistrationWaiters: [(count: Int, continuation: CheckedContinuation<Void, Never>)] = []
@@ -175,9 +177,46 @@ final class SidebarTestManualClock: Clock, @unchecked Sendable {
                 continuation.resume()
             } else {
                 sleepWaiters.append(SleepWaiter(deadline: deadline, continuation: continuation))
+                sleepWaiterRegistrationCount += 1
+                var registrationWaiters: [CheckedContinuation<Void, Never>] = []
+                sleepWaiterRegistrationWaiters.removeAll { waiter in
+                    if sleepWaiterRegistrationCount >= waiter.count {
+                        registrationWaiters.append(waiter.continuation)
+                        return true
+                    }
+                    return false
+                }
+                lock.unlock()
+                for waiter in registrationWaiters { waiter.resume() }
+            }
+        }
+    }
+
+    func waitUntilSleepWaiterRegistered(_ count: Int = 1) async {
+        await withCheckedContinuation { continuation in
+            lock.lock()
+            if sleepWaiterRegistrationCount >= count {
+                lock.unlock()
+                continuation.resume()
+            } else {
+                sleepWaiterRegistrationWaiters.append((count, continuation))
                 lock.unlock()
             }
         }
+    }
+
+    var pendingSleepWaiterCount: Int {
+        lock.lock()
+        defer { lock.unlock() }
+        return sleepWaiters.count
+    }
+
+    func releasePendingSleepWaitersForTesting() {
+        lock.lock()
+        let waiters = sleepWaiters.map(\.continuation)
+        sleepWaiters.removeAll()
+        lock.unlock()
+        for waiter in waiters { waiter.resume() }
     }
 
     func advance(by duration: Duration, beforeResuming: () -> Void = {}) {
@@ -337,6 +376,30 @@ struct SidebarSelectionCoalescerTests {
         _ = await sleep.result
 
         #expect(clock.retainedCancellationMarkerCount == 0)
+    }
+
+    @Test
+    func overdueRegistrationReleasesMatchingSleepWaiters() async {
+        let registrationGate = SidebarTestSleeperRegistrationGate(isOpen: false)
+        let clock = SidebarTestManualClock {
+            await registrationGate.wait()
+        }
+        let sleep = Task {
+            try await clock.sleep(for: .milliseconds(100))
+        }
+        await registrationGate.waitUntilArrival(1)
+
+        let sleeping = Task {
+            await clock.waitUntilSleeping(for: .milliseconds(100))
+        }
+        await clock.waitUntilSleepWaiterRegistered()
+        clock.advance(by: .milliseconds(100))
+        await registrationGate.open()
+        _ = await sleep.result
+
+        #expect(clock.pendingSleepWaiterCount == 0)
+        clock.releasePendingSleepWaitersForTesting()
+        await sleeping.value
     }
 
     @Test
