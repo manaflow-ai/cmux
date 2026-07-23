@@ -26808,6 +26808,7 @@ struct CMUXCLI {
         workspaceId: String,
         surfaceId: String?,
         leasePath: String?,
+        agentEventTime: TimeInterval?,
         env: [String: String],
         telemetry: CLISocketSentryTelemetry
     ) {
@@ -26850,6 +26851,11 @@ struct CMUXCLI {
         if let leasePath, !leasePath.isEmpty {
             monitorArgs += ["--lease", leasePath]
         }
+        if let agentEventTime {
+            monitorArgs.append(
+                "--agent-event-time=\(String(format: "%.6f", locale: Locale(identifier: "en_US_POSIX"), agentEventTime))"
+            )
+        }
         process.arguments = monitorArgs
         process.environment = env.merging(["CMUX_CLI_SENTRY_DISABLED": "1"], uniquingKeysWith: { _, new in new })
         process.standardInput = FileHandle.nullDevice
@@ -26875,6 +26881,16 @@ struct CMUXCLI {
         let turnId = optionValue(commandArgs, name: "--turn")
         var transcriptPath = optionValue(commandArgs, name: "--transcript")
         let leasePath = optionValue(commandArgs, name: "--lease")
+        let agentEventTime: TimeInterval? = {
+            guard let rawValue = optionValue(commandArgs, name: "--agent-event-time"),
+                  let value = TimeInterval(rawValue),
+                  value.isFinite,
+                  value >= 946_684_800,
+                  value <= 4_102_444_800 else {
+                return nil
+            }
+            return value
+        }()
 
         guard !workspaceId.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty,
               !sessionId.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty else {
@@ -26912,6 +26928,7 @@ struct CMUXCLI {
                         userInput,
                         workspaceId: workspaceId,
                         surfaceId: surfaceId,
+                        agentEventTime: agentEventTime,
                         client: client
                     )
                 }
@@ -26926,6 +26943,7 @@ struct CMUXCLI {
                         failure,
                         workspaceId: workspaceId,
                         surfaceId: surfaceId,
+                        agentEventTime: agentEventTime,
                         client: client
                     )
                     return
@@ -26955,6 +26973,7 @@ struct CMUXCLI {
         _ userInput: CodexHookUserInputCandidate,
         workspaceId: String,
         surfaceId: String?,
+        agentEventTime: TimeInterval?,
         client: SocketClient
     ) {
         let subtitle = String(localized: "agent.codex.input.subtitle.waiting", defaultValue: "Waiting")
@@ -26968,7 +26987,7 @@ struct CMUXCLI {
         }
         let statusValue = String(localized: "agent.codex.input.status.needsInput", defaultValue: "Codex needs input")
         _ = try? sendV1Command(
-            "set_status codex \(statusValue) --icon=bell.fill --color=#4C8DFF --priority=100 --tab=\(workspaceId)\(socketPanelOption(surfaceId))",
+            "set_status codex \(statusValue) --icon=bell.fill --color=#4C8DFF --priority=100 --tab=\(workspaceId)\(socketPanelOption(surfaceId))\(agentEventTimeOption(agentEventTime))",
             client: client
         )
     }
@@ -26977,6 +26996,7 @@ struct CMUXCLI {
         _ failure: CodexHookFailureCandidate,
         workspaceId: String,
         surfaceId: String?,
+        agentEventTime: TimeInterval?,
         client: SocketClient
     ) {
         let summary = summarizeCodexHookFailureCandidate(failure)
@@ -26985,7 +27005,7 @@ struct CMUXCLI {
             _ = try? sendV1Command("notify_target \(workspaceId) \(surfaceId) \(payload)", client: client)
         }
         _ = try? sendV1Command(
-            "set_status codex \(summary.statusValue) --icon=exclamationmark.triangle.fill --color=#FF453A --priority=100 --tab=\(workspaceId)\(socketPanelOption(surfaceId))",
+            "set_status codex \(summary.statusValue) --icon=exclamationmark.triangle.fill --color=#FF453A --priority=100 --tab=\(workspaceId)\(socketPanelOption(surfaceId))\(agentEventTimeOption(agentEventTime))",
             client: client
         )
     }
@@ -31215,6 +31235,7 @@ export default CMUXSessionRestore;
                     workspaceId: workspaceId,
                     surfaceId: surfaceId,
                     leasePath: leasePath,
+                    agentEventTime: hookEventTime,
                     env: env,
                     telemetry: telemetry
                 )

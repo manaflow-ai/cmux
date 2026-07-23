@@ -638,6 +638,10 @@ extension Workspace {
                     )
                 },
                 resumeBinding: resumeBinding,
+                resumeBindingEventTime: [
+                    surfaceResumeBindingEventTimesByPanelId[panelId],
+                    resumeBinding?.updatedAt,
+                ].compactMap { $0 }.max(),
                 textBoxDraft: terminalPanel.sessionTextBoxDraftSnapshot(),
                 isRemoteTerminal: activeRemoteTerminalSurfaceIds.contains(panelId),
                 remotePTYSessionID: remotePTYSessionIDForSnapshot(panelId: panelId),
@@ -1335,6 +1339,7 @@ extension Workspace {
         case .terminal:
             let snapshotRestorableAgent = snapshot.terminal?.agent
             let persistedResumeBinding = snapshot.terminal?.resumeBinding
+            let persistedResumeBindingEventTime = snapshot.terminal?.resumeBindingEventTime
             let restorableAgent = Self.restorableAgentForSessionRestore(
                 snapshotRestorableAgent,
                 resumeBinding: persistedResumeBinding
@@ -1676,6 +1681,12 @@ extension Workspace {
                 )
             } else {
                 surfaceResumeBindingsByPanelId.removeValue(forKey: terminalPanel.id)
+            }
+            if let persistedResumeBindingEventTime {
+                recordSurfaceResumeBindingMutation(
+                    panelId: terminalPanel.id,
+                    eventTime: persistedResumeBindingEventTime
+                )
             }
             // A terminal whose startup command cds itself (agent resume, tmux attach, agent-hook)
             // is spawned without a working directory, so its shell starts in the default directory

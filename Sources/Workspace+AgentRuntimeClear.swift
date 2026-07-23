@@ -91,7 +91,11 @@ extension Workspace {
                 return false
             }
         }
-        if let agentEventTime {
+        let retainsDurableLifecycleWatermark =
+            AgentHibernationLifecycleStatusKeys.allowedStatusKeys.contains(statusKey) ||
+            (AgentHibernationLifecycleStatusKeys.isManualKey(statusKey) &&
+                agentLifecycleStatesByPanelId[panelId]?[statusKey] != nil)
+        if let agentEventTime, retainsDurableLifecycleWatermark {
             if let current = agentLifecycleEventTimesByPanelId[panelId]?[statusKey] {
                 if agentEventTime > current {
                     agentLifecycleEventTimesByPanelId[panelId, default: [:]][statusKey] = agentEventTime
