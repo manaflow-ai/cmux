@@ -273,6 +273,27 @@ final class cmuxUITests: XCTestCase {
     }
 
     @MainActor
+    func testMarkerlessAccountRecoveryIsVisibleAndActionable() throws {
+        let app = launchApp(mockData: true)
+        defer { app.terminate() }
+
+        let recovery = app.buttons["MobileAccountComputerRecoveryButton"]
+        XCTAssertTrue(recovery.waitForExistence(timeout: 8))
+        XCTAssertEqual(recovery.label, "Find Account Computer")
+        XCTAssertTrue(app.staticTexts[
+            "Open cmux on the Mac and sign in to this same account. Account recovery does not require a QR code."
+        ].exists)
+
+        recovery.tap()
+
+        let alert = app.alerts["Couldn't recover computer"]
+        XCTAssertTrue(alert.waitForExistence(timeout: 12))
+        XCTAssertTrue(app.staticTexts[
+            "No account computer was found. Open cmux on the Mac, sign in to this same account, and try again."
+        ].exists)
+    }
+
+    @MainActor
     func testWorkspaceMacPickerUsesComputerCopy() throws {
         let app = launchApp(mockData: false, environment: [
             "CMUX_UITEST_WORKSPACE_LIST_PREVIEW": "1",

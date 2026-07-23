@@ -1378,6 +1378,74 @@
         }
       }
     },
+    "mobile.computers.findAccount": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Find Account Computer"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "アカウントのコンピュータを検索"
+          }
+        }
+      }
+    },
+    "mobile.computers.findAccountFailedMessage": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "No account computer was found. Open cmux on the Mac, sign in to this same account, and try again."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "アカウントのコンピュータが見つかりませんでした。そのMacでcmuxを開き、この同じアカウントにサインインして、もう一度お試しください。"
+          }
+        }
+      }
+    },
+    "mobile.computers.findAccountFooter": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Open cmux on the Mac and sign in to this same account. Account recovery does not require a QR code."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Macでcmuxを開き、この同じアカウントにサインインしてください。アカウントからの復元にQRコードは必要ありません。"
+          }
+        }
+      }
+    },
+    "mobile.computers.findingAccount": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Searching Account…"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "アカウントを検索中…"
+          }
+        }
+      }
+    },
     "mobile.computers.noRoute": {
       "extractionState": "manual",
       "localizations": {

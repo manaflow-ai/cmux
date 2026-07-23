@@ -2147,12 +2147,14 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
     /// completes. Filtering the current scope keeps that late write hidden until
     /// the user explicitly pairs/connects that Mac again.
     @ObservationIgnored var forgottenMacDeviceIDsByScope: [String: Set<String>] = [:]
-    /// True when the current account/team scope has a deleted-computer marker
-    /// that can be recovered through explicit same-account Iroh discovery.
+    /// True when the current account/team scope has a deleted-computer marker.
+    ///
+    /// This controls recovery copy and passive-discovery suppression. Explicit
+    /// same-account recovery remains available without a marker.
     public internal(set) var hasRecoverableDeletedComputers = false
-    /// True while the explicit deleted-computer recovery path is scanning and
-    /// reconnecting through account-scoped Iroh discovery.
-    public internal(set) var isRecoveringDeletedComputer = false
+    /// True while explicit account recovery is scanning and reconnecting through
+    /// account-scoped Iroh discovery.
+    public internal(set) var isRecoveringAccountComputer = false
 
     var pairedMacsForIdentityMatching: [MobilePairedMac] {
         storedPairedMacs.isEmpty ? pairedMacs : storedPairedMacs

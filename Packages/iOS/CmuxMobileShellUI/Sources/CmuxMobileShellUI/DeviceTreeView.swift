@@ -68,8 +68,8 @@ struct DeviceTreeView: View {
                         ))
                     }
                 }
-                if store.hasRecoverableDeletedComputers {
-                    deletedComputerRecoverySection
+                if store.accountComputerRecoveryMode != .unavailable {
+                    accountComputerRecoverySection
                 }
             }
             .listStyle(.insetGrouped)
@@ -142,17 +142,19 @@ struct DeviceTreeView: View {
     }
 
     @ViewBuilder
-    private var deletedComputerRecoverySection: some View {
+    private var accountComputerRecoverySection: some View {
+        let mode = store.accountComputerRecoveryMode
         Section {
-            DeletedComputerRecoveryButton(
-                isRecovering: store.isRecoveringDeletedComputer,
-                recover: { await store.recoverForgottenIrohMacFromAccount() },
+            AccountComputerRecoveryButton(
+                mode: mode,
+                isRecovering: store.isRecoveringAccountComputer,
+                recover: { await store.recoverIrohMacFromAccount() },
                 reloadAfterFailure: {
                     await reload()
                 }
             )
         } footer: {
-            DeletedComputerRecoveryFooter()
+            AccountComputerRecoveryFooter(mode: mode)
         }
     }
 

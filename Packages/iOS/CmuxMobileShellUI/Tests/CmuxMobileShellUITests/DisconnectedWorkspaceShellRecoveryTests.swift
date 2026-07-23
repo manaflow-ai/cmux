@@ -11,16 +11,17 @@ import Testing
 @Suite
 struct DisconnectedWorkspaceShellRecoveryTests {
     @Test func emptyDisconnectedStateOffersDeletedComputerRecovery() async throws {
-        let store = try await shellStore()
+        let store = try await shellStore(personalIrohDiscovery: EmptyAccountIrohDiscovery())
         store.hasRecoverableDeletedComputers = true
 
         let view = disconnectedView(store: store)
 
-        #expect(view.showsDeletedComputerRecoveryAction)
+        #expect(store.accountComputerRecoveryMode == .recoverDeletedComputer)
+        #expect(view.showsAccountComputerRecoveryAction)
     }
 
     @Test func recoverableDeletedComputerSuppressesAutomaticAddComputerSheet() async throws {
-        let store = try await shellStore()
+        let store = try await shellStore(personalIrohDiscovery: EmptyAccountIrohDiscovery())
         await store.loadPairedMacs()
         store.hasRecoverableDeletedComputers = true
 
@@ -36,11 +37,12 @@ struct DisconnectedWorkspaceShellRecoveryTests {
         let view = disconnectedView(store: store)
 
         #expect(!store.hasRecoverableDeletedComputers)
-        #expect(view.showsDeletedComputerRecoveryAction)
+        #expect(store.accountComputerRecoveryMode == .findAccountComputer)
+        #expect(view.showsAccountComputerRecoveryAction)
         #expect(!view.shouldAutoPresentAddDeviceAfterLoadingSavedMacs)
     }
 
-    @Test func emptyStateAutoPresentsAddComputerOnlyAfterSuccessfulLoad() async throws {
+    @Test func emptyStateAutoPresentsAddComputerWhenAccountDiscoveryIsUnavailable() async throws {
         let store = try await shellStore()
         var view = disconnectedView(store: store)
         #expect(!view.shouldAutoPresentAddDeviceAfterLoadingSavedMacs)
@@ -51,15 +53,19 @@ struct DisconnectedWorkspaceShellRecoveryTests {
         #expect(view.shouldAutoPresentAddDeviceAfterLoadingSavedMacs)
     }
 
-    @Test func failedPairedMacLoadDoesNotAutoPresentAddComputer() async throws {
-        let store = try await shellStore(pairedMacStore: FailingLoadPairedMacStore())
+    @Test func failedPairedMacLoadStillOffersAccountRecovery() async throws {
+        let store = try await shellStore(
+            pairedMacStore: FailingLoadPairedMacStore(),
+            personalIrohDiscovery: EmptyAccountIrohDiscovery()
+        )
         store.hasRecoverableDeletedComputers = true
 
         await store.loadPairedMacs()
         let view = disconnectedView(store: store)
 
         #expect(store.pairedMacLoadState == .failed)
-        #expect(!view.showsDeletedComputerRecoveryAction)
+        #expect(store.accountComputerRecoveryMode == .findAccountComputer)
+        #expect(view.showsAccountComputerRecoveryAction)
         #expect(!view.shouldAutoPresentAddDeviceAfterLoadingSavedMacs)
     }
 

@@ -3,10 +3,11 @@ import CmuxMobileShell
 import CmuxMobileSupport
 import SwiftUI
 
-struct DeletedComputerRecoveryButton: View {
+struct AccountComputerRecoveryButton: View {
     var isProminent = false
+    let mode: MobileAccountComputerRecoveryMode
     let isRecovering: Bool
-    let recover: @MainActor () async -> MobileDeletedComputerRecoveryResult
+    let recover: @MainActor () async -> MobileAccountComputerRecoveryResult
     let reloadAfterFailure: @MainActor () async -> Void
 
     @State private var alertMessage: String?
@@ -24,7 +25,7 @@ struct DeletedComputerRecoveryButton: View {
     }
 
     private var recoveryButton: some View {
-        Button(action: recoverDeletedComputer) {
+        Button(action: recoverAccountComputer) {
             Label {
                 Text(isRecoveryInProgress ? recoveringTitle : title)
             } icon: {
@@ -36,7 +37,7 @@ struct DeletedComputerRecoveryButton: View {
             }
         }
         .disabled(isRecoveryInProgress)
-        .accessibilityIdentifier("MobileRecoverDeletedComputerButton")
+        .accessibilityIdentifier("MobileAccountComputerRecoveryButton")
         .alert(
             failureTitle,
             isPresented: alertPresented
@@ -63,7 +64,7 @@ struct DeletedComputerRecoveryButton: View {
         )
     }
 
-    private func recoverDeletedComputer() {
+    private func recoverAccountComputer() {
         guard !isRecoveryInProgress else { return }
         alertMessage = nil
         recoveryTask = Task { @MainActor in
@@ -87,17 +88,33 @@ struct DeletedComputerRecoveryButton: View {
     }
 
     private var recoveringTitle: String {
-        L10n.string(
-            "mobile.computers.recoveringDeleted",
-            defaultValue: "Recovering Deleted Computer..."
-        )
+        switch mode {
+        case .recoverDeletedComputer:
+            L10n.string(
+                "mobile.computers.recoveringDeleted",
+                defaultValue: "Recovering Deleted Computer..."
+            )
+        case .findAccountComputer, .unavailable:
+            L10n.string(
+                "mobile.computers.findingAccount",
+                defaultValue: "Searching Account..."
+            )
+        }
     }
 
     private var title: String {
-        L10n.string(
-            "mobile.computers.recoverDeleted",
-            defaultValue: "Recover Deleted Computer"
-        )
+        switch mode {
+        case .recoverDeletedComputer:
+            L10n.string(
+                "mobile.computers.recoverDeleted",
+                defaultValue: "Recover Deleted Computer"
+            )
+        case .findAccountComputer, .unavailable:
+            L10n.string(
+                "mobile.computers.findAccount",
+                defaultValue: "Find Account Computer"
+            )
+        }
     }
 
     private var failureTitle: String {
@@ -108,24 +125,42 @@ struct DeletedComputerRecoveryButton: View {
     }
 
     private var failureMessage: String {
-        L10n.string(
-            "mobile.computers.recoverFailedMessage",
-            defaultValue: "No deleted computer was recovered. Open cmux on the Mac, sign in to this same account, and try again."
-        )
+        switch mode {
+        case .recoverDeletedComputer:
+            L10n.string(
+                "mobile.computers.recoverFailedMessage",
+                defaultValue: "No deleted computer was recovered. Open cmux on the Mac, sign in to this same account, and try again."
+            )
+        case .findAccountComputer, .unavailable:
+            L10n.string(
+                "mobile.computers.findAccountFailedMessage",
+                defaultValue: "No account computer was found. Open cmux on the Mac, sign in to this same account, and try again."
+            )
+        }
     }
 }
 
 @MainActor
-struct DeletedComputerRecoveryFooter: View {
+struct AccountComputerRecoveryFooter: View {
+    let mode: MobileAccountComputerRecoveryMode
+
     var body: some View {
         Text(footer)
     }
 
     private var footer: String {
-        L10n.string(
-            "mobile.computers.recoverDeletedFooter",
-            defaultValue: "Deleted computers stay hidden on this phone. To recover one, open cmux on that Mac, sign in to this same account, then tap Recover Deleted Computer."
-        )
+        switch mode {
+        case .recoverDeletedComputer:
+            L10n.string(
+                "mobile.computers.recoverDeletedFooter",
+                defaultValue: "Deleted computers stay hidden on this phone. To recover one, open cmux on that Mac, sign in to this same account, then tap Recover Deleted Computer."
+            )
+        case .findAccountComputer, .unavailable:
+            L10n.string(
+                "mobile.computers.findAccountFooter",
+                defaultValue: "Open cmux on the Mac and sign in to this same account. Account recovery does not require a QR code."
+            )
+        }
     }
 }
 #endif
