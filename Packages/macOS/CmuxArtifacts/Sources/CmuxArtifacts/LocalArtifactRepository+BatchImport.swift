@@ -80,7 +80,11 @@ extension LocalArtifactRepository {
                 preparedByIndex[index] = PreparedArtifactImport(
                     candidate: ArtifactCandidate(sourceURL: source, provenance: candidate.provenance),
                     snapshot: snapshot,
-                    digest: try ArtifactDigestCalculator().digest(url: snapshot.url)
+                    digest: try ArtifactDigestCalculator().digest(
+                        url: snapshot.url,
+                        expectedSize: snapshot.size,
+                        allowedRoot: paths.importStagingRoot
+                    )
                 )
             } catch let error as ArtifactStoreError {
                 if case .batchByteLimitReached(let actual, _) = error,

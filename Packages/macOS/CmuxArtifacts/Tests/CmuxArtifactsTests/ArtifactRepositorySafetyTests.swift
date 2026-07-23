@@ -385,7 +385,11 @@ struct ArtifactRepositorySafetyTests {
             named: "plan.md",
             under: root.appendingPathComponent("outside")
         )
-        let digest = try ArtifactDigestCalculator().digest(url: source)
+        let digest = try ArtifactDigestCalculator().digest(
+            url: source,
+            expectedSize: 8,
+            allowedRoot: root
+        )
         let fileManager = ProvenanceCorruptingFileManager(
             metadataURL: ArtifactStorePaths(projectRoot: root).provenanceRoot
                 .appendingPathComponent("\(digest).json")

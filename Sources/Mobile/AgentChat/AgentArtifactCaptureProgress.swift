@@ -4,6 +4,8 @@ enum AgentArtifactCaptureProgress: Equatable, Sendable {
     case complete
     /// A policy boundary left more candidates ready for another bounded batch.
     case needsContinuation
+    /// The store is temporarily leased by another local mutation.
+    case retryableContention
     /// Cancellation or an external safety gate requires a later event to retry.
     case blocked
 }

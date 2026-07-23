@@ -29,8 +29,10 @@ public extension Collection where Element == ChatMessage {
                 return terminal.isRunning || message.seq > finalProse.seq
             case .fileEdit, .thought, .unsupported:
                 return message.seq > finalProse.seq
-            case .permissionRequest, .question:
+            case .permissionRequest:
                 return true
+            case .question(let question):
+                return question.selectedOptionLabel == nil || message.seq > finalProse.seq
             case .prose, .status, .attachment:
                 return false
             }

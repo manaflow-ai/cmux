@@ -78,8 +78,8 @@ public actor ArtifactCaptureService: ArtifactCapturing {
     /// Explicitly adds files through the same validated persistence path.
     ///
     /// Large user selections are split into policy-sized persistence batches so
-    /// each batch shares one bounded deduplication scan without exceeding the
-    /// project's automatic-capture work limit.
+    /// each batch shares one bounded deduplication scan without staging more
+    /// than one maximum-sized artifact at a time.
     ///
     /// - Parameters:
     ///   - sourceURLs: Existing regular files to add.
@@ -94,6 +94,7 @@ public actor ArtifactCaptureService: ArtifactCapturing {
         guard !sourceURLs.isEmpty else { return [] }
         let configuration = await store.configuration(projectRoot: context.projectRoot).normalized
         let batchSize = configuration.maximumFilesPerCapture
+        let batchByteLimit = configuration.maximumFileBytes
         var attempts: [ArtifactImportAttempt] = []
         attempts.reserveCapacity(sourceURLs.count)
         var batchStart = sourceURLs.startIndex
@@ -106,16 +107,32 @@ public actor ArtifactCaptureService: ArtifactCapturing {
             let candidates = sourceURLs[batchStart..<batchEnd].map {
                 ArtifactCandidate(sourceURL: $0, provenance: .manual)
             }
-            attempts.append(contentsOf: await store.importFiles(
+            let batchAttempts = await store.importFiles(
                 candidates: candidates,
                 context: context,
                 configuration: configuration,
-                maximumBatchBytes: nil,
+                maximumBatchBytes: batchByteLimit,
                 capturedAt: capturedAt
+            )
+            let completedCount = batchAttempts.prefix {
+                !isAggregateBatchLimit($0)
+            }.count
+            if completedCount > 0 {
+                attempts.append(contentsOf: batchAttempts.prefix(completedCount))
+                batchStart = sourceURLs.index(batchStart, offsetBy: completedCount)
+                continue
+            }
+            attempts.append(batchAttempts.first ?? .rejected(
+                .sourceNotRegularFile(sourceURLs[batchStart].path)
             ))
-            batchStart = batchEnd
+            batchStart = sourceURLs.index(after: batchStart)
         }
         return attempts
+    }
+
+    private func isAggregateBatchLimit(_ attempt: ArtifactImportAttempt) -> Bool {
+        if case .rejected(.batchByteLimitReached) = attempt { return true }
+        return false
     }
 
     private func isEligible(
