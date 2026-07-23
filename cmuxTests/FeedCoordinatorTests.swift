@@ -489,7 +489,8 @@ struct FeedCoordinatorTests {
         DispatchQueue.global(qos: .userInitiated).async {
             resultBox.value = FeedCoordinator.shared.ingestBlocking(
                 event: event,
-                waitTimeout: 0
+                waitTimeout: 0,
+                requiresIngestionAcknowledgment: true
             )
             done.signal()
         }
@@ -503,6 +504,51 @@ struct FeedCoordinatorTests {
             FeedCoordinator.shared.store.items.contains(where: { $0.id == itemId })
         }
         #expect(inserted)
+    }
+
+    @Test func zeroWaitOneWayTelemetryDoesNotSynchronouslyHopToMainActor() async {
+        await MainActor.run {
+            let store = WorkstreamStore(ringCapacity: 10)
+            FeedCoordinator.shared.install(store: store)
+        }
+
+        let event = WorkstreamEvent(
+            sessionId: "one-way-telemetry-test",
+            hookEventName: .postToolUse,
+            source: "claude",
+            cwd: "/tmp",
+            toolName: "Bash",
+            toolInputJSON: #"{"kind":"object"}"#,
+            requestId: "synthesized-one-way-request"
+        )
+        let mainActorBlocked = DispatchSemaphore(value: 0)
+        let releaseMainActor = DispatchSemaphore(value: 0)
+        DispatchQueue.main.async {
+            mainActorBlocked.signal()
+            _ = releaseMainActor.wait(timeout: .now() + 2)
+        }
+        #expect(mainActorBlocked.wait(timeout: .now() + 1) == .success)
+        defer { releaseMainActor.signal() }
+
+        let done = DispatchSemaphore(value: 0)
+        let resultBox = IngestResultBox()
+        DispatchQueue.global(qos: .userInitiated).async {
+            resultBox.value = FeedCoordinator.shared.ingestBlocking(
+                event: event,
+                waitTimeout: 0,
+                requiresIngestionAcknowledgment: false
+            )
+            done.signal()
+        }
+
+        #expect(
+            done.wait(timeout: .now() + 0.2) == .success,
+            "one-way telemetry must return while its main-actor insertion remains queued"
+        )
+        guard case .acknowledged(itemId: nil) = resultBox.value else {
+            Issue.record("one-way telemetry must not claim an authoritative inserted item")
+            return
+        }
     }
 
     @Test func blockingIngestSkipsNotificationWhenPermissionResolvesBeforeDisplay() async {

@@ -2956,6 +2956,15 @@ def test_pi_hook_rehomes_moved_explicit_surface(cli_path: str, root: Path) -> No
     ]
     if not resolver_frames:
         raise AssertionError(f"Pi hook did not resolve the moved surface's live owner: {fake.frames!r}")
+    try:
+        hook_result = json.loads(result.stdout)
+    except json.JSONDecodeError as exc:
+        raise AssertionError(f"Pi hook did not report its resolved live target: {result.stdout!r}") from exc
+    if hook_result != {
+        "workspace_id": moved_workspace_id,
+        "surface_id": FAKE_SURFACE_ID,
+    }:
+        raise AssertionError(f"Pi hook reported the wrong resolved live target: {hook_result!r}")
 
 
 def test_pi_feed_uses_resolved_explicit_workspace(cli_path: str, root: Path) -> None:

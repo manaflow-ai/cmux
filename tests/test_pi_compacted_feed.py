@@ -21,6 +21,21 @@ from test_codex_feed_hooks import (
 def test_relay_batch_uses_one_response_deadline(root: Path) -> None:
     source_path = Path(__file__).resolve().parents[1] / "CLI" / "SocketClient+SingleLineBatch.swift"
     source = source_path.read_text()
+    socket_client_source = (
+        Path(__file__).resolve().parents[1] / "CLI" / "cmux.swift"
+    ).read_text()
+    send_start = socket_client_source.index(
+        "    func send(command: String, responseTimeout: TimeInterval? = nil) throws -> String {"
+    )
+    send_end = socket_client_source.index(
+        "\n    func sendOneWay(",
+        send_start,
+    )
+    send_source = socket_client_source[send_start:send_end]
+    if "connectWithoutRetry(responseTimeout: responseTimeout)" not in send_source:
+        raise AssertionError(
+            "relay-backed send does not apply its response timeout to connect/authentication"
+        )
     source = "\n".join(
         line for line in source.splitlines()
         if line not in {"import Darwin", "import Foundation"}

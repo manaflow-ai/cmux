@@ -1246,6 +1246,61 @@ await handlers.get("before_agent_start")({ prompt: "route after stale resume tar
     return 0
 
 
+def check_moved_surface_resume_target(bun: str, root: Path, extension_path: Path) -> int:
+    moved_log = root / "moved-surface-resume-cmux.log"
+    moved_cmux = root / "moved-surface-resume-cmux"
+    make_executable(
+        moved_cmux,
+        """#!/usr/bin/env bash
+set -euo pipefail
+printf '%s\n' "$*" >> "$CMUX_TEST_PI_MOVED_RESUME_LOG"
+cat >/dev/null
+if [[ "$*" == *"hooks pi"* ]]; then
+  printf '{"workspace_id":"00000000-0000-0000-0000-000000008674","surface_id":"00000000-0000-0000-0000-000000008672"}\n'
+else
+  printf '{}\n'
+fi
+""",
+    )
+    moved_source = """
+const extensionPath = process.env.CMUX_TEST_PI_EXTENSION_PATH;
+const mod = await import(extensionPath);
+const handlers = new Map();
+mod.default({ on(name, handler) { handlers.set(name, handler); } });
+const ctx = {
+  cwd: "/tmp/pi-moved-surface-resume-project",
+  sessionManager: { getSessionId() { return "pi-moved-surface-resume-session"; } }
+};
+await handlers.get("session_start")({}, ctx);
+await handlers.get("session_shutdown")({ reason: "quit" }, ctx);
+"""
+    moved = run_extension(
+        bun=bun,
+        root=root,
+        extension_path=extension_path,
+        fake_cmux=moved_cmux,
+        source=moved_source,
+        extra_env={"CMUX_TEST_PI_MOVED_RESUME_LOG": str(moved_log)},
+    )
+    if moved.returncode != 0:
+        print(f"FAIL: moved-surface resume harness failed: {moved.stderr!r}")
+        return 1
+    calls = moved_log.read_text(encoding="utf-8").splitlines()
+    resume_calls = [line for line in calls if "surface resume" in line]
+    if len(resume_calls) != 3:
+        print(f"FAIL: moved-surface harness missed resume set/get/clear: {calls!r}")
+        return 1
+    moved_target = (
+        "--workspace 00000000-0000-0000-0000-000000008674 "
+        "--surface 00000000-0000-0000-0000-000000008672"
+    )
+    if any(moved_target not in line for line in resume_calls):
+        print(f"FAIL: resume binding reused the surface's stale ambient workspace: {calls!r}")
+        return 1
+
+    return 0
+
+
 def check_runtime_isolation(bun: str, root: Path, extension_path: Path) -> int:
     runtime_log = root / "runtime-isolation-cmux.log"
     runtime_cmux = root / "runtime-isolation-cmux"
@@ -1381,6 +1436,7 @@ def run_checks(bun: str, root: Path, extension_path: Path) -> int:
         check_error_classification,
         check_unserializable_feed,
         check_explicit_surface_routing,
+        check_moved_surface_resume_target,
         check_runtime_isolation,
         check_stale_surface,
     )
