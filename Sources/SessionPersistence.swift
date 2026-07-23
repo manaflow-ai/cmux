@@ -802,8 +802,80 @@ enum SurfaceResumeApprovalStore {
     ) -> [SurfaceResumeApprovalRecord] {
         let signingSecret = signingSecret ?? defaultSigningSecret(fileManager: fileManager)
         guard let signingSecret else { return [] }
-        return loadRecords(fileURL: fileURL, fileManager: fileManager)
+        return cachedValidRecords(fileURL: fileURL, fileManager: fileManager, signingSecret: signingSecret)
+    }
+
+    // MARK: - Read caching (session-autosave hot path)
+    //
+    // `validRecords` runs once per terminal panel on every session autosave,
+    // and each call used to re-read the store file, re-decode it, and re-HMAC
+    // every record on the main thread. The cache below re-stats the file on
+    // every call and only reloads + re-verifies when the modification date or
+    // size changed, the effective signing secret changed, or an in-process
+    // write posted `didChangeNotification`.
+    private final class ValidRecordsCache {
+        struct Entry {
+            let modificationDate: Date?
+            let fileSize: NSNumber?
+            let signingSecret: Data
+            let records: [SurfaceResumeApprovalRecord]
+        }
+
+        let lock = NSLock()
+        var entries: [String: Entry] = [:]
+        var invalidationObserver: NSObjectProtocol?
+        /// Process-lifetime memo for the non-env signing secret: the Keychain
+        /// (or file-backed fallback) secret does not change within a process
+        /// lifetime, so autosave should not pay a Keychain query per panel.
+        var processSigningSecret: Data?
+    }
+
+    private static let validRecordsCache = ValidRecordsCache()
+
+    private static func cachedValidRecords(
+        fileURL: URL,
+        fileManager: FileManager,
+        signingSecret: Data
+    ) -> [SurfaceResumeApprovalRecord] {
+        let cache = validRecordsCache
+        cache.lock.lock()
+        if cache.invalidationObserver == nil {
+            cache.invalidationObserver = NotificationCenter.default.addObserver(
+                forName: didChangeNotification,
+                object: nil,
+                queue: nil
+            ) { _ in
+                let cache = SurfaceResumeApprovalStore.validRecordsCache
+                cache.lock.lock()
+                cache.entries.removeAll()
+                cache.lock.unlock()
+            }
+        }
+        let path = fileURL.standardizedFileURL.path
+        let attributes = try? fileManager.attributesOfItem(atPath: path)
+        let modificationDate = attributes?[.modificationDate] as? Date
+        let fileSize = attributes?[.size] as? NSNumber
+        if let entry = cache.entries[path],
+           entry.modificationDate == modificationDate,
+           entry.fileSize == fileSize,
+           entry.signingSecret == signingSecret {
+            cache.lock.unlock()
+            return entry.records
+        }
+        cache.lock.unlock()
+
+        let records = loadRecords(fileURL: fileURL, fileManager: fileManager)
             .filter { $0.hasValidSignature(secret: signingSecret) }
+
+        cache.lock.lock()
+        cache.entries[path] = ValidRecordsCache.Entry(
+            modificationDate: modificationDate,
+            fileSize: fileSize,
+            signingSecret: signingSecret,
+            records: records
+        )
+        cache.lock.unlock()
+        return records
     }
 
     static func matchingRecord(
@@ -1020,20 +1092,39 @@ enum SurfaceResumeApprovalStore {
     }
 
     static func defaultSigningSecret(fileManager: FileManager = .default) -> Data? {
+        // Tests rotate this env var per test, so it is re-read on every call.
         let env = ProcessInfo.processInfo.environment
         if let encoded = env["CMUX_SURFACE_RESUME_APPROVAL_SECRET_B64"],
            let data = Data(base64Encoded: encoded),
            !data.isEmpty {
             return data
         }
-        if let data = keychainSecret(), !data.isEmpty {
-            return data
+        let cache = validRecordsCache
+        cache.lock.lock()
+        if let processSigningSecret = cache.processSigningSecret {
+            cache.lock.unlock()
+            return processSigningSecret
         }
-        let generated = randomSecret()
-        if storeKeychainSecret(generated) {
-            return generated
+        cache.lock.unlock()
+        let resolved: Data? = {
+            if let data = keychainSecret(), !data.isEmpty {
+                return data
+            }
+            let generated = randomSecret()
+            if storeKeychainSecret(generated) {
+                return generated
+            }
+            return fileBackedSecret(fileManager: fileManager, generated: generated)
+        }()
+        // Memoize the resolved secret for the process (see ValidRecordsCache);
+        // a nil resolution (file-backed write failed) is not cached so the
+        // next call retries, matching the previous behavior.
+        if let resolved {
+            cache.lock.lock()
+            cache.processSigningSecret = resolved
+            cache.lock.unlock()
         }
-        return fileBackedSecret(fileManager: fileManager, generated: generated)
+        return resolved
     }
 
     private static func writeReplacing(
