@@ -271,7 +271,8 @@ function sendFeed(
   if (!sessionId) return;
   const target = surfaceTargetArgs(dispatcher, sessionId);
   if (!target) return;
-  if (sessionStates.get(sessionId)?.stopped) return;
+  const state = stateFor(sessionStates, sessionId);
+  if (state.stopped) return;
   const cwd = context.cwd;
   const toolCallId = firstString(objectValue(event, ["toolCallId", "tool_call_id", "id"]));
   const toolName = firstString(objectValue(event, ["toolName", "tool_name", "name"]));
@@ -303,6 +304,7 @@ function sendFeed(
     payload,
     context,
     terminal: eventName === "PostToolUse",
+    onFailure: () => { state.feedDeliveryFailed = true; },
   });
 }
 
@@ -314,7 +316,10 @@ async function publishPendingCompletion(
 ): Promise<void> {
   const completion = settleTurn(sessionStates, sessionId);
   if (!completion) return;
-  const feedDelivered = await dispatcher.finishFeedForSession(sessionId);
+  await dispatcher.finishFeedForSession(sessionId);
+  const state = stateFor(sessionStates, sessionId);
+  const feedDelivered = !state.feedDeliveryFailed;
+  state.feedDeliveryFailed = false;
   if (!feedDelivered) {
     warn(context, "cmux terminal feed delivery failed", { session_id: sessionId });
   }
@@ -343,6 +348,7 @@ export default function cmuxPiSessionExtension(pi: ExtensionAPI) {
     if (sessionId) {
       const state = stateFor(sessionStates, sessionId);
       state.pendingCompletion = undefined;
+      state.feedDeliveryFailed = false;
       state.stopped = false;
     }
     const ok = await sendHook(dispatcher, "session-start", context);
@@ -406,7 +412,9 @@ export default function cmuxPiSessionExtension(pi: ExtensionAPI) {
         terminationReason: firstString(objectValue(event, ["reason"])) || "session_shutdown",
       };
     }
-    const feedDelivered = await dispatcher.finishFeedForSession(sessionId);
+    await dispatcher.finishFeedForSession(sessionId);
+    const feedDelivered = !state.feedDeliveryFailed;
+    state.feedDeliveryFailed = false;
     if (!feedDelivered) warn(context, "cmux terminal feed delivery failed", { session_id: sessionId });
     if (stopPayload) await sendHook(dispatcher, "stop", context, stopPayload);
     try {

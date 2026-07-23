@@ -853,6 +853,7 @@ import { writeFileSync } from "node:fs";
 const extensionPath = process.env.CMUX_TEST_PI_EXTENSION_PATH;
 const mod = await import(extensionPath);
 const dispatcher = new mod.PiCmuxCommandDispatcher();
+let overflowFailureReported = false;
 for (let index = 0; index < 70; index += 1) {
   const sessionId = `pi-feed-failure-overflow-${index}`;
   dispatcher.enqueueFeed(`overflow-${index}`, {
@@ -867,12 +868,36 @@ for (let index = 0; index < 70; index += 1) {
       cwd: "/tmp/pi-feed-failure-overflow",
     },
     terminal: true,
+    onFailure: () => {
+      if (index === 69) overflowFailureReported = true;
+    },
   });
 }
-const delivered = await dispatcher.finishFeedForSession("pi-feed-failure-overflow-69");
+await dispatcher.finishFeedForSession("pi-feed-failure-overflow-69");
 writeFileSync(process.env.CMUX_TEST_PI_FAILURE_OVERFLOW_RELEASE, "ready");
-await new Promise((resolve) => setTimeout(resolve, 1000));
-if (delivered) throw new Error("dropped terminal Feed event was reported as delivered");
+if (!overflowFailureReported) throw new Error("dropped terminal Feed event was reported as delivered");
+await Promise.all(Array.from(
+  { length: 34 },
+  (_, index) => dispatcher.finishFeedForSession(`pi-feed-failure-overflow-${index}`),
+));
+let recoveredFailureReported = false;
+const recoveredSessionId = "pi-feed-failure-overflow-recovered";
+dispatcher.enqueueFeed("overflow-recovered", {
+  args: ["hooks", "feed", "--surface", "00000000-0000-0000-0000-000000008672"],
+  cwd: "/tmp/pi-feed-failure-overflow",
+  payload: {
+    session_id: recoveredSessionId,
+    hook_event_name: "PostToolUse",
+  },
+  context: {
+    sessionId: recoveredSessionId,
+    cwd: "/tmp/pi-feed-failure-overflow",
+  },
+  terminal: true,
+  onFailure: () => { recoveredFailureReported = true; },
+});
+await dispatcher.finishFeedForSession(recoveredSessionId);
+if (recoveredFailureReported) throw new Error("Feed failure overflow did not recover after draining");
 """
     result = run_extension(
         bun=bun,
@@ -1199,12 +1224,14 @@ dispatcher.enqueueFeed("timeout-tool", {
   terminal: false
 });
 const completionPayload = { session_id: context.sessionId, hook_event_name: "PostToolUse" };
+let completionFailed = false;
 dispatcher.enqueueFeed("timeout-tool", {
   args: ["hooks", "feed", "--source", "pi", "--event", "PostToolUse"],
   cwd: "/tmp/pi-queued-completion-timeout",
   payload: completionPayload,
   context,
-  terminal: true
+  terminal: true,
+  onFailure: () => { completionFailed = true; }
 });
 if (!resolveActive) throw new Error("nonterminal feed did not become active");
 resolveActive({
@@ -1220,7 +1247,8 @@ while (dispatcher.activeFeeds.size > 0) {
   if (Date.now() >= settleDeadline) throw new Error("timed-out feed did not settle");
   await new Promise((resolve) => setTimeout(resolve, 5));
 }
-if (await dispatcher.finishFeedForSession(context.sessionId)) {
+await dispatcher.finishFeedForSession(context.sessionId);
+if (!completionFailed) {
   throw new Error("queued terminal completion was discarded as successfully delivered");
 }
 """

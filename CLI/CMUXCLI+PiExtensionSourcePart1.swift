@@ -23,6 +23,7 @@ interface SessionState {
   nextTurn: number;
   activeTurnId?: string;
   pendingCompletion?: PendingCompletion;
+  feedDeliveryFailed: boolean;
   stopped: boolean;
 }
 
@@ -412,7 +413,7 @@ function snapshotContext(ctx: ExtensionContext): PiExtensionContextSnapshot {
 function stateFor(sessionStates: Map<string, SessionState>, sessionId: string): SessionState {
   let state = sessionStates.get(sessionId);
   if (!state) {
-    state = { nextTurn: 0, stopped: false };
+    state = { nextTurn: 0, feedDeliveryFailed: false, stopped: false };
     sessionStates.set(sessionId, state);
   }
   return state;
@@ -487,6 +488,7 @@ interface PiFeedCommand {
   readonly payload: Record<string, unknown>;
   readonly context: PiExtensionContextSnapshot;
   readonly terminal: boolean;
+  readonly onFailure?: () => void;
 }
 
 interface PiCommandCancellation {
