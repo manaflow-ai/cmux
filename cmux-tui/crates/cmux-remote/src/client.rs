@@ -367,7 +367,9 @@ fn rpc_traffic_class(request: &WorkspaceRequest) -> RpcTrafficClass {
         | WorkspaceRequest::ApplyPatch { .. }
         | WorkspaceRequest::GitStatus { .. }
         | WorkspaceRequest::Diff { .. }
-        | WorkspaceRequest::ReadProcessEvents { .. } => RpcTrafficClass::Bulk,
+        | WorkspaceRequest::ReadProcessEvents { .. }
+        | WorkspaceRequest::ListProcesses
+        | WorkspaceRequest::SnapshotProcessTerminal { .. } => RpcTrafficClass::Bulk,
         WorkspaceRequest::Capabilities
         | WorkspaceRequest::OpenWorkspace { .. }
         | WorkspaceRequest::ListWorkspaces
@@ -516,6 +518,13 @@ mod tests {
                 request: RequestId::from_u128(9),
             }),
             RpcTrafficClass::Cancellation
+        );
+        assert_eq!(rpc_traffic_class(&WorkspaceRequest::ListProcesses), RpcTrafficClass::Bulk);
+        assert_eq!(
+            rpc_traffic_class(&WorkspaceRequest::SnapshotProcessTerminal {
+                process: ProcessId::from_u128(2),
+            }),
+            RpcTrafficClass::Bulk
         );
     }
 }

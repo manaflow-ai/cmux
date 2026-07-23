@@ -644,7 +644,9 @@ fn workspace_response_needs_codec(response: &RpcResponse) -> bool {
             | WorkspaceResponse::Patch { .. }
             | WorkspaceResponse::GitStatus { .. }
             | WorkspaceResponse::StructuredDiff { .. }
-            | WorkspaceResponse::ProcessEvents { .. },
+            | WorkspaceResponse::ProcessEvents { .. }
+            | WorkspaceResponse::Processes { .. }
+            | WorkspaceResponse::ProcessTerminalSnapshot { .. },
         ) => true,
         Err(error) => rpc_error_needs_codec(error),
         _ => false,

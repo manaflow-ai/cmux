@@ -153,6 +153,7 @@ impl InboundAuthEvidence {
         (peer_uid == effective_uid).then_some(Self::Kernel(VerifiedKernelPeer { uid: peer_uid }))
     }
 
+    #[cfg(test)]
     pub(crate) fn verified_ssh_principal(principal: impl Into<String>) -> Option<Self> {
         let principal = principal.into();
         (!principal.is_empty()).then_some(Self::Ssh(VerifiedSshPrincipal { principal }))

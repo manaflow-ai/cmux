@@ -1400,7 +1400,7 @@ mod tests {
             .unwrap(),
         )
         .unwrap();
-        let routing = iroh.query_pairs().into_owned().collect::<std::collections::HashMap<_, _>>();
+        let routing = iroh.query_pairs().into_owned().collect::<HashMap<_, _>>();
         assert_eq!(routing["direct"], "127.0.0.1:7777");
         assert_eq!(routing["relay"], "https://relay.test/");
         assert!(!routing.contains_key("ticket"));

@@ -198,7 +198,7 @@ fn mutation_test_faults() -> &'static MutationTestFaults {
 }
 
 #[cfg(all(test, unix))]
-struct MutationTestFaultGuard {
+pub(crate) struct MutationTestFaultGuard {
     key: MutationTestFaultKey,
 }
 
@@ -884,6 +884,7 @@ async fn write_bytes_locked_path(
     Ok(hash_bytes(bytes))
 }
 
+#[cfg(test)]
 pub(crate) async fn remove_file_precondition_locked(
     root: &WorkspaceRoot,
     path: &str,
