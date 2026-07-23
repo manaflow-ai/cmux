@@ -5,10 +5,19 @@ struct PiCompactedFeedEventExpander {
     private static let maxCompactedTerminalEvents = 64
     private let agentPid: Int
     private let workspaceId: String?
+    private let maximumRequestCount: Int
 
-    init(agentPid: Int, workspaceId: String?) {
+    init(
+        agentPid: Int,
+        workspaceId: String?,
+        maximumRequestCount: Int? = nil
+    ) {
         self.agentPid = agentPid
         self.workspaceId = workspaceId
+        self.maximumRequestCount = min(
+            max(1, maximumRequestCount ?? Self.maxCompactedTerminalEvents),
+            Self.maxCompactedTerminalEvents
+        )
     }
 
     func requestLines(from rawObject: [String: Any]) -> [String] {
@@ -21,9 +30,10 @@ struct PiCompactedFeedEventExpander {
 
         let rawOmittedCount = rawObject["cmux_compacted_terminal_omitted_count"] as? Int ?? 0
         let omittedCount = max(0, rawOmittedCount)
-        let retainedSummaryLimit = omittedCount > 0
-            ? Self.maxCompactedTerminalEvents - 1
-            : Self.maxCompactedTerminalEvents
+        let needsOverflow = omittedCount > 0 || summaries.count > maximumRequestCount
+        let retainedSummaryLimit = needsOverflow
+            ? maximumRequestCount - 1
+            : maximumRequestCount
         let retainedSummaries: [[String: Any]]
         if summaries.count <= retainedSummaryLimit {
             retainedSummaries = summaries
@@ -36,7 +46,7 @@ struct PiCompactedFeedEventExpander {
         var requests = retainedSummaries.enumerated().compactMap { index, summary in
             requestLine(summary: summary, fallback: rawObject, index: index)
         }
-        if omittedCount > 0 {
+        if needsOverflow {
             let displacedCount = summaries.count - retainedSummaries.count
             let (representedOmittedCount, overflowed) = omittedCount.addingReportingOverflow(displacedCount)
             var summary: [String: Any] = [

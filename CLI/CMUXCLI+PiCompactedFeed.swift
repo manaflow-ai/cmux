@@ -52,7 +52,8 @@ extension CMUXCLI {
         let target = try resolveExplicitPiHookTarget(commandArgs: commandArgs, client: client)
         let requestLines = PiCompactedFeedEventExpander(
             agentPid: agentPid,
-            workspaceId: target?.workspaceId ?? fallbackWorkspaceId
+            workspaceId: target?.workspaceId ?? fallbackWorkspaceId,
+            maximumRequestCount: client.isRelayBacked ? 2 : nil
         ).requestLines(from: rawObject)
         guard !requestLines.isEmpty else { return false }
 
