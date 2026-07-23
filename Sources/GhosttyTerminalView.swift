@@ -3345,7 +3345,7 @@ class GhosttyNSView: NSView, NSUserInterfaceValidations {
 #endif
     private var eventMonitor: Any?
     private var trackingArea: NSTrackingArea?
-    private var windowObserver: NSObjectProtocol?
+    private var windowObserver: NSObjectProtocol?, occlusionObserver: NSObjectProtocol?
     private var lastScrollEventTime: CFTimeInterval = 0
     private let scrollSpeedAccumulator = TerminalScrollSpeedAccumulator()
     private var visibleInUI: Bool = true
@@ -3596,6 +3596,11 @@ class GhosttyNSView: NSView, NSUserInterfaceValidations {
             surface.reconcileAttachedWindowIfNeeded(for: self)
         }
         surface.setKeyboardCopyModeActive(keyboardCopyModeActive)
+        // Seed the window-occlusion axis so a surface attached to a view already
+        // sitting in an occluded window does not keep rendering off-screen.
+        if let window {
+            surface.setWindowOcclusionVisible(window.occlusionState.contains(.visible))
+        }
         if !isAlreadyAttached {
             updateSurfaceSize()
         }
@@ -3605,10 +3610,11 @@ class GhosttyNSView: NSView, NSUserInterfaceValidations {
 
     override func viewDidMoveToWindow() {
         super.viewDidMoveToWindow()
-        if let windowObserver {
-            NotificationCenter.default.removeObserver(windowObserver)
-            self.windowObserver = nil
+        for observer in [windowObserver, occlusionObserver].compactMap({ $0 }) {
+            NotificationCenter.default.removeObserver(observer)
         }
+        windowObserver = nil
+        occlusionObserver = nil
         // Balance the cursor stack if the view is removed while hover is active
         if wordPathHoverActive {
             wordPathHoverActive = false
@@ -3643,6 +3649,13 @@ class GhosttyNSView: NSView, NSUserInterfaceValidations {
         ) { [weak self] notification in
             self?.windowDidChangeScreen(notification)
         }
+        occlusionObserver = NotificationCenter.default.addObserver(
+            forName: NSWindow.didChangeOcclusionStateNotification, object: window, queue: .main
+        ) { [weak self, weak window] _ in
+            guard let self, let window, self.window === window else { return }
+            self.terminalSurface?.setWindowOcclusionVisible(window.occlusionState.contains(.visible))
+        }
+        terminalSurface?.setWindowOcclusionVisible(window.occlusionState.contains(.visible))
 
         if let surface = terminalSurface?.surface,
            let displayID = window.screen?.displayID,
@@ -3678,11 +3691,6 @@ class GhosttyNSView: NSView, NSUserInterfaceValidations {
             effectiveAppearance,
             source: "surface.viewDidChangeEffectiveAppearance"
         )
-    }
-
-    fileprivate func updateOcclusionState() {
-        // Intentionally no-op: we don't drive libghostty occlusion from AppKit occlusion state.
-        // This avoids transient clears during reparenting and keeps rendering logic minimal.
     }
 
     override func viewDidChangeBackingProperties() {
@@ -7281,9 +7289,11 @@ class GhosttyNSView: NSView, NSUserInterfaceValidations {
         if let eventMonitor {
             NSEvent.removeMonitor(eventMonitor)
         }
-        if let windowObserver {
-            NotificationCenter.default.removeObserver(windowObserver)
+        for observer in [windowObserver, occlusionObserver].compactMap({ $0 }) {
+            NotificationCenter.default.removeObserver(observer)
         }
+        windowObserver = nil
+        occlusionObserver = nil
         if let trackingArea {
             removeTrackingArea(trackingArea)
         }

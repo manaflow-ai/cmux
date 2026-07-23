@@ -328,6 +328,7 @@ extension TerminalSurface {
         pendingSocketInputQueue.removeAll(keepingCapacity: false)
         pendingSocketInputBytes = 0
         desiredFocusState = false
+        lastAppliedOcclusionVisible = nil
 
         guard let surfaceToFree else {
             callbackContext?.release()
@@ -606,9 +607,7 @@ extension TerminalSurface {
             lastYScale = scaleFactors.y
         }
 
-        // Flush remote-tmux output that arrived before the surface existed
-        // after sizing, so the seed paints into the final grid instead of
-        // wrapping at Ghostty's default grid.
+        // Flush remote-tmux output after sizing so the seed paints into the final grid.
         flushPendingRemoteOutput(to: createdSurface)
 
         // Some GhosttyKit builds can drop explicit font_size during post-create
@@ -625,10 +624,11 @@ extension TerminalSurface {
             _ = performInternalBindingAction(action)
         }
 
-        // Re-apply the desired focus state after creation so the live runtime
-        // surface converges with any focus changes that happened while the
-        // surface was being initialized.
+        // Re-apply states changed while the runtime surface was initializing.
         ghostty_surface_set_focus(createdSurface, desiredFocusState)
+        lastAppliedOcclusionVisible = nil
+        ghostty_surface_set_occlusion(createdSurface, occlusionState.effectiveVisible)
+        lastAppliedOcclusionVisible = occlusionState.effectiveVisible
 
         flushPendingSocketInputIfNeeded()
 
