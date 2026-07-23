@@ -62,6 +62,15 @@ extension TabManager {
     }
 }
 
+private final class NonDestructiveCloseWindow: NSWindow {
+    private(set) var closeCallCount = 0
+
+    override func close() {
+        closeCallCount += 1
+        orderOut(nil)
+    }
+}
+
 @MainActor
 @Suite("Closed main window routing", .serialized)
 struct ClosedMainWindowRoutingTests {
@@ -349,6 +358,148 @@ struct RecoverableWindowlessMainWindowRoutingTests {
         #expect(app.tabManagerFor(windowId: windowId) == nil)
         #expect(app.recoverableMainWindowRoute(windowId: windowId)?.tabManager === manager)
         #expect(GhosttyApp.terminalSurfaceRegistry.surface(id: terminalPanel.id) === terminalPanel.surface)
+    }
+
+    @Test("Transient windowless route remains in session snapshots and autosave fingerprints")
+    func transientWindowlessRouteRemainsSessionPersistedAndFingerprintStable() throws {
+        _ = NSApplication.shared
+        let previousAppDelegate = AppDelegate.shared
+        let app = AppDelegate()
+        defer {
+            TerminalController.shared.setActiveTabManager(nil)
+            AppDelegate.shared = previousAppDelegate
+        }
+
+        let manager = TabManager()
+        let windowId = app.registerMainWindowContextForTesting(tabManager: manager)
+        let workspace = try #require(manager.selectedWorkspace)
+        defer {
+            app.unregisterMainWindowContextForTesting(windowId: windowId)
+            app.forgetRecoverableMainWindowRoute(windowId: windowId)
+            if !manager.isFinalizedForWindowClose {
+                manager.finalizeAllWorkspacesForWindowClose()
+            }
+            workspace.teardownAllPanels()
+            workspace.teardownRemoteConnection()
+        }
+
+        let context = try #require(
+            app.mainWindowContexts.values.first { $0.windowId == windowId }
+        )
+        let baselineFingerprint = app.sessionAutosaveFingerprint(
+            includeScrollback: false,
+            restorableAgentIndex: .empty,
+            surfaceResumeBindingIndex: .empty
+        )
+        let baselineSnapshot = try #require(app.sessionSnapshotForTesting())
+        #expect(baselineSnapshot.windows.map(\.windowId) == [windowId])
+
+        // A registered context is authoritative while a recoverable entry
+        // briefly overlaps it; persistence must neither duplicate the window
+        // nor use the stale route's sidebar snapshot.
+        app.rememberRecoverableMainWindowRoute(
+            windowId: windowId,
+            tabManager: manager,
+            window: nil,
+            sidebarSnapshot: SessionSidebarSnapshot(
+                isVisible: false,
+                selection: .notifications,
+                width: 480
+            )
+        )
+        let overlappingSnapshot = try #require(app.sessionSnapshotForTesting())
+        #expect(overlappingSnapshot.windows.map(\.windowId) == [windowId])
+        #expect(overlappingSnapshot.windows[0].sidebar.isVisible == context.sidebarState.isVisible)
+        #expect(overlappingSnapshot.windows[0].sidebar.selection == .tabs)
+        #expect(
+            app.sessionAutosaveFingerprint(
+                includeScrollback: false,
+                restorableAgentIndex: .empty,
+                surfaceResumeBindingIndex: .empty
+            ) == baselineFingerprint
+        )
+
+        app.discardOrphanedMainWindowContext(context, allowWindowlessFallback: true)
+
+        #expect(!app.mainWindowContexts.values.contains { $0.windowId == windowId })
+        #expect(app.recoverableMainWindowRoute(windowId: windowId)?.tabManager === manager)
+        #expect(app.recoverableMainWindowRoute(windowId: windowId)?.window == nil)
+        let windowlessSnapshot = try #require(app.sessionSnapshotForTesting())
+        #expect(windowlessSnapshot.windows.map(\.windowId) == [windowId])
+        #expect(windowlessSnapshot.windows[0].tabManager.workspaces.map(\.workspaceId) == [workspace.id])
+        let windowlessFingerprint = app.sessionAutosaveFingerprint(
+            includeScrollback: false,
+            restorableAgentIndex: .empty,
+            surfaceResumeBindingIndex: .empty
+        )
+        #expect(windowlessFingerprint == baselineFingerprint)
+
+        let addedWorkspace = manager.addWorkspace(initialSurface: .browser)
+        let updatedSnapshot = try #require(app.sessionSnapshotForTesting())
+        #expect(
+            updatedSnapshot.windows[0].tabManager.workspaces.compactMap(\.workspaceId)
+                == [workspace.id, addedWorkspace.id]
+        )
+        #expect(
+            app.sessionAutosaveFingerprint(
+                includeScrollback: false,
+                restorableAgentIndex: .empty,
+                surfaceResumeBindingIndex: .empty
+            ) != windowlessFingerprint
+        )
+    }
+
+    @Test("Browser-only dead route is pruned on ledger access")
+    func browserOnlyDeadRouteIsPrunedOnLedgerAccess() throws {
+        _ = NSApplication.shared
+        let previousAppDelegate = AppDelegate.shared
+        let app = AppDelegate()
+        defer {
+            TerminalController.shared.setActiveTabManager(nil)
+            AppDelegate.shared = previousAppDelegate
+        }
+
+        let windowId = UUID()
+        weak var deadManager: TabManager?
+        weak var retainedRoute: RecoverableMainWindowRoute?
+
+        do {
+            let manager = TabManager()
+            deadManager = manager
+            let workspace = try #require(manager.selectedWorkspace)
+            let terminal = try #require(workspace.focusedTerminalPanel)
+            let paneId = try #require(
+                workspace.bonsplitController.focusedPaneId
+                    ?? workspace.bonsplitController.allPaneIds.first
+            )
+            let browser = try #require(
+                workspace.newBrowserSurface(
+                    inPane: paneId,
+                    url: URL(string: "https://example.com/dead-browser-route"),
+                    focus: true,
+                    creationPolicy: .restoration
+                )
+            )
+            #expect(workspace.closePanel(terminal.id, force: true))
+            #expect(workspace.panels[browser.id] === browser)
+            #expect(!workspace.panels.values.contains { $0 is TerminalPanel })
+
+            app.registerMainWindowContextForTesting(windowId: windowId, tabManager: manager)
+            app.unregisterMainWindowContextForTesting(windowId: windowId)
+            retainedRoute = try #require(app.recoverableMainWindowRoute(windowId: windowId))
+            #expect(retainedRoute?.tabManager === manager)
+
+            workspace.teardownAllPanels()
+            workspace.teardownRemoteConnection()
+        }
+
+        #expect(deadManager == nil)
+        #expect(retainedRoute != nil)
+
+        // No terminal existed when the manager died, so no terminal-registry
+        // topology event can retire this route. Ledger access owns the sweep.
+        #expect(app.recoverableMainWindowRoute(windowId: windowId) == nil)
+        #expect(retainedRoute == nil)
     }
 
     @Test("Ordered-out recovery state is isolated from general window routing")
@@ -821,8 +972,8 @@ struct GhostMainWindowContextLifecycleTests {
         #expect(manager.tabs.isEmpty, message)
     }
 
-    private func makeMainWindow(id: UUID) -> NSWindow {
-        let window = NSWindow(
+    private func makeMainWindow(id: UUID) -> NonDestructiveCloseWindow {
+        let window = NonDestructiveCloseWindow(
             contentRect: NSRect(x: 0, y: 0, width: 500, height: 320),
             styleMask: [.titled, .closable],
             backing: .buffered,
@@ -1172,10 +1323,9 @@ struct GhostMainWindowContextLifecycleTests {
         window.makeKeyAndOrderFront(nil)
         #expect(GhosttyApp.terminalSurfaceRegistry.surface(id: terminalPanel.id) === terminalPanel.surface)
 
-        // Drive the installed AppKit close observer without asking AppKit to
-        // destroy a synthetic contentless test window (which crashes its
-        // private layout machinery). Keep the NSWindow and SwiftUI-owned
-        // models alive, then reproduce issue #8349's late registration.
+        // Drive the installed AppKit close observer while the non-destructive
+        // fixture keeps the synthetic contentless window alive. Then reproduce
+        // issue #8349's late SwiftUI registration.
         NotificationCenter.default.post(name: NSWindow.willCloseNotification, object: window)
         window.orderOut(nil)
         app.registerMainWindow(
@@ -1186,6 +1336,7 @@ struct GhostMainWindowContextLifecycleTests {
             sidebarSelectionState: sidebarSelectionState,
             fileExplorerState: fileExplorerState
         )
+        #expect(window.closeCallCount == 1)
 
         // A retained, already-closed NSWindow emits no second notification.
         // The socket/API fallback calls this same authoritative transaction.
@@ -1254,15 +1405,6 @@ struct GhostMainWindowContextLifecycleTests {
 @MainActor
 @Suite("Final close routing regressions", .serialized)
 struct FinalCloseRoutingRegressionTests {
-    private final class NonDestructiveCloseWindow: NSWindow {
-        private(set) var closeCallCount = 0
-
-        override func close() {
-            closeCallCount += 1
-            orderOut(nil)
-        }
-    }
-
     private func makeMainWindow(id: UUID) -> NonDestructiveCloseWindow {
         let window = NonDestructiveCloseWindow(
             contentRect: NSRect(x: 0, y: 0, width: 500, height: 320),
