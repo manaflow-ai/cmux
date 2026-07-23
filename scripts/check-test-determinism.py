@@ -935,18 +935,11 @@ def _visible_real_clock_types(
     declared_types: set[str],
     local_real_types: set[str],
 ) -> set[str]:
-    """Hide repository clock types shadowed by a same-file test type."""
-    declared_leaves = {
-        type_name.rsplit(".", 1)[-1] for type_name in declared_types
-    }
-    local_real_leaves = {
-        type_name.rsplit(".", 1)[-1] for type_name in local_real_types
-    }
+    """Hide repository clock types shadowed inside one Swift test target."""
     return {
         type_name
         for type_name in known_types
-        if type_name.rsplit(".", 1)[-1] not in declared_leaves
-        or type_name.rsplit(".", 1)[-1] in local_real_leaves
+        if type_name not in declared_types or type_name in local_real_types
     }
 
 
@@ -2064,13 +2057,12 @@ def _resolved_member_type(
     known_types = set(same_file_member_types)
     if external_member_types is not None:
         known_types.update(external_member_types)
-    candidates = [declared_type]
-    if "." not in declared_type:
-        candidates.append(f"{owner_type}.{declared_type}")
-        if "." in owner_type:
-            candidates.append(
-                f"{owner_type.rsplit('.', 1)[0]}.{declared_type}"
-            )
+    owner_parts = owner_type.split(".")
+    candidates = [
+        ".".join((*owner_parts[:scope_depth], declared_type))
+        for scope_depth in range(len(owner_parts), 0, -1)
+    ]
+    candidates.append(declared_type)
     return next(
         (candidate for candidate in candidates if candidate in known_types),
         declared_type,
@@ -3338,6 +3330,8 @@ def scan_sources(sources: Iterable[tuple[str, str]]) -> list[Finding]:
     bundle_parents: dict[str, dict[str, str]] = {}
     bundle_declaration_files: dict[str, dict[str, set[str]]] = {}
     file_visible_real_clock_types: dict[str, set[str]] = {}
+    bundle_declared_clock_types: dict[str, set[str]] = {}
+    bundle_local_real_clock_types: dict[str, set[str]] = {}
 
     for rel_posix, text in source_list:
         if pathlib.PurePosixPath(rel_posix).suffix != ".swift":
@@ -3347,20 +3341,28 @@ def scan_sources(sources: Iterable[tuple[str, str]]) -> list[Finding]:
         local_real_types = _real_clock_implementation_types(
             ((rel_posix, text),)
         )
-        file_visible_real_clock_types[rel_posix] = (
-            _visible_real_clock_types(
-                repository_real_clock_types,
-                declared_types,
-                local_real_types,
-            )
+        bundle = _swift_test_bundle_key(rel_posix)
+        bundle_declared_clock_types.setdefault(bundle, set()).update(
+            declared_types
+        )
+        bundle_local_real_clock_types.setdefault(bundle, set()).update(
+            local_real_types
         )
         aliases = _explicit_typealias_targets(masked_lines)
         file_typealiases[rel_posix] = aliases
         _merge_typealias_targets(
-            bundle_typealiases.setdefault(
-                _swift_test_bundle_key(rel_posix), {}
-            ),
+            bundle_typealiases.setdefault(bundle, {}),
             aliases,
+        )
+
+    for rel_posix in file_typealiases:
+        bundle = _swift_test_bundle_key(rel_posix)
+        file_visible_real_clock_types[rel_posix] = (
+            _visible_real_clock_types(
+                repository_real_clock_types,
+                bundle_declared_clock_types.get(bundle, set()),
+                bundle_local_real_clock_types.get(bundle, set()),
+            )
         )
 
     for rel_posix, text in source_list:
@@ -3531,6 +3533,9 @@ def collect_findings(repo_root: pathlib.Path, roots: Iterable[str]) -> list[Find
     file_real_clock_aliases: dict[str, set[str]] = {}
     file_visible_real_clock_types: dict[str, set[str]] = {}
     swift_source_texts: dict[str, str] = {}
+    file_referenced_repository_clocks: dict[str, set[str]] = {}
+    bundle_declared_clock_types: dict[str, set[str]] = {}
+    bundle_local_real_clock_types: dict[str, set[str]] = {}
     literal_clock_bundles: set[str] = set()
     repository_clock_bundles: set[str] = set()
     repository_clock_index_files: set[str] = set()
@@ -3548,6 +3553,9 @@ def collect_findings(repo_root: pathlib.Path, roots: Iterable[str]) -> list[Find
             for type_name in repository_real_clock_leaves
             if type_name in text
         }
+        file_referenced_repository_clocks[rel_posix] = (
+            referenced_repository_clocks
+        )
         uses_repository_clock = bool(referenced_repository_clocks)
         if "ContinuousClock" in text or "SuspendingClock" in text:
             literal_clock_bundles.add(bundle)
@@ -3566,26 +3574,36 @@ def collect_findings(repo_root: pathlib.Path, roots: Iterable[str]) -> list[Find
                 local_real_types = _real_clock_implementation_types(
                     ((rel_posix, text),)
                 )
-        visible_real_clock_types = _visible_real_clock_types(
-            repository_real_clock_types,
-            declared_types,
-            local_real_types,
+        bundle_declared_clock_types.setdefault(bundle, set()).update(
+            declared_types
         )
-        file_visible_real_clock_types[rel_posix] = (
-            visible_real_clock_types
+        bundle_local_real_clock_types.setdefault(bundle, set()).update(
+            local_real_types
         )
-        visible_real_clock_leaves = {
-            type_name.rsplit(".", 1)[-1]
-            for type_name in visible_real_clock_types
-        }
-        if referenced_repository_clocks & visible_real_clock_leaves:
-            repository_clock_bundles.add(bundle)
-            repository_clock_index_files.add(rel_posix)
         file_typealiases[rel_posix] = aliases
         _merge_typealias_targets(
             bundle_typealiases.setdefault(bundle, {}),
             aliases,
         )
+
+    for rel_posix in swift_source_texts:
+        bundle = _swift_test_bundle_key(rel_posix)
+        visible_real_clock_types = _visible_real_clock_types(
+            repository_real_clock_types,
+            bundle_declared_clock_types.get(bundle, set()),
+            bundle_local_real_clock_types.get(bundle, set()),
+        )
+        file_visible_real_clock_types[rel_posix] = visible_real_clock_types
+        visible_real_clock_leaves = {
+            type_name.rsplit(".", 1)[-1]
+            for type_name in visible_real_clock_types
+        }
+        if (
+            file_referenced_repository_clocks.get(rel_posix, set())
+            & visible_real_clock_leaves
+        ):
+            repository_clock_bundles.add(bundle)
+            repository_clock_index_files.add(rel_posix)
 
     for rel_posix, aliases in file_typealiases.items():
         bundle = _swift_test_bundle_key(rel_posix)
@@ -5730,7 +5748,7 @@ def _self_test() -> int:
                 "try await environment.timing.clock.sleep(until: deadline)\n"
                 "#expect(await events.next() == expected)\n"
             ),
-            "Packages/CmuxClock/Tests/CmuxClockTests/QualifiedShadowClockTests.swift": (
+            "Packages/CmuxQualifiedShadow/Tests/CmuxQualifiedShadowTests/QualifiedShadowClockTests.swift": (
                 "enum CmuxClock {\n"
                 "    struct SystemUpdateClock {\n"
                 "        func sleep(for duration: Duration) async throws {}\n"
