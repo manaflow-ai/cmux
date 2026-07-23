@@ -1184,6 +1184,7 @@ jobs:
             CmuxIrohTransport
             CmuxCommandPalette
             CmuxControlSocket
+            CmuxFleet
             CmuxFoundation
             CmuxGit
             CmuxSettings
