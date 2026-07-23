@@ -214,9 +214,9 @@ final class FilePreviewMediaSession {
                     for: characteristic
                 ) else { continue }
                 guard canRestorePlayback(in: player, item: nextItem, revision: revision) else { return }
-                let nextOption = nextGroup.mediaSelectionOption(
+                guard let nextOption = nextGroup.mediaSelectionOption(
                     withPropertyList: selectedOption.propertyList()
-                )
+                ) else { continue }
                 nextItem.select(nextOption, in: nextGroup)
             } catch {
                 continue
