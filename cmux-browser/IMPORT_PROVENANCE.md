@@ -61,6 +61,11 @@ AGPL's additional source requirement is material when a modified program is
 offered for remote interaction over a network. If cmux later ships a hosted
 service for which that distinction matters, license it as a separately
 reviewed component rather than changing the desktop product incidentally.
+AGPL obligations attach to the AGPL-covered network-interactive program; they
+do not automatically relicense independent neighboring services. If an
+AGPLv3-covered component is combined with GPLv3-covered code, the GPLv3/AGPLv3
+section 13 compatibility rule and the AGPL network-source requirement for the
+combination must be reviewed as part of that service's architecture.
 
 Manaflow can release later versions of rights-controlled code under different
 terms, but an already published GPL or AGPL grant remains available for that
@@ -88,9 +93,17 @@ composition gates.
 - **Chromium:** pin a full source commit and DEPS state. Generate the shipped
   target's license/credits output with Chromium's license tooling.
 - **Ghostty:** use the root gitlink, retain its MIT notice, and include licenses
-  for linked libraries, fonts, themes, and shell-integration resources. Do not
-  infer that every converted theme is MIT from the theme collection's license;
-  ship only themes with verified per-theme redistribution provenance.
+  for linked libraries, fonts, themes, and shell-integration resources. The
+  current Darwin link includes static GNU gettext/libintl 0.24 under
+  LGPL-2.1-or-later even when Ghostty is built with `-Di18n=false`; that option
+  disables catalogs but does not remove the unconditional Darwin link. Inspect
+  the produced archive rather than treating a build flag as license evidence.
+  The embedded font closure includes JetBrains Mono 2.304 under OFL-1.1 and
+  Nerd Fonts Symbols Only 3.4.0 under MIT; preserve their exact notices, and
+  review OFL Reserved Font Name conditions before modifying or rebuilding the
+  OFL font. Do not infer that every converted theme is MIT from the theme
+  collection's license; ship only themes with verified per-theme
+  redistribution provenance.
 - **cmux TUI:** build the sibling workspace and record the exact helper receipt.
 - **Helium:** retain exact patch provenance and GPL-3.0-only terms. A future
   proprietary Browser requires independently reimplementing or separately
@@ -99,8 +112,10 @@ composition gates.
   split-layout and animation behavior, even though cmux already ships Bonsplit
   elsewhere in the monorepo.
 - **uBlock Origin:** pin the extension payload digest and upstream source tag,
-  preserve GPL-3.0-only notices, and distribute the corresponding source or a valid
-  source offer with the binary.
+  preserve GPL-3.0-only notices, and distribute the corresponding source or a
+  valid source offer with the binary. Preserve and inventory the extension's
+  own embedded third-party licenses and assets as well; the uBlock GPL notice
+  is not a substitute for those notices.
 
 ## Required gates
 

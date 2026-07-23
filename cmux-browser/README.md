@@ -56,4 +56,6 @@ published GPL version, and it does not extend to third-party code or outside
 contributions without the necessary relicensing rights.
 
 See [`IMPORT_PROVENANCE.md`](IMPORT_PROVENANCE.md) for the import boundary and
-the repository's `THIRD_PARTY_LICENSES.md` for shipped notices.
+the repository's `THIRD_PARTY_LICENSES.md` for the current cmux dependency
+inventory. That root inventory is not a complete Browser binary notice bundle;
+target-specific Browser notices remain a release gate.
