@@ -26,7 +26,7 @@ use cmux_remote::provider::{
     IrohPathMode, ROUTING_DIRECT_ADDRS, ROUTING_NODE_ID, ROUTING_RELAY_URL, RelayCredentialSource,
     SshProviderConfig,
 };
-use cmux_remote::ssh_bootstrap::{DISTRIBUTION_VERSION, NPM_BOOTSTRAP_VERSION};
+use cmux_remote::ssh_bootstrap::{BUILD_IDENTITY, DISTRIBUTION_VERSION, NPM_BOOTSTRAP_VERSION};
 use cmux_remote_protocol::{
     LanePolicy, REMOTE_PROTOCOL_VERSION, RoutePolicy, SessionId, WorkspaceRequest,
     WorkspaceResponse,
@@ -1099,6 +1099,7 @@ fn run_probe(args: &[String]) -> anyhow::Result<()> {
         "version": env!("CARGO_PKG_VERSION"),
         "distribution_version": DISTRIBUTION_VERSION,
         "npm_bootstrap_version": NPM_BOOTSTRAP_VERSION,
+        "build_identity": BUILD_IDENTITY,
         "remote_protocol": REMOTE_PROTOCOL_VERSION,
         "os": std::env::consts::OS,
         "arch": std::env::consts::ARCH,
