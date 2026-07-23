@@ -39,10 +39,13 @@ public final class TerminalSurfaceRegistry: TerminalSurfaceRegistering, Sendable
     nonisolated(unsafe) private var registrationsByObjectId: [
         ObjectIdentifier: TerminalSurfaceWeakRegistration
     ] = [:]
+    // SAFETY: every membership read and write is guarded by `lock`.
     nonisolated(unsafe) private var registeredObjectIdsBySurfaceId: [
         UUID: Set<ObjectIdentifier>
     ] = [:]
+    // SAFETY: every sweep-cursor read and write is guarded by `lock`.
     nonisolated(unsafe) private var nextDeadRegistrationSweepObjectId: ObjectIdentifier?
+    // SAFETY: every registration-sequence read and write is guarded by `lock`.
     nonisolated(unsafe) private var nextRegistrationSequence: UInt64 = 0
     nonisolated(unsafe) private var runtimeSurfaceOwners: [UInt: UUID] = [:]
     // SAFETY: every read and write is guarded by `lock`.
