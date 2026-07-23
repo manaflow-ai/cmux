@@ -102,6 +102,32 @@ struct HermesAgentIndexTests {
         #expect(turns[1].content.contains("pwd"))
     }
 
+    @Test("Loads the latest transcript turns in chronological order")
+    func loadsLatestTranscriptTurns() throws {
+        let root = try temporaryDirectory()
+        defer { try? FileManager.default.removeItem(at: root) }
+        let dbURL = root.appendingPathComponent("state.db", isDirectory: false)
+        try makeHermesStateDB(at: dbURL)
+        try exec(dbURL, """
+        INSERT INTO sessions (id, source, model, started_at, title)
+        VALUES ('session-a', 'cli', 'model-a', 10, 'General');
+        INSERT INTO messages (session_id, role, content, timestamp)
+        VALUES
+          ('session-a', 'user', 'first', 11),
+          ('session-a', 'assistant', 'middle', 12),
+          ('session-a', 'user', 'latest', 13);
+        """)
+
+        let turns = try HermesAgentIndex.loadTranscript(
+            sessionId: "session-a",
+            limit: 2,
+            latest: true,
+            stateDBPath: dbURL.path
+        )
+
+        #expect(turns.map(\.content) == ["middle", "latest"])
+    }
+
     private func temporaryDirectory() throws -> URL {
         let url = FileManager.default.temporaryDirectory
             .appendingPathComponent("cmux-hermes-index-\(UUID().uuidString)", isDirectory: true)

@@ -130,6 +130,7 @@ public enum HermesAgentIndex {
     public static func loadTranscript(
         sessionId: String,
         limit: Int,
+        latest: Bool = false,
         stateDBPath: String = Self.defaultStateDBPath()
     ) throws -> [HermesAgentTranscriptTurn] {
         guard limit > 0 else { return [] }
@@ -139,7 +140,7 @@ public enum HermesAgentIndex {
         defer { snapshot.remove() }
 
         return try withDatabase(snapshot.databaseURL.path) { db in
-            try loadTranscript(db: db, sessionId: sessionId, limit: limit)
+            try loadTranscript(db: db, sessionId: sessionId, limit: limit, latest: latest)
         }
     }
 
@@ -247,15 +248,31 @@ public enum HermesAgentIndex {
     private static func loadTranscript(
         db: OpaquePointer,
         sessionId: String,
-        limit: Int
+        limit: Int,
+        latest: Bool
     ) throws -> [HermesAgentTranscriptTurn] {
-        let sql = """
-            SELECT role, content, tool_name, tool_calls
-            FROM messages
-            WHERE session_id = ?
-            ORDER BY timestamp, id
-            LIMIT \(limit)
-            """
+        let sql: String
+        if latest {
+            sql = """
+                SELECT role, content, tool_name, tool_calls
+                FROM (
+                  SELECT role, content, tool_name, tool_calls, timestamp, id
+                  FROM messages
+                  WHERE session_id = ?
+                  ORDER BY timestamp DESC, id DESC
+                  LIMIT \(limit)
+                )
+                ORDER BY timestamp, id
+                """
+        } else {
+            sql = """
+                SELECT role, content, tool_name, tool_calls
+                FROM messages
+                WHERE session_id = ?
+                ORDER BY timestamp, id
+                LIMIT \(limit)
+                """
+        }
         var stmt: OpaquePointer?
         guard sqlite3_prepare_v2(db, sql, -1, &stmt, nil) == SQLITE_OK, let stmt else {
             sqlite3_finalize(stmt)

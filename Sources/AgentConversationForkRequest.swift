@@ -29,37 +29,17 @@ struct AgentConversationForkRequest: Equatable, Sendable {
             self == .current || rawValue == sourceKind.rawValue
         }
 
-        fileprivate func startupCommand(
-            sourceSnapshot: SessionRestorableAgentSnapshot
-        ) -> String? {
-            guard !usesNativeFork(for: sourceSnapshot.kind) else { return nil }
-
-            let lookupCommand = [
-                "cmux sessions list --agent",
-                Self.shellSingleQuoted(sourceSnapshot.kind.rawValue),
-                "--session",
-                Self.shellSingleQuoted(sourceSnapshot.sessionId),
-                "--json",
-            ].joined(separator: " ")
-            let prompt = String(
-                localized: "forkConversation.crossHarness.prompt",
-                defaultValue: "Continue the latest unfinished request from the \(sourceSnapshot.agentDisplayName) session \(sourceSnapshot.sessionId). Before acting, run `\(lookupCommand)` and read the transcript path it returns. If no transcript is readable, use the source harness's export command. Explain any missing context before changing files."
-            )
-
+        fileprivate func startupCommand(handoffMessage: String) -> String? {
             switch self {
             case .current:
                 return nil
             case .claude:
-                return "claude \(Self.shellSingleQuoted(prompt))"
+                return "claude \(TerminalStartupShellQuoting.singleQuoted(handoffMessage))"
             case .codex:
-                return "codex \(Self.shellSingleQuoted(prompt))"
+                return "codex \(TerminalStartupShellQuoting.singleQuoted(handoffMessage))"
             case .opencode:
-                return "opencode --prompt \(Self.shellSingleQuoted(prompt))"
+                return "opencode --prompt \(TerminalStartupShellQuoting.singleQuoted(handoffMessage))"
             }
-        }
-
-        private static func shellSingleQuoted(_ value: String) -> String {
-            "'" + value.replacingOccurrences(of: "'", with: "'\\''") + "'"
         }
     }
 
@@ -106,12 +86,17 @@ struct AgentConversationForkRequest: Equatable, Sendable {
         self.init(targetHarness: targetHarness, destination: destination)
     }
 
-    /// Returns a startup-input override for a cross-harness handoff.
+    /// Returns a startup command for a cross-harness handoff.
     ///
     /// `nil` means the request should use the source harness's native fork command.
-    func startupInputOverride(
-        sourceSnapshot: SessionRestorableAgentSnapshot
-    ) -> String? {
-        targetHarness.startupCommand(sourceSnapshot: sourceSnapshot).map { $0 + "\n" }
+    func startupCommandOverride(
+        sourceSnapshot: SessionRestorableAgentSnapshot,
+        exportService: AgentConversationExportService = .live
+    ) async throws -> String? {
+        guard !targetHarness.usesNativeFork(for: sourceSnapshot.kind) else {
+            return nil
+        }
+        let handoffMessage = try await exportService.message(for: sourceSnapshot)
+        return targetHarness.startupCommand(handoffMessage: handoffMessage)
     }
 }

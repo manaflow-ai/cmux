@@ -247,7 +247,7 @@ extension ContentView {
             NSSound.beep()
             return
         }
-        let didFork = currentContext.workspace.forkAgentConversation(
+        let didFork = await currentContext.workspace.forkAgentConversation(
             fromPanelId: panelId,
             snapshot: snapshot,
             request: request,

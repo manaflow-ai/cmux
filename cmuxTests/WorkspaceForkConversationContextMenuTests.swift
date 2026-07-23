@@ -2,6 +2,7 @@ import Darwin
 import CmuxCommandPalette
 import Foundation
 import os
+import SQLite3
 import Testing
 
 #if canImport(cmux_DEV)
@@ -33,48 +34,298 @@ private actor AsyncTestBarrier {
     }
 }
 
+private struct StubAgentConversationSourceAdapter: AgentConversationSourceAdapter {
+    let turns: [SessionTranscriptTurn]?
+
+    func supports(_: AgentConversationSource) -> Bool { true }
+
+    func read(_: AgentConversationSource) async throws -> [SessionTranscriptTurn]? {
+        turns
+    }
+}
+
 @MainActor
 @Suite(.serialized)
 struct WorkspaceForkConversationContextMenuTests {
     @Test
-    func crossHarnessForkBuildsTranscriptHandoffCommand() throws {
+    func crossHarnessForkBuildsConversationMessage() async throws {
         let source = makeForkableSnapshot(kind: .codex, sessionId: "codex-session")
         let request = AgentConversationForkRequest(
             targetHarness: .claude,
             destination: .right
         )
+        let service = makeExportService(turns: [
+            SessionTranscriptTurn(id: 0, role: .user, text: "Fix the quoted 'value'."),
+            SessionTranscriptTurn(id: 1, role: .assistant, text: "I found the failing parser."),
+        ])
 
-        let startupInput = try #require(request.startupInputOverride(sourceSnapshot: source))
-        #expect(startupInput.hasPrefix("claude '"))
-        #expect(startupInput.contains("cmux sessions list --agent"))
-        #expect(startupInput.contains("codex-session"))
-        #expect(startupInput.hasSuffix("\n"))
+        let startupCommand = try #require(await request.startupCommandOverride(
+            sourceSnapshot: source,
+            exportService: service
+        ))
+        #expect(startupCommand.hasPrefix("claude '"))
+        #expect(startupCommand.contains("User:\nFix the quoted"))
+        #expect(startupCommand.contains("Assistant:\nI found the failing parser."))
+        #expect(startupCommand.contains("'\\''value'\\''"))
+        #expect(!startupCommand.contains("cmux sessions"))
+        #expect(!startupCommand.contains("transcript path"))
+        #expect(!startupCommand.contains("codex-session"))
     }
 
     @Test
-    func sameHarnessForkKeepsNativeForkCommand() {
+    func sameHarnessForkKeepsNativeForkCommand() async throws {
         let source = makeForkableClaudeSnapshot()
 
-        #expect(AgentConversationForkRequest(
+        #expect(try await AgentConversationForkRequest(
             targetHarness: .current,
             destination: .newTab
-        ).startupInputOverride(sourceSnapshot: source) == nil)
-        #expect(AgentConversationForkRequest(
+        ).startupCommandOverride(sourceSnapshot: source) == nil)
+        #expect(try await AgentConversationForkRequest(
             targetHarness: .claude,
             destination: .newTab
-        ).startupInputOverride(sourceSnapshot: source) == nil)
+        ).startupCommandOverride(sourceSnapshot: source) == nil)
     }
 
     @Test
-    func openCodeForkUsesPromptFlag() throws {
+    func openCodeForkUsesPromptFlag() async throws {
         let source = makeForkableSnapshot(kind: .codex, sessionId: "codex-session")
         let request = AgentConversationForkRequest(
             targetHarness: .opencode,
             destination: .newWorkspace
         )
 
-        let startupInput = try #require(request.startupInputOverride(sourceSnapshot: source))
-        #expect(startupInput.hasPrefix("opencode --prompt '"))
+        let startupCommand = try #require(await request.startupCommandOverride(
+            sourceSnapshot: source,
+            exportService: makeExportService(turns: [
+                SessionTranscriptTurn(id: 0, role: .user, text: "Continue this work."),
+            ])
+        ))
+        #expect(startupCommand.hasPrefix("opencode --prompt '"))
+    }
+
+    @Test
+    func longConversationHandoffUsesLauncherScript() async throws {
+        let root = FileManager.default.temporaryDirectory
+            .appendingPathComponent("cmux-handoff-launcher-\(UUID().uuidString)", isDirectory: true)
+        defer { try? FileManager.default.removeItem(at: root) }
+        try FileManager.default.createDirectory(at: root, withIntermediateDirectories: true)
+        let source = makeForkableSnapshot(kind: .codex, sessionId: "long-handoff-session")
+        let request = AgentConversationForkRequest(targetHarness: .claude, destination: .right)
+        let startupCommand = try #require(await request.startupCommandOverride(
+            sourceSnapshot: source,
+            exportService: makeExportService(turns: [
+                SessionTranscriptTurn(
+                    id: 0,
+                    role: .user,
+                    text: "LONG HANDOFF " + String(repeating: "context ", count: 500)
+                ),
+            ])
+        ))
+        #expect(startupCommand.utf8.count > SessionRestorableAgentSnapshot.maxInlineStartupInputBytes)
+
+        let startupInput = try #require(source.customStartupInput(
+            command: startupCommand,
+            temporaryDirectory: root
+        ))
+        #expect(startupInput.hasPrefix("/bin/zsh '"))
+        #expect(startupInput.utf8.count <= SessionRestorableAgentSnapshot.maxInlineStartupInputBytes)
+        let components = startupInput.split(separator: "'", omittingEmptySubsequences: false)
+        let scriptPath = try #require(components.count >= 2 ? String(components[1]) : nil)
+        let script = try String(contentsOfFile: scriptPath, encoding: .utf8)
+        #expect(script.contains("User:\nLONG HANDOFF"))
+    }
+
+    @Test
+    func codexFileConversationIsConvertedToRoleLabeledMessage() async throws {
+        let root = FileManager.default.temporaryDirectory
+            .appendingPathComponent("cmux-codex-export-\(UUID().uuidString)", isDirectory: true)
+        defer { try? FileManager.default.removeItem(at: root) }
+        try FileManager.default.createDirectory(at: root, withIntermediateDirectories: true)
+        let transcript = root.appendingPathComponent("rollout.jsonl")
+        let lines = [
+            #"{"type":"response_item","payload":{"type":"message","role":"user","content":[{"type":"input_text","text":"Inspect the parser."}]}}"#,
+            #"{"type":"response_item","payload":{"type":"message","role":"assistant","content":[{"type":"output_text","text":"The parser drops one field."}]}}"#,
+        ]
+        try (lines.joined(separator: "\n") + "\n").write(to: transcript, atomically: true, encoding: .utf8)
+        let snapshot = SessionRestorableAgentSnapshot(
+            kind: .codex,
+            sessionId: "codex-file-session",
+            workingDirectory: root.path,
+            launchCommand: nil,
+            transcriptPath: transcript.path
+        )
+        let service = AgentConversationExportService(
+            readerRegistry: AgentConversationReaderRegistry(adapters: [
+                DirectTranscriptAgentConversationSourceAdapter(),
+            ])
+        )
+
+        let message = try await service.message(for: snapshot)
+
+        #expect(message.contains("User:\nInspect the parser."))
+        #expect(message.contains("Assistant:\nThe parser drops one field."))
+    }
+
+    @Test
+    func longFileConversationKeepsOpeningRequestAndLatestTurns() async throws {
+        let root = FileManager.default.temporaryDirectory
+            .appendingPathComponent("cmux-long-export-\(UUID().uuidString)", isDirectory: true)
+        defer { try? FileManager.default.removeItem(at: root) }
+        try FileManager.default.createDirectory(at: root, withIntermediateDirectories: true)
+        let transcript = root.appendingPathComponent("rollout.jsonl")
+        var lines = [
+            #"{"type":"response_item","payload":{"type":"message","role":"user","content":[{"type":"input_text","text":"OPENING REQUEST"}]}}"#,
+            #"{"type":"response_item","payload":{"type":"message","role":"assistant","content":[{"type":"output_text","text":"EARLY ONLY"}]}}"#,
+        ]
+        lines.append(contentsOf: (0..<1_005).map { index in
+            let text = index == 1_004 ? "LATEST ONLY" : "reply \(index)"
+            return #"{"type":"response_item","payload":{"type":"message","role":"assistant","content":[{"type":"output_text","text":"\#(text)"}]}}"#
+        })
+        try (lines.joined(separator: "\n") + "\n").write(to: transcript, atomically: true, encoding: .utf8)
+        let snapshot = SessionRestorableAgentSnapshot(
+            kind: .codex,
+            sessionId: "long-file-session",
+            workingDirectory: root.path,
+            launchCommand: nil,
+            transcriptPath: transcript.path
+        )
+        let service = AgentConversationExportService(
+            readerRegistry: AgentConversationReaderRegistry(adapters: [
+                DirectTranscriptAgentConversationSourceAdapter(),
+            ])
+        )
+
+        let message = try await service.message(for: snapshot)
+
+        #expect(message.contains("OPENING REQUEST"))
+        #expect(message.contains("LATEST ONLY"))
+        #expect(!message.contains("EARLY ONLY"))
+    }
+
+    @Test
+    func claudeFileConversationIsConvertedToRoleLabeledMessage() async throws {
+        let root = FileManager.default.temporaryDirectory
+            .appendingPathComponent("cmux-claude-export-\(UUID().uuidString)", isDirectory: true)
+        defer { try? FileManager.default.removeItem(at: root) }
+        try FileManager.default.createDirectory(at: root, withIntermediateDirectories: true)
+        let transcript = root.appendingPathComponent("conversation.jsonl")
+        let lines = [
+            #"{"type":"user","message":{"role":"user","content":"Refactor the reader."}}"#,
+            #"{"type":"assistant","message":{"role":"assistant","content":"I mapped the storage boundary."}}"#,
+        ]
+        try (lines.joined(separator: "\n") + "\n").write(to: transcript, atomically: true, encoding: .utf8)
+        let snapshot = SessionRestorableAgentSnapshot(
+            kind: .claude,
+            sessionId: "claude-file-session",
+            workingDirectory: root.path,
+            launchCommand: nil,
+            transcriptPath: transcript.path
+        )
+        let service = AgentConversationExportService(
+            readerRegistry: AgentConversationReaderRegistry(adapters: [
+                DirectTranscriptAgentConversationSourceAdapter(),
+            ])
+        )
+
+        let message = try await service.message(for: snapshot)
+
+        #expect(message.contains("User:\nRefactor the reader."))
+        #expect(message.contains("Assistant:\nI mapped the storage boundary."))
+    }
+
+    @Test
+    func openCodeSQLiteConversationIsConvertedToRoleLabeledMessage() async throws {
+        let root = FileManager.default.temporaryDirectory
+            .appendingPathComponent("cmux-opencode-export-\(UUID().uuidString)", isDirectory: true)
+        defer { try? FileManager.default.removeItem(at: root) }
+        try FileManager.default.createDirectory(at: root, withIntermediateDirectories: true)
+        let database = root.appendingPathComponent("opencode.db")
+        try makeOpenCodeDatabase(at: database, sessionId: "opencode-sqlite-session")
+        let snapshot = SessionRestorableAgentSnapshot(
+            kind: .opencode,
+            sessionId: "opencode-sqlite-session",
+            workingDirectory: root.path,
+            launchCommand: nil
+        )
+        let service = AgentConversationExportService(
+            readerRegistry: AgentConversationReaderRegistry(adapters: [
+                OpenCodeAgentConversationSourceAdapter(databasePath: database.path),
+            ])
+        )
+
+        let message = try await service.message(for: snapshot)
+
+        #expect(message.contains("User:\nPlan the migration."))
+        #expect(message.contains("Assistant:\nThe adapter reads SQLite."))
+    }
+
+    @Test
+    func conversationCompactionKeepsOpeningRequestAndLatestReply() {
+        let turns = [
+            SessionTranscriptTurn(id: 0, role: .user, text: "OPENING " + String(repeating: "request ", count: 80)),
+            SessionTranscriptTurn(id: 1, role: .assistant, text: String(repeating: "old response ", count: 80)),
+            SessionTranscriptTurn(id: 2, role: .user, text: String(repeating: "follow-up ", count: 80)),
+            SessionTranscriptTurn(id: 3, role: .assistant, text: "LATEST answer"),
+        ]
+        let policy = AgentConversationExportPolicy(
+            maximumCharacters: 1_024,
+            initialUserCharacterLimit: 300
+        )
+
+        let compaction = TailPreservingAgentConversationCompactor().compact(turns, policy: policy)
+        let message = RoleLabeledAgentConversationFormatter().format(
+            compaction,
+            sourceDisplayName: "Codex",
+            maximumCharacters: policy.maximumCharacters
+        )
+
+        #expect(compaction.omittedTurnCount > 0 || compaction.shortenedTurnCount > 0)
+        #expect(message.contains("OPENING"))
+        #expect(message.contains("LATEST answer"))
+        #expect(message.count <= policy.maximumCharacters)
+    }
+
+    @Test
+    func conversationFormatterRemovesTerminalControlSequences() {
+        let compaction = AgentConversationCompaction(
+            turns: [
+                SessionTranscriptTurn(
+                    id: 0,
+                    role: .user,
+                    text: "safe\u{1B}]0;renamed\u{7}\u{0}\nnext"
+                ),
+            ],
+            omittedTurnCount: 0,
+            shortenedTurnCount: 0
+        )
+
+        let message = RoleLabeledAgentConversationFormatter().format(
+            compaction,
+            sourceDisplayName: "Codex\u{1B}",
+            maximumCharacters: 2_000
+        )
+
+        #expect(message.contains("safe]0;renamed\nnext"))
+        #expect(!message.unicodeScalars.contains(where: { $0.value == 0 || $0.value == 7 || $0.value == 27 }))
+    }
+
+    @Test
+    func everyRestorableHarnessMapsToAConversationProvider() {
+        let kinds: [RestorableAgentKind] = [
+            .claude, .codex, .grok, .pi, .amp, .cursor, .gemini, .kiro,
+            .antigravity, .opencode, .rovodev, .hermesAgent, .copilot,
+            .codebuddy, .factory, .qoder, .kimi, .ollama, .custom("team-agent"),
+        ]
+
+        for kind in kinds {
+            let snapshot = SessionRestorableAgentSnapshot(
+                kind: kind,
+                sessionId: "session",
+                workingDirectory: nil,
+                launchCommand: nil
+            )
+            #expect(AgentConversationSource(snapshot: snapshot).sessionAgent.rawValue == kind.rawValue)
+        }
     }
 
     @Test
@@ -4920,6 +5171,50 @@ struct WorkspaceForkConversationContextMenuTests {
             result == -1 && processError == ESRCH,
             "The timed-out fork probe must terminate descendant process \(pid)."
         )
+    }
+
+    private func makeExportService(
+        turns: [SessionTranscriptTurn]
+    ) -> AgentConversationExportService {
+        AgentConversationExportService(
+            readerRegistry: AgentConversationReaderRegistry(adapters: [
+                StubAgentConversationSourceAdapter(turns: turns),
+            ])
+        )
+    }
+
+    private func makeOpenCodeDatabase(at url: URL, sessionId: String) throws {
+        var database: OpaquePointer?
+        guard sqlite3_open(url.path, &database) == SQLITE_OK, let database else {
+            sqlite3_close(database)
+            throw NSError(
+                domain: "WorkspaceForkConversationContextMenuTests",
+                code: 1,
+                userInfo: [NSLocalizedDescriptionKey: "Could not create OpenCode test database"]
+            )
+        }
+        defer { sqlite3_close(database) }
+
+        let statements = [
+            "CREATE TABLE message (id TEXT PRIMARY KEY, data TEXT, session_id TEXT, time_created INTEGER)",
+            "CREATE TABLE part (id TEXT PRIMARY KEY, message_id TEXT, data TEXT, time_created INTEGER)",
+            "INSERT INTO message VALUES ('user-message', '{\"role\":\"user\"}', '\(sessionId)', 1)",
+            "INSERT INTO part VALUES ('user-part', 'user-message', '{\"type\":\"text\",\"text\":\"Plan the migration.\"}', 1)",
+            "INSERT INTO message VALUES ('assistant-message', '{\"role\":\"assistant\"}', '\(sessionId)', 2)",
+            "INSERT INTO part VALUES ('assistant-part', 'assistant-message', '{\"type\":\"text\",\"text\":\"The adapter reads SQLite.\"}', 2)",
+        ]
+        for statement in statements {
+            var errorMessage: UnsafeMutablePointer<CChar>?
+            guard sqlite3_exec(database, statement, nil, nil, &errorMessage) == SQLITE_OK else {
+                let description = errorMessage.map(String.init(cString:)) ?? "SQLite execution failed"
+                sqlite3_free(errorMessage)
+                throw NSError(
+                    domain: "WorkspaceForkConversationContextMenuTests",
+                    code: 2,
+                    userInfo: [NSLocalizedDescriptionKey: description]
+                )
+            }
+        }
     }
 
     private func makeForkableClaudeSnapshot(

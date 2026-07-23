@@ -766,6 +766,9 @@ struct SessionRestorableAgentSnapshot: Codable, Sendable {
     var workingDirectory: String?
     var launchCommand: AgentLaunchCommandSnapshot?
     var registration: CmuxVaultAgentRegistration? = nil
+    /// Source-owned transcript path when the harness exposes one. Database-backed
+    /// harnesses leave this nil and resolve through a conversation reader adapter.
+    var transcriptPath: String? = nil
     /// Last hook-observed permission mode; re-applied as `--permission-mode` on
     /// user-owned claude resume/fork when no explicit launch flag covers it.
     var permissionMode: String? = nil
@@ -818,6 +821,24 @@ struct SessionRestorableAgentSnapshot: Codable, Sendable {
             fileManager: fileManager,
             temporaryDirectory: temporaryDirectory,
             allowLauncherScript: allowLauncherScript
+        )
+    }
+
+    /// Applies the same inline-size and launcher-script policy to a command
+    /// supplied by another continuation strategy, such as cross-harness export.
+    func customStartupInput(
+        command: String,
+        fileManager: FileManager = .default,
+        temporaryDirectory: URL = FileManager.default.temporaryDirectory,
+        allowLauncherScript: Bool = true,
+        allowOversizedInlineInput: Bool = false
+    ) -> String? {
+        startupInput(
+            command: command,
+            fileManager: fileManager,
+            temporaryDirectory: temporaryDirectory,
+            allowLauncherScript: allowLauncherScript,
+            allowOversizedInlineInput: allowOversizedInlineInput
         )
     }
 
@@ -1180,6 +1201,7 @@ struct RestorableAgentSessionIndex: Sendable {
                     ),
                     launchCommand: effectiveRecord.launchCommand,
                     registration: registration,
+                    transcriptPath: normalizedNonEmptyValue(effectiveRecord.transcriptPath),
                     permissionMode: effectiveRecord.lastPermissionMode
                 )
                 let key = PanelKey(workspaceId: workspaceId, panelId: panelId)

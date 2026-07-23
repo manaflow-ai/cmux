@@ -94,7 +94,7 @@ extension Workspace {
             }
         }
 
-        return forkAgentConversation(
+        return await forkAgentConversation(
             fromPanelId: panelId,
             snapshot: snapshot,
             request: request,

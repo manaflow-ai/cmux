@@ -1,5 +1,11 @@
 import Bonsplit
 import Foundation
+import os
+
+nonisolated private let agentConversationForkRequestLogger = Logger(
+    subsystem: Bundle.main.bundleIdentifier ?? "com.cmuxterm.app",
+    category: "AgentConversationForkRequest"
+)
 
 extension Workspace {
     /// Executes one validated fork request after the caller resolves the source snapshot.
@@ -9,8 +15,29 @@ extension Workspace {
         request: AgentConversationForkRequest,
         anchorTabId: TabID,
         paneId: PaneID
-    ) -> Bool {
-        let startupInputOverride = request.startupInputOverride(sourceSnapshot: snapshot)
+    ) async -> Bool {
+        let startupCommandOverride: String?
+        do {
+            startupCommandOverride = try await request.startupCommandOverride(
+                sourceSnapshot: snapshot
+            )
+        } catch {
+            agentConversationForkRequestLogger.error(
+                "Conversation export failed kind=\(snapshot.kind.rawValue, privacy: .public): \(error.localizedDescription, privacy: .public)"
+            )
+            return false
+        }
+        let isRemoteFork = isRemoteTerminalSurface(panelId)
+        let startupInputOverride = startupCommandOverride.flatMap {
+            snapshot.customStartupInput(
+                command: $0,
+                allowLauncherScript: !isRemoteFork,
+                allowOversizedInlineInput: isRemoteFork
+            )
+        }
+        if startupCommandOverride != nil, startupInputOverride == nil {
+            return false
+        }
 
         if let direction = request.destination.splitDirection {
             return forkAgentConversation(

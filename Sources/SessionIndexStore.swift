@@ -1273,6 +1273,89 @@ final class SessionIndexStore: ObservableObject {
         #endif
     }
 
+    /// Resolves one exact conversation through the same provider-specific index
+    /// used by the Sessions UI. Database-backed providers use dedicated readers
+    /// before this fallback, so this path primarily resolves file-backed sessions.
+    #if compiler(>=6.2)
+    @concurrent
+    #else
+    @Sendable
+    #endif
+    nonisolated static func resolveConversationEntry(
+        source: AgentConversationSource
+    ) async -> SessionEntry? {
+        let registry = await Task.detached(priority: .utility) {
+            var registrations = CmuxVaultAgentRegistry.load(
+                workingDirectory: source.workingDirectory
+            ).registrations
+            if let registration = source.registration {
+                registrations.append(registration)
+            }
+            return CmuxVaultAgentRegistry(registrations: registrations)
+        }.value
+        let errorBag = ErrorBag()
+
+        func exactMatch(in entries: [SessionEntry]) -> SessionEntry? {
+            entries.first { $0.sessionId == source.sessionId }
+        }
+
+        let scopedMatches = await searchAgent(
+            needle: source.sessionId,
+            agent: source.sessionAgent,
+            cwdFilter: source.workingDirectory,
+            offset: 0,
+            limit: 64,
+            errorBag: errorBag,
+            registry: registry
+        )
+        if let match = exactMatch(in: scopedMatches) {
+            return match
+        }
+
+        if source.workingDirectory != nil {
+            let unscopedMatches = await searchAgent(
+                needle: source.sessionId,
+                agent: source.sessionAgent,
+                cwdFilter: nil,
+                offset: 0,
+                limit: 64,
+                errorBag: errorBag,
+                registry: registry
+            )
+            if let match = exactMatch(in: unscopedMatches) {
+                return match
+            }
+        }
+
+        // Some provider indexes search transcript text rather than IDs. Their
+        // empty-query path enumerates metadata, which lets us match the ID after
+        // indexing without teaching the export layer provider internals.
+        let scopedEntries = await searchAgent(
+            needle: "",
+            agent: source.sessionAgent,
+            cwdFilter: source.workingDirectory,
+            offset: 0,
+            limit: 2_000,
+            errorBag: errorBag,
+            registry: registry
+        )
+        if let match = exactMatch(in: scopedEntries) {
+            return match
+        }
+
+        guard source.workingDirectory != nil else { return nil }
+        let unscopedEntries = await searchAgent(
+            needle: "",
+            agent: source.sessionAgent,
+            cwdFilter: nil,
+            offset: 0,
+            limit: 2_000,
+            errorBag: errorBag,
+            registry: registry
+        )
+        return exactMatch(in: unscopedEntries)
+    }
+
     nonisolated private static func searchAgent(
         needle: String, agent: SessionAgent, cwdFilter: String?,
         offset: Int, limit: Int, errorBag: ErrorBag,

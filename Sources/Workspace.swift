@@ -10925,9 +10925,8 @@ final class Workspace: Identifiable, ObservableObject {
     }
 
     /// Fork the panel's agent conversation into a brand-new sibling tab placed immediately
-    /// to the right of `anchorTabId` in `paneId`. Uses the same `claude --resume --fork-session`
-    /// startup input the existing split/new-workspace forks rely on, so divergence is owned by
-    /// the agent itself (Claude / Codex / OpenCode) instead of any cmux-side history copy.
+    /// to the right of `anchorTabId` in `paneId`. Native forks use the source harness's resume
+    /// command; cross-harness forks pass the normalized conversation as startup input.
     @discardableResult
     func forkAgentConversationToNewTab(
         fromPanelId panelId: UUID,

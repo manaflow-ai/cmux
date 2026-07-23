@@ -7,6 +7,7 @@ extension SessionRestorableAgentSnapshot {
         case workingDirectory
         case launchCommand
         case registration
+        case transcriptPath
         case permissionMode
     }
 
@@ -37,6 +38,7 @@ extension SessionRestorableAgentSnapshot {
                 forKey: .launchCommand
             ),
             registration: registration,
+            transcriptPath: try container.decodeIfPresent(String.self, forKey: .transcriptPath),
             // Optional so snapshots persisted before the field decode unchanged.
             permissionMode: try container.decodeIfPresent(String.self, forKey: .permissionMode)
         )
