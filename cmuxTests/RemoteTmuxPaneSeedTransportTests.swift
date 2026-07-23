@@ -1662,4 +1662,124 @@ import Testing
             try? pipe.fileHandleForReading.close()
         }
     }
+
+    // MARK: - a pane that retains too much recovers itself, not the whole session
+    //
+    // The same condition used to call `beginReconnecting()`. The stream was healthy, so a renderer
+    // memory ceiling was reported as a transport failure, and the reattach reseeded EVERY pane with
+    // `clearScrollback: true`, so one slow pane truncated every sibling pane scrollback.
+
+    /// Live output appended to a pending seed, past this pane ceiling, recovers only that pane.
+    @Test func liveOutputOverflowRecoversOnePaneWithoutRestartingTheTransport() throws {
+        let fixture = attachedConnection()
+        defer { fixture.close() }
+        fixture.connection.windowsByID[1] = RemoteTmuxWindow(
+            id: 1,
+            width: 80,
+            height: 24,
+            layout: RemoteTmuxLayoutNode(
+                width: 80, height: 24, x: 0, y: 0, content: .pane(7)
+            )
+        )
+        fixture.connection.windowOrder = [1]
+        fixture.connection.recordPublishedPaneOwnership(windowId: 1, paneIds: [7])
+
+        let manager = TabManager(autoWelcomeIfNeeded: false)
+        let workspace = manager.selectedWorkspace!
+        workspace.isRemoteTmuxMirror = true
+        let sessionMirror = RemoteTmuxSessionMirror(
+            host: fixture.connection.host,
+            sessionName: "work",
+            connection: fixture.connection,
+            tabManager: manager,
+            workspace: workspace,
+            pendingPaneSeedByteLimit: 64
+        )
+        defer { sessionMirror.detachObserver() }
+
+        sessionMirror.routeSeed(
+            paneId: 7,
+            seed: RemoteTmuxPaneSeed(
+                kind: .fullHistory,
+                discardedOutput: [],
+                snapshot: Data("1234".utf8),
+                catchUpOutput: [],
+                state: Data()
+            )
+        )
+        #expect(sessionMirror.pendingPaneSeedByteCounts[7] == 4)
+
+        // 4 + 61 crosses the injected 64-byte ceiling for this pane.
+        sessionMirror.routeOutput(paneId: 7, data: Data(repeating: UInt8(ascii: "A"), count: 61))
+
+        #expect(
+            fixture.connection.connectionState == .connected,
+            "one pane retention ceiling is not a transport failure"
+        )
+        #expect(sessionMirror.deferredFullPaneReseeds == [7])
+        #expect(sessionMirror.pendingPaneSeedBytes[7] == nil)
+        #expect(sessionMirror.pendingPaneSeedTotalByteCount == 0)
+    }
+
+    /// A visible repaint stacked on a pending full seed, past the ceiling, recovers only that pane.
+    @Test func visibleRepaintOverflowRecoversOnePaneWithoutRestartingTheTransport() throws {
+        let fixture = attachedConnection()
+        defer { fixture.close() }
+        fixture.connection.windowsByID[1] = RemoteTmuxWindow(
+            id: 1,
+            width: 80,
+            height: 24,
+            layout: RemoteTmuxLayoutNode(
+                width: 80, height: 24, x: 0, y: 0, content: .pane(7)
+            )
+        )
+        fixture.connection.windowOrder = [1]
+        fixture.connection.recordPublishedPaneOwnership(windowId: 1, paneIds: [7])
+
+        let manager = TabManager(autoWelcomeIfNeeded: false)
+        let workspace = manager.selectedWorkspace!
+        workspace.isRemoteTmuxMirror = true
+        let sessionMirror = RemoteTmuxSessionMirror(
+            host: fixture.connection.host,
+            sessionName: "work",
+            connection: fixture.connection,
+            tabManager: manager,
+            workspace: workspace,
+            pendingPaneSeedByteLimit: 64
+        )
+        defer { sessionMirror.detachObserver() }
+
+        sessionMirror.routeSeed(
+            paneId: 7,
+            seed: RemoteTmuxPaneSeed(
+                kind: .fullHistory,
+                discardedOutput: [],
+                snapshot: Data("1234".utf8),
+                catchUpOutput: [],
+                state: Data()
+            )
+        )
+        #expect(sessionMirror.pendingPaneSeedByteCounts[7] == 4)
+
+        // A repaint cannot replace a full snapshot, so it queues behind it and crosses the ceiling.
+        sessionMirror.routeSeed(
+            paneId: 7,
+            seed: RemoteTmuxPaneSeed(
+                kind: .visibleRepaint,
+                discardedOutput: [],
+                snapshot: Data(repeating: UInt8(ascii: "B"), count: 61),
+                catchUpOutput: [],
+                state: Data()
+            )
+        )
+
+        #expect(
+            fixture.connection.connectionState == .connected,
+            "one pane retention ceiling is not a transport failure"
+        )
+        #expect(sessionMirror.deferredFullPaneReseeds == [7])
+        #expect(sessionMirror.pendingPaneSeedBytes[7] == nil)
+        #expect(sessionMirror.pendingPaneSeedTotalByteCount == 0)
+    }
+
 }

@@ -40,7 +40,7 @@ extension RemoteTmuxSessionMirror {
            pendingPaneSeedKinds[paneId] == .fullHistory
         {
             let nextCount = (pendingPaneSeedByteCounts[paneId] ?? 0) + renderedBytes.count
-            guard nextCount <= RemoteTmuxControlConnection.maximumPendingPaneSeedDeliveryBytes else {
+            guard nextCount <= perPanePendingSeedByteCeiling else {
                 reconnectForPendingPaneSeedOverflow(paneId: paneId)
                 return
             }
@@ -73,7 +73,7 @@ extension RemoteTmuxSessionMirror {
             routeCleanedOutput(paneId: paneId, data: renderedBytes)
             return
         }
-        guard renderedBytes.count <= RemoteTmuxControlConnection.maximumPendingPaneSeedDeliveryBytes else {
+        guard renderedBytes.count <= perPanePendingSeedByteCeiling else {
             reconnectForPendingPaneSeedOverflow(paneId: paneId)
             return
         }
@@ -153,7 +153,7 @@ extension RemoteTmuxSessionMirror {
             return
         }
         let nextCount = (pendingPaneSeedByteCounts[paneId] ?? 0) + data.count
-        guard nextCount <= RemoteTmuxControlConnection.maximumPendingPaneSeedDeliveryBytes else {
+        guard nextCount <= perPanePendingSeedByteCeiling else {
             reconnectForPendingPaneSeedOverflow(paneId: paneId)
             return
         }
@@ -255,6 +255,21 @@ extension RemoteTmuxSessionMirror {
         pendingPaneSeedDeadlineIDs[paneId] = nil
         releasePaneSeedFrameDemandIfIdle(paneId: paneId)
         releasePaneSeedReadinessSignalsIfIdle()
+    }
+
+    /// How many retained bytes one pane may hold.
+    ///
+    /// The static is a per-pane allowance: one maximum snapshot plus its bounded live catch-up. The
+    /// mirror's own budget has to bound it as well, or a single pane is allowed more than the whole
+    /// mirror is — which is the case today, because the mirror-wide default is exactly twice the
+    /// per-pane static. One retaining pane therefore always crosses the per-pane line first, and the
+    /// mirror-wide check only becomes reachable with three panes retaining at once.
+    ///
+    /// At the shipped default this changes nothing, since `min(x, 2x) == x`. It also makes the branch
+    /// reachable from a test for the first time: the seed tests inject a small
+    /// ``RemoteTmuxSessionMirror/pendingPaneSeedByteLimit`` that the per-pane comparison ignored.
+    private var perPanePendingSeedByteCeiling: Int {
+        min(RemoteTmuxControlConnection.maximumPendingPaneSeedDeliveryBytes, pendingPaneSeedByteLimit)
     }
 
     private func reconnectForPendingPaneSeedOverflow(paneId: Int) {
