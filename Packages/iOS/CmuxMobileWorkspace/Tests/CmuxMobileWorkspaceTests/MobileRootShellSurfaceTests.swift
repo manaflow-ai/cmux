@@ -9,12 +9,16 @@ import Testing
 /// different view per state destroyed the shell's presentation state: a
 /// Settings sheet opened while "reconnecting to your Mac" dismissed itself the
 /// moment the reconnection finished.
+///
+/// `showDisconnectedNoPairedMacShell` is the shell presentation policy's
+/// resolved decision (no saved Macs AND no hidden computers), so these tests
+/// pass it directly.
 @Suite struct MobileRootShellSurfaceTests {
     @Test func restoringWindowIsWorkspaceShellData() {
         #expect(MobileRootAuthGate.shellSurface(
             connectionState: .disconnected,
             showRestoringStoredMac: true,
-            hasKnownPairedMac: true
+            showDisconnectedNoPairedMacShell: false
         ) == .workspaceShell(isRestoringStoredMac: true))
     }
 
@@ -25,12 +29,12 @@ import Testing
         let restoring = MobileRootAuthGate.shellSurface(
             connectionState: .disconnected,
             showRestoringStoredMac: true,
-            hasKnownPairedMac: true
+            showDisconnectedNoPairedMacShell: false
         )
         let connected = MobileRootAuthGate.shellSurface(
             connectionState: .connected,
             showRestoringStoredMac: false,
-            hasKnownPairedMac: true
+            showDisconnectedNoPairedMacShell: false
         )
         #expect(isWorkspaceShell(restoring))
         #expect(isWorkspaceShell(connected))
@@ -43,7 +47,7 @@ import Testing
         #expect(MobileRootAuthGate.shellSurface(
             connectionState: .disconnected,
             showRestoringStoredMac: false,
-            hasKnownPairedMac: true
+            showDisconnectedNoPairedMacShell: false
         ) == .workspaceShell(isRestoringStoredMac: false))
     }
 
@@ -53,17 +57,17 @@ import Testing
         #expect(MobileRootAuthGate.shellSurface(
             connectionState: .connected,
             showRestoringStoredMac: true,
-            hasKnownPairedMac: true
+            showDisconnectedNoPairedMacShell: false
         ) == .workspaceShell(isRestoringStoredMac: false))
     }
 
-    /// Never-paired devices (no saved Macs, no active restoring window) get the
-    /// no-devices surface.
+    /// Never-paired devices (presentation policy resolved to the no-devices
+    /// screen, no active restoring window) get the disconnected surface.
     @Test func neverPairedFallsToDisconnectedSurface() {
         #expect(MobileRootAuthGate.shellSurface(
             connectionState: .disconnected,
             showRestoringStoredMac: false,
-            hasKnownPairedMac: false
+            showDisconnectedNoPairedMacShell: true
         ) == .disconnectedNoKnownPairedMac)
     }
 
@@ -74,17 +78,17 @@ import Testing
         #expect(MobileRootAuthGate.shellSurface(
             connectionState: .disconnected,
             showRestoringStoredMac: true,
-            hasKnownPairedMac: false
+            showDisconnectedNoPairedMacShell: true
         ) == .workspaceShell(isRestoringStoredMac: true))
     }
 
-    /// Connected with no saved Macs (e.g. attach-ticket session) still mounts
-    /// the workspace shell (matches the pre-existing else branch).
-    @Test func connectedWithoutSavedMacsMountsWorkspaceShell() {
+    /// Connected always mounts the workspace shell, even if a stale
+    /// presentation decision still says disconnected.
+    @Test func connectedAlwaysMountsWorkspaceShell() {
         #expect(MobileRootAuthGate.shellSurface(
             connectionState: .connected,
             showRestoringStoredMac: false,
-            hasKnownPairedMac: false
+            showDisconnectedNoPairedMacShell: true
         ) == .workspaceShell(isRestoringStoredMac: false))
     }
 

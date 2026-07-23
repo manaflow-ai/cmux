@@ -6,7 +6,7 @@ public import Foundation
 /// backup in sync with the local store, and restores from it on sign-in. Wraps
 /// the real ``MobilePairedMacStore`` at the composition root behind the
 /// ``MobilePairedMacBackup`` flag, so EVERY paired-Mac mutation (route refresh,
-/// pairing, rename, forget, active switch) flows through one seam — no per-call-
+/// pairing, rename, legacy delete, active switch) flows through one seam — no per-call-
 /// site patching.
 ///
 /// - Writes (`upsert`/`remove`/`setActive`) forward to the local store first (it
@@ -416,7 +416,7 @@ public actor BackingUpPairedMacStore: MobilePairedMacStoring, PairedMacBackupRef
             // read/restore still applies this tombstone and retries the backup
             // delete instead of restoring the stale live record from the server.
             // The catch below rolls this intent back if the local delete itself
-            // fails, so the outbox never claims a row was forgotten locally when it
+            // fails, so the outbox never claims a row was deleted locally when it
             // was not.
             await addPendingDelete(
                 macDeviceID: macDeviceID,

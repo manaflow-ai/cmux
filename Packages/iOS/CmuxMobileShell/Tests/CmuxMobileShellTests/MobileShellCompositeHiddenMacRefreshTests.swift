@@ -6,8 +6,51 @@ import Testing
 @testable import CmuxMobileShell
 
 @MainActor
-@Suite struct MobileShellCompositeForgottenMacRefreshTests {
-    @Test func forgettingMacSuppressesStaleStoreWriteFromSameSession() async throws {
+@Suite struct MobileShellCompositeHiddenMacRefreshTests {
+    @Test func legacyTaggedHiddenIDUsesRegistryDisplayNameWithoutLocalRow() async throws {
+        let hiddenStore = InMemoryPairedMacHiddenStore()
+        let registry = DelayedTeamDeviceRegistry(
+            teamIDProvider: { "team-a" },
+            devicesByTeam: [
+                "team-a": [RegistryDevice(
+                    deviceId: "mac-legacy",
+                    platform: "mac",
+                    displayName: "Legacy Studio",
+                    lastSeenAt: Date(timeIntervalSince1970: 30),
+                    instances: []
+                )],
+            ],
+            blockedTeams: []
+        )
+        let store = MobileShellComposite(
+            isSignedIn: true,
+            pairedMacStore: DelayedTeamPairedMacStore(recordsByTeam: [:], blockedTeams: []),
+            deviceRegistry: registry,
+            identityProvider: StaticIdentityProvider(userID: "user-1"),
+            teamIDProvider: { "team-a" },
+            hiddenMacStore: hiddenStore
+        )
+        let scope = try #require(await store.currentScopeSnapshot())
+        await store.rememberHiddenMacDeviceID(
+            MobilePairedMac.pairingID(
+                macDeviceID: "mac-legacy",
+                instanceTag: "stable"
+            ),
+            scope: scope
+        )
+
+        await store.loadPairedMacs()
+        await store.loadRegistryDevices()
+
+        let hidden = try #require(store.hiddenComputers.first)
+        #expect(hidden.macDeviceID == "mac-legacy")
+        #expect(hidden.instanceTag == "stable")
+        #expect(hidden.displayName == "Legacy Studio")
+        #expect(hidden.requiresLegacyRecovery)
+        #expect(store.registryDevices.isEmpty)
+    }
+
+    @Test func hidingMacSuppressesStaleStoreWriteFromSameSession() async throws {
         let pairedStore = DelayedTeamPairedMacStore(
             recordsByTeam: [
                 "team-a": [
@@ -37,7 +80,7 @@ import Testing
         )
         await store.loadPairedMacs()
 
-        await store.forgetMac(macDeviceID: "mac-a")
+        await store.hideMac(macDeviceID: "mac-a")
         try await pairedStore.upsert(
             macDeviceID: "mac-a",
             displayName: "Desk Mac",
@@ -59,9 +102,9 @@ import Testing
         #expect(await store.secondaryAggregationCandidateMacIDs() == ["mac-b"])
     }
 
-    @Test func forgettingMacSuppressesStaleStoreWriteAfterRelaunch() async throws {
-        let suiteName = "forgotten-mac-relaunch-\(UUID().uuidString)"
-        let forgottenStore = UserDefaultsPairedMacForgottenStore(suiteName: suiteName)
+    @Test func hidingMacSuppressesStaleStoreWriteAfterRelaunch() async throws {
+        let suiteName = "hidden-mac-relaunch-\(UUID().uuidString)"
+        let hiddenStore = UserDefaultsPairedMacHiddenStore(suiteName: suiteName)
         defer { UserDefaults(suiteName: suiteName)?.removePersistentDomain(forName: suiteName) }
         let pairedStore = DelayedTeamPairedMacStore(
             recordsByTeam: [
@@ -89,11 +132,11 @@ import Testing
             pairedMacStore: pairedStore,
             identityProvider: StaticIdentityProvider(userID: "user-1"),
             teamIDProvider: { "team-a" },
-            forgottenMacStore: forgottenStore
+            hiddenMacStore: hiddenStore
         )
         await firstStore.loadPairedMacs()
 
-        await firstStore.forgetMac(macDeviceID: "mac-a")
+        await firstStore.hideMac(macDeviceID: "mac-a")
         try await pairedStore.upsert(
             macDeviceID: "mac-a",
             displayName: "Desk Mac",
@@ -113,7 +156,7 @@ import Testing
             pairedMacStore: pairedStore,
             identityProvider: StaticIdentityProvider(userID: "user-1"),
             teamIDProvider: { "team-a" },
-            forgottenMacStore: forgottenStore
+            hiddenMacStore: hiddenStore
         )
 
         await relaunchedStore.loadPairedMacs()
@@ -123,7 +166,7 @@ import Testing
         #expect(await relaunchedStore.secondaryAggregationCandidateMacIDs() == ["mac-b"])
     }
 
-    @Test func forgettingTeamlessMacSuppressesItAfterTeamSwitch() async throws {
+    @Test func hidingTeamlessMacSuppressesItAfterTeamSwitch() async throws {
         let team = MutableTeamID("team-a")
         let pairedStore = DelayedTeamPairedMacStore(
             recordsByTeam: [
@@ -155,12 +198,12 @@ import Testing
             pairedMacStore: pairedStore,
             identityProvider: StaticIdentityProvider(userID: "user-1"),
             teamIDProvider: { await team.value },
-            forgottenMacStore: InMemoryPairedMacForgottenStore()
+            hiddenMacStore: InMemoryPairedMacHiddenStore()
         )
         await store.loadPairedMacs()
         #expect(store.displayPairedMacs.map(\.macDeviceID) == ["mac-legacy"])
 
-        await store.forgetMac(macDeviceID: "mac-legacy")
+        await store.hideMac(macDeviceID: "mac-legacy")
         #expect(store.displayPairedMacs.isEmpty)
 
         await team.set("team-b")

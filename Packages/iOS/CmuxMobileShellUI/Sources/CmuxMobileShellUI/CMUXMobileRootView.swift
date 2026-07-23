@@ -227,8 +227,8 @@ struct CMUXMobileRootView: View {
 
     @ViewBuilder
     private var rootContent: some View {
-        if shouldShowDeleteComputersVerifier {
-            deleteComputersVerifier
+        if shouldShowHideComputersVerifier {
+            hideComputersVerifier
         } else if shouldShowAgentChatDemoPreview {
             agentChatDemoPreview
         } else if shouldShowTerminalLayoutPreview {
@@ -247,7 +247,11 @@ struct CMUXMobileRootView: View {
             switch MobileRootAuthGate.shellSurface(
                 connectionState: store.connectionState,
                 showRestoringStoredMac: shouldShowRestoringStoredMac,
-                hasKnownPairedMac: store.hasKnownPairedMac
+                showDisconnectedNoPairedMacShell: MobileAuthenticatedShellPresentation.resolve(
+                    connectionState: store.connectionState,
+                    hasKnownPairedMac: store.hasKnownPairedMac,
+                    hasHiddenComputers: store.hasHiddenComputers
+                ) == .disconnected
             ) {
             case .disconnectedNoKnownPairedMac:
                 // ONLY when there are no saved Macs at all: the add-device flow (it

@@ -154,7 +154,10 @@ public struct MobileRootAuthGate {
     ///   - showRestoringStoredMac: Whether the startup reconnect window is
     ///     active (``shouldShowRestoringStoredMac(authenticated:connectionState:isReconnectingStoredMac:hasKnownPairedMac:pairedMacHintUndetermined:didFinishStoredMacReconnectAttempt:)``
     ///     combined with the caller's startup gates).
-    ///   - hasKnownPairedMac: Whether this device has any saved Mac.
+    ///   - showDisconnectedNoPairedMacShell: Whether the no-devices screen is
+    ///     warranted at all. The caller resolves this from the shell
+    ///     presentation policy (no saved Macs AND no hidden computers), so
+    ///     hidden-computer semantics live in one place.
     /// - Returns: The surface to mount. Restoring, connected, and
     ///   offline-with-saved-Macs all return ``MobileRootShellSurface/workspaceShell(isRestoringStoredMac:)``
     ///   so the mounted shell view never changes identity across those
@@ -162,10 +165,10 @@ public struct MobileRootAuthGate {
     public static func shellSurface(
         connectionState: MobileConnectionState,
         showRestoringStoredMac: Bool,
-        hasKnownPairedMac: Bool
+        showDisconnectedNoPairedMacShell: Bool
     ) -> MobileRootShellSurface {
         let isRestoringStoredMac = connectionState != .connected && showRestoringStoredMac
-        if connectionState != .connected, !hasKnownPairedMac, !isRestoringStoredMac {
+        if connectionState != .connected, showDisconnectedNoPairedMacShell, !isRestoringStoredMac {
             return .disconnectedNoKnownPairedMac
         }
         return .workspaceShell(isRestoringStoredMac: isRestoringStoredMac)

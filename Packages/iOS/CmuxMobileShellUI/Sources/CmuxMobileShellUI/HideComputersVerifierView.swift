@@ -2,8 +2,8 @@
 import CmuxMobileShell
 import SwiftUI
 
-struct DeleteComputersVerifierView: View {
-    @State private var result: MobileDeleteComputersVerificationResult?
+struct HideComputersVerifierView: View {
+    @State private var result: MobileHideComputersVerificationResult?
 
     var body: some View {
         NavigationStack {
@@ -12,35 +12,43 @@ struct DeleteComputersVerifierView: View {
                     Text(statusText)
                         .font(.system(size: 34, weight: .bold, design: .rounded))
                         .foregroundStyle(result?.passed == true ? .green : .orange)
-                        .accessibilityIdentifier("DeleteComputersVerifierStatus")
+                        .accessibilityIdentifier("HideComputersVerifierStatus")
 
                     if let result {
                         Text(verbatim: result.reason)
                             .font(.system(.body, design: .monospaced))
-                            .accessibilityIdentifier("DeleteComputersVerifierReason")
+                            .accessibilityIdentifier("HideComputersVerifierReason")
 
                         Text(String(
-                            localized: "mobile.deleteComputersVerifier.halfRemovedAbsent",
-                            defaultValue: "halfRemovedAbsent="
-                        ) + "\(result.halfRemovedAbsent)")
+                            localized: "mobile.hideComputersVerifier.halfHiddenAbsent",
+                            defaultValue: "halfHiddenAbsent="
+                        ) + "\(result.halfHiddenAbsent)")
                         Text(String(
-                            localized: "mobile.deleteComputersVerifier.halfRemainingPresent",
+                            localized: "mobile.hideComputersVerifier.halfRemainingPresent",
                             defaultValue: "halfRemainingPresent="
                         ) + "\(result.halfRemainingPresent)")
                         Text(String(
-                            localized: "mobile.deleteComputersVerifier.halfNoDisconnectedBanner",
+                            localized: "mobile.hideComputersVerifier.halfNoDisconnectedBanner",
                             defaultValue: "halfNoDisconnectedBanner="
                         ) + "\(result.halfNoDisconnectedBanner)")
                         Text(String(
-                            localized: "mobile.deleteComputersVerifier.refreshPreservedHalfList",
+                            localized: "mobile.hideComputersVerifier.refreshPreservedHalfList",
                             defaultValue: "refreshPreservedHalfList="
                         ) + "\(result.refreshPreservedHalfList)")
                         Text(String(
-                            localized: "mobile.deleteComputersVerifier.allRemoved",
-                            defaultValue: "allRemoved="
-                        ) + "\(result.allRemoved)")
+                            localized: "mobile.hideComputersVerifier.allHidden",
+                            defaultValue: "allHidden="
+                        ) + "\(result.allHidden)")
                         Text(String(
-                            localized: "mobile.deleteComputersVerifier.refreshPreservedEmptyList",
+                            localized: "mobile.hideComputersVerifier.allHiddenKnownPairedMac",
+                            defaultValue: "allHiddenKnownPairedMac="
+                        ) + "\(result.allHiddenKnownPairedMac)")
+                        Text(String(
+                            localized: "mobile.hideComputersVerifier.allHiddenNormalEmpty",
+                            defaultValue: "allHiddenNormalEmpty="
+                        ) + "\(result.allHiddenNormalEmpty)")
+                        Text(String(
+                            localized: "mobile.hideComputersVerifier.refreshPreservedEmptyList",
                             defaultValue: "refreshPreservedEmptyList="
                         ) + "\(result.refreshPreservedEmptyList)")
 
@@ -76,25 +84,25 @@ struct DeleteComputersVerifierView: View {
                 .padding()
             }
             .navigationTitle(Text(String(
-                localized: "mobile.deleteComputersVerifier.title",
-                defaultValue: "Delete Computers Verifier"
+                localized: "mobile.hideComputersVerifier.title",
+                defaultValue: "Hide Computers Verifier"
             )))
         }
         .task {
-            result = await MobileDeleteComputersVerifier().runAndPersist()
+            result = await MobileHideComputersVerifier().runAndPersist()
         }
     }
 
     private var statusText: String {
         if result?.passed == true {
-            return String(localized: "mobile.deleteComputersVerifier.status.pass", defaultValue: "PASS")
+            return String(localized: "mobile.hideComputersVerifier.status.pass", defaultValue: "PASS")
         }
-        return String(localized: "mobile.deleteComputersVerifier.status.running", defaultValue: "RUNNING")
+        return String(localized: "mobile.hideComputersVerifier.status.running", defaultValue: "RUNNING")
     }
 
-    private func checkpointSummaryText(_ checkpoint: MobileDeleteComputersVerificationCheckpoint) -> String {
+    private func checkpointSummaryText(_ checkpoint: MobileHideComputersVerificationCheckpoint) -> String {
         let countLabel = String(
-            localized: "mobile.deleteComputersVerifier.checkpoint.workspacesStatus",
+            localized: "mobile.hideComputersVerifier.checkpoint.workspacesStatus",
             defaultValue: " workspaces, status "
         )
         return "\(checkpoint.name): \(checkpoint.workspaceCount)" + countLabel + checkpoint.workspaceListStatus
@@ -102,13 +110,13 @@ struct DeleteComputersVerifierView: View {
 
     private func computersText(_ macIDs: [String]) -> String {
         String(
-            localized: "mobile.deleteComputersVerifier.checkpoint.computers",
+            localized: "mobile.hideComputersVerifier.checkpoint.computers",
             defaultValue: "computers: "
         ) + macIDs.joined(separator: ", ")
     }
 
     private func pageText(_ page: Int) -> String {
-        String(localized: "mobile.deleteComputersVerifier.checkpoint.page", defaultValue: "page ") + "\(page)"
+        String(localized: "mobile.hideComputersVerifier.checkpoint.page", defaultValue: "page ") + "\(page)"
     }
 }
 #endif

@@ -2,11 +2,11 @@ import CMUXMobileCore
 import CmuxMobilePairedMac
 import Foundation
 
-/// Result of an explicit, user-triggered deleted-computer recovery attempt.
-public enum MobileDeletedComputerRecoveryResult: Equatable, Sendable {
-    /// A forgotten Mac was found through same-account Iroh discovery and persisted again.
+/// Result of a user-triggered legacy hidden-computer recovery attempt.
+public enum MobileHiddenComputerRecoveryResult: Equatable, Sendable {
+    /// A hidden Mac was found through same-account Iroh discovery and persisted again.
     case recovered
-    /// No eligible forgotten Mac was live for the current account/team scope.
+    /// No eligible hidden Mac was live for the current account/team scope.
     case notFound
     /// A previous recovery attempt is still running, so this tap did not start another scan.
     case alreadyInProgress
@@ -16,24 +16,30 @@ public enum MobileDeletedComputerRecoveryResult: Equatable, Sendable {
 
 @MainActor
 extension MobileShellComposite {
-    /// Recover a deleted Mac through live same-account Iroh discovery.
+    /// Recovers a legacy hidden entry through live same-account Iroh discovery.
     ///
-    /// Passive zero-touch discovery continues to exclude forgotten Macs. This
-    /// method is the explicit user recovery path: it only considers live broker
-    /// candidates that match a remembered forgotten ID, then the normal Iroh
-    /// connection path must authenticate the Mac's device ID and app-instance tag
-    /// before persistence clears the forgotten marker.
+    /// Local hidden rows use ``unhideMacDeviceID(_:instanceTag:)`` and never come
+    /// through this path. Passive zero-touch discovery still excludes hidden
+    /// Macs; this explicit path authenticates a matching live candidate before
+    /// persistence clears the hidden marker and revives any legacy tombstone.
+    /// - Parameters:
+    ///   - macDeviceID: Optional physical Mac id used to scope a per-entry attempt.
+    ///   - instanceTag: Optional app-instance tag used to scope a per-entry attempt.
+    /// - Returns: The terminal result of the live recovery attempt.
     @discardableResult
-    public func recoverForgottenIrohMacFromAccount() async -> MobileDeletedComputerRecoveryResult {
-        guard !isRecoveringDeletedComputer else { return .alreadyInProgress }
-        isRecoveringDeletedComputer = true
-        defer { isRecoveringDeletedComputer = false }
+    public func recoverHiddenIrohMacFromAccount(
+        macDeviceID: String? = nil,
+        instanceTag: String? = nil
+    ) async -> MobileHiddenComputerRecoveryResult {
+        guard !isRecoveringHiddenComputer else { return .alreadyInProgress }
+        isRecoveringHiddenComputer = true
+        defer { isRecoveringHiddenComputer = false }
 
         guard isSignedIn,
               let scope = await currentScopeSnapshot(),
               let personalIrohDiscovery else { return .notFound }
-        let forgottenIDs = await forgottenMacDeviceIDs(scope: scope)
-        guard !forgottenIDs.isEmpty else { return .notFound }
+        let hiddenIDs = await hiddenMacDeviceIDs(scope: scope)
+        guard !hiddenIDs.isEmpty else { return .notFound }
 
         connectionRecoveryOwner.cancel()
         applyConnectionRecoveryOwnerState()
@@ -41,14 +47,16 @@ extension MobileShellComposite {
 
         let discovered = await personalIrohDiscovery.discoverLiveMacs()
         guard await isScopeCurrent(scope) else { return .staleScope }
-        let candidates = forgottenIrohRecoveryCandidates(
+        let candidates = hiddenIrohRecoveryCandidates(
             from: discovered,
-            forgottenIDs: forgottenIDs
+            hiddenIDs: hiddenIDs,
+            macDeviceID: macDeviceID,
+            instanceTag: instanceTag
         )
 
         for mac in candidates {
             guard await isScopeCurrent(scope) else { return .staleScope }
-            guard await isForgottenMacDeviceID(
+            guard await isHiddenMacDeviceID(
                 mac.deviceID,
                 instanceTag: mac.instanceTag,
                 scope: scope
@@ -72,9 +80,11 @@ extension MobileShellComposite {
         return .notFound
     }
 
-    private func forgottenIrohRecoveryCandidates(
+    private func hiddenIrohRecoveryCandidates(
         from discovered: [MobileDiscoveredIrohMac],
-        forgottenIDs: Set<String>
+        hiddenIDs: Set<String>,
+        macDeviceID: String?,
+        instanceTag: String?
     ) -> [MobileDiscoveredIrohMac] {
         var seen: Set<String> = []
         var candidates: [MobileDiscoveredIrohMac] = []
@@ -83,8 +93,15 @@ extension MobileShellComposite {
                 macDeviceID: mac.deviceID,
                 instanceTag: mac.instanceTag
             )
-            guard forgottenIDs.contains(cmxCanonicalDeviceID(mac.deviceID))
-                    || forgottenIDs.contains(pairingID),
+            if let macDeviceID,
+               cmxCanonicalDeviceID(mac.deviceID) != cmxCanonicalDeviceID(macDeviceID) {
+                continue
+            }
+            if let instanceTag, mac.instanceTag != instanceTag {
+                continue
+            }
+            guard hiddenIDs.contains(cmxCanonicalDeviceID(mac.deviceID))
+                    || hiddenIDs.contains(pairingID),
                   !mac.routes.isEmpty,
                   mac.routes.contains(where: { $0.kind == .iroh }),
                   seen.insert(pairingID).inserted else { continue }

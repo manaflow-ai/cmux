@@ -4,10 +4,10 @@ import CmuxMobilePairedMac
 import CmuxMobileShellModel
 public import Foundation
 
-/// DEBUG-only scenario runner used by the iOS UI test to prove computer deletion
+/// DEBUG-only scenario runner used by the iOS UI test to prove computer hiding
 /// updates the workspace list and refresh behavior.
 @MainActor
-public struct MobileDeleteComputersVerifier {
+public struct MobileHideComputersVerifier {
     /// Environment variable that enables the verifier route in DEBUG builds.
     public let environmentKey: String
     /// File name used for the JSON evidence written to Caches.
@@ -21,8 +21,8 @@ public struct MobileDeleteComputersVerifier {
     public init(
         environment: [String: String] = ProcessInfo.processInfo.environment,
         fileManager: FileManager = .default,
-        environmentKey: String = "CMUX_DELETE_COMPUTERS_VERIFIER",
-        evidenceFileName: String = "cmux-delete-computers-verification.json"
+        environmentKey: String = "CMUX_HIDE_COMPUTERS_VERIFIER",
+        evidenceFileName: String = "cmux-hide-computers-verification.json"
     ) {
         self.environment = environment
         self.fileManager = fileManager
@@ -35,8 +35,8 @@ public struct MobileDeleteComputersVerifier {
         environment[environmentKey] == "1"
     }
 
-    /// Run the delete-computers scenario and persist JSON evidence to Caches.
-    public func runAndPersist() async -> MobileDeleteComputersVerificationResult {
+    /// Run the hide-computers scenario and persist JSON evidence to Caches.
+    public func runAndPersist() async -> MobileHideComputersVerificationResult {
         var result = await run()
         do {
             let url = try evidenceURL()
@@ -51,20 +51,22 @@ public struct MobileDeleteComputersVerifier {
         return result
     }
 
-    private func run() async -> MobileDeleteComputersVerificationResult {
+    private func run() async -> MobileHideComputersVerificationResult {
         do {
             return try await runScenario()
         } catch {
-            return MobileDeleteComputersVerificationResult(
+            return MobileHideComputersVerificationResult(
                 passed: false,
                 reason: "Verifier threw \(error)",
-                deletedHalfMacIDs: [],
-                deletedAllMacIDs: [],
-                halfRemovedAbsent: false,
+                hiddenHalfMacIDs: [],
+                hiddenAllMacIDs: [],
+                halfHiddenAbsent: false,
                 halfRemainingPresent: false,
                 halfNoDisconnectedBanner: false,
                 refreshPreservedHalfList: false,
-                allRemoved: false,
+                allHidden: false,
+                allHiddenKnownPairedMac: false,
+                allHiddenNormalEmpty: false,
                 refreshPreservedEmptyList: false,
                 checkpoints: [],
                 evidencePath: nil
@@ -72,12 +74,12 @@ public struct MobileDeleteComputersVerifier {
         }
     }
 
-    private func runScenario() async throws -> MobileDeleteComputersVerificationResult {
-        let userID = "delete-computers-verifier-user"
-        let teamID = "delete-computers-verifier-team"
-        let store = DeleteComputersVerifierPairedMacStore(records: seededMacs(userID: userID, teamID: teamID))
-        let identity = DeleteComputersVerifierIdentityProvider(userID: userID)
-        let defaultsSuiteName = "delete-computers-verifier-\(UUID().uuidString)"
+    private func runScenario() async throws -> MobileHideComputersVerificationResult {
+        let userID = "hide-computers-verifier-user"
+        let teamID = "hide-computers-verifier-team"
+        let store = HideComputersVerifierPairedMacStore(records: seededMacs(userID: userID, teamID: teamID))
+        let identity = HideComputersVerifierIdentityProvider(userID: userID)
+        let defaultsSuiteName = "hide-computers-verifier-\(UUID().uuidString)"
         let defaults = UserDefaults(suiteName: defaultsSuiteName)!
         defaults.set(false, forKey: "multiMacAggregation")
         let shell = MobileShellComposite(
@@ -88,34 +90,34 @@ public struct MobileDeleteComputersVerifier {
             identityProvider: identity,
             teamIDProvider: { teamID },
             multiMacAggregationDefaults: defaults,
-            forgottenMacStore: InMemoryPairedMacForgottenStore()
+            hiddenMacStore: InMemoryPairedMacHiddenStore()
         )
 
         await shell.loadPairedMacs()
         shell.setWorkspaceStatesForTesting(seededWorkspaceStates(), foregroundMacDeviceID: "mac-a")
         let initial = checkpoint("initial", shell: shell)
 
-        let halfDeleteIDs = ["mac-a", "mac-b"]
-        for macID in halfDeleteIDs {
-            await shell.forgetMac(macDeviceID: macID)
+        let halfHideIDs = ["mac-a", "mac-b"]
+        for macID in halfHideIDs {
+            await shell.hideMac(macDeviceID: macID)
         }
-        let afterHalfDelete = checkpoint("after-half-delete", shell: shell)
+        let afterHalfHide = checkpoint("after-half-hide", shell: shell)
 
         await shell.reconnectOrRefresh()
         let afterHalfRefresh = checkpoint("after-half-refresh", shell: shell)
 
-        let remainingDeleteIDs = ["mac-c", "mac-d"]
-        for macID in remainingDeleteIDs {
-            await shell.forgetMac(macDeviceID: macID)
+        let remainingHideIDs = ["mac-c", "mac-d"]
+        for macID in remainingHideIDs {
+            await shell.hideMac(macDeviceID: macID)
         }
-        let afterAllDelete = checkpoint("after-all-delete", shell: shell)
+        let afterAllHide = checkpoint("after-all-hide", shell: shell)
 
         await shell.reconnectOrRefresh()
         let afterAllRefresh = checkpoint("after-all-refresh", shell: shell)
 
         defaults.removePersistentDomain(forName: defaultsSuiteName)
 
-        let removedHalf = Set(halfDeleteIDs)
+        let hiddenHalf = Set(halfHideIDs)
         let expectedRemaining = Set(["mac-c", "mac-d"])
         let aggregation = MobileWorkspaceAggregation()
         let expectedRemainingWorkspaceIDs = Set(
@@ -127,42 +129,54 @@ public struct MobileDeleteComputersVerifier {
                     }
                 }
         )
-        let halfRemovedAbsent = afterHalfDelete.workspaceMacIDs.allSatisfy { !removedHalf.contains($0) }
-            && afterHalfRefresh.workspaceMacIDs.allSatisfy { !removedHalf.contains($0) }
-        let halfRemainingPresent = Set(afterHalfDelete.workspaceIDs) == expectedRemainingWorkspaceIDs
-            && afterHalfDelete.workspaceCount == expectedRemainingWorkspaceIDs.count
+        let halfHiddenAbsent = afterHalfHide.workspaceMacIDs.allSatisfy { !hiddenHalf.contains($0) }
+            && afterHalfRefresh.workspaceMacIDs.allSatisfy { !hiddenHalf.contains($0) }
+        let halfRemainingPresent = Set(afterHalfHide.workspaceIDs) == expectedRemainingWorkspaceIDs
+            && afterHalfHide.workspaceCount == expectedRemainingWorkspaceIDs.count
             && Set(afterHalfRefresh.workspaceIDs) == expectedRemainingWorkspaceIDs
             && afterHalfRefresh.workspaceCount == expectedRemainingWorkspaceIDs.count
-        let halfNoDisconnectedBanner = afterHalfDelete.workspaceListStatus == "connected"
+        let halfNoDisconnectedBanner = afterHalfHide.workspaceListStatus == "connected"
             && afterHalfRefresh.workspaceListStatus == "connected"
-        let refreshPreservedHalfList = afterHalfRefresh.workspaceIDs == afterHalfDelete.workspaceIDs
-            && afterHalfRefresh.displayMacIDs == afterHalfDelete.displayMacIDs
-        let allRemoved = afterAllDelete.workspaceIDs.isEmpty
-            && afterAllDelete.displayMacIDs.isEmpty
+        let refreshPreservedHalfList = afterHalfRefresh.workspaceIDs == afterHalfHide.workspaceIDs
+            && afterHalfRefresh.displayMacIDs == afterHalfHide.displayMacIDs
+        let allHidden = afterAllHide.workspaceIDs.isEmpty
+            && afterAllHide.displayMacIDs.isEmpty
+        let allHiddenKnownPairedMac = afterAllHide.hasKnownPairedMac
+            && afterAllRefresh.hasKnownPairedMac
+        let allHiddenNormalEmpty = afterAllHide.workspaceIDs.isEmpty
+            && afterAllHide.displayMacIDs.isEmpty
+            && afterAllHide.workspaceListStatus == "connected"
+            && afterAllRefresh.workspaceIDs.isEmpty
+            && afterAllRefresh.displayMacIDs.isEmpty
+            && afterAllRefresh.workspaceListStatus == "connected"
         let refreshPreservedEmptyList = afterAllRefresh.workspaceIDs.isEmpty
             && afterAllRefresh.displayMacIDs.isEmpty
-        let passed = halfRemovedAbsent
+        let passed = halfHiddenAbsent
             && halfRemainingPresent
             && halfNoDisconnectedBanner
             && refreshPreservedHalfList
-            && allRemoved
+            && allHidden
+            && allHiddenKnownPairedMac
+            && allHiddenNormalEmpty
             && refreshPreservedEmptyList
         let reason = passed
             ? "PASS"
-            : "halfRemovedAbsent=\(halfRemovedAbsent) halfRemainingPresent=\(halfRemainingPresent) halfNoDisconnectedBanner=\(halfNoDisconnectedBanner) refreshPreservedHalfList=\(refreshPreservedHalfList) allRemoved=\(allRemoved) refreshPreservedEmptyList=\(refreshPreservedEmptyList)"
+            : "halfHiddenAbsent=\(halfHiddenAbsent) halfRemainingPresent=\(halfRemainingPresent) halfNoDisconnectedBanner=\(halfNoDisconnectedBanner) refreshPreservedHalfList=\(refreshPreservedHalfList) allHidden=\(allHidden) allHiddenKnownPairedMac=\(allHiddenKnownPairedMac) allHiddenNormalEmpty=\(allHiddenNormalEmpty) refreshPreservedEmptyList=\(refreshPreservedEmptyList)"
 
-        return MobileDeleteComputersVerificationResult(
+        return MobileHideComputersVerificationResult(
             passed: passed,
             reason: reason,
-            deletedHalfMacIDs: halfDeleteIDs,
-            deletedAllMacIDs: halfDeleteIDs + remainingDeleteIDs,
-            halfRemovedAbsent: halfRemovedAbsent,
+            hiddenHalfMacIDs: halfHideIDs,
+            hiddenAllMacIDs: halfHideIDs + remainingHideIDs,
+            halfHiddenAbsent: halfHiddenAbsent,
             halfRemainingPresent: halfRemainingPresent,
             halfNoDisconnectedBanner: halfNoDisconnectedBanner,
             refreshPreservedHalfList: refreshPreservedHalfList,
-            allRemoved: allRemoved,
+            allHidden: allHidden,
+            allHiddenKnownPairedMac: allHiddenKnownPairedMac,
+            allHiddenNormalEmpty: allHiddenNormalEmpty,
             refreshPreservedEmptyList: refreshPreservedEmptyList,
-            checkpoints: [initial, afterHalfDelete, afterHalfRefresh, afterAllDelete, afterAllRefresh],
+            checkpoints: [initial, afterHalfHide, afterHalfRefresh, afterAllHide, afterAllRefresh],
             evidencePath: nil
         )
     }
@@ -170,22 +184,23 @@ public struct MobileDeleteComputersVerifier {
     private func checkpoint(
         _ name: String,
         shell: MobileShellComposite
-    ) -> MobileDeleteComputersVerificationCheckpoint {
+    ) -> MobileHideComputersVerificationCheckpoint {
         let workspaces = shell.workspaces.map { workspace in
-            MobileDeleteComputersVerificationWorkspace(
+            MobileHideComputersVerificationWorkspace(
                 id: workspace.id.rawValue,
                 name: workspace.name,
                 macDeviceID: workspace.macDeviceID,
                 status: workspace.macConnectionStatus.map(statusName)
             )
         }
-        return MobileDeleteComputersVerificationCheckpoint(
+        return MobileHideComputersVerificationCheckpoint(
             name: name,
             workspaceCount: workspaces.count,
             workspaceIDs: workspaces.map(\.id),
             workspaceMacIDs: Array(Set(workspaces.compactMap(\.macDeviceID))).sorted(),
             displayMacIDs: shell.displayPairedMacs.map(\.macDeviceID).sorted(),
             workspaceListStatus: statusName(shell.workspaceListConnectionStatus),
+            hasKnownPairedMac: shell.hasKnownPairedMac,
             pages: workspaces.chunkedForVerifier(pageSize: 5)
         )
     }

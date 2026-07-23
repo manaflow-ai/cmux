@@ -1,6 +1,6 @@
 #if DEBUG
 /// Snapshot of the verifier state after one delete or refresh step.
-public struct MobileDeleteComputersVerificationCheckpoint: Codable, Equatable, Sendable {
+public struct MobileHideComputersVerificationCheckpoint: Codable, Equatable, Sendable {
     /// Human-readable checkpoint name.
     public var name: String
     /// Number of visible workspace rows.
@@ -13,7 +13,9 @@ public struct MobileDeleteComputersVerificationCheckpoint: Codable, Equatable, S
     public var displayMacIDs: [String]
     /// Aggregate workspace-list connection status.
     public var workspaceListStatus: String
+    /// Persisted hint that at least one paired Mac is known.
+    public var hasKnownPairedMac: Bool
     /// Paged workspace rows used by the verifier UI for scrolling evidence.
-    public var pages: [[MobileDeleteComputersVerificationWorkspace]]
+    public var pages: [[MobileHideComputersVerificationWorkspace]]
 }
 #endif
