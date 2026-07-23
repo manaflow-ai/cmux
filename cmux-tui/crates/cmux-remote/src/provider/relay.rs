@@ -1338,6 +1338,110 @@ mod tests {
     }
 
     #[tokio::test]
+    async fn cancelled_allocation_discards_the_shared_control_socket() {
+        let listener = TcpListener::bind("127.0.0.1:0").await.unwrap();
+        let address = listener.local_addr().unwrap();
+        let (first_seen_tx, first_seen_rx) = oneshot::channel();
+        let server = tokio::spawn(async move {
+            let (stream, _) = listener.accept().await.unwrap();
+            let (mut abandoned_control, authorization) = accept_with_authorization(stream).await;
+            assert_eq!(authorization, "Bearer client-ticket");
+            assert!(matches!(
+                receive_test_control(&mut abandoned_control).await,
+                RelayControl::Connect { generation: 1, .. }
+            ));
+            first_seen_tx.send(()).unwrap();
+
+            let (stream, _) = tokio::time::timeout(Duration::from_secs(1), listener.accept())
+                .await
+                .expect("retry reused the cancellation-contaminated control socket")
+                .unwrap();
+            let (mut replacement_control, authorization) = accept_with_authorization(stream).await;
+            assert_eq!(authorization, "Bearer client-ticket");
+            let RelayControl::Connect { lane, generation, .. } =
+                receive_test_control(&mut replacement_control).await
+            else {
+                panic!("expected retried relay allocation");
+            };
+            assert_eq!(generation, 2);
+            let circuit = CircuitId("after-cancellation".into());
+            send_test_control(
+                &mut replacement_control,
+                &RelayControl::Allocated {
+                    circuit: circuit.clone(),
+                    lane: lane.clone(),
+                    generation,
+                    join_ticket: "replacement-join-ticket".into(),
+                },
+            )
+            .await;
+
+            let (stream, _) = listener.accept().await.unwrap();
+            let (mut circuit_socket, authorization) = accept_with_authorization(stream).await;
+            assert_eq!(authorization, "Bearer replacement-join-ticket");
+            assert_eq!(
+                receive_test_control(&mut circuit_socket).await,
+                RelayControl::Join {
+                    protocol: REMOTE_PROTOCOL_VERSION,
+                    slot: "test-slot".into(),
+                    circuit: circuit.clone(),
+                    lane: lane.clone(),
+                    generation,
+                    ticket: "replacement-join-ticket".into(),
+                    role: RelayRole::Client,
+                }
+            );
+            send_test_control(
+                &mut circuit_socket,
+                &RelayControl::Ready { circuit, lane, generation },
+            )
+            .await;
+            let message = circuit_socket.next().await.unwrap().unwrap();
+            let Message::Binary(payload) = message else {
+                panic!("expected circuit payload, got {message:?}");
+            };
+            circuit_socket.send(Message::Binary(payload)).await.unwrap();
+        });
+
+        let provider = RelayProvider::new(RelayClientConfig {
+            slot: "test-slot".into(),
+            ticket: "client-ticket".into(),
+            maximum_frame_bytes: 64,
+            control_timeout: Duration::from_secs(5),
+        })
+        .unwrap();
+        let group = provider
+            .connect(ConnectRequest {
+                endpoint: Url::parse(&format!("relay+ws://{address}/v1/relay")).unwrap(),
+                session: SessionId::ZERO,
+                lane_policy: LanePolicy::Single,
+                routing: BTreeMap::new(),
+            })
+            .await
+            .unwrap();
+        let abandoned = tokio::spawn({
+            let group = group.clone();
+            async move { group.open(LinkRequest { lane: Lane::Interactive, generation: 1 }).await }
+        });
+        first_seen_rx.await.unwrap();
+        abandoned.abort();
+        assert!(matches!(abandoned.await, Err(error) if error.is_cancelled()));
+
+        let link = tokio::time::timeout(
+            Duration::from_secs(2),
+            group.open(LinkRequest { lane: Lane::Interactive, generation: 2 }),
+        )
+        .await
+        .expect("relay allocation did not recover after cancellation")
+        .unwrap();
+        link.send(Bytes::from_static(b"after cancellation")).await.unwrap();
+        assert_eq!(link.receive().await.unwrap().unwrap(), b"after cancellation".as_slice());
+        link.close().await.unwrap();
+        group.close().await.unwrap();
+        server.await.unwrap();
+    }
+
+    #[tokio::test]
     async fn rotating_credentials_refresh_on_connect_authentication_retry() {
         let listener = TcpListener::bind("127.0.0.1:0").await.unwrap();
         let address = listener.local_addr().unwrap();
