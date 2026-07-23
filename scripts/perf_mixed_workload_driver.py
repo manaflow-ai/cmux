@@ -688,9 +688,10 @@ def _invocation_result_evidence(result: Any) -> dict[str, Any]:
 
 def _scenario_timing(scenario: Any) -> dict[str, float]:
     workload_duration_s = 5.0
-    measurement_duration_s = (
-        12.0 if getattr(scenario, "scenario_id", None) == "mixed-heavy" else 5.0
-    )
+    measurement_duration_s = {
+        "browser-heavy": 15.0,
+        "mixed-heavy": 12.0,
+    }.get(getattr(scenario, "scenario_id", None), 5.0)
     return {
         "churn_duration_s": workload_duration_s,
         "churn_measurement_duration_s": measurement_duration_s,
