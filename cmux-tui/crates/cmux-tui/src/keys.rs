@@ -150,4 +150,29 @@ mod tests {
 
         assert_eq!(encoded, b"\x1b[99;6u");
     }
+
+    #[test]
+    fn alt_shift_base_keys_preserve_shifted_text_for_legacy_terminals() {
+        let encode = |code| {
+            let event = KeyEvent::new(
+                KeyCode::Char(code),
+                KeyModifiers::ALT | KeyModifiers::SHIFT,
+            );
+            let input = key_input_from(&event).unwrap();
+            let terminal = Terminal::new(80, 24, 0, Callbacks::default()).unwrap();
+            let mut encoder = KeyEncoder::new().unwrap();
+            encoder.sync_from_terminal(&terminal);
+            let mut encoded = Vec::new();
+            encoder.encode(&input, &mut encoded).unwrap();
+            encoded
+        };
+
+        for (base, shifted) in [('d', 'D'), ('1', '!')] {
+            assert_eq!(
+                encode(base),
+                encode(shifted),
+                "enhanced Alt-Shift-{base} did not preserve its shifted text"
+            );
+        }
+    }
 }

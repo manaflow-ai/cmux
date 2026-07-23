@@ -2617,6 +2617,27 @@ mod tests {
     }
 
     #[test]
+    fn shifted_character_chords_match_enhanced_base_key_events() {
+        let shifted_letter = parse_chord("super+shift+d").unwrap();
+        assert!(shifted_letter.matches(&KeyEvent::new(
+            KeyCode::Char('d'),
+            KeyModifiers::SUPER | KeyModifiers::SHIFT,
+        )));
+
+        let shifted_symbol = parse_chord("super+shift+[").unwrap();
+        assert!(shifted_symbol.matches(&KeyEvent::new(
+            KeyCode::Char('['),
+            KeyModifiers::SUPER | KeyModifiers::SHIFT,
+        )));
+
+        let plain_letter = parse_chord("super+d").unwrap();
+        assert!(!plain_letter.matches(&KeyEvent::new(
+            KeyCode::Char('d'),
+            KeyModifiers::SUPER | KeyModifiers::SHIFT,
+        )));
+    }
+
+    #[test]
     fn sidebar_view_defaults_parses_and_unknown_values_fall_back_with_warning() {
         assert_eq!(Sidebar::default().view, SidebarView::Workspaces);
         assert_eq!(parse_sidebar_view("files"), Ok(SidebarView::Files));

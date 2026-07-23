@@ -15916,6 +15916,45 @@ mod tests {
     }
 
     #[test]
+    fn clear_history_failure_status_uses_the_selected_locale() {
+        const CHILD_ENV: &str = "CMUX_CLEAR_HISTORY_FAILURE_LOCALE_CHILD";
+        if std::env::var_os(CHILD_ENV).is_none() {
+            let output = std::process::Command::new(std::env::current_exe().unwrap())
+                .arg("app::tests::clear_history_failure_status_uses_the_selected_locale")
+                .arg("--exact")
+                .arg("--nocapture")
+                .env(CHILD_ENV, "1")
+                .env("LC_ALL", "ja_JP.UTF-8")
+                .output()
+                .unwrap();
+            assert!(
+                output.status.success(),
+                "Japanese clear-history failure child failed:\nstdout:\n{}\nstderr:\n{}",
+                String::from_utf8_lossy(&output.stdout),
+                String::from_utf8_lossy(&output.stderr)
+            );
+            return;
+        }
+
+        let mux = Mux::new("clear-history-failure-locale", SurfaceOptions::default());
+        let mut app = test_app(Session::Local(mux));
+        app.apply_pty_operation_failure(PtyOperationFailure {
+            surface_id: Some(1),
+            kind: None,
+            reservation_id: None,
+            label: "clear terminal history",
+            error: "unsupported".into(),
+            lane_failed: false,
+            delivery: PtyOperationDelivery::KnownNotDelivered,
+        });
+
+        assert_eq!(
+            app.status_message.as_deref(),
+            Some("ターミナル履歴を消去できませんでした: unsupported")
+        );
+    }
+
+    #[test]
     fn non_switch_machine_action_keeps_the_current_session_and_rails() {
         let mux = Mux::new("machine-non-switch", SurfaceOptions::default());
         mux.new_workspace(None, None).unwrap();
