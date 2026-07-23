@@ -254,12 +254,14 @@ struct RecoverableWindowlessMainWindowRoutingTests {
         let ownerPanel = try #require(ownerWorkspace.focusedTerminalPanel)
         let duplicateManager = TabManager()
         let duplicateWorkspace = try #require(duplicateManager.selectedWorkspace)
+        let duplicatePanel = try #require(duplicateWorkspace.focusedTerminalPanel)
         defer {
             app.unregisterMainWindowContextForTesting(windowId: windowId)
             ownerWorkspace.teardownAllPanels()
             ownerWorkspace.teardownRemoteConnection()
-            duplicateWorkspace.teardownAllPanels()
-            duplicateWorkspace.teardownRemoteConnection()
+            if !duplicateManager.isFinalizedForWindowClose {
+                duplicateManager.finalizeAllWorkspacesForWindowClose()
+            }
         }
 
         TerminalController.shared.setActiveTabManager(owner)
@@ -300,6 +302,10 @@ struct RecoverableWindowlessMainWindowRoutingTests {
         #expect(!app.mainWindowContexts.values.contains { $0.tabManager === duplicateManager })
         #expect(app.recoverableMainWindowRoute(windowId: windowId)?.tabManager === owner)
         #expect(GhosttyApp.terminalSurfaceRegistry.surface(id: ownerPanel.id) === ownerPanel.surface)
+        #expect(duplicateManager.isFinalizedForWindowClose)
+        #expect(duplicateManager.tabs.isEmpty)
+        #expect(duplicateWorkspace.isRetiredFromOwningTabManager)
+        #expect(GhosttyApp.terminalSurfaceRegistry.surface(id: duplicatePanel.id) == nil)
 
         app.registerMainWindow(
             replacementWindow,
@@ -312,6 +318,164 @@ struct RecoverableWindowlessMainWindowRoutingTests {
 
         #expect(app.recoverableMainWindowRoute(windowId: windowId) == nil)
         #expect(app.mainWindowContexts.values.contains { $0.windowId == windowId && $0.tabManager === owner })
+    }
+
+    @Test("Visible owner rejects a duplicate manager and retires its terminal graph")
+    func visibleOwnerRejectsDuplicateManagerAndRetiresItsTerminalGraph() throws {
+        _ = NSApplication.shared
+        let previousAppDelegate = AppDelegate.shared
+        let app = AppDelegate()
+        defer {
+            TerminalController.shared.setActiveTabManager(nil)
+            AppDelegate.shared = previousAppDelegate
+        }
+
+        let windowId = UUID()
+        let ownerWindow = NSWindow(
+            contentRect: NSRect(x: 0, y: 0, width: 500, height: 320),
+            styleMask: [.titled, .closable],
+            backing: .buffered,
+            defer: false
+        )
+        ownerWindow.identifier = NSUserInterfaceItemIdentifier("cmux.main.\(windowId.uuidString)")
+        let duplicateWindow = NSWindow(
+            contentRect: NSRect(x: 0, y: 0, width: 500, height: 320),
+            styleMask: [.titled, .closable],
+            backing: .buffered,
+            defer: false
+        )
+        duplicateWindow.identifier = NSUserInterfaceItemIdentifier("cmux.main.\(windowId.uuidString)")
+
+        let owner = TabManager()
+        let ownerWorkspace = try #require(owner.selectedWorkspace)
+        let ownerPanel = try #require(ownerWorkspace.focusedTerminalPanel)
+        let duplicateManager = TabManager()
+        let duplicateWorkspace = try #require(duplicateManager.selectedWorkspace)
+        let duplicatePanel = try #require(duplicateWorkspace.focusedTerminalPanel)
+        defer {
+            app.unregisterMainWindowContextForTesting(windowId: windowId)
+            ownerWorkspace.teardownAllPanels()
+            ownerWorkspace.teardownRemoteConnection()
+            if !duplicateManager.isFinalizedForWindowClose {
+                duplicateManager.finalizeAllWorkspacesForWindowClose()
+            }
+            ownerWindow.orderOut(nil)
+            duplicateWindow.orderOut(nil)
+        }
+
+        app.registerMainWindow(
+            ownerWindow,
+            windowId: windowId,
+            tabManager: owner,
+            sidebarState: SidebarState(),
+            sidebarSelectionState: SidebarSelectionState(),
+            fileExplorerState: FileExplorerState()
+        )
+        ownerWindow.makeKeyAndOrderFront(nil)
+
+        app.registerMainWindow(
+            duplicateWindow,
+            windowId: windowId,
+            tabManager: duplicateManager,
+            sidebarState: SidebarState(),
+            sidebarSelectionState: SidebarSelectionState(),
+            fileExplorerState: FileExplorerState()
+        )
+
+        #expect(app.tabManagerFor(windowId: windowId) === owner)
+        #expect(GhosttyApp.terminalSurfaceRegistry.surface(id: ownerPanel.id) === ownerPanel.surface)
+        #expect(duplicateManager.isFinalizedForWindowClose)
+        #expect(duplicateManager.tabs.isEmpty)
+        #expect(duplicateWorkspace.isRetiredFromOwningTabManager)
+        #expect(GhosttyApp.terminalSurfaceRegistry.surface(id: duplicatePanel.id) == nil)
+    }
+
+    @Test("Rejected manager keeps running when another main window owns it")
+    func rejectedManagerKeepsRunningWhenAnotherMainWindowOwnsIt() throws {
+        _ = NSApplication.shared
+        let previousAppDelegate = AppDelegate.shared
+        let app = AppDelegate()
+        defer {
+            TerminalController.shared.setActiveTabManager(nil)
+            AppDelegate.shared = previousAppDelegate
+        }
+
+        let reservedWindowId = UUID()
+        let reservedWindow = NSWindow(
+            contentRect: NSRect(x: 0, y: 0, width: 500, height: 320),
+            styleMask: [.titled, .closable],
+            backing: .buffered,
+            defer: false
+        )
+        reservedWindow.identifier = NSUserInterfaceItemIdentifier("cmux.main.\(reservedWindowId.uuidString)")
+        let reservedOwner = TabManager()
+        let reservedWorkspace = try #require(reservedOwner.selectedWorkspace)
+        let reservedPanel = try #require(reservedWorkspace.focusedTerminalPanel)
+
+        let existingWindowId = UUID()
+        let existingWindow = NSWindow(
+            contentRect: NSRect(x: 0, y: 0, width: 500, height: 320),
+            styleMask: [.titled, .closable],
+            backing: .buffered,
+            defer: false
+        )
+        existingWindow.identifier = NSUserInterfaceItemIdentifier("cmux.main.\(existingWindowId.uuidString)")
+        let duplicateWindow = NSWindow(
+            contentRect: NSRect(x: 0, y: 0, width: 500, height: 320),
+            styleMask: [.titled, .closable],
+            backing: .buffered,
+            defer: false
+        )
+        duplicateWindow.identifier = NSUserInterfaceItemIdentifier("cmux.main.\(reservedWindowId.uuidString)")
+        let sharedManager = TabManager()
+        let sharedWorkspace = try #require(sharedManager.selectedWorkspace)
+        let sharedPanel = try #require(sharedWorkspace.focusedTerminalPanel)
+        defer {
+            app.unregisterMainWindowContextForTesting(windowId: reservedWindowId)
+            app.unregisterMainWindowContextForTesting(windowId: existingWindowId)
+            reservedWorkspace.teardownAllPanels()
+            reservedWorkspace.teardownRemoteConnection()
+            sharedWorkspace.teardownAllPanels()
+            sharedWorkspace.teardownRemoteConnection()
+            reservedWindow.orderOut(nil)
+            existingWindow.orderOut(nil)
+            duplicateWindow.orderOut(nil)
+        }
+
+        app.registerMainWindow(
+            reservedWindow,
+            windowId: reservedWindowId,
+            tabManager: reservedOwner,
+            sidebarState: SidebarState(),
+            sidebarSelectionState: SidebarSelectionState(),
+            fileExplorerState: FileExplorerState()
+        )
+        reservedWindow.makeKeyAndOrderFront(nil)
+        app.registerMainWindow(
+            existingWindow,
+            windowId: existingWindowId,
+            tabManager: sharedManager,
+            sidebarState: SidebarState(),
+            sidebarSelectionState: SidebarSelectionState(),
+            fileExplorerState: FileExplorerState()
+        )
+        existingWindow.makeKeyAndOrderFront(nil)
+
+        app.registerMainWindow(
+            duplicateWindow,
+            windowId: reservedWindowId,
+            tabManager: sharedManager,
+            sidebarState: SidebarState(),
+            sidebarSelectionState: SidebarSelectionState(),
+            fileExplorerState: FileExplorerState()
+        )
+
+        #expect(!sharedManager.isFinalizedForWindowClose)
+        #expect(sharedManager.tabs.count == 1)
+        #expect(app.tabManagerFor(windowId: existingWindowId) === sharedManager)
+        #expect(GhosttyApp.terminalSurfaceRegistry.surface(id: sharedPanel.id) === sharedPanel.surface)
+        #expect(app.tabManagerFor(windowId: reservedWindowId) === reservedOwner)
+        #expect(GhosttyApp.terminalSurfaceRegistry.surface(id: reservedPanel.id) === reservedPanel.surface)
     }
 }
 
