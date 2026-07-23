@@ -18,7 +18,9 @@ from test_codex_feed_hooks import (
     test_pi_compacted_post_tool_use_sends_one_ordered_batch,
     test_pi_feed_rejects_missing_explicit_workspace,
     test_pi_feed_rejects_unconfirmed_server_ack,
+    test_pi_feed_explicit_workspace_ignores_ambient_surface,
     test_pi_feed_uses_resolved_explicit_workspace,
+    test_pi_hook_explicit_workspace_ignores_ambient_surface,
     test_pi_hook_rehomes_restored_surface_alias,
     test_legacy_pi_post_tool_use_redacts_raw_result,
     test_pi_post_tool_use_uses_projected_result,
@@ -143,6 +145,8 @@ def main() -> int:
             test_pi_compacted_feed_bounds_untrusted_batch(cli_path, root)
             test_pi_feed_rejects_unconfirmed_server_ack(cli_path, root)
             test_pi_hook_rehomes_restored_surface_alias(cli_path, root)
+            test_pi_hook_explicit_workspace_ignores_ambient_surface(cli_path, root)
+            test_pi_feed_explicit_workspace_ignores_ambient_surface(cli_path, root)
             test_pi_feed_uses_resolved_explicit_workspace(cli_path, root)
             test_pi_feed_rejects_missing_explicit_workspace(cli_path, root)
         except Exception as exc:

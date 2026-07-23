@@ -3298,6 +3298,154 @@ def test_pi_hook_rehomes_restored_surface_alias(cli_path: str, root: Path) -> No
         raise AssertionError(f"Pi hook reported the wrong resolved live target: {hook_result!r}")
 
 
+def test_pi_hook_explicit_workspace_ignores_ambient_surface(cli_path: str, root: Path) -> None:
+    socket_path = root / "cmux-pi-explicit-workspace-no-surface.sock"
+    explicit_workspace_id = "55555555-5555-5555-5555-555555555555"
+    explicit_workspace_surface_id = "66666666-6666-6666-6666-666666666666"
+    env = os.environ.copy()
+    for key in ("CMUX_SOCKET", "CMUX_SOCKET_CAPABILITY", "CMUX_SOCKET_PATH", "CMUX_SOCKET_PASSWORD"):
+        env.pop(key, None)
+    env["CMUX_SURFACE_ID"] = FAKE_SURFACE_ID
+    env["CMUX_WORKSPACE_ID"] = FAKE_WORKSPACE_ID
+    payload = {
+        "session_id": "pi-explicit-workspace-no-surface-session",
+        "cwd": "/tmp/pi-explicit-workspace-no-surface-project",
+        "hook_event_name": "UserPromptSubmit",
+        "prompt": "workspace-scoped target",
+    }
+
+    with FakeCmuxSocket(
+        socket_path,
+        None,
+        surfaces_by_workspace={
+            explicit_workspace_id: [
+                {
+                    "id": explicit_workspace_surface_id,
+                    "focused": True,
+                }
+            ],
+        },
+    ) as fake:
+        result = subprocess.run(
+            [
+                cli_path,
+                "--socket",
+                str(socket_path),
+                "hooks",
+                "pi",
+                "prompt-submit",
+                "--workspace",
+                explicit_workspace_id,
+            ],
+            input=json.dumps(payload),
+            capture_output=True,
+            text=True,
+            check=False,
+            env=env,
+            timeout=10,
+        )
+
+    if result.returncode != 0:
+        raise AssertionError(
+            "Pi hook failed to resolve the explicit workspace's focused surface: "
+            f"exit={result.returncode} stdout={result.stdout!r} stderr={result.stderr!r} frames={fake.frames!r}"
+        )
+    resolver_frames = [
+        frame
+        for frame in fake.frames
+        if frame.get("method") == "agent.resolve_delivery_target"
+    ]
+    if resolver_frames:
+        raise AssertionError(
+            "Pi hook treated the ambient surface as explicit under an explicit workspace: "
+            f"{resolver_frames!r}"
+        )
+    try:
+        hook_result = json.loads(result.stdout)
+    except json.JSONDecodeError as exc:
+        raise AssertionError(f"Pi hook did not report its workspace-scoped target: {result.stdout!r}") from exc
+    if hook_result != {
+        "workspace_id": explicit_workspace_id,
+        "surface_id": explicit_workspace_surface_id,
+    }:
+        raise AssertionError(f"Pi hook reported the wrong workspace-scoped target: {hook_result!r}")
+
+
+def test_pi_feed_explicit_workspace_ignores_ambient_surface(cli_path: str, root: Path) -> None:
+    socket_path = root / "cmux-pi-explicit-feed-workspace-no-surface.sock"
+    explicit_workspace_id = "55555555-5555-5555-5555-555555555555"
+    explicit_workspace_surface_id = "66666666-6666-6666-6666-666666666666"
+    env = os.environ.copy()
+    for key in ("CMUX_SOCKET", "CMUX_SOCKET_CAPABILITY", "CMUX_SOCKET_PATH", "CMUX_SOCKET_PASSWORD"):
+        env.pop(key, None)
+    env["CMUX_SURFACE_ID"] = FAKE_SURFACE_ID
+    env["CMUX_WORKSPACE_ID"] = FAKE_WORKSPACE_ID
+    payload = {
+        "session_id": "pi-explicit-feed-workspace-no-surface-session",
+        "cwd": "/tmp/pi-explicit-feed-workspace-no-surface-project",
+        "hook_event_name": "PostToolUse",
+        "tool_call_id": "pi-explicit-feed-workspace-no-surface-tool",
+        "tool_name": "bash",
+    }
+
+    with FakeCmuxSocket(
+        socket_path,
+        None,
+        surfaces_by_workspace={
+            explicit_workspace_id: [
+                {
+                    "id": explicit_workspace_surface_id,
+                    "focused": True,
+                }
+            ],
+        },
+        surface_delivery_target=(explicit_workspace_id, explicit_workspace_surface_id),
+    ) as fake:
+        result = subprocess.run(
+            [
+                cli_path,
+                "--socket",
+                str(socket_path),
+                "hooks",
+                "feed",
+                "--source",
+                "pi",
+                "--event",
+                "PostToolUse",
+                "--workspace",
+                explicit_workspace_id,
+            ],
+            input=json.dumps(payload),
+            capture_output=True,
+            text=True,
+            check=False,
+            env=env,
+            timeout=10,
+        )
+
+    if result.returncode != 0:
+        raise AssertionError(
+            "Pi feed failed to resolve the explicit workspace's focused surface: "
+            f"exit={result.returncode} stdout={result.stdout!r} stderr={result.stderr!r} frames={fake.frames!r}"
+        )
+    feed_frames = [frame for frame in fake.frames if frame.get("method") == "feed.push"]
+    if len(feed_frames) != 1:
+        raise AssertionError(f"Pi feed did not emit one workspace-scoped event: {fake.frames!r}")
+    event = feed_frames[0]["params"]["event"]
+    if event.get("workspace_id") != explicit_workspace_id:
+        raise AssertionError(f"Pi feed dropped its explicit workspace: {event!r}")
+    if event.get("surface_id") != explicit_workspace_surface_id:
+        raise AssertionError(
+            "Pi feed inherited the ambient surface instead of the explicit workspace's focused surface: "
+            f"{event!r}"
+        )
+    if any(frame.get("method") == "agent.resolve_delivery_target" for frame in fake.frames):
+        raise AssertionError(
+            "Pi feed treated the ambient surface as explicit under an explicit workspace: "
+            f"{fake.frames!r}"
+        )
+
+
 def test_pi_feed_uses_resolved_explicit_workspace(cli_path: str, root: Path) -> None:
     socket_path = root / "cmux-pi-explicit-feed-workspace.sock"
     explicit_workspace_id = "55555555-5555-5555-5555-555555555555"
