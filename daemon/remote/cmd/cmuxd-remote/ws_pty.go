@@ -1389,9 +1389,15 @@ func (session *wsPTYSession) terminateProcesses() {
 }
 
 func (session *wsPTYSession) terminateProcessesWithForegroundGroupLookup(lookup func(*os.File) int) {
-	// waitSessionProcess and the hub teardown paths can independently race to
-	// tear down the same PTY session. The process scan and signals must run once:
-	// after cmd.Wait returns, the leader PID can be reused by an unrelated process.
+	// Two independent paths tear the same session down. waitSessionProcess runs
+	// after the session leader exits, and the hub runs when a client closes the
+	// session, when a non-persistent attachment goes away, on closeAll, and on
+	// an idle reap. A session that outlives its leader and is then closed goes
+	// through both. The hub paths run while the leader is still alive and
+	// unreaped, which is why they signal it at all, but a second pass can only
+	// happen once cmd.Wait has returned, and by then the leader's pid is not
+	// ours to signal. Repeating the member scan is not free either, since it
+	// reads every entry in /proc on Linux and forks ps on macOS.
 	session.terminateOnce.Do(func() {
 		foregroundGroup := 0
 		session.withPTYFileLocked(func(ptyFile *os.File) {
