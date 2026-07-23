@@ -4,7 +4,7 @@ import SwiftUI
 
 /// One editor for the durable identity of a workspace on its owning Mac.
 struct WorkspaceCustomizationSheet: View {
-    private let initialDraft: WorkspaceCustomizationDraft
+    @State private var initialDraft: WorkspaceCustomizationDraft
     private let save: @MainActor (
         WorkspaceCustomizationDraft,
         WorkspaceCustomizationDraft
@@ -25,7 +25,7 @@ struct WorkspaceCustomizationSheet: View {
         ) async -> Bool
     ) {
         let draft = WorkspaceCustomizationDraft(workspace: workspace)
-        initialDraft = draft
+        _initialDraft = State(initialValue: draft)
         self.save = save
         _name = State(initialValue: workspace.name)
         _customDescription = State(initialValue: workspace.customDescription ?? "")
