@@ -237,6 +237,33 @@ import Testing
         #expect(PaneMapInteractiveZoomGeometry.progress(forPinchScale: 4) == 1)
     }
 
+    @Test func reciprocalPinchesProduceComplementaryProgress() {
+        let scale: CGFloat = 1.6
+        let zoomedIn = PaneMapInteractiveZoomGeometry.progress(
+            startingAt: 0,
+            forPinchScale: scale
+        )
+        let zoomedOut = PaneMapInteractiveZoomGeometry.progress(
+            startingAt: 1,
+            forPinchScale: 1 / scale
+        )
+
+        #expect(abs(zoomedIn + zoomedOut - 1) < 0.001)
+    }
+
+    @Test func equalDistanceSettlesUseIdenticalTimingInBothDirections() {
+        let zoomInDuration = PaneMapInteractiveZoomGeometry.settlementDuration(
+            from: 0.25,
+            to: 1
+        )
+        let zoomOutDuration = PaneMapInteractiveZoomGeometry.settlementDuration(
+            from: 0.75,
+            to: 0
+        )
+
+        #expect(zoomInDuration == zoomOutDuration)
+    }
+
     @Test func reversingScaleDoesNotAccumulateGeometry() {
         let sourceAnchor = CGPoint(
             x: initialFrame.minX + initialFrame.width * anchor.x,
@@ -266,5 +293,30 @@ import Testing
 
         #expect(expanded.width > reversed.width)
         #expect(returned == initialFrame)
+    }
+}
+
+@Suite struct PaneMapZoomTransitionStateTests {
+    @Test func staleCommitCannotWinAfterSettlementIsReversed() {
+        var state = PaneMapZoomTransitionState(progress: 0)
+        state.beginGesture(at: 0)
+        state.updateGesture(pinchScale: 1.7)
+        let staleCommit = state.beginSettlement(toward: .terminal)
+
+        state.interruptSettlement(at: 0.6)
+        state.updateGesture(pinchScale: 0.5)
+        let currentReturn = state.beginSettlement(toward: .map)
+
+        #expect(state.completeSettlement(generation: staleCommit) == nil)
+        #expect(state.completeSettlement(generation: currentReturn) == .map)
+    }
+
+    @Test func interruptedSettlementContinuesFromRenderedProgress() {
+        var state = PaneMapZoomTransitionState(progress: 0)
+        state.interruptSettlement(at: 0.63)
+
+        #expect(abs(state.progress - 0.63) < 0.001)
+        state.updateGesture(pinchScale: 1)
+        #expect(abs(state.progress - 0.63) < 0.001)
     }
 }

@@ -268,7 +268,9 @@ struct PanesTabsPreviewHost: View {
     }
 
     private static func styledClaudeFrame() throws -> MobileTerminalRenderGridFrame {
-        try MobileTerminalRenderGridFrame(
+        var effectiveTheme = TerminalTheme.monokai
+        effectiveTheme.background = "#123456"
+        return try MobileTerminalRenderGridFrame(
             surfaceID: claudeSurfaceID,
             stateSeq: 1,
             columns: 50,
@@ -291,7 +293,9 @@ struct PanesTabsPreviewHost: View {
                 .init(row: 6, column: 0, styleID: 3, text: "Edit"),
                 .init(row: 6, column: 6, text: "Sources/API/Router.ts"),
                 .init(row: 8, column: 0, styleID: 1, text: "Running focused tests…"),
-            ]
+            ],
+            terminalBackground: "#abcdef",
+            terminalTheme: effectiveTheme
         )
     }
 }

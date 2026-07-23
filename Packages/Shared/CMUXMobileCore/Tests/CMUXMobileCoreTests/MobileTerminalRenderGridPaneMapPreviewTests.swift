@@ -92,6 +92,69 @@ import Testing
         #expect(rows.last == "end")
     }
 
+    @Test func boundedPreviewUsesLatestScrollbackAndViewportRows() throws {
+        let frame = try MobileTerminalRenderGridFrame(
+            surfaceID: "terminal-preview",
+            stateSeq: 1,
+            columns: 4,
+            rows: 3,
+            rowSpans: [
+                .init(row: 0, column: 0, text: "v0"),
+                .init(row: 1, column: 0, text: "v1"),
+                .init(row: 2, column: 0, text: "v2"),
+            ],
+            scrollbackRows: 4,
+            scrollbackSpans: [
+                .init(row: 0, column: 0, text: "s0"),
+                .init(row: 1, column: 0, text: "s1"),
+                .init(row: 2, column: 0, text: "s2"),
+                .init(row: 3, column: 0, text: "s3"),
+            ]
+        )
+
+        #expect(frame.paneMapPreview(maximumRows: 4).textRows == [
+            "s3  ", "v0  ", "v1  ", "v2  ",
+        ])
+    }
+
+    @Test func alternateScreenPreviewIgnoresPrimaryScrollback() throws {
+        let frame = try MobileTerminalRenderGridFrame(
+            surfaceID: "terminal-preview",
+            stateSeq: 1,
+            columns: 4,
+            rows: 2,
+            rowSpans: [
+                .init(row: 0, column: 0, text: "a0"),
+                .init(row: 1, column: 0, text: "a1"),
+            ],
+            activeScreen: .alternate,
+            scrollbackRows: 2,
+            scrollbackSpans: [
+                .init(row: 0, column: 0, text: "s0"),
+                .init(row: 1, column: 0, text: "s1"),
+            ]
+        )
+
+        #expect(frame.paneMapPreview().textRows == ["a0  ", "a1  "])
+    }
+
+    @Test func previewKeepsRendererEffectiveBackground() throws {
+        var effective = TerminalTheme.monokai
+        effective.background = "#123456"
+
+        let frame = try MobileTerminalRenderGridFrame(
+            surfaceID: "terminal-preview",
+            stateSeq: 1,
+            columns: 2,
+            rows: 1,
+            rowSpans: [],
+            terminalBackground: "#abcdef",
+            terminalTheme: effective
+        )
+
+        #expect(frame.paneMapPreview().terminalTheme == effective)
+    }
+
     @Test func completePreviewKeepsShortTerminalContentAtTheTop() throws {
         let preview = try Self.frame(
             columns: 4,
