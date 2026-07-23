@@ -114,6 +114,7 @@ final class SimulatorWorkerCoordinator {
             await setFramebufferPublishing(enabled)
         case .pointer(let event):
             if event.phase == .began { scrollWheel?.cancel() }
+            framebuffer?.prioritizeNextFrame()
             guard hid?.send(event) == true else {
                 if event.phase != .moved {
                     reportUnavailable(action: "pointer", detail: "Touch injection is unavailable.")

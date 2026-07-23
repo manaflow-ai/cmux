@@ -11,9 +11,13 @@ final class SimulatorFramebufferFramePublisher {
     private let consumerTask: Task<Void, Never>
     private let clock = ContinuousClock()
     private let minimumFrameInterval: Duration
-    private var nextFrameDeadline: ContinuousClock.Instant?
+    private let interactiveFrameInterval: Duration
+    private var lastEnqueuedInstant: ContinuousClock.Instant
+    private var prioritizeNextEnqueue = false
     private var pendingFrame: SimulatorFramebufferFrame?
+    private var pendingFrameDeadline: ContinuousClock.Instant?
     private var pacingTask: Task<Void, Never>?
+    private var pacingTaskDeadline: ContinuousClock.Instant?
     private var lastEnqueuedWidth: Int
     private var lastEnqueuedHeight: Int
     private var lastEnqueuedGeometry: SimulatorSurfaceGeometry?
@@ -22,6 +26,7 @@ final class SimulatorFramebufferFramePublisher {
         initialSurface: IOSurface,
         initialGeometry: SimulatorSurfaceGeometry? = nil,
         minimumFrameInterval: Duration = .milliseconds(30),
+        interactiveFrameInterval: Duration = .milliseconds(16),
         beforeFrameTransportChange: @escaping @Sendable () async -> Void = {},
         afterFrameTransportChange: @escaping @Sendable () async -> Void = {},
         onFrameTransportChange: @escaping @MainActor @Sendable (
@@ -36,6 +41,11 @@ final class SimulatorFramebufferFramePublisher {
         lastEnqueuedHeight = initialFrame.height
         lastEnqueuedGeometry = initialGeometry
         self.minimumFrameInterval = minimumFrameInterval
+        self.interactiveFrameInterval = min(
+            interactiveFrameInterval,
+            minimumFrameInterval
+        )
+        lastEnqueuedInstant = clock.now
         let initialRing = try await Task.detached(priority: .userInitiated) {
             let ring = try SimulatorFramebufferSurfaceRing(
                 width: initialFrame.width,
@@ -83,7 +93,7 @@ final class SimulatorFramebufferFramePublisher {
                 }
             }
         }
-        nextFrameDeadline = clock.now.advanced(by: minimumFrameInterval)
+        lastEnqueuedInstant = clock.now
     }
 
     deinit {
@@ -98,16 +108,37 @@ final class SimulatorFramebufferFramePublisher {
             || frame.height != lastEnqueuedHeight
             || geometry != lastEnqueuedGeometry
         let now = clock.now
-        if geometryChanged || nextFrameDeadline.map({ now >= $0 }) ?? true {
+        let frameInterval = prioritizeNextEnqueue
+            ? interactiveFrameInterval
+            : minimumFrameInterval
+        prioritizeNextEnqueue = false
+        let deadline = lastEnqueuedInstant.advanced(by: frameInterval)
+        if geometryChanged || now >= deadline {
             pacingTask?.cancel()
             pacingTask = nil
+            pacingTaskDeadline = nil
             pendingFrame = nil
+            pendingFrameDeadline = nil
             enqueueImmediately(frame, at: now)
             return
         }
 
         pendingFrame = frame
-        guard pacingTask == nil, let deadline = nextFrameDeadline else { return }
+        pendingFrameDeadline = pendingFrameDeadline.map { min($0, deadline) } ?? deadline
+        schedulePacingTask()
+    }
+
+    /// Lets the next real Simulator framebuffer callback use the interactive
+    /// publication interval without forcing a copy of pixels that predate input.
+    func prioritizeNextFrame() {
+        prioritizeNextEnqueue = true
+    }
+
+    private func schedulePacingTask() {
+        guard let deadline = pendingFrameDeadline else { return }
+        if let pacingTaskDeadline, pacingTaskDeadline <= deadline { return }
+        pacingTask?.cancel()
+        pacingTaskDeadline = deadline
         pacingTask = Task { @MainActor [weak self, clock] in
             do {
                 try await clock.sleep(until: deadline, tolerance: .milliseconds(2))
@@ -121,15 +152,20 @@ final class SimulatorFramebufferFramePublisher {
     func cancel() {
         pacingTask?.cancel()
         pacingTask = nil
+        pacingTaskDeadline = nil
         pendingFrame = nil
+        pendingFrameDeadline = nil
+        prioritizeNextEnqueue = false
         continuation.finish()
         consumerTask.cancel()
     }
 
     private func flushPendingFrame() {
         pacingTask = nil
+        pacingTaskDeadline = nil
         guard let frame = pendingFrame else { return }
         pendingFrame = nil
+        pendingFrameDeadline = nil
         enqueueImmediately(frame, at: clock.now)
     }
 
@@ -140,7 +176,7 @@ final class SimulatorFramebufferFramePublisher {
         lastEnqueuedWidth = frame.width
         lastEnqueuedHeight = frame.height
         lastEnqueuedGeometry = frame.geometry
-        nextFrameDeadline = instant.advanced(by: minimumFrameInterval)
+        lastEnqueuedInstant = instant
         continuation.yield(frame)
     }
 }

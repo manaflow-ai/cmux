@@ -107,7 +107,10 @@ extension SimulatorWorkerCoordinator {
                 try hid.attach(device: device)
                 self.hid = hid
                 scrollWheel = SimulatorScrollWheelController(
-                    sender: { [weak hid] event in hid?.send(event) == true },
+                    sender: { [weak hid, weak framebuffer] event in
+                        framebuffer?.prioritizeNextFrame()
+                        return hid?.send(event) == true
+                    },
                     sleeper: hid.sleeper,
                     completion: { [weak self] eventIdentifier in
                         self?.send(.scrollWheelEnded(eventID: eventIdentifier))

@@ -119,6 +119,10 @@ final class SimulatorFramebuffer {
         _ = publishLatest()
     }
 
+    func prioritizeNextFrame() {
+        framePublisher?.prioritizeNextFrame()
+    }
+
     private func startPublisher(initialSurface: IOSurface) async throws {
         let publisherGeneration = framePublisherGeneration
         let publisher = try await SimulatorFramebufferFramePublisher(
