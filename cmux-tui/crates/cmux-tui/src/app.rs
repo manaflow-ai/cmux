@@ -2545,6 +2545,8 @@ pub struct App {
     browser_input: BrowserInputDispatcher,
     pty_input: PtyInputDispatcher,
     deferred_input: VecDeque<DeferredInput>,
+    /// Latest passive pointer position retained while the rendered hit map is stale.
+    pending_pointer_motion: Option<MouseEvent>,
     routing_refresh_pending: bool,
     routing_refresh_retries_remaining: u8,
     background_refresh_attempts: u8,
@@ -2867,6 +2869,7 @@ pub fn run(
         browser_input,
         pty_input,
         deferred_input: VecDeque::new(),
+        pending_pointer_motion: None,
         routing_refresh_pending: false,
         routing_refresh_retries_remaining: 0,
         background_refresh_attempts: 0,
@@ -3034,6 +3037,11 @@ impl App {
 
     fn replay_deferred_input(&mut self) -> anyhow::Result<RenderAction> {
         let mut action = RenderAction::None;
+        if !self.pointer_route_is_stale()
+            && let Some(mouse) = self.pending_pointer_motion.take()
+        {
+            action = action.merge(self.handle(AppEvent::Input(Event::Mouse(mouse)))?);
+        }
         // A replayed event can discover that its destination mirror is still
         // unavailable and append itself again. Only process the queue snapshot
         // that existed at entry so a blocked attach cannot spin this frame.
@@ -3062,6 +3070,13 @@ impl App {
             action = action.merge(self.handle(AppEvent::Input(input.event))?);
         }
         Ok(action)
+    }
+
+    fn pointer_route_is_stale(&self) -> bool {
+        self.session.has_pending_routing_mutations()
+            || self.session.remote_tree_is_stale()
+            || self.mux_recovery_generation.load(Ordering::Acquire) != 0
+            || self.routing_refresh_pending
     }
 
     fn apply_session_completion(&mut self, completion: SessionCompletion) {
@@ -3119,6 +3134,7 @@ impl App {
         self.prefix_armed = false;
         self.pending_session_completions.clear();
         self.pending_size_releases.clear();
+        self.routing_refresh_pending |= self.pending_pointer_motion.is_some();
         self.status_message = Some("session operation was canceled".to_string());
     }
 
@@ -3828,6 +3844,16 @@ impl App {
             self.session.clear_surface_sync_failures();
         }
         let event = match event {
+            AppEvent::Input(
+                input @ Event::Mouse(MouseEvent { kind: MouseEventKind::Moved, .. }),
+            ) if self.missing_input_surface(&input).is_some() || self.pointer_route_is_stale() => {
+                if let Some(surface) = self.missing_input_surface(&input) {
+                    self.queue_surface_attach(surface);
+                }
+                let Event::Mouse(mouse) = input else { unreachable!() };
+                self.pending_pointer_motion = Some(mouse);
+                return Ok(RenderAction::None);
+            }
             AppEvent::Input(input @ (Event::Key(_) | Event::Mouse(_) | Event::Paste(_)))
                 if self.missing_input_surface(&input).is_some()
                     && !self.input_can_update_pending_mutation(&input) =>
@@ -3837,17 +3863,14 @@ impl App {
                 return Ok(self.defer_input(input));
             }
             AppEvent::Input(input @ Event::Mouse(_))
-                if (self.session.has_pending_routing_mutations()
-                    || self.session.remote_tree_is_stale()
-                    || self.mux_recovery_generation.load(Ordering::Acquire) != 0
-                    || self.routing_refresh_pending)
+                if self.pointer_route_is_stale()
                     && !self.input_can_update_pending_mutation(&input) =>
             {
                 self.status_message =
                     Some("Pointer input was discarded while the layout changed".to_string());
                 return Ok(RenderAction::Draw);
             }
-            AppEvent::Input(input @ (Event::Key(_) | Event::Mouse(_) | Event::Paste(_)))
+            AppEvent::Input(input @ (Event::Key(_) | Event::Paste(_)))
                 if (self.session.has_pending_mutations()
                     || self.session.remote_tree_is_stale()
                     || self.mux_recovery_generation.load(Ordering::Acquire) != 0
@@ -4146,6 +4169,7 @@ impl App {
                         self.deferred_input.clear();
                         self.prefix_armed = false;
                         self.pending_session_completions.clear();
+                        self.routing_refresh_pending |= self.pending_pointer_motion.is_some();
                         self.status_message = Some(format!("session operation failed: {error}"));
                         return Ok(RenderAction::Draw);
                     }
@@ -10700,7 +10724,7 @@ mod tests {
         let (mut app, events) = test_app_with_events(Session::Local(mux));
         let (started_tx, started_rx) = std::sync::mpsc::channel();
         let (release_tx, release_rx) = std::sync::mpsc::channel();
-        app.session.enqueue("failing selection", move |_| {
+        app.session.enqueue_routing("failing selection", move |_| {
             started_tx.send(()).unwrap();
             release_rx.recv().unwrap();
             anyhow::bail!("selection rejected")
@@ -10718,6 +10742,14 @@ mod tests {
         ))))
         .unwrap();
         assert_eq!(app.deferred_input.len(), 1);
+        app.handle(AppEvent::Input(Event::Mouse(MouseEvent {
+            kind: MouseEventKind::Moved,
+            column: 14,
+            row: 6,
+            modifiers: KeyModifiers::NONE,
+        })))
+        .unwrap();
+        assert_eq!(app.hover, None);
 
         release_tx.send(()).unwrap();
         let settled = events.recv_timeout(Duration::from_secs(1)).unwrap();
@@ -10725,10 +10757,15 @@ mod tests {
 
         assert!(app.deferred_input.is_empty());
         assert!(!app.prefix_armed);
+        assert!(app.routing_refresh_pending);
         assert_eq!(
             app.status_message.as_deref(),
             Some("session operation failed: selection rejected")
         );
+
+        app.routing_refresh_pending = false;
+        app.replay_deferred_input().unwrap();
+        assert_eq!(app.hover, Some((14, 6)));
     }
 
     #[test]
@@ -11404,6 +11441,7 @@ mod tests {
             browser_input: BrowserInputDispatcher::spawn(|_| {}, |_| {}).unwrap(),
             pty_input,
             deferred_input: VecDeque::new(),
+            pending_pointer_motion: None,
             routing_refresh_pending: false,
             routing_refresh_retries_remaining: 0,
             background_refresh_attempts: 0,
