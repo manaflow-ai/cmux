@@ -66,6 +66,13 @@ actor AgentArtifactCaptureCoordinator {
                 || snapshot.transcriptExtent < $0.transcriptExtent
         } ?? false
         let completedCursor = transcriptReset ? nil : checkpoint?.referenceCursor
+        let currentPaths = Set(snapshot.artifacts.map(\.path))
+        // Reference order can differ from authorization order, so consume authority per path.
+        var processedAuthorizationSequenceByPath: [String: Int] = transcriptReset
+            ? [:]
+            : checkpoint?.processedAuthorizationSequenceByPath.filter {
+                currentPaths.contains($0.key)
+            } ?? [:]
         var seenPaths: Set<String> = []
         let pending = snapshot.artifacts
             .filter { artifact in
@@ -93,7 +100,8 @@ actor AgentArtifactCaptureCoordinator {
                     checkpoint: AgentArtifactCaptureCheckpoint(
                         transcriptLineage: snapshot.transcriptLineage,
                         transcriptExtent: snapshot.transcriptExtent,
-                        referenceCursor: completedCursor
+                        referenceCursor: completedCursor,
+                        processedAuthorizationSequenceByPath: processedAuthorizationSequenceByPath
                     )
                 ),
                 forKey: record.sessionID
@@ -105,7 +113,10 @@ actor AgentArtifactCaptureCoordinator {
                 ArtifactCandidate(
                     sourceURL: URL(fileURLWithPath: $0.path),
                     provenance: artifactProvenance(
-                        captureProvenance(for: $0, completedCursor: completedCursor)
+                        captureProvenance(
+                            for: $0,
+                            processedAuthorizationSequenceByPath: processedAuthorizationSequenceByPath
+                        )
                     )
                 )
             },
@@ -118,6 +129,13 @@ actor AgentArtifactCaptureCoordinator {
         let processedCount = outcomes.prefix { !isRetryableBlocker($0) }.count
         var updatedCheckpoint = checkpoint
         if processedCount > 0 {
+            for artifact in pending.prefix(processedCount) {
+                guard let authorization = freshAuthorization(
+                    for: artifact,
+                    processedAuthorizationSequenceByPath: processedAuthorizationSequenceByPath
+                ) else { continue }
+                processedAuthorizationSequenceByPath[artifact.path] = authorization.sequence
+            }
             let last = pending[processedCount - 1]
             updatedCheckpoint = AgentArtifactCaptureCheckpoint(
                 transcriptLineage: snapshot.transcriptLineage,
@@ -125,7 +143,8 @@ actor AgentArtifactCaptureCoordinator {
                 referenceCursor: AgentArtifactReferenceCursor(
                     sequence: last.lastReferencedSeq,
                     path: last.path
-                )
+                ),
+                processedAuthorizationSequenceByPath: processedAuthorizationSequenceByPath
             )
         }
         if processedCount > 0 {
@@ -224,19 +243,24 @@ actor AgentArtifactCaptureCoordinator {
 
     private func captureProvenance(
         for artifact: ChatArtifactIndexedReference,
-        completedCursor: AgentArtifactReferenceCursor?
+        processedAuthorizationSequenceByPath: [String: Int]
     ) -> ChatArtifactProvenance {
-        guard let authorization = artifact.captureAuthorization else {
-            return .referenced
+        freshAuthorization(
+            for: artifact,
+            processedAuthorizationSequenceByPath: processedAuthorizationSequenceByPath
+        )?.provenance ?? .referenced
+    }
+
+    private func freshAuthorization(
+        for artifact: ChatArtifactIndexedReference,
+        processedAuthorizationSequenceByPath: [String: Int]
+    ) -> ChatArtifactCaptureAuthorization? {
+        guard let authorization = artifact.captureAuthorization,
+              authorization.sequence
+                > (processedAuthorizationSequenceByPath[artifact.path] ?? Int.min) else {
+            return nil
         }
-        let authorizationCursor = AgentArtifactReferenceCursor(
-            sequence: authorization.sequence,
-            path: artifact.path
-        )
-        guard completedCursor.map({ authorizationCursor > $0 }) ?? true else {
-            return .referenced
-        }
-        return authorization.provenance
+        return authorization
     }
 
     private func isRetryableBlocker(_ outcome: ArtifactImportOutcome) -> Bool {

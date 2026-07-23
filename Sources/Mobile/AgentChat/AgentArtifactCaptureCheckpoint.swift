@@ -3,4 +3,5 @@ struct AgentArtifactCaptureCheckpoint: Sendable {
     let transcriptLineage: String
     let transcriptExtent: UInt64
     let referenceCursor: AgentArtifactReferenceCursor?
+    let processedAuthorizationSequenceByPath: [String: Int]
 }
