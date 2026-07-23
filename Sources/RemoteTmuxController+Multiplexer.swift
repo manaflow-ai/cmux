@@ -154,7 +154,8 @@ extension RemoteTmuxController {
                 return mirror.mirroredWorkspaceId
             }
             guard !workspaceIds.isEmpty else {
-                throw multiplexedMirrorFailure(host: host)
+                throw multiplexedMirrorFailure(
+                    host: host, view: multiplexedViewsByHost[host.connectionHash])
             }
             if activate {
                 selectFirstMirrorWorkspace(for: host, in: targetManager)
@@ -214,7 +215,10 @@ extension RemoteTmuxController {
         // generous deadline as a last resort only — a session-less host's
         // bootstrap legitimately needs several round trips, and a premature
         // timeout here would tear down a connection that was about to succeed.
-        if !hostHasLiveMirror(host), let view = multiplexedViewsByHost[host.connectionHash] {
+        // Held across the wait: the teardown can clear the dictionary entry while we are suspended,
+        // and the failure path still needs something to ask.
+        let heldView = multiplexedViewsByHost[host.connectionHash]
+        if !hostHasLiveMirror(host), let view = heldView {
             _ = await view.awaitFirstWorkspaces(timeout: 30)
             if !hostHasLiveMirror(host), let shared = view.connection {
                 applyMultiplexedWorkspaces(
@@ -227,7 +231,7 @@ extension RemoteTmuxController {
         }
         guard !workspaceIds.isEmpty else {
             // Ask before stopping: `stopMultiplexedHost` discards the view that holds the verdict.
-            let failure = multiplexedMirrorFailure(host: host)
+            let failure = multiplexedMirrorFailure(host: host, view: heldView)
             stopMultiplexedHost(host: host)
             throw failure
         }
@@ -238,16 +242,42 @@ extension RemoteTmuxController {
         return .mirrored(windowId: resolvedWindowId, workspaceIds: workspaceIds)
     }
 
+    /// Hosts whose stream was last seen waiting for credentials, keyed by connection hash.
+    ///
+    /// Outlives the view on purpose. A stream that parks on a passcode is torn down by `onEnded` ->
+    /// `teardownMultiplexedHost`, which removes the view from `multiplexedViewsByHost`, so a reader at
+    /// give-up time can find neither the connection nor the view. Latching on either of those was the
+    /// original bug relocated, not fixed.
+    static var hostsAwaitingCredentials: Set<String> = []
+
+    /// Records that this host's stream is waiting for credentials, while something still knows.
+    func noteAwaitingCredentials(host: RemoteTmuxHost) {
+        Self.hostsAwaitingCredentials.insert(host.connectionHash)
+    }
+
     /// Why a host ended up with nothing mirrored.
     ///
     /// A stream that is waiting for a passcode produces no error of its own — it prints a prompt and
     /// sits there — so the deadline expires first and the generic message sends the user to check the
     /// network instead of their second factor. The view latches that observation while its connection
     /// still exists; the live connection is consulted too, for the case where nothing has torn down yet.
-    func multiplexedMirrorFailure(host: RemoteTmuxHost) -> RemoteTmuxError {
-        let view = multiplexedViewsByHost[host.connectionHash]
-        let awaited = view?.lastStreamAwaitedCredentials == true
-            || view?.connection?.isAwaitingCredentials == true
+    func multiplexedMirrorFailure(host: RemoteTmuxHost, view: RemoteTmuxViewConnection?) -> RemoteTmuxError {
+        // The caller passes the view it already holds; re-reading the dictionary here found nil once the
+        // teardown had run. The host-level note is the fallback for when even that view is gone.
+        let live = view ?? multiplexedViewsByHost[host.connectionHash]
+        let fromNote = Self.hostsAwaitingCredentials.contains(host.connectionHash)
+        let fromLatch = live?.lastStreamAwaitedCredentials == true
+        let fromConnection = live?.connection?.isAwaitingCredentials == true
+        let awaited = fromNote || fromLatch || fromConnection
+        live?.connection?.record(
+            "mirror-failure awaiting=\(awaited) note=\(fromNote) latch=\(fromLatch) "
+                + "conn=\(fromConnection) hasView=\(live != nil) hasConn=\(live?.connection != nil)")
+        #if DEBUG
+        cmuxDebugLog(
+            "remote-tmux: mirror-failure host=\(host.destination) awaiting=\(awaited) note=\(fromNote) "
+                + "latch=\(fromLatch) conn=\(fromConnection) hasView=\(live != nil) "
+                + "hasConn=\(live?.connection != nil)")
+        #endif
         return RemoteTmuxController.mirrorFailure(
             destination: host.destination, awaitingCredentials: awaited)
     }
@@ -271,6 +301,10 @@ extension RemoteTmuxController {
         }
         view.onEnded = { [weak self] in
             self?.teardownMultiplexedHost(host: host)
+        }
+        // Store the verdict host-wide before the teardown above can discard the view holding it.
+        view.onAwaitingCredentials = { [weak self] in
+            self?.noteAwaitingCredentials(host: host)
         }
         // Same login path the GA (one-connection-per-session) mirrors use. Without this a
         // multiplexed host that parks on authentication offers no login at all and every session

@@ -31,6 +31,10 @@ final class RemoteTmuxViewConnection {
     private(set) var connection: RemoteTmuxControlConnection?
     /// The current regrouped workspaces (home session → ordered window ids).
     private(set) var workspaces: [RemoteTmuxLinkedWorkspaceModel.Workspace] = []
+    /// Called when the stream is found waiting for credentials, so the verdict can be stored somewhere
+    /// that outlives this view — the teardown discards it before the attach reports anything.
+    var onAwaitingCredentials: (() -> Void)?
+
     /// Whether the stream this view last carried ended waiting for credentials.
     ///
     /// Latched rather than read on demand: by the time a caller gives up waiting, `connection` is
@@ -646,8 +650,16 @@ final class RemoteTmuxViewConnection {
     /// Records whether the stream was waiting for credentials, while the connection still exists to
     /// be asked. Only ever latches true: a later teardown must not erase the reason for the first one.
     private func latchCredentialVerdict() {
-        guard let connection, connection.isAwaitingCredentials else { return }
+        guard let connection else { return }
+        #if DEBUG
+        cmuxDebugLog(
+            "remote-tmux: latch-check host=\(host.destination) "
+                + "awaiting=\(connection.isAwaitingCredentials) "
+                + "preControl=\(connection.preControlObservationForDebug)")
+        #endif
+        guard connection.isAwaitingCredentials else { return }
         lastStreamAwaitedCredentials = true
+        onAwaitingCredentials?()
     }
 
     private func quoted(_ v: String) -> String { RemoteTmuxHost.shellSingleQuoted(v) }
