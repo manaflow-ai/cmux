@@ -92,9 +92,7 @@ final class AgentChatTranscriptService {
         return surface.mobileRenderGridFrame(stateSeq: 0, full: true, includeTheme: false)?.rows
     }
 
-    /// A `(session, surface)` resume re-bind cmux authored during session
-    /// restore, buffered until the service is live (restore can run before app
-    /// setup assigns this service, so a direct call would be a silent no-op).
+    /// A cmux-authored resume re-bind buffered until the service is live.
     private struct PendingResumeIntent {
         let sessionID: String
         let source: String
@@ -314,13 +312,6 @@ final class AgentChatTranscriptService {
     }
 
     /// Serves one history page, starting the session's tailer on demand.
-    ///
-    /// - Parameters:
-    ///   - sessionID: The session to read.
-    ///   - beforeSeq: Strict upper bound, or `nil` for the newest page.
-    ///   - limit: Page size cap.
-    /// - Returns: The page, or `nil` when the session or transcript is
-    ///   unknown.
     func history(sessionID: String, beforeSeq: Int?, limit: Int) async -> ChatHistoryPage? {
         guard let record = registry.record(sessionID: sessionID) else { return nil }
         // A user opening the chat is the right moment to retry a previously
@@ -360,20 +351,28 @@ final class AgentChatTranscriptService {
     // MARK: - Internals
 
     @discardableResult
-    func ensureTailer(for record: AgentChatSessionRecord) -> AgentChatTranscriptTailer? {
+    func ensureTailer(
+        for record: AgentChatSessionRecord,
+        usesBoundedResolution: Bool = false
+    ) -> AgentChatTranscriptTailer? {
         if let existing = tailers[record.sessionID] {
             return existing
         }
         guard !failedResolutions.contains(record.sessionID) else { return nil }
         let resolvedPath: String?
         do {
-            resolvedPath = try resolver.transcriptPath(for: record)
+            if usesBoundedResolution {
+                resolvedPath = resolver.boundedTranscriptPath(for: record)
+            } else {
+                resolvedPath = try resolver.transcriptPath(for: record)
+            }
         } catch is CancellationError {
             return nil
         } catch {
             resolvedPath = nil
         }
         guard let path = resolvedPath else {
+            guard !usesBoundedResolution else { return nil }
             failedResolutions.insert(record.sessionID)
             #if DEBUG
             cmuxDebugLog(
