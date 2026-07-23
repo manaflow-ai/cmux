@@ -355,7 +355,7 @@ func verifyAgentHookClockSamplesOnlyAfterLockAcquisition(
     ownsLock = false
     if exited.wait(timeout: .now() + 3) == .timedOut {
         process.terminate()
-        throw NSError(domain: "cmux.tests.agent-hook-clock", code: ETIMEDOUT)
+        throw NSError(domain: "cmux.tests.agent-hook-clock", code: Int(ETIMEDOUT))
     }
     let rawValue = try String(contentsOf: outputURL, encoding: .utf8)
         .trimmingCharacters(in: .whitespacesAndNewlines)
@@ -376,7 +376,7 @@ private func agentHookCaptureClockShell(in commandBody: String) throws -> String
         }
         return String(commandBody[bodyStart..<bodyEnd.lowerBound])
     }
-    throw NSError(domain: "cmux.tests.agent-hook-clock", code: ENOENT)
+    throw NSError(domain: "cmux.tests.agent-hook-clock", code: Int(ENOENT))
 }
 
 private func openProcessIDs(for url: URL) -> Set<Int32> {
