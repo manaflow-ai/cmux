@@ -140,6 +140,36 @@ struct TerminalSurfaceRegistryTests {
         #expect(registry.allSurfaces().isEmpty)
     }
 
+    @Test func deallocatedDockSurfaceDoesNotPoisonSameIdReplacement() {
+        let registry = TerminalSurfaceRegistry()
+        let sharedId = UUID()
+        var expired: FakeSurface? = FakeSurface(
+            id: sharedId,
+            focusPlacement: .rightSidebarDock
+        )
+        registry.register(expired!)
+        #expect(registry.isRightSidebarDockSurface(id: sharedId))
+
+        expired = nil
+        #expect(registry.surface(id: sharedId) == nil)
+        #expect(!registry.isRightSidebarDockSurface(id: sharedId))
+
+        let replacement = FakeSurface(
+            id: sharedId,
+            focusPlacement: .rightSidebarDock
+        )
+        registry.register(replacement)
+        #expect(registry.surface(id: sharedId) === replacement)
+        #expect(registry.isRightSidebarDockSurface(id: sharedId))
+
+        registry.unregister(replacement)
+        #expect(registry.surface(id: sharedId) == nil)
+        #expect(!registry.isRightSidebarDockSurface(id: sharedId))
+
+        registry.updateFocusPlacement(id: sharedId, .rightSidebarDock)
+        #expect(!registry.isRightSidebarDockSurface(id: sharedId))
+    }
+
     @Test func allSurfacesIsSortedByIdString() {
         let registry = TerminalSurfaceRegistry()
         let surfaces = (0..<5).map { _ in FakeSurface() }

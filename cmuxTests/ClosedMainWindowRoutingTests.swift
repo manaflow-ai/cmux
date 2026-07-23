@@ -166,6 +166,47 @@ struct ClosedMainWindowRoutingTests {
 @MainActor
 @Suite("Recoverable windowless main window routing", .serialized)
 struct RecoverableWindowlessMainWindowRoutingTests {
+    @Test("Finalized manager rejects and tombstones a fresh visible window")
+    func finalizedManagerRejectsAndTombstonesFreshVisibleWindow() {
+        _ = NSApplication.shared
+        let previousAppDelegate = AppDelegate.shared
+        let app = AppDelegate()
+        defer {
+            TerminalController.shared.setActiveTabManager(nil)
+            AppDelegate.shared = previousAppDelegate
+        }
+
+        let manager = TabManager()
+        manager.finalizeAllWorkspacesForWindowClose()
+        let windowId = UUID()
+        let window = NSWindow(
+            contentRect: NSRect(x: 0, y: 0, width: 500, height: 320),
+            styleMask: [.titled, .closable],
+            backing: .buffered,
+            defer: false
+        )
+        window.isReleasedWhenClosed = false
+        window.identifier = NSUserInterfaceItemIdentifier("cmux.main.\(windowId.uuidString)")
+        defer { window.orderOut(nil) }
+        window.makeKeyAndOrderFront(nil)
+        #expect(window.isVisible)
+
+        app.registerMainWindow(
+            window,
+            windowId: windowId,
+            tabManager: manager,
+            sidebarState: SidebarState(),
+            sidebarSelectionState: SidebarSelectionState(),
+            fileExplorerState: FileExplorerState()
+        )
+
+        #expect(!app.mainWindowContexts.values.contains { $0.windowId == windowId })
+        #expect(!window.isVisible)
+        #expect(app.hasCommittedMainWindowClose(window))
+        #expect(!app.commitMainWindowClose(window))
+        #expect(!app.commitMainWindowClose(window))
+    }
+
     @Test("Transient windowless routing preserves the recoverable workspace")
     func transientWindowlessRoutingPreservesRecoverableWorkspace() throws {
         _ = NSApplication.shared
