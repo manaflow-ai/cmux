@@ -161,8 +161,15 @@ extension AgentChatSessionRegistry {
         }
         observeLastStartedAt = Date()
         let id = UUID()
+        let hookStore = hookStore
         let scanTask = Task.detached {
-            Self.scanObservedAgentSessions(onlySurfaceIDs: scope.surfaceIDs)
+            let preferredCodexSessionIDBySurfaceID = Self.storedCodexSessionIDBySurfaceID(
+                from: hookStore.entries(agentSource: "codex")
+            )
+            return Self.scanObservedAgentSessions(
+                onlySurfaceIDs: scope.surfaceIDs,
+                preferredCodexSessionIDBySurfaceID: preferredCodexSessionIDBySurfaceID
+            )
         }
         let task = Task { @MainActor [weak self] in
             let observed = await withTaskCancellationHandler {
@@ -184,7 +191,8 @@ extension AgentChatSessionRegistry {
     /// Off-main: one entry per distinct live codex/claude session under any cmux
     /// surface, identity resolved without hooks.
     private nonisolated static func scanObservedAgentSessions(
-        onlySurfaceIDs surfaceIDs: Set<UUID>? = nil
+        onlySurfaceIDs surfaceIDs: Set<UUID>? = nil,
+        preferredCodexSessionIDBySurfaceID: [String: String]
     ) -> [ObservedAgentSession] {
         guard !Task.isCancelled else { return [] }
         let snapshot = CmuxTopProcessSnapshot.capture(
@@ -195,6 +203,7 @@ extension AgentChatSessionRegistry {
         return scanObservedAgentSessions(
             in: snapshot,
             onlySurfaceIDs: surfaceIDs,
+            preferredCodexSessionIDBySurfaceID: preferredCodexSessionIDBySurfaceID,
             processArgumentsAndEnvironment: CmuxTopProcessSnapshot.processArgumentsAndEnvironment(for:),
             codexRolloutPaths: openCodexRolloutPaths(pid:)
         )
@@ -212,6 +221,7 @@ extension AgentChatSessionRegistry {
             let depth: Int
         }
 
+        let codexIdentityResolver = CodexRolloutIdentityResolver()
         var candidateBySessionID: [String: Candidate] = [:]
         var rootPIDsBySurfaceID: [UUID: Set<Int>] = [:]
         func rootPIDs(for surfaceID: UUID) -> Set<Int> {
@@ -248,9 +258,15 @@ extension AgentChatSessionRegistry {
             let isClaudeForkLaunch = def.id == "claude" && argv.map(Self.containsClaudeForkSessionOption(_:)) == true
             var sessionID: String?
             var transcriptPath: String?
-            if def.id == "codex", let rollout = codexRolloutPaths(process.pid).first {
-                transcriptPath = rollout
-                sessionID = firstUUIDLike(in: (rollout as NSString).lastPathComponent)
+            if def.id == "codex",
+               let identity = codexIdentityResolver.resolve(
+                   openRolloutPaths: codexRolloutPaths(process.pid),
+                   preferredSessionIDs: preferredCodexSessionIDBySurfaceID[surfaceID.uuidString]
+                       .map { Set([$0]) } ?? [],
+                   sessionIDFromPath: firstUUIDLike(in:)
+               ) {
+                transcriptPath = identity.transcriptPath
+                sessionID = identity.sessionID
             }
             if def.id == "claude",
                !isClaudeForkLaunch,

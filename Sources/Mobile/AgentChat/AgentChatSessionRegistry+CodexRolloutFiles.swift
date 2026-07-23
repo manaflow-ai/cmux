@@ -34,4 +34,22 @@ extension AgentChatSessionRegistry {
         }
         return paths
     }
+
+    /// Most recent durable Codex session binding for each terminal surface.
+    nonisolated static func storedCodexSessionIDBySurfaceID(
+        from entries: [AgentChatHookSessionStore.Entry]
+    ) -> [String: String] {
+        let ordered = entries.sorted {
+            let left = $0.updatedAt ?? .distantPast
+            let right = $1.updatedAt ?? .distantPast
+            if left != right { return left < right }
+            return $0.sessionID < $1.sessionID
+        }
+        var result: [String: String] = [:]
+        for entry in ordered {
+            guard let surfaceID = entry.surfaceID else { continue }
+            result[surfaceID] = entry.sessionID
+        }
+        return result
+    }
 }

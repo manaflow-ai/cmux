@@ -16,13 +16,14 @@ struct CodexCodeModeRolloutIdentityTests {
 
     @Test
     func codeModeGuardianRolloutResolvesToOpenParent() throws {
-        let directory = try makeFixtureDirectory()
-        defer { try? FileManager.default.removeItem(at: directory) }
-        let primary = try writeRollout(directory: directory, sessionID: Self.primaryID)
+        let fixture = try makeFixtureDirectory()
+        defer { try? FileManager.default.removeItem(at: fixture.root) }
+        let primary = try writeRollout(directory: fixture.rollouts, sessionID: Self.primaryID)
         let child = try writeRollout(
-            directory: directory,
+            directory: fixture.rollouts,
             sessionID: Self.childID,
-            parentThreadID: Self.primaryID
+            parentThreadID: Self.primaryID,
+            trailingBytes: 4 * 1_024 * 1_024 + 1
         )
 
         let session = try #require(observedSession(
@@ -36,16 +37,16 @@ struct CodexCodeModeRolloutIdentityTests {
 
     @Test
     func codeModeRolloutChainResolvesToRootParent() throws {
-        let directory = try makeFixtureDirectory()
-        defer { try? FileManager.default.removeItem(at: directory) }
-        let primary = try writeRollout(directory: directory, sessionID: Self.primaryID)
+        let fixture = try makeFixtureDirectory()
+        defer { try? FileManager.default.removeItem(at: fixture.root) }
+        let primary = try writeRollout(directory: fixture.rollouts, sessionID: Self.primaryID)
         let child = try writeRollout(
-            directory: directory,
+            directory: fixture.rollouts,
             sessionID: Self.childID,
             parentThreadID: Self.primaryID
         )
         let grandchild = try writeRollout(
-            directory: directory,
+            directory: fixture.rollouts,
             sessionID: Self.grandchildID,
             parentThreadID: Self.childID
         )
@@ -61,10 +62,10 @@ struct CodexCodeModeRolloutIdentityTests {
 
     @Test
     func partialMetadataFallsBackToStoredSurfaceBinding() throws {
-        let directory = try makeFixtureDirectory()
-        defer { try? FileManager.default.removeItem(at: directory) }
-        let primary = try writeRollout(directory: directory, sessionID: Self.primaryID)
-        let partial = try writePartialRollout(directory: directory, sessionID: Self.childID)
+        let fixture = try makeFixtureDirectory()
+        defer { try? FileManager.default.removeItem(at: fixture.root) }
+        let primary = try writeRollout(directory: fixture.rollouts, sessionID: Self.primaryID)
+        let partial = try writePartialRollout(directory: fixture.rollouts, sessionID: Self.childID)
 
         let session = try #require(observedSession(
             openRollouts: [partial, primary],
@@ -110,18 +111,20 @@ struct CodexCodeModeRolloutIdentityTests {
         ).first
     }
 
-    private func makeFixtureDirectory() throws -> URL {
-        let directory = FileManager.default.temporaryDirectory
+    private func makeFixtureDirectory() throws -> (root: URL, rollouts: URL) {
+        let root = FileManager.default.temporaryDirectory
             .appendingPathComponent("cmux-codex-code-mode-\(UUID().uuidString)", isDirectory: true)
+        let rollouts = root
             .appendingPathComponent(".codex/sessions/2026/07/22", isDirectory: true)
-        try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
-        return directory
+        try FileManager.default.createDirectory(at: rollouts, withIntermediateDirectories: true)
+        return (root, rollouts)
     }
 
     private func writeRollout(
         directory: URL,
         sessionID: String,
-        parentThreadID: String? = nil
+        parentThreadID: String? = nil,
+        trailingBytes: Int = 0
     ) throws -> String {
         var payload: [String: Any] = [
             "id": sessionID,
@@ -141,6 +144,7 @@ struct CodexCodeModeRolloutIdentityTests {
         ]
         var data = try JSONSerialization.data(withJSONObject: line, options: [.sortedKeys])
         data.append(0x0A)
+        data.append(Data(repeating: 0x20, count: trailingBytes))
         let url = directory.appendingPathComponent(
             "rollout-2026-07-22T12-00-00-\(sessionID).jsonl",
             isDirectory: false
