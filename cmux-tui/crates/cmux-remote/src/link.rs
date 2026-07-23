@@ -549,6 +549,15 @@ mod tests {
         order: Arc<Mutex<Vec<(Lane, u64)>>>,
     }
 
+    struct FailingSendLink {
+        error: &'static str,
+    }
+
+    struct DropTrackedLink {
+        receive_calls: Arc<Semaphore>,
+        dropped: Arc<Semaphore>,
+    }
+
     fn controlled_receive_link(
         description: &str,
         maximum: usize,
@@ -635,6 +644,59 @@ mod tests {
         }
     }
 
+    #[async_trait]
+    impl FrameLink for FailingSendLink {
+        fn description(&self) -> &str {
+            "failing-send"
+        }
+
+        fn maximum_frame_bytes(&self) -> usize {
+            65_535
+        }
+
+        async fn send(&self, _frame: Bytes) -> Result<(), LinkError> {
+            Err(LinkError::Transport(self.error.into()))
+        }
+
+        async fn receive(&self) -> Result<Option<Bytes>, LinkError> {
+            pending().await
+        }
+
+        async fn close(&self) -> Result<(), LinkError> {
+            Ok(())
+        }
+    }
+
+    #[async_trait]
+    impl FrameLink for DropTrackedLink {
+        fn description(&self) -> &str {
+            "drop-tracked"
+        }
+
+        fn maximum_frame_bytes(&self) -> usize {
+            65_535
+        }
+
+        async fn send(&self, _frame: Bytes) -> Result<(), LinkError> {
+            Ok(())
+        }
+
+        async fn receive(&self) -> Result<Option<Bytes>, LinkError> {
+            self.receive_calls.add_permits(1);
+            pending().await
+        }
+
+        async fn close(&self) -> Result<(), LinkError> {
+            Ok(())
+        }
+    }
+
+    impl Drop for DropTrackedLink {
+        fn drop(&mut self) {
+            self.dropped.add_permits(1);
+        }
+    }
+
     fn encoded_frame(lane: Lane, payload_bytes: usize) -> Bytes {
         WireFrame {
             session: SessionId::ZERO,
@@ -702,6 +764,184 @@ mod tests {
         interactive_peer.close().await.unwrap();
         let result = tokio::time::timeout(Duration::from_secs(1), mux.receive()).await.unwrap();
         assert!(matches!(result, Err(LinkError::Closed)));
+    }
+
+    #[tokio::test]
+    async fn receive_failure_is_sticky_across_physical_routes() {
+        let (interactive, interactive_peer) = pair(65_535);
+        let (rest, _rest_peer) = pair(65_535);
+        let mux = LaneMuxLink::new(
+            "test-lanes",
+            vec![
+                LinkRoute { lanes: vec![Lane::Interactive], link: Arc::new(interactive) },
+                LinkRoute {
+                    lanes: vec![Lane::Control, Lane::Bulk, Lane::Tunnel],
+                    link: Arc::new(rest),
+                },
+            ],
+        )
+        .unwrap();
+
+        interactive_peer.close().await.unwrap();
+        let first = tokio::time::timeout(Duration::from_secs(1), mux.receive())
+            .await
+            .expect("aggregate receive did not observe physical EOF");
+        assert!(matches!(first, Err(LinkError::Closed)));
+
+        let send =
+            tokio::time::timeout(Duration::from_secs(1), mux.send(encoded_frame(Lane::Bulk, 1)))
+                .await
+                .expect("post-terminal send remained blocked");
+        assert!(matches!(send, Err(LinkError::Closed)), "post-terminal send succeeded: {send:?}");
+
+        let repeated = tokio::time::timeout(Duration::from_secs(1), mux.receive())
+            .await
+            .expect("terminal receive error was not sticky");
+        assert!(matches!(repeated, Err(LinkError::Closed)));
+    }
+
+    #[tokio::test]
+    async fn send_failure_is_sticky_across_physical_routes() {
+        let (rest, rest_handle) = serialized_send_link();
+        let mux = Arc::new(
+            LaneMuxLink::new(
+                "test-lanes",
+                vec![
+                    LinkRoute {
+                        lanes: vec![Lane::Interactive],
+                        link: Arc::new(FailingSendLink { error: "writer failed" }),
+                    },
+                    LinkRoute {
+                        lanes: vec![Lane::Control, Lane::Bulk, Lane::Tunnel],
+                        link: Arc::new(rest),
+                    },
+                ],
+            )
+            .unwrap(),
+        );
+
+        let bulk_mux = mux.clone();
+        let blocked_send =
+            tokio::spawn(async move { bulk_mux.send(encoded_frame(Lane::Bulk, 1)).await });
+        wait_for_signal(&rest_handle.started, "blocked cross-route send").await;
+
+        let first = mux.send(encoded_frame(Lane::Interactive, 1)).await;
+        assert!(
+            matches!(first, Err(LinkError::Transport(ref message)) if message == "writer failed")
+        );
+
+        let send = tokio::time::timeout(Duration::from_secs(1), blocked_send)
+            .await
+            .expect("cross-route send remained blocked after terminal failure")
+            .unwrap();
+        assert!(
+            matches!(send, Err(LinkError::Transport(ref message)) if message == "writer failed"),
+            "cross-route send did not preserve the first failure: {send:?}",
+        );
+
+        let receive = tokio::time::timeout(Duration::from_secs(1), mux.receive())
+            .await
+            .expect("aggregate receive did not observe outbound failure");
+        assert!(
+            matches!(receive, Err(LinkError::Transport(ref message)) if message == "writer failed"),
+            "aggregate receive did not preserve the first failure: {receive:?}",
+        );
+    }
+
+    #[tokio::test]
+    async fn close_cancels_blocked_send_and_receive() {
+        let (physical, physical_handle) = serialized_send_link();
+        let mux = Arc::new(
+            LaneMuxLink::new(
+                "single-physical",
+                vec![LinkRoute { lanes: Lane::ALL.to_vec(), link: Arc::new(physical) }],
+            )
+            .unwrap(),
+        );
+
+        let send_mux = mux.clone();
+        let blocked_send =
+            tokio::spawn(async move { send_mux.send(encoded_frame(Lane::Bulk, 1)).await });
+        wait_for_signal(&physical_handle.started, "blocked physical send").await;
+        let receive_mux = mux.clone();
+        let blocked_receive = tokio::spawn(async move { receive_mux.receive().await });
+        tokio::task::yield_now().await;
+
+        tokio::time::timeout(Duration::from_secs(1), mux.close())
+            .await
+            .expect("aggregate close remained blocked")
+            .unwrap();
+        let send = tokio::time::timeout(Duration::from_secs(1), blocked_send)
+            .await
+            .expect("close did not wake blocked send")
+            .unwrap();
+        let receive = tokio::time::timeout(Duration::from_secs(1), blocked_receive)
+            .await
+            .expect("close did not wake blocked receive")
+            .unwrap();
+        assert!(matches!(send, Err(LinkError::Closed)));
+        assert!(matches!(receive, Err(LinkError::Closed)));
+    }
+
+    #[tokio::test]
+    async fn drop_cancels_pending_physical_reader() {
+        let receive_calls = Arc::new(Semaphore::new(0));
+        let dropped = Arc::new(Semaphore::new(0));
+        let physical = Arc::new(DropTrackedLink {
+            receive_calls: receive_calls.clone(),
+            dropped: dropped.clone(),
+        });
+        let mux = LaneMuxLink::new(
+            "single-physical",
+            vec![LinkRoute { lanes: Lane::ALL.to_vec(), link: physical.clone() }],
+        )
+        .unwrap();
+        drop(physical);
+        wait_for_receive_calls(&receive_calls, 1).await;
+
+        drop(mux);
+        wait_for_signal(&dropped, "physical link drop after aggregate drop").await;
+    }
+
+    #[tokio::test]
+    async fn close_cancels_reader_blocked_on_saturated_ingress() {
+        const BUFFERED_FRAMES: u32 = 1_025;
+        const FRAME_BYTES: usize = 8 * 1_024;
+        const WIRE_HEADER_BYTES: usize = 60;
+
+        let (bulk, bulk_handle) = controlled_receive_link("bulk", FRAME_BYTES);
+        let physical = Arc::new(bulk);
+        let bulk_frame = encoded_frame(Lane::Bulk, FRAME_BYTES - WIRE_HEADER_BYTES);
+        for _ in 0..BUFFERED_FRAMES {
+            bulk_handle.incoming.send(bulk_frame.clone()).unwrap();
+        }
+        let mux = LaneMuxLink::new(
+            "single-physical",
+            vec![LinkRoute { lanes: Lane::ALL.to_vec(), link: physical.clone() }],
+        )
+        .unwrap();
+        wait_for_receive_calls(&bulk_handle.receive_calls, BUFFERED_FRAMES).await;
+        assert_eq!(Arc::strong_count(&physical), 4, "test did not reach blocked ingress state");
+
+        tokio::time::timeout(Duration::from_secs(1), mux.close())
+            .await
+            .expect("aggregate close remained blocked behind saturated ingress")
+            .unwrap();
+        assert_eq!(Arc::strong_count(&physical), 2, "close retained reader or dispatcher tasks",);
+        let receive = tokio::time::timeout(Duration::from_secs(1), mux.receive())
+            .await
+            .expect("close did not bypass saturated ingress");
+        assert!(matches!(receive, Err(LinkError::Closed)));
+    }
+
+    #[tokio::test]
+    async fn oversized_ingress_frame_is_rejected_without_waiting() {
+        let (sender, _receiver) = IngressSender::channel();
+        let oversized = Bytes::from(vec![0; INGRESS_BYTES_PER_LANE + 1]);
+        let result = tokio::time::timeout(Duration::from_secs(1), sender.send(oversized))
+            .await
+            .expect("oversized ingress waited forever for an impossible semaphore permit");
+        assert!(result.is_err());
     }
 
     #[tokio::test]
