@@ -652,7 +652,50 @@ struct PaneMapCollectionView: UIViewRepresentable {
                 )
             }
             animator.startAnimation()
+#if DEBUG
+            scheduleUITestZoomInterruptionIfNeeded(for: destination)
+#endif
         }
+
+#if DEBUG
+        private func scheduleUITestZoomInterruptionIfNeeded(
+            for destination: PaneMapZoomTransitionState.Destination
+        ) {
+            guard destination == .terminal,
+                  let rawValue = ProcessInfo.processInfo.environment[
+                    "CMUX_UITEST_PANE_ZOOM_INTERRUPT_DELAY"
+                  ],
+                  let delay = TimeInterval(rawValue),
+                  delay >= 0 else {
+                return
+            }
+            DispatchQueue.main.asyncAfter(deadline: .now() + delay) { [weak self] in
+                guard let self, let session = self.zoomSession,
+                      self.zoomAnimator != nil else {
+                    return
+                }
+                let gestureLocation = CGPoint(
+                    x: session.wrapper.frame.midX,
+                    y: session.wrapper.frame.midY
+                )
+                guard self.interruptZoomSettlement(gestureLocation: gestureLocation),
+                      var interruptedSession = self.zoomSession,
+                      self.activeZoomGestureGeneration
+                        == interruptedSession.transition.generation else {
+                    return
+                }
+                interruptedSession.transition.updateGesture(pinchScale: 0.5)
+                let progress = interruptedSession.transition.progress
+                self.zoomSession = interruptedSession
+                self.updateInteractiveZoom(
+                    progress: progress,
+                    gestureLocation: gestureLocation
+                )
+                self.activeZoomGestureGeneration = nil
+                self.settleZoom(toward: .map)
+            }
+        }
+#endif
 
         private func completeZoomSettlement(
             generation: UInt64,

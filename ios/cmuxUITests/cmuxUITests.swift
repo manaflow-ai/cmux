@@ -1725,6 +1725,7 @@ final class cmuxUITests: XCTestCase {
         let app = launchApp(mockData: false, environment: [
             "CMUX_UITEST_PANES_PREVIEW": "1",
             "CMUX_UITEST_PANE_ZOOM_SETTLE_DURATION": "1.2",
+            "CMUX_UITEST_PANE_ZOOM_INTERRUPT_DELAY": "0.12",
         ])
         defer { app.terminate() }
 
@@ -1737,8 +1738,9 @@ final class cmuxUITests: XCTestCase {
         XCTAssertTrue(claudeTile.waitForExistence(timeout: 2))
         let sourceFrame = claudeTile.frame
 
+        // Public XCUITest gestures wait for UI quiescence, so the debug host
+        // schedules the reversing gesture through the same coordinator path.
         claudeTile.pinch(withScale: 1.4, velocity: 2)
-        overlay.pinch(withScale: 0.5, velocity: -2)
 
         XCTAssertTrue(
             overlay.waitForExistence(timeout: 2),
