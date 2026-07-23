@@ -411,6 +411,53 @@ mod tests {
         );
     }
 
+    #[cfg(unix)]
+    #[test]
+    fn transport_cleanup_does_not_wait_for_descendant_inheriting_stderr() {
+        let mut command = Command::new("sh");
+        command
+            .args([
+                "-c",
+                "sleep 30 >&2 & helper=$!; printf '%s\\n' \"$helper\"; printf 'permission denied\\n' >&2",
+            ])
+            .stdin(Stdio::piped())
+            .stdout(Stdio::piped())
+            .stderr(Stdio::piped());
+        let (stdin, stdout, process) = spawn_transport_process(&mut command).unwrap();
+        drop(stdin);
+
+        let mut stdout = BufReader::new(stdout);
+        let mut helper_pid = String::new();
+        stdout.read_line(&mut helper_pid).unwrap();
+        let helper_pid = helper_pid.trim().parse::<libc::pid_t>().unwrap();
+        let mut remaining = Vec::new();
+        stdout.read_to_end(&mut remaining).unwrap();
+        assert!(remaining.is_empty());
+
+        let (result_sender, result_receiver) = std::sync::mpsc::sync_channel(1);
+        let diagnostic_process = Arc::clone(&process);
+        let waiter = thread::spawn(move || {
+            let _ = result_sender.send(diagnostic_process.diagnostic_after_stdout_eof());
+        });
+        let prompt_result = result_receiver.recv_timeout(std::time::Duration::from_millis(500));
+        let completed_promptly = prompt_result.is_ok();
+        let diagnostic = match prompt_result {
+            Ok(diagnostic) => diagnostic,
+            Err(_) => {
+                unsafe {
+                    libc::kill(helper_pid, libc::SIGKILL);
+                }
+                result_receiver
+                    .recv_timeout(std::time::Duration::from_secs(5))
+                    .expect("diagnostic reader should stop once the inherited descriptor closes")
+            }
+        };
+        waiter.join().unwrap();
+
+        assert!(completed_promptly, "transport cleanup waited for an inherited stderr handle");
+        assert_eq!(diagnostic.as_deref(), Some("permission denied"));
+    }
+
     #[test]
     fn connected_target_is_deduplicated() {
         let mut runtime = MachineRuntime::new(PathBuf::from("/tmp/current.sock"), Vec::new());
