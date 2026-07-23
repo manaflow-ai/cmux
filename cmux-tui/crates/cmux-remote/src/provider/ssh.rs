@@ -12,7 +12,7 @@ use crate::link::{FrameLink, LinkError};
 use crate::observability::{TransportPathKind, TransportPathSnapshot, TransportSnapshot};
 use crate::provider::{
     CarrierEvidence, ConnectRequest, LengthDelimitedLink, LinkGroup, LinkRequest,
-    ProviderCapabilities, ProviderError, TransportProvider,
+    ProviderCapabilities, ProviderError, TransportProvider, sanitized_route,
 };
 
 #[derive(Debug, Clone)]
@@ -80,24 +80,24 @@ impl TransportProvider for SshProvider {
         }
         let (destination, description) = ssh_destination(&request.endpoint)?;
         Ok(Arc::new(SshLinkGroup {
-            description,
-            destination: destination.clone(),
+            description: description.clone(),
+            destination,
             port: request.endpoint.port(),
             config: self.config.clone(),
-            evidence: CarrierEvidence::Ssh { destination },
+            evidence: CarrierEvidence::Ssh { destination: description },
             closed: AtomicBool::new(false),
         }))
     }
 }
 
 fn ssh_destination(endpoint: &url::Url) -> Result<(String, String), ProviderError> {
-    let (host, display_host) = match endpoint
+    let host = match endpoint
         .host()
         .ok_or_else(|| ProviderError::Configuration("SSH endpoint is missing a host".into()))?
     {
-        url::Host::Domain(host) => (host.to_string(), host.to_string()),
-        url::Host::Ipv4(host) => (host.to_string(), host.to_string()),
-        url::Host::Ipv6(host) => (host.to_string(), format!("[{host}]")),
+        url::Host::Domain(host) => host.to_string(),
+        url::Host::Ipv4(host) => host.to_string(),
+        url::Host::Ipv6(host) => host.to_string(),
     };
     let username = endpoint.username();
     if !username.is_empty()
@@ -106,11 +106,7 @@ fn ssh_destination(endpoint: &url::Url) -> Result<(String, String), ProviderErro
         return Err(ProviderError::Configuration("SSH username is not shell-safe".into()));
     }
     let destination = if username.is_empty() { host } else { format!("{username}@{host}") };
-    let authority =
-        if username.is_empty() { display_host } else { format!("{username}@{display_host}") };
-    let description = endpoint
-        .port()
-        .map_or_else(|| format!("ssh://{authority}"), |port| format!("ssh://{authority}:{port}"));
+    let description = sanitized_route(endpoint);
     Ok((destination, description))
 }
 
@@ -143,7 +139,7 @@ impl LinkGroup for SshLinkGroup {
             route: self.description.clone(),
             selected_path: Some(TransportPathSnapshot {
                 kind: TransportPathKind::Direct,
-                remote: Some(self.destination.clone()),
+                remote: Some(self.description.clone()),
                 rtt_micros: None,
             }),
         }

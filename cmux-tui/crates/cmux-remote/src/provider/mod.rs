@@ -119,7 +119,11 @@ pub trait LinkGroup: Send + Sync {
     async fn close(&self) -> Result<(), ProviderError>;
 }
 
-pub(crate) fn sanitized_route(endpoint: &Url) -> String {
+/// Returns an endpoint label safe for diagnostics and user-facing status.
+///
+/// The original URL remains available to the provider for dialing, while the
+/// label omits userinfo and capability-bearing URL components.
+pub fn sanitized_route(endpoint: &Url) -> String {
     let mut route = endpoint.clone();
     let _ = route.set_username("");
     let _ = route.set_password(None);

@@ -117,11 +117,12 @@ pub async fn connect_websocket(
     endpoint: &Url,
     maximum: usize,
 ) -> Result<TungsteniteWebSocketLink<MaybeTlsStream<tokio::net::TcpStream>>, LinkError> {
+    let description = sanitized_route(endpoint);
     let (socket, _) = connect_async(endpoint.as_str())
         .await
         .map_err(|error| LinkError::Transport(error.to_string()))?;
     set_no_delay(socket.get_ref())?;
-    Ok(TungsteniteWebSocketLink::new(endpoint.as_str(), maximum, socket))
+    Ok(TungsteniteWebSocketLink::new(description, maximum, socket))
 }
 
 fn set_no_delay(stream: &MaybeTlsStream<tokio::net::TcpStream>) -> Result<(), LinkError> {
@@ -237,7 +238,7 @@ impl TransportProvider for DirectWebSocketProvider {
         } else {
             CarrierEvidence::None
         };
-        let description = request.endpoint.to_string();
+        let description = sanitized_route(&request.endpoint);
         Ok(Arc::new(WebSocketLinkGroup {
             endpoint: request.endpoint,
             session: request.session,
@@ -343,10 +344,9 @@ mod tests {
             let mut socket = tokio_tungstenite::accept_async(stream).await.unwrap();
             let _ = socket.next().await;
         });
-        let endpoint = Url::parse(&format!(
-            "ws://{address}/capability-path?ticket=query-secret#fragment"
-        ))
-        .unwrap();
+        let endpoint =
+            Url::parse(&format!("ws://{address}/capability-path?ticket=query-secret#fragment"))
+                .unwrap();
 
         let link = connect_websocket(&endpoint, 65_535).await.unwrap();
 

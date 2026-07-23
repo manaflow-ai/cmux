@@ -351,7 +351,7 @@ impl TransportProvider for RelayProvider {
             relay_websocket_url(&request.endpoint, &self.config.slot, RelayRole::Client)?;
         let control = connect_provider_control(&endpoint, &self.credentials).await?;
         Ok(Arc::new(RelayLinkGroup {
-            description: format!("relay:{}@{}", self.config.slot, endpoint),
+            description: route.clone(),
             evidence: CarrierEvidence::Relay {
                 provider: endpoint.host_str().unwrap_or("relay").to_string(),
             },
@@ -620,7 +620,7 @@ async fn join_circuit(
     .await
     .map_err(|_| ProviderError::Transport("relay circuit join timed out".into()))??;
     Ok(Box::new(TungsteniteWebSocketLink::new(
-        format!("relay-circuit:{}", circuit.0),
+        sanitized_route(endpoint),
         maximum_frame_bytes,
         socket,
     )))
@@ -651,7 +651,7 @@ impl fmt::Debug for RelayDaemonConfig {
     fn fmt(&self, formatter: &mut fmt::Formatter<'_>) -> fmt::Result {
         formatter
             .debug_struct("RelayDaemonConfig")
-            .field("endpoint", &self.endpoint)
+            .field("endpoint", &sanitized_route(&self.endpoint))
             .field("slot", &self.slot)
             .field("ticket", &"[REDACTED]")
             .field("maximum_frame_bytes", &self.maximum_frame_bytes)
