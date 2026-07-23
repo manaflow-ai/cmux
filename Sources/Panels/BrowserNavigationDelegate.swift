@@ -429,10 +429,6 @@ import WebKit
         cmuxDebugLog("browser.nav.decidePolicy.action kind=allow url=\(targetURL)")
 #endif
         if navigationAction.targetFrame?.isMainFrame != false {
-            if navigationAction.targetFrame?.isMainFrame == true,
-               let url = navigationAction.request.url {
-                webView.browserPortalConfigureFirstSizedRevealGeometryNudge(forNavigationURL: url)
-            }
             if shouldPreserveSSLTrustBypassForErrorPageNavigation(navigationAction) {
 #if DEBUG
                 let targetURL = navigationAction.request.url?.absoluteString ?? "nil"

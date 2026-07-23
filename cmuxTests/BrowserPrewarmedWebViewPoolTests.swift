@@ -120,23 +120,6 @@ struct BrowserPrewarmedWebViewPoolTests {
         #expect(!harness.pool.hasEntry(url: pricingURL, profileID: profileID))
     }
 
-    @Test func claimAfterRemotePrewarmPreservesFirstRevealGeometryNudge() {
-        let harness = PrewarmPoolHarness()
-        harness.pool.prewarm(url: pricingURL, profileID: profileID)
-        let webView = harness.madeWebViews[0]
-        harness.pool.webView(webView, didFinish: nil)
-
-        let claimed = harness.pool.claim(
-            url: pricingURL,
-            profileID: profileID,
-            websiteDataStore: harness.dataStore
-        )
-
-        #expect(claimed === webView)
-        #expect(claimed?.browserPortalRequiresRenderingStateReattach == true)
-        #expect(claimed?.browserPortalNeedsFirstSizedRevealNudge == true)
-    }
-
     @Test func claimForDifferentURLKeepsEntry() {
         let harness = PrewarmPoolHarness()
         harness.pool.prewarm(url: pricingURL, profileID: profileID)

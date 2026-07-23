@@ -66,7 +66,7 @@ final class BrowserPopupWindowController: NSObject, NSWindowDelegate {
             webView.isInspectable = true
         }
         webView.underPageBackgroundColor = GhosttyBackgroundTheme.currentColor()
-        webView.customUserAgent = BrowserUserAgentSettings.safariUserAgent
+        BrowserUserAgentSettings.applyEmbeddedWebKitIdentity(to: webView)
         BrowserThemeSettings.apply(openerPanel?.currentBrowserThemeMode ?? BrowserThemeSettings.mode(), to: webView)
         self.webView = webView
         self.webAuthnCoordinator = BrowserWebAuthnCoordinator()
@@ -694,9 +694,6 @@ private class PopupUIDelegate: BrowserPDFPreviewActionUIDelegate {
             return
         }
 
-        if navigationAction.targetFrame?.isMainFrame == true {
-            webView.browserPortalConfigureFirstSizedRevealGeometryNudge(forNavigationURL: url)
-        }
         if shouldPreserveSSLTrustBypassForErrorPageNavigation(navigationAction) {
             #if DEBUG
             cmuxDebugLog("popup.nav.preserveSSLBypassErrorPage url=\(url.absoluteString)")
