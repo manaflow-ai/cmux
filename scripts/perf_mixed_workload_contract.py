@@ -271,3 +271,56 @@ def validate_snapshot(
         actual_value = actual_shape[field]
         if type(actual_value) is not int or actual_value != expected_value:
             raise ValueError(f"snapshot shape field {field!r} does not match the contract")
+
+
+def validate_runtime_snapshot(
+    scenario: Scenario | Mapping[str, Any],
+    snapshot: SnapshotExpectation | Mapping[str, Any],
+) -> None:
+    """Validate live topology while accepting captured terminal scrollback growth."""
+    actual = _strict_snapshot_dict(snapshot)
+    expected = expected_snapshot(scenario).to_dict()
+
+    for flag in ("built", "include_scrollback", "persist", "saved"):
+        if type(actual[flag]) is not bool or actual[flag] is not expected[flag]:
+            raise ValueError(f"snapshot flag {flag!r} does not match the runtime contract")
+
+    actual_shape = actual["shape"]
+    expected_shape = expected["shape"]
+    for field, expected_value in expected_shape.items():
+        actual_value = actual_shape[field]
+        if field == "scrollback_chars":
+            if type(actual_value) is not int or actual_value < 0:
+                raise ValueError(
+                    "snapshot shape field 'scrollback_chars' must be a nonnegative integer"
+                )
+        elif type(actual_value) is not int or actual_value != expected_value:
+            raise ValueError(
+                f"snapshot shape field {field!r} does not match the runtime contract"
+            )
+
+
+def validate_restored_snapshot(
+    captured: SnapshotExpectation | Mapping[str, Any],
+    restored: SnapshotExpectation | Mapping[str, Any],
+) -> None:
+    """Require restoration to reproduce the exact captured persisted shape."""
+    captured_value = _strict_snapshot_dict(captured)
+    restored_value = _strict_snapshot_dict(restored)
+
+    for flag in ("built", "include_scrollback", "persist", "saved"):
+        if (
+            type(captured_value[flag]) is not bool
+            or type(restored_value[flag]) is not bool
+            or restored_value[flag] is not captured_value[flag]
+        ):
+            raise ValueError(f"restored snapshot flag {flag!r} changed")
+
+    for field, captured_field in captured_value["shape"].items():
+        restored_field = restored_value["shape"][field]
+        if (
+            type(captured_field) is not int
+            or type(restored_field) is not int
+            or restored_field != captured_field
+        ):
+            raise ValueError(f"restored snapshot shape field {field!r} changed")

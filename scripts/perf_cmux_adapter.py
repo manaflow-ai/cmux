@@ -30,6 +30,9 @@ from urllib.parse import unquote, urlparse
 _SHA_RE = re.compile(r"[0-9a-fA-F]{40}\Z")
 _MAX_TIMING_SECONDS = 300.0
 _PROCESS_GROUPS = ("parent_direct", "terminal", "webkit", "full_tree")
+_BROWSER_RECOVERY_RETRY = (
+    "browser surface stopped responding and was recovered. Retry the command."
+)
 
 
 def _load_sibling(module_name: str, filename: str | None = None) -> Any:
@@ -523,6 +526,24 @@ class CmuxRuntimeAdapter:
             raise ValueError("surface listing must be an array")
         return surfaces
 
+    def _wait_for_browser(self, actual_id: str) -> dict[str, Any]:
+        params = {
+            "workspace_id": self._workspace_id,
+            "surface_id": actual_id,
+            "load_state": "complete",
+            "timeout_ms": int(self.config.rpc_timeout_s * 1000),
+        }
+        try:
+            return self._runner.rpc(
+                "browser.wait", params, timeout=self.config.rpc_timeout_s
+            )
+        except Exception as error:
+            if _BROWSER_RECOVERY_RETRY not in str(error):
+                raise
+        return self._runner.rpc(
+            "browser.wait", params, timeout=self.config.rpc_timeout_s
+        )
+
     def observe_fixture(self) -> dict[str, Any]:
         if self._plan is None:
             raise RuntimeError("fixture has not been created")
@@ -545,16 +566,7 @@ class CmuxRuntimeAdapter:
         browser_evidence: list[dict[str, Any]] = []
         for planned_id, actual_id in self._browser_actual_ids.items():
             planned = planned_by_id[planned_id]
-            wait_payload = self._runner.rpc(
-                "browser.wait",
-                {
-                    "workspace_id": self._workspace_id,
-                    "surface_id": actual_id,
-                    "load_state": "complete",
-                    "timeout_ms": int(self.config.rpc_timeout_s * 1000),
-                },
-                timeout=self.config.rpc_timeout_s,
-            )
+            wait_payload = self._wait_for_browser(actual_id)
             url_payload = self._runner.rpc(
                 "browser.url.get",
                 {"workspace_id": self._workspace_id, "surface_id": actual_id},
@@ -1109,7 +1121,7 @@ class CmuxRuntimeAdapter:
             {"include_scrollback": True, "persist": True},
             timeout=self.config.rpc_timeout_s,
         )
-        _contract.validate_snapshot(
+        _contract.validate_runtime_snapshot(
             self.config.scenario, self._snapshot_contract(payload)
         )
         captured = _plain(payload)
@@ -1117,33 +1129,98 @@ class CmuxRuntimeAdapter:
         return captured
 
     def _reconcile_restored_workspace(self) -> None:
-        if self._workspace_id is None:
+        if self._workspace_id is None or self._plan is None:
             raise RuntimeError("fixture workspace is not initialized")
+        previous_workspace_id = self._workspace_id
+        previous_pane_id = self._pane_id
+        target_title = f"cmux-perf-{self.config.scenario['scenario_id']}"
         deadline = self._clock.monotonic() + self.config.rpc_timeout_s
         while True:
             workspaces = self._json_cli(["list-workspaces"]).get("workspaces", [])
-            workspace_ids = [
-                _extract_ref(item, "workspace")
-                for item in workspaces
-                if isinstance(item, Mapping)
-            ]
-            if self._workspace_id in workspace_ids:
-                self._runner.run_cli(
-                    ["select-workspace", "--workspace", self._workspace_id],
-                    timeout=self.config.rpc_timeout_s,
-                )
-                for workspace_id in workspace_ids:
-                    if workspace_id != self._workspace_id:
-                        self._close_workspace(workspace_id)
-                return
+            if not isinstance(workspaces, list) or any(
+                not isinstance(item, Mapping) for item in workspaces
+            ):
+                raise ValueError("restored workspace listing is invalid")
+            matches = [item for item in workspaces if item.get("title") == target_title]
+            if len(matches) > 1:
+                raise ValueError("restored fixture workspace title is not unique")
+            if len(matches) == 1:
+                break
             if self._clock.monotonic() >= deadline:
                 raise ValueError("restored fixture workspace did not appear before timeout")
             self._clock.sleep(0.1)
 
-    def restore(self, snapshot: Any) -> None:
-        _contract.validate_snapshot(
-            self.config.scenario, self._snapshot_contract(snapshot)
+        restored_workspace_id = _extract_ref(matches[0], "workspace")
+        workspace_ids = [_extract_ref(item, "workspace") for item in workspaces]
+        self._workspace_id = restored_workspace_id
+        self._runner.run_cli(
+            ["select-workspace", "--workspace", restored_workspace_id],
+            timeout=self.config.rpc_timeout_s,
         )
+        for workspace_id in workspace_ids:
+            if workspace_id != restored_workspace_id:
+                self._close_workspace(workspace_id)
+
+        panes = self._json_cli(
+            ["list-panes", "--workspace", restored_workspace_id]
+        ).get("panes", [])
+        if not isinstance(panes, list) or len(panes) != 1 or not isinstance(panes[0], Mapping):
+            raise ValueError("restored fixture workspace must contain exactly one pane")
+        restored_pane_id = _extract_ref(panes[0], "pane")
+        self._pane_id = restored_pane_id
+        surface_payload = self._json_cli(
+            [
+                "list-pane-surfaces",
+                "--workspace",
+                restored_workspace_id,
+                "--pane",
+                restored_pane_id,
+            ]
+        )
+        if any(key in surface_payload for key in ("pane_id", "pane_ref")) and not any(
+            surface_payload.get(key) == restored_pane_id
+            for key in ("pane_id", "pane_ref")
+        ):
+            raise ValueError("restored surface listing came from the wrong pane")
+        surfaces = surface_payload.get("surfaces", [])
+        if not isinstance(surfaces, list) or any(
+            not isinstance(item, Mapping) for item in surfaces
+        ):
+            raise ValueError("restored surface listing must be an array")
+        terminal_ids = [
+            _extract_ref(item, "surface")
+            for item in surfaces
+            if _surface_type(item) == "terminal"
+        ]
+        browser_ids = [
+            _extract_ref(item, "surface")
+            for item in surfaces
+            if _surface_type(item) == "browser"
+        ]
+        if (
+            len(terminal_ids) != len(self._terminal_actual_ids)
+            or len(browser_ids) != len(self._browser_actual_ids)
+            or len(surfaces) != len(terminal_ids) + len(browser_ids)
+        ):
+            raise ValueError("restored surface topology does not match the fixture plan")
+        self._terminal_actual_ids = dict(
+            zip(self._terminal_actual_ids, terminal_ids)
+        )
+        self._browser_actual_ids = dict(
+            zip(self._browser_actual_ids, browser_ids)
+        )
+        self._details["snapshot"]["restored_rebinding"] = {
+            "previous_workspace_id": previous_workspace_id,
+            "restored_workspace_id": restored_workspace_id,
+            "previous_pane_id": previous_pane_id,
+            "restored_pane_id": restored_pane_id,
+            "terminal_planned_to_actual": dict(self._terminal_actual_ids),
+            "browser_planned_to_actual": dict(self._browser_actual_ids),
+        }
+
+    def restore(self, snapshot: Any) -> None:
+        captured_contract = self._snapshot_contract(snapshot)
+        _contract.validate_runtime_snapshot(self.config.scenario, captured_contract)
         self._runner.stop_app()
         self._launched = False
         elapsed = self._runner.launch("restore")
@@ -1154,9 +1231,9 @@ class CmuxRuntimeAdapter:
             {"include_scrollback": True, "persist": True},
             timeout=self.config.rpc_timeout_s,
         )
-        _contract.validate_snapshot(
-            self.config.scenario, self._snapshot_contract(restored)
-        )
+        restored_contract = self._snapshot_contract(restored)
+        _contract.validate_runtime_snapshot(self.config.scenario, restored_contract)
+        _contract.validate_restored_snapshot(captured_contract, restored_contract)
         identity = self.observe_fixture()
         self._details["snapshot"]["restored"] = {
             "launch_socket_ready_ms": elapsed,
