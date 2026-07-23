@@ -31691,7 +31691,7 @@ export default CMUXSessionRestore;
     /// so session-start / prompt-submit / stop events show up in Feed's
     /// "All" view even when no permission/plan/question event fires.
     /// Failures are swallowed.
-    private func sendBestEffortFeedTelemetry(socketPath: String, line: String, socketPassword: String?) {
+    func sendBestEffortFeedTelemetry(socketPath: String, line: String, socketPassword: String?) {
         let oneWayClient = SocketClient(path: socketPath)
         defer { oneWayClient.close() }
         do {
@@ -33760,6 +33760,18 @@ export default CMUXSessionRestore;
         // Other agents fall back to getppid() which walks up one
         // level — close enough to catch most kill scenarios.
         let agentPid = agentPidForFeedSource(source, env: env)
+        if source == "pi",
+           routePiCompactedFeedEvents(
+                rawObject: stdinObj,
+                agentPid: agentPid,
+                fallbackWorkspaceId: env["CMUX_WORKSPACE_ID"],
+                client: client,
+                socketPath: socketPath,
+                socketPassword: socketPassword
+           ) {
+            print("{}")
+            return
+        }
         let sessionId = firstString(
             in: stdinObj,
             keys: ["session_id", "sessionId", "conversation_id", "conversationId"]
