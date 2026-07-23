@@ -329,6 +329,39 @@ struct ArtifactGitPrivacyTests {
         #expect(outcomes.first == .skipped(.gitPrivacyUnavailable))
     }
 
+    @Test("Concurrent nested projects retain every shared Git exclusion")
+    func serializesSharedExcludeUpdates() async throws {
+        let root = try gitRepository()
+        defer { ArtifactTestSupport.remove(root) }
+        let projectRoots = (0..<64).map { index in
+            root.appendingPathComponent("projects/project-\(index)", isDirectory: true)
+        }
+        for projectRoot in projectRoots {
+            try FileManager.default.createDirectory(
+                at: projectRoot,
+                withIntermediateDirectories: true
+            )
+        }
+
+        try await withThrowingTaskGroup(of: Void.self) { group in
+            for projectRoot in projectRoots {
+                group.addTask {
+                    _ = try await LocalArtifactRepository().snapshot(projectRoot: projectRoot)
+                }
+            }
+            try await group.waitForAll()
+        }
+
+        let exclude = try String(
+            contentsOf: root.appendingPathComponent(".git/info/exclude"),
+            encoding: .utf8
+        )
+        let lines = Set(exclude.split(separator: "\n").map(String.init))
+        for index in projectRoots.indices {
+            #expect(lines.contains("projects/project-\(index)/.cmux/**"))
+        }
+    }
+
     private func gitRepository() throws -> URL {
         let root = try ArtifactTestSupport.temporaryDirectory()
         #expect(try runGit(["init", "--quiet", root.path]) == 0)

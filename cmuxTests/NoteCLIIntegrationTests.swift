@@ -178,6 +178,34 @@ struct NoteCLIIntegrationTests {
         #expect(sessionRoots.count == cases.count)
     }
 
+    @Test("Conflicting native agent identities never select an inherited parent session")
+    func conflictingNativeAgentIdentitiesFailClosed() throws {
+        let fileManager = FileManager.default
+        let projectRoot = fileManager.temporaryDirectory
+            .appendingPathComponent("cmux-note-ambiguous-session-\(UUID().uuidString)", isDirectory: true)
+        try fileManager.createDirectory(at: projectRoot, withIntermediateDirectories: true)
+        defer { try? fileManager.removeItem(at: projectRoot) }
+        let cliPath = try BundledCLITestSupport.bundledCLIPath(
+            for: BundledCLILinkageTests.self
+        )
+
+        let result = try runCLI(
+            cliPath,
+            [
+                "note", "write", "plan", "--text", "private",
+                "--project", projectRoot.path,
+            ],
+            environment: [
+                "CMUX_AGENT_LAUNCH_KIND": "codex",
+                "CODEX_THREAD_ID": "inherited-parent-codex",
+                "CLAUDE_CODE_SESSION_ID": "current-child-claude",
+            ]
+        )
+
+        #expect(result.status == 2)
+        #expect(!fileManager.fileExists(atPath: projectRoot.appendingPathComponent(".cmux").path))
+    }
+
     private func runCLI(
         _ executablePath: String,
         _ arguments: [String],
