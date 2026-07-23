@@ -708,6 +708,53 @@ mod tests {
     }
 
     #[test]
+    fn unchanged_frame_does_not_replace_existing_placement() {
+        let image = image(5, 2, 1, GraphicFormat::Rgb, &[255; 12]);
+        let value = placement(image, 1, 0, Rect { x: 2, y: 3, width: 1, height: 1 });
+        let mut state = GraphicsState::default();
+        state.frame_batches(std::slice::from_ref(&value));
+
+        let output = joined(&state.frame_batches(&[value]));
+        assert!(!output.contains("a=p"), "{output:?}");
+        assert!(output.is_empty(), "{output:?}");
+    }
+
+    #[test]
+    fn changed_geometry_deletes_old_placement_before_replacing_it() {
+        let image = image(5, 3, 1, GraphicFormat::Rgb, &[255; 12]);
+        let initial = placement(image.clone(), 1, 0, Rect { x: 2, y: 3, width: 1, height: 1 });
+        let moved = placement(image, 1, 0, Rect { x: 4, y: 5, width: 2, height: 1 });
+        let mut state = GraphicsState::default();
+        state.frame_batches(&[initial]);
+
+        let output = joined(&state.frame_batches(&[moved]));
+        let delete = output.find("a=d,d=i").expect("old placement deletion");
+        let replace = output.find("a=p").expect("replacement placement");
+        assert!(delete < replace, "{output:?}");
+    }
+
+    #[test]
+    fn image_retransmit_restores_every_placement_after_image_deletion() {
+        let first = image(5, 4, 1, GraphicFormat::Rgb, &[255; 12]);
+        let mut state = GraphicsState::default();
+        state.frame_batches(&[
+            placement(first.clone(), 1, 0, Rect { x: 0, y: 0, width: 1, height: 1 }),
+            placement(first, 2, 0, Rect { x: 2, y: 0, width: 1, height: 1 }),
+        ]);
+
+        let replacement = image(5, 4, 2, GraphicFormat::Rgb, &[0; 12]);
+        let output = joined(&state.frame_batches(&[
+            placement(replacement.clone(), 1, 0, Rect { x: 0, y: 0, width: 1, height: 1 }),
+            placement(replacement, 2, 0, Rect { x: 2, y: 0, width: 1, height: 1 }),
+        ]));
+        let delete = output.find("a=d,d=I").expect("old image deletion");
+        let transmit = output.find("a=t,t=d").expect("replacement transmission");
+        let first_place = output.find("a=p").expect("first restored placement");
+        assert!(delete < transmit && transmit < first_place, "{output:?}");
+        assert_eq!(output.matches("a=p").count(), 2, "{output:?}");
+    }
+
+    #[test]
     fn stale_placement_is_deleted_without_dropping_shared_image_then_image_is_freed() {
         let shared = image(6, 1, 1, GraphicFormat::Rgb, &[255; 12]);
         let one = placement(shared.clone(), 0, 0, Rect { x: 0, y: 0, width: 1, height: 1 });
