@@ -766,10 +766,10 @@ await new Promise((resolve) => setTimeout(resolve, 250));
     return 0
 
 
-def check_terminal_feed_retry_and_failure(bun: str, root: Path, extension_path: Path) -> int:
-    retry_cmux = root / "terminal-feed-retry-cmux"
+def check_terminal_feed_failure_is_at_most_once(bun: str, root: Path, extension_path: Path) -> int:
+    failure_cmux = root / "terminal-feed-failure-cmux"
     make_executable(
-        retry_cmux,
+        failure_cmux,
         """#!/usr/bin/env python3
 import os
 import pathlib
@@ -777,18 +777,13 @@ import sys
 
 args = " ".join(sys.argv[1:])
 payload = sys.stdin.read()
-log_path = pathlib.Path(os.environ["CMUX_TEST_PI_RETRY_LOG"])
+log_path = pathlib.Path(os.environ["CMUX_TEST_PI_FAILURE_LOG"])
 with log_path.open("a", encoding="utf-8") as stream:
     stream.write(f"{args}|{payload}\\n")
 
 if "hooks feed" in args and "PostToolUse" in args:
-    count_path = pathlib.Path(os.environ["CMUX_TEST_PI_RETRY_COUNT"])
-    count = int(count_path.read_text(encoding="utf-8")) + 1 if count_path.exists() else 1
-    count_path.write_text(str(count), encoding="utf-8")
-    mode = os.environ["CMUX_TEST_PI_RETRY_MODE"]
-    if mode == "fail" or (mode == "retry" and count == 1):
-        print("transient feed failure", file=sys.stderr)
-        raise SystemExit(42)
+    print("ambiguous feed acknowledgment failure", file=sys.stderr)
+    raise SystemExit(42)
 
 print("{}")
 """,
@@ -799,11 +794,11 @@ const mod = await import(extensionPath);
 const handlers = new Map();
 mod.default({ on(name, handler) { handlers.set(name, handler); } });
 const ctx = {
-  cwd: "/tmp/pi-terminal-feed-retry-project",
-  sessionManager: { getSessionId() { return "pi-terminal-feed-retry-session"; } }
+  cwd: "/tmp/pi-terminal-feed-failure-project",
+  sessionManager: { getSessionId() { return "pi-terminal-feed-failure-session"; } }
 };
 handlers.get("tool_execution_end")({
-  toolCallId: "retry-tool",
+  toolCallId: "failure-tool",
   toolName: "bash",
   result: { status: "done" },
   isError: false
@@ -814,50 +809,29 @@ await handlers.get("agent_end")({
 }, ctx);
 """
 
-    for mode in ("retry", "fail"):
-        log_path = root / f"terminal-feed-{mode}.log"
-        count_path = root / f"terminal-feed-{mode}.count"
-        result = run_extension(
-            bun=bun,
-            root=root,
-            extension_path=extension_path,
-            fake_cmux=retry_cmux,
-            source=lifecycle_source,
-            extra_env={
-                "CMUX_TEST_PI_RETRY_LOG": str(log_path),
-                "CMUX_TEST_PI_RETRY_COUNT": str(count_path),
-                "CMUX_TEST_PI_RETRY_MODE": mode,
-            },
-        )
-        if result.returncode != 0:
-            print(f"FAIL: terminal-feed {mode} harness failed: {result.stderr!r}")
-            return 1
-        calls = log_path.read_text(encoding="utf-8").splitlines()
-        feed_indexes = [
-            index
-            for index, line in enumerate(calls)
-            if "hooks feed" in line and "PostToolUse" in line
-        ]
-        feed_calls = [calls[index] for index in feed_indexes]
-        notification_calls = [line for line in calls if "hooks pi notification" in line]
-        stop_calls = [line for line in calls if "hooks pi stop" in line]
-        if len(feed_calls) != 2:
-            print(f"FAIL: terminal-feed {mode} did not make one bounded retry: {calls!r}")
-            return 1
-        if mode == "retry":
-            if not notification_calls or not stop_calls:
-                print(f"FAIL: successful terminal-feed retry suppressed lifecycle delivery: {calls!r}")
-                return 1
-            if feed_indexes[-1] > calls.index(notification_calls[0]):
-                print(f"FAIL: lifecycle overtook the successful terminal-feed retry: {calls!r}")
-                return 1
-        else:
-            if notification_calls or stop_calls:
-                print(f"FAIL: exhausted terminal-feed retries were declared drained: {calls!r}")
-                return 1
-            if '"message":"cmux terminal feed delivery failed"' not in result.stderr:
-                print(f"FAIL: exhausted terminal-feed retries were not surfaced: {result.stderr!r}")
-                return 1
+    log_path = root / "terminal-feed-failure.log"
+    result = run_extension(
+        bun=bun,
+        root=root,
+        extension_path=extension_path,
+        fake_cmux=failure_cmux,
+        source=lifecycle_source,
+        extra_env={"CMUX_TEST_PI_FAILURE_LOG": str(log_path)},
+    )
+    if result.returncode != 0:
+        print(f"FAIL: terminal-feed failure harness failed: {result.stderr!r}")
+        return 1
+    calls = log_path.read_text(encoding="utf-8").splitlines()
+    feed_calls = [line for line in calls if "hooks feed" in line and "PostToolUse" in line]
+    if len(feed_calls) != 1:
+        print(f"FAIL: ambiguous terminal-feed delivery was replayed: {calls!r}")
+        return 1
+    if any("hooks pi notification" in line or "hooks pi stop" in line for line in calls):
+        print(f"FAIL: failed terminal-feed delivery was declared drained: {calls!r}")
+        return 1
+    if '"message":"cmux terminal feed delivery failed"' not in result.stderr:
+        print(f"FAIL: failed terminal-feed delivery was not surfaced: {result.stderr!r}")
+        return 1
 
     return 0
 
@@ -934,6 +908,13 @@ console.log(`completion_ms=${performance.now() - startedAt}`);
     elapsed_ms = float(timing_lines[0].split("=", 1)[1])
     if elapsed_ms >= 3_000:
         print(f"FAIL: stalled terminal feed delayed lifecycle completion by {elapsed_ms:.0f}ms")
+        return 1
+    deadline_calls = deadline_log.read_text(encoding="utf-8").splitlines()
+    if any("hooks pi notification" in line or "hooks pi stop" in line for line in deadline_calls):
+        print(f"FAIL: terminal-feed drain deadline was declared successful: {deadline_calls!r}")
+        return 1
+    if '"message":"cmux terminal feed delivery failed"' not in deadline.stderr:
+        print(f"FAIL: terminal-feed drain deadline was not surfaced: {deadline.stderr!r}")
         return 1
 
     return 0
@@ -1301,7 +1282,7 @@ def run_checks(bun: str, root: Path, extension_path: Path) -> int:
         check_cross_session_feed_isolation,
         check_feed_cancellation,
         check_completion_order,
-        check_terminal_feed_retry_and_failure,
+        check_terminal_feed_failure_is_at_most_once,
         check_completion_drain_deadline,
         check_timeout_serialization,
         check_error_classification,
