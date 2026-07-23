@@ -789,7 +789,121 @@ struct ComputerUseUXTests {
         ) == 200)
     }
 
-    @Test @MainActor func computerUsePresentationModeResetsAfterLiveSessionsEnd() {
+    @Test func transientTargetValidationDoesNotConsumeFreshActivity() {
+        let unauthorized = ComputerUseWatchTargetDecision.activityDisposition(
+            isAuthorized: false,
+            validatedTargetPID: 200,
+            lastActivatedTargetPID: nil
+        )
+        #expect(unauthorized.shouldRetry)
+        #expect(unauthorized.targetPIDToActivate == nil)
+
+        let targetUnavailable = ComputerUseWatchTargetDecision.activityDisposition(
+            isAuthorized: true,
+            validatedTargetPID: nil,
+            lastActivatedTargetPID: nil
+        )
+        #expect(targetUnavailable.shouldRetry)
+        #expect(targetUnavailable.targetPIDToActivate == nil)
+
+        let deduplicated = ComputerUseWatchTargetDecision.activityDisposition(
+            isAuthorized: true,
+            validatedTargetPID: 200,
+            lastActivatedTargetPID: 200
+        )
+        #expect(!deduplicated.shouldRetry)
+        #expect(deduplicated.targetPIDToActivate == nil)
+
+        let newTarget = ComputerUseWatchTargetDecision.activityDisposition(
+            isAuthorized: true,
+            validatedTargetPID: 200,
+            lastActivatedTargetPID: nil
+        )
+        #expect(!newTarget.shouldRetry)
+        #expect(newTarget.targetPIDToActivate == 200)
+    }
+
+    @Test @MainActor
+    func computerUseFilesystemCallbacksHopSafelyToMainActor() async throws {
+        let directory = FileManager.default.temporaryDirectory
+            .appendingPathComponent(
+                "cmux-computer-use-watcher-\(UUID().uuidString)",
+                isDirectory: true
+            )
+        try FileManager.default.createDirectory(
+            at: directory,
+            withIntermediateDirectories: true
+        )
+        defer { try? FileManager.default.removeItem(at: directory) }
+
+        let target = try #require(
+            NSRunningApplication.runningApplications(
+                withBundleIdentifier: "com.apple.finder"
+            ).first
+        )
+        let targetName = try #require(target.localizedName)
+        let targetLaunchDate = try #require(target.launchDate)
+        let writerIdentity = try #require(AgentPIDProcessIdentity(
+            pid: ProcessInfo.processInfo.processIdentifier
+        ))
+        let workspaceID = UUID()
+        let surfaceID = UUID()
+        let driverSessionID = ComputerUseSessionScope.driverSessionID(
+            surfaceID: surfaceID
+        )
+        let liveSession = ComputerUseLiveDriverSession(
+            workspaceID: workspaceID,
+            surfaceID: surfaceID,
+            logicalSessionID: "watcher-main-actor-session",
+            rootProcessIdentities: [writerIdentity]
+        )
+        let actionDate = max(Date(), targetLaunchDate)
+        let formatter = ISO8601DateFormatter()
+        formatter.formatOptions = [
+            .withInternetDateTime,
+            .withFractionalSeconds,
+        ]
+        let state = try Self.authenticatedStateData(
+            driverPID: 70_001,
+            writerPID: Int(writerIdentity.pid),
+            writerStartSeconds: writerIdentity.startSeconds,
+            writerStartMicroseconds: writerIdentity.startMicroseconds,
+            session: driverSessionID,
+            targetApp: targetName,
+            targetPID: Int(target.processIdentifier),
+            targetWindowID: 7,
+            lastActionAt: formatter.string(from: actionDate)
+        )
+
+        try await confirmation(
+            "background directory callback activated the target once"
+        ) { activated in
+            let controller = ComputerUseWatchTargetController(
+                stateDirectoryURL: directory,
+                featureEnabled: { true },
+                liveDriverSessions: { [driverSessionID: liveSession] },
+                currentLiveDriverSession: { _ in liveSession },
+                feed: ComputerUseWatchTargetFeed(
+                    authenticationKey: Self.stateAuthenticationKey
+                ),
+                activate: { application in
+                    if application.processIdentifier == target.processIdentifier {
+                        activated()
+                    }
+                }
+            )
+            controller.start()
+            defer { controller.stop() }
+
+            try state.write(
+                to: directory.appendingPathComponent("watcher.json"),
+                options: .atomic
+            )
+            try await ContinuousClock().sleep(for: .seconds(1))
+        }
+    }
+
+    @Test @MainActor func computerUsePresentationModeResetsAfterLiveSessionsEnd() throws {
         let logicalSessionA = "logical-session-a"
         let logicalSessionB = "logical-session-b"
         let currentPID = Int(ProcessInfo.processInfo.processIdentifier)
