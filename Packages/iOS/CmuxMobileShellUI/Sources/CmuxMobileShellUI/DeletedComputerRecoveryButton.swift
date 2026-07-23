@@ -26,16 +26,16 @@ struct DeletedComputerRecoveryButton: View {
     private var recoveryButton: some View {
         Button(action: recoverDeletedComputer) {
             Label {
-                Text(isRecovering ? recoveringTitle : title)
+                Text(isRecoveryInProgress ? recoveringTitle : title)
             } icon: {
-                if isRecovering {
+                if isRecoveryInProgress {
                     ProgressView().controlSize(.small)
                 } else {
                     Image(systemName: "arrow.uturn.backward")
                 }
             }
         }
-        .disabled(isRecovering)
+        .disabled(isRecoveryInProgress)
         .accessibilityIdentifier("MobileRecoverDeletedComputerButton")
         .alert(
             failureTitle,
@@ -50,6 +50,10 @@ struct DeletedComputerRecoveryButton: View {
         .onDisappear(perform: cancelRecoveryTask)
     }
 
+    private var isRecoveryInProgress: Bool {
+        isRecovering || recoveryTask != nil
+    }
+
     private var alertPresented: Binding<Bool> {
         Binding(
             get: { alertMessage != nil },
@@ -60,9 +64,10 @@ struct DeletedComputerRecoveryButton: View {
     }
 
     private func recoverDeletedComputer() {
-        guard !isRecovering, recoveryTask == nil else { return }
+        guard !isRecoveryInProgress else { return }
         alertMessage = nil
         recoveryTask = Task { @MainActor in
+            defer { recoveryTask = nil }
             let result = await recover()
             guard !Task.isCancelled else { return }
             switch result {
@@ -73,7 +78,6 @@ struct DeletedComputerRecoveryButton: View {
                 guard !Task.isCancelled else { return }
                 alertMessage = failureMessage
             }
-            recoveryTask = nil
         }
     }
 
