@@ -40,6 +40,67 @@ private struct FixedMemoryPressureFootprintSampler: MemoryPressureFootprintSampl
     }
 }
 
+@Suite
+struct MemoryPressureFootprintThresholdsScalingTests {
+    @Test func floorClampsSmallRAM() {
+        let thresholds = MemoryPressureFootprintThresholds.scaled(
+            forPhysicalMemoryBytes: Self.gib(8)
+        )
+
+        #expect(thresholds.warningBytes == Self.gib(2))
+        #expect(thresholds.criticalBytes == Self.gib(4))
+    }
+
+    @Test func usesRatioInsideClampRange() {
+        let thresholds = MemoryPressureFootprintThresholds.scaled(
+            forPhysicalMemoryBytes: Self.gib(36)
+        )
+
+        #expect(thresholds.warningBytes == Self.gib(3))
+        #expect(thresholds.criticalBytes == Self.gib(6))
+    }
+
+    @Test(arguments: [UInt64(128), UInt64(256)])
+    func ceilingClampsLargeRAM(physicalMemoryGiB: UInt64) {
+        let thresholds = MemoryPressureFootprintThresholds.scaled(
+            forPhysicalMemoryBytes: Self.gib(physicalMemoryGiB)
+        )
+
+        #expect(thresholds.warningBytes == Self.gib(6))
+        #expect(thresholds.criticalBytes == Self.gib(12))
+    }
+
+    @Test func degenerateAndSweptRAMValuesKeepValidOrdering() {
+        let zero = MemoryPressureFootprintThresholds.scaled(forPhysicalMemoryBytes: 0)
+
+        #expect(zero.warningBytes == Self.gib(2))
+        #expect(zero.criticalBytes == Self.gib(4))
+
+        var physicalMemoryGiB: UInt64 = 4
+        while physicalMemoryGiB <= 256 {
+            let thresholds = MemoryPressureFootprintThresholds.scaled(
+                forPhysicalMemoryBytes: Self.gib(physicalMemoryGiB)
+            )
+
+            #expect(thresholds.criticalBytes >= thresholds.warningBytes)
+            #expect(thresholds.warningBytes > 0)
+
+            physicalMemoryGiB += 4
+        }
+    }
+
+    @Test func defaultUsesPhysicalMemoryScaledFactory() {
+        #expect(
+            MemoryPressureFootprintThresholds.default ==
+                .scaled(forPhysicalMemoryBytes: ProcessInfo.processInfo.physicalMemory)
+        )
+    }
+
+    private static func gib(_ value: UInt64) -> UInt64 {
+        value * 1024 * 1024 * 1024
+    }
+}
+
 struct MemoryPressureStateTrackerTests {
     @Test func footprintThresholdsMapToSeverity() {
         let thresholds = MemoryPressureFootprintThresholds(
