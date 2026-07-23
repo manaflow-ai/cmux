@@ -88,6 +88,24 @@ fn png_transmission_is_decoded_to_rgba() {
 }
 
 #[test]
+fn oversized_png_header_is_rejected_before_decode_allocation_and_parser_recovers() {
+    let mut terminal = terminal();
+    let mut oversized = b"\x89PNG\r\n\x1a\n".to_vec();
+    oversized.extend_from_slice(&13_u32.to_be_bytes());
+    oversized.extend_from_slice(b"IHDR");
+    oversized.extend_from_slice(&5_000_u32.to_be_bytes());
+    oversized.extend_from_slice(&5_000_u32.to_be_bytes());
+    terminal.vt_write(&kitty("a=t,t=d,f=100,i=90,q=2", &encode_base64(&oversized)));
+    assert!(terminal.kitty_graphics_snapshot().unwrap().image(90).is_none());
+
+    terminal.vt_write(&kitty("a=T,t=d,f=100,i=91,p=1,q=2", PNG_1X1_RED));
+    assert_eq!(
+        &*terminal.kitty_graphics_snapshot().unwrap().image(91).unwrap().data,
+        &[255, 0, 0, 255]
+    );
+}
+
+#[test]
 fn retransmit_delete_and_malformed_input_recover_without_stale_pixels() {
     let mut terminal = terminal();
     terminal.vt_write(&kitty("a=T,t=d,f=24,i=10,p=4,s=1,v=1,q=2", "////"));
@@ -139,6 +157,27 @@ fn replay_reconstructs_preexisting_images_and_placements() {
 }
 
 #[test]
+fn replay_keeps_an_unplaced_image_for_a_post_attach_placement() {
+    let mut source = terminal();
+    source.vt_write(&kitty("a=t,t=d,f=24,i=22,s=1,v=1,q=2", "/wAA"));
+    let before_place = source.kitty_graphics_snapshot().unwrap();
+    assert!(before_place.image(22).is_some());
+    assert!(before_place.placements.is_empty());
+
+    let replay = source.vt_replay().unwrap();
+    let mut mirror = terminal();
+    mirror.vt_write(&replay);
+    assert!(mirror.kitty_graphics_snapshot().unwrap().image(22).is_some());
+
+    let place = kitty("a=p,i=22,p=7,c=1,r=1,q=2", "");
+    source.vt_write(&place);
+    mirror.vt_write(&place);
+    let mirrored = mirror.kitty_graphics_snapshot().unwrap();
+    assert_eq!(mirrored.placements.len(), 1);
+    assert_eq!(mirrored.placements[0].placement_id, 7);
+}
+
+#[test]
 fn storage_limit_bounds_retained_pixel_data() {
     let mut terminal = terminal();
     terminal.set_kitty_image_storage_limit(8).unwrap();
@@ -155,6 +194,12 @@ fn storage_limit_bounds_retained_pixel_data() {
 }
 
 #[test]
+fn terminal_enables_direct_payloads_without_external_image_media() {
+    let terminal = terminal();
+    assert_eq!(terminal.kitty_external_image_media_enabled().unwrap(), (false, false, false));
+}
+
+#[test]
 fn render_frame_owns_the_same_graphics_snapshot_as_text() {
     let mut terminal = terminal();
     terminal.vt_write(b"frame");
@@ -163,11 +208,26 @@ fn render_frame_owns_the_same_graphics_snapshot_as_text() {
     render.update(&mut terminal).unwrap();
     let frame = render.build_frame().unwrap();
 
-    assert!(frame.styled_rows().iter().flatten().any(|cell| cell.text.contains("frame")));
+    let text =
+        frame.styled_rows().iter().flatten().map(|cell| cell.text.as_str()).collect::<String>();
+    assert!(text.contains("frame"));
     assert_eq!(&*frame.kitty_graphics.image(40).unwrap().data, &[255, 0, 0]);
 
     terminal.vt_write(&kitty("a=d,d=A,q=2", ""));
     assert_eq!(&*frame.kitty_graphics.image(40).unwrap().data, &[255, 0, 0]);
+}
+
+#[test]
+fn steady_state_render_snapshot_does_not_probe_or_copy_unplaced_images() {
+    let mut terminal = terminal();
+    terminal.vt_write(&kitty("a=t,t=d,f=24,i=41,s=1,v=1,q=2", "/wAA"));
+    assert!(terminal.kitty_graphics_snapshot().unwrap().image(41).is_some());
+
+    let mut render = RenderState::new().unwrap();
+    render.update(&mut terminal).unwrap();
+    let frame = render.build_frame().unwrap();
+    assert!(frame.kitty_graphics.images.is_empty());
+    assert!(frame.kitty_graphics.placements.is_empty());
 }
 
 #[test]
@@ -181,7 +241,6 @@ fn anonymous_or_reused_placement_ids_have_distinct_snapshot_keys() {
 
     let snapshot = terminal.kitty_graphics_snapshot().unwrap();
     assert_eq!(snapshot.placements.len(), 2);
-    assert_eq!(snapshot.placements[0].placement_id, 0);
-    assert_eq!(snapshot.placements[1].placement_id, 0);
+    assert_ne!(snapshot.placements[0].placement_id, snapshot.placements[1].placement_id);
     assert_ne!(snapshot.placements[0].key, snapshot.placements[1].key);
 }

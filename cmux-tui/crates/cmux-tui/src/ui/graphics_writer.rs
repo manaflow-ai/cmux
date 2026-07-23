@@ -88,6 +88,13 @@ fn writer_loop(
             }
         }
     }
+    for batch in graphics.frame_batches(&[]) {
+        let _guard = stdout_lock.lock().unwrap();
+        let mut stdout = std::io::stdout();
+        if stdout.write_all(&batch).and_then(|_| stdout.flush()).is_err() {
+            return;
+        }
+    }
 }
 
 struct DoneOnDrop(SyncSender<()>);
@@ -110,27 +117,33 @@ mod tests {
         submit_snapshot(
             &slot,
             &tx,
-            vec![GraphicPlacement {
-                surface: 1,
-                rect: Rect { x: 0, y: 0, width: 10, height: 5 },
-                seq: 1,
-                data_b64: "AAAA".to_string(),
-            }],
+            vec![GraphicPlacement::browser(
+                0,
+                1,
+                Rect { x: 0, y: 0, width: 10, height: 5 },
+                1,
+                10,
+                5,
+                "AAAA".to_string(),
+            )],
         );
         submit_snapshot(
             &slot,
             &tx,
-            vec![GraphicPlacement {
-                surface: 1,
-                rect: Rect { x: 1, y: 1, width: 11, height: 6 },
-                seq: 2,
-                data_b64: "BBBB".to_string(),
-            }],
+            vec![GraphicPlacement::browser(
+                0,
+                1,
+                Rect { x: 1, y: 1, width: 11, height: 6 },
+                2,
+                11,
+                6,
+                "BBBB".to_string(),
+            )],
         );
 
         let latest = slot.lock().unwrap().take().expect("latest snapshot");
         assert_eq!(latest.len(), 1);
-        assert_eq!(latest[0].seq, 2);
+        assert_eq!(latest[0].image.generation, 2);
         assert_eq!(latest[0].rect.x, 1);
         rx.recv_timeout(Duration::from_secs(1)).unwrap();
         assert!(rx.try_recv().is_err());

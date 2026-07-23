@@ -2384,6 +2384,64 @@ fn render_cursor_json(frame: &SurfaceRenderFrame) -> Value {
     })
 }
 
+fn render_graphics_json(
+    graphics: &ghostty_vt::KittyGraphicsSnapshot,
+    include_images: bool,
+) -> Value {
+    let images = include_images.then(|| {
+        graphics
+            .images
+            .iter()
+            .map(|image| {
+                json!({
+                    "id": image.id,
+                    "generation": image.generation,
+                    "width": image.width,
+                    "height": image.height,
+                    "format": match image.format {
+                        ghostty_vt::KittyImageFormat::Rgb => "rgb",
+                        ghostty_vt::KittyImageFormat::Rgba => "rgba",
+                    },
+                    "data": base64::engine::general_purpose::STANDARD.encode(&image.data),
+                })
+            })
+            .collect::<Vec<_>>()
+    });
+    let placements = graphics
+        .placements
+        .iter()
+        .map(|placement| {
+            json!({
+                "image_id": placement.image_id,
+                "placement_id": placement.placement_id,
+                "ordinal": placement.key.ordinal,
+                "x_offset": placement.x_offset,
+                "y_offset": placement.y_offset,
+                "source_x": placement.source_x,
+                "source_y": placement.source_y,
+                "source_width": placement.source_width,
+                "source_height": placement.source_height,
+                "grid_cols": placement.grid_cols,
+                "grid_rows": placement.grid_rows,
+                "pixel_width": placement.pixel_width,
+                "pixel_height": placement.pixel_height,
+                "viewport_col": placement.viewport_col,
+                "viewport_row": placement.viewport_row,
+                "viewport_visible": placement.viewport_visible,
+                "z": placement.z,
+            })
+        })
+        .collect::<Vec<_>>();
+    let mut value = json!({
+        "generation": graphics.generation,
+        "placements": placements,
+    });
+    if let Some(images) = images {
+        value["images"] = json!(images);
+    }
+    value
+}
+
 fn render_state_json(surface: SurfaceId, frame: &SurfaceRenderFrame) -> Value {
     let (cols, rows) = frame.frame.size;
     json!({
@@ -2395,6 +2453,7 @@ fn render_state_json(surface: SurfaceId, frame: &SurfaceRenderFrame) -> Value {
         "default_bg": rgb_hex(frame.frame.default_colors.0),
         "scrollback_rows": frame.scrollback_rows,
         "rows": render_rows_json(frame, 0..rows),
+        "graphics": render_graphics_json(&frame.frame.kitty_graphics, true),
     })
 }
 
@@ -2402,6 +2461,7 @@ struct RenderClientState {
     size: (u16, u16),
     default_colors: (Rgb, Rgb),
     scrollback_rows: u32,
+    graphics_generation: u64,
 }
 
 impl RenderClientState {
@@ -2410,6 +2470,7 @@ impl RenderClientState {
             size: frame.frame.size,
             default_colors: frame.frame.default_colors,
             scrollback_rows: frame.scrollback_rows,
+            graphics_generation: frame.frame.kitty_graphics.generation,
         }
     }
 
@@ -2446,9 +2507,12 @@ impl RenderClientState {
         if scrollback_changed {
             value["scrollback_rows"] = json!(frame.scrollback_rows);
         }
+        let graphics_changed = self.graphics_generation != frame.frame.kitty_graphics.generation;
+        value["graphics"] = render_graphics_json(&frame.frame.kitty_graphics, graphics_changed);
         self.size = frame.frame.size;
         self.default_colors = frame.frame.default_colors;
         self.scrollback_rows = frame.scrollback_rows;
+        self.graphics_generation = frame.frame.kitty_graphics.generation;
         value
     }
 }

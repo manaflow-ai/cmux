@@ -31,11 +31,12 @@ use crossterm::terminal::{
     EnterAlternateScreen, LeaveAlternateScreen, disable_raw_mode, enable_raw_mode,
 };
 use ghostty_vt::{
-    KeyEncoder, Mods, MouseAction, MouseButton as GhosttyMouseButton, MouseInput, RenderState,
-    Screen,
+    KeyEncoder, KittyGraphicsSnapshot, Mods, MouseAction, MouseButton as GhosttyMouseButton,
+    MouseInput, RenderState, Screen,
 };
 use ratatui::Terminal as RatatuiTerminal;
 use ratatui::backend::CrosstermBackend;
+use unicode_width::UnicodeWidthStr;
 
 use crate::browser_input::{
     BrowserInputDispatcher, BrowserInputEvent, BrowserInputKind, BrowserResizeFailure,
@@ -59,7 +60,7 @@ use crate::session::{
     is_remote_transport_failure,
 };
 use crate::sidebar_files::{FileBrowser, FileCommand, file_url, shell_single_quote};
-use crate::ui::graphics::GraphicPlacement;
+use crate::ui::graphics::{GraphicPlacement, kitty_graphic_image, kitty_graphic_placement};
 use crate::ui::graphics_writer::GraphicsWriter;
 use crate::ui::input::{InputEvent, TextInput};
 use crate::ui::thumb_geometry;
@@ -2907,6 +2908,10 @@ pub struct App {
     /// Terminal cells actually represented by the last rendered snapshot.
     /// Foreign-viewer padding outside these bounds is display-only.
     pub(crate) rendered_terminal_bounds: HashMap<SurfaceId, Rect>,
+    /// Kitty graphics captured from the exact immutable terminal frame drawn
+    /// for each visible surface. Graphics emission must not render again,
+    /// because doing so would consume remote damage independently of text.
+    pub(crate) rendered_kitty_graphics: HashMap<SurfaceId, KittyGraphicsSnapshot>,
     /// Surfaces whose active tabs were visible in the previous layout pass.
     /// Attach streams may outlive this set, but only members hold size leases.
     visible_size_surfaces: HashSet<SurfaceId>,
@@ -3802,6 +3807,7 @@ pub fn run_with_machine_updates(
         pane_areas: Vec::new(),
         pane_focus_history: PaneFocusHistory::default(),
         rendered_terminal_bounds: HashMap::new(),
+        rendered_kitty_graphics: HashMap::new(),
         visible_size_surfaces: HashSet::new(),
         pending_size_releases: HashSet::new(),
         prefix_armed: false,
@@ -4477,6 +4483,7 @@ impl App {
         self.pane_focus_history = PaneFocusHistory::default();
         self.pane_focus_history.sync_membership(&self.tree);
         self.rendered_terminal_bounds.clear();
+        self.rendered_kitty_graphics.clear();
         self.visible_size_surfaces.clear();
         self.pending_size_releases.clear();
         self.prefix_armed = false;
@@ -4813,6 +4820,7 @@ impl App {
             self.drag = None;
         }
         self.render_states.remove(&surface);
+        self.rendered_kitty_graphics.remove(&surface);
         self.visible_size_surfaces.remove(&surface);
         self.pending_size_releases.remove(&surface);
         self.mux_titles.remove(surface);
@@ -4958,8 +4966,10 @@ impl App {
     }
 
     fn mark_graphics_clean(&self, placements: &[GraphicPlacement]) {
-        for placement in placements {
-            if let Some(surface) = self.session.surface(placement.surface) {
+        let surfaces =
+            placements.iter().map(|placement| placement.key.image.surface).collect::<HashSet<_>>();
+        for surface_id in surfaces {
+            if let Some(surface) = self.session.surface(surface_id) {
                 surface.take_dirty();
             }
         }
@@ -4981,29 +4991,79 @@ impl App {
         let mut placements = Vec::new();
         for area in &self.pane_areas {
             let Some(surface) = self.session.surface(area.surface) else { continue };
-            if surface.kind() != SurfaceKind::Browser {
-                continue;
-            }
             if area.content.width == 0 || area.content.height == 0 {
                 continue;
             }
-            if self.browser_graphic_occluded(area.content) {
-                continue;
+            match surface.kind() {
+                SurfaceKind::Browser => {
+                    if self.graphic_occluded(area.content) {
+                        continue;
+                    }
+                    let Some(frame) = surface.browser_frame() else { continue };
+                    placements.push(GraphicPlacement::browser(
+                        self.session_generation,
+                        area.surface,
+                        area.content,
+                        frame.seq,
+                        frame.css_width,
+                        frame.css_height,
+                        frame.data_b64,
+                    ));
+                }
+                SurfaceKind::Pty => {
+                    let Some(snapshot) = self.rendered_kitty_graphics.get(&area.surface) else {
+                        continue;
+                    };
+                    let pane = self
+                        .rendered_terminal_bounds
+                        .get(&area.surface)
+                        .copied()
+                        .unwrap_or(area.content);
+                    let images = snapshot
+                        .images
+                        .iter()
+                        .map(|image| {
+                            (
+                                image.id,
+                                kitty_graphic_image(self.session_generation, area.surface, image),
+                            )
+                        })
+                        .collect::<HashMap<_, _>>();
+                    placements.extend(snapshot.placements.iter().filter_map(|placement| {
+                        let image = images.get(&placement.image_id)?.clone();
+                        let placement =
+                            kitty_graphic_placement(pane, self.cell_pixels, image, placement)?;
+                        (!self.graphic_occluded(placement.rect)).then_some(placement)
+                    }));
+                }
             }
-            let Some(frame) = surface.browser_frame() else { continue };
-            placements.push(GraphicPlacement {
-                surface: area.surface,
-                rect: area.content,
-                seq: frame.seq,
-                data_b64: frame.data_b64,
-            });
         }
         placements
     }
 
-    fn browser_graphic_occluded(&self, rect: Rect) -> bool {
+    fn graphic_occluded(&self, rect: Rect) -> bool {
         self.menu.as_ref().is_some_and(|menu| menu.intersects(rect))
             || self.prompt.as_ref().is_some_and(|prompt| rects_intersect(rect, prompt.rect))
+            || self.pairing_dialog.as_ref().is_some_and(|dialog| rects_intersect(rect, dialog.rect))
+            || self.toast_rect().is_some_and(|toast| rects_intersect(rect, toast))
+    }
+
+    fn toast_rect(&self) -> Option<Rect> {
+        let toast = self.toast.as_ref()?;
+        let area = self.content_area;
+        if area.width == 0 || area.height == 0 {
+            return None;
+        }
+        let label = format!(" {} ", toast.text);
+        let width = u16::try_from(UnicodeWidthStr::width(label.as_str()))
+            .unwrap_or(u16::MAX)
+            .min(area.width);
+        (width > 0).then_some(Rect {
+            x: area.x + area.width.saturating_sub(width + 1),
+            y: area.y + area.height.saturating_sub(2),
+            width,
+            height: 1,
+        })
     }
 
     fn refresh_cell_pixels(&mut self, query_fallback: bool) {
@@ -15904,6 +15964,7 @@ mod tests {
             pane_areas: Vec::new(),
             pane_focus_history: PaneFocusHistory::default(),
             rendered_terminal_bounds: HashMap::new(),
+            rendered_kitty_graphics: HashMap::new(),
             visible_size_surfaces: HashSet::new(),
             pending_size_releases: HashSet::new(),
             prefix_armed: false,

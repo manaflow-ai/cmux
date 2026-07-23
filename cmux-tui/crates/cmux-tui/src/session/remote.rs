@@ -219,6 +219,7 @@ pub struct RemoteSurface {
     pub term: Mutex<Terminal>,
     mouse_encoders: Mutex<MouseEncoders>,
     pub dirty: AtomicBool,
+    cell_pixels: Mutex<(u16, u16)>,
     reported_size: Mutex<Option<(u16, u16)>>,
     browser: Mutex<RemoteBrowserState>,
 }
@@ -280,17 +281,30 @@ impl RemoteSurface {
     /// Apply an ordered attach-stream resize marker to the mirror terminal.
     pub(super) fn apply_stream_resize(&self, cols: u16, rows: u16, replay: Option<&[u8]>) {
         let (cols, rows) = (cols.max(1), rows.max(1));
+        let cell_pixels = *self.cell_pixels.lock().unwrap();
         let mut term = self.term.lock().unwrap();
         if let Some(replay) = replay
             && let Ok(mut fresh) = Terminal::new(cols, rows, 10_000, Callbacks::default())
         {
+            let _ = fresh.resize(cols, rows, u32::from(cell_pixels.0), u32::from(cell_pixels.1));
             fresh.vt_write(replay);
             *term = fresh;
             self.sync_mouse_encoders(&term);
             return;
         }
-        let _ = term.resize(cols, rows, 8, 16);
+        let _ = term.resize(cols, rows, u32::from(cell_pixels.0), u32::from(cell_pixels.1));
         self.sync_mouse_encoders(&term);
+    }
+
+    fn set_cell_pixel_size(&self, width_px: u16, height_px: u16) {
+        let next = (width_px.max(1), height_px.max(1));
+        *self.cell_pixels.lock().unwrap() = next;
+        if self.kind != SurfaceKind::Pty {
+            return;
+        }
+        let mut term = self.term.lock().unwrap();
+        let size = (term.cols(), term.rows());
+        let _ = term.resize(size.0, size.1, u32::from(next.0), u32::from(next.1));
     }
 
     pub(super) fn reported_size(&self) -> Option<(u16, u16)> {
@@ -405,6 +419,7 @@ pub struct RemoteSession {
     subscribers: MuxEventBroadcaster,
     frame_logs: Mutex<HashMap<SurfaceId, Vec<String>>>,
     surface_overflow_recovery: Mutex<HashMap<SurfaceId, SurfaceOverflowRecovery>>,
+    cell_pixels: Mutex<(u16, u16)>,
     capabilities: Mutex<HashSet<String>>,
     provider_workspace_authority: Option<BearerToken>,
     provider_workspaces_guarded: AtomicBool,
@@ -542,6 +557,7 @@ impl RemoteSession {
             subscribers: MuxEventBroadcaster::default(),
             frame_logs: Mutex::new(HashMap::new()),
             surface_overflow_recovery: Mutex::new(HashMap::new()),
+            cell_pixels: Mutex::new((8, 16)),
             capabilities: Mutex::new(HashSet::new()),
             provider_workspace_authority,
             provider_workspaces_guarded: AtomicBool::new(false),
@@ -1066,10 +1082,15 @@ impl RemoteSession {
         width_px: u16,
         height_px: u16,
     ) -> anyhow::Result<RemoteCellPixelUpdate> {
+        let next = (width_px.max(1), height_px.max(1));
+        *self.cell_pixels.lock().unwrap() = next;
+        for surface in self.surfaces.lock().unwrap().values() {
+            surface.set_cell_pixel_size(next.0, next.1);
+        }
         let response = self.request(json!({
             "cmd": "set-cell-pixels",
-            "width_px": width_px,
-            "height_px": height_px,
+            "width_px": next.0,
+            "height_px": next.1,
         }))?;
         let resizes = response
             .get("resizes")
@@ -1193,13 +1214,16 @@ impl RemoteSession {
             browser_source_from_tree(&tree.view, id)
         };
         let (cols, rows) = size.unwrap_or((80, 24));
-        let term = Terminal::new(cols, rows, 10_000, Callbacks::default())?;
+        let cell_pixels = *self.cell_pixels.lock().unwrap();
+        let mut term = Terminal::new(cols, rows, 10_000, Callbacks::default())?;
+        term.resize(cols, rows, u32::from(cell_pixels.0), u32::from(cell_pixels.1))?;
         let surface = Arc::new(RemoteSurface {
             id,
             kind,
             term: Mutex::new(term),
             mouse_encoders: Mutex::new(MouseEncoders::new()?),
             dirty: AtomicBool::new(false),
+            cell_pixels: Mutex::new(cell_pixels),
             reported_size: Mutex::new(None),
             browser: Mutex::new(RemoteBrowserState::default()),
         });
@@ -1437,6 +1461,7 @@ fn test_session_with_provider_context(
         subscribers: MuxEventBroadcaster::default(),
         frame_logs: Mutex::new(HashMap::new()),
         surface_overflow_recovery: Mutex::new(HashMap::new()),
+        cell_pixels: Mutex::new((8, 16)),
         capabilities: Mutex::new(capabilities),
         provider_workspace_authority,
         provider_workspaces_guarded: AtomicBool::new(false),
@@ -1698,6 +1723,7 @@ mod tests {
             subscribers: MuxEventBroadcaster::default(),
             frame_logs: Mutex::new(HashMap::new()),
             surface_overflow_recovery: Mutex::new(HashMap::new()),
+            cell_pixels: Mutex::new((8, 16)),
             capabilities: Mutex::new(capabilities),
             provider_workspace_authority,
             provider_workspaces_guarded: AtomicBool::new(false),
@@ -2122,6 +2148,7 @@ mod tests {
             term: Mutex::new(Terminal::new(10, 5, 100, Callbacks::default()).unwrap()),
             mouse_encoders: Mutex::new(MouseEncoders::new().unwrap()),
             dirty: AtomicBool::new(false),
+            cell_pixels: Mutex::new((8, 16)),
             reported_size: Mutex::new(None),
             browser: Mutex::new(RemoteBrowserState::default()),
         };
@@ -2163,6 +2190,7 @@ mod tests {
             term: Mutex::new(Terminal::new(20, 6, 100, Callbacks::default()).unwrap()),
             mouse_encoders: Mutex::new(MouseEncoders::new().unwrap()),
             dirty: AtomicBool::new(false),
+            cell_pixels: Mutex::new((8, 16)),
             reported_size: Mutex::new(None),
             browser: Mutex::new(RemoteBrowserState::default()),
         };
@@ -2196,6 +2224,7 @@ mod tests {
             term: Mutex::new(Terminal::new(12, 4, 100, Callbacks::default()).unwrap()),
             mouse_encoders: Mutex::new(MouseEncoders::new().unwrap()),
             dirty: AtomicBool::new(false),
+            cell_pixels: Mutex::new((8, 16)),
             reported_size: Mutex::new(None),
             browser: Mutex::new(RemoteBrowserState::default()),
         });
@@ -2231,6 +2260,7 @@ mod tests {
             term: Mutex::new(Terminal::new(12, 4, 100, Callbacks::default()).unwrap()),
             mouse_encoders: Mutex::new(MouseEncoders::new().unwrap()),
             dirty: AtomicBool::new(false),
+            cell_pixels: Mutex::new((8, 16)),
             reported_size: Mutex::new(Some((12, 4))),
             browser: Mutex::new(RemoteBrowserState::default()),
         });
@@ -2262,6 +2292,7 @@ mod tests {
             term: Mutex::new(Terminal::new(12, 4, 100, Callbacks::default()).unwrap()),
             mouse_encoders: Mutex::new(MouseEncoders::new().unwrap()),
             dirty: AtomicBool::new(false),
+            cell_pixels: Mutex::new((8, 16)),
             reported_size: Mutex::new(Some((90, 31))),
             browser: Mutex::new(RemoteBrowserState::default()),
         });
@@ -2451,6 +2482,7 @@ mod tests {
                 term: Mutex::new(Terminal::new(80, 24, 100, Callbacks::default()).unwrap()),
                 mouse_encoders: Mutex::new(MouseEncoders::new().unwrap()),
                 dirty: AtomicBool::new(false),
+                cell_pixels: Mutex::new((8, 16)),
                 reported_size: Mutex::new(None),
                 browser: Mutex::new(RemoteBrowserState::default()),
             }),
@@ -2489,6 +2521,7 @@ mod tests {
             term: Mutex::new(Terminal::new(12, 3, 100, Callbacks::default()).unwrap()),
             mouse_encoders: Mutex::new(MouseEncoders::new().unwrap()),
             dirty: AtomicBool::new(false),
+            cell_pixels: Mutex::new((8, 16)),
             reported_size: Mutex::new(None),
             browser: Mutex::new(RemoteBrowserState::default()),
         };

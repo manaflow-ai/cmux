@@ -2,13 +2,17 @@ use std::ffi::c_void;
 use std::ptr;
 use std::sync::atomic::{AtomicU64, Ordering};
 
+use base64::Engine as _;
 use ghostty_vt_sys as sys;
 
+use crate::kitty::{self, KittyGraphicsSnapshot, KittyImageIdTracker, MAX_KITTY_IMAGE_BYTES};
 use crate::render::{Cell, CursorShape, read_grid_ref_cell, terminal_palette};
 use crate::{Result, check};
 
 static NEXT_TERMINAL_ID: AtomicU64 = AtomicU64::new(1);
 const VT_REPLAY_ESTIMATED_BYTES_PER_CELL: u64 = 32;
+const DEFAULT_KITTY_IMAGE_STORAGE_LIMIT: u64 = MAX_KITTY_IMAGE_BYTES as u64;
+const KITTY_REPLAY_CHUNK: usize = 4096;
 
 /// RGB color triple.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
@@ -231,6 +235,7 @@ pub struct Terminal {
     instance_id: u64,
     mouse_mode_revision: u64,
     mouse_mode_scan: MouseModeScan,
+    kitty_image_ids: KittyImageIdTracker,
     // Heap-pinned so the userdata pointer stays valid for the terminal's
     // lifetime.
     callbacks: Box<Callbacks>,
@@ -833,16 +838,22 @@ unsafe extern "C" fn bell_trampoline(_terminal: sys::GhosttyTerminal, userdata: 
 
 impl Terminal {
     pub fn new(cols: u16, rows: u16, max_scrollback: usize, callbacks: Callbacks) -> Result<Self> {
+        kitty::install_png_decoder()?;
         let mut raw: sys::GhosttyTerminal = ptr::null_mut();
         let opts =
             sys::GhosttyTerminalOptions { cols: cols.max(1), rows: rows.max(1), max_scrollback };
         check(unsafe { sys::ghostty_terminal_new(ptr::null(), &mut raw, opts) })?;
+        if let Err(error) = configure_kitty_graphics(raw) {
+            unsafe { sys::ghostty_terminal_free(raw) };
+            return Err(error);
+        }
 
         let mut term = Terminal {
             raw,
             instance_id: NEXT_TERMINAL_ID.fetch_add(1, Ordering::Relaxed),
             mouse_mode_revision: 0,
             mouse_mode_scan: MouseModeScan::default(),
+            kitty_image_ids: KittyImageIdTracker::default(),
             callbacks: Box::new(callbacks),
             cursor_override: CursorOverrideTracker::default(),
             palette_override: Box::default(),
@@ -891,7 +902,12 @@ impl Terminal {
         }
         self.cursor_override.write(data);
         self.palette_override.write(data);
+        self.kitty_image_ids.write(data);
         unsafe { sys::ghostty_terminal_vt_write(self.raw, data.as_ptr(), data.len()) }
+    }
+
+    pub(crate) fn known_kitty_image_ids(&self) -> impl Iterator<Item = u32> + '_ {
+        self.kitty_image_ids.ids()
     }
 
     /// Whether the current cursor style/blink came from an active DECSCUSR
@@ -1038,6 +1054,38 @@ impl Terminal {
                 cell_height_px,
             )
         })
+    }
+
+    /// Copy the active screen's Kitty image storage into owned Rust values.
+    pub fn kitty_graphics_snapshot(&self) -> Result<KittyGraphicsSnapshot> {
+        kitty::snapshot(self, &mut Default::default(), true)
+    }
+
+    /// Set the active terminal's bounded Kitty image storage in bytes.
+    pub fn set_kitty_image_storage_limit(&mut self, bytes: u64) -> Result<()> {
+        check(unsafe {
+            sys::ghostty_terminal_set(
+                self.raw,
+                sys::GHOSTTY_TERMINAL_OPT_KITTY_IMAGE_STORAGE_LIMIT,
+                (&bytes as *const u64).cast(),
+            )
+        })
+    }
+
+    pub fn kitty_image_storage_limit(&self) -> Result<u64> {
+        self.get(sys::GHOSTTY_TERMINAL_DATA_KITTY_IMAGE_STORAGE_LIMIT)
+    }
+
+    /// Whether file, temporary-file, or shared-memory image media are enabled.
+    ///
+    /// cmux enables only direct (`t=d`) payloads, so this is `(false, false,
+    /// false)` for terminals created by [`Terminal::new`].
+    pub fn kitty_external_image_media_enabled(&self) -> Result<(bool, bool, bool)> {
+        Ok((
+            self.get(sys::GHOSTTY_TERMINAL_DATA_KITTY_IMAGE_MEDIUM_FILE)?,
+            self.get(sys::GHOSTTY_TERMINAL_DATA_KITTY_IMAGE_MEDIUM_TEMP_FILE)?,
+            self.get(sys::GHOSTTY_TERMINAL_DATA_KITTY_IMAGE_MEDIUM_SHARED_MEM)?,
+        ))
     }
 
     fn get<T: Default>(&self, data: sys::GhosttyTerminalData) -> Result<T> {
@@ -1301,6 +1349,15 @@ impl Terminal {
     /// back to a terminal reset so callers can still attach and receive live
     /// output instead of entering a permanent overflow loop.
     pub fn vt_replay_bounded(&mut self, max_bytes: usize) -> Result<Vec<u8>> {
+        let graphics =
+            kitty_replay_bounded(&self.kitty_graphics_snapshot()?, max_bytes.saturating_div(2));
+        let text_budget = max_bytes.saturating_sub(graphics.len());
+        let mut replay = self.vt_replay_text_bounded(text_budget)?;
+        replay.extend_from_slice(&graphics);
+        Ok(replay)
+    }
+
+    fn vt_replay_text_bounded(&mut self, max_bytes: usize) -> Result<Vec<u8>> {
         let Some(scrollbar) = self.scrollbar() else {
             return Ok(minimal_vt_replay(max_bytes));
         };
@@ -1380,6 +1437,7 @@ impl Terminal {
         if let Some(suffix) = suffix {
             replay.extend_from_slice(&suffix);
         }
+        replay.extend_from_slice(&kitty_replay(&self.kitty_graphics_snapshot()?));
         Ok(replay)
     }
 
@@ -1516,9 +1574,111 @@ impl Terminal {
     }
 }
 
+fn configure_kitty_graphics(raw: sys::GhosttyTerminal) -> Result<()> {
+    check(unsafe {
+        sys::ghostty_terminal_set(
+            raw,
+            sys::GHOSTTY_TERMINAL_OPT_KITTY_IMAGE_STORAGE_LIMIT,
+            (&DEFAULT_KITTY_IMAGE_STORAGE_LIMIT as *const u64).cast(),
+        )
+    })?;
+    let disabled = false;
+    for option in [
+        sys::GHOSTTY_TERMINAL_OPT_KITTY_IMAGE_MEDIUM_FILE,
+        sys::GHOSTTY_TERMINAL_OPT_KITTY_IMAGE_MEDIUM_TEMP_FILE,
+        sys::GHOSTTY_TERMINAL_OPT_KITTY_IMAGE_MEDIUM_SHARED_MEM,
+    ] {
+        check(unsafe {
+            sys::ghostty_terminal_set(raw, option, (&disabled as *const bool).cast())
+        })?;
+    }
+    Ok(())
+}
+
 fn minimal_vt_replay(max_bytes: usize) -> Vec<u8> {
     const RESET: &[u8] = b"\x1bc";
     if max_bytes >= RESET.len() { RESET.to_vec() } else { Vec::new() }
+}
+
+fn kitty_replay(snapshot: &KittyGraphicsSnapshot) -> Vec<u8> {
+    kitty_replay_bounded(snapshot, usize::MAX)
+}
+
+fn kitty_replay_bounded(snapshot: &KittyGraphicsSnapshot, max_bytes: usize) -> Vec<u8> {
+    let mut replay = Vec::new();
+    for image in &snapshot.images {
+        let placements = snapshot
+            .placements
+            .iter()
+            .filter(|placement| placement.image_id == image.id && placement.viewport_visible)
+            .collect::<Vec<_>>();
+        let mut bundle = Vec::new();
+        let payload = base64::engine::general_purpose::STANDARD.encode(&image.data);
+        for (index, chunk) in payload.as_bytes().chunks(KITTY_REPLAY_CHUNK).enumerate() {
+            let more = usize::from((index + 1) * KITTY_REPLAY_CHUNK < payload.len());
+            if index == 0 {
+                bundle.extend_from_slice(
+                    format!(
+                        "\x1b_Ga=t,t=d,f={},i={},s={},v={},q=2,m={more};",
+                        image.format.kitty_protocol_value(),
+                        image.id,
+                        image.width,
+                        image.height
+                    )
+                    .as_bytes(),
+                );
+            } else {
+                bundle.extend_from_slice(format!("\x1b_Gq=2,m={more};").as_bytes());
+            }
+            bundle.extend_from_slice(chunk);
+            bundle.extend_from_slice(b"\x1b\\");
+        }
+        for placement in placements {
+            if let Some(command) = kitty_replay_placement(placement) {
+                bundle.extend_from_slice(&command);
+            }
+        }
+        if replay.len().saturating_add(bundle.len()) > max_bytes {
+            continue;
+        }
+        replay.extend_from_slice(&bundle);
+    }
+    replay
+}
+
+fn kitty_replay_placement(placement: &kitty::KittyPlacement) -> Option<Vec<u8>> {
+    let clip_cols = u32::try_from(placement.viewport_col.saturating_neg()).unwrap_or(0);
+    let clip_rows = u32::try_from(placement.viewport_row.saturating_neg()).unwrap_or(0);
+    if clip_cols >= placement.grid_cols || clip_rows >= placement.grid_rows {
+        return None;
+    }
+    let cols = placement.grid_cols - clip_cols;
+    let rows = placement.grid_rows - clip_rows;
+    let source_dx = proportional_clip(placement.source_width, clip_cols, placement.grid_cols);
+    let source_dy = proportional_clip(placement.source_height, clip_rows, placement.grid_rows);
+    let source_x = placement.source_x.saturating_add(source_dx);
+    let source_y = placement.source_y.saturating_add(source_dy);
+    let source_width = placement.source_width.saturating_sub(source_dx);
+    let source_height = placement.source_height.saturating_sub(source_dy);
+    let col = u32::try_from(placement.viewport_col.max(0)).ok()?.saturating_add(1);
+    let row = u32::try_from(placement.viewport_row.max(0)).ok()?.saturating_add(1);
+    let x_offset = if clip_cols == 0 { placement.x_offset } else { 0 };
+    let y_offset = if clip_rows == 0 { placement.y_offset } else { 0 };
+    Some(
+        format!(
+            "\x1b7\x1b[{row};{col}H\x1b_Ga=p,i={},p={},x={source_x},y={source_y},w={source_width},h={source_height},X={x_offset},Y={y_offset},c={cols},r={rows},z={},C=1,q=2;\x1b\\\x1b8",
+            placement.image_id, placement.placement_id, placement.z
+        )
+        .into_bytes(),
+    )
+}
+
+fn proportional_clip(total_pixels: u32, clipped_cells: u32, total_cells: u32) -> u32 {
+    if total_cells == 0 {
+        return 0;
+    }
+    u32::try_from(u64::from(total_pixels) * u64::from(clipped_cells) / u64::from(total_cells))
+        .unwrap_or(total_pixels)
 }
 
 fn vt_replay_row_window(total_rows: u64, screen_rows: u64, cols: u16, max_bytes: usize) -> u64 {

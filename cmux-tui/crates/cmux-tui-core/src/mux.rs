@@ -2186,6 +2186,10 @@ impl Mux {
         self.set_cell_pixel_size_reporting(width_px, height_px, Arc::new(|_, _, _| {}))
     }
 
+    pub(crate) fn cell_pixel_size(&self) -> (u16, u16) {
+        *self.cell_pixels.lock().unwrap()
+    }
+
     pub fn set_cell_pixel_size_reporting(
         &self,
         width_px: u16,

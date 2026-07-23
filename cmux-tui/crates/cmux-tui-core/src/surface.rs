@@ -418,6 +418,7 @@ pub struct PtySurface {
     title: Mutex<String>,
     pwd: Mutex<Option<String>>,
     size: Mutex<(u16, u16)>,
+    cell_pixels: Mutex<(u16, u16)>,
     mux: Weak<Mux>,
     /// Live output subscribers (attach streams). Guarded by the terminal
     /// lock ordering: the reader thread broadcasts while holding the
@@ -453,11 +454,12 @@ impl Surface {
         opts: SurfaceOptions,
         mux: Weak<Mux>,
     ) -> anyhow::Result<Arc<Surface>> {
+        let cell_pixels = mux.upgrade().map(|mux| mux.cell_pixel_size()).unwrap_or((8, 16));
         let pty = native_pty_system().openpty(PtySize {
             rows: opts.rows,
             cols: opts.cols,
-            pixel_width: 0,
-            pixel_height: 0,
+            pixel_width: total_pixels(opts.cols, cell_pixels.0),
+            pixel_height: total_pixels(opts.rows, cell_pixels.1),
         })?;
 
         let argv = opts
@@ -513,6 +515,7 @@ impl Surface {
         };
 
         let mut term = Terminal::new(opts.cols, opts.rows, opts.scrollback, callbacks)?;
+        term.resize(opts.cols, opts.rows, u32::from(cell_pixels.0), u32::from(cell_pixels.1))?;
         if let Some(mux) = mux.upgrade() {
             let colors = mux.default_colors();
             term.set_default_colors(colors.fg, colors.bg, colors.cursor);
@@ -538,6 +541,7 @@ impl Surface {
             title: Mutex::new(String::new()),
             pwd: Mutex::new(None),
             size: Mutex::new((opts.cols, opts.rows)),
+            cell_pixels: Mutex::new(cell_pixels),
             mux: mux.clone(),
             taps: Mutex::new(Vec::new()),
             attach_colors_pending: AtomicBool::new(false),
@@ -639,6 +643,7 @@ impl Surface {
         opts: SurfaceOptions,
         mux: Weak<Mux>,
     ) -> anyhow::Result<Arc<Surface>> {
+        let cell_pixels = mux.upgrade().map(|mux| mux.cell_pixel_size()).unwrap_or((8, 16));
         let callbacks = Callbacks {
             on_bell: Some(Box::new({
                 let mux = mux.clone();
@@ -652,6 +657,7 @@ impl Surface {
         };
 
         let mut term = Terminal::new(opts.cols, opts.rows, opts.scrollback, callbacks)?;
+        term.resize(opts.cols, opts.rows, u32::from(cell_pixels.0), u32::from(cell_pixels.1))?;
         if let Some(mux) = mux.upgrade() {
             let colors = mux.default_colors();
             term.set_default_colors(colors.fg, colors.bg, colors.cursor);
@@ -673,8 +679,8 @@ impl Surface {
                 size: Mutex::new(PtySize {
                     rows: opts.rows,
                     cols: opts.cols,
-                    pixel_width: 0,
-                    pixel_height: 0,
+                    pixel_width: total_pixels(opts.cols, cell_pixels.0),
+                    pixel_height: total_pixels(opts.rows, cell_pixels.1),
                 }),
             })),
             killer: Mutex::new(Box::new(TestChildKiller)),
@@ -686,6 +692,7 @@ impl Surface {
             title: Mutex::new(String::new()),
             pwd: Mutex::new(None),
             size: Mutex::new((opts.cols, opts.rows)),
+            cell_pixels: Mutex::new(cell_pixels),
             mux,
             taps: Mutex::new(Vec::new()),
             attach_colors_pending: AtomicBool::new(false),
@@ -1022,11 +1029,15 @@ impl Surface {
         height_px: u16,
         report: Box<dyn FnOnce(Option<u64>) + Send>,
     ) -> anyhow::Result<Option<u64>> {
-        if let Some(browser) = self.as_browser() {
-            browser.set_cell_pixel_size_reporting(width_px, height_px, report)
-        } else {
-            report(None);
-            Ok(None)
+        match self {
+            Surface::Pty(pty) => {
+                let changed = pty.set_cell_pixel_size(width_px, height_px);
+                report(changed.then_some(0));
+                Ok(changed.then_some(0))
+            }
+            Surface::Browser(browser) => {
+                browser.set_cell_pixel_size_reporting(width_px, height_px, report)
+            }
         }
     }
 
@@ -1126,12 +1137,15 @@ impl Surface {
         let mut term = pty.term.lock().unwrap();
         let generation = pty.render_generation.load(Ordering::Acquire);
         let _ = pty.build_frame_locked(&mut term, generation, false)?;
+        let initial_graphics = term.kitty_graphics_snapshot()?;
         let (tx, rx) = std::sync::mpsc::channel();
         let initial = {
             let mut render = pty.render.lock().unwrap();
-            let initial = render.latest.clone().ok_or(ghostty_vt::Error::NoValue)?;
+            let shared = render.latest.clone().ok_or(ghostty_vt::Error::NoValue)?;
+            let mut initial = (*shared).clone();
+            initial.frame.kitty_graphics = initial_graphics;
             render.taps.push(tx);
-            initial
+            Arc::new(initial)
         };
         Ok(RenderAttachStream { initial, stream: rx })
     }
@@ -1425,14 +1439,14 @@ impl PtySurface {
         // attach marker, so attach mirrors observe bytes and resizes in
         // the exact order the server terminal applied them.
         let mut term = self.term.lock().unwrap();
+        let cell_pixels = *self.cell_pixels.lock().unwrap();
         let _ = self.master.lock().unwrap().resize(PtySize {
             rows,
             cols,
-            pixel_width: 0,
-            pixel_height: 0,
+            pixel_width: total_pixels(cols, cell_pixels.0),
+            pixel_height: total_pixels(rows, cell_pixels.1),
         });
-        // Nominal cell metrics; only pixel size reports observe these.
-        let _ = term.resize(cols, rows, 8, 16);
+        let _ = term.resize(cols, rows, u32::from(cell_pixels.0), u32::from(cell_pixels.1));
         let replay = term.vt_replay_bounded(VT_REPLAY_MAX_BYTES).unwrap_or_default();
         let defaults = self.mux.upgrade().map(|mux| mux.default_colors()).unwrap_or_default();
         let generation = self.render_generation.fetch_add(1, Ordering::AcqRel) + 1;
@@ -1445,6 +1459,37 @@ impl PtySurface {
         self.broadcast_attach_frame(AttachFrame::Resized { cols, rows, replay, colors });
         true
     }
+
+    fn set_cell_pixel_size(&self, width_px: u16, height_px: u16) -> bool {
+        let next = (width_px.max(1), height_px.max(1));
+        {
+            let mut current = self.cell_pixels.lock().unwrap();
+            if *current == next {
+                return false;
+            }
+            *current = next;
+        }
+        let (cols, rows) = *self.size.lock().unwrap();
+        let mut term = self.term.lock().unwrap();
+        let _ = self.master.lock().unwrap().resize(PtySize {
+            rows,
+            cols,
+            pixel_width: total_pixels(cols, next.0),
+            pixel_height: total_pixels(rows, next.1),
+        });
+        let _ = term.resize(cols, rows, u32::from(next.0), u32::from(next.1));
+        let replay = term.vt_replay_bounded(VT_REPLAY_MAX_BYTES).unwrap_or_default();
+        let defaults = self.mux.upgrade().map(|mux| mux.default_colors()).unwrap_or_default();
+        let generation = self.render_generation.fetch_add(1, Ordering::AcqRel) + 1;
+        let _ = self.build_frame_locked(&mut term, generation, false);
+        let colors = Box::new(self.terminal_colors_locked(&mut term, defaults));
+        self.broadcast_attach_frame(AttachFrame::Resized { cols, rows, replay, colors });
+        true
+    }
+}
+
+fn total_pixels(cells: u16, cell_pixels: u16) -> u16 {
+    cells.saturating_mul(cell_pixels.max(1))
 }
 
 const RENDER_FRAME_CADENCE: Duration = Duration::from_millis(8);

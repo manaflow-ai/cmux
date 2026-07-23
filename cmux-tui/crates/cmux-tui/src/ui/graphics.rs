@@ -1,99 +1,421 @@
 use std::collections::{HashMap, HashSet};
 use std::io::Write;
+use std::sync::Arc;
 use std::time::Duration;
 #[cfg(unix)]
 use std::time::Instant;
 
+use base64::Engine as _;
 use cmux_tui_core::{Rect, SurfaceId};
+use ghostty_vt::{KittyImage, KittyImageFormat, KittyPlacement};
 
 const ESC: &str = "\x1b";
 const CHUNK: usize = 4096;
-const PLACEMENT_ID: u32 = 1;
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash)]
+pub struct GraphicImageKey {
+    pub namespace: u64,
+    pub surface: SurfaceId,
+    pub image_id: u32,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash)]
+pub struct GraphicPlacementKey {
+    pub image: GraphicImageKey,
+    pub placement_id: u32,
+    pub ordinal: u32,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum GraphicFormat {
+    Png,
+    Rgb,
+    Rgba,
+}
+
+impl GraphicFormat {
+    fn kitty_value(self) -> u8 {
+        match self {
+            Self::Png => 100,
+            Self::Rgb => 24,
+            Self::Rgba => 32,
+        }
+    }
+}
+
+#[derive(Debug, Clone)]
+pub enum GraphicData {
+    Base64(Arc<str>),
+    Bytes(Arc<[u8]>),
+}
+
+impl GraphicData {
+    fn base64(&self) -> String {
+        match self {
+            Self::Base64(encoded) => encoded.to_string(),
+            Self::Bytes(bytes) => base64::engine::general_purpose::STANDARD.encode(bytes),
+        }
+    }
+}
+
+#[derive(Debug, Clone)]
+pub struct GraphicImage {
+    pub key: GraphicImageKey,
+    pub generation: u64,
+    pub width: u32,
+    pub height: u32,
+    pub format: GraphicFormat,
+    pub data: GraphicData,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct GraphicSourceRect {
+    pub x: u32,
+    pub y: u32,
+    pub width: u32,
+    pub height: u32,
+}
 
 #[derive(Debug, Clone)]
 pub struct GraphicPlacement {
-    pub surface: SurfaceId,
+    pub key: GraphicPlacementKey,
+    pub image: Arc<GraphicImage>,
     pub rect: Rect,
-    pub seq: u64,
-    pub data_b64: String,
+    pub source: Option<GraphicSourceRect>,
+    pub x_offset: u32,
+    pub y_offset: u32,
+    pub z: i32,
 }
 
-#[derive(Default)]
+impl GraphicPlacement {
+    pub fn browser(
+        namespace: u64,
+        surface: SurfaceId,
+        rect: Rect,
+        generation: u64,
+        width: u32,
+        height: u32,
+        data_b64: String,
+    ) -> Self {
+        let image_key = GraphicImageKey { namespace, surface, image_id: 0 };
+        Self {
+            key: GraphicPlacementKey { image: image_key, placement_id: 0, ordinal: 0 },
+            image: Arc::new(GraphicImage {
+                key: image_key,
+                generation,
+                width,
+                height,
+                format: GraphicFormat::Png,
+                data: GraphicData::Base64(Arc::from(data_b64)),
+            }),
+            rect,
+            source: None,
+            x_offset: 0,
+            y_offset: 0,
+            z: 0,
+        }
+    }
+}
+
+pub fn kitty_graphic_image(
+    namespace: u64,
+    surface: SurfaceId,
+    image: &KittyImage,
+) -> Arc<GraphicImage> {
+    Arc::new(GraphicImage {
+        key: GraphicImageKey { namespace, surface, image_id: image.id },
+        generation: image.generation,
+        width: image.width,
+        height: image.height,
+        format: match image.format {
+            KittyImageFormat::Rgb => GraphicFormat::Rgb,
+            KittyImageFormat::Rgba => GraphicFormat::Rgba,
+        },
+        data: GraphicData::Bytes(image.data.clone()),
+    })
+}
+
+/// Resolve a libghostty viewport placement into the outer terminal grid.
+///
+/// Negative origins and right/bottom overflow are cropped proportionally
+/// in source-pixel space so images never bleed outside their pane.
+pub fn kitty_graphic_placement(
+    pane: Rect,
+    cell_pixels: (u16, u16),
+    image: Arc<GraphicImage>,
+    placement: &KittyPlacement,
+) -> Option<GraphicPlacement> {
+    if !placement.viewport_visible
+        || pane.width == 0
+        || pane.height == 0
+        || placement.grid_cols == 0
+        || placement.grid_rows == 0
+    {
+        return None;
+    }
+
+    let origin_col = i64::from(placement.viewport_col);
+    let origin_row = i64::from(placement.viewport_row);
+    let grid_cols = i64::from(placement.grid_cols);
+    let grid_rows = i64::from(placement.grid_rows);
+    let pane_cols = i64::from(pane.width);
+    let pane_rows = i64::from(pane.height);
+    let clip_left = (-origin_col).max(0).min(grid_cols);
+    let clip_top = (-origin_row).max(0).min(grid_rows);
+    let mut clip_right = (origin_col + grid_cols - pane_cols).max(0).min(grid_cols - clip_left);
+    let mut clip_bottom = (origin_row + grid_rows - pane_rows).max(0).min(grid_rows - clip_top);
+    let x_offset = if clip_left == 0 { placement.x_offset } else { 0 };
+    let y_offset = if clip_top == 0 { placement.y_offset } else { 0 };
+
+    // Kitty applies X/Y after sizing the c/r cell rectangle. At a right or
+    // bottom pane edge that sub-cell offset would bleed into a border or
+    // sibling. The protocol cannot crop a destination by partial cells, so
+    // conservatively crop enough whole trailing cells to contain the offset.
+    let initial_cols = grid_cols - clip_left - clip_right;
+    let initial_rows = grid_rows - clip_top - clip_bottom;
+    let right_slack = (pane_cols - (origin_col.max(0) + initial_cols)).max(0);
+    let bottom_slack = (pane_rows - (origin_row.max(0) + initial_rows)).max(0);
+    let cell_width = i64::from(cell_pixels.0.max(1));
+    let cell_height = i64::from(cell_pixels.1.max(1));
+    let x_overflow = (i64::from(x_offset) - right_slack * cell_width).max(0);
+    let y_overflow = (i64::from(y_offset) - bottom_slack * cell_height).max(0);
+    clip_right += div_ceil(x_overflow, cell_width).min(initial_cols);
+    clip_bottom += div_ceil(y_overflow, cell_height).min(initial_rows);
+    let visible_cols = grid_cols - clip_left - clip_right;
+    let visible_rows = grid_rows - clip_top - clip_bottom;
+    if visible_cols <= 0 || visible_rows <= 0 {
+        return None;
+    }
+
+    let source_left = proportional_pixels(placement.source_width, clip_left, grid_cols)
+        .min(placement.source_width);
+    let source_right = proportional_pixels(placement.source_width, clip_right, grid_cols)
+        .min(placement.source_width.saturating_sub(source_left));
+    let source_top = proportional_pixels(placement.source_height, clip_top, grid_rows)
+        .min(placement.source_height);
+    let source_bottom = proportional_pixels(placement.source_height, clip_bottom, grid_rows)
+        .min(placement.source_height.saturating_sub(source_top));
+    let source = GraphicSourceRect {
+        x: placement.source_x.saturating_add(source_left),
+        y: placement.source_y.saturating_add(source_top),
+        width: placement.source_width.saturating_sub(source_left).saturating_sub(source_right),
+        height: placement.source_height.saturating_sub(source_top).saturating_sub(source_bottom),
+    };
+    if source.width == 0 || source.height == 0 {
+        return None;
+    }
+
+    Some(GraphicPlacement {
+        key: GraphicPlacementKey {
+            image: image.key,
+            placement_id: placement.placement_id,
+            ordinal: placement.key.ordinal,
+        },
+        image,
+        rect: Rect {
+            x: pane.x.saturating_add(u16::try_from(origin_col.max(0)).ok()?),
+            y: pane.y.saturating_add(u16::try_from(origin_row.max(0)).ok()?),
+            width: u16::try_from(visible_cols).ok()?,
+            height: u16::try_from(visible_rows).ok()?,
+        },
+        source: Some(source),
+        x_offset,
+        y_offset,
+        z: placement.z,
+    })
+}
+
+fn div_ceil(value: i64, divisor: i64) -> i64 {
+    if value <= 0 { 0 } else { 1 + (value - 1) / divisor.max(1) }
+}
+
+fn proportional_pixels(total: u32, clipped: i64, cells: i64) -> u32 {
+    if cells <= 0 || clipped <= 0 {
+        return 0;
+    }
+    u32::try_from(
+        u64::from(total).saturating_mul(u64::try_from(clipped).unwrap_or(u64::MAX))
+            / u64::try_from(cells).unwrap_or(1),
+    )
+    .unwrap_or(total)
+}
+
 pub struct GraphicsState {
-    transmitted: HashMap<SurfaceId, u64>,
-    visible: HashSet<SurfaceId>,
+    next_image_id: u32,
+    next_placement_id: u32,
+    image_ids: HashMap<GraphicImageKey, u32>,
+    placement_ids: HashMap<GraphicPlacementKey, u32>,
+    transmitted: HashMap<GraphicImageKey, u64>,
+    visible: HashSet<GraphicPlacementKey>,
+}
+
+impl Default for GraphicsState {
+    fn default() -> Self {
+        Self {
+            next_image_id: 1,
+            next_placement_id: 1,
+            image_ids: HashMap::new(),
+            placement_ids: HashMap::new(),
+            transmitted: HashMap::new(),
+            visible: HashSet::new(),
+        }
+    }
 }
 
 impl GraphicsState {
     pub fn frame_batches(&mut self, placements: &[GraphicPlacement]) -> Vec<Vec<u8>> {
-        let visible_placements = placements
+        let mut placements = placements
             .iter()
             .filter(|placement| placement.rect.width > 0 && placement.rect.height > 0)
             .collect::<Vec<_>>();
-        let now_visible = visible_placements.iter().map(|p| p.surface).collect::<HashSet<_>>();
-        let mut out = Vec::new();
+        placements.sort_by_key(|placement| {
+            (placement.z, placement.rect.y, placement.rect.x, placement.key)
+        });
+        let now_visible = placements.iter().map(|placement| placement.key).collect::<HashSet<_>>();
+        let now_images =
+            placements.iter().map(|placement| placement.image.key).collect::<HashSet<_>>();
+        let mut batches = Vec::new();
 
-        for old in self.visible.difference(&now_visible) {
-            out.push(delete_image(*old));
-            self.transmitted.remove(old);
+        let mut stale_placements =
+            self.visible.difference(&now_visible).copied().collect::<Vec<_>>();
+        stale_placements.sort_unstable();
+        for key in stale_placements {
+            if let (Some(&image_id), Some(&placement_id)) =
+                (self.image_ids.get(&key.image), self.placement_ids.get(&key))
+            {
+                batches.push(delete_placement(image_id, placement_id));
+            }
+            self.placement_ids.remove(&key);
         }
 
-        for placement in visible_placements {
-            let mut batch = Vec::new();
-            let already_sent =
-                self.transmitted.get(&placement.surface).is_some_and(|seq| *seq == placement.seq);
-            if !already_sent {
-                batch.extend(transmit_png(placement.surface, &placement.data_b64));
-                self.transmitted.insert(placement.surface, placement.seq);
+        let mut stale_images = self
+            .transmitted
+            .keys()
+            .filter(|key| !now_images.contains(key))
+            .copied()
+            .collect::<Vec<_>>();
+        stale_images.sort_unstable();
+        for key in stale_images {
+            if let Some(image_id) = self.image_ids.remove(&key) {
+                batches.push(delete_image(image_id));
             }
-            batch.extend(place_image(placement.surface, placement.rect));
+            self.transmitted.remove(&key);
+            self.placement_ids.retain(|placement, _| placement.image != key);
+        }
+
+        for placement in placements {
+            let image_id = self.image_id(placement.image.key);
+            let placement_id = self.placement_id(placement.key);
+            let mut batch = Vec::new();
+            match self.transmitted.get(&placement.image.key).copied() {
+                Some(generation) if generation == placement.image.generation => {}
+                Some(_) => {
+                    batch.extend(delete_image(image_id));
+                    batch.extend(transmit_image(image_id, &placement.image));
+                    self.transmitted.insert(placement.image.key, placement.image.generation);
+                }
+                None => {
+                    batch.extend(transmit_image(image_id, &placement.image));
+                    self.transmitted.insert(placement.image.key, placement.image.generation);
+                }
+            }
+            batch.extend(place_image(image_id, placement_id, placement));
             if !batch.is_empty() {
-                out.push(batch);
+                batches.push(batch);
             }
         }
 
         self.visible = now_visible;
-        out
+        batches
+    }
+
+    fn image_id(&mut self, key: GraphicImageKey) -> u32 {
+        if let Some(id) = self.image_ids.get(&key) {
+            return *id;
+        }
+        let id = allocate_id(&mut self.next_image_id, self.image_ids.values().copied());
+        self.image_ids.insert(key, id);
+        id
+    }
+
+    fn placement_id(&mut self, key: GraphicPlacementKey) -> u32 {
+        if let Some(id) = self.placement_ids.get(&key) {
+            return *id;
+        }
+        let id = allocate_id(&mut self.next_placement_id, self.placement_ids.values().copied());
+        self.placement_ids.insert(key, id);
+        id
     }
 }
 
-pub fn image_id(surface: SurfaceId) -> u32 {
-    ((surface % 2_000_000_000) + 1) as u32
+fn allocate_id(next: &mut u32, used: impl Iterator<Item = u32>) -> u32 {
+    let used = used.collect::<HashSet<_>>();
+    loop {
+        let candidate = (*next).max(1);
+        *next = candidate.wrapping_add(1).max(1);
+        if !used.contains(&candidate) {
+            return candidate;
+        }
+    }
 }
 
-pub fn transmit_png(surface: SurfaceId, data_b64: &str) -> Vec<u8> {
-    let id = image_id(surface);
+fn transmit_image(image_id: u32, image: &GraphicImage) -> Vec<u8> {
+    let data = image.data.base64();
     let mut out = Vec::new();
-    let chunks = data_b64.as_bytes().chunks(CHUNK).collect::<Vec<&[u8]>>();
-    for (idx, chunk) in chunks.iter().enumerate() {
-        let more = usize::from(idx + 1 < chunks.len());
-        let header = if idx == 0 {
-            format!("{ESC}_Ga=t,f=100,i={id},q=2,m={more};")
+    for (index, chunk) in data.as_bytes().chunks(CHUNK).enumerate() {
+        let more = usize::from((index + 1) * CHUNK < data.len());
+        let header = if index == 0 {
+            match image.format {
+                GraphicFormat::Png => format!(
+                    "{ESC}_Ga=t,t=d,f={},i={image_id},q=2,m={more};",
+                    image.format.kitty_value()
+                ),
+                GraphicFormat::Rgb | GraphicFormat::Rgba => format!(
+                    "{ESC}_Ga=t,t=d,f={},i={image_id},s={},v={},q=2,m={more};",
+                    image.format.kitty_value(),
+                    image.width,
+                    image.height
+                ),
+            }
         } else {
             format!("{ESC}_Gq=2,m={more};")
         };
         out.extend_from_slice(header.as_bytes());
         out.extend_from_slice(chunk);
-        out.extend_from_slice(format!("{ESC}\\").as_bytes());
+        out.extend_from_slice(b"\x1b\\");
     }
     out
 }
 
-pub fn place_image(surface: SurfaceId, rect: Rect) -> Vec<u8> {
-    let id = image_id(surface);
-    format!(
-        "{ESC}7{ESC}[{};{}H{ESC}_Ga=p,i={id},p={PLACEMENT_ID},c={},r={},q=2;{ESC}\\{ESC}8",
-        rect.y + 1,
-        rect.x + 1,
-        rect.width.max(1),
-        rect.height.max(1)
-    )
-    .into_bytes()
+fn place_image(image_id: u32, placement_id: u32, placement: &GraphicPlacement) -> Vec<u8> {
+    let mut command = format!(
+        "{ESC}7{ESC}[{};{}H{ESC}_Ga=p,i={image_id},p={placement_id}",
+        placement.rect.y.saturating_add(1),
+        placement.rect.x.saturating_add(1)
+    );
+    if let Some(source) = placement.source {
+        command.push_str(&format!(
+            ",x={},y={},w={},h={}",
+            source.x, source.y, source.width, source.height
+        ));
+    }
+    command.push_str(&format!(
+        ",X={},Y={},c={},r={},z={},C=1,q=2;{ESC}\\{ESC}8",
+        placement.x_offset,
+        placement.y_offset,
+        placement.rect.width,
+        placement.rect.height,
+        placement.z
+    ));
+    command.into_bytes()
 }
 
-pub fn delete_image(surface: SurfaceId) -> Vec<u8> {
-    let id = image_id(surface);
-    format!("{ESC}_Ga=d,d=i,i={id},q=2;{ESC}\\").into_bytes()
+fn delete_placement(image_id: u32, placement_id: u32) -> Vec<u8> {
+    format!("{ESC}_Ga=d,d=i,i={image_id},p={placement_id},q=2;{ESC}\\").into_bytes()
+}
+
+fn delete_image(image_id: u32) -> Vec<u8> {
+    format!("{ESC}_Ga=d,d=I,i={image_id},q=2;{ESC}\\").into_bytes()
 }
 
 pub fn probe_kitty_graphics() -> bool {
@@ -181,9 +503,6 @@ fn read_stdin_for(timeout: Duration) -> Vec<u8> {
     out
 }
 
-// Raw non-blocking stdin reads need poll(2); without them the graphics
-// probes can't collect replies, so report "no response" and let callers
-// fall back (no kitty graphics, default cell size).
 #[cfg(not(unix))]
 fn read_stdin_for(_timeout: Duration) -> Vec<u8> {
     Vec::new()
@@ -195,7 +514,7 @@ fn find_bytes(haystack: &[u8], needle: &[u8]) -> Option<usize> {
 
 fn find_da1(bytes: &[u8]) -> Option<usize> {
     bytes.iter().enumerate().find_map(|(idx, byte)| {
-        if *byte == b'c' && bytes[..idx].iter().rev().take(16).any(|b| *b == b'[') {
+        if *byte == b'c' && bytes[..idx].iter().rev().take(16).any(|byte| *byte == b'[') {
             Some(idx)
         } else {
             None
@@ -205,52 +524,265 @@ fn find_da1(bytes: &[u8]) -> Option<usize> {
 
 #[cfg(test)]
 mod tests {
+    use ghostty_vt::{KittyPlacement, KittyPlacementKey};
+
     use super::*;
 
+    fn image(
+        surface: SurfaceId,
+        image_id: u32,
+        generation: u64,
+        format: GraphicFormat,
+        data: &[u8],
+    ) -> Arc<GraphicImage> {
+        Arc::new(GraphicImage {
+            key: GraphicImageKey { namespace: 0, surface, image_id },
+            generation,
+            width: 2,
+            height: 2,
+            format,
+            data: GraphicData::Bytes(Arc::from(data)),
+        })
+    }
+
+    fn placement(
+        image: Arc<GraphicImage>,
+        placement_id: u32,
+        ordinal: u32,
+        rect: Rect,
+    ) -> GraphicPlacement {
+        GraphicPlacement {
+            key: GraphicPlacementKey { image: image.key, placement_id, ordinal },
+            image,
+            rect,
+            source: None,
+            x_offset: 0,
+            y_offset: 0,
+            z: 0,
+        }
+    }
+
+    fn joined(batches: &[Vec<u8>]) -> String {
+        String::from_utf8(batches.concat()).unwrap()
+    }
+
     #[test]
-    fn transmits_png_in_quiet_chunks() {
-        let data = format!("{}{}", "a".repeat(4096), "b".repeat(4));
-        let bytes = String::from_utf8(transmit_png(7, &data)).unwrap();
-        assert_eq!(
-            bytes,
-            format!(
-                "\x1b_Ga=t,f=100,i=8,q=2,m=1;{}\x1b\\\x1b_Gq=2,m=0;bbbb\x1b\\",
-                "a".repeat(4096)
-            )
+    fn raw_rgb_and_rgba_payloads_are_chunked_with_dimensions() {
+        let rgb = image(1, 1, 1, GraphicFormat::Rgb, &vec![255; 3_075]);
+        let rgba = image(2, 2, 1, GraphicFormat::Rgba, &[255; 16]);
+        let mut state = GraphicsState::default();
+        let output = joined(&state.frame_batches(&[
+            placement(rgb, 0, 0, Rect { x: 0, y: 0, width: 2, height: 2 }),
+            placement(rgba, 0, 0, Rect { x: 3, y: 0, width: 2, height: 2 }),
+        ]));
+        assert!(output.contains("a=t,t=d,f=24,i=1,s=2,v=2,q=2,m=1;"));
+        assert!(output.contains("\x1b_Gq=2,m=0;"));
+        assert!(output.contains("a=t,t=d,f=32,i=2,s=2,v=2,q=2,m=0;"));
+    }
+
+    #[test]
+    fn dynamic_ids_do_not_alias_distant_surfaces_or_anonymous_placements() {
+        let first = image(1, 7, 1, GraphicFormat::Rgb, &[255; 12]);
+        let distant = image(2_000_000_001, 7, 1, GraphicFormat::Rgb, &[0; 12]);
+        let mut state = GraphicsState::default();
+        let output = joined(&state.frame_batches(&[
+            placement(first.clone(), 0, 0, Rect { x: 0, y: 0, width: 1, height: 1 }),
+            placement(first, 0, 1, Rect { x: 1, y: 0, width: 1, height: 1 }),
+            placement(distant, 0, 0, Rect { x: 2, y: 0, width: 1, height: 1 }),
+        ]));
+        assert_eq!(state.image_ids.len(), 2);
+        assert_eq!(state.placement_ids.len(), 3);
+        assert_eq!(output.matches("a=t,t=d").count(), 2, "one transmit per image");
+        assert_eq!(output.matches("a=p").count(), 3);
+        assert_eq!(state.image_ids.values().copied().collect::<HashSet<_>>().len(), 2);
+        assert_eq!(state.placement_ids.values().copied().collect::<HashSet<_>>().len(), 3);
+    }
+
+    #[test]
+    fn reconnect_namespace_prevents_surface_and_generation_reuse_from_aliasing() {
+        let rect = Rect { x: 0, y: 0, width: 2, height: 2 };
+        let first = GraphicPlacement::browser(10, 7, rect, 1, 20, 20, "AAAA".to_string());
+        let reconnected = GraphicPlacement::browser(11, 7, rect, 1, 20, 20, "BBBB".to_string());
+        assert_ne!(first.image.key, reconnected.image.key);
+
+        let mut state = GraphicsState::default();
+        state.frame_batches(&[first]);
+        let output = joined(&state.frame_batches(&[reconnected]));
+        assert!(output.contains("a=d,d=I"));
+        assert!(output.contains("a=t,t=d"));
+        assert_eq!(state.image_ids.len(), 1);
+    }
+
+    #[test]
+    fn placement_preserves_crop_offsets_and_z() {
+        let image = image(4, 9, 1, GraphicFormat::Rgba, &[255; 16]);
+        let mut value = placement(image, 12, 0, Rect { x: 4, y: 6, width: 2, height: 3 });
+        value.source = Some(GraphicSourceRect { x: 1, y: 2, width: 3, height: 4 });
+        value.x_offset = 5;
+        value.y_offset = 6;
+        value.z = -7;
+        let mut state = GraphicsState::default();
+        let output = joined(&state.frame_batches(&[value]));
+        assert!(output.contains(
+            "\x1b7\x1b[7;5H\x1b_Ga=p,i=1,p=1,x=1,y=2,w=3,h=4,X=5,Y=6,c=2,r=3,z=-7,C=1,q=2;\x1b\\\x1b8"
+        ));
+    }
+
+    #[test]
+    fn retransmit_deletes_old_generation_before_replacing_pixels() {
+        let key_image = image(5, 1, 1, GraphicFormat::Rgb, &[255; 12]);
+        let mut state = GraphicsState::default();
+        state.frame_batches(&[placement(
+            key_image,
+            1,
+            0,
+            Rect { x: 0, y: 0, width: 1, height: 1 },
+        )]);
+        let replacement = image(5, 1, 2, GraphicFormat::Rgb, &[0; 12]);
+        let output = joined(&state.frame_batches(&[placement(
+            replacement,
+            1,
+            0,
+            Rect { x: 0, y: 0, width: 1, height: 1 },
+        )]));
+        let delete = output.find("a=d,d=I").unwrap();
+        let transmit = output.find("a=t,t=d").unwrap();
+        assert!(delete < transmit);
+    }
+
+    #[test]
+    fn stale_placement_is_deleted_without_dropping_shared_image_then_image_is_freed() {
+        let shared = image(6, 1, 1, GraphicFormat::Rgb, &[255; 12]);
+        let one = placement(shared.clone(), 0, 0, Rect { x: 0, y: 0, width: 1, height: 1 });
+        let two = placement(shared, 0, 1, Rect { x: 1, y: 0, width: 1, height: 1 });
+        let mut state = GraphicsState::default();
+        state.frame_batches(&[one.clone(), two]);
+
+        let placement_cleanup = joined(&state.frame_batches(&[one]));
+        assert!(placement_cleanup.contains("a=d,d=i"));
+        assert!(!placement_cleanup.contains("d=I"));
+        assert_eq!(state.transmitted.len(), 1);
+
+        let image_cleanup = joined(&state.frame_batches(&[]));
+        assert!(image_cleanup.contains("a=d,d=I"));
+        assert!(state.transmitted.is_empty());
+        assert!(state.image_ids.is_empty());
+        assert!(state.placement_ids.is_empty());
+    }
+
+    #[test]
+    fn terminal_placement_clips_to_pane_and_adjusts_source_pixels() {
+        let inner_image = KittyImage {
+            id: 3,
+            generation: 1,
+            width: 100,
+            height: 80,
+            format: KittyImageFormat::Rgba,
+            data: Arc::from(vec![0; 100 * 80 * 4]),
+        };
+        let inner = KittyPlacement {
+            key: KittyPlacementKey { image_id: 3, placement_id: 0, ordinal: 1 },
+            image_id: 3,
+            placement_id: 0,
+            x_offset: 4,
+            y_offset: 5,
+            source_x: 10,
+            source_y: 20,
+            source_width: 80,
+            source_height: 40,
+            grid_cols: 8,
+            grid_rows: 4,
+            pixel_width: 80,
+            pixel_height: 40,
+            viewport_col: -2,
+            viewport_row: -1,
+            viewport_visible: true,
+            z: 3,
+        };
+        let outer = kitty_graphic_placement(
+            Rect { x: 10, y: 5, width: 5, height: 2 },
+            (10, 20),
+            kitty_graphic_image(0, 9, &inner_image),
+            &inner,
+        )
+        .unwrap();
+        assert_eq!(outer.rect, Rect { x: 10, y: 5, width: 5, height: 2 });
+        assert_eq!(outer.source, Some(GraphicSourceRect { x: 30, y: 30, width: 50, height: 20 }));
+        assert_eq!((outer.x_offset, outer.y_offset), (0, 0));
+        assert_eq!(outer.z, 3);
+    }
+
+    #[test]
+    fn terminal_offsets_at_right_and_bottom_edges_are_coarsely_cropped_inside_pane() {
+        let inner_image = KittyImage {
+            id: 4,
+            generation: 1,
+            width: 100,
+            height: 100,
+            format: KittyImageFormat::Rgba,
+            data: Arc::from(vec![0; 100 * 100 * 4]),
+        };
+        let inner = KittyPlacement {
+            key: KittyPlacementKey { image_id: 4, placement_id: 2, ordinal: 0 },
+            image_id: 4,
+            placement_id: 2,
+            x_offset: 4,
+            y_offset: 5,
+            source_x: 0,
+            source_y: 0,
+            source_width: 100,
+            source_height: 100,
+            grid_cols: 2,
+            grid_rows: 2,
+            pixel_width: 20,
+            pixel_height: 40,
+            viewport_col: 3,
+            viewport_row: 2,
+            viewport_visible: true,
+            z: 0,
+        };
+        let pane = Rect { x: 10, y: 5, width: 5, height: 4 };
+        let outer = kitty_graphic_placement(
+            pane,
+            (10, 20),
+            kitty_graphic_image(0, 9, &inner_image),
+            &inner,
+        )
+        .unwrap();
+        assert_eq!(outer.rect, Rect { x: 13, y: 7, width: 1, height: 1 });
+        assert_eq!(outer.source, Some(GraphicSourceRect { x: 0, y: 0, width: 50, height: 50 }));
+        assert_eq!((outer.x_offset, outer.y_offset), (4, 5));
+        assert!(
+            u32::from(outer.rect.x - pane.x + outer.rect.width) * 10 + outer.x_offset
+                <= u32::from(pane.width) * 10
+        );
+        assert!(
+            u32::from(outer.rect.y - pane.y + outer.rect.height) * 20 + outer.y_offset
+                <= u32::from(pane.height) * 20
         );
     }
 
     #[test]
-    fn places_at_cursor_rect_with_save_restore() {
-        let bytes =
-            String::from_utf8(place_image(2, Rect { x: 4, y: 6, width: 80, height: 24 })).unwrap();
-        assert_eq!(bytes, "\x1b7\x1b[7;5H\x1b_Ga=p,i=3,p=1,c=80,r=24,q=2;\x1b\\\x1b8");
-    }
-
-    #[test]
-    fn deletes_by_image_id_quietly() {
-        let bytes = String::from_utf8(delete_image(41)).unwrap();
-        assert_eq!(bytes, "\x1b_Ga=d,d=i,i=42,q=2;\x1b\\");
-    }
-
-    #[test]
-    fn outer_image_ids_do_not_alias_distant_surface_ids() {
-        assert_ne!(image_id(1), image_id(2_000_000_001));
-    }
-
-    #[test]
-    fn zero_sized_placement_hides_a_previously_visible_image() {
-        let visible = GraphicPlacement {
-            surface: 7,
-            rect: Rect { x: 4, y: 6, width: 80, height: 24 },
-            seq: 1,
-            data_b64: "frame".to_string(),
-        };
-        let collapsed =
-            GraphicPlacement { rect: Rect { height: 0, ..visible.rect }, ..visible.clone() };
+    fn browser_png_and_terminal_raw_images_share_one_scene() {
+        let browser = GraphicPlacement::browser(
+            0,
+            1,
+            Rect { x: 0, y: 0, width: 10, height: 5 },
+            4,
+            100,
+            50,
+            "AAAA".to_string(),
+        );
+        let terminal = placement(
+            image(2, 3, 5, GraphicFormat::Rgba, &[255; 16]),
+            0,
+            0,
+            Rect { x: 10, y: 0, width: 2, height: 2 },
+        );
         let mut state = GraphicsState::default();
-
-        assert!(!state.frame_batches(&[visible]).is_empty());
-        assert_eq!(state.frame_batches(&[collapsed]), vec![delete_image(7)]);
+        let output = joined(&state.frame_batches(&[browser, terminal]));
+        assert!(output.contains("f=100"));
+        assert!(output.contains("f=32"));
+        assert_eq!(state.image_ids.len(), 2);
     }
 }

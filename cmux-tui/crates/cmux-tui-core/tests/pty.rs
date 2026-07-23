@@ -984,10 +984,10 @@ fn attach_stream_replays_then_streams_without_duplication() {
 #[test]
 fn default_byte_attach_replays_preexisting_kitty_image() {
     let mux = Mux::new(unique_session("test-attach-kitty"), shell_opts("cat"));
+    mux.set_cell_pixel_size(9, 18);
     let surface = mux.new_workspace(None, Some((20, 4))).unwrap();
     surface
         .try_with_terminal(|terminal| {
-            terminal.resize(20, 4, 9, 18).unwrap();
             terminal.vt_write(b"\x1b_Ga=T,t=d,f=32,i=73,p=2,s=1,v=1,c=2,r=2,q=2;/wAAfw==\x1b\\");
         })
         .unwrap();
@@ -1007,6 +1007,30 @@ fn default_byte_attach_replays_preexisting_kitty_image() {
 }
 
 #[test]
+fn byte_attach_between_transmit_and_place_keeps_the_unplaced_image() {
+    let mux = Mux::new(unique_session("test-attach-unplaced-kitty"), shell_opts("cat"));
+    let surface = mux.new_workspace(None, Some((20, 4))).unwrap();
+    surface
+        .try_with_terminal(|terminal| {
+            terminal.vt_write(b"\x1b_Ga=t,t=d,f=24,i=76,s=1,v=1,q=2;/wAA\x1b\\");
+        })
+        .unwrap();
+
+    let attach = surface.attach_stream().unwrap();
+    let mut mirror =
+        ghostty_vt::Terminal::new(attach.cols, attach.rows, 1000, ghostty_vt::Callbacks::default())
+            .unwrap();
+    mirror.vt_write(&attach.replay);
+    let before_place = mirror.kitty_graphics_snapshot().unwrap();
+    assert!(before_place.image(76).is_some());
+    assert!(before_place.placements.is_empty());
+
+    mirror.vt_write(b"\x1b_Ga=p,i=76,p=5,c=1,r=1,q=2;\x1b\\");
+    assert_eq!(mirror.kitty_graphics_snapshot().unwrap().placements.len(), 1);
+    mux.close_surface(surface.id);
+}
+
+#[test]
 fn render_attach_snapshot_contains_preexisting_kitty_image() {
     let mux = Mux::new(unique_session("test-render-attach-kitty"), shell_opts("cat"));
     let surface = mux.new_workspace(None, Some((20, 4))).unwrap();
@@ -1020,6 +1044,25 @@ fn render_attach_snapshot_contains_preexisting_kitty_image() {
     let graphics = &attach.initial.frame.kitty_graphics;
     assert_eq!(&*graphics.image(74).expect("render-attach image").data, &[255, 0, 0]);
     assert_eq!(graphics.placements.len(), 1);
+    mux.close_surface(surface.id);
+}
+
+#[test]
+fn render_attach_initial_snapshot_includes_unplaced_image_for_later_placement() {
+    let mux = Mux::new(unique_session("test-render-attach-unplaced-kitty"), shell_opts("cat"));
+    let surface = mux.new_workspace(None, Some((20, 4))).unwrap();
+    surface
+        .try_with_terminal(|terminal| {
+            terminal.vt_write(b"\x1b_Ga=t,t=d,f=24,i=77,s=1,v=1,q=2;/wAA\x1b\\");
+        })
+        .unwrap();
+
+    let attach = surface.attach_render_stream().unwrap();
+    assert_eq!(
+        &*attach.initial.frame.kitty_graphics.image(77).expect("unplaced image").data,
+        &[255, 0, 0]
+    );
+    assert!(attach.initial.frame.kitty_graphics.placements.is_empty());
     mux.close_surface(surface.id);
 }
 
