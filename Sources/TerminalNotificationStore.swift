@@ -283,11 +283,11 @@ final class TerminalNotificationStore: ObservableObject {
             .map(\.uuidString)
     }
 
-    /// Forwards a dismiss/clear to the user's phone. Call only from the
-    /// change-confirmed branch of a user-driven read/clear/remove path, so the
-    /// Mac→iOS→Mac echo can't loop. Session restore / surface rebind paths must
-    /// NOT call this: they reassign ids on churn and would clear a phone banner
-    /// that should persist.
+    /// Forwards a dismiss/clear to the user's phone. Call from a confirmed
+    /// user-driven read/clear/remove path, or from exact-ID lifecycle cleanup
+    /// for an effects-only banner that has no retained store entry. Session
+    /// restore / surface rebind paths must NOT call this: they reassign ids on
+    /// churn and would clear a phone banner that should persist.
     ///
     /// Two lanes share this chokepoint: the instant peer event for a
     /// live-attached phone, and a silent APNs badge push (the cold lane) so a
