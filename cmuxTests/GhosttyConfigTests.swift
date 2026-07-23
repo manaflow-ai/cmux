@@ -1979,10 +1979,14 @@ final class BrowserPanelWebViewLifecycleTests: XCTestCase {
         if !hasDelayEnvironmentOverride {
             XCTAssertEqual(BrowserHiddenWebViewDiscardPolicy.hiddenDelay(defaults: defaults), 42.5)
 
+            // `hiddenDelay` treats an out-of-range override as invalid rather than clamping it:
+            // `resolvedHiddenDelay` returns Optional and answers nil outside
+            // [minimumHiddenDelay, maximumHiddenDelay], so the env/stored/default chain falls
+            // through to the default exactly as it does for a missing or unparsable value.
             defaults.set(7200, forKey: BrowserHiddenWebViewDiscardPolicy.hiddenDelayKey)
             XCTAssertEqual(
                 BrowserHiddenWebViewDiscardPolicy.hiddenDelay(defaults: defaults),
-                BrowserHiddenWebViewDiscardPolicy.maximumHiddenDelay
+                BrowserHiddenWebViewDiscardPolicy.defaultHiddenDelay
             )
 
             defaults.set(-1, forKey: BrowserHiddenWebViewDiscardPolicy.hiddenDelayKey)
