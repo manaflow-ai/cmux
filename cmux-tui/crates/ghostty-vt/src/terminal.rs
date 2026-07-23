@@ -1715,7 +1715,47 @@ impl Drop for Terminal {
 
 #[cfg(test)]
 mod tests {
-    use super::{Callbacks, MouseModeScan, PaletteOsc, Terminal, vt_replay_row_window};
+    use crate::kitty::{KittyPlacement, KittyPlacementKey};
+
+    use super::{
+        Callbacks, MouseModeScan, PaletteOsc, Terminal, kitty_replay_placement,
+        vt_replay_row_window,
+    };
+
+    fn replay_placement_fixture(
+        source: (u32, u32),
+        grid: (u32, u32),
+        pixels: (u32, u32),
+        sizing: (u32, u32),
+        viewport: (i32, i32),
+        offset: (u32, u32),
+    ) -> KittyPlacement {
+        KittyPlacement {
+            key: KittyPlacementKey { image_id: 1, placement_id: 2, ordinal: 0 },
+            image_id: 1,
+            placement_id: 2,
+            x_offset: offset.0,
+            y_offset: offset.1,
+            source_x: 0,
+            source_y: 0,
+            source_width: source.0,
+            source_height: source.1,
+            columns: sizing.0,
+            rows: sizing.1,
+            grid_cols: grid.0,
+            grid_rows: grid.1,
+            pixel_width: pixels.0,
+            pixel_height: pixels.1,
+            viewport_col: viewport.0,
+            viewport_row: viewport.1,
+            viewport_visible: true,
+            z: 3,
+        }
+    }
+
+    fn replay_placement_command(placement: &KittyPlacement) -> String {
+        String::from_utf8(kitty_replay_placement(placement).unwrap()).unwrap()
+    }
 
     #[test]
     fn unrelated_osc_tracking_keeps_palette_state_out_of_line() {
@@ -1781,5 +1821,51 @@ mod tests {
         let rows = vt_replay_row_window(1_000_000, 24, 80, 8 * 1024 * 1024);
 
         assert_eq!(rows, 3_276);
+    }
+
+    #[test]
+    fn replay_native_left_clip_preserves_native_pixel_size() {
+        let command = replay_placement_command(&replay_placement_fixture(
+            (15, 10),
+            (2, 1),
+            (15, 10),
+            (0, 0),
+            (-1, 0),
+            (4, 0),
+        ));
+
+        assert!(command.contains("x=6,y=0,w=9,h=10,X=0,Y=0"), "{command:?}");
+        assert!(!command.contains(",c="), "{command:?}");
+        assert!(!command.contains(",r="), "{command:?}");
+    }
+
+    #[test]
+    fn replay_column_only_top_clip_keeps_rows_inferred() {
+        let command = replay_placement_command(&replay_placement_fixture(
+            (20, 10),
+            (2, 2),
+            (20, 10),
+            (2, 0),
+            (0, -1),
+            (0, 15),
+        ));
+
+        assert!(command.contains("x=0,y=5,w=20,h=5,X=0,Y=0,c=2"), "{command:?}");
+        assert!(!command.contains(",r="), "{command:?}");
+    }
+
+    #[test]
+    fn replay_row_only_left_clip_keeps_columns_inferred() {
+        let command = replay_placement_command(&replay_placement_fixture(
+            (10, 40),
+            (2, 2),
+            (10, 40),
+            (0, 2),
+            (-1, 0),
+            (5, 0),
+        ));
+
+        assert!(command.contains("x=5,y=0,w=5,h=40,X=0,Y=0,r=2"), "{command:?}");
+        assert!(!command.contains(",c="), "{command:?}");
     }
 }
