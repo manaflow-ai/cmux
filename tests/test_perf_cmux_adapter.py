@@ -934,6 +934,37 @@ def test_cleanup_unlinks_exact_owned_screenshot_path(
     assert str(screenshot_path) in cleanup["owned_paths"]
 
 
+def test_cleanup_removes_adapter_paths_when_runner_cleanup_fails(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    class CleanupFailingRunner(FakeRunner):
+        def cleanup_owned(self) -> dict[str, Any]:
+            super().cleanup_owned()
+            raise RuntimeError("runner cleanup failed")
+
+    cfg = config(tmp_path)
+    runner = CleanupFailingRunner()
+    runner.top_payloads = [top_payload(), top_payload()]
+    system_temp = tmp_path / "system-temp"
+    monkeypatch.setattr(adapter_module.tempfile, "gettempdir", lambda: str(system_temp))
+    screenshot_root = system_temp / "cmux-browser-screenshots"
+    screenshot_root.mkdir(parents=True)
+    screenshot_path = screenshot_root / "surface-owned.png"
+    screenshot_path.write_bytes(b"owned")
+    runner.screenshot_path = str(screenshot_path)
+    adapter = adapter_module.CmuxRuntimeAdapter(cfg, runner=runner, clock=FakeClock())
+    prepare_fixture(adapter, runner, cfg)
+    adapter.run_churn([])
+    browser_fixture_root = cfg.output_root / "browser-fixtures"
+    assert browser_fixture_root.is_dir()
+
+    with pytest.raises(RuntimeError, match="runner cleanup failed"):
+        adapter.cleanup_owned()
+
+    assert not browser_fixture_root.exists()
+    assert not screenshot_path.exists()
+
+
 def test_browser_batch_overlaps_hidden_safe_work_with_ordered_activation(
     tmp_path: Path,
 ) -> None:
