@@ -15,6 +15,8 @@ import Foundation
 /// (see ``parseOutput(rawLine:)``) so those characters survive for ghostty to
 /// reassemble; a String round-trip would replace each split half with U+FFFD.
 struct RemoteTmuxControlStreamParser {
+    static let defaultMaximumCommandBlockBytes = 16_777_216
+
     private let maxBufferedLineBytes: Int
     private let maxCommandBlockBytes: Int
     private var buffer: [UInt8] = []
@@ -38,7 +40,7 @@ struct RemoteTmuxControlStreamParser {
 
     init(
         maxBufferedLineBytes: Int = 1_048_576,
-        maxCommandBlockBytes: Int = 16_777_216
+        maxCommandBlockBytes: Int = Self.defaultMaximumCommandBlockBytes
     ) {
         self.maxBufferedLineBytes = max(1, maxBufferedLineBytes)
         self.maxCommandBlockBytes = max(1, maxCommandBlockBytes)
@@ -120,7 +122,8 @@ struct RemoteTmuxControlStreamParser {
         if !inBlock {
             bytes = Self.removingST(bytes)
         }
-        if bytes.isEmpty { return prefixMessages }
+        // Empty command-block rows are pane content; only empty notifications vanish.
+        if bytes.isEmpty, !inBlock { return prefixMessages }
 
         // `%output` is the only notification whose payload carries raw, possibly
         // multi-byte UTF-8 pane bytes. Parse it straight from the raw bytes so a

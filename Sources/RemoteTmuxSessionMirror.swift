@@ -124,12 +124,42 @@ final class RemoteTmuxSessionMirror: RemoteTmuxControlPaneMutationOwner {
     var windowIdByPane: [Int: Int] = [:]
     var controlPaneIdByPane: [Int: PaneID] = [:]
     var controlSurfaceIdByPane: [Int: UUID] = [:]
+    var tmuxPaneIdByControlSurface: [UUID: Int] = [:]
     /// Last-known working directory per tmux pane, so switching the active pane of
     /// a multi-pane window can re-project that pane's directory onto the tab.
     var cwdByPane: [Int: String] = [:]
     /// Per-pane filter that strips the screen/tmux `ESC k <title> ST` window-title
     /// escape from `%output` (stateful across chunk boundaries).
-    private var titleFilters: [Int: RemoteTmuxScreenTitleFilter] = [:]
+    var titleFilters: [Int: RemoteTmuxScreenTitleFilter] = [:]
+    /// Authoritative seed bytes waiting for Ghostty's terminal grid to consume
+    /// the pane's published dimensions. Surface sizing APIs expose the requested
+    /// grid before Ghostty's I/O thread applies it, so seed delivery cannot use
+    /// those APIs as its readiness boundary.
+    var pendingPaneSeedBytes: [Int: Data] = [:]
+    /// Cleaned live output received after a gated seed, retained in stream order.
+    var pendingPaneSeedLiveOutput: [Int: [Data]] = [:]
+    /// Published pane grid each gated seed must observe in the terminal-locked
+    /// render-grid export before delivery.
+    var pendingPaneSeedTargetGrids: [Int: (columns: Int, rows: Int)] = [:]
+    /// Delivery kind determines whether a later visible repaint may replace the
+    /// pending bytes or must follow a full-history snapshot.
+    var pendingPaneSeedKinds: [Int: RemoteTmuxPaneSeedKind] = [:]
+    /// Total retained seed plus live-output bytes per pane.
+    var pendingPaneSeedByteCounts: [Int: Int] = [:]
+    /// Aggregate retained consumer bytes across every pane in this mirror.
+    var pendingPaneSeedTotalByteCount = 0
+    let pendingPaneSeedByteLimit: Int
+    /// Per-pane expiry drops retained bytes if a surface never reaches its target grid.
+    var pendingPaneSeedDeadlineTasks: [Int: Task<Void, Never>] = [:]
+    /// Generation token preventing a canceled older deadline from expiring its replacement.
+    var pendingPaneSeedDeadlineIDs: [Int: UUID] = [:]
+    /// Panes whose expired delivery needs one fresh full seed after a later ready frame.
+    var deferredFullPaneReseeds: Set<Int> = []
+    /// Pane-local frame demand stays retained until this pane renders or leaves.
+    var paneSeedFrameDemandReleases: [Int: () -> Void] = [:]
+    var paneSeedFrameObserverTokens: [Int: NSObjectProtocol] = [:]
+    /// Ghostty readiness observers are retained only while a pane waits.
+    var paneSeedReadinessObserverTokens: [NSObjectProtocol] = []
     /// Per-window multi-pane renderers (present once a window has >1 pane).
     var windowMirrorByWindowId: [Int: RemoteTmuxWindowMirror] = [:]
     private var pendingExplicitFocusWindowId: Int?
@@ -142,6 +172,7 @@ final class RemoteTmuxSessionMirror: RemoteTmuxControlPaneMutationOwner {
         connection: any RemoteTmuxSessionSource,
         tabManager: TabManager,
         workspace: Workspace,
+        pendingPaneSeedByteLimit: Int = RemoteTmuxControlConnection.maximumPendingPaneSeedBytes,
         onControlPaneRemoved: @escaping (PaneID, UUID?) -> Void = { _, _ in },
         onControlSurfaceRemoved: @escaping (UUID) -> Void = { _ in }
     ) {
@@ -149,6 +180,7 @@ final class RemoteTmuxSessionMirror: RemoteTmuxControlPaneMutationOwner {
         self.sessionName = sessionName
         self.seededSessionId = seededSessionId
         self.connection = connection
+        self.pendingPaneSeedByteLimit = max(0, pendingPaneSeedByteLimit)
         self.onControlPaneRemoved = onControlPaneRemoved
         self.onControlSurfaceRemoved = onControlSurfaceRemoved
         self.tabManager = tabManager
@@ -161,6 +193,9 @@ final class RemoteTmuxSessionMirror: RemoteTmuxControlPaneMutationOwner {
         self.observerToken = connection.addObserver(RemoteTmuxSessionObservers(
             onPaneOutput: { [weak self] paneId, data in
                 self?.routeOutput(paneId: paneId, data: data)
+            },
+            onPaneSeed: { [weak self] paneId, seed in
+                self?.routeSeed(paneId: paneId, seed: seed)
             },
             onPaneCwd: { [weak self] paneId, path in
                 self?.handlePaneCwd(paneId: paneId, path: path)
@@ -189,7 +224,10 @@ final class RemoteTmuxSessionMirror: RemoteTmuxControlPaneMutationOwner {
                 // and a filter stuck mid-title from before the drop would swallow them.
                 // Resetting on the disconnect edge is ordering-independent (no output
                 // arrives while not connected).
-                if state != .connected { self?.titleFilters.removeAll() }
+                if state != .connected {
+                    self?.titleFilters.removeAll()
+                    self?.clearPendingPaneSeedDeliveries()
+                }
                 // Reaching `.connected` is the only thing that proves the login worked, so
                 // it is what ends the host's outstanding login offer. Releasing it on a
                 // resume *attempt* instead meant a reconnect that failed authentication
@@ -254,6 +292,7 @@ final class RemoteTmuxSessionMirror: RemoteTmuxControlPaneMutationOwner {
     /// multi-pane renderers (called when the mirror is torn down so its callbacks
     /// don't linger on a shared connection and its pane surfaces don't leak).
     func detachObserver() {
+        clearPendingPaneSeedDeliveries()
         if let observerToken {
             connection.removeObserver(observerToken)
             self.observerToken = nil
@@ -277,7 +316,7 @@ final class RemoteTmuxSessionMirror: RemoteTmuxControlPaneMutationOwner {
     }
 
     /// The tmux window id (if any) whose layout currently contains `paneId`.
-    private func windowIdContaining(pane paneId: Int) -> Int? {
+    func windowIdContaining(pane paneId: Int) -> Int? {
         windowIdByPane[paneId]
     }
 
@@ -332,12 +371,14 @@ final class RemoteTmuxSessionMirror: RemoteTmuxControlPaneMutationOwner {
                 if let terminalPanel = workspace.panels[panel.id] as? TerminalPanel {
                     let surface = terminalPanel.surface
                     surface.onRuntimeReady = { [weak self, weak surface] in
-                        guard let surface, let grid = surface.renderedGridCells() else { return }
-                        self?.claimSinglePaneDisplaySize(
-                            windowId: windowId,
-                            columns: grid.columns, rows: grid.rows,
-                            cellSizePt: surface.cellSizePoints()
-                        )
+                        if let surface, let grid = surface.renderedGridCells() {
+                            self?.claimSinglePaneDisplaySize(
+                                windowId: windowId,
+                                columns: grid.columns, rows: grid.rows,
+                                cellSizePt: surface.cellSizePoints()
+                            )
+                        }
+                        self?.handlePaneSeedSurfaceProgress(paneId: firstPaneId)
                     }
                     surface.onManualSizeApplied = { [weak self] sample in
                         self?.claimSinglePaneDisplaySize(
@@ -345,6 +386,7 @@ final class RemoteTmuxSessionMirror: RemoteTmuxControlPaneMutationOwner {
                             columns: sample.columns, rows: sample.rows,
                             cellSizePt: Self.cellSizePoints(of: sample)
                         )
+                        self?.handlePaneSeedSurfaceProgress(paneId: firstPaneId)
                     }
                 }
                 if Self.shouldSeedSinglePaneDisplay(for: window) {
@@ -405,6 +447,7 @@ final class RemoteTmuxSessionMirror: RemoteTmuxControlPaneMutationOwner {
         panelIdByPane = panelIdByPane.filter { livePanes.contains($0.key) }
         cwdByPane = cwdByPane.filter { livePanes.contains($0.key) }
         titleFilters = titleFilters.filter { livePanes.contains($0.key) }
+        reconcilePendingPaneSeedDeliveries(keeping: Set(windowIdByPane.keys))
         closeDefaultTabsIfNeeded()
         // Follow out-of-band tmux window reorders (a second client, or a manual
         // move-window / a new-window inserted mid-list): the cmux tabs are created
@@ -489,28 +532,6 @@ final class RemoteTmuxSessionMirror: RemoteTmuxControlPaneMutationOwner {
         windowMirrorByWindowId[windowId]?.activePaneId
             ?? connection.activePaneByWindow[windowId]
             ?? connection.windowsByID[windowId]?.paneIDsInOrder.first
-    }
-
-    private func routeOutput(paneId: Int, data: Data) {
-        // Strip the screen/tmux `ESC k <title> ST` window-title escape that a remote
-        // shell (TERM=screen*/tmux*) emits — the mirror's xterm-style surface would
-        // otherwise print the title text onto the screen (see
-        // ``RemoteTmuxScreenTitleFilter``). Per-pane state survives chunk splits.
-        var filter = titleFilters[paneId] ?? RemoteTmuxScreenTitleFilter()
-        let cleaned = filter.filter(data)
-        titleFilters[paneId] = filter
-
-        // Multi-pane window: its in-tab renderer owns the pane's surface.
-        if let windowId = windowIdContaining(pane: paneId),
-           let mirror = windowMirrorByWindowId[windowId] {
-            mirror.routeOutput(paneId: paneId, data: cleaned)
-            return
-        }
-        // Single-pane window: route to the window-tab's panel surface.
-        guard let workspace,
-              let panelId = panelIdByPane[paneId],
-              let panel = workspace.panels[panelId] as? TerminalPanel else { return }
-        panel.surface.processRemoteOutput(cleaned)
     }
 
     /// Applies a pane's reflow classification to its mirror surface (suppress

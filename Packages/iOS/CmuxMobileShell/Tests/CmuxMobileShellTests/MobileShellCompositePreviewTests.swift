@@ -15,6 +15,28 @@ import Testing
 /// doubles.
 @MainActor
 @Suite struct MobileShellCompositePreviewTests {
+    @Test func userRetryCoalescesWhileReconnectIsAlreadyInFlight() async {
+        let store = MobileShellComposite.preview()
+        store.isReconnectingStoredMac = true
+        store.didFinishStoredMacReconnectAttempt = false
+
+        let retryStarted = await store.retryActiveMacReconnect(stackUserID: "user-1")
+        #expect(!retryStarted)
+        #expect(store.isReconnectingStoredMac)
+        #expect(!store.didFinishStoredMacReconnectAttempt)
+    }
+
+    @Test func explicitPairingReleasesSupersededStoredReconnectState() {
+        let store = MobileShellComposite.preview()
+        store.isReconnectingStoredMac = true
+        store.didFinishStoredMacReconnectAttempt = false
+        store.pairingCode = "preview-host"
+
+        store.connectPreviewHost()
+
+        #expect(!store.isReconnectingStoredMac)
+    }
+
     @Test func identicalForegroundStateDoesNotInvalidateWorkspaceList() async {
         let store = MobileShellComposite.preview()
         let workspace = MobileWorkspacePreview(
@@ -131,7 +153,7 @@ import Testing
         #expect(store.connectedHostName == "cmux-macbook")
     }
 
-    @Test func signOutReturnsToPreviewHostState() {
+    @Test func signOutReturnsToSignInStateWithNoWorkspaces() {
         let store = MobileShellComposite.preview()
         store.signIn()
         store.pairingCode = "debug"
@@ -153,7 +175,10 @@ import Testing
         #expect(store.phase == .signIn)
         #expect(store.connectionState == .disconnected)
         #expect(store.connectedHostName.isEmpty)
-        #expect(store.selectedWorkspace?.name == "cmux")
+        // No placeholder workspaces survive sign-out: the next session starts
+        // from an empty list, not the `PreviewMobileHost` fixtures.
+        #expect(store.selectedWorkspace == nil)
+        #expect(store.workspaces.isEmpty)
         #expect(store.workspaceGroups.isEmpty)
     }
 

@@ -68,6 +68,9 @@ struct DeviceTreeView: View {
                         ))
                     }
                 }
+                if store.hasRecoverableDeletedComputers {
+                    deletedComputerRecoverySection
+                }
             }
             .listStyle(.insetGrouped)
             .navigationDestination(for: String.self) { pairingID in
@@ -136,6 +139,21 @@ struct DeviceTreeView: View {
     private func addComputer() {
         showAddDevice?()
         dismiss()
+    }
+
+    @ViewBuilder
+    private var deletedComputerRecoverySection: some View {
+        Section {
+            DeletedComputerRecoveryButton(
+                isRecovering: store.isRecoveringDeletedComputer,
+                recover: { await store.recoverForgottenIrohMacFromAccount() },
+                reloadAfterFailure: {
+                    await reload()
+                }
+            )
+        } footer: {
+            DeletedComputerRecoveryFooter()
+        }
     }
 
     @ViewBuilder

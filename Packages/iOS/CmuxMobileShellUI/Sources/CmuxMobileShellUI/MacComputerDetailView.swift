@@ -244,7 +244,7 @@ struct MacComputerDetailView: View {
     private var removeMessage: String {
         L10n.string(
             "mobile.computers.removeMessage",
-            defaultValue: "This computer and its workspaces stop appearing here. Pair it again to add it back."
+            defaultValue: "This computer and its workspaces stop appearing here. To recover it later, open cmux on that Mac, sign in to this same account, then tap Recover Deleted Computer."
         )
     }
 

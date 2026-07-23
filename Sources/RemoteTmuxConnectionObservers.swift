@@ -15,6 +15,7 @@ final class RemoteTmuxConnectionObservers {
     typealias Token = UUID
 
     private var paneOutputObservers: [Token: (_ paneId: Int, _ data: Data) -> Void] = [:]
+    private var paneSeedObservers: [Token: (_ paneId: Int, _ seed: RemoteTmuxPaneSeed) -> Void] = [:]
     private var paneCwdObservers: [Token: (_ paneId: Int, _ path: String) -> Void] = [:]
     private var paneReflowObservers: [Token: (_ paneId: Int, _ noReflow: Bool) -> Void] = [:]
     private var activePaneObservers: [Token: (_ windowId: Int, _ paneId: Int) -> Void] = [:]
@@ -34,6 +35,7 @@ final class RemoteTmuxConnectionObservers {
     ///
     /// - Parameters:
     ///   - onPaneOutput: receives every `%output` (raw, octal-unescaped bytes).
+    ///   - onPaneSeed: receives an authoritative snapshot and its ordered live cutover.
     ///   - onPaneCwd: receives a pane's working directory (`pane_current_path`),
     ///     both the initial value and live changes.
     ///   - onPaneReflow: receives a pane's reflow classification (`true` =
@@ -66,6 +68,7 @@ final class RemoteTmuxConnectionObservers {
     /// - Returns: a ``Token`` to pass to ``remove(_:)``.
     func add(
         onPaneOutput: ((_ paneId: Int, _ data: Data) -> Void)?,
+        onPaneSeed: ((_ paneId: Int, _ seed: RemoteTmuxPaneSeed) -> Void)?,
         onPaneCwd: ((_ paneId: Int, _ path: String) -> Void)?,
         onPaneReflow: ((_ paneId: Int, _ noReflow: Bool) -> Void)?,
         onActivePaneChanged: ((_ windowId: Int, _ paneId: Int) -> Void)?,
@@ -78,6 +81,7 @@ final class RemoteTmuxConnectionObservers {
     ) -> Token {
         let token = Token()
         if let onPaneOutput { paneOutputObservers[token] = onPaneOutput }
+        if let onPaneSeed { paneSeedObservers[token] = onPaneSeed }
         if let onPaneCwd { paneCwdObservers[token] = onPaneCwd }
         if let onPaneReflow { paneReflowObservers[token] = onPaneReflow }
         if let onActivePaneChanged { activePaneObservers[token] = onActivePaneChanged }
@@ -93,6 +97,7 @@ final class RemoteTmuxConnectionObservers {
     /// Deregisters the callbacks registered under `token`.
     func remove(_ token: Token) {
         paneOutputObservers[token] = nil
+        paneSeedObservers[token] = nil
         paneCwdObservers[token] = nil
         paneReflowObservers[token] = nil
         activePaneObservers[token] = nil
@@ -112,6 +117,16 @@ final class RemoteTmuxConnectionObservers {
         // Snapshot before iterating: a callback may unregister an observer (mutating
         // the dict) synchronously, which would trap on the live collection.
         for callback in Array(paneOutputObservers.values) { callback(paneId, data) }
+    }
+
+    /// Fans a typed seed to seed-aware observers. Output-only observers receive
+    /// one compatibility write, never both paths.
+    func emitPaneSeed(_ paneId: Int, _ seed: RemoteTmuxPaneSeed) {
+        for callback in Array(paneSeedObservers.values) { callback(paneId, seed) }
+        for (token, callback) in Array(paneOutputObservers)
+        where paneSeedObservers[token] == nil {
+            callback(paneId, seed.renderedBytes)
+        }
     }
 
     /// Fans a pane's working directory out to every cwd observer.

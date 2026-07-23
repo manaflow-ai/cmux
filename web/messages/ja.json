@@ -1555,10 +1555,10 @@
       "cliTitle": "CLI",
       "cliDesc": "すべてのグループ操作は cmux workspace-group サブコマンドでスクリプト化できます。ハイフン形式が先に提供されます。より広い cmux workspace コマンド名前空間が登場すると、cmux workspace group が正式な形式となり、ハイフン形式は今後ずっとエイリアスとして残ります。",
       "cliSubcommandsTitle": "サブコマンド",
-      "cliCreateNote": "create はグループハンドル（デフォルトでは workspace_group:N）を返します。完全な構造化ペイロードを得るには --json を渡してください。",
-      "cliFlagsNote": "set-color または set-icon に空の値を渡すと、グループの色やアイコンをクリアします。delete は元に戻せません。すべてのメンバーワークスペースを閉じます。",
+      "cliCreateNote": "create はグループハンドル（デフォルトでは workspace_group:N）を返します。--from を省略するとアンカーのみのグループを作成し、選択状態や呼び出し元のコンテキストから既存のワークスペースを推測しません。完全な構造化ペイロードを得るには --json を渡してください。",
+      "cliFlagsNote": "delete はデフォルトでグループを解除し、ワークスペースを保持します。すべてのメンバーワークスペースを閉じてプロセスを終了する場合にのみ --close-workspaces を渡してください。レスポンスには操作内容と対象数が含まれます。set-color または set-icon に空の値を渡すと、グループの色やアイコンをクリアします。",
       "cliExamplesTitle": "例",
-      "cliExampleGroup": "現在選択しているワークスペースを名前を付けてグループ化します。",
+      "cliExampleGroup": "明示的に選んだ 2 つのワークスペースを名前を付けてグループ化します。",
       "cliExampleNew": "既存のグループ内に新しいワークスペースを作成します（例: worktree スクリプトと連携）。",
       "cliExampleList": "フォーカスされているウィンドウ内のグループを一覧表示します。",
       "configTitle": "設定",
@@ -2746,6 +2746,29 @@
         "title": "cmux iOS アプリ",
         "body": "スマートフォンで cmux を使用できます。",
         "action": "iOS ベータに参加"
+      }
+    }
+  },
+  "cloudBillingReturn": {
+    "eyebrow": "cmux Cloud",
+    "returnTitle": "ターミナルに戻る",
+    "returnBody": "続けるには、ssh cmux.cloud を実行したターミナルに戻ってください。",
+    "statuses": {
+      "checkoutSuccess": {
+        "title": "お支払いが完了しました",
+        "body": "サブスクリプションが確認されました。新しい利用上限が反映されるまで少し時間がかかる場合があります。"
+      },
+      "checkoutCanceled": {
+        "title": "お支払いはキャンセルされました",
+        "body": "プランを変更せずにチェックアウトを終了しました。"
+      },
+      "portalReturn": {
+        "title": "請求ポータルから戻りました",
+        "body": "請求ポータルでの変更が反映されるまで少し時間がかかる場合があります。"
+      },
+      "default": {
+        "title": "請求手続きが完了しました",
+        "body": "請求フローが完了しました。"
       }
     }
   },

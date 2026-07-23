@@ -289,7 +289,7 @@ extension RemoteTmuxControlConnection {
             finishInitialBatchMember(windowId)
             return
         }
-        windowsByID[windowId] = published
+        let previous = windowsByID.updateValue(published, forKey: windowId)
         recordPublishedPaneOwnership(
             windowId: windowId,
             paneIds: published.paneIDsInOrder
@@ -297,6 +297,9 @@ extension RemoteTmuxControlConnection {
         if !windowOrder.contains(windowId) { windowOrder.append(windowId) }
         prunePaneState(keeping: Set(windowsByID.values.flatMap { $0.paneIDsInOrder }))
         observers.notifyTopologyChanged()
+        // Publish first so every mirror surface adopts the verified grid before
+        // capture-pane repaints the cells that grid growth newly exposed.
+        repaintPanesThatGrew(from: previous, to: published)
         // First-connect coverage for the attach redraw kick: if the grid was
         // computed before `.enter`, no post-connect `setClientSize` may ever
         // fire (layout settled + same-size dedupe upstream), so the
@@ -366,6 +369,7 @@ extension RemoteTmuxControlConnection {
 
 
     func prunePaneState(keeping livePanes: Set<Int>) {
+        discardPendingPaneSeeds(keeping: livePanes)
         paneHeaderLabels = paneHeaderLabels.filter { livePanes.contains($0.key) }
         paneOutputByteCounts = paneOutputByteCounts.filter { livePanes.contains($0.key) }
         paneForegroundStates = paneForegroundStates.filter { livePanes.contains($0.key) }
