@@ -1,0 +1,304 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://cmux.com/schemas/cmux-home-state.v1.json",
+  "title": "cmux home state",
+  "type": "object",
+  "additionalProperties": true,
+  "required": ["schemaVersion", "generatedAt", "source", "groups", "sessions", "adapters"],
+  "properties": {
+    "schemaVersion": { "const": 1 },
+    "generatedAt": { "type": "string", "format": "date-time" },
+    "generator": { "type": "string" },
+    "source": { "$ref": "#/$defs/source" },
+    "config": { "$ref": "#/$defs/config" },
+    "groups": {
+      "type": "array",
+      "minItems": 3,
+      "items": { "$ref": "#/$defs/group" }
+    },
+    "sessions": {
+      "type": "array",
+      "items": { "$ref": "#/$defs/session" }
+    },
+    "adapters": {
+      "type": "object",
+      "required": ["claude", "codex", "opencode", "pi"],
+      "properties": {
+        "claude": { "$ref": "#/$defs/adapter" },
+        "codex": { "$ref": "#/$defs/adapter" },
+        "opencode": { "$ref": "#/$defs/adapter" },
+        "pi": { "$ref": "#/$defs/adapter" }
+      },
+      "additionalProperties": { "$ref": "#/$defs/adapter" }
+    }
+  },
+  "$defs": {
+    "agent": {
+      "type": "string",
+      "enum": ["claude", "codex", "opencode", "pi"]
+    },
+    "status": {
+      "type": "string",
+      "enum": ["awaiting", "working", "completed"]
+    },
+    "confidence": {
+      "type": "string",
+      "enum": ["high", "medium", "low"]
+    },
+    "command": {
+      "type": "array",
+      "minItems": 1,
+      "items": { "type": "string" }
+    },
+    "source": {
+      "type": "object",
+      "additionalProperties": true,
+      "required": ["kind"],
+      "properties": {
+        "kind": {
+          "type": "string",
+          "enum": ["example", "snapshot", "events", "workstream", "merged"]
+        },
+        "cmuxHost": { "type": "string" },
+        "workstreamPath": { "type": "string" },
+        "hookSessionPaths": {
+          "type": "object",
+          "additionalProperties": { "type": "string" }
+        },
+        "eventCursor": {
+          "type": "object",
+          "additionalProperties": true,
+          "properties": {
+            "bootId": { "type": "string" },
+            "seq": { "type": "integer", "minimum": 0 },
+            "resumeGap": { "type": "boolean" }
+          }
+        }
+      }
+    },
+    "config": {
+      "type": "object",
+      "additionalProperties": true,
+      "properties": {
+        "groupOrder": {
+          "type": "array",
+          "items": { "$ref": "#/$defs/status" }
+        },
+        "hiddenAgents": {
+          "type": "array",
+          "items": { "$ref": "#/$defs/agent" }
+        },
+        "density": {
+          "type": "string",
+          "enum": ["compact", "comfortable", "spacious"]
+        },
+        "accentByAgent": {
+          "type": "object",
+          "additionalProperties": { "type": "string" }
+        }
+      }
+    },
+    "group": {
+      "type": "object",
+      "additionalProperties": true,
+      "required": ["id", "title", "sessionIds"],
+      "properties": {
+        "id": { "$ref": "#/$defs/status" },
+        "title": { "type": "string" },
+        "sessionIds": {
+          "type": "array",
+          "items": { "type": "string" }
+        }
+      }
+    },
+    "session": {
+      "type": "object",
+      "additionalProperties": true,
+      "required": [
+        "id",
+        "agent",
+        "agentSessionId",
+        "title",
+        "status",
+        "updatedAt",
+        "workspace",
+        "surface",
+        "activity",
+        "resume",
+        "dispatch",
+        "focus"
+      ],
+      "properties": {
+        "id": { "type": "string" },
+        "agent": { "$ref": "#/$defs/agent" },
+        "agentSessionId": { "type": "string" },
+        "title": { "type": "string" },
+        "status": { "$ref": "#/$defs/status" },
+        "summary": { "type": "string" },
+        "startedAt": { "type": "string", "format": "date-time" },
+        "updatedAt": { "type": "string", "format": "date-time" },
+        "completedAt": { "type": "string", "format": "date-time" },
+        "workspace": { "$ref": "#/$defs/workspace" },
+        "surface": { "$ref": "#/$defs/surface" },
+        "activity": { "$ref": "#/$defs/activity" },
+        "attention": {
+          "anyOf": [
+            { "$ref": "#/$defs/attention" },
+            { "type": "null" }
+          ]
+        },
+        "resume": { "$ref": "#/$defs/action" },
+        "dispatch": { "$ref": "#/$defs/action" },
+        "focus": { "$ref": "#/$defs/focus" },
+        "links": {
+          "type": "object",
+          "additionalProperties": { "type": "string" }
+        }
+      }
+    },
+    "workspace": {
+      "type": "object",
+      "additionalProperties": true,
+      "required": ["id", "cwd"],
+      "properties": {
+        "id": { "type": "string" },
+        "ref": { "type": "string" },
+        "title": { "type": "string" },
+        "cwd": { "type": "string" },
+        "windowId": { "type": "string" },
+        "git": {
+          "type": "object",
+          "additionalProperties": true,
+          "properties": {
+            "repo": { "type": "string" },
+            "branch": { "type": "string" }
+          }
+        }
+      }
+    },
+    "surface": {
+      "type": "object",
+      "additionalProperties": true,
+      "required": ["id", "kind"],
+      "properties": {
+        "id": { "type": "string" },
+        "ref": { "type": "string" },
+        "kind": {
+          "type": "string",
+          "enum": ["terminal", "browser", "markdown", "file", "unknown"]
+        },
+        "title": { "type": "string" }
+      }
+    },
+    "activity": {
+      "type": "object",
+      "additionalProperties": true,
+      "required": ["phase", "confidence"],
+      "properties": {
+        "phase": {
+          "type": "string",
+          "enum": ["queued", "starting", "working", "awaitingUser", "completed", "failed", "unknown"]
+        },
+        "confidence": { "$ref": "#/$defs/confidence" },
+        "latestEventName": { "type": "string" },
+        "latestEventId": { "type": "string" },
+        "lastMessage": { "type": "string" }
+      }
+    },
+    "attention": {
+      "type": "object",
+      "additionalProperties": true,
+      "required": ["kind", "severity", "since"],
+      "properties": {
+        "kind": {
+          "type": "string",
+          "enum": ["permission", "question", "plan", "notification", "error"]
+        },
+        "requestId": { "type": "string" },
+        "source": { "$ref": "#/$defs/agent" },
+        "hookEventName": { "type": "string" },
+        "severity": {
+          "type": "string",
+          "enum": ["blocking", "soft", "info"]
+        },
+        "since": { "type": "string", "format": "date-time" },
+        "promptSummary": { "type": "string" },
+        "choices": {
+          "type": "array",
+          "items": { "type": "string" }
+        }
+      }
+    },
+    "action": {
+      "type": "object",
+      "additionalProperties": true,
+      "required": ["command", "confidence"],
+      "properties": {
+        "command": { "$ref": "#/$defs/command" },
+        "stdin": { "type": "string" },
+        "cwd": { "type": "string" },
+        "confidence": { "$ref": "#/$defs/confidence" },
+        "knownGaps": {
+          "type": "array",
+          "items": { "type": "string" }
+        }
+      }
+    },
+    "focus": {
+      "type": "object",
+      "additionalProperties": true,
+      "required": ["commands"],
+      "properties": {
+        "commands": {
+          "type": "array",
+          "items": { "$ref": "#/$defs/command" }
+        }
+      }
+    },
+    "adapter": {
+      "type": "object",
+      "additionalProperties": true,
+      "required": [
+        "id",
+        "displayName",
+        "sessionStorePath",
+        "installCommand",
+        "resumeCommandTemplate",
+        "dispatchCommandTemplate",
+        "sessionSupport",
+        "feedSupport",
+        "knownGaps"
+      ],
+      "properties": {
+        "id": { "$ref": "#/$defs/agent" },
+        "displayName": { "type": "string" },
+        "sessionStorePath": { "type": "string" },
+        "installCommand": { "$ref": "#/$defs/command" },
+        "resumeCommandTemplate": { "$ref": "#/$defs/command" },
+        "dispatchCommandTemplate": { "$ref": "#/$defs/command" },
+        "sessionSupport": { "$ref": "#/$defs/support" },
+        "feedSupport": { "$ref": "#/$defs/support" },
+        "knownGaps": {
+          "type": "array",
+          "items": { "type": "string" }
+        }
+      }
+    },
+    "support": {
+      "type": "object",
+      "additionalProperties": true,
+      "required": ["confidence", "knownGaps"],
+      "properties": {
+        "confidence": { "$ref": "#/$defs/confidence" },
+        "events": {
+          "type": "array",
+          "items": { "type": "string" }
+        },
+        "knownGaps": {
+          "type": "array",
+          "items": { "type": "string" }
+        }
+      }
+    }
+  }
+}
