@@ -159,12 +159,13 @@ struct ComputerUseRuntimePaths: Sendable {
         var bytes = [UInt8](repeating: 0, count: Int(metadata.st_size))
         var offset = 0
         while offset < bytes.count {
+            let remainingByteCount = bytes.count - offset
             let count = bytes.withUnsafeMutableBytes { buffer -> Int in
                 guard let baseAddress = buffer.baseAddress else { return -1 }
                 return Darwin.read(
                     descriptor,
                     baseAddress.advanced(by: offset),
-                    bytes.count - offset
+                    remainingByteCount
                 )
             }
             if count < 0, errno == EINTR { continue }
