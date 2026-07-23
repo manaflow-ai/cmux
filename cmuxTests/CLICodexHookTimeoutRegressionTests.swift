@@ -777,6 +777,45 @@ struct CLICodexHookTimeoutRegressionTests {
             .trimmingCharacters(in: .whitespacesAndNewlines)
         let capturedTime = try #require(Double(rawCapturedTime))
         #expect(capturedTime > seededTime, Comment(rawValue: rawCapturedTime))
+
+        try FileManager.default.removeItem(at: monotonicClockDirectory)
+        let attackerClockDirectory = root.appendingPathComponent("attacker-clock", isDirectory: true)
+        let attackerClockState = attackerClockDirectory.appendingPathComponent("state", isDirectory: false)
+        try FileManager.default.createDirectory(at: attackerClockDirectory, withIntermediateDirectories: false)
+        try "\(seededMicros)\n".write(to: attackerClockState, atomically: true, encoding: .utf8)
+        try FileManager.default.createSymbolicLink(
+            at: monotonicClockDirectory,
+            withDestinationURL: attackerClockDirectory
+        )
+
+        let untrustedClockRun = runCodexHookProcess(
+            executablePath: "/bin/sh",
+            arguments: ["-c", command],
+            environment: [
+                "HOME": root.path,
+                "PATH": toolBin.path,
+                "TMPDIR": root.path,
+                "CMUX_AGENT_HOOK_DATE_BIN": fakeDate.path,
+                "CMUX_SURFACE_ID": "surface-123",
+                "CMUX_BUNDLED_CLI_PATH": fakeCLI.path,
+                "CMUX_CODEX_PID": "4242",
+                "CMUX_TEST_CAPTURED_AT": capturedAt.path,
+                "CMUX_TEST_DONE": doneFile.path,
+            ],
+            standardInput: #"{"session_id":"codex-session","prompt":"untrusted clock"}"#,
+            timeout: 1
+        )
+
+        #expect(!untrustedClockRun.timedOut, Comment(rawValue: untrustedClockRun.stderr))
+        #expect(untrustedClockRun.status == 0, Comment(rawValue: untrustedClockRun.stderr))
+        #expect(untrustedClockRun.stdout == "{}\n")
+        #expect(waitForFileLineCount(capturedAt, count: 2, timeout: 3))
+        let capturedTimes = try String(contentsOf: capturedAt, encoding: .utf8)
+            .split(whereSeparator: \.isNewline)
+            .map(String.init)
+        #expect(capturedTimes.count == 2)
+        #expect(capturedTimes.last == "1893456000.000000", Comment(rawValue: capturedTimes.joined(separator: ",")))
+        #expect(try String(contentsOf: attackerClockState, encoding: .utf8) == "\(seededMicros)\n")
     }
 
     @Test func codexFarFutureISOEventTimeDoesNotPoisonRuntimeOrdering() throws {

@@ -1575,6 +1575,8 @@ extension CLINotifyProcessIntegrationRegressionTests {
         let surfaceId = "22222222-2222-2222-2222-222222222222"
         let sessionId = "grok-session-123"
         let grokHome = root.appendingPathComponent("grok-home", isDirectory: true)
+        let acceptedNotificationEventTime = Date.now.timeIntervalSince1970 - 100
+        let staleNotificationEventTime = acceptedNotificationEventTime - 1
 
         try FileManager.default.createDirectory(at: root, withIntermediateDirectories: true)
         defer {
@@ -1648,7 +1650,7 @@ extension CLINotifyProcessIntegrationRegressionTests {
         let notificationCommandStart = state.commands.count
         let notification = runGrokHook(
             "notification",
-            input: #"{"sessionId":"\#(sessionId)","cwd":"\#(root.path)","hookEventName":"Notification","message":"Grok finished updating docs"}"#
+            input: #"{"sessionId":"\#(sessionId)","cwd":"\#(root.path)","hookEventName":"Notification","timestamp":\#(acceptedNotificationEventTime),"message":"Grok finished updating docs"}"#
         )
         XCTAssertFalse(notification.timedOut, notification.stderr)
         XCTAssertEqual(notification.status, 0, notification.stderr)
@@ -1673,6 +1675,33 @@ extension CLINotifyProcessIntegrationRegressionTests {
         XCTAssertEqual(session["lastSubtitle"] as? String, "Completed")
         XCTAssertEqual(session["lastBody"] as? String, "Grok finished updating docs")
         XCTAssertEqual(session["lastNotificationStatus"] as? String, "idle")
+        XCTAssertEqual(session["runtimeStatusEventTime"] as? Double, acceptedNotificationEventTime)
+
+        let staleNotificationCommandStart = state.commands.count
+        let staleNotification = runGrokHook(
+            "notification",
+            input: #"{"sessionId":"\#(sessionId)","cwd":"\#(root.path)","hookEventName":"Notification","timestamp":\#(staleNotificationEventTime),"message":"Stale completion must not publish"}"#
+        )
+        XCTAssertFalse(staleNotification.timedOut, staleNotification.stderr)
+        XCTAssertEqual(staleNotification.status, 0, staleNotification.stderr)
+        XCTAssertEqual(staleNotification.stdout, "{}\n")
+
+        let staleNotificationCommands = Array(state.commands.dropFirst(staleNotificationCommandStart))
+        XCTAssertFalse(
+            staleNotificationCommands.contains {
+                $0.hasPrefix("notify_target")
+                    || $0.hasPrefix("set_status ")
+                    || $0.hasPrefix("set_agent_lifecycle ")
+            },
+            "A rejected stale notification must not publish visible mutations, saw \(staleNotificationCommands)"
+        )
+        json = try XCTUnwrap(JSONSerialization.jsonObject(with: Data(contentsOf: storeURL)) as? [String: Any])
+        sessions = try XCTUnwrap(json["sessions"] as? [String: Any])
+        session = try XCTUnwrap(sessions[sessionId] as? [String: Any])
+        XCTAssertEqual(session["lastSubtitle"] as? String, "Completed")
+        XCTAssertEqual(session["lastBody"] as? String, "Grok finished updating docs")
+        XCTAssertEqual(session["lastNotificationStatus"] as? String, "idle")
+        XCTAssertEqual(session["runtimeStatusEventTime"] as? Double, acceptedNotificationEventTime)
 
         let preAssistantInternalCommandStart = state.commands.count
         let preAssistantInternal = runGrokHook(

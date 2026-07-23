@@ -240,6 +240,38 @@ import Testing
         for (earlier, later) in zip(times, times.dropFirst()) {
             #expect(earlier < later, Comment(rawValue: rawTimes.joined(separator: ",")))
         }
+
+        try fileManager.removeItem(at: monotonicClockDirectory)
+        let attackerClockDirectory = sandbox.appendingPathComponent("attacker-clock", isDirectory: true)
+        let attackerClockState = attackerClockDirectory.appendingPathComponent("state", isDirectory: false)
+        try fileManager.createDirectory(at: attackerClockDirectory, withIntermediateDirectories: false)
+        try "\(seededMicros)\n".write(to: attackerClockState, atomically: true, encoding: .utf8)
+        try fileManager.createSymbolicLink(
+            at: monotonicClockDirectory,
+            withDestinationURL: attackerClockDirectory
+        )
+
+        let untrustedClockHook = Process()
+        untrustedClockHook.executableURL = URL(fileURLWithPath: "/bin/sh")
+        untrustedClockHook.arguments = ["-c", command]
+        untrustedClockHook.environment = [
+            "PATH": toolBin.path,
+            "TMPDIR": sandbox.path,
+            "CMUX_AGENT_HOOK_DATE_BIN": fakeDateURL.path,
+            "CMUX_CLAUDE_HOOK_CMUX_BIN": fakeCmuxURL.path,
+            "CMUX_TEST_CAPTURED_AT": capturedAtURL.path,
+        ]
+        untrustedClockHook.standardInput = FileHandle.nullDevice
+        untrustedClockHook.standardOutput = FileHandle.nullDevice
+        untrustedClockHook.standardError = FileHandle.nullDevice
+        try runWithBoundedWait(untrustedClockHook, shellDescription: "Claude untrusted clock fallback", timeout: 1)
+
+        let capturedTimes = try String(contentsOf: capturedAtURL, encoding: .utf8)
+            .split(whereSeparator: \.isNewline)
+            .map(String.init)
+        #expect(capturedTimes.count == 5)
+        #expect(capturedTimes.last == "1893455999.000000", Comment(rawValue: capturedTimes.joined(separator: ",")))
+        #expect(try String(contentsOf: attackerClockState, encoding: .utf8) == "\(seededMicros)\n")
     }
 
     private func runWithBoundedWait(
