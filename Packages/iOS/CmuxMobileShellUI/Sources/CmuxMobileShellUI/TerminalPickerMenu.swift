@@ -43,15 +43,15 @@ struct TerminalPickerMenu: View, Equatable {
     private var menuContent: some View {
         Section(L10n.string("mobile.terminal.picker.title", defaultValue: "Terminals")) {
             ForEach(value.terminalRows) { terminal in
-                Button {
-                    if let id = terminal.terminalID { actions.selectTerminal(id) }
-                } label: {
-                    Label(
-                        terminal.name,
-                        systemImage: terminal.id == value.checkedRowID
-                            ? "checkmark.circle.fill"
-                            : "terminal"
-                    )
+                // Toggle rows get the native leading checkmark while the kind
+                // glyph stays on the trailing edge, matching system pickers.
+                Toggle(isOn: Binding(
+                    get: { terminal.id == value.checkedRowID },
+                    set: { _ in
+                        if let id = terminal.terminalID { actions.selectTerminal(id) }
+                    }
+                )) {
+                    Label(terminal.name, systemImage: "terminal")
                 }
                 .accessibilityIdentifier("MobileTerminalMenuItem-\(terminal.terminalID?.rawValue ?? "")")
             }
@@ -60,16 +60,15 @@ struct TerminalPickerMenu: View, Equatable {
         if !value.macSurfaceRows.isEmpty {
             Section(L10n.string("mobile.surface.section", defaultValue: "Mac Surfaces")) {
                 ForEach(value.macSurfaceRows) { surface in
-                    Button {
-                        if let id = surface.macSurfaceID { actions.selectMacSurface(id) }
-                    } label: {
-                        Label(
-                            surface.name,
-                            systemImage: surface.id == value.checkedRowID
-                                ? "checkmark.circle.fill"
-                                : surface.surfaceKind.systemImage
-                        )
+                    Toggle(isOn: Binding(
+                        get: { surface.id == value.checkedRowID },
+                        set: { _ in
+                            if let id = surface.macSurfaceID { actions.selectMacSurface(id) }
+                        }
+                    )) {
+                        Label(surface.name, systemImage: surface.surfaceKind.systemImage)
                     }
+                    .accessibilityIdentifier("MobileMacSurfaceMenuItem-\(surface.macSurfaceID?.rawValue ?? "")")
                 }
             }
         }
