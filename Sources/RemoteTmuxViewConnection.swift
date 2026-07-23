@@ -61,6 +61,10 @@ final class RemoteTmuxViewConnection {
     /// re-running it costs a round trip and removes the dependence on which mode the
     /// reconnect path happens to spawn with.
     private var didBootstrapView = false
+    /// Bringup attempts spent since the last connect, so a view that cannot be stamped fails
+    /// visibly instead of retrying forever. Reset by a bringup that lands and by a fresh connect.
+    private var bringupRetries = 0
+    private static let maxBringupRetries = 3
     /// Which bringup attempt the ownership writes below belong to, so a late
     /// acknowledgement from an abandoned attempt cannot answer the current one.
     private var bootstrapAttempt = 0
@@ -148,6 +152,9 @@ final class RemoteTmuxViewConnection {
                     // and recreated by the re-attach, and an unstamped view classifies as
                     // not ours.
                     self.didBootstrapView = false
+                    // A fresh connect gets a fresh budget; the old stream's refusals say nothing
+                    // about whether this one will take the writes.
+                    self.bringupRetries = 0
                 }
             },
             onAuthRequired: { [weak self] sshArgv in
@@ -458,6 +465,23 @@ final class RemoteTmuxViewConnection {
         Task { @MainActor in await self.reconcile() }
     }
 
+    /// Re-runs the view bringup after a failure that produced no event to wait on.
+    ///
+    /// A delay, not a poll: the thing being waited for is a write the stream would not take, and
+    /// there is no edge that says it would take one now. Bounded, so a stream that never accepts the
+    /// ownership writes stops rather than reconciling in a loop — and `onEnded` still fires if the
+    /// stream dies, so giving up here does not strand the host silently.
+    private func scheduleBringupRetry() {
+        guard !isStopped, bringupRetries < Self.maxBringupRetries else { return }
+        bringupRetries += 1
+        let attempt = bringupRetries
+        Task { @MainActor [weak self] in
+            try? await Task.sleep(for: .milliseconds(250 * attempt))
+            guard let self, !self.isStopped, !self.didBootstrapView else { return }
+            await self.reconcile()
+        }
+    }
+
 
     private func reconcileListQuery(_ conn: RemoteTmuxControlConnection, _ command: String) async -> [String]? {
         if let first = await conn.queryWithTimeout(command, timeout: 15, reconnectOnTimeout: false) {
@@ -480,9 +504,19 @@ final class RemoteTmuxViewConnection {
         // placeholder/ownership inputs are populated. A bringup that did not fully land
         // returns without applying anything, and the next reconcile retries it.
         if !didBootstrapView {
-            guard await bootstrapViewOverStream(conn) else { return }
+            guard await bootstrapViewOverStream(conn) else {
+                // "The next reconcile retries it" was only true when something else happened to
+                // trigger one. A bringup that fails on the SEND — a write the bounded writer
+                // refused, a stream that reset mid-batch — produces no topology event and no query
+                // timeout, so nothing was scheduled and the view stayed half-initialised with its
+                // options unwritten. Ask for one, bounded, because a view that cannot be stamped
+                // will not become stampable by asking faster.
+                scheduleBringupRetry()
+                return
+            }
             guard !isStopped else { return }
             didBootstrapView = true
+            bringupRetries = 0
         }
 
         // Bounded: an alive-but-slow server gets one longer retry before we decide
