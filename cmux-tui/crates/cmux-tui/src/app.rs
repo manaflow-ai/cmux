@@ -1026,6 +1026,12 @@ impl OrderedSession {
         self.inner.has_surface(id)
     }
 
+    fn surface_is_ready_for_input(&self, id: SurfaceId) -> bool {
+        // Remote attach caches its mirror before the initial VT state arrives.
+        // The claim outlives that initialization, so cache presence alone is not readiness.
+        self.has_surface(id) && !self.surface_attach_claims.lock().unwrap().contains(&id)
+    }
+
     fn has_surface_size_report(&self, id: SurfaceId) -> bool {
         self.inner.has_surface_size_report(id)
     }
@@ -6095,7 +6101,7 @@ impl App {
             }
             _ => return None,
         };
-        (!self.session.has_surface(surface)).then_some(surface)
+        (!self.session.surface_is_ready_for_input(surface)).then_some(surface)
     }
 
     fn queue_surface_attach(&mut self, surface: SurfaceId) {
@@ -12808,6 +12814,11 @@ mod tests {
         ));
 
         app.session.surface_attach_claims.lock().unwrap().remove(&surface.id);
+        app.replay_deferred_input().unwrap();
+
+        assert!(app.pending_pointer_motion.is_none());
+        assert!(app.deferred_input.is_empty());
+
         mux.close_surface(surface.id);
     }
 
