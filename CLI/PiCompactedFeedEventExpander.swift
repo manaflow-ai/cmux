@@ -19,19 +19,26 @@ struct PiCompactedFeedEventExpander {
             return []
         }
 
-        var requests = summaries.enumerated().compactMap { index, summary in
+        let rawOmittedCount = rawObject["cmux_compacted_terminal_omitted_count"] as? Int ?? 0
+        let omittedCount = max(0, rawOmittedCount)
+        let retainedSummaryLimit = omittedCount > 0
+            ? Self.maxCompactedTerminalEvents - 1
+            : Self.maxCompactedTerminalEvents
+        let retainedSummaries = summaries.prefix(retainedSummaryLimit)
+        var requests = retainedSummaries.enumerated().compactMap { index, summary in
             requestLine(summary: summary, fallback: rawObject, index: index)
         }
-        let omittedCount = rawObject["cmux_compacted_terminal_omitted_count"] as? Int ?? 0
         if omittedCount > 0 {
+            let displacedCount = summaries.count - retainedSummaries.count
+            let (representedOmittedCount, overflowed) = omittedCount.addingReportingOverflow(displacedCount)
             var summary: [String: Any] = [
-                "tool_call_id": "compacted-omitted-\(omittedCount)",
+                "tool_call_id": "compacted-omitted-\(overflowed ? Int.max : representedOmittedCount)",
                 "tool_name": "cmux_compacted_terminal_overflow",
-                "tool_result": ["omitted_terminal_count": omittedCount],
+                "tool_result": ["omitted_terminal_count": overflowed ? Int.max : representedOmittedCount],
             ]
             summary["session_id"] = rawObject["session_id"]
             summary["turn_id"] = rawObject["turn_id"]
-            if let request = requestLine(summary: summary, fallback: rawObject, index: summaries.count) {
+            if let request = requestLine(summary: summary, fallback: rawObject, index: retainedSummaries.count) {
                 requests.append(request)
             }
         }
@@ -55,9 +62,7 @@ struct PiCompactedFeedEventExpander {
             "_ppid": agentPid,
             "_opencode_request_id": requestId,
         ]
-        if let workspaceId = string(summary["workspace_id"])
-            ?? string(fallback["workspace_id"])
-            ?? workspaceId {
+        if let workspaceId {
             event["workspace_id"] = workspaceId
         }
         if let cwd = string(summary["cwd"]) ?? string(fallback["cwd"]) {

@@ -11,17 +11,16 @@ extension CMUXCLI {
         socketPath: String?,
         socketPassword: String?
     ) throws -> Bool {
-        let requestLines = PiCompactedFeedEventExpander(
-            agentPid: agentPid,
-            workspaceId: fallbackWorkspaceId
-        ).requestLines(from: rawObject)
-        guard !requestLines.isEmpty else { return false }
+        guard rawObject["cmux_compacted_terminal_events"] is [[String: Any]] else { return false }
 
         if let client {
-            _ = try resolveExplicitPiHookTarget(commandArgs: commandArgs, client: client)
-            for line in requestLines {
-                try sendAcknowledgedPiFeed(line, client: client)
-            }
+            return try sendPiCompactedFeedEvents(
+                commandArgs: commandArgs,
+                rawObject: rawObject,
+                agentPid: agentPid,
+                fallbackWorkspaceId: fallbackWorkspaceId,
+                client: client
+            )
         } else if let socketPath {
             let batchClient = SocketClient(path: socketPath)
             defer { batchClient.close() }
@@ -32,10 +31,37 @@ extension CMUXCLI {
                 socketPath: socketPath,
                 responseTimeout: 0.05
             )
-            _ = try resolveExplicitPiHookTarget(commandArgs: commandArgs, client: batchClient)
-            for line in requestLines {
-                try sendAcknowledgedPiFeed(line, client: batchClient)
-            }
+            return try sendPiCompactedFeedEvents(
+                commandArgs: commandArgs,
+                rawObject: rawObject,
+                agentPid: agentPid,
+                fallbackWorkspaceId: fallbackWorkspaceId,
+                client: batchClient
+            )
+        }
+        return false
+    }
+
+    private func sendPiCompactedFeedEvents(
+        commandArgs: [String],
+        rawObject: [String: Any],
+        agentPid: Int,
+        fallbackWorkspaceId: String?,
+        client: SocketClient
+    ) throws -> Bool {
+        let target = try resolveExplicitPiHookTarget(commandArgs: commandArgs, client: client)
+        let requestLines = PiCompactedFeedEventExpander(
+            agentPid: agentPid,
+            workspaceId: target?.workspaceId ?? fallbackWorkspaceId
+        ).requestLines(from: rawObject)
+        guard !requestLines.isEmpty else { return false }
+
+        let responses = try client.sendSingleLineBatch(
+            commands: requestLines,
+            responseTimeout: 4
+        )
+        for response in responses {
+            try validatePiFeedAcknowledgment(response)
         }
         return true
     }
@@ -112,11 +138,6 @@ extension CMUXCLI {
 
     /// Stable process status consumed by the generated extension without parsing localized stderr.
     static let piHookSurfaceUnavailableExitCode: Int32 = 69
-
-    private func sendAcknowledgedPiFeed(_ line: String, client: SocketClient) throws {
-        let response = try client.send(command: line, responseTimeout: 4)
-        try validatePiFeedAcknowledgment(response)
-    }
 
     /// Rejects a Pi feed response unless the server confirms ingestion.
     func validatePiFeedAcknowledgment(_ response: String) throws {

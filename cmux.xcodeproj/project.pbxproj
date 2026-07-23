@@ -1719,6 +1719,7 @@ C0DE71B10000000000000001 /* AppDelegate+AgentChatNotifications.swift in Sources 
 		A79840010000000000000001 /* SocketACLReloadRegressionTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = A79840010000000000000002 /* SocketACLReloadRegressionTests.swift */; };
 		5830CA11BAC0000000000004 /* SocketCallbackAwaiter.swift in Sources */ = {isa = PBXBuildFile; fileRef = 5830CA11BAC0000000000003 /* SocketCallbackAwaiter.swift */; };
 		5830CA11BAC0000000000002 /* SocketCallbackAwaiterMainThreadTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 5830CA11BAC0000000000001 /* SocketCallbackAwaiterMainThreadTests.swift */; };
+		C08672020000000000000001 /* SocketClient+SingleLineBatch.swift in Sources */ = {isa = PBXBuildFile; fileRef = C08672020000000000000002 /* SocketClient+SingleLineBatch.swift */; };
 		A7984AD10000000000000001 /* SocketConfigurationLifecycleTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = A7984AD10000000000000002 /* SocketConfigurationLifecycleTests.swift */; };
 		A5001226 /* SocketControlMode+Display.swift in Sources */ = {isa = PBXBuildFile; fileRef = A5001225 /* SocketControlMode+Display.swift */; };
 		F8000000A1B2C3D4E5F60718 /* SocketControlPasswordStoreTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = F8000001A1B2C3D4E5F60718 /* SocketControlPasswordStoreTests.swift */; };
@@ -3889,6 +3890,7 @@ C0DE71B10000000000000002 /* AppDelegate+AgentChatNotifications.swift */ = {isa =
 		A79840010000000000000002 /* SocketACLReloadRegressionTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SocketACLReloadRegressionTests.swift; sourceTree = "<group>"; };
 		5830CA11BAC0000000000003 /* SocketCallbackAwaiter.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SocketCallbackAwaiter.swift; sourceTree = "<group>"; };
 		5830CA11BAC0000000000001 /* SocketCallbackAwaiterMainThreadTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SocketCallbackAwaiterMainThreadTests.swift; sourceTree = "<group>"; };
+		C08672020000000000000002 /* SocketClient+SingleLineBatch.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "SocketClient+SingleLineBatch.swift"; sourceTree = "<group>"; };
 		A7984AD10000000000000002 /* SocketConfigurationLifecycleTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SocketConfigurationLifecycleTests.swift; sourceTree = "<group>"; };
 		A5001225 /* SocketControlMode+Display.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "SocketControlMode+Display.swift"; sourceTree = "<group>"; };
 		F8000001A1B2C3D4E5F60718 /* SocketControlPasswordStoreTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SocketControlPasswordStoreTests.swift; sourceTree = "<group>"; };
@@ -6061,6 +6063,7 @@ C0DE71B10000000000000002 /* AppDelegate+AgentChatNotifications.swift */ = {isa =
 					C12984000000000000000001 /* CMUXCLI+SIGPIPEProbes.swift */,
 				C12985000000000000000001 /* CLISocketSentryTelemetry.swift */,
 				C79470010000000000000002 /* CMUXCLI+SocketClientCapability.swift */,
+				C08672020000000000000002 /* SocketClient+SingleLineBatch.swift */,
 			);
 			path = CLI;
 			sourceTree = "<group>";
@@ -8566,6 +8569,7 @@ C0DE71B10000000000000002 /* AppDelegate+AgentChatNotifications.swift */ = {isa =
 				B9000028A1B2C3D4E5F60719 /* RemoteInteractiveShellBootstrapBuilder.swift in Sources */,
 				B9000027A1B2C3D4E5F60719 /* RemoteRelayZshBootstrap.swift in Sources */,
 				5E2701020000000000000003 /* SentryEventScrubber.swift in Sources */,
+				C08672020000000000000001 /* SocketClient+SingleLineBatch.swift in Sources */,
 				C510C1E00000000000000002 /* SocketOperationTelemetry.swift in Sources */,
 				C77070000000000000000002 /* SSHPTYAttachExitCode.swift in Sources */,
 				B816E948EC5E42AF967648AC /* SSHPTYAttachReconnectInputFilter.swift in Sources */,

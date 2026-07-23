@@ -1797,7 +1797,7 @@ final class SocketClient {
     }
 
     private let path: String
-    private var socketFD: Int32 = -1
+    private(set) var socketFD: Int32 = -1
     private var lastConfiguredReceiveTimeout: TimeInterval?
     private var lastOperationTelemetry: CLISocketOperationTelemetry.State?
     private static let defaultResponseTimeoutSeconds: TimeInterval = 15.0
@@ -2331,7 +2331,7 @@ final class SocketClient {
         }
     }
 
-    private func writeAllNonBlocking(
+    func writeAllNonBlocking(
         _ data: Data,
         deadline: Date,
         timeoutMessage: String,
@@ -2407,7 +2407,7 @@ final class SocketClient {
         }
     }
 
-    private func configureSocketWriteSafety(_ timeout: TimeInterval) throws {
+    func configureSocketWriteSafety(_ timeout: TimeInterval) throws {
         var interval = Self.socketTimeval(for: timeout)
         let sendTimeoutResult = withUnsafePointer(to: &interval) { ptr in
             setsockopt(
@@ -2474,7 +2474,7 @@ final class SocketClient {
         return line.trimmingCharacters(in: .whitespacesAndNewlines)
     }
 
-    private func configureReceiveTimeout(_ timeout: TimeInterval) throws {
+    func configureReceiveTimeout(_ timeout: TimeInterval) throws {
         var interval = Self.socketTimeval(for: timeout)
         let result = withUnsafePointer(to: &interval) { ptr in
             setsockopt(
