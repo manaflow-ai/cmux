@@ -12777,6 +12777,41 @@ mod tests {
     }
 
     #[test]
+    fn pointer_input_waits_for_a_cached_surface_attach_claim() {
+        let (mux, surface) = test_mux("cached-attach-claim-test", None);
+        let mut app = test_app(Session::Local(mux.clone()));
+        app.replace_tree(notify_tree(surface.id, false));
+        app.pane_areas.push(browser_completion_area(surface.id));
+        app.session.surface_attach_claims.lock().unwrap().insert(surface.id);
+
+        let motion = MouseEvent {
+            kind: MouseEventKind::Moved,
+            column: 14,
+            row: 6,
+            modifiers: KeyModifiers::NONE,
+        };
+        app.handle(AppEvent::Input(Event::Mouse(motion))).unwrap();
+
+        assert_eq!(app.pending_pointer_motion.map(|pending| pending.event), Some(motion));
+
+        let press = MouseEvent {
+            kind: MouseEventKind::Down(MouseButton::Left),
+            column: 14,
+            row: 6,
+            modifiers: KeyModifiers::NONE,
+        };
+        app.handle(AppEvent::Input(Event::Mouse(press))).unwrap();
+
+        assert!(matches!(
+            app.deferred_input.front().map(|input| &input.event),
+            Some(Event::Mouse(event)) if *event == press
+        ));
+
+        app.session.surface_attach_claims.lock().unwrap().remove(&surface.id);
+        mux.close_surface(surface.id);
+    }
+
+    #[test]
     fn retained_pointer_motion_retries_a_missing_surface_attach() {
         let mux = Mux::new("missing-mirror-pointer-retry-test", SurfaceOptions::default());
         let (mut app, events) = test_app_with_events(Session::Local(mux));
