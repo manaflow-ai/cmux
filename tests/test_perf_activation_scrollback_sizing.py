@@ -1,6 +1,8 @@
 #!/usr/bin/env python3
 from __future__ import annotations
 
+import argparse
+import hashlib
 import importlib.util
 from pathlib import Path
 
@@ -64,6 +66,45 @@ def test_small_requested_fixture_is_not_scaled_up() -> None:
     assert summary["scrollback_target_applied"] is False
     assert set(plan.values()) == {1}
 
+
+def test_persisted_snapshot_fingerprint_uses_exact_tagged_primary_file(
+    tmp_path: Path, monkeypatch: object
+) -> None:
+    home = tmp_path / "home"
+    monkeypatch.setenv("HOME", str(home))
+    args = argparse.Namespace(
+        tag="Fingerprint Test",
+        app_path=str(tmp_path / "cmux.app"),
+        fixture_root=str(tmp_path / "fixture"),
+        launch_timeout=1.0,
+        snapshot_timeout=1.0,
+    )
+    runner = perf_activation_session.CmuxPerfRunner(args)
+    payload = b'{"owned":"snapshot"}'
+    snapshot_path = (
+        home
+        / "Library/Application Support/cmux"
+        / "session-com.cmuxterm.app.debug.fingerprint.test.json"
+    )
+    snapshot_path.parent.mkdir(parents=True)
+    previous_payload = b'{"owned":"previous"}'
+    previous_path = snapshot_path.with_name(
+        "session-com.cmuxterm.app.debug.fingerprint.test-previous.json"
+    )
+    previous_path.write_bytes(previous_payload)
+    snapshot_path.write_bytes(payload)
+
+    assert runner.persisted_snapshot_fingerprint() == {
+        "algorithm": "sha256",
+        "digest": hashlib.sha256(payload).hexdigest(),
+        "byte_count": len(payload),
+    }
+
+    assert runner.persisted_snapshot_fingerprint(source="previous") == {
+        "algorithm": "sha256",
+        "digest": hashlib.sha256(previous_payload).hexdigest(),
+        "byte_count": len(previous_payload),
+    }
 
 if __name__ == "__main__":
     test_default_scrollback_seed_is_bounded_above_budget_floor()
