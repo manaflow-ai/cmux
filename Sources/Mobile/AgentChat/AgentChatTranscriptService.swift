@@ -184,9 +184,8 @@ final class AgentChatTranscriptService {
         // Tail eagerly only while someone is listening, and never for an
         // ended session (its transcript can no longer grow; recreating the
         // tailer here would undo the ended-state eviction).
-        if record.state != .ended,
-           hasEventSubscribers() || observesTranscriptsForAutomaticArtifactCapture {
-            ensureTailer(for: record)
+        if record.state != .ended {
+            ensureTailerForEagerObservation(for: record)
         }
         // Drive the live prose-streaming preview off the turn lifecycle: a
         // prompt starts the in-flight turn, Stop ends it.
@@ -459,9 +458,8 @@ final class AgentChatTranscriptService {
                 Task { await tailer.stop() }
             }
         }
-        if transcriptBecameAvailable, record.state != .ended,
-           hasEventSubscribers() || observesTranscriptsForAutomaticArtifactCapture {
-            ensureTailer(for: record)
+        if transcriptBecameAvailable, record.state != .ended {
+            ensureTailerForEagerObservation(for: record)
         }
         guard hasEventSubscribers() else { return }
         if record.state == .ended, !endedRecordIsListable {
