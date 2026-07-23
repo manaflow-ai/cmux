@@ -124,6 +124,7 @@
 		A9E050000000000000000002 /* AgentSessionWebRendererTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = A9E050000000000000000001 /* AgentSessionWebRendererTests.swift */; };
 		A9E02000000000000000000D /* AgentSessionWebTheme.swift in Sources */ = {isa = PBXBuildFile; fileRef = A9E01000000000000000000D /* AgentSessionWebTheme.swift */; };
 		A9F200000000000000000014 /* AgentSessionWebView.swift in Sources */ = {isa = PBXBuildFile; fileRef = A9F100000000000000000014 /* AgentSessionWebView.swift */; };
+		A8628B0C000000000000000C /* AgentStatusConfidence.swift in Sources */ = {isa = PBXBuildFile; fileRef = A8628C0C000000000000000C /* AgentStatusConfidence.swift */; };
 		A8628B010000000000000001 /* AgentStatusEvidence.swift in Sources */ = {isa = PBXBuildFile; fileRef = A8628C010000000000000001 /* AgentStatusEvidence.swift */; };
 		A8628B040000000000000004 /* AgentStatusHookEventSignal.swift in Sources */ = {isa = PBXBuildFile; fileRef = A8628C040000000000000004 /* AgentStatusHookEventSignal.swift */; };
 		A8628B030000000000000003 /* AgentStatusReconciler.swift in Sources */ = {isa = PBXBuildFile; fileRef = A8628C030000000000000003 /* AgentStatusReconciler.swift */; };
@@ -721,8 +722,20 @@ C0DE71B10000000000000001 /* AppDelegate+AgentChatNotifications.swift in Sources 
 		A9F200000000000000000016 /* CodexAppServerQueuedInput.swift in Sources */ = {isa = PBXBuildFile; fileRef = A9F100000000000000000016 /* CodexAppServerQueuedInput.swift */; };
 		A9E02000000000000000000E /* CodexAppServerSession.swift in Sources */ = {isa = PBXBuildFile; fileRef = A9E01000000000000000000E /* CodexAppServerSession.swift */; };
 		A9E040000000000000000002 /* CodexAppServerSessionTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = A9E040000000000000000001 /* CodexAppServerSessionTests.swift */; };
-		D8628D030000000000000003 /* CodexPermissionTransition.swift in Sources */ = {isa = PBXBuildFile; fileRef = D8628D050000000000000005 /* CodexPermissionTransition.swift */; };
-		D8628D040000000000000004 /* CodexPermissionTransition.swift in Sources */ = {isa = PBXBuildFile; fileRef = D8628D050000000000000005 /* CodexPermissionTransition.swift */; };
+		D8628D120000000000000012 /* CodexPermissionPhase.swift in Sources */ = {isa = PBXBuildFile; fileRef = D8628D0A000000000000000A /* CodexPermissionPhase.swift */; };
+		D8628D130000000000000013 /* CodexPermissionPhase.swift in Sources */ = {isa = PBXBuildFile; fileRef = D8628D0A000000000000000A /* CodexPermissionPhase.swift */; };
+		D8628D0E000000000000000E /* CodexPermissionRuntimeGeneration.swift in Sources */ = {isa = PBXBuildFile; fileRef = D8628D080000000000000008 /* CodexPermissionRuntimeGeneration.swift */; };
+		D8628D0F000000000000000F /* CodexPermissionRuntimeGeneration.swift in Sources */ = {isa = PBXBuildFile; fileRef = D8628D080000000000000008 /* CodexPermissionRuntimeGeneration.swift */; };
+		D8628D100000000000000010 /* CodexPermissionSignalIdentity.swift in Sources */ = {isa = PBXBuildFile; fileRef = D8628D090000000000000009 /* CodexPermissionSignalIdentity.swift */; };
+		D8628D110000000000000011 /* CodexPermissionSignalIdentity.swift in Sources */ = {isa = PBXBuildFile; fileRef = D8628D090000000000000009 /* CodexPermissionSignalIdentity.swift */; };
+		D8628D140000000000000014 /* CodexPermissionState.swift in Sources */ = {isa = PBXBuildFile; fileRef = D8628D0B000000000000000B /* CodexPermissionState.swift */; };
+		D8628D150000000000000015 /* CodexPermissionState.swift in Sources */ = {isa = PBXBuildFile; fileRef = D8628D0B000000000000000B /* CodexPermissionState.swift */; };
+		D8628D180000000000000018 /* CodexPermissionTransition.swift in Sources */ = {isa = PBXBuildFile; fileRef = D8628D0D000000000000000D /* CodexPermissionTransition.swift */; };
+		D8628D190000000000000019 /* CodexPermissionTransition.swift in Sources */ = {isa = PBXBuildFile; fileRef = D8628D0D000000000000000D /* CodexPermissionTransition.swift */; };
+		D8628D160000000000000016 /* CodexPermissionTransitionEffect.swift in Sources */ = {isa = PBXBuildFile; fileRef = D8628D0C000000000000000C /* CodexPermissionTransitionEffect.swift */; };
+		D8628D170000000000000017 /* CodexPermissionTransitionEffect.swift in Sources */ = {isa = PBXBuildFile; fileRef = D8628D0C000000000000000C /* CodexPermissionTransitionEffect.swift */; };
+		D8628D030000000000000003 /* CodexPermissionTransitionMachine.swift in Sources */ = {isa = PBXBuildFile; fileRef = D8628D050000000000000005 /* CodexPermissionTransitionMachine.swift */; };
+		D8628D040000000000000004 /* CodexPermissionTransitionMachine.swift in Sources */ = {isa = PBXBuildFile; fileRef = D8628D050000000000000005 /* CodexPermissionTransitionMachine.swift */; };
 		D8628D010000000000000001 /* CodexPermissionTransitionTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = D8628D020000000000000002 /* CodexPermissionTransitionTests.swift */; };
 		C0DECAFE0000000000000001 /* CodexTeamsApprovalBridge.swift in Sources */ = {isa = PBXBuildFile; fileRef = C0DECAFE0000000000000002 /* CodexTeamsApprovalBridge.swift */; };
 		C0DECAFE0000000000000003 /* CodexTeamsApprovalBridge.swift in Sources */ = {isa = PBXBuildFile; fileRef = C0DECAFE0000000000000002 /* CodexTeamsApprovalBridge.swift */; };
@@ -2369,6 +2382,7 @@ C0DE71B10000000000000001 /* AppDelegate+AgentChatNotifications.swift in Sources 
 		A9E050000000000000000001 /* AgentSessionWebRendererTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AgentSessionWebRendererTests.swift; sourceTree = "<group>"; };
 		A9E01000000000000000000D /* AgentSessionWebTheme.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Panels/AgentSessionWebTheme.swift; sourceTree = "<group>"; };
 		A9F100000000000000000014 /* AgentSessionWebView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Panels/AgentSessionWebView.swift; sourceTree = "<group>"; };
+		A8628C0C000000000000000C /* AgentStatusConfidence.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AgentStatus/AgentStatusConfidence.swift; sourceTree = "<group>"; };
 		A8628C010000000000000001 /* AgentStatusEvidence.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AgentStatus/AgentStatusEvidence.swift; sourceTree = "<group>"; };
 		A8628C040000000000000004 /* AgentStatusHookEventSignal.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AgentStatus/AgentStatusHookEventSignal.swift; sourceTree = "<group>"; };
 		A8628C030000000000000003 /* AgentStatusReconciler.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AgentStatus/AgentStatusReconciler.swift; sourceTree = "<group>"; };
@@ -2904,7 +2918,13 @@ C0DE71B10000000000000002 /* AppDelegate+AgentChatNotifications.swift */ = {isa =
 		A9F100000000000000000016 /* CodexAppServerQueuedInput.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Panels/CodexAppServerQueuedInput.swift; sourceTree = "<group>"; };
 		A9E01000000000000000000E /* CodexAppServerSession.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Panels/CodexAppServerSession.swift; sourceTree = "<group>"; };
 		A9E040000000000000000001 /* CodexAppServerSessionTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CodexAppServerSessionTests.swift; sourceTree = "<group>"; };
-		D8628D050000000000000005 /* CodexPermissionTransition.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CodexPermissionTransition.swift; sourceTree = "<group>"; };
+		D8628D0A000000000000000A /* CodexPermissionPhase.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CodexPermissionPhase.swift; sourceTree = "<group>"; };
+		D8628D080000000000000008 /* CodexPermissionRuntimeGeneration.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CodexPermissionRuntimeGeneration.swift; sourceTree = "<group>"; };
+		D8628D090000000000000009 /* CodexPermissionSignalIdentity.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CodexPermissionSignalIdentity.swift; sourceTree = "<group>"; };
+		D8628D0B000000000000000B /* CodexPermissionState.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CodexPermissionState.swift; sourceTree = "<group>"; };
+		D8628D0D000000000000000D /* CodexPermissionTransition.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CodexPermissionTransition.swift; sourceTree = "<group>"; };
+		D8628D0C000000000000000C /* CodexPermissionTransitionEffect.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CodexPermissionTransitionEffect.swift; sourceTree = "<group>"; };
+		D8628D050000000000000005 /* CodexPermissionTransitionMachine.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CodexPermissionTransitionMachine.swift; sourceTree = "<group>"; };
 		D8628D020000000000000002 /* CodexPermissionTransitionTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CodexPermissionTransitionTests.swift; sourceTree = "<group>"; };
 		C0DECAFE0000000000000002 /* CodexTeamsApprovalBridge.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CodexTeamsApprovalBridge.swift; sourceTree = "<group>"; };
 		C0DE7101C0DE7101C0DE7101 /* CodexTerminalErrorNotificationTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CodexTerminalErrorNotificationTests.swift; sourceTree = "<group>"; };
@@ -5068,6 +5088,7 @@ C0DE71B10000000000000002 /* AppDelegate+AgentChatNotifications.swift */ = {isa =
 				C0DE43000000000000000008 /* Workspace+AgentChat.swift */,
 				C3744E040000000000000001 /* AgentPIDProcessIdentity.swift */,
 				6799A0026799A0026799A002 /* WorkspaceSidebarAgentRuntimeObservationModel.swift */,
+				A8628C0C000000000000000C /* AgentStatusConfidence.swift */,
 				A8628C010000000000000001 /* AgentStatusEvidence.swift */,
 				A8628C020000000000000002 /* AgentStatusResolution.swift */,
 				A8628C030000000000000003 /* AgentStatusReconciler.swift */,
@@ -5988,7 +6009,13 @@ C0DE71B10000000000000002 /* AppDelegate+AgentChatNotifications.swift */ = {isa =
 				E60610300000000000000001 /* SSHPTYAttachReconnectInputFilterState.swift */,
 				E60610400000000000000001 /* SSHPTYAttachReconnectInputFilterPumpIO.swift */,
 				C0DECAFE0000000000000002 /* CodexTeamsApprovalBridge.swift */,
-				D8628D050000000000000005 /* CodexPermissionTransition.swift */,
+				D8628D0A000000000000000A /* CodexPermissionPhase.swift */,
+				D8628D080000000000000008 /* CodexPermissionRuntimeGeneration.swift */,
+				D8628D090000000000000009 /* CodexPermissionSignalIdentity.swift */,
+				D8628D0B000000000000000B /* CodexPermissionState.swift */,
+				D8628D0D000000000000000D /* CodexPermissionTransition.swift */,
+				D8628D0C000000000000000C /* CodexPermissionTransitionEffect.swift */,
+				D8628D050000000000000005 /* CodexPermissionTransitionMachine.swift */,
 				D8628D070000000000000007 /* ClaudeHookSessionStore+CodexPermission.swift */,
 				A76110010000000000000002 /* AgentHookNotificationPolicy.swift */,
 				FEEDC1A50000000000000002 /* FeedEventClassifier.swift */,
@@ -7199,6 +7226,7 @@ C0DE71B10000000000000002 /* AppDelegate+AgentChatNotifications.swift */ = {isa =
 				A9E02000000000000000000C /* AgentSessionWebRendererSession.swift in Sources */,
 				A9E02000000000000000000D /* AgentSessionWebTheme.swift in Sources */,
 				A9F200000000000000000014 /* AgentSessionWebView.swift in Sources */,
+				A8628B0C000000000000000C /* AgentStatusConfidence.swift in Sources */,
 				A8628B010000000000000001 /* AgentStatusEvidence.swift in Sources */,
 				A8628B040000000000000004 /* AgentStatusHookEventSignal.swift in Sources */,
 				A8628B030000000000000003 /* AgentStatusReconciler.swift in Sources */,
@@ -8556,7 +8584,13 @@ C0DE71B10000000000000002 /* AppDelegate+AgentChatNotifications.swift */ = {isa =
 				B9000033A1B2C3D4E5F60719 /* CMUXCLI+TopRendering.swift in Sources */,
 				D1FF52000000000000000001 /* CMUXCLI+TypedDiffViewer.swift in Sources */,
 				06CC2F6C1340C7424D1C7E0A /* CMUXCLI+WorkspaceTodo.swift in Sources */,
-				D8628D030000000000000003 /* CodexPermissionTransition.swift in Sources */,
+				D8628D120000000000000012 /* CodexPermissionPhase.swift in Sources */,
+				D8628D0E000000000000000E /* CodexPermissionRuntimeGeneration.swift in Sources */,
+				D8628D100000000000000010 /* CodexPermissionSignalIdentity.swift in Sources */,
+				D8628D140000000000000014 /* CodexPermissionState.swift in Sources */,
+				D8628D180000000000000018 /* CodexPermissionTransition.swift in Sources */,
+				D8628D160000000000000016 /* CodexPermissionTransitionEffect.swift in Sources */,
+				D8628D030000000000000003 /* CodexPermissionTransitionMachine.swift in Sources */,
 				C0DECAFE0000000000000001 /* CodexTeamsApprovalBridge.swift in Sources */,
 				FEEDC1A50000000000000001 /* FeedEventClassifier.swift in Sources */,
 				A5FB1308 /* JSONCObjectEditor+Remove.swift in Sources */,
@@ -8831,7 +8865,13 @@ C0DE71B10000000000000002 /* AppDelegate+AgentChatNotifications.swift */ = {isa =
 					A6AC72080000000000000001 /* CMUXWorkspaceLoadingCLIRegressionTests.swift in Sources */,
 				AAE06C3AEC68484DA33D42A1 /* CoalesceLatestPublisherDemandTests.swift in Sources */,
 				A9E040000000000000000002 /* CodexAppServerSessionTests.swift in Sources */,
-				D8628D040000000000000004 /* CodexPermissionTransition.swift in Sources */,
+				D8628D130000000000000013 /* CodexPermissionPhase.swift in Sources */,
+				D8628D0F000000000000000F /* CodexPermissionRuntimeGeneration.swift in Sources */,
+				D8628D110000000000000011 /* CodexPermissionSignalIdentity.swift in Sources */,
+				D8628D150000000000000015 /* CodexPermissionState.swift in Sources */,
+				D8628D190000000000000019 /* CodexPermissionTransition.swift in Sources */,
+				D8628D170000000000000017 /* CodexPermissionTransitionEffect.swift in Sources */,
+				D8628D040000000000000004 /* CodexPermissionTransitionMachine.swift in Sources */,
 				D8628D010000000000000001 /* CodexPermissionTransitionTests.swift in Sources */,
 				C0DECAFE0000000000000003 /* CodexTeamsApprovalBridge.swift in Sources */,
 				C0DE7100C0DE7100C0DE7100 /* CodexTerminalErrorNotificationTests.swift in Sources */,
