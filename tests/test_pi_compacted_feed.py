@@ -142,6 +142,27 @@ guard requestLines.count == 64 else {{
 guard toolCallIds.contains("tool-63") else {{
     fatalError("overflow marker displaced the newest retained terminal event: \\(toolCallIds)")
 }}
+
+let relayRequestLines = PiCompactedFeedEventExpander(
+    agentPid: 42,
+    workspaceId: "11111111-1111-1111-1111-111111111111",
+    maximumRequestCount: 2
+).requestLines(from: [
+    "session_id": "pi-expander-session",
+    "cmux_compacted_terminal_omitted_count": 0,
+    "cmux_compacted_terminal_events": summaries,
+])
+let relayToolCallIds = try relayRequestLines.map {{ line -> String? in
+    let object = try JSONSerialization.jsonObject(with: Data(line.utf8)) as? [String: Any]
+    let params = object?["params"] as? [String: Any]
+    let event = params?["event"] as? [String: Any]
+    return event?["tool_call_id"] as? String
+}}
+guard relayRequestLines.count == 2,
+      relayToolCallIds.contains("tool-63"),
+      relayToolCallIds.contains("compacted-omitted-63") else {{
+    fatalError("relay expansion was not bounded to newest plus overflow: \\(relayToolCallIds)")
+}}
 """
     )
     binary_path = root / "compacted-feed-newest"
