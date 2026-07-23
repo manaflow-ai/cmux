@@ -75,7 +75,7 @@ impl TicketAuthority {
 
     pub fn issue(&self, claims: &RelayTicketClaims) -> Result<String, TicketError> {
         let secret = self.secret.as_ref().ok_or(TicketError::SigningDisabled)?;
-        validate_claim_shape(claims, &self.issuer)?;
+        validate_issuable_claims(claims, &self.issuer)?;
         let payload =
             URL_SAFE_NO_PAD.encode(serde_json::to_vec(claims).map_err(|_| TicketError::Claims)?);
         let mut mac = HmacSha256::new_from_slice(secret).map_err(|_| TicketError::InvalidSecret)?;
@@ -88,7 +88,7 @@ impl TicketAuthority {
         if self.uses_hmac() {
             return self.issue(claims);
         }
-        validate_claim_shape(claims, &self.issuer)?;
+        validate_issuable_claims(claims, &self.issuer)?;
         if claims.permission != RelayPermission::Join {
             return Err(TicketError::Scope);
         }
@@ -165,6 +165,9 @@ impl TicketAuthority {
         if claims.expires_at_unix <= now {
             return Err(TicketError::Expired);
         }
+        if !claims.is_temporally_valid_at(now) {
+            return Err(TicketError::Claims);
+        }
         if !scope_matches(&claims, expected) {
             return Err(TicketError::Scope);
         }
@@ -180,9 +183,12 @@ fn validate_claim_shape(
     claims: &RelayTicketClaims,
     expected_issuer: &str,
 ) -> Result<(), TicketError> {
-    if claims.version != RelayTicketClaims::VERSION
-        || claims.issuer != expected_issuer
+    if claims.version != RelayTicketClaims::VERSION {
+        return Err(TicketError::UnsupportedVersion);
+    }
+    if claims.issuer != expected_issuer
         || !valid_scope_component(&claims.slot)
+        || claims.issued_at_unix == 0
         || claims.expires_at_unix == 0
     {
         return Err(TicketError::Claims);
@@ -212,6 +218,17 @@ fn validate_claim_shape(
                 return Err(TicketError::Claims);
             }
         }
+    }
+    Ok(())
+}
+
+fn validate_issuable_claims(
+    claims: &RelayTicketClaims,
+    expected_issuer: &str,
+) -> Result<(), TicketError> {
+    validate_claim_shape(claims, expected_issuer)?;
+    if !claims.has_valid_lifetime() {
+        return Err(TicketError::Claims);
     }
     Ok(())
 }
@@ -259,6 +276,7 @@ pub enum TicketError {
     InvalidSecret,
     InvalidIssuer,
     InvalidClock,
+    UnsupportedVersion,
     SigningDisabled,
     RandomnessUnavailable,
     Scope,
@@ -277,6 +295,7 @@ impl fmt::Display for TicketError {
                 "relay ticket issuer must contain 1 to 256 bytes without newline"
             }
             Self::InvalidClock => "system clock cannot represent a relay ticket expiry",
+            Self::UnsupportedVersion => "relay ticket claims version is unsupported",
             Self::SigningDisabled => "relay ticket signing is not configured",
             Self::RandomnessUnavailable => "secure randomness is unavailable",
             Self::Scope => "relay ticket does not authorize this operation",
@@ -304,6 +323,7 @@ mod tests {
             circuit: Some(CircuitId("circuit-a".into())),
             lane: Some(LaneToken("interactive".into())),
             generation: Some(7),
+            issued_at_unix: expires_at_unix.saturating_sub(30),
             expires_at_unix,
         }
     }
@@ -408,9 +428,9 @@ mod tests {
         let claims = join_claims(1_030);
         let ticket = authority.issue(&claims).unwrap();
         assert!(ticket.starts_with("v2."));
-        let circuit = claims.circuit.clone().unwrap();
-        let lane = claims.lane.clone().unwrap();
-        let expectation = join_expectation(&circuit, &lane);
+        let circuit = claims.circuit.as_ref().unwrap();
+        let lane = claims.lane.as_ref().unwrap();
+        let expectation = join_expectation(circuit, lane);
         let verified = authority
             .verify_join(&ticket, expectation, UNIX_EPOCH + Duration::from_secs(1_000))
             .unwrap()
@@ -421,7 +441,7 @@ mod tests {
         assert_eq!(
             authority.verify_join(
                 &ticket,
-                join_expectation(&circuit, &wrong_lane),
+                join_expectation(circuit, &wrong_lane),
                 UNIX_EPOCH + Duration::from_secs(1_000),
             ),
             Err(TicketError::Scope)
@@ -444,6 +464,7 @@ mod tests {
             circuit: None,
             lane: None,
             generation: None,
+            issued_at_unix: 1_000,
             expires_at_unix: 1_030,
         };
         let ticket = authority.issue(&claims).unwrap();
@@ -485,13 +506,13 @@ mod tests {
         let authority = TicketAuthority::hmac_with_issuer(vec![7; 32], ISSUER.into()).unwrap();
         let claims = wire_join_claims(1_000, 1_301);
         let ticket = intended_ticket(&claims, 1_000);
-        let circuit = claims.circuit.clone().unwrap();
-        let lane = claims.lane.clone().unwrap();
+        let circuit = claims.circuit.as_ref().unwrap();
+        let lane = claims.lane.as_ref().unwrap();
 
         assert_eq!(
             authority.verify_join(
                 &ticket,
-                join_expectation(&circuit, &lane),
+                join_expectation(circuit, lane),
                 UNIX_EPOCH + Duration::from_secs(1_000),
             ),
             Err(TicketError::Claims)
@@ -503,13 +524,13 @@ mod tests {
         let authority = TicketAuthority::hmac_with_issuer(vec![7; 32], ISSUER.into()).unwrap();
         let claims = wire_join_claims(699, 1_001);
         let ticket = intended_ticket(&claims, 699);
-        let circuit = claims.circuit.clone().unwrap();
-        let lane = claims.lane.clone().unwrap();
+        let circuit = claims.circuit.as_ref().unwrap();
+        let lane = claims.lane.as_ref().unwrap();
 
         assert_eq!(
             authority.verify_join(
                 &ticket,
-                join_expectation(&circuit, &lane),
+                join_expectation(circuit, lane),
                 UNIX_EPOCH + Duration::from_secs(1_000),
             ),
             Err(TicketError::Claims)
@@ -521,13 +542,13 @@ mod tests {
         let authority = TicketAuthority::hmac_with_issuer(vec![7; 32], ISSUER.into()).unwrap();
         let claims = wire_join_claims(1_031, 1_100);
         let ticket = intended_ticket(&claims, 1_031);
-        let circuit = claims.circuit.clone().unwrap();
-        let lane = claims.lane.clone().unwrap();
+        let circuit = claims.circuit.as_ref().unwrap();
+        let lane = claims.lane.as_ref().unwrap();
 
         assert_eq!(
             authority.verify_join(
                 &ticket,
-                join_expectation(&circuit, &lane),
+                join_expectation(circuit, lane),
                 UNIX_EPOCH + Duration::from_secs(1_000),
             ),
             Err(TicketError::Claims)
@@ -540,13 +561,13 @@ mod tests {
         for (issued_at_unix, expires_at_unix) in [(1_000, 1_300), (1_030, 1_300)] {
             let claims = wire_join_claims(issued_at_unix, expires_at_unix);
             let ticket = intended_ticket(&claims, issued_at_unix);
-            let circuit = claims.circuit.clone().unwrap();
-            let lane = claims.lane.clone().unwrap();
+            let circuit = claims.circuit.as_ref().unwrap();
+            let lane = claims.lane.as_ref().unwrap();
 
             let verified = authority
                 .verify_join(
                     &ticket,
-                    join_expectation(&circuit, &lane),
+                    join_expectation(circuit, lane),
                     UNIX_EPOCH + Duration::from_secs(1_000),
                 )
                 .unwrap()
@@ -560,9 +581,9 @@ mod tests {
         let authority = TicketAuthority::hmac_with_issuer(vec![7; 32], ISSUER.into()).unwrap();
         let claims = wire_join_claims(1_000, 1_100);
         let ticket = intended_ticket(&claims, 1_000);
-        let circuit = claims.circuit.clone().unwrap();
-        let lane = claims.lane.clone().unwrap();
-        let expectation = join_expectation(&circuit, &lane);
+        let circuit = claims.circuit.as_ref().unwrap();
+        let lane = claims.lane.as_ref().unwrap();
+        let expectation = join_expectation(circuit, lane);
 
         assert!(
             authority

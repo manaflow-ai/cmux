@@ -367,6 +367,7 @@ impl RelaySlot {
             circuit: Some(circuit.clone()),
             lane: Some(request.lane.clone()),
             generation: Some(request.generation),
+            issued_at_unix: now,
             expires_at_unix: join_expires_at,
         };
         let client_join_ticket =

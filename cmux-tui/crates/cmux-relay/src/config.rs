@@ -5,7 +5,7 @@ use std::net::SocketAddr;
 use std::str::FromStr;
 use std::time::Duration;
 
-use cmux_remote_protocol::{LaneToken, RelayPermission};
+use cmux_remote_protocol::{LaneToken, RelayPermission, RelayTicketClaims};
 
 const DEFAULT_BIND: &str = "127.0.0.1:8787";
 const DEFAULT_LEASE_SECONDS: u64 = 30;
@@ -16,7 +16,7 @@ const DEFAULT_CONTROL_IDLE_TIMEOUT_SECONDS: u64 = 120;
 const DEFAULT_HTTP_HEADER_TIMEOUT_SECONDS: u64 = 5;
 const DEFAULT_HTTP_KEEPALIVE_TIMEOUT_SECONDS: u64 = 600;
 const DEFAULT_JOIN_TICKET_TTL_SECONDS: u64 = 30;
-const MAXIMUM_JOIN_TICKET_TTL_SECONDS: u64 = 300;
+const MAXIMUM_JOIN_TICKET_TTL_SECONDS: u64 = RelayTicketClaims::MAX_LIFETIME_SECONDS;
 const DEFAULT_MAX_CONTROL_BYTES: usize = 16 * 1024;
 const DEFAULT_MAX_FRAME_BYTES: usize = 64 * 1024;
 const DEFAULT_MAX_QUEUE_FRAMES: usize = 128;
@@ -30,7 +30,7 @@ const DEFAULT_MAX_CONTROL_SOCKETS_PER_SLOT: usize = 64;
 const DEFAULT_MAX_PENDING_CIRCUITS_PER_SLOT: usize = 64;
 const DEFAULT_MAX_ACTIVE_CIRCUITS_PER_SLOT: usize = 256;
 const DEFAULT_MAX_ALLOCATIONS_PER_SECOND_PER_SLOT: usize = 64;
-const DEFAULT_TICKET_TTL_SECONDS: u64 = 300;
+const DEFAULT_TICKET_TTL_SECONDS: u64 = RelayTicketClaims::MAX_LIFETIME_SECONDS;
 const DEFAULT_TICKET_ISSUER: &str = "cmux-relay";
 
 #[derive(Clone)]
@@ -450,6 +450,12 @@ impl RelayCommand {
         if ttl.is_zero() {
             return Err(ConfigError::new("ticket TTL must be greater than zero"));
         }
+        if ttl.as_secs() > RelayTicketClaims::MAX_LIFETIME_SECONDS {
+            return Err(ConfigError::new(format!(
+                "ticket TTL cannot exceed {} seconds",
+                RelayTicketClaims::MAX_LIFETIME_SECONDS
+            )));
+        }
         if permission == RelayPermission::Register && (lane.is_some() || generation.is_some()) {
             return Err(ConfigError::new("register tickets cannot bind a lane or generation"));
         }
@@ -492,7 +498,7 @@ impl RelayCommand {
            --max-allocations-per-second-per-slot N  Sliding one-second allocation limit\n\
            --issuer NAME                     HMAC ticket issuer (CMUX_RELAY_ISSUER)\n\
            --allow-open                      Permit an unauthenticated non-loopback relay\n\n\
-         Ticket options: --lane TOKEN, --generation N, --ttl-seconds N.\n\
+         Ticket options: --lane TOKEN, --generation N, --ttl-seconds N (maximum 300).\n\
          Set CMUX_RELAY_HMAC_SECRET to validate provider tickets and mint join tickets.\n\
          Endpoints: /healthz, /v1/relay, and /ws\n"
     }

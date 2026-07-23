@@ -760,11 +760,11 @@ impl Relay {
                 SystemTime::now(),
             )
             .map_err(|error| RelayError::policy("invalid-ticket", error.to_string(), false))?;
-        let expires_at_unix = unix_timestamp(SystemTime::now())?
-            .checked_add(self.inner.config.join_ticket_ttl.as_secs())
-            .ok_or_else(|| {
-                RelayError::internal("ticket-expiry", "relay join ticket expiry overflowed")
-            })?;
+        let issued_at_unix = unix_timestamp(SystemTime::now())?;
+        let expires_at_unix =
+            issued_at_unix.checked_add(self.inner.config.join_ticket_ttl.as_secs()).ok_or_else(
+                || RelayError::internal("ticket-expiry", "relay join ticket expiry overflowed"),
+            )?;
 
         let (circuit, daemon, client_join_ticket, daemon_join_ticket) = {
             let mut state = self.inner.state.lock().await;
@@ -812,7 +812,7 @@ impl Relay {
                 &circuit,
                 &lane,
                 generation,
-                expires_at_unix,
+                (issued_at_unix, expires_at_unix),
             );
             let daemon_claims = join_claims(
                 self.inner.tickets.issuer(),
@@ -821,7 +821,7 @@ impl Relay {
                 &circuit,
                 &lane,
                 generation,
-                expires_at_unix,
+                (issued_at_unix, expires_at_unix),
             );
             let client_join_ticket =
                 self.inner.tickets.issue_join_capability(&client_claims).map_err(|_| {
@@ -1273,7 +1273,7 @@ fn join_claims(
     circuit: &CircuitId,
     lane: &LaneToken,
     generation: u64,
-    expires_at_unix: u64,
+    validity: (u64, u64),
 ) -> RelayTicketClaims {
     RelayTicketClaims {
         version: RelayTicketClaims::VERSION,
@@ -1284,7 +1284,8 @@ fn join_claims(
         circuit: Some(circuit.clone()),
         lane: Some(lane.clone()),
         generation: Some(generation),
-        expires_at_unix,
+        issued_at_unix: validity.0,
+        expires_at_unix: validity.1,
     }
 }
 
@@ -1630,6 +1631,7 @@ mod tests {
             config.ticket_issuer.clone(),
         )
         .unwrap();
+        let issued_at_unix = unix_timestamp(SystemTime::now()).unwrap();
         authority
             .issue(&RelayTicketClaims {
                 version: RelayTicketClaims::VERSION,
@@ -1640,7 +1642,8 @@ mod tests {
                 circuit: None,
                 lane,
                 generation,
-                expires_at_unix: unix_timestamp(SystemTime::now()).unwrap() + 60,
+                issued_at_unix,
+                expires_at_unix: issued_at_unix + 60,
             })
             .unwrap()
     }

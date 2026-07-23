@@ -39,11 +39,30 @@ pub struct RelayTicketClaims {
     pub circuit: Option<CircuitId>,
     pub lane: Option<LaneToken>,
     pub generation: Option<u64>,
+    #[serde(default)]
+    pub issued_at_unix: u64,
     pub expires_at_unix: u64,
 }
 
 impl RelayTicketClaims {
-    pub const VERSION: u8 = 1;
+    pub const VERSION: u8 = 2;
+    pub const MAX_LIFETIME_SECONDS: u64 = 5 * 60;
+    pub const MAX_FUTURE_CLOCK_SKEW_SECONDS: u64 = 30;
+
+    pub fn has_valid_lifetime(&self) -> bool {
+        self.issued_at_unix != 0
+            && self
+                .expires_at_unix
+                .checked_sub(self.issued_at_unix)
+                .is_some_and(|lifetime| lifetime > 0 && lifetime <= Self::MAX_LIFETIME_SECONDS)
+    }
+
+    pub fn is_temporally_valid_at(&self, now_unix: u64) -> bool {
+        self.expires_at_unix > now_unix
+            && self.issued_at_unix <= now_unix.saturating_add(Self::MAX_FUTURE_CLOCK_SKEW_SECONDS)
+            && now_unix.saturating_sub(self.issued_at_unix) <= Self::MAX_LIFETIME_SECONDS
+            && self.has_valid_lifetime()
+    }
 
     /// Stable bytes shared by native and Durable Object ticket issuers.
     pub fn signing_payload(&self) -> Vec<u8> {
@@ -57,7 +76,7 @@ impl RelayTicketClaims {
             RelayRole::Client => "client",
         };
         format!(
-            "cmux-relay-ticket-v2\n{}\n{}\n{}\n{}\n{}\n{}\n{}\n{}\n{}",
+            "cmux-relay-ticket-v2\n{}\n{}\n{}\n{}\n{}\n{}\n{}\n{}\n{}\n{}",
             self.version,
             self.issuer,
             permission,
@@ -66,6 +85,7 @@ impl RelayTicketClaims {
             self.circuit.as_ref().map_or("", |value| value.0.as_str()),
             self.lane.as_ref().map_or("", |value| value.0.as_str()),
             self.generation.map_or_else(String::new, |value| value.to_string()),
+            self.issued_at_unix,
             self.expires_at_unix,
         )
         .into_bytes()
@@ -241,10 +261,11 @@ mod tests {
             circuit: Some(CircuitId("circuit".into())),
             lane: Some(LaneToken("lane".into())),
             generation: Some(4),
+            issued_at_unix: 40,
             expires_at_unix: 99,
         };
         let payload = String::from_utf8(claims.signing_payload()).unwrap();
-        assert!(payload.contains("\njoin\nclient\nslot\ncircuit\nlane\n4\n99"));
+        assert!(payload.contains("\njoin\nclient\nslot\ncircuit\nlane\n4\n40\n99"));
     }
 
     #[test]

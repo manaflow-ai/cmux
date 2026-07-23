@@ -34,6 +34,7 @@ async fn main() -> anyhow::Result<()> {
                 circuit: None,
                 lane,
                 generation,
+                issued_at_unix: now,
                 expires_at_unix,
             };
             println!("{}", authority.issue(&claims)?);

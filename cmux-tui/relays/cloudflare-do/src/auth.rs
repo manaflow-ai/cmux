@@ -29,6 +29,7 @@ pub(crate) enum TicketError {
     Signature,
     Claims,
     Expired,
+    UnsupportedVersion,
     Scope,
 }
 
@@ -40,6 +41,7 @@ impl fmt::Display for TicketError {
             Self::Signature => "ticket signature is invalid",
             Self::Claims => "ticket claims are invalid",
             Self::Expired => "ticket has expired",
+            Self::UnsupportedVersion => "relay ticket claims version is unsupported",
             Self::Scope => "ticket scope does not authorize this operation",
         };
         formatter.write_str(message)
@@ -52,7 +54,7 @@ pub(crate) fn issue_ticket(
     expected_issuer: &str,
 ) -> Result<String, TicketError> {
     validate_configuration(key, expected_issuer)?;
-    validate_claim_shape(claims, expected_issuer)?;
+    validate_issuable_claims(claims, expected_issuer)?;
 
     let payload =
         URL_SAFE_NO_PAD.encode(serde_json::to_vec(claims).map_err(|_| TicketError::Claims)?);
@@ -107,6 +109,9 @@ pub(crate) fn verify_ticket_claims(
     if claims.expires_at_unix <= now {
         return Err(TicketError::Expired);
     }
+    if !claims.is_temporally_valid_at(now) {
+        return Err(TicketError::Claims);
+    }
     Ok(claims)
 }
 
@@ -121,9 +126,12 @@ fn validate_claim_shape(
     claims: &RelayTicketClaims,
     expected_issuer: &str,
 ) -> Result<(), TicketError> {
-    if claims.version != RelayTicketClaims::VERSION
-        || claims.issuer != expected_issuer
+    if claims.version != RelayTicketClaims::VERSION {
+        return Err(TicketError::UnsupportedVersion);
+    }
+    if claims.issuer != expected_issuer
         || !valid_scope_component(&claims.slot)
+        || claims.issued_at_unix == 0
         || claims.expires_at_unix == 0
         || claims.circuit.as_ref().is_some_and(|value| !valid_scope_component(&value.0))
         || claims.lane.as_ref().is_some_and(|value| !valid_scope_component(&value.0))
@@ -151,6 +159,17 @@ fn validate_claim_shape(
                 return Err(TicketError::Claims);
             }
         }
+    }
+    Ok(())
+}
+
+fn validate_issuable_claims(
+    claims: &RelayTicketClaims,
+    expected_issuer: &str,
+) -> Result<(), TicketError> {
+    validate_claim_shape(claims, expected_issuer)?;
+    if !claims.has_valid_lifetime() {
+        return Err(TicketError::Claims);
     }
     Ok(())
 }
@@ -202,6 +221,7 @@ mod tests {
             circuit: None,
             lane: None,
             generation: None,
+            issued_at_unix: 100,
             expires_at_unix: 200,
         }
     }

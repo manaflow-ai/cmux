@@ -125,6 +125,7 @@ mod tests {
             circuit: None,
             lane: None,
             generation: None,
+            issued_at_unix: 50,
             expires_at_unix: 100,
         }
     }
