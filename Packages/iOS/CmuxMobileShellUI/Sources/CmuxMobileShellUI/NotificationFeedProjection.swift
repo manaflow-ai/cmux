@@ -24,6 +24,12 @@ final class NotificationFeedProjection {
     var filter: MobileNotificationFeedFilter = .all {
         didSet { rebuild() }
     }
+    var searchText = "" {
+        didSet {
+            guard searchText != oldValue else { return }
+            rebuild()
+        }
+    }
 
     private(set) var sections: [NotificationFeedDaySection] = []
     private(set) var sourceItemCount = 0
@@ -51,7 +57,23 @@ final class NotificationFeedProjection {
     }
 
     private func rebuild() {
-        let visibleItems = filter.apply(to: sourceItems).sorted { lhs, rhs in
+        let query = searchText.trimmingCharacters(in: .whitespacesAndNewlines)
+        let filteredItems = filter.apply(to: sourceItems)
+        let searchedItems = query.isEmpty
+            ? filteredItems
+            : filteredItems.filter { item in
+                [
+                    item.title,
+                    item.subtitle,
+                    item.body,
+                    item.workspaceTitle,
+                    item.surfaceTitle,
+                    item.macDisplayName,
+                ]
+                .compactMap(\.self)
+                .contains { $0.localizedStandardContains(query) }
+            }
+        let visibleItems = searchedItems.sorted { lhs, rhs in
             if lhs.createdAt != rhs.createdAt {
                 return lhs.createdAt > rhs.createdAt
             }

@@ -50,6 +50,7 @@ public struct WorkspaceListLayoutPreviewView: View {
     @State private var model: WorkspaceListLayoutPreviewModel
     @State private var selectedPrimaryTab: MobilePrimaryTab = .workspaces
     @State private var workspaceSearchText = ""
+    @State private var notificationSearchText = ""
     // Safety: DEBUG screenshot-only presenter is owned by this preview view and
     // only mutates its fired flag from the SwiftUI task that requests the banner.
     private let notificationPresenter = ScreenshotNotificationPresenter()
@@ -325,7 +326,8 @@ public struct WorkspaceListLayoutPreviewView: View {
                 if showsTabScaffold {
                     MobilePrimaryTabScaffold(
                         selection: $selectedPrimaryTab,
-                        searchText: $workspaceSearchText,
+                        workspaceSearchText: $workspaceSearchText,
+                        notificationSearchText: $notificationSearchText,
                         notificationUnreadCount: 0
                     ) {
                         workspaceListStack

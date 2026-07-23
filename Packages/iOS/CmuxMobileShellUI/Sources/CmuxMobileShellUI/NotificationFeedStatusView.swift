@@ -53,14 +53,19 @@ enum NotificationFeedEmptyState: Equatable {
     case loading
     case empty
     case allRead
+    case noSearchResults
     case unavailable
     case requiresMacUpdate
 
     static func resolve(
         sourceItemCount: Int,
         filter: MobileNotificationFeedFilter,
+        hasSearchQuery: Bool = false,
         status: MobileNotificationFeedStatus
     ) -> NotificationFeedEmptyState {
+        if hasSearchQuery {
+            return .noSearchResults
+        }
         if sourceItemCount > 0, filter == .unread {
             return .allRead
         }
@@ -131,6 +136,7 @@ struct NotificationFeedEmptyRow: View {
         case .loading: "arrow.triangle.2.circlepath"
         case .empty: "bell.badge"
         case .allRead: "checkmark.circle"
+        case .noSearchResults: "magnifyingglass"
         case .unavailable: "wifi.slash"
         case .requiresMacUpdate: "arrow.down.circle"
         }
@@ -140,7 +146,7 @@ struct NotificationFeedEmptyRow: View {
         switch state {
         case .allRead: .green
         case .unavailable, .requiresMacUpdate: .orange
-        case .loading, .empty: .accentColor
+        case .loading, .empty, .noSearchResults: .accentColor
         }
     }
 
@@ -152,6 +158,11 @@ struct NotificationFeedEmptyRow: View {
             L10n.string("mobile.notificationFeed.empty.title", defaultValue: "No notifications yet")
         case .allRead:
             L10n.string("mobile.notificationFeed.allRead.title", defaultValue: "You're all caught up")
+        case .noSearchResults:
+            L10n.string(
+                "mobile.notificationFeed.search.empty.title",
+                defaultValue: "No matching notifications"
+            )
         case .unavailable:
             L10n.string("mobile.notificationFeed.offline.title", defaultValue: "Notifications are offline")
         case .requiresMacUpdate:
@@ -175,6 +186,11 @@ struct NotificationFeedEmptyRow: View {
             L10n.string(
                 "mobile.notificationFeed.allRead.body",
                 defaultValue: "New agent alerts will appear here as they arrive."
+            )
+        case .noSearchResults:
+            L10n.string(
+                "mobile.notificationFeed.search.empty.body",
+                defaultValue: "Try another title, message, workspace, pane, or computer."
             )
         case .unavailable:
             L10n.string(

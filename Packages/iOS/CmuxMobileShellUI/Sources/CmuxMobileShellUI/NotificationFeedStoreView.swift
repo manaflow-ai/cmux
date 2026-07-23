@@ -9,11 +9,13 @@ struct NotificationFeedStoreView: View {
     @Bindable var store: CMUXMobileShellStore
     let items: [MobileNotificationFeedItem]
     let status: MobileNotificationFeedStatus
+    let searchText: String
 
     var body: some View {
         NotificationFeedView(
             items: items,
             status: status,
+            searchText: searchText,
             actions: actions
         )
         .onDisappear {

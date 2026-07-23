@@ -3707,6 +3707,57 @@
         }
       }
     },
+    "mobile.notificationFeed.search.empty.body": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Try another title, message, workspace, pane, or computer."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "別のタイトル、メッセージ、ワークスペース、ペイン、またはコンピュータをお試しください。"
+          }
+        }
+      }
+    },
+    "mobile.notificationFeed.search.empty.title": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "No matching notifications"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "一致する通知はありません"
+          }
+        }
+      }
+    },
+    "mobile.notificationFeed.search.placeholder": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Search notifications"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "通知を検索"
+          }
+        }
+      }
+    },
     "mobile.notificationFeed.title": {
       "extractionState": "manual",
       "localizations": {

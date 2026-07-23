@@ -167,6 +167,7 @@ struct WorkspaceShellView: View {
     @State private var rootToolbarSelectionGeneration: UInt64 = 0
     #endif
     @State private var workspaceSearchText = ""
+    @State private var notificationSearchText = ""
     @State private var hasPresentedSplitDetail = false
     @State private var splitColumnVisibility: NavigationSplitViewVisibility = .automatic
     @State private var macSelection: WorkspaceMacSelection = .all
@@ -215,7 +216,8 @@ struct WorkspaceShellView: View {
         GeometryReader { geometry in
             MobilePrimaryTabScaffold(
                 selection: $selectedPrimaryTab,
-                searchText: $workspaceSearchText,
+                workspaceSearchText: $workspaceSearchText,
+                notificationSearchText: $notificationSearchText,
                 notificationUnreadCount: presentation.notificationUnreadCount
             ) {
                 workspaceTabContent(
@@ -226,7 +228,8 @@ struct WorkspaceShellView: View {
                     NotificationFeedStoreView(
                         store: store,
                         items: presentation.notificationFeedItems,
-                        status: presentation.notificationFeedStatus
+                        status: presentation.notificationFeedStatus,
+                        searchText: notificationSearchText
                     )
                         .toolbar {
                             if notificationNavigationPath.isEmpty {
