@@ -162,6 +162,12 @@ class FakeRunner:
     ) -> dict[str, Any]:
         params = deepcopy(params or {})
         self.events.append(("rpc", method, params, timeout))
+        if method == "surface.respawn":
+            return {
+                "surface_id": params["surface_id"],
+                "workspace_id": params["workspace_id"],
+                "type": "terminal",
+            }
         if method == "debug.session_snapshot_seed_scrollback":
             chars = params["characters_per_terminal"]
             terminals = sum(item["type"] == "terminal" for item in self.surfaces)
@@ -371,28 +377,36 @@ def test_fixture_uses_one_workspace_and_pane_exact_local_identity_and_scrollback
         and event[1][event[1].index("--pane") + 1] == runner.pane
         for event in pane_calls
     )
-    terminal_calls = [event for event in pane_calls if event[1][event[1].index("--type") + 1] == "terminal"]
-    assert len(terminal_calls) == 2
-    assert all(
-        event[1][event[1].index("--working-directory") + 1] == str(cfg.output_root)
-        for event in terminal_calls
-    )
-    close = next(
+    terminal_calls = [
         event
-        for event in runner.events
-        if event[0] == "run_cli" and event[1][0] == "close-surface"
+        for event in pane_calls
+        if event[1][event[1].index("--type") + 1] == "terminal"
+    ]
+    assert len(terminal_calls) == 1
+    assert terminal_calls[0][1][terminal_calls[0][1].index("--working-directory") + 1] == str(
+        cfg.output_root
     )
-    assert runner.initial_terminal in close[1]
+    respawn = next(event for event in runner.events if event[:2] == ("rpc", "surface.respawn"))
+    assert respawn[2] == {
+        "workspace_id": runner.workspace,
+        "surface_id": runner.initial_terminal,
+        "working_directory": str(cfg.output_root),
+        "focus": False,
+    }
+    assert not any(
+        event[0] == "run_cli" and event[1][0] == "close-surface"
+        for event in runner.events
+    )
     seed = next(event for event in runner.events if event[:2] == ("rpc", "debug.session_snapshot_seed_scrollback"))
     assert seed[2] == {"characters_per_terminal": 60}
     waits = [event for event in runner.events if event[:2] == ("rpc", "browser.wait")]
     assert {event[2]["surface_id"] for event in waits} == set(adapter._browser_actual_ids.values())
     assert all(event[2]["load_state"] == "complete" and event[2]["timeout_ms"] == 60_000 for event in waits)
     assert adapter.raw_details["fixture"]["planned_to_actual"] == {
-        "terminal-001": "surface:2",
-        "terminal-002": "surface:3",
-        "browser-mixed-test-001": "surface:4",
-        "browser-mixed-test-002": "surface:5",
+        "terminal-001": "surface:initial",
+        "terminal-002": "surface:2",
+        "browser-mixed-test-001": "surface:3",
+        "browser-mixed-test-002": "surface:4",
     }
     json.dumps(adapter.raw_details)
 
@@ -424,6 +438,7 @@ def test_fixture_rejects_nonterminal_startup_surface_before_mutation(tmp_path: P
     assert not any(
         (event[0] == "json_cli" and event[1][0] == "new-surface")
         or (event[0] == "run_cli" and event[1][0] == "close-surface")
+        or (event[0] == "rpc" and event[1] == "surface.respawn")
         for event in runner.events
     )
 
@@ -436,6 +451,7 @@ def test_browser_only_closes_initial_terminal_and_does_not_seed_scrollback(tmp_p
     close = next(event for event in runner.events if event[0] == "run_cli" and event[1][0] == "close-surface")
     assert runner.initial_terminal in close[1]
     assert not any(event[:2] == ("rpc", "debug.session_snapshot_seed_scrollback") for event in runner.events)
+    assert not any(event[:2] == ("rpc", "surface.respawn") for event in runner.events)
     assert [item["type"] for item in runner.surfaces] == ["browser", "browser"]
 
 
