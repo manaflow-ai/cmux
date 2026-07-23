@@ -760,6 +760,45 @@ struct ComputerUseUXTests {
         #expect(getenv(ComputerUseRuntimePaths.authenticationTokenEnvironmentKey) == nil)
     }
 
+    @Test @MainActor func privateDaemonCredentialSurvivesHostRestart() throws {
+        let root = FileManager.default.temporaryDirectory
+            .appendingPathComponent(
+                "cmux-computer-use-restart-\(UUID().uuidString)",
+                isDirectory: true
+            )
+        defer { try? FileManager.default.removeItem(at: root) }
+        let home = root.appendingPathComponent("home", isDirectory: true)
+        let sockets = root.appendingPathComponent("sockets", isDirectory: true)
+        try FileManager.default.createDirectory(at: home, withIntermediateDirectories: true)
+        try FileManager.default.createDirectory(at: sockets, withIntermediateDirectories: true)
+
+        let credential = String(repeating: "a1", count: 32)
+        let firstLaunch = ComputerUseRuntimePaths(
+            homeDirectoryURL: home,
+            socketRootDirectoryURL: sockets,
+            userIdentifier: getuid(),
+            environment: ["CMUX_TAG": "restart-safe"],
+            authenticationToken: credential
+        )
+        let runtime = ComputerUseRuntimeService(paths: firstLaunch)
+        #expect(runtime.prepareRuntimeForLaunch())
+
+        runtime.stopForTermination()
+
+        #expect(
+            try String(contentsOf: firstLaunch.authenticationTokenFileURL, encoding: .utf8)
+                .trimmingCharacters(in: .whitespacesAndNewlines)
+                == credential
+        )
+        let relaunched = ComputerUseRuntimePaths(
+            homeDirectoryURL: home,
+            socketRootDirectoryURL: sockets,
+            userIdentifier: getuid(),
+            environment: ["CMUX_TAG": "restart-safe"]
+        )
+        #expect(relaunched.authenticationToken == credential)
+    }
+
     @Test func helperLaunchConfigurationIsQuietAndExternallyOwned() throws {
         let paths = ComputerUseRuntimePaths(
             homeDirectoryURL: URL(fileURLWithPath: "/Users/tester"),
