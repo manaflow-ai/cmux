@@ -629,6 +629,32 @@ extension AgentNotificationRegressionTests {
         #expect(fixture.source.agentLifecycleStatesByPanelId[fixture.panelId]?["claude_code"] == nil)
     }
 
+    @Test("Arbitrary sidebar keys do not grow durable lifecycle watermarks")
+    func arbitrarySidebarKeysDoNotGrowLifecycleWatermarks() throws {
+        let fixture = try makeFixture()
+        defer { fixture.restore() }
+
+        for index in 0..<64 {
+            let key = "custom-status-\(index)"
+            let decision = fixture.source.upsertSidebarStatusEntry(
+                key: key,
+                value: "Value \(index)",
+                icon: nil,
+                color: nil,
+                url: nil,
+                priority: 0,
+                format: .plain,
+                panelId: fixture.panelId,
+                pid: nil,
+                agentEventTime: 1_893_456_200 + TimeInterval(index)
+            )
+            #expect(decision == .replace)
+        }
+
+        #expect(fixture.source.statusEntries["custom-status-63"]?.agentEventTime == 1_893_456_263)
+        #expect(fixture.source.agentLifecycleEventTimesByPanelId[fixture.panelId]?.isEmpty != false)
+    }
+
     @Test("Agent notification delivery and clear share event ordering")
     func agentNotificationDeliveryAndClearShareEventOrdering() throws {
         let fixture = try makeFixture()

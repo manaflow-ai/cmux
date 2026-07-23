@@ -615,6 +615,49 @@ struct RemoteResumeBindingTests {
     }
 
     @Test
+    func resumeClearOrderingSurvivesSessionSnapshotRelaunch() throws {
+        let workspace = Workspace()
+        let surfaceID = try #require(workspace.focusedPanelId)
+        let originalBinding = SurfaceResumeBindingSnapshot(
+            kind: "codex",
+            command: "codex resume original-session",
+            checkpointId: "original-session",
+            source: "agent-hook",
+            updatedAt: 1_893_456_100
+        )
+        let delayedBinding = SurfaceResumeBindingSnapshot(
+            kind: "codex",
+            command: "codex resume delayed-session",
+            checkpointId: "delayed-session",
+            source: "agent-hook",
+            updatedAt: 1_893_456_200
+        )
+
+        #expect(workspace.setSurfaceResumeBinding(
+            originalBinding,
+            panelId: surfaceID,
+            agentEventTime: originalBinding.updatedAt
+        ))
+        #expect(workspace.clearSurfaceResumeBinding(
+            panelId: surfaceID,
+            eventTime: 1_893_456_300
+        ))
+
+        let encoded = try JSONEncoder().encode(workspace.sessionSnapshot(includeScrollback: false))
+        let persistedSnapshot = try JSONDecoder().decode(SessionWorkspaceSnapshot.self, from: encoded)
+        let restoredWorkspace = Workspace()
+        let restoredIDs = restoredWorkspace.restoreSessionSnapshot(persistedSnapshot)
+        let restoredSurfaceID = try #require(restoredIDs[surfaceID])
+
+        #expect(!restoredWorkspace.setSurfaceResumeBinding(
+            delayedBinding,
+            panelId: restoredSurfaceID,
+            agentEventTime: delayedBinding.updatedAt
+        ))
+        #expect(restoredWorkspace.surfaceResumeBinding(panelId: restoredSurfaceID) == nil)
+    }
+
+    @Test
     func remoteRegistrationRejectsMissingProvenanceAndInvalidPersistentOwnership() throws {
         _ = NSApplication.shared
         let previousAppDelegate = AppDelegate.shared

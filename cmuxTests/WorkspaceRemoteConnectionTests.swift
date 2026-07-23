@@ -5156,6 +5156,76 @@ final class CLINotifyProcessIntegrationTests: XCTestCase {
         )
     }
 
+    func testCodexPromptSubmitMonitorPreservesHookEventOrdering() throws {
+        let cliPath = try bundledCLIPath()
+        let socketPath = makeSocketPath("codex")
+        let listenerFD = try bindUnixSocket(at: socketPath)
+        let state = MockSocketServerState()
+        let root = FileManager.default.temporaryDirectory
+            .appendingPathComponent("cmux-codex-monitor-ordering-\(UUID().uuidString)", isDirectory: true)
+        let workspaceId = "11111111-1111-1111-1111-111111111111"
+        let surfaceId = "22222222-2222-2222-2222-222222222222"
+        let sessionId = "codex-session-monitor-ordering"
+        let eventTime = "1893456200.000000"
+
+        try FileManager.default.createDirectory(at: root, withIntermediateDirectories: true)
+        defer {
+            Darwin.close(listenerFD)
+            unlink(socketPath)
+            try? FileManager.default.removeItem(at: root)
+        }
+
+        let transcriptURL = root.appendingPathComponent("rollout-\(sessionId).jsonl")
+        try """
+        {"timestamp":"2026-04-25T07:55:29.462Z","type":"session_meta","payload":{"id":"\(sessionId)","cwd":"\(root.path)"}}
+        {"timestamp":"2026-04-25T07:55:29.500Z","type":"event_msg","payload":{"type":"task_started","turnId":"turn-monitor-ordering","started_at":1777107522}}
+        {"timestamp":"2026-04-25T07:55:29.803Z","type":"event_msg","payload":{"type":"error","message":"Stream disconnected before completion.","codex_error_info":"response_stream_disconnected"}}
+        """.write(to: transcriptURL, atomically: true, encoding: .utf8)
+
+        startMockServerAccepting(listenerFD: listenerFD, state: state, connectionLimit: 6) { line in
+            guard let data = line.data(using: .utf8),
+                  let payload = try? JSONSerialization.jsonObject(with: data, options: []) as? [String: Any],
+                  let id = payload["id"] as? String else {
+                return "OK"
+            }
+            return self.v2Response(
+                id: id,
+                ok: true,
+                result: ["surfaces": [["id": surfaceId, "ref": surfaceId, "focused": true]]]
+            )
+        }
+
+        var environment = ProcessInfo.processInfo.environment
+        environment["CMUX_SOCKET_PATH"] = socketPath
+        environment["CMUX_WORKSPACE_ID"] = workspaceId
+        environment["CMUX_SURFACE_ID"] = surfaceId
+        environment["CMUX_AGENT_HOOK_STATE_DIR"] = root.path
+        environment["CMUX_AGENT_HOOK_CAPTURED_AT"] = eventTime
+        environment["CMUX_CLI_SENTRY_DISABLED"] = "1"
+
+        let hookInput = """
+        {"session_id":"\(sessionId)","turn_id":"turn-monitor-ordering","transcript_path":"\(transcriptURL.path)","cwd":"\(root.path)","hook_event_name":"UserPromptSubmit","prompt":"run"}
+        """
+        let result = runProcess(
+            executablePath: cliPath,
+            arguments: ["hooks", "codex", "prompt-submit"],
+            environment: environment,
+            standardInput: hookInput,
+            timeout: 5
+        )
+
+        XCTAssertFalse(result.timedOut, result.stderr)
+        XCTAssertEqual(result.status, 0, result.stderr)
+        XCTAssertEqual(result.stdout, "{}\n")
+        XCTAssertTrue(
+            waitForSocketCommand(state: state, timeout: 5) { command in
+                command.contains("set_status codex Codex network error") &&
+                    command.contains("--agent-event-time=\(eventTime)")
+            },
+            "Expected the spawned monitor to preserve the prompt event time, saw \(state.snapshot())"
+        )
+    }
+
     func testCodexHookMonitorReportsExplicitErrorBeforeTerminalCompletion() throws {
         let cliPath = try bundledCLIPath()
         let socketPath = makeSocketPath("codex")
