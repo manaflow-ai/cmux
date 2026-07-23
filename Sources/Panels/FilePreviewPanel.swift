@@ -953,7 +953,7 @@ enum FilePreviewTextLoader {
 
 enum FilePreviewTextSaver {
     enum Result: Sendable {
-        case saved(fileState: FilePreviewFileState)
+        case saved
         case failed(fileExists: Bool)
     }
 
@@ -965,7 +965,7 @@ enum FilePreviewTextSaver {
 
         do {
             try data.write(to: url, options: [])
-            return .saved(fileState: .capture(path: url.path))
+            return .saved
         } catch {
             return .failed(fileExists: FileManager.default.fileExists(atPath: url.path))
         }
@@ -1179,7 +1179,7 @@ final class FilePreviewPanel: Panel, ObservableObject, FilePreviewTextEditingPan
             guard let self, !self.isClosed else { return }
 
             if resolvedMode != self.previewMode {
-                self.applyResolvedPreviewMode(resolvedMode)
+                await self.applyResolvedPreviewMode(resolvedMode)?.value
                 return
             }
 
@@ -1194,11 +1194,13 @@ final class FilePreviewPanel: Panel, ObservableObject, FilePreviewTextEditingPan
         }
     }
 
-    private func prepareContentForPreviewMode() {
+    @discardableResult
+    private func prepareContentForPreviewMode() -> Task<Void, Never>? {
         if previewMode == .text {
-            loadTextContent(replacingDirtyContent: false)
+            return loadTextContent(replacingDirtyContent: false)
         } else {
             isFileUnavailable = !FileManager.default.fileExists(atPath: filePath)
+            return nil
         }
     }
 
@@ -1213,12 +1215,13 @@ final class FilePreviewPanel: Panel, ObservableObject, FilePreviewTextEditingPan
             guard let self else { return }
             let resolvedIcon = FilePreviewKindResolver.iconName(for: resolvedMode)
             guard resolvedMode != initialMode || resolvedIcon != initialIcon else { return }
-            self.applyResolvedPreviewMode(resolvedMode)
+            await self.applyResolvedPreviewMode(resolvedMode)?.value
         }
     }
 
-    private func applyResolvedPreviewMode(_ mode: FilePreviewMode) {
-        guard previewMode != mode else { return }
+    @discardableResult
+    private func applyResolvedPreviewMode(_ mode: FilePreviewMode) -> Task<Void, Never>? {
+        guard previewMode != mode else { return nil }
         if mode != .text {
             textLoadCoordinator.cancel()
         }
@@ -1226,7 +1229,7 @@ final class FilePreviewPanel: Panel, ObservableObject, FilePreviewTextEditingPan
         displayIcon = FilePreviewKindResolver.iconName(for: mode)
         focusCoordinator.notePreferredIntent(Self.defaultFocusIntent(for: mode))
         nativeViewSessions.closeInactive(except: mode)
-        prepareContentForPreviewMode()
+        return prepareContentForPreviewMode()
     }
 
     @discardableResult
@@ -1301,18 +1304,17 @@ final class FilePreviewPanel: Panel, ObservableObject, FilePreviewTextEditingPan
             guard let self, self.activeSaveGeneration == generation else { return }
             self.activeSaveGeneration = nil
             self.isSaving = false
+            let reconciliationTask: Task<Void, Never>?
             switch result {
-            case .saved(let fileState):
+            case .saved:
                 self.originalTextContent = currentContent
                 self.isDirty = self.textContent != currentContent
                 self.isFileUnavailable = false
-                self.lastObservedFileState = fileState
+                reconciliationTask = self.reloadFromDisk()
             case .failed(let fileExists):
                 self.isFileUnavailable = !fileExists
+                reconciliationTask = self.handleObservedFileChange()
             }
-            // Reconcile from the exact write fingerprint instead of relying on
-            // watcher event counts, which may be coalesced while saving.
-            let reconciliationTask = self.handleObservedFileChange()
             await reconciliationTask?.value
         }
     }
