@@ -1035,15 +1035,8 @@ def check_explicit_surface_routing(bun: str, root: Path, extension_path: Path) -
 set -euo pipefail
 printf '%s\n' "$*" >> "$CMUX_TEST_PI_EXPLICIT_LOG"
 cat >/dev/null
-case "$*" in
-  *"surface resume set"*)
-    printf 'Error: not_found: Surface not found\n' >&2
-    exit 1
-    ;;
-  *)
-    printf '{}\n'
-    ;;
-esac
+printf 'Error: not_found: Surface not found\n' >&2
+exit 1
 """,
     )
     explicit_source = """
@@ -1070,8 +1063,15 @@ await handlers.get("before_agent_start")({ prompt: "route after stale resume tar
         print(f"FAIL: explicit-surface harness failed: {explicit.stderr!r}")
         return 1
     explicit_calls = explicit_log.read_text(encoding="utf-8").splitlines()
-    if len(explicit_calls) != 3 or "hooks pi prompt-submit" not in explicit_calls[-1]:
-        print(f"FAIL: stale resume target disabled recoverable lifecycle routing: {explicit_calls!r}")
+    if len(explicit_calls) != 1 or "hooks pi session-start" not in explicit_calls[0]:
+        print(f"FAIL: stale explicit target was retried by Pi lifecycle routing: {explicit_calls!r}")
+        return 1
+    expected_target = (
+        "--workspace 00000000-0000-0000-0000-000000008673 "
+        "--surface 00000000-0000-0000-0000-000000008672"
+    )
+    if expected_target not in explicit_calls[0]:
+        print(f"FAIL: Pi lifecycle command omitted its strict surface target: {explicit_calls!r}")
         return 1
 
     return 0

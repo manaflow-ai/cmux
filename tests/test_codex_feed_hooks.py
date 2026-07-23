@@ -2639,6 +2639,94 @@ def test_pi_feed_rejects_failed_server_ack(cli_path: str, root: Path) -> None:
         )
 
 
+def test_pi_feed_rejects_connection_failure(cli_path: str, root: Path) -> None:
+    socket_path = root / "missing-pi-feed.sock"
+    env = os.environ.copy()
+    for key in ("CMUX_SOCKET", "CMUX_SOCKET_CAPABILITY", "CMUX_SOCKET_PATH", "CMUX_SOCKET_PASSWORD"):
+        env.pop(key, None)
+    env["CMUX_SURFACE_ID"] = FAKE_SURFACE_ID
+    env["CMUX_WORKSPACE_ID"] = FAKE_WORKSPACE_ID
+    payload = {
+        "session_id": "pi-connection-failure-session",
+        "cwd": "/tmp/pi-connection-failure-project",
+        "hook_event_name": "PostToolUse",
+        "tool_call_id": "pi-connection-failure-tool",
+        "tool_name": "bash",
+    }
+
+    result = subprocess.run(
+        [
+            cli_path,
+            "--socket",
+            str(socket_path),
+            "hooks",
+            "feed",
+            "--source",
+            "pi",
+            "--event",
+            "PostToolUse",
+        ],
+        input=json.dumps(payload),
+        capture_output=True,
+        text=True,
+        check=False,
+        env=env,
+        timeout=10,
+    )
+
+    if result.returncode == 0:
+        raise AssertionError(
+            "Pi feed subprocess accepted a connection failure: "
+            f"stdout={result.stdout!r} stderr={result.stderr!r}"
+        )
+
+
+def test_pi_hook_rejects_invalid_explicit_surface(cli_path: str, root: Path) -> None:
+    socket_path = root / "cmux-pi-invalid-explicit-surface.sock"
+    invalid_surface_id = "33333333-3333-3333-3333-333333333333"
+    env = os.environ.copy()
+    for key in ("CMUX_SOCKET", "CMUX_SOCKET_CAPABILITY", "CMUX_SOCKET_PATH", "CMUX_SOCKET_PASSWORD"):
+        env.pop(key, None)
+    env["CMUX_SURFACE_ID"] = invalid_surface_id
+    env["CMUX_WORKSPACE_ID"] = FAKE_WORKSPACE_ID
+    payload = {
+        "session_id": "pi-invalid-surface-session",
+        "cwd": "/tmp/pi-invalid-surface-project",
+        "hook_event_name": "UserPromptSubmit",
+        "prompt": "strict target",
+    }
+
+    with FakeCmuxSocket(socket_path, None) as fake:
+        result = subprocess.run(
+            [
+                cli_path,
+                "--socket",
+                str(socket_path),
+                "hooks",
+                "pi",
+                "prompt-submit",
+                "--workspace",
+                FAKE_WORKSPACE_ID,
+                "--surface",
+                invalid_surface_id,
+            ],
+            input=json.dumps(payload),
+            capture_output=True,
+            text=True,
+            check=False,
+            env=env,
+            timeout=10,
+        )
+
+    if result.returncode == 0:
+        raise AssertionError(
+            "Pi hook accepted an invalid explicit surface: "
+            f"stdout={result.stdout!r} stderr={result.stderr!r} frames={fake.frames!r}"
+        )
+    if any(frame.get("method") == "feed.push" for frame in fake.frames):
+        raise AssertionError(f"invalid explicit Pi surface emitted Feed telemetry: {fake.frames!r}")
+
+
 def test_claude_subagent_stop_stays_distinct_feed_telemetry(cli_path: str, root: Path) -> None:
     stdout, frame = run_feed_hook(
         cli_path,
@@ -2718,6 +2806,8 @@ def main() -> int:
             test_pi_compacted_feed_rejects_failed_server_ack(cli_path, root)
             test_pi_feed_waits_for_server_ack(cli_path, root)
             test_pi_feed_rejects_failed_server_ack(cli_path, root)
+            test_pi_feed_rejects_connection_failure(cli_path, root)
+            test_pi_hook_rejects_invalid_explicit_surface(cli_path, root)
             test_claude_subagent_stop_stays_distinct_feed_telemetry(cli_path, root)
         except Exception as exc:
             print(f"FAIL: {exc}")
