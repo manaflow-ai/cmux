@@ -121,7 +121,9 @@ struct ComputerUseUXTests {
                     sessionID: "session-older",
                     workspaceID: UUID(),
                     surfaceID: olderSurfaceID,
-                    targetIdentity: nil
+                    rootProcessIDs: [],
+                    targetIdentity: nil,
+                    stateWriterPID: nil
                 ),
                 ComputerUseMenuBarRow(
                     id: "newer",
@@ -129,7 +131,9 @@ struct ComputerUseUXTests {
                     sessionID: "session-newer",
                     workspaceID: UUID(),
                     surfaceID: newerSurfaceID,
-                    targetIdentity: nil
+                    rootProcessIDs: [],
+                    targetIdentity: nil,
+                    stateWriterPID: nil
                 ),
             ]
             let scan = ComputerUseStateRepository().scan(
@@ -191,19 +195,33 @@ struct ComputerUseUXTests {
     }
 
     @Test func parsesRealDriverStateFileShape() throws {
-        // Byte shape captured from a live cua-driver 0.7.1 state file: driver_pid
-        // (not pid), null session, RFC3339 last_action_at with 6-digit fraction.
+        // The helper daemon owns driver_pid while the kernel-authenticated MCP
+        // proxy that issued the action is recorded independently as writer_pid.
         let json = """
-        {"driver_pid":71790,"session":null,"target_app":"Calculator","target_pid":71241,\
-        "target_window_id":87692,"last_action_at":"2026-07-14T01:09:37.745752Z","schema":1}
+        {"driver_pid":71790,"writer_pid":71600,"session":null,"target_app":"Calculator",\
+        "target_pid":71241,"target_window_id":87692,\
+        "last_action_at":"2026-07-14T01:09:37.745752Z","schema":2}
         """
         let state = try #require(ComputerUseDriverState(data: Data(json.utf8)))
         #expect(state.pid == 71790)
+        #expect(state.writerPID == 71600)
         #expect(state.session == nil)
         #expect(state.targetApp == "Calculator")
         #expect(state.targetPID == 71241)
         #expect(state.targetWindowID == 87692)
         #expect(abs(state.lastActionAt.timeIntervalSince1970 - 1_783_991_377.745) < 0.01)
+    }
+
+    @Test func stateEligibilityUsesAuthenticatedWriterInsteadOfHelperDaemon() throws {
+        let currentPID = Int(ProcessInfo.processInfo.processIdentifier)
+        let json = """
+        {"driver_pid":2,"writer_pid":\(currentPID),"session":"surface-a",\
+        "target_app":"Calculator","target_pid":\(currentPID),"target_window_id":1,\
+        "last_action_at":"2026-07-14T01:09:37.745752Z","schema":2}
+        """
+        let state = try #require(ComputerUseDriverState(data: Data(json.utf8)))
+
+        #expect(state.belongsToProcessTree(rootProcessIDs: [currentPID]))
     }
 
     @Test func computerUseSettingsNavigationRawValuesStayInSync() {
@@ -753,18 +771,66 @@ struct ComputerUseUXTests {
     }
 
     @Test @MainActor func computerUsePresentationModeResetsAfterLiveSessionsEnd() {
+        let logicalSessionA = "logical-session-a"
+        let logicalSessionB = "logical-session-b"
+        let currentPID = Int(ProcessInfo.processInfo.processIdentifier)
+        var liveDriverSessions = [
+            "session-a": ComputerUseLiveDriverSession(
+                logicalSessionID: logicalSessionA,
+                rootProcessIDs: [currentPID]
+            ),
+            "session-b": ComputerUseLiveDriverSession(
+                logicalSessionID: logicalSessionB,
+                rootProcessIDs: [currentPID]
+            ),
+        ]
         let controller = ComputerUseWatchTargetController(
             stateDirectoryURL: FileManager.default.temporaryDirectory,
-            featureEnabled: { true }
+            featureEnabled: { true },
+            liveDriverSessions: { liveDriverSessions }
         )
 
-        #expect(!controller.isRunningInBackground(driverSessionID: "session-a"))
-        controller.continueInBackground(driverSessionID: "session-a")
-        #expect(controller.isRunningInBackground(driverSessionID: "session-a"))
-        #expect(!controller.isRunningInBackground(driverSessionID: "session-b"))
-        controller.continueInBackground(driverSessionID: "session-b")
-        #expect(controller.isRunningInBackground(driverSessionID: "session-a"))
-        #expect(controller.isRunningInBackground(driverSessionID: "session-b"))
+        #expect(!controller.isRunningInBackground(
+            driverSessionID: "session-a",
+            logicalSessionID: logicalSessionA
+        ))
+        #expect(controller.continueInBackground(
+            driverSessionID: "session-a",
+            logicalSessionID: logicalSessionA,
+            stateWriterPID: currentPID
+        ))
+        #expect(controller.isRunningInBackground(
+            driverSessionID: "session-a",
+            logicalSessionID: logicalSessionA
+        ))
+        #expect(!controller.isRunningInBackground(
+            driverSessionID: "session-b",
+            logicalSessionID: logicalSessionB
+        ))
+        #expect(controller.continueInBackground(
+            driverSessionID: "session-b",
+            logicalSessionID: logicalSessionB,
+            stateWriterPID: currentPID
+        ))
+        #expect(controller.isRunningInBackground(
+            driverSessionID: "session-a",
+            logicalSessionID: logicalSessionA
+        ))
+        #expect(controller.isRunningInBackground(
+            driverSessionID: "session-b",
+            logicalSessionID: logicalSessionB
+        ))
+
+        liveDriverSessions["session-a"] =
+            ComputerUseLiveDriverSession(
+                logicalSessionID: "replacement-session",
+                rootProcessIDs: [currentPID]
+            )
+        #expect(!controller.continueInBackground(
+            driverSessionID: "session-a",
+            logicalSessionID: logicalSessionA,
+            stateWriterPID: currentPID
+        ))
     }
 
     @Test func watchTargetDoesNotReFrontAfterUserFocusAwayOrIdleGap() {
@@ -1016,17 +1082,18 @@ struct ComputerUseUXTests {
         targetPID: Int,
         lastActionAt: Date
     ) throws {
-        // Mirrors the driver's schema-1 shape (driver_pid + RFC3339 timestamp).
+        // Mirrors the authenticated driver's schema-2 shape.
         let formatter = ISO8601DateFormatter()
         formatter.formatOptions = [.withInternetDateTime, .withFractionalSeconds]
         let object: [String: Any] = [
             "driver_pid": pid,
+            "writer_pid": pid,
             "session": session as Any? ?? NSNull(),
             "target_app": "Example App",
             "target_pid": targetPID,
             "target_window_id": 7,
             "last_action_at": formatter.string(from: lastActionAt),
-            "schema": 1,
+            "schema": 2,
         ]
         let data = try JSONSerialization.data(withJSONObject: object)
         try data.write(to: url, options: .atomic)
