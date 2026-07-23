@@ -473,31 +473,31 @@ import Testing
         #expect(!TerminalController.isAllowedRemoteTmuxTestCommand(arguments))
     }
 
-    /// `send-keys` is the one verb whose payload cannot be checked, and this pins that on purpose.
+    /// A caller cannot supply a `send-keys` payload at all: the app owns it.
     ///
-    /// The content oracle types a shell one-liner into a pane and reads the result back, so any rule
-    /// that accepts the oracle's ruler also accepts `sh -c id` — typing is what the verb does. This
-    /// case used to sit in the reject list above, written before the oracle needed that, and it went
-    /// red when the payload was allowed. What stops a caller is the gate above the policy rather
-    /// than the argument: `remote.tmux.test_exec` requires `CMUX_UI_TEST_MODE=1` and a `tmpdir`
-    /// equal to the app's own `TMUX_TMPDIR`. The target and the trailing key are still checked, so
-    /// a payload cannot smuggle in a second command or a `#()` format.
+    /// The content oracle needs a shell one-liner typed into a pane, and an earlier version of this
+    /// test allowed any payload for a pinned target to make that possible — which read as
+    /// "send-keys is a hole". The policy instead expands the semantic verb `start-ruler` into the one
+    /// payload the app itself writes, so the oracle asks for a named behaviour and never carries a
+    /// command. Every direct `send-keys` is rejected, whatever the target or trailing key.
     @Test(arguments: [
         ["send-keys", "-t", "%1", "sh -c id", "Enter"],
         ["send-keys", "-t", "sizing:@0.%1", "printf 'x'; sleep 2", "Enter"],
-    ])
-    func uiTestTmuxPolicyAllowsAnyKeystrokePayloadForAPinnedTarget(_ arguments: [String]) {
-        #expect(TerminalController.isAllowedRemoteTmuxTestCommand(arguments))
-    }
-
-    /// The target and the trailing key are the parts that are checked, so these stay rejected even
-    /// though the verb is the same — otherwise the case above would read as "send-keys is a hole".
-    @Test(arguments: [
         ["send-keys", "-t", "sizing; touch /tmp/owned", "echo hi", "Enter"],
         ["send-keys", "-t", "%1", "echo hi", "C-c"],
         ["send-keys", "-t", "%1", "echo hi"],
     ])
-    func uiTestTmuxPolicyStillChecksTheSendKeysTargetAndTrailingKey(_ arguments: [String]) {
+    func uiTestTmuxPolicyRejectsEveryDirectSendKeys(_ arguments: [String]) {
         #expect(!TerminalController.isAllowedRemoteTmuxTestCommand(arguments))
+    }
+
+    /// And the verb the oracle actually uses still expands, so rejecting the raw form above did not
+    /// take the oracle's ability to type with it.
+    @Test func uiTestTmuxPolicyExpandsTheRulerVerbIntoAnOwnedPayload() {
+        let expanded = TerminalController.remoteTmuxTestCommandArguments(["start-ruler", "-t", "%1"])
+        #expect(expanded?.first == "send-keys")
+        #expect(expanded?.dropFirst().first == "-t")
+        #expect(expanded?.dropFirst(2).first == "%1")
+        #expect(expanded?.last == "Enter")
     }
 }
