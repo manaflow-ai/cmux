@@ -243168,6 +243168,23 @@
         }
       }
     },
+    "cli.projectFiles.error.ambiguousAgentIdentity": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Multiple agent session identities are present; refusing to assign project files to an inherited parent session."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "複数のエージェントセッション ID が存在するため、継承された親セッションへのプロジェクトファイルの割り当てを拒否しました。"
+          }
+        }
+      }
+    },
     "mobile.chat.artifact.error.saveFailed": {
       "extractionState": "manual",
       "localizations": {

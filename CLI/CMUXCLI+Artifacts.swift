@@ -53,7 +53,7 @@ extension CMUXCLI {
             case "add":
                 let rawPath = try artifactRequiredOperand(parsed.operands, subcommand: "add")
                 let sourceURL = projectFilesURL(rawPath)
-                let context = projectFilesCaptureContext(
+                let context = try projectFilesCaptureContext(
                     projectRoot: projectRoot,
                     environment: processEnvironment
                 )
