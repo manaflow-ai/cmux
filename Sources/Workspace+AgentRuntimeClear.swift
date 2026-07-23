@@ -66,8 +66,7 @@ extension Workspace {
         statusKey: String,
         panelId: UUID?,
         agentEventTime: TimeInterval?,
-        enforceOrdering: Bool,
-        enforceStructuredAgentReplacementOrdering: Bool = false
+        enforceOrdering: Bool
     ) -> Bool {
         guard enforceOrdering, let panelId else { return true }
         let lifecycleEventTime = agentLifecycleEventTimesByPanelId[panelId]?[statusKey]
@@ -76,14 +75,11 @@ extension Workspace {
                 ? entry.agentEventTime
                 : nil
         }
-        let paneReplacementWatermark = (agentLifecycleEventTimesByPanelId[panelId] ?? [:])
-            .filter { entry in
-                entry.key != statusKey && AgentHibernationLifecycleStatusKeys.allowedStatusKeys.contains(entry.key)
-            }
-            .values
-            .max()
-        if enforceStructuredAgentReplacementOrdering,
-           let replacementWatermark = paneReplacementWatermark {
+        if AgentHibernationLifecycleStatusKeys.allowedStatusKeys.contains(statusKey),
+           let replacementWatermark = structuredAgentReplacementWatermark(
+               panelId: panelId,
+               excludingStatusKey: statusKey
+           ) {
             guard let agentEventTime, agentEventTime > replacementWatermark else {
                 return false
             }
@@ -105,5 +101,25 @@ extension Workspace {
             }
         }
         return true
+    }
+
+    private func structuredAgentReplacementWatermark(
+        panelId: UUID,
+        excludingStatusKey statusKey: String
+    ) -> TimeInterval? {
+        let lifecycleWatermarks = (agentLifecycleEventTimesByPanelId[panelId] ?? [:]).compactMap { entry in
+            entry.key != statusKey && AgentHibernationLifecycleStatusKeys.allowedStatusKeys.contains(entry.key)
+                ? entry.value
+                : nil
+        }
+        let statusWatermarks = statusEntries.compactMap { statusEntry in
+            guard statusEntry.key != statusKey,
+                  AgentHibernationLifecycleStatusKeys.allowedStatusKeys.contains(statusEntry.key),
+                  statusEntry.value.agentOwnerPanelID == nil || statusEntry.value.agentOwnerPanelID == panelId else {
+                return nil
+            }
+            return statusEntry.value.agentEventTime
+        }
+        return (lifecycleWatermarks + statusWatermarks).max()
     }
 }

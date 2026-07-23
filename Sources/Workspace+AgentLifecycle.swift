@@ -91,11 +91,18 @@ extension Workspace {
         agentEventTime: TimeInterval?
     ) -> SidebarStatusEntryReplacementDecision {
         let ownerPanelId = panelId ?? focusedPanelId
+        let isStructuredAgentStatus = AgentHibernationLifecycleStatusKeys.allowedStatusKeys.contains(key)
+        let hasLifecycleWatermark = ownerPanelId.flatMap {
+            agentLifecycleEventTimesByPanelId[$0]?[key]
+        } != nil
         if let ownerPanelId,
-           let lifecycleWatermark = agentLifecycleEventTimesByPanelId[ownerPanelId]?[key] {
-            guard let agentEventTime, agentEventTime >= lifecycleWatermark else {
-                return .stale
-            }
+           !acceptAgentRuntimeMutation(
+               statusKey: key,
+               panelId: ownerPanelId,
+               agentEventTime: agentEventTime,
+               enforceOrdering: agentEventTime != nil || hasLifecycleWatermark || isStructuredAgentStatus
+           ) {
+            return .stale
         }
         let replacementDecision = SidebarStatusEntry.replacementDecision(
             current: statusEntries[key],
