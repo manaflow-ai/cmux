@@ -22,10 +22,11 @@ use cmux_remote_protocol::{Lane, LanePolicy, SessionId};
 use url::Url;
 
 use crate::link::{FrameLink, LinkError};
+use crate::observability::TransportSnapshot;
 
 #[cfg(feature = "iroh-transport")]
 pub use iroh::{
-    CMUX_IROH_ALPN, IrohListener, IrohProvider, IrohProviderConfig, IrohRoute,
+    CMUX_IROH_ALPN, IrohListener, IrohPathMode, IrohProvider, IrohProviderConfig, IrohRoute,
     ROUTING_DIRECT_ADDRS, ROUTING_NODE_ID, ROUTING_RELAY_URL, load_or_create_iroh_secret,
 };
 pub use relay::{
@@ -111,8 +112,23 @@ pub trait LinkGroup: Send + Sync {
     fn description(&self) -> &str;
     fn capabilities(&self) -> ProviderCapabilities;
     fn evidence(&self) -> &CarrierEvidence;
+    async fn transport_snapshot(&self) -> TransportSnapshot {
+        TransportSnapshot::unknown()
+    }
     async fn open(&self, request: LinkRequest) -> Result<Box<dyn FrameLink>, ProviderError>;
     async fn close(&self) -> Result<(), ProviderError>;
+}
+
+pub(crate) fn sanitized_route(endpoint: &Url) -> String {
+    let mut route = endpoint.clone();
+    let _ = route.set_username("");
+    let _ = route.set_password(None);
+    // Network route paths can themselves be bearer capabilities. Diagnostics
+    // need only the selected scheme and authority, never an application path.
+    route.set_path("");
+    route.set_query(None);
+    route.set_fragment(None);
+    route.to_string()
 }
 
 #[async_trait]
@@ -160,7 +176,9 @@ pub fn lane_bindings(policy: LanePolicy, capabilities: ProviderCapabilities) -> 
         return vec![Lane::ALL.to_vec()];
     }
     if policy == LanePolicy::Isolated {
-        return Lane::ALL.into_iter().map(|lane| vec![lane]).collect();
+        let mut lanes = Lane::ALL;
+        lanes.sort_by_key(|lane| lane.priority());
+        return lanes.into_iter().map(|lane| vec![lane]).collect();
     }
     vec![vec![Lane::Interactive], vec![Lane::Control], vec![Lane::Tunnel, Lane::Bulk]]
 }
@@ -218,10 +236,37 @@ mod tests {
     }
 
     #[test]
+    fn isolated_bindings_use_scheduler_priority_order() {
+        assert_eq!(
+            lane_bindings(LanePolicy::Isolated, ProviderCapabilities::MULTI_STREAM),
+            vec![
+                vec![Lane::Interactive],
+                vec![Lane::Control],
+                vec![Lane::Tunnel],
+                vec![Lane::Bulk],
+            ]
+        );
+    }
+
+    #[test]
     fn stream_provider_collapses_isolated_policy() {
         assert_eq!(
             lane_bindings(LanePolicy::Isolated, ProviderCapabilities::STREAM),
             vec![Lane::ALL.to_vec()]
         );
+    }
+
+    #[test]
+    fn diagnostic_network_routes_expose_only_scheme_and_authority() {
+        for (route, expected) in [
+            (
+                "wss://user:secret@example.test/v1/link?ticket=secret#fragment",
+                "wss://example.test/",
+            ),
+            ("relay+do://worker.example/?ticket=secret", "relay+do://worker.example"),
+            ("relay+https://relay.example/path#secret", "relay+https://relay.example"),
+        ] {
+            assert_eq!(sanitized_route(&Url::parse(route).unwrap()), expected);
+        }
     }
 }

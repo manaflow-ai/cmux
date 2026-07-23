@@ -14,9 +14,10 @@ use tokio_tungstenite::{MaybeTlsStream, WebSocketStream, connect_async};
 use url::Url;
 
 use crate::link::{FrameLink, LinkError};
+use crate::observability::{TransportPathKind, TransportPathSnapshot, TransportSnapshot};
 use crate::provider::{
     CarrierEvidence, ConnectRequest, LinkGroup, LinkRequest, ProviderCapabilities, ProviderError,
-    TransportProvider,
+    TransportProvider, sanitized_route,
 };
 
 pub struct TungsteniteWebSocketLink<S> {
@@ -272,6 +273,18 @@ impl LinkGroup for WebSocketLinkGroup {
 
     fn evidence(&self) -> &CarrierEvidence {
         &self.evidence
+    }
+
+    async fn transport_snapshot(&self) -> TransportSnapshot {
+        TransportSnapshot {
+            provider: "direct-websocket".into(),
+            route: sanitized_route(&self.endpoint),
+            selected_path: Some(TransportPathSnapshot {
+                kind: TransportPathKind::Direct,
+                remote: self.endpoint.host_str().map(str::to_owned),
+                rtt_micros: None,
+            }),
+        }
     }
 
     async fn open(&self, request: LinkRequest) -> Result<Box<dyn FrameLink>, ProviderError> {

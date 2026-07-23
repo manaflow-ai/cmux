@@ -23,11 +23,13 @@ use cmux_remote::connection::{
 use cmux_remote::crypto::{ClientAuthMode, CryptoError, StaticIdentity};
 use cmux_remote::daemon::{DaemonSessionPolicy, serve_direct_websocket, serve_unix};
 use cmux_remote::identity::{AuthDatabase, default_state_dir};
+use cmux_remote::observability::ClientConnectionSnapshot;
 use cmux_remote::provider::{
-    ConnectRequest, DirectWebSocketProvider, IrohListener, IrohProvider, IrohProviderConfig,
-    LinkGroup, ProviderError, RelayClientConfig, RelayCredentialSource, RelayDaemonConfig,
-    RelayDaemonRegistration, RelayProvider, SshProvider, SshProviderConfig, TransportProvider,
-    UnixProvider, load_or_create_iroh_secret, register_relay_daemon_with_credentials,
+    ConnectRequest, DirectWebSocketProvider, IrohListener, IrohPathMode, IrohProvider,
+    IrohProviderConfig, LinkGroup, ProviderError, RelayClientConfig, RelayCredentialSource,
+    RelayDaemonConfig, RelayDaemonRegistration, RelayProvider, SshProvider, SshProviderConfig,
+    TransportProvider, UnixProvider, load_or_create_iroh_secret,
+    register_relay_daemon_with_credentials,
 };
 use cmux_remote::service::{EndpointRole, ServiceMultiplexer};
 use cmux_remote::services::DaemonServices;
@@ -148,6 +150,7 @@ pub struct ClientRuntimeOptions {
     pub relay: Option<RelayClientOptions>,
     /// Invitation-scoped credentials keyed by normalized relay route URL.
     pub relay_routes: BTreeMap<String, RelayClientOptions>,
+    pub iroh_path: IrohPathMode,
     pub ssh: SshProviderConfig,
 }
 
@@ -160,6 +163,7 @@ pub struct ClientRuntimeInfo {
 
 pub struct ClientRuntimeHandle {
     info: ClientRuntimeInfo,
+    connection: Arc<ClientConnection>,
     multiplexer: Arc<ServiceMultiplexer>,
     shutdown: watch::Sender<bool>,
     thread: Option<thread::JoinHandle<anyhow::Result<()>>>,
@@ -172,6 +176,10 @@ impl ClientRuntimeHandle {
 
     pub fn multiplexer(&self) -> &Arc<ServiceMultiplexer> {
         &self.multiplexer
+    }
+
+    pub async fn connection_snapshot(&self) -> ClientConnectionSnapshot {
+        self.connection.snapshot().await
     }
 
     pub fn is_finished(&self) -> bool {
@@ -229,6 +237,7 @@ pub fn start_client_runtime(options: ClientRuntimeOptions) -> anyhow::Result<Cli
     };
     Ok(ClientRuntimeHandle {
         info: ready.info,
+        connection: ready.connection,
         multiplexer: ready.multiplexer,
         shutdown: shutdown_tx,
         thread: Some(thread),
@@ -237,6 +246,7 @@ pub fn start_client_runtime(options: ClientRuntimeOptions) -> anyhow::Result<Cli
 
 struct ClientReady {
     info: ClientRuntimeInfo,
+    connection: Arc<ClientConnection>,
     multiplexer: Arc<ServiceMultiplexer>,
 }
 
@@ -274,6 +284,7 @@ async fn run_client(
                     daemon_public_key,
                     route,
                 },
+                connection: connection.clone(),
                 multiplexer,
             }))
             .map_err(|_| anyhow!("remote client owner stopped during startup"))?;
@@ -386,7 +397,11 @@ async fn connect_provider(
             .connect(request)
             .await?)
         }
-        "iroh" => Ok(IrohProvider::new(IrohProviderConfig::default())?.connect(request).await?),
+        "iroh" => {
+            Ok(IrohProvider::new(IrohProviderConfig::default().with_path_mode(options.iroh_path))?
+                .connect(request)
+                .await?)
+        }
         scheme => {
             Err(ProviderError::Configuration(format!("unsupported remote route scheme {scheme:?}")))
         }
@@ -830,6 +845,7 @@ mod tests {
             local_socket: None,
             relay: None,
             relay_routes: BTreeMap::new(),
+            iroh_path: IrohPathMode::Auto,
             ssh: SshProviderConfig::default(),
         };
         let source = RuntimeReconnectGroups { options, next: AtomicUsize::new(1) };

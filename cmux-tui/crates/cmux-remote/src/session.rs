@@ -200,7 +200,8 @@ impl ReliableSession {
                 if error.is_definitely_unscheduled() {
                     let mut state = self.shared.state.lock().unwrap();
                     if state.generation == self.generation {
-                        debug_assert!(state.rollback_unscheduled(lane, sequence));
+                        let rolled_back = state.rollback_unscheduled(lane, sequence);
+                        debug_assert!(rolled_back);
                     }
                 }
                 Err(error.into_session_error())

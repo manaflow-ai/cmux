@@ -5,8 +5,8 @@ use std::io::{Read, Write};
 use std::net::SocketAddr;
 use std::path::Path;
 use std::str::FromStr;
-use std::sync::Arc;
 use std::sync::atomic::{AtomicBool, Ordering};
+use std::sync::{Arc, Mutex as StdMutex};
 use std::time::Duration;
 
 use ::iroh::{
@@ -19,9 +19,10 @@ use tokio::task::{JoinHandle, JoinSet};
 
 use crate::daemon::RemoteDaemon;
 use crate::link::FrameLink;
+use crate::observability::{TransportPathKind, TransportPathSnapshot, TransportSnapshot};
 use crate::provider::{
     CarrierEvidence, ConnectRequest, LengthDelimitedLink, LinkGroup, LinkRequest,
-    ProviderCapabilities, ProviderError, TransportProvider,
+    ProviderCapabilities, ProviderError, TransportProvider, sanitized_route,
 };
 
 /// ALPN negotiated by cmux remote sessions over Iroh.
@@ -33,6 +34,43 @@ pub const ROUTING_NODE_ID: &str = "node_id";
 pub const ROUTING_RELAY_URL: &str = "relay_url";
 /// Optional routing key containing comma or whitespace separated socket addresses.
 pub const ROUTING_DIRECT_ADDRS: &str = "direct_addrs";
+
+/// Constrains which network paths an Iroh endpoint may use.
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
+pub enum IrohPathMode {
+    /// Prefer a direct path when available and retain relay fallback.
+    #[default]
+    Auto,
+    /// Disable relay transports and require an explicit direct address.
+    DirectOnly,
+    /// Disable IP transports and require an explicit relay URL.
+    RelayOnly,
+}
+
+impl fmt::Display for IrohPathMode {
+    fn fmt(&self, formatter: &mut fmt::Formatter<'_>) -> fmt::Result {
+        formatter.write_str(match self {
+            Self::Auto => "auto",
+            Self::DirectOnly => "direct-only",
+            Self::RelayOnly => "relay-only",
+        })
+    }
+}
+
+impl FromStr for IrohPathMode {
+    type Err = String;
+
+    fn from_str(value: &str) -> Result<Self, Self::Err> {
+        match value {
+            "auto" => Ok(Self::Auto),
+            "direct-only" => Ok(Self::DirectOnly),
+            "relay-only" => Ok(Self::RelayOnly),
+            other => Err(format!(
+                "Iroh path mode must be auto, direct-only, or relay-only, got {other:?}"
+            )),
+        }
+    }
+}
 
 /// Load a stable carrier key or create it with owner-only permissions. Noise
 /// remains the daemon identity, but a stable Iroh key keeps published route
@@ -247,6 +285,8 @@ pub struct IrohProviderConfig {
     pub secret_key: Option<SecretKey>,
     /// Relay infrastructure used for hole punching and fallback forwarding.
     pub relay_mode: RelayMode,
+    /// Allowed network paths for this endpoint.
+    pub path_mode: IrohPathMode,
     /// Publish and resolve routes through the n0 discovery service.
     pub discovery_n0: bool,
     pub alpn: Vec<u8>,
@@ -258,10 +298,22 @@ impl Default for IrohProviderConfig {
         Self {
             secret_key: None,
             relay_mode: RelayMode::Default,
+            path_mode: IrohPathMode::Auto,
             discovery_n0: false,
             alpn: CMUX_IROH_ALPN.to_vec(),
             maximum_frame_bytes: MAX_WIRE_FRAME_BYTES,
         }
+    }
+}
+
+impl IrohProviderConfig {
+    /// Applies a path policy and aligns built-in relay configuration with it.
+    pub fn with_path_mode(mut self, path_mode: IrohPathMode) -> Self {
+        self.path_mode = path_mode;
+        if path_mode == IrohPathMode::DirectOnly {
+            self.relay_mode = RelayMode::Disabled;
+        }
+        self
     }
 }
 
@@ -377,6 +429,19 @@ fn validate_config(config: &IrohProviderConfig) -> Result<(), ProviderError> {
             u32::MAX
         )));
     }
+    match config.path_mode {
+        IrohPathMode::DirectOnly if !matches!(&config.relay_mode, RelayMode::Disabled) => {
+            return Err(ProviderError::Configuration(
+                "Iroh direct-only path mode requires relays to be disabled".into(),
+            ));
+        }
+        IrohPathMode::RelayOnly if matches!(&config.relay_mode, RelayMode::Disabled) => {
+            return Err(ProviderError::Configuration(
+                "Iroh relay-only path mode requires an enabled relay configuration".into(),
+            ));
+        }
+        _ => {}
+    }
     Ok(())
 }
 
@@ -390,6 +455,9 @@ async fn bind_endpoint(config: &IrohProviderConfig) -> Result<Endpoint, Provider
     };
     let mut builder =
         builder.alpns(vec![config.alpn.clone()]).relay_mode(config.relay_mode.clone());
+    if config.path_mode == IrohPathMode::RelayOnly {
+        builder = builder.clear_ip_transports();
+    }
     if let Some(secret_key) = config.secret_key.clone() {
         builder = builder.secret_key(secret_key);
     }
@@ -435,17 +503,33 @@ impl TransportProvider for IrohProvider {
             return Err(ProviderError::UnsupportedScheme(request.endpoint.scheme().into()));
         }
         let route = IrohRoute::from_request(&request)?;
+        match self.config.path_mode {
+            IrohPathMode::DirectOnly if route.node_addr().ip_addrs().next().is_none() => {
+                return Err(ProviderError::Configuration(
+                    "Iroh direct-only path mode requires at least one direct address".into(),
+                ));
+            }
+            IrohPathMode::RelayOnly if route.node_addr().relay_urls().next().is_none() => {
+                return Err(ProviderError::Configuration(
+                    "Iroh relay-only path mode requires a relay URL".into(),
+                ));
+            }
+            _ => {}
+        }
         let remote_node_id = route.node_id();
         let node_addr = route.into_node_addr();
         let endpoint = self.endpoint().await?.clone();
         let connection = connect_iroh_connection(&endpoint, &node_addr, &self.config.alpn).await?;
+        let description = format!("iroh://{remote_node_id}");
+        let transport = iroh_transport_snapshot(&description, &connection);
 
         Ok(Arc::new(IrohLinkGroup {
             connection: Mutex::new(connection),
+            transport: StdMutex::new(transport),
             endpoint,
             node_addr,
             alpn: self.config.alpn.clone(),
-            description: format!("iroh://{remote_node_id}"),
+            description,
             evidence: CarrierEvidence::Iroh { endpoint_id: remote_node_id.to_string() },
             maximum_frame_bytes: self.config.maximum_frame_bytes,
             closed: AtomicBool::new(false),
@@ -709,6 +793,7 @@ enum IrohAcceptResult {
 
 struct IrohLinkGroup {
     connection: Mutex<::iroh::endpoint::Connection>,
+    transport: StdMutex<TransportSnapshot>,
     endpoint: Endpoint,
     node_addr: NodeAddr,
     alpn: Vec<u8>,
@@ -716,6 +801,35 @@ struct IrohLinkGroup {
     evidence: CarrierEvidence,
     maximum_frame_bytes: usize,
     closed: AtomicBool,
+}
+
+fn iroh_transport_snapshot(
+    description: &str,
+    connection: &::iroh::endpoint::Connection,
+) -> TransportSnapshot {
+    let paths = connection.paths();
+    let selected_path =
+        paths.iter().find(|path| path.is_selected()).map(|path| TransportPathSnapshot {
+            kind: if path.is_relay() {
+                TransportPathKind::Relay
+            } else if path.is_ip() {
+                TransportPathKind::Direct
+            } else {
+                TransportPathKind::Unknown
+            },
+            remote: Some(sanitized_iroh_remote(path.remote_addr())),
+            rtt_micros: Some(path.rtt().as_micros().min(u64::MAX as u128) as u64),
+        });
+    TransportSnapshot { provider: "iroh".into(), route: description.into(), selected_path }
+}
+
+fn sanitized_iroh_remote(remote: &::iroh::TransportAddr) -> String {
+    match remote {
+        ::iroh::TransportAddr::Relay(url) => format!("relay:{}", sanitized_route(url)),
+        ::iroh::TransportAddr::Ip(address) => format!("ip:{address}"),
+        ::iroh::TransportAddr::Custom(_) => "custom".into(),
+        _ => "unknown".into(),
+    }
 }
 
 impl fmt::Debug for IrohLinkGroup {
@@ -748,6 +862,17 @@ impl LinkGroup for IrohLinkGroup {
         &self.evidence
     }
 
+    async fn transport_snapshot(&self) -> TransportSnapshot {
+        if let Ok(connection) = self.connection.try_lock() {
+            let snapshot = iroh_transport_snapshot(&self.description, &connection);
+            *self.transport.lock().unwrap_or_else(std::sync::PoisonError::into_inner) =
+                snapshot.clone();
+            snapshot
+        } else {
+            self.transport.lock().unwrap_or_else(std::sync::PoisonError::into_inner).clone()
+        }
+    }
+
     async fn open(&self, request: LinkRequest) -> Result<Box<dyn FrameLink>, ProviderError> {
         if self.closed.load(Ordering::Acquire) {
             return Err(ProviderError::Transport("Iroh connection group is closed".into()));
@@ -777,6 +902,8 @@ impl LinkGroup for IrohLinkGroup {
                         ))
                     })?;
                     *connection = replacement;
+                    *self.transport.lock().unwrap_or_else(std::sync::PoisonError::into_inner) =
+                        iroh_transport_snapshot(&self.description, &connection);
                     connection.open_bi().await.map_err(|error| {
                         ProviderError::Transport(format!(
                             "could not open Iroh stream after reconnect: {error}"
@@ -834,10 +961,32 @@ mod tests {
         }
     }
 
+    #[test]
+    fn diagnostics_redact_iroh_relay_credentials_and_capabilities() {
+        let relay = ::iroh::TransportAddr::Relay(RelayUrl::from(
+            Url::parse(
+                "https://device:secret@relay.example.test/private/path?ticket=bearer#fragment",
+            )
+            .unwrap(),
+        ));
+
+        let diagnostic = sanitized_iroh_remote(&relay);
+        assert_eq!(diagnostic, "relay:https://relay.example.test/");
+        for secret in ["device", "secret", "private", "ticket", "bearer", "fragment"] {
+            assert!(!diagnostic.contains(secret));
+        }
+
+        assert_eq!(
+            sanitized_iroh_remote(&::iroh::TransportAddr::Ip("127.0.0.1:4242".parse().unwrap())),
+            "ip:127.0.0.1:4242"
+        );
+    }
+
     fn local_config(secret_key: SecretKey) -> IrohProviderConfig {
         IrohProviderConfig {
             secret_key: Some(secret_key),
             relay_mode: RelayMode::Disabled,
+            path_mode: IrohPathMode::Auto,
             discovery_n0: false,
             alpn: CMUX_IROH_ALPN.to_vec(),
             maximum_frame_bytes: MAX_WIRE_FRAME_BYTES,
@@ -900,6 +1049,62 @@ mod tests {
         assert!(matches!(IrohRoute::from_request(&invalid), Err(ProviderError::Configuration(_))));
     }
 
+    #[test]
+    fn path_modes_parse_and_reject_incompatible_relay_configuration() {
+        assert_eq!("auto".parse(), Ok(IrohPathMode::Auto));
+        assert_eq!("direct-only".parse(), Ok(IrohPathMode::DirectOnly));
+        assert_eq!("relay-only".parse(), Ok(IrohPathMode::RelayOnly));
+        assert!("direct".parse::<IrohPathMode>().is_err());
+
+        let direct_with_relays = IrohProviderConfig {
+            path_mode: IrohPathMode::DirectOnly,
+            ..IrohProviderConfig::default()
+        };
+        assert!(matches!(
+            IrohProvider::new(direct_with_relays),
+            Err(ProviderError::Configuration(message))
+                if message.contains("direct-only")
+        ));
+
+        let relay_without_relays = IrohProviderConfig {
+            path_mode: IrohPathMode::RelayOnly,
+            relay_mode: RelayMode::Disabled,
+            ..IrohProviderConfig::default()
+        };
+        assert!(matches!(
+            IrohProvider::new(relay_without_relays),
+            Err(ProviderError::Configuration(message))
+                if message.contains("relay-only")
+        ));
+
+        let direct = IrohProviderConfig::default().with_path_mode(IrohPathMode::DirectOnly);
+        assert!(matches!(direct.relay_mode, RelayMode::Disabled));
+    }
+
+    #[tokio::test]
+    async fn constrained_path_modes_require_matching_route_hints() {
+        let node_id = secret(45).public();
+        let direct = IrohProvider::new(
+            IrohProviderConfig::default().with_path_mode(IrohPathMode::DirectOnly),
+        )
+        .unwrap();
+        let direct_error = direct.connect(request(node_id, BTreeMap::new())).await.err().unwrap();
+        assert!(matches!(
+            direct_error,
+            ProviderError::Configuration(message) if message.contains("direct address")
+        ));
+
+        let relay = IrohProvider::new(
+            IrohProviderConfig::default().with_path_mode(IrohPathMode::RelayOnly),
+        )
+        .unwrap();
+        let relay_error = relay.connect(request(node_id, BTreeMap::new())).await.err().unwrap();
+        assert!(matches!(
+            relay_error,
+            ProviderError::Configuration(message) if message.contains("relay URL")
+        ));
+    }
+
     #[tokio::test]
     async fn direct_local_connection_uses_independent_bounded_streams() {
         let server_key = secret(10);
@@ -941,6 +1146,7 @@ mod tests {
         let provider = IrohProvider::new(IrohProviderConfig {
             secret_key: Some(client_key),
             relay_mode: RelayMode::Disabled,
+            path_mode: IrohPathMode::DirectOnly,
             discovery_n0: false,
             alpn: CMUX_IROH_ALPN.to_vec(),
             maximum_frame_bytes: 32,
@@ -959,6 +1165,13 @@ mod tests {
             &CarrierEvidence::Iroh { endpoint_id: server_key.public().to_string() }
         );
         assert!(group.capabilities().path_migration);
+        let snapshot = group.transport_snapshot().await;
+        assert_eq!(snapshot.provider, "iroh");
+        assert_eq!(
+            snapshot.selected_path.as_ref().map(|path| path.kind),
+            Some(TransportPathKind::Direct)
+        );
+        assert!(snapshot.selected_path.unwrap().remote.is_some());
 
         let interactive =
             group.open(LinkRequest { lane: Lane::Interactive, generation: 1 }).await.unwrap();
@@ -1038,6 +1251,7 @@ mod tests {
         let config = IrohProviderConfig {
             secret_key: Some(client_key),
             relay_mode: RelayMode::Disabled,
+            path_mode: IrohPathMode::Auto,
             discovery_n0: false,
             alpn: CMUX_IROH_ALPN.to_vec(),
             maximum_frame_bytes: 32,
@@ -1047,16 +1261,26 @@ mod tests {
         let connection =
             connect_iroh_connection(&endpoint, &node_addr, CMUX_IROH_ALPN).await.unwrap();
         let observed_connection = connection.clone();
+        let description = format!("iroh://{}", server_key.public());
+        let transport = iroh_transport_snapshot(&description, &connection);
         let group = IrohLinkGroup {
             connection: Mutex::new(connection),
+            transport: StdMutex::new(transport),
             endpoint: endpoint.clone(),
             node_addr,
             alpn: CMUX_IROH_ALPN.to_vec(),
-            description: format!("iroh://{}", server_key.public()),
+            description,
             evidence: CarrierEvidence::Iroh { endpoint_id: server_key.public().to_string() },
             maximum_frame_bytes: 32,
             closed: AtomicBool::new(false),
         };
+
+        let connection_guard = group.connection.lock().await;
+        let cached = tokio::time::timeout(Duration::from_millis(10), group.transport_snapshot())
+            .await
+            .expect("diagnostics waited for the Iroh connection lock");
+        assert_eq!(cached.provider, "iroh");
+        drop(connection_guard);
 
         let first = group.open(LinkRequest { lane: Lane::Control, generation: 0 }).await.unwrap();
         first.send(Bytes::from_static(b"first")).await.unwrap();
@@ -1306,6 +1530,7 @@ mod tests {
             IrohProviderConfig {
                 secret_key: Some(server_key.clone()),
                 relay_mode: RelayMode::Disabled,
+                path_mode: IrohPathMode::Auto,
                 discovery_n0: false,
                 alpn: CMUX_IROH_ALPN.to_vec(),
                 maximum_frame_bytes: MAX_WIRE_FRAME_BYTES,
@@ -1324,6 +1549,7 @@ mod tests {
         let provider = IrohProvider::new(IrohProviderConfig {
             secret_key: Some(secret(13)),
             relay_mode: RelayMode::Disabled,
+            path_mode: IrohPathMode::DirectOnly,
             discovery_n0: false,
             alpn: CMUX_IROH_ALPN.to_vec(),
             maximum_frame_bytes: MAX_WIRE_FRAME_BYTES,

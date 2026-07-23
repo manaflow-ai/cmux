@@ -8,7 +8,7 @@ use std::os::unix::fs::{FileTypeExt, PermissionsExt};
 use std::path::{Path, PathBuf};
 use std::pin::Pin;
 use std::sync::atomic::{AtomicBool, Ordering};
-use std::sync::{Arc, Weak};
+use std::sync::{Arc, Mutex as StdMutex, Weak};
 use std::task::{Context, Poll};
 use std::time::{Duration, Instant};
 
@@ -31,6 +31,7 @@ use crate::crypto::{
 };
 use crate::identity::AuthDatabase;
 use crate::link::{FrameLink, LaneMuxLink, LinkError, LinkRoute};
+use crate::observability::{ConnectionState, ServerConnectionSnapshot};
 use crate::provider::AxumWebSocketLink;
 use crate::session::{ReceivedFrame, ReliableSession, SessionError, SessionLimits};
 
@@ -89,6 +90,7 @@ pub struct ServerConnection {
     generation: watch::Sender<u64>,
     changed: Notify,
     lifecycle: Mutex<ServerLifecycle>,
+    diagnostics: StdMutex<ServerDiagnostics>,
     lane_sends: [Mutex<()>; 4],
     closed: AtomicBool,
     close_state: watch::Sender<ServerCloseState>,
@@ -151,10 +153,19 @@ impl Drop for ServerCloseCompletionGuard {
     }
 }
 
-#[derive(Debug, Default)]
+#[derive(Debug)]
 struct ServerLifecycle {
     disconnected_generation: Option<u64>,
     resume_deadline: Option<Instant>,
+    lane_bindings: Vec<Vec<Lane>>,
+}
+
+#[derive(Debug)]
+struct ServerDiagnostics {
+    generation: u64,
+    state: ConnectionState,
+    resume_deadline: Option<Instant>,
+    lane_bindings: Vec<Vec<Lane>>,
 }
 
 enum ConnectionControlAction {
@@ -175,11 +186,17 @@ impl fmt::Debug for ServerConnection {
 }
 
 impl ServerConnection {
-    fn new(owner: &Arc<RemoteDaemon>, key: ClientKey, session: ReliableSession) -> Arc<Self> {
+    fn new(
+        owner: &Arc<RemoteDaemon>,
+        key: ClientKey,
+        session: ReliableSession,
+        lane_bindings: Vec<Vec<Lane>>,
+    ) -> Arc<Self> {
         let device_id = key.device_id.clone();
         let session_id = key.session;
         let owner = Arc::downgrade(owner);
-        let (generation, _) = watch::channel(session.generation());
+        let initial_generation = session.generation();
+        let (generation, _) = watch::channel(initial_generation);
         let (close_state, _) = watch::channel(ServerCloseState::Pending);
         Arc::new_cyclic(move |self_weak| Self {
             device_id,
@@ -190,7 +207,17 @@ impl ServerConnection {
             session: RwLock::new(session),
             generation,
             changed: Notify::new(),
-            lifecycle: Mutex::new(ServerLifecycle::default()),
+            lifecycle: Mutex::new(ServerLifecycle {
+                disconnected_generation: None,
+                resume_deadline: None,
+                lane_bindings: lane_bindings.clone(),
+            }),
+            diagnostics: StdMutex::new(ServerDiagnostics {
+                generation: initial_generation,
+                state: ConnectionState::Connected,
+                resume_deadline: None,
+                lane_bindings,
+            }),
             lane_sends: std::array::from_fn(|_| Mutex::new(())),
             closed: AtomicBool::new(false),
             close_state,
@@ -199,6 +226,24 @@ impl ServerConnection {
 
     fn current_generation(&self) -> u64 {
         *self.generation.borrow()
+    }
+
+    pub async fn snapshot(&self) -> ServerConnectionSnapshot {
+        let diagnostics =
+            self.diagnostics.lock().unwrap_or_else(std::sync::PoisonError::into_inner);
+        let resume_lease_remaining_ms = diagnostics.resume_deadline.map(|deadline| {
+            deadline.saturating_duration_since(Instant::now()).as_millis().min(u64::MAX as u128)
+                as u64
+        });
+        ServerConnectionSnapshot {
+            device_id: self.device_id.clone(),
+            session_id: format!("{:?}", self.session_id),
+            generation: diagnostics.generation,
+            state: diagnostics.state,
+            resume_lease_remaining_ms,
+            lane_bindings: diagnostics.lane_bindings.clone(),
+            physical_link_count: diagnostics.lane_bindings.len(),
+        }
     }
 
     pub async fn send(
@@ -329,6 +374,7 @@ impl ServerConnection {
         expected_generation: u64,
         generation: u64,
         link: Arc<dyn FrameLink>,
+        lane_bindings: Vec<Vec<Lane>>,
         peer_resume: &BTreeMap<Lane, u64>,
     ) -> Result<(), DaemonError> {
         // This local lifecycle lock may span replay writes, but the daemon's
@@ -352,6 +398,10 @@ impl ServerConnection {
             let deadline = Instant::now() + owner.policy.resume_lease;
             lifecycle.disconnected_generation = Some(expected_generation);
             lifecycle.resume_deadline = Some(deadline);
+            let mut diagnostics =
+                self.diagnostics.lock().unwrap_or_else(std::sync::PoisonError::into_inner);
+            diagnostics.state = ConnectionState::Reconnecting;
+            diagnostics.resume_deadline = Some(deadline);
             owner.schedule_resume_expiry(connection, expected_generation, deadline);
         }
         let reconnecting = current.clone();
@@ -368,7 +418,16 @@ impl ServerConnection {
         let previous = std::mem::replace(&mut *current, next);
         lifecycle.disconnected_generation = None;
         lifecycle.resume_deadline = None;
+        lifecycle.lane_bindings = lane_bindings;
         self.generation.send_replace(generation);
+        {
+            let mut diagnostics =
+                self.diagnostics.lock().unwrap_or_else(std::sync::PoisonError::into_inner);
+            diagnostics.generation = generation;
+            diagnostics.state = ConnectionState::Connected;
+            diagnostics.resume_deadline = None;
+            diagnostics.lane_bindings = lifecycle.lane_bindings.clone();
+        }
         self.changed.notify_waiters();
         drop(current);
         drop(lifecycle);
@@ -398,6 +457,10 @@ impl ServerConnection {
             } else {
                 lifecycle.disconnected_generation = Some(generation);
                 lifecycle.resume_deadline = Some(deadline);
+                let mut diagnostics =
+                    self.diagnostics.lock().unwrap_or_else(std::sync::PoisonError::into_inner);
+                diagnostics.state = ConnectionState::Reconnecting;
+                diagnostics.resume_deadline = Some(deadline);
                 true
             }
         };
@@ -434,6 +497,12 @@ impl ServerConnection {
         self.closed.store(true, Ordering::Release);
         lifecycle.disconnected_generation = None;
         lifecycle.resume_deadline = None;
+        {
+            let mut diagnostics =
+                self.diagnostics.lock().unwrap_or_else(std::sync::PoisonError::into_inner);
+            diagnostics.state = ConnectionState::Closed;
+            diagnostics.resume_deadline = None;
+        }
         self.changed.notify_waiters();
         true
     }
@@ -544,6 +613,14 @@ struct PendingLinks {
     assigned: BTreeSet<Lane>,
     client_resume: BTreeMap<Lane, u64>,
     grant_generation: u64,
+}
+
+struct ReconnectRegistration<'a> {
+    expected_generation: u64,
+    generation: u64,
+    link: Arc<dyn FrameLink>,
+    lane_bindings: Vec<Vec<Lane>>,
+    peer_resume: &'a BTreeMap<Lane, u64>,
 }
 
 impl RemoteDaemon {
@@ -734,7 +811,8 @@ impl RemoteDaemon {
             grant_generation: accepted.grant.revocation_generation,
         });
         for lane in &accepted.lanes {
-            debug_assert!(pending.assigned.insert(*lane));
+            let inserted = pending.assigned.insert(*lane);
+            debug_assert!(inserted);
         }
         pending.routes.push(LinkRoute { lanes: accepted.lanes, link: Arc::new(accepted.link) });
         if pending.assigned.len() != Lane::ALL.len() {
@@ -745,6 +823,10 @@ impl RemoteDaemon {
         }
         let pending = state.pending.remove(&pending_key).expect("pending entry exists");
         drop(state);
+        let mut lane_bindings =
+            pending.routes.iter().map(|route| route.lanes.clone()).collect::<Vec<_>>();
+        lane_bindings
+            .sort_by_key(|lanes| lanes.iter().map(|lane| lane.priority()).min().unwrap_or(u8::MAX));
         let mux = Arc::new(LaneMuxLink::new(
             format!("daemon:{}:{:?}", key.device_id, key.session),
             pending.routes,
@@ -759,18 +841,22 @@ impl RemoteDaemon {
 
         let (connection, is_new) = if let Some(connection) = existing {
             let expected_generation = base_generation.expect("an existing client has a generation");
+            let rejected_mux = mux.clone();
             if let Err(error) = self
                 .reconnect_registered_client(
                     &key,
                     &connection,
-                    expected_generation,
-                    accepted.generation,
-                    mux.clone(),
-                    &pending.client_resume,
+                    ReconnectRegistration {
+                        expected_generation,
+                        generation: accepted.generation,
+                        link: mux,
+                        lane_bindings,
+                        peer_resume: &pending.client_resume,
+                    },
                 )
                 .await
             {
-                let _ = mux.close().await;
+                let _ = rejected_mux.close().await;
                 if matches!(error, DaemonError::Closed) {
                     let _ = connection.close().await;
                 }
@@ -779,7 +865,7 @@ impl RemoteDaemon {
             (connection, false)
         } else {
             let reliable = ReliableSession::new(key.session, mux, self.limits);
-            let connection = ServerConnection::new(self, key.clone(), reliable);
+            let connection = ServerConnection::new(self, key.clone(), reliable, lane_bindings);
             let mut state = self.state.lock().await;
             if state.clients.contains_key(&key) {
                 drop(state);
@@ -818,22 +904,27 @@ impl RemoteDaemon {
         &self,
         key: &ClientKey,
         connection: &Arc<ServerConnection>,
-        expected_generation: u64,
-        generation: u64,
-        link: Arc<dyn FrameLink>,
-        peer_resume: &BTreeMap<Lane, u64>,
+        registration: ReconnectRegistration<'_>,
     ) -> Result<(), DaemonError> {
         let still_registered = {
             let state = self.state.lock().await;
             state.clients.get(key).is_some_and(|current| {
                 Arc::ptr_eq(current, connection)
-                    && current.current_generation() == expected_generation
+                    && current.current_generation() == registration.expected_generation
             })
         };
         if !still_registered {
             return Err(DaemonError::Closed);
         }
-        connection.reconnect_physical(expected_generation, generation, link, peer_resume).await
+        connection
+            .reconnect_physical(
+                registration.expected_generation,
+                registration.generation,
+                registration.link,
+                registration.lane_bindings,
+                registration.peer_resume,
+            )
+            .await
     }
 
     async fn registration_lock(&self, key: &ClientKey) -> Arc<Mutex<()>> {
@@ -895,6 +986,18 @@ impl RemoteDaemon {
 
     pub async fn connections(&self) -> Vec<Arc<ServerConnection>> {
         self.state.lock().await.clients.values().cloned().collect()
+    }
+
+    pub async fn connection_snapshots(&self) -> Vec<ServerConnectionSnapshot> {
+        let connections = self.connections().await;
+        let mut snapshots = Vec::with_capacity(connections.len());
+        for connection in connections {
+            snapshots.push(connection.snapshot().await);
+        }
+        snapshots.sort_by(|left, right| {
+            (&left.device_id, &left.session_id).cmp(&(&right.device_id, &right.session_id))
+        });
+        snapshots
     }
 
     /// Terminates one logical client session selected by the owner-only admin
@@ -1514,6 +1617,11 @@ mod tests {
     async fn abrupt_transport_suspends_replayable_server_send_until_reconnect() {
         let (_directory, _daemon, group, client, server) =
             connected_fault_pair(Duration::from_secs(5), SessionId([31; 16])).await;
+        let initial = server.snapshot().await;
+        assert_eq!(initial.generation, 0);
+        assert_eq!(initial.state, ConnectionState::Connected);
+        assert_eq!(initial.physical_link_count, 1);
+        assert_eq!(initial.lane_bindings, vec![Lane::ALL.to_vec()]);
         group.fail_current().await;
 
         let sending_server = server.clone();
@@ -1528,6 +1636,10 @@ mod tests {
                 .await
         });
         wait_for_disconnected(&server, 0).await;
+        let reconnecting = server.snapshot().await;
+        assert_eq!(reconnecting.generation, 0);
+        assert_eq!(reconnecting.state, ConnectionState::Reconnecting);
+        assert!(reconnecting.resume_lease_remaining_ms.is_some());
         assert!(tokio::time::timeout(Duration::from_millis(20), &mut send).await.is_err());
 
         let received = tokio::time::timeout(Duration::from_secs(2), client.receive())
@@ -1539,6 +1651,10 @@ mod tests {
         assert_eq!(received.sequence, sequence);
         assert_eq!(received.payload, b"replayed from daemon".as_slice());
         assert_eq!(server.current_generation(), 1);
+        let reconnected = server.snapshot().await;
+        assert_eq!(reconnected.generation, 1);
+        assert_eq!(reconnected.state, ConnectionState::Connected);
+        assert_eq!(reconnected.resume_lease_remaining_ms, None);
         client.close().await.unwrap();
     }
 
@@ -1570,7 +1686,8 @@ mod tests {
             ClientKey { device_id: "cancelled-close-device".into(), session: SessionId([36; 16]) };
         let session =
             ReliableSession::new(key.session, Arc::new(HangingCloseLink), SessionLimits::default());
-        let connection = ServerConnection::new(&daemon, key.clone(), session);
+        let connection =
+            ServerConnection::new(&daemon, key.clone(), session, vec![Lane::ALL.to_vec()]);
         daemon.state.lock().await.clients.insert(key, connection.clone());
 
         let registry = daemon.state.lock().await;
@@ -1802,7 +1919,8 @@ mod tests {
             ClientKey { device_id: "reconnecting-device".into(), session: SessionId([35; 16]) };
         let previous = Arc::new(BlockingReceiveLink::new());
         let session = ReliableSession::new(key.session, previous.clone(), SessionLimits::default());
-        let connection = ServerConnection::new(&daemon, key.clone(), session);
+        let connection =
+            ServerConnection::new(&daemon, key.clone(), session, vec![Lane::ALL.to_vec()]);
         daemon.state.lock().await.clients.insert(key.clone(), connection.clone());
 
         let receiving_connection = connection.clone();
@@ -1817,7 +1935,17 @@ mod tests {
         let replacement: Arc<dyn FrameLink> = Arc::new(replacement);
         let resume = Lane::ALL.into_iter().map(|lane| (lane, 0)).collect();
         daemon
-            .reconnect_registered_client(&key, &connection, 0, 3, replacement, &resume)
+            .reconnect_registered_client(
+                &key,
+                &connection,
+                ReconnectRegistration {
+                    expected_generation: 0,
+                    generation: 3,
+                    link: replacement,
+                    lane_bindings: vec![Lane::ALL.to_vec()],
+                    peer_resume: &resume,
+                },
+            )
             .await
             .unwrap();
         tokio::time::timeout(Duration::from_secs(1), previous.close_called.acquire())
@@ -1859,7 +1987,8 @@ mod tests {
         let (server_link, _peer_link) = test_support::pair(128 * 1024);
         let session =
             ReliableSession::new(key.session, Arc::new(server_link), SessionLimits::default());
-        let connection = ServerConnection::new(&daemon, key.clone(), session);
+        let connection =
+            ServerConnection::new(&daemon, key.clone(), session, vec![Lane::ALL.to_vec()]);
         daemon.state.lock().await.clients.insert(key.clone(), connection.clone());
         connection
             .send(Lane::Control, 9, Bytes::from_static(b"pending replay"), FrameFlags::empty())
@@ -1880,10 +2009,13 @@ mod tests {
                 .reconnect_registered_client(
                     &reconnecting_key,
                     &reconnecting_connection,
-                    0,
-                    1,
-                    reconnecting_link,
-                    &resume,
+                    ReconnectRegistration {
+                        expected_generation: 0,
+                        generation: 1,
+                        link: reconnecting_link,
+                        lane_bindings: vec![Lane::ALL.to_vec()],
+                        peer_resume: &resume,
+                    },
                 )
                 .await
         });
@@ -1897,6 +2029,13 @@ mod tests {
             .await
             .expect("registration replay held the global daemon state lock");
         assert_eq!(connections.len(), 1);
+        let snapshots =
+            tokio::time::timeout(Duration::from_millis(50), daemon.connection_snapshots())
+                .await
+                .expect("registration replay blocked cached connection diagnostics");
+        assert_eq!(snapshots.len(), 1);
+        assert_eq!(snapshots[0].state, ConnectionState::Reconnecting);
+        assert_eq!(snapshots[0].generation, 0);
         blocking.release.add_permits(1);
         reconnect.await.unwrap().unwrap();
         assert_eq!(connection.current_generation(), 1);

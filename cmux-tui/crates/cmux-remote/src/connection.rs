@@ -15,6 +15,7 @@ use crate::crypto::{
     ClientAuthMode, ClientHandshake, CryptoError, StaticIdentity, initiate_secure_link,
 };
 use crate::link::{FrameLink, LaneMuxLink, LinkError, LinkRoute};
+use crate::observability::{ClientConnectionSnapshot, ConnectionState};
 use crate::provider::{LinkGroup, LinkRequest, ProviderError, lane_bindings};
 use crate::session::{ReceivedFrame, ReliableSession, SessionError, SessionLimits};
 
@@ -78,6 +79,7 @@ pub struct ClientConnection {
     reconnect_groups: Option<Arc<dyn ReconnectGroupSource>>,
     session: Arc<RwLock<ReliableSession>>,
     generation: watch::Sender<u64>,
+    diagnostics: StdMutex<ClientConnectionSnapshot>,
     next_generation: AtomicU64,
     daemon_public_key: [u8; 32],
     reconnecting: Arc<Mutex<()>>,
@@ -176,6 +178,16 @@ impl ClientConnection {
             establish_physical_links(group.clone(), &config, 0, BTreeMap::new()).await?;
         let session = ReliableSession::new(config.session, Arc::new(link), config.limits);
         let (generation, _) = watch::channel(session.generation());
+        let lane_bindings = lane_bindings(config.lane_policy, group.capabilities());
+        let transport = group.transport_snapshot().await;
+        let diagnostics = ClientConnectionSnapshot {
+            session_id: format!("{:?}", config.session),
+            generation: session.generation(),
+            state: ConnectionState::Connected,
+            physical_link_count: lane_bindings.len(),
+            lane_bindings,
+            transport,
+        };
         let (close_state, _) = watch::channel(CloseState::Pending);
         let connection = Arc::new(Self {
             config,
@@ -183,6 +195,7 @@ impl ClientConnection {
             reconnect_groups,
             session: Arc::new(RwLock::new(session)),
             generation,
+            diagnostics: StdMutex::new(diagnostics),
             next_generation: AtomicU64::new(1),
             daemon_public_key,
             reconnecting: Arc::new(Mutex::new(())),
@@ -205,6 +218,62 @@ impl ClientConnection {
 
     pub fn subscribe_generation(&self) -> watch::Receiver<u64> {
         self.generation.subscribe()
+    }
+
+    /// Returns a consistent, credential-free view of the last published
+    /// transport. Reconnect replay holds the group and session publication
+    /// locks, so generation and topology are cached separately and never wait
+    /// for them. When the group is available, refresh its non-blocking live
+    /// path snapshot so provider path migration remains observable.
+    pub async fn snapshot(&self) -> ClientConnectionSnapshot {
+        let group = match self.group.try_read() {
+            Ok(group) => group.clone(),
+            Err(_) => {
+                return self
+                    .diagnostics
+                    .lock()
+                    .unwrap_or_else(std::sync::PoisonError::into_inner)
+                    .clone();
+            }
+        };
+        let observed_generation =
+            self.diagnostics.lock().unwrap_or_else(std::sync::PoisonError::into_inner).generation;
+        let transport = group.transport_snapshot().await;
+        let Ok(active_group) = self.group.try_read() else {
+            return self
+                .diagnostics
+                .lock()
+                .unwrap_or_else(std::sync::PoisonError::into_inner)
+                .clone();
+        };
+        if !Arc::ptr_eq(&active_group, &group) {
+            return self
+                .diagnostics
+                .lock()
+                .unwrap_or_else(std::sync::PoisonError::into_inner)
+                .clone();
+        }
+        let mut diagnostics =
+            self.diagnostics.lock().unwrap_or_else(std::sync::PoisonError::into_inner);
+        if diagnostics.generation == observed_generation {
+            diagnostics.transport = transport;
+        }
+        diagnostics.clone()
+    }
+
+    fn set_diagnostics_state(&self, state: ConnectionState) {
+        let mut diagnostics =
+            self.diagnostics.lock().unwrap_or_else(std::sync::PoisonError::into_inner);
+        // `close` publishes the atomic flag before waiting for this mutex. A
+        // reconnect that passed an earlier open check must not overwrite the
+        // terminal state after close wins the race.
+        if state == ConnectionState::Closed || !self.closed.load(Ordering::Acquire) {
+            diagnostics.state = state;
+        }
+    }
+
+    fn diagnostics_state(&self) -> ConnectionState {
+        self.diagnostics.lock().unwrap_or_else(std::sync::PoisonError::into_inner).state
     }
 
     pub async fn send(
@@ -307,7 +376,22 @@ impl ClientConnection {
     /// sequence numbers and replaying only frames the daemon did not ack.
     pub async fn reconnect(&self, group: Arc<dyn LinkGroup>) -> Result<(), ConnectionError> {
         let _reconnecting = self.reconnecting.lock().await;
-        self.reconnect_once(group).await
+        if self.closed.load(Ordering::Acquire) {
+            return Err(ConnectionError::Closed);
+        }
+        let previous_state = self.diagnostics_state();
+        self.set_diagnostics_state(ConnectionState::Reconnecting);
+        let result = self.reconnect_once(group).await;
+        // Explicit route replacement preserves the previously published
+        // carrier when setup or replay of the candidate fails.
+        if !self.closed.load(Ordering::Acquire) {
+            self.set_diagnostics_state(if result.is_ok() {
+                ConnectionState::Connected
+            } else {
+                previous_state
+            });
+        }
+        result
     }
 
     async fn reconnect_once(&self, group: Arc<dyn LinkGroup>) -> Result<(), ConnectionError> {
@@ -344,6 +428,9 @@ impl ClientConnection {
                 actual: crate::crypto::public_key_fingerprint(&daemon_key),
             }));
         }
+        let lane_bindings = lane_bindings(self.config.lane_policy, group.capabilities());
+        let physical_link_count = lane_bindings.len();
+        let transport = group.transport_snapshot().await;
         // Take both publication guards before the cancellation-sensitive replay
         // transition. ReliableSession commits only after replay succeeds, and
         // there is no await between that commit and publishing both wrappers.
@@ -361,6 +448,14 @@ impl ClientConnection {
         *active_session = next;
         self.mark_received();
         self.generation.send_replace(generation);
+        {
+            let mut diagnostics =
+                self.diagnostics.lock().unwrap_or_else(std::sync::PoisonError::into_inner);
+            diagnostics.generation = generation;
+            diagnostics.lane_bindings = lane_bindings;
+            diagnostics.physical_link_count = physical_link_count;
+            diagnostics.transport = transport;
+        }
         drop(active_session);
         drop(active_group);
         // Publishing the replacement first lets blocked readers recover onto
@@ -400,6 +495,15 @@ impl ClientConnection {
         if self.session.read().await.generation() != observed_generation {
             return Ok(());
         }
+        self.set_diagnostics_state(ConnectionState::Reconnecting);
+        let result = self.recover_locked().await;
+        if result.is_err() && !self.closed.load(Ordering::Acquire) {
+            self.set_diagnostics_state(ConnectionState::Disconnected);
+        }
+        result
+    }
+
+    async fn recover_locked(&self) -> Result<(), ConnectionError> {
         let mut attempt = 0_u32;
         let mut delay = self.config.reconnect.initial_delay;
         let mut group = self.group.read().await.clone();
@@ -420,7 +524,12 @@ impl ClientConnection {
                 }),
             };
             match result {
-                Ok(()) => return Ok(()),
+                Ok(()) => {
+                    if !self.closed.load(Ordering::Acquire) {
+                        self.set_diagnostics_state(ConnectionState::Connected);
+                    }
+                    return Ok(());
+                }
                 Err(error) if retryable_connection_error(&error) => {
                     if self
                         .config
@@ -460,6 +569,7 @@ impl ClientConnection {
         if self.closed.swap(true, Ordering::AcqRel) {
             return wait_for_close(self.close_state.subscribe()).await;
         }
+        self.set_diagnostics_state(ConnectionState::Closed);
         // The cleanup task owns every lock needed to snapshot the final carrier.
         // It therefore survives cancellation of this caller after `closed` is
         // published, while reconnect observes `closed` and releases its lock.
@@ -798,12 +908,12 @@ impl From<SessionError> for ConnectionError {
 
 #[cfg(test)]
 mod tests {
-    use std::sync::atomic::{AtomicBool, Ordering};
+    use std::sync::atomic::{AtomicBool, AtomicUsize, Ordering};
 
     use async_trait::async_trait;
     use cmux_remote_protocol::Service;
     use tempfile::tempdir;
-    use tokio::sync::{Notify, mpsc};
+    use tokio::sync::{Notify, Semaphore, mpsc};
 
     use super::*;
     use crate::daemon::RemoteDaemon;
@@ -886,6 +996,49 @@ mod tests {
         }
     }
 
+    struct BlockingReplayClientLink {
+        inner: FaultLink,
+        received_frames: AtomicUsize,
+        block_sends: AtomicBool,
+        replay_started: Arc<Semaphore>,
+        release_replay: Arc<Semaphore>,
+    }
+
+    #[async_trait]
+    impl FrameLink for BlockingReplayClientLink {
+        fn description(&self) -> &str {
+            "blocking-replay-client"
+        }
+
+        fn maximum_frame_bytes(&self) -> usize {
+            self.inner.maximum_frame_bytes()
+        }
+
+        async fn send(&self, frame: Bytes) -> Result<(), LinkError> {
+            if self.block_sends.load(Ordering::Acquire) {
+                self.replay_started.add_permits(1);
+                self.release_replay.acquire().await.unwrap().forget();
+            }
+            self.inner.send(frame).await
+        }
+
+        async fn receive(&self) -> Result<Option<Bytes>, LinkError> {
+            let frame = self.inner.receive().await?;
+            // The third inbound physical frame is link-ready: Noise message 2,
+            // the encrypted welcome, then link-ready. Block the next send so
+            // reconnect_to deterministically holds both publication locks in
+            // the replay await.
+            if frame.is_some() && self.received_frames.fetch_add(1, Ordering::AcqRel) == 2 {
+                self.block_sends.store(true, Ordering::Release);
+            }
+            Ok(frame)
+        }
+
+        async fn close(&self) -> Result<(), LinkError> {
+            self.inner.close().await
+        }
+    }
+
     struct FaultGroup {
         daemon: Arc<RemoteDaemon>,
         epochs: Mutex<Vec<Arc<FaultEpoch>>>,
@@ -932,6 +1085,134 @@ mod tests {
 
     struct HangingCloseGroup {
         inner: Arc<FaultGroup>,
+    }
+
+    struct MutableSnapshotGroup {
+        inner: Arc<FaultGroup>,
+        transport: StdMutex<crate::observability::TransportSnapshot>,
+    }
+
+    #[async_trait]
+    impl LinkGroup for MutableSnapshotGroup {
+        fn description(&self) -> &str {
+            self.inner.description()
+        }
+
+        fn capabilities(&self) -> ProviderCapabilities {
+            self.inner.capabilities()
+        }
+
+        fn evidence(&self) -> &CarrierEvidence {
+            self.inner.evidence()
+        }
+
+        async fn transport_snapshot(&self) -> crate::observability::TransportSnapshot {
+            self.transport.lock().unwrap_or_else(std::sync::PoisonError::into_inner).clone()
+        }
+
+        async fn open(&self, request: LinkRequest) -> Result<Box<dyn FrameLink>, ProviderError> {
+            self.inner.open(request).await
+        }
+
+        async fn close(&self) -> Result<(), ProviderError> {
+            self.inner.close().await
+        }
+    }
+
+    struct BlockingReplayGroup {
+        daemon: Arc<RemoteDaemon>,
+        epochs: Mutex<Vec<Arc<FaultEpoch>>>,
+        replay_started: Arc<Semaphore>,
+        release_replay: Arc<Semaphore>,
+        evidence: CarrierEvidence,
+    }
+
+    #[async_trait]
+    impl LinkGroup for BlockingReplayGroup {
+        fn description(&self) -> &str {
+            "blocking-replay-group"
+        }
+
+        fn capabilities(&self) -> ProviderCapabilities {
+            ProviderCapabilities::STREAM
+        }
+
+        fn evidence(&self) -> &CarrierEvidence {
+            &self.evidence
+        }
+
+        async fn open(&self, _request: LinkRequest) -> Result<Box<dyn FrameLink>, ProviderError> {
+            let (client, daemon, epoch) = fault_pair();
+            self.epochs.lock().await.push(epoch);
+            let remote = self.daemon.clone();
+            tokio::spawn(async move {
+                let _ = remote.accept_trusted_carrier(Box::new(daemon)).await;
+            });
+            Ok(Box::new(BlockingReplayClientLink {
+                inner: client,
+                received_frames: AtomicUsize::new(0),
+                block_sends: AtomicBool::new(false),
+                replay_started: self.replay_started.clone(),
+                release_replay: self.release_replay.clone(),
+            }))
+        }
+
+        async fn close(&self) -> Result<(), ProviderError> {
+            for epoch in self.epochs.lock().await.iter() {
+                epoch.fail();
+            }
+            Ok(())
+        }
+    }
+
+    struct OneShotGroup {
+        daemon: Arc<RemoteDaemon>,
+        opens: AtomicUsize,
+        epoch: StdMutex<Option<Arc<FaultEpoch>>>,
+        evidence: CarrierEvidence,
+    }
+
+    impl OneShotGroup {
+        fn fail(&self) {
+            if let Some(epoch) =
+                self.epoch.lock().unwrap_or_else(std::sync::PoisonError::into_inner).as_ref()
+            {
+                epoch.fail();
+            }
+        }
+    }
+
+    #[async_trait]
+    impl LinkGroup for OneShotGroup {
+        fn description(&self) -> &str {
+            "one-shot-group"
+        }
+
+        fn capabilities(&self) -> ProviderCapabilities {
+            ProviderCapabilities::STREAM
+        }
+
+        fn evidence(&self) -> &CarrierEvidence {
+            &self.evidence
+        }
+
+        async fn open(&self, _request: LinkRequest) -> Result<Box<dyn FrameLink>, ProviderError> {
+            if self.opens.fetch_add(1, Ordering::AcqRel) != 0 {
+                return Err(ProviderError::Transport("replacement carrier unavailable".into()));
+            }
+            let (client, daemon, epoch) = fault_pair();
+            *self.epoch.lock().unwrap_or_else(std::sync::PoisonError::into_inner) = Some(epoch);
+            let remote = self.daemon.clone();
+            tokio::spawn(async move {
+                let _ = remote.accept_trusted_carrier(Box::new(daemon)).await;
+            });
+            Ok(Box::new(client))
+        }
+
+        async fn close(&self) -> Result<(), ProviderError> {
+            self.fail();
+            Ok(())
+        }
     }
 
     #[async_trait]
@@ -990,6 +1271,13 @@ mod tests {
         let server =
             tokio::time::timeout(Duration::from_secs(2), accepted.recv()).await.unwrap().unwrap();
 
+        let initial = client.snapshot().await;
+        assert_eq!(initial.generation, 0);
+        assert_eq!(initial.state, ConnectionState::Connected);
+        assert_eq!(initial.lane_bindings, vec![Lane::ALL.to_vec()]);
+        assert_eq!(initial.physical_link_count, 1);
+        assert_eq!(initial.transport, crate::observability::TransportSnapshot::unknown());
+
         client
             .send(Lane::Control, 7, Bytes::from_static(b"before"), FrameFlags::empty())
             .await
@@ -1011,6 +1299,206 @@ mod tests {
             .unwrap();
         assert_eq!(received.sequence, sequence);
         assert_eq!(received.payload, b"after".as_slice());
+        let reconnected = client.snapshot().await;
+        assert_eq!(reconnected.generation, 1);
+        assert_eq!(reconnected.state, ConnectionState::Connected);
+    }
+
+    #[tokio::test]
+    async fn snapshot_refreshes_a_live_provider_path_without_reconnect() {
+        let directory = tempdir().unwrap();
+        let auth = AuthDatabase::load_or_create(directory.path(), "path-change", true).unwrap();
+        let (daemon, mut accepted) = RemoteDaemon::new(auth, SessionLimits::default());
+        let group = Arc::new(MutableSnapshotGroup {
+            inner: Arc::new(FaultGroup {
+                daemon,
+                epochs: Mutex::new(Vec::new()),
+                evidence: CarrierEvidence::LocalPeer { uid: None, pid: None },
+            }),
+            transport: StdMutex::new(crate::observability::TransportSnapshot {
+                provider: "mutable-test".into(),
+                route: "test://daemon".into(),
+                selected_path: Some(crate::observability::TransportPathSnapshot {
+                    kind: crate::observability::TransportPathKind::Direct,
+                    remote: Some("192.0.2.1:443".into()),
+                    rtt_micros: Some(1_000),
+                }),
+            }),
+        });
+        let client = ClientConnection::connect(
+            group.clone(),
+            ClientConnectionConfig {
+                identity: StaticIdentity::generate().unwrap(),
+                expected_daemon: None,
+                auth: ClientAuthMode::Carrier,
+                device_name: "path-changing-client".into(),
+                session: SessionId([95; 16]),
+                lane_policy: LanePolicy::Single,
+                limits: SessionLimits::default(),
+                reconnect: ReconnectPolicy {
+                    heartbeat_interval: None,
+                    ..ReconnectPolicy::default()
+                },
+            },
+        )
+        .await
+        .unwrap();
+        let _server =
+            tokio::time::timeout(Duration::from_secs(2), accepted.recv()).await.unwrap().unwrap();
+
+        let initial = client.snapshot().await;
+        assert_eq!(
+            initial.transport.selected_path.unwrap().kind,
+            crate::observability::TransportPathKind::Direct
+        );
+        *group.transport.lock().unwrap_or_else(std::sync::PoisonError::into_inner) =
+            crate::observability::TransportSnapshot {
+                provider: "mutable-test".into(),
+                route: "test://daemon".into(),
+                selected_path: Some(crate::observability::TransportPathSnapshot {
+                    kind: crate::observability::TransportPathKind::Relay,
+                    remote: Some("relay.example:443".into()),
+                    rtt_micros: Some(8_000),
+                }),
+            };
+
+        let migrated = client.snapshot().await;
+        assert_eq!(migrated.generation, 0);
+        assert_eq!(migrated.state, ConnectionState::Connected);
+        assert_eq!(
+            migrated.transport.selected_path.unwrap().kind,
+            crate::observability::TransportPathKind::Relay
+        );
+    }
+
+    #[tokio::test]
+    async fn snapshot_is_prompt_and_reconnecting_while_client_replay_blocks() {
+        let directory = tempdir().unwrap();
+        let auth = AuthDatabase::load_or_create(directory.path(), "client-replay", true).unwrap();
+        let (daemon, mut accepted) = RemoteDaemon::new(auth, SessionLimits::default());
+        let initial_group = Arc::new(FaultGroup {
+            daemon: daemon.clone(),
+            epochs: Mutex::new(Vec::new()),
+            evidence: CarrierEvidence::LocalPeer { uid: None, pid: None },
+        });
+        let client = ClientConnection::connect(
+            initial_group,
+            ClientConnectionConfig {
+                identity: StaticIdentity::generate().unwrap(),
+                expected_daemon: None,
+                auth: ClientAuthMode::Carrier,
+                device_name: "blocked-replay-client".into(),
+                session: SessionId([94; 16]),
+                lane_policy: LanePolicy::Single,
+                limits: SessionLimits::default(),
+                reconnect: ReconnectPolicy {
+                    heartbeat_interval: None,
+                    ..ReconnectPolicy::default()
+                },
+            },
+        )
+        .await
+        .unwrap();
+        let _server =
+            tokio::time::timeout(Duration::from_secs(2), accepted.recv()).await.unwrap().unwrap();
+
+        client
+            .send(
+                Lane::Control,
+                9,
+                Bytes::from_static(b"pending client replay"),
+                FrameFlags::empty(),
+            )
+            .await
+            .unwrap();
+
+        let replay_started = Arc::new(Semaphore::new(0));
+        let release_replay = Arc::new(Semaphore::new(0));
+        let replacement = Arc::new(BlockingReplayGroup {
+            daemon,
+            epochs: Mutex::new(Vec::new()),
+            replay_started: replay_started.clone(),
+            release_replay: release_replay.clone(),
+            evidence: CarrierEvidence::LocalPeer { uid: None, pid: None },
+        });
+        let reconnect = tokio::spawn({
+            let client = client.clone();
+            async move { client.reconnect(replacement).await }
+        });
+        tokio::time::timeout(Duration::from_secs(2), replay_started.acquire())
+            .await
+            .expect("client replay did not reach the blocking link")
+            .unwrap()
+            .forget();
+
+        let snapshot = tokio::time::timeout(Duration::from_millis(50), client.snapshot())
+            .await
+            .expect("client replay blocked cached connection diagnostics");
+        assert_eq!(snapshot.generation, 0);
+        assert_eq!(snapshot.state, ConnectionState::Reconnecting);
+        assert_eq!(snapshot.lane_bindings, vec![Lane::ALL.to_vec()]);
+
+        release_replay.add_permits(1);
+        reconnect.await.unwrap().unwrap();
+        let snapshot = client.snapshot().await;
+        assert_eq!(snapshot.generation, 1);
+        assert_eq!(snapshot.state, ConnectionState::Connected);
+    }
+
+    #[tokio::test]
+    async fn exhausted_recovery_stays_observably_disconnected() {
+        let directory = tempdir().unwrap();
+        let auth = AuthDatabase::load_or_create(directory.path(), "disconnected", true).unwrap();
+        let (daemon, mut accepted) = RemoteDaemon::new(auth, SessionLimits::default());
+        let group = Arc::new(OneShotGroup {
+            daemon,
+            opens: AtomicUsize::new(0),
+            epoch: StdMutex::new(None),
+            evidence: CarrierEvidence::LocalPeer { uid: None, pid: None },
+        });
+        let client = ClientConnection::connect(
+            group.clone(),
+            ClientConnectionConfig {
+                identity: StaticIdentity::generate().unwrap(),
+                expected_daemon: None,
+                auth: ClientAuthMode::Carrier,
+                device_name: "disconnected-client".into(),
+                session: SessionId([92; 16]),
+                lane_policy: LanePolicy::Single,
+                limits: SessionLimits::default(),
+                reconnect: ReconnectPolicy {
+                    initial_delay: Duration::from_millis(1),
+                    maximum_delay: Duration::from_millis(1),
+                    maximum_attempts: Some(1),
+                    heartbeat_interval: None,
+                    ..ReconnectPolicy::default()
+                },
+            },
+        )
+        .await
+        .unwrap();
+        let _server =
+            tokio::time::timeout(Duration::from_secs(2), accepted.recv()).await.unwrap().unwrap();
+
+        group.fail();
+        let error = client
+            .send(Lane::Control, 7, Bytes::from_static(b"cannot deliver"), FrameFlags::empty())
+            .await
+            .unwrap_err();
+        assert!(matches!(error, ConnectionError::ReconnectExhausted { attempts: 1, .. }));
+        assert_eq!(client.snapshot().await.state, ConnectionState::Disconnected);
+        client.reconnect(group).await.unwrap_err();
+        assert_eq!(
+            client.snapshot().await.state,
+            ConnectionState::Disconnected,
+            "a failed manual candidate must restore the prior disconnected state"
+        );
+        client.close().await.unwrap();
+        assert_eq!(client.snapshot().await.state, ConnectionState::Closed);
+        // A reconnect that passed its open check before close may publish
+        // afterward. The terminal diagnostics state must still win.
+        client.set_diagnostics_state(ConnectionState::Reconnecting);
+        assert_eq!(client.snapshot().await.state, ConnectionState::Closed);
     }
 
     #[tokio::test]

@@ -250,19 +250,8 @@ async fn dispatch(
         }
         AdminRequest::Devices => Ok(serde_json::to_value(auth.list_devices().await)
             .expect("device records are serializable")),
-        AdminRequest::Connections => Ok(Value::Array(
-            daemon
-                .connections()
-                .await
-                .into_iter()
-                .map(|connection| {
-                    serde_json::json!({
-                        "device_id": connection.device_id,
-                        "session_id": format!("{:?}", connection.session_id),
-                    })
-                })
-                .collect(),
-        )),
+        AdminRequest::Connections => Ok(serde_json::to_value(daemon.connection_snapshots().await)
+            .expect("connection snapshots are serializable")),
         AdminRequest::Revoke { device_id } => {
             auth.revoke(&device_id).await.map(|()| serde_json::json!({}))
         }

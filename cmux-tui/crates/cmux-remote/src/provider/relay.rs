@@ -27,9 +27,10 @@ use zeroize::{Zeroize, Zeroizing};
 
 use crate::daemon::RemoteDaemon;
 use crate::link::FrameLink;
+use crate::observability::{TransportPathKind, TransportPathSnapshot, TransportSnapshot};
 use crate::provider::{
     CarrierEvidence, ConnectRequest, LinkGroup, LinkRequest, ProviderCapabilities, ProviderError,
-    TransportProvider, TungsteniteWebSocketLink,
+    TransportProvider, TungsteniteWebSocketLink, sanitized_route,
 };
 
 type RelaySocket = WebSocketStream<MaybeTlsStream<TcpStream>>;
@@ -345,6 +346,7 @@ impl TransportProvider for RelayProvider {
     }
 
     async fn connect(&self, request: ConnectRequest) -> Result<Arc<dyn LinkGroup>, ProviderError> {
+        let route = sanitized_route(&request.endpoint);
         let endpoint =
             relay_websocket_url(&request.endpoint, &self.config.slot, RelayRole::Client)?;
         let control = connect_provider_control(&endpoint, &self.credentials).await?;
@@ -353,6 +355,7 @@ impl TransportProvider for RelayProvider {
             evidence: CarrierEvidence::Relay {
                 provider: endpoint.host_str().unwrap_or("relay").to_string(),
             },
+            route,
             endpoint,
             config: self.config.clone(),
             credentials: self.credentials.clone(),
@@ -365,6 +368,7 @@ impl TransportProvider for RelayProvider {
 struct RelayLinkGroup {
     description: String,
     evidence: CarrierEvidence,
+    route: String,
     endpoint: Url,
     config: RelayClientConfig,
     credentials: RelayCredentialSource,
@@ -384,6 +388,18 @@ impl LinkGroup for RelayLinkGroup {
 
     fn evidence(&self) -> &CarrierEvidence {
         &self.evidence
+    }
+
+    async fn transport_snapshot(&self) -> TransportSnapshot {
+        TransportSnapshot {
+            provider: "websocket-relay".into(),
+            route: self.route.clone(),
+            selected_path: Some(TransportPathSnapshot {
+                kind: TransportPathKind::Relay,
+                remote: self.endpoint.host_str().map(str::to_owned),
+                rtt_micros: None,
+            }),
+        }
     }
 
     async fn open(&self, request: LinkRequest) -> Result<Box<dyn FrameLink>, ProviderError> {

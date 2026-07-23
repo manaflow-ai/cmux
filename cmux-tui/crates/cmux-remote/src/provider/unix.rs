@@ -6,6 +6,7 @@ use async_trait::async_trait;
 use tokio::net::UnixStream;
 
 use crate::link::FrameLink;
+use crate::observability::{TransportPathKind, TransportPathSnapshot, TransportSnapshot};
 use crate::provider::{
     CarrierEvidence, ConnectRequest, LengthDelimitedLink, LinkGroup, LinkRequest,
     ProviderCapabilities, ProviderError, TransportProvider,
@@ -66,6 +67,18 @@ impl LinkGroup for UnixLinkGroup {
 
     fn evidence(&self) -> &CarrierEvidence {
         &self.evidence
+    }
+
+    async fn transport_snapshot(&self) -> TransportSnapshot {
+        TransportSnapshot {
+            provider: "unix".into(),
+            route: self.description.clone(),
+            selected_path: Some(TransportPathSnapshot {
+                kind: TransportPathKind::Local,
+                remote: None,
+                rtt_micros: None,
+            }),
+        }
     }
 
     async fn open(&self, _request: LinkRequest) -> Result<Box<dyn FrameLink>, ProviderError> {

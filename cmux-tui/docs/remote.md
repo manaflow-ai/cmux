@@ -78,6 +78,8 @@ cmux-tui connect unix:///path/to/link.sock
 
 An invitation tries its explicit route followed by its ordered route hints. A known enrolled or carrier daemon can reconnect without copying a route by using `cmux-tui connect --daemon <fingerprint>`. Run `cmux-tui known-daemons` to list names, fingerprints, authorization modes, and routes. A Unix hint is promoted only when its socket exists on the client machine; an unreachable Unix path from a remote host is tried last. cmux Noise authentication, pinned daemon-key, and protocol failures stop fallback. Provider connection failures, including rejected SSH or relay credentials, may try another route.
 
+Iroh defaults to `--iroh-path auto`, which probes direct IP paths and retains relay fallback. `direct-only` disables relay transports and requires `--iroh-address`. `relay-only` disables IP transports and requires `--iroh-relay`. The constrained modes are useful for policy enforcement and path verification; they fail instead of silently using the other path type.
+
 `cmux-tui ssh` uses SSH directly, matching the command the user chose. The npm form is `npx cmux ssh user@linux-server --session dev`.
 
 ```sh
@@ -108,8 +110,10 @@ Every command that selects SSH as its initial route performs the same probe and 
 | `--remote-state-dir <path>` | Select a non-default state directory on an SSH server |
 | `--local-socket <path>` | Override the local mux-compatible socket created by the remote client runtime |
 | `--headless` | For `connect` or `ssh`, print the local socket and keep the connection alive without starting the TUI; `forward` and `rpc` are already headless |
+| `--headless --json` | Emit a credential-free JSON snapshot at startup and whenever the generation, state, lane bindings, provider, route, or selected Iroh path changes |
 | `--iroh-relay <url>` | Override the Iroh relay routing hint |
 | `--iroh-address <addr>` | Add an Iroh direct address; repeat for several addresses |
+| `--iroh-path <mode>` | `auto`, `direct-only`, or `relay-only`; default `auto` |
 
 Reconnect defaults are unlimited attempts, 100 ms initial delay, 5 s maximum delay, a 15 s timeout per attempt, full jitter, a 5 s heartbeat interval, and a 15 s heartbeat timeout. Override them with `--reconnect-attempts <n|unlimited>`, `--reconnect-initial-ms`, `--reconnect-max-ms`, `--reconnect-attempt-timeout-ms`, `--reconnect-jitter <full|none>`, `--heartbeat-interval-ms`, and `--heartbeat-timeout-ms`.
 
@@ -117,7 +121,7 @@ A single relay route needs `--relay-slot` and exactly one of `--relay-ticket`, `
 
 File, command, and Rust callback credential sources are queried for Register or Connect sockets and on provider-authentication retry. Relay-minted Join tickets authenticate circuit sockets. A credential is limited to 4096 visible ASCII bytes, and a credential command has a ten-second default deadline. Sources remain in memory for reconnects within that client process. They are not persisted in known-daemon state, so pass them again on each later `connect` invocation.
 
-`enroll` actions are `status`, `create`, `pending`, `approve <invitation-id>`, `deny <invitation-id>`, `devices`, `connections`, `revoke <device-id>`, and `disconnect <device-id> <session-id>`. `enroll connect` is a compatibility alias for `connect`. Shared owner options are `--session`, `--state-dir`, `--admin-socket`, and `--json`. `create` accepts `--ttl <seconds>` (capped at five minutes), repeated `--advertise`, and up to two relay bootstrap records. Repeat `--relay-route`, `--relay-slot`, and either `--relay-ticket` or `--relay-ticket-file`; values pair by occurrence order.
+`enroll` actions are `status`, `create`, `pending`, `approve <invitation-id>`, `deny <invitation-id>`, `devices`, `connections`, `revoke <device-id>`, and `disconnect <device-id> <session-id>`. `enroll connect` is a compatibility alias for `connect`. Shared owner options are `--session`, `--state-dir`, `--admin-socket`, and `--json`. `connections --json` reports each daemon-observed generation, connected or reconnecting state, remaining resume lease, and lane-to-physical-link bindings. `create` accepts `--ttl <seconds>` (capped at five minutes), repeated `--advertise`, and up to two relay bootstrap records. Repeat `--relay-route`, `--relay-slot`, and either `--relay-ticket` or `--relay-ticket-file`; values pair by occurrence order.
 
 ## Transport and lane policy
 
@@ -309,6 +313,8 @@ Services that use more than one lane place setup and terminal markers on every d
 Each authenticated client session has its own request-ID and lifecycle namespace. Disconnect cleanup cancels its requests and removes its non-detached processes, route registrations, and workspace leases. Workspace roots remain in the daemon-global catalog after every client disconnects, and a later authorized client can list and attach to them; the last explicit `close-workspace` removes a root. This ownership is cleanup bookkeeping, not authorization: any connected client can list all workspaces and address known workspace, process, or route IDs.
 
 Headless clients, port forwards, and headless daemons exit with the terminal runtime error if their authenticated session or service bridge stops. They do not remain alive after losing the remote runtime.
+
+Transport diagnostics have two perspectives. The client snapshot owns its selected outbound provider and Iroh's live direct or relay path. The daemon snapshot owns generation, resume state, and authenticated lane bindings. The daemon does not infer the outbound provider because SSH reaches it through a Unix sidecar and a TLS proxy can deliver WSS as plaintext WebSocket ingress. Snapshotting is opt-in and takes no locks on the normal keystroke scheduling path.
 
 Direct plaintext WebSocket binds are loopback-only unless explicitly enabled. Prefer a TLS reverse proxy for a public endpoint. The direct listener bounds raw HTTP sockets and requires an upgrade within ten seconds. Native and Cloudflare relays enforce global and per-slot admission, short-lived scoped tickets, join deadlines, circuit idle expiry, and bounded queues.
 

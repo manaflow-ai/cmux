@@ -3,7 +3,7 @@
 use std::collections::BTreeMap;
 use std::ffi::OsString;
 use std::fs::{self, OpenOptions};
-use std::io::{self, BufRead, Read};
+use std::io::{self, BufRead, Read, Write};
 use std::os::fd::AsRawFd;
 use std::os::unix::net::UnixStream;
 use std::path::{Path, PathBuf};
@@ -23,8 +23,8 @@ use cmux_remote::identity::{
     default_state_dir,
 };
 use cmux_remote::provider::{
-    ROUTING_DIRECT_ADDRS, ROUTING_NODE_ID, ROUTING_RELAY_URL, RelayCredentialSource, SshProvider,
-    SshProviderConfig,
+    IrohPathMode, ROUTING_DIRECT_ADDRS, ROUTING_NODE_ID, ROUTING_RELAY_URL, RelayCredentialSource,
+    SshProvider, SshProviderConfig,
 };
 use cmux_remote::ssh_bootstrap::{
     DISTRIBUTION_VERSION, NPM_BOOTSTRAP_VERSION, SshBootstrapConfig, SshBootstrapper,
@@ -119,6 +119,7 @@ fn remote_help_requested(args: &[String]) -> bool {
         "--relay-ticket-command-arg",
         "--iroh-relay",
         "--iroh-address",
+        "--iroh-path",
         "--session",
         "--ssh-binary",
         "--remote-binary",
@@ -160,7 +161,7 @@ ROUTES:
 
 IDENTITY AND SESSION:
   --invite URI  --daemon FINGERPRINT  --device-name NAME  --session NAME
-  --state-dir PATH  --local-socket PATH  --headless
+  --state-dir PATH  --local-socket PATH  --headless [--json]
 
 TRANSPORT:
   --lanes auto|single|isolated  --connect-timeout-seconds N
@@ -169,6 +170,7 @@ TRANSPORT:
   For fallbacks, repeat up to four --relay-route ROUTE, --relay-slot SLOT,
     and credential-source groups in occurrence order.
   --relay-ticket-command-arg ARG  --iroh-relay URL  --iroh-address ADDR
+  --iroh-path auto|direct-only|relay-only
   --ssh-binary PATH  --remote-binary PATH  --ssh-arg ARG  --no-install
   --remote-state-dir PATH for a non-default daemon state directory
   --upgrade explicitly replaces an SSH-managed remote sidecar after installing
@@ -189,7 +191,7 @@ to multiple carriers. The remote binary is probed and, unless --no-install is
 set, installed into the user account when missing or incompatible.
 
 OPTIONS:
-  --session NAME  --lanes single|auto|isolated  --headless
+  --session NAME  --lanes single|auto|isolated  --headless [--json]
   --ssh-binary PATH  --remote-binary PATH  --ssh-arg ARG  --no-install
   --remote-state-dir PATH for a non-default daemon state directory
   --upgrade explicitly replaces an SSH-managed remote sidecar; terminal panes
@@ -271,7 +273,9 @@ struct ConnectFlags {
     relay_slots: Vec<String>,
     relay_credentials: Vec<ClientRelayCredentialArg>,
     routing: BTreeMap<String, String>,
+    iroh_path: IrohPathMode,
     headless: bool,
+    json: bool,
     ssh_session: String,
     ssh_binary: String,
     remote_binary: String,
@@ -434,7 +438,12 @@ fn parse_connect_flags(args: &[String]) -> anyhow::Result<ConnectFlags> {
                     })
                     .or_insert(address);
             }
+            "--iroh-path" => {
+                flags.iroh_path =
+                    value("--iroh-path")?.parse().map_err(|error: String| anyhow!(error))?;
+            }
             "--headless" => flags.headless = true,
+            "--json" => flags.json = true,
             "--session" => flags.ssh_session = value("--session")?,
             "--ssh-binary" => flags.ssh_binary = value("--ssh-binary")?,
             "--remote-binary" => flags.remote_binary = value("--remote-binary")?,
@@ -484,6 +493,9 @@ fn parse_connect_flags(args: &[String]) -> anyhow::Result<ConnectFlags> {
     if flags.upgrade && !flags.auto_install {
         return Err(anyhow!("--upgrade cannot be combined with --no-install"));
     }
+    if flags.json && !flags.headless {
+        return Err(anyhow!("--json requires --headless for connect and ssh"));
+    }
     Ok(flags)
 }
 
@@ -497,11 +509,40 @@ fn run_connect(args: &[String], preset_route: Option<String>) -> anyhow::Result<
 
 fn connect_with_flags(flags: ConnectFlags) -> anyhow::Result<()> {
     let headless = flags.headless;
+    let json = flags.json;
     let connected = start_connected(flags)?;
     if headless {
-        println!("{}", connected.runtime.info().local_socket.display());
-        while !crate::shutdown_requested() && !connected.runtime.is_finished() {
-            thread::sleep(Duration::from_millis(100));
+        if json {
+            let runtime = tokio_runtime()?;
+            runtime.block_on(async {
+                let mut previous = None;
+                while !crate::shutdown_requested() && !connected.runtime.is_finished() {
+                    let snapshot = connected.runtime.connection_snapshot().await;
+                    let mut topology = snapshot.clone();
+                    if let Some(path) = topology.transport.selected_path.as_mut() {
+                        path.rtt_micros = None;
+                    }
+                    if previous.as_ref() != Some(&topology) {
+                        println!(
+                            "{}",
+                            serde_json::json!({
+                                "event": "connection-snapshot",
+                                "local_socket": connected.runtime.info().local_socket.display().to_string(),
+                                "connection": snapshot,
+                            })
+                        );
+                        io::stdout().flush()?;
+                        previous = Some(topology);
+                    }
+                    tokio::time::sleep(Duration::from_millis(100)).await;
+                }
+                Ok::<_, io::Error>(())
+            })?;
+        } else {
+            println!("{}", connected.runtime.info().local_socket.display());
+            while !crate::shutdown_requested() && !connected.runtime.is_finished() {
+                thread::sleep(Duration::from_millis(100));
+            }
         }
         return connected.runtime.shutdown();
     }
@@ -674,6 +715,7 @@ fn start_connected(mut flags: ConnectFlags) -> anyhow::Result<ConnectedRuntime> 
         local_socket: flags.local_socket,
         relay,
         relay_routes,
+        iroh_path: flags.iroh_path,
         ssh,
     })?;
 
@@ -1586,12 +1628,24 @@ fn repeated_flag_values(args: &[String], flag: &str) -> Vec<String> {
 }
 
 fn required_positional(args: &[String], skip: usize) -> anyhow::Result<String> {
+    const VALUE_OPTIONS: &[&str] = &[
+        "--session",
+        "--state-dir",
+        "--admin-socket",
+        "--ttl",
+        "--advertise",
+        "--relay-route",
+        "--relay-slot",
+        "--relay-ticket",
+        "--relay-ticket-file",
+    ];
+
     let mut index = 1;
     let mut position = 0;
     while index < args.len() {
         if args[index] == "--json" {
             index += 1;
-        } else if args[index].starts_with('-') {
+        } else if VALUE_OPTIONS.contains(&args[index].as_str()) {
             index += 2;
         } else {
             position += 1;
@@ -1658,6 +1712,37 @@ mod tests {
         let explicit =
             parse_connect_flags(&["host".into(), "--lanes".into(), "isolated".into()]).unwrap();
         assert!(explicit.lanes_explicit);
+    }
+
+    #[test]
+    fn connection_json_diagnostics_require_headless_mode() {
+        assert!(parse_connect_flags(&["unix:///tmp/cmux.sock".into(), "--json".into()]).is_err());
+        let flags = parse_connect_flags(&[
+            "unix:///tmp/cmux.sock".into(),
+            "--headless".into(),
+            "--json".into(),
+        ])
+        .unwrap();
+        assert!(flags.headless);
+        assert!(flags.json);
+    }
+
+    #[test]
+    fn parses_explicit_iroh_path_policy() {
+        for (value, expected) in [
+            ("auto", IrohPathMode::Auto),
+            ("direct-only", IrohPathMode::DirectOnly),
+            ("relay-only", IrohPathMode::RelayOnly),
+        ] {
+            let flags =
+                parse_connect_flags(&["iroh://node".into(), "--iroh-path".into(), value.into()])
+                    .unwrap();
+            assert_eq!(flags.iroh_path, expected);
+        }
+        assert!(
+            parse_connect_flags(&["iroh://node".into(), "--iroh-path".into(), "direct".into(),])
+                .is_err()
+        );
     }
 
     #[test]
@@ -1897,25 +1982,13 @@ mod tests {
         .map(str::to_string);
         assert_eq!(required_positional(&approve, 1).unwrap(), "-mRUA1nkvEa07LQJx8XtvQ");
 
-        let deny = [
-            "deny",
-            "--admin-socket",
-            "/tmp/cmux-admin.sock",
-            "-another-url-safe-id",
-            "--json",
-        ]
-        .map(str::to_string);
+        let deny =
+            ["deny", "--admin-socket", "/tmp/cmux-admin.sock", "-another-url-safe-id", "--json"]
+                .map(str::to_string);
         assert_eq!(required_positional(&deny, 1).unwrap(), "-another-url-safe-id");
 
-        let disconnect = [
-            "disconnect",
-            "--session",
-            "dev",
-            "-device-id",
-            "-session-id",
-            "--json",
-        ]
-        .map(str::to_string);
+        let disconnect = ["disconnect", "--session", "dev", "-device-id", "-session-id", "--json"]
+            .map(str::to_string);
         assert_eq!(required_positional(&disconnect, 1).unwrap(), "-device-id");
         assert_eq!(required_positional(&disconnect, 2).unwrap(), "-session-id");
     }

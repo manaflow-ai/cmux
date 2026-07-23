@@ -12,6 +12,7 @@ pub mod link;
 mod mux_codec;
 mod mux_input;
 mod mux_lanes;
+pub mod observability;
 pub mod provider;
 pub mod service;
 pub mod services;

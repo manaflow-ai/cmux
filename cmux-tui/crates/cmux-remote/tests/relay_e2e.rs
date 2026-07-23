@@ -5,6 +5,7 @@ use cmux_relay::{Relay, RelayConfig};
 use cmux_remote::connection::{ClientConnection, ClientConnectionConfig, ReconnectPolicy};
 use cmux_remote::crypto::{ClientAuthMode, StaticIdentity};
 use cmux_remote::identity::AuthDatabase;
+use cmux_remote::observability::{ConnectionState, TransportPathKind};
 use cmux_remote::provider::{
     ConnectRequest, RelayClientConfig, RelayDaemonConfig, RelayProvider, TransportProvider,
     register_relay_daemon,
@@ -91,6 +92,16 @@ async fn shared_provider_crosses_native_relay_with_noise_and_parallel_lanes() {
     approver.await.unwrap();
     let server =
         tokio::time::timeout(Duration::from_secs(5), accepted.recv()).await.unwrap().unwrap();
+
+    let client_snapshot = client.snapshot().await;
+    assert_eq!(client_snapshot.state, ConnectionState::Connected);
+    assert_eq!(client_snapshot.physical_link_count, 3);
+    assert_eq!(client_snapshot.transport.provider, "websocket-relay");
+    assert!(client_snapshot.transport.route.starts_with("relay+ws://"));
+    assert_eq!(client_snapshot.transport.selected_path.unwrap().kind, TransportPathKind::Relay);
+    let server_snapshot = server.snapshot().await;
+    assert_eq!(server_snapshot.generation, 0);
+    assert_eq!(server_snapshot.physical_link_count, 3);
 
     client
         .send(Lane::Interactive, 1, Bytes::from_static(b"keystroke"), FrameFlags::empty())

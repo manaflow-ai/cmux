@@ -1,7 +1,6 @@
 name = "cmux-remote-relay"
 main = "build/worker/shim.mjs"
 compatibility_date = "2026-07-22"
-compatibility_flags = ["web_socket_auto_reply_to_close"]
 
 [vars]
 CMUX_RELAY_TICKET_ISSUER = "cmux-relay"

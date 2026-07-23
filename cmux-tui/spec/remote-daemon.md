@@ -52,6 +52,8 @@ Interactive input, RPC mutations, process lifecycle, and file mutations are reli
 
 Clients send an authenticated logical-close frame during graceful shutdown. An abrupt carrier loss retains the logical session and its replay state for a finite, configurable lease, 120 seconds by default. A successful reconnect atomically publishes the new generation, then closes the prior physical link outside lifecycle locks so blocked old-generation readers wake and move to the replacement.
 
+The client exposes a credential-free connection snapshot containing the published generation, state, lane bindings, selected provider route, and provider path. Iroh reports whether its currently selected path is direct IP or relay. The owner-only daemon admin socket exposes a separate snapshot containing generation, connected or reconnecting state, remaining resume lease, and daemon-observed lane bindings. The daemon does not infer the client's provider from ingress because SSH sidecars and TLS terminators intentionally change the final ingress carrier.
+
 ## Provider contract
 
 The Rust relay and Durable Object relay implement the same provider protocol:
@@ -64,7 +66,7 @@ The Rust relay and Durable Object relay implement the same provider protocol:
 
 Each circuit carries one physical lane or a `single` multiplexed link. The Durable Object stores only lease metadata and socket attachments needed after hibernation. Ciphertext and application replay state remain at the endpoints. The Rust relay keeps circuit bytes in memory and may use an external directory only for slot-to-shard routing.
 
-Iroh supplies the same binary-link contract through authenticated QUIC, NAT traversal, and relay fallback. Its endpoint identity is a route credential, not daemon authorization. Direct WebSocket terminates the same application handshake even when TLS is present.
+Iroh supplies the same binary-link contract through authenticated QUIC, NAT traversal, and relay fallback. Its endpoint identity is a route credential, not daemon authorization. Clients default to automatic path selection. Direct-only mode disables relay transports and requires an explicit direct address; relay-only mode disables IP transports and requires an explicit relay URL. A constrained mode fails closed when its required route hint is absent. Direct WebSocket terminates the same application handshake even when TLS is present.
 
 ## Services
 

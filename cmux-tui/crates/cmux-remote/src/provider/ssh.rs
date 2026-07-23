@@ -9,6 +9,7 @@ use tokio::process::{Child, ChildStdin, ChildStdout, Command};
 use tokio::sync::Mutex;
 
 use crate::link::{FrameLink, LinkError};
+use crate::observability::{TransportPathKind, TransportPathSnapshot, TransportSnapshot};
 use crate::provider::{
     CarrierEvidence, ConnectRequest, LengthDelimitedLink, LinkGroup, LinkRequest,
     ProviderCapabilities, ProviderError, TransportProvider,
@@ -134,6 +135,18 @@ impl LinkGroup for SshLinkGroup {
 
     fn evidence(&self) -> &CarrierEvidence {
         &self.evidence
+    }
+
+    async fn transport_snapshot(&self) -> TransportSnapshot {
+        TransportSnapshot {
+            provider: "ssh".into(),
+            route: self.description.clone(),
+            selected_path: Some(TransportPathSnapshot {
+                kind: TransportPathKind::Direct,
+                remote: Some(self.destination.clone()),
+                rtt_micros: None,
+            }),
+        }
     }
 
     async fn open(&self, _request: LinkRequest) -> Result<Box<dyn FrameLink>, ProviderError> {
