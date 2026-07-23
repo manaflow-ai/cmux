@@ -2,31 +2,40 @@ import XCTest
 
 final class GlobalSearchForegroundScopeUITests: XCTestCase {
     private var app: XCUIApplication!
+    private var appProcess: Process?
 
     override func setUpWithError() throws {
-        // Headless CI can launch cmux but fail XCTest's foreground activation handshake.
-        // Keep running long enough to exercise the background-only behavior under test.
-        continueAfterFailure = true
-        app = XCUIApplication()
-        app.launchArguments += ["-ApplePersistenceIgnoreState", "YES", "-NSQuitAlwaysKeepsWindows", "NO", "-menuBarOnly", "false"]
-        app.launchEnvironment["CMUX_UI_TEST_MODE"] = "1"
-
-        let options = XCTExpectedFailure.Options()
-        options.isStrict = false
-        XCTExpectFailure("XCUITest cannot foreground cmux on headless CI runners", options: options) {
-            app.launch()
-        }
         continueAfterFailure = false
+        let process = Process()
+        process.executableURL = URL(fileURLWithPath: try builtCmuxExecutablePath())
+        process.arguments = [
+            "-ApplePersistenceIgnoreState", "YES",
+            "-NSQuitAlwaysKeepsWindows", "NO",
+            "-menuBarOnly", "false",
+        ]
+        var environment = ProcessInfo.processInfo.environment
+        environment["CMUX_UI_TEST_MODE"] = "1"
+        process.environment = environment
 
+        let logURL = FileManager.default.temporaryDirectory
+            .appendingPathComponent("cmux-global-search-background-\(UUID().uuidString).log")
+        FileManager.default.createFile(atPath: logURL.path, contents: nil)
+        let logHandle = try FileHandle(forWritingTo: logURL)
+        process.standardOutput = logHandle
+        process.standardError = logHandle
+        try process.run()
+        appProcess = process
+
+        app = XCUIApplication(bundleIdentifier: "com.cmuxterm.app.debug")
         XCTAssertTrue(
-            app.wait(for: .runningForeground, timeout: 1.0)
-                || app.wait(for: .runningBackground, timeout: 10.0),
-            "Expected cmux to launch. state=\(app.state.rawValue)"
+            app.wait(for: .runningBackground, timeout: 10.0),
+            "Expected cmux to launch in the background. state=\(app.state.rawValue)"
         )
     }
 
     override func tearDownWithError() throws {
         app?.terminate()
+        terminateAppProcess()
         app = nil
     }
 
@@ -82,6 +91,42 @@ final class GlobalSearchForegroundScopeUITests: XCTestCase {
     private func waitForPredicate(_ predicate: NSPredicate, object: Any, timeout: TimeInterval) -> Bool {
         let expectation = XCTNSPredicateExpectation(predicate: predicate, object: object)
         return XCTWaiter.wait(for: [expectation], timeout: timeout) == .completed
+    }
+
+    private func builtCmuxExecutablePath() throws -> String {
+        let testBundle = Bundle(for: Self.self)
+        let productsDirectory = testBundle.bundleURL
+            .deletingLastPathComponent()
+            .deletingLastPathComponent()
+            .deletingLastPathComponent()
+            .deletingLastPathComponent()
+        let executablePath = productsDirectory
+            .appendingPathComponent("cmux DEV.app")
+            .appendingPathComponent("Contents/MacOS/cmux DEV")
+            .path
+        guard FileManager.default.fileExists(atPath: executablePath) else {
+            throw NSError(
+                domain: "GlobalSearchForegroundScopeUITests",
+                code: 1,
+                userInfo: [NSLocalizedDescriptionKey: "Could not locate the built cmux executable at \(executablePath)"]
+            )
+        }
+        return executablePath
+    }
+
+    private func terminateAppProcess() {
+        guard let appProcess else { return }
+        defer { self.appProcess = nil }
+        guard appProcess.isRunning else { return }
+
+        appProcess.terminate()
+        let deadline = Date.now.addingTimeInterval(5.0)
+        while appProcess.isRunning, Date.now < deadline {
+            RunLoop.current.run(until: Date.now.addingTimeInterval(0.1))
+        }
+        if appProcess.isRunning {
+            appProcess.interrupt()
+        }
     }
 
     private func attachScreenshot(named name: String) {
