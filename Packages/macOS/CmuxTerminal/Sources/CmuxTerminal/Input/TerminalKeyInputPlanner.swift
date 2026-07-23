@@ -19,7 +19,7 @@ public struct TerminalKeyInputPlanner: Sendable {
             !shouldSuppressControlText($0, composing: composing)
         }
 
-        if snapshot.hadMarkedText, !committedText.isEmpty {
+        if snapshot.hadMarkedText, !snapshot.committedText.isEmpty {
             var actions = committedText.map(TerminalKeyInputAction.sendCommittedText)
             if shouldReplayCommittedPreeditKey(snapshot.event) {
                 actions.append(.sendKey(text: nil, composing: false))
@@ -27,7 +27,7 @@ public struct TerminalKeyInputPlanner: Sendable {
             return actions
         }
 
-        if !committedText.isEmpty {
+        if !snapshot.committedText.isEmpty {
             return committedText.map {
                 .sendKey(text: $0, composing: false)
             }

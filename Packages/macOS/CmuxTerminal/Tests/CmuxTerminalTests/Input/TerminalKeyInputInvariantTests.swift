@@ -163,7 +163,7 @@ import Testing
             !ghosttySuppressesControlText($0, composing: composing)
         }
 
-        if snapshot.hadMarkedText, !committedText.isEmpty {
+        if snapshot.hadMarkedText, !snapshot.committedText.isEmpty {
             var actions = committedText.map(TerminalKeyInputAction.sendCommittedText)
             switch snapshot.event.key {
             case .arrowDown, .arrowRight, .arrowUp:
@@ -176,7 +176,7 @@ import Testing
             return actions
         }
 
-        if !committedText.isEmpty {
+        if !snapshot.committedText.isEmpty {
             return committedText.map {
                 .sendKey(text: $0, composing: false)
             }
