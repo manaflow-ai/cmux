@@ -273006,6 +273006,91 @@
           }
         }
       }
+    },
+    "remoteTmux.mirrorPublishedNoTopology": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "the connection reached tmux but no window ever arrived"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "tmux には接続できましたが、ウィンドウが届きませんでした"
+          }
+        }
+      }
+    },
+    "socket.remoteTmux.brokerMalformed": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "transport_broker is not a usable name: %@"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "transport_broker は使用できる名前ではありません: %@"
+          }
+        }
+      }
+    },
+    "socket.remoteTmux.brokerNotUsedByTransport": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "the '%@' transport does not use a broker; pass --transport et to connect through one"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "'%@' トランスポートはブローカーを使用しません。ブローカー経由で接続するには --transport et を指定してください"
+          }
+        }
+      }
+    },
+    "socket.remoteTmux.brokerUnknown": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "no broker named '%@' is declared under remoteTmux.brokers in cmux.json"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "cmux.json の remoteTmux.brokers に '%@' という名前のブローカーは宣言されていません"
+          }
+        }
+      }
+    },
+    "socket.remoteTmux.brokerUnusable": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "broker '%@' is declared but cannot be used: %@"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ブローカー '%@' は宣言されていますが使用できません: %@"
+          }
+        }
+      }
     }
   },
   "version": "1.0"
