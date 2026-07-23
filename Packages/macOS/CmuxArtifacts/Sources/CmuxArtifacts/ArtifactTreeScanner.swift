@@ -5,6 +5,7 @@ struct ArtifactTreeScanner {
     let fileManager: FileManager
     let maximumDepth: Int
     let nodeBudget: Int
+    private let visibilityPolicy = ArtifactStoreVisibilityPolicy()
 
     func snapshot(paths: ArtifactStorePaths) throws -> ArtifactSnapshot {
         try Task.checkCancellation()
@@ -54,7 +55,7 @@ struct ArtifactTreeScanner {
                 truncated = true
                 break
             }
-            guard !isManagedMarker(url), !isManagedRootEntry(url, root: root) else {
+            guard !visibilityPolicy.isManagedEntry(url, filesystemRoot: root) else {
                 continue
             }
             remaining -= 1
@@ -89,27 +90,6 @@ struct ArtifactTreeScanner {
             ))
         }
         return nodes.sorted(by: Self.nodeOrdering)
-    }
-
-    private func isManagedMarker(_ url: URL) -> Bool {
-        url.lastPathComponent == ArtifactPathResolver.workspaceMarkerName
-            || url.lastPathComponent == ArtifactPathResolver.sessionMarkerName
-    }
-
-    private func isManagedRootEntry(
-        _ url: URL,
-        root: URL
-    ) -> Bool {
-        let resolver = ArtifactPathResolver()
-        if resolver.refersToSameLocation(
-            url,
-            root.appendingPathComponent(".metadata", isDirectory: true)
-        ) { return true }
-        guard url.deletingLastPathComponent().standardizedFileURL == root.standardizedFileURL else {
-            return false
-        }
-        return url.lastPathComponent.hasPrefix(".")
-            || ArtifactStorePaths.trackableControlFileNames.contains(url.lastPathComponent)
     }
 
     private func relativePath(_ url: URL, root: URL) -> String? {

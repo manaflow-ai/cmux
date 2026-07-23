@@ -8,7 +8,7 @@ struct ArtifactSidebarThumbnailView: View {
     let fileURL: URL
     let kind: ArtifactFileKind?
     let isDirectory: Bool
-    let modifiedAt: Date?
+    let revision: ArtifactSidebarFileRevision?
 
     @State private var thumbnail: NSImage?
 
@@ -28,7 +28,7 @@ struct ArtifactSidebarThumbnailView: View {
         }
         .frame(width: 24, height: 24)
         .clipShape(.rect(cornerRadius: 4))
-        .task(id: modifiedAt) {
+        .task(id: revision) {
             await loadThumbnailIfNeeded()
         }
     }

@@ -3,6 +3,18 @@ import CmuxArtifacts
 import Foundation
 
 extension AgentChatTranscriptService {
+    /// Whether automatic capture needs live transcript completion events without mobile clients.
+    var observesTranscriptsForAutomaticArtifactCapture: Bool {
+        artifactCaptureCoordinator != nil && isAutomaticArtifactCaptureEnabled()
+    }
+
+    /// Applies one authoritative transcript completion and captures its artifact generation.
+    func noteAssistantTurnCompleted(sessionID: String, at timestamp: Date) {
+        registry.noteAssistantTurnCompleted(sessionID: sessionID, at: timestamp)
+        guard let record = registry.record(sessionID: sessionID) else { return }
+        scheduleArtifactCapture(for: record)
+    }
+
     /// Captures one authoritative transcript generation after an agent turn.
     func scheduleArtifactCapture(for record: AgentChatSessionRecord) {
         guard let artifactCaptureCoordinator, isAutomaticArtifactCaptureEnabled() else { return }
