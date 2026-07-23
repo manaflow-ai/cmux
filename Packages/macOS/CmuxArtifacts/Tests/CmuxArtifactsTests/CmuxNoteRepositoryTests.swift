@@ -199,6 +199,42 @@ struct CmuxNoteRepositoryTests {
         #expect(try String(contentsOf: outside, encoding: .utf8) == "outside")
     }
 
+    @Test("Note writes reject managed control names before creating nested content")
+    func rejectsManagedControlPathComponentsBeforeMutation() async throws {
+        let root = try ArtifactTestSupport.temporaryDirectory()
+        defer { ArtifactTestSupport.remove(root) }
+        let repository = LocalArtifactRepository()
+        let context = ArtifactCaptureContext(
+            projectRoot: root,
+            sessionID: "session:managed-name",
+            agentName: "codex"
+        )
+        let managedNames = [
+            "_session.json",
+            "_SESSION.JSON",
+            "_workspace.json",
+            ".metadata",
+            "artifacts.json",
+        ]
+
+        for managedName in managedNames {
+            await #expect(throws: CmuxNoteStoreError.invalidName("\(managedName)/plan")) {
+                _ = try await repository.writeNote(
+                    name: "\(managedName)/plan",
+                    text: "must not be written",
+                    mode: .replace,
+                    context: context
+                )
+            }
+        }
+
+        let allPaths = FileManager.default.enumerator(
+            at: root.appendingPathComponent(".cmux"),
+            includingPropertiesForKeys: nil
+        )?.compactMap { ($0 as? URL)?.path } ?? []
+        #expect(!allPaths.contains { $0.hasSuffix("/plan.md") })
+    }
+
     @Test("Non-UTF-8 Markdown is not silently decoded as a Note")
     func rejectsInvalidUTF8() async throws {
         let root = try ArtifactTestSupport.temporaryDirectory()

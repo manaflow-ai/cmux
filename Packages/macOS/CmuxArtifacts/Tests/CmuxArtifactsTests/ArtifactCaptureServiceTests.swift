@@ -101,6 +101,45 @@ struct ArtifactCaptureServiceTests {
         #expect(outcomes.last == .skipped(.candidateLimitReached))
     }
 
+    @Test("An oversized first candidate does not starve smaller later candidates")
+    func oversizedFirstCandidateDoesNotStarveBatch() async throws {
+        let root = try ArtifactTestSupport.temporaryDirectory()
+        defer { ArtifactTestSupport.remove(root) }
+        #expect(try ArtifactTestSupport.runGit(["init", "--quiet", root.path]) == 0)
+        _ = try ArtifactTestSupport.write(
+            """
+            {
+              "maximumFileBytes": 10,
+              "maximumTextFileBytes": 10,
+              "maximumAutomaticCaptureBytes": 6
+            }
+            """,
+            named: ".cmux/artifacts.json",
+            under: root
+        )
+        let oversized = try ArtifactTestSupport.write(
+            "12345678",
+            named: "outside/oversized.md",
+            under: root
+        )
+        let accepted = try ArtifactTestSupport.write(
+            "1234",
+            named: "outside/accepted.md",
+            under: root
+        )
+
+        let outcomes = await ArtifactCaptureService(store: LocalArtifactRepository()).capture(
+            candidates: [
+                ArtifactCandidate(sourceURL: oversized, provenance: .created),
+                ArtifactCandidate(sourceURL: accepted, provenance: .created),
+            ],
+            context: ArtifactCaptureContext(projectRoot: root)
+        )
+
+        #expect(outcomes.first == .skipped(.exceedsSizeLimit))
+        #expect(outcomes.last?.record?.sourcePath == accepted.path)
+    }
+
     @Test("Manual selections share configuration and use bounded persistence batches")
     func batchesManualSelection() async throws {
         let root = try ArtifactTestSupport.temporaryDirectory()
