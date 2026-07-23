@@ -3381,7 +3381,6 @@ class TabManager: ObservableObject {
         _ = tab.updatePanelTitle(panelId: panelId, title: title)
         guard !tab.isRemoteTmuxMirror else { return }
         if tab.focusedPanelId == panelId {
-            tab.applyProcessTitle(title)
             if selectedTabId == tabId {
                 updateWindowTitle(for: tab)
             }
@@ -3403,9 +3402,8 @@ class TabManager: ObservableObject {
     func focusedSurfaceTitleDidChange(tabId: UUID) {
         guard let tab = workspacesById[tabId],
               !tab.isRemoteTmuxMirror,
-              let focusedPanelId = tab.focusedPanelId,
-              let title = tab.panelTitles[focusedPanelId] else { return }
-        tab.applyProcessTitle(title)
+              let focusedPanelId = tab.focusedPanelId else { return }
+        tab.applyFocusedPanelTitle(panelId: focusedPanelId)
         if selectedTabId == tabId { updateWindowTitle(for: tab) }
     }
     func focusTab(

@@ -1,6 +1,23 @@
 import Foundation
 
 extension TabManager {
+    /// Refreshes title chrome after a focused panel custom-title edit changed
+    /// the automatic workspace title, then tells other title observers.
+    func panelCustomTitleDidReconcileWorkspaceTitle(_ workspace: Workspace) {
+        guard workspace.owningTabManager === self,
+              workspacesById[workspace.id] === workspace else {
+            return
+        }
+        if selectedTabId == workspace.id {
+            refreshWindowTitle()
+        }
+        NotificationCenter.default.post(
+            name: .workspaceTitleDidChange,
+            object: self,
+            userInfo: [GhosttyNotificationKey.tabId: workspace.id]
+        )
+    }
+
     /// Sets, replaces, or clears a workspace custom title. Returns whether the
     /// write landed (`.auto` writes are rejected over user-set titles; see
     /// ``Workspace/setCustomTitle(_:source:)``).
