@@ -10303,7 +10303,7 @@ mod tests {
     use super::{
         App, AppEvent, BACKGROUND_REFRESH_RETRIES, ContextMenu, DeferredInput, Drag, FocusTarget,
         ForwardMuxOutcome, MachineActionWorker, MenuAction, MenuItem, MuxTitleIngress,
-        OrderedSession, PaneArea, PaneFocusHistory, PendingSessionMutation,
+        OrderedSession, PaneArea, PaneEdge, PaneFocusHistory, PendingSessionMutation,
         PendingSessionMutationState, PromptTarget, PtyFailureIngress, PtyMousePressResult,
         RailKind, RenderAction, Selection, SessionCompletion, SessionCompletionAction,
         SessionEventSender, SidebarLayout, SidebarPluginSyncClaim, SidebarPluginSyncState,
@@ -10634,6 +10634,53 @@ mod tests {
         let expanded = app.pane_areas.iter().find(|area| area.pane == panes[12]).unwrap();
         assert_eq!(expanded.rect.height, 29);
         assert_eq!(expanded.content.height, 27);
+
+        let surfaces = mux.with_state(|state| state.surfaces.keys().copied().collect::<Vec<_>>());
+        for surface in surfaces {
+            mux.close_surface(surface);
+        }
+    }
+
+    #[test]
+    fn vertical_split_drag_keeps_nested_pane_tab_bars_visible() {
+        let mux = Mux::new("nested-pane-minimum-height-test", SurfaceOptions::default());
+        mux.new_workspace(None, Some((80, 18))).unwrap();
+        let first = Session::Local(mux.clone()).tree().active_screen().unwrap().active_pane;
+        mux.split(first, SplitDir::Down, Some((80, 9))).unwrap();
+        assert!(mux.focus_pane(first));
+        mux.split(first, SplitDir::Down, Some((80, 5))).unwrap();
+        let nested_bottom = Session::Local(mux.clone()).tree().active_screen().unwrap().active_pane;
+
+        let (mut app, events) = test_app_with_events(Session::Local(mux.clone()));
+        app.sidebar_visible = false;
+        app.replace_tree(app.session.tree());
+        app.sync_layout((80, 19));
+        while app.session.has_pending_mutations() {
+            app.handle(events.recv_timeout(Duration::from_secs(1)).unwrap()).unwrap();
+        }
+
+        for y in [0, 17] {
+            app.resize_split(nested_bottom, PaneEdge::Bottom, 0, y);
+            app.session.settle_split_ratio();
+            while app.session.has_pending_mutations() {
+                app.handle(events.recv_timeout(Duration::from_secs(1)).unwrap()).unwrap();
+            }
+            app.sync_layout((80, 19));
+
+            assert_eq!(app.pane_areas.len(), 3);
+            assert!(
+                app.pane_areas.iter().all(|area| area.rect.height >= 3 && area.bar.is_some()),
+                "every pane must retain its tab bar after dragging to y={y}: {:?}",
+                app.pane_areas
+                    .iter()
+                    .map(|area| (area.pane, area.rect, area.bar))
+                    .collect::<Vec<_>>()
+            );
+
+            while app.session.has_pending_mutations() {
+                app.handle(events.recv_timeout(Duration::from_secs(1)).unwrap()).unwrap();
+            }
+        }
 
         let surfaces = mux.with_state(|state| state.surfaces.keys().copied().collect::<Vec<_>>());
         for surface in surfaces {
@@ -10976,6 +11023,20 @@ mod tests {
             pane_parts_for_rect(rect, ScrollbarPosition::Border, true);
         assert_eq!(omnibar, None);
         assert_eq!(content, Rect { x: 1, y: 1, width: 18, height: 1 });
+    }
+
+    #[test]
+    fn tiny_pane_reserves_its_first_row_for_the_tab_bar() {
+        for height in [1, 2] {
+            let rect = Rect { x: 4, y: 5, width: 20, height };
+            let (bar, omnibar, content, track) =
+                pane_parts_for_rect(rect, ScrollbarPosition::Border, false);
+
+            assert_eq!(bar, Some(Rect { height: 1, ..rect }));
+            assert_eq!(omnibar, None);
+            assert_eq!(content.height, 0);
+            assert_eq!(track, None);
+        }
     }
 
     #[test]
@@ -13438,10 +13499,8 @@ mod tests {
             Ok(())
         });
         started_rx.recv_timeout(Duration::from_secs(1)).unwrap();
-        app.drag = Some(Drag::ResizeSplit {
-            horizontal: Some((1, super::PaneEdge::Right)),
-            vertical: None,
-        });
+        app.drag =
+            Some(Drag::ResizeSplit { horizontal: Some((1, PaneEdge::Right)), vertical: None });
 
         app.handle(AppEvent::Input(Event::Mouse(MouseEvent {
             kind: MouseEventKind::Drag(MouseButton::Left),
