@@ -33,7 +33,9 @@ struct ArtifactGitPrivacyTests {
         let root = try gitRepository()
         defer { ArtifactTestSupport.remove(root) }
         let repository = LocalArtifactRepository()
-        _ = try await repository.snapshot(projectRoot: root)
+        try await repository.prepareForMutation(
+            paths: ArtifactStorePaths(projectRoot: root)
+        )
         _ = try ArtifactTestSupport.write(
             "tracked",
             named: "tracked.md",
@@ -61,7 +63,9 @@ struct ArtifactGitPrivacyTests {
         let root = try gitRepository()
         defer { ArtifactTestSupport.remove(root) }
         let repository = LocalArtifactRepository()
-        _ = try await repository.snapshot(projectRoot: root)
+        try await repository.prepareForMutation(
+            paths: ArtifactStorePaths(projectRoot: root)
+        )
         let context = ArtifactCaptureContext(
             projectRoot: root,
             workspaceID: "workspace",
@@ -123,7 +127,9 @@ struct ArtifactGitPrivacyTests {
         let root = try gitRepository()
         defer { ArtifactTestSupport.remove(root) }
         let repository = LocalArtifactRepository()
-        _ = try await repository.snapshot(projectRoot: root)
+        try await repository.prepareForMutation(
+            paths: ArtifactStorePaths(projectRoot: root)
+        )
         let context = ArtifactCaptureContext(
             projectRoot: root,
             sessionID: "session:manual-privacy",
@@ -184,7 +190,9 @@ struct ArtifactGitPrivacyTests {
         let root = try gitRepository()
         defer { ArtifactTestSupport.remove(root) }
         let repository = LocalArtifactRepository()
-        _ = try await repository.snapshot(projectRoot: root)
+        try await repository.prepareForMutation(
+            paths: ArtifactStorePaths(projectRoot: root)
+        )
         let context = ArtifactCaptureContext(
             projectRoot: root,
             sessionID: "session:note-privacy",
@@ -239,7 +247,9 @@ struct ArtifactGitPrivacyTests {
         let root = try gitRepository()
         defer { ArtifactTestSupport.remove(root) }
         let repository = LocalArtifactRepository()
-        _ = try await repository.snapshot(projectRoot: root)
+        try await repository.prepareForMutation(
+            paths: ArtifactStorePaths(projectRoot: root)
+        )
         let context = ArtifactCaptureContext(
             projectRoot: root,
             sessionID: "session:tracked-note",
@@ -279,7 +289,10 @@ struct ArtifactGitPrivacyTests {
     func ignoresReorganizedFilesButNotConfiguration() async throws {
         let root = try gitRepository()
         defer { ArtifactTestSupport.remove(root) }
-        _ = try await LocalArtifactRepository().snapshot(projectRoot: root)
+        let repository = LocalArtifactRepository()
+        try await repository.prepareForMutation(
+            paths: ArtifactStorePaths(projectRoot: root)
+        )
         _ = try ArtifactTestSupport.write(
             "private",
             named: "organized/final.txt",
@@ -306,7 +319,9 @@ struct ArtifactGitPrivacyTests {
         let root = try gitRepository()
         defer { ArtifactTestSupport.remove(root) }
         let repository = LocalArtifactRepository()
-        _ = try await repository.snapshot(projectRoot: root)
+        try await repository.prepareForMutation(
+            paths: ArtifactStorePaths(projectRoot: root)
+        )
         _ = try ArtifactTestSupport.write(
             "tracked",
             named: "organized/final.txt",
@@ -341,7 +356,9 @@ struct ArtifactGitPrivacyTests {
         )
         let repository = LocalArtifactRepository()
 
-        _ = try await repository.snapshot(projectRoot: root)
+        try await repository.prepareForMutation(
+            paths: ArtifactStorePaths(projectRoot: root)
+        )
         let repaired = try String(contentsOf: exclude, encoding: .utf8)
         let repairedLines = repaired.split(separator: "\n").map(String.init)
         #expect(
@@ -349,11 +366,13 @@ struct ArtifactGitPrivacyTests {
                 == ArtifactGitIgnoreManager.ignoreEntries
         )
 
-        _ = try await repository.snapshot(projectRoot: root)
+        try await repository.prepareForMutation(
+            paths: ArtifactStorePaths(projectRoot: root)
+        )
         #expect(try String(contentsOf: exclude, encoding: .utf8) == repaired)
     }
 
-    @Test("Oversized Git excludes fail closed before sidebar preparation")
+    @Test("Oversized Git excludes fail closed before mutation preparation")
     func rejectsOversizedGitExclude() async throws {
         let root = try gitRepository()
         defer { ArtifactTestSupport.remove(root) }
@@ -365,7 +384,10 @@ struct ArtifactGitPrivacyTests {
         )
 
         await #expect(throws: ArtifactStoreError.gitPrivacyUnavailable(exclude.path)) {
-            _ = try await LocalArtifactRepository().snapshot(projectRoot: root)
+            let repository = LocalArtifactRepository()
+            try await repository.prepareForMutation(
+                paths: ArtifactStorePaths(projectRoot: root)
+            )
         }
     }
 
@@ -386,7 +408,10 @@ struct ArtifactGitPrivacyTests {
         try await withThrowingTaskGroup(of: Void.self) { group in
             for projectRoot in projectRoots {
                 group.addTask {
-                    _ = try await LocalArtifactRepository().snapshot(projectRoot: projectRoot)
+                    let repository = LocalArtifactRepository()
+                    try await repository.prepareForMutation(
+                        paths: ArtifactStorePaths(projectRoot: projectRoot)
+                    )
                 }
             }
             try await group.waitForAll()

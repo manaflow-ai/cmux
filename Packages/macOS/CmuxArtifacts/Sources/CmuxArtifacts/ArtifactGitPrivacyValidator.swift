@@ -17,16 +17,15 @@ struct ArtifactGitPrivacyValidator: Sendable {
             + ArtifactStorePaths.trackableControlFileNames.map {
                 ":(exclude,literal)\(relativeCmuxPath)/\($0)"
             }
-        guard let trackedResult = try? await commandRunner.run(
+        guard let trackedStatus = try? await commandRunner.terminationStatus(
             arguments: [
                 "-C", worktreeRoot.path,
-                "ls-files", "-z", "--",
-            ] + trackedContentPathspecs,
-            standardInput: nil
-        ), trackedResult.terminationStatus == 0 else {
+                "ls-files", "--error-unmatch", "--",
+            ] + trackedContentPathspecs
+        ) else {
             return false
         }
-        return trackedResult.standardOutput.isEmpty
+        return trackedStatus == 1
     }
 
     func permits(destinations: [URL]) async -> Bool {

@@ -10,7 +10,10 @@ struct ArtifactGitSubmoduleTests {
         let fixture = try makeFixture()
         defer { ArtifactTestSupport.remove(fixture.root) }
 
-        _ = try await LocalArtifactRepository().snapshot(projectRoot: fixture.submodule)
+        let repository = LocalArtifactRepository()
+        try await repository.prepareForMutation(
+            paths: ArtifactStorePaths(projectRoot: fixture.submodule)
+        )
 
         let exclude = fixture.gitDirectory.appendingPathComponent("info/exclude", isDirectory: false)
         let contents = try String(contentsOf: exclude, encoding: .utf8)

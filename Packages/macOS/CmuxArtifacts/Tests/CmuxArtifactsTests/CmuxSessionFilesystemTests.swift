@@ -395,7 +395,10 @@ struct CmuxSessionFilesystemTests {
         defer { ArtifactTestSupport.remove(root) }
         #expect(try ArtifactTestSupport.runGit(["init", "--quiet", root.path]) == 0)
 
-        _ = try await LocalArtifactRepository().snapshot(projectRoot: root)
+        let repository = LocalArtifactRepository()
+        try await repository.prepareForMutation(
+            paths: ArtifactStorePaths(projectRoot: root)
+        )
         let privatePaths = [
             ".cmux/session/artifacts/image.png",
             ".cmux/session/notes/plan.md",

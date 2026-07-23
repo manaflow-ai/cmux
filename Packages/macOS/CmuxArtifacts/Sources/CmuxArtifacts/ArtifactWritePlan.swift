@@ -10,10 +10,10 @@ struct ArtifactWritePlan {
         copyDestinationBySnapshotPath[prepared.snapshot.url.standardizedFileURL.path]
     }
 
-    /// Returns whether every destination in a refreshed plan was already Git-authorized.
-    func authorizes(_ refreshed: ArtifactWritePlan) -> Bool {
+    /// Returns whether every destination in a refined plan was already Git-authorized.
+    func authorizes(_ refined: ArtifactWritePlan) -> Bool {
         let authorizedPaths = Set(destinations.map { $0.standardizedFileURL.path })
-        return refreshed.destinations.allSatisfy {
+        return refined.destinations.allSatisfy {
             authorizedPaths.contains($0.standardizedFileURL.path)
         }
     }

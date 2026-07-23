@@ -7,14 +7,14 @@ extension LocalArtifactRepository: NoteStoring {
     /// Lists Markdown notes from every live session `notes` directory.
     public func listNotes(projectRoot: URL) throws -> [CmuxProjectNote] {
         let paths = ArtifactStorePaths(projectRoot: projectRoot)
-        try prepare(paths: paths)
+        try validateStoreForReading(paths: paths)
         return try noteResolver.notes(snapshot: completeSnapshot(paths: paths))
     }
 
     /// Resolves a live note after arbitrary file or session-folder moves.
     public func resolveNote(projectRoot: URL, name: String) throws -> CmuxProjectNote {
         let paths = ArtifactStorePaths(projectRoot: projectRoot)
-        try prepare(paths: paths)
+        try validateStoreForReading(paths: paths)
         return try noteResolver.resolve(
             snapshot: completeSnapshot(paths: paths),
             rawName: name
@@ -43,7 +43,7 @@ extension LocalArtifactRepository: NoteStoring {
             )
         }
         let paths = ArtifactStorePaths(projectRoot: context.projectRoot)
-        try prepare(paths: paths)
+        try prepareForMutation(paths: paths)
         let preflightPlan = try makeNoteWritePlan(
             name: name,
             context: context,
@@ -106,7 +106,7 @@ extension LocalArtifactRepository: NoteStoring {
     /// Searches only live Markdown notes while sharing artifact search bounds.
     public func searchNotes(projectRoot: URL, query: String) throws -> [CmuxNoteSearchResult] {
         let paths = ArtifactStorePaths(projectRoot: projectRoot)
-        try prepare(paths: paths)
+        try validateStoreForReading(paths: paths)
         let snapshot = try completeSnapshot(paths: paths)
         let resolver = noteResolver
         let noteSnapshot = ArtifactSnapshot(
@@ -132,7 +132,7 @@ extension LocalArtifactRepository: NoteStoring {
     @discardableResult
     public func deleteNote(projectRoot: URL, name: String) throws -> CmuxProjectNote {
         let paths = ArtifactStorePaths(projectRoot: projectRoot)
-        try prepare(paths: paths)
+        try prepareForMutation(paths: paths)
         let lease = try ArtifactStoreMutationLease.acquire(directory: paths.filesystemRoot)
         defer { lease.finish() }
         let resolver = noteResolver
