@@ -187,6 +187,32 @@ struct WorkspaceAdjacentPaneMoveTests {
         #expect((workspace.panels[panelId] as? TerminalPanel) === panel)
     }
 
+    @Test func failedTransferRestoresSplitZoom() throws {
+        let workspace = Workspace()
+        let movedPanelId = try #require(workspace.focusedPanelId)
+        let sourcePaneId = try #require(
+            workspace.paneId(forPanelId: movedPanelId)
+        )
+        _ = try #require(
+            workspace.newTerminalSplit(
+                from: movedPanelId,
+                orientation: .horizontal,
+                focus: false
+            )
+        )
+        workspace.focusPanel(movedPanelId)
+        #expect(workspace.toggleSplitZoom(panelId: movedPanelId))
+
+        var configuration = workspace.bonsplitController.configuration
+        configuration.allowCrossPaneTabMove = false
+        workspace.bonsplitController.configuration = configuration
+
+        #expect(!workspace.moveFocusedSurface(to: .right))
+        #expect(workspace.bonsplitController.zoomedPaneId == sourcePaneId)
+        #expect(workspace.paneId(forPanelId: movedPanelId) == sourcePaneId)
+        #expect(workspace.focusedPanelId == movedPanelId)
+    }
+
     @Test func rejectsCanvasAndRemoteTmuxLayoutsWithoutMutation() throws {
         for unsupportedLayout in UnsupportedLayout.allCases {
             let workspace = Workspace()

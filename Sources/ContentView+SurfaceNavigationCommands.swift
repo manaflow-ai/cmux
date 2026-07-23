@@ -10,8 +10,8 @@ extension ContentView {
 
         let subtitle = constant(
             String(
-                localized: "command.nextTabInPane.subtitle",
-                defaultValue: "Tab Navigation"
+                localized: "command.surfaceNavigation.subtitle",
+                defaultValue: "Surface Navigation"
             )
         )
         var contributions = [

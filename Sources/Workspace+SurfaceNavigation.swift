@@ -27,13 +27,20 @@ extension Workspace {
         }
 
         let insertionIndex = insertionIndexAfterSelectedSurface(in: destinationPaneId)
-        clearSplitZoom()
-        return moveSurface(
+        let zoomedPaneId = bonsplitController.zoomedPaneId
+        if zoomedPaneId != nil {
+            clearSplitZoom()
+        }
+        let didMove = moveSurface(
             panelId: panelId,
             toPane: destinationPaneId,
             atIndex: insertionIndex,
             focus: true
         )
+        if !didMove, let zoomedPaneId {
+            _ = bonsplitController.togglePaneZoom(inPane: zoomedPaneId)
+        }
+        return didMove
     }
 
     private func destinationPane(
