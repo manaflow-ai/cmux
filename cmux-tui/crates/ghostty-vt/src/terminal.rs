@@ -1825,8 +1825,8 @@ impl Drop for Terminal {
 #[cfg(test)]
 mod tests {
     use super::{
-        Callbacks, MouseModeScan, PaletteOsc, PromptSemanticTracker, PromptTrackState, Screen,
-        Terminal, vt_replay_row_window,
+        Callbacks, MouseModeScan, PaletteOsc, PromptSemantic, PromptSemanticTracker,
+        PromptTrackState, Screen, Terminal, vt_replay_row_window,
     };
 
     #[test]
@@ -1902,6 +1902,29 @@ mod tests {
 
         terminal.vt_write(b"\x1b[?1049l");
         assert!(terminal.cursor_is_at_prompt());
+    }
+
+    #[test]
+    fn prompt_semantic_tracking_ignores_utf8_continuation_bytes_that_resemble_c1() {
+        let mut tracker = PromptSemanticTracker::default();
+        tracker.feed(b"\x1b]133;A\x07\x1b]133;B\x07");
+        assert_eq!(tracker.semantic(Screen::Primary), PromptSemantic::Input);
+
+        tracker.feed("\u{45d}".as_bytes());
+        tracker.feed(b"\x1b]133;C\x07");
+
+        assert_eq!(tracker.semantic(Screen::Primary), PromptSemantic::Output);
+    }
+
+    #[test]
+    fn live_output_phase_overrides_persisted_prompt_rows() {
+        let mut terminal = Terminal::new(20, 4, 0, Callbacks::default()).unwrap();
+        terminal.vt_write(b"\x1b]133;A\x07$ \x1b]133;B\x07command");
+        assert!(terminal.cursor_is_at_prompt());
+
+        terminal.vt_write(b"\r\n\x1b]133;C\x07output\x1b[A\r");
+
+        assert!(!terminal.cursor_is_at_prompt());
     }
 
     #[test]

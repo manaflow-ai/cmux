@@ -10582,6 +10582,23 @@ mod tests {
     }
 
     #[test]
+    fn unsupported_host_keyboard_protocol_is_a_nonfatal_fallback() {
+        struct UnsupportedWriter;
+
+        impl std::io::Write for UnsupportedWriter {
+            fn write(&mut self, _buffer: &[u8]) -> std::io::Result<usize> {
+                Err(std::io::Error::from(std::io::ErrorKind::Unsupported))
+            }
+
+            fn flush(&mut self) -> std::io::Result<()> {
+                Ok(())
+            }
+        }
+
+        assert!(enable_host_keyboard_protocol(&mut UnsupportedWriter).is_ok());
+    }
+
+    #[test]
     fn enhanced_text_inserts_atomically_in_prompt_and_omnibar() {
         let mux = Mux::new("enhanced-overlay-text-test", SurfaceOptions::default());
         let mut app = test_app(Session::Local(mux));
