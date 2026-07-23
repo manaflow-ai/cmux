@@ -30,8 +30,10 @@ struct CmuxSessionFilesystemTests {
         )
 
         let record = try #require(outcome.record)
-        #expect(record.relativePath == "codex-session-99/artifacts/plan.md")
-        let sessionRoot = root.appendingPathComponent(".cmux/codex-session-99")
+        let sessionName = try #require(record.relativePath.split(separator: "/").first)
+        #expect(sessionName.hasPrefix("codex-session-99-"))
+        #expect(record.relativePath == "\(sessionName)/artifacts/plan.md")
+        let sessionRoot = root.appendingPathComponent(".cmux/\(sessionName)")
         #expect(FileManager.default.fileExists(
             atPath: sessionRoot.appendingPathComponent("artifacts/plan.md").path
         ))
@@ -181,6 +183,42 @@ struct CmuxSessionFilesystemTests {
         )
         #expect(firstMarker.sessionID == "pending-claude-a1111111-1111-1111-1111-111111111111")
         #expect(secondMarker.sessionID == "pending-claude-a2222222-2222-2222-2222-222222222222")
+    }
+
+    @Test("Short session identifiers that normalize alike never share a capture directory")
+    func separatesShortSessionIdentifiersWithTheSameNormalizedValue() async throws {
+        let root = try ArtifactTestSupport.temporaryDirectory()
+        defer { ArtifactTestSupport.remove(root) }
+        let repository = LocalArtifactRepository()
+        let firstSource = try ArtifactTestSupport.write("first", named: "outside/first.txt", under: root)
+        let secondSource = try ArtifactTestSupport.write("second", named: "outside/second.txt", under: root)
+
+        let first = try await repository.importFile(
+            sourceURL: firstSource,
+            context: ArtifactCaptureContext(
+                projectRoot: root,
+                sessionID: "Ab:C",
+                agentName: "codex"
+            ),
+            provenance: .manual,
+            configuration: .defaultValue,
+            capturedAt: Date(timeIntervalSince1970: 1)
+        )
+        let second = try await repository.importFile(
+            sourceURL: secondSource,
+            context: ArtifactCaptureContext(
+                projectRoot: root,
+                sessionID: "ab-c",
+                agentName: "codex"
+            ),
+            provenance: .manual,
+            configuration: .defaultValue,
+            capturedAt: Date(timeIntervalSince1970: 2)
+        )
+
+        let firstRoot = try #require(first.record?.relativePath.split(separator: "/").first)
+        let secondRoot = try #require(second.record?.relativePath.split(separator: "/").first)
+        #expect(firstRoot != secondRoot)
     }
 
     @Test("Capture fails closed when moved-session discovery exceeds its node budget")

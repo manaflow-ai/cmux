@@ -60,4 +60,14 @@ struct ArtifactHTMLPreviewSecurityTests {
         #expect(!policy.allowsNavigation(to: URL(fileURLWithPath: "/private/sibling.txt"), targetIsMainFrame: false))
         #expect(!policy.allowsNavigation(to: documentURL, targetIsMainFrame: nil))
     }
+
+    @Test("Artifact previews never enter normal browser session persistence")
+    func excludesPreviewDocumentsFromRestoration() throws {
+        let documentURL = try #require(URL(string: "data:text/html;base64,PGh0bWw+"))
+
+        #expect(!BrowserPanelContentMode.artifactHTMLPreview(
+            documentURL: documentURL
+        ).allowsSessionPersistence)
+        #expect(BrowserPanelContentMode.standard.allowsSessionPersistence)
+    }
 }
