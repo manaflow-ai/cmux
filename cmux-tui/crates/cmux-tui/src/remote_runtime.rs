@@ -1270,9 +1270,17 @@ async fn shutdown_relay(registration: RelayDaemonRegistration) {
 }
 
 fn persist_runtime_info(state_dir: &Path, info: &DaemonRuntimeInfo) -> anyhow::Result<()> {
+    let mut persisted = info.clone();
+    persisted.routes.clear();
+    for route in &info.routes {
+        let endpoint =
+            Url::parse(route).map_err(|_| anyhow!("remote runtime route metadata is invalid"))?;
+        push_unique_route(&mut persisted.routes, sanitized_route(&endpoint));
+    }
+
     let path = state_dir.join("runtime.json");
     let temporary = state_dir.join(format!(".runtime-{}.json", std::process::id()));
-    fs::write(&temporary, serde_json::to_vec_pretty(info)?)?;
+    fs::write(&temporary, serde_json::to_vec_pretty(&persisted)?)?;
     #[cfg(unix)]
     {
         use std::os::unix::fs::PermissionsExt;
