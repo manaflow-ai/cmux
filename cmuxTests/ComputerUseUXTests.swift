@@ -434,15 +434,15 @@ struct ComputerUseUXTests {
 
         #expect(first !== second)
         #expect(first.contentView !== second.contentView)
-        #expect(first.frame.size == CGSize(width: 596, height: 435))
-        #expect(first.contentView?.frame.size == CGSize(width: 596, height: 435))
+        #expect(first.frame.size == CGSize(width: 600, height: 440))
+        #expect(first.contentView?.frame.size == CGSize(width: 600, height: 440))
         #expect(!first.styleMask.contains(.miniaturizable))
         #expect(!first.styleMask.contains(.resizable))
     }
 
     @Test @MainActor func onboardingContentCannotOutgrowItsAppKitWindow() async {
-        let expandedSize = CGSize(width: 596, height: 435)
-        let companionSize = CGSize(width: 680, height: 250)
+        let expandedSize = CGSize(width: 600, height: 440)
+        let companionSize = CGSize(width: 532, height: 110)
         let oversizedContent = Color.clear.frame(width: 680, height: 883)
         let window = ComputerUseOnboardingWindow(
             contentRect: NSRect(origin: .zero, size: expandedSize),
@@ -487,7 +487,7 @@ struct ComputerUseUXTests {
         }
     }
 
-    @Test func permissionRowsOfferManualSettingsRecoveryAfterNativeAttempt() {
+    @Test func permissionRowsKeepOneRepeatableAllowFlowUntilGranted() {
         #expect(ComputerUsePermissionRowAction.resolve(
             granted: false,
             statusIsKnown: true,
@@ -497,7 +497,7 @@ struct ComputerUseUXTests {
             granted: false,
             statusIsKnown: true,
             nativeRequestAttempted: true
-        ) == .completeInSystemSettings)
+        ) == .allow)
         #expect(ComputerUsePermissionRowAction.resolve(
             granted: true,
             statusIsKnown: true,
@@ -528,7 +528,7 @@ struct ComputerUseUXTests {
         ))
 
         let onboarding = placement.frame(
-            onboardingSize: CGSize(width: 680, height: 250),
+            onboardingSize: CGSize(width: 532, height: 110),
             beside: systemSettings,
             in: permissionDisplay
         )
@@ -536,9 +536,9 @@ struct ComputerUseUXTests {
         #expect(systemSettings == CGRect(x: 225, y: 1_223, width: 723, height: 762))
         #expect(permissionDisplay == externalDisplay)
         #expect(externalDisplay.contains(onboarding))
-        #expect(!onboarding.intersects(systemSettings))
-        #expect(onboarding.maxX == systemSettings.minX - 12)
-        #expect(onboarding.maxY == systemSettings.maxY)
+        #expect(onboarding.intersects(systemSettings))
+        #expect(onboarding.maxX == systemSettings.maxX - 12)
+        #expect(onboarding.minY == systemSettings.minY + 12)
     }
 
     @Test @MainActor func permissionOnboardingStartsAtTheRequestedStep() {
