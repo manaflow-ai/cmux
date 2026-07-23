@@ -408,6 +408,75 @@ struct PiFeedOwnershipTests {
         #expect(error["code"] as? String == "not_found")
         #expect(store.items.isEmpty)
     }
+
+    @MainActor @Test
+    func surfaceLessFeedRejectsClosedWorkspaceClaim() {
+        let previousAppDelegate = AppDelegate.shared
+        let appDelegate = AppDelegate()
+        AppDelegate.shared = appDelegate
+        appDelegate.didAttemptStartupSessionRestore = true
+        appDelegate.tabManager = TabManager(autoWelcomeIfNeeded: false)
+        defer {
+            appDelegate.tabManager = nil
+            AppDelegate.shared = previousAppDelegate
+        }
+
+        let store = WorkstreamStore(ringCapacity: 10)
+        FeedCoordinator.shared.install(store: store)
+        let event = WorkstreamEvent(
+            sessionId: "pi-closed-workspace-only",
+            hookEventName: .postToolUse,
+            source: "pi",
+            workspaceId: UUID().uuidString,
+            requestId: "pi-closed-workspace-only-request"
+        )
+        let result = TerminalController.shared.v2IngestAcknowledgedFeedEvents([event])
+        guard case .err(let code, _, _) = result else {
+            Issue.record("closed workspace-only claim received an acknowledgment")
+            return
+        }
+        #expect(code == "not_found")
+        #expect(store.items.isEmpty)
+    }
+
+    @MainActor @Test
+    func surfaceLessFeedNormalizesLiveWorkspaceClaim() throws {
+        let previousAppDelegate = AppDelegate.shared
+        let appDelegate = AppDelegate()
+        AppDelegate.shared = appDelegate
+        let tabManager = TabManager(autoWelcomeIfNeeded: false)
+        appDelegate.tabManager = tabManager
+        let workspace = tabManager.addWorkspace(select: true)
+        defer {
+            tabManager.closeWorkspace(workspace)
+            appDelegate.tabManager = nil
+            AppDelegate.shared = previousAppDelegate
+        }
+        var insertedEvent: WorkstreamEvent?
+        let store = WorkstreamStore(ringCapacity: 10) {
+            insertedEvent = $0
+            return nil
+        }
+        FeedCoordinator.shared.install(store: store)
+        let event = WorkstreamEvent(
+            sessionId: "pi-live-workspace-only",
+            hookEventName: .postToolUse,
+            source: "pi",
+            workspaceId: "  \(workspace.id.uuidString) \n",
+            requestId: "pi-live-workspace-only-request"
+        )
+        let result = TerminalController.shared.v2IngestAcknowledgedFeedEvents([event])
+        guard case .ok(let rawPayload) = result,
+              let payload = rawPayload as? [String: Any] else {
+            Issue.record("live workspace-only claim was not acknowledged")
+            return
+        }
+        #expect(payload["workspace_id"] as? String == workspace.id.uuidString)
+        #expect(payload["surface_id"] == nil)
+        #expect(insertedEvent?.workspaceId == workspace.id.uuidString)
+        #expect(insertedEvent?.surfaceId == nil)
+        #expect(store.items.count == 1)
+    }
 }
 
 private final class PiFeedEventRecorder: @unchecked Sendable {
