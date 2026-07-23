@@ -3537,51 +3537,61 @@ def test_pi_hook_rejects_malformed_explicit_surface(cli_path: str, root: Path) -
 
 
 def test_pi_compacted_feed_bounds_untrusted_batch(cli_path: str, root: Path) -> None:
-    socket_path = root / "cmux-pi-untrusted-compaction.sock"
     env = os.environ.copy()
     for key in ("CMUX_SOCKET", "CMUX_SOCKET_CAPABILITY", "CMUX_SOCKET_PATH", "CMUX_SOCKET_PASSWORD"):
         env.pop(key, None)
     env["CMUX_SURFACE_ID"] = FAKE_SURFACE_ID
     env["CMUX_WORKSPACE_ID"] = FAKE_WORKSPACE_ID
-    payload = {
-        "session_id": "pi-untrusted-compaction-session",
-        "hook_event_name": "PostToolUse",
-        "cmux_compacted_terminal_events": [
-            {
-                "session_id": "pi-untrusted-compaction-session",
-                "tool_call_id": f"untrusted-tool-{index}",
-                "tool_name": "bash",
-            }
-            for index in range(65)
-        ],
-    }
+    oversized_events = [
+        {
+            "session_id": "pi-untrusted-compaction-session",
+            "tool_call_id": f"untrusted-tool-{index}",
+            "tool_name": "bash",
+        }
+        for index in range(65)
+    ]
+    invalid_batches = [
+        ("oversized", oversized_events),
+        ("empty", []),
+        ("unusable", [{"tool_call_id": "missing-session"}]),
+    ]
 
-    with FakeCmuxSocket(socket_path, None) as fake:
-        result = subprocess.run(
-            [
-                cli_path,
-                "--socket",
-                str(socket_path),
-                "hooks",
-                "feed",
-                "--source",
-                "pi",
-                "--event",
-                "PostToolUse",
-            ],
-            input=json.dumps(payload),
-            capture_output=True,
-            text=True,
-            check=False,
-            env=env,
-            timeout=10,
-        )
+    for name, compacted_events in invalid_batches:
+        socket_path = root / f"cmux-pi-untrusted-compaction-{name}.sock"
+        payload = {
+            "session_id": "",
+            "hook_event_name": "PostToolUse",
+            "cmux_compacted_terminal_events": compacted_events,
+        }
+        if name == "oversized":
+            payload["session_id"] = "pi-untrusted-compaction-session"
 
-    if result.returncode != 0:
-        raise AssertionError(f"bounded Pi compaction failed: {result.stderr!r}")
-    feed_frames = [frame for frame in fake.frames if frame.get("method") == "feed.push"]
-    if len(feed_frames) > 1:
-        raise AssertionError(f"untrusted Pi compaction expanded past its CLI bound: {len(feed_frames)}")
+        with FakeCmuxSocket(socket_path, None) as fake:
+            result = subprocess.run(
+                [
+                    cli_path,
+                    "--socket",
+                    str(socket_path),
+                    "hooks",
+                    "feed",
+                    "--source",
+                    "pi",
+                    "--event",
+                    "PostToolUse",
+                ],
+                input=json.dumps(payload),
+                capture_output=True,
+                text=True,
+                check=False,
+                env=env,
+                timeout=10,
+            )
+
+        if result.returncode == 0:
+            raise AssertionError(f"invalid {name} Pi compaction reported success")
+        feed_frames = [frame for frame in fake.frames if frame.get("method") == "feed.push"]
+        if feed_frames:
+            raise AssertionError(f"invalid {name} Pi compaction reached Feed: {feed_frames!r}")
 
 
 def test_pi_feed_rejects_oversized_input(cli_path: str, root: Path) -> None:

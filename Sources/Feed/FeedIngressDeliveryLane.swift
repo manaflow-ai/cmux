@@ -36,10 +36,13 @@ final class FeedIngressDeliveryLane: @unchecked Sendable {
     private var consecutivePrioritySelections = 0
 
     /// Runs acknowledged or actionable ingress after its earlier same-key deliveries.
+    ///
+    /// The delivery must call ``FeedIngressSynchronousResult/commit(_:)`` only
+    /// at its short, non-suspending mutation boundary.
     func perform<Result: Sendable>(
         metadata: FeedIngressDeliveryMetadata,
         timeout: TimeInterval,
-        _ delivery: @escaping @Sendable () -> Result
+        _ delivery: @escaping @Sendable (FeedIngressSynchronousResult<Result>) -> Void
     ) -> Result? {
         precondition(timeout > 0, "Synchronous Feed ingress requires a positive timeout")
         let result = FeedIngressSynchronousResult<Result>()
@@ -50,7 +53,8 @@ final class FeedIngressDeliveryLane: @unchecked Sendable {
                 metadata: metadata,
                 isZeroWait: false,
                 execute: {
-                    result.resolve(with: delivery)
+                    guard result.begin() else { return }
+                    delivery(result)
                 }
             )
         ) else {
@@ -67,7 +71,7 @@ final class FeedIngressDeliveryLane: @unchecked Sendable {
     /// Admits a typed zero-wait delivery when its bounded capacity class has room.
     func enqueueZeroWait(
         metadata: FeedIngressDeliveryMetadata,
-        _ delivery: @escaping @Sendable () -> Void
+        _ delivery: @escaping @Sendable (FeedIngressSynchronousResult<Void>?) -> Void
     ) -> Bool {
         admissionLock.lock()
         guard pendingZeroWaitCount < Self.maximumPendingZeroWaitDeliveries else {
@@ -94,7 +98,9 @@ final class FeedIngressDeliveryLane: @unchecked Sendable {
                 synchronousID: nil,
                 metadata: metadata,
                 isZeroWait: true,
-                execute: delivery
+                execute: {
+                    delivery(nil)
+                }
             )
         )
         let shouldScheduleDrain = beginDrainIfNeeded()

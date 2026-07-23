@@ -474,18 +474,6 @@ struct FeedCoordinatorTests {
             FeedCoordinator.shared.install(store: WorkstreamStore(ringCapacity: 10))
         }
 
-        let mainActorBlockStarted = DispatchSemaphore(value: 0)
-        let releaseMainActor = DispatchSemaphore(value: 0)
-        defer { releaseMainActor.signal() }
-        DispatchQueue.main.async {
-            mainActorBlockStarted.signal()
-            releaseMainActor.wait()
-        }
-        guard waitForFeedTestSignal(mainActorBlockStarted, timeout: .now() + 1) == .success else {
-            Issue.record("failed to block Feed acceptance on the main actor")
-            return
-        }
-
         let event = WorkstreamEvent(
             sessionId: "single-deadline-test",
             hookEventName: .permissionRequest,
@@ -494,29 +482,31 @@ struct FeedCoordinatorTests {
             requestId: "single-deadline-request"
         )
         let done = DispatchSemaphore(value: 0)
+        let commitStarted = DispatchSemaphore(value: 0)
+        let releaseCommit = DispatchSemaphore(value: 0)
+        defer { releaseCommit.signal() }
         let resultBox = IngestResultBox()
         let ingestStartedAt = ContinuousClock.now
         DispatchQueue.global(qos: .userInitiated).async {
             resultBox.value = FeedCoordinator.shared.ingestBlocking(
                 event: event,
-                waitTimeout: 1
+                waitTimeout: 1,
+                onAcceptedOnMainActor: { _ in
+                    commitStarted.signal()
+                    releaseCommit.wait()
+                }
             )
             done.signal()
         }
 
-        let admissionDeadline = ContinuousClock.now + .seconds(1)
-        while !FeedCoordinator.shared.isAwaitingDecision(requestId: "single-deadline-request"),
-              ContinuousClock.now < admissionDeadline {
-            await Task.yield()
-        }
-        guard FeedCoordinator.shared.isAwaitingDecision(requestId: "single-deadline-request") else {
-            Issue.record("blocking ingress never reached the ordered Feed lane")
+        guard waitForFeedTestSignal(commitStarted, timeout: .now() + 1) == .success else {
+            Issue.record("blocking ingress never reached its commit boundary")
             return
         }
-        // Consume part of the one-second deadline only after deterministic
-        // waiter registration proves the delivery is admitted and executing.
+        // Consume part of the one-second deadline only after the main-actor
+        // callback proves waiter registration and event insertion are committing.
         try? await Task.sleep(for: .milliseconds(400))
-        releaseMainActor.signal()
+        releaseCommit.signal()
 
         guard waitForFeedTestSignal(done, timeout: .now() + 2) == .success else {
             Issue.record("blocking ingress did not return")

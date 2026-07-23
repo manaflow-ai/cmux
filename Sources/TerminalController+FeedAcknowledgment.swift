@@ -19,38 +19,41 @@ extension TerminalController {
         let ingestion = FeedCoordinator.shared.performAcceptedEventDelivery(
             for: events,
             timeout: deliveryTimeout
-        ) {
-            let ingestion = self.v2MainSync { () -> FeedBatchIngestion in
-                guard ContinuousClock.now < deliveryDeadline else { return .unavailable }
-                guard FeedCoordinator.shared.store != nil else { return .unavailable }
-                let authoritativeEvents: [WorkstreamEvent]
-                switch FeedCoordinator.shared.resolveDeliveryTarget(for: events) {
-                case .accepted(let events):
-                    authoritativeEvents = events
-                case .notFound:
-                    return .notFound
-                case .unavailable:
-                    return .unavailable
-                }
-
-                var itemIds: [UUID] = []
-                itemIds.reserveCapacity(authoritativeEvents.count)
-                for event in authoritativeEvents {
-                    self.v2ApplyIMessageModeSideEffects(for: event)
-                    guard let itemId = FeedCoordinator.shared.ingestRevalidatedOnMainActor(event) else {
-                        continue
+        ) { result in
+            let ingestion: FeedBatchIngestion? = self.v2MainSync {
+                result.commit {
+                    guard ContinuousClock.now < deliveryDeadline else { return .unavailable }
+                    guard FeedCoordinator.shared.store != nil else { return .unavailable }
+                    let authoritativeEvents: [WorkstreamEvent]
+                    switch FeedCoordinator.shared.resolveDeliveryTarget(for: events) {
+                    case .accepted(let events):
+                        authoritativeEvents = events
+                    case .notFound:
+                        return .notFound
+                    case .unavailable:
+                        return .unavailable
                     }
-                    itemIds.append(itemId)
+
+                    var itemIds: [UUID] = []
+                    itemIds.reserveCapacity(authoritativeEvents.count)
+                    for event in authoritativeEvents {
+                        self.v2ApplyIMessageModeSideEffects(for: event)
+                        guard let itemId = FeedCoordinator.shared.ingestRevalidatedOnMainActor(event) else {
+                            continue
+                        }
+                        itemIds.append(itemId)
+                    }
+                    if itemIds.count == authoritativeEvents.count {
+                        self.v2NoteCoalescedFeedTranscriptEvents(authoritativeEvents)
+                    } else {
+                        return .unavailable
+                    }
+                    return .accepted(events: authoritativeEvents, itemIds: itemIds)
                 }
-                if itemIds.count == authoritativeEvents.count {
-                    self.v2NoteCoalescedFeedTranscriptEvents(authoritativeEvents)
-                } else {
-                    return .unavailable
-                }
-                return .accepted(events: authoritativeEvents, itemIds: itemIds)
             }
 
-            if case .accepted(let authoritativeEvents, let authoritativeItemIds) = ingestion {
+            if let ingestion,
+               case .accepted(let authoritativeEvents, let authoritativeItemIds) = ingestion {
                 for (event, itemId) in zip(authoritativeEvents, authoritativeItemIds) {
                     CmuxEventBus.shared.publishWorkstreamEvent(event, phase: "received")
                     let result = FeedCoordinator.IngestBlockingResult.acknowledged(itemId: itemId)
@@ -61,7 +64,6 @@ extension TerminalController {
                     )
                 }
             }
-            return ingestion
         }
         guard let ingestion else { return v2FeedTargetUnavailable() }
 

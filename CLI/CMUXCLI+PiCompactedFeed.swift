@@ -122,7 +122,7 @@ extension CMUXCLI {
             surfaceId: target?.surfaceId,
             maximumRequestCount: client.isRelayBacked ? 2 : nil
         ).acknowledgedBatchRequest(from: rawObject)
-        guard let request else { return "{}" }
+        guard let request else { throw piFeedAcknowledgmentError() }
 
         let response = try client.send(
             command: request.line,

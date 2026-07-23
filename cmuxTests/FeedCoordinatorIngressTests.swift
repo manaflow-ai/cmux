@@ -50,8 +50,8 @@ extension FeedCoordinatorTests {
                         importance: .acknowledged
                     ),
                     timeout: 2
-                ) {
-                    true
+                ) { result in
+                    _ = result.commit { true }
                 }
                 submissionReturned.signal()
             }
@@ -73,11 +73,12 @@ extension FeedCoordinatorTests {
         }
     }
 
-    @Test func synchronousDeliveryTimeoutReleasesCallerWhileDeliveryIsRunning() {
+    @Test func synchronousDeliveryTimeoutCancelsRunningDeliveryBeforeCommit() {
         let lane = FeedIngressDeliveryLane()
         let deliveryStarted = DispatchSemaphore(value: 0)
         let releaseDelivery = DispatchSemaphore(value: 0)
         let deliveryFinished = DispatchSemaphore(value: 0)
+        let commitRejected = DispatchSemaphore(value: 0)
         let callerTimedOut = DispatchSemaphore(value: 0)
         let callerReturned = DispatchSemaphore(value: 0)
         defer { releaseDelivery.signal() }
@@ -92,13 +93,18 @@ extension FeedCoordinatorTests {
             importance: .acknowledged
         )
         DispatchQueue.global(qos: .userInitiated).async {
-            let result = lane.perform(metadata: metadata, timeout: 0.05) {
+            let value = lane.perform(metadata: metadata, timeout: 0.05) { result in
                 deliveryStarted.signal()
                 releaseDelivery.wait()
-                deliveryFinished.signal()
-                return true
+                guard result.commit({
+                    deliveryFinished.signal()
+                    return true
+                }) != nil else {
+                    commitRejected.signal()
+                    return
+                }
             }
-            if result == nil {
+            if value == nil {
                 callerTimedOut.signal()
             }
             callerReturned.signal()
@@ -110,7 +116,8 @@ extension FeedCoordinatorTests {
         #expect(deliveryFinished.wait(timeout: .now()) == .timedOut)
 
         releaseDelivery.signal()
-        #expect(deliveryFinished.wait(timeout: .now() + 1) == .success)
+        #expect(commitRejected.wait(timeout: .now() + 1) == .success)
+        #expect(deliveryFinished.wait(timeout: .now()) == .timedOut)
     }
 
     @Test func zeroWaitBacklogIsBoundedFIFOAndYieldsToAcknowledgedIngress() async {
