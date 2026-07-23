@@ -11,21 +11,17 @@ struct SimulatorCrossProcessOwnershipStore: Sendable {
             .appendingPathComponent("com.cmux.simulator-ownership", isDirectory: true)
     }
 
-    func claim(namespace: String, components: [String]) -> UUID {
+    func claim(namespace: String, components: [String]) throws -> UUID {
         let token = UUID()
-        do {
-            try FileManager().createDirectory(
-                at: directory,
-                withIntermediateDirectories: true,
-                attributes: [.posixPermissions: 0o700]
-            )
-            try Data(token.uuidString.utf8).write(
-                to: fileURL(namespace: namespace, components: components),
-                options: .atomic
-            )
-        } catch {
-            // A claim that cannot be published must never validate as current.
-        }
+        try FileManager().createDirectory(
+            at: directory,
+            withIntermediateDirectories: true,
+            attributes: [.posixPermissions: 0o700]
+        )
+        try Data(token.uuidString.utf8).write(
+            to: fileURL(namespace: namespace, components: components),
+            options: .atomic
+        )
         return token
     }
 

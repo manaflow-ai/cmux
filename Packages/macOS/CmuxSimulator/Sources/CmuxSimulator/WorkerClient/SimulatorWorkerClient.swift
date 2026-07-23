@@ -443,6 +443,7 @@ public actor SimulatorWorkerClient: SimulatorPaneClient {
                 try await deferMessageUntilDelivered(message)
                 return
             }
+            try await prepareCameraCleanupOwnership(for: message)
             do {
                 try connection.send(data)
             } catch {

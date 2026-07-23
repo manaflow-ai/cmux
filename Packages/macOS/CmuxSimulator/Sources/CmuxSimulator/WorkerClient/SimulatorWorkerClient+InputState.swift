@@ -29,9 +29,6 @@ extension SimulatorWorkerClient {
             pendingTextInputUsages[requestID] = Set(sequence.events.map(\.usage))
         case let .configureCamera(requestID, configuration):
             cameraRequestConfigurations[requestID] = configuration
-            if let bundleIdentifier = configuration.targetBundleIdentifier {
-                await claimCameraCleanupOwnership(bundleIdentifier: bundleIdentifier)
-            }
         case let .switchCameraSource(requestID, configuration):
             cameraSourceSwitchRequests[requestID] = configuration
         case let .setCameraMirror(requestID, mode):

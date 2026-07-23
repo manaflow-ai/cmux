@@ -173,9 +173,20 @@ extension SimulatorWorkerClient {
                 wasReplay: wasReplay
             )
             if wasReplay { await driveReplay() }
-        case let .cameraTargetResolved(_, bundleIdentifier):
-            if !bundleIdentifier.isEmpty {
-                await claimCameraCleanupOwnership(bundleIdentifier: bundleIdentifier)
+        case let .cameraTargetResolved(requestID, bundleIdentifier):
+            do {
+                if !bundleIdentifier.isEmpty {
+                    try await claimCameraCleanupOwnership(bundleIdentifier: bundleIdentifier)
+                }
+            } catch {
+                let failure = cameraOwnershipFailure(error)
+                await broadcast(.message(.requestFailure(
+                    requestID: requestID,
+                    failure
+                )))
+                discardWorker(intentional: true, clearReplayState: false)
+                await broadcast(.workerStopped)
+                return
             }
             acknowledgeCameraTargetResolution(for: message)
         case let .cameraMirror(requestID, succeeded):
@@ -457,6 +468,15 @@ extension SimulatorWorkerClient {
               !shouldDeferMessage(message),
               let child else { return }
         deferredMessages.removeFirst()
+        do {
+            try await prepareCameraCleanupOwnership(for: message)
+        } catch {
+            let failure = cameraOwnershipFailure(error)
+            failDeferredDelivery(for: message, with: failure)
+            await broadcast(.message(.failure(failure)))
+            await flushDeferredMessageIfReady()
+            return
+        }
         do {
             try child.send(JSONEncoder().encode(message))
             await remember(message)

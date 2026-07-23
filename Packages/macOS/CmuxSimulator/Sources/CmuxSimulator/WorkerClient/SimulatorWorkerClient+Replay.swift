@@ -59,6 +59,15 @@ extension SimulatorWorkerClient {
         }
         let message = replayMessages.removeFirst()
         do {
+            try await prepareCameraCleanupOwnership(for: message)
+        } catch {
+            let failure = cameraOwnershipFailure(error)
+            await broadcast(.message(.failure(failure)))
+            discardWorker(intentional: true, clearReplayState: false)
+            await broadcast(.workerStopped)
+            return
+        }
+        do {
             await remember(message)
             if let requestIdentifier = message.requestIdentifier {
                 replayRequestIDs.insert(requestIdentifier)

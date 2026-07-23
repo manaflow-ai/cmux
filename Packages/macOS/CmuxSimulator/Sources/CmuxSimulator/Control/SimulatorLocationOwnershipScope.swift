@@ -31,8 +31,11 @@ actor SimulatorLocationOwnershipRegistry {
         self.store = store
     }
 
-    func claim(deviceIdentifier: String) -> UUID {
-        let publishedToken = store.claim(namespace: "location", components: [deviceIdentifier])
+    func claim(deviceIdentifier: String) throws -> UUID {
+        let publishedToken = try store.claim(
+            namespace: "location",
+            components: [deviceIdentifier]
+        )
         tokenByDeviceIdentifier[deviceIdentifier] = publishedToken
         return publishedToken
     }

@@ -20,14 +20,42 @@ extension SimulatorWorkerClient {
         )
     }
 
-    func claimCameraCleanupOwnership(bundleIdentifier: String) async {
+    func claimCameraCleanupOwnership(bundleIdentifier: String) async throws {
         guard !bundleIdentifier.isEmpty,
               let deviceIdentifier = simulatorAttachedDeviceIdentifier(from: lastAttachment)
         else { return }
-        cameraCleanupBundleIdentifiers.insert(bundleIdentifier)
-        cameraCleanupOwners[bundleIdentifier] = await cameraCleanupCoordinator.claim(
+        let owner = try await cameraCleanupCoordinator.claim(
             deviceIdentifier: deviceIdentifier,
             bundleIdentifier: bundleIdentifier
+        )
+        cameraCleanupBundleIdentifiers.insert(bundleIdentifier)
+        cameraCleanupOwners[bundleIdentifier] = owner
+    }
+
+    func prepareCameraCleanupOwnership(
+        for message: SimulatorWorkerInbound
+    ) async throws {
+        switch message {
+        case let .configureCamera(_, configuration):
+            if let bundleIdentifier = configuration.targetBundleIdentifier {
+                try await claimCameraCleanupOwnership(bundleIdentifier: bundleIdentifier)
+            }
+        case .switchCameraSource:
+            for bundleIdentifier in cameraReplayConfigurations.compactMap(
+                \.targetBundleIdentifier
+            ) {
+                try await claimCameraCleanupOwnership(bundleIdentifier: bundleIdentifier)
+            }
+        default:
+            break
+        }
+    }
+
+    func cameraOwnershipFailure(_ error: Error) -> SimulatorFailure {
+        SimulatorFailure(
+            code: "simulator_camera_ownership_unavailable",
+            message: error.localizedDescription,
+            isRecoverable: true
         )
     }
 

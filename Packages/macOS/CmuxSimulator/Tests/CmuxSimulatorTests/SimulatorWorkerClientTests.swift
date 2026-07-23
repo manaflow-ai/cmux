@@ -510,7 +510,9 @@ struct SimulatorWorkerClientTests {
         launcher: TestWorkerLauncher,
         control: any SimulatorControlling = TestSimulatorControl(),
         sleeper: any SimulatorWorkerSleeping = ContinuousSimulatorWorkerSleeper(),
-        replayTimeout: Duration = .seconds(120)
+        replayTimeout: Duration = .seconds(120),
+        cameraCleanupCoordinator: SimulatorCameraCleanupCoordinator =
+            SimulatorCameraCleanupCoordinator()
     ) -> SimulatorWorkerClient {
         SimulatorWorkerClient(
             executableURL: URL(fileURLWithPath: "/fake/cmux"),
@@ -523,7 +525,8 @@ struct SimulatorWorkerClientTests {
             replayTimeout: replayTimeout,
             simulatorControl: control,
             launcher: launcher,
-            sleeper: sleeper
+            sleeper: sleeper,
+            cameraCleanupCoordinator: cameraCleanupCoordinator
         )
     }
 }

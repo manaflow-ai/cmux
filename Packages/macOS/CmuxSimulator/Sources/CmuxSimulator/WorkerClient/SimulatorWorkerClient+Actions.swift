@@ -241,9 +241,6 @@ extension SimulatorWorkerClient {
                     )
                 )
             }
-            for bundleIdentifier in cameraReplayConfigurations.compactMap(\.targetBundleIdentifier) {
-                await claimCameraCleanupOwnership(bundleIdentifier: bundleIdentifier)
-            }
             let requestID = UUID()
             let succeeded: Bool = try await requestWorkerValue(
                 sending: .switchCameraSource(
@@ -280,9 +277,6 @@ extension SimulatorWorkerClient {
                         defaultValue: "The active Xcode worker did not negotiate an isolated camera adapter."
                     )
                 )
-            }
-            if let bundleIdentifier = configuration.targetBundleIdentifier {
-                await claimCameraCleanupOwnership(bundleIdentifier: bundleIdentifier)
             }
             let requestID = UUID()
             let confirmation: SimulatorCameraConfigurationConfirmation = try await requestWorkerValue(

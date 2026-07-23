@@ -5,12 +5,12 @@ import Testing
 
 extension SimulatorWorkerClientTests {
     @Test("A newer camera owner waits until older cleanup finishes mutating its app")
-    func newerCameraOwnerWaitsForCleanup() async {
+    func newerCameraOwnerWaitsForCleanup() async throws {
         let coordinator = SimulatorCameraCleanupCoordinator()
         let control = BlockingCameraCleanupControl()
         let deviceIdentifier = UUID().uuidString
         let bundleIdentifier = "com.example.camera"
-        let oldOwner = await coordinator.claim(
+        let oldOwner = try await coordinator.claim(
             deviceIdentifier: deviceIdentifier,
             bundleIdentifier: bundleIdentifier
         )
@@ -30,7 +30,7 @@ extension SimulatorWorkerClientTests {
         #expect(await control.isBlocked)
 
         let newClaim = Task {
-            await coordinator.claim(
+            try await coordinator.claim(
                 deviceIdentifier: deviceIdentifier,
                 bundleIdentifier: bundleIdentifier
             )
@@ -40,7 +40,7 @@ extension SimulatorWorkerClientTests {
         #expect(actionCountBeforeRelease == 1, "Observed \(actionCountBeforeRelease) cleanup actions")
         await control.release()
         await cleanup.value
-        _ = await newClaim.value
+        _ = try await newClaim.value
 
         #expect(cameraCleanupActionsMatch(await control.actions,
             deviceIdentifier: deviceIdentifier,
@@ -295,6 +295,53 @@ extension SimulatorWorkerClientTests {
         ))
 
         #expect(await client.cameraCleanupSnapshot().bundleIdentifiers == ["com.example.pending"])
+        await client.stop()
+    }
+
+    @Test("Camera configuration stops when cleanup ownership cannot be published")
+    func failedCameraOwnershipPreventsConfiguration() async throws {
+        let blockingFile = FileManager.default.temporaryDirectory.appendingPathComponent(
+            "cmux-camera-ownership-test-\(UUID().uuidString)"
+        )
+        defer { try? FileManager.default.removeItem(at: blockingFile) }
+        try Data().write(to: blockingFile)
+        let cleanupCoordinator = SimulatorCameraCleanupCoordinator(
+            ownershipStore: SimulatorCrossProcessOwnershipStore(
+                directory: blockingFile.appendingPathComponent(
+                    "ownership",
+                    isDirectory: true
+                )
+            )
+        )
+        let launcher = TestWorkerLauncher()
+        let client = makeClient(
+            launcher: launcher,
+            cameraCleanupCoordinator: cleanupCoordinator
+        )
+        try await client.sendRequired(.attach(udid: "DEVICE", geometry: nil), probe: false)
+        let endpoint = try #require(launcher.endpoint(at: 0))
+        endpoint.emit(.status(.streaming))
+        for _ in 0..<1_000 {
+            if await client.currentStatus == .streaming { break }
+            await Task.yield()
+        }
+        #expect(await client.currentStatus == .streaming)
+
+        await #expect(throws: CocoaError.self) {
+            try await client.sendRequired(.configureCamera(
+                requestID: UUID(),
+                configuration: .targeted(
+                    bundleIdentifier: "com.example.camera",
+                    source: .placeholder
+                )
+            ), probe: false)
+        }
+
+        #expect(!endpoint.inboundMessages().contains {
+            if case .configureCamera = $0 { return true }
+            return false
+        })
+        #expect(await client.cameraCleanupSnapshot().bundleIdentifiers.isEmpty)
         await client.stop()
     }
 
