@@ -5,7 +5,7 @@ import Foundation
 final class FilePreviewLatestLoadCoordinator<Output: Sendable> {
     private struct Request: Sendable {
         let load: @Sendable () async -> Output
-        let completion: @MainActor @Sendable (Output) -> Void
+        let completion: @MainActor @Sendable (Output) async -> Void
         let finish: @Sendable () -> Void
     }
 
@@ -15,7 +15,7 @@ final class FilePreviewLatestLoadCoordinator<Output: Sendable> {
     @discardableResult
     func submit(
         load: @escaping @Sendable () async -> Output,
-        completion: @escaping @MainActor @Sendable (Output) -> Void
+        completion: @escaping @MainActor @Sendable (Output) async -> Void
     ) -> Task<Void, Never> {
         let (completionStream, continuation) = AsyncStream.makeStream(
             of: Void.self,
@@ -50,18 +50,18 @@ final class FilePreviewLatestLoadCoordinator<Output: Sendable> {
                 submission.request.finish()
                 return
             }
-            complete(submission, output: output)
+            await complete(submission, output: output)
         }
     }
 
     private func complete(
         _ submission: FilePreviewLatestRequestState<Request>.Submission,
         output: Output
-    ) {
+    ) async {
         activeTask = nil
         let transition = state.complete(id: submission.id)
         if transition.shouldDeliver {
-            submission.request.completion(output)
+            await submission.request.completion(output)
         }
         submission.request.finish()
         if let next = transition.next {

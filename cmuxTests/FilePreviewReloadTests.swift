@@ -473,11 +473,12 @@ private actor ControlledFilePreviewTextSaver {
         } catch {
             return .failed(fileExists: FileManager.default.fileExists(atPath: url.path))
         }
+        let fileState = FilePreviewFileState.capture(path: url.path)
         didWrite = true
         writeContinuation?.resume()
         writeContinuation = nil
         await withCheckedContinuation { releaseContinuation = $0 }
-        return .saved
+        return .saved(fileState: fileState)
     }
 
     func waitForWrite() async {

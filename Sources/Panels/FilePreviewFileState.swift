@@ -2,7 +2,7 @@ import Darwin
 import Foundation
 
 /// A target file fingerprint used to discard unrelated or duplicate watcher events.
-struct FilePreviewFileState: Equatable {
+struct FilePreviewFileState: Equatable, Sendable {
     private let exists: Bool
     private let device: dev_t
     private let inode: ino_t

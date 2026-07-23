@@ -22,6 +22,7 @@ extension FilePreviewPanel {
     func handleObservedFileChange() -> Task<Void, Never>? {
         let state = FilePreviewFileState.capture(path: filePath)
         guard state != lastObservedFileState else { return nil }
+        guard !isSaving else { return nil }
         lastObservedFileState = state
         fileChangeReloadTask?.cancel()
         let task = reloadFromDisk()

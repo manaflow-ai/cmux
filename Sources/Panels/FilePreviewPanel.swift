@@ -693,10 +693,9 @@ enum FilePreviewKindResolver {
         }
     }
 
+    @concurrent
     static func resolveMode(url: URL) async -> FilePreviewMode {
-        await Task.detached(priority: .userInitiated) {
-            mode(for: url)
-        }.value
+        mode(for: url)
     }
 
     static func tabIconName(for url: URL) -> String {
@@ -954,23 +953,22 @@ enum FilePreviewTextLoader {
 
 enum FilePreviewTextSaver {
     enum Result: Sendable {
-        case saved
+        case saved(fileState: FilePreviewFileState)
         case failed(fileExists: Bool)
     }
 
+    @concurrent
     static func save(content: String, to url: URL, encoding: String.Encoding) async -> Result {
-        await Task.detached(priority: .userInitiated) {
-            guard let data = content.data(using: encoding) else {
-                return .failed(fileExists: FileManager.default.fileExists(atPath: url.path))
-            }
+        guard let data = content.data(using: encoding) else {
+            return .failed(fileExists: FileManager.default.fileExists(atPath: url.path))
+        }
 
-            do {
-                try data.write(to: url, options: [])
-                return .saved
-            } catch {
-                return .failed(fileExists: FileManager.default.fileExists(atPath: url.path))
-            }
-        }.value
+        do {
+            try data.write(to: url, options: [])
+            return .saved(fileState: .capture(path: url.path))
+        } catch {
+            return .failed(fileExists: FileManager.default.fileExists(atPath: url.path))
+        }
     }
 }
 
@@ -995,7 +993,6 @@ final class FilePreviewPanel: Panel, ObservableObject, FilePreviewTextEditingPan
 
     private var originalTextContent = ""
     private var textEncoding: String.Encoding = .utf8
-    private var previewModeGeneration = 0
     private var saveGeneration = 0
     private var activeSaveGeneration: Int?
     var fileChangeWatcher: FileWatcher?
@@ -1009,6 +1006,7 @@ final class FilePreviewPanel: Panel, ObservableObject, FilePreviewTextEditingPan
     private let textSaver: @Sendable (String, URL, String.Encoding) async -> FilePreviewTextSaver.Result
     private let modeResolver: @Sendable (URL) async -> FilePreviewMode
     private let textLoadCoordinator = FilePreviewLatestLoadCoordinator<FilePreviewTextLoader.Result>()
+    private let modeLoadCoordinator = FilePreviewLatestLoadCoordinator<FilePreviewMode>()
 
     var fileURL: URL {
         URL(fileURLWithPath: filePath)
@@ -1064,6 +1062,7 @@ final class FilePreviewPanel: Panel, ObservableObject, FilePreviewTextEditingPan
         isClosed = true
         stopWatchingForFileChanges()
         textLoadCoordinator.cancel()
+        modeLoadCoordinator.cancel()
         nativeViewSessions.closeAll()
         textView = nil
         focusCoordinator.unregisterAll()
@@ -1171,17 +1170,13 @@ final class FilePreviewPanel: Panel, ObservableObject, FilePreviewTextEditingPan
     @discardableResult
     func reloadFromDisk() -> Task<Void, Never> {
         lastObservedFileState = .capture(path: filePath)
-        previewModeGeneration += 1
-        let generation = previewModeGeneration
         let fileURL = fileURL
         let modeResolver = modeResolver
 
-        return Task { [weak self, fileURL, generation, modeResolver] in
-            let resolvedMode = await modeResolver(fileURL)
-            guard !Task.isCancelled,
-                  let self,
-                  !self.isClosed,
-                  self.previewModeGeneration == generation else { return }
+        return modeLoadCoordinator.submit(load: {
+            await modeResolver(fileURL)
+        }) { [weak self] resolvedMode in
+            guard let self, !self.isClosed else { return }
 
             if resolvedMode != self.previewMode {
                 self.applyResolvedPreviewMode(resolvedMode)
@@ -1210,13 +1205,12 @@ final class FilePreviewPanel: Panel, ObservableObject, FilePreviewTextEditingPan
     private func resolvePreviewModeIfNeeded(for fileURL: URL) {
         let initialMode = previewMode
         let initialIcon = displayIcon
-        previewModeGeneration += 1
-        let generation = previewModeGeneration
         let modeResolver = modeResolver
 
-        Task { [weak self, fileURL, initialMode, initialIcon, generation, modeResolver] in
-            let resolvedMode = await modeResolver(fileURL)
-            guard let self, self.previewModeGeneration == generation else { return }
+        modeLoadCoordinator.submit(load: {
+            await modeResolver(fileURL)
+        }) { [weak self] resolvedMode in
+            guard let self else { return }
             let resolvedIcon = FilePreviewKindResolver.iconName(for: resolvedMode)
             guard resolvedMode != initialMode || resolvedIcon != initialIcon else { return }
             self.applyResolvedPreviewMode(resolvedMode)
@@ -1308,14 +1302,18 @@ final class FilePreviewPanel: Panel, ObservableObject, FilePreviewTextEditingPan
             self.activeSaveGeneration = nil
             self.isSaving = false
             switch result {
-            case .saved:
+            case .saved(let fileState):
                 self.originalTextContent = currentContent
                 self.isDirty = self.textContent != currentContent
                 self.isFileUnavailable = false
-                self.lastObservedFileState = .capture(path: self.filePath)
+                self.lastObservedFileState = fileState
             case .failed(let fileExists):
                 self.isFileUnavailable = !fileExists
             }
+            // Reconcile from the exact write fingerprint instead of relying on
+            // watcher event counts, which may be coalesced while saving.
+            let reconciliationTask = self.handleObservedFileChange()
+            await reconciliationTask?.value
         }
     }
 
