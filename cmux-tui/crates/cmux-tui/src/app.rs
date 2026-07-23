@@ -1683,7 +1683,7 @@ impl OrderedSession {
 
     fn apply_config(&self, config: Config) {
         let session = self.inner.clone();
-        let pending = self.pending_mutation();
+        let pending = self.pending_mutation_with_routing(true);
         let committed_mutation_generation = self.committed_mutation_generation.clone();
         let config_generation = self.config_generation.clone();
         let superseded = pending.clone();
@@ -4595,8 +4595,23 @@ impl App {
         Ok(())
     }
 
+    fn pause_deferred_replay_after_draw(
+        &mut self,
+        action: RenderAction,
+        has_remaining_input: bool,
+    ) -> bool {
+        if action != RenderAction::Draw || !has_remaining_input {
+            return false;
+        }
+        if !self.pointer_route_is_stale() {
+            self.routing_refresh_pending = true;
+        }
+        true
+    }
+
     fn replay_deferred_input(&mut self) -> anyhow::Result<RenderAction> {
         let mut action = RenderAction::None;
+        let mut render_before_replay = false;
         let mut pending_pointer_motion =
             if self.pointer_route_is_stale() { None } else { self.pending_pointer_motion.take() };
         // A replayed event can discover that its destination mirror is still
@@ -4613,7 +4628,15 @@ impl App {
             });
             if pointer_is_next {
                 let pointer = pending_pointer_motion.take().unwrap();
-                action = action.merge(self.handle(AppEvent::Input(Event::Mouse(pointer.event)))?);
+                let pointer_action = self.handle(AppEvent::Input(Event::Mouse(pointer.event)))?;
+                action = action.merge(pointer_action);
+                let has_remaining_input = !self.deferred_input.is_empty()
+                    || pending_pointer_motion.is_some()
+                    || self.pending_pointer_motion.is_some();
+                if self.pause_deferred_replay_after_draw(pointer_action, has_remaining_input) {
+                    render_before_replay = true;
+                    break;
+                }
                 continue;
             }
             let Some(input) = self.deferred_input.pop_front() else { break };
@@ -4635,12 +4658,20 @@ impl App {
                 action = action.merge(RenderAction::Draw);
                 continue;
             }
-            action = action.merge(self.handle(AppEvent::Input(input.event))?);
+            let input_action = self.handle(AppEvent::Input(input.event))?;
+            action = action.merge(input_action);
+            let has_remaining_input = !self.deferred_input.is_empty()
+                || pending_pointer_motion.is_some()
+                || self.pending_pointer_motion.is_some();
+            if self.pause_deferred_replay_after_draw(input_action, has_remaining_input) {
+                render_before_replay = true;
+                break;
+            }
         }
         if let Some(pointer) = pending_pointer_motion {
             let pointer_is_next =
                 self.deferred_input.front().is_none_or(|input| pointer.sequence < input.sequence);
-            if pointer_is_next && !self.pointer_route_is_stale() {
+            if pointer_is_next && !render_before_replay && !self.pointer_route_is_stale() {
                 action = action.merge(self.handle(AppEvent::Input(Event::Mouse(pointer.event)))?);
             } else if self
                 .pending_pointer_motion
