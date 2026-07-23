@@ -1719,7 +1719,8 @@ struct FilePreviewPanelView: View {
                     themeBackgroundColor: contentBackgroundColor,
                     themeForegroundColor: themeForegroundColor,
                     drawsBackground: appearance.drawsContentBackground,
-                    wordWrap: fileEditorWordWrap
+                    wordWrap: panel.presentation.isNote || fileEditorWordWrap,
+                    style: panel.presentation.isNote ? .note : .file
                 )
             case .pdf:
                 FilePreviewPDFView(

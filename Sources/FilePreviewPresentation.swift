@@ -20,6 +20,11 @@ enum FilePreviewPresentation: Equatable, Sendable {
         return false
     }
 
+    var isNote: Bool {
+        if case .note = self { return true }
+        return false
+    }
+
     var noteTitle: String? {
         guard case .note(let title) = self else { return nil }
         return title
