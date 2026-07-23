@@ -197,7 +197,7 @@ final class MobileHostIrohRuntime {
     /// the ring must stay exportable even when the main thread is wedged,
     /// which is exactly when connection diagnostics matter most.
     nonisolated static let hostDiagnosticLog = DiagnosticLog(
-        buildStamp: Self.diagnosticBuildStamp,
+        buildStamp: MobileHostIrohRuntime.diagnosticBuildStamp,
         role: .macHost
     )
 
