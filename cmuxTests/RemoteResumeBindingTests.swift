@@ -606,7 +606,11 @@ struct RemoteResumeBindingTests {
             panelId: surfaceID,
             eventTime: 1_893_456_300
         ))
-        #expect(!workspace.setSurfaceResumeBinding(delayedBinding, panelId: surfaceID))
+        #expect(!workspace.setSurfaceResumeBinding(
+            delayedBinding,
+            panelId: surfaceID,
+            agentEventTime: delayedBinding.updatedAt
+        ))
         #expect(workspace.surfaceResumeBinding(panelId: surfaceID) == nil)
     }
 

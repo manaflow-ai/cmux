@@ -4845,8 +4845,16 @@ final class Workspace: Identifiable, ObservableObject {
     }
 
     @discardableResult
-    func setSurfaceResumeBinding(_ binding: SurfaceResumeBindingSnapshot, panelId: UUID) -> Bool {
-        guard terminalPanel(for: panelId) != nil,
+    func setSurfaceResumeBinding(
+        _ binding: SurfaceResumeBindingSnapshot,
+        panelId: UUID,
+        agentEventTime: TimeInterval? = nil
+    ) -> Bool {
+        guard acceptsSurfaceResumeBindingMutation(
+            panelId: panelId,
+            agentEventTime: agentEventTime
+        ),
+              terminalPanel(for: panelId) != nil,
               let startupInput = binding.inlineStartupInput(repairPortableAgentExecutable: false),
               !startupInput.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty else {
             return false

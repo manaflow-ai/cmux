@@ -223,7 +223,23 @@ extension TerminalController {
             locatedBinding = binding
         }
         let effectiveBinding = surfaceResumeBindingWithApproval(locatedBinding)
-        guard target.workspace.setSurfaceResumeBinding(effectiveBinding, panelId: target.surfaceId) else {
+        guard target.workspace.setSurfaceResumeBinding(
+            effectiveBinding,
+            panelId: target.surfaceId,
+            agentEventTime: inputs.agentEventTime
+        ) else {
+            if !target.workspace.acceptsSurfaceResumeBindingMutation(
+                panelId: target.surfaceId,
+                agentEventTime: inputs.agentEventTime
+            ) {
+                return .result(surfaceResumeSnapshot(
+                    tabManager: target.tabManager,
+                    workspace: target.workspace,
+                    surfaceId: target.surfaceId,
+                    binding: target.workspace.surfaceResumeBinding(panelId: target.surfaceId),
+                    cleared: false
+                ))
+            }
             return .emptyResumeCommand
         }
         return .result(surfaceResumeSnapshot(

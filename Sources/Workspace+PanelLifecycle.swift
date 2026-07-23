@@ -182,7 +182,8 @@ extension Workspace {
             statusKey: agentStatusKey(forAgentPIDKey: key),
             panelId: panelId,
             agentEventTime: agentEventTime,
-            enforceOrdering: enforceAgentEventOrdering
+            enforceOrdering: enforceAgentEventOrdering,
+            enforceStructuredAgentReplacementOrdering: isStructuredAgentHookPIDKey(key)
         ) else { return false }
         let previous = (
             panelId: agentPIDPanelIdsByKey[key],

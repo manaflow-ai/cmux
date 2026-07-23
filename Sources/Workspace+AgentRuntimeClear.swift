@@ -66,7 +66,8 @@ extension Workspace {
         statusKey: String,
         panelId: UUID?,
         agentEventTime: TimeInterval?,
-        enforceOrdering: Bool
+        enforceOrdering: Bool,
+        enforceStructuredAgentReplacementOrdering: Bool = false
     ) -> Bool {
         guard enforceOrdering, let panelId else { return true }
         let lifecycleEventTime = agentLifecycleEventTimesByPanelId[panelId]?[statusKey]
@@ -74,6 +75,17 @@ extension Workspace {
             entry.agentOwnerPanelID == nil || entry.agentOwnerPanelID == panelId
                 ? entry.agentEventTime
                 : nil
+        }
+        if enforceStructuredAgentReplacementOrdering,
+           let replacementWatermark = agentLifecycleEventTimesByPanelId[panelId]?
+               .filter { key, _ in
+                   key != statusKey && AgentHibernationLifecycleStatusKeys.allowedStatusKeys.contains(key)
+               }
+               .values
+               .max() {
+            guard let agentEventTime, agentEventTime > replacementWatermark else {
+                return false
+            }
         }
         if let orderingWatermark = [lifecycleEventTime, statusEventTime]
             .compactMap({ $0 })

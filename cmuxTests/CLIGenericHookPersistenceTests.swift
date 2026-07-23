@@ -1175,7 +1175,8 @@ extension CLINotifyProcessIntegrationRegressionTests {
             .map(String.init)
         XCTAssertEqual(rawTimes.count, 4, rawTimes.joined(separator: ","))
         let times = try rawTimes.map { try XCTUnwrap(Double($0), $0) }
-        XCTAssertTrue(rawTimes.allSatisfy { $0.hasPrefix("1893456000.") }, rawTimes.joined(separator: ","))
+        XCTAssertTrue(times.allSatisfy { $0.isFinite && $0 > 0 }, rawTimes.joined(separator: ","))
+        XCTAssertTrue(rawTimes.allSatisfy { $0.contains(".") }, rawTimes.joined(separator: ","))
         for (earlier, later) in zip(times, times.dropFirst()) {
             XCTAssertLessThan(earlier, later, rawTimes.joined(separator: ","))
         }

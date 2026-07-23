@@ -188,10 +188,6 @@ import Testing
         }
         let fakeDateURL = toolBin.appendingPathComponent("date", isDirectory: false)
         try writeExecutable(fakeDateURL, "#!/bin/sh\nprintf '1893455999\\n'\n")
-        try writeExecutable(
-            toolBin.appendingPathComponent("perl", isDirectory: false),
-            "#!/bin/sh\nprintf '1893456000.000000'\n"
-        )
         let clockStateURL = sandbox.appendingPathComponent("cmux-agent-hook-time.state", isDirectory: false)
         let clockStateVictimURL = sandbox.appendingPathComponent("clock-state-victim.txt", isDirectory: false)
         try "1893456000 0\n".write(to: clockStateVictimURL, atomically: true, encoding: .utf8)
