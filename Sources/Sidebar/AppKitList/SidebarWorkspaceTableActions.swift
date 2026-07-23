@@ -13,6 +13,12 @@ struct SidebarWorkspaceTableReorderDropUpdate {
     let draggedWorkspaceId: UUID
     /// Scope-filtered ids for the indicator predicate, in display order.
     let indicatorRowIds: [UUID]
+    /// The resolver plan this indicator was painted from. The drop commits
+    /// THIS plan, not a re-resolution at release time: the pointer can drift
+    /// after the last drag update, and an autoscroll tick can land before
+    /// the coalesced repaint, so re-resolving could commit a different gap
+    /// than the line the user released on.
+    let plan: SidebarWorkspaceReorderDropPlan?
 }
 
 /// Closure bundle routing table input and drag operations to existing sidebar actions.
@@ -30,6 +36,8 @@ struct SidebarWorkspaceTableActions {
     /// alive (app-resign failsafe mid-drag).
     let updateWorkspaceDrag: (CGPoint, [SidebarWorkspaceReorderDropOverlay.Target], UUID?) -> SidebarWorkspaceTableReorderDropUpdate?
     let performWorkspaceDrop: (CGPoint, [SidebarWorkspaceReorderDropOverlay.Target], UUID?) -> Bool
+    /// Commits a previously resolved plan verbatim (what the indicator showed).
+    let commitWorkspaceDropPlan: (SidebarWorkspaceReorderDropPlan) -> Bool
     let clearWorkspaceDropIndicator: () -> Void
     let currentDropIndicator: () -> SidebarDropIndicator?
     let currentDropIndicatorScope: () -> SidebarWorkspaceReorderDropIndicatorScope

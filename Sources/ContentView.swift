@@ -11478,6 +11478,13 @@ struct VerticalTabsSidebar: View, Equatable {
                     renderContext: renderContext
                 )
             },
+            commitWorkspaceDropPlan: { plan in
+                defer {
+                    dragState.clearDrag()
+                    dragAutoScrollController.stop()
+                }
+                return performWorkspaceReorderPlan(plan)
+            },
             clearWorkspaceDropIndicator: {
                 dragState.clearDropIndicator()
                 dragAutoScrollController.stop()
@@ -13208,7 +13215,8 @@ struct VerticalTabsSidebar: View, Equatable {
                 tabs: renderContext.tabs,
                 workspaceGroups: renderContext.workspaceGroups,
                 visibleWorkspaceRowIds: renderContext.visibleWorkspaceRowIds
-            )
+            ),
+            plan: plan
         )
     }
 

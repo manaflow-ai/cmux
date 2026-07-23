@@ -316,7 +316,8 @@ struct SidebarWorkspaceTableTests {
                     indicator: SidebarDropIndicator(tabId: ids[5], edge: .top),
                     scope: .raw,
                     draggedWorkspaceId: draggedId,
-                    indicatorRowIds: ids
+                    indicatorRowIds: ids,
+                    plan: nil
                 )
             },
             clearWorkspaceDropIndicator: { indicatorClears += 1 }
@@ -496,6 +497,7 @@ struct SidebarWorkspaceTableTests {
             isValidWorkspaceDrag: { true },
             updateWorkspaceDrag: updateWorkspaceDrag,
             performWorkspaceDrop: { _, _, _ in false },
+            commitWorkspaceDropPlan: { _ in false },
             clearWorkspaceDropIndicator: clearWorkspaceDropIndicator,
             currentDropIndicator: { nil },
             currentDropIndicatorScope: { .raw },

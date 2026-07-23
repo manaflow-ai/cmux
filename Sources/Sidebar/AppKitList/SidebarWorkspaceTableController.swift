@@ -509,6 +509,13 @@ final class SidebarWorkspaceTableController: NSObject, NSTableViewDataSource, NS
         reorderDragWindowPoint != nil || reorderIndicatorPainter != nil
     }
 
+    /// The plan whose indicator is currently painted. The drop commits this
+    /// plan verbatim so the outcome always matches the line the user saw;
+    /// re-resolving at release time could pick a different gap (pointer
+    /// drift after the last drag update, or an autoscroll tick landing
+    /// before the coalesced repaint).
+    private var lastAcceptedReorderDropPlan: SidebarWorkspaceReorderDropPlan?
+
     func tableView(
         _ tableView: NSTableView,
         validateDrop info: any NSDraggingInfo,
@@ -532,15 +539,25 @@ final class SidebarWorkspaceTableController: NSObject, NSTableViewDataSource, NS
               let table = containerView?.tableView else { return false }
         let payloadWorkspaceId = Self.reorderPayloadWorkspaceId(info.draggingPasteboard)
         let point = table.convert(info.draggingLocation, from: nil)
-        let targets = reorderDropTargets()
-        let performed = actions.performWorkspaceDrop(point, targets, payloadWorkspaceId)
+        let performed: Bool
+        let commitSource: String
+        if let plan = lastAcceptedReorderDropPlan {
+            // Commit exactly what the indicator showed.
+            performed = actions.commitWorkspaceDropPlan(plan)
+            commitSource = "paintedPlan"
+        } else {
+            // No accepted hover reached this table (drop without a preceding
+            // validateDrop plan): resolve from the release point.
+            performed = actions.performWorkspaceDrop(point, reorderDropTargets(), payloadWorkspaceId)
+            commitSource = "releasePoint"
+        }
 #if DEBUG
         // Every silent "the workspace I dragged didn't move" report needs
-        // this line: where the drop landed, how many targets existed, and
+        // this line: where the drop landed, which commit source ran, and
         // whether the shared planner accepted it.
         cmuxDebugLog(
             "sidebar.drop.perform point=(\(Int(point.x)),\(Int(point.y))) " +
-            "targets=\(targets.count) performed=\(performed ? 1 : 0)"
+            "source=\(commitSource) performed=\(performed ? 1 : 0)"
         )
 #endif
         retireReorderIndicator()
@@ -587,6 +604,7 @@ final class SidebarWorkspaceTableController: NSObject, NSTableViewDataSource, NS
             draggedWorkspaceId: update.draggedWorkspaceId,
             indicatorRowIds: update.indicatorRowIds
         )
+        lastAcceptedReorderDropPlan = update.plan
         enforceReorderIndicatorPaintOnVisibleCells()
         setAppKitDropIndicator(update.indicator, scope: update.scope, includeRowTargets: false)
         reorderDragWindowPoint = windowPoint
@@ -594,6 +612,7 @@ final class SidebarWorkspaceTableController: NSObject, NSTableViewDataSource, NS
     }
 
     private func retireReorderIndicator() {
+        lastAcceptedReorderDropPlan = nil
         guard reorderIndicatorPainter != nil else { return }
         reorderIndicatorPainter = nil
         clearReorderIndicatorPaintOnVisibleCells()
