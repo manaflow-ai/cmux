@@ -183,11 +183,10 @@ struct WorkspaceSidebarProcessTitleObservationTests {
         let observationStream = model.changes()
         let panelId = try #require(workspace.focusedPanelId)
 
-        // Terminal titles reach a single-panel workspace through
-        // updatePanelTitle, which writes `title` directly (applyProcessTitle
-        // then early-returns on `self.title != title`). The settle model must
-        // still see the change, or sidebar rows never learn any automatic
-        // title.
+        // Terminal titles reach a workspace through updatePanelTitle, which
+        // reconciles the automatic workspace title from the focused panel.
+        // The settle model must still see the change, or sidebar rows never
+        // learn any automatic title.
         _ = workspace.updatePanelTitle(panelId: panelId, title: "Agent tick 1")
 
         #expect(workspace.title == "Agent tick 1")
