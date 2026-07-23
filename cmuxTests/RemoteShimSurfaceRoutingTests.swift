@@ -100,4 +100,40 @@ struct RemoteShimSurfaceRoutingTests {
         let localPanelId = try addLocalUntrackedTerminalPanel(to: ws)
         #expect(ws.remoteShimRespawnRewrite(panelId: localPanelId, rawCommand: "echo x") == nil)
     }
+
+    /// A respawn that replaces an existing remote session must surface the old
+    /// session ID so callers can end it on the daemon.  Without this, the
+    /// replaced persistent session lingers for its full 24-hour idle TTL.
+    @Test func respawnBookkeepingEndsTrackedPreviousSession() throws {
+        let ws = try makeRemoteWorkspaceWithTrackedPanel()
+        let panelId = try #require(ws.activeRemoteTerminalSurfaceIds.first)
+        let oldSessionID = "shim-old-\(ws.id.uuidString)-\(panelId.uuidString)-\(UUID().uuidString)"
+        let newSessionID = "shim-new-\(ws.id.uuidString)-\(panelId.uuidString)-\(UUID().uuidString)"
+        // Simulate the pane already having a tracked remote session from a prior respawn.
+        ws.remotePTYSessionIDsByPanelId[panelId] = oldSessionID
+
+        let endedSessionID = ws.applyRemoteShimRespawnBookkeeping(panelId: panelId, sessionID: newSessionID)
+
+        // The old session ID must be returned so the caller can end it daemon-side.
+        #expect(endedSessionID == oldSessionID)
+        // The new session must be registered in its place.
+        #expect(ws.remotePTYSessionIDsByPanelId[panelId] == newSessionID)
+        // The panel must remain tracked as an active remote terminal.
+        #expect(ws.activeRemoteTerminalSurfaceIds.contains(panelId))
+    }
+
+    /// A respawn on a pane with no prior remote session returns nil (nothing to end).
+    @Test func respawnBookkeepingWithNoPreviousSessionReturnsNil() throws {
+        let ws = try makeRemoteWorkspaceWithTrackedPanel()
+        let panelId = try #require(ws.activeRemoteTerminalSurfaceIds.first)
+        // Ensure no prior session is tracked for this panel.
+        ws.remotePTYSessionIDsByPanelId.removeValue(forKey: panelId)
+        let newSessionID = "shim-\(ws.id.uuidString)-\(panelId.uuidString)-\(UUID().uuidString)"
+
+        let endedSessionID = ws.applyRemoteShimRespawnBookkeeping(panelId: panelId, sessionID: newSessionID)
+
+        #expect(endedSessionID == nil)
+        #expect(ws.remotePTYSessionIDsByPanelId[panelId] == newSessionID)
+        #expect(ws.activeRemoteTerminalSurfaceIds.contains(panelId))
+    }
 }

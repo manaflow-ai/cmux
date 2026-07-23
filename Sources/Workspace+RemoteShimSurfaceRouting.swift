@@ -29,7 +29,11 @@ extension Workspace {
 
     /// Same post-respawn bookkeeping the persistent-PTY reattach path does
     /// (Workspace+PersistentRemotePTYReattach.swift:86-95).
-    func applyRemoteShimRespawnBookkeeping(panelId: UUID, sessionID: String) {
+    ///
+    /// Returns the previous session ID for the pane, if one was tracked before
+    /// this respawn replaced it, or nil if the pane had no prior remote session.
+    @discardableResult
+    func applyRemoteShimRespawnBookkeeping(panelId: UUID, sessionID: String) -> String? {
         remotePTYSessionIDsByPanelId[panelId] = sessionID
         registerRemoteRelayIDAliases(remotePTYSessionID: sessionID, restoredPanelId: panelId)
         remoteDisconnectPlaceholderPanelIds.remove(panelId)
@@ -37,5 +41,6 @@ extension Workspace {
         pendingRemoteDisconnectReplacementsBySurfaceId.removeValue(forKey: panelId)
         endedPersistentRemotePTYAttachSurfaceIds.remove(panelId)
         trackRemoteTerminalSurface(panelId)
+        return nil
     }
 }
