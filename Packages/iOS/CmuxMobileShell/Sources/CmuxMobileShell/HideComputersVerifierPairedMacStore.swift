@@ -3,7 +3,7 @@ import CMUXMobileCore
 import CmuxMobilePairedMac
 import Foundation
 
-actor DeleteComputersVerifierPairedMacStore: MobilePairedMacStoring {
+actor HideComputersVerifierPairedMacStore: MobilePairedMacStoring {
     private var records: [MobilePairedMac]
 
     init(records: [MobilePairedMac]) {
