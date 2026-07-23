@@ -81,7 +81,7 @@
       "emptyTitle": "クラウドマシンはまだありません",
       "emptyBody": "最初のマシンを作成して、cmux Cloudでエージェントを実行しましょう。",
       "backToMachines": "すべてのマシン",
-      "machineSummary": "{provider}・{image}",
+      "machineSummary": "cmux Cloud・{image}",
       "loadingMachine": "マシンの詳細を読み込み中…",
       "deleteMachine": "マシンを削除",
       "deletingMachine": "削除中…",

@@ -33,16 +33,21 @@ describe("cloud portal API client", () => {
   });
 
   test("creates a default machine with a unique idempotency key", async () => {
+    const idempotencyKeys: string[] = [];
     const fetchMock = mock(async (...args: unknown[]) => {
       const [, init] = args as [RequestInfo | URL, RequestInit?];
       expect(init?.method).toBe("POST");
       expect(init?.body).toBe("{}");
-      expect(new Headers(init?.headers).get("idempotency-key")).toBeTruthy();
+      const idempotencyKey = new Headers(init?.headers).get("idempotency-key");
+      expect(idempotencyKey).toBeTruthy();
+      idempotencyKeys.push(idempotencyKey!);
       return Response.json({ id: "vm-1", provider: "freestyle", status: "running", image: "base", imageVersion: "1", createdAt: "2026-07-22T00:00:00Z" });
     });
     globalThis.fetch = fetchMock as typeof fetch;
 
     expect((await createCloudMachine()).id).toBe("vm-1");
+    await createCloudMachine();
+    expect(new Set(idempotencyKeys).size).toBe(2);
   });
 
   test("encodes machine ids before destructive requests", async () => {

@@ -1,6 +1,7 @@
 import { redirect } from "next/navigation";
 import { getStackServerApp, isStackConfigured } from "@/app/lib/stack";
 import { localizedVaultPath, vaultSignInHref } from "@/app/lib/vault-auth";
+import { canEnterCloudPortal } from "../home/portal-routing";
 
 export const dynamic = "force-dynamic";
 
@@ -15,7 +16,7 @@ export default async function DashboardIndexPage({
     redirect("/");
   }
   const user = await getStackServerApp().getUser({ or: "return-null" });
-  if (!user) {
+  if (!canEnterCloudPortal(user)) {
     redirect(vaultSignInHref(localizedVaultPath(locale, "/dashboard")));
   }
 

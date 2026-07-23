@@ -11,6 +11,7 @@ import {
   useRouterState,
 } from "@tanstack/react-router";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
+import { Tabs } from "@base-ui-components/react/tabs";
 import { useTranslations } from "next-intl";
 import { createContext, useContext, useState, useSyncExternalStore } from "react";
 
@@ -45,10 +46,10 @@ const machineRoute = createRoute({
 });
 const routeTree = rootRoute.addChildren([machinesRoute, activityRoute, machineRoute]);
 
-function createCloudPortalRouter() {
+function createCloudPortalRouter(initialPath = "/") {
   return createRouter({
     routeTree,
-    history: createMemoryHistory({ initialEntries: ["/"] }),
+    history: createMemoryHistory({ initialEntries: [initialPath] }),
     defaultPreload: "intent",
   });
 }
@@ -59,8 +60,8 @@ declare module "@tanstack/react-router" {
   }
 }
 
-export function CloudPortal({ displayName }: { displayName: string }) {
-  const [router] = useState(createCloudPortalRouter);
+export function CloudPortal({ displayName, initialPath = "/" }: { displayName: string; initialPath?: string }) {
+  const [router] = useState(() => createCloudPortalRouter(initialPath));
   const isClient = useSyncExternalStore(subscribeToClientMount, () => true, () => false);
   return (
     <PortalIdentityContext.Provider value={displayName}>
@@ -85,10 +86,16 @@ function PortalLoading() {
 
 function PortalFrame() {
   const t = useTranslations("dashboard.cloud");
+  const navigate = useNavigate();
   const pathname = useRouterState({ select: (state) => state.location.pathname });
   const machinesActive = pathname !== "/activity";
+  const activeView = machinesActive ? "machines" : "activity";
   return (
-    <div className="flex h-full min-h-[calc(100vh-3.25rem)] flex-col bg-background">
+    <Tabs.Root
+      value={activeView}
+      onValueChange={(value) => navigate({ to: value === "activity" ? "/activity" : "/" })}
+      className="flex h-full min-h-[calc(100vh-3.25rem)] flex-col bg-background"
+    >
       <div className="flex min-h-14 flex-wrap items-center justify-between gap-3 border-b border-border px-4 py-2.5 md:px-6">
         <div>
           <p className="text-[11px] font-semibold uppercase tracking-[0.16em] text-muted">
@@ -96,69 +103,23 @@ function PortalFrame() {
           </p>
           <h1 className="text-base font-semibold tracking-tight">{t("title")}</h1>
         </div>
-        <div role="tablist" aria-label={t("viewNavigationLabel")} className="flex rounded-lg bg-code-bg p-1">
-          <PortalTab id="portal-machines-tab" to="/" active={machinesActive}>{t("machinesTab")}</PortalTab>
-          <PortalTab id="portal-activity-tab" to="/activity" active={!machinesActive}>{t("activityTab")}</PortalTab>
-        </div>
+        <Tabs.List activateOnFocus aria-label={t("viewNavigationLabel")} className="flex rounded-lg bg-code-bg p-1">
+          <Tabs.Tab value="machines" className="rounded-md px-3 py-1.5 text-xs font-medium text-muted transition-colors hover:text-foreground focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-foreground data-[selected]:bg-background data-[selected]:text-foreground data-[selected]:shadow-sm">
+            {t("machinesTab")}
+          </Tabs.Tab>
+          <Tabs.Tab value="activity" className="rounded-md px-3 py-1.5 text-xs font-medium text-muted transition-colors hover:text-foreground focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-foreground data-[selected]:bg-background data-[selected]:text-foreground data-[selected]:shadow-sm">
+            {t("activityTab")}
+          </Tabs.Tab>
+        </Tabs.List>
       </div>
-      <div
-        id="portal-view-panel"
-        role="tabpanel"
-        aria-labelledby={machinesActive ? "portal-machines-tab" : "portal-activity-tab"}
-        className="min-h-0 flex-1"
-      >
-        <Outlet />
-      </div>
-    </div>
+      <Tabs.Panel value="machines" keepMounted className="min-h-0 flex-1">
+        {machinesActive ? <Outlet /> : null}
+      </Tabs.Panel>
+      <Tabs.Panel value="activity" keepMounted className="min-h-0 flex-1">
+        {!machinesActive ? <Outlet /> : null}
+      </Tabs.Panel>
+    </Tabs.Root>
   );
-}
-
-function PortalTab({
-  id,
-  to,
-  active,
-  children,
-}: {
-  id: string;
-  to: "/" | "/activity";
-  active: boolean;
-  children: React.ReactNode;
-}) {
-  const navigate = useNavigate();
-
-  return (
-    <button
-      id={id}
-      type="button"
-      role="tab"
-      aria-selected={active}
-      aria-controls="portal-view-panel"
-      tabIndex={active ? 0 : -1}
-      onClick={() => navigate({ to })}
-      onKeyDown={movePortalTabFocus}
-      className={`rounded-md px-3 py-1.5 text-xs font-medium transition-colors hover:text-foreground focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-foreground ${active ? "bg-background text-foreground shadow-sm" : "text-muted"}`}
-    >
-      {children}
-    </button>
-  );
-}
-
-function movePortalTabFocus(event: React.KeyboardEvent<HTMLButtonElement>) {
-  if (!["ArrowLeft", "ArrowRight", "Home", "End"].includes(event.key)) return;
-  const tabs = Array.from(
-    event.currentTarget.closest('[role="tablist"]')?.querySelectorAll<HTMLButtonElement>('[role="tab"]') ?? [],
-  );
-  const currentIndex = tabs.indexOf(event.currentTarget);
-  if (currentIndex < 0 || tabs.length === 0) return;
-
-  event.preventDefault();
-  const nextIndex = event.key === "Home"
-    ? 0
-    : event.key === "End"
-      ? tabs.length - 1
-      : (currentIndex + (event.key === "ArrowRight" ? 1 : -1) + tabs.length) % tabs.length;
-  tabs[nextIndex]?.focus();
-  tabs[nextIndex]?.click();
 }
 
 function MachinesView() {
@@ -222,7 +183,7 @@ function MachineCard({ machine }: { machine: CloudMachine }) {
       <div className="flex items-start justify-between gap-3">
         <div className="flex min-w-0 items-center gap-3">
           <span className="grid size-10 shrink-0 place-items-center rounded-lg border border-border bg-code-bg font-mono text-xs font-semibold">
-            {machine.provider.slice(0, 2).toUpperCase()}
+            cm
           </span>
           <div className="min-w-0">
             <h3 className="truncate font-mono text-sm font-semibold">{shortMachineId(machine.id)}</h3>
@@ -274,7 +235,7 @@ function MachineView() {
             {machine ? <StatusPill status={machine.status} /> : null}
           </div>
           <p className="mt-1 text-sm text-muted">
-            {machine ? t("machineSummary", { provider: machine.provider, image: machine.image || t("defaultImage") }) : t("loadingMachine")}
+            {machine ? t("machineSummary", { image: machine.image || t("defaultImage") }) : t("loadingMachine")}
           </p>
         </div>
         <div className="flex items-center gap-2">
@@ -353,7 +314,7 @@ function ActivityView() {
           <li key={machine.id} className="relative pb-6 pl-6 last:pb-0">
             <span className="absolute -left-1.5 top-1 size-3 rounded-full border-2 border-background bg-emerald-500" />
             <p className="text-sm font-medium">{t("machineCreated", { id: shortMachineId(machine.id) })}</p>
-            <p className="mt-1 text-xs text-muted">{formatDate(machine.createdAt)} · {machine.provider}</p>
+            <p className="mt-1 text-xs text-muted">{formatDate(machine.createdAt)}</p>
           </li>
         ))}
       </ol>

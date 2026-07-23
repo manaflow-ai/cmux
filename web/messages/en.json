@@ -81,7 +81,7 @@
       "emptyTitle": "No cloud machines yet",
       "emptyBody": "Create your first machine to run agents in cmux Cloud.",
       "backToMachines": "All machines",
-      "machineSummary": "{provider} · {image}",
+      "machineSummary": "cmux Cloud · {image}",
       "loadingMachine": "Loading machine details…",
       "deleteMachine": "Delete machine",
       "deletingMachine": "Deleting…",
