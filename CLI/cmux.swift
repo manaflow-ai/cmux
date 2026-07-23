@@ -24937,6 +24937,7 @@ struct CMUXCLI {
         runtimePID: Int? = nil,
         runtimeGeneration: CodexPermissionRuntimeGeneration? = nil,
         revision: UInt64? = nil,
+        notificationID: UUID? = nil,
         clearNotificationsIfResumed: Bool = false
     ) {
         guard Self.allowedAgentLifecycleStatusKeys.contains(key) else {
@@ -24954,6 +24955,9 @@ struct CMUXCLI {
             }
             if clearNotificationsIfResumed {
                 orderedOptions += " --clear-notifications-if-resumed"
+                if let notificationID {
+                    orderedOptions += " --notification-id=\(notificationID.uuidString)"
+                }
             }
             _ = try sendV1Command(
                 "set_agent_lifecycle \(key) \(lifecycle.rawValue) --tab=\(workspaceId)\(socketPanelOption(surfaceId))\(orderedOptions)",
@@ -31078,6 +31082,7 @@ export default CMUXSessionRestore;
                 runtimePID: transition?.state.runtime.pid,
                 runtimeGeneration: transition?.state.runtime,
                 revision: transition?.state.revision,
+                notificationID: transition?.state.notificationID,
                 clearNotificationsIfResumed: true
             )
 
@@ -31740,6 +31745,7 @@ export default CMUXSessionRestore;
                     runtimePID: latestPermission.runtime.pid,
                     runtimeGeneration: latestPermission.runtime,
                     revision: latestPermission.revision,
+                    notificationID: latestPermission.notificationID,
                     clearNotificationsIfResumed: true
                 )
                 return true
@@ -31768,7 +31774,8 @@ export default CMUXSessionRestore;
                 // waiting cue doesn't deliver a false "waiting for input".
                 let notificationMeta = summary.notifyCategory.metaSegment(
                     pending: (summary.notifyCategory == .turnComplete || summary.notifyCategory == .idleReminder)
-                        && hasActiveAntigravityBackgroundWork()
+                        && hasActiveAntigravityBackgroundWork(),
+                    notificationID: codexPermissionTransition?.state.notificationID
                 )
                 let payload = notificationPayload(title: def.displayName, subtitle: summary.subtitle, body: summary.body, meta: notificationMeta)
                 let notifyCommand = "notify_target_async \(workspaceId) \(surfaceId) \(payload)"
@@ -34221,6 +34228,7 @@ export default CMUXSessionRestore;
                             runtimePID: transition.state.runtime.pid,
                             runtimeGeneration: transition.state.runtime,
                             revision: transition.state.revision,
+                            notificationID: transition.state.notificationID,
                             clearNotificationsIfResumed: true
                         )
                     }

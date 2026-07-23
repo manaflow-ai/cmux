@@ -1,3 +1,5 @@
+import Foundation
+
 /// Pure ordering rules shared by every CLI lane that observes a Codex approval.
 struct CodexPermissionTransitionMachine {
     private static let maximumResolvedIdentities = 16
@@ -7,7 +9,8 @@ struct CodexPermissionTransitionMachine {
         current: CodexPermissionState?,
         event: CodexPermissionEvent,
         identity: CodexPermissionSignalIdentity,
-        runtime: CodexPermissionRuntimeGeneration
+        runtime: CodexPermissionRuntimeGeneration,
+        notificationID: UUID? = nil
     ) -> CodexPermissionTransition {
         if let current, !current.runtime.matches(runtime) {
             return CodexPermissionTransition(state: current, effect: .none, accepted: false)
@@ -15,7 +18,12 @@ struct CodexPermissionTransitionMachine {
 
         switch event {
         case .permissionRequested:
-            return acceptNeedsInput(current: current, identity: identity, runtime: runtime)
+            return acceptNeedsInput(
+                current: current,
+                identity: identity,
+                runtime: runtime,
+                notificationID: notificationID
+            )
         case .toolStarted:
             return acceptToolStarted(current: current, identity: identity, runtime: runtime)
         case .toolCompleted:
@@ -26,7 +34,8 @@ struct CodexPermissionTransitionMachine {
     private static func acceptNeedsInput(
         current: CodexPermissionState?,
         identity: CodexPermissionSignalIdentity,
-        runtime: CodexPermissionRuntimeGeneration
+        runtime: CodexPermissionRuntimeGeneration,
+        notificationID: UUID?
     ) -> CodexPermissionTransition {
         let identity = identity.correlatedToUniqueActiveToolStart(
             in: current?.startedIdentities ?? [],
@@ -38,11 +47,11 @@ struct CodexPermissionTransitionMachine {
                 return CodexPermissionTransition(state: current, effect: .none, accepted: false)
             }
             if current.phase == .needsInput, current.identity.exactlyMatches(identity) {
-                return CodexPermissionTransition(state: current, effect: .projectNeedsInput, accepted: true)
+                return reprojectNeedsInput(current, notificationID: notificationID)
             }
             if !identity.isScoped {
                 if current.phase == .needsInput, !current.identity.isScoped {
-                    return CodexPermissionTransition(state: current, effect: .projectNeedsInput, accepted: true)
+                    return reprojectNeedsInput(current, notificationID: notificationID)
                 }
                 return CodexPermissionTransition(state: current, effect: .none, accepted: false)
             }
@@ -53,9 +62,19 @@ struct CodexPermissionTransitionMachine {
             identity: identity,
             runtime: runtime,
             revision: nextRevision(after: current),
+            notificationID: notificationID,
             resolvedIdentities: current?.resolvedIdentities ?? [],
             startedIdentities: current?.startedIdentities ?? []
         )
+        return CodexPermissionTransition(state: state, effect: .projectNeedsInput, accepted: true)
+    }
+
+    private static func reprojectNeedsInput(
+        _ current: CodexPermissionState,
+        notificationID: UUID?
+    ) -> CodexPermissionTransition {
+        var state = current
+        if state.notificationID == nil { state.notificationID = notificationID }
         return CodexPermissionTransition(state: state, effect: .projectNeedsInput, accepted: true)
     }
 
@@ -76,6 +95,7 @@ struct CodexPermissionTransitionMachine {
             identity: preservesPendingPermission ? currentIdentity : identity,
             runtime: runtime,
             revision: nextRevision(after: current),
+            notificationID: current?.notificationID,
             resolvedIdentities: current?.resolvedIdentities ?? [],
             startedIdentities: started
         )
@@ -107,6 +127,7 @@ struct CodexPermissionTransitionMachine {
             identity: preservesDifferentPermission ? currentIdentity : identity,
             runtime: runtime,
             revision: nextRevision(after: current),
+            notificationID: current?.notificationID,
             resolvedIdentities: resolved,
             startedIdentities: current?.startedIdentities ?? []
         )

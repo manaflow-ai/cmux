@@ -14,11 +14,12 @@ enum AgentHookNotifyCategory: String {
     case idleReminder = "idle-reminder"
     case other
 
-    /// Delimiter-safe meta segment: `c=<category>;p=<0|1>`. `.other` is the
-    /// explicit ungated category and never rides the wire.
-    func metaSegment(pending: Bool) -> String? {
+    /// Delimiter-safe meta segment: `c=<category>;p=<0|1>[;id=<uuid>]`.
+    /// `.other` is the explicit ungated category and never rides the wire.
+    func metaSegment(pending: Bool, notificationID: UUID? = nil) -> String? {
         guard self != .other else { return nil }
-        return "c=\(rawValue);p=\(pending ? 1 : 0)"
+        let base = "c=\(rawValue);p=\(pending ? 1 : 0)"
+        return notificationID.map { "\(base);id=\($0.uuidString)" } ?? base
     }
 }
 

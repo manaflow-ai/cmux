@@ -12100,7 +12100,8 @@ class TerminalController {
                 surfaceId: surfaceId,
                 title: title,
                 subtitle: subtitle,
-                body: body
+                body: body,
+                notificationID: meta?.notificationID
             )
             return "OK"
         }
@@ -12136,7 +12137,8 @@ class TerminalController {
                 surfaceId: surfaceId,
                 title: title,
                 subtitle: subtitle,
-                body: body
+                body: body,
+                notificationID: meta?.notificationID
             )
             return "OK"
         }
@@ -12182,7 +12184,8 @@ class TerminalController {
                     surfaceId: fastPath.panelId,
                     title: title,
                     subtitle: subtitle,
-                    body: body
+                    body: body,
+                    notificationID: meta?.notificationID
                 )
                 return "OK"
             }
@@ -12205,7 +12208,8 @@ class TerminalController {
                 surfaceId: panelId,
                 title: title,
                 subtitle: subtitle,
-                body: body
+                body: body,
+                notificationID: meta?.notificationID
             )
             return "OK"
         }
@@ -12247,7 +12251,8 @@ class TerminalController {
             subtitle: subtitle,
             body: body,
             category: meta?.category,
-            pending: meta?.pending ?? false
+            pending: meta?.pending ?? false,
+            notificationID: meta?.notificationID
         ) else {
 #if DEBUG
             if let meta {

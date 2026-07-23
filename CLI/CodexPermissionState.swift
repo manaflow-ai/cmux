@@ -1,9 +1,12 @@
+import Foundation
+
 /// Persisted permission phase for one Codex session/runtime generation.
 struct CodexPermissionState: Codable, Equatable, Sendable {
     var phase: CodexPermissionPhase
     var identity: CodexPermissionSignalIdentity
     var runtime: CodexPermissionRuntimeGeneration
     var revision: UInt64
+    var notificationID: UUID?
     var resolvedIdentities: [CodexPermissionSignalIdentity]
     var startedIdentities: [CodexPermissionSignalIdentity]?
 
@@ -12,6 +15,7 @@ struct CodexPermissionState: Codable, Equatable, Sendable {
         identity: CodexPermissionSignalIdentity,
         runtime: CodexPermissionRuntimeGeneration,
         revision: UInt64 = 1,
+        notificationID: UUID? = nil,
         resolvedIdentities: [CodexPermissionSignalIdentity] = [],
         startedIdentities: [CodexPermissionSignalIdentity] = []
     ) {
@@ -19,6 +23,7 @@ struct CodexPermissionState: Codable, Equatable, Sendable {
         self.identity = identity
         self.runtime = runtime
         self.revision = revision
+        self.notificationID = notificationID
         self.resolvedIdentities = resolvedIdentities
         self.startedIdentities = startedIdentities.isEmpty ? nil : startedIdentities
     }

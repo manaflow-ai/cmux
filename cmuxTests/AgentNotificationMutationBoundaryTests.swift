@@ -270,6 +270,36 @@ extension AgentNotificationRegressionTests {
         #expect(fixture.store.notifications.map(\.body) == ["Registered after clear"])
     }
 
+    @Test("Exact removal cancels only its in-flight notification policy request")
+    func exactRemovalPreservesUnrelatedInFlightPolicyDelivery() async throws {
+        let fixture = try makeFixture(policyHookCommand: "cat")
+        defer { fixture.restore() }
+        let approvalID = UUID()
+        let unrelatedID = UUID()
+
+        fixture.store.addNotification(
+            tabId: fixture.source.id,
+            surfaceId: fixture.panelId,
+            title: "Codex",
+            subtitle: "Needs approval",
+            body: "Remove this request",
+            notificationID: approvalID
+        )
+        fixture.store.addNotification(
+            tabId: fixture.source.id,
+            surfaceId: fixture.panelId,
+            title: "Build",
+            subtitle: "Completed",
+            body: "Preserve this request",
+            notificationID: unrelatedID
+        )
+
+        fixture.store.remove(id: approvalID)
+        await waitForNotification(in: fixture.store)
+
+        #expect(fixture.store.notifications.map(\.id) == [unrelatedID])
+    }
+
     @Test("Clearing policy work immediately releases its cooldown reservation")
     func clearReleasesInFlightPolicyCooldownForReplacement() async throws {
         let fixture = try makeFixture(policyHookCommand: "sleep 1; cat")

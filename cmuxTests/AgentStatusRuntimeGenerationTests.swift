@@ -86,6 +86,12 @@ struct AgentStatusRuntimeGenerationTests {
             runtimePIDKey: runtimeKey,
             runtimeProcessIdentity: identity
         ))
+        #expect(!ledger.recordLifecycle(
+            .needsInput,
+            panelId: panelID,
+            statusKey: "codex",
+            observedAt: now.addingTimeInterval(2)
+        ))
         #expect(ledger.evidenceForPanel(panelID)["codex"]?.lifecycle == .running)
         #expect(ledger.evidenceForPanel(panelID)["codex"]?.lifecycleRevision == 2)
     }

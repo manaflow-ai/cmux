@@ -80,6 +80,17 @@ final class TerminalNotificationPolicyInFlightStore {
         return true
     }
 
+    /// Discards policy work for one stable notification without touching siblings.
+    @discardableResult
+    func discard(notificationID: UUID) -> Bool {
+        let ids = requests.compactMap { id, entry in
+            entry.request.notificationID == notificationID ? id : nil
+        }
+        let identities = Set(ids.compactMap(discardRequest))
+        identities.forEach(drainCompletedRequests)
+        return !ids.isEmpty
+    }
+
     func claim(_ id: UUID?) -> Bool {
         guard let id else { return true }
         guard let entry = requests.removeValue(forKey: id) else { return false }

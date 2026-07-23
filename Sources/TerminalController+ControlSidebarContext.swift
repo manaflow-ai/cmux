@@ -160,6 +160,7 @@ extension TerminalController: ControlSidebarContext {
         runtimeStartSeconds: Int64? = nil,
         runtimeStartMicroseconds: Int64? = nil,
         revision: UInt64? = nil,
+        notificationID: UUID? = nil,
         clearNotificationsIfResumed: Bool = false
     ) {
         guard let lifecycle = AgentHibernationLifecycleState(rawValue: lifecycleRawValue) else {
@@ -187,12 +188,8 @@ extension TerminalController: ControlSidebarContext {
                     runtimeProcessIdentity: runtimeProcessIdentity,
                     revision: revision
                 )
-                if didResume, clearNotificationsIfResumed, let panelID {
-                    TerminalNotificationStore.shared.clearNotifications(
-                        forTabId: tab.id,
-                        surfaceId: panelID,
-                        discardQueuedNotifications: false
-                    )
+                if didResume, clearNotificationsIfResumed, let notificationID {
+                    TerminalNotificationStore.shared.remove(id: notificationID)
                 }
             } else if !onlyIfNeedsInput {
                 tab.setAgentLifecycle(

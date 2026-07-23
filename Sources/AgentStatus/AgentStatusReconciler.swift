@@ -3,7 +3,7 @@ import Foundation
 /// Pure priority and expiry rules for agent status evidence.
 struct AgentStatusReconciler: Sendable {
     static let runningSignalLifetime: TimeInterval = 90
-    static let activityLifetime: TimeInterval = 20
+    static let activityLifetime: TimeInterval = 45
     static let foregroundObservationLifetime: TimeInterval = 45
 
     func resolve(

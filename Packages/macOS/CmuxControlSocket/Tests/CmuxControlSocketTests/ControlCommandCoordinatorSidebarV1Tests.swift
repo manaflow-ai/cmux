@@ -51,6 +51,23 @@ struct ControlCommandCoordinatorSidebarV1Tests {
         #expect(response?.contains("Invalid agent lifecycle 'running'") == true)
     }
 
+    @Test func notificationCleanupRequiresACanonicalNotificationIdentity() {
+        let context = FakeSidebarV1ControlCommandContext()
+        let coordinator = ControlCommandCoordinator(context: context)
+
+        let invalid = coordinator.handleSidebarV1(
+            command: "set_agent_lifecycle",
+            args: "codex running --tab=0 --if-needs-input --clear-notifications-if-resumed --notification-id=invalid"
+        )
+        let valid = coordinator.handleSidebarV1(
+            command: "set_agent_lifecycle",
+            args: "codex running --tab=0 --if-needs-input --clear-notifications-if-resumed --notification-id=00000000-0000-0000-0000-000000000001"
+        )
+
+        #expect(invalid?.contains("--notification-id=<uuid>") == true)
+        #expect(valid == "OK")
+    }
+
     @Test func workspaceLoadingFailureReasonReturnsErrorLine() {
         let context = FakeSidebarV1ControlCommandContext()
         context.workspaceLoadingResult = ControlSidebarWorkspaceLoadingState(

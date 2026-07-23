@@ -16,6 +16,52 @@ struct CodexPermissionTransitionTests {
         pidStartMicroseconds: 20
     )
 
+    @Test func notificationIdentityPersistsUntilTheExactPermissionResolves() throws {
+        let identity = CodexPermissionSignalIdentity(turnID: "turn-id", requestID: "call-id")
+        let notificationID = UUID()
+        let requested = CodexPermissionTransitionMachine.reduce(
+            current: nil,
+            event: .permissionRequested,
+            identity: identity,
+            runtime: runtime,
+            notificationID: notificationID
+        )
+        let duplicate = CodexPermissionTransitionMachine.reduce(
+            current: requested.state,
+            event: .permissionRequested,
+            identity: identity,
+            runtime: runtime,
+            notificationID: UUID()
+        )
+        let migrated = CodexPermissionTransitionMachine.reduce(
+            current: CodexPermissionState(
+                phase: .needsInput,
+                identity: identity,
+                runtime: runtime
+            ),
+            event: .permissionRequested,
+            identity: identity,
+            runtime: runtime,
+            notificationID: notificationID
+        )
+        let resumed = CodexPermissionTransitionMachine.reduce(
+            current: duplicate.state,
+            event: .toolCompleted,
+            identity: identity,
+            runtime: runtime
+        )
+        let persisted = try JSONDecoder().decode(
+            CodexPermissionState.self,
+            from: JSONEncoder().encode(resumed.state)
+        )
+
+        #expect(requested.state.notificationID == notificationID)
+        #expect(duplicate.state.notificationID == notificationID)
+        #expect(migrated.state.notificationID == notificationID)
+        #expect(resumed.effect == .resolveNeedsInput)
+        #expect(persisted.notificationID == notificationID)
+    }
+
     @Test func resumedTombstoneRejectsReorderedPermissionForSameRequest() {
         let identity = CodexPermissionSignalIdentity(turnID: "turn-1", requestID: "call-1")
         let resumed = CodexPermissionTransitionMachine.reduce(
@@ -333,33 +379,46 @@ extension AgentNotificationRegressionTests {
             panelId: fixture.panelId,
             lifecycle: .needsInput
         )
-        fixture.store.addNotification(
-            tabId: fixture.source.id,
-            surfaceId: fixture.panelId,
-            title: "Codex",
-            subtitle: "Needs approval",
-            body: "Approve this tool"
-        )
-        #expect(fixture.store.notifications.count == 1)
-
+        let codexNotificationID = UUID()
+        let unrelatedNotificationID = UUID()
         let bus = TerminalMutationBus.shared
         bus.setDrainsSuspendedForTesting(true)
         defer {
             bus.setDrainsSuspendedForTesting(false)
             bus.discardPendingNotifications()
         }
+        bus.enqueueNotification(
+            tabId: fixture.source.id,
+            surfaceId: fixture.panelId,
+            title: "Codex",
+            subtitle: "Needs approval",
+            body: "Approve this tool",
+            notificationID: codexNotificationID,
+            coalesces: false
+        )
+        bus.enqueueNotification(
+            tabId: fixture.source.id,
+            surfaceId: fixture.panelId,
+            title: "Build",
+            subtitle: "Completed",
+            body: "Unrelated panel notification",
+            notificationID: unrelatedNotificationID,
+            coalesces: false
+        )
+
         TerminalController.shared.controlSidebarScheduleAgentLifecycle(
             target: .workspace(fixture.source.id),
             key: "codex",
             lifecycleRawValue: AgentHibernationLifecycleState.running.rawValue,
             panelID: fixture.panelId,
             onlyIfNeedsInput: true,
+            notificationID: codexNotificationID,
             clearNotificationsIfResumed: true
         )
         bus.setDrainsSuspendedForTesting(false)
         bus.drainForTesting()
 
         #expect(fixture.source.agentLifecycleStatesByPanelId[fixture.panelId]?["codex"] == .running)
-        #expect(fixture.store.notifications.isEmpty)
+        #expect(fixture.store.notifications.map(\.id) == [unrelatedNotificationID])
     }
 }

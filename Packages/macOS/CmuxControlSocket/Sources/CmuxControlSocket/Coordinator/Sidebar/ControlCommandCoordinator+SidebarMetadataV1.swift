@@ -341,7 +341,7 @@ extension ControlCommandCoordinator {
     /// app-side allowlist check performs this command's single main hop.
     nonisolated func sidebarSetAgentLifecycle(_ args: String, context: (any ControlCommandContext)?) -> String {
         let parsed = sidebarParseOptions(args)
-        let usage = "set_agent_lifecycle <key> <unknown|running|idle|needsInput> [--tab=<id>] [--panel=<id>] [--if-needs-input] [--runtime-key=<key> --runtime-pid=<pid> --status-revision=<n> [--runtime-start-seconds=<n> --runtime-start-microseconds=<n>]] [--clear-notifications-if-resumed]"
+        let usage = "set_agent_lifecycle <key> <unknown|running|idle|needsInput> [--tab=<id>] [--panel=<id>] [--if-needs-input] [--runtime-key=<key> --runtime-pid=<pid> --status-revision=<n> [--runtime-start-seconds=<n> --runtime-start-microseconds=<n>]] [--clear-notifications-if-resumed --notification-id=<uuid>]"
         guard parsed.positional.count >= 2 else {
             return "ERROR: Usage: \(usage)"
         }
@@ -349,11 +349,14 @@ extension ControlCommandCoordinator {
         let rawLifecycle = parsed.positional[1]
         guard let lifecycleRawValue = context?.controlSidebarParseAgentLifecycle(rawLifecycle),
               parsed.options["if-needs-input"] == nil || lifecycleRawValue == "running",
-              parsed.options["clear-notifications-if-resumed"] == nil || parsed.options["if-needs-input"] != nil else {
+              parsed.options["clear-notifications-if-resumed"] == nil || parsed.options["if-needs-input"] != nil,
+              parsed.options["notification-id"] == nil || parsed.options["clear-notifications-if-resumed"] != nil else {
             return "ERROR: Invalid agent lifecycle '\(parsed.positional[1])' — usage: \(usage)"
         }
         let ordering = AgentLifecycleRuntimeOrderingOptions(options: parsed.options)
-        guard ordering.isValid else {
+        let notificationID = parsed.options["notification-id"].flatMap { UUID(uuidString: $0) }
+        guard ordering.isValid,
+              parsed.options["notification-id"] == nil || notificationID != nil else {
             return "ERROR: Usage: \(usage)"
         }
         let targetResolution = sidebarParseMutationTabTarget(options: parsed.options)
@@ -382,6 +385,7 @@ extension ControlCommandCoordinator {
             runtimeStartSeconds: ordering.runtimeStartSeconds,
             runtimeStartMicroseconds: ordering.runtimeStartMicroseconds,
             revision: ordering.revision,
+            notificationID: notificationID,
             clearNotificationsIfResumed: parsed.options["clear-notifications-if-resumed"] != nil
         )
         return "OK"

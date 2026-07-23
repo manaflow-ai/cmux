@@ -1,4 +1,5 @@
 import CMUXAgentLaunch
+import CoreFoundation
 import Darwin
 import Foundation
 
@@ -94,9 +95,12 @@ struct AgentStatusHookEventSignal: Equatable, Sendable {
         let rawSeconds = object[pidStartSecondsField]
         let rawMicroseconds = object[pidStartMicrosecondsField]
         guard rawSeconds != nil || rawMicroseconds != nil else { return .absent }
-        guard let seconds = (rawSeconds as? NSNumber)?.int64Value,
-              let microseconds = (rawMicroseconds as? NSNumber)?.int64Value,
-              seconds >= 0,
+        guard let rawSeconds,
+              let rawMicroseconds,
+              let secondsValue = exactUInt64(from: rawSeconds),
+              let microsecondsValue = exactUInt64(from: rawMicroseconds),
+              let seconds = Int64(exactly: secondsValue),
+              let microseconds = Int64(exactly: microsecondsValue),
               (0..<1_000_000).contains(microseconds) else {
             return nil
         }
@@ -123,14 +127,22 @@ struct AgentStatusHookEventSignal: Equatable, Sendable {
               let lifecycle = AgentHibernationLifecycleState.parseCLIValue(rawValue) else {
             return nil
         }
-        let revision: UInt64?
-        if let number = object[statusRevisionField] as? NSNumber {
-            revision = number.uint64Value
-        } else if let rawRevision = object[statusRevisionField] as? String {
-            revision = UInt64(rawRevision)
-        } else {
-            revision = nil
+        var revision: UInt64?
+        if let rawRevision = object[statusRevisionField] {
+            guard let parsedRevision = exactUInt64(from: rawRevision) else { return nil }
+            revision = parsedRevision
         }
         return (lifecycle, revision)
+    }
+
+    private static func exactUInt64(from value: Any) -> UInt64? {
+        if let string = value as? String {
+            return UInt64(string)
+        }
+        guard let number = value as? NSNumber,
+              CFGetTypeID(number) != CFBooleanGetTypeID() else {
+            return nil
+        }
+        return UInt64(number.stringValue)
     }
 }

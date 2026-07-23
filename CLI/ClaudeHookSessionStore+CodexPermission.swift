@@ -43,7 +43,8 @@ extension ClaudeHookSessionStore {
                 current: record.codexPermissionState,
                 event: .permissionRequested,
                 identity: identity,
-                runtime: runtime
+                runtime: runtime,
+                notificationID: UUID()
             )
             guard transition.accepted else { return transition }
             update(

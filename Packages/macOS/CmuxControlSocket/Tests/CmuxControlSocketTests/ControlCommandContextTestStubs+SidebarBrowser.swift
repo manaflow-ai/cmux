@@ -89,6 +89,7 @@ extension ControlSidebarContext {
         runtimeStartSeconds: Int64?,
         runtimeStartMicroseconds: Int64?,
         revision: UInt64?,
+        notificationID: UUID?,
         clearNotificationsIfResumed: Bool
     ) {}
 

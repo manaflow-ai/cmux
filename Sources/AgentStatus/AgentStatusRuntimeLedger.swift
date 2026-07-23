@@ -30,7 +30,7 @@ final class AgentStatusRuntimeLedger {
         revision: UInt64? = nil
     ) -> Bool {
         var evidence = evidenceByPanelId[panelId]?[statusKey] ?? AgentStatusEvidence()
-        if let runtimePIDKey, let revision {
+        if let runtimePIDKey {
             if evidence.lifecycleRuntimePIDKey != runtimePIDKey {
                 evidence.lifecycleRuntimePIDKey = runtimePIDKey
                 evidence.lifecycleRuntimeProcessIdentity = runtimeProcessIdentity
@@ -41,11 +41,17 @@ final class AgentStatusRuntimeLedger {
             ) {
                 return false
             }
-            if let currentRevision = evidence.lifecycleRevision,
-               currentRevision > revision {
+            if let revision {
+                if let currentRevision = evidence.lifecycleRevision,
+                   currentRevision > revision {
+                    return false
+                }
+                evidence.lifecycleRevision = revision
+            } else if evidence.lifecycleRevision != nil {
                 return false
             }
-            evidence.lifecycleRevision = revision
+        } else if evidence.lifecycleRevision != nil {
+            return false
         }
         if let current = evidence.lifecycleObservedAt, current > observedAt { return false }
         evidence.lifecycle = lifecycle
@@ -61,7 +67,6 @@ final class AgentStatusRuntimeLedger {
         guard let current = evidence.lifecycleRuntimeProcessIdentity else {
             if let incoming {
                 evidence.lifecycleRuntimeProcessIdentity = incoming
-                evidence.lifecycleRevision = nil
             }
             return true
         }

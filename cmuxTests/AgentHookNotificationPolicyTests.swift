@@ -1,3 +1,4 @@
+import Foundation
 import Testing
 
 #if canImport(cmux_DEV)
@@ -76,12 +77,17 @@ struct AgentHookNotificationPolicyTests {
     }
 
     @Test func metaRoundTripsWithAppGate() throws {
+        let notificationID = UUID()
         let taggedCategories: [AgentHookNotifyCategory] = [.turnComplete, .needsPermission, .idleReminder]
         for category in taggedCategories {
-            let metaSegment = try #require(category.metaSegment(pending: false))
+            let metaSegment = try #require(category.metaSegment(
+                pending: false,
+                notificationID: notificationID
+            ))
             let parsed = try #require(AgentNotificationMeta(meta: metaSegment))
             #expect(parsed.category.rawValue == category.rawValue)
             #expect(parsed.pending == false)
+            #expect(parsed.notificationID == notificationID)
         }
         #expect(AgentHookNotifyCategory.other.metaSegment(pending: false) == nil)
 
@@ -106,6 +112,11 @@ struct AgentHookNotificationPolicyTests {
             turnMode: .never,
             idleEnabled: true
         ) == false)
+    }
+
+    @Test func malformedNotificationIdentityIsNotAcceptedAsMetadata() {
+        #expect(AgentNotificationMeta(meta: "c=needs-permission;p=0;id=not-a-uuid") == nil)
+        #expect(AgentNotificationMeta(meta: "c=needs-permission;p=0;id=") == nil)
     }
 
     private func classify(_ message: String) -> AgentHookNotificationSummary {
