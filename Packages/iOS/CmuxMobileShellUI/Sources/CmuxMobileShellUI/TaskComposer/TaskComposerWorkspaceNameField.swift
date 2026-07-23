@@ -47,7 +47,7 @@ struct TaskComposerWorkspaceNameField: View {
             )
         }
         .frame(maxWidth: .infinity, minHeight: 52, alignment: .leading)
-        .padding(.horizontal, 10)
+        .padding(.horizontal, 16)
         .padding(.vertical, 6)
     }
 }

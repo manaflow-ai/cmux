@@ -64,13 +64,13 @@ struct TaskComposerAgentMenu: View, Equatable {
 
                     Text(title(for: selectedTemplate))
                         .font(.headline)
-                        .foregroundStyle(.primary)
+                        .foregroundStyle(Color.primary)
                         .lineLimit(1)
                         .minimumScaleFactor(0.82)
                 } else {
                     Image(systemName: "person.crop.circle.badge.exclamationmark")
                         .font(.system(size: 15, weight: .semibold))
-                        .foregroundStyle(.secondary)
+                        .foregroundStyle(Color.secondary)
                         .frame(width: 32, height: 32)
                         .background(Color.primary.opacity(0.055), in: Circle())
                         .accessibilityHidden(true)
@@ -82,7 +82,7 @@ struct TaskComposerAgentMenu: View, Equatable {
                         )
                     )
                     .font(.subheadline.weight(.semibold))
-                    .foregroundStyle(.secondary)
+                    .foregroundStyle(Color.secondary)
                     .lineLimit(1)
                 }
 
@@ -90,7 +90,7 @@ struct TaskComposerAgentMenu: View, Equatable {
 
                 Image(systemName: "chevron.up.chevron.down")
                     .font(.caption2.weight(.bold))
-                    .foregroundStyle(.tertiary)
+                    .foregroundStyle(Color.secondary.opacity(0.55))
                     .accessibilityHidden(true)
             }
             .frame(maxWidth: .infinity, minHeight: 44, alignment: .leading)
@@ -99,7 +99,6 @@ struct TaskComposerAgentMenu: View, Equatable {
             // menu's choices to retain the caller's full Dynamic Type size.
             .dynamicTypeSize(...DynamicTypeSize.xxxLarge)
         }
-        .buttonStyle(.plain)
         // Keep the menu reachable when every template has been deleted so the
         // editor remains the recovery path for adding an agent.
         .disabled(value.isDisabled)
