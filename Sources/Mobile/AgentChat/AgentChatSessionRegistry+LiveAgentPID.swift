@@ -195,7 +195,7 @@ extension AgentChatSessionRegistry {
         details: CmuxTopProcessArguments?
     ) -> String? {
         if agentID == "codex",
-           let rollout = openCodexRolloutPath(pid: pid) {
+           let rollout = openCodexRolloutPaths(pid: pid).first {
             return firstUUIDLike(in: (rollout as NSString).lastPathComponent)
         }
         let isClaudeForkLaunch = agentID == "claude"

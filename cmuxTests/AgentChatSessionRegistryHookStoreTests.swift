@@ -44,7 +44,7 @@ struct AgentChatSessionRegistryHookStoreTests {
                     ]
                 )
             },
-            codexRolloutPath: { _ in nil }
+            codexRolloutPaths: { _ in [] }
         )
 
         let session = try #require(observed.first)
@@ -128,7 +128,7 @@ struct AgentChatSessionRegistryHookStoreTests {
                     ]
                 )
             },
-            codexRolloutPath: { _ in nil }
+            codexRolloutPaths: { _ in [] }
         )
 
         #expect(observed.isEmpty)

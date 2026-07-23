@@ -196,15 +196,16 @@ extension AgentChatSessionRegistry {
             in: snapshot,
             onlySurfaceIDs: surfaceIDs,
             processArgumentsAndEnvironment: CmuxTopProcessSnapshot.processArgumentsAndEnvironment(for:),
-            codexRolloutPath: openCodexRolloutPath(pid:)
+            codexRolloutPaths: openCodexRolloutPaths(pid:)
         )
     }
 
     nonisolated static func scanObservedAgentSessions(
         in snapshot: CmuxTopProcessSnapshot,
         onlySurfaceIDs surfaceIDs: Set<UUID>? = nil,
+        preferredCodexSessionIDBySurfaceID: [String: String] = [:],
         processArgumentsAndEnvironment: (Int) -> CmuxTopProcessArguments?,
-        codexRolloutPath: (Int) -> String?
+        codexRolloutPaths: (Int) -> [String]
     ) -> [ObservedAgentSession] {
         struct Candidate {
             let session: ObservedAgentSession
@@ -247,7 +248,7 @@ extension AgentChatSessionRegistry {
             let isClaudeForkLaunch = def.id == "claude" && argv.map(Self.containsClaudeForkSessionOption(_:)) == true
             var sessionID: String?
             var transcriptPath: String?
-            if def.id == "codex", let rollout = codexRolloutPath(process.pid) {
+            if def.id == "codex", let rollout = codexRolloutPaths(process.pid).first {
                 transcriptPath = rollout
                 sessionID = firstUUIDLike(in: (rollout as NSString).lastPathComponent)
             }
@@ -450,39 +451,6 @@ extension AgentChatSessionRegistry {
         guard !trimmed.hasPrefix("-") else { return nil }
         return firstUUIDLike(in: trimmed)
     }
-    /// libproc: the path of a `~/.codex/sessions/**/rollout-*.jsonl` the process
-    /// holds open (codex keeps its rollout open for writing), or nil.
-    nonisolated static func openCodexRolloutPath(pid: Int) -> String? {
-        let listSize = proc_pidinfo(pid_t(pid), PROC_PIDLISTFDS, 0, nil, 0)
-        guard listSize > 0 else { return nil }
-        let count = Int(listSize) / MemoryLayout<proc_fdinfo>.stride
-        guard count > 0 else { return nil }
-        var fds = [proc_fdinfo](repeating: proc_fdinfo(), count: count)
-        let used = proc_pidinfo(pid_t(pid), PROC_PIDLISTFDS, 0, &fds, listSize)
-        guard used > 0 else { return nil }
-        let actual = Int(used) / MemoryLayout<proc_fdinfo>.stride
-        for index in 0..<min(actual, fds.count) {
-            guard fds[index].proc_fdtype == UInt32(PROX_FDTYPE_VNODE) else { continue }
-            var info = vnode_fdinfowithpath()
-            let size = proc_pidfdinfo(
-                pid_t(pid),
-                fds[index].proc_fd,
-                PROC_PIDFDVNODEPATHINFO,
-                &info,
-                Int32(MemoryLayout<vnode_fdinfowithpath>.size)
-            )
-            guard size > 0 else { continue }
-            let path = withUnsafeBytes(of: &info.pvip.vip_path) { raw -> String in
-                guard let base = raw.baseAddress else { return "" }
-                return String(cString: base.assumingMemoryBound(to: CChar.self))
-            }
-            if path.hasSuffix(".jsonl"), path.contains("/.codex/sessions/") {
-                return path
-            }
-        }
-        return nil
-    }
-
     private nonisolated static let uuidLikeRegex = try? NSRegularExpression(
         pattern: "[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12}"
     )
