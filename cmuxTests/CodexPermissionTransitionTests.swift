@@ -107,6 +107,150 @@ struct CodexPermissionTransitionTests {
         #expect(transition.accepted == false)
         #expect(transition.state == pending)
     }
+
+    @Test func toolStartDoesNotResolvePendingPermission() {
+        let identity = CodexPermissionSignalIdentity(turnID: "turn-3", requestID: "call-1")
+        let pending = CodexPermissionState(
+            phase: .needsInput,
+            identity: identity,
+            runtime: runtime
+        )
+
+        let started = CodexPermissionTransitionMachine.reduce(
+            current: pending,
+            event: .toolStarted,
+            identity: identity,
+            runtime: runtime
+        )
+
+        #expect(started.accepted)
+        #expect(started.effect == .none)
+        #expect(started.state.phase == .needsInput)
+        #expect(started.state.identity == identity)
+    }
+
+    @Test func requestWithoutToolIDCorrelatesToLatestStartInSameTurn() {
+        let first = CodexPermissionSignalIdentity(turnID: "turn-4", requestID: "call-1")
+        let second = CodexPermissionSignalIdentity(turnID: "turn-4", requestID: "call-2")
+        let firstStarted = CodexPermissionTransitionMachine.reduce(
+            current: nil,
+            event: .toolStarted,
+            identity: first,
+            runtime: runtime
+        )
+        let secondStarted = CodexPermissionTransitionMachine.reduce(
+            current: firstStarted.state,
+            event: .toolStarted,
+            identity: second,
+            runtime: runtime
+        )
+
+        let requested = CodexPermissionTransitionMachine.reduce(
+            current: secondStarted.state,
+            event: .permissionRequested,
+            identity: CodexPermissionSignalIdentity(turnID: "turn-4", requestID: nil),
+            runtime: runtime
+        )
+
+        #expect(requested.accepted)
+        #expect(requested.effect == .projectNeedsInput)
+        #expect(requested.state.identity == second)
+    }
+
+    @Test func matchingToolCompletionResolvesCorrelatedPermission() {
+        let tool = CodexPermissionSignalIdentity(turnID: "turn-5", requestID: "call-1")
+        let started = CodexPermissionTransitionMachine.reduce(
+            current: nil,
+            event: .toolStarted,
+            identity: tool,
+            runtime: runtime
+        )
+        let requested = CodexPermissionTransitionMachine.reduce(
+            current: started.state,
+            event: .permissionRequested,
+            identity: CodexPermissionSignalIdentity(turnID: "turn-5", requestID: nil),
+            runtime: runtime
+        )
+
+        let completed = CodexPermissionTransitionMachine.reduce(
+            current: requested.state,
+            event: .toolCompleted,
+            identity: tool,
+            runtime: runtime
+        )
+
+        #expect(completed.accepted)
+        #expect(completed.effect == .resolveNeedsInput)
+        #expect(completed.state.phase == .resumed)
+    }
+
+    @Test func lateCompletionCannotClearNewerPermission() {
+        let oldTool = CodexPermissionSignalIdentity(turnID: "turn-6", requestID: "call-old")
+        let newTool = CodexPermissionSignalIdentity(turnID: "turn-6", requestID: "call-new")
+        let oldStarted = CodexPermissionTransitionMachine.reduce(
+            current: nil,
+            event: .toolStarted,
+            identity: oldTool,
+            runtime: runtime
+        )
+        let oldRequested = CodexPermissionTransitionMachine.reduce(
+            current: oldStarted.state,
+            event: .permissionRequested,
+            identity: oldTool,
+            runtime: runtime
+        )
+        let newStarted = CodexPermissionTransitionMachine.reduce(
+            current: oldRequested.state,
+            event: .toolStarted,
+            identity: newTool,
+            runtime: runtime
+        )
+        let newRequested = CodexPermissionTransitionMachine.reduce(
+            current: newStarted.state,
+            event: .permissionRequested,
+            identity: newTool,
+            runtime: runtime
+        )
+
+        let oldCompletedLate = CodexPermissionTransitionMachine.reduce(
+            current: newRequested.state,
+            event: .toolCompleted,
+            identity: oldTool,
+            runtime: runtime
+        )
+
+        #expect(oldCompletedLate.accepted)
+        #expect(oldCompletedLate.effect == .none)
+        #expect(oldCompletedLate.state.phase == .needsInput)
+        #expect(oldCompletedLate.state.identity == newTool)
+    }
+
+    @Test func completionBeforePermissionTombstonesCorrelatedRequest() {
+        let tool = CodexPermissionSignalIdentity(turnID: "turn-7", requestID: "call-1")
+        let started = CodexPermissionTransitionMachine.reduce(
+            current: nil,
+            event: .toolStarted,
+            identity: tool,
+            runtime: runtime
+        )
+        let completed = CodexPermissionTransitionMachine.reduce(
+            current: started.state,
+            event: .toolCompleted,
+            identity: tool,
+            runtime: runtime
+        )
+
+        let permissionArrivedLate = CodexPermissionTransitionMachine.reduce(
+            current: completed.state,
+            event: .permissionRequested,
+            identity: CodexPermissionSignalIdentity(turnID: "turn-7", requestID: nil),
+            runtime: runtime
+        )
+
+        #expect(permissionArrivedLate.accepted == false)
+        #expect(permissionArrivedLate.effect == .none)
+        #expect(permissionArrivedLate.state == completed.state)
+    }
 }
 
 @Suite("Agent status reconciliation scheduling")
