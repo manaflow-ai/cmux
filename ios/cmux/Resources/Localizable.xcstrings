@@ -1503,13 +1503,13 @@
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "This computer and its workspaces stop appearing here. Pair it again to add it back."
+            "value": "This computer and its workspaces stop appearing here. To recover it later, open cmux on that Mac, sign in to this same account, then tap Recover Deleted Computer."
           }
         },
         "ja": {
           "stringUnit": {
             "state": "translated",
-            "value": "このコンピュータとそのワークスペースは表示されなくなります。再度ペアリングすると追加できます。"
+            "value": "このコンピュータとそのワークスペースは表示されなくなります。後で復元するには、そのMacでcmuxを開き、この同じアカウントにサインインしてから「削除したコンピュータを復元」をタップしてください。"
           }
         }
       }
@@ -1520,13 +1520,13 @@
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "This removes this computer and its matching paired records. Its workspaces stop appearing here. Pair it again to add it back."
+            "value": "This removes this computer and its matching paired records. Its workspaces stop appearing here. To recover it later, open cmux on that Mac, sign in to this same account, then tap Recover Deleted Computer."
           }
         },
         "ja": {
           "stringUnit": {
             "state": "translated",
-            "value": "このコンピュータと一致するペアリング済みレコードを削除します。そのワークスペースは表示されなくなります。再度ペアリングすると追加できます。"
+            "value": "このコンピュータと一致するペアリング済みレコードを削除します。そのワークスペースは表示されなくなります。後で復元するには、そのMacでcmuxを開き、この同じアカウントにサインインしてから「削除したコンピュータを復元」をタップしてください。"
           }
         }
       }
@@ -1544,6 +1544,91 @@
           "stringUnit": {
             "state": "translated",
             "value": "%@を削除しますか？"
+          }
+        }
+      }
+    },
+    "mobile.computers.recoverDeleted": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Recover Deleted Computer"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "削除したコンピュータを復元"
+          }
+        }
+      }
+    },
+    "mobile.computers.recoverDeletedFooter": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Deleted computers stay hidden on this phone. To recover one, open cmux on that Mac, sign in to this same account, then tap Recover Deleted Computer."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "削除したコンピュータはこの電話では非表示のままです。復元するには、そのMacでcmuxを開き、この同じアカウントにサインインしてから「削除したコンピュータを復元」をタップしてください。"
+          }
+        }
+      }
+    },
+    "mobile.computers.recoverFailedMessage": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "No deleted computer was recovered. Open cmux on the Mac, sign in to this same account, and try again."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "削除したコンピュータは復元されませんでした。そのMacでcmuxを開き、この同じアカウントにサインインして、もう一度お試しください。"
+          }
+        }
+      }
+    },
+    "mobile.computers.recoverFailedTitle": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Couldn't recover computer"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "コンピュータを復元できませんでした"
+          }
+        }
+      }
+    },
+    "mobile.computers.recoveringDeleted": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Recovering Deleted Computer…"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "削除したコンピュータを復元中…"
           }
         }
       }
@@ -9277,13 +9362,13 @@
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "The Mac could not list this folder. Try again."
+            "value": "The Mac could not list this folder. If this is a protected folder such as Downloads, allow cmux access in Mac System Settings › Privacy & Security › Files & Folders, then retry."
           }
         },
         "ja": {
           "stringUnit": {
             "state": "translated",
-            "value": "Macでこのフォルダの一覧を取得できませんでした。もう一度お試しください。"
+            "value": "Macでこのフォルダの一覧を取得できませんでした。Downloadsなどの保護されたフォルダの場合は、Macの「システム設定」＞「プライバシーとセキュリティ」＞「ファイルとフォルダ」でcmuxのアクセスを許可してから、もう一度お試しください。"
           }
         }
       }
@@ -10151,6 +10236,57 @@
           "stringUnit": {
             "state": "translated",
             "value": "Macから時間内に応答がありませんでした。"
+          }
+        }
+      }
+    },
+    "mobile.taskComposer.failure.title": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Couldn’t start this task"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "このタスクを開始できませんでした"
+          }
+        }
+      }
+    },
+    "mobile.taskComposer.failure.title.statusUnconfirmed": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Task status unconfirmed"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "タスクの状態を確認できません"
+          }
+        }
+      }
+    },
+    "mobile.taskComposer.failure.title.taskAccepted": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Task already accepted"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "タスクはすでに受け付けられています"
           }
         }
       }
@@ -11171,6 +11307,57 @@
           "stringUnit": {
             "state": "translated",
             "value": "ワークスペース"
+          }
+        }
+      }
+    },
+    "mobile.taskComposer.workspaceName": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Workspace name"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ワークスペース名"
+          }
+        }
+      }
+    },
+    "mobile.taskComposer.workspaceName.optional": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Workspace name (optional)"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ワークスペース名（任意）"
+          }
+        }
+      }
+    },
+    "mobile.taskComposer.workspaceName.generatedPlaceholder": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Generated from prompt"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "プロンプトから自動生成"
           }
         }
       }
@@ -13965,7 +14152,7 @@
         "ja": {
           "stringUnit": {
             "state": "translated",
-            "value": "%@ で認証されませんでした。"
+            "value": "%@ はリクエストを許可しませんでした。"
           }
         }
       }
@@ -13982,7 +14169,7 @@
         "ja": {
           "stringUnit": {
             "state": "translated",
-            "value": "Mac で認証されませんでした。"
+            "value": "Mac はリクエストを許可しませんでした。"
           }
         }
       }
@@ -14033,7 +14220,7 @@
         "ja": {
           "stringUnit": {
             "state": "translated",
-            "value": "%@ に拒否されました。"
+            "value": "%@ がリクエストを拒否しました。"
           }
         }
       }
@@ -14050,7 +14237,7 @@
         "ja": {
           "stringUnit": {
             "state": "translated",
-            "value": "Mac に拒否されました。"
+            "value": "Mac がリクエストを拒否しました。"
           }
         }
       }
@@ -15054,6 +15241,23 @@
           "stringUnit": {
             "state": "translated",
             "value": "タイムアウト"
+          }
+        }
+      }
+    },
+    "mobile.iroh.diagnostics.failure.transportIdleTimedOut": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Transport Idle Timeout"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "接続アイドルタイムアウト"
           }
         }
       }

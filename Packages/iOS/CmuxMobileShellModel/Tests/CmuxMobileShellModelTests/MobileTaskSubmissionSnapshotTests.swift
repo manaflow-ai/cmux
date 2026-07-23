@@ -118,6 +118,27 @@ import Testing
         expectIdentityRotated(from: before, to: after)
     }
 
+    @Test func customWorkspaceNameChangesEffectiveRequest() {
+        let template = MobileTaskTemplate(name: "Codex", icon: "agent:codex", command: "codex")
+        let generated = snapshot(template: template, workspaceName: "")
+        let custom = snapshot(template: template, workspaceName: "Release checklist")
+
+        #expect(generated.workspaceTitle == generated.composition.title)
+        #expect(custom.workspaceTitle == "Release checklist")
+        #expect(!generated.isRequestEquivalent(to: custom))
+        expectIdentityRotated(from: generated, to: custom)
+    }
+
+    @Test func workspaceNameUsesTrimmedWireValue() {
+        let template = MobileTaskTemplate(name: "Codex", icon: "agent:codex", command: "codex")
+        let padded = snapshot(template: template, workspaceName: "  Release checklist  ")
+        let trimmed = snapshot(template: template, workspaceName: "Release checklist")
+
+        #expect(padded.workspaceTitle == "Release checklist")
+        #expect(padded.isRequestEquivalent(to: trimmed))
+        expectIdentityPreserved(from: padded, to: trimmed)
+    }
+
     @Test func selectedTemplateChangeWithDifferentCompositionChangesRequest() {
         let before = snapshot(template: MobileTaskTemplate(
             name: "Codex",
@@ -342,13 +363,15 @@ import Testing
         template: MobileTaskTemplate,
         prompt: String = "ship it",
         macDeviceID: String = "mac-a",
-        directory: String = "~/cmux"
+        directory: String = "~/cmux",
+        workspaceName: String = ""
     ) -> MobileTaskSubmissionSnapshot {
         MobileTaskSubmissionSnapshot(
             template: template,
             prompt: prompt,
             macDeviceID: macDeviceID,
             directory: directory,
+            workspaceName: workspaceName,
             didEditDirectory: false,
             operationID: UUID()
         )

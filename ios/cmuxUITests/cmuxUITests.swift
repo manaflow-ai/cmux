@@ -622,6 +622,27 @@ final class cmuxUITests: XCTestCase {
         }
     }
 
+    /// Switching templates without a template-specific directory must keep the
+    /// selected Mac's focused project instead of restoring older task history.
+    @MainActor
+    func testTaskComposerTemplateSwitchPreservesFocusedDirectory() throws {
+        let app = launchApp(mockData: false, environment: [
+            "CMUX_UITEST_TASK_COMPOSER_PREVIEW": "1",
+            "CMUX_UITEST_TASK_COMPOSER_OPEN_DIRECTORY_PREVIEW": "1",
+        ])
+        defer { app.terminate() }
+
+        XCTAssertTrue(app.textFields["MobileTaskComposerPrompt"].waitForExistence(timeout: 8))
+        let directory = app.buttons["MobileTaskComposerDirectory"]
+        XCTAssertTrue(directory.waitForExistence(timeout: 3))
+        XCTAssertEqual(directory.value as? String, "/Users/ui/current-project")
+
+        selectTaskComposerAgent(named: "Codex", in: app)
+
+        XCTAssertEqual(app.buttons["MobileTaskComposerCreateButton"].label, "Start Codex")
+        XCTAssertEqual(directory.value as? String, "/Users/ui/current-project")
+    }
+
     /// The composer keeps the launch route visible while the prompt receives
     /// focus, so the user can verify the agent, Mac, and folder while typing.
     @MainActor
@@ -763,6 +784,8 @@ final class cmuxUITests: XCTestCase {
             (name: "OpenCode", action: "Start OpenCode"),
             (name: "Shell", action: "Open Shell"),
         ]
+        let agentMenu = app.buttons["MobileTaskComposerAgentMenu"]
+        let stableAgentMenuWidth = agentMenu.frame.width
         for template in templates {
             selectTaskComposerAgent(named: template.name, in: app)
             let selectedAction = NSPredicate(
@@ -772,8 +795,14 @@ final class cmuxUITests: XCTestCase {
             expectation(for: selectedAction, evaluatedWith: create)
             waitForExpectations(timeout: 3)
             XCTAssertEqual(
-                app.buttons["MobileTaskComposerAgentMenu"].value as? String,
+                agentMenu.value as? String,
                 template.name
+            )
+            XCTAssertEqual(
+                agentMenu.frame.width,
+                stableAgentMenuWidth,
+                accuracy: 0.5,
+                "Changing to a longer agent title must not resize and clip the menu label"
             )
         }
     }
@@ -978,6 +1007,25 @@ final class cmuxUITests: XCTestCase {
         XCTAssertEqual(selectedPath.label, "/Users/ui/mobile-root")
     }
 
+    /// An ambiguous list failure can still be caused by macOS Files and
+    /// Folders protection, so the recovery copy must point users at that
+    /// permission without claiming it is definitely the cause.
+    @MainActor
+    func testTaskComposerDirectoryFailureMentionsProtectedFolderPermission() throws {
+        let app = launchApp(mockData: false, environment: [
+            "CMUX_UITEST_TASK_COMPOSER_PREVIEW": "1",
+            "CMUX_UITEST_TASK_DIRECTORY_PERMISSION_FAILURE_PREVIEW": "1",
+        ])
+        defer { app.terminate() }
+
+        XCTAssertTrue(app.staticTexts["Couldn’t Open Folder"].waitForExistence(timeout: 8))
+        let permissionCopy = app.staticTexts.matching(NSPredicate(
+            format: "label == %@",
+            "The Mac could not list this folder. If this is a protected folder such as Downloads, allow cmux access in Mac System Settings › Privacy & Security › Files & Folders, then retry."
+        )).firstMatch
+        XCTAssertTrue(permissionCopy.waitForExistence(timeout: 3))
+    }
+
     /// Regression: scrolling a full directory page must not trap SwiftUI's
     /// lazy layout on the main thread or make the picker impossible to dismiss.
     @MainActor
@@ -1118,6 +1166,48 @@ final class cmuxUITests: XCTestCase {
         }
     }
 
+    /// The optional workspace name must replace the generated task title on
+    /// the workspace-create request without becoming required input.
+    @MainActor
+    func testTaskComposerOptionalWorkspaceNameOverridesGeneratedTitle() throws {
+        let app = launchApp(mockData: false, environment: [
+            "CMUX_UITEST_TASK_COMPOSER_PREVIEW": "1",
+        ])
+        defer { app.terminate() }
+
+        let workspaceName = app.textFields["MobileTaskComposerWorkspaceName"]
+        XCTAssertTrue(workspaceName.waitForExistence(timeout: 8))
+        XCTAssertTrue(
+            app.staticTexts["Workspace name (optional)"].exists,
+            "The workspace name field must state that it is optional"
+        )
+        let prompt = app.textFields["MobileTaskComposerPrompt"]
+        XCTAssertTrue(prompt.waitForExistence(timeout: 3))
+        let machine = app.buttons["MobileTaskComposerMachineMenu"]
+        XCTAssertTrue(machine.waitForExistence(timeout: 3))
+        XCTAssertGreaterThan(
+            workspaceName.frame.minY,
+            prompt.frame.maxY,
+            "Workspace name should sit outside and below the prompt canvas"
+        )
+        XCTAssertLessThan(
+            workspaceName.frame.maxY,
+            machine.frame.minY,
+            "Workspace name should lead the workspace context card"
+        )
+
+        try typeText("Release checklist", into: workspaceName, in: app)
+        try typeText("Verify the release", into: prompt, in: app)
+
+        let create = app.buttons["MobileTaskComposerCreateButton"]
+        XCTAssertTrue(create.waitForExistence(timeout: 3))
+        tap(create, in: app)
+
+        let submittedTitle = app.staticTexts["MobileTaskComposerSubmittedTitle"]
+        XCTAssertTrue(submittedTitle.waitForExistence(timeout: 3))
+        XCTAssertEqual(submittedTitle.label, "Release checklist")
+    }
+
     /// Regression: the template form's default-directory field must identify
     /// itself as Directory instead of exposing only its "~" placeholder.
     @MainActor
@@ -1154,6 +1244,10 @@ final class cmuxUITests: XCTestCase {
         XCTAssertTrue(create.waitForExistence(timeout: 3))
 
         tap(create, in: app)
+
+        let failureTitle = app.staticTexts["MobileTaskComposerFailureTitle"]
+        XCTAssertTrue(failureTitle.waitForExistence(timeout: 3))
+        XCTAssertEqual(failureTitle.label, "Couldn’t start this task")
 
         let failure = app.staticTexts["MobileTaskComposerFailure"]
         XCTAssertTrue(failure.waitForExistence(timeout: 3))
@@ -1366,11 +1460,15 @@ final class cmuxUITests: XCTestCase {
         let create = app.buttons["MobileTaskComposerCreateButton"]
         XCTAssertTrue(create.waitForExistence(timeout: 3))
         XCTAssertEqual(create.label, "Start Claude")
+        let restingButtonFrame = create.frame
         tap(create, in: app)
 
         let startingPredicate = NSPredicate(format: "label == %@", "Preparing workspace…")
         expectation(for: startingPredicate, evaluatedWith: create)
         waitForExpectations(timeout: 3)
+
+        XCTAssertEqual(create.frame.height, restingButtonFrame.height, accuracy: 1)
+        XCTAssertEqual(create.frame.width, restingButtonFrame.width, accuracy: 1)
 
         let draftState = app.staticTexts["MobileTaskComposerSubmissionDraftState"]
         XCTAssertTrue(draftState.waitForExistence(timeout: 3))
@@ -3339,6 +3437,8 @@ final class cmuxUITests: XCTestCase {
         }
         let app = launchApp(mockData: true, environment: [
             "CMUX_UITEST_ADD_DEVICE_PORT": String(portText.dropLast()),
+        ], launchArguments: [
+            "-cmux.mobile.taskComposerEnabled", "YES",
         ])
         let pairingForm = app.otherElements["MobileAddDeviceForm"]
         XCTAssertTrue(pairingForm.waitForExistence(timeout: 8))
@@ -5030,12 +5130,16 @@ final class cmuxUITests: XCTestCase {
                 element.tap()
             }
 
-            if waitForKeyboardFocus(of: element, timeout: 1) || app.keyboards.firstMatch.exists {
+            if debugDescriptionReportsKeyboardFocus(of: element)
+                || waitForKeyboardFocus(of: element, timeout: 1)
+                || debugDescriptionReportsKeyboardFocus(of: element) {
                 return true
             }
             RunLoop.current.run(until: Date().addingTimeInterval(0.1))
         }
-        return waitForKeyboardFocus(of: element, timeout: 0.5) || app.keyboards.firstMatch.exists
+        return debugDescriptionReportsKeyboardFocus(of: element)
+            || waitForKeyboardFocus(of: element, timeout: 0.5)
+            || debugDescriptionReportsKeyboardFocus(of: element)
     }
 
     @MainActor
@@ -5137,6 +5241,10 @@ final class cmuxUITests: XCTestCase {
             object: element
         )
         return XCTWaiter.wait(for: [expectation], timeout: timeout) == .completed
+    }
+
+    private func debugDescriptionReportsKeyboardFocus(of element: XCUIElement) -> Bool {
+        element.debugDescription.contains("Keyboard Focused")
     }
 
     @MainActor
