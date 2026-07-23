@@ -8,6 +8,10 @@ actor SidebarArtifactStore: ArtifactStoring {
     private var continuations: [AsyncStream<Void>.Continuation] = []
     private(set) var lastQuery: String?
     private(set) var snapshotCount = 0
+    private var suspendsNextLocate = false
+    private var locateIsSuspended = false
+    private var locateStarted: CheckedContinuation<Void, Never>?
+    private var locateRelease: CheckedContinuation<Void, Never>?
 
     init(root: URL, nodes: [ArtifactNode]) {
         self.root = root.standardizedFileURL
@@ -38,7 +42,35 @@ actor SidebarArtifactStore: ArtifactStoring {
         return snapshotCount
     }
 
-    func locateProjectRoot(startingAt: URL) -> URL { root }
+    func suspendNextLocate() {
+        suspendsNextLocate = true
+    }
+
+    func waitUntilLocateStarts() async {
+        guard !locateIsSuspended else { return }
+        await withCheckedContinuation { continuation in
+            locateStarted = continuation
+        }
+    }
+
+    func releaseLocate() {
+        locateRelease?.resume()
+        locateRelease = nil
+    }
+
+    func locateProjectRoot(startingAt: URL) async -> URL {
+        if suspendsNextLocate {
+            suspendsNextLocate = false
+            locateIsSuspended = true
+            locateStarted?.resume()
+            locateStarted = nil
+            await withCheckedContinuation { continuation in
+                locateRelease = continuation
+            }
+            locateIsSuspended = false
+        }
+        return root
+    }
     func configuration(projectRoot: URL) -> ArtifactCaptureConfiguration { .defaultValue }
     func snapshot(projectRoot: URL) -> ArtifactSnapshot {
         snapshotCount += 1

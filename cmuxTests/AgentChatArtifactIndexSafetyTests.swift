@@ -169,6 +169,98 @@ struct AgentChatArtifactIndexSafetyTests {
         #expect(!snapshot.referencedPaths.contains(try #require(artifactPaths.first)))
     }
 
+    @Test func laterReadDoesNotReuseEarlierMutationAuthorization() async throws {
+        let projectRoot = FileManager.default.temporaryDirectory
+            .appendingPathComponent(UUID().uuidString, isDirectory: true)
+        let externalRoot = FileManager.default.temporaryDirectory
+            .appendingPathComponent(UUID().uuidString, isDirectory: true)
+        try FileManager.default.createDirectory(at: projectRoot, withIntermediateDirectories: true)
+        try FileManager.default.createDirectory(at: externalRoot, withIntermediateDirectories: true)
+        defer {
+            try? FileManager.default.removeItem(at: projectRoot)
+            try? FileManager.default.removeItem(at: externalRoot)
+        }
+        let artifact = externalRoot.appendingPathComponent("private.md")
+        try "generated".write(to: artifact, atomically: true, encoding: .utf8)
+        let transcript = projectRoot.appendingPathComponent("transcript.jsonl")
+        let createdLines = try codexCommandLines(
+            command: "true > \(artifact.path)",
+            callID: "create"
+        )
+        try createdLines.joined(separator: "\n")
+            .write(to: transcript, atomically: true, encoding: .utf8)
+        let index = AgentChatArtifactIndex()
+        let store = OutOfOrderCaptureStore(suspendsFirstImport: false)
+        let coordinator = AgentArtifactCaptureCoordinator(
+            captureService: ArtifactCaptureService(store: store)
+        )
+        let record = AgentChatSessionRecord(
+            sessionID: "session",
+            agentKind: .codex,
+            workspaceID: "workspace",
+            surfaceID: nil,
+            workingDirectory: projectRoot.path,
+            transcriptPath: transcript.path,
+            state: .idle,
+            lastActivityAt: .now,
+            title: nil,
+            pid: nil
+        )
+
+        let created = try await index.snapshot(
+            sessionID: record.sessionID,
+            agentKind: record.agentKind,
+            transcriptPath: transcript.path,
+            workingDirectory: record.workingDirectory
+        )
+        await coordinator.capture(record: record, snapshot: created)
+        try "unrelated private contents".write(
+            to: artifact,
+            atomically: true,
+            encoding: .utf8
+        )
+        let readLines = try codexCommandLines(
+            command: "cat \(artifact.path)",
+            callID: "read"
+        )
+        let handle = try FileHandle(forWritingTo: transcript)
+        try handle.seekToEnd()
+        try handle.write(contentsOf: Data(("\n" + readLines.joined(separator: "\n")).utf8))
+        try handle.close()
+        let read = try await index.snapshot(
+            sessionID: record.sessionID,
+            agentKind: record.agentKind,
+            transcriptPath: transcript.path,
+            workingDirectory: record.workingDirectory
+        )
+
+        await coordinator.capture(record: record, snapshot: read)
+
+        #expect(await store.importCount == 1)
+        #expect(await store.importedPaths == [artifact.path])
+    }
+
+    @Test func fragmentedTranscriptRetainsABoundedLineIndex() throws {
+        let root = FileManager.default.temporaryDirectory
+            .appendingPathComponent(UUID().uuidString, isDirectory: true)
+        try FileManager.default.createDirectory(at: root, withIntermediateDirectories: true)
+        defer { try? FileManager.default.removeItem(at: root) }
+        let transcript = root.appendingPathComponent("fragmented.jsonl")
+        let data = Data(Array(repeating: "{}\n", count: 20_000).joined().utf8)
+        try data.write(to: transcript)
+        let handle = try FileHandle(forReadingFrom: transcript)
+        defer { try? handle.close() }
+
+        let slice = try AgentChatTranscriptReader().read(
+            handle: handle,
+            fileSize: UInt64(data.count),
+            maximumBytes: UInt64(data.count)
+        )
+
+        #expect(slice.lineStartOffsets.count <= 16_384)
+        #expect(slice.data.count < data.count)
+    }
+
     private func codexArtifactLine(path: String) throws -> String {
         let data = try JSONSerialization.data(withJSONObject: [
             "timestamp": "2026-07-21T12:00:00.000Z",
@@ -180,5 +272,33 @@ struct AgentChatArtifactIndexSafetyTests {
             ],
         ])
         return String(decoding: data, as: UTF8.self)
+    }
+
+    private func codexCommandLines(command: String, callID: String) throws -> [String] {
+        [
+            try codexLine(type: "response_item", payload: [
+                "type": "function_call",
+                "name": "exec_command",
+                "arguments": json(["cmd": command]),
+                "call_id": callID,
+            ]),
+            try codexLine(type: "response_item", payload: [
+                "type": "function_call_output",
+                "call_id": callID,
+                "output": "Process exited with code 0\nOutput:\n",
+            ]),
+        ]
+    }
+
+    private func codexLine(type: String, payload: [String: Any]) throws -> String {
+        try json([
+            "timestamp": "2026-07-21T12:00:00.000Z",
+            "type": type,
+            "payload": payload,
+        ])
+    }
+
+    private func json(_ object: [String: Any]) throws -> String {
+        String(decoding: try JSONSerialization.data(withJSONObject: object), as: UTF8.self)
     }
 }

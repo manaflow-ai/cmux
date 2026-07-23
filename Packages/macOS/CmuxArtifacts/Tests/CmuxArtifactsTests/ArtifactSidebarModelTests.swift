@@ -197,6 +197,37 @@ struct ArtifactSidebarModelTests {
         #expect(await capture.lastContext?.workspaceTitle == "Renamed")
     }
 
+    @Test("Workspace rebind clears stale rows before project resolution finishes")
+    func rebindClearsRowsBeforeAwaitingResolution() async throws {
+        let root = try ArtifactTestSupport.temporaryDirectory()
+        defer { ArtifactTestSupport.remove(root) }
+        let oldFile = ArtifactTestSupport.artifactNode(
+            root: root,
+            relativePath: "old-session/private.md",
+            kind: .markdown
+        )
+        let store = SidebarArtifactStore(root: root, nodes: [oldFile])
+        let model = ArtifactSidebarModel(store: store, captureService: SidebarCaptureSpy())
+        await model.bind(workspace: workspace(root: root))
+        await store.suspendNextLocate()
+
+        let rebind = Task { @MainActor in
+            await model.bind(workspace: ArtifactSidebarWorkspace(
+                id: "workspace-2",
+                title: "Second Workspace",
+                workingDirectory: root.appendingPathComponent("second", isDirectory: true)
+            ))
+        }
+        await store.waitUntilLocateStarts()
+
+        #expect(model.phase == .loading)
+        #expect(model.rows.isEmpty)
+        #expect(model.projectRoot == nil)
+
+        await store.releaseLocate()
+        await rebind.value
+    }
+
     private func workspace(root: URL) -> ArtifactSidebarWorkspace {
         ArtifactSidebarWorkspace(
             id: "workspace-1",
