@@ -1214,7 +1214,20 @@ jobs:
             echo "::group::swift test $pkgdir"
             case "$pkg" in
             CmuxAgentChat|CmuxAuthRuntime|CmuxIrohTransport)
-              ./scripts/ci/run-swift-testing-suites.sh "$pkgdir"
+              test_status=0
+              output="$(./scripts/ci/run-swift-testing-suites.sh "$pkgdir" 2>&1)" || test_status=$?
+              printf '%s\n' "$output"
+              if [ "$test_status" -ne 0 ] \
+                && printf '%s\n' "$output" | grep -q 'Exited with unexpected signal code' \
+                && ! printf '%s\n' "$output" | grep -Eq 'with [1-9][0-9]* failures?'; then
+                echo "Filtered test runner crashed at startup (runner flake); retrying $pkg once."
+                test_status=0
+                output="$(./scripts/ci/run-swift-testing-suites.sh "$pkgdir" 2>&1)" || test_status=$?
+                printf '%s\n' "$output"
+              fi
+              if [ "$test_status" -ne 0 ]; then
+                exit "$test_status"
+              fi
               ;;
             CmuxTerminal|CmuxTerminalCore)
               test_status=0
