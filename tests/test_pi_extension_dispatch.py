@@ -824,6 +824,70 @@ await new Promise((resolve) => setTimeout(resolve, 2000));
     return 0
 
 
+def check_feed_failure_overflow_fails_closed(bun: str, root: Path, extension_path: Path) -> int:
+    release_path = root / "feed-failure-overflow-release"
+    overflow_cmux = root / "feed-failure-overflow-cmux"
+    make_executable(
+        overflow_cmux,
+        """#!/usr/bin/env python3
+import os
+import pathlib
+import sys
+import time
+
+sys.stdin.read()
+release_path = pathlib.Path(os.environ["CMUX_TEST_PI_FAILURE_OVERFLOW_RELEASE"])
+while not release_path.exists():
+    time.sleep(0.01)
+print("{}")
+""",
+    )
+    inspectable_extension = root / "feed-failure-overflow-cmux-session.ts"
+    inspectable_extension.write_text(
+        extension_path.read_text(encoding="utf-8")
+        + "\nexport { PiCmuxCommandDispatcher };\n",
+        encoding="utf-8",
+    )
+    overflow_source = """
+import { writeFileSync } from "node:fs";
+const extensionPath = process.env.CMUX_TEST_PI_EXTENSION_PATH;
+const mod = await import(extensionPath);
+const dispatcher = new mod.PiCmuxCommandDispatcher();
+for (let index = 0; index < 70; index += 1) {
+  const sessionId = `pi-feed-failure-overflow-${index}`;
+  dispatcher.enqueueFeed(`overflow-${index}`, {
+    args: ["hooks", "feed", "--surface", "00000000-0000-0000-0000-000000008672"],
+    cwd: "/tmp/pi-feed-failure-overflow",
+    payload: {
+      session_id: sessionId,
+      hook_event_name: "PostToolUse",
+    },
+    context: {
+      sessionId,
+      cwd: "/tmp/pi-feed-failure-overflow",
+    },
+    terminal: true,
+  });
+}
+const delivered = await dispatcher.finishFeedForSession("pi-feed-failure-overflow-69");
+writeFileSync(process.env.CMUX_TEST_PI_FAILURE_OVERFLOW_RELEASE, "ready");
+await new Promise((resolve) => setTimeout(resolve, 1000));
+if (delivered) throw new Error("dropped terminal Feed event was reported as delivered");
+"""
+    result = run_extension(
+        bun=bun,
+        root=root,
+        extension_path=inspectable_extension,
+        fake_cmux=overflow_cmux,
+        source=overflow_source,
+        extra_env={"CMUX_TEST_PI_FAILURE_OVERFLOW_RELEASE": str(release_path)},
+    )
+    if result.returncode != 0:
+        print(f"FAIL: Feed failure overflow did not fail closed: {result.stderr!r}")
+        return 1
+    return 0
+
+
 def make_feed_lifecycle_cmux(root: Path, name: str) -> Path:
     cmux = root / name
     make_executable(
@@ -1777,6 +1841,7 @@ def run_checks(bun: str, root: Path, extension_path: Path) -> int:
         check_cross_session_feed_isolation,
         check_feed_ack_rehomes_cached_target,
         check_aggregate_feed_bound,
+        check_feed_failure_overflow_fails_closed,
         check_feed_cancellation,
         check_completion_order,
         check_terminal_feed_failure_emits_one_stop,
