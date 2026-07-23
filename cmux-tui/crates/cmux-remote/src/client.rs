@@ -17,7 +17,8 @@ type PendingRequests = Arc<Mutex<HashMap<RequestId, oneshot::Sender<PendingRespo
 
 pub struct WorkspaceClient {
     multiplexer: Arc<ServiceMultiplexer>,
-    interactive: WorkspaceRpcChannel,
+    process_input: WorkspaceRpcChannel,
+    process_control: WorkspaceRpcChannel,
     control: WorkspaceRpcChannel,
     cancellation: WorkspaceRpcChannel,
     bulk: WorkspaceRpcChannel,
@@ -38,7 +39,8 @@ impl Drop for WorkspaceRpcChannel {
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 enum RpcTrafficClass {
-    Interactive,
+    ProcessInput,
+    ProcessControl,
     Control,
     Cancellation,
     Bulk,
@@ -46,15 +48,17 @@ enum RpcTrafficClass {
 
 impl WorkspaceClient {
     pub async fn connect(multiplexer: Arc<ServiceMultiplexer>) -> Result<Arc<Self>, RpcError> {
-        let (interactive, control, cancellation, bulk) = tokio::try_join!(
-            connect_rpc_channel(multiplexer.clone(), RpcTrafficClass::Interactive),
+        let (process_input, process_control, control, cancellation, bulk) = tokio::try_join!(
+            connect_rpc_channel(multiplexer.clone(), RpcTrafficClass::ProcessInput),
+            connect_rpc_channel(multiplexer.clone(), RpcTrafficClass::ProcessControl),
             connect_rpc_channel(multiplexer.clone(), RpcTrafficClass::Control),
             connect_rpc_channel(multiplexer.clone(), RpcTrafficClass::Cancellation),
             connect_rpc_channel(multiplexer.clone(), RpcTrafficClass::Bulk),
         )?;
         Ok(Arc::new(Self {
             multiplexer,
-            interactive,
+            process_input,
+            process_control,
             control,
             cancellation,
             bulk,
@@ -144,7 +148,8 @@ impl WorkspaceClient {
 
     fn channel(&self, class: RpcTrafficClass) -> &WorkspaceRpcChannel {
         match class {
-            RpcTrafficClass::Interactive => &self.interactive,
+            RpcTrafficClass::ProcessInput => &self.process_input,
+            RpcTrafficClass::ProcessControl => &self.process_control,
             RpcTrafficClass::Control => &self.control,
             RpcTrafficClass::Cancellation => &self.cancellation,
             RpcTrafficClass::Bulk => &self.bulk,
@@ -272,7 +277,7 @@ async fn connect_rpc_channel(
 
 fn rpc_metadata(class: RpcTrafficClass) -> BTreeMap<String, String> {
     let lane = match class {
-        RpcTrafficClass::Interactive => "interactive",
+        RpcTrafficClass::ProcessInput | RpcTrafficClass::ProcessControl => "interactive",
         RpcTrafficClass::Control | RpcTrafficClass::Cancellation => "control",
         RpcTrafficClass::Bulk => "bulk",
     };
@@ -285,7 +290,7 @@ fn rpc_metadata(class: RpcTrafficClass) -> BTreeMap<String, String> {
 
 fn rpc_lane(class: RpcTrafficClass) -> Lane {
     match class {
-        RpcTrafficClass::Interactive => Lane::Interactive,
+        RpcTrafficClass::ProcessInput | RpcTrafficClass::ProcessControl => Lane::Interactive,
         RpcTrafficClass::Control | RpcTrafficClass::Cancellation => Lane::Control,
         RpcTrafficClass::Bulk => Lane::Bulk,
     }
@@ -293,9 +298,10 @@ fn rpc_lane(class: RpcTrafficClass) -> Lane {
 
 fn rpc_traffic_class(request: &WorkspaceRequest) -> RpcTrafficClass {
     match request {
-        WorkspaceRequest::WriteProcess { .. }
-        | WorkspaceRequest::ResizeProcess { .. }
-        | WorkspaceRequest::SignalProcess { .. } => RpcTrafficClass::Interactive,
+        WorkspaceRequest::WriteProcess { .. } => RpcTrafficClass::ProcessInput,
+        WorkspaceRequest::ResizeProcess { .. } | WorkspaceRequest::SignalProcess { .. } => {
+            RpcTrafficClass::ProcessControl
+        }
         WorkspaceRequest::ReadFile { .. }
         | WorkspaceRequest::WriteFile { .. }
         | WorkspaceRequest::ListDirectory { .. }
