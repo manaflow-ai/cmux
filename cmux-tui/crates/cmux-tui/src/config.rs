@@ -105,9 +105,9 @@
 //! and `detach`.
 //!
 //! The defaults intentionally match tmux where cmux has the same
-//! capability. `x` closes the active pane and `X` closes the active tab;
-//! set `"close-pane": "X"` and `"close-tab": "x"` to restore the old
-//! cmux defaults. Screen positions are zero-based, so each
+//! capability, except that `x` closes the more commonly managed tab and
+//! `X` closes its containing pane. Both actions remain independently
+//! configurable. Screen positions are zero-based, so each
 //! `select-screen-N` action selects the screen at index `N`. Zellij's modal
 //! `ctrl+p`, `ctrl+t`, `ctrl+s`, `ctrl+n`, and `ctrl+o` modes are a
 //! deliberate non-goal because they conflict with shell/editor control
@@ -1218,8 +1218,8 @@ impl Default for Keys {
                 bind(KeyCode::BackTab, Action::PrevTab),
                 bind(KeyCode::Char('%'), Action::SplitRight),
                 bind(KeyCode::Char('"'), Action::SplitDown),
-                bind(KeyCode::Char('x'), Action::ClosePane),
-                bind(KeyCode::Char('X'), Action::CloseTab),
+                bind(KeyCode::Char('x'), Action::CloseTab),
+                bind(KeyCode::Char('X'), Action::ClosePane),
                 bind(KeyCode::Char(','), Action::RenameScreen),
                 bind(KeyCode::Char('$'), Action::RenameWorkspace),
                 bind(KeyCode::Char('&'), Action::CloseScreen),
@@ -2819,16 +2819,36 @@ mod tests {
     }
 
     #[test]
-    fn tmux_close_pane_flip_is_default() {
+    fn close_tab_uses_the_primary_lowercase_binding() {
         let keys = Keys::default();
         assert_eq!(
             keys.action_for(&KeyEvent::new(KeyCode::Char('x'), KeyModifiers::NONE)),
-            Some(Action::ClosePane)
+            Some(Action::CloseTab)
         );
         assert_eq!(
             keys.action_for(&KeyEvent::new(KeyCode::Char('X'), KeyModifiers::SHIFT)),
+            Some(Action::ClosePane)
+        );
+    }
+
+    #[test]
+    fn close_tab_and_pane_bindings_are_configurable_independently() {
+        let mut keys = Keys::default();
+        let mut raw = HashMap::new();
+        raw.insert("close-tab".to_string(), Value::String("q".to_string()));
+        raw.insert("close-pane".to_string(), Value::String("Q".to_string()));
+        keys.apply(&raw);
+
+        assert_eq!(
+            keys.action_for(&KeyEvent::new(KeyCode::Char('q'), KeyModifiers::NONE)),
             Some(Action::CloseTab)
         );
+        assert_eq!(
+            keys.action_for(&KeyEvent::new(KeyCode::Char('Q'), KeyModifiers::SHIFT)),
+            Some(Action::ClosePane)
+        );
+        assert_eq!(keys.action_for(&KeyEvent::new(KeyCode::Char('x'), KeyModifiers::NONE)), None);
+        assert_eq!(keys.action_for(&KeyEvent::new(KeyCode::Char('X'), KeyModifiers::SHIFT)), None);
     }
 
     #[test]
@@ -2984,6 +3004,23 @@ mod tests {
         }
         assert!(actions.contains(&Action::NewPaneSmart));
         assert!(actions.contains(&Action::ShowShortcuts));
+    }
+
+    #[test]
+    fn every_catalog_action_can_be_rebound() {
+        for definition in action_definitions() {
+            let mut keys = Keys::default();
+            let mut raw = HashMap::new();
+            raw.insert(definition.config_key.to_string(), Value::String("f".to_string()));
+            keys.apply(&raw);
+
+            assert_eq!(
+                keys.action_for(&KeyEvent::new(KeyCode::Char('f'), KeyModifiers::NONE)),
+                Some(definition.action),
+                "{} did not rebind through the central action catalog",
+                definition.config_key
+            );
+        }
     }
 
     #[test]

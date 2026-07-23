@@ -273,7 +273,7 @@ KEYS (prefix: Ctrl-b)
   t  new tab in pane   B    new browser tab    Alt-n  auto-layout new pane
   Tab/BackTab  next/prev tab
   0-9  select screen
-  %  split right       \"  split down          x/X  close pane/tab
+  %  split right       \"  split down          x/X  close tab/pane
   ,  rename screen     $    rename workspace   c    new screen
   n/p  next/prev screen
   h/j/k/l or arrows    move focus              d    quit (attach: detach)
@@ -289,7 +289,7 @@ KEYS (prefix: Ctrl-b)
 MOUSE
   Mouse-aware PTYs receive clicks, motion, and wheel events. Hold Shift
   to select text or open the cmux pane menu. Right-click a pane for
-  rename, new pane/tab, send prefix, split/close, and maximize; menus
+  rename, new pane/tab, split/close, and maximize; menus
   show configured keyboard shortcuts. Right-click anywhere in the sidebar for sidebar
   controls. Right-click a workspace row or status-bar screen for its
   local rename/close actions. Click

@@ -24,8 +24,8 @@ These defaults come from `Keys::default`.
 | `Ctrl-b 0` through `Ctrl-b 9` | Select visible screen 0 through 9 |
 | `Ctrl-b %` | Split the active pane right |
 | `Ctrl-b "` | Split the active pane down |
-| `Ctrl-b x` | Close the active pane |
-| `Ctrl-b X` | Close the active tab |
+| `Ctrl-b x` | Close the active tab |
+| `Ctrl-b X` | Close the active pane |
 | `Ctrl-b ,` | Rename the active screen |
 | `Ctrl-b $` | Rename the active workspace |
 | `Ctrl-b &` | Close the active screen |
@@ -70,7 +70,7 @@ The screen bindings intentionally match tmux: `c` creates a screen, `n` and `p` 
 
 Workspace navigation follows tmux's outer session lane: `(` and `)` move backward and forward. `w` remains a next-workspace alias for compatibility, while the sidebar provides the visible mouse and keyboard picker. `Alt-{` and `Alt-}` mirror the modeless screen lane on `Alt-[` and `Alt-]`. `W` creates a workspace and `D` closes it.
 
-`Ctrl-b x` now follows tmux and closes the active pane. `Ctrl-b X` closes the active tab. Restore the old cmux behavior with `"close-tab": "x"` and `"close-pane": "X"` in `cmux-tui.json`.
+`Ctrl-b x` closes the active tab because tab lifecycle is the more frequent cmux action. `Ctrl-b X` closes its containing pane. Rebind either action independently with `keys.close-tab` and `keys.close-pane`.
 
 `Ctrl-b ]` is unbound because cmux has no paste-buffer concept. `Ctrl-b q` is unbound because there is no pane-number quick-jump overlay yet.
 
@@ -114,8 +114,8 @@ Each action accepts a string, an array of strings, or `"none"`. Setting an actio
     "focus-left": ["h", "left", "alt+h", "alt+left"],
     "rename-tab": "r",
     "rename-screen": ",",
-    "close-pane": "x",
-    "close-tab": "X",
+    "close-tab": "x",
+    "close-pane": "X",
     "show-shortcuts": "?",
     "select-tab-0": "none"
   }

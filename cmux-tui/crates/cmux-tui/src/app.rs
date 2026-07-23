@@ -2196,7 +2196,6 @@ pub enum MenuAction {
     RenameTab(PaneId),
     CopyTabId(PaneId),
     CopyPaneId(PaneId),
-    SendPrefix(PaneId),
     NewPaneSmart(PaneId),
     NewTab(PaneId),
     NewBrowserTab(PaneId),
@@ -2261,7 +2260,6 @@ impl MenuAction {
             MenuAction::RenameTab(_) => localization::catalog().action_label(Action::RenameTab),
             MenuAction::CopyTabId(_) => "Copy tab id",
             MenuAction::CopyPaneId(_) => "Copy pane id",
-            MenuAction::SendPrefix(_) => localization::catalog().action_label(Action::SendPrefix),
             MenuAction::NewPaneSmart(_) => {
                 localization::catalog().action_label(Action::NewPaneSmart)
             }
@@ -2306,7 +2304,6 @@ fn keyboard_action_for_menu(action: MenuAction) -> Option<Action> {
         MenuAction::BrowserReload(_) => Some(Action::BrowserReload),
         MenuAction::BrowserEditUrl(_) => Some(Action::BrowserEditUrl),
         MenuAction::RenameTab(_) => Some(Action::RenameTab),
-        MenuAction::SendPrefix(_) => Some(Action::SendPrefix),
         MenuAction::NewPaneSmart(_) => Some(Action::NewPaneSmart),
         MenuAction::NewTab(_) => Some(Action::NewTab),
         MenuAction::NewBrowserTab(_) => Some(Action::NewBrowserTab),
@@ -2664,8 +2661,6 @@ fn pane_context_menu_groups(
             browser_actions.push(MenuAction::BrowserActivate(pane));
         }
     }
-    let terminal_actions =
-        (!is_browser).then_some(vec![MenuAction::SendPrefix(pane)]).unwrap_or_default();
     vec![
         vec![MenuAction::RenameTab(pane), MenuAction::CloseTab(pane)],
         vec![
@@ -2674,7 +2669,6 @@ fn pane_context_menu_groups(
             MenuAction::NewBrowserTab(pane),
         ],
         browser_actions,
-        terminal_actions,
         vec![
             MenuAction::SplitRight(pane),
             MenuAction::SplitDown(pane),
@@ -7996,10 +7990,6 @@ impl App {
                 self.run_action_for_pane(Action::NewPaneSmart, Some(pane))?;
                 return Ok(());
             }
-            MenuAction::SendPrefix(pane) => {
-                self.run_action_for_pane(Action::SendPrefix, Some(pane))?;
-                return Ok(());
-            }
             MenuAction::ToggleSidebar { .. } => {
                 self.run_action(Action::ToggleSidebar)?;
                 return Ok(());
@@ -8106,7 +8096,7 @@ impl App {
                     self.copy_short_id(short_id);
                 }
             }
-            MenuAction::NewPaneSmart(_) | MenuAction::SendPrefix(_) => {
+            MenuAction::NewPaneSmart(_) => {
                 unreachable!("shared menu actions return above")
             }
             MenuAction::NewTab(id) => {
@@ -10855,8 +10845,6 @@ mod tests {
                 MenuItem::Action(MenuAction::NewTab(pane)),
                 MenuItem::Action(MenuAction::NewBrowserTab(pane)),
                 MenuItem::Separator,
-                MenuItem::Action(MenuAction::SendPrefix(pane)),
-                MenuItem::Separator,
                 MenuItem::Action(MenuAction::SplitRight(pane)),
                 MenuItem::Action(MenuAction::SplitDown(pane)),
                 MenuItem::Action(MenuAction::ClosePane(pane)),
@@ -10890,7 +10878,8 @@ mod tests {
             items.iter().find(|item| item.action() == Some(target)).and_then(MenuItem::shortcut)
         };
         assert_eq!(shortcut(MenuAction::NewPaneSmart(2)), Some("Alt-n"));
-        assert_eq!(shortcut(MenuAction::SendPrefix(2)), Some("Ctrl-b Ctrl-b"));
+        assert_eq!(shortcut(MenuAction::CloseTab(2)), Some("Ctrl-b x"));
+        assert_eq!(shortcut(MenuAction::ClosePane(2)), Some("Ctrl-b X"));
         assert_eq!(
             shortcut(MenuAction::TogglePaneZoom { pane: 2, zoomed: false }),
             Some("Ctrl-b z")
@@ -11026,7 +11015,7 @@ mod tests {
         assert!(guide.contains("Ctrl-b"), "{guide}");
         assert!(guide.contains("Send prefix"), "{guide}");
         assert!(guide.contains("?  Keyboard shortcuts"), "{guide}");
-        assert!(guide.contains("x  Close pane"), "{guide}");
+        assert!(guide.contains("x  Close tab"), "{guide}");
         let prefix_x = guide.find("Ctrl-b").unwrap() as u16;
         let prefix_label_x = guide.find("Send prefix").unwrap() as u16;
         let prefix_cell = &terminal.backend().buffer()[(prefix_x, 28)];
@@ -11043,13 +11032,23 @@ mod tests {
         assert!(rendered.contains("Alt-n"), "{rendered}");
         assert!(rendered.contains("[Esc close]"), "{rendered}");
         assert!(!rendered.contains('×'), "{rendered}");
-        let (shortcut_y, shortcut_x) = rendered
-            .lines()
-            .enumerate()
-            .find_map(|(y, line)| line.find("Alt-n").map(|x| (y as u16, x as u16)))
-            .unwrap();
-        let shortcut_label_x =
-            rendered.lines().nth(shortcut_y as usize).unwrap().find("New pane").unwrap() as u16;
+        let help_rect = app.shortcut_help.as_ref().unwrap().rect;
+        let buffer = terminal.backend().buffer();
+        let find_in_help = |needle: &str| {
+            let symbols = needle.chars().map(|symbol| symbol.to_string()).collect::<Vec<_>>();
+            (help_rect.y..help_rect.y + help_rect.height).find_map(|y| {
+                let last_x = help_rect.x + help_rect.width.saturating_sub(symbols.len() as u16);
+                (help_rect.x..=last_x)
+                    .find(|x| {
+                        symbols.iter().enumerate().all(|(offset, symbol)| {
+                            buffer[(*x + offset as u16, y)].symbol() == symbol.as_str()
+                        })
+                    })
+                    .map(|x| (y, x))
+            })
+        };
+        let (shortcut_y, shortcut_x) = find_in_help("Alt-n").unwrap();
+        let (_, shortcut_label_x) = find_in_help("New pane").unwrap();
         let shortcut_cell = &terminal.backend().buffer()[(shortcut_x, shortcut_y)];
         let shortcut_label_cell = &terminal.backend().buffer()[(shortcut_label_x, shortcut_y)];
         assert_eq!(shortcut_cell.bg, shortcut_label_cell.bg);
