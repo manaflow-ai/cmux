@@ -1252,8 +1252,17 @@ struct GhostMainWindowContextLifecycleTests {
 @MainActor
 @Suite("Final close routing regressions", .serialized)
 struct FinalCloseRoutingRegressionTests {
-    private func makeMainWindow(id: UUID) -> NSWindow {
-        let window = NSWindow(
+    private final class NonDestructiveCloseWindow: NSWindow {
+        private(set) var closeCallCount = 0
+
+        override func close() {
+            closeCallCount += 1
+            orderOut(nil)
+        }
+    }
+
+    private func makeMainWindow(id: UUID) -> NonDestructiveCloseWindow {
+        let window = NonDestructiveCloseWindow(
             contentRect: NSRect(x: 0, y: 0, width: 500, height: 320),
             styleMask: [.titled, .closable],
             backing: .buffered,
