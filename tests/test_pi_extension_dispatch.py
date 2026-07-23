@@ -3,6 +3,7 @@
 
 from __future__ import annotations
 
+import json
 import os
 import shutil
 import subprocess
@@ -293,6 +294,190 @@ await handlers.get("agent_end")({
     missing = [tool_id for index in range(10) if (tool_id := f"overflow-tool-{index}") not in feed_payloads]
     if missing:
         print(f"FAIL: saturated feed queue discarded terminal outcomes {missing!r}: {compaction_calls!r}")
+        return 1
+
+    return 0
+
+
+def check_feed_payload_byte_bound(bun: str, root: Path, extension_path: Path) -> int:
+    payload_log = root / "bounded-payload-cmux.log"
+    payload_release = root / "bounded-payload-release"
+    payload_cmux = root / "bounded-payload-cmux"
+    make_executable(
+        payload_cmux,
+        """#!/usr/bin/env bash
+set -euo pipefail
+payload="$(cat)"
+printf '%s|%s\n' "$*" "$payload" >> "$CMUX_TEST_PI_PAYLOAD_LOG"
+if [[ "$payload" == *'"tool_call_id":"large-tool-0"'* ]]; then
+  while [ ! -f "$CMUX_TEST_PI_PAYLOAD_RELEASE" ]; do sleep 0.02; done
+fi
+printf '{}\n'
+""",
+    )
+    payload_source = """
+import { writeFileSync } from "node:fs";
+const extensionPath = process.env.CMUX_TEST_PI_EXTENSION_PATH;
+const mod = await import(extensionPath);
+const handlers = new Map();
+mod.default({ on(name, handler) { handlers.set(name, handler); } });
+const ctx = {
+  cwd: "/tmp/pi-bounded-payload-project",
+  sessionManager: { getSessionId() { return "pi-bounded-payload-session"; } }
+};
+const largeResult = `PRIVATE-TOOL-OUTPUT-${"x".repeat(512 * 1024)}`;
+for (let index = 0; index < 10; index += 1) {
+  handlers.get("tool_execution_end")({
+    toolCallId: `large-tool-${index}`,
+    toolName: "bash",
+    result: largeResult,
+    isError: false
+  }, ctx);
+}
+const logPath = process.env.CMUX_TEST_PI_PAYLOAD_LOG;
+while (!Bun.file(logPath).size) {
+  await new Promise((resolve) => setTimeout(resolve, 10));
+}
+writeFileSync(process.env.CMUX_TEST_PI_PAYLOAD_RELEASE, "ready");
+await handlers.get("agent_end")({
+  messages: [{ role: "assistant", content: "done" }],
+  stopReason: "completed"
+}, ctx);
+"""
+    bounded = run_extension(
+        bun=bun,
+        root=root,
+        extension_path=extension_path,
+        fake_cmux=payload_cmux,
+        source=payload_source,
+        extra_env={
+            "CMUX_TEST_PI_PAYLOAD_LOG": str(payload_log),
+            "CMUX_TEST_PI_PAYLOAD_RELEASE": str(payload_release),
+        },
+    )
+    if bounded.returncode != 0:
+        print(f"FAIL: bounded-payload harness failed: {bounded.stderr!r}")
+        return 1
+    feed_payloads = [
+        line.split("|", 1)[1]
+        for line in payload_log.read_text(encoding="utf-8").splitlines()
+        if "hooks feed" in line
+    ]
+    if not feed_payloads:
+        print("FAIL: bounded-payload harness captured no feed commands")
+        return 1
+    oversized = [
+        len(encoded)
+        for payload in feed_payloads
+        if len(encoded := payload.encode("utf-8")) > 128 * 1024
+    ]
+    if oversized:
+        print(f"FAIL: Pi feed queue retained oversized payloads: {oversized!r}")
+        return 1
+    if any("PRIVATE-TOOL-OUTPUT" in payload for payload in feed_payloads):
+        print("FAIL: bounded Pi feed payload retained raw tool output")
+        return 1
+
+    return 0
+
+
+def check_cross_session_feed_ownership(bun: str, root: Path, extension_path: Path) -> int:
+    ownership_log = root / "cross-session-cmux.log"
+    ownership_release = root / "cross-session-release"
+    ownership_cmux = root / "cross-session-cmux"
+    make_executable(
+        ownership_cmux,
+        """#!/usr/bin/env bash
+set -euo pipefail
+payload="$(cat)"
+printf '%s|%s\n' "$*" "$payload" >> "$CMUX_TEST_PI_OWNERSHIP_LOG"
+if [[ "$payload" == *'"tool_call_id":"session-a-tool-0"'* ]]; then
+  while [ ! -f "$CMUX_TEST_PI_OWNERSHIP_RELEASE" ]; do sleep 0.02; done
+fi
+printf '{}\n'
+""",
+    )
+    ownership_source = """
+import { writeFileSync } from "node:fs";
+const extensionPath = process.env.CMUX_TEST_PI_EXTENSION_PATH;
+const mod = await import(extensionPath);
+const handlers = new Map();
+mod.default({ on(name, handler) { handlers.set(name, handler); } });
+const context = (sessionId, cwd) => ({
+  cwd,
+  sessionManager: { getSessionId() { return sessionId; } }
+});
+const sessionA = context("pi-overflow-session-a", "/tmp/pi-overflow-a");
+const sessionB = context("pi-overflow-session-b", "/tmp/pi-overflow-b");
+for (let index = 0; index < 9; index += 1) {
+  handlers.get("tool_execution_end")({
+    toolCallId: `session-a-tool-${index}`,
+    toolName: "bash",
+    result: { status: "ok", index },
+    isError: false
+  }, sessionA);
+}
+handlers.get("tool_execution_end")({
+  toolCallId: "session-b-tool",
+  toolName: "bash",
+  result: { status: "failed" },
+  isError: true
+}, sessionB);
+const logPath = process.env.CMUX_TEST_PI_OWNERSHIP_LOG;
+while (!Bun.file(logPath).size) {
+  await new Promise((resolve) => setTimeout(resolve, 10));
+}
+writeFileSync(process.env.CMUX_TEST_PI_OWNERSHIP_RELEASE, "ready");
+await handlers.get("agent_end")({
+  messages: [{ role: "assistant", content: "session b done" }],
+  stopReason: "completed"
+}, sessionB);
+await handlers.get("agent_end")({
+  messages: [{ role: "assistant", content: "session a done" }],
+  stopReason: "completed"
+}, sessionA);
+"""
+    ownership = run_extension(
+        bun=bun,
+        root=root,
+        extension_path=extension_path,
+        fake_cmux=ownership_cmux,
+        source=ownership_source,
+        extra_env={
+            "CMUX_TEST_PI_OWNERSHIP_LOG": str(ownership_log),
+            "CMUX_TEST_PI_OWNERSHIP_RELEASE": str(ownership_release),
+        },
+    )
+    if ownership.returncode != 0:
+        print(f"FAIL: cross-session ownership harness failed: {ownership.stderr!r}")
+        return 1
+    calls = ownership_log.read_text(encoding="utf-8").splitlines()
+    feed_payloads = [
+        json.loads(line.split("|", 1)[1])
+        for line in calls
+        if "hooks feed" in line
+    ]
+    session_b_payloads = [payload for payload in feed_payloads if payload.get("session_id") == "pi-overflow-session-b"]
+    if len(session_b_payloads) != 1 or session_b_payloads[0].get("cwd") != "/tmp/pi-overflow-b":
+        print(f"FAIL: terminal overflow lost session B routing ownership: {feed_payloads!r}")
+        return 1
+    for payload in feed_payloads:
+        summaries = payload.get("cmux_compacted_terminal_events", [])
+        if any(summary.get("session_id") != payload.get("session_id") for summary in summaries):
+            print(f"FAIL: terminal overflow compacted events across sessions: {payload!r}")
+            return 1
+    session_b_feed_index = next(
+        index
+        for index, line in enumerate(calls)
+        if "hooks feed" in line and '"session_id":"pi-overflow-session-b"' in line
+    )
+    session_b_notification_index = next(
+        index
+        for index, line in enumerate(calls)
+        if "hooks pi notification" in line and '"session_id":"pi-overflow-session-b"' in line
+    )
+    if session_b_feed_index > session_b_notification_index:
+        print(f"FAIL: session B lifecycle ran before its terminal feed: {calls!r}")
         return 1
 
     return 0
@@ -913,6 +1098,8 @@ def run_checks(bun: str, root: Path, extension_path: Path) -> int:
         check_responsiveness,
         check_feed_backlog,
         check_terminal_feed_compaction,
+        check_feed_payload_byte_bound,
+        check_cross_session_feed_ownership,
         check_feed_cancellation,
         check_completion_order,
         check_completion_drain_deadline,

@@ -85,6 +85,8 @@ class FakeCmuxSocket:
         self.drop_first_surface_list = drop_first_surface_list
         self._dropped_surface_list = False
         self.frames: list[dict] = []
+        self.frames_with_connection: list[tuple[int, dict]] = []
+        self._next_connection_id = 0
         self._ready = threading.Event()
         self._stop = threading.Event()
         self._thread = threading.Thread(target=self._run, daemon=True)
@@ -116,9 +118,11 @@ class FakeCmuxSocket:
                     conn, _ = server.accept()
                 except OSError:
                     continue
-                threading.Thread(target=self._handle_conn, args=(conn,), daemon=True).start()
+                connection_id = self._next_connection_id
+                self._next_connection_id += 1
+                threading.Thread(target=self._handle_conn, args=(conn, connection_id), daemon=True).start()
 
-    def _handle_conn(self, conn: socket.socket) -> None:
+    def _handle_conn(self, conn: socket.socket, connection_id: int) -> None:
         with conn:
             data = b""
             while not self._stop.is_set():
@@ -138,6 +142,7 @@ class FakeCmuxSocket:
                         conn.sendall(b"OK\n")
                         continue
                     self.frames.append(frame)
+                    self.frames_with_connection.append((connection_id, frame))
                     result: dict = {"status": "acknowledged"}
                     if frame.get("method") == "surface.list":
                         if self.drop_first_surface_list and not self._dropped_surface_list:
@@ -2379,16 +2384,20 @@ def test_pi_compacted_post_tool_use_expands_to_distinct_frames(cli_path: str, ro
         "cmux_compacted_terminal_omitted_count": 0,
         "cmux_compacted_terminal_events": [
             {
-                "session_id": "pi-session",
+                "session_id": "pi-session-a",
                 "turn_id": "turn-compact",
+                "workspace_id": "workspace-a",
+                "cwd": "/tmp/pi-project-a",
                 "tool_call_id": "overflow-tool-8",
                 "tool_name": "bash",
                 "is_error": False,
                 "tool_result": {"kind": "object", "preview": "PRIVATE-KEY-SHOULD-NOT-PERSIST"},
             },
             {
-                "session_id": "pi-session",
+                "session_id": "pi-session-b",
                 "turn_id": "turn-compact",
+                "workspace_id": "workspace-b",
+                "cwd": "/tmp/pi-project-b",
                 "tool_call_id": "overflow-tool-9",
                 "tool_name": "bash",
                 "is_error": True,
@@ -2433,12 +2442,31 @@ def test_pi_compacted_post_tool_use_expands_to_distinct_frames(cli_path: str, ro
                 break
             time.sleep(0.02)
         feed_frames = [frame for frame in fake.frames if frame.get("method") == "feed.push"]
+        feed_connections = [
+            connection_id
+            for connection_id, frame in fake.frames_with_connection
+            if frame.get("method") == "feed.push"
+        ]
 
     if len(feed_frames) != 2:
         raise AssertionError(
             f"compacted Pi terminal events should produce two Feed frames: feed={feed_frames!r}, all={fake.frames!r}"
         )
     events = [frame["params"]["event"] for frame in feed_frames]
+    if feed_connections[0] != feed_connections[1]:
+        raise AssertionError(f"compacted Pi terminal events used separate socket connections: {feed_connections!r}")
+    if [event.get("tool_call_id") for event in events] != ["overflow-tool-8", "overflow-tool-9"]:
+        raise AssertionError(f"compacted Pi terminal event order changed: {events!r}")
+    expected_routing = [
+        ("pi-pi-session-a", "workspace-a", "/tmp/pi-project-a"),
+        ("pi-pi-session-b", "workspace-b", "/tmp/pi-project-b"),
+    ]
+    actual_routing = [
+        (event.get("session_id"), event.get("workspace_id"), event.get("cwd"))
+        for event in events
+    ]
+    if actual_routing != expected_routing:
+        raise AssertionError(f"compacted Pi terminal events changed routing ownership: {actual_routing!r}")
     request_ids = [event.get("_opencode_request_id", "") for event in events]
     if not any("overflow-tool-8" in request_id for request_id in request_ids):
         raise AssertionError(f"first compacted Pi terminal event was lost: {events!r}")
