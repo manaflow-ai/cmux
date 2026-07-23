@@ -36,6 +36,54 @@ extension AgentNotificationRegressionTests {
         #expect(fixture.source.statusEntries["codex"]?.icon == "bell.fill")
     }
 
+    @Test("Feed attention cannot revive a rejected Codex permission revision")
+    func feedAttentionRespectsCodexPermissionOrdering() throws {
+        let fixture = try makeFixture()
+        defer { fixture.restore() }
+        let pid = getpid()
+        fixture.source.recordAgentPID(
+            key: "codex.session",
+            pid: pid,
+            panelId: fixture.panelId,
+            refreshPorts: false
+        )
+        defer { fixture.source.clearAllAgentPIDs(refreshPorts: false) }
+
+        let resumed = try #require(AgentStatusHookEventSignal(event: WorkstreamEvent(
+            sessionId: "codex-session",
+            hookEventName: .preToolUse,
+            source: "codex",
+            ppid: Int(pid),
+            receivedAt: .now,
+            extraFieldsJSON: #"{"_cmux_agent_status_signal":"running","_cmux_agent_status_revision":2}"#
+        )))
+        fixture.source.noteAgentStatusHookSignal(resumed, panelId: fixture.panelId)
+
+        let latePermission = WorkstreamEvent(
+            sessionId: "codex-session",
+            hookEventName: .permissionRequest,
+            source: "codex",
+            workspaceId: fixture.source.id.uuidString,
+            surfaceId: fixture.panelId.uuidString,
+            requestId: "late-codex-permission",
+            ppid: Int(pid),
+            receivedAt: resumed.observedAt.addingTimeInterval(1),
+            extraFieldsJSON: #"{"_cmux_agent_status_signal":"needsInput","_cmux_agent_status_revision":1}"#
+        )
+
+        let target = FeedCoordinator.shared.surfaceBlockingDecisionAttention(
+            event: latePermission,
+            resolved: (fixture.source.id, fixture.panelId)
+        )
+        defer {
+            if let target { FeedCoordinator.shared.concludeBlockingDecisionAttention(target) }
+        }
+
+        #expect(target != nil)
+        #expect(fixture.source.agentLifecycleStatesByPanelId[fixture.panelId]?["codex"] == .running)
+        #expect(fixture.source.statusEntries["codex"]?.icon != "bell.fill")
+    }
+
     // Generous for loaded CI runners: subprocess spawn, signal propagation,
     // and marker writes can take multiple seconds there. A long timeout only
     // slows the failure path.

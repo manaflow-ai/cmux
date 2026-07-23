@@ -64,14 +64,13 @@ final class FeedCoordinator: @unchecked Sendable {
         }
     }
 
-    /// Installs a one-shot kqueue watcher for `ppid`. The handler
-    /// fires the moment the kernel observes process exit (or
-    /// immediately if `ppid` is already dead), marks every pending
-    /// item for that PID as `.expired`, and cancels the source.
-    /// Idempotent: subsequent calls with the same PID no-op.
+    /// Installs an idempotent, one-shot kqueue watcher that expires pending items when `ppid` exits.
     @MainActor
     func armPidWatcher(ppid: Int) {
         guard ppid > 0, pidWatchers[ppid] == nil else { return }
+        #if DEBUG
+        if let observer = FeedCoordinatorTestHooks.pidWatcherArmObserver { observer(ppid); return }
+        #endif
         let src = DispatchSource.makeProcessSource(
             identifier: pid_t(ppid),
             eventMask: .exit,
@@ -574,6 +573,7 @@ enum FeedCoordinatorTestHooks {
     /// production surfacing is short-circuited so tests can assert the
     /// request without a live `TabManager`.
     static var attentionSurfaceObserver: (@Sendable (WorkstreamEvent) -> Void)?
+    static var pidWatcherArmObserver: ((Int) -> Void)?
 }
 #endif
 

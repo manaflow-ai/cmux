@@ -1,4 +1,5 @@
 import Darwin
+import CMUXAgentLaunch
 import Foundation
 import Testing
 
@@ -94,6 +95,63 @@ struct AgentStatusReconciliationRecoveryTests {
         #expect(workspace.agentLifecycleStatesByPanelId[panelID]?["codex"] == .idle)
     }
 
+    @Test @MainActor func remoteSamePIDSessionRestartAcceptsNewGenerationRevision() throws {
+        let workspace = Workspace()
+        let panelID = try #require(workspace.focusedPanelId)
+        let remotePID: pid_t = 987_654
+        defer { workspace.clearAllAgentPIDs(refreshPorts: false) }
+        workspace.trackRemoteTerminalSurface(panelID)
+        workspace.recordAgentPID(
+            key: "codex.remote-session",
+            pid: remotePID,
+            panelId: panelID,
+            refreshPorts: false
+        )
+        let previousGeneration = try #require(AgentStatusHookEventSignal(event: WorkstreamEvent(
+            sessionId: "codex-remote-session",
+            hookEventName: .preToolUse,
+            source: "codex",
+            ppid: Int(remotePID),
+            receivedAt: now,
+            extraFieldsJSON: #"{"_cmux_agent_status_signal":"running","_cmux_agent_status_revision":8,"_cmux_agent_pid_namespace":"remote","_cmux_agent_pid_start_seconds":10,"_cmux_agent_pid_start_microseconds":20}"#
+        )))
+        workspace.noteAgentStatusHookSignal(previousGeneration, panelId: panelID)
+
+        let replacementGeneration = try #require(AgentStatusHookEventSignal(event: WorkstreamEvent(
+            sessionId: "codex-remote-session",
+            hookEventName: .permissionRequest,
+            source: "codex",
+            ppid: Int(remotePID),
+            receivedAt: now.addingTimeInterval(1),
+            extraFieldsJSON: #"{"_cmux_agent_status_signal":"needsInput","_cmux_agent_status_revision":1,"_cmux_agent_pid_namespace":"remote","_cmux_agent_pid_start_seconds":11,"_cmux_agent_pid_start_microseconds":30}"#
+        )))
+        workspace.noteAgentStatusHookSignal(replacementGeneration, panelId: panelID)
+
+        #expect(workspace.agentLifecycleStatesByPanelId[panelID]?["codex"] == .needsInput)
+    }
+
+    @Test @MainActor func remoteFeedPIDDoesNotArmDarwinProcessWatcher() async {
+        let store = WorkstreamStore(ringCapacity: 10)
+        FeedCoordinator.shared.install(store: store)
+        var watchedPIDs: [Int] = []
+        FeedCoordinatorTestHooks.pidWatcherArmObserver = { watchedPIDs.append($0) }
+        defer { FeedCoordinatorTestHooks.pidWatcherArmObserver = nil }
+        let event = WorkstreamEvent(
+            sessionId: "codex-remote-session",
+            hookEventName: .permissionRequest,
+            source: "codex",
+            requestId: nil,
+            ppid: 987_654,
+            extraFieldsJSON: #"{"_cmux_agent_status_signal":"needsInput","_cmux_agent_pid_namespace":"remote"}"#
+        )
+
+        _ = FeedCoordinator.shared.ingestBlocking(event: event, waitTimeout: 0)
+        while store.items.isEmpty { await Task.yield() }
+
+        #expect(watchedPIDs.isEmpty)
+        #expect(store.pending.count == 1)
+    }
+
     @Test func turnOnlyPermissionDoesNotGuessBetweenParallelTools() {
         let runtime = CodexPermissionRuntimeGeneration(
             pid: 4_242,
@@ -133,7 +191,7 @@ struct AgentStatusReconciliationRecoveryTests {
         #expect(unrelatedCompletion.state.phase == .needsInput)
     }
 
-    @Test @MainActor func staleSweepCanBeReplacedAfterItsDeadline() async throws {
+    @Test @MainActor func stalledDetectorDoesNotBlockLifecycleExpiryOrSpawnAnotherDetector() async throws {
         let manager = TabManager()
         let workspace = try #require(manager.selectedWorkspace)
         let panelID = try #require(workspace.focusedPanelId)
@@ -144,10 +202,19 @@ struct AgentStatusReconciliationRecoveryTests {
             panelId: panelID,
             refreshPorts: false
         )
-        let coordinator = AgentStatusReconciliationCoordinator(
-            deadlineSleeper: { _ in }
-        ) { _, _ in
-            while !Task.isCancelled { await Task.yield() }
+        workspace.updatePanelShellActivityState(panelId: panelID, state: .commandRunning)
+        let running = try #require(AgentStatusHookEventSignal(event: WorkstreamEvent(
+            sessionId: "codex-current",
+            hookEventName: .preToolUse,
+            source: "codex",
+            ppid: Int(getpid()),
+            receivedAt: now,
+            extraFieldsJSON: #"{"_cmux_agent_status_signal":"running"}"#
+        )))
+        workspace.noteAgentStatusHookSignal(running, panelId: panelID)
+        let detector = StalledAgentStatusDetector()
+        let coordinator = AgentStatusReconciliationCoordinator { _, _ in
+            await detector.detect()
             return [:]
         }
         let cycleStart = ContinuousClock.now
@@ -156,16 +223,37 @@ struct AgentStatusReconciliationRecoveryTests {
             at: cycleStart,
             observedAt: now
         ))
-        await stalledSweep.value
+        while await detector.callCount == 0 { await Task.yield() }
 
         let replacementSweep = coordinator.reconcile(
             tabManagers: [manager],
             at: cycleStart.advanced(by: .seconds(31)),
-            observedAt: now.addingTimeInterval(31)
+            observedAt: now.addingTimeInterval(91)
         )
 
-        #expect(replacementSweep != nil)
-        replacementSweep?.cancel()
+        #expect(replacementSweep == nil)
+        #expect(await detector.callCount == 1)
+        #expect(workspace.agentLifecycleStatesByPanelId[panelID]?["codex"] == .unknown)
+        await detector.resumeAll()
+        await stalledSweep.value
         await replacementSweep?.value
+    }
+}
+
+private actor StalledAgentStatusDetector {
+    private var continuations: [CheckedContinuation<Void, Never>] = []
+    private(set) var callCount = 0
+
+    func detect() async {
+        callCount += 1
+        await withCheckedContinuation { continuation in
+            continuations.append(continuation)
+        }
+    }
+
+    func resumeAll() {
+        let pending = continuations
+        continuations.removeAll()
+        for continuation in pending { continuation.resume() }
     }
 }
