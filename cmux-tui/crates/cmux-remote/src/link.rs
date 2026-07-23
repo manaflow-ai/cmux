@@ -263,8 +263,88 @@ pub mod test_support {
 mod tests {
     use std::time::Duration;
 
+    use cmux_remote_protocol::{FrameFlags, SessionId};
+    use tokio::sync::Semaphore;
+
     use super::*;
     use crate::link::test_support::pair;
+
+    struct ControlledReceiveLink {
+        description: String,
+        maximum: usize,
+        incoming: Mutex<mpsc::UnboundedReceiver<Bytes>>,
+        receive_calls: Arc<Semaphore>,
+    }
+
+    struct ControlledReceiveHandle {
+        incoming: mpsc::UnboundedSender<Bytes>,
+        receive_calls: Arc<Semaphore>,
+    }
+
+    fn controlled_receive_link(
+        description: &str,
+        maximum: usize,
+    ) -> (ControlledReceiveLink, ControlledReceiveHandle) {
+        let (incoming, receiver) = mpsc::unbounded_channel();
+        let receive_calls = Arc::new(Semaphore::new(0));
+        (
+            ControlledReceiveLink {
+                description: description.into(),
+                maximum,
+                incoming: Mutex::new(receiver),
+                receive_calls: receive_calls.clone(),
+            },
+            ControlledReceiveHandle { incoming, receive_calls },
+        )
+    }
+
+    #[async_trait]
+    impl FrameLink for ControlledReceiveLink {
+        fn description(&self) -> &str {
+            &self.description
+        }
+
+        fn maximum_frame_bytes(&self) -> usize {
+            self.maximum
+        }
+
+        async fn send(&self, _frame: Bytes) -> Result<(), LinkError> {
+            Ok(())
+        }
+
+        async fn receive(&self) -> Result<Option<Bytes>, LinkError> {
+            self.receive_calls.add_permits(1);
+            Ok(self.incoming.lock().await.recv().await)
+        }
+
+        async fn close(&self) -> Result<(), LinkError> {
+            Ok(())
+        }
+    }
+
+    fn encoded_frame(lane: Lane, payload_bytes: usize) -> Bytes {
+        WireFrame {
+            session: SessionId::ZERO,
+            generation: 1,
+            lane,
+            flags: FrameFlags::empty(),
+            sequence: 1,
+            acknowledgement: 0,
+            stream: 1,
+            payload: vec![lane as u8; payload_bytes],
+        }
+        .encode()
+        .unwrap()
+        .into()
+    }
+
+    async fn wait_for_receive_calls(calls: &Semaphore, count: u32) {
+        let permit = tokio::time::timeout(Duration::from_secs(1), calls.acquire_many(count))
+            .await
+            .expect("physical reader did not reach the deterministic gate")
+            .unwrap();
+        permit.forget();
+    }
 
     #[tokio::test]
     async fn one_physical_lane_eof_fails_the_aggregate_link() {
@@ -285,5 +365,44 @@ mod tests {
         interactive_peer.close().await.unwrap();
         let result = tokio::time::timeout(Duration::from_secs(1), mux.receive()).await.unwrap();
         assert!(matches!(result, Err(LinkError::Closed)));
+    }
+
+    #[tokio::test]
+    async fn dedicated_interactive_reader_bypasses_saturated_bulk_ingress() {
+        const BUFFERED_FRAMES: u32 = 1_024;
+        const FRAME_BYTES: usize = 8 * 1_024;
+        const WIRE_HEADER_BYTES: usize = 60;
+
+        let (interactive, interactive_handle) = controlled_receive_link("interactive", FRAME_BYTES);
+        let (bulk, bulk_handle) = controlled_receive_link("bulk", FRAME_BYTES);
+        let bulk_frame = encoded_frame(Lane::Bulk, FRAME_BYTES - WIRE_HEADER_BYTES);
+        assert_eq!(bulk_frame.len(), FRAME_BYTES);
+        for _ in 0..BUFFERED_FRAMES {
+            bulk_handle.incoming.send(bulk_frame.clone()).unwrap();
+        }
+
+        let mux = LaneMuxLink::new(
+            "test-lanes",
+            vec![
+                LinkRoute { lanes: vec![Lane::Interactive], link: Arc::new(interactive) },
+                LinkRoute {
+                    lanes: vec![Lane::Control, Lane::Bulk, Lane::Tunnel],
+                    link: Arc::new(bulk),
+                },
+            ],
+        )
+        .unwrap();
+
+        wait_for_receive_calls(&bulk_handle.receive_calls, BUFFERED_FRAMES + 1).await;
+        wait_for_receive_calls(&interactive_handle.receive_calls, 1).await;
+        interactive_handle.incoming.send(encoded_frame(Lane::Interactive, 1)).unwrap();
+
+        wait_for_receive_calls(&interactive_handle.receive_calls, 1).await;
+        let received = tokio::time::timeout(Duration::from_secs(1), mux.receive())
+            .await
+            .expect("interactive delivery remained blocked behind bulk ingress")
+            .unwrap()
+            .unwrap();
+        assert_eq!(WireFrame::decode(&received).unwrap().lane, Lane::Interactive);
     }
 }
