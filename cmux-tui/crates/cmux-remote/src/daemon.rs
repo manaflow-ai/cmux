@@ -80,14 +80,6 @@ impl InboundLink {
         Some(Self::new(link, evidence))
     }
 
-    pub(crate) fn verified_ssh_principal(
-        link: Box<dyn FrameLink>,
-        principal: impl Into<String>,
-    ) -> Option<Self> {
-        let evidence = InboundAuthEvidence::verified_ssh_principal(principal)?;
-        Some(Self::new(link, evidence))
-    }
-
     fn into_parts(self) -> (Box<dyn FrameLink>, InboundAuthEvidence) {
         (self.link, self.evidence)
     }
