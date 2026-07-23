@@ -1,5 +1,6 @@
 use std::collections::{BTreeMap, BTreeSet};
 use std::fmt;
+use std::future::pending;
 use std::sync::Arc;
 use std::sync::atomic::{AtomicBool, Ordering};
 
@@ -7,7 +8,13 @@ use async_trait::async_trait;
 use bytes::Bytes;
 use cmux_remote_protocol::{Lane, WireFrame};
 use futures_util::future::join_all;
-use tokio::sync::{Mutex, mpsc};
+use tokio::sync::{Mutex, OwnedSemaphorePermit, Semaphore, mpsc};
+
+const INGRESS_BYTES_PER_LANE: usize = 8 * 1_024 * 1_024;
+const INGRESS_ACCOUNTING_FLOOR_BYTES: usize = 1_024;
+const INGRESS_FRAMES_PER_LANE: usize = INGRESS_BYTES_PER_LANE / INGRESS_ACCOUNTING_FLOOR_BYTES;
+const PRIORITY_BURST_FRAMES: usize = 32;
+const PRIORITY_LANES: [Lane; 4] = [Lane::Interactive, Lane::Control, Lane::Tunnel, Lane::Bulk];
 
 /// An ordered binary-message link supplied by a direct transport or relay.
 ///
@@ -50,6 +57,151 @@ pub struct LinkRoute {
     pub link: Arc<dyn FrameLink>,
 }
 
+struct IngressFrame {
+    encoded: Bytes,
+    _permit: OwnedSemaphorePermit,
+}
+
+#[derive(Clone)]
+struct IngressSender {
+    frames: mpsc::Sender<IngressFrame>,
+    budget: Arc<Semaphore>,
+}
+
+impl IngressSender {
+    fn channel() -> (Self, mpsc::Receiver<IngressFrame>) {
+        let (frames, receiver) = mpsc::channel(INGRESS_FRAMES_PER_LANE);
+        (Self { frames, budget: Arc::new(Semaphore::new(INGRESS_BYTES_PER_LANE)) }, receiver)
+    }
+
+    async fn send(&self, encoded: Bytes) -> Result<(), ()> {
+        let accounted = encoded.len().max(INGRESS_ACCOUNTING_FLOOR_BYTES);
+        let permits = u32::try_from(accounted).expect("wire frames fit the ingress byte budget");
+        let permit = self.budget.clone().acquire_many_owned(permits).await.map_err(|_| ())?;
+        self.frames.send(IngressFrame { encoded, _permit: permit }).await.map_err(|_| ())
+    }
+}
+
+struct Ingress {
+    frames: PriorityReceivers<IngressFrame>,
+    errors: mpsc::UnboundedReceiver<LinkError>,
+}
+
+impl Ingress {
+    async fn receive(&mut self) -> Result<Option<Bytes>, LinkError> {
+        if let Ok(error) = self.errors.try_recv() {
+            return Err(error);
+        }
+        tokio::select! {
+            biased;
+            error = self.errors.recv() => match error {
+                Some(error) => Err(error),
+                None => Ok(self.frames.receive().await.map(|frame| frame.encoded)),
+            },
+            frame = self.frames.receive() => {
+                Ok(frame.map(|frame| frame.encoded))
+            }
+        }
+    }
+}
+
+struct PriorityReceivers<T> {
+    receivers: [Option<mpsc::Receiver<T>>; 4],
+    priority_deliveries: usize,
+    fair_cursor: usize,
+}
+
+impl<T> PriorityReceivers<T> {
+    fn new(receivers: [mpsc::Receiver<T>; 4]) -> Self {
+        Self { receivers: receivers.map(Some), priority_deliveries: 0, fair_cursor: 0 }
+    }
+
+    fn try_receive(&mut self) -> Option<T> {
+        if self.priority_deliveries < PRIORITY_BURST_FRAMES {
+            for lane in PRIORITY_LANES {
+                if let Some(item) = self.try_receive_lane(lane) {
+                    self.priority_deliveries += 1;
+                    return Some(item);
+                }
+            }
+            return None;
+        }
+
+        for offset in 0..PRIORITY_LANES.len() {
+            let index = (self.fair_cursor + offset) % PRIORITY_LANES.len();
+            if let Some(item) = self.try_receive_lane(PRIORITY_LANES[index]) {
+                self.fair_cursor = (index + 1) % PRIORITY_LANES.len();
+                self.priority_deliveries = 0;
+                return Some(item);
+            }
+        }
+        None
+    }
+
+    fn try_receive_lane(&mut self, lane: Lane) -> Option<T> {
+        let index = lane_index(lane);
+        match self.receivers[index].as_mut()?.try_recv() {
+            Ok(item) => Some(item),
+            Err(mpsc::error::TryRecvError::Empty) => None,
+            Err(mpsc::error::TryRecvError::Disconnected) => {
+                self.receivers[index] = None;
+                None
+            }
+        }
+    }
+
+    async fn receive(&mut self) -> Option<T> {
+        loop {
+            if let Some(item) = self.try_receive() {
+                return Some(item);
+            }
+            if self.receivers.iter().all(Option::is_none) {
+                return None;
+            }
+
+            let fair_selection = self.priority_deliveries >= PRIORITY_BURST_FRAMES;
+            let (lane, item) = {
+                let [interactive, control, bulk, tunnel] = &mut self.receivers;
+                tokio::select! {
+                    biased;
+                    item = receive_or_pending(interactive) => (Lane::Interactive, item),
+                    item = receive_or_pending(control) => (Lane::Control, item),
+                    item = receive_or_pending(tunnel) => (Lane::Tunnel, item),
+                    item = receive_or_pending(bulk) => (Lane::Bulk, item),
+                }
+            };
+            let Some(item) = item else {
+                self.receivers[lane_index(lane)] = None;
+                continue;
+            };
+            if fair_selection {
+                let index = PRIORITY_LANES.iter().position(|candidate| *candidate == lane).unwrap();
+                self.fair_cursor = (index + 1) % PRIORITY_LANES.len();
+                self.priority_deliveries = 0;
+            } else {
+                self.priority_deliveries += 1;
+            }
+            return Some(item);
+        }
+    }
+}
+
+async fn receive_or_pending<T>(receiver: &mut Option<mpsc::Receiver<T>>) -> Option<T> {
+    match receiver {
+        Some(receiver) => receiver.recv().await,
+        None => pending().await,
+    }
+}
+
+const fn lane_index(lane: Lane) -> usize {
+    match lane {
+        Lane::Interactive => 0,
+        Lane::Control => 1,
+        Lane::Bulk => 2,
+        Lane::Tunnel => 3,
+    }
+}
+
 /// Presents several independently authenticated physical links as one frame
 /// link. Outbound frames are routed by their encoded lane; dedicated reader
 /// tasks avoid cancellation-corrupting a length-delimited stream.
@@ -58,7 +210,7 @@ pub struct LaneMuxLink {
     maximum: usize,
     routes: BTreeMap<Lane, Arc<dyn FrameLink>>,
     links: Vec<Arc<dyn FrameLink>>,
-    incoming: Mutex<mpsc::Receiver<Result<Bytes, LinkError>>>,
+    incoming: Mutex<Ingress>,
     closed: AtomicBool,
 }
 
@@ -83,7 +235,12 @@ impl LaneMuxLink {
         }
         let mut routes = BTreeMap::new();
         let mut links = Vec::with_capacity(physical.len());
-        let (incoming_tx, incoming) = mpsc::channel(1_024);
+        let (interactive_tx, interactive_rx) = IngressSender::channel();
+        let (control_tx, control_rx) = IngressSender::channel();
+        let (bulk_tx, bulk_rx) = IngressSender::channel();
+        let (tunnel_tx, tunnel_rx) = IngressSender::channel();
+        let ingress_senders = [interactive_tx, control_tx, bulk_tx, tunnel_tx];
+        let (errors_tx, errors) = mpsc::unbounded_channel();
         for route in physical {
             if route.lanes.is_empty() {
                 return Err(LinkError::Protocol("physical link has no assigned lanes".into()));
@@ -96,7 +253,11 @@ impl LaneMuxLink {
             }
             let link = route.link;
             links.push(link.clone());
-            let incoming_tx = incoming_tx.clone();
+            let lane_senders = allowed
+                .iter()
+                .map(|lane| (*lane, ingress_senders[lane_index(*lane)].clone()))
+                .collect::<BTreeMap<_, _>>();
+            let errors_tx = errors_tx.clone();
             tokio::spawn(async move {
                 loop {
                     match link.receive().await {
@@ -105,7 +266,7 @@ impl LaneMuxLink {
                                 .map_err(|error| LinkError::Protocol(error.to_string()))
                                 .and_then(|frame| {
                                     if allowed.contains(&frame.lane) {
-                                        Ok(encoded)
+                                        Ok(frame.lane)
                                     } else {
                                         Err(LinkError::Protocol(format!(
                                             "lane {} arrived on the wrong physical link",
@@ -113,24 +274,38 @@ impl LaneMuxLink {
                                         )))
                                     }
                                 });
-                            let failed = validity.is_err();
-                            if incoming_tx.send(validity).await.is_err() || failed {
-                                break;
+                            match validity {
+                                Ok(lane) => {
+                                    if lane_senders
+                                        .get(&lane)
+                                        .expect("allowed lanes have ingress queues")
+                                        .send(encoded)
+                                        .await
+                                        .is_err()
+                                    {
+                                        break;
+                                    }
+                                }
+                                Err(error) => {
+                                    let _ = errors_tx.send(error);
+                                    break;
+                                }
                             }
                         }
                         Ok(None) => {
-                            let _ = incoming_tx.send(Err(LinkError::Closed)).await;
+                            let _ = errors_tx.send(LinkError::Closed);
                             break;
                         }
                         Err(error) => {
-                            let _ = incoming_tx.send(Err(error)).await;
+                            let _ = errors_tx.send(error);
                             break;
                         }
                     }
                 }
             });
         }
-        drop(incoming_tx);
+        drop(errors_tx);
+        drop(ingress_senders);
         for lane in Lane::ALL {
             if !routes.contains_key(&lane) {
                 return Err(LinkError::Protocol(format!("lane {lane} has no physical link")));
@@ -142,7 +317,10 @@ impl LaneMuxLink {
             maximum,
             routes,
             links,
-            incoming: Mutex::new(incoming),
+            incoming: Mutex::new(Ingress {
+                frames: PriorityReceivers::new([interactive_rx, control_rx, bulk_rx, tunnel_rx]),
+                errors,
+            }),
             closed: AtomicBool::new(false),
         })
     }
@@ -171,10 +349,7 @@ impl FrameLink for LaneMuxLink {
     }
 
     async fn receive(&self) -> Result<Option<Bytes>, LinkError> {
-        match self.incoming.lock().await.recv().await {
-            Some(result) => result.map(Some),
-            None => Ok(None),
-        }
+        self.incoming.lock().await.receive().await
     }
 
     async fn close(&self) -> Result<(), LinkError> {
@@ -404,5 +579,55 @@ mod tests {
             .unwrap()
             .unwrap();
         assert_eq!(WireFrame::decode(&received).unwrap().lane, Lane::Interactive);
+    }
+
+    #[tokio::test]
+    async fn aggregate_error_bypasses_saturated_ingress() {
+        const BUFFERED_FRAMES: usize = 1_024;
+        const FRAME_BYTES: usize = 8 * 1_024;
+        const WIRE_HEADER_BYTES: usize = 60;
+
+        let (_interactive_tx, interactive_rx) = IngressSender::channel();
+        let (_control_tx, control_rx) = IngressSender::channel();
+        let (bulk_tx, bulk_rx) = IngressSender::channel();
+        let (_tunnel_tx, tunnel_rx) = IngressSender::channel();
+        let (errors_tx, errors) = mpsc::unbounded_channel();
+        let mut ingress = Ingress {
+            frames: PriorityReceivers::new([interactive_rx, control_rx, bulk_rx, tunnel_rx]),
+            errors,
+        };
+        let bulk_frame = encoded_frame(Lane::Bulk, FRAME_BYTES - WIRE_HEADER_BYTES);
+        for _ in 0..BUFFERED_FRAMES {
+            bulk_tx.send(bulk_frame.clone()).await.unwrap();
+        }
+        errors_tx.send(LinkError::Closed).unwrap();
+
+        let result = tokio::time::timeout(Duration::from_secs(1), ingress.receive()).await.unwrap();
+        assert!(matches!(result, Err(LinkError::Closed)));
+    }
+
+    #[tokio::test]
+    async fn bounded_priority_bursts_do_not_starve_bulk_ingress() {
+        let (interactive_tx, interactive_rx) = mpsc::channel(128);
+        let (control_tx, control_rx) = mpsc::channel(128);
+        let (bulk_tx, bulk_rx) = mpsc::channel(128);
+        let (tunnel_tx, tunnel_rx) = mpsc::channel(128);
+        for sequence in 0..100 {
+            interactive_tx.send((Lane::Interactive, sequence)).await.unwrap();
+        }
+        bulk_tx.send((Lane::Bulk, 0)).await.unwrap();
+        drop((interactive_tx, control_tx, bulk_tx, tunnel_tx));
+        let mut receivers =
+            PriorityReceivers::new([interactive_rx, control_rx, bulk_rx, tunnel_rx]);
+
+        assert_eq!(receivers.receive().await.unwrap().0, Lane::Interactive);
+        let mut bulk_delivery = None;
+        for delivery in 2..=2 * (PRIORITY_BURST_FRAMES + 1) {
+            if receivers.receive().await.unwrap().0 == Lane::Bulk {
+                bulk_delivery = Some(delivery);
+                break;
+            }
+        }
+        assert!(bulk_delivery.is_some(), "bulk was starved by interactive ingress");
     }
 }
