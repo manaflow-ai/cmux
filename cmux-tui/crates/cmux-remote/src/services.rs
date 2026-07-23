@@ -1137,6 +1137,103 @@ mod tests {
         assert!(matches!(error, ServicesError::MessageTooLarge(RPC_CODEC_OFFLOAD_BYTES)));
     }
 
+    #[tokio::test]
+    async fn oversized_escaped_workspace_response_returns_same_id_error() {
+        let escaped = "\u{1}".repeat(1024 * 1024);
+        let matches = (0..3)
+            .map(|index| cmux_remote_protocol::SearchMatch {
+                path: format!("file-{index}.txt"),
+                line: 1,
+                column: 1,
+                text: escaped.clone(),
+                before: Vec::new(),
+                after: Vec::new(),
+            })
+            .collect();
+        assert_oversized_response_falls_back(
+            RpcResponse {
+                id: cmux_remote_protocol::RequestId(71),
+                result: Ok(WorkspaceResponse::Search {
+                    matches,
+                    truncated: true,
+                    next_cursor: Some(cmux_remote_protocol::PageCursor("next".into())),
+                }),
+            },
+            true,
+        )
+        .await;
+    }
+
+    #[tokio::test]
+    async fn oversized_inline_error_response_returns_same_id_error() {
+        assert_oversized_response_falls_back(
+            RpcResponse {
+                id: cmux_remote_protocol::RequestId(72),
+                result: Err(RpcError::new(
+                    "invalid-data",
+                    "\u{1}".repeat(3 * 1024 * 1024),
+                )),
+            },
+            true,
+        )
+        .await;
+    }
+
+    async fn assert_oversized_response_falls_back(response: RpcResponse, allow_offload: bool) {
+        let expected_id = response.id;
+        let (client_endpoint, daemon_endpoint) = endpoint_pair();
+        let client = ServiceMultiplexer::new(client_endpoint, EndpointRole::Client);
+        let daemon = ServiceMultiplexer::new(daemon_endpoint, EndpointRole::Daemon);
+        let client_stream =
+            client.open(Service::WorkspaceRpc, BTreeMap::new()).await.expect("open RPC stream");
+        let incoming = daemon
+            .accept()
+            .await
+            .expect("accept RPC stream")
+            .expect("RPC stream was not delivered");
+        let outbound = MessageStream::with_lane(Arc::new(incoming.stream), Lane::Bulk);
+        let inbound = MessageStream::with_lane(Arc::new(client_stream), Lane::Bulk);
+        let workspace = WorkspaceService::new();
+
+        send_workspace_response(&workspace, &outbound, response, allow_offload)
+            .await
+            .expect("oversized response should be replaced with a bounded error");
+        let encoded = tokio::time::timeout(std::time::Duration::from_secs(2), inbound.receive())
+            .await
+            .expect("bounded fallback response timed out")
+            .expect("bounded fallback response failed")
+            .expect("bounded fallback response stream closed");
+        assert!(encoded.len() <= MAX_RPC_MESSAGE);
+        let fallback: RpcResponse =
+            serde_json::from_slice(&encoded).expect("decode bounded fallback response");
+        assert_eq!(fallback.id, expected_id);
+        assert!(matches!(
+            fallback.result,
+            Err(RpcError { ref code, .. }) if code == "resource-exhausted"
+        ));
+
+        let next = RpcResponse {
+            id: cmux_remote_protocol::RequestId(expected_id.0 + 1),
+            result: Ok(WorkspaceResponse::Closed),
+        };
+        send_workspace_response(&workspace, &outbound, next.clone(), false)
+            .await
+            .expect("RPC stream should remain usable after the fallback");
+        let encoded = inbound
+            .receive()
+            .await
+            .expect("receive response after fallback")
+            .expect("RPC stream closed after fallback");
+        assert_eq!(
+            serde_json::from_slice::<RpcResponse>(&encoded)
+                .expect("decode response after fallback"),
+            next
+        );
+
+        client.shutdown().await;
+        daemon.shutdown().await;
+    }
+
     #[cfg(unix)]
     #[tokio::test(flavor = "current_thread")]
     async fn blocked_process_input_does_not_delay_process_signal() {
