@@ -264,6 +264,44 @@ import Testing
         #expect(node?.children.map(\.text) == ["other", "one", "other"])
     }
 
+    @Test func optionalMemberComparisonsDistinguishPresentAndAbsentValues() {
+        let workspaces = SwiftValue.array([
+            .object([
+                "description": .string("hello"),
+                "profile": .object(["name": .string("cmux")]),
+            ]),
+            .object([:]),
+        ])
+        let empty = SwiftValue.array([])
+        let node = interp.evaluate("""
+        VStack {
+            Text(nil == nil ? "nil-equal" : "bad")
+            Text(empty.first == nil ? "empty-first" : "bad")
+            if unknownValue() == nil { Text("unsupported-treated-as-absent") }
+            if let impossible = nil { Text("unexpected: \\(impossible)") }
+            let selected = workspaces.first { $0.selected }
+            if selected == nil { Text("no-selected") }
+            ForEach(workspaces) { w in
+                Text(w.description != nil ? "present" : "absent")
+                if w.description == nil { Text("missing") }
+                if w.description != nil { Text("value: \\(w.description)") }
+                if w.profile.name != nil { Text("nested: \\(w.profile.name)") }
+                if w.profile.name == nil { Text("nested-missing") }
+                if let description = w.description {
+                    Text("bound: \\(description)")
+                } else {
+                    Text("unbound")
+                }
+            }
+        }
+        """, state: ["workspaces": workspaces, "empty": empty])
+        #expect(node?.children.map(\.text) == [
+            "nil-equal", "empty-first", "no-selected",
+            "present", "value: hello", "nested: cmux", "bound: hello",
+            "absent", "missing", "nested-missing", "unbound",
+        ])
+    }
+
     @Test func arrayFilterMapSortedFirstContains() {
         let ws = SwiftValue.array([
             .object(["title": .string("beta"), "selected": .bool(false), "n": .int(2)]),
@@ -302,6 +340,17 @@ import Testing
         """)
         #expect(node?.children.first?.modifiers.first(where: { $0.name == "foregroundColor" })?.firstValue == "#34C759")
         #expect(node?.children.last?.modifiers.first(where: { $0.name == "foregroundColor" })?.firstValue == "#FF3B30")
+    }
+
+    @Test func valueFunctionOptionalBindingRejectsNilLiteral() {
+        let node = interp.evaluate("""
+        func label() -> String {
+            if let value = nil { return "unexpected: \\(value)" }
+            return "ok"
+        }
+        VStack { Text(label()) }
+        """)
+        #expect(node?.children.first?.text == "ok")
     }
 
     @Test func userViewFunctionHelper() {
