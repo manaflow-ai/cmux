@@ -41,6 +41,39 @@ import Testing
         #expect(projection.sourceUnreadCount == 1)
     }
 
+    @Test @MainActor func searchMatchesNotificationContentAndComposesWithUnreadFilter() throws {
+        let referenceDate = try #require(isoDate("2026-07-15T18:00:00Z"))
+        var calendar = Calendar(identifier: .gregorian)
+        calendar.timeZone = try #require(TimeZone(secondsFromGMT: 0))
+        let projection = NotificationFeedProjection(referenceDate: referenceDate, calendar: calendar)
+        projection.update(items: [
+            item(
+                id: "approval",
+                createdAt: try #require(isoDate("2026-07-15T17:30:00Z")),
+                isRead: false,
+                title: "Codex needs approval",
+                body: "Review the workspace changes"
+            ),
+            item(
+                id: "tests",
+                createdAt: try #require(isoDate("2026-07-15T17:00:00Z")),
+                isRead: true,
+                title: "Tests passed",
+                body: "Release is ready"
+            ),
+        ], referenceDate: referenceDate)
+
+        projection.searchText = "release"
+
+        #expect(projection.sections.flatMap(\.items).map(\.notificationID) == ["tests"])
+
+        projection.filter = .unread
+
+        #expect(projection.sections.isEmpty)
+        #expect(projection.sourceItemCount == 2)
+        #expect(projection.sourceUnreadCount == 1)
+    }
+
     #if os(iOS)
     @Test func emptyPresentationDistinguishesFilterAndAvailability() {
         #expect(NotificationFeedEmptyState.resolve(
@@ -71,15 +104,21 @@ import Testing
     }
     #endif
 
-    private func item(id: String, createdAt: Date, isRead: Bool) -> MobileNotificationFeedItem {
+    private func item(
+        id: String,
+        createdAt: Date,
+        isRead: Bool,
+        title: String? = nil,
+        body: String = "Body"
+    ) -> MobileNotificationFeedItem {
         MobileNotificationFeedItem(
             macDeviceID: id == "yesterday" ? "mac-b" : "mac-a",
             notificationID: id,
             macDisplayName: "Mac",
             remoteWorkspaceID: "workspace",
             remoteSurfaceID: "surface",
-            title: id,
-            body: "Body",
+            title: title ?? id,
+            body: body,
             createdAt: createdAt,
             isRead: isRead,
             workspaceTitle: "Workspace",

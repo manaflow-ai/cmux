@@ -431,7 +431,7 @@ final class cmuxUITests: XCTestCase {
     }
 
     @MainActor
-    func testWorkspaceSearchOnlyAppearsOnWorkspaceRoot() throws {
+    func testSearchRemainsStableAcrossPrimaryRoots() throws {
         guard #available(iOS 26.0, *) else {
             throw XCTSkip("The detached workspace search control requires iOS 26.")
         }
@@ -450,6 +450,7 @@ final class cmuxUITests: XCTestCase {
         XCTAssertEqual(searchMatches.count, 1)
         let searchButton = searchMatches.firstMatch
         XCTAssertTrue(searchButton.waitForExistence(timeout: 3))
+        let initialSearchFrame = searchButton.frame
 
         let workspaceRow = app.descendants(matching: .any)["MobileWorkspaceRow-workspace-main"]
         XCTAssertTrue(workspaceRow.waitForExistence(timeout: 3))
@@ -471,7 +472,9 @@ final class cmuxUITests: XCTestCase {
         notificationsTab.tap()
 
         XCTAssertTrue(app.staticTexts["Notification feed fixture"].waitForExistence(timeout: 3))
-        XCTAssertTrue(searchButton.waitForNonExistence(timeout: 3))
+        XCTAssertTrue(searchButton.waitForExistence(timeout: 3))
+        XCTAssertEqual(searchMatches.count, 1)
+        XCTAssertEqual(searchButton.frame, initialSearchFrame)
 
         app.tabBars.buttons["Workspaces"].tap()
         XCTAssertTrue(workspaceList.waitForExistence(timeout: 3))
@@ -504,6 +507,46 @@ final class cmuxUITests: XCTestCase {
         } else {
             XCTAssertLessThanOrEqual(picker.frame.width, 100)
         }
+    }
+
+    @MainActor
+    func testNotificationFeedSearchFiltersNotifications() throws {
+        guard #available(iOS 26.0, *) else {
+            throw XCTSkip("The detached notification search control requires iOS 26.")
+        }
+        let app = launchApp(mockData: false, environment: [
+            "CMUX_UITEST_NOTIFICATION_FEED_PREVIEW": "1",
+        ])
+        defer { app.terminate() }
+
+        let feed = app.descendants(matching: .any)["MobileNotificationFeed"]
+        XCTAssertTrue(feed.waitForExistence(timeout: 8))
+
+        let searchButton = app.tabBars.buttons
+            .matching(NSPredicate(format: "label == %@", "Search"))
+            .firstMatch
+        XCTAssertTrue(searchButton.waitForExistence(timeout: 3))
+        tap(searchButton, in: app)
+
+        let searchField = app.searchFields["Search notifications"]
+        XCTAssertTrue(waitForHittable(searchField, timeout: 3))
+        XCTAssertTrue(focusTextInput(searchField, in: app))
+        searchField.typeText("Tests passed")
+
+        let matchingRow = app.descendants(matching: .any)[
+            "MobileNotificationFeedRow-macbook-tests-passed"
+        ]
+        let nonmatchingRow = app.descendants(matching: .any)[
+            "MobileNotificationFeedRow-studio-codex-approval"
+        ]
+        XCTAssertTrue(matchingRow.waitForExistence(timeout: 3))
+        XCTAssertTrue(waitForNotHittable(nonmatchingRow, timeout: 3))
+
+        app.tabBars.buttons["Notifications"].tap()
+        XCTAssertTrue(feed.waitForExistence(timeout: 3))
+        XCTAssertTrue(matchingRow.waitForExistence(timeout: 3))
+        XCTAssertTrue(waitForNotHittable(nonmatchingRow, timeout: 3))
+        XCTAssertTrue(searchButton.waitForExistence(timeout: 3))
     }
 
     @MainActor
