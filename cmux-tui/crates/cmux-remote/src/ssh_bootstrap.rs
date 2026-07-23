@@ -541,4 +541,54 @@ mod tests {
         assert_eq!(unsafe { libc::kill(pid, 0) }, -1);
         assert_eq!(std::io::Error::last_os_error().raw_os_error(), Some(libc::ESRCH));
     }
+
+    #[cfg(unix)]
+    async fn assert_oversized_output_is_bounded(stream: &str) {
+        use std::fs;
+        use std::os::unix::fs::PermissionsExt;
+
+        let directory = tempfile::tempdir().unwrap();
+        let script = directory.path().join("ssh");
+        let pid_file = directory.path().join("pid");
+        let pid_file_path = pid_file.display();
+        let redirect = match stream {
+            "stdout" => "",
+            "stderr" => " >&2",
+            _ => panic!("unsupported test stream {stream}"),
+        };
+        fs::write(
+            &script,
+            format!(
+                "#!/bin/sh\nprintf '%s' \"$$\" > '{pid_file_path}'\ni=0\nwhile [ \"$i\" -lt 4097 ]; do\n  printf x{redirect}\n  i=$((i + 1))\ndone\nexec /bin/sleep 30\n"
+            ),
+        )
+        .unwrap();
+        fs::set_permissions(&script, fs::Permissions::from_mode(0o755)).unwrap();
+
+        let mut config = SshBootstrapConfig::defaults("host");
+        config.ssh_binary = script.to_string_lossy().into_owned();
+        config.timeout = Duration::from_secs(30);
+        let bootstrap = SshBootstrapper::new(config).unwrap();
+        let error = tokio::time::timeout(Duration::from_secs(5), bootstrap.probe())
+            .await
+            .unwrap_or_else(|_| panic!("oversized SSH {stream} was not rejected promptly"))
+            .unwrap_err();
+        assert_eq!(error.to_string(), format!("SSH bootstrap {stream} exceeded 4096 bytes"),);
+
+        let pid = fs::read_to_string(pid_file).unwrap().parse::<libc::pid_t>().unwrap();
+        assert_eq!(unsafe { libc::kill(pid, 0) }, -1);
+        assert_eq!(std::io::Error::last_os_error().raw_os_error(), Some(libc::ESRCH));
+    }
+
+    #[cfg(unix)]
+    #[tokio::test]
+    async fn oversized_probe_stdout_kills_and_reaps_ssh() {
+        assert_oversized_output_is_bounded("stdout").await;
+    }
+
+    #[cfg(unix)]
+    #[tokio::test]
+    async fn oversized_ssh_stderr_kills_and_reaps_ssh() {
+        assert_oversized_output_is_bounded("stderr").await;
+    }
 }
