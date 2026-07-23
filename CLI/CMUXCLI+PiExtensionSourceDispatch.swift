@@ -254,9 +254,9 @@ class PiCmuxCommandDispatcher {
 
   private terminalSummary(payload: Record<string, unknown>): Record<string, unknown> {
     const summary: Record<string, unknown> = {};
-    for (const key of ["session_id", "turn_id", "tool_call_id", "tool_name"] as const) {
+    for (const key of ["session_id", "turn_id", "tool_call_id", "tool_name", "cwd", "workspace_id"] as const) {
       const value = payload[key];
-      if (typeof value === "string") summary[key] = value.slice(0, 256);
+      if (typeof value === "string") summary[key] = value.slice(0, 2048);
     }
     if (typeof payload.is_error === "boolean") summary.is_error = payload.is_error;
     if (payload.tool_result !== undefined) summary.tool_result = this.terminalResultSummary(payload.tool_result);

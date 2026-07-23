@@ -45,12 +45,13 @@ struct PiCompactedFeedEventExpander {
             return nil
         }
         let toolCallId = string(summary["tool_call_id"]) ?? "compacted-\(index)"
+        let requestId = "pi-\(sessionId)-PostToolUse-\(toolCallId)-compacted-\(index)"
         var event: [String: Any] = [
             "session_id": "pi-\(sessionId)",
             "hook_event_name": "PostToolUse",
             "_source": "pi",
             "_ppid": agentPid,
-            "_opencode_request_id": "pi-\(sessionId)-PostToolUse-\(toolCallId)-compacted-\(index)",
+            "_opencode_request_id": requestId,
         ]
         if let workspaceId = string(summary["workspace_id"])
             ?? string(fallback["workspace_id"])
@@ -75,6 +76,7 @@ struct PiCompactedFeedEventExpander {
         }
 
         let request: [String: Any] = [
+            "id": requestId,
             "method": "feed.push",
             "params": [
                 "event": event,

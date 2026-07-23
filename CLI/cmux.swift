@@ -33761,7 +33761,7 @@ export default CMUXSessionRestore;
         // level — close enough to catch most kill scenarios.
         let agentPid = agentPidForFeedSource(source, env: env)
         if source == "pi",
-           routePiCompactedFeedEvents(
+           try routePiCompactedFeedEvents(
                 rawObject: stdinObj,
                 agentPid: agentPid,
                 fallbackWorkspaceId: env["CMUX_WORKSPACE_ID"],
@@ -33843,6 +33843,7 @@ export default CMUXSessionRestore;
         // is 125s so the socket always returns before Claude
         // would kill the hook subprocess itself.
         let waitTimeout: Double = isActionable ? 120 : 0
+        let shouldAwaitTelemetryIngestion = source == "pi"
         let params: [String: Any] = [
             "event": eventDict,
             "wait_timeout_seconds": waitTimeout,
@@ -33852,13 +33853,13 @@ export default CMUXSessionRestore;
             "method": "feed.push",
             "params": params,
         ]
-        if waitTimeout > 0 {
+        if waitTimeout > 0 || shouldAwaitTelemetryIngestion {
             request["id"] = UUID().uuidString
         }
         let payload = try JSONSerialization.data(withJSONObject: request)
         let line = String(data: payload, encoding: .utf8) ?? "{}"
 
-        if waitTimeout == 0 {
+        if waitTimeout == 0 && !shouldAwaitTelemetryIngestion {
             if let client {
                 _ = try? client.sendOneWay(command: line, writeTimeout: 0.05)
             } else if let socketPath {
@@ -33902,13 +33903,21 @@ export default CMUXSessionRestore;
         do {
             response = try activeClient.send(
                 command: line,
-                responseTimeout: waitTimeout + 5
+                responseTimeout: shouldAwaitTelemetryIngestion ? 4 : waitTimeout + 5
             )
         } catch {
+            if shouldAwaitTelemetryIngestion {
+                throw error
+            }
             print("{}")
             return
         }
 
+        if shouldAwaitTelemetryIngestion {
+            try validatePiFeedAcknowledgment(response)
+            print("{}")
+            return
+        }
         guard let respData = response.data(using: .utf8),
               let respObj = try? JSONSerialization.jsonObject(with: respData) as? [String: Any],
               let ok = respObj["ok"] as? Bool, ok,
