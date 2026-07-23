@@ -157,7 +157,7 @@ struct ClosedMainWindowRoutingTests {
         #expect(!app.listMainWindowSummaries().contains { $0.windowId == windowBId })
         #expect(!app.focusMainWindow(windowId: windowBId))
         #expect(!windowB.isVisible)
-        #expect(app.tabManagerFor(windowId: windowBId) === managerB)
+        #expect(app.tabManagerFor(windowId: windowBId) == nil)
     }
 
     @Test("Recovered visible window stays listed and focusable")
@@ -346,7 +346,7 @@ struct RecoverableWindowlessMainWindowRoutingTests {
         TerminalController.shared.setActiveTabManager(manager)
 
         #expect(!app.toggleSidebarInActiveMainWindow())
-        #expect(app.tabManagerFor(windowId: windowId) === manager)
+        #expect(app.tabManagerFor(windowId: windowId) == nil)
         #expect(app.recoverableMainWindowRoute(windowId: windowId)?.tabManager === manager)
         #expect(GhosttyApp.terminalSurfaceRegistry.surface(id: terminalPanel.id) === terminalPanel.surface)
     }
@@ -440,7 +440,7 @@ struct RecoverableWindowlessMainWindowRoutingTests {
         #expect(!app.listMainWindowSummaries().contains { $0.windowId == windowId })
         #expect(!app.focusMainWindow(windowId: windowId))
         #expect(app.scriptableMainWindow(windowId: windowId) == nil)
-        #expect(app.tabManagerFor(windowId: windowId) === manager)
+        #expect(app.tabManagerFor(windowId: windowId) == nil)
         #expect(app.recoverableMainWindowRoute(windowId: windowId)?.tabManager === manager)
         #expect(app.recoverableMainWindowRoute(windowId: windowId)?.window == nil)
         #expect(GhosttyApp.terminalSurfaceRegistry.surface(id: terminalPanel.id) === terminalPanel.surface)

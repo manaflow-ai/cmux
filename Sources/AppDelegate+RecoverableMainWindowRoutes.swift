@@ -160,6 +160,13 @@ extension AppDelegate {
         return route
     }
 
+    func recoverableMainWindowTabManager(forExactWindow window: NSWindow) -> TabManager? {
+        sortedRecoverableMainWindowRoutes().first { route in
+            guard route.window === window, let manager = route.tabManager else { return false }
+            return tabManagerHasRegisteredTerminalSurface(manager)
+        }?.tabManager
+    }
+
     func ownsMainWindowTabManager(_ tabManager: TabManager) -> Bool {
         if mainWindowContexts.values.contains(where: { $0.tabManager === tabManager }) {
             return true
@@ -211,7 +218,9 @@ extension AppDelegate {
         if let context = mainWindowContexts.values.first(where: { $0.windowId == windowId }) {
             return context.tabManager
         }
-        return recoverableMainWindowRoute(windowId: windowId)?.tabManager
+        // The raw ledger preserves lifecycle state while AppKit swaps windows.
+        // Only its live, exact-window snapshot is mutation-routing authority.
+        return recoverableMainWindowRouteSnapshot(windowId: windowId)?.tabManager
     }
 
     func windowId(for tabManager: TabManager) -> UUID? {

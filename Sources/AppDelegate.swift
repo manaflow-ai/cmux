@@ -4514,6 +4514,19 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
         fileExplorerState: FileExplorerState? = nil,
         cmuxConfigStore: CmuxConfigStore? = nil
     ) {
+        let key = ObjectIdentifier(window)
+        let exactIdentityOwner = mainWindowContexts[key]?.tabManager
+            ?? mainWindowContexts.values.first(where: { $0.window === window })?.tabManager
+            ?? recoverableMainWindowTabManager(forExactWindow: window)
+        if let exactIdentityOwner, exactIdentityOwner !== tabManager {
+#if DEBUG
+            cmuxDebugLog(
+                "mainWindow.register.exactOwnerMismatch windowId=\(String(windowId.uuidString.prefix(8)))"
+            )
+#endif
+            finalizeRejectedMainWindowRegistrationIfUnowned(tabManager)
+            return
+        }
         guard !tabManager.isFinalizedForWindowClose else {
             mainWindowVisibilityController.commitClose(window)
             window.orderOut(nil)
@@ -4539,7 +4552,6 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
             window.close()
             return
         }
-        let key = ObjectIdentifier(window)
         #if DEBUG
         let priorManagerToken = debugManagerToken(self.tabManager)
         #endif
