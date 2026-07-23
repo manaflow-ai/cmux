@@ -1,8 +1,75 @@
 public import CMUXMobileCore
+public import IrohLib
 
 // These conformances are deliberately categorical. They prevent callers from
 // exporting `String(describing: error)`, which may contain endpoint identities,
 // relay URLs, credentials, or private network addresses.
+
+extension IrohError: @retroactive DiagnosticFailureProviding {
+    public var diagnosticFailureKind: DiagnosticFailureKind {
+        Self.diagnosticFailureKind(message: message())
+    }
+
+    /// iroh-ffi 1.0.2-cmux.4 (iroh 1.0.2) exposes one opaque `IrohError`
+    /// object. Its `message()` retains `ReadError` case names and other errors'
+    /// stable display chains, but no structured discriminator. These pinned
+    /// tokens are the narrowest fallback until the binding exports a taxonomy.
+    private static func diagnosticFailureKind(
+        message: String
+    ) -> DiagnosticFailureKind {
+        if message.contains("ConnectionLost(TimedOut)") {
+            return .transportIdleTimedOut
+        }
+        if message.contains("ConnectionLost(LocallyClosed)") {
+            return .cancelled
+        }
+        if message.contains("ConnectionLost(TransportError(")
+            && (message.contains("Code::crypto(")
+                || message.contains("TLS error:")) {
+            return .secureChannelFailed
+        }
+        if message.contains("ConnectionLost(Reset)")
+            || message.contains("ConnectionLost(TransportError(")
+            || message.contains("ConnectionLost(ApplicationClosed(")
+            || message.contains("ConnectionLost(ConnectionClosed(") {
+            return .connectionClosed
+        }
+        if message.contains("AddressLookupFailed")
+            || message.contains("DnsLookup")
+            || message.contains("DNS lookup")
+            || message.contains("No addressing information available")
+            || message.contains("No address lookup configured")
+            || message.contains("All address lookup services failed or produced no results")
+            || message.contains("Failed to resolve TXT record")
+            || message.contains("Resolve failed, IPv4:")
+            || message.contains("Failed to resolve") {
+            return .dnsFailed
+        }
+        if message.contains("timed out")
+            || message.contains("Timed out")
+            || message.contains("Timeout") {
+            return .timedOut
+        }
+        if message.contains("Tls")
+            || message.contains("TLS")
+            || message.contains("CryptoError")
+            || message.contains("Code::crypto(")
+            || message.contains("Certificate")
+            || message.contains("certificate")
+            || message.contains("Handshake")
+            || message.contains("handshake")
+            || message.contains("crypto provider") {
+            return .secureChannelFailed
+        }
+        if message.contains("ConnectionLost(")
+            || message.contains("ClosedStream")
+            || message.contains("Reset(")
+            || message.contains("Stopped(") {
+            return .connectionClosed
+        }
+        return .unknown
+    }
+}
 
 extension CmxIrohTrustBrokerClientError: DiagnosticFailureProviding {
     public var diagnosticFailureKind: DiagnosticFailureKind {
