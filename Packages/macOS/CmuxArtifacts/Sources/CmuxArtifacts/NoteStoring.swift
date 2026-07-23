@@ -17,6 +17,9 @@ public protocol NoteStoring: Sendable {
     ) async throws -> CmuxProjectNote
     /// Searches note filenames and bounded UTF-8 contents.
     func searchNotes(projectRoot: URL, query: String) async throws -> [CmuxNoteSearchResult]
-    /// Deletes one resolved note without following symbolic links.
-    func deleteNote(projectRoot: URL, name: String) async throws
+    /// Deletes one exactly resolved note without following symbolic links.
+    ///
+    /// - Returns: Metadata for the note that was removed.
+    @discardableResult
+    func deleteNote(projectRoot: URL, name: String) async throws -> CmuxProjectNote
 }

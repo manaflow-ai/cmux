@@ -8814,6 +8814,10 @@ final class Workspace: Identifiable, ObservableObject {
             pendingClosedBrowserRestoreSnapshots.removeValue(forKey: tab.id)
             return
         }
+        guard browserPanel.contentMode.allowsSessionPersistence else {
+            pendingClosedBrowserRestoreSnapshots.removeValue(forKey: tab.id)
+            return
+        }
 
         let fallbackPlan = browserCloseFallbackPlan(
             forPaneId: pane.id.uuidString,
