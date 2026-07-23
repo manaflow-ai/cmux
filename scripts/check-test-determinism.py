@@ -5740,6 +5740,65 @@ def _self_test() -> int:
                 "try await clock.sleep(for: .milliseconds(300))\n"
                 "#expect(widget.isRendered)\n"
             ),
+            "Packages/CmuxUpdater/Sources/CmuxUpdater/SystemUpdateClock.swift": (
+                "public struct SystemUpdateClock {\n"
+                "    public func sleep(for duration: Duration) async throws {\n"
+                "        try await Task.sleep(for: duration)\n"
+                "    }\n"
+                "}\n"
+            ),
+            "Packages/CmuxUpdater/Tests/CmuxUpdaterTests/QualifiedClockWithBundleShadowTests.swift": (
+                "struct SystemUpdateClock {\n"
+                "    let base = TestRelayClock()\n"
+                "    func sleep(until deadline: Deadline) async throws {\n"
+                "        try await base.sleep(until: deadline)\n"
+                "    }\n"
+                "}\n"
+                "let clock = CmuxUpdater.SystemUpdateClock()\n"
+                "try await clock.sleep(for: .milliseconds(300))\n"
+                "#expect(widget.isRendered)\n"
+            ),
+            "Packages/CmuxUpdater/Tests/CmuxUpdaterTests/UnqualifiedCrossFileShadowTests.swift": (
+                "let clock = SystemUpdateClock()\n"
+                "try await clock.sleep(until: deadline)\n"
+                "#expect(await events.next() == expected)\n"
+            ),
+            "Packages/CmuxLexicalReal/Tests/CmuxLexicalRealTests/Support/Timing.swift": (
+                "struct Timing {\n"
+                "    let clock: TestRelayClock\n"
+                "}\n"
+                "enum A {\n"
+                "    struct Timing {\n"
+                "        let clock: CmuxUpdater.SystemUpdateClock\n"
+                "    }\n"
+                "    struct Environment {\n"
+                "        let timing: Timing\n"
+                "    }\n"
+                "}\n"
+            ),
+            "Packages/CmuxLexicalReal/Tests/CmuxLexicalRealTests/LexicalNestedClockTests.swift": (
+                "let environment: A.Environment\n"
+                "try await environment.timing.clock.sleep(for: .milliseconds(300))\n"
+                "#expect(widget.isRendered)\n"
+            ),
+            "Packages/CmuxLexicalVirtual/Tests/CmuxLexicalVirtualTests/Support/Timing.swift": (
+                "struct Timing {\n"
+                "    let clock: CmuxUpdater.SystemUpdateClock\n"
+                "}\n"
+                "enum A {\n"
+                "    struct Timing {\n"
+                "        let clock: TestRelayClock\n"
+                "    }\n"
+                "    struct Environment {\n"
+                "        let timing: Timing\n"
+                "    }\n"
+                "}\n"
+            ),
+            "Packages/CmuxLexicalVirtual/Tests/CmuxLexicalVirtualTests/LexicalNestedClockTests.swift": (
+                "let environment: A.Environment\n"
+                "try await environment.timing.clock.sleep(until: deadline)\n"
+                "#expect(await events.next() == expected)\n"
+            ),
         }
         for relative_path, source in fixture_sources.items():
             fixture_path = fixture_root / relative_path
@@ -5808,6 +5867,56 @@ def _self_test() -> int:
             failures.append(
                 "NEGATIVE qualified shadow project clock: unexpected "
                 f"{sorted(qualified_shadow_rules)}"
+            )
+        qualified_bundle_shadow_rules = {
+            finding.rule
+            for finding in collection_findings
+            if finding.path.endswith(
+                "/QualifiedClockWithBundleShadowTests.swift"
+            )
+        }
+        if RULE_SLEEP_THEN_ASSERT not in qualified_bundle_shadow_rules:
+            failures.append(
+                "POSITIVE qualified project clock with unqualified bundle "
+                f"shadow: missing {RULE_SLEEP_THEN_ASSERT!r} "
+                f"(got {sorted(qualified_bundle_shadow_rules)})"
+            )
+        unqualified_cross_file_shadow_rules = {
+            finding.rule
+            for finding in collection_findings
+            if finding.path.endswith(
+                "/UnqualifiedCrossFileShadowTests.swift"
+            )
+        }
+        if unqualified_cross_file_shadow_rules:
+            failures.append(
+                "NEGATIVE unqualified cross-file project clock shadow: "
+                f"unexpected {sorted(unqualified_cross_file_shadow_rules)}"
+            )
+        lexical_real_rules = {
+            finding.rule
+            for finding in collection_findings
+            if finding.path.endswith(
+                "CmuxLexicalRealTests/LexicalNestedClockTests.swift"
+            )
+        }
+        if RULE_SLEEP_THEN_ASSERT not in lexical_real_rules:
+            failures.append(
+                "POSITIVE lexically nested project clock container: missing "
+                f"{RULE_SLEEP_THEN_ASSERT!r} "
+                f"(got {sorted(lexical_real_rules)})"
+            )
+        lexical_virtual_rules = {
+            finding.rule
+            for finding in collection_findings
+            if finding.path.endswith(
+                "CmuxLexicalVirtualTests/LexicalNestedClockTests.swift"
+            )
+        }
+        if lexical_virtual_rules:
+            failures.append(
+                "NEGATIVE lexically nested virtual clock container: "
+                f"unexpected {sorted(lexical_virtual_rules)}"
             )
 
     shadowed_project_clock_sources = [
