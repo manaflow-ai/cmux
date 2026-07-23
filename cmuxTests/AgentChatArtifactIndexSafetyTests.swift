@@ -9,7 +9,7 @@ import Testing
 #endif
 
 struct AgentChatArtifactIndexSafetyTests {
-    @Test func oversizedTranscriptContinuesIndexingItsNewlineAlignedTail() async throws {
+    @Test func oversizedTranscriptDoesNotTrustArtifactsOutsideItsCurrentTail() async throws {
         let root = FileManager.default.temporaryDirectory
             .appendingPathComponent(UUID().uuidString, isDirectory: true)
         try FileManager.default.createDirectory(at: root, withIntermediateDirectories: true)
@@ -56,7 +56,7 @@ struct AgentChatArtifactIndexSafetyTests {
         let artifacts = Dictionary(uniqueKeysWithValues: secondSnapshot.artifacts.map {
             ($0.path, $0.lastReferencedSeq)
         })
-        #expect(artifacts[firstArtifactPath] == firstArtifactOffset)
+        #expect(artifacts[firstArtifactPath] == nil)
         #expect(artifacts[secondArtifactPath] == secondArtifactOffset)
 
         try FileManager.default.setAttributes(
@@ -73,7 +73,7 @@ struct AgentChatArtifactIndexSafetyTests {
         let metadataOnlyArtifacts = Dictionary(uniqueKeysWithValues:
             metadataOnlySnapshot.artifacts.map { ($0.path, $0.lastReferencedSeq) }
         )
-        #expect(metadataOnlyArtifacts[firstArtifactPath] == firstArtifactOffset)
+        #expect(metadataOnlyArtifacts[firstArtifactPath] == nil)
         #expect(metadataOnlyArtifacts[secondArtifactPath] == secondArtifactOffset)
     }
 
@@ -345,7 +345,7 @@ struct AgentChatArtifactIndexSafetyTests {
             agentKind: .codex,
             transcriptPath: transcript.path,
             workingDirectory: root.path,
-            maximumFileBytes: 512
+            maximumFileBytes: 1_024
         )
         #expect(initial.artifacts.first?.captureAuthorization != nil)
 
@@ -360,7 +360,7 @@ struct AgentChatArtifactIndexSafetyTests {
             agentKind: .codex,
             transcriptPath: transcript.path,
             workingDirectory: root.path,
-            maximumFileBytes: 512
+            maximumFileBytes: 1_024
         )
         #expect(appended.referencedPaths.contains(removedArtifact))
 
@@ -373,7 +373,7 @@ struct AgentChatArtifactIndexSafetyTests {
             agentKind: .codex,
             transcriptPath: transcript.path,
             workingDirectory: root.path,
-            maximumFileBytes: 512
+            maximumFileBytes: 1_024
         )
 
         #expect(!rewritten.referencedPaths.contains(removedArtifact))

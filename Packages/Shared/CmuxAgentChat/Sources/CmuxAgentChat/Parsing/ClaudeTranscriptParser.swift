@@ -435,12 +435,21 @@ public struct ClaudeTranscriptParser: Sendable {
         guard root["type"]?.string == "assistant" else { return }
         for block in content.array ?? [] where block["type"]?.string == "tool_use" {
             guard let toolName = block["name"]?.string else { continue }
+            let callID = block["id"]?.string
             let input = block["input"]
             if toolName == "Bash", let command = input?["command"]?.string {
                 assembler.appendArtifactReferences(
                     paths: artifactText.paths(in: command),
                     seq: seq
                 )
+                if let callID {
+                    assembler.registerArtifactMutation(
+                        paths: ShellArtifactMutationPathDetector()
+                            .pathsAttributedToSuccessfulCommand(in: command),
+                        pendingKey: callID,
+                        seq: seq
+                    )
+                }
             }
             let paths = referencedPaths.referencedPaths(in: input) ?? []
             if Self.isMutationTool(toolName) {
@@ -450,7 +459,7 @@ public struct ClaudeTranscriptParser: Sendable {
                 ].compactMap { $0 })
                 let mutationTargets = paths.filter { targets.contains($0) }
                 assembler.appendArtifactReferences(paths: mutationTargets, seq: seq)
-                if let callID = block["id"]?.string {
+                if let callID {
                     assembler.registerArtifactMutation(
                         paths: mutationTargets,
                         pendingKey: callID,
