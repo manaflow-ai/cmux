@@ -93,6 +93,30 @@ struct AgentStatusReconcilerTests {
         #expect(resolution == AgentStatusResolution(lifecycle: .idle, confidence: .confident))
     }
 
+    @Test(
+        "Startup and stop rendering do not imply active work",
+        arguments: [AgentHibernationLifecycleState.unknown, .idle]
+    )
+    func lifecycleTransitionRenderingRemainsIdle(_ lifecycle: AgentHibernationLifecycleState) {
+        let transitionAt = now.addingTimeInterval(-5)
+        let evidence = AgentStatusEvidence(
+            lifecycle: lifecycle,
+            lifecycleObservedAt: transitionAt,
+            outputObservedAt: transitionAt.addingTimeInterval(1),
+            foregroundAgentStatusKey: "claude_code",
+            foregroundObservedAt: transitionAt.addingTimeInterval(1),
+            shellActivity: .commandRunning
+        )
+        let resolution = reconciler.resolve(
+            evidence: evidence,
+            statusKey: "claude_code",
+            hasLiveRuntime: true,
+            now: now
+        )
+
+        #expect(resolution?.lifecycle == .idle)
+    }
+
     @Test func freshNeedsInputOverridesStalePromptIdleShellState() {
         let evidence = AgentStatusEvidence(
             lifecycle: .needsInput,
