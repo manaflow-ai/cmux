@@ -152,9 +152,7 @@ private final class ScriptedViewHost {
     init(sessions: [Session]) {
         self.sessions = sessions
         let host = RemoteTmuxHost(destination: "user@unlinked-window-test")
-        view = RemoteTmuxViewConnection(
-            host: host, ownerId: ownerId, transport: RemoteTmuxSSHTransport(host: host)
-        )
+        view = RemoteTmuxViewConnection(host: host, ownerId: ownerId)
         connection = RemoteTmuxControlConnection(host: host, sessionName: view.view.sessionName)
         connection.isSharedViewStream = true
         writer = RemoteTmuxControlPipeWriter(
