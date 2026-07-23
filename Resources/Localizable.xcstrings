@@ -154254,6 +154254,131 @@
         }
       }
     },
+    "remoteTmux.error.authenticationRequired": {
+      "extractionState": "manual",
+      "localizations": {
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "طلب %@ بيانات اعتماد ولا يوجد لدى cmux مكان لكتابتها. سجّل الدخول إلى المضيف، ثم أعد المحاولة."
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%@ je zatražio pristupne podatke, a cmux ih nema gdje upisati. Prijavite se na host, a zatim pokušajte ponovo."
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%@ bad om loginoplysninger, og cmux har ingen steder at indtaste dem. Log ind på værten, og prøv igen."
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%@ hat nach Anmeldedaten gefragt, und cmux kann sie nirgends eingeben. Melden Sie sich beim Host an, und versuchen Sie es erneut."
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%@ asked for credentials and cmux has nowhere to type them. Log in to the host, then try again."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%@ solicitó credenciales y cmux no tiene dónde escribirlas. Inicia sesión en el host y vuelve a intentarlo."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%@ a demandé des identifiants et cmux n'a nulle part où les saisir. Connectez-vous à l'hôte, puis réessayez."
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%@ ha richiesto le credenziali e cmux non ha modo di digitarle. Accedi all'host, quindi riprova."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%@ が認証情報を要求しましたが、cmux には入力する場所がありません。ホストにログインしてから、もう一度お試しください。"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%@ បានស្នើសុំព័ត៌មានផ្ទៀងផ្ទាត់ ហើយ cmux គ្មានកន្លែងបញ្ចូលវាទេ។ សូមចូលទៅកាន់ម៉ាស៊ីនបម្រើ បន្ទាប់មកព្យាយាមម្ដងទៀត។"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%@에서 자격 증명을 요청했지만 cmux에는 입력할 곳이 없습니다. 호스트에 로그인한 다음 다시 시도하세요."
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%@ ba om påloggingsinformasjon, og cmux har ingen steder å skrive den. Logg på verten, og prøv igjen."
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%@ poprosił o dane uwierzytelniające, a cmux nie ma gdzie ich wpisać. Zaloguj się na hoście, a następnie spróbuj ponownie."
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%@ pediu credenciais e o cmux não tem onde digitá-las. Faça login no host e tente novamente."
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%@ запросил учётные данные, а cmux негде их ввести. Войдите на хост, затем повторите попытку."
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%@ ขอข้อมูลรับรอง แต่ cmux ไม่มีที่ให้พิมพ์ กรุณาเข้าสู่ระบบโฮสต์ แล้วลองอีกครั้ง"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%@ kimlik bilgileri istedi ve cmux bunları yazacak bir yer bulamıyor. Ana makinede oturum açın, ardından yeniden deneyin."
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%@ запросив облікові дані, а cmux не має де їх увести. Увійдіть на хост, потім повторіть спробу."
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%@ 请求了凭据，而 cmux 无处输入。请先登录该主机，然后重试。"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%@ 要求了憑證，而 cmux 沒有地方輸入。請先登入該主機，然後重試。"
+          }
+        }
+      }
+    },
     "remoteTmux.error.commandFailed": {
       "extractionState": "manual",
       "localizations": {
