@@ -1346,6 +1346,45 @@ final class TabManagerSessionSnapshotTests: XCTestCase {
         XCTAssertTrue(restoredWorkspace.panelCustomTitles.values.contains("Persisted Closed Tab"))
     }
 
+    func testSessionRestoreDoesNotRemapClosedHistoryFromDuplicatePersistedWorkspaceId() throws {
+        let duplicateWorkspaceId = UUID()
+        let closedPanelId = UUID()
+        var firstWorkspace = Self.localWorkspaceSnapshot(title: "First", panelId: UUID())
+        var secondWorkspace = Self.localWorkspaceSnapshot(title: "Second", panelId: UUID())
+        firstWorkspace.workspaceId = duplicateWorkspaceId
+        secondWorkspace.workspaceId = duplicateWorkspaceId
+
+        var closedPanelSnapshot = Self.terminalPanelSnapshot(id: closedPanelId)
+        closedPanelSnapshot.customTitle = "Ambiguous Closed Tab"
+        let recordId = UUID()
+        ClosedItemHistoryStore.shared.push(ClosedItemHistoryRecord(
+            id: recordId,
+            closedAt: Date(timeIntervalSince1970: 1),
+            entry: .panel(ClosedPanelHistoryEntry(
+                workspaceId: duplicateWorkspaceId,
+                paneId: UUID(),
+                tabIndex: 0,
+                snapshot: closedPanelSnapshot
+            ))
+        ))
+
+        let restoreManager = TabManager()
+        _ = restoreManager.restoreSessionSnapshot(SessionTabManagerSnapshot(
+            selectedWorkspaceIndex: 1,
+            workspaces: [firstWorkspace, secondWorkspace]
+        ))
+        let remintedWorkspace = try XCTUnwrap(restoreManager.tabs.last)
+        XCTAssertEqual(restoreManager.tabs.first?.id, duplicateWorkspaceId)
+        XCTAssertNotEqual(remintedWorkspace.id, duplicateWorkspaceId)
+
+        let record = try XCTUnwrap(ClosedItemHistoryStore.shared.removeRecord(id: recordId)?.record)
+        guard case .panel(let entry) = record.entry else {
+            return XCTFail("Expected panel history record")
+        }
+        XCTAssertEqual(entry.workspaceId, duplicateWorkspaceId)
+        XCTAssertNotEqual(entry.workspaceId, remintedWorkspace.id)
+    }
+
     func testRecentlyClosedWorkspaceTitleIgnoresDotDirectoryFallback() throws {
         let manager = TabManager()
         let workspace = try XCTUnwrap(manager.selectedWorkspace)
