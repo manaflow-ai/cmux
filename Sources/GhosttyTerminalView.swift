@@ -6279,7 +6279,21 @@ class GhosttyNSView: NSView, NSUserInterfaceValidations {
         cmuxDebugLog("link.wordFallback resolved=\(resolution.path) source=\(resolution.source.rawValue)")
         #endif
 
-        PreferredEditorService(defaults: .standard).open(URL(fileURLWithPath: resolution.path))
+        openInPreferredEditor(resolution)
+    }
+
+    /// Open a resolved cmd-click target in the preferred editor, forwarding a
+    /// `path:line[:col]` locator when the clicked token carried one.
+    private func openInPreferredEditor(_ resolution: WordPathResolution) {
+        let position = TerminalFilePathLineLocator.position(
+            rawToken: resolution.rawToken,
+            resolvedPath: resolution.path
+        )
+        PreferredEditorService(defaults: .standard).open(
+            URL(fileURLWithPath: resolution.path),
+            line: position?.line,
+            column: position?.column
+        )
     }
 
     /// Check if the word under the mouse cursor resolves to an existing file/directory
@@ -6711,7 +6725,7 @@ class GhosttyNSView: NSView, NSUserInterfaceValidations {
             return resolution
         }
 
-        PreferredEditorService(defaults: .standard).open(URL(fileURLWithPath: resolution.path))
+        openInPreferredEditor(resolution)
         return resolution
     }
 
