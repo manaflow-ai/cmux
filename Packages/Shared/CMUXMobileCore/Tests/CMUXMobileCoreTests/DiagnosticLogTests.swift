@@ -238,6 +238,7 @@ import Testing
         #expect(DiagnosticTransportKind(.debugLoopback) == .debugLoopback)
         #expect(CmxAttachTransportKind.iroh.diagnosticTransportKind.rawValue == 1)
         #expect(DiagnosticFailureKind.cancelled.rawValue == 20)
+        #expect(DiagnosticFailureKind.transportIdleTimedOut.rawValue == 21)
         #expect(DiagnosticFailureKind.unknown.rawValue == 255)
         #expect(DiagnosticSessionLifecycleKind.established.rawValue == 1)
         #expect(DiagnosticSessionLifecycleKind.controlOwnerReleased.rawValue == 2)

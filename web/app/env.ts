@@ -234,7 +234,11 @@ export const env = createEnv({
     CMUX_IROH_MINT_URL: irohMinterUrl.optional(),
     CMUX_IROH_MINT_HMAC_SECRET_B64:
       z.string().max(512).regex(/^[A-Za-z0-9+/]{43,}={0,2}$/).optional(),
-    CMUX_IROH_RATE_LIMIT_ID: requireVercelNonPreviewValue("CMUX_IROH_RATE_LIMIT_ID"),
+    // Optional: leave unset to disable iroh rate limiting entirely. When unset,
+    // the firewall gate in routeHandler.ts is skipped. Matches the other
+    // optional rate-limit IDs (CMUX_PUSH_RATE_LIMIT_ID,
+    // CMUX_RELAY_PREFERENCES_RATE_LIMIT_ID).
+    CMUX_IROH_RATE_LIMIT_ID: z.string().min(1).optional(),
     CMUX_IROH_DEV_ALLOW_INSECURE_LOOPBACK_MINTER: localDevelopmentOptIn(
       "CMUX_IROH_DEV_ALLOW_INSECURE_LOOPBACK_MINTER",
     ),

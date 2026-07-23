@@ -7,21 +7,10 @@ struct TaskComposerButton: View {
 
     var body: some View {
         Button(action: action) {
-            HStack(spacing: 8) {
-                Image(systemName: "sparkles")
-                    .font(.system(size: 16, weight: .semibold))
-                    .accessibilityHidden(true)
-                Text(
-                    L10n.string(
-                        "mobile.taskComposer.button.title",
-                        defaultValue: "New task"
-                    )
-                )
-                .font(.subheadline.weight(.semibold))
-            }
-            .padding(.horizontal, 17)
-            .frame(minHeight: 52)
-            .contentShape(.capsule)
+            Image(systemName: "plus")
+                .font(.system(size: 18, weight: .semibold))
+                .frame(width: 52, height: 52)
+                .contentShape(Circle())
         }
         .buttonStyle(.plain)
         .foregroundStyle(.primary)
