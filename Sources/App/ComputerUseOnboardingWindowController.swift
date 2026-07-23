@@ -23,7 +23,7 @@ final class ComputerUseOnboardingWindowController: NSObject, NSWindowDelegate {
     private static let permissionCompanionWindowSize = NSSize(width: 680, height: 250)
     private static let systemSettingsBundleIdentifier = "com.apple.systempreferences"
 
-    private var window: NSWindow?
+    private var window: ComputerUseOnboardingWindow?
     private let runtimeService: ComputerUseRuntimeService
     private let permissionWindowPlacement = ComputerUseOnboardingWindowPlacement()
     private var systemSettingsActivationTask: Task<Void, Never>?
@@ -63,16 +63,17 @@ final class ComputerUseOnboardingWindowController: NSObject, NSWindowDelegate {
         window.orderFrontRegardless()
     }
 
-    func makeWindow(startingAt startingPoint: StartingPoint = .overview) -> NSWindow {
+    func makeWindow(startingAt startingPoint: StartingPoint = .overview) -> ComputerUseOnboardingWindow {
         let rootView = ComputerUseOnboardingView(
             runtimeService: runtimeService,
             initialStep: startingPoint.step,
             onSystemSettingsOpened: { [weak self] in
                 self?.showPermissionCompanion()
             },
-            onExpandedRequested: { [weak self] in self?.showExpandedOnboarding() }
+            onExpandedRequested: { [weak self] in self?.showExpandedOnboarding() },
+            onCompleted: { [weak self] in self?.dismiss() }
         )
-        let window = NSWindow(
+        let window = ComputerUseOnboardingWindow(
             contentRect: NSRect(origin: .zero, size: Self.expandedWindowSize),
             styleMask: [.titled, .closable, .fullSizeContentView],
             backing: .buffered,
@@ -251,13 +252,13 @@ final class ComputerUseOnboardingWindowController: NSObject, NSWindowDelegate {
     }
 
     private func configure(
-        _ window: NSWindow,
+        _ window: ComputerUseOnboardingWindow,
         windowSize: NSSize,
         showsStandardButtons: Bool
     ) {
         window.minSize = windowSize
         window.maxSize = windowSize
-        window.setFrame(
+        window.setAppKitOwnedFrame(
             NSRect(origin: window.frame.origin, size: windowSize),
             display: window.isVisible
         )

@@ -832,9 +832,10 @@ cmux_computer_use_canonical_executable() {
 }
 
 cmux_computer_use_resolve_driver() {
-    local self_dir bundled_driver override driver_real
+    local self_dir app_contents bundled_driver override driver_real
     self_dir="$(cd "$(dirname "$0")" && pwd)" || return 1
-    bundled_driver="$self_dir/cmux-cua-driver"
+    app_contents="$(cd "$self_dir/../.." 2>/dev/null && pwd)" || return 1
+    bundled_driver="$app_contents/Library/cmux Computer Use.app/Contents/MacOS/cmux-cua-driver"
     if [[ -x "$bundled_driver" ]]; then
         printf '%s' "$bundled_driver"
         return 0

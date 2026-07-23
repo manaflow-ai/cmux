@@ -1133,17 +1133,18 @@ def expect_cua_driver_config(
             f"{context}: expected short per-user daemon socket, got {args[2]!r}",
             failures,
         )
-    expect(
-        isinstance(command, str)
-        and Path(command).parts[-4:] == (
-            "cmux Computer Use.app",
-            "Contents",
-            "MacOS",
-            expected_name,
-        ),
-        f"{context}: proxy command must use the signed cmux Computer Use helper, got {command}",
-        failures,
-    )
+    if helper_owned:
+        expect(
+            isinstance(command, str)
+            and Path(command).parts[-4:] == (
+                "cmux Computer Use.app",
+                "Contents",
+                "MacOS",
+                expected_name,
+            ),
+            f"{context}: proxy command must use the signed cmux Computer Use helper, got {command}",
+            failures,
+        )
     expect_computer_use_env_scrubbed(server, failures, context, helper_owned=helper_owned)
 
 

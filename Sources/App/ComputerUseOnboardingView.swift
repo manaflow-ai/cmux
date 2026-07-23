@@ -14,6 +14,7 @@ struct ComputerUseOnboardingView: View {
     let initialStep: ComputerUseOnboardingStep
     let onSystemSettingsOpened: @MainActor () -> Void
     let onExpandedRequested: @MainActor () -> Void
+    let onCompleted: @MainActor () -> Void
 
     @State private var step: ComputerUseOnboardingStep
     @State private var accessibilityGranted = false
@@ -31,12 +32,14 @@ struct ComputerUseOnboardingView: View {
         runtimeService: ComputerUseRuntimeService,
         initialStep: ComputerUseOnboardingStep = .overview,
         onSystemSettingsOpened: @escaping @MainActor () -> Void = {},
-        onExpandedRequested: @escaping @MainActor () -> Void = {}
+        onExpandedRequested: @escaping @MainActor () -> Void = {},
+        onCompleted: @escaping @MainActor () -> Void = {}
     ) {
         self.runtimeService = runtimeService
         self.initialStep = initialStep
         self.onSystemSettingsOpened = onSystemSettingsOpened
         self.onExpandedRequested = onExpandedRequested
+        self.onCompleted = onCompleted
         _step = State(initialValue: initialStep)
         _helperIcon = State(initialValue: runtimeService.presentationIcon)
         _isPermissionCompanionVisible = State(initialValue: false)
@@ -336,96 +339,81 @@ struct ComputerUseOnboardingView: View {
     }
 
     private var permissionCompanion: some View {
-        VStack(alignment: .leading, spacing: 12) {
-            HStack(alignment: .center, spacing: 13) {
-                Image(systemName: "arrow.up")
-                    .font(.system(size: 28, weight: .semibold))
-                    .foregroundStyle(.tint)
-                    .accessibilityHidden(true)
-                Text(permissionCompanionInstruction)
-                    .font(.title3.weight(.bold))
-                    .fixedSize(horizontal: false, vertical: true)
-                Spacer(minLength: 8)
+        ZStack(alignment: .bottomLeading) {
+            VStack(spacing: 0) {
+                HStack(alignment: .center, spacing: 18) {
+                    Image(systemName: "arrow.up")
+                        .font(.system(size: 46, weight: .bold))
+                        .foregroundStyle(.tint)
+                        .accessibilityHidden(true)
+                    Text(permissionCompanionInstruction)
+                        .font(.system(size: 19, weight: .bold))
+                        .lineSpacing(2)
+                        .fixedSize(horizontal: false, vertical: true)
+                    Spacer(minLength: 0)
+                }
+                .frame(maxWidth: .infinity, alignment: .leading)
+                .padding(.horizontal, 34)
+                .padding(.top, 24)
+
+                helperDragTile
+                    .padding(.top, 20)
+
+                Spacer(minLength: 44)
             }
 
-            helperDragTile
-
-            HStack(spacing: 10) {
-                Button {
-                    isPermissionCompanionVisible = false
-                    onExpandedRequested()
-                } label: {
-                    Image(systemName: "chevron.left")
-                        .font(.system(size: 12, weight: .semibold))
-                        .frame(width: 28, height: 28)
-                        .background(Color.secondary.opacity(0.12), in: Circle())
-                }
-                .buttonStyle(.plain)
-                .help(String(localized: "computerUse.onboarding.back", defaultValue: "Back"))
-                .accessibilityLabel(String(localized: "computerUse.onboarding.back", defaultValue: "Back"))
-
-                Button(
-                    String(
-                        localized: "computerUse.onboarding.openSystemSettings",
-                        defaultValue: "Open System Settings"
-                    )
-                ) {
-                    openPermissionSettings(for: step)
-                }
-
-                Spacer()
-                permissionStatus(granted: currentPermissionGranted)
-                Button(
-                    refreshInFlight
-                        ? String(localized: "computerUse.onboarding.checking", defaultValue: "Checking…")
-                        : String(localized: "computerUse.onboarding.checkAgain", defaultValue: "Check Again"),
-                    action: refreshPermissions
-                )
-                .disabled(refreshInFlight)
+            Button {
+                isPermissionCompanionVisible = false
+                onExpandedRequested()
+            } label: {
+                Image(systemName: "chevron.left")
+                    .font(.system(size: 11, weight: .semibold))
+                    .frame(width: 28, height: 28)
+                    .background(Color.white.opacity(0.09), in: Circle())
+                    .overlay {
+                        Circle().strokeBorder(Color.white.opacity(0.09), lineWidth: 1)
+                    }
             }
-            .controlSize(.small)
+            .buttonStyle(.plain)
+            .contentShape(Circle())
+            .help(String(localized: "computerUse.onboarding.back", defaultValue: "Back"))
+            .accessibilityLabel(String(localized: "computerUse.onboarding.back", defaultValue: "Back"))
+            .padding(.leading, 20)
+            .padding(.bottom, 17)
         }
-        .padding(20)
         .frame(width: 680, height: 250)
     }
 
     /// A file-URL drag source accepted by the macOS permission lists.
     private var helperDragTile: some View {
-        HStack(spacing: 14) {
+        HStack(spacing: 13) {
             Group {
                 if let helperIcon {
                     Image(nsImage: helperIcon)
                         .resizable()
-                        .frame(width: 48, height: 48)
+                        .interpolation(.high)
+                        .frame(width: 46, height: 46)
                 } else {
                     Image(systemName: "app.dashed")
-                        .font(.system(size: 32))
-                        .frame(width: 48, height: 48)
+                        .font(.system(size: 30))
+                        .frame(width: 46, height: 46)
                 }
             }
             .accessibilityHidden(true)
 
             Text(runtimeService.applicationName)
-                .font(.body.weight(.semibold))
-            Spacer(minLength: 8)
-            Label(
-                String(localized: "computerUse.onboarding.dragAction", defaultValue: "Drag"),
-                systemImage: "hand.draw.fill"
-            )
-            .font(.caption.weight(.semibold))
-            .foregroundStyle(.tint)
-            .padding(.horizontal, 10)
-            .padding(.vertical, 7)
-            .background(Color.accentColor.opacity(0.1), in: Capsule())
+                .font(.system(size: 14, weight: .semibold))
+                .lineLimit(1)
         }
-        .padding(.horizontal, 15)
-        .frame(height: 78)
-        .background(Color(nsColor: .controlBackgroundColor), in: RoundedRectangle(cornerRadius: 18))
+        .padding(.horizontal, 13)
+        .frame(width: 282, height: 70, alignment: .leading)
+        .background(permissionCardBackground, in: RoundedRectangle(cornerRadius: 17, style: .continuous))
         .overlay {
-            RoundedRectangle(cornerRadius: 18)
-                .strokeBorder(Color.accentColor.opacity(0.34), lineWidth: 1.5)
+            RoundedRectangle(cornerRadius: 17, style: .continuous)
+                .strokeBorder(Color.white.opacity(0.12), lineWidth: 1)
         }
-        .contentShape(RoundedRectangle(cornerRadius: 18))
+        .shadow(color: .black.opacity(0.2), radius: 4, y: 2)
+        .contentShape(RoundedRectangle(cornerRadius: 17, style: .continuous))
         .overlay {
             ComputerUseAppDragSource(
                 helperAppURL: helperAppURL,
@@ -451,34 +439,8 @@ struct ComputerUseOnboardingView: View {
         }
         return String(
             localized: "computerUse.onboarding.companion.screenRecording",
-            defaultValue: "Drag \(runtimeService.applicationName) to the list above to allow Screen Recording"
+            defaultValue: "Drag \(runtimeService.applicationName) to the list above to allow Screenshots"
         )
-    }
-
-    private var currentPermissionGranted: Bool {
-        step == .accessibility ? accessibilityGranted : screenRecordingGranted
-    }
-
-    private func permissionStatus(granted: Bool, label: String? = nil) -> some View {
-        HStack(spacing: 7) {
-            Circle()
-                .fill(granted ? Color.green : Color.orange)
-                .frame(width: 8, height: 8)
-                .accessibilityHidden(true)
-            if let label {
-                Text(label)
-            }
-            Text(
-                granted
-                    ? String(localized: "computerUse.onboarding.status.granted", defaultValue: "Granted")
-                    : String(localized: "computerUse.onboarding.status.notGranted", defaultValue: "Not Granted")
-            )
-            .foregroundStyle(.secondary)
-        }
-        .font(.caption)
-        .padding(.horizontal, 10)
-        .padding(.vertical, 7)
-        .background(Color(nsColor: .controlBackgroundColor), in: Capsule())
     }
 
     private func refreshPermissions() {
@@ -594,6 +556,12 @@ struct ComputerUseOnboardingView: View {
     ) {
         accessibilityGranted = newAccessibilityGranted
         screenRecordingGranted = newScreenRecordingGranted
+
+        if newAccessibilityGranted, newScreenRecordingGranted {
+            isPermissionCompanionVisible = false
+            onCompleted()
+            return
+        }
 
         let activePermissionWasGranted =
             (step == .accessibility && newAccessibilityGranted)

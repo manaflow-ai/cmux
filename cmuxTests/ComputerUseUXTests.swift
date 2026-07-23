@@ -5,6 +5,7 @@ import CmuxSettings
 import CmuxTerminal
 import Darwin
 import Foundation
+import SwiftUI
 import Testing
 @testable import CmuxSettingsUI
 
@@ -258,26 +259,51 @@ struct ComputerUseUXTests {
         #expect(!first.styleMask.contains(.resizable))
     }
 
-    @Test @MainActor func onboardingContentCannotOutgrowItsAppKitWindow() throws {
-        let controller = ComputerUseOnboardingWindowController(
-            runtimeService: ComputerUseRuntimeService()
+    @Test @MainActor func onboardingContentCannotOutgrowItsAppKitWindow() async {
+        let expandedSize = CGSize(width: 596, height: 435)
+        let companionSize = CGSize(width: 680, height: 250)
+        let oversizedContent = Color.clear.frame(width: 680, height: 883)
+        let window = ComputerUseOnboardingWindow(
+            contentRect: NSRect(origin: .zero, size: expandedSize),
+            styleMask: [.titled, .closable, .fullSizeContentView],
+            backing: .buffered,
+            defer: false
         )
-        let window = controller.makeWindow()
+        let contentView = ComputerUseOnboardingHostingView(rootView: oversizedContent)
+        window.contentView = contentView
         defer { window.close() }
-        let contentView = try #require(window.contentView)
-        let expectedSize = CGSize(width: 596, height: 435)
+        window.center()
+        window.orderBack(nil)
+        #expect(window.isVisible)
 
-        // The live failure grew this fixed-size onboarding host to 883 points
-        // tall, then AppKit terminated cmux after its recursive constraint-pass
-        // limit was exceeded. Content must remain subordinate to the window.
-        contentView.setFrameSize(NSSize(width: 596, height: 883))
-        #expect(contentView.frame.size == expectedSize)
+        // The live failure repeatedly measured the host at 883 points high,
+        // then AppKit terminated cmux after its recursive constraint-pass limit
+        // was exceeded. Drive real visible SwiftUI/AppKit layout passes at both
+        // controller-owned onboarding sizes instead of invoking a frame setter.
+        for expectedSize in [expandedSize, companionSize, expandedSize] {
+            window.setAppKitOwnedFrame(
+                NSRect(origin: window.frame.origin, size: expectedSize),
+                display: true
+            )
+            if expectedSize == companionSize {
+                let placementFrame = NSRect(
+                    origin: NSPoint(x: window.frame.minX + 12, y: window.frame.minY + 12),
+                    size: expectedSize
+                )
+                window.setFrame(placementFrame, display: true, animate: false)
+                #expect(window.frame == placementFrame)
+            }
+            for _ in 0..<12 {
+                contentView.invalidateIntrinsicContentSize()
+                contentView.needsLayout = true
+                contentView.layoutSubtreeIfNeeded()
+                window.displayIfNeeded()
+                await Task.yield()
+            }
 
-        window.displayIfNeeded()
-        contentView.layoutSubtreeIfNeeded()
-
-        #expect(window.frame.size == expectedSize)
-        #expect(contentView.frame.size == expectedSize)
+            #expect(window.frame.size == expectedSize)
+            #expect(contentView.frame.size == expectedSize)
+        }
     }
 
     @Test func permissionRowsOfferManualSettingsRecoveryAfterNativeAttempt() {
@@ -365,6 +391,50 @@ struct ComputerUseUXTests {
         ))
         #expect(paths.installedHelperAppURL.path.hasSuffix(
             "/Library/Application Support/cmux/computer-use/helper/permission-owner-v2/cmux Computer Use.app"
+        ))
+    }
+
+    @Test func helperTerminationRecoveryIgnoresIntentionalAndForeignExits() {
+        let helperURL = URL(
+            fileURLWithPath: "/Users/tester/Library/Application Support/cmux/computer-use/helper/tag/cmux Computer Use.app"
+        )
+        let helperBundleIdentifier = "com.cmuxterm.app.debug.tag.computer-use"
+
+        #expect(ComputerUseRuntimeService.shouldRecoverAfterHelperTermination(
+            desiredEnabled: true,
+            acceptsNewLaunches: true,
+            wasExpected: false,
+            terminatedBundleIdentifier: helperBundleIdentifier,
+            terminatedBundleURL: helperURL,
+            helperBundleIdentifier: helperBundleIdentifier,
+            helperBundleURL: helperURL
+        ))
+        #expect(!ComputerUseRuntimeService.shouldRecoverAfterHelperTermination(
+            desiredEnabled: true,
+            acceptsNewLaunches: true,
+            wasExpected: true,
+            terminatedBundleIdentifier: helperBundleIdentifier,
+            terminatedBundleURL: helperURL,
+            helperBundleIdentifier: helperBundleIdentifier,
+            helperBundleURL: helperURL
+        ))
+        #expect(!ComputerUseRuntimeService.shouldRecoverAfterHelperTermination(
+            desiredEnabled: false,
+            acceptsNewLaunches: true,
+            wasExpected: false,
+            terminatedBundleIdentifier: helperBundleIdentifier,
+            terminatedBundleURL: helperURL,
+            helperBundleIdentifier: helperBundleIdentifier,
+            helperBundleURL: helperURL
+        ))
+        #expect(!ComputerUseRuntimeService.shouldRecoverAfterHelperTermination(
+            desiredEnabled: true,
+            acceptsNewLaunches: true,
+            wasExpected: false,
+            terminatedBundleIdentifier: "com.trycua.driver",
+            terminatedBundleURL: URL(fileURLWithPath: "/Applications/CuaDriver.app"),
+            helperBundleIdentifier: helperBundleIdentifier,
+            helperBundleURL: helperURL
         ))
     }
 

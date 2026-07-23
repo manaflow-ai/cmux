@@ -63,7 +63,7 @@ public struct ComputerUseSection: View {
                 }
                 SettingsCardDivider()
                 SettingsCardNote(
-                    String(localized: "settings.computerUse.enabled.note", defaultValue: "Computer use runs locally in a separate cmux Computer Use helper. Its permissions and restart lifecycle are independent from cmux. Driver telemetry and update checks are disabled.")
+                    String(localized: "settings.computerUse.enabled.note", defaultValue: "Computer Use runs locally in the bundled cmux Computer Use app. Its permissions and restart lifecycle are independent from cmux. Telemetry and update checks are disabled.")
                 )
             }
 
@@ -103,7 +103,7 @@ public struct ComputerUseSection: View {
             configurationReview: .settingsOnly,
             searchAnchorID: "setting:computerUse:permissions",
             String(localized: "settings.computerUse.permission.accessibility", defaultValue: "Accessibility"),
-            subtitle: String(localized: "settings.computerUse.permission.accessibility.subtitle", defaultValue: "Lets the local driver inspect and control app interfaces.")
+            subtitle: String(localized: "settings.computerUse.permission.accessibility.subtitle", defaultValue: "Lets cmux Computer Use inspect and control app interfaces.")
         ) {
             permissionControls(
                 granted: accessibilityGranted,
@@ -123,7 +123,7 @@ public struct ComputerUseSection: View {
             // "setting:computerUse:permissions" anchor; a duplicate SwiftUI id
             // breaks search scroll resolution.
             String(localized: "settings.computerUse.permission.screenRecording", defaultValue: "Screen Recording"),
-            subtitle: String(localized: "settings.computerUse.permission.screenRecording.subtitle", defaultValue: "Lets the local driver see app windows and screen content.")
+            subtitle: String(localized: "settings.computerUse.permission.screenRecording.subtitle", defaultValue: "Lets cmux Computer Use see app windows and screen content.")
         ) {
             permissionControls(
                 granted: screenRecordingGranted,

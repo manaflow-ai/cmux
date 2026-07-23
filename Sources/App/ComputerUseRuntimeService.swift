@@ -21,8 +21,12 @@ final class ComputerUseRuntimeService {
     private let transport: SocketTransport
     private var installedHelperURL: URL?
     private var installationTask: Task<URL?, Never>?
+    private var helperTerminationObservationTask: Task<Void, Never>?
+    private var recoveryTask: Task<Void, Never>?
     private var cachedStatus = ComputerUsePermissionStatus.missing
     private var acceptsNewLaunches = true
+    private var desiredEnabled = false
+    private var expectedTerminationProcessIdentifiers: Set<pid_t> = []
 
     init(
         bundle: Bundle = .main,
@@ -39,6 +43,12 @@ final class ComputerUseRuntimeService {
         } else {
             bundledHelperAppURL = nil
         }
+        startObservingHelperTermination()
+    }
+
+    deinit {
+        helperTerminationObservationTask?.cancel()
+        recoveryTask?.cancel()
     }
 
     var helperAppURL: URL? {
@@ -67,9 +77,12 @@ final class ComputerUseRuntimeService {
     /// Reconciles the helper daemon with the live `computerUse.enabled` setting.
     func setEnabled(_ newValue: Bool) async {
         guard acceptsNewLaunches, !Task.isCancelled else { return }
+        desiredEnabled = newValue
         if newValue {
             await startIfNeeded()
         } else {
+            recoveryTask?.cancel()
+            recoveryTask = nil
             await stopDaemon()
             try? FileManager.default.removeItem(at: paths.authenticationTokenFileURL)
             cachedStatus = .missing
@@ -197,6 +210,7 @@ final class ComputerUseRuntimeService {
 
     private func stopDaemon() async {
         guard await Self.isDaemonListening(paths: paths, transport: transport) else { return }
+        recordExpectedTerminationOfRunningHelper(at: installedHelperURL ?? paths.installedHelperAppURL)
         _ = await Self.sendDaemonRequest(
             ["method": "shutdown"],
             paths: paths,
@@ -258,9 +272,14 @@ final class ComputerUseRuntimeService {
     /// Synchronously prevents relaunch and stops the out-of-process helper.
     /// App termination cannot rely on an unstructured async task surviving exit.
     func stopForTermination() {
+        desiredEnabled = false
         acceptsNewLaunches = false
         installationTask?.cancel()
         installationTask = nil
+        helperTerminationObservationTask?.cancel()
+        helperTerminationObservationTask = nil
+        recoveryTask?.cancel()
+        recoveryTask = nil
         _ = Self.sendDaemonRequestSynchronously(
             ["method": "shutdown"],
             paths: paths,
@@ -287,9 +306,78 @@ final class ComputerUseRuntimeService {
             for application in NSRunningApplication.runningApplications(
                 withBundleIdentifier: bundleIdentifier
             ) where application.bundleURL?.standardizedFileURL == expectedURL {
+                expectedTerminationProcessIdentifiers.insert(application.processIdentifier)
                 _ = application.forceTerminate()
             }
         }
+    }
+
+    private func recordExpectedTerminationOfRunningHelper(at helperURL: URL) {
+        let expectedURL = helperURL.standardizedFileURL
+        guard let bundleIdentifier = Bundle(url: helperURL)?.bundleIdentifier else { return }
+        for application in NSRunningApplication.runningApplications(
+            withBundleIdentifier: bundleIdentifier
+        ) where application.bundleURL?.standardizedFileURL == expectedURL {
+            expectedTerminationProcessIdentifiers.insert(application.processIdentifier)
+        }
+    }
+
+    private func startObservingHelperTermination() {
+        helperTerminationObservationTask = Task { @MainActor [weak self] in
+            for await notification in NSWorkspace.shared.notificationCenter.notifications(
+                named: NSWorkspace.didTerminateApplicationNotification
+            ) {
+                guard !Task.isCancelled else { return }
+                guard let application = notification.userInfo?[NSWorkspace.applicationUserInfoKey]
+                    as? NSRunningApplication
+                else {
+                    continue
+                }
+                self?.helperDidTerminate(application)
+            }
+        }
+    }
+
+    private func helperDidTerminate(_ application: NSRunningApplication) {
+        let wasExpected = expectedTerminationProcessIdentifiers.remove(
+            application.processIdentifier
+        ) != nil
+        let helperURL = installedHelperURL ?? paths.installedHelperAppURL
+        guard Self.shouldRecoverAfterHelperTermination(
+            desiredEnabled: desiredEnabled,
+            acceptsNewLaunches: acceptsNewLaunches,
+            wasExpected: wasExpected,
+            terminatedBundleIdentifier: application.bundleIdentifier,
+            terminatedBundleURL: application.bundleURL,
+            helperBundleIdentifier: Bundle(url: helperURL)?.bundleIdentifier,
+            helperBundleURL: helperURL
+        ) else {
+            return
+        }
+        guard recoveryTask == nil else { return }
+        recoveryTask = Task { @MainActor [weak self] in
+            guard let self else { return }
+            await startIfNeeded()
+            recoveryTask = nil
+        }
+    }
+
+    static func shouldRecoverAfterHelperTermination(
+        desiredEnabled: Bool,
+        acceptsNewLaunches: Bool,
+        wasExpected: Bool,
+        terminatedBundleIdentifier: String?,
+        terminatedBundleURL: URL?,
+        helperBundleIdentifier: String?,
+        helperBundleURL: URL
+    ) -> Bool {
+        guard desiredEnabled, acceptsNewLaunches, !wasExpected else { return false }
+        guard let terminatedBundleIdentifier, let helperBundleIdentifier,
+              terminatedBundleIdentifier == helperBundleIdentifier
+        else {
+            return false
+        }
+        return terminatedBundleURL?.standardizedFileURL == helperBundleURL.standardizedFileURL
     }
 
     nonisolated private static func ensurePrivateDirectory(_ directoryURL: URL) -> Bool {

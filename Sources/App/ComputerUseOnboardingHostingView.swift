@@ -10,13 +10,6 @@ final class ComputerUseOnboardingHostingView: NSHostingView<AnyView> {
     override var safeAreaRect: NSRect { bounds }
     override var safeAreaLayoutGuide: NSLayoutGuide { zeroSafeAreaLayoutGuide }
 
-    /// `NSHostingView` otherwise asks its window to follow measured SwiftUI content
-    /// from this private AppKit callback. Onboarding has explicit window sizes, so
-    /// that feedback can recurse until AppKit terminates the process.
-    @objc private func windowDidLayout() {
-        // Window size belongs to ComputerUseOnboardingWindowController.
-    }
-
     override func setFrameSize(_ newSize: NSSize) {
         var size = newSize
         if let window {
@@ -47,5 +40,50 @@ final class ComputerUseOnboardingHostingView: NSHostingView<AnyView> {
     @available(*, unavailable)
     required init?(coder: NSCoder) {
         fatalError("init(coder:) has not been implemented")
+    }
+}
+
+/// Keeps onboarding window geometry subordinate to explicit controller transitions.
+@MainActor
+final class ComputerUseOnboardingWindow: NSWindow {
+    private var appKitOwnedSize: NSSize
+
+    override init(
+        contentRect: NSRect,
+        styleMask style: NSWindow.StyleMask,
+        backing backingStoreType: NSWindow.BackingStoreType,
+        defer flag: Bool
+    ) {
+        appKitOwnedSize = NSWindow.frameRect(
+            forContentRect: contentRect,
+            styleMask: style
+        ).size
+        super.init(
+            contentRect: contentRect,
+            styleMask: style,
+            backing: backingStoreType,
+            defer: flag
+        )
+    }
+
+    /// Applies one of the controller's fixed onboarding frames.
+    func setAppKitOwnedFrame(_ frameRect: NSRect, display flag: Bool) {
+        appKitOwnedSize = frameRect.size
+        super.setFrame(frameRect, display: flag)
+    }
+
+    /// Origin-only moves remain available for centering and permission-window
+    /// placement. Size changes must go through `setAppKitOwnedFrame` so hosted
+    /// SwiftUI measurements cannot feed back into the window during layout.
+    override func setFrame(_ frameRect: NSRect, display flag: Bool) {
+        guard frameRect.size != appKitOwnedSize else {
+            super.setFrame(frameRect, display: flag)
+            return
+        }
+
+        super.setFrame(
+            NSRect(origin: frame.origin, size: appKitOwnedSize),
+            display: flag
+        )
     }
 }
