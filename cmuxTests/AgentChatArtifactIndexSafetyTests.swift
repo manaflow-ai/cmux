@@ -58,6 +58,23 @@ struct AgentChatArtifactIndexSafetyTests {
         })
         #expect(artifacts[firstArtifactPath] == firstArtifactOffset)
         #expect(artifacts[secondArtifactPath] == secondArtifactOffset)
+
+        try FileManager.default.setAttributes(
+            [.modificationDate: Date(timeIntervalSinceNow: 60)],
+            ofItemAtPath: transcript.path
+        )
+        let metadataOnlySnapshot = try await index.snapshot(
+            sessionID: "session",
+            agentKind: .codex,
+            transcriptPath: transcript.path,
+            workingDirectory: root.path,
+            maximumFileBytes: 512
+        )
+        let metadataOnlyArtifacts = Dictionary(uniqueKeysWithValues:
+            metadataOnlySnapshot.artifacts.map { ($0.path, $0.lastReferencedSeq) }
+        )
+        #expect(metadataOnlyArtifacts[firstArtifactPath] == firstArtifactOffset)
+        #expect(metadataOnlyArtifacts[secondArtifactPath] == secondArtifactOffset)
     }
 
     @Test func canceledSnapshotStopsBeforeTranscriptParsing() async throws {

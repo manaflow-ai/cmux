@@ -188,6 +188,28 @@ struct ArtifactMutationAuthorizationTests {
         #expect(artifact.provenance == .referenced)
     }
 
+    @Test("Shell comments do not authorize artifact mutations")
+    func shellCommentRedirectionFailsClosed() throws {
+        let call = codexLine(type: "response_item", payload: [
+            "type": "function_call",
+            "name": "exec_command",
+            "arguments": #"{"cmd":"true # > /Users/me/private.json"}"#,
+            "call_id": "comment",
+        ])
+        let output = codexLine(type: "response_item", payload: [
+            "type": "function_call_output",
+            "call_id": "comment",
+            "output": "Process exited with code 0\nOutput:\n",
+        ])
+
+        let result = CodexTranscriptParser().parse(lines: [call, output], startingSeq: 0)
+        let artifact = try #require(
+            indexedArtifacts(result).first { $0.path == "/Users/me/private.json" }
+        )
+
+        #expect(artifact.provenance == .referenced)
+    }
+
     @Test("Generic output flags do not authorize copying an external file")
     func genericOutputFlagFailsClosed() throws {
         let call = codexLine(type: "response_item", payload: [

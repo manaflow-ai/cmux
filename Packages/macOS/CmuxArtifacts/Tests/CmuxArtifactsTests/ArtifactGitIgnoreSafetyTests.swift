@@ -18,7 +18,11 @@ struct ArtifactGitIgnoreSafetyTests {
             encoding: .utf8
         )
 
-        _ = try await LocalArtifactRepository().snapshot(projectRoot: project)
+        await #expect(
+            throws: ArtifactStoreError.gitPrivacyUnavailable(gitDirectory.path)
+        ) {
+            _ = try await LocalArtifactRepository().snapshot(projectRoot: project)
+        }
 
         #expect(!FileManager.default.fileExists(
             atPath: sandbox.appendingPathComponent("info/exclude", isDirectory: false).path
