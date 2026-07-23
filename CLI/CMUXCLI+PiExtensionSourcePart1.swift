@@ -410,5 +410,20 @@ function warn(ctx: PiExtensionContextSnapshot | null, message: string, details: 
 function cmuxExecutable(): string {
   return process.env.CMUX_PI_CMUX_BIN || "cmux";
 }
+
+type SurfaceDispatchState = "unknown" | "available" | "unavailable";
+
+interface PiFeedCommand {
+  readonly args: string[];
+  readonly cwd: string;
+  readonly input: string;
+  readonly context: PiExtensionContextSnapshot;
+  readonly terminal: boolean;
+}
+
+interface PiCommandCancellation {
+  cancelled: boolean;
+  cancel?: () => void;
+}
 """#
 }
