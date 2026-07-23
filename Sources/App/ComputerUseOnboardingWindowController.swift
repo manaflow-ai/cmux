@@ -38,12 +38,16 @@ final class ComputerUseOnboardingWindowController: NSObject, NSWindowDelegate {
     static func shouldPresentAutomatically(
         seen: Bool,
         featureEnabled: Bool,
+        permissionStatusIsKnown: Bool,
         accessibilityGranted: Bool,
         screenRecordingGranted: Bool
     ) -> Bool {
         featureEnabled
             && !seen
-            && !(accessibilityGranted && screenRecordingGranted)
+            && (
+                !permissionStatusIsKnown
+                    || !(accessibilityGranted && screenRecordingGranted)
+            )
     }
 
     var isVisible: Bool { window?.isVisible ?? false }

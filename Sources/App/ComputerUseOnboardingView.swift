@@ -19,6 +19,7 @@ struct ComputerUseOnboardingView: View {
     @State private var step: ComputerUseOnboardingStep
     @State private var accessibilityGranted = false
     @State private var screenRecordingGranted = false
+    @State private var permissionStatusIsKnown = false
     @State private var refreshInFlight = false
     @State private var permissionCheckArmed = false
     @State private var helperAppURL: URL?
@@ -288,6 +289,7 @@ struct ComputerUseOnboardingView: View {
     ) -> some View {
         let action = ComputerUsePermissionRowAction.resolve(
             granted: granted,
+            statusIsKnown: permissionStatusIsKnown,
             nativeRequestAttempted: nativePermissionRequestsAttempted.contains(permissionStep)
         )
         if action == .done {
@@ -306,6 +308,12 @@ struct ComputerUseOnboardingView: View {
                         ProgressView()
                             .controlSize(.small)
                             .tint(.white)
+                    } else if action == .checkStatus {
+                        Text(String(
+                            localized: "computerUse.onboarding.checkAgain",
+                            defaultValue: "Check Again"
+                        ))
+                        .font(.system(size: 11, weight: .semibold))
                     } else if action == .completeInSystemSettings {
                         Text(String(
                             localized: "computerUse.onboarding.completeInSystemSettings.short",
@@ -318,12 +326,13 @@ struct ComputerUseOnboardingView: View {
                     }
                 }
                 .frame(
-                    width: action == .completeInSystemSettings ? 157 : 57,
+                    width: action == .completeInSystemSettings ? 157
+                        : action == .checkStatus ? 92 : 57,
                     height: 24
                 )
                 .foregroundStyle(.white)
                 .background(
-                    action == .completeInSystemSettings
+                    action == .completeInSystemSettings || action == .checkStatus
                         ? Color.white.opacity(0.12)
                         : Color.accentColor,
                     in: Capsule()
@@ -451,6 +460,7 @@ struct ComputerUseOnboardingView: View {
             let status = await runtimeService.refreshHelperStatus()
             refreshHelperPresentation()
             applyPermissions(
+                statusIsKnown: runtimeService.permissionStatusIsKnown,
                 accessibilityGranted: status.accessibility,
                 screenRecordingGranted: status.screenRecording
             )
@@ -468,11 +478,13 @@ struct ComputerUseOnboardingView: View {
             _ = await runtimeService.ensureStandaloneHelperInstalled()
             refreshHelperPresentation()
             let status = await runtimeService.refreshHelperStatus()
+            permissionStatusIsKnown = runtimeService.permissionStatusIsKnown
             accessibilityGranted = status.accessibility
             screenRecordingGranted = status.screenRecording
 
             guard initialStep != Self.initialStep, !initialPermissionFlowStarted else { return }
             initialPermissionFlowStarted = true
+            guard permissionStatusIsKnown else { return }
 
             if initialStep == .accessibility, !status.accessibility {
                 beginPermissionSetup(for: .accessibility)
@@ -494,33 +506,42 @@ struct ComputerUseOnboardingView: View {
             granted: permissionStep == .accessibility
                 ? accessibilityGranted
                 : screenRecordingGranted,
+            statusIsKnown: permissionStatusIsKnown,
             nativeRequestAttempted: nativePermissionRequestsAttempted.contains(permissionStep)
         )
         if action == .completeInSystemSettings {
             presentPermissionCompanion(for: permissionStep)
             return
         }
-        guard action == .allow else { return }
+        guard action == .allow || action == .checkStatus else { return }
 
         step = permissionStep
         permissionSetupInFlight = true
         permissionCheckArmed = true
         Task { @MainActor in
-            let didRequestPermission = if permissionStep == .accessibility {
+            defer { permissionSetupInFlight = false }
+            let requestOutcome = if permissionStep == .accessibility {
                 await runtimeService.requestAccessibility()
             } else {
                 await runtimeService.requestScreenRecording()
             }
             nativePermissionRequestsAttempted.insert(permissionStep)
-            permissionSetupInFlight = false
 
-            guard !didRequestPermission else { return }
-
-            // The pinned helper normally raises the native TCC request itself.
-            // Its real app drag tile remains available as recovery when the
-            // request cannot be issued, and after any accepted-but-unfinished
-            // request through the row's "Complete in System Settings" action.
-            presentPermissionCompanion(for: permissionStep)
+            switch requestOutcome {
+            case .accepted, .unknown:
+                // The daemon acknowledges before invoking TCC, so the response
+                // is not prompt completion, and a transport timeout does not
+                // prove that the side effect failed. Observe status for a
+                // real app-activation or explicit Check Again event and never
+                // open System Settings over a potentially live native prompt.
+                // The row becomes "Complete in System Settings" for an explicit
+                // recovery action if the native request does not complete.
+                return
+            case .rejected:
+                // An explicit daemon rejection is the only response that proves
+                // no native prompt is pending, so automatic recovery is safe.
+                presentPermissionCompanion(for: permissionStep)
+            }
         }
     }
 
@@ -551,21 +572,26 @@ struct ComputerUseOnboardingView: View {
     }
 
     private func applyPermissions(
+        statusIsKnown: Bool,
         accessibilityGranted newAccessibilityGranted: Bool,
         screenRecordingGranted newScreenRecordingGranted: Bool
     ) {
+        permissionStatusIsKnown = statusIsKnown
         accessibilityGranted = newAccessibilityGranted
         screenRecordingGranted = newScreenRecordingGranted
 
-        if newAccessibilityGranted, newScreenRecordingGranted {
+        if statusIsKnown, newAccessibilityGranted, newScreenRecordingGranted {
             isPermissionCompanionVisible = false
             onCompleted()
             return
         }
 
         let activePermissionWasGranted =
-            (step == .accessibility && newAccessibilityGranted)
-            || (step == .screenRecording && newScreenRecordingGranted)
+            statusIsKnown
+                && (
+                    (step == .accessibility && newAccessibilityGranted)
+                        || (step == .screenRecording && newScreenRecordingGranted)
+                )
         if isPermissionCompanionVisible, activePermissionWasGranted {
             isPermissionCompanionVisible = false
             onExpandedRequested()

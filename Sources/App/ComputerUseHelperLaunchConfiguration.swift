@@ -5,7 +5,13 @@ struct ComputerUseHelperLaunchConfiguration: Equatable, Sendable {
     let arguments: [String]
     let environment: [String: String]
 
-    init(paths: ComputerUseRuntimePaths) {
+    init?(
+        paths: ComputerUseRuntimePaths,
+        rootProcessIdentity: AgentPIDProcessIdentity? = AgentPIDProcessIdentity(
+            pid: ProcessInfo.processInfo.processIdentifier
+        )
+    ) {
+        guard let rootProcessIdentity else { return nil }
         arguments = [
             "serve",
             "--socket",
@@ -29,6 +35,12 @@ struct ComputerUseHelperLaunchConfiguration: Equatable, Sendable {
             "CUA_DRIVER_CURSOR_LABEL": "cmux",
             "CUA_DRIVER_STATE_DIR": paths.stateDirectoryURL.path,
             ComputerUseRuntimePaths.authenticationTokenEnvironmentKey: paths.authenticationToken,
+            "CUA_DRIVER_SOCKET_AUTHORIZED_ROOT_PID":
+                String(rootProcessIdentity.pid),
+            "CUA_DRIVER_SOCKET_AUTHORIZED_ROOT_START_SECONDS":
+                String(rootProcessIdentity.startSeconds),
+            "CUA_DRIVER_SOCKET_AUTHORIZED_ROOT_START_MICROSECONDS":
+                String(rootProcessIdentity.startMicroseconds),
         ]
     }
 }

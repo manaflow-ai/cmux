@@ -23,6 +23,7 @@ struct AgentResumeLivenessTests {
             snapshot: SessionRestorableAgentSnapshot(kind: kind, sessionId: sessionId),
             lifecycle: nil,
             updatedAt: 0,
+            processLiveness: processIDs.isEmpty ? .exited : .running,
             processIDs: processIDs,
             agentProcessIDs: processIDs,
             agentProcessIdentities: [:]

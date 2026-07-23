@@ -2,6 +2,7 @@ import AppKit
 import CmuxControlSocket
 import Darwin
 import Foundation
+import Security
 
 /// The single app-side owner of the standalone Computer Use helper lifecycle.
 ///
@@ -16,6 +17,7 @@ final class ComputerUseRuntimeService {
 
     let paths: ComputerUseRuntimePaths
     let applicationName: String
+    let stateAuthenticationKey: Data
 
     private let bundledHelperAppURL: URL?
     private let transport: SocketTransport
@@ -26,10 +28,11 @@ final class ComputerUseRuntimeService {
     private var helperTerminationObservationTask: Task<Void, Never>?
     private var helperHealthTask: Task<Void, Never>?
     private var recoveryTask: Task<Void, Never>?
-    private var cachedStatus = ComputerUsePermissionStatus.missing
+    private var cachedStatus = ComputerUsePermissionStatus.unknown
     private var acceptsNewLaunches = true
     private var desiredEnabled = false
     private var runningHelperProcessIdentifier: pid_t?
+    private var runningHelperProcessIdentity: AgentPIDProcessIdentity?
     private var missedHelperHealthChecks = 0
     private var expectedTerminationProcessIdentifiers: Set<pid_t> = []
 
@@ -40,6 +43,7 @@ final class ComputerUseRuntimeService {
     ) {
         self.paths = paths
         self.transport = transport
+        stateAuthenticationKey = Self.makeStateAuthenticationKey()
         let nestedURL = bundle.bundleURL
             .appendingPathComponent("Contents/Library/\(Self.helperAppName).app", isDirectory: true)
         applicationName = Self.helperAppName
@@ -84,6 +88,10 @@ final class ComputerUseRuntimeService {
         (cachedStatus.accessibility, cachedStatus.screenRecording)
     }
 
+    var permissionStatusIsKnown: Bool {
+        cachedStatus.isKnown
+    }
+
     /// Reconciles the helper daemon with the live `computerUse.enabled` setting.
     func setEnabled(_ newValue: Bool) async {
         guard acceptsNewLaunches, !Task.isCancelled else { return }
@@ -102,7 +110,7 @@ final class ComputerUseRuntimeService {
                 _ = await self.stopDaemon()
             }
             try? FileManager.default.removeItem(at: paths.authenticationTokenFileURL)
-            cachedStatus = .missing
+            cachedStatus = .unknown
         }
     }
 
@@ -128,21 +136,20 @@ final class ComputerUseRuntimeService {
             guard self.acceptsNewLaunches, !Task.isCancelled else {
                 return self.status()
             }
-            if let status = await Self.queryPermissionStatus(
+            let latest = await Self.queryPermissionStatus(
                 paths: self.paths,
                 transport: self.transport
-            ) {
-                self.cachedStatus = status
-            }
+            )
+            self.cachedStatus = self.cachedStatus.applyingProbeResult(latest)
             return self.status()
         }
     }
 
-    func requestAccessibility() async -> Bool {
+    func requestAccessibility() async -> ComputerUsePermissionRequestOutcome {
         await requestSystemPermission(named: "accessibility")
     }
 
-    func requestScreenRecording() async -> Bool {
+    func requestScreenRecording() async -> ComputerUsePermissionRequestOutcome {
         await requestSystemPermission(named: "screen_recording")
     }
 
@@ -176,13 +183,19 @@ final class ComputerUseRuntimeService {
     ///
     /// This host-only daemon method is separate from the MCP tool registry, so an
     /// agent cannot bypass onboarding with `check_permissions { prompt: true }`.
-    private func requestSystemPermission(named name: String) async -> Bool {
-        guard acceptsNewLaunches, !Task.isCancelled else { return false }
-        return await serializeHelperLifecycle(cancelledResult: false) { [weak self] in
-            guard let self else { return false }
+    private func requestSystemPermission(
+        named name: String
+    ) async -> ComputerUsePermissionRequestOutcome {
+        guard acceptsNewLaunches, !Task.isCancelled else { return .rejected }
+        return await serializeHelperLifecycle(
+            cancelledResult: ComputerUsePermissionRequestOutcome.unknown
+        ) { [weak self] in
+            guard let self else { return .rejected }
             await self.startIfNeededWithinLifecycle()
-            guard self.acceptsNewLaunches, !Task.isCancelled else { return false }
-            return await Self.sendDaemonRequest(
+            guard self.acceptsNewLaunches, !Task.isCancelled else {
+                return .rejected
+            }
+            guard let response = await Self.sendDaemonRequest(
                 [
                     "method": "request_system_permission",
                     "name": name,
@@ -190,7 +203,16 @@ final class ComputerUseRuntimeService {
                 paths: self.paths,
                 transport: self.transport,
                 timeout: 5
-            )?["ok"] as? Bool == true
+            ) else {
+                // A side-effecting request can reach the helper even when its
+                // response times out. Treat transport ambiguity as pending so
+                // onboarding never opens Settings over a live native prompt.
+                return .unknown
+            }
+            guard let accepted = response["ok"] as? Bool else {
+                return .unknown
+            }
+            return accepted ? .accepted : .rejected
         }
     }
 
@@ -243,7 +265,6 @@ final class ComputerUseRuntimeService {
         }
 
         guard await stopDaemon(), acceptsNewLaunches, !Task.isCancelled else { return nil }
-        recoverStaleDaemonIfNeeded(helperURL: destination)
         let directory = paths.installedHelperDirectoryURL
         let installationTask = Task.detached(priority: .userInitiated) {
             Self.installHelper(
@@ -266,29 +287,77 @@ final class ComputerUseRuntimeService {
         guard acceptsNewLaunches, !Task.isCancelled else { return }
         guard let helperURL = await ensureStandaloneHelperInstalledWithinLifecycle() else { return }
         guard acceptsNewLaunches, !Task.isCancelled else { return }
-        guard !(await Self.isDaemonListening(paths: paths, transport: transport)) else { return }
+        if await Self.isDaemonListening(paths: paths, transport: transport),
+           await configureStateAuthentication() {
+            return
+        }
         guard acceptsNewLaunches, !Task.isCancelled else { return }
-        recoverStaleDaemonIfNeeded(helperURL: helperURL)
+        // A failed probe does not prove that an older helper exited. Stop and
+        // verify the exact installed helper before launching a replacement, or a
+        // wedged process can retain TCC privileges beside the new daemon.
+        guard await stopDaemon(), acceptsNewLaunches, !Task.isCancelled else { return }
         guard await launchHelper(at: helperURL) else { return }
         guard acceptsNewLaunches, !Task.isCancelled else { return }
-        _ = await Self.waitForDaemonStart(paths: paths, transport: transport)
+        guard await Self.waitForDaemonStart(paths: paths, transport: transport)
+        else {
+            return
+        }
+        guard await configureStateAuthentication() else {
+            _ = await stopDaemon()
+            return
+        }
     }
 
     private func stopDaemon() async -> Bool {
-        guard await Self.isDaemonListening(paths: paths, transport: transport) else { return true }
-        recordExpectedTerminationOfRunningHelper(at: installedHelperURL ?? paths.installedHelperAppURL)
-        _ = await Self.sendDaemonRequest(
-            ["method": "shutdown"],
-            paths: paths,
-            transport: transport,
-            timeout: 2
+        let helperURL = installedHelperURL ?? paths.installedHelperAppURL
+        var processIdentifiers = Set(
+            runningHelperApplications(at: helperURL).keys
         )
-        return await Self.waitForDaemonStop(paths: paths, transport: transport)
+        if let identity = runningHelperProcessIdentity,
+           AgentPIDProcessIdentity(pid: identity.pid) == identity {
+            processIdentifiers.insert(identity.pid)
+        }
+        if await Self.isDaemonListening(paths: paths, transport: transport) {
+            recordExpectedTerminationOfRunningHelper(at: helperURL)
+            _ = await Self.sendDaemonRequest(
+                ["method": "shutdown"],
+                paths: paths,
+                transport: transport,
+                timeout: 2
+            )
+            if await Self.waitForDaemonStop(paths: paths, transport: transport) {
+                if processIdentifiers.isEmpty {
+                    clearTrackedHelperProcess()
+                    return true
+                }
+                if await waitForHelperProcessesToExit(
+                    processIdentifiers,
+                    helperURL: helperURL,
+                    attempts: 10
+                ) {
+                    clearTrackedHelperProcess()
+                    return true
+                }
+            }
+        }
+
+        // A failed probe is ambiguous: the helper may be gone, or it may be
+        // wedged while retaining TCC privileges and the current bearer token.
+        // Fail closed by SIGKILLing only processes whose bundle URL exactly
+        // matches our independently installed helper, then revoke its socket.
+        let terminated = await terminateRunningHelperAndWait(at: helperURL)
+        try? FileManager.default.removeItem(at: paths.daemonSocketURL)
+        if terminated {
+            clearTrackedHelperProcess()
+        }
+        return terminated
     }
 
     private func launchHelper(at helperURL: URL) async -> Bool {
         guard acceptsNewLaunches, !Task.isCancelled, prepareRuntimeForLaunch() else { return false }
-        let launch = ComputerUseHelperLaunchConfiguration(paths: paths)
+        guard let launch = ComputerUseHelperLaunchConfiguration(paths: paths) else {
+            return false
+        }
 
         let configuration = NSWorkspace.OpenConfiguration()
         configuration.activates = false
@@ -298,20 +367,59 @@ final class ComputerUseRuntimeService {
         let launchedProcessIdentifier: pid_t? = await withCheckedContinuation { continuation in
             NSWorkspace.shared.openApplication(
                 at: helperURL,
-                configuration: configuration
-            ) { application, error in
-                continuation.resume(
-                    returning: error == nil ? application?.processIdentifier : nil
+                configuration: configuration,
+                completionHandler: Self.makeHelperLaunchCompletion(
+                    continuation: continuation
                 )
-            }
+            )
         }
         guard let launchedProcessIdentifier else { return false }
+        guard let launchedProcessIdentity = AgentPIDProcessIdentity(
+            pid: launchedProcessIdentifier
+        ) else {
+            if let application = NSRunningApplication(
+                processIdentifier: launchedProcessIdentifier
+            ) {
+                _ = application.forceTerminate()
+            }
+            return false
+        }
         runningHelperProcessIdentifier = launchedProcessIdentifier
+        runningHelperProcessIdentity = launchedProcessIdentity
         guard acceptsNewLaunches, !Task.isCancelled else {
             terminateRunningHelper(at: helperURL)
             return false
         }
         return true
+    }
+
+    private func configureStateAuthentication() async -> Bool {
+        guard
+            stateAuthenticationKey.count == 32,
+            let runningHelperProcessIdentity
+        else {
+            return false
+        }
+        guard let response = await Self.sendDaemonRequest(
+            [
+                "method": "configure_state_authentication",
+                "args": [
+                    "key_base64": stateAuthenticationKey.base64EncodedString(),
+                ],
+            ],
+            paths: paths,
+            transport: transport,
+            timeout: 2,
+            expectedPeerIdentity: runningHelperProcessIdentity
+        ) else {
+            return false
+        }
+        let configured =
+            response["ok"] as? Bool == true
+                && (response["result"] as? [String: Any])?[
+                    "state_authentication"
+                ] as? Bool == true
+        return configured
     }
 
     /// Creates and validates the private runtime before any helper launch.
@@ -365,32 +473,135 @@ final class ComputerUseRuntimeService {
             timeout: 0.25
         )
         terminateRunningHelper(at: installedHelperURL ?? paths.installedHelperAppURL)
+        clearTrackedHelperProcess()
         try? FileManager.default.removeItem(at: paths.daemonSocketURL)
         try? FileManager.default.removeItem(at: paths.authenticationTokenFileURL)
-        cachedStatus = .missing
+        cachedStatus = .unknown
     }
 
-    /// Removes a helper left by an older app process whose per-launch socket
-    /// credential no longer matches this process.
-    private func recoverStaleDaemonIfNeeded(helperURL: URL) {
-        guard FileManager.default.fileExists(atPath: paths.daemonSocketURL.path) else { return }
-        terminateRunningHelper(at: helperURL)
-        try? FileManager.default.removeItem(at: paths.daemonSocketURL)
-    }
-
-    private func terminateRunningHelper(at helperURL: URL) {
-        if let runningHelperProcessIdentifier {
-            expectedTerminationProcessIdentifiers.insert(runningHelperProcessIdentifier)
+    @discardableResult
+    private func terminateRunningHelper(at helperURL: URL) -> Set<pid_t> {
+        let applicationsByPID = runningHelperApplications(at: helperURL)
+        var processIdentifiers = Set(applicationsByPID.keys)
+        if let identity = runningHelperProcessIdentity,
+           AgentPIDProcessIdentity(pid: identity.pid) == identity {
+            processIdentifiers.insert(identity.pid)
+            expectedTerminationProcessIdentifiers.insert(identity.pid)
+            if applicationsByPID[identity.pid] == nil {
+                _ = Darwin.kill(identity.pid, SIGKILL)
+            }
         }
+        for application in applicationsByPID.values {
+            let pid = application.processIdentifier
+            expectedTerminationProcessIdentifiers.insert(pid)
+            guard !application.forceTerminate() else { continue }
+            if Darwin.kill(pid, SIGKILL) != 0, errno != ESRCH {
+                continue
+            }
+        }
+        return processIdentifiers
+    }
+
+    private func runningHelperApplications(
+        at helperURL: URL
+    ) -> [pid_t: NSRunningApplication] {
         let expectedURL = helperURL.standardizedFileURL
+        var applicationsByPID: [pid_t: NSRunningApplication] = [:]
+        if let runningHelperProcessIdentifier,
+           let application = NSRunningApplication(
+               processIdentifier: runningHelperProcessIdentifier
+           ),
+           application.bundleURL?.standardizedFileURL == expectedURL {
+            applicationsByPID[runningHelperProcessIdentifier] = application
+        }
         if let bundleIdentifier = Bundle(url: helperURL)?.bundleIdentifier {
             for application in NSRunningApplication.runningApplications(
                 withBundleIdentifier: bundleIdentifier
             ) where application.bundleURL?.standardizedFileURL == expectedURL {
-                expectedTerminationProcessIdentifiers.insert(application.processIdentifier)
-                _ = application.forceTerminate()
+                applicationsByPID[application.processIdentifier] = application
             }
         }
+        return applicationsByPID
+    }
+
+    private func terminateRunningHelperAndWait(at helperURL: URL) async -> Bool {
+        let processIdentifiers = terminateRunningHelper(at: helperURL)
+        guard !processIdentifiers.isEmpty else { return true }
+        if await waitForHelperProcessesToExit(
+            processIdentifiers,
+            helperURL: helperURL,
+            attempts: 10
+        ) {
+            return true
+        }
+
+        // `forceTerminate()` reports whether AppKit accepted the request, not
+        // whether the process actually exited. Revalidate each pid's exact
+        // tracked generation or bundle URL before escalating so pid reuse
+        // cannot kill an unrelated application.
+        let expectedURL = helperURL.standardizedFileURL
+        var signalSucceeded = true
+        for pid in processIdentifiers {
+            if let identity = runningHelperProcessIdentity,
+               identity.pid == pid,
+               AgentPIDProcessIdentity(pid: pid) == identity {
+                if Darwin.kill(pid, SIGKILL) != 0, errno != ESRCH {
+                    signalSucceeded = false
+                }
+                continue
+            }
+            guard
+                let application = NSRunningApplication(processIdentifier: pid),
+                application.bundleURL?.standardizedFileURL == expectedURL
+            else {
+                continue
+            }
+            if Darwin.kill(pid, SIGKILL) != 0, errno != ESRCH {
+                signalSucceeded = false
+            }
+        }
+        guard signalSucceeded else { return false }
+        return await waitForHelperProcessesToExit(
+            processIdentifiers,
+            helperURL: helperURL,
+            attempts: 20
+        )
+    }
+
+    private func waitForHelperProcessesToExit(
+        _ processIdentifiers: Set<pid_t>,
+        helperURL: URL,
+        attempts: Int
+    ) async -> Bool {
+        let expectedURL = helperURL.standardizedFileURL
+        let clock = ContinuousClock()
+        for attempt in 0 ... attempts {
+            let stillRunning = processIdentifiers.contains { pid in
+                if let identity = runningHelperProcessIdentity,
+                   identity.pid == pid,
+                   AgentPIDProcessIdentity(pid: pid) == identity {
+                    return true
+                }
+                guard let application = NSRunningApplication(processIdentifier: pid) else {
+                    return false
+                }
+                return application.bundleURL?.standardizedFileURL == expectedURL
+                    && !application.isTerminated
+            }
+            if !stillRunning { return true }
+            guard attempt < attempts, !Task.isCancelled else { return false }
+            do {
+                try await clock.sleep(for: .milliseconds(50))
+            } catch {
+                return false
+            }
+        }
+        return false
+    }
+
+    private func clearTrackedHelperProcess() {
+        runningHelperProcessIdentifier = nil
+        runningHelperProcessIdentity = nil
     }
 
     private func recordExpectedTerminationOfRunningHelper(at helperURL: URL) {
@@ -425,7 +636,7 @@ final class ComputerUseRuntimeService {
     private func helperDidTerminate(_ application: NSRunningApplication) {
         let isTrackedHelperProcess = application.processIdentifier == runningHelperProcessIdentifier
         if isTrackedHelperProcess {
-            runningHelperProcessIdentifier = nil
+            clearTrackedHelperProcess()
         }
         let wasExpected = expectedTerminationProcessIdentifiers.remove(
             application.processIdentifier
@@ -493,7 +704,7 @@ final class ComputerUseRuntimeService {
         }
     }
 
-    static func shouldRecoverAfterHelperTermination(
+    nonisolated static func shouldRecoverAfterHelperTermination(
         desiredEnabled: Bool,
         acceptsNewLaunches: Bool,
         wasExpected: Bool,
@@ -513,7 +724,7 @@ final class ComputerUseRuntimeService {
         return terminatedBundleURL?.standardizedFileURL == helperBundleURL.standardizedFileURL
     }
 
-    static func shouldScheduleHelperRecovery(
+    nonisolated static func shouldScheduleHelperRecovery(
         desiredEnabled: Bool,
         acceptsNewLaunches: Bool,
         daemonListening: Bool,
@@ -602,10 +813,33 @@ final class ComputerUseRuntimeService {
             NSWorkspace.shared.open(
                 [url],
                 withApplicationAt: systemSettingsURL,
-                configuration: configuration
-            ) { application, error in
-                continuation.resume(returning: application != nil && error == nil)
-            }
+                configuration: configuration,
+                completionHandler: Self.makeWorkspaceOpenCompletion(
+                    continuation: continuation
+                )
+            )
+        }
+    }
+
+    /// LaunchServices invokes this completion on a concurrent queue. Construct
+    /// it outside `MainActor` so Swift 6 does not install an actor-isolation
+    /// precondition before the continuation can be resumed.
+    nonisolated private static func makeHelperLaunchCompletion(
+        continuation: CheckedContinuation<pid_t?, Never>
+    ) -> @Sendable (NSRunningApplication?, Error?) -> Void {
+        { application, error in
+            continuation.resume(
+                returning: error == nil ? application?.processIdentifier : nil
+            )
+        }
+    }
+
+    /// LaunchServices invokes this completion on a concurrent queue.
+    nonisolated private static func makeWorkspaceOpenCompletion(
+        continuation: CheckedContinuation<Bool, Never>
+    ) -> @Sendable (NSRunningApplication?, Error?) -> Void {
+        { application, error in
+            continuation.resume(returning: application != nil && error == nil)
         }
     }
 
@@ -652,6 +886,20 @@ final class ComputerUseRuntimeService {
         }
     }
 
+    nonisolated private static func makeStateAuthenticationKey() -> Data {
+        var bytes = [UInt8](repeating: 0, count: 32)
+        if SecRandomCopyBytes(kSecRandomDefault, bytes.count, &bytes)
+            == errSecSuccess
+        {
+            return Data(bytes)
+        }
+        var generator = SystemRandomNumberGenerator()
+        for index in bytes.indices {
+            bytes[index] = UInt8.random(in: .min ... .max, using: &generator)
+        }
+        return Data(bytes)
+    }
+
     nonisolated private static func isDaemonListening(
         paths: ComputerUseRuntimePaths,
         transport: SocketTransport
@@ -685,24 +933,23 @@ final class ComputerUseRuntimeService {
         else {
             return nil
         }
-        return ComputerUsePermissionStatus(
-            accessibility: structured["accessibility"] as? Bool ?? false,
-            screenRecording: structured["screen_recording"] as? Bool ?? false
-        )
+        return ComputerUsePermissionStatus(structuredContent: structured)
     }
 
     nonisolated private static func sendDaemonRequest(
         _ request: [String: Any],
         paths: ComputerUseRuntimePaths,
         transport: SocketTransport,
-        timeout: TimeInterval
+        timeout: TimeInterval,
+        expectedPeerIdentity: AgentPIDProcessIdentity? = nil
     ) async -> [String: Any]? {
         await Task.detached(priority: .userInitiated) {
             sendDaemonRequestSynchronously(
                 request,
                 paths: paths,
                 transport: transport,
-                timeout: timeout
+                timeout: timeout,
+                expectedPeerIdentity: expectedPeerIdentity
             )
         }.value
     }
@@ -711,7 +958,8 @@ final class ComputerUseRuntimeService {
         _ request: [String: Any],
         paths: ComputerUseRuntimePaths,
         transport: SocketTransport,
-        timeout: TimeInterval
+        timeout: TimeInterval,
+        expectedPeerIdentity: AgentPIDProcessIdentity? = nil
     ) -> [String: Any]? {
         let authenticatedRequest: [String: Any] = [
             "auth_token": paths.authenticationToken,
@@ -726,8 +974,25 @@ final class ComputerUseRuntimeService {
         }
         let socketPath = paths.daemonSocketURL.path
         guard
-            let response = transport.probeCommand(line, at: socketPath, timeout: timeout),
-            let data = response.data(using: .utf8),
+            let probe = transport.probeCommandWithPeerProcessID(
+                line,
+                at: socketPath,
+                timeout: timeout,
+                validatingPeer: { peerProcessID in
+                    expectedPeerIdentity.map { expected in
+                        guard
+                            peerProcessID == expected.pid,
+                            let current = AgentPIDProcessIdentity(
+                                pid: expected.pid
+                            )
+                        else {
+                            return false
+                        }
+                        return current == expected
+                    } ?? true
+                }
+            ),
+            let data = probe.response.data(using: .utf8),
             let object = try? JSONSerialization.jsonObject(with: data) as? [String: Any]
         else {
             return nil

@@ -96,7 +96,40 @@ final class ComputerUseUXCoordinator {
         // controller, so background/view mode cannot drift between entrypoints.
         let watchTarget = ComputerUseWatchTargetController(
             stateDirectoryURL: stateDirectoryURL,
-            featureEnabled: featureEnabled
+            featureEnabled: featureEnabled,
+            liveDriverSessions: { [liveAgentIndex] in
+                (liveAgentIndex.index?.liveEntries() ?? []).reduce(into: [
+                    String: ComputerUseLiveDriverSession
+                ]()) { sessions, pair in
+                    let driverSessionID =
+                        ComputerUseSessionScope.driverSessionID(
+                            surfaceID: pair.panelKey.panelId
+                        )
+                    sessions[driverSessionID] = ComputerUseLiveDriverSession(
+                        workspaceID: pair.panelKey.workspaceId,
+                        surfaceID: pair.panelKey.panelId,
+                        entry: pair.entry
+                    )
+                }
+            },
+            currentLiveDriverSession: { [liveAgentIndex] scannedSession in
+                guard
+                    let entry = liveAgentIndex.index?.exactEntry(
+                        workspaceId: scannedSession.workspaceID,
+                        panelId: scannedSession.surfaceID
+                    )
+                else {
+                    return nil
+                }
+                return ComputerUseLiveDriverSession(
+                    workspaceID: scannedSession.workspaceID,
+                    surfaceID: scannedSession.surfaceID,
+                    entry: entry
+                )
+            },
+            feed: ComputerUseWatchTargetFeed(
+                authenticationKey: runtimeService.stateAuthenticationKey
+            )
         )
 
         let snapshotStore = ComputerUseMenuBarSnapshotStore(
@@ -110,21 +143,51 @@ final class ComputerUseUXCoordinator {
         )
         menuBarController = ComputerUseMenuBarController(
             snapshotStore: snapshotStore,
-            isRunningInBackground: {
-                watchTarget.isRunningInBackground
+            isRunningInBackground: { driverSessionID, logicalSessionID in
+                watchTarget.isRunningInBackground(
+                    driverSessionID: driverSessionID,
+                    logicalSessionID: logicalSessionID
+                )
             },
-            onContinueInBackground: { workspaceID, surfaceID in
-                watchTarget.continueInBackground()
+            onContinueInBackground: {
+                workspaceID,
+                surfaceID,
+                driverSessionID,
+                logicalSessionID,
+                stateWriterIdentity in
+                guard watchTarget.continueInBackground(
+                    driverSessionID: driverSessionID,
+                    logicalSessionID: logicalSessionID,
+                    stateWriterIdentity: stateWriterIdentity
+                ) else {
+                    return false
+                }
                 onFocusTerminal(workspaceID, surfaceID)
+                return true
             },
-            canViewComputerUse: { identity in
-                watchTarget.canViewTarget(identity)
+            canViewComputerUse: {
+                identity,
+                driverSessionID,
+                logicalSessionID,
+                stateWriterIdentity in
+                watchTarget.canViewTarget(
+                    identity,
+                    driverSessionID: driverSessionID,
+                    logicalSessionID: logicalSessionID,
+                    stateWriterIdentity: stateWriterIdentity
+                )
             },
-            onViewComputerUse: { identity in
-                _ = watchTarget.viewTarget(identity)
-            },
-            onNoLiveSessions: {
-                watchTarget.resetPresentationMode()
+            onViewComputerUse: {
+                identity,
+                driverSessionID,
+                logicalSessionID,
+                stateWriterIdentity in
+                watchTarget.viewTarget(
+                    identity,
+                    driverSessionID: driverSessionID,
+                    logicalSessionID: logicalSessionID,
+                    stateWriterIdentity: stateWriterIdentity
+                )
             }
         )
 
@@ -189,6 +252,7 @@ final class ComputerUseUXCoordinator {
             let shouldPresent = ComputerUseOnboardingWindowController.shouldPresentAutomatically(
                 seen: userDefaults.bool(forKey: ComputerUseOnboardingWindowController.seenDefaultsKey),
                 featureEnabled: featureEnabled(),
+                permissionStatusIsKnown: runtimeService.permissionStatusIsKnown,
                 accessibilityGranted: status.accessibility,
                 screenRecordingGranted: status.screenRecording
             )

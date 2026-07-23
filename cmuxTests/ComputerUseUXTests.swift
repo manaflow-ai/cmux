@@ -3,6 +3,7 @@ import CMUXAgentLaunch
 import CmuxFoundation
 import CmuxSettings
 import CmuxTerminal
+import CryptoKit
 import Darwin
 import Foundation
 import SwiftUI
@@ -17,10 +18,17 @@ import Testing
 
 @Suite("Computer Use UX")
 struct ComputerUseUXTests {
+    private static let stateAuthenticationKey = Data(
+        repeating: 0x5a,
+        count: 32
+    )
+
     @Test func missingStateDirectoryProducesEmptyScan() {
         let missingDirectory = FileManager.default.temporaryDirectory
             .appendingPathComponent(UUID().uuidString, isDirectory: true)
-        let result = ComputerUseStateRepository().scan(
+        let result = ComputerUseStateRepository(
+            authenticationKey: Self.stateAuthenticationKey
+        ).scan(
             directoryURL: missingDirectory,
             sessions: [],
             now: Date(timeIntervalSince1970: 2_000_000_000)
@@ -32,7 +40,9 @@ struct ComputerUseUXTests {
     @Test func malformedStateFileIsIgnored() throws {
         try withStateDirectory { directory in
             try Data("not-json".utf8).write(to: directory.appendingPathComponent("broken.json"))
-            let result = ComputerUseStateRepository().scan(
+            let result = ComputerUseStateRepository(
+                authenticationKey: Self.stateAuthenticationKey
+            ).scan(
                 directoryURL: directory,
                 sessions: [ComputerUseSessionScope(id: "row", driverSessionID: "session-1")],
                 now: Date(timeIntervalSince1970: 2_000_000_000)
@@ -52,7 +62,10 @@ struct ComputerUseUXTests {
                 targetPID: 84,
                 lastActionAt: now.addingTimeInterval(-3_601)
             )
-            let result = ComputerUseStateRepository(recentActivityInterval: 3_600).scan(
+            let result = ComputerUseStateRepository(
+                recentActivityInterval: 3_600,
+                authenticationKey: Self.stateAuthenticationKey
+            ).scan(
                 directoryURL: directory,
                 sessions: [ComputerUseSessionScope(id: "row", driverSessionID: "session-1")],
                 now: now
@@ -80,7 +93,9 @@ struct ComputerUseUXTests {
                 targetPID: 198,
                 lastActionAt: now.addingTimeInterval(-1)
             )
-            let result = ComputerUseStateRepository().scan(
+            let result = ComputerUseStateRepository(
+                authenticationKey: Self.stateAuthenticationKey
+            ).scan(
                 directoryURL: directory,
                 sessions: [ComputerUseSessionScope(
                     id: "row",
@@ -121,9 +136,9 @@ struct ComputerUseUXTests {
                     sessionID: "session-older",
                     workspaceID: UUID(),
                     surfaceID: olderSurfaceID,
-                    rootProcessIDs: [],
+                    rootProcessIdentities: [],
                     targetIdentity: nil,
-                    stateWriterPID: nil
+                    stateWriterIdentity: nil
                 ),
                 ComputerUseMenuBarRow(
                     id: "newer",
@@ -131,12 +146,14 @@ struct ComputerUseUXTests {
                     sessionID: "session-newer",
                     workspaceID: UUID(),
                     surfaceID: newerSurfaceID,
-                    rootProcessIDs: [],
+                    rootProcessIdentities: [],
                     targetIdentity: nil,
-                    stateWriterPID: nil
+                    stateWriterIdentity: nil
                 ),
             ]
-            let scan = ComputerUseStateRepository().scan(
+            let scan = ComputerUseStateRepository(
+                authenticationKey: Self.stateAuthenticationKey
+            ).scan(
                 directoryURL: directory,
                 sessions: rows.map {
                     ComputerUseSessionScope(
@@ -155,17 +172,26 @@ struct ComputerUseUXTests {
     @MainActor
     @Test func onboardingAutomaticallySurfacesOnlyOnceWhenPermissionsAreMissing() {
         #expect(!ComputerUseOnboardingWindowController.shouldPresentAutomatically(
-            seen: true, featureEnabled: true, accessibilityGranted: false, screenRecordingGranted: true))
+            seen: true, featureEnabled: true, permissionStatusIsKnown: true,
+            accessibilityGranted: false, screenRecordingGranted: true))
         #expect(!ComputerUseOnboardingWindowController.shouldPresentAutomatically(
-            seen: true, featureEnabled: true, accessibilityGranted: true, screenRecordingGranted: false))
+            seen: true, featureEnabled: true, permissionStatusIsKnown: false,
+            accessibilityGranted: true, screenRecordingGranted: true))
         #expect(ComputerUseOnboardingWindowController.shouldPresentAutomatically(
-            seen: false, featureEnabled: true, accessibilityGranted: false, screenRecordingGranted: true))
+            seen: false, featureEnabled: true, permissionStatusIsKnown: true,
+            accessibilityGranted: false, screenRecordingGranted: true))
         #expect(ComputerUseOnboardingWindowController.shouldPresentAutomatically(
-            seen: false, featureEnabled: true, accessibilityGranted: true, screenRecordingGranted: false))
+            seen: false, featureEnabled: true, permissionStatusIsKnown: true,
+            accessibilityGranted: true, screenRecordingGranted: false))
+        #expect(ComputerUseOnboardingWindowController.shouldPresentAutomatically(
+            seen: false, featureEnabled: true, permissionStatusIsKnown: false,
+            accessibilityGranted: true, screenRecordingGranted: true))
         #expect(!ComputerUseOnboardingWindowController.shouldPresentAutomatically(
-            seen: false, featureEnabled: true, accessibilityGranted: true, screenRecordingGranted: true))
+            seen: false, featureEnabled: true, permissionStatusIsKnown: true,
+            accessibilityGranted: true, screenRecordingGranted: true))
         #expect(!ComputerUseOnboardingWindowController.shouldPresentAutomatically(
-            seen: false, featureEnabled: false, accessibilityGranted: false, screenRecordingGranted: false))
+            seen: false, featureEnabled: false, permissionStatusIsKnown: false,
+            accessibilityGranted: false, screenRecordingGranted: false))
     }
 
     @Test @MainActor func onlyRealComputerUseToolHooksTriggerOnboarding() {
@@ -197,14 +223,24 @@ struct ComputerUseUXTests {
     @Test func parsesRealDriverStateFileShape() throws {
         // The helper daemon owns driver_pid while the kernel-authenticated MCP
         // proxy that issued the action is recorded independently as writer_pid.
+        // This MAC is also asserted by the Rust driver test, making the
+        // canonical cross-language state contract explicit.
         let json = """
-        {"driver_pid":71790,"writer_pid":71600,"session":null,"target_app":"Calculator",\
+        {"driver_pid":71790,"writer_pid":71600,\
+        "writer_start_seconds":1700000000,"writer_start_microseconds":123456,\
+        "session":null,"target_app":"Calculator",\
         "target_pid":71241,"target_window_id":87692,\
-        "last_action_at":"2026-07-14T01:09:37.745752Z","schema":2}
+        "last_action_at":"2026-07-14T01:09:37.745752Z","schema":4,\
+        "state_authentication_code":"dba2b7a606e510db5908f7c77bcdf2224c7a9764569fee7ad32aa3926928a460"}
         """
-        let state = try #require(ComputerUseDriverState(data: Data(json.utf8)))
+        let state = try #require(ComputerUseDriverState(
+            data: Data(json.utf8),
+            authenticationKey: Self.stateAuthenticationKey
+        ))
         #expect(state.pid == 71790)
         #expect(state.writerPID == 71600)
+        #expect(state.writerProcessIdentity.startSeconds == 1_700_000_000)
+        #expect(state.writerProcessIdentity.startMicroseconds == 123_456)
         #expect(state.session == nil)
         #expect(state.targetApp == "Calculator")
         #expect(state.targetPID == 71241)
@@ -212,35 +248,143 @@ struct ComputerUseUXTests {
         #expect(abs(state.lastActionAt.timeIntervalSince1970 - 1_783_991_377.745) < 0.01)
     }
 
-    @Test func stateEligibilityUsesAuthenticatedWriterInsteadOfHelperDaemon() throws {
-        let currentPID = Int(ProcessInfo.processInfo.processIdentifier)
-        let json = """
-        {"driver_pid":2,"writer_pid":\(currentPID),"session":"surface-a",\
-        "target_app":"Calculator","target_pid":\(currentPID),"target_window_id":1,\
-        "last_action_at":"2026-07-14T01:09:37.745752Z","schema":2}
-        """
-        let state = try #require(ComputerUseDriverState(data: Data(json.utf8)))
+    @Test func stateAuthenticationRejectsAgentForgedActivity() throws {
+        let data = try Self.authenticatedStateData(
+            driverPID: 2,
+            writerPID: 3,
+            writerStartSeconds: 1_700_000_000,
+            writerStartMicroseconds: 123_456,
+            session: "surface-a",
+            targetApp: "Calculator",
+            targetPID: 4,
+            targetWindowID: 1,
+            lastActionAt: "2026-07-14T01:09:37.745752Z"
+        )
+        var object = try #require(
+            JSONSerialization.jsonObject(with: data) as? [String: Any]
+        )
+        object["target_pid"] = 99
+        let forged = try JSONSerialization.data(withJSONObject: object)
 
-        #expect(state.belongsToProcessTree(rootProcessIDs: [currentPID]))
+        #expect(ComputerUseDriverState(
+            data: forged,
+            authenticationKey: Self.stateAuthenticationKey
+        ) == nil)
+    }
+
+    @Test func stateEligibilityUsesAuthenticatedWriterInsteadOfHelperDaemon() throws {
+        let currentIdentity = try #require(AgentPIDProcessIdentity(
+            pid: ProcessInfo.processInfo.processIdentifier
+        ))
+        let data = try Self.authenticatedStateData(
+            driverPID: 2,
+            writerPID: Int(currentIdentity.pid),
+            writerStartSeconds: currentIdentity.startSeconds,
+            writerStartMicroseconds: currentIdentity.startMicroseconds,
+            session: "surface-a",
+            targetApp: "Calculator",
+            targetPID: Int(currentIdentity.pid),
+            targetWindowID: 1,
+            lastActionAt: "2026-07-14T01:09:37.745752Z"
+        )
+        let state = try #require(ComputerUseDriverState(
+            data: data,
+            authenticationKey: Self.stateAuthenticationKey
+        ))
+
+        #expect(state.belongsToProcessTree(
+            rootProcessIdentities: [currentIdentity]
+        ))
     }
 
     @Test func stateEligibilityRejectsReusedWriterPIDGeneration() throws {
         let currentIdentity = try #require(AgentPIDProcessIdentity(
             pid: ProcessInfo.processInfo.processIdentifier
         ))
-        let json = """
-        {"driver_pid":2,"writer_pid":\(currentIdentity.pid),\
-        "writer_start_seconds":\(currentIdentity.startSeconds + 1),\
-        "writer_start_microseconds":\(currentIdentity.startMicroseconds),\
-        "session":"surface-a","target_app":"Calculator",\
-        "target_pid":\(currentIdentity.pid),"target_window_id":1,\
-        "last_action_at":"2026-07-14T01:09:37.745752Z","schema":3}
-        """
-        let state = try #require(ComputerUseDriverState(data: Data(json.utf8)))
+        let data = try Self.authenticatedStateData(
+            driverPID: 2,
+            writerPID: Int(currentIdentity.pid),
+            writerStartSeconds: currentIdentity.startSeconds + 1,
+            writerStartMicroseconds: currentIdentity.startMicroseconds,
+            session: "surface-a",
+            targetApp: "Calculator",
+            targetPID: Int(currentIdentity.pid),
+            targetWindowID: 1,
+            lastActionAt: "2026-07-14T01:09:37.745752Z"
+        )
+        let state = try #require(ComputerUseDriverState(
+            data: data,
+            authenticationKey: Self.stateAuthenticationKey
+        ))
 
         #expect(!state.belongsToProcessTree(
             rootProcessIdentities: [currentIdentity]
         ))
+    }
+
+    @Test func automaticActivationRevalidatesCurrentLogicalSession() throws {
+        let currentIdentity = try #require(AgentPIDProcessIdentity(
+            pid: ProcessInfo.processInfo.processIdentifier
+        ))
+        let data = try Self.authenticatedStateData(
+            driverPID: 2,
+            writerPID: Int(currentIdentity.pid),
+            writerStartSeconds: currentIdentity.startSeconds,
+            writerStartMicroseconds: currentIdentity.startMicroseconds,
+            session: "surface-a",
+            targetApp: "Calculator",
+            targetPID: Int(currentIdentity.pid),
+            targetWindowID: 1,
+            lastActionAt: "2026-07-14T01:09:37.745752Z"
+        )
+        let state = try #require(ComputerUseDriverState(
+            data: data,
+            authenticationKey: Self.stateAuthenticationKey
+        ))
+        let workspaceID = UUID()
+        let surfaceID = UUID()
+        let scanned = ComputerUseLiveDriverSession(
+            workspaceID: workspaceID,
+            surfaceID: surfaceID,
+            logicalSessionID: "logical-a",
+            rootProcessIdentities: [currentIdentity]
+        )
+
+        #expect(scanned.authorizes(
+            state: state,
+            currentSession: scanned
+        ))
+        #expect(!scanned.authorizes(
+            state: state,
+            currentSession: ComputerUseLiveDriverSession(
+                workspaceID: workspaceID,
+                surfaceID: surfaceID,
+                logicalSessionID: "replacement",
+                rootProcessIdentities: [currentIdentity]
+            )
+        ))
+    }
+
+    @Test func liveDriverSessionRejectsGenerationlessPIDFallback() throws {
+        let processID = Int(ProcessInfo.processInfo.processIdentifier)
+        let entry = RestorableAgentSessionIndex.Entry(
+            snapshot: SessionRestorableAgentSnapshot(
+                kind: .codex,
+                sessionId: "generationless-session"
+            ),
+            lifecycle: .running,
+            updatedAt: Date().timeIntervalSince1970,
+            processLiveness: .running,
+            processIDs: [processID],
+            agentProcessIDs: [processID],
+            agentProcessIdentities: [:]
+        )
+
+        #expect(ComputerUseLiveDriverSession(
+            workspaceID: UUID(),
+            surfaceID: UUID(),
+            entry: entry
+        ) == nil)
     }
 
     @Test func computerUseSettingsNavigationRawValuesStayInSync() {
@@ -346,16 +490,24 @@ struct ComputerUseUXTests {
     @Test func permissionRowsOfferManualSettingsRecoveryAfterNativeAttempt() {
         #expect(ComputerUsePermissionRowAction.resolve(
             granted: false,
+            statusIsKnown: true,
             nativeRequestAttempted: false
         ) == .allow)
         #expect(ComputerUsePermissionRowAction.resolve(
             granted: false,
+            statusIsKnown: true,
             nativeRequestAttempted: true
         ) == .completeInSystemSettings)
         #expect(ComputerUsePermissionRowAction.resolve(
             granted: true,
+            statusIsKnown: true,
             nativeRequestAttempted: true
         ) == .done)
+        #expect(ComputerUsePermissionRowAction.resolve(
+            granted: true,
+            statusIsKnown: false,
+            nativeRequestAttempted: true
+        ) == .checkStatus)
     }
 
     @Test @MainActor func firstUseOnboardingStartsAtOverview() {
@@ -422,12 +574,13 @@ struct ComputerUseUXTests {
             authenticationToken: "test-token"
         )
 
-        #expect(paths.daemonSocketURL.path == "/tmp/cmux-cua-501/permission-owner-v2/cua.sock")
+        #expect(paths.scope == "permission-owner-v2-b557c76d99865947")
+        #expect(paths.daemonSocketURL.path == "/tmp/cmux-cua-501/\(paths.scope)/cua.sock")
         #expect(paths.stateDirectoryURL.path.hasSuffix(
-            "/Library/Application Support/cmux/computer-use/runtime/permission-owner-v2/state"
+            "/Library/Application Support/cmux/computer-use/runtime/\(paths.scope)/state"
         ))
         #expect(paths.installedHelperAppURL.path.hasSuffix(
-            "/Library/Application Support/cmux/computer-use/helper/permission-owner-v2/cmux Computer Use.app"
+            "/Library/Application Support/cmux/computer-use/helper/\(paths.scope)/cmux Computer Use.app"
         ))
     }
 
@@ -589,14 +742,22 @@ struct ComputerUseUXTests {
         #expect(getenv(ComputerUseRuntimePaths.authenticationTokenEnvironmentKey) == nil)
     }
 
-    @Test func helperLaunchConfigurationIsQuietAndExternallyOwned() {
+    @Test func helperLaunchConfigurationIsQuietAndExternallyOwned() throws {
         let paths = ComputerUseRuntimePaths(
             homeDirectoryURL: URL(fileURLWithPath: "/Users/tester"),
             environment: [:],
             bundleIdentifier: nil,
             authenticationToken: "test-auth-token"
         )
-        let configuration = ComputerUseHelperLaunchConfiguration(paths: paths)
+        let rootIdentity = AgentPIDProcessIdentity(
+            pid: 42,
+            startSeconds: 1_700_000_000,
+            startMicroseconds: 123_456
+        )
+        let configuration = try #require(ComputerUseHelperLaunchConfiguration(
+            paths: paths,
+            rootProcessIdentity: rootIdentity
+        ))
 
         #expect(configuration.arguments == [
             "serve",
@@ -613,7 +774,11 @@ struct ComputerUseUXTests {
         #expect(configuration.environment["CUA_DRIVER_RS_RESPONSIBILITY_DISCLAIMED"] == "1")
         #expect(configuration.environment["CUA_DRIVER_SOCKET_AUTH_TOKEN"] == "test-auth-token")
         #expect(configuration.environment["CUA_DRIVER_SOCKET_AUTHORIZED_ROOT_PID"]
-            == String(ProcessInfo.processInfo.processIdentifier))
+            == "42")
+        #expect(configuration.environment["CUA_DRIVER_SOCKET_AUTHORIZED_ROOT_START_SECONDS"]
+            == "1700000000")
+        #expect(configuration.environment["CUA_DRIVER_SOCKET_AUTHORIZED_ROOT_START_MICROSECONDS"]
+            == "123456")
     }
 
     @Test func menuBarRequiresAComputerUsePairedSession() {
@@ -649,7 +814,9 @@ struct ComputerUseUXTests {
         let catalog = SettingCatalog()
         let store = ComputerUseMenuBarSnapshotStore(
             liveAgentIndex: sharedIndex,
-            stateRepository: ComputerUseStateRepository(),
+            stateRepository: ComputerUseStateRepository(
+                authenticationKey: Self.stateAuthenticationKey
+            ),
             stateDirectoryURL: root.appendingPathComponent("state", isDirectory: true),
             configStore: JSONConfigStore(fileURL: root.appendingPathComponent("cmux.json")),
             showInMenuBarKey: catalog.computerUse.showInMenuBar,
@@ -823,7 +990,7 @@ struct ComputerUseUXTests {
         #expect(newTarget.targetPIDToActivate == 200)
     }
 
-    @Test @MainActor
+    @Test(.timeLimit(.minutes(1))) @MainActor
     func computerUseFilesystemCallbacksHopSafelyToMainActor() async throws {
         let directory = FileManager.default.temporaryDirectory
             .appendingPathComponent(
@@ -836,11 +1003,12 @@ struct ComputerUseUXTests {
         )
         defer { try? FileManager.default.removeItem(at: directory) }
 
-        let target = try #require(
-            NSRunningApplication.runningApplications(
-                withBundleIdentifier: "com.apple.finder"
-            ).first
-        )
+        let target = try #require(NSWorkspace.shared.runningApplications.first {
+            !$0.isTerminated
+                && $0.bundleIdentifier?.isEmpty == false
+                && $0.localizedName?.isEmpty == false
+                && $0.launchDate != nil
+        })
         let targetName = try #require(target.localizedName)
         let targetLaunchDate = try #require(target.launchDate)
         let writerIdentity = try #require(AgentPIDProcessIdentity(
@@ -875,6 +1043,12 @@ struct ComputerUseUXTests {
             lastActionAt: formatter.string(from: actionDate)
         )
 
+        let activationEvents = AsyncStream.makeStream(
+            of: pid_t.self,
+            bufferingPolicy: .bufferingNewest(1)
+        )
+        defer { activationEvents.continuation.finish() }
+
         try await confirmation(
             "background directory callback activated the target once"
         ) { activated in
@@ -887,9 +1061,9 @@ struct ComputerUseUXTests {
                     authenticationKey: Self.stateAuthenticationKey
                 ),
                 activate: { application in
-                    if application.processIdentifier == target.processIdentifier {
-                        activated()
-                    }
+                    activationEvents.continuation.yield(
+                        application.processIdentifier
+                    )
                 }
             )
             controller.start()
@@ -899,29 +1073,66 @@ struct ComputerUseUXTests {
                 to: directory.appendingPathComponent("watcher.json"),
                 options: .atomic
             )
-            try await ContinuousClock().sleep(for: .seconds(1))
+            for await processIdentifier in activationEvents.stream {
+                guard processIdentifier == target.processIdentifier else {
+                    continue
+                }
+                activated()
+                activationEvents.continuation.finish()
+                break
+            }
         }
     }
 
     @Test @MainActor func computerUsePresentationModeResetsAfterLiveSessionsEnd() throws {
         let logicalSessionA = "logical-session-a"
         let logicalSessionB = "logical-session-b"
-        let currentPID = Int(ProcessInfo.processInfo.processIdentifier)
-        var liveDriverSessions = [
+        let workspaceIDA = UUID()
+        let workspaceIDB = UUID()
+        let surfaceIDA = UUID()
+        let surfaceIDB = UUID()
+        let currentIdentity = try #require(AgentPIDProcessIdentity(
+            pid: ProcessInfo.processInfo.processIdentifier
+        ))
+        let liveDriverSessions = [
             "session-a": ComputerUseLiveDriverSession(
+                workspaceID: workspaceIDA,
+                surfaceID: surfaceIDA,
                 logicalSessionID: logicalSessionA,
-                rootProcessIDs: [currentPID]
+                rootProcessIdentities: [currentIdentity]
             ),
             "session-b": ComputerUseLiveDriverSession(
+                workspaceID: workspaceIDB,
+                surfaceID: surfaceIDB,
                 logicalSessionID: logicalSessionB,
-                rootProcessIDs: [currentPID]
+                rootProcessIdentities: [currentIdentity]
             ),
         ]
+        let currentSessionsBySurfaceID = Dictionary(
+            uniqueKeysWithValues: liveDriverSessions.values.map {
+                ($0.surfaceID, $0)
+            }
+        )
+        var fullLookupCount = 0
+        var keyedLookupCount = 0
         let controller = ComputerUseWatchTargetController(
             stateDirectoryURL: FileManager.default.temporaryDirectory,
-            featureEnabled: { true },
-            liveDriverSessions: { liveDriverSessions }
+            featureEnabled: { false },
+            liveDriverSessions: {
+                fullLookupCount += 1
+                return liveDriverSessions
+            },
+            currentLiveDriverSession: { scannedSession in
+                keyedLookupCount += 1
+                return currentSessionsBySurfaceID[scannedSession.surfaceID]
+            },
+            feed: ComputerUseWatchTargetFeed(
+                authenticationKey: Self.stateAuthenticationKey
+            )
         )
+        controller.start()
+        defer { controller.stop() }
+        #expect(fullLookupCount == 1)
 
         #expect(!controller.isRunningInBackground(
             driverSessionID: "session-a",
@@ -930,7 +1141,7 @@ struct ComputerUseUXTests {
         #expect(controller.continueInBackground(
             driverSessionID: "session-a",
             logicalSessionID: logicalSessionA,
-            stateWriterPID: currentPID
+            stateWriterIdentity: currentIdentity
         ))
         #expect(controller.isRunningInBackground(
             driverSessionID: "session-a",
@@ -943,7 +1154,7 @@ struct ComputerUseUXTests {
         #expect(controller.continueInBackground(
             driverSessionID: "session-b",
             logicalSessionID: logicalSessionB,
-            stateWriterPID: currentPID
+            stateWriterIdentity: currentIdentity
         ))
         #expect(controller.isRunningInBackground(
             driverSessionID: "session-a",
@@ -953,16 +1164,31 @@ struct ComputerUseUXTests {
             driverSessionID: "session-b",
             logicalSessionID: logicalSessionB
         ))
+        #expect(fullLookupCount == 1)
+        #expect(keyedLookupCount > 0)
 
-        liveDriverSessions["session-a"] =
-            ComputerUseLiveDriverSession(
-                logicalSessionID: "replacement-session",
-                rootProcessIDs: [currentPID]
+        let staleController = ComputerUseWatchTargetController(
+            stateDirectoryURL: FileManager.default.temporaryDirectory,
+            featureEnabled: { false },
+            liveDriverSessions: { liveDriverSessions },
+            currentLiveDriverSession: { scannedSession in
+                ComputerUseLiveDriverSession(
+                    workspaceID: scannedSession.workspaceID,
+                    surfaceID: scannedSession.surfaceID,
+                    logicalSessionID: "replacement-session",
+                    rootProcessIdentities: [currentIdentity]
+                )
+            },
+            feed: ComputerUseWatchTargetFeed(
+                authenticationKey: Self.stateAuthenticationKey
             )
-        #expect(!controller.continueInBackground(
+        )
+        staleController.start()
+        defer { staleController.stop() }
+        #expect(!staleController.continueInBackground(
             driverSessionID: "session-a",
             logicalSessionID: logicalSessionA,
-            stateWriterPID: currentPID
+            stateWriterIdentity: currentIdentity
         ))
     }
 
@@ -1006,7 +1232,9 @@ struct ComputerUseUXTests {
                 to: directory.appendingPathComponent("11.cursor.json"),
                 driverPID: 11, visible: true, x: 1, y: 1, updatedAt: now
             )
-            let selected = ComputerUseWatchTargetFeed().scan(
+            let selected = ComputerUseWatchTargetFeed(
+                authenticationKey: Self.stateAuthenticationKey
+            ).scan(
                 directoryURL: directory,
                 driverSessionIDs: ["session-a", "session-b"],
                 now: now
@@ -1024,11 +1252,20 @@ struct ComputerUseUXTests {
                 to: directory.appendingPathComponent("stale.json"),
                 pid: 10, session: "session-a", targetPID: 500, lastActionAt: now.addingTimeInterval(-30)
             )
-            let feed = ComputerUseWatchTargetFeed(freshnessInterval: 5)
+            let feed = ComputerUseWatchTargetFeed(
+                freshnessInterval: 5,
+                authenticationKey: Self.stateAuthenticationKey
+            )
             #expect(feed.scan(
                 directoryURL: directory,
                 driverSessionIDs: ["session-a"],
-                now: now
+                now: now,
+                isStateEligible: { _, _ in
+                    Issue.record(
+                        "Stale states must be rejected before process ancestry validation"
+                    )
+                    return true
+                }
             ).isEmpty)
         }
     }
@@ -1049,7 +1286,9 @@ struct ComputerUseUXTests {
                 )
             }
 
-            #expect(ComputerUseWatchTargetFeed().scan(
+            #expect(ComputerUseWatchTargetFeed(
+                authenticationKey: Self.stateAuthenticationKey
+            ).scan(
                 directoryURL: directory,
                 driverSessionIDs: ["session-a"],
                 now: now
@@ -1073,7 +1312,9 @@ struct ComputerUseUXTests {
                 )
             }
 
-            let scan = ComputerUseStateRepository().scan(
+            let scan = ComputerUseStateRepository(
+                authenticationKey: Self.stateAuthenticationKey
+            ).scan(
                 directoryURL: directory,
                 sessions: [
                     ComputerUseSessionScope(
@@ -1099,6 +1340,26 @@ struct ComputerUseUXTests {
         #expect(ComputerUsePermissionStatus(structuredContent: [
             "accessibility": true,
         ]) == nil)
+
+        let knownGranted = ComputerUsePermissionStatus(
+            accessibility: true,
+            screenRecording: true,
+            isKnown: true
+        )
+        let temporarilyUnavailable = knownGranted.applyingProbeResult(nil)
+        #expect(!temporarilyUnavailable.isKnown)
+        #expect(temporarilyUnavailable.accessibility)
+        #expect(temporarilyUnavailable.screenRecording)
+
+        let knownDenied = ComputerUsePermissionStatus(
+            accessibility: false,
+            screenRecording: false,
+            isKnown: true
+        )
+        #expect(
+            temporarilyUnavailable.applyingProbeResult(knownDenied)
+                == knownDenied
+        )
     }
 
     // MARK: - Cursor overlay
@@ -1246,21 +1507,92 @@ struct ComputerUseUXTests {
         targetPID: Int,
         lastActionAt: Date
     ) throws {
-        // Mirrors the authenticated driver's schema-2 shape.
+        // Mirrors the authenticated driver's schema-4 shape.
         let formatter = ISO8601DateFormatter()
         formatter.formatOptions = [.withInternetDateTime, .withFractionalSeconds]
-        let object: [String: Any] = [
-            "driver_pid": pid,
-            "writer_pid": pid,
-            "session": session as Any? ?? NSNull(),
-            "target_app": "Example App",
-            "target_pid": targetPID,
-            "target_window_id": 7,
-            "last_action_at": formatter.string(from: lastActionAt),
-            "schema": 2,
-        ]
-        let data = try JSONSerialization.data(withJSONObject: object)
+        let data = try Self.authenticatedStateData(
+            driverPID: pid,
+            writerPID: pid,
+            writerStartSeconds: 1_700_000_000,
+            writerStartMicroseconds: 123_456,
+            session: session,
+            targetApp: "Example App",
+            targetPID: targetPID,
+            targetWindowID: 7,
+            lastActionAt: formatter.string(from: lastActionAt)
+        )
         try data.write(to: url, options: .atomic)
+    }
+
+    private static func authenticatedStateData(
+        driverPID: Int,
+        writerPID: Int,
+        writerStartSeconds: Int64,
+        writerStartMicroseconds: Int64,
+        session: String?,
+        targetApp: String,
+        targetPID: Int,
+        targetWindowID: Int,
+        lastActionAt: String
+    ) throws -> Data {
+        var message = Data("cmux-computer-use-state-v1\0".utf8)
+        appendInteger(driverPID, to: &message)
+        appendInteger(writerPID, to: &message)
+        appendInteger(writerStartSeconds, to: &message)
+        appendInteger(writerStartMicroseconds, to: &message)
+        appendOptionalString(session, to: &message)
+        appendOptionalString(targetApp, to: &message)
+        appendInteger(targetPID, to: &message)
+        appendInteger(targetWindowID, to: &message)
+        appendString(lastActionAt, to: &message)
+        appendInteger(4, to: &message)
+        let code = HMAC<SHA256>.authenticationCode(
+            for: message,
+            using: SymmetricKey(data: stateAuthenticationKey)
+        )
+        let object: [String: Any] = [
+            "driver_pid": driverPID,
+            "writer_pid": writerPID,
+            "writer_start_seconds": writerStartSeconds,
+            "writer_start_microseconds": writerStartMicroseconds,
+            "session": session as Any? ?? NSNull(),
+            "target_app": targetApp,
+            "target_pid": targetPID,
+            "target_window_id": targetWindowID,
+            "last_action_at": lastActionAt,
+            "schema": 4,
+            "state_authentication_code": code.map {
+                String(format: "%02x", $0)
+            }.joined(),
+        ]
+        return try JSONSerialization.data(withJSONObject: object)
+    }
+
+    private static func appendInteger<T: BinaryInteger>(
+        _ value: T,
+        to message: inout Data
+    ) {
+        message.append(contentsOf: String(value).utf8)
+        message.append(0)
+    }
+
+    private static func appendString(_ value: String, to message: inout Data) {
+        let bytes = Data(value.utf8)
+        message.append(contentsOf: String(bytes.count).utf8)
+        message.append(UInt8(ascii: ":"))
+        message.append(bytes)
+        message.append(0)
+    }
+
+    private static func appendOptionalString(
+        _ value: String?,
+        to message: inout Data
+    ) {
+        guard let value else {
+            message.append(contentsOf: [UInt8(ascii: "-"), 0])
+            return
+        }
+        appendString(value, to: &message)
     }
 
     private func runShim(

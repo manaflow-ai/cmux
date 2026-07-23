@@ -125,6 +125,10 @@ final class HostSettingsActions: SettingsHostActions {
         computerUseRuntimeService.status().screenRecording
     }
 
+    func computerUsePermissionStatusIsKnown() -> Bool {
+        computerUseRuntimeService.permissionStatusIsKnown
+    }
+
     func requestComputerUseAccessibility() {
         runComputerUseOnboardingAction(.accessibility)
     }

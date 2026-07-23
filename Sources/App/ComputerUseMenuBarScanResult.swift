@@ -7,17 +7,33 @@ struct ComputerUseMenuBarScanResult: Sendable {
 
     /// The live agent row whose matching driver state was updated most recently.
     var mostRecentlyActiveRow: ComputerUseMenuBarRow? {
+        mostRecentlyActive { _, _ in true }?.row
+    }
+
+    func mostRecentlyActive(
+        where isEligible: (
+            ComputerUseMenuBarRow,
+            ComputerUseDriverState
+        ) -> Bool
+    ) -> (row: ComputerUseMenuBarRow, state: ComputerUseDriverState)? {
         rows
-            .compactMap { row -> (row: ComputerUseMenuBarRow, lastActionAt: Date)? in
-                guard let state = scan.newestStateByScopeID[row.id] else { return nil }
-                return (row, state.lastActionAt)
+            .compactMap { row -> (
+                row: ComputerUseMenuBarRow,
+                state: ComputerUseDriverState
+            )? in
+                guard
+                    let state = scan.newestStateByScopeID[row.id],
+                    isEligible(row, state)
+                else {
+                    return nil
+                }
+                return (row, state)
             }
             .max { lhs, rhs in
-                if lhs.lastActionAt == rhs.lastActionAt {
+                if lhs.state.lastActionAt == rhs.state.lastActionAt {
                     return lhs.row.id < rhs.row.id
                 }
-                return lhs.lastActionAt < rhs.lastActionAt
-            }?
-            .row
+                return lhs.state.lastActionAt < rhs.state.lastActionAt
+            }
     }
 }

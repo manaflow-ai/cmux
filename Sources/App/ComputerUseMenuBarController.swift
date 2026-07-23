@@ -9,11 +9,13 @@ final class ComputerUseMenuBarController: NSObject, NSMenuDelegate {
     private let statusItem: NSStatusItem
     private let menu = NSMenu(title: String(localized: "computerUse.menu.title", defaultValue: "cmux Computer Use"))
     private let snapshotStore: ComputerUseMenuBarSnapshotStore
-    private let isRunningInBackground: () -> Bool
-    private let onContinueInBackground: (UUID, UUID) -> Void
-    private let canViewComputerUse: (ComputerUseTargetIdentity) -> Bool
-    private let onViewComputerUse: (ComputerUseTargetIdentity) -> Void
-    private let onNoLiveSessions: () -> Void
+    private let isRunningInBackground: (String, String) -> Bool
+    private let onContinueInBackground:
+        (UUID, UUID, String, String, AgentPIDProcessIdentity) -> Bool
+    private let canViewComputerUse:
+        (ComputerUseTargetIdentity, String, String, AgentPIDProcessIdentity) -> Bool
+    private let onViewComputerUse:
+        (ComputerUseTargetIdentity, String, String, AgentPIDProcessIdentity) -> Bool
     private var snapshotCancellable: AnyCancellable?
     private var currentSnapshot = ComputerUseMenuBarSnapshot.hidden
     private var hasRenderedSnapshot = false
@@ -23,18 +25,19 @@ final class ComputerUseMenuBarController: NSObject, NSMenuDelegate {
 
     init(
         snapshotStore: ComputerUseMenuBarSnapshotStore,
-        isRunningInBackground: @escaping () -> Bool,
-        onContinueInBackground: @escaping (UUID, UUID) -> Void,
-        canViewComputerUse: @escaping (ComputerUseTargetIdentity) -> Bool,
-        onViewComputerUse: @escaping (ComputerUseTargetIdentity) -> Void,
-        onNoLiveSessions: @escaping () -> Void
+        isRunningInBackground: @escaping (String, String) -> Bool,
+        onContinueInBackground:
+            @escaping (UUID, UUID, String, String, AgentPIDProcessIdentity) -> Bool,
+        canViewComputerUse:
+            @escaping (ComputerUseTargetIdentity, String, String, AgentPIDProcessIdentity) -> Bool,
+        onViewComputerUse:
+            @escaping (ComputerUseTargetIdentity, String, String, AgentPIDProcessIdentity) -> Bool
     ) {
         self.snapshotStore = snapshotStore
         self.isRunningInBackground = isRunningInBackground
         self.onContinueInBackground = onContinueInBackground
         self.canViewComputerUse = canViewComputerUse
         self.onViewComputerUse = onViewComputerUse
-        self.onNoLiveSessions = onNoLiveSessions
         statusItem = NSStatusBar.system.statusItem(withLength: NSStatusItem.variableLength)
         super.init()
 
@@ -82,12 +85,8 @@ final class ComputerUseMenuBarController: NSObject, NSMenuDelegate {
 
     private func refreshUI(snapshot: ComputerUseMenuBarSnapshot) {
         guard !hasRenderedSnapshot || snapshot != currentSnapshot else { return }
-        let hadLiveSession = !currentSnapshot.rows.isEmpty
         currentSnapshot = snapshot
         hasRenderedSnapshot = true
-        if hadLiveSession, snapshot.rows.isEmpty {
-            onNoLiveSessions()
-        }
         statusItem.isVisible = snapshot.shouldShowStatusItem
         updateStatusItemAccessibility()
 
@@ -121,7 +120,13 @@ final class ComputerUseMenuBarController: NSObject, NSMenuDelegate {
         menu.addItem(sessionItem)
         menu.addItem(NSMenuItem.separator())
 
-        let runningInBackground = isRunningInBackground()
+        let driverSessionID = ComputerUseSessionScope.driverSessionID(
+            surfaceID: row.surfaceID
+        )
+        let runningInBackground = isRunningInBackground(
+            driverSessionID,
+            row.id
+        )
         let viewTitle = String(localized: "computerUse.menu.viewComputerUse", defaultValue: "View Computer Use")
         let viewItem = NSMenuItem(
             title: viewTitle,
@@ -130,9 +135,23 @@ final class ComputerUseMenuBarController: NSObject, NSMenuDelegate {
         )
         viewItem.target = self
         viewItem.image = NSImage(systemSymbolName: "eye", accessibilityDescription: viewTitle)
-        if let identity = row.targetIdentity, canViewComputerUse(identity) {
+        if
+            let identity = row.targetIdentity,
+            let stateWriterIdentity = row.stateWriterIdentity,
+            canViewComputerUse(
+                identity,
+                driverSessionID,
+                row.id,
+                stateWriterIdentity
+            )
+        {
             viewActions[ObjectIdentifier(viewItem)] = { [onViewComputerUse] in
-                onViewComputerUse(identity)
+                _ = onViewComputerUse(
+                    identity,
+                    driverSessionID,
+                    row.id,
+                    stateWriterIdentity
+                )
             }
             viewItem.state = runningInBackground ? .off : .on
         } else {
@@ -156,14 +175,38 @@ final class ComputerUseMenuBarController: NSObject, NSMenuDelegate {
         backgroundItem.target = self
         backgroundItem.image = NSImage(systemSymbolName: "terminal", accessibilityDescription: backgroundTitle)
         backgroundItem.state = runningInBackground ? .on : .off
-        backgroundActions[ObjectIdentifier(backgroundItem)] = { [onContinueInBackground] in
-            onContinueInBackground(row.workspaceID, row.surfaceID)
+        if let stateWriterIdentity = row.stateWriterIdentity {
+            backgroundActions[ObjectIdentifier(backgroundItem)] = {
+                [onContinueInBackground] in
+                _ = onContinueInBackground(
+                    row.workspaceID,
+                    row.surfaceID,
+                    driverSessionID,
+                    row.id,
+                    stateWriterIdentity
+                )
+            }
+        } else {
+            backgroundItem.isEnabled = false
         }
         menu.addItem(backgroundItem)
     }
 
     private func updateStatusItemAccessibility() {
-        let label = isRunningInBackground()
+        let activeSession = currentSnapshot.rows.first.map {
+            (
+                driverSessionID: ComputerUseSessionScope.driverSessionID(
+                    surfaceID: $0.surfaceID
+                ),
+                logicalSessionID: $0.id
+            )
+        }
+        let label = activeSession.map {
+            isRunningInBackground(
+                $0.driverSessionID,
+                $0.logicalSessionID
+            )
+        } == true
             ? String(
                 localized: "computerUse.menu.backgroundStatus",
                 defaultValue: "cmux Computer Use — Running in Background"

@@ -9,6 +9,7 @@ public struct ComputerUseSection: View {
     @State private var showInMenuBar: JSONValueModel<Bool>
     @State private var accessibilityGranted: Bool
     @State private var screenRecordingGranted: Bool
+    @State private var permissionStatusIsKnown: Bool
     @State private var permissionCheckArmed = false
     @State private var permissionRefreshRequest = 0
 
@@ -40,6 +41,7 @@ public struct ComputerUseSection: View {
         ))
         _accessibilityGranted = State(initialValue: hostActions.computerUseAccessibilityGranted())
         _screenRecordingGranted = State(initialValue: hostActions.computerUseScreenRecordingGranted())
+        _permissionStatusIsKnown = State(initialValue: hostActions.computerUsePermissionStatusIsKnown())
     }
 
     public var body: some View {
@@ -111,6 +113,7 @@ public struct ComputerUseSection: View {
         ) {
             permissionControls(
                 granted: accessibilityGranted,
+                statusIsKnown: permissionStatusIsKnown,
                 request: {
                     beginPermissionFlow(hostActions.requestComputerUseAccessibility)
                 },
@@ -133,6 +136,7 @@ public struct ComputerUseSection: View {
         ) {
             permissionControls(
                 granted: screenRecordingGranted,
+                statusIsKnown: permissionStatusIsKnown,
                 request: {
                     beginPermissionFlow(hostActions.requestComputerUseScreenRecording)
                 },
@@ -145,22 +149,25 @@ public struct ComputerUseSection: View {
 
     private func permissionControls(
         granted: Bool,
+        statusIsKnown: Bool,
         request: @escaping () -> Void,
         openSettings: @escaping () -> Void
     ) -> some View {
         HStack(spacing: 8) {
             Circle()
-                .fill(granted ? Color.green : Color.orange)
+                .fill(statusIsKnown ? (granted ? Color.green : Color.orange) : Color.secondary)
                 .frame(width: 8, height: 8)
                 .accessibilityHidden(true)
             Text(
-                granted
+                !statusIsKnown
+                    ? String(localized: "settings.computerUse.permission.unknown", defaultValue: "Unknown")
+                    : granted
                     ? String(localized: "settings.computerUse.permission.granted", defaultValue: "Granted")
                     : String(localized: "settings.computerUse.permission.notGranted", defaultValue: "Not Granted")
             )
             .foregroundStyle(.secondary)
             Button(String(localized: "settings.computerUse.permission.grant", defaultValue: "Grant…"), action: request)
-                .disabled(granted)
+                .disabled(statusIsKnown && granted)
             Button(
                 String(
                     localized: "settings.computerUse.permission.openSystemSettings",
@@ -177,6 +184,7 @@ public struct ComputerUseSection: View {
         guard !Task.isCancelled else { return }
         accessibilityGranted = hostActions.computerUseAccessibilityGranted()
         screenRecordingGranted = hostActions.computerUseScreenRecordingGranted()
+        permissionStatusIsKnown = hostActions.computerUsePermissionStatusIsKnown()
     }
 
     private func beginPermissionFlow(_ action: () -> Void) {

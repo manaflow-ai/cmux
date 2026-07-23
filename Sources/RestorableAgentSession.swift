@@ -978,8 +978,17 @@ struct RestorableAgentSessionIndex: Sendable {
     private let entriesByPanel: [PanelKey: Entry]
     private let entriesByPanelId: [UUID: Entry]
 
+    /// Returns only an entry whose workspace and panel identities both match.
+    ///
+    /// Security-sensitive callers use this instead of the compatibility lookup
+    /// below so a stale workspace cannot adopt a same-panel entry from another
+    /// restored workspace.
+    func exactEntry(workspaceId: UUID, panelId: UUID) -> Entry? {
+        entriesByPanel[PanelKey(workspaceId: workspaceId, panelId: panelId)]
+    }
+
     func entry(workspaceId: UUID, panelId: UUID) -> Entry? {
-        entriesByPanel[PanelKey(workspaceId: workspaceId, panelId: panelId)] ?? entriesByPanelId[panelId]
+        exactEntry(workspaceId: workspaceId, panelId: panelId) ?? entriesByPanelId[panelId]
     }
 
     func snapshot(workspaceId: UUID, panelId: UUID) -> SessionRestorableAgentSnapshot? {

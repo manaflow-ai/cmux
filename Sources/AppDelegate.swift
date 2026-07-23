@@ -884,7 +884,9 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
             ?? JSONConfigStore(fileURL: CmuxConfigLocation().userConfigFile)
         return ComputerUseUXCoordinator(
             liveAgentIndex: SharedLiveAgentIndex.shared,
-            stateRepository: ComputerUseStateRepository(),
+            stateRepository: ComputerUseStateRepository(
+                authenticationKey: computerUseRuntimeService.stateAuthenticationKey
+            ),
             stateDirectoryURL: computerUseRuntimeService.stateDirectoryURL,
             configStore: configStore,
             enabledKey: catalog.computerUse.enabled,

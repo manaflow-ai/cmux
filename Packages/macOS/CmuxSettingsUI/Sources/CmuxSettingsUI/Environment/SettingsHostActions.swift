@@ -192,6 +192,9 @@ public protocol SettingsHostActions: AnyObject {
     /// Whether the Computer Use helper currently has Screen Recording permission.
     func computerUseScreenRecordingGranted() -> Bool
 
+    /// Whether the displayed Computer Use permission values are authoritative.
+    func computerUsePermissionStatusIsKnown() -> Bool
+
     /// Starts the helper-owned Accessibility permission flow.
     func requestComputerUseAccessibility()
 
@@ -225,6 +228,8 @@ public extension SettingsHostActions {
     func refreshComputerUsePermissions() async {}
     func computerUseAccessibilityGranted() -> Bool { false }
     func computerUseScreenRecordingGranted() -> Bool { false }
+    /// Default unknown status for hosts without Computer Use permission reporting.
+    func computerUsePermissionStatusIsKnown() -> Bool { false }
     func requestComputerUseAccessibility() {}
     func requestComputerUseScreenRecording() {}
     func openComputerUseAccessibilitySettings() {}

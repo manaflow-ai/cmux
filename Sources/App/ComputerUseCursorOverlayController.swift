@@ -353,13 +353,29 @@ final class ComputerUseCursorOverlayController {
         let generation = scanGeneration
         let feed = self.feed
         let directoryURL = self.stateDirectoryURL
-        scanQueue.async { [weak self] in
+        scanQueue.async(execute: Self.makeScanOperation(
+            feed: feed,
+            directoryURL: directoryURL,
+            generation: generation,
+            controller: self
+        ))
+    }
+
+    /// The utility queue is outside `MainActor`; construct its callback in a
+    /// nonisolated context and hop explicitly only after the filesystem scan.
+    nonisolated private static func makeScanOperation(
+        feed: ComputerUseCursorFeed,
+        directoryURL: URL,
+        generation: Int,
+        controller: ComputerUseCursorOverlayController
+    ) -> @Sendable () -> Void {
+        { [weak controller] in
             let state = feed.scan(directoryURL: directoryURL, now: Date())
-            Task { @MainActor [weak self] in
-                guard let self else { return }
-                guard generation == self.scanGeneration else { return }
-                self.scanInFlight = false
-                self.applyScannedState(state)
+            Task { @MainActor [weak controller] in
+                guard let controller else { return }
+                guard generation == controller.scanGeneration else { return }
+                controller.scanInFlight = false
+                controller.applyScannedState(state)
             }
         }
     }
@@ -459,12 +475,52 @@ final class ComputerUseCursorOverlayController {
             eventMask: [.write, .extend, .attrib, .link, .rename, .delete],
             queue: directoryWatchQueue
         )
-        source.setEventHandler { [weak self] in
-            Task { @MainActor in self?.scheduleCoalescedRefresh() }
-        }
-        source.setCancelHandler { Darwin.close(descriptor) }
+        source.setEventHandler(handler: Self.makeDirectoryWatchEventHandler(
+            source: source,
+            controller: self
+        ))
+        source.setCancelHandler(handler: Self.makeDirectoryWatchCancelHandler(
+            descriptor: descriptor
+        ))
         source.resume()
         directoryWatchSource = source
+    }
+
+    /// DispatchSource delivers on its own queue. Build the callback outside the
+    /// main actor so Swift 6 does not trap before the explicit actor hop.
+    nonisolated private static func makeDirectoryWatchEventHandler(
+        source: DispatchSourceFileSystemObject,
+        controller: ComputerUseCursorOverlayController
+    ) -> @Sendable () -> Void {
+        { [weak source, weak controller] in
+            guard let source else { return }
+            let events = source.data
+            Task { @MainActor [weak controller] in
+                controller?.handleDirectoryWatchEvent(
+                    events,
+                    from: source
+                )
+            }
+        }
+    }
+
+    nonisolated private static func makeDirectoryWatchCancelHandler(
+        descriptor: Int32
+    ) -> @Sendable () -> Void {
+        { Darwin.close(descriptor) }
+    }
+
+    private func handleDirectoryWatchEvent(
+        _ events: DispatchSource.FileSystemEvent,
+        from source: DispatchSourceFileSystemObject
+    ) {
+        guard directoryWatchSource === source else { return }
+        if events.contains(.delete) || events.contains(.rename) {
+            source.cancel()
+            directoryWatchSource = nil
+            startWatchingStateDirectory()
+        }
+        scheduleCoalescedRefresh()
     }
 
     /// Coalesce a burst of filesystem events into at most one refresh per frame.

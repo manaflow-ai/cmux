@@ -175,22 +175,32 @@ final class ComputerUseMenuBarSnapshotStore: ObservableObject {
                             )
                         )
                     }
+                    let rootsByScopeID = Dictionary(
+                        uniqueKeysWithValues: pending.map {
+                            ($0.id, $0.rootProcessIdentities)
+                        }
+                    )
                     let scan = repository.scan(
                         directoryURL: directoryURL,
                         sessions: scopes,
                         now: Date()
-                    )
+                    ) { scope, state in
+                        guard let roots = rootsByScopeID[scope.id] else {
+                            return false
+                        }
+                        return state.belongsToProcessTree(
+                            rootProcessIdentities: roots
+                        )
+                    }
                     guard !Task.isCancelled else { return nil }
                     let projection = ComputerUseMenuBarScanResult(
                         rows: pending,
                         scan: scan
                     )
-                    let activeRow = projection.mostRecentlyActiveRow
+                    let active = projection.mostRecentlyActive { _, _ in true }
                     return ComputerUseMenuBarActivityScan(
-                        activeRow: activeRow,
-                        activeState: activeRow.flatMap {
-                            scan.newestStateByScopeID[$0.id]
-                        },
+                        activeRow: active?.row,
+                        activeState: active?.state,
                         hasRecentStateFiles: scan.hasRecentStateFiles
                     )
                 }
@@ -208,7 +218,10 @@ final class ComputerUseMenuBarSnapshotStore: ObservableObject {
                 else {
                     return nil
                 }
-                return row.withTargetIdentity(identity)
+                return row.withTarget(
+                    identity: identity,
+                    stateWriterIdentity: state.writerProcessIdentity
+                )
             }
             self.snapshot = ComputerUseMenuBarSnapshot(
                 rows: rows,
@@ -237,20 +250,20 @@ final class ComputerUseMenuBarSnapshotStore: ObservableObject {
     }
 
     private func rebuildLiveRows() {
-        liveRows = (liveAgentIndex.index?.liveEntries() ?? []).map { pair in
+        liveRows = (liveAgentIndex.index?.liveEntries() ?? []).compactMap { pair in
             let snapshot = pair.entry.snapshot
             let workspaceName = workspaceTitle(pair.panelKey.workspaceId)
                 ?? String(
                     localized: "computerUse.menu.unknownWorkspace",
                     defaultValue: "Unknown Workspace"
                 )
+            guard let liveSession = ComputerUseLiveDriverSession(
+                workspaceID: pair.panelKey.workspaceId,
+                surfaceID: pair.panelKey.panelId,
+                entry: pair.entry
+            ) else { return nil }
             return ComputerUseMenuBarRow(
-                id: [
-                    snapshot.kind.rawValue,
-                    snapshot.sessionId,
-                    pair.panelKey.workspaceId.uuidString,
-                    pair.panelKey.panelId.uuidString,
-                ].joined(separator: "|"),
+                id: liveSession.logicalSessionID,
                 title: String(
                     localized: "computerUse.menu.sessionTitle",
                     defaultValue: "\(snapshot.kind.displayName) · \(workspaceName)"
@@ -258,7 +271,9 @@ final class ComputerUseMenuBarSnapshotStore: ObservableObject {
                 sessionID: snapshot.sessionId,
                 workspaceID: pair.panelKey.workspaceId,
                 surfaceID: pair.panelKey.panelId,
-                targetIdentity: nil
+                rootProcessIdentities: liveSession.rootProcessIdentities,
+                targetIdentity: nil,
+                stateWriterIdentity: nil
             )
         }
     }
@@ -304,12 +319,52 @@ final class ComputerUseMenuBarSnapshotStore: ObservableObject {
             eventMask: [.write, .extend, .attrib, .link, .rename, .delete],
             queue: directoryWatchQueue
         )
-        source.setEventHandler { [weak self] in
-            Task { @MainActor in self?.refresh() }
-        }
-        source.setCancelHandler { Darwin.close(descriptor) }
+        source.setEventHandler(handler: Self.makeDirectoryWatchEventHandler(
+            source: source,
+            store: self
+        ))
+        source.setCancelHandler(handler: Self.makeDirectoryWatchCancelHandler(
+            descriptor: descriptor
+        ))
         source.resume()
         directoryWatchSource = source
+    }
+
+    /// DispatchSource delivers on its own queue. Build the callback outside the
+    /// main actor so Swift 6 does not trap before the explicit actor hop.
+    nonisolated private static func makeDirectoryWatchEventHandler(
+        source: DispatchSourceFileSystemObject,
+        store: ComputerUseMenuBarSnapshotStore
+    ) -> @Sendable () -> Void {
+        { [weak source, weak store] in
+            guard let source else { return }
+            let events = source.data
+            Task { @MainActor [weak store] in
+                store?.handleDirectoryWatchEvent(
+                    events,
+                    from: source
+                )
+            }
+        }
+    }
+
+    nonisolated private static func makeDirectoryWatchCancelHandler(
+        descriptor: Int32
+    ) -> @Sendable () -> Void {
+        { Darwin.close(descriptor) }
+    }
+
+    private func handleDirectoryWatchEvent(
+        _ events: DispatchSource.FileSystemEvent,
+        from source: DispatchSourceFileSystemObject
+    ) {
+        guard directoryWatchSource === source else { return }
+        if events.contains(.delete) || events.contains(.rename) {
+            source.cancel()
+            directoryWatchSource = nil
+            startWatchingStateDirectory()
+        }
+        refresh()
     }
 
     private func stopWatchingStateDirectory() {

@@ -7,16 +7,23 @@ struct ComputerUseMenuBarRow: Equatable, Identifiable, Sendable {
     let sessionID: String
     let workspaceID: UUID
     let surfaceID: UUID
+    let rootProcessIdentities: Set<AgentPIDProcessIdentity>
     let targetIdentity: ComputerUseTargetIdentity?
+    let stateWriterIdentity: AgentPIDProcessIdentity?
 
-    func withTargetIdentity(_ targetIdentity: ComputerUseTargetIdentity?) -> ComputerUseMenuBarRow {
+    func withTarget(
+        identity: ComputerUseTargetIdentity?,
+        stateWriterIdentity: AgentPIDProcessIdentity?
+    ) -> ComputerUseMenuBarRow {
         ComputerUseMenuBarRow(
             id: id,
             title: title,
             sessionID: sessionID,
             workspaceID: workspaceID,
             surfaceID: surfaceID,
-            targetIdentity: targetIdentity
+            rootProcessIdentities: rootProcessIdentities,
+            targetIdentity: identity,
+            stateWriterIdentity: stateWriterIdentity
         )
     }
 }
