@@ -14,6 +14,7 @@ final class AgentChatTranscriptService {
     let registry: AgentChatSessionRegistry
     let resolver: AgentChatTranscriptResolver
     let artifactIndex: AgentChatArtifactIndex
+    let artifactGalleryOrderingCache: ChatArtifactGalleryOrderingCache
     let artifactCaptureCoordinator: AgentArtifactCaptureCoordinator?
     let isAutomaticArtifactCaptureEnabled: @MainActor @Sendable () -> Bool
     var automaticArtifactCaptureWasEnabled: Bool
@@ -31,7 +32,7 @@ final class AgentChatTranscriptService {
     /// Sessions whose transcript could not be resolved; skipped until an
     /// explicit history request retries, so per-hook-event resolution
     /// failures don't rescan the filesystem during tool storms.
-    private var failedResolutions: Set<String> = []
+    var failedResolutions: Set<String> = []
     private var endedListability = AgentChatEndedTranscriptListabilityCache()
 
     /// Creates the service with a hook-store-backed registry.
@@ -56,6 +57,7 @@ final class AgentChatTranscriptService {
             MobileHostService.emitEvent(topic: AgentChatTranscriptService.eventTopic, payload: payload)
         },
         artifactIndex: AgentChatArtifactIndex = AgentChatArtifactIndex(),
+        artifactGalleryOrderingCache: ChatArtifactGalleryOrderingCache = ChatArtifactGalleryOrderingCache(),
         artifactCaptureCoordinator: AgentArtifactCaptureCoordinator? = nil,
         isAutomaticArtifactCaptureEnabled: @escaping @MainActor @Sendable () -> Bool = { true },
         now: @escaping () -> Date = { Date() }
@@ -65,6 +67,7 @@ final class AgentChatTranscriptService {
         self.hasEventSubscribers = hasEventSubscribers
         self.emitEventPayload = emitEventPayload
         self.artifactIndex = artifactIndex
+        self.artifactGalleryOrderingCache = artifactGalleryOrderingCache
         self.artifactCaptureCoordinator = artifactCaptureCoordinator
         self.isAutomaticArtifactCaptureEnabled = isAutomaticArtifactCaptureEnabled
         self.automaticArtifactCaptureWasEnabled = artifactCaptureCoordinator != nil && isAutomaticArtifactCaptureEnabled()
@@ -312,10 +315,7 @@ final class AgentChatTranscriptService {
 
     /// Serves one history page, starting the session's tailer on demand.
     func history(sessionID: String, beforeSeq: Int?, limit: Int) async -> ChatHistoryPage? {
-        guard let record = registry.record(sessionID: sessionID) else { return nil }
-        // A user opening the chat is the right moment to retry a previously
-        // failed transcript resolution.
-        failedResolutions.remove(sessionID)
+        guard let record = await resolvedTranscriptRecordForHistory(sessionID: sessionID) else { return nil }
         guard let tailer = ensureTailer(for: record) else { return nil }
         await tailer.start()
         let page = await tailer.history(beforeSeq: beforeSeq, limit: limit)
@@ -350,37 +350,12 @@ final class AgentChatTranscriptService {
     // MARK: - Internals
 
     @discardableResult
-    func ensureTailer(
-        for record: AgentChatSessionRecord,
-        usesBoundedResolution: Bool = false
-    ) -> AgentChatTranscriptTailer? {
+    func ensureTailer(for record: AgentChatSessionRecord) -> AgentChatTranscriptTailer? {
         if let existing = tailers[record.sessionID] {
             return existing
         }
         guard !failedResolutions.contains(record.sessionID) else { return nil }
-        let resolvedPath: String?
-        do {
-            if usesBoundedResolution {
-                resolvedPath = resolver.boundedTranscriptPath(for: record)
-            } else {
-                resolvedPath = try resolver.transcriptPath(for: record)
-            }
-        } catch is CancellationError {
-            return nil
-        } catch {
-            resolvedPath = nil
-        }
-        guard let path = resolvedPath else {
-            guard !usesBoundedResolution else { return nil }
-            failedResolutions.insert(record.sessionID)
-            #if DEBUG
-            cmuxDebugLog(
-                "agentChat.transcript.resolve session=\(record.sessionID.prefix(8)) "
-                + "kind=\(record.agentKind.sourceName) cwd=\(record.workingDirectory ?? "nil") UNRESOLVED"
-            )
-            #endif
-            return nil
-        }
+        guard let path = resolver.boundedTranscriptPath(for: record) else { return nil }
         #if DEBUG
         cmuxDebugLog(
             "agentChat.transcript.resolve session=\(record.sessionID.prefix(8)) "
@@ -404,7 +379,7 @@ final class AgentChatTranscriptService {
         return tailer
     }
 
-    private func publishBatch(_ batch: AgentChatTranscriptTailer.Batch, sessionID: String) {
+    func publishBatch(_ batch: AgentChatTranscriptTailer.Batch, sessionID: String) {
         #if DEBUG
         cmuxDebugLog(
             "agentChat.transcript.batch session=\(sessionID.prefix(8)) "
@@ -428,9 +403,6 @@ final class AgentChatTranscriptService {
         }
         if !batch.updated.isEmpty {
             emit(frame: ChatSessionEventFrame(sessionID: sessionID, event: .updated(batch.updated)))
-        }
-        if let completedAt = batch.appended.completedAssistantTurnTimestamp {
-            noteAssistantTurnCompleted(sessionID: sessionID, at: completedAt)
         }
     }
 
@@ -480,6 +452,7 @@ final class AgentChatTranscriptService {
     private func handleRecordRemoval(_ record: AgentChatSessionRecord) {
         proseStreamer.turnEnded(sessionID: record.sessionID)
         removeArtifactCaptureSession(sessionID: record.sessionID)
+        Task { await artifactGalleryOrderingCache.remove(indexID: record.sessionID) }
         if let tailer = tailers.removeValue(forKey: record.sessionID) {
             Task { await tailer.stop() }
         }
