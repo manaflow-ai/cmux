@@ -21,6 +21,8 @@ struct FeedEventClassifier {
     static let agentStatusSignalField = "_cmux_agent_status_signal"
     static let agentStatusRevisionField = "_cmux_agent_status_revision"
     static let agentPIDNamespaceField = "_cmux_agent_pid_namespace"
+    static let agentPIDStartSecondsField = "_cmux_agent_pid_start_seconds"
+    static let agentPIDStartMicrosecondsField = "_cmux_agent_pid_start_microseconds"
 
     /// Classifies a raw agent hook event into our wire `hook_event_name`
     /// plus an `isActionable` flag that drives whether the Feed bridge
@@ -45,12 +47,9 @@ struct FeedEventClassifier {
     }
 
     /// Status-only evidence that must not alter Feed actionability.
-    static func agentStatusSignal(source: String, event: String) -> String? {
-        guard source.trimmingCharacters(in: .whitespacesAndNewlines).lowercased() == "codex" else {
-            return nil
-        }
-        switch event {
-        case "PermissionRequest", "permission_request":
+    static func agentStatusSignal(source _: String, event: String) -> String? {
+        switch event.trimmingCharacters(in: .whitespacesAndNewlines).lowercased() {
+        case "permissionrequest", "permission_request", "askuserquestion", "exitplanmode":
             return "needsInput"
         default:
             return nil
@@ -80,6 +79,21 @@ struct FeedEventClassifier {
         event[agentPIDNamespaceField] = isRelayBacked
             ? AgentStatusPIDNamespace.remote.rawValue
             : nil
+    }
+
+    /// Adds exact process-generation evidence when the hook runtime can observe it.
+    static func attachAgentRuntimeGeneration(
+        to event: inout [String: Any],
+        pidStartSeconds: Int64?,
+        pidStartMicroseconds: Int64?
+    ) {
+        guard let pidStartSeconds, let pidStartMicroseconds else {
+            event[agentPIDStartSecondsField] = nil
+            event[agentPIDStartMicrosecondsField] = nil
+            return
+        }
+        event[agentPIDStartSecondsField] = pidStartSeconds
+        event[agentPIDStartMicrosecondsField] = pidStartMicroseconds
     }
 
     /// Codex's cmux-owned wrapper maps only `PermissionRequest` to the

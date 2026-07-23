@@ -15,6 +15,7 @@ extension Workspace {
         lifecycle: AgentHibernationLifecycleState,
         runtimePIDKey: String? = nil,
         runtimePID: Int? = nil,
+        runtimeProcessIdentity: AgentPIDProcessIdentity? = nil,
         revision: UInt64? = nil
     ) -> Bool {
         let targetPanelId = panelId ?? focusedPanelId
@@ -37,18 +38,21 @@ extension Workspace {
             statusKey: key,
             observedAt: observedAt,
             runtimePIDKey: runtimePIDKey,
+            runtimeProcessIdentity: runtimeProcessIdentity,
             revision: revision
         ) else { return false }
+        resetAgentStatusShellReportDedupe(panelId: targetPanelId)
         agentLifecycleStatesByPanelId[targetPanelId, default: [:]][key] = lifecycle
         recordAgentLifecycleChange(panelId: targetPanelId)
         reconcileAgentStatuses(panelId: targetPanelId, now: observedAt)
         return true
     }
 
+    @discardableResult
     func noteAgentStatusHookSignal(
         _ signal: AgentStatusHookEventSignal,
         panelId: UUID?
-    ) {
+    ) -> Bool {
         let targetPanelId = panelId ?? focusedPanelId
         guard let targetPanelId,
               agentStatusRuntimeIsCurrent(
@@ -57,7 +61,7 @@ extension Workspace {
                   pidNamespace: signal.runtimePIDNamespace,
                   panelId: targetPanelId
               ) else {
-            return
+            return false
         }
         guard agentStatusLedger.recordLifecycle(
             signal.lifecycle,
@@ -65,9 +69,12 @@ extension Workspace {
             statusKey: signal.statusKey,
             observedAt: signal.observedAt,
             runtimePIDKey: signal.runtimePIDKey,
+            runtimeProcessIdentity: signal.runtimeProcessIdentity,
             revision: signal.revision
-        ) else { return }
+        ) else { return false }
+        resetAgentStatusShellReportDedupe(panelId: targetPanelId)
         reconcileAgentStatuses(panelId: targetPanelId, now: signal.observedAt)
+        return true
     }
 
     func agentStatusRuntimeIsCurrent(event: WorkstreamEvent, panelId: UUID) -> Bool {
@@ -82,15 +89,15 @@ extension Workspace {
         )
     }
 
-    func agentStatusBlockingDecisionMayMutateLifecycle(
+    func applyAgentStatusBlockingDecisionHookSignal(
         event: WorkstreamEvent,
         panelId: UUID
     ) -> Bool {
-        guard FeedCoordinator.isBlockingDecisionEvent(event.hookEventName) else { return false }
-        // A PID-less internal producer still proves that this unresolved Feed
-        // decision is blocking. Explicit runtime evidence must match exactly.
-        guard event.ppid != nil else { return true }
-        return agentStatusRuntimeIsCurrent(event: event, panelId: panelId)
+        guard FeedCoordinator.isBlockingDecisionEvent(event.hookEventName),
+              event.ppid != nil,
+              let signal = AgentStatusHookEventSignal(event: event),
+              signal.lifecycle == .needsInput else { return false }
+        return noteAgentStatusHookSignal(signal, panelId: panelId)
     }
 
     @discardableResult
@@ -99,6 +106,7 @@ extension Workspace {
         panelId: UUID?,
         runtimePIDKey: String? = nil,
         runtimePID: Int? = nil,
+        runtimeProcessIdentity: AgentPIDProcessIdentity? = nil,
         revision: UInt64? = nil
     ) -> Bool {
         let targetPanelId = panelId ?? focusedPanelId
@@ -114,8 +122,10 @@ extension Workspace {
             statusKey: key,
             observedAt: observedAt,
             runtimePIDKey: runtimePIDKey,
+            runtimeProcessIdentity: runtimeProcessIdentity,
             revision: revision
         ) else { return false }
+        resetAgentStatusShellReportDedupe(panelId: targetPanelId)
         guard agentLifecycleStatesByPanelId[targetPanelId]?[key] == .needsInput else {
             // The ordered Running observation is still a tombstone. Recording
             // it prevents a delayed lower-revision permission event from
@@ -126,6 +136,13 @@ extension Workspace {
         recordAgentLifecycleChange(panelId: targetPanelId)
         reconcileAgentStatuses(panelId: targetPanelId, now: observedAt)
         return true
+    }
+
+    private func resetAgentStatusShellReportDedupe(panelId: UUID) {
+        TerminalController.shared.socketFastPathState.resetShellActivity(
+            workspaceId: id,
+            panelId: panelId
+        )
     }
 
     func noteAgentStatusOutputActivity(panelId: UUID, observedAt: Date) {

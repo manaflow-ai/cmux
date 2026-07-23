@@ -4,14 +4,21 @@ import Foundation
 
 /// Status meaning and runtime-generation binding extracted from a hook event.
 struct AgentStatusHookEventSignal: Equatable, Sendable {
+    private enum RuntimeGeneration {
+        case absent
+        case exact(seconds: Int64, microseconds: Int64)
+    }
+
     private static let statusSignalField = "_cmux_agent_status_signal"
     private static let statusRevisionField = "_cmux_agent_status_revision"
-    private static let pidNamespaceField = "_cmux_agent_pid_namespace"
+    private static let pidStartSecondsField = "_cmux_agent_pid_start_seconds"
+    private static let pidStartMicrosecondsField = "_cmux_agent_pid_start_microseconds"
 
     let statusKey: String
     let lifecycle: AgentHibernationLifecycleState
     let observedAt: Date
     let runtimePIDKey: String
+    let runtimeProcessIdentity: AgentPIDProcessIdentity?
     let runtimePID: Int
     let runtimePIDNamespace: AgentStatusPIDNamespace
     let runtimeSessionID: String
@@ -19,6 +26,7 @@ struct AgentStatusHookEventSignal: Equatable, Sendable {
 
     init?(event: WorkstreamEvent) {
         guard let payload = Self.explicitPayload(from: event.extraFieldsJSON),
+              let generation = Self.runtimeGeneration(from: event.extraFieldsJSON),
               let runtime = Self.runtimeBinding(event: event) else {
             return nil
         }
@@ -26,6 +34,16 @@ struct AgentStatusHookEventSignal: Equatable, Sendable {
         self.lifecycle = payload.lifecycle
         self.observedAt = event.receivedAt
         self.runtimePIDKey = runtime.pidKey
+        switch generation {
+        case .absent:
+            self.runtimeProcessIdentity = nil
+        case .exact(let seconds, let microseconds):
+            self.runtimeProcessIdentity = AgentPIDProcessIdentity(
+                pid: pid_t(runtime.pid),
+                startSeconds: seconds,
+                startMicroseconds: microseconds
+            )
+        }
         self.runtimePID = runtime.pid
         self.runtimePIDNamespace = runtime.pidNamespace
         self.runtimeSessionID = runtime.sessionID
@@ -47,7 +65,7 @@ struct AgentStatusHookEventSignal: Equatable, Sendable {
               let pid = event.ppid,
               pid > 0,
               pid_t(exactly: pid) != nil,
-              let pidNamespace = Self.pidNamespace(from: event.extraFieldsJSON),
+              let pidNamespace = Self.pidNamespace(event: event),
               let sessionID = Self.sessionID(from: event.sessionId, source: source) else {
             return nil
         }
@@ -55,15 +73,34 @@ struct AgentStatusHookEventSignal: Equatable, Sendable {
         return (statusKey, pidKey, pid, pidNamespace, sessionID)
     }
 
-    private static func pidNamespace(from extraFieldsJSON: String?) -> AgentStatusPIDNamespace? {
-        guard let extraFieldsJSON else { return .local }
+    static func pidNamespace(event: WorkstreamEvent) -> AgentStatusPIDNamespace? {
+        switch event.processNamespace {
+        case .local: return .local
+        case .remote: return .remote
+        case .unknown: return nil
+        }
+    }
+
+    /// Parses an optional exact process generation. A partial or malformed
+    /// generation rejects the status signal instead of weakening its ordering.
+    private static func runtimeGeneration(
+        from extraFieldsJSON: String?
+    ) -> RuntimeGeneration? {
+        guard let extraFieldsJSON else { return .absent }
         guard let data = extraFieldsJSON.data(using: .utf8),
               let object = try? JSONSerialization.jsonObject(with: data) as? [String: Any] else {
             return nil
         }
-        guard let rawValue = object[pidNamespaceField] else { return .local }
-        guard let stringValue = rawValue as? String else { return nil }
-        return AgentStatusPIDNamespace(rawValue: stringValue)
+        let rawSeconds = object[pidStartSecondsField]
+        let rawMicroseconds = object[pidStartMicrosecondsField]
+        guard rawSeconds != nil || rawMicroseconds != nil else { return .absent }
+        guard let seconds = (rawSeconds as? NSNumber)?.int64Value,
+              let microseconds = (rawMicroseconds as? NSNumber)?.int64Value,
+              seconds >= 0,
+              (0..<1_000_000).contains(microseconds) else {
+            return nil
+        }
+        return .exact(seconds: seconds, microseconds: microseconds)
     }
 
     private static func sessionID(from workstreamID: String, source: String) -> String? {

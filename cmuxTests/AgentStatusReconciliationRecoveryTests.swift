@@ -128,6 +128,29 @@ struct AgentStatusReconciliationRecoveryTests {
         workspace.noteAgentStatusHookSignal(replacementGeneration, panelId: panelID)
 
         #expect(workspace.agentLifecycleStatesByPanelId[panelID]?["codex"] == .needsInput)
+
+        let delayedPreviousGeneration = try #require(AgentStatusHookEventSignal(event: WorkstreamEvent(
+            sessionId: "codex-remote-session",
+            hookEventName: .preToolUse,
+            source: "codex",
+            ppid: Int(remotePID),
+            receivedAt: now.addingTimeInterval(2),
+            extraFieldsJSON: #"{"_cmux_agent_status_signal":"running","_cmux_agent_status_revision":9,"_cmux_agent_pid_namespace":"remote","_cmux_agent_pid_start_seconds":10,"_cmux_agent_pid_start_microseconds":20}"#
+        )))
+        workspace.noteAgentStatusHookSignal(delayedPreviousGeneration, panelId: panelID)
+
+        #expect(workspace.agentLifecycleStatesByPanelId[panelID]?["codex"] == .needsInput)
+
+        let didResume = workspace.resumeAgentLifecycleIfNeedsInput(
+            key: "codex",
+            panelId: panelID,
+            runtimePIDKey: replacementGeneration.runtimePIDKey,
+            runtimePID: replacementGeneration.runtimePID,
+            runtimeProcessIdentity: replacementGeneration.runtimeProcessIdentity,
+            revision: 2
+        )
+        #expect(didResume)
+        #expect(workspace.agentLifecycleStatesByPanelId[panelID]?["codex"] == .running)
     }
 
     @Test @MainActor func remoteFeedPIDDoesNotArmDarwinProcessWatcher() async {
@@ -150,6 +173,63 @@ struct AgentStatusReconciliationRecoveryTests {
 
         #expect(watchedPIDs.isEmpty)
         #expect(store.pending.count == 1)
+    }
+
+    @Test func restoredRemoteFeedItemDoesNotArmDarwinProcessWatcher() {
+        let remoteItem = WorkstreamItem(
+            workstreamId: "codex-remote-session",
+            source: .codex,
+            kind: .permissionRequest,
+            payload: .permissionRequest(
+                requestId: "remote-permission",
+                toolName: "shell",
+                toolInputJSON: "{}",
+                pattern: nil
+            ),
+            ppid: 987_654,
+            processNamespace: .remote
+        )
+
+        #expect(!FeedCoordinator.shouldArmPIDWatcher(for: remoteItem))
+    }
+
+    @Test @MainActor func acceptedLifecycleStartsANewShellObservationEpoch() throws {
+        let workspace = Workspace()
+        let panelID = try #require(workspace.focusedPanelId)
+        let fastPath = TerminalController.shared.socketFastPathState
+        defer { workspace.clearAllAgentPIDs(refreshPorts: false) }
+        workspace.recordAgentPID(
+            key: "codex.session",
+            pid: getpid(),
+            panelId: panelID,
+            refreshPorts: false
+        )
+        #expect(fastPath.shouldPublishShellActivity(
+            workspaceId: workspace.id,
+            panelId: panelID,
+            state: PanelShellActivityState.promptIdle.rawValue
+        ))
+        #expect(!fastPath.shouldPublishShellActivity(
+            workspaceId: workspace.id,
+            panelId: panelID,
+            state: PanelShellActivityState.promptIdle.rawValue
+        ))
+        let running = try #require(AgentStatusHookEventSignal(event: WorkstreamEvent(
+            sessionId: "codex-session",
+            hookEventName: .preToolUse,
+            source: "codex",
+            ppid: Int(getpid()),
+            receivedAt: now,
+            extraFieldsJSON: #"{"_cmux_agent_status_signal":"running"}"#
+        )))
+
+        workspace.noteAgentStatusHookSignal(running, panelId: panelID)
+
+        #expect(fastPath.shouldPublishShellActivity(
+            workspaceId: workspace.id,
+            panelId: panelID,
+            state: PanelShellActivityState.promptIdle.rawValue
+        ))
     }
 
     @Test func turnOnlyPermissionDoesNotGuessBetweenParallelTools() {

@@ -26,18 +26,24 @@ final class AgentStatusRuntimeLedger {
         statusKey: String,
         observedAt: Date,
         runtimePIDKey: String? = nil,
+        runtimeProcessIdentity: AgentPIDProcessIdentity? = nil,
         revision: UInt64? = nil
     ) -> Bool {
         var evidence = evidenceByPanelId[panelId]?[statusKey] ?? AgentStatusEvidence()
         if let runtimePIDKey, let revision {
-            if evidence.lifecycleRuntimePIDKey == runtimePIDKey,
-               let currentRevision = evidence.lifecycleRevision,
-               currentRevision > revision {
-                return false
-            }
             if evidence.lifecycleRuntimePIDKey != runtimePIDKey {
                 evidence.lifecycleRuntimePIDKey = runtimePIDKey
+                evidence.lifecycleRuntimeProcessIdentity = runtimeProcessIdentity
                 evidence.lifecycleRevision = nil
+            } else if !acceptRuntimeGeneration(
+                runtimeProcessIdentity,
+                into: &evidence
+            ) {
+                return false
+            }
+            if let currentRevision = evidence.lifecycleRevision,
+               currentRevision > revision {
+                return false
             }
             evidence.lifecycleRevision = revision
         }
@@ -45,6 +51,28 @@ final class AgentStatusRuntimeLedger {
         evidence.lifecycle = lifecycle
         evidence.lifecycleObservedAt = observedAt
         evidenceByPanelId[panelId, default: [:]][statusKey] = evidence
+        return true
+    }
+
+    private func acceptRuntimeGeneration(
+        _ incoming: AgentPIDProcessIdentity?,
+        into evidence: inout AgentStatusEvidence
+    ) -> Bool {
+        guard let current = evidence.lifecycleRuntimeProcessIdentity else {
+            if let incoming {
+                evidence.lifecycleRuntimeProcessIdentity = incoming
+                evidence.lifecycleRevision = nil
+            }
+            return true
+        }
+        guard let incoming else { return false }
+        let currentStart = (current.startSeconds, current.startMicroseconds)
+        let incomingStart = (incoming.startSeconds, incoming.startMicroseconds)
+        guard incomingStart >= currentStart else { return false }
+        if incomingStart > currentStart {
+            evidence.lifecycleRuntimeProcessIdentity = incoming
+            evidence.lifecycleRevision = nil
+        }
         return true
     }
 

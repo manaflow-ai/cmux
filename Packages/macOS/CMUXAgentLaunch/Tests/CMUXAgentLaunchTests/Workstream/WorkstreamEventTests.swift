@@ -91,6 +91,16 @@ struct WorkstreamEventTests {
         #expect(event.workspaceId == nil)
         #expect(event.requestId == nil)
         #expect(event.ppid == nil)
+        #expect(event.processNamespace == .local)
+    }
+
+    @Test("Agent PID namespaces distinguish remote and malformed metadata")
+    func agentPIDNamespaces() throws {
+        let remote = try JSONDecoder().decode(WorkstreamEvent.self, from: Data(#"{"session_id":"codex-s","hook_event_name":"PermissionRequest","_source":"codex","_cmux_agent_pid_namespace":"remote"}"#.utf8))
+        let malformed = try JSONDecoder().decode(WorkstreamEvent.self, from: Data(#"{"session_id":"codex-s","hook_event_name":"PermissionRequest","_source":"codex","_cmux_agent_pid_namespace":42}"#.utf8))
+
+        #expect(remote.processNamespace == .remote)
+        #expect(malformed.processNamespace == .unknown)
     }
 
     @Test("Codex CLI lifecycle feed events decode at the app boundary")

@@ -157,12 +157,25 @@ extension TerminalController: ControlSidebarContext {
         onlyIfNeedsInput: Bool,
         runtimePIDKey: String? = nil,
         runtimePID: Int32? = nil,
+        runtimeStartSeconds: Int64? = nil,
+        runtimeStartMicroseconds: Int64? = nil,
         revision: UInt64? = nil,
         clearNotificationsIfResumed: Bool = false
     ) {
         guard let lifecycle = AgentHibernationLifecycleState(rawValue: lifecycleRawValue) else {
             // Unreachable: the coordinator only forwards a value this app produced.
             return
+        }
+        let runtimeProcessIdentity: AgentPIDProcessIdentity? = if let runtimePID,
+            let runtimeStartSeconds,
+            let runtimeStartMicroseconds {
+            AgentPIDProcessIdentity(
+                pid: runtimePID,
+                startSeconds: runtimeStartSeconds,
+                startMicroseconds: runtimeStartMicroseconds
+            )
+        } else {
+            nil
         }
         controlSidebarSchedulePanelOwnedMutation(target: target, panelID: panelID) { _, tab in
             if onlyIfNeedsInput, lifecycle == .running {
@@ -171,6 +184,7 @@ extension TerminalController: ControlSidebarContext {
                     panelId: panelID,
                     runtimePIDKey: runtimePIDKey,
                     runtimePID: runtimePID.map(Int.init),
+                    runtimeProcessIdentity: runtimeProcessIdentity,
                     revision: revision
                 )
                 if didResume, clearNotificationsIfResumed, let panelID {
@@ -187,6 +201,7 @@ extension TerminalController: ControlSidebarContext {
                     lifecycle: lifecycle,
                     runtimePIDKey: runtimePIDKey,
                     runtimePID: runtimePID.map(Int.init),
+                    runtimeProcessIdentity: runtimeProcessIdentity,
                     revision: revision
                 )
             }

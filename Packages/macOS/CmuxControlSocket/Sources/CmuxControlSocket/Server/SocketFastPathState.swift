@@ -62,4 +62,16 @@ public final class SocketFastPathState: Sendable {
             return true
         }
     }
+
+    /// Forgets the last report after independent lifecycle evidence changes,
+    /// allowing the shell to reaffirm the same state in the new lifecycle epoch.
+    /// - Parameters:
+    ///   - workspaceId: The workspace whose shell-report epoch changed.
+    ///   - panelId: The surface/panel whose cached shell state should be forgotten.
+    public func resetShellActivity(workspaceId: UUID, panelId: UUID) {
+        let key = SocketSurfaceKey(workspaceId: workspaceId, panelId: panelId)
+        _ = lastReportedShellStates.withLock { lastReportedShellStates in
+            lastReportedShellStates.removeValue(forKey: key)
+        }
+    }
 }

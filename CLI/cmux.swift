@@ -24935,6 +24935,7 @@ struct CMUXCLI {
         onlyIfNeedsInput: Bool = false,
         runtimePIDKey: String? = nil,
         runtimePID: Int? = nil,
+        runtimeGeneration: CodexPermissionRuntimeGeneration? = nil,
         revision: UInt64? = nil,
         clearNotificationsIfResumed: Bool = false
     ) {
@@ -24946,6 +24947,10 @@ struct CMUXCLI {
             var orderedOptions = onlyIfNeedsInput ? " --if-needs-input" : ""
             if let runtimePIDKey, let runtimePID, let revision {
                 orderedOptions += " --runtime-key=\(runtimePIDKey) --runtime-pid=\(runtimePID) --status-revision=\(revision)"
+                if let seconds = runtimeGeneration?.pidStartSeconds,
+                   let microseconds = runtimeGeneration?.pidStartMicroseconds {
+                    orderedOptions += " --runtime-start-seconds=\(seconds) --runtime-start-microseconds=\(microseconds)"
+                }
             }
             if clearNotificationsIfResumed {
                 orderedOptions += " --clear-notifications-if-resumed"
@@ -30283,6 +30288,7 @@ export default CMUXSessionRestore;
         let pidKey = "\(def.statusKey).\(sessionId.isEmpty ? "default" : sessionId)"
         var didSendFeedTelemetry = false
         var agentStatusFeedRevision: UInt64?
+        var agentStatusFeedRuntimeGeneration: CodexPermissionRuntimeGeneration?
         var suppressAgentStatusFeedSignal = false
         // Destructive session teardown shared by a genuine (non-turn-boundary)
         // `session-end` and the dedicated `session-finalize` action: consume the
@@ -30373,6 +30379,7 @@ export default CMUXSessionRestore;
                 surfaceId: surfaceId,
                 socketPassword: socketPassword,
                 agentStatusRevision: agentStatusFeedRevision,
+                agentStatusRuntimeGeneration: agentStatusFeedRuntimeGeneration,
                 includeAgentStatusSignal: !suppressAgentStatusFeedSignal
             )
         }
@@ -31069,6 +31076,7 @@ export default CMUXSessionRestore;
                 onlyIfNeedsInput: true,
                 runtimePIDKey: pidKey,
                 runtimePID: transition?.state.runtime.pid,
+                runtimeGeneration: transition?.state.runtime,
                 revision: transition?.state.revision,
                 clearNotificationsIfResumed: true
             )
@@ -31658,6 +31666,7 @@ export default CMUXSessionRestore;
                         return
                     }
                     agentStatusFeedRevision = codexPermissionTransition?.state.revision
+                    agentStatusFeedRuntimeGeneration = codexPermissionTransition?.state.runtime
                 } else if (def.name == "grok" || def.name == "antigravity"),
                    summary.status == .idle || summary.status == .error {
                     _ = try? store.recordPromptStop(
@@ -31729,6 +31738,7 @@ export default CMUXSessionRestore;
                     onlyIfNeedsInput: true,
                     runtimePIDKey: pidKey,
                     runtimePID: latestPermission.runtime.pid,
+                    runtimeGeneration: latestPermission.runtime,
                     revision: latestPermission.revision,
                     clearNotificationsIfResumed: true
                 )
@@ -31818,6 +31828,7 @@ export default CMUXSessionRestore;
                     surfaceId: surfaceId,
                     runtimePIDKey: codexPermissionTransition == nil ? nil : pidKey,
                     runtimePID: codexPermissionTransition?.state.runtime.pid,
+                    runtimeGeneration: codexPermissionTransition?.state.runtime,
                     revision: codexPermissionTransition?.state.revision
                 )
                 let statusValue = String.localizedStringWithFormat(
@@ -31944,6 +31955,7 @@ export default CMUXSessionRestore;
         surfaceId: String? = nil,
         socketPassword: String? = nil,
         agentStatusRevision: UInt64? = nil,
+        agentStatusRuntimeGeneration: CodexPermissionRuntimeGeneration? = nil,
         includeAgentStatusSignal: Bool = true
     ) {
         let hookEventName = Self.feedEventName(forClaudeSubcommand: subcommand)
@@ -32014,6 +32026,11 @@ export default CMUXSessionRestore;
             if let agentStatusRevision {
                 event[FeedEventClassifier.agentStatusRevisionField] = agentStatusRevision
             }
+            FeedEventClassifier.attachAgentRuntimeGeneration(
+                to: &event,
+                pidStartSeconds: agentStatusRuntimeGeneration?.pidStartSeconds,
+                pidStartMicroseconds: agentStatusRuntimeGeneration?.pidStartMicroseconds
+            )
         }
         if let turnId = parsedInput.turnId { event["turn_id"] = turnId }
         if let requestId = parsedInput.requestId { event["request_id"] = requestId }
@@ -34115,6 +34132,7 @@ export default CMUXSessionRestore;
             firstString(in: $0, keys: ["id", "request_id", "requestId", "call_id", "callId"])
         }
         var agentStatusRevision: UInt64?
+        var agentStatusRuntimeGeneration: CodexPermissionRuntimeGeneration?
         var shouldAttachAgentStatusSignal = agentStatusSignal != nil
         if source == "codex", agentStatusSignal != nil {
             if let liveTarget {
@@ -34136,6 +34154,7 @@ export default CMUXSessionRestore;
                 )
                 shouldAttachAgentStatusSignal = transition?.accepted == true
                 agentStatusRevision = shouldAttachAgentStatusSignal ? transition?.state.revision : nil
+                agentStatusRuntimeGeneration = shouldAttachAgentStatusSignal ? transition?.state.runtime : nil
             } else {
                 shouldAttachAgentStatusSignal = false
             }
@@ -34185,6 +34204,11 @@ export default CMUXSessionRestore;
                     eventDict["surface_id"] = mapped.surfaceId
                     eventDict[FeedEventClassifier.agentStatusSignalField] = "running"
                     eventDict[FeedEventClassifier.agentStatusRevisionField] = transition.state.revision
+                    FeedEventClassifier.attachAgentRuntimeGeneration(
+                        to: &eventDict,
+                        pidStartSeconds: transition.state.runtime.pidStartSeconds,
+                        pidStartMicroseconds: transition.state.runtime.pidStartMicroseconds
+                    )
                     func publishResolution(using lifecycleClient: SocketClient) {
                         setAgentLifecycle(
                             client: lifecycleClient,
@@ -34195,6 +34219,7 @@ export default CMUXSessionRestore;
                             onlyIfNeedsInput: true,
                             runtimePIDKey: "codex.\(sessionId)",
                             runtimePID: transition.state.runtime.pid,
+                            runtimeGeneration: transition.state.runtime,
                             revision: transition.state.revision,
                             clearNotificationsIfResumed: true
                         )
@@ -34225,6 +34250,11 @@ export default CMUXSessionRestore;
             if let agentStatusRevision {
                 eventDict[FeedEventClassifier.agentStatusRevisionField] = agentStatusRevision
             }
+            FeedEventClassifier.attachAgentRuntimeGeneration(
+                to: &eventDict,
+                pidStartSeconds: agentStatusRuntimeGeneration?.pidStartSeconds,
+                pidStartMicroseconds: agentStatusRuntimeGeneration?.pidStartMicroseconds
+            )
         }
         if let turnId { eventDict["turn_id"] = turnId }
         if let permissionRequestId { eventDict["request_id"] = permissionRequestId }

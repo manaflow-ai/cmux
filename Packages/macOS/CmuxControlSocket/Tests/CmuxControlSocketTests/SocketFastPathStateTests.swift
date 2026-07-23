@@ -23,6 +23,18 @@ struct SocketFastPathStateTests {
         #expect(state.shouldPublishShellActivity(workspaceId: workspace, panelId: UUID(), state: "promptIdle"))
     }
 
+    @Test func lifecycleEpochResetRepublishesAnUnchangedShellState() {
+        let state = SocketFastPathState()
+        let workspace = UUID()
+        let panel = UUID()
+
+        #expect(state.shouldPublishShellActivity(workspaceId: workspace, panelId: panel, state: "promptIdle"))
+        #expect(!state.shouldPublishShellActivity(workspaceId: workspace, panelId: panel, state: "promptIdle"))
+        state.resetShellActivity(workspaceId: workspace, panelId: panel)
+        #expect(state.shouldPublishShellActivity(workspaceId: workspace, panelId: panel, state: "promptIdle"))
+        #expect(!state.shouldPublishShellActivity(workspaceId: workspace, panelId: panel, state: "promptIdle"))
+    }
+
     @Test func cacheResetsAtCapacityAndKeepsPublishing() {
         let state = SocketFastPathState(maxTrackedShellStates: 4)
         let workspace = UUID()

@@ -94,6 +94,8 @@ public protocol ControlSidebarContext: AnyObject {
         onlyIfNeedsInput: Bool,
         runtimePIDKey: String?,
         runtimePID: Int32?,
+        runtimeStartSeconds: Int64?,
+        runtimeStartMicroseconds: Int64?,
         revision: UInt64?,
         clearNotificationsIfResumed: Bool
     )

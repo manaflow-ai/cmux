@@ -133,6 +133,12 @@ struct FeedEventClassificationTests {
                 event: "PreToolUse"
             ) == nil
         )
+        #expect(
+            FeedEventClassifier.agentStatusSignal(
+                source: "claude",
+                event: "PermissionRequest"
+            ) == "needsInput"
+        )
     }
 
     @Test func codexNotificationSubcommandRetainsApprovalStatusWhenPayloadOmitsEventName() {
@@ -162,6 +168,19 @@ struct FeedEventClassificationTests {
                 == AgentStatusPIDNamespace.remote.rawValue
         )
         #expect(localEvent[FeedEventClassifier.agentPIDNamespaceField] == nil)
+    }
+
+    @Test func codexStatusTelemetryCarriesExactRuntimeGeneration() {
+        var event: [String: Any] = [:]
+
+        FeedEventClassifier.attachAgentRuntimeGeneration(
+            to: &event,
+            pidStartSeconds: 123,
+            pidStartMicroseconds: 456
+        )
+
+        #expect(event[FeedEventClassifier.agentPIDStartSecondsField] as? Int64 == 123)
+        #expect(event[FeedEventClassifier.agentPIDStartMicrosecondsField] as? Int64 == 456)
     }
 
     @Test func codexLifecycleFeedEventsStayTelemetryAndPreserveNames() {

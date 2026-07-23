@@ -46,7 +46,7 @@ final class FeedCoordinator: @unchecked Sendable {
     /// resolving a live window route after the decision has already ended.
     /// Main-actor isolated: read/written only from the `@MainActor` attention
     /// methods.
-    @MainActor private var pendingAttentionStates: [AttentionTarget: AttentionOverlayState] = [:]
+    @MainActor private var pendingAttentionStates: [AttentionTarget: FeedAttentionOverlayState] = [:]
 
     private init() {}
 
@@ -59,8 +59,8 @@ final class FeedCoordinator: @unchecked Sendable {
         // agent is already gone. After this, live tracking is
         // kqueue-driven — no polling.
         store.expireAbandonedItems()
-        for ppid in store.pending.compactMap(\.ppid) {
-            armPidWatcher(ppid: ppid)
+        for item in store.pending where Self.shouldArmPIDWatcher(for: item) {
+            if let ppid = item.ppid { armPidWatcher(ppid: ppid) }
         }
     }
 
@@ -99,7 +99,7 @@ final class FeedCoordinator: @unchecked Sendable {
             DispatchQueue.main.async {
                 MainActor.assumeIsolated {
                     FeedCoordinator.shared.store.ingest(event)
-                    if let ppid = event.ppid, ppid > 0 {
+                    if FeedCoordinator.shouldArmPIDWatcher(for: event), let ppid = event.ppid {
                         FeedCoordinator.shared.armPidWatcher(ppid: ppid)
                     }
                 }
@@ -128,7 +128,7 @@ final class FeedCoordinator: @unchecked Sendable {
             MainActor.assumeIsolated {
                 FeedCoordinator.shared.store.ingest(event)
                 itemIdSlot.value = FeedCoordinator.shared.store.items.last?.id
-                if let ppid = event.ppid, ppid > 0 {
+                if FeedCoordinator.shouldArmPIDWatcher(for: event), let ppid = event.ppid {
                     FeedCoordinator.shared.armPidWatcher(ppid: ppid)
                 }
                 // Surface in-app attention (needs-input status + bell +
@@ -316,6 +316,16 @@ extension FeedCoordinator {
         return lifecycleStatusKeyOverrides[normalized] ?? normalized
     }
 
+    static func shouldArmPIDWatcher(for event: WorkstreamEvent) -> Bool {
+        guard let ppid = event.ppid, ppid > 0 else { return false }
+        return AgentStatusHookEventSignal.pidNamespace(event: event) == .local
+    }
+
+    static func shouldArmPIDWatcher(for item: WorkstreamItem) -> Bool {
+        guard let ppid = item.ppid, ppid > 0 else { return false }
+        return item.processNamespace == nil || item.processNamespace == .local
+    }
+
     /// Identifies the sidebar slot an attention overlay lights up. Overlays
     /// are refcounted by this key so overlapping blocking decisions on the
     /// same agent/panel don't clear each other's needs-input badge.
@@ -323,7 +333,7 @@ extension FeedCoordinator {
         let workspaceId: UUID
         let panelId: UUID?
         let statusKey: String
-        let mutatesLifecycle: Bool
+        let clearsLifecycleOnConclusion: Bool
     }
 
     /// The localized "Needs input" sidebar status the overlay sets. Exposed so
@@ -400,24 +410,34 @@ extension FeedCoordinator {
             panelId = tab.focusedPanelId
         }
         let statusKey = Self.lifecycleStatusKey(forSource: event.source)
-        let mayMutateLifecycle = !AgentHibernationLifecycleStatusKeys.isAllowed(statusKey) ||
-            panelId.map {
-                tab.agentStatusBlockingDecisionMayMutateLifecycle(event: event, panelId: $0)
+        let isStructuredStatus = AgentHibernationLifecycleStatusKeys.isAllowed(statusKey)
+        let mayMutateLifecycle: Bool
+        let clearsLifecycleOnConclusion: Bool
+        if isStructuredStatus, event.ppid != nil {
+            mayMutateLifecycle = panelId.map {
+                tab.applyAgentStatusBlockingDecisionHookSignal(event: event, panelId: $0)
             } == true
+            clearsLifecycleOnConclusion = false
+        } else {
+            mayMutateLifecycle = tab.setAgentLifecycle(
+                key: statusKey,
+                panelId: panelId,
+                lifecycle: .needsInput
+            )
+            clearsLifecycleOnConclusion = mayMutateLifecycle
+        }
         let target = AttentionTarget(
             workspaceId: liveTarget.tabId,
             panelId: panelId,
             statusKey: statusKey,
-            mutatesLifecycle: mayMutateLifecycle
+            clearsLifecycleOnConclusion: clearsLifecycleOnConclusion
         )
-        let attentionState = pendingAttentionStates[target] ?? AttentionOverlayState(workspace: tab)
+        let attentionState = pendingAttentionStates[target] ?? FeedAttentionOverlayState(workspace: tab)
         attentionState.workspace = tab
         attentionState.count += 1
         pendingAttentionStates[target] = attentionState
 
         if mayMutateLifecycle {
-            // Needs-input lifecycle drives the sidebar badge + hibernation state.
-            tab.setAgentLifecycle(key: statusKey, panelId: panelId, lifecycle: .needsInput)
             tab.statusEntries[statusKey] = SidebarStatusEntry(
                 key: statusKey,
                 value: Self.needsInputStatusValue,
@@ -441,11 +461,9 @@ extension FeedCoordinator {
 
     /// Concludes a blocking decision's attention overlay. Decrements the
     /// per-target refcount and, when it reaches zero, clears the needs-input
-    /// overlay — but only the parts the feed still owns: the lifecycle is set
-    /// to `.running` only if it's still `.needsInput`, and the status entry is
-    /// removed only if it still holds our "Needs input" value. Anything an
-    /// agent hook replaced in the meantime is left untouched, so a real
-    /// running/idle/needs-input update from the agent always wins.
+    /// overlay only when Feed owns an unversioned lifecycle. Hook-backed state waits
+    /// for ordered agent or shell evidence, so resolving a card cannot invent a
+    /// newer `.running` transition. Anything an agent hook replaced is untouched.
     @MainActor
     func concludeBlockingDecisionAttention(_ target: AttentionTarget) {
         guard let attentionState = pendingAttentionStates[target] else { return }
@@ -458,7 +476,7 @@ extension FeedCoordinator {
 
         // Lifecycle is per-panel, so clearing this panel's needs-input is
         // safe even if another panel still needs input.
-        if target.mutatesLifecycle,
+        if target.clearsLifecycleOnConclusion,
            let panelId = target.panelId,
            tab.agentLifecycleStatesByPanelId[panelId]?[target.statusKey] == .needsInput {
             tab.setAgentLifecycle(key: target.statusKey, panelId: panelId, lifecycle: .running)
@@ -470,9 +488,10 @@ extension FeedCoordinator {
         // the same key — otherwise concluding one panel would wipe another
         // panel's active "Needs input" badge.
         let anotherPanelStillPending = pendingAttentionStates.keys.contains {
-            $0.mutatesLifecycle && $0.workspaceId == target.workspaceId && $0.statusKey == target.statusKey
+            $0.clearsLifecycleOnConclusion && $0.workspaceId == target.workspaceId &&
+                $0.statusKey == target.statusKey
         }
-        if target.mutatesLifecycle, !anotherPanelStillPending,
+        if target.clearsLifecycleOnConclusion, !anotherPanelStillPending,
            tab.statusEntries[target.statusKey]?.value == Self.needsInputStatusValue {
             tab.statusEntries.removeValue(forKey: target.statusKey)
         }
@@ -526,17 +545,6 @@ extension FeedCoordinator {
     }
 }
 
-@MainActor
-private final class AttentionOverlayState {
-    var count: Int
-    var workspace: Workspace
-
-    init(workspace: Workspace) {
-        self.count = 0
-        self.workspace = workspace
-    }
-}
-
 private final class PendingWaiter: @unchecked Sendable {
     let semaphore: DispatchSemaphore
     var decision: WorkstreamDecision?
@@ -561,21 +569,6 @@ private final class UnsafeItemIdSlot: @unchecked Sendable {
 private final class SnapshotSlot: @unchecked Sendable {
     var value: [WorkstreamItem] = []
 }
-
-#if DEBUG
-@MainActor
-enum FeedCoordinatorTestHooks {
-    static var afterBlockingEventIngested: (@Sendable (WorkstreamEvent, String) -> Void)?
-    static var isAppActiveOverride: (@Sendable () -> Bool)?
-    static var notificationPostObserver: (@Sendable (WorkstreamEvent, String) -> Void)?
-    /// Fires when a blocking decision event requests in-app attention
-    /// surfacing (needs-input status + bell + elevation). When set, the
-    /// production surfacing is short-circuited so tests can assert the
-    /// request without a live `TabManager`.
-    static var attentionSurfaceObserver: (@Sendable (WorkstreamEvent) -> Void)?
-    static var pidWatcherArmObserver: ((Int) -> Void)?
-}
-#endif
 
 // MARK: - Socket-layer helpers
 

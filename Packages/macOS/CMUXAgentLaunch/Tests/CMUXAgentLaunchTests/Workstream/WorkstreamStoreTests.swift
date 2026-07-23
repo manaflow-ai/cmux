@@ -92,6 +92,44 @@ struct WorkstreamStoreTests {
         #expect(store.items[2].status.isPending)
     }
 
+    @Test("Remote and unknown agent PIDs are never probed as local processes")
+    func expireAbandonedSkipsNonlocalPIDs() {
+        let store = WorkstreamStore(ringCapacity: 10)
+        for namespace in [WorkstreamProcessNamespace.remote, .unknown] {
+            store.ingest(WorkstreamEvent(
+                sessionId: "codex-\(namespace.rawValue)",
+                hookEventName: .permissionRequest,
+                source: "codex",
+                ppid: 987_654,
+                extraFieldsJSON: #"{"_cmux_agent_pid_namespace":"\#(namespace.rawValue)"}"#
+            ))
+        }
+
+        store.expireAbandonedItems { _ in false }
+
+        #expect(store.pending.count == 2)
+        #expect(store.items.map(\.processNamespace) == [.remote, .unknown])
+    }
+
+    @Test("A local PID exit cannot expire a remote item with the same numeric PID")
+    func localExitSkipsRemotePIDCollision() {
+        let store = WorkstreamStore(ringCapacity: 10)
+        store.ingest(.permission("local", requestId: "local", ppid: 4321))
+        store.ingest(WorkstreamEvent(
+            sessionId: "remote",
+            hookEventName: .permissionRequest,
+            source: "codex",
+            requestId: "remote",
+            ppid: 4321,
+            extraFieldsJSON: #"{"_cmux_agent_pid_namespace":"remote"}"#
+        ))
+
+        store.expireItems(forPpid: 4321)
+
+        #expect(!store.items[0].status.isPending)
+        #expect(store.items[1].status.isPending)
+    }
+
     @Test("expirePending moves stale pending items to expired")
     func expirePending() {
         let clock = TestClock(initial: Date(timeIntervalSince1970: 0))

@@ -29,9 +29,14 @@ struct ControlCommandCoordinatorSidebarV1Tests {
             command: "set_agent_lifecycle",
             args: "codex running --tab=0 --runtime-key=codex.session --runtime-pid=4242 --status-revision=2"
         )
+        let partialStart = coordinator.handleSidebarV1(
+            command: "set_agent_lifecycle",
+            args: "codex running --tab=0 --runtime-key=codex.session --runtime-pid=4242 --status-revision=2 --runtime-start-seconds=10"
+        )
 
         #expect(incomplete?.contains("--runtime-key=<key> --runtime-pid=<pid> --status-revision=<n>") == true)
         #expect(complete == "OK")
+        #expect(partialStart?.contains("--runtime-start-microseconds=<n>") == true)
     }
 
     @Test func notificationCleanupRequiresAConditionalResume() {

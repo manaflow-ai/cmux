@@ -222,7 +222,8 @@ public final class WorkstreamStore {
             status: status,
             payload: payload,
             context: context(for: event, payload: payload),
-            ppid: event.ppid
+            ppid: event.ppid,
+            processNamespace: event.processNamespace
         )
     }
 
@@ -233,18 +234,17 @@ public final class WorkstreamStore {
         let now = clock()
         for idx in items.indices {
             guard items[idx].status.isPending,
-                  items[idx].ppid == ppid else { continue }
+                  items[idx].ppid == ppid,
+                  items[idx].processNamespace == nil || items[idx].processNamespace == .local else {
+                continue
+            }
             items[idx].status = .expired(at: now)
             items[idx].updatedAt = now
         }
     }
 
-    /// Marks every pending item whose emitting agent process is no
-    /// longer alive as `.expired`. Used once at app startup to
-    /// catch items restored from the JSONL log whose original
-    /// agent never made it to the kqueue-watcher install; steady-
-    /// state abandonment is driven by `expireItems(forPpid:)` from
-    /// the DispatchSource handler instead.
+    /// Expires restored local items whose agent process is gone; steady-state
+    /// abandonment is driven by `expireItems(forPpid:)`.
     public func expireAbandonedItems(
         isProcessAlive: (Int) -> Bool = WorkstreamStore.defaultIsProcessAlive
     ) {
@@ -252,6 +252,9 @@ public final class WorkstreamStore {
         for idx in items.indices {
             guard items[idx].status.isPending else { continue }
             guard let ppid = items[idx].ppid, ppid > 0 else { continue }
+            guard items[idx].processNamespace == nil || items[idx].processNamespace == .local else {
+                continue
+            }
             if !isProcessAlive(ppid) {
                 items[idx].status = .expired(at: now)
                 items[idx].updatedAt = now
@@ -259,10 +262,7 @@ public final class WorkstreamStore {
         }
     }
 
-    /// Default liveness probe: `kill(pid, 0)` returns 0 if the
-    /// process exists and is signalable. `ESRCH` means gone;
-    /// `EPERM` means alive but owned by another user (treat as
-    /// alive — hook PIDs in practice are always same-user).
+    /// `kill(pid, 0)` and `EPERM` both indicate a live process.
     public static let defaultIsProcessAlive: (Int) -> Bool = { pid in
         #if canImport(Darwin) || canImport(Glibc)
         let rc = kill(pid_t(pid), 0)

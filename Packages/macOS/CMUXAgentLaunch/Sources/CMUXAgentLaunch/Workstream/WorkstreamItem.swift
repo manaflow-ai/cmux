@@ -49,6 +49,9 @@ public struct WorkstreamItem: Identifiable, Codable, Sendable, Equatable {
     /// or `codex` would otherwise leave orphaned actionable cards
     /// waiting forever. Only the agent PID; not the hook subprocess.
     public var ppid: Int?
+    /// Namespace in which ``ppid`` is meaningful. `nil` denotes a persisted
+    /// item written before namespace metadata existed and is treated as local.
+    public var processNamespace: WorkstreamProcessNamespace?
 
     public init(
         id: UUID = UUID(),
@@ -62,7 +65,8 @@ public struct WorkstreamItem: Identifiable, Codable, Sendable, Equatable {
         status: WorkstreamStatus? = nil,
         payload: WorkstreamPayload,
         context: WorkstreamContext? = nil,
-        ppid: Int? = nil
+        ppid: Int? = nil,
+        processNamespace: WorkstreamProcessNamespace? = nil
     ) {
         self.id = id
         self.workstreamId = workstreamId
@@ -77,5 +81,6 @@ public struct WorkstreamItem: Identifiable, Codable, Sendable, Equatable {
         self.payload = payload
         self.context = context?.isEmpty == true ? nil : context
         self.ppid = ppid
+        self.processNamespace = processNamespace
     }
 }

@@ -341,7 +341,7 @@ extension ControlCommandCoordinator {
     /// app-side allowlist check performs this command's single main hop.
     nonisolated func sidebarSetAgentLifecycle(_ args: String, context: (any ControlCommandContext)?) -> String {
         let parsed = sidebarParseOptions(args)
-        let usage = "set_agent_lifecycle <key> <unknown|running|idle|needsInput> [--tab=<id>] [--panel=<id>] [--if-needs-input] [--runtime-key=<key> --runtime-pid=<pid> --status-revision=<n>] [--clear-notifications-if-resumed]"
+        let usage = "set_agent_lifecycle <key> <unknown|running|idle|needsInput> [--tab=<id>] [--panel=<id>] [--if-needs-input] [--runtime-key=<key> --runtime-pid=<pid> --status-revision=<n> [--runtime-start-seconds=<n> --runtime-start-microseconds=<n>]] [--clear-notifications-if-resumed]"
         guard parsed.positional.count >= 2 else {
             return "ERROR: Usage: \(usage)"
         }
@@ -352,12 +352,8 @@ extension ControlCommandCoordinator {
               parsed.options["clear-notifications-if-resumed"] == nil || parsed.options["if-needs-input"] != nil else {
             return "ERROR: Invalid agent lifecycle '\(parsed.positional[1])' — usage: \(usage)"
         }
-        let runtimePIDKey = parsed.options["runtime-key"]
-        let runtimePID = parsed.options["runtime-pid"].flatMap(Int32.init)
-        let revision = parsed.options["status-revision"].flatMap(UInt64.init)
-        let hasAnyOrderedField = runtimePIDKey != nil || parsed.options["runtime-pid"] != nil
-            || parsed.options["status-revision"] != nil
-        guard !hasAnyOrderedField || (runtimePIDKey != nil && runtimePID != nil && revision != nil) else {
+        let ordering = AgentLifecycleRuntimeOrderingOptions(options: parsed.options)
+        guard ordering.isValid else {
             return "ERROR: Usage: \(usage)"
         }
         let targetResolution = sidebarParseMutationTabTarget(options: parsed.options)
@@ -381,9 +377,11 @@ extension ControlCommandCoordinator {
             lifecycleRawValue: lifecycleRawValue,
             panelID: panelResolution.panelId,
             onlyIfNeedsInput: parsed.options["if-needs-input"] != nil,
-            runtimePIDKey: runtimePIDKey,
-            runtimePID: runtimePID,
-            revision: revision,
+            runtimePIDKey: ordering.runtimePIDKey,
+            runtimePID: ordering.runtimePID,
+            runtimeStartSeconds: ordering.runtimeStartSeconds,
+            runtimeStartMicroseconds: ordering.runtimeStartMicroseconds,
+            revision: ordering.revision,
             clearNotificationsIfResumed: parsed.options["clear-notifications-if-resumed"] != nil
         )
         return "OK"

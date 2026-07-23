@@ -29,6 +29,18 @@ struct AgentStatusRuntimeGenerationTests {
         #expect(signal.runtimeSessionID == "current-session")
     }
 
+    @Test func partialRuntimeGenerationRejectsOrderedStatusSignal() {
+        let event = WorkstreamEvent(
+            sessionId: "codex-current-session",
+            hookEventName: .permissionRequest,
+            source: "codex",
+            ppid: Int(getpid()),
+            extraFieldsJSON: #"{"_cmux_agent_status_signal":"needsInput","_cmux_agent_pid_start_seconds":10}"#
+        )
+
+        #expect(AgentStatusHookEventSignal(event: event) == nil)
+    }
+
     @Test @MainActor func samePIDClaudeReplacementRejectsOldSessionWithoutResumeBinding() throws {
         let workspace = Workspace()
         let panelId = try #require(workspace.focusedPanelId)

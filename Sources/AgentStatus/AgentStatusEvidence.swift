@@ -6,6 +6,7 @@ struct AgentStatusEvidence: Equatable, Sendable {
     var lifecycle: AgentHibernationLifecycleState?
     var lifecycleObservedAt: Date?
     var lifecycleRuntimePIDKey: String?
+    var lifecycleRuntimeProcessIdentity: AgentPIDProcessIdentity?
     var lifecycleRevision: UInt64?
     var outputObservedAt: Date?
     var titleObservedAt: Date?
@@ -18,6 +19,7 @@ struct AgentStatusEvidence: Equatable, Sendable {
         lifecycle: AgentHibernationLifecycleState? = nil,
         lifecycleObservedAt: Date? = nil,
         lifecycleRuntimePIDKey: String? = nil,
+        lifecycleRuntimeProcessIdentity: AgentPIDProcessIdentity? = nil,
         lifecycleRevision: UInt64? = nil,
         outputObservedAt: Date? = nil,
         titleObservedAt: Date? = nil,
@@ -29,6 +31,7 @@ struct AgentStatusEvidence: Equatable, Sendable {
         self.lifecycle = lifecycle
         self.lifecycleObservedAt = lifecycleObservedAt
         self.lifecycleRuntimePIDKey = lifecycleRuntimePIDKey
+        self.lifecycleRuntimeProcessIdentity = lifecycleRuntimeProcessIdentity
         self.lifecycleRevision = lifecycleRevision
         self.outputObservedAt = outputObservedAt
         self.titleObservedAt = titleObservedAt
