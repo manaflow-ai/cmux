@@ -5,7 +5,9 @@ use std::time::Duration;
 use cmux_remote_protocol::REMOTE_PROTOCOL_VERSION;
 use serde::{Deserialize, Serialize};
 use tokio::io::AsyncReadExt;
-use tokio::process::Command;
+use tokio::process::{Child, Command};
+
+const SSH_BOOTSTRAP_OUTPUT_LIMIT: usize = 4_096;
 
 /// The version of the npm/PyPI distribution that contains this binary. Release
 /// workflows stamp it independently from the Rust crate's internal version.
@@ -267,39 +269,70 @@ impl SshBootstrapper {
             .kill_on_drop(true)
             .spawn()
             .map_err(BootstrapError::Io)?;
-        let mut stdout = child.stdout.take().ok_or_else(|| {
-            BootstrapError::Io(std::io::Error::other("SSH stdout pipe is unavailable"))
-        })?;
-        let mut stderr = child.stderr.take().ok_or_else(|| {
-            BootstrapError::Io(std::io::Error::other("SSH stderr pipe is unavailable"))
-        })?;
-        let mut stdout_bytes = Vec::new();
-        let mut stderr_bytes = Vec::new();
+        let stdout = match child.stdout.take() {
+            Some(stdout) => stdout,
+            None => {
+                terminate_and_reap(&mut child).await;
+                return Err(BootstrapError::Io(std::io::Error::other(
+                    "SSH stdout pipe is unavailable",
+                )));
+            }
+        };
+        let stderr = match child.stderr.take() {
+            Some(stderr) => stderr,
+            None => {
+                terminate_and_reap(&mut child).await;
+                return Err(BootstrapError::Io(std::io::Error::other(
+                    "SSH stderr pipe is unavailable",
+                )));
+            }
+        };
         let completion = tokio::time::timeout(self.config.timeout, async {
-            let (stdout_result, stderr_result, status_result) = tokio::join!(
-                stdout.read_to_end(&mut stdout_bytes),
-                stderr.read_to_end(&mut stderr_bytes),
-                child.wait(),
-            );
-            stdout_result?;
-            stderr_result?;
-            status_result
+            // Drain both pipes concurrently so either stream can fill without
+            // blocking the other stream or the child exit observation.
+            tokio::try_join!(
+                read_bounded(stdout, "stdout"),
+                read_bounded(stderr, "stderr"),
+                async { child.wait().await.map_err(BootstrapError::Io) },
+            )
         })
         .await;
-        let status = match completion {
-            Ok(result) => result.map_err(BootstrapError::Io)?,
+        let (stdout, stderr, status) = match completion {
+            Ok(Ok(result)) => result,
+            Ok(Err(error)) => {
+                terminate_and_reap(&mut child).await;
+                return Err(error);
+            }
             Err(_) => {
-                let _ = child.kill().await;
-                let _ = child.wait().await;
+                terminate_and_reap(&mut child).await;
                 return Err(BootstrapError::Timeout);
             }
         };
-        Ok(RemoteOutput {
-            status: status.code().unwrap_or(255),
-            stdout: stdout_bytes,
-            stderr: stderr_bytes,
-        })
+        Ok(RemoteOutput { status: status.code().unwrap_or(255), stdout, stderr })
     }
+}
+
+async fn read_bounded(
+    mut reader: impl tokio::io::AsyncRead + Unpin,
+    stream: &'static str,
+) -> Result<Vec<u8>, BootstrapError> {
+    let mut output = Vec::with_capacity(SSH_BOOTSTRAP_OUTPUT_LIMIT);
+    let mut buffer = [0_u8; 1_024];
+    loop {
+        let read = reader.read(&mut buffer).await.map_err(BootstrapError::Io)?;
+        if read == 0 {
+            return Ok(output);
+        }
+        if output.len() + read > SSH_BOOTSTRAP_OUTPUT_LIMIT {
+            return Err(BootstrapError::OutputLimit { stream, limit: SSH_BOOTSTRAP_OUTPUT_LIMIT });
+        }
+        output.extend_from_slice(&buffer[..read]);
+    }
+}
+
+async fn terminate_and_reap(child: &mut Child) {
+    let _ = child.start_kill();
+    let _ = child.wait().await;
 }
 
 struct RemoteOutput {
@@ -327,6 +360,7 @@ pub enum BootstrapError {
     Io(std::io::Error),
     ProbeJson(serde_json::Error),
     Timeout,
+    OutputLimit { stream: &'static str, limit: usize },
     Missing,
     Remote { status: i32, stderr: String },
     Install { status: i32, stderr: String },
@@ -341,6 +375,9 @@ impl fmt::Display for BootstrapError {
             Self::Io(error) => write!(formatter, "SSH bootstrap failed: {error}"),
             Self::ProbeJson(error) => write!(formatter, "remote probe was invalid: {error}"),
             Self::Timeout => formatter.write_str("SSH bootstrap timed out"),
+            Self::OutputLimit { stream, limit } => {
+                write!(formatter, "SSH bootstrap {stream} exceeded {limit} bytes")
+            }
             Self::Missing => formatter.write_str("cmux-tui is not installed on the remote host"),
             Self::Remote { status, stderr } => {
                 write!(formatter, "remote probe exited {status}: {stderr}")
