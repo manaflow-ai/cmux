@@ -1,7 +1,9 @@
 //! Bounded subprocess diagnostics that are safe to surface inside the TUI.
 
 use std::io::{self, Read};
+#[cfg(unix)]
 use std::os::fd::AsRawFd;
+#[cfg(unix)]
 use std::os::unix::net::UnixStream;
 use std::sync::Mutex;
 
@@ -76,6 +78,7 @@ impl BoundedDiagnosticBuffer {
         }
     }
 
+    #[cfg(unix)]
     pub(crate) fn drain_cancellable(&self, mut reader: impl Read + AsRawFd, cancel: UnixStream) {
         let mut poll_fds = [
             libc::pollfd { fd: cancel.as_raw_fd(), events: libc::POLLIN, revents: 0 },
