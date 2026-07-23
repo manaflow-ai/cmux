@@ -878,13 +878,24 @@ class GhosttyApp {
         }
         runtimeConfig.write_clipboard_cb = { _, location, content, len, _ in
             // Write clipboard
-            guard let content = content, len > 0 else { return }
+            guard let content = content, len > 0 else {
+                #if DEBUG
+                cmuxDebugLog("terminal.clipboard.write EMPTY payload location=\(location.rawValue) len=\(len)")
+                #endif
+                return
+            }
+            #if DEBUG
+            cmuxDebugLog("terminal.clipboard.write location=\(location.rawValue) items=\(len)")
+            #endif
             let buffer = UnsafeBufferPointer(start: content, count: Int(len))
 
             var fallback: String?
             for item in buffer {
                 guard let dataPtr = item.data else { continue }
                 let value = String(cString: dataPtr)
+                #if DEBUG
+                cmuxDebugLog("terminal.clipboard.write item mime=\(item.mime.map { String(cString: $0) } ?? "nil") length=\(value.count)")
+                #endif
 
                 if let mimePtr = item.mime {
                     let mime = String(cString: mimePtr)
@@ -4933,8 +4944,13 @@ class GhosttyNSView: NSView, NSUserInterfaceValidations {
     func validateUserInterfaceItem(_ item: NSValidatedUserInterfaceItem) -> Bool {
         switch item.action {
         case #selector(copy(_:)):
-            guard let surface = surface else { return false }
-            return hasCopyableTerminalSelection(surface: surface)
+            // Enabled whenever a surface exists, not gated on
+            // ghostty_surface_has_selection: that flag can report false while
+            // the runtime still holds a live selection (e.g. under constant
+            // TUI redraw), and a disabled menu item swallows Cmd+C before the
+            // runtime's own copy binding can handle it. Copy with no
+            // selection is a harmless no-op.
+            return surface != nil
         case #selector(paste(_:)):
             return GhosttyApp.terminalPasteboard.hasString(for: GHOSTTY_CLIPBOARD_STANDARD)
         case #selector(pasteAsPlainText(_:)):

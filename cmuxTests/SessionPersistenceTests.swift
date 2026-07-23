@@ -708,6 +708,25 @@ final class SessionPersistenceTests: XCTestCase {
         XCTAssertNil(TerminalController.normalizedExportedScreenPath(nil))
     }
 
+    func testIsPlausibleExportedScreenPathRequiresTemporaryDirectoryPrefix() {
+        let temporary = FileManager.default.temporaryDirectory
+        let exportPath = temporary.appendingPathComponent("cmux-screen-\(UUID().uuidString).vt").path
+
+        XCTAssertTrue(TerminalController.isPlausibleExportedScreenPath(exportPath))
+        XCTAssertTrue(TerminalController.isPlausibleExportedScreenPath("file://\(exportPath)"))
+        // Both spellings of the /var -> /private/var symlink are accepted.
+        if exportPath.hasPrefix("/var/") {
+            XCTAssertTrue(TerminalController.isPlausibleExportedScreenPath("/private" + exportPath))
+        }
+        // Typical user copies must never be mistaken for an export path.
+        XCTAssertFalse(TerminalController.isPlausibleExportedScreenPath("user copied text"))
+        // Existing absolute paths outside the temporary directory (e.g. a
+        // copied /etc/hosts) are not export payloads.
+        XCTAssertFalse(TerminalController.isPlausibleExportedScreenPath("/etc/hosts"))
+        // Interior newlines mean a multi-line user copy, not a path.
+        XCTAssertFalse(TerminalController.isPlausibleExportedScreenPath(exportPath + "\n/second/line"))
+    }
+
     func testNormalizedMobileVTExportTextSplitsGhosttyCRLFRows() {
         let normalized = TerminalController.normalizedMobileVTExportText("first\r\nsecond\r\nthird")
         let rows = normalized.split(separator: "\n", omittingEmptySubsequences: false).map(String.init)
