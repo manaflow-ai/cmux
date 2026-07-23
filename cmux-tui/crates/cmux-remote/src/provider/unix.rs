@@ -5,6 +5,9 @@ use std::sync::atomic::{AtomicBool, Ordering};
 use async_trait::async_trait;
 use tokio::net::UnixStream;
 
+use crate::admin::verify_unix_peer_owner;
+#[cfg(test)]
+use crate::admin::verify_unix_peer_uid;
 use crate::link::FrameLink;
 use crate::observability::{TransportPathKind, TransportPathSnapshot, TransportSnapshot};
 use crate::provider::{
@@ -15,11 +18,22 @@ use crate::provider::{
 #[derive(Debug, Clone)]
 pub struct UnixProvider {
     maximum: usize,
+    #[cfg(test)]
+    expected_uid: Option<u32>,
 }
 
 impl UnixProvider {
     pub fn new(maximum: usize) -> Self {
-        Self { maximum }
+        Self {
+            maximum,
+            #[cfg(test)]
+            expected_uid: None,
+        }
+    }
+
+    #[cfg(test)]
+    fn new_with_expected_uid(maximum: usize, expected_uid: u32) -> Self {
+        Self { maximum, expected_uid: Some(expected_uid) }
     }
 }
 
@@ -43,6 +57,8 @@ impl TransportProvider for UnixProvider {
             maximum: self.maximum,
             evidence: CarrierEvidence::LocalPeer { uid: None, pid: None },
             closed: AtomicBool::new(false),
+            #[cfg(test)]
+            expected_uid: self.expected_uid,
         }))
     }
 }
@@ -53,6 +69,8 @@ struct UnixLinkGroup {
     maximum: usize,
     evidence: CarrierEvidence,
     closed: AtomicBool,
+    #[cfg(test)]
+    expected_uid: Option<u32>,
 }
 
 #[async_trait]
@@ -88,6 +106,14 @@ impl LinkGroup for UnixLinkGroup {
         let stream = UnixStream::connect(&self.path)
             .await
             .map_err(|error| ProviderError::Transport(error.to_string()))?;
+        #[cfg(test)]
+        let peer_validation = match self.expected_uid {
+            Some(expected_uid) => verify_unix_peer_uid(&stream, expected_uid),
+            None => verify_unix_peer_owner(&stream),
+        };
+        #[cfg(not(test))]
+        let peer_validation = verify_unix_peer_owner(&stream);
+        peer_validation.map_err(|error| ProviderError::Transport(error.to_string()))?;
         let (reader, writer) = stream.into_split();
         Ok(Box::new(LengthDelimitedLink::new(
             self.description.clone(),
@@ -161,7 +187,7 @@ mod tests {
             Err(error) => error,
         };
         assert!(
-            matches!(error, ProviderError::Transport(message) if message.contains("peer uid")),
+            matches!(error, ProviderError::Transport(ref message) if message.contains("peer uid")),
             "unexpected error: {error}"
         );
     }

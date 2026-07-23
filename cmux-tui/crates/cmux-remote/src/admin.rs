@@ -4,6 +4,7 @@
 //! talk to the daemon instead of reopening its state files in another process.
 
 use std::fmt;
+use std::io;
 use std::os::unix::fs::{FileTypeExt, PermissionsExt};
 use std::path::{Path, PathBuf};
 use std::sync::Arc;
@@ -20,6 +21,52 @@ use crate::daemon::RemoteDaemon;
 use crate::identity::{EnrollmentRelayAccess, IdentityError};
 
 const MAX_ADMIN_MESSAGE_BYTES: usize = 64 * 1024;
+
+/// Failure to authenticate the process on the other end of a Unix socket.
+#[derive(Debug)]
+pub enum UnixPeerAuthError {
+    Credentials(io::Error),
+    WrongUid { peer_uid: u32, expected_uid: u32 },
+}
+
+impl fmt::Display for UnixPeerAuthError {
+    fn fmt(&self, formatter: &mut fmt::Formatter<'_>) -> fmt::Result {
+        match self {
+            Self::Credentials(error) => {
+                write!(formatter, "could not read Unix peer credentials: {error}")
+            }
+            Self::WrongUid { peer_uid, expected_uid } => write!(
+                formatter,
+                "Unix peer uid {peer_uid} does not match effective uid {expected_uid}"
+            ),
+        }
+    }
+}
+
+impl std::error::Error for UnixPeerAuthError {}
+
+/// Authenticates an authoritative Unix-socket responder as the effective user.
+///
+/// Clients must call this after connecting and before sending any bytes.
+pub fn verify_unix_peer_owner(stream: &UnixStream) -> Result<(), UnixPeerAuthError> {
+    verify_unix_peer_uid(stream, effective_uid())
+}
+
+pub(crate) fn verify_unix_peer_uid(
+    stream: &UnixStream,
+    expected_uid: u32,
+) -> Result<(), UnixPeerAuthError> {
+    let peer_uid = stream.peer_cred().map_err(UnixPeerAuthError::Credentials)?.uid();
+    if peer_uid != expected_uid {
+        return Err(UnixPeerAuthError::WrongUid { peer_uid, expected_uid });
+    }
+    Ok(())
+}
+
+fn effective_uid() -> u32 {
+    // SAFETY: geteuid has no preconditions and does not dereference pointers.
+    unsafe { libc::geteuid() }
+}
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
 #[serde(tag = "method", rename_all = "kebab-case")]
@@ -167,7 +214,26 @@ pub async fn call_admin(
     path: impl AsRef<Path>,
     request: &AdminRequest,
 ) -> Result<AdminResponse, AdminError> {
-    let mut stream = UnixStream::connect(path).await?;
+    let stream = UnixStream::connect(path).await?;
+    verify_unix_peer_owner(&stream)?;
+    call_admin_over_stream(stream, request).await
+}
+
+#[cfg(test)]
+async fn call_admin_with_expected_uid(
+    path: impl AsRef<Path>,
+    request: &AdminRequest,
+    expected_uid: u32,
+) -> Result<AdminResponse, AdminError> {
+    let stream = UnixStream::connect(path).await?;
+    verify_unix_peer_uid(&stream, expected_uid)?;
+    call_admin_over_stream(stream, request).await
+}
+
+async fn call_admin_over_stream(
+    mut stream: UnixStream,
+    request: &AdminRequest,
+) -> Result<AdminResponse, AdminError> {
     let mut encoded = serde_json::to_vec(request)?;
     if encoded.len() > MAX_ADMIN_MESSAGE_BYTES {
         return Err(AdminError::MessageTooLarge(encoded.len()));
@@ -321,17 +387,12 @@ async fn prepare_socket_path(path: &Path) -> Result<(), AdminError> {
 }
 
 fn validate_peer(stream: &UnixStream) -> Result<(), AdminError> {
-    let peer = stream.peer_cred()?;
-    let owner = unsafe { libc::geteuid() };
-    if peer.uid() != owner {
-        return Err(AdminError::UnauthorizedPeer(peer.uid()));
-    }
-    Ok(())
+    verify_unix_peer_owner(stream).map_err(AdminError::from)
 }
 
 #[derive(Debug)]
 pub enum AdminError {
-    Io(std::io::Error),
+    Io(io::Error),
     Json(serde_json::Error),
     Protocol(String),
     MessageTooLarge(usize),
@@ -352,8 +413,8 @@ impl fmt::Display for AdminError {
 
 impl std::error::Error for AdminError {}
 
-impl From<std::io::Error> for AdminError {
-    fn from(error: std::io::Error) -> Self {
+impl From<io::Error> for AdminError {
+    fn from(error: io::Error) -> Self {
         Self::Io(error)
     }
 }
@@ -361,6 +422,15 @@ impl From<std::io::Error> for AdminError {
 impl From<serde_json::Error> for AdminError {
     fn from(error: serde_json::Error) -> Self {
         Self::Json(error)
+    }
+}
+
+impl From<UnixPeerAuthError> for AdminError {
+    fn from(error: UnixPeerAuthError) -> Self {
+        match error {
+            UnixPeerAuthError::Credentials(error) => Self::Io(error),
+            UnixPeerAuthError::WrongUid { peer_uid, .. } => Self::UnauthorizedPeer(peer_uid),
+        }
     }
 }
 
