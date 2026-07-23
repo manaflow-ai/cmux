@@ -829,7 +829,7 @@ private final class FeedV2CallResultBox: @unchecked Sendable {
     var value: TerminalController.V2CallResult?
 }
 
-private final class AttentionSurfaceRecorder: @unchecked Sendable {
+final class AttentionSurfaceRecorder: @unchecked Sendable {
     private let lock = NSLock()
     private var recordedEvents: [WorkstreamEvent] = []
 

@@ -474,6 +474,67 @@ await handlers.get("agent_end")({
     return 0
 
 
+def check_numeric_tool_results_are_projected(
+    bun: str,
+    root: Path,
+    extension_path: Path,
+) -> int:
+    numeric_log = root / "numeric-result-cmux.log"
+    numeric_cmux = root / "numeric-result-cmux"
+    make_executable(
+        numeric_cmux,
+        """#!/usr/bin/env bash
+set -euo pipefail
+payload="$(cat)"
+printf '%s|%s\n' "$*" "$payload" >> "$CMUX_TEST_PI_NUMERIC_RESULT_LOG"
+printf '{}\n'
+""",
+    )
+    numeric_source = """
+const extensionPath = process.env.CMUX_TEST_PI_EXTENSION_PATH;
+const mod = await import(extensionPath);
+const handlers = new Map();
+mod.default({ on(name, handler) { handlers.set(name, handler); } });
+const ctx = {
+  cwd: "/tmp/pi-numeric-result-project",
+  sessionManager: { getSessionId() { return "pi-numeric-result-session"; } }
+};
+await handlers.get("before_agent_start")({ prompt: "read numeric secret" }, ctx);
+await handlers.get("tool_execution_end")({
+  toolCallId: "numeric-result-tool",
+  toolName: "secret_reader",
+  result: 8675309123,
+  isError: false
+}, ctx);
+await handlers.get("session_shutdown")({ reason: "quit" }, ctx);
+"""
+    numeric = run_extension(
+        bun=bun,
+        root=root,
+        extension_path=extension_path,
+        fake_cmux=numeric_cmux,
+        source=numeric_source,
+        extra_env={"CMUX_TEST_PI_NUMERIC_RESULT_LOG": str(numeric_log)},
+    )
+    if numeric.returncode != 0:
+        print(f"FAIL: numeric-result Pi harness failed: {numeric.stderr!r}")
+        return 1
+
+    feed_payloads = [
+        json.loads(line.split("|", 1)[1])
+        for line in numeric_log.read_text(encoding="utf-8").splitlines()
+        if "hooks feed" in line
+    ]
+    if len(feed_payloads) != 1:
+        print(f"FAIL: numeric-result harness captured unexpected Feed calls: {feed_payloads!r}")
+        return 1
+    tool_result = feed_payloads[0].get("tool_result")
+    if tool_result != {"kind": "number"}:
+        print(f"FAIL: Pi Feed retained a raw numeric tool result: {tool_result!r}")
+        return 1
+    return 0
+
+
 def check_cross_session_feed_ownership(bun: str, root: Path, extension_path: Path) -> int:
     ownership_log = root / "cross-session-cmux.log"
     ownership_release = root / "cross-session-release"
@@ -1946,6 +2007,7 @@ def run_checks(bun: str, root: Path, extension_path: Path) -> int:
         check_feed_backlog,
         check_terminal_feed_compaction,
         check_feed_payload_byte_bound,
+        check_numeric_tool_results_are_projected,
         check_cross_session_feed_ownership,
         check_cross_session_feed_isolation,
         check_feed_ack_rehomes_cached_target,
