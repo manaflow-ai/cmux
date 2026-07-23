@@ -220,7 +220,125 @@ impl From<LinkError> for ProviderError {
 
 #[cfg(test)]
 mod tests {
+    use std::sync::atomic::{AtomicUsize, Ordering};
+
+    use crate::crypto::AuthKind;
+
     use super::*;
+
+    struct CountingProvider {
+        calls: AtomicUsize,
+        supported_auth: SupportedClientAuthModes,
+    }
+
+    #[async_trait]
+    impl TransportProvider for CountingProvider {
+        fn name(&self) -> &'static str {
+            "counting"
+        }
+
+        fn schemes(&self) -> &'static [&'static str] {
+            &["counting"]
+        }
+
+        fn supported_client_auth(&self) -> SupportedClientAuthModes {
+            self.supported_auth
+        }
+
+        async fn connect(
+            &self,
+            _request: ConnectRequest,
+        ) -> Result<Arc<dyn LinkGroup>, ProviderError> {
+            self.calls.fetch_add(1, Ordering::AcqRel);
+            Err(ProviderError::Transport("counting provider dialed".into()))
+        }
+    }
+
+    fn counting_request() -> ConnectRequest {
+        ConnectRequest {
+            endpoint: Url::parse("counting://daemon").unwrap(),
+            session: SessionId::ZERO,
+            lane_policy: LanePolicy::Single,
+            routing: BTreeMap::new(),
+        }
+    }
+
+    #[tokio::test]
+    async fn registry_rejects_carrier_auth_before_device_only_provider_dial() {
+        let provider = Arc::new(CountingProvider {
+            calls: AtomicUsize::new(0),
+            supported_auth: SupportedClientAuthModes::DeviceOnly,
+        });
+        let mut registry = ProviderRegistry::default();
+        registry.register(provider.clone()).unwrap();
+
+        let error = registry.connect(counting_request(), AuthKind::Carrier).await.unwrap_err();
+
+        assert!(matches!(
+            error,
+            ProviderError::UnsupportedClientAuth {
+                scheme,
+                auth: AuthKind::Carrier,
+            } if scheme == "counting"
+        ));
+        assert_eq!(
+            provider.calls.load(Ordering::Acquire),
+            0,
+            "an incompatible provider was allowed to dial"
+        );
+    }
+
+    #[tokio::test]
+    async fn registry_allows_carrier_auth_only_for_declared_carriers() {
+        let provider = Arc::new(CountingProvider {
+            calls: AtomicUsize::new(0),
+            supported_auth: SupportedClientAuthModes::DeviceOrCarrier,
+        });
+        let mut registry = ProviderRegistry::default();
+        registry.register(provider.clone()).unwrap();
+
+        let error = registry.connect(counting_request(), AuthKind::Carrier).await.unwrap_err();
+
+        assert!(matches!(error, ProviderError::Transport(_)));
+        assert_eq!(
+            provider.calls.load(Ordering::Acquire),
+            1,
+            "a declared carrier provider was rejected before dialing"
+        );
+    }
+
+    #[test]
+    fn built_in_providers_declare_the_carrier_auth_boundary() {
+        assert_eq!(
+            DirectWebSocketProvider::new(65_535).supported_client_auth(),
+            SupportedClientAuthModes::DeviceOnly
+        );
+        assert_eq!(
+            RelayProvider::new(RelayClientConfig {
+                slot: "test-slot".into(),
+                ticket: "test-ticket".into(),
+                maximum_frame_bytes: 65_535,
+                control_timeout: std::time::Duration::from_secs(1),
+            })
+            .unwrap()
+            .supported_client_auth(),
+            SupportedClientAuthModes::DeviceOnly
+        );
+        #[cfg(feature = "iroh-transport")]
+        assert_eq!(
+            IrohProvider::new(IrohProviderConfig::default()).unwrap().supported_client_auth(),
+            SupportedClientAuthModes::DeviceOnly
+        );
+        assert_eq!(
+            SshProvider::new(SshProviderConfig::default()).unwrap().supported_client_auth(),
+            SupportedClientAuthModes::DeviceOrCarrier
+        );
+        #[cfg(unix)]
+        assert_eq!(
+            UnixProvider::new(65_535).supported_client_auth(),
+            SupportedClientAuthModes::DeviceOrCarrier
+        );
+    }
 
     #[test]
     fn auto_separates_keystrokes_and_bulk() {

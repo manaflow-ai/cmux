@@ -1092,6 +1092,17 @@ pub fn load_runtime_info(
 mod tests {
     use super::*;
 
+    fn resolved_test_route(
+        route: &str,
+        supported_auth: cmux_remote::provider::SupportedClientAuthModes,
+    ) -> ResolvedRouteCandidate {
+        ResolvedRouteCandidate::with_supported_client_auth_for_test(
+            Url::parse(route).unwrap(),
+            BTreeMap::new(),
+            supported_auth,
+        )
+    }
+
     #[derive(Debug, PartialEq, Eq)]
     enum FakeInitialRouteEvent {
         Bootstrap { endpoint: String, upgrade: bool },
@@ -1156,6 +1167,143 @@ mod tests {
         ) -> Result<String, ProviderError> {
             Err(ProviderError::Transport("fake provider is unreachable".into()))
         }
+    }
+
+    #[test]
+    fn route_auth_capability_is_derived_from_the_local_provider_registry() {
+        let mut providers = cmux_remote::provider::ProviderRegistry::default();
+        providers
+            .register(Arc::new(DirectWebSocketProvider::new(MAX_CARRIER_FRAME_BYTES)))
+            .unwrap();
+        let candidate = ResolvedRouteCandidate::resolve(
+            Url::parse(
+                "wss://daemon.example/v1/link?client_auth=device-or-carrier#untrusted-claim",
+            )
+            .unwrap(),
+            BTreeMap::new(),
+            &providers,
+        )
+        .unwrap();
+
+        assert_eq!(
+            candidate.supported_client_auth(),
+            cmux_remote::provider::SupportedClientAuthModes::DeviceOnly
+        );
+    }
+
+    #[tokio::test]
+    async fn carrier_initial_fallback_skips_network_route_before_any_dial() {
+        let routes = vec![
+            resolved_test_route(
+                "wss://network.example/v1/link",
+                cmux_remote::provider::SupportedClientAuthModes::DeviceOnly,
+            ),
+            resolved_test_route(
+                "ssh://carrier.example",
+                cmux_remote::provider::SupportedClientAuthModes::DeviceOrCarrier,
+            ),
+        ];
+        let mut attempt = FakeInitialRouteAttempt {
+            fail_ssh_bootstrap: false,
+            fail_provider_index: None,
+            events: Vec::new(),
+        };
+
+        let selected = select_initial_route(
+            &routes,
+            SessionId([13; 16]),
+            LanePolicy::Single,
+            cmux_remote::crypto::AuthKind::Carrier,
+            false,
+            &mut attempt,
+        )
+        .await
+        .unwrap();
+
+        assert_eq!(selected, "ssh://carrier.example");
+        assert_eq!(
+            attempt.events,
+            [
+                FakeInitialRouteEvent::Bootstrap {
+                    endpoint: "ssh://carrier.example".into(),
+                    upgrade: false,
+                },
+                FakeInitialRouteEvent::Provider(ConnectRequest {
+                    endpoint: Url::parse("ssh://carrier.example").unwrap(),
+                    session: SessionId([13; 16]),
+                    lane_policy: LanePolicy::Single,
+                    routing: BTreeMap::new(),
+                }),
+            ],
+            "the device-only WebSocket provider was invoked before carrier fallback"
+        );
+    }
+
+    #[tokio::test]
+    async fn carrier_reconnect_skips_network_route_before_any_dial() {
+        let routes = vec![
+            resolved_test_route(
+                "wss://network.example/v1/link",
+                cmux_remote::provider::SupportedClientAuthModes::DeviceOnly,
+            ),
+            resolved_test_route(
+                "ssh://carrier.example",
+                cmux_remote::provider::SupportedClientAuthModes::DeviceOrCarrier,
+            ),
+        ];
+        let attempt = FakeReconnectRouteAttempt::default();
+
+        let (index, selected) = select_reconnect_route(
+            &routes,
+            0,
+            SessionId([14; 16]),
+            LanePolicy::Single,
+            cmux_remote::crypto::AuthKind::Carrier,
+            &attempt,
+        )
+        .await
+        .unwrap();
+
+        assert_eq!(index, 1);
+        assert_eq!(selected, "ssh://carrier.example");
+        assert_eq!(
+            attempt.requests.into_inner().unwrap(),
+            [ConnectRequest {
+                endpoint: Url::parse("ssh://carrier.example").unwrap(),
+                session: SessionId([14; 16]),
+                lane_policy: LanePolicy::Single,
+                routing: BTreeMap::new(),
+            }],
+            "the device-only WebSocket provider was invoked during reconnect"
+        );
+    }
+
+    #[tokio::test]
+    async fn carrier_route_selection_fails_without_dialing_when_every_route_is_device_only() {
+        let routes = vec![resolved_test_route(
+            "wss://network.example/v1/link",
+            cmux_remote::provider::SupportedClientAuthModes::DeviceOnly,
+        )];
+        let mut attempt = FakeInitialRouteAttempt {
+            fail_ssh_bootstrap: false,
+            fail_provider_index: None,
+            events: Vec::new(),
+        };
+
+        let error = select_initial_route(
+            &routes,
+            SessionId([15; 16]),
+            LanePolicy::Single,
+            cmux_remote::crypto::AuthKind::Carrier,
+            false,
+            &mut attempt,
+        )
+        .await
+        .unwrap_err()
+        .to_string();
+
+        assert!(error.contains("carrier"), "{error}");
+        assert!(attempt.events.is_empty(), "an incompatible route was dialed");
     }
 
     fn reconnect_test_options(routes: Vec<ResolvedRouteCandidate>) -> ClientRuntimeOptions {
