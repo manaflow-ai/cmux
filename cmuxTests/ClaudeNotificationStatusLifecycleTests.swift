@@ -4,7 +4,7 @@ import Testing
 
 @Suite(.serialized)
 struct ClaudeNotificationStatusLifecycleTests {
-    @Test func claudeNotificationStatusCarriesPIDForStaleSweep() throws {
+    @Test func claudePermissionPromptStatusCarriesPIDForStaleSweep() throws {
         let harness = ClaudeHookSurfaceResolutionSwiftTests()
         let context = try harness.makeClaudeHookContext(name: "claude-notify-pid")
         defer { context.cleanup() }
@@ -29,7 +29,7 @@ struct ClaudeNotificationStatusLifecycleTests {
             executablePath: context.cliPath,
             arguments: ["hooks", "claude", "notification"],
             environment: environment,
-            standardInput: #"{"session_id":"claude-notify-pid-session","cwd":"\#(context.root.path)","hook_event_name":"Notification","message":"Claude needs your input"}"#,
+            standardInput: #"{"session_id":"claude-notify-pid-session","cwd":"\#(context.root.path)","hook_event_name":"Notification","message":"Claude needs your permission","notification_type":"permission_prompt"}"#,
             timeout: 5
         )
 
