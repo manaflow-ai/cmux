@@ -78,16 +78,21 @@ class FakeCmuxSocket:
         decision: dict | None,
         surfaces: list[dict] | None = None,
         drop_first_surface_list: bool = False,
+        feed_response_gate: threading.Event | None = None,
+        feed_response_ok: bool = True,
     ):
         self.path = path
         self.decision = decision
         self.surfaces = surfaces if surfaces is not None else [{"id": FAKE_SURFACE_ID}]
         self.drop_first_surface_list = drop_first_surface_list
+        self.feed_response_gate = feed_response_gate
+        self.feed_response_ok = feed_response_ok
         self._dropped_surface_list = False
         self.frames: list[dict] = []
         self.frames_with_connection: list[tuple[int, dict]] = []
         self._next_connection_id = 0
         self._ready = threading.Event()
+        self.feed_frame_received = threading.Event()
         self._stop = threading.Event()
         self._thread = threading.Thread(target=self._run, daemon=True)
 
@@ -143,6 +148,10 @@ class FakeCmuxSocket:
                         continue
                     self.frames.append(frame)
                     self.frames_with_connection.append((connection_id, frame))
+                    if frame.get("method") == "feed.push":
+                        self.feed_frame_received.set()
+                        if self.feed_response_gate is not None:
+                            self.feed_response_gate.wait(timeout=3)
                     result: dict = {"status": "acknowledged"}
                     if frame.get("method") == "surface.list":
                         if self.drop_first_surface_list and not self._dropped_surface_list:
@@ -156,9 +165,15 @@ class FakeCmuxSocket:
                         }
                     response = {
                         "id": frame.get("id"),
-                        "ok": True,
-                        "result": result,
+                        "ok": self.feed_response_ok,
                     }
+                    if self.feed_response_ok:
+                        response["result"] = result
+                    else:
+                        response["error"] = {
+                            "code": "feed_rejected",
+                            "message": "Feed rejected the event",
+                        }
                     try:
                         conn.sendall(json.dumps(response).encode("utf-8") + b"\n")
                     except BrokenPipeError:
@@ -2478,6 +2493,152 @@ def test_pi_compacted_post_tool_use_expands_to_distinct_frames(cli_path: str, ro
         raise AssertionError(f"compacted Pi terminal events leaked tool output into Feed: {events!r}")
 
 
+def test_pi_compacted_feed_rejects_failed_server_ack(cli_path: str, root: Path) -> None:
+    socket_path = root / "cmux-pi-compacted-rejected-ack.sock"
+    payload = {
+        "session_id": "pi-compacted-rejected-session",
+        "hook_event_name": "PostToolUse",
+        "cmux_compacted_terminal_events": [
+            {
+                "session_id": "pi-compacted-rejected-session",
+                "tool_call_id": "pi-compacted-rejected-tool",
+                "tool_name": "bash",
+            }
+        ],
+    }
+    env = os.environ.copy()
+    for key in ("CMUX_SOCKET", "CMUX_SOCKET_CAPABILITY", "CMUX_SOCKET_PATH", "CMUX_SOCKET_PASSWORD"):
+        env.pop(key, None)
+    env["CMUX_SURFACE_ID"] = FAKE_SURFACE_ID
+    env["CMUX_WORKSPACE_ID"] = FAKE_WORKSPACE_ID
+
+    with FakeCmuxSocket(socket_path, None, feed_response_ok=False):
+        result = subprocess.run(
+            [
+                cli_path,
+                "--socket",
+                str(socket_path),
+                "hooks",
+                "feed",
+                "--source",
+                "pi",
+                "--event",
+                "PostToolUse",
+            ],
+            input=json.dumps(payload),
+            capture_output=True,
+            text=True,
+            check=False,
+            env=env,
+            timeout=10,
+        )
+
+    if result.returncode == 0:
+        raise AssertionError(
+            "compacted Pi feed accepted a failed server acknowledgment: "
+            f"stdout={result.stdout!r} stderr={result.stderr!r}"
+        )
+
+
+def test_pi_feed_waits_for_server_ack(cli_path: str, root: Path) -> None:
+    socket_path = root / "cmux-pi-feed-ack.sock"
+    response_gate = threading.Event()
+    env = os.environ.copy()
+    for key in ("CMUX_SOCKET", "CMUX_SOCKET_CAPABILITY", "CMUX_SOCKET_PATH", "CMUX_SOCKET_PASSWORD"):
+        env.pop(key, None)
+    env["CMUX_SURFACE_ID"] = FAKE_SURFACE_ID
+    env["CMUX_WORKSPACE_ID"] = FAKE_WORKSPACE_ID
+    payload = {
+        "session_id": "pi-ack-session",
+        "cwd": "/tmp/pi-ack-project",
+        "hook_event_name": "PostToolUse",
+        "tool_call_id": "pi-ack-tool",
+        "tool_name": "bash",
+    }
+
+    with FakeCmuxSocket(socket_path, None, feed_response_gate=response_gate) as fake:
+        process = subprocess.Popen(
+            [
+                cli_path,
+                "--socket",
+                str(socket_path),
+                "hooks",
+                "feed",
+                "--source",
+                "pi",
+                "--event",
+                "PostToolUse",
+            ],
+            stdin=subprocess.PIPE,
+            stdout=subprocess.PIPE,
+            stderr=subprocess.PIPE,
+            text=True,
+            env=env,
+        )
+        assert process.stdin is not None
+        process.stdin.write(json.dumps(payload))
+        process.stdin.close()
+        if not fake.feed_frame_received.wait(timeout=3):
+            process.kill()
+            raise AssertionError("Pi feed request did not reach the fake socket")
+        deadline = time.monotonic() + 0.5
+        while process.poll() is None and time.monotonic() < deadline:
+            time.sleep(0.01)
+        exited_before_ack = process.poll() is not None
+        response_gate.set()
+        returncode = process.wait(timeout=5)
+        stdout = process.stdout.read() if process.stdout is not None else ""
+        stderr = process.stderr.read() if process.stderr is not None else ""
+
+    if exited_before_ack:
+        raise AssertionError("Pi feed subprocess exited before the server acknowledged ingestion")
+    if returncode != 0:
+        raise AssertionError(f"acknowledged Pi feed failed exit={returncode} stdout={stdout!r} stderr={stderr!r}")
+
+
+def test_pi_feed_rejects_failed_server_ack(cli_path: str, root: Path) -> None:
+    socket_path = root / "cmux-pi-feed-rejected-ack.sock"
+    env = os.environ.copy()
+    for key in ("CMUX_SOCKET", "CMUX_SOCKET_CAPABILITY", "CMUX_SOCKET_PATH", "CMUX_SOCKET_PASSWORD"):
+        env.pop(key, None)
+    env["CMUX_SURFACE_ID"] = FAKE_SURFACE_ID
+    env["CMUX_WORKSPACE_ID"] = FAKE_WORKSPACE_ID
+    payload = {
+        "session_id": "pi-rejected-session",
+        "cwd": "/tmp/pi-rejected-project",
+        "hook_event_name": "PostToolUse",
+        "tool_call_id": "pi-rejected-tool",
+        "tool_name": "bash",
+    }
+
+    with FakeCmuxSocket(socket_path, None, feed_response_ok=False):
+        result = subprocess.run(
+            [
+                cli_path,
+                "--socket",
+                str(socket_path),
+                "hooks",
+                "feed",
+                "--source",
+                "pi",
+                "--event",
+                "PostToolUse",
+            ],
+            input=json.dumps(payload),
+            capture_output=True,
+            text=True,
+            check=False,
+            env=env,
+            timeout=10,
+        )
+
+    if result.returncode == 0:
+        raise AssertionError(
+            "Pi feed subprocess accepted a failed server acknowledgment: "
+            f"stdout={result.stdout!r} stderr={result.stderr!r}"
+        )
+
+
 def test_claude_subagent_stop_stays_distinct_feed_telemetry(cli_path: str, root: Path) -> None:
     stdout, frame = run_feed_hook(
         cli_path,
@@ -2554,6 +2715,9 @@ def main() -> int:
             test_codex_post_tool_use_without_response_keeps_request_input(cli_path, root)
             test_non_codex_post_tool_use_keeps_request_input(cli_path, root)
             test_pi_compacted_post_tool_use_expands_to_distinct_frames(cli_path, root)
+            test_pi_compacted_feed_rejects_failed_server_ack(cli_path, root)
+            test_pi_feed_waits_for_server_ack(cli_path, root)
+            test_pi_feed_rejects_failed_server_ack(cli_path, root)
             test_claude_subagent_stop_stays_distinct_feed_telemetry(cli_path, root)
         except Exception as exc:
             print(f"FAIL: {exc}")

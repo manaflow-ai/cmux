@@ -253,17 +253,17 @@ const extensionPath = process.env.CMUX_TEST_PI_EXTENSION_PATH;
 const mod = await import(extensionPath);
 const handlers = new Map();
 mod.default({ on(name, handler) { handlers.set(name, handler); } });
-const ctx = {
-  cwd: "/tmp/pi-terminal-compaction-project",
+const context = (index) => ({
+  cwd: `/tmp/pi-terminal-compaction-project-${index}`,
   sessionManager: { getSessionId() { return "pi-terminal-compaction-session"; } }
-};
+});
 for (let index = 0; index < 10; index += 1) {
   handlers.get("tool_execution_end")({
     toolCallId: `overflow-tool-${index}`,
     toolName: "bash",
     result: { content: [{ type: "text", text: `terminal result ${index}` }] },
     isError: false
-  }, ctx);
+  }, context(index));
 }
 const logPath = process.env.CMUX_TEST_PI_COMPACTION_LOG;
 while (!Bun.file(logPath).size) {
@@ -273,7 +273,7 @@ writeFileSync(process.env.CMUX_TEST_PI_COMPACTION_RELEASE, "ready");
 await handlers.get("agent_end")({
   messages: [{ role: "assistant", content: "done" }],
   stopReason: "completed"
-}, ctx);
+}, context(9));
 """
     compacted = run_extension(
         bun=bun,
@@ -290,11 +290,24 @@ await handlers.get("agent_end")({
         print(f"FAIL: terminal-feed compaction harness failed: {compacted.stderr!r}")
         return 1
     compaction_calls = compaction_log.read_text(encoding="utf-8").splitlines()
-    feed_payloads = "\n".join(line for line in compaction_calls if "hooks feed" in line)
+    feed_calls = [line for line in compaction_calls if "hooks feed" in line]
+    feed_payloads = "\n".join(feed_calls)
     missing = [tool_id for index in range(10) if (tool_id := f"overflow-tool-{index}") not in feed_payloads]
     if missing:
         print(f"FAIL: saturated feed queue discarded terminal outcomes {missing!r}: {compaction_calls!r}")
         return 1
+    compacted_summaries = [
+        summary
+        for line in feed_calls
+        for summary in json.loads(line.split("|", 1)[1]).get("cmux_compacted_terminal_events", [])
+    ]
+    for summary in compacted_summaries:
+        tool_id = summary.get("tool_call_id", "")
+        index = int(tool_id.rsplit("-", 1)[-1])
+        expected_cwd = f"/tmp/pi-terminal-compaction-project-{index}"
+        if summary.get("cwd") != expected_cwd:
+            print(f"FAIL: compacted terminal event lost cwd ownership: {compacted_summaries!r}")
+            return 1
 
     return 0
 
