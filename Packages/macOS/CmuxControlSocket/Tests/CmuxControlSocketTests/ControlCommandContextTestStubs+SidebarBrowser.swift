@@ -68,8 +68,13 @@ extension ControlSidebarContext {
         target: ControlSidebarTabTarget,
         key: String,
         pid: Int32,
-        panelID: UUID?
+        panelID: UUID?,
+        agentEventTime: TimeInterval?
     ) {}
+
+    nonisolated func controlSidebarInvalidAgentEventTimeError(_ raw: String) -> String {
+        "ERROR: Invalid agent event time '\(raw)' - must be a positive finite number"
+    }
 
     nonisolated func controlSidebarParseAgentLifecycle(_ raw: String) -> String? { nil }
 

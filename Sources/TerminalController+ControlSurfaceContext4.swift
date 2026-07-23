@@ -188,6 +188,18 @@ extension TerminalController {
         ) else {
             return .surfaceNotFound
         }
+        guard target.workspace.acceptsSurfaceResumeBindingMutation(
+            panelId: target.surfaceId,
+            agentEventTime: inputs.agentEventTime
+        ) else {
+            return .result(surfaceResumeSnapshot(
+                tabManager: target.tabManager,
+                workspace: target.workspace,
+                surfaceId: target.surfaceId,
+                binding: target.workspace.surfaceResumeBinding(panelId: target.surfaceId),
+                cleared: false
+            ))
+        }
         let locatedBinding: SurfaceResumeBindingSnapshot
         if let remoteWorkspaceID = inputs.remoteWorkspaceID {
             guard remoteWorkspaceID == target.workspace.id,
@@ -279,7 +291,10 @@ extension TerminalController {
                 cleared: false
             ))
         }
-        if let agentEventTime, let currentBinding, currentBinding.updatedAt > agentEventTime {
+        guard target.workspace.acceptsSurfaceResumeBindingMutation(
+            panelId: target.surfaceId,
+            agentEventTime: agentEventTime
+        ) else {
             return .result(surfaceResumeSnapshot(
                 tabManager: target.tabManager,
                 workspace: target.workspace,
@@ -289,6 +304,10 @@ extension TerminalController {
             ))
         }
         _ = target.workspace.clearSurfaceResumeBinding(panelId: target.surfaceId)
+        target.workspace.recordSurfaceResumeBindingMutation(
+            panelId: target.surfaceId,
+            eventTime: agentEventTime ?? Date().timeIntervalSince1970
+        )
         return .result(surfaceResumeSnapshot(
             tabManager: target.tabManager,
             workspace: target.workspace,

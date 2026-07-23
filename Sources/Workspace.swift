@@ -188,6 +188,7 @@ extension Workspace {
         restoredAgentResumeStatesByPanelId.removeAll(keepingCapacity: false)
         invalidatedRestoredAgentFingerprintsByPanelId.removeAll(keepingCapacity: false)
         surfaceResumeBindingsByPanelId.removeAll(keepingCapacity: false)
+        surfaceResumeBindingEventTimesByPanelId.removeAll(keepingCapacity: false)
         restoredGuardedWorkingDirectoriesByPanelId.removeAll(keepingCapacity: false)
         restoredResumeSessionWorkingDirectoriesByPanelId.removeAll(keepingCapacity: false)
 
@@ -1282,7 +1283,7 @@ extension Workspace {
             }
             guard let detectedBinding else {
                 if storedBinding.isProcessDetected {
-                    surfaceResumeBindingsByPanelId.removeValue(forKey: panelId)
+                    _ = clearSurfaceResumeBinding(panelId: panelId)
                 } else if isStaleAgentHookBinding(
                     storedBinding,
                     panelId: panelId,
@@ -1292,14 +1293,14 @@ extension Workspace {
                     // (non-tmux) agent-hook binding whose session no longer
                     // shows up as live gets dropped here too, instead of being
                     // replayed as a resume on the next relaunch (#8446).
-                    surfaceResumeBindingsByPanelId.removeValue(forKey: panelId)
+                    _ = clearSurfaceResumeBinding(panelId: panelId)
                 }
                 continue
             }
             if storedBinding.shouldYieldToDetectedSurfaceResumeBinding(detectedBinding) {
                 surfaceResumeBindingsByPanelId[panelId] = detectedBinding
             } else if storedBinding.isProcessDetected {
-                surfaceResumeBindingsByPanelId.removeValue(forKey: panelId)
+                _ = clearSurfaceResumeBinding(panelId: panelId)
             }
         }
     }
@@ -2546,6 +2547,9 @@ final class Workspace: Identifiable, ObservableObject {
         set { restoredAgentLifecycle.snapshotsByPanelId = newValue }
     }
     var surfaceResumeBindingsByPanelId: [UUID: SurfaceResumeBindingSnapshot] = [:]
+    /// Retains the latest ordered resume mutation after a binding is cleared,
+    /// preventing a delayed hook from recreating a superseded binding.
+    var surfaceResumeBindingEventTimesByPanelId: [UUID: TimeInterval] = [:]
     private var restoredGuardedWorkingDirectoriesByPanelId: [UUID: String] = [:]
     /// The session directory each restored auto-resume launcher targets, kept
     /// for the lifetime of the resumed run (unlike the one-shot report guard
@@ -4848,16 +4852,38 @@ final class Workspace: Identifiable, ObservableObject {
             return false
         }
         surfaceResumeBindingsByPanelId[panelId] = binding
+        recordSurfaceResumeBindingMutation(panelId: panelId, eventTime: binding.updatedAt)
         return true
     }
 
     @discardableResult
     func clearSurfaceResumeBinding(panelId: UUID) -> Bool {
-        surfaceResumeBindingsByPanelId.removeValue(forKey: panelId) != nil
+        guard let removed = surfaceResumeBindingsByPanelId.removeValue(forKey: panelId) else {
+            return false
+        }
+        recordSurfaceResumeBindingMutation(panelId: panelId, eventTime: removed.updatedAt)
+        return true
     }
 
     func surfaceResumeBinding(panelId: UUID) -> SurfaceResumeBindingSnapshot? {
         surfaceResumeBindingsByPanelId[panelId]
+    }
+
+    func acceptsSurfaceResumeBindingMutation(panelId: UUID, agentEventTime: TimeInterval?) -> Bool {
+        guard let agentEventTime else { return true }
+        let currentBindingTime = surfaceResumeBindingsByPanelId[panelId]?.updatedAt
+        let orderingWatermark = [surfaceResumeBindingEventTimesByPanelId[panelId], currentBindingTime]
+            .compactMap { $0 }
+            .max()
+        guard let orderingWatermark else { return true }
+        return agentEventTime >= orderingWatermark
+    }
+
+    func recordSurfaceResumeBindingMutation(panelId: UUID, eventTime: TimeInterval) {
+        if let current = surfaceResumeBindingEventTimesByPanelId[panelId], current >= eventTime {
+            return
+        }
+        surfaceResumeBindingEventTimesByPanelId[panelId] = eventTime
     }
 
     func panelNeedsConfirmClose(panelId: UUID, fallbackNeedsConfirmClose: Bool) -> Bool {
@@ -5110,6 +5136,9 @@ final class Workspace: Identifiable, ObservableObject {
             validSurfaceIds.contains($0.key)
         }
         surfaceResumeBindingsByPanelId = surfaceResumeBindingsByPanelId.filter {
+            validSurfaceIds.contains($0.key)
+        }
+        surfaceResumeBindingEventTimesByPanelId = surfaceResumeBindingEventTimesByPanelId.filter {
             validSurfaceIds.contains($0.key)
         }
         restoredAgentResumeStatesByPanelId = restoredAgentResumeStatesByPanelId.filter {
@@ -9078,6 +9107,7 @@ final class Workspace: Identifiable, ObservableObject {
             panelDirectoryDisplayLabels.removeValue(forKey: detached.panelId)
             surfaceTTYNames.removeValue(forKey: detached.panelId)
             surfaceResumeBindingsByPanelId.removeValue(forKey: detached.panelId)
+            surfaceResumeBindingEventTimesByPanelId.removeValue(forKey: detached.panelId)
             restoredResumeSessionWorkingDirectoriesByPanelId.removeValue(forKey: detached.panelId)
             syncRemotePortScanTTYs()
             panelTitles.removeValue(forKey: detached.panelId)
@@ -9137,6 +9167,11 @@ final class Workspace: Identifiable, ObservableObject {
             surfaceResumeBindingsByPanelId[detached.panelId] = resumeBinding
         } else {
             surfaceResumeBindingsByPanelId.removeValue(forKey: detached.panelId)
+        }
+        if let resumeBindingEventTime = detached.resumeBindingEventTime {
+            surfaceResumeBindingEventTimesByPanelId[detached.panelId] = resumeBindingEventTime
+        } else {
+            surfaceResumeBindingEventTimesByPanelId.removeValue(forKey: detached.panelId)
         }
         adoptDetachedAgentRuntimeState(detached.agentRuntime)
         if let markdownPanel = detached.panel as? MarkdownPanel,
@@ -11917,6 +11952,7 @@ extension Workspace: BonsplitDelegate {
                 shellActivityState: panelShellActivityStates[panelId],
                 restoredResumeSessionWorkingDirectory: restoredResumeSessionWorkingDirectoriesByPanelId[panelId],
                 resumeBinding: resumeBinding,
+                resumeBindingEventTime: surfaceResumeBindingEventTimesByPanelId[panelId],
                 agentRuntime: agentRuntime,
                 isRemoteTerminal: activeRemoteTerminalSurfaceIds.contains(panelId),
                 remoteRelayPort: activeRemoteTerminalSurfaceIds.contains(panelId)

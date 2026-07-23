@@ -57,13 +57,16 @@ extension TerminalController: ControlSidebarContext {
         target: ControlSidebarTabTarget,
         key: String,
         pid: Int32,
-        panelID: UUID?
+        panelID: UUID?,
+        agentEventTime: TimeInterval? = nil
     ) {
         controlSidebarSchedulePanelOwnedMutation(target: target, panelID: panelID) { _, tab in
             let didReplaceAgentRuntime = tab.recordAgentPID(
                 key: key,
                 pid: pid,
-                panelId: panelID
+                panelId: panelID,
+                agentEventTime: agentEventTime,
+                enforceAgentEventOrdering: true
             )
             if didReplaceAgentRuntime, let panelId = panelID {
                 TerminalNotificationStore.shared.clearNotifications(
@@ -73,6 +76,10 @@ extension TerminalController: ControlSidebarContext {
                 )
             }
         }
+    }
+
+    nonisolated func controlSidebarInvalidAgentEventTimeError(_ raw: String) -> String {
+        invalidAgentEventTimeError(raw)
     }
 
     nonisolated func controlSidebarParseAgentLifecycle(_ raw: String) -> String? {
@@ -145,7 +152,13 @@ extension TerminalController: ControlSidebarContext {
             return
         }
         controlSidebarSchedulePanelOwnedMutation(target: target, panelID: panelID) { _, tab in
-            tab.setAgentLifecycle(key: key, panelId: panelID, lifecycle: lifecycle, agentEventTime: agentEventTime)
+            tab.setAgentLifecycle(
+                key: key,
+                panelId: panelID,
+                lifecycle: lifecycle,
+                agentEventTime: agentEventTime,
+                enforceAgentEventOrdering: true
+            )
         }
     }
 

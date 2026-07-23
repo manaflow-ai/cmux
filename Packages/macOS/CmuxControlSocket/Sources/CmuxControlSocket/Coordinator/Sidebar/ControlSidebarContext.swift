@@ -71,8 +71,13 @@ public protocol ControlSidebarContext: AnyObject {
         target: ControlSidebarTabTarget,
         key: String,
         pid: Int32,
-        panelID: UUID?
+        panelID: UUID?,
+        agentEventTime: TimeInterval?
     )
+
+    /// Formats an invalid agent-event-time error using the app's localization
+    /// bundle rather than the package bundle.
+    nonisolated func controlSidebarInvalidAgentEventTimeError(_ raw: String) -> String
 
     /// Parses an agent lifecycle CLI token, returning the canonical raw value
     /// (the app owns the `AgentHibernationLifecycleState` token table).

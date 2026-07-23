@@ -24144,12 +24144,15 @@ struct CMUXCLI {
                     )
             if shouldRegisterPID, let claudePid, !suppressVisibleMutations {
                 _ = try? sendV1Command(
-                    "set_agent_pid \(Self.claudeCodeStatusKey) \(claudePid) --tab=\(workspaceId)\(socketPanelOption(surfaceId))",
+                    "set_agent_pid \(Self.claudeCodeStatusKey) \(claudePid) --tab=\(workspaceId)\(socketPanelOption(surfaceId))\(agentEventTimeOption(hookEventTime))",
                     client: client
                 )
             }
             if isClearSessionStart, !suppressVisibleMutations {
-                _ = try? sendV1Command("clear_notifications --tab=\(workspaceId)\(socketPanelOption(surfaceId))", client: client)
+                _ = try? sendV1Command(
+                    "clear_notifications --tab=\(workspaceId)\(socketPanelOption(surfaceId))\(agentNotificationClearOrderingOptions(statusKey: Self.claudeCodeStatusKey, eventTime: hookEventTime))",
+                    client: client
+                )
                 setAgentLifecycle(
                     client: client,
                     key: Self.claudeCodeStatusKey,
@@ -24307,7 +24310,11 @@ struct CMUXCLI {
                         title: title,
                         subtitle: completion.subtitle,
                         body: completion.body,
-                        meta: AgentHookNotifyCategory.turnComplete.metaSegment(pending: hasPendingBackgroundWork)
+                        meta: AgentHookNotifyCategory.turnComplete.metaSegment(
+                            pending: hasPendingBackgroundWork,
+                            statusKey: Self.claudeCodeStatusKey,
+                            eventTime: hookEventTime
+                        )
                     )
                     _ = try? sendV1Command("notify_target_async \(workspaceId) \(surfaceId) \(payload)", client: client)
                 }
@@ -24416,7 +24423,10 @@ struct CMUXCLI {
                     agentEventTime: hookEventTime
                 )
             }
-            _ = try sendV1Command("clear_notifications --tab=\(workspaceId)\(socketPanelOption(surfaceId))", client: client)
+            _ = try sendV1Command(
+                "clear_notifications --tab=\(workspaceId)\(socketPanelOption(surfaceId))\(agentNotificationClearOrderingOptions(statusKey: Self.claudeCodeStatusKey, eventTime: hookEventTime))",
+                client: client
+            )
             setAgentLifecycle(
                 client: client,
                 key: Self.claudeCodeStatusKey,
@@ -24583,15 +24593,18 @@ struct CMUXCLI {
             // status; the app still gates the (tagged) notification itself.
             let suppressNeedsInputState = (notifyCategory == .idleReminder && notifyPending)
 
-            // `.other` means "ungated, always deliver" — identical to an untagged
-            // payload, so don't put it on the wire: the app parser accepts only
-            // the three known category literals, keeping the reserved suffix
-            // grammar as narrow as possible.
+            // `.other` remains ungated, but ordered hook notifications serialize
+            // it so delivery participates in the same event watermark as status,
+            // lifecycle, PID, and notification clears.
             let payload = notificationPayload(
                 title: title,
                 subtitle: summary.subtitle,
                 body: summary.body,
-                meta: notifyCategory.metaSegment(pending: notifyPending)
+                meta: notifyCategory.metaSegment(
+                    pending: notifyPending,
+                    statusKey: Self.claudeCodeStatusKey,
+                    eventTime: hookEventTime
+                )
             )
 
             if let sessionId = parsedInput.sessionId, !suppressNeedsInputState {
@@ -24774,7 +24787,7 @@ struct CMUXCLI {
                     // Lifecycle cleanup is always pane-scoped: a workspace can
                     // host multiple agents whose notifications are independent.
                     _ = try? sendV1Command(
-                        "clear_notifications --tab=\(workspaceId)\(socketPanelOption(cleanupSurfaceId))",
+                        "clear_notifications --tab=\(workspaceId)\(socketPanelOption(cleanupSurfaceId))\(agentNotificationClearOrderingOptions(statusKey: Self.claudeCodeStatusKey, eventTime: hookEventTime))",
                         client: client
                     )
                 } else {
@@ -24937,7 +24950,11 @@ struct CMUXCLI {
                         title: title,
                         subtitle: waitingSubtitle,
                         body: needsInputBody,
-                        meta: AgentHookNotifyCategory.needsPermission.metaSegment(pending: false)
+                        meta: AgentHookNotifyCategory.needsPermission.metaSegment(
+                            pending: false,
+                            statusKey: Self.claudeCodeStatusKey,
+                            eventTime: hookEventTime
+                        )
                     )
                     _ = try? sendV1Command(
                         "notify_target_async \(workspaceId) \(existingSurfaceId) \(payload)",
@@ -24964,7 +24981,10 @@ struct CMUXCLI {
                     return
                 }
             }
-            _ = try? sendV1Command("clear_notifications --tab=\(workspaceId)\(socketPanelOption(surfaceId))", client: client)
+            _ = try? sendV1Command(
+                "clear_notifications --tab=\(workspaceId)\(socketPanelOption(surfaceId))\(agentNotificationClearOrderingOptions(statusKey: Self.claudeCodeStatusKey, eventTime: hookEventTime))",
+                client: client
+            )
             setAgentLifecycle(
                 client: client,
                 key: Self.claudeCodeStatusKey,
@@ -25201,6 +25221,14 @@ struct CMUXCLI {
     private func agentEventTimeOption(_ eventTime: TimeInterval?) -> String {
         guard let eventTime else { return "" }
         return " --agent-event-time=\(String(format: "%.6f", eventTime))"
+    }
+
+    private func agentNotificationClearOrderingOptions(
+        statusKey: String,
+        eventTime: TimeInterval?
+    ) -> String {
+        guard eventTime != nil else { return "" }
+        return " --agent-status-key=\(statusKey)\(agentEventTimeOption(eventTime))"
     }
 
     private func resolvePreferredSurfaceIdForClaudeHook(
@@ -30804,7 +30832,7 @@ export default CMUXSessionRestore;
             }
             if let pid, !suppressVisibleMutations {
                 _ = try? sendV1Command(
-                    "set_agent_pid \(pidKey) \(pid) --tab=\(workspaceId)\(socketPanelOption(surfaceId))",
+                    "set_agent_pid \(pidKey) \(pid) --tab=\(workspaceId)\(socketPanelOption(surfaceId))\(agentEventTimeOption(hookEventTime))",
                     client: client
                 )
             }
@@ -31090,7 +31118,7 @@ export default CMUXSessionRestore;
             }
             if let pid, !suppressVisibleMutations {
                 _ = try? sendV1Command(
-                    "set_agent_pid \(pidKey) \(pid) --tab=\(workspaceId)\(socketPanelOption(surfaceId))",
+                    "set_agent_pid \(pidKey) \(pid) --tab=\(workspaceId)\(socketPanelOption(surfaceId))\(agentEventTimeOption(hookEventTime))",
                     client: client
                 )
                 if codexPromptTurnWentTerminal() {
@@ -31116,7 +31144,7 @@ export default CMUXSessionRestore;
                     return
                 }
                 _ = try? sendV1Command(
-                    "clear_notifications --tab=\(workspaceId)\(socketPanelOption(surfaceId))",
+                    "clear_notifications --tab=\(workspaceId)\(socketPanelOption(surfaceId))\(agentNotificationClearOrderingOptions(statusKey: def.statusKey, eventTime: hookEventTime))",
                     client: client
                 )
                 let runningStatus = String(localized: "agent.generic.status.running", defaultValue: "Running")
@@ -31372,7 +31400,7 @@ export default CMUXSessionRestore;
             }
             if let pid, !suppressVisibleMutations {
                 _ = try? sendV1Command(
-                    "set_agent_pid \(pidKey) \(pid) --tab=\(workspaceId)\(socketPanelOption(surfaceId))",
+                    "set_agent_pid \(pidKey) \(pid) --tab=\(workspaceId)\(socketPanelOption(surfaceId))\(agentEventTimeOption(hookEventTime))",
                     client: client
                 )
             }
@@ -31411,9 +31439,13 @@ export default CMUXSessionRestore;
                 // Tag successful turn-end pings so the app's "Agent Finished"
                 // setting covers every built-in agent, not just Claude. Error
                 // alerts stay untagged and always deliver.
-                let stopMeta: String? = stopNotificationStatus == .idle
-                    ? AgentHookNotifyCategory.turnComplete.metaSegment(pending: antigravityHasActiveBackgroundWork)
-                    : nil
+                let stopMeta = (stopNotificationStatus == .idle
+                    ? AgentHookNotifyCategory.turnComplete
+                    : AgentHookNotifyCategory.other).metaSegment(
+                        pending: antigravityHasActiveBackgroundWork,
+                        statusKey: def.statusKey,
+                        eventTime: hookEventTime
+                    )
                 let payload = notificationPayload(title: def.displayName, subtitle: subtitle, body: body, meta: stopMeta)
                 let notifyCommand = "notify_target_async \(workspaceId) \(surfaceId) \(payload)"
 #if DEBUG
@@ -31586,7 +31618,7 @@ export default CMUXSessionRestore;
             }
             if let pid, !suppressVisibleMutations {
                 _ = try? sendV1Command(
-                    "set_agent_pid \(pidKey) \(pid) --tab=\(workspaceId)\(socketPanelOption(surfaceId))",
+                    "set_agent_pid \(pidKey) \(pid) --tab=\(workspaceId)\(socketPanelOption(surfaceId))\(agentEventTimeOption(hookEventTime))",
                     client: client
                 )
             }
@@ -31600,7 +31632,7 @@ export default CMUXSessionRestore;
                     agentEventTime: hookEventTime
                 )
                 _ = try? sendV1Command(
-                    "clear_notifications --tab=\(workspaceId)\(socketPanelOption(surfaceId))",
+                    "clear_notifications --tab=\(workspaceId)\(socketPanelOption(surfaceId))\(agentNotificationClearOrderingOptions(statusKey: def.statusKey, eventTime: hookEventTime))",
                     client: client
                 )
                 let runningStatus = String(localized: "agent.generic.status.running", defaultValue: "Running")
@@ -31826,7 +31858,9 @@ export default CMUXSessionRestore;
                 // waiting cue doesn't deliver a false "waiting for input".
                 let notificationMeta = summary.notifyCategory.metaSegment(
                     pending: (summary.notifyCategory == .turnComplete || summary.notifyCategory == .idleReminder)
-                        && hasActiveAntigravityBackgroundWork()
+                        && hasActiveAntigravityBackgroundWork(),
+                    statusKey: def.statusKey,
+                    eventTime: hookEventTime
                 )
                 let payload = notificationPayload(title: def.displayName, subtitle: summary.subtitle, body: summary.body, meta: notificationMeta)
                 let notifyCommand = "notify_target_async \(workspaceId) \(surfaceId) \(payload)"

@@ -87,7 +87,7 @@ extension ControlCommandCoordinator {
         case .valid(let value):
             agentEventTime = value
         case .invalid(let raw):
-            return "ERROR: Invalid agent event time '\(raw)' - must be a positive finite number"
+            return sidebarInvalidAgentEventTimeError(raw, context: context)
         }
 
         context?.controlSidebarScheduleStatusUpsert(
@@ -120,6 +120,16 @@ extension ControlCommandCoordinator {
             return .invalid(normalized)
         }
         return .valid(value)
+    }
+
+    private nonisolated func sidebarInvalidAgentEventTimeError(
+        _ raw: String,
+        context: (any ControlCommandContext)?
+    ) -> String {
+        // Standalone package callers have no app localization bundle; preserve
+        // the legacy English wire reply only for that non-production fallback.
+        context?.controlSidebarInvalidAgentEventTimeError(raw)
+            ?? "ERROR: Invalid agent event time '\(raw)' - must be a positive finite number"
     }
 
     /// The shared `clear_status`/`clear_meta` body (parse + bus enqueue; zero
@@ -355,11 +365,22 @@ extension ControlCommandCoordinator {
         if let error = panelResolution.error {
             return error
         }
+        let agentEventTimeResult = sidebarParseAgentEventTime(parsed.options["agent-event-time"])
+        let agentEventTime: TimeInterval?
+        switch agentEventTimeResult {
+        case .absent:
+            agentEventTime = nil
+        case .valid(let value):
+            agentEventTime = value
+        case .invalid(let raw):
+            return sidebarInvalidAgentEventTimeError(raw, context: context)
+        }
         context?.controlSidebarScheduleAgentPIDRecord(
             target: target,
             key: key,
             pid: pid,
-            panelID: panelResolution.panelId
+            panelID: panelResolution.panelId,
+            agentEventTime: agentEventTime
         )
         return "OK"
     }
@@ -396,7 +417,7 @@ extension ControlCommandCoordinator {
         case .valid(let value):
             agentEventTime = value
         case .invalid(let raw):
-            return "ERROR: Invalid agent event time '\(raw)' - must be a positive finite number"
+            return sidebarInvalidAgentEventTimeError(raw, context: context)
         }
         guard context?.controlSidebarIsAllowedAgentLifecycleKey(
             key,
@@ -460,7 +481,7 @@ extension ControlCommandCoordinator {
         case .valid(let value):
             agentEventTime = value
         case .invalid(let raw):
-            return "ERROR: Invalid agent event time '\(raw)' - must be a positive finite number"
+            return sidebarInvalidAgentEventTimeError(raw, context: context)
         }
         context?.controlSidebarScheduleAgentPIDClear(
             target: target,

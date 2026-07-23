@@ -14,9 +14,27 @@ enum AgentHookNotifyCategory: String {
     case idleReminder = "idle-reminder"
     case other
 
-    /// Delimiter-safe meta segment: `c=<category>;p=<0|1>`. `.other` is the
-    /// explicit ungated category and never rides the wire.
-    func metaSegment(pending: Bool) -> String? {
+    /// Delimiter-safe meta segment. Ordered hook notifications append their
+    /// status key and event time so notification delivery participates in the
+    /// same pane-local watermark as lifecycle, status, and PID mutations.
+    func metaSegment(
+        pending: Bool,
+        statusKey: String? = nil,
+        eventTime: TimeInterval? = nil
+    ) -> String? {
+        if let statusKey,
+           !statusKey.isEmpty,
+           statusKey.allSatisfy({ $0.isLetter || $0.isNumber || "._-".contains($0) }),
+           let eventTime,
+           eventTime.isFinite,
+           eventTime > 0 {
+            let eventTimeText = String(
+                format: "%.6f",
+                locale: Locale(identifier: "en_US_POSIX"),
+                eventTime
+            )
+            return "c=\(rawValue);p=\(pending ? 1 : 0);k=\(statusKey);t=\(eventTimeText)"
+        }
         guard self != .other else { return nil }
         return "c=\(rawValue);p=\(pending ? 1 : 0)"
     }

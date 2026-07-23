@@ -2584,7 +2584,11 @@ extension CLINotifyProcessIntegrationRegressionTests {
                 "Expected Grok prompt \(index) to reuse the saved target without CMUX env, saw \(promptCommands)"
             )
             XCTAssertTrue(
-                promptCommands.contains { $0 == "clear_notifications --tab=\(workspaceId) --panel=\(surfaceId)" },
+                promptCommands.contains {
+                    $0.hasPrefix("clear_notifications --tab=\(workspaceId) --panel=\(surfaceId) ")
+                        && $0.contains("--agent-status-key=grok")
+                        && $0.contains("--agent-event-time=")
+                },
                 "Expected Grok prompt \(index) to clear only its own surface notifications, saw \(promptCommands)"
             )
             XCTAssertFalse(
@@ -2790,7 +2794,11 @@ extension CLINotifyProcessIntegrationRegressionTests {
 
         let promptCommands = Array(state.commands.dropFirst(promptCommandStart))
         XCTAssertTrue(
-            promptCommands.contains { $0 == "clear_notifications --tab=\(workspaceId) --panel=\(runningSurfaceId)" },
+            promptCommands.contains {
+                $0.hasPrefix("clear_notifications --tab=\(workspaceId) --panel=\(runningSurfaceId) ")
+                    && $0.contains("--agent-status-key=grok")
+                    && $0.contains("--agent-event-time=")
+            },
             "Expected running Grok prompt to clear only its own surface notifications, saw \(promptCommands)"
         )
         XCTAssertTrue(

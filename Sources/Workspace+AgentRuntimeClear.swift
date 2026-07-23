@@ -17,17 +17,12 @@ extension Workspace {
         }
         let lifecyclePanelId = ownedPanelId ?? panelId
         let lifecycleStatusKey = agentStatusKey(forAgentPIDKey: key)
-        guard shouldAcceptAgentRuntimeClear(
+        guard acceptAgentRuntimeMutation(
             statusKey: lifecycleStatusKey,
             panelId: lifecyclePanelId,
             agentEventTime: agentEventTime,
             enforceOrdering: enforceAgentEventOrdering
         ) else { return false }
-        recordAcceptedAgentRuntimeClear(
-            statusKey: lifecycleStatusKey,
-            panelId: lifecyclePanelId,
-            agentEventTime: agentEventTime
-        )
         let statusKeyToClear = clearStatus ? lifecycleStatusKey : nil
 
         var didChange = false
@@ -62,7 +57,10 @@ extension Workspace {
         return didChange
     }
 
-    private func shouldAcceptAgentRuntimeClear(
+    /// Applies the shared per-agent, per-pane event watermark used by status,
+    /// lifecycle, PID, notification, and teardown mutations.
+    @discardableResult
+    func acceptAgentRuntimeMutation(
         statusKey: String,
         panelId: UUID?,
         agentEventTime: TimeInterval?,
@@ -75,25 +73,22 @@ extension Workspace {
                 ? entry.agentEventTime
                 : nil
         }
-        guard let orderingWatermark = [lifecycleEventTime, statusEventTime]
+        if let orderingWatermark = [lifecycleEventTime, statusEventTime]
             .compactMap({ $0 })
-            .max() else {
-            return true
+            .max() {
+            guard let agentEventTime, agentEventTime >= orderingWatermark else {
+                return false
+            }
         }
-        guard let agentEventTime else { return false }
-        return agentEventTime >= orderingWatermark
-    }
-
-    private func recordAcceptedAgentRuntimeClear(
-        statusKey: String,
-        panelId: UUID?,
-        agentEventTime: TimeInterval?
-    ) {
-        guard let panelId, let agentEventTime else { return }
-        if let current = agentLifecycleEventTimesByPanelId[panelId]?[statusKey],
-           agentEventTime <= current {
-            return
+        if let agentEventTime {
+            if let current = agentLifecycleEventTimesByPanelId[panelId]?[statusKey] {
+                if agentEventTime > current {
+                    agentLifecycleEventTimesByPanelId[panelId, default: [:]][statusKey] = agentEventTime
+                }
+            } else {
+                agentLifecycleEventTimesByPanelId[panelId, default: [:]][statusKey] = agentEventTime
+            }
         }
-        agentLifecycleEventTimesByPanelId[panelId, default: [:]][statusKey] = agentEventTime
+        return true
     }
 }

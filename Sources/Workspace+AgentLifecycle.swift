@@ -121,11 +121,23 @@ extension Workspace {
                 agentOwnerPanelID: ownerPanelId
             )
             if let pid {
-                recordAgentPID(key: key, pid: pid, panelId: ownerPanelId)
+                recordAgentPID(
+                    key: key,
+                    pid: pid,
+                    panelId: ownerPanelId,
+                    agentEventTime: agentEventTime,
+                    enforceAgentEventOrdering: true
+                )
             }
         case .unchanged:
             if let pid {
-                recordAgentPID(key: key, pid: pid, panelId: ownerPanelId)
+                recordAgentPID(
+                    key: key,
+                    pid: pid,
+                    panelId: ownerPanelId,
+                    agentEventTime: agentEventTime,
+                    enforceAgentEventOrdering: true
+                )
             }
         case .stale:
             break
@@ -198,7 +210,7 @@ extension Workspace {
             restoredAgentResumeStatesByPanelId.removeValue(forKey: panelId)
             restoredResumeSessionWorkingDirectoriesByPanelId.removeValue(forKey: panelId)
             if surfaceResumeBindingsByPanelId[panelId]?.isAgentHookBinding == true {
-                surfaceResumeBindingsByPanelId.removeValue(forKey: panelId)
+                _ = clearSurfaceResumeBinding(panelId: panelId)
             }
         default:
             break
@@ -233,7 +245,7 @@ extension Workspace {
         guard checkpointId == nil || checkpointId == restoredAgent.sessionId else {
             return
         }
-        surfaceResumeBindingsByPanelId.removeValue(forKey: panelId)
+        _ = clearSurfaceResumeBinding(panelId: panelId)
     }
 
     /// True when `binding` is a plain (non-tmux) agent-hook resume binding
@@ -321,20 +333,18 @@ extension Workspace {
         key: String,
         panelId: UUID?,
         lifecycle: AgentHibernationLifecycleState,
-        agentEventTime: TimeInterval? = nil
+        agentEventTime: TimeInterval? = nil,
+        enforceAgentEventOrdering: Bool = false
     ) -> Bool {
         let targetPanelId = panelId ?? focusedPanelId
         guard let targetPanelId, panels[targetPanelId] != nil else { return false }
-        if let agentEventTime,
-           let currentEventTime = agentLifecycleEventTimesByPanelId[targetPanelId]?[key] {
-            if agentEventTime < currentEventTime {
-                return false
-            }
-        }
+        guard acceptAgentRuntimeMutation(
+            statusKey: key,
+            panelId: targetPanelId,
+            agentEventTime: agentEventTime,
+            enforceOrdering: enforceAgentEventOrdering || agentEventTime != nil
+        ) else { return false }
         agentLifecycleStatesByPanelId[targetPanelId, default: [:]][key] = lifecycle
-        if let agentEventTime {
-            agentLifecycleEventTimesByPanelId[targetPanelId, default: [:]][key] = agentEventTime
-        }
         if !AgentHibernationLifecycleStatusKeys.isManualKey(key) {
             recordAgentLifecycleChange(panelId: targetPanelId)
         }

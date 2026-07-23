@@ -2,7 +2,7 @@ import Foundation
 
 /// Category an agent hook attaches to a notification so the app can gate
 /// delivery by user config. Mirrors the CLI's `ClaudeNotifyCategory`; serialized
-/// into the `notify_target_async` payload's optional `c=<category>;p=<0|1>` meta.
+/// into the `notify_target_async` payload's optional legacy or ordered metadata.
 enum AgentNotifyCategory: String {
     case turnComplete = "turn-complete"
     case needsPermission = "needs-permission"
@@ -17,30 +17,40 @@ enum AgentTurnCompleteMode: String {
     case never
 }
 
-/// Parsed `c=<category>;p=<0|1>` meta segment. Returns `nil` unless BOTH a
-/// KNOWN category literal and a valid `p=0|1` pending flag are present, so the
-/// reserved suffix grammar is exactly the three known categories — any other
-/// `c=...` tail stays part of the legacy notification body. (`.other` never
-/// rides the wire: senders omit the meta entirely for ungated alerts.)
+/// Parsed agent notification metadata. Legacy two-field policy tags remain
+/// valid; cmux-owned hooks add canonical `k=<status-key>;t=<event-time>` fields
+/// so delivery can advance the shared per-pane ordering watermark.
 struct AgentNotificationMeta {
     let category: AgentNotifyCategory
     let pending: Bool
+    let agentStatusKey: String?
+    let agentEventTime: TimeInterval?
 
     init?(meta: String) {
-        // Accept ONLY the exact canonical serialization the CLI emits
-        // (`c=<known-category>;p=<0|1>`, two fields, this order, no extras).
-        // Anything else — reordered, duplicated, or trailing fields — is not
-        // metadata and stays part of the legacy notification body.
         let fields = meta.split(separator: ";", omittingEmptySubsequences: false)
-        guard fields.count == 2,
+        guard fields.count == 2 || fields.count == 4,
               fields[0].hasPrefix("c="),
               fields[1].hasPrefix("p=") else { return nil }
-        guard let known = AgentNotifyCategory(rawValue: String(fields[0].dropFirst(2))),
-              known != .other else { return nil }
+        guard let known = AgentNotifyCategory(rawValue: String(fields[0].dropFirst(2))) else { return nil }
         switch fields[1].dropFirst(2) {
         case "1": self.pending = true
         case "0": self.pending = false
         default: return nil
+        }
+        if fields.count == 2 {
+            guard known != .other else { return nil }
+            self.agentStatusKey = nil
+            self.agentEventTime = nil
+        } else {
+            guard fields[2].hasPrefix("k="), fields[3].hasPrefix("t=") else { return nil }
+            let statusKey = String(fields[2].dropFirst(2))
+            guard !statusKey.isEmpty,
+                  statusKey.allSatisfy({ $0.isLetter || $0.isNumber || "._-".contains($0) }),
+                  let eventTime = TimeInterval(fields[3].dropFirst(2)),
+                  eventTime.isFinite,
+                  eventTime > 0 else { return nil }
+            self.agentStatusKey = statusKey
+            self.agentEventTime = eventTime
         }
         self.category = known
     }

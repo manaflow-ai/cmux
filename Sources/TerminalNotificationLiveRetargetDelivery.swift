@@ -72,6 +72,8 @@ extension TerminalNotificationStore {
         title: String,
         subtitle: String,
         body: String,
+        agentStatusKey: String?,
+        agentEventTime: TimeInterval?,
         notificationGeneration: UInt64
     ) {
         guard let target = AppDelegate.shared?.agentNotificationDeliveryTarget(
@@ -84,6 +86,19 @@ extension TerminalNotificationStore {
             )
 #endif
             return
+        }
+        if let agentStatusKey, let agentEventTime {
+            guard let liveSurfaceId = target.surfaceId else { return }
+            let manager = AppDelegate.shared?.tabManagerFor(tabId: target.tabId) ?? AppDelegate.shared?.tabManager
+            guard let workspace = manager?.workspacesById[target.tabId],
+                  workspace.acceptAgentRuntimeMutation(
+                      statusKey: agentStatusKey,
+                      panelId: liveSurfaceId,
+                      agentEventTime: agentEventTime,
+                      enforceOrdering: true
+                  ) else {
+                return
+            }
         }
 #if DEBUG
         cmuxDebugLog(

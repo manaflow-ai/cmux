@@ -551,6 +551,62 @@ extension AgentNotificationRegressionTests {
         #expect(fixture.source.agentLifecycleStatesByPanelId[fixture.panelId]?["claude_code"] == nil)
     }
 
+    @Test("Agent notification delivery and clear share event ordering")
+    func agentNotificationDeliveryAndClearShareEventOrdering() throws {
+        let fixture = try makeFixture()
+        defer { fixture.restore() }
+        let bus = TerminalMutationBus.shared
+        bus.discardPendingNotifications()
+        bus.setDrainsSuspendedForTesting(true)
+        defer {
+            bus.setDrainsSuspendedForTesting(false)
+            bus.discardPendingNotifications()
+        }
+
+        bus.enqueueNotification(
+            tabId: fixture.source.id,
+            surfaceId: fixture.panelId,
+            title: "Claude Code",
+            subtitle: "Completed",
+            body: "Current event",
+            agentStatusKey: "claude_code",
+            agentEventTime: 200,
+            coalesces: false
+        )
+        bus.enqueueAgentNotificationClear(
+            forTabId: fixture.source.id,
+            surfaceId: fixture.panelId,
+            statusKey: "claude_code",
+            agentEventTime: 100
+        )
+        bus.setDrainsSuspendedForTesting(false)
+        bus.drainForTesting()
+
+        #expect(fixture.store.notifications.map(\.body) == ["Current event"])
+
+        bus.setDrainsSuspendedForTesting(true)
+        bus.enqueueAgentNotificationClear(
+            forTabId: fixture.source.id,
+            surfaceId: fixture.panelId,
+            statusKey: "claude_code",
+            agentEventTime: 300
+        )
+        bus.enqueueNotification(
+            tabId: fixture.source.id,
+            surfaceId: fixture.panelId,
+            title: "Claude Code",
+            subtitle: "Completed",
+            body: "Stale event",
+            agentStatusKey: "claude_code",
+            agentEventTime: 250,
+            coalesces: false
+        )
+        bus.setDrainsSuspendedForTesting(false)
+        bus.drainForTesting()
+
+        #expect(fixture.store.notifications.isEmpty)
+    }
+
     @Test("An authorized-workspace clear cancels a confined in-flight relay delivery")
     func authorizedWorkspaceClearCancelsConfinedInFlightRelayDelivery() async throws {
         let fixture = try makeFixture(policyHookCommand: "cat")

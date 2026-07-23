@@ -21,7 +21,11 @@ final class CLINotifyProcessIntegrationRegressionTests: XCTestCase {
         XCTAssertEqual(result.status, 0, result.stderr)
         XCTAssertEqual(result.stdout, "OK\n")
         XCTAssertTrue(
-            context.state.commands.contains { $0 == "clear_notifications --tab=\(context.workspaceId) --panel=\(context.surfaceId)" },
+            context.state.commands.contains {
+                $0.hasPrefix("clear_notifications --tab=\(context.workspaceId) --panel=\(context.surfaceId) ")
+                    && $0.contains("--agent-status-key=claude_code")
+                    && $0.contains("--agent-event-time=")
+            },
             "Expected clear SessionStart to clear only the current pane, saw \(context.state.commands)"
         )
         XCTAssertTrue(

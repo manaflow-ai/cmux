@@ -12225,7 +12225,9 @@ class TerminalController {
             subtitle: subtitle,
             body: body,
             category: meta?.category,
-            pending: meta?.pending ?? false
+            pending: meta?.pending ?? false,
+            agentStatusKey: meta?.agentStatusKey,
+            agentEventTime: meta?.agentEventTime
         ) else {
 #if DEBUG
             if let meta {
@@ -12295,6 +12297,35 @@ class TerminalController {
         let panelResolution = parseOptionalPanelIdOption(options: parsed.options, usage: usage)
         if let error = panelResolution.error {
             return error
+        }
+        let agentStatusKey = normalizedOptionValue(parsed.options["agent-status-key"])
+        let agentEventTimeResult = parseAgentEventTime(parsed.options["agent-event-time"])
+        let agentEventTime: TimeInterval?
+        switch agentEventTimeResult {
+        case .absent:
+            agentEventTime = nil
+        case .valid(let value):
+            agentEventTime = value
+        case .invalid(let raw):
+            return invalidAgentEventTimeError(raw)
+        }
+        if agentStatusKey != nil || agentEventTime != nil {
+            guard let agentStatusKey,
+                  let agentEventTime,
+                  let panelId = panelResolution.panelId,
+                  case .workspace(let tabId) = target else {
+                return String(
+                    localized: "socket.clearNotifications.error.orderedUsage",
+                    defaultValue: "ERROR: Usage: clear_notifications --tab=X --panel=ID --agent-status-key=KEY --agent-event-time=SECONDS"
+                )
+            }
+            TerminalMutationBus.shared.enqueueAgentNotificationClear(
+                forTabId: tabId,
+                surfaceId: panelId,
+                statusKey: agentStatusKey,
+                agentEventTime: agentEventTime
+            )
+            return "OK"
         }
         if case .workspace(let tabId) = target {
             if let panelId = panelResolution.panelId {
@@ -13083,8 +13114,9 @@ class TerminalController {
     }
 
     /// Parses a `title|subtitle|body` notification payload, plus an OPTIONAL 4th
-    /// `meta` segment (e.g. `c=turn-complete;p=1`) that agent hooks append to gate
-    /// delivery by user config. The 4th segment is only treated as meta when it
+    /// `meta` segment (for example, `c=turn-complete;p=1`) that agent hooks append
+    /// to gate delivery and, for ordered hooks, carry the runtime event watermark.
+    /// The 4th segment is only treated as meta when it
     /// begins with `c=`; otherwise it is folded back into the body, so legacy
     /// callers whose body itself contains `|` parse byte-identically to before
     /// (the fold reconstructs exactly the `maxSplits: 2` result).
@@ -13097,16 +13129,12 @@ class TerminalController {
         var meta: AgentNotificationMeta? = nil
         if parts.count == 4 {
             // The 4th segment is treated as gating metadata only when it parses
-            // as the FULL `c=<category>;p=<0|1>` grammar. Anything else — including
+            // as the full legacy or ordered agent metadata grammar. Anything else — including
             // a legacy body that happens to contain "|c=..." — is folded back into
             // the body so pre-meta callers parse byte-identically to before.
-            // Conscious tradeoff: this reserves exactly three trailing literals
-            // ("|c=turn-complete;p=<0|1>", "|c=needs-permission;p=<0|1>",
-            // "|c=idle-reminder;p=<0|1>") in notify payloads; any other "c=..."
-            // tail (unknown categories included) stays part of the body. Accepted
-            // because the only meta producers are cmux's own agent hooks (whose
-            // fields are |-sanitized) and a collision requires one of those exact
-            // suffixes.
+            // The accepted forms are canonical and exact so a legacy body that
+            // happens to contain "|c=..." remains byte-identical unless its suffix
+            // is one cmux's own hook serializers emit.
             let candidate = parts[3].trimmingCharacters(in: .whitespacesAndNewlines)
             if candidate.hasPrefix("c="), let parsed = AgentNotificationMeta(meta: candidate) {
                 meta = parsed
@@ -13607,7 +13635,7 @@ class TerminalController {
         sidebarMetadataArgumentParser.parseMetadataFormat(raw)
     }
 
-    private func normalizedOptionValue(_ value: String?) -> String? {
+    private nonisolated func normalizedOptionValue(_ value: String?) -> String? {
         sidebarMetadataArgumentParser.normalizedOptionValue(value)
     }
 
@@ -13747,7 +13775,7 @@ class TerminalController {
         case .valid(let value):
             agentEventTime = value
         case .invalid(let raw):
-            return "ERROR: Invalid agent event time '\(raw)' - must be a positive finite number"
+            return invalidAgentEventTimeError(raw)
         }
 
         scheduleSidebarMutation(target: target) { _, tab in
@@ -13776,7 +13804,7 @@ class TerminalController {
         case invalid(String)
     }
 
-    private func parseAgentEventTime(_ raw: String?) -> AgentEventTimeParseResult {
+    private nonisolated func parseAgentEventTime(_ raw: String?) -> AgentEventTimeParseResult {
         guard let normalized = normalizedOptionValue(raw) else {
             return .absent
         }
@@ -13784,6 +13812,14 @@ class TerminalController {
             return .invalid(normalized)
         }
         return .valid(value)
+    }
+
+    nonisolated func invalidAgentEventTimeError(_ raw: String) -> String {
+        let format = String(
+            localized: "socket.agentEventTime.error.invalid",
+            defaultValue: "ERROR: Invalid agent event time '%@' - must be a positive finite number"
+        )
+        return String(format: format, locale: Locale.current, raw)
     }
 
     private func clearSidebarMetadata(_ args: String, usage: String) -> String {

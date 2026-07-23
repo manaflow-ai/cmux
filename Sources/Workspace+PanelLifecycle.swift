@@ -164,7 +164,20 @@ extension Workspace {
         return didChange
     }
     @discardableResult
-    func recordAgentPID(key: String, pid: pid_t, panelId: UUID?, refreshPorts: Bool = true) -> Bool {
+    func recordAgentPID(
+        key: String,
+        pid: pid_t,
+        panelId: UUID?,
+        agentEventTime: TimeInterval? = nil,
+        enforceAgentEventOrdering: Bool = false,
+        refreshPorts: Bool = true
+    ) -> Bool {
+        guard acceptAgentRuntimeMutation(
+            statusKey: agentStatusKey(forAgentPIDKey: key),
+            panelId: panelId,
+            agentEventTime: agentEventTime,
+            enforceOrdering: enforceAgentEventOrdering
+        ) else { return false }
         let previous = (
             panelId: agentPIDPanelIdsByKey[key],
             pid: agentPIDs[key],
@@ -430,6 +443,7 @@ extension Workspace {
         surfaceTTYNames.removeValue(forKey: panelId)
         discardRemotePTYSessionID(panelId: panelId)
         surfaceResumeBindingsByPanelId.removeValue(forKey: panelId)
+        surfaceResumeBindingEventTimesByPanelId.removeValue(forKey: panelId)
         surfaceListeningPorts.removeValue(forKey: panelId)
         restoredTerminalScrollbackByPanelId.removeValue(forKey: panelId)
 #if DEBUG
