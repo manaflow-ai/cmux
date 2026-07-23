@@ -2,6 +2,7 @@
 import CmuxMobilePairedMac
 import CmuxMobileRPC
 import CmuxMobileShell
+import CmuxMobileShellModel
 import CmuxMobileSupport
 import Foundation
 import SwiftUI
@@ -20,6 +21,7 @@ public struct TaskComposerAccessibilityPreviewView: View {
     private let failsFirstSubmission: Bool
     private let presentsTemplateForm: Bool
     private let presentsDirectoryPicker: Bool
+    private let presentsDirectoryPermissionFailure: Bool
     private let presentsDirectoryScrollStress: Bool
     private let holdsSubmissionInPreparation: Bool
     @State private var directoryPaginationRecoveryPreview: TaskComposerDirectoryPaginationRecoveryPreview?
@@ -42,9 +44,23 @@ public struct TaskComposerAccessibilityPreviewView: View {
         let presentsDirectoryScrollStress = environment[
             "CMUX_UITEST_TASK_DIRECTORY_SCROLL_STRESS"
         ] == "1"
+        let presentsDirectoryPermissionFailure = environment[
+            "CMUX_UITEST_TASK_DIRECTORY_PERMISSION_FAILURE_PREVIEW"
+        ] == "1"
+        let presentsOpenDirectory = environment[
+            "CMUX_UITEST_TASK_COMPOSER_OPEN_DIRECTORY_PREVIEW"
+        ] == "1"
+        let templateStore = TaskComposerAccessibilityTemplateStore()
+        if presentsOpenDirectory {
+            templateStore.setLastDirectory(
+                "/Users/ui/previous-task",
+                macDeviceID: Self.previewMac.macDeviceID
+            )
+        }
         self.store = CMUXMobileShellStore(
             isSignedIn: true,
-            taskTemplateStore: TaskComposerAccessibilityTemplateStore()
+            workspaces: presentsOpenDirectory ? [Self.openDirectoryWorkspace] : [],
+            taskTemplateStore: templateStore
         )
         self.returnsSubmissionFailure = environment[
             "CMUX_UITEST_TASK_COMPOSER_FAILURE"
@@ -57,7 +73,8 @@ public struct TaskComposerAccessibilityPreviewView: View {
         ] == "1"
         self.presentsDirectoryPicker = environment[
             "CMUX_UITEST_TASK_DIRECTORY_PICKER_PREVIEW"
-        ] == "1" || presentsDirectoryPaginationRecovery
+        ] == "1" || presentsDirectoryPaginationRecovery || presentsDirectoryPermissionFailure
+        self.presentsDirectoryPermissionFailure = presentsDirectoryPermissionFailure
         self.presentsDirectoryScrollStress = presentsDirectoryScrollStress
         self.holdsSubmissionInPreparation = environment[
             "CMUX_UITEST_TASK_COMPOSER_HOLD_PREPARATION"
@@ -186,6 +203,14 @@ public struct TaskComposerAccessibilityPreviewView: View {
         stackUserID: nil
     )
 
+    private static let openDirectoryWorkspace = MobileWorkspacePreview(
+        id: "workspace-current",
+        macDeviceID: previewMac.macDeviceID,
+        name: "Current project",
+        currentDirectory: "/Users/ui/current-project",
+        terminals: []
+    )
+
     private static func searchPreviewDirectories(
         _ query: String
     ) async -> Result<MobileTaskDirectorySearchResponse, MobileTaskDirectorySearchFailure> {
@@ -269,6 +294,9 @@ public struct TaskComposerAccessibilityPreviewView: View {
         _ requestedPath: String,
         _ offset: Int
     ) async -> Result<MobileTaskDirectoryListResponse, MobileTaskDirectoryListFailure> {
+        if presentsDirectoryPermissionFailure {
+            return .failure(.rejected)
+        }
         if presentsDirectoryScrollStress {
             return Self.listScrollStressDirectories(requestedPath, offset)
         }
@@ -427,6 +455,8 @@ private struct TaskComposerSubmissionProbe: View {
                 .accessibilityIdentifier("MobileTaskComposerSubmittedMacDeviceID")
             Text(verbatim: spec.workingDirectory ?? "<nil>")
                 .accessibilityIdentifier("MobileTaskComposerSubmittedWorkingDirectory")
+            Text(verbatim: spec.title ?? "<nil>")
+                .accessibilityIdentifier("MobileTaskComposerSubmittedTitle")
             Text(verbatim: spec.initialCommand ?? "<nil>")
                 .accessibilityIdentifier("MobileTaskComposerSubmittedInitialCommand")
             Text(verbatim: spec.initialEnv?["CMUX_TASK_PROMPT"] ?? "<nil>")
