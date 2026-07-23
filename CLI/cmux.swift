@@ -27787,9 +27787,16 @@ struct CMUXCLI {
         // user's shell (fish/csh/tcsh included), so token-bearing commands are wrapped
         // in `/bin/sh -c '…'` to parse everywhere; the cwd guard below stays outside so
         // cd-prefix rewriting keeps composing. https://github.com/manaflow-ai/cmux/issues/5639
-        var command = kind == "claude"
-            ? AgentResumeArgv.renderedPortableClaudeResumeShellCommand(parts: resumeCommandParts, quote: cliShellQuote)
-            : resumeCommandParts.map(cliShellQuote).joined(separator: " ")
+        let commandRenderer: ([String], (String) -> String) -> String
+        switch kind {
+        case "claude":
+            commandRenderer = AgentResumeArgv.renderedPortableClaudeResumeShellCommand
+        case "codex":
+            commandRenderer = AgentResumeArgv.renderedPortableCodexResumeShellCommand
+        default:
+            commandRenderer = { parts, quote in parts.map(quote).joined(separator: " ") }
+        }
+        var command = commandRenderer(resumeCommandParts, cliShellQuote)
         if kind == "hermes-agent" {
             command = hermesAgentSubrouterResumeCommand(
                 command,

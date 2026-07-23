@@ -1,3 +1,4 @@
+import CMUXAgentLaunch
 import Foundation
 
 extension CMUXCLI {
@@ -65,6 +66,7 @@ extension CMUXCLI {
             args.append("-c")
             args.append(toml)
         }
+        args.append(contentsOf: codexResumeTrustOverride())
         // NUL-TERMINATE each arg (trailing NUL after the last too) so a bash
         // `while IFS= read -r -d '' arg` loop captures every element including
         // the final one — a separator-only stream drops the unterminated last
@@ -75,6 +77,76 @@ extension CMUXCLI {
             out.append(0)
         }
         FileHandle.standardOutput.write(out)
+    }
+
+    /// Returns a fail-closed, invocation-only project trust decision for an
+    /// unattended Codex resume. Existing explicit cwd or repository decisions
+    /// remain authoritative; an undecided project resumes as untrusted instead
+    /// of blocking the restored pane on Codex's trust picker.
+    private func codexResumeTrustOverride() -> [String] {
+        let environment = ProcessInfo.processInfo.environment
+        guard let arguments = codexCapturedLaunchArguments(environment),
+              let currentDirectory = normalizedHookValue(
+                  environment["CMUX_AGENT_LAUNCH_CWD"]
+              ) ?? normalizedHookValue(FileManager.default.currentDirectoryPath) else {
+            return []
+        }
+        return CodexResumeTrustPolicy().undecidedProjectOverride(
+            arguments: arguments,
+            currentDirectory: currentDirectory,
+            repositoryRoot: codexCommonRepositoryRoot(currentDirectory: currentDirectory),
+            userConfigContents: codexUserConfigContents(environment)
+        )
+    }
+
+    private func codexCapturedLaunchArguments(_ environment: [String: String]) -> [String]? {
+        guard let raw = normalizedHookValue(environment["CMUX_AGENT_LAUNCH_ARGV_B64"]),
+              let data = Data(base64Encoded: raw) else {
+            return nil
+        }
+        var arguments = data.split(separator: 0, omittingEmptySubsequences: false)
+        if arguments.last?.isEmpty == true {
+            arguments.removeLast()
+        }
+        let decoded = arguments.compactMap { String(data: Data($0), encoding: .utf8) }
+        return decoded.count == arguments.count ? decoded : nil
+    }
+
+    private func codexUserConfigContents(_ environment: [String: String]) -> String? {
+        let codexHome: URL
+        if let configuredHome = normalizedHookValue(environment["CODEX_HOME"]) {
+            codexHome = URL(fileURLWithPath: configuredHome, isDirectory: true)
+        } else {
+            codexHome = FileManager.default.homeDirectoryForCurrentUser
+                .appendingPathComponent(".codex", isDirectory: true)
+        }
+        return try? String(
+            contentsOf: codexHome.appendingPathComponent("config.toml", isDirectory: false),
+            encoding: .utf8
+        )
+    }
+
+    /// Mirrors Codex's trust lookup for linked worktrees: project decisions may
+    /// be keyed by the main repository root rather than the checkout root.
+    private func codexCommonRepositoryRoot(currentDirectory: String) -> String? {
+        let result = CLIProcessRunner.runProcess(
+            executablePath: "/usr/bin/git",
+            arguments: [
+                "-C",
+                currentDirectory,
+                "rev-parse",
+                "--path-format=absolute",
+                "--git-common-dir",
+            ],
+            timeout: 1
+        )
+        guard result.status == 0,
+              let commonDirectory = normalizedHookValue(result.stdout) else {
+            return nil
+        }
+        let commonURL = URL(fileURLWithPath: commonDirectory, isDirectory: true)
+        guard commonURL.lastPathComponent == ".git" else { return nil }
+        return commonURL.deletingLastPathComponent().standardizedFileURL.path
     }
 
     /// The cmux-owned directory holding the generated codex hook scripts.

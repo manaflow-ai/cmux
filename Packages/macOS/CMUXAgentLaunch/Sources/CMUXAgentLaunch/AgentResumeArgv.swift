@@ -78,6 +78,13 @@ public struct AgentResumeArgv: Sendable, Equatable {
     public static let codexWrapperShellExecutableToken =
         "\"$([ -x \"${CMUX_CODEX_WRAPPER_SHIM:-}\" ] && printf '%s' \"$CMUX_CODEX_WRAPPER_SHIM\" || printf codex)\""
 
+    /// Pins a wrapper-routed resume to the exact Codex executable captured at launch.
+    ///
+    /// `cmux-codex-wrapper` validates this path and falls back to PATH resolution
+    /// when the executable moved. This lets auto-resume re-enter the wrapper
+    /// without changing which Codex installation the user launched.
+    public static let codexCustomExecutableEnvironmentKey = "CMUX_CUSTOM_CODEX_PATH"
+
     /// Per-invocation config override appended to every cmux-generated codex resume argv.
     ///
     /// codex's TUI shows a blocking "Update available!" picker at startup whenever no
@@ -216,24 +223,38 @@ public struct AgentResumeArgv: Sendable, Equatable {
     }
 
     /// Renders shell command `parts` to quoted tokens, substituting
-    /// ``codexWrapperShellExecutableToken`` for the first bare `codex` executable token.
+    /// ``codexWrapperShellExecutableToken`` for the first Codex executable token.
     ///
-    /// Mirror of ``renderingClaudeWrapperExecutable(parts:quote:)`` for codex: only
-    /// the first element equal to `codex` — a logical wrapper executable emitted
-    /// by the codex resume builder — is replaced; every other token is quoted normally.
-    /// Call only for the codex kind. https://github.com/manaflow-ai/cmux/issues/5639
+    /// A bare `codex` uses the wrapper token directly. An absolute executable
+    /// whose basename is `codex` is routed through the same token with
+    /// ``codexCustomExecutableEnvironmentKey`` set, preserving the exact captured
+    /// installation while restoring cmux's hook injection. Every other token is
+    /// quoted normally. Call only for the codex kind.
+    /// https://github.com/manaflow-ai/cmux/issues/5639
     public static func renderingCodexWrapperExecutable(
         parts: [String],
         quote: (String) -> String
     ) -> [String] {
         var replaced = false
-        return parts.map { part in
-            if !replaced, part == "codex" {
+        var rendered: [String] = []
+        for part in parts {
+            let isBareCodex = part == "codex"
+            let isAbsoluteCodex = part.hasPrefix("/")
+                && (part as NSString).lastPathComponent == "codex"
+            if !replaced, isBareCodex || isAbsoluteCodex {
                 replaced = true
-                return codexWrapperShellExecutableToken
+                if isAbsoluteCodex {
+                    if rendered.isEmpty {
+                        rendered.append(quote("env"))
+                    }
+                    rendered.append(quote("\(codexCustomExecutableEnvironmentKey)=\(part)"))
+                }
+                rendered.append(codexWrapperShellExecutableToken)
+            } else {
+                rendered.append(quote(part))
             }
-            return quote(part)
         }
+        return rendered
     }
 
     /// The result of resolving a cmux wrapper launcher (the `claude-teams` / `codex-teams` / `omo`

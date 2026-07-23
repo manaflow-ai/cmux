@@ -423,7 +423,7 @@ enum AgentResumeCommandBuilder {
                 parts: sanitizedCommandParts,
                 quote: shellSingleQuoted
             )
-        case .codex:
+        case .codex where argv.contains("resume"):
             shellCommand = AgentResumeArgv.renderedPortableCodexResumeShellCommand(
                 parts: sanitizedCommandParts,
                 quote: shellSingleQuoted
