@@ -16,43 +16,34 @@ struct TaskComposerMachineMenu: View, Equatable {
     }
 
     var body: some View {
-        Menu {
-            ForEach(value.machines) { mac in
-                Button {
-                    actions.selectMachine(mac.macDeviceID)
-                } label: {
-                    Label(mac.resolvedName, systemImage: "desktopcomputer")
+        ZStack {
+            TaskComposerRouteLabel(
+                icon: selectedMachine.map(routeIconContent(for:)) ?? .symbol("desktopcomputer"),
+                title: L10n.string("mobile.taskComposer.machine", defaultValue: "Machine"),
+                value: selectedMachine?.resolvedName ?? value.selectedMacDeviceID,
+                valueFont: .caption.weight(.semibold),
+                valueTruncationMode: .tail,
+                chevronSystemName: "chevron.up.chevron.down"
+            )
+            .accessibilityHidden(true)
+
+            Menu {
+                ForEach(value.machines) { mac in
+                    Button {
+                        actions.selectMachine(mac.macDeviceID)
+                    } label: {
+                        Label(mac.resolvedName, systemImage: "desktopcomputer")
+                    }
+                    .accessibilityAddTraits(mac.macDeviceID == value.selectedMacDeviceID ? .isSelected : [])
                 }
-                .accessibilityAddTraits(mac.macDeviceID == value.selectedMacDeviceID ? .isSelected : [])
+            } label: {
+                Color.clear
+                    .frame(maxWidth: .infinity, maxHeight: .infinity)
+                    .contentShape(Rectangle())
             }
-        } label: {
-            HStack(spacing: 8) {
-                if let selectedMachine {
-                    machineIcon(selectedMachine)
-                } else {
-                    contextSymbol("desktopcomputer", tint: .accentColor)
-                }
-                VStack(alignment: .leading, spacing: 1) {
-                    Text(L10n.string("mobile.taskComposer.machine", defaultValue: "Machine"))
-                        .font(.caption2.weight(.medium))
-                        .foregroundStyle(.secondary)
-                        .lineLimit(1)
-                        .minimumScaleFactor(0.75)
-                    Text(selectedMachine?.resolvedName ?? value.selectedMacDeviceID)
-                        .font(.caption.weight(.semibold))
-                        .foregroundStyle(.primary)
-                        .lineLimit(1)
-                        .minimumScaleFactor(0.72)
-                }
-                Spacer(minLength: 0)
-                Image(systemName: "chevron.up.chevron.down")
-                    .font(.caption2.weight(.bold))
-                    .foregroundStyle(.tertiary)
-                    .accessibilityHidden(true)
-            }
-            .frame(maxWidth: .infinity, minHeight: 52, alignment: .leading)
-            .contentShape(Rectangle())
+            .buttonStyle(.plain)
         }
+        .frame(maxWidth: .infinity, minHeight: 52, alignment: .leading)
         .disabled(value.isDisabled)
         .accessibilityLabel(L10n.string("mobile.taskComposer.machine", defaultValue: "Machine"))
         .accessibilityValue(selectedMachine?.resolvedName ?? value.selectedMacDeviceID)
@@ -60,31 +51,13 @@ struct TaskComposerMachineMenu: View, Equatable {
         .accessibilityIdentifier("MobileTaskComposerMachineMenu")
     }
 
-    private func contextSymbol(_ name: String, tint: Color) -> some View {
-        Image(systemName: name)
-            .font(.system(size: 13, weight: .semibold))
-            .foregroundStyle(tint)
-            .frame(width: 28, height: 28)
-            .background(tint.opacity(0.12), in: Circle())
-            .accessibilityHidden(true)
-    }
-
-    private func machineIcon(_ mac: MobilePairedMac) -> some View {
-        ZStack {
-            Circle()
-                .fill(Color.accentColor)
-            switch MacAvatarIcon.resolve(custom: mac.customIcon, defaultSymbol: "desktopcomputer") {
-            case .symbol(let name):
-                Image(systemName: name)
-                    .font(.system(size: 14, weight: .semibold))
-                    .foregroundStyle(.white)
-            case .emoji(let emoji):
-                Text(emoji)
-                    .font(.system(size: 17))
-            }
+    private func routeIconContent(for mac: MobilePairedMac) -> TaskComposerRouteIcon.Content {
+        switch MacAvatarIcon.resolve(custom: mac.customIcon, defaultSymbol: "desktopcomputer") {
+        case .symbol(let name):
+            .symbol(name)
+        case .emoji(let emoji):
+            .emoji(emoji)
         }
-        .frame(width: 28, height: 28)
-        .accessibilityHidden(true)
     }
 }
 #endif
