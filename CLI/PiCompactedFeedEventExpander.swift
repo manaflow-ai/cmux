@@ -24,7 +24,15 @@ struct PiCompactedFeedEventExpander {
         let retainedSummaryLimit = omittedCount > 0
             ? Self.maxCompactedTerminalEvents - 1
             : Self.maxCompactedTerminalEvents
-        let retainedSummaries = summaries.prefix(retainedSummaryLimit)
+        let retainedSummaries: [[String: Any]]
+        if summaries.count <= retainedSummaryLimit {
+            retainedSummaries = summaries
+        } else {
+            let leadingCount = retainedSummaryLimit / 2
+            let trailingCount = retainedSummaryLimit - leadingCount
+            retainedSummaries = Array(summaries.prefix(leadingCount))
+                + Array(summaries.suffix(trailingCount))
+        }
         var requests = retainedSummaries.enumerated().compactMap { index, summary in
             requestLine(summary: summary, fallback: rawObject, index: index)
         }

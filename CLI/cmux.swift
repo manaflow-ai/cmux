@@ -33864,10 +33864,10 @@ export default CMUXSessionRestore;
         if waitTimeout > 0 || shouldAwaitTelemetryIngestion {
             request["id"] = UUID().uuidString
         }
-        let payload = try JSONSerialization.data(withJSONObject: request)
-        let line = String(data: payload, encoding: .utf8) ?? "{}"
 
         if waitTimeout == 0 && !shouldAwaitTelemetryIngestion {
+            let payload = try JSONSerialization.data(withJSONObject: request)
+            let line = String(data: payload, encoding: .utf8) ?? "{}"
             if let client {
                 _ = try? client.sendOneWay(command: line, writeTimeout: 0.05)
             } else if let socketPath {
@@ -33911,8 +33911,16 @@ export default CMUXSessionRestore;
         }
 
         if shouldAwaitTelemetryIngestion {
-            _ = try resolveExplicitPiHookTarget(commandArgs: commandArgs, client: activeClient)
+            if let target = try resolveExplicitPiHookTarget(commandArgs: commandArgs, client: activeClient) {
+                eventDict["workspace_id"] = target.workspaceId
+                request["params"] = [
+                    "event": eventDict,
+                    "wait_timeout_seconds": waitTimeout,
+                ]
+            }
         }
+        let payload = try JSONSerialization.data(withJSONObject: request)
+        let line = String(data: payload, encoding: .utf8) ?? "{}"
         let response: String
         do {
             response = try activeClient.send(
