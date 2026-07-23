@@ -2,17 +2,17 @@ import CmuxMobileShell
 import SwiftUI
 
 extension CMUXMobileRootView {
-    var shouldShowDeleteComputersVerifier: Bool {
+    var shouldShowHideComputersVerifier: Bool {
         #if os(iOS) && DEBUG
-        return MobileDeleteComputersVerifier().isEnabled
+        return MobileHideComputersVerifier().isEnabled
         #else
         return false
         #endif
     }
 
-    @ViewBuilder var deleteComputersVerifier: some View {
+    @ViewBuilder var hideComputersVerifier: some View {
         #if os(iOS) && DEBUG
-        DeleteComputersVerifierView()
+        HideComputersVerifierView()
         #else
         EmptyView()
         #endif

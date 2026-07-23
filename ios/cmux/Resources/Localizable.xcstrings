@@ -1480,155 +1480,121 @@
         }
       }
     },
-    "mobile.computers.remove": {
+    "mobile.computers.hidden.footer": {
       "extractionState": "manual",
       "localizations": {
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "Remove"
+            "value": "Hidden computers stay signed in to your account and are only hidden on this iPhone. A computer removed with an older version of cmux needs its Mac online and signed in once to restore."
           }
         },
         "ja": {
           "stringUnit": {
             "state": "translated",
-            "value": "削除"
+            "value": "非表示のコンピュータはアカウントにサインインしたままで、このiPhoneでのみ非表示になります。古いバージョンのcmuxで削除したコンピュータを復元するには、そのMacを一度オンラインにしてサインインする必要があります。"
           }
         }
       }
     },
-    "mobile.computers.removeMessage": {
+    "mobile.computers.hidden.legacyStatus": {
       "extractionState": "manual",
       "localizations": {
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "This computer and its workspaces stop appearing here. To recover it later, open cmux on that Mac, sign in to this same account, then tap Recover Deleted Computer."
+            "value": "Needs this Mac online once"
           }
         },
         "ja": {
           "stringUnit": {
             "state": "translated",
-            "value": "このコンピュータとそのワークスペースは表示されなくなります。後で復元するには、そのMacでcmuxを開き、この同じアカウントにサインインしてから「削除したコンピュータを復元」をタップしてください。"
+            "value": "このMacを一度オンラインにする必要があります"
           }
         }
       }
     },
-    "mobile.computers.removeMessageRepresentativeFormat": {
+    "mobile.computers.hidden.title": {
       "extractionState": "manual",
       "localizations": {
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "This removes this computer and its matching paired records. Its workspaces stop appearing here. To recover it later, open cmux on that Mac, sign in to this same account, then tap Recover Deleted Computer."
+            "value": "Hidden Computers"
           }
         },
         "ja": {
           "stringUnit": {
             "state": "translated",
-            "value": "このコンピュータと一致するペアリング済みレコードを削除します。そのワークスペースは表示されなくなります。後で復元するには、そのMacでcmuxを開き、この同じアカウントにサインインしてから「削除したコンピュータを復元」をタップしてください。"
+            "value": "非表示のコンピュータ"
           }
         }
       }
     },
-    "mobile.computers.removeTitleFormat": {
+    "mobile.computers.hide": {
       "extractionState": "manual",
       "localizations": {
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "Remove %@?"
+            "value": "Hide"
           }
         },
         "ja": {
           "stringUnit": {
             "state": "translated",
-            "value": "%@を削除しますか？"
+            "value": "非表示"
           }
         }
       }
     },
-    "mobile.computers.recoverDeleted": {
+    "mobile.computers.unhide": {
       "extractionState": "manual",
       "localizations": {
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "Recover Deleted Computer"
+            "value": "Unhide"
           }
         },
         "ja": {
           "stringUnit": {
             "state": "translated",
-            "value": "削除したコンピュータを復元"
+            "value": "再表示"
           }
         }
       }
     },
-    "mobile.computers.recoverDeletedFooter": {
+    "mobile.computers.unhideFailedMessage": {
       "extractionState": "manual",
       "localizations": {
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "Deleted computers stay hidden on this phone. To recover one, open cmux on that Mac, sign in to this same account, then tap Recover Deleted Computer."
+            "value": "This computer was removed with an older version of cmux. Open cmux on the Mac, make sure it is online and signed in to this account, then try again."
           }
         },
         "ja": {
           "stringUnit": {
             "state": "translated",
-            "value": "削除したコンピュータはこの電話では非表示のままです。復元するには、そのMacでcmuxを開き、この同じアカウントにサインインしてから「削除したコンピュータを復元」をタップしてください。"
+            "value": "このコンピュータは古いバージョンのcmuxで削除されました。そのMacでcmuxを開き、オンラインでこのアカウントにサインインしていることを確認してから、もう一度お試しください。"
           }
         }
       }
     },
-    "mobile.computers.recoverFailedMessage": {
+    "mobile.computers.unhideFailedTitle": {
       "extractionState": "manual",
       "localizations": {
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "No deleted computer was recovered. Open cmux on the Mac, sign in to this same account, and try again."
+            "value": "Couldn't unhide computer"
           }
         },
         "ja": {
           "stringUnit": {
             "state": "translated",
-            "value": "削除したコンピュータは復元されませんでした。そのMacでcmuxを開き、この同じアカウントにサインインして、もう一度お試しください。"
-          }
-        }
-      }
-    },
-    "mobile.computers.recoverFailedTitle": {
-      "extractionState": "manual",
-      "localizations": {
-        "en": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Couldn't recover computer"
-          }
-        },
-        "ja": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "コンピュータを復元できませんでした"
-          }
-        }
-      }
-    },
-    "mobile.computers.recoveringDeleted": {
-      "extractionState": "manual",
-      "localizations": {
-        "en": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Recovering Deleted Computer…"
-          }
-        },
-        "ja": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "削除したコンピュータを復元中…"
+            "value": "コンピュータを再表示できませんでした"
           }
         }
       }
@@ -2489,13 +2455,13 @@
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "Tap a computer to reconnect. Swipe left to remove one."
+            "value": "Tap a computer to reconnect. Swipe left to hide one."
           }
         },
         "ja": {
           "stringUnit": {
             "state": "translated",
-            "value": "コンピュータをタップすると再接続します。左にスワイプすると削除できます。"
+            "value": "コンピュータをタップすると再接続します。左にスワイプすると非表示にできます。"
           }
         }
       }
@@ -2823,19 +2789,19 @@
         }
       }
     },
-    "mobile.hostPicker.forget": {
+    "mobile.hostPicker.hide": {
       "extractionState": "manual",
       "localizations": {
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "Forget"
+            "value": "Hide"
           }
         },
         "ja": {
           "stringUnit": {
             "state": "translated",
-            "value": "削除"
+            "value": "非表示"
           }
         }
       }
@@ -12972,24 +12938,24 @@
         }
       }
     },
-    "mobile.deleteComputersVerifier.allRemoved": {
+    "mobile.hideComputersVerifier.allHidden": {
       "extractionState": "manual",
       "localizations": {
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "allRemoved="
+            "value": "allHidden="
           }
         },
         "ja": {
           "stringUnit": {
             "state": "translated",
-            "value": "allRemoved="
+            "value": "allHidden="
           }
         }
       }
     },
-    "mobile.deleteComputersVerifier.checkpoint.computers": {
+    "mobile.hideComputersVerifier.checkpoint.computers": {
       "extractionState": "manual",
       "localizations": {
         "en": {
@@ -13006,7 +12972,7 @@
         }
       }
     },
-    "mobile.deleteComputersVerifier.checkpoint.page": {
+    "mobile.hideComputersVerifier.checkpoint.page": {
       "extractionState": "manual",
       "localizations": {
         "en": {
@@ -13023,7 +12989,7 @@
         }
       }
     },
-    "mobile.deleteComputersVerifier.checkpoint.workspacesStatus": {
+    "mobile.hideComputersVerifier.checkpoint.workspacesStatus": {
       "extractionState": "manual",
       "localizations": {
         "en": {
@@ -13040,7 +13006,7 @@
         }
       }
     },
-    "mobile.deleteComputersVerifier.halfNoDisconnectedBanner": {
+    "mobile.hideComputersVerifier.halfNoDisconnectedBanner": {
       "extractionState": "manual",
       "localizations": {
         "en": {
@@ -13057,7 +13023,7 @@
         }
       }
     },
-    "mobile.deleteComputersVerifier.halfRemainingPresent": {
+    "mobile.hideComputersVerifier.halfRemainingPresent": {
       "extractionState": "manual",
       "localizations": {
         "en": {
@@ -13074,24 +13040,24 @@
         }
       }
     },
-    "mobile.deleteComputersVerifier.halfRemovedAbsent": {
+    "mobile.hideComputersVerifier.halfHiddenAbsent": {
       "extractionState": "manual",
       "localizations": {
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "halfRemovedAbsent="
+            "value": "halfHiddenAbsent="
           }
         },
         "ja": {
           "stringUnit": {
             "state": "translated",
-            "value": "halfRemovedAbsent="
+            "value": "halfHiddenAbsent="
           }
         }
       }
     },
-    "mobile.deleteComputersVerifier.refreshPreservedEmptyList": {
+    "mobile.hideComputersVerifier.refreshPreservedEmptyList": {
       "extractionState": "manual",
       "localizations": {
         "en": {
@@ -13108,7 +13074,7 @@
         }
       }
     },
-    "mobile.deleteComputersVerifier.refreshPreservedHalfList": {
+    "mobile.hideComputersVerifier.refreshPreservedHalfList": {
       "extractionState": "manual",
       "localizations": {
         "en": {
@@ -13125,7 +13091,7 @@
         }
       }
     },
-    "mobile.deleteComputersVerifier.status.pass": {
+    "mobile.hideComputersVerifier.status.pass": {
       "extractionState": "manual",
       "localizations": {
         "en": {
@@ -13142,7 +13108,7 @@
         }
       }
     },
-    "mobile.deleteComputersVerifier.status.running": {
+    "mobile.hideComputersVerifier.status.running": {
       "extractionState": "manual",
       "localizations": {
         "en": {
@@ -13159,19 +13125,19 @@
         }
       }
     },
-    "mobile.deleteComputersVerifier.title": {
+    "mobile.hideComputersVerifier.title": {
       "extractionState": "manual",
       "localizations": {
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "Delete Computers Verifier"
+            "value": "Hide Computers Verifier"
           }
         },
         "ja": {
           "stringUnit": {
             "state": "translated",
-            "value": "コンピュータ削除検証"
+            "value": "コンピュータ非表示検証"
           }
         }
       }

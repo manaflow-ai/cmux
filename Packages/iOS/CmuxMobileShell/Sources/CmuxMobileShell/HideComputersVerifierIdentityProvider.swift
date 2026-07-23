@@ -2,7 +2,7 @@
 import CmuxMobileShellModel
 
 @MainActor
-final class DeleteComputersVerifierIdentityProvider: MobileIdentityProviding {
+final class HideComputersVerifierIdentityProvider: MobileIdentityProviding {
     let currentUserID: String?
 
     init(userID: String?) {
