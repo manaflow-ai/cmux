@@ -25,7 +25,10 @@ struct ArtifactHTMLPreviewDocument: Sendable {
 
     private static func readSource(_ sourceURL: URL) throws -> Data {
         try Task.checkCancellation()
-        let descriptor = Darwin.open(sourceURL.path, O_RDONLY | O_CLOEXEC | O_NOFOLLOW)
+        let descriptor = Darwin.open(
+            sourceURL.path,
+            O_RDONLY | O_CLOEXEC | O_NOFOLLOW | O_NONBLOCK
+        )
         guard descriptor >= 0 else {
             throw CocoaError(.fileReadUnknown, userInfo: [NSFilePathErrorKey: sourceURL.path])
         }

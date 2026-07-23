@@ -14,7 +14,7 @@ final class ArtifactStoreMutationLease {
     static func acquire(directory: URL) throws -> ArtifactStoreMutationLease {
         let descriptor = Darwin.open(
             directory.path,
-            O_RDONLY | O_DIRECTORY | O_CLOEXEC | O_NOFOLLOW
+            O_RDONLY | O_DIRECTORY | O_CLOEXEC | O_NOFOLLOW | O_NONBLOCK
         )
         guard descriptor >= 0 else {
             throw ArtifactStoreError.pathOutsideStore(directory.path)

@@ -95,14 +95,11 @@ struct ArtifactCaptureDirectoryFinder {
                 continue
             }
             guard url.lastPathComponent == markerName,
-                  let values = try? url.resourceValues(forKeys: [
-                      .isRegularFileKey, .isSymbolicLinkKey, .fileSizeKey,
-                  ]),
-                  values.isRegularFile == true,
-                  values.isSymbolicLink != true,
-                  let size = values.fileSize,
-                  size <= 256 * 1024,
-                  let data = try? Data(contentsOf: url),
+                  let data = try? ArtifactBoundedFileReader().data(
+                      url: url,
+                      allowedRoot: paths.filesystemRoot,
+                      maximumBytes: 256 * 1024
+                  ),
                   let marker = try? decoder.decode(Marker.self, from: data),
                   matches(marker) else {
                 continue

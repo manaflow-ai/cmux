@@ -31,7 +31,10 @@ struct ArtifactSourceSnapshotter {
         try rejectSymbolicLink(at: paths.importStagingRoot)
         try fileManager.createDirectory(at: paths.importStagingRoot, withIntermediateDirectories: true)
         try rejectSymbolicLink(at: paths.importStagingRoot)
-        let sourceDescriptor = open(source.path, O_RDONLY | O_NOFOLLOW | O_CLOEXEC)
+        let sourceDescriptor = open(
+            source.path,
+            O_RDONLY | O_NOFOLLOW | O_CLOEXEC | O_NONBLOCK
+        )
         guard sourceDescriptor >= 0 else {
             throw ArtifactStoreError.sourceNotRegularFile(source.path)
         }

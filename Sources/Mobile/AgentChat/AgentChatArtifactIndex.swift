@@ -192,7 +192,10 @@ actor AgentChatArtifactIndex {
         workingDirectory: String?,
         maximumFileBytes: UInt64
     ) throws -> (key: CacheKey, handle: FileHandle) {
-        let descriptor = Darwin.open(path, O_RDONLY | O_CLOEXEC | O_NOFOLLOW)
+        let descriptor = Darwin.open(
+            path,
+            O_RDONLY | O_CLOEXEC | O_NOFOLLOW | O_NONBLOCK
+        )
         guard descriptor >= 0 else {
             throw CocoaError(.fileReadUnknown, userInfo: [NSFilePathErrorKey: path])
         }

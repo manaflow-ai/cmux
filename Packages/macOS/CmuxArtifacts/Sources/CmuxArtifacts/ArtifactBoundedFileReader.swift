@@ -13,7 +13,10 @@ struct ArtifactBoundedFileReader {
     func data(url: URL, allowedRoot: URL, maximumBytes: Int64) throws -> Data? {
         try Task.checkCancellation()
         guard maximumBytes >= 0, maximumBytes < Int.max else { return nil }
-        let descriptor = Darwin.open(url.path, O_RDONLY | O_CLOEXEC | O_NOFOLLOW)
+        let descriptor = Darwin.open(
+            url.path,
+            O_RDONLY | O_CLOEXEC | O_NOFOLLOW | O_NONBLOCK
+        )
         guard descriptor >= 0 else { return nil }
         defer { Darwin.close(descriptor) }
 
