@@ -177,8 +177,8 @@ impl WorkspaceClient {
             .open(Service::ProcessStream, metadata)
             .await
             .map_err(transport_error)?;
-        await_opened(&stream).await?;
-        Ok(ProcessEventStream { messages: MessageStream::new(Arc::new(stream)) })
+        await_opened(&stream, Lane::Bulk).await?;
+        Ok(ProcessEventStream { messages: MessageStream::with_lane(Arc::new(stream), Lane::Bulk) })
     }
 }
 
@@ -236,7 +236,7 @@ async fn connect_rpc_channel(
         .open(Service::WorkspaceRpc, rpc_metadata(class))
         .await
         .map_err(transport_error)?;
-    await_opened(&stream).await?;
+    await_opened(&stream, rpc_lane(class)).await?;
     let messages = Arc::new(MessageStream::with_lane(Arc::new(stream), rpc_lane(class)));
     let pending = Arc::new(Mutex::new(HashMap::new()));
     let (shutdown, mut shutdown_rx) = watch::channel(false);
@@ -328,7 +328,7 @@ fn rpc_traffic_class(request: &WorkspaceRequest) -> RpcTrafficClass {
     }
 }
 
-async fn await_opened(stream: &ServiceStream) -> Result<(), RpcError> {
+async fn await_opened(stream: &ServiceStream, expected_lane: Lane) -> Result<(), RpcError> {
     let chunk = stream
         .receive()
         .await
@@ -337,7 +337,18 @@ async fn await_opened(stream: &ServiceStream) -> Result<(), RpcError> {
     match serde_json::from_slice::<ServiceControl>(&chunk.payload)
         .map_err(|error| RpcError::new("protocol", error.to_string()))?
     {
-        ServiceControl::Opened { service } if service == stream.service() => Ok(()),
+        ServiceControl::Opened { service } if service == stream.service() => {
+            if chunk.lane != expected_lane {
+                return Err(RpcError::new(
+                    "protocol",
+                    format!(
+                        "service-open response used {:?} instead of {expected_lane:?}",
+                        chunk.lane
+                    ),
+                ));
+            }
+            Ok(())
+        }
         ServiceControl::Rejected { code, message } => Err(RpcError::new(code, message)),
         _ => Err(RpcError::new("protocol", "invalid service-open response")),
     }

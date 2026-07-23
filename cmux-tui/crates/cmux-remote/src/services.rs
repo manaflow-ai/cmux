@@ -386,8 +386,8 @@ impl DaemonServices {
             .await
             .map_err(|error| ServicesError::Remote(error.message))?;
         let stream = Arc::new(stream);
-        send_opened(&stream, Lane::Interactive).await?;
-        let messages = MessageStream::new(stream);
+        send_opened(&stream, Lane::Bulk).await?;
+        let messages = MessageStream::with_lane(stream, Lane::Bulk);
         loop {
             tokio::select! {
                 event = subscription.recv() => match event {
@@ -545,9 +545,8 @@ struct MessageReadState {
 impl MessageStream {
     pub fn new(stream: Arc<ServiceStream>) -> Self {
         let lane = match stream.service() {
-            Service::MuxControl | Service::ProcessStream | Service::ComputerUse => {
-                Lane::Interactive
-            }
+            Service::MuxControl | Service::ComputerUse => Lane::Interactive,
+            Service::ProcessStream => Lane::Bulk,
             Service::WorkspaceRpc => Lane::Control,
             Service::TcpTunnel => Lane::Tunnel,
         };
@@ -1207,6 +1206,18 @@ mod tests {
                 .expect("waiting for the regression-test process failed");
                 blocked_write.abort();
                 let _ = blocked_write.await;
+
+                let events = client
+                    .process_events(process, 0)
+                    .await
+                    .expect("opening the process event stream failed");
+                let exit =
+                    tokio::time::timeout(std::time::Duration::from_secs(2), events.receive())
+                        .await
+                        .expect("process exit replay was delayed")
+                        .expect("process exit replay failed")
+                        .expect("process event stream closed before replaying exit");
+                assert!(matches!(exit.event, ProcessEvent::Exit { .. }));
 
                 drop(client);
                 client_multiplexer.shutdown().await;
