@@ -54,6 +54,18 @@ struct FilePreviewNativeRefreshStateTests {
         #expect(player.volume == 0.25)
         #expect(player.isMuted)
         #expect(!player.appliesMediaSelectionCriteriaAutomatically)
+
+        let refreshedItem = try #require(player.currentItem)
+        session.update(
+            view,
+            panel: panel,
+            revision: panel.previewRevision + 2,
+            isVisibleInUI: true,
+            backgroundColor: .textBackgroundColor,
+            drawsBackground: true
+        )
+        #expect(view.player === player)
+        #expect(player.currentItem !== refreshedItem)
     }
 
     @Test("Quick Look refresh keeps its item and display state")

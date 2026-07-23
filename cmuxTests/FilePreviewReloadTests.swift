@@ -307,7 +307,7 @@ struct FilePreviewReloadTests {
         #expect(latestCompletion.next == nil)
     }
 
-    @Test("Canceling preview load state releases the active slot and rejects stale completion")
+    @Test("Canceling preview load state retains its active slot until it drains")
     func latestPreviewLoadStateCancelsPendingRequests() throws {
         var state = FilePreviewLatestRequestState<String>()
         let active = try #require(state.submit("active").start)
@@ -316,14 +316,15 @@ struct FilePreviewReloadTests {
         let cancellation = state.cancel()
         #expect(cancellation.active?.request == "active")
         #expect(cancellation.pending?.request == "pending")
-        let replacement = try #require(state.submit("replacement").start)
-        let staleCompletion = state.complete(id: active.id)
+        let replacement = state.submit("replacement")
+        #expect(replacement.start == nil)
+        let canceledCompletion = state.complete(id: active.id)
 
-        #expect(!staleCompletion.matchedActive)
-        #expect(!staleCompletion.shouldDeliver)
-        #expect(staleCompletion.next == nil)
+        #expect(canceledCompletion.matchedActive)
+        #expect(!canceledCompletion.shouldDeliver)
+        let replacementSubmission = try #require(canceledCompletion.next)
 
-        let replacementCompletion = state.complete(id: replacement.id)
+        let replacementCompletion = state.complete(id: replacementSubmission.id)
         #expect(replacementCompletion.matchedActive)
         #expect(replacementCompletion.shouldDeliver)
         #expect(replacementCompletion.next == nil)
