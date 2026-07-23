@@ -130,4 +130,44 @@ public struct MobileRootAuthGate {
         if isReconnectingStoredMac { return true }
         return hasKnownPairedMac || pairedMacHintUndetermined
     }
+
+    /// Which shell surface the authenticated root scene mounts.
+    ///
+    /// The restoring window is data on the one workspace-shell surface, not a
+    /// separate surface: mounting a different view while the stored-Mac
+    /// reconnect resolved destroyed the shell's presentation state (a Settings
+    /// sheet opened during the reconnect window dismissed itself the moment the
+    /// reconnection finished, failed, or the startup gate expired).
+    public enum MobileRootShellSurface: Equatable {
+        /// The workspace shell (list + detail). `isRestoringStoredMac` marks
+        /// the startup stored-Mac reconnect window and varies only the shell's
+        /// loading inputs.
+        case workspaceShell(isRestoringStoredMac: Bool)
+        /// The terminal no-devices state: signed in with no saved Macs at all
+        /// and no restoring window that could still produce one.
+        case disconnectedNoKnownPairedMac
+    }
+
+    /// Selects the authenticated root scene's shell surface.
+    /// - Parameters:
+    ///   - connectionState: The current connection state.
+    ///   - showRestoringStoredMac: Whether the startup reconnect window is
+    ///     active (``shouldShowRestoringStoredMac(authenticated:connectionState:isReconnectingStoredMac:hasKnownPairedMac:pairedMacHintUndetermined:didFinishStoredMacReconnectAttempt:)``
+    ///     combined with the caller's startup gates).
+    ///   - hasKnownPairedMac: Whether this device has any saved Mac.
+    /// - Returns: The surface to mount. Restoring, connected, and
+    ///   offline-with-saved-Macs all return ``MobileRootShellSurface/workspaceShell(isRestoringStoredMac:)``
+    ///   so the mounted shell view never changes identity across those
+    ///   transitions.
+    public static func shellSurface(
+        connectionState: MobileConnectionState,
+        showRestoringStoredMac: Bool,
+        hasKnownPairedMac: Bool
+    ) -> MobileRootShellSurface {
+        let isRestoringStoredMac = connectionState != .connected && showRestoringStoredMac
+        if connectionState != .connected, !hasKnownPairedMac, !isRestoringStoredMac {
+            return .disconnectedNoKnownPairedMac
+        }
+        return .workspaceShell(isRestoringStoredMac: isRestoringStoredMac)
+    }
 }
