@@ -1,0 +1,26 @@
+{
+  "repo": "manaflow-ai/cmux-loader",
+  "runner_label": "blacksmith-6vcpu-macos-26",
+  "run_id": 29794196953,
+  "run_url": "https://github.com/manaflow-ai/cmux-loader/actions/runs/29794196953",
+  "hostname": "cmux-loader-29794196953",
+  "remote": {
+    "hostname": "Mac-1784598634759",
+    "macos": "26.3"
+  },
+  "gui": {
+    "required": true,
+    "ready": false,
+    "status": "app_window_missing",
+    "frontmost_app": "loginwindow",
+    "app": "Calculator",
+    "app_windows": 0,
+    "diagnostic_frame": "gui-not-ready.png"
+  },
+  "connectivity": {
+    "tailnet_lookup": "timed_out",
+    "public_ssh_fallback": "reachable",
+    "public_ssh_port": 64000
+  },
+  "error": "The provision wrapper timed out waiting for the tailnet device. Public SSH diagnostics confirmed that the runner desktop remained at loginwindow with no visible application windows, so CUA bootstrap and recording were not permitted."
+}
