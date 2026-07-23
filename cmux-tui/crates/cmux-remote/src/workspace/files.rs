@@ -2289,6 +2289,47 @@ mod tests {
 
     #[cfg(unix)]
     #[tokio::test]
+    async fn content_hash_write_rejects_an_in_place_staged_file_mutation() {
+        use std::os::unix::fs::MetadataExt as _;
+
+        let (_directory, root) = root().await;
+        let target = root.canonical_root().join("value.txt");
+        tokio::fs::write(&target, b"expected").await.unwrap();
+        let before_exchange = install_mutation_test_barrier(
+            &root,
+            "value.txt",
+            MutationTestPoint::BeforeContentHashExchange,
+        );
+        let writer = {
+            let root = Arc::clone(&root);
+            tokio::spawn(async move {
+                write_file(
+                    &root,
+                    "value.txt",
+                    &ByteString::from_bytes(b"new-bytes"),
+                    &FilePrecondition::ContentHash(hash_bytes(b"expected")),
+                    false,
+                )
+                .await
+            })
+        };
+
+        before_exchange.wait_until_reached().await;
+        let staged = recovery_entry(&root, ".cmux-write-");
+        let before = tokio::fs::metadata(&staged).await.unwrap();
+        tokio::fs::write(&staged, b"tampered").await.unwrap();
+        let after = tokio::fs::metadata(&staged).await.unwrap();
+        assert_eq!((before.dev(), before.ino()), (after.dev(), after.ino()));
+        before_exchange.resume();
+
+        let error = writer.await.unwrap().unwrap_err();
+        assert_eq!(error.code, "conflict");
+        assert_eq!(tokio::fs::read(&target).await.unwrap(), b"expected");
+        assert!(!staged.exists());
+    }
+
+    #[cfg(unix)]
+    #[tokio::test]
     async fn stale_content_hash_never_publishes_new_bytes_during_validation_or_cancellation() {
         let (_directory, root) = root().await;
         let target = root.canonical_root().join("value.txt");
