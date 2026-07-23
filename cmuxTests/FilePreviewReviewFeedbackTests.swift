@@ -41,7 +41,7 @@ final class FilePreviewReviewFeedbackTests: XCTestCase {
         defer { panel.close() }
         await panel.loadTextContent().value
 
-        let textView = SavingTextView()
+        let textView = SavingTextView.makeFilePreviewTextView()
         textView.string = "saved by chord"
         textView.panel = panel
         panel.attachTextView(textView)
