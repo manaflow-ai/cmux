@@ -31,6 +31,11 @@ final class ComputerUseOnboardingWindowController: NSObject, NSWindowDelegate {
     static let seenDefaultsKey = "cmux.computerUse.onboarding.seen"
     private static let expandedWindowSize = NSSize(width: 600, height: 440)
     private static let permissionCompanionWindowSize = NSSize(width: 532, height: 110)
+    private static let expandedWindowStyleMask: NSWindow.StyleMask = [
+        .titled,
+        .closable,
+        .fullSizeContentView,
+    ]
     private static let systemSettingsBundleIdentifier = "com.apple.systempreferences"
 
     private var window: ComputerUseOnboardingWindow?
@@ -104,10 +109,9 @@ final class ComputerUseOnboardingWindowController: NSObject, NSWindowDelegate {
         window.isReleasedWhenClosed = false
         window.isMovableByWindowBackground = false
         window.contentView = ComputerUseOnboardingHostingView(rootView: rootView)
-        configure(
+        configureForExpandedOnboarding(
             window,
-            frame: NSRect(origin: window.frame.origin, size: Self.expandedWindowSize),
-            showsStandardButtons: true
+            frame: NSRect(origin: window.frame.origin, size: Self.expandedWindowSize)
         )
         window.center()
         return window
@@ -327,10 +331,9 @@ final class ComputerUseOnboardingWindowController: NSObject, NSWindowDelegate {
             width: Self.expandedWindowSize.width,
             height: Self.expandedWindowSize.height
         )
-        configure(
+        configureForExpandedOnboarding(
             window,
             frame: expandedFrame,
-            showsStandardButtons: true,
             animate: shouldAnimate(window)
         )
         NSApp.activate(ignoringOtherApps: true)
@@ -346,10 +349,29 @@ final class ComputerUseOnboardingWindowController: NSObject, NSWindowDelegate {
         frame: NSRect,
         animate: Bool = false
     ) {
+        window.styleMask = [.borderless]
+        window.hasShadow = true
         configure(
             window,
             frame: frame,
             showsStandardButtons: false,
+            animate: animate
+        )
+    }
+
+    private func configureForExpandedOnboarding(
+        _ window: ComputerUseOnboardingWindow,
+        frame: NSRect,
+        animate: Bool = false
+    ) {
+        window.styleMask = Self.expandedWindowStyleMask
+        window.titleVisibility = .hidden
+        window.titlebarAppearsTransparent = true
+        window.hasShadow = true
+        configure(
+            window,
+            frame: frame,
+            showsStandardButtons: true,
             animate: animate
         )
     }

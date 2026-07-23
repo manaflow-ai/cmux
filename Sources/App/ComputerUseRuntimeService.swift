@@ -29,6 +29,7 @@ final class ComputerUseRuntimeService {
     private var helperHealthTask: Task<Void, Never>?
     private var recoveryTask: Task<Void, Never>?
     private var cachedStatus = ComputerUsePermissionStatus.unknown
+    private var permissionRefreshGeneration = 0
     private var acceptsNewLaunches = true
     private var desiredEnabled = false
     private var runningHelperProcessIdentifier: pid_t?
@@ -107,6 +108,7 @@ final class ComputerUseRuntimeService {
     /// Reconciles the helper daemon with the live `computerUse.enabled` setting.
     func setEnabled(_ newValue: Bool) async {
         guard acceptsNewLaunches, !Task.isCancelled else { return }
+        permissionRefreshGeneration &+= 1
         desiredEnabled = newValue
         if newValue {
             await startIfNeeded()
@@ -143,18 +145,36 @@ final class ComputerUseRuntimeService {
     /// preference or interrupt an active Computer Use request.
     @discardableResult
     func refreshHelperStatus() async -> (accessibility: Bool, screenRecording: Bool) {
-        await serializeHelperLifecycle(cancelledResult: status()) { [weak self] in
-            guard let self else { return (false, false) }
-            guard self.acceptsNewLaunches, !Task.isCancelled else {
-                return self.status()
-            }
-            let latest = await Self.queryPermissionStatus(
-                paths: self.paths,
-                transport: self.transport
+        guard acceptsNewLaunches, !Task.isCancelled else { return status() }
+        permissionRefreshGeneration &+= 1
+        let generation = permissionRefreshGeneration
+        let enabledAtStart = desiredEnabled
+        let paths = self.paths
+        let transport = self.transport
+
+        // TCC's "Quit & Reopen" briefly replaces the helper with a process that
+        // has not yet rebound cmux's serve socket. Waiting belongs outside the
+        // helper-lifecycle chain: recovery needs that same chain to terminate
+        // the transient process and launch the correctly configured daemon.
+        let latest = enabledAtStart
+            ? await Self.waitForPermissionStatus(
+                paths: paths,
+                transport: transport
             )
-            self.cachedStatus = self.cachedStatus.applyingProbeResult(latest)
-            return self.status()
+            : await Self.queryPermissionStatus(
+                paths: paths,
+                transport: transport
+            )
+        guard
+            !Task.isCancelled,
+            acceptsNewLaunches,
+            generation == permissionRefreshGeneration,
+            desiredEnabled == enabledAtStart
+        else {
+            return status()
         }
+        cachedStatus = cachedStatus.applyingProbeResult(latest)
+        return status()
     }
 
     func revealHelperInFinder() {
@@ -454,6 +474,7 @@ final class ComputerUseRuntimeService {
     func stopForTermination() {
         desiredEnabled = false
         acceptsNewLaunches = false
+        permissionRefreshGeneration &+= 1
         for cancel in helperLifecycleCancellationActions.values {
             cancel()
         }
