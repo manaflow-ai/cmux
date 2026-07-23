@@ -628,12 +628,11 @@ mod tests {
         String::from_utf8(batches.concat()).unwrap()
     }
 
-    fn translated_terminal_placement(
+    fn decoded_terminal_placement(
         width: u32,
         height: u32,
         sizing: &str,
-        pane: Rect,
-    ) -> GraphicPlacement {
+    ) -> (KittyImage, KittyPlacement) {
         let mut terminal = Terminal::new(20, 8, 100, Callbacks::default()).unwrap();
         terminal.resize(20, 8, 10, 20).unwrap();
         let pixels = vec![255; usize::try_from(width * height * 3).unwrap()];
@@ -647,13 +646,26 @@ mod tests {
 
         let snapshot = terminal.kitty_graphics_snapshot().unwrap();
         assert_eq!(snapshot.placements.len(), 1);
-        kitty_graphic_placement(
-            pane,
-            (10, 20),
-            kitty_graphic_image(0, 9, snapshot.image(201).unwrap()),
-            &snapshot.placements[0],
-        )
-        .unwrap()
+        (snapshot.image(201).unwrap().clone(), snapshot.placements[0].clone())
+    }
+
+    fn translate_terminal_placement(
+        image: &KittyImage,
+        placement: &KittyPlacement,
+        pane: Rect,
+    ) -> GraphicPlacement {
+        kitty_graphic_placement(pane, (10, 20), kitty_graphic_image(0, 9, image), placement)
+            .unwrap()
+    }
+
+    fn translated_terminal_placement(
+        width: u32,
+        height: u32,
+        sizing: &str,
+        pane: Rect,
+    ) -> GraphicPlacement {
+        let (image, placement) = decoded_terminal_placement(width, height, sizing);
+        translate_terminal_placement(&image, &placement, pane)
     }
 
     fn emitted_placement(value: GraphicPlacement) -> String {
@@ -663,6 +675,51 @@ mod tests {
         let command = &output[start..];
         let end = command.find("\x1b\\").expect("placement terminator") + 2;
         command[..end].to_string()
+    }
+
+    fn rounded_ratio(value: u32, numerator: u32, denominator: u32) -> u32 {
+        u32::try_from(
+            (u128::from(value) * u128::from(numerator) + u128::from(denominator) / 2)
+                / u128::from(denominator),
+        )
+        .unwrap()
+    }
+
+    fn rendered_pixel_size(value: &GraphicPlacement) -> (u32, u32) {
+        let source = value.source.unwrap_or(GraphicSourceRect {
+            x: 0,
+            y: 0,
+            width: value.image.width,
+            height: value.image.height,
+        });
+        match (value.columns, value.rows) {
+            (None, None) => (source.width, source.height),
+            (Some(columns), None) => {
+                let width = columns * 10;
+                (width, rounded_ratio(width, source.height, source.width))
+            }
+            (None, Some(rows)) => {
+                let height = rows * 20;
+                (rounded_ratio(height, source.width, source.height), height)
+            }
+            (Some(columns), Some(rows)) => (columns * 10, rows * 20),
+        }
+    }
+
+    fn assert_pixel_geometry(
+        value: &GraphicPlacement,
+        pane: Rect,
+        source: GraphicSourceRect,
+        sizing: (Option<u32>, Option<u32>),
+        pixels: (u32, u32),
+    ) {
+        assert_eq!(value.source, Some(source));
+        assert_eq!((value.columns, value.rows), sizing);
+        assert_eq!(rendered_pixel_size(value), pixels);
+        let left = u32::from(value.rect.x - pane.x) * 10 + value.x_offset;
+        let top = u32::from(value.rect.y - pane.y) * 20 + value.y_offset;
+        assert!(left + pixels.0 <= u32::from(pane.width) * 10);
+        assert!(top + pixels.1 <= u32::from(pane.height) * 20);
     }
 
     #[test]
@@ -973,6 +1030,165 @@ mod tests {
 
         let command = emitted_placement(outer);
         assert!(command.contains("x=0,y=0,w=10,h=20,X=4,Y=5,c=1,r=1"), "{command:?}");
+    }
+
+    #[test]
+    fn native_clipping_uses_rendered_pixels_on_every_edge() {
+        let horizontal_pane = Rect { x: 10, y: 5, width: 1, height: 1 };
+        let (horizontal_image, horizontal) = decoded_terminal_placement(15, 10, ",X=4");
+
+        let right = translate_terminal_placement(&horizontal_image, &horizontal, horizontal_pane);
+        assert_eq!((right.x_offset, right.y_offset), (4, 0));
+        assert_pixel_geometry(
+            &right,
+            horizontal_pane,
+            GraphicSourceRect { x: 0, y: 0, width: 6, height: 10 },
+            (None, None),
+            (6, 10),
+        );
+
+        let mut left_placement = horizontal.clone();
+        left_placement.viewport_col = -1;
+        let left =
+            translate_terminal_placement(&horizontal_image, &left_placement, horizontal_pane);
+        assert_eq!((left.x_offset, left.y_offset), (0, 0));
+        assert_pixel_geometry(
+            &left,
+            horizontal_pane,
+            GraphicSourceRect { x: 6, y: 0, width: 9, height: 10 },
+            (None, None),
+            (9, 10),
+        );
+
+        let vertical_pane = Rect { x: 10, y: 5, width: 2, height: 1 };
+        let (vertical_image, vertical) = decoded_terminal_placement(15, 10, ",Y=15");
+        let bottom = translate_terminal_placement(&vertical_image, &vertical, vertical_pane);
+        assert_eq!((bottom.x_offset, bottom.y_offset), (0, 15));
+        assert_pixel_geometry(
+            &bottom,
+            vertical_pane,
+            GraphicSourceRect { x: 0, y: 0, width: 15, height: 5 },
+            (None, None),
+            (15, 5),
+        );
+
+        let mut top_placement = vertical.clone();
+        top_placement.viewport_row = -1;
+        let top = translate_terminal_placement(&vertical_image, &top_placement, vertical_pane);
+        assert_eq!((top.x_offset, top.y_offset), (0, 0));
+        assert_pixel_geometry(
+            &top,
+            vertical_pane,
+            GraphicSourceRect { x: 0, y: 5, width: 15, height: 5 },
+            (None, None),
+            (15, 5),
+        );
+    }
+
+    #[test]
+    fn column_only_clipping_preserves_inferred_rows_on_every_edge() {
+        let horizontal_pane = Rect { x: 10, y: 5, width: 2, height: 1 };
+        let (horizontal_image, horizontal) = decoded_terminal_placement(20, 10, ",X=4,c=2");
+
+        let right = translate_terminal_placement(&horizontal_image, &horizontal, horizontal_pane);
+        assert_eq!((right.x_offset, right.y_offset), (4, 0));
+        assert_pixel_geometry(
+            &right,
+            horizontal_pane,
+            GraphicSourceRect { x: 0, y: 0, width: 10, height: 10 },
+            (Some(1), None),
+            (10, 10),
+        );
+
+        let mut left_placement = horizontal.clone();
+        left_placement.viewport_col = -1;
+        let left =
+            translate_terminal_placement(&horizontal_image, &left_placement, horizontal_pane);
+        assert_eq!((left.x_offset, left.y_offset), (0, 0));
+        assert_pixel_geometry(
+            &left,
+            horizontal_pane,
+            GraphicSourceRect { x: 6, y: 0, width: 10, height: 10 },
+            (Some(1), None),
+            (10, 10),
+        );
+
+        let vertical_pane = Rect { x: 10, y: 5, width: 2, height: 1 };
+        let (vertical_image, vertical) = decoded_terminal_placement(20, 10, ",Y=15,c=2");
+        let bottom = translate_terminal_placement(&vertical_image, &vertical, vertical_pane);
+        assert_eq!((bottom.x_offset, bottom.y_offset), (0, 15));
+        assert_pixel_geometry(
+            &bottom,
+            vertical_pane,
+            GraphicSourceRect { x: 0, y: 0, width: 20, height: 5 },
+            (Some(2), None),
+            (20, 5),
+        );
+
+        let mut top_placement = vertical.clone();
+        top_placement.viewport_row = -1;
+        let top = translate_terminal_placement(&vertical_image, &top_placement, vertical_pane);
+        assert_eq!((top.x_offset, top.y_offset), (0, 0));
+        assert_pixel_geometry(
+            &top,
+            vertical_pane,
+            GraphicSourceRect { x: 0, y: 5, width: 20, height: 5 },
+            (Some(2), None),
+            (20, 5),
+        );
+    }
+
+    #[test]
+    fn row_only_clipping_preserves_inferred_columns_on_every_edge() {
+        let horizontal_pane = Rect { x: 10, y: 5, width: 1, height: 2 };
+        let (horizontal_image, horizontal) = decoded_terminal_placement(10, 40, ",X=5,r=2");
+
+        let right = translate_terminal_placement(&horizontal_image, &horizontal, horizontal_pane);
+        assert_eq!((right.x_offset, right.y_offset), (5, 0));
+        assert_pixel_geometry(
+            &right,
+            horizontal_pane,
+            GraphicSourceRect { x: 0, y: 0, width: 5, height: 40 },
+            (None, Some(2)),
+            (5, 40),
+        );
+
+        let mut left_placement = horizontal.clone();
+        left_placement.viewport_col = -1;
+        let left =
+            translate_terminal_placement(&horizontal_image, &left_placement, horizontal_pane);
+        assert_eq!((left.x_offset, left.y_offset), (0, 0));
+        assert_pixel_geometry(
+            &left,
+            horizontal_pane,
+            GraphicSourceRect { x: 5, y: 0, width: 5, height: 40 },
+            (None, Some(2)),
+            (5, 40),
+        );
+
+        let vertical_pane = Rect { x: 10, y: 5, width: 1, height: 2 };
+        let (vertical_image, vertical) = decoded_terminal_placement(10, 40, ",Y=5,r=2");
+        let bottom = translate_terminal_placement(&vertical_image, &vertical, vertical_pane);
+        assert_eq!((bottom.x_offset, bottom.y_offset), (0, 5));
+        assert_pixel_geometry(
+            &bottom,
+            vertical_pane,
+            GraphicSourceRect { x: 0, y: 0, width: 10, height: 20 },
+            (None, Some(1)),
+            (10, 20),
+        );
+
+        let mut top_placement = vertical.clone();
+        top_placement.viewport_row = -1;
+        let top = translate_terminal_placement(&vertical_image, &top_placement, vertical_pane);
+        assert_eq!((top.x_offset, top.y_offset), (0, 0));
+        assert_pixel_geometry(
+            &top,
+            vertical_pane,
+            GraphicSourceRect { x: 0, y: 15, width: 10, height: 20 },
+            (None, Some(1)),
+            (10, 20),
+        );
     }
 
     #[test]
