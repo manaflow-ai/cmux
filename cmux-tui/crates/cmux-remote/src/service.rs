@@ -1231,6 +1231,13 @@ async fn send_reset_or_close_session(
                 backoff = (backoff * 2).min(Duration::from_millis(32));
             }
             Ok(Err(error)) if terminal_send_is_already_closed(&error) => return,
+            Ok(Err(error))
+                if generation.is_some()
+                    && lane == Lane::Tunnel
+                    && terminal_send_is_carrier_loss(&error) =>
+            {
+                return;
+            }
             Ok(Err(_)) | Err(_) => break,
         }
     }
@@ -1279,6 +1286,28 @@ fn terminal_send_is_already_closed(error: &ServiceError) -> bool {
                 ConnectionError::GenerationChanged { .. }
             ))
     )
+}
+
+fn terminal_send_is_carrier_loss(error: &ServiceError) -> bool {
+    use crate::link::LinkError;
+    use crate::session::SessionError;
+
+    let carrier_lost = |error: &SessionError| {
+        matches!(
+            error,
+            SessionError::Link(LinkError::Closed | LinkError::Transport(_))
+                | SessionError::LinkMessage(_)
+                | SessionError::SchedulerClosed
+        )
+    };
+    match error {
+        ServiceError::Client(ConnectionError::Session(error))
+        | ServiceError::Daemon(DaemonError::Session(error))
+        | ServiceError::Daemon(DaemonError::Connection(ConnectionError::Session(error))) => {
+            carrier_lost(error)
+        }
+        _ => false,
+    }
 }
 
 async fn reset_tunnel_streams(streams: &Mutex<HashMap<u64, StreamRegistration>>, generation: u64) {
@@ -1493,17 +1522,28 @@ mod tests {
         close_count: AtomicUsize,
     }
 
+    #[derive(Clone, Copy, Debug)]
+    enum LostCarrierFailure {
+        LinkClosed,
+        LinkTransport,
+        LinkMessage,
+        SchedulerClosed,
+        LinkProtocol,
+    }
+
     struct LostCarrierEndpoint {
         generation: watch::Sender<u64>,
+        failure: LostCarrierFailure,
         reset_attempts: AtomicUsize,
         close_count: AtomicUsize,
     }
 
     impl LostCarrierEndpoint {
-        fn new() -> Arc<Self> {
+        fn new(failure: LostCarrierFailure) -> Arc<Self> {
             let (generation, _) = watch::channel(0);
             Arc::new(Self {
                 generation,
+                failure,
                 reset_attempts: AtomicUsize::new(0),
                 close_count: AtomicUsize::new(0),
             })
@@ -1577,10 +1617,24 @@ mod tests {
             if flags.contains(FrameFlags::RESET) {
                 self.reset_attempts.fetch_add(1, Ordering::AcqRel);
             }
-            Err(DaemonError::Session(crate::session::SessionError::Link(
-                crate::link::LinkError::Closed,
-            ))
-            .into())
+            let error = match self.failure {
+                LostCarrierFailure::LinkClosed => {
+                    crate::session::SessionError::Link(crate::link::LinkError::Closed)
+                }
+                LostCarrierFailure::LinkTransport => crate::session::SessionError::Link(
+                    crate::link::LinkError::Transport("carrier lost".into()),
+                ),
+                LostCarrierFailure::LinkMessage => {
+                    crate::session::SessionError::LinkMessage("carrier lost".into())
+                }
+                LostCarrierFailure::SchedulerClosed => {
+                    crate::session::SessionError::SchedulerClosed
+                }
+                LostCarrierFailure::LinkProtocol => crate::session::SessionError::Link(
+                    crate::link::LinkError::Protocol("invalid carrier frame".into()),
+                ),
+            };
+            Err(DaemonError::Session(error).into())
         }
 
         async fn receive_frame(&self) -> Result<Option<ReceivedFrame>, ServiceError> {
@@ -1832,26 +1886,71 @@ mod tests {
 
     #[tokio::test]
     async fn generation_bound_terminal_reset_does_not_close_session_after_carrier_loss() {
-        let endpoint = LostCarrierEndpoint::new();
-        let escalating = AtomicBool::new(false);
+        for failure in [
+            LostCarrierFailure::LinkClosed,
+            LostCarrierFailure::LinkTransport,
+            LostCarrierFailure::LinkMessage,
+            LostCarrierFailure::SchedulerClosed,
+        ] {
+            let endpoint = LostCarrierEndpoint::new(failure);
+            let escalating = AtomicBool::new(false);
 
-        send_reset_or_close_session(
-            endpoint.clone(),
-            Some(0),
-            Lane::Tunnel,
-            9,
-            None,
-            &escalating,
-            Duration::from_millis(10),
-        )
-        .await;
+            send_reset_or_close_session(
+                endpoint.clone(),
+                Some(0),
+                Lane::Tunnel,
+                9,
+                None,
+                &escalating,
+                Duration::from_millis(10),
+            )
+            .await;
 
-        assert_eq!(endpoint.reset_attempts.load(Ordering::Acquire), 1);
-        assert_eq!(
-            endpoint.close_count.load(Ordering::Acquire),
-            0,
-            "losing one generation-bound carrier must not destroy resumable session state"
-        );
+            assert_eq!(
+                endpoint.reset_attempts.load(Ordering::Acquire),
+                1,
+                "terminal RESET was not attempted for {failure:?}"
+            );
+            assert_eq!(
+                endpoint.close_count.load(Ordering::Acquire),
+                0,
+                "losing one generation-bound carrier must not destroy resumable session state \
+                 for {failure:?}"
+            );
+        }
+    }
+
+    #[tokio::test]
+    async fn terminal_reset_still_closes_session_outside_generation_bound_carrier_loss() {
+        for (failure, generation, lane) in [
+            (LostCarrierFailure::LinkMessage, None, Lane::Control),
+            (LostCarrierFailure::LinkProtocol, Some(0), Lane::Tunnel),
+        ] {
+            let endpoint = LostCarrierEndpoint::new(failure);
+            let escalating = AtomicBool::new(false);
+
+            send_reset_or_close_session(
+                endpoint.clone(),
+                generation,
+                lane,
+                9,
+                None,
+                &escalating,
+                Duration::from_millis(10),
+            )
+            .await;
+
+            assert_eq!(
+                endpoint.reset_attempts.load(Ordering::Acquire),
+                1,
+                "terminal RESET was not attempted for {failure:?}"
+            );
+            assert_eq!(
+                endpoint.close_count.load(Ordering::Acquire),
+                1,
+                "terminal cleanup failed open for {failure:?}, {generation:?}, {lane:?}"
+            );
+        }
     }
 
     #[tokio::test]
