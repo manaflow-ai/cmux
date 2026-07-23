@@ -18,6 +18,7 @@ struct MobileSettingsView: View {
     @Environment(AuthCoordinator.self) private var authManager
     @Environment(MobilePushCoordinator.self) private var pushCoordinator
     @Environment(MobileDisplaySettings.self) private var displaySettings
+    @Environment(ToastCenter.self) private var toasts
     @Environment(\.irohSettingsController) private var irohSettingsController
     let connectedHostName: String
     let rescanQR: (() -> Void)?
@@ -42,7 +43,6 @@ struct MobileSettingsView: View {
     @State private var showingChatDemo = false
     @State private var showingTerminalDemo = false
     @State private var showingToastGallery = false
-    @Environment(ToastCenter.self) private var toasts
     /// Seconds between tapping "Run Toast Demo" and the first toast, so you
     /// can navigate to any screen (terminal, chat) and watch it play there.
     @AppStorage("cmux.debug.toastDemoDelaySeconds") private var toastDemoDelaySeconds = 3
@@ -50,7 +50,7 @@ struct MobileSettingsView: View {
 
     var body: some View {
         @Bindable var displaySettings = displaySettings
-        @Bindable var toasts = toasts
+        @Bindable var toasts = self.toasts
         return NavigationStack {
             Form {
                 MobileSettingsAccountSection(signOut: signOut)

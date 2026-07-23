@@ -1503,13 +1503,13 @@
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "This computer and its workspaces stop appearing here. Pair it again to add it back."
+            "value": "This computer and its workspaces stop appearing here. To recover it later, open cmux on that Mac, sign in to this same account, then tap Recover Deleted Computer."
           }
         },
         "ja": {
           "stringUnit": {
             "state": "translated",
-            "value": "このコンピュータとそのワークスペースは表示されなくなります。再度ペアリングすると追加できます。"
+            "value": "このコンピュータとそのワークスペースは表示されなくなります。後で復元するには、そのMacでcmuxを開き、この同じアカウントにサインインしてから「削除したコンピュータを復元」をタップしてください。"
           }
         }
       }
@@ -1520,13 +1520,13 @@
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "This removes this computer and its matching paired records. Its workspaces stop appearing here. Pair it again to add it back."
+            "value": "This removes this computer and its matching paired records. Its workspaces stop appearing here. To recover it later, open cmux on that Mac, sign in to this same account, then tap Recover Deleted Computer."
           }
         },
         "ja": {
           "stringUnit": {
             "state": "translated",
-            "value": "このコンピュータと一致するペアリング済みレコードを削除します。そのワークスペースは表示されなくなります。再度ペアリングすると追加できます。"
+            "value": "このコンピュータと一致するペアリング済みレコードを削除します。そのワークスペースは表示されなくなります。後で復元するには、そのMacでcmuxを開き、この同じアカウントにサインインしてから「削除したコンピュータを復元」をタップしてください。"
           }
         }
       }
@@ -1544,6 +1544,91 @@
           "stringUnit": {
             "state": "translated",
             "value": "%@を削除しますか？"
+          }
+        }
+      }
+    },
+    "mobile.computers.recoverDeleted": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Recover Deleted Computer"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "削除したコンピュータを復元"
+          }
+        }
+      }
+    },
+    "mobile.computers.recoverDeletedFooter": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Deleted computers stay hidden on this phone. To recover one, open cmux on that Mac, sign in to this same account, then tap Recover Deleted Computer."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "削除したコンピュータはこの電話では非表示のままです。復元するには、そのMacでcmuxを開き、この同じアカウントにサインインしてから「削除したコンピュータを復元」をタップしてください。"
+          }
+        }
+      }
+    },
+    "mobile.computers.recoverFailedMessage": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "No deleted computer was recovered. Open cmux on the Mac, sign in to this same account, and try again."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "削除したコンピュータは復元されませんでした。そのMacでcmuxを開き、この同じアカウントにサインインして、もう一度お試しください。"
+          }
+        }
+      }
+    },
+    "mobile.computers.recoverFailedTitle": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Couldn't recover computer"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "コンピュータを復元できませんでした"
+          }
+        }
+      }
+    },
+    "mobile.computers.recoveringDeleted": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Recovering Deleted Computer…"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "削除したコンピュータを復元中…"
           }
         }
       }
