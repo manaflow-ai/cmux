@@ -1,14 +1,16 @@
 #if os(iOS)
+import CmuxMobileShell
 import CmuxMobileSupport
 import SwiftUI
 
 struct DeletedComputerRecoveryButton: View {
     var isProminent = false
     let isRecovering: Bool
-    let recover: @MainActor () async -> Bool
+    let recover: @MainActor () async -> MobileDeletedComputerRecoveryResult
     let reloadAfterFailure: @MainActor () async -> Void
 
     @State private var alertMessage: String?
+    @State private var recoveryTask: Task<Void, Never>?
 
     @ViewBuilder
     var body: some View {
@@ -45,6 +47,7 @@ struct DeletedComputerRecoveryButton: View {
         } message: {
             Text(alertMessage ?? "")
         }
+        .onDisappear(perform: cancelRecoveryTask)
     }
 
     private var alertPresented: Binding<Bool> {
@@ -57,15 +60,26 @@ struct DeletedComputerRecoveryButton: View {
     }
 
     private func recoverDeletedComputer() {
-        guard !isRecovering else { return }
+        guard !isRecovering, recoveryTask == nil else { return }
         alertMessage = nil
-        Task { @MainActor in
-            let recovered = await recover()
-            if !recovered {
+        recoveryTask = Task { @MainActor in
+            let result = await recover()
+            guard !Task.isCancelled else { return }
+            switch result {
+            case .recovered, .alreadyInProgress:
+                break
+            case .notFound:
                 await reloadAfterFailure()
+                guard !Task.isCancelled else { return }
                 alertMessage = failureMessage
             }
+            recoveryTask = nil
         }
+    }
+
+    private func cancelRecoveryTask() {
+        recoveryTask?.cancel()
+        recoveryTask = nil
     }
 
     private var recoveringTitle: String {

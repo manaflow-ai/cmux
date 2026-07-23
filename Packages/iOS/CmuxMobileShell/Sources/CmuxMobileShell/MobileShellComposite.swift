@@ -2381,7 +2381,9 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
             loaded = try await pairedMacStore.loadAll(stackUserID: scope.userID, teamID: scope.teamID)
         } catch {
             mobileShellLog.error("paired mac store loadAll failed: \(String(describing: error), privacy: .public)")
-            hasRecoverableDeletedComputers = false
+            if await isScopeCurrent(scope) {
+                hasRecoverableDeletedComputers = false
+            }
             return
         }
         // The await above suspended the main actor; a sign-out, user switch, or

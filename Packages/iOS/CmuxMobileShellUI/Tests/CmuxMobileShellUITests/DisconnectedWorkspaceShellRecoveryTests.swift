@@ -8,8 +8,8 @@ import Testing
 @MainActor
 @Suite
 struct DisconnectedWorkspaceShellRecoveryTests {
-    @Test func emptyDisconnectedStateOffersDeletedComputerRecovery() async {
-        let store = await shellStore()
+    @Test func emptyDisconnectedStateOffersDeletedComputerRecovery() async throws {
+        let store = try await shellStore()
         store.hasRecoverableDeletedComputers = true
 
         let view = disconnectedView(store: store)
@@ -17,8 +17,8 @@ struct DisconnectedWorkspaceShellRecoveryTests {
         #expect(view.showsDeletedComputerRecoveryAction)
     }
 
-    @Test func recoverableDeletedComputerSuppressesAutomaticAddComputerSheet() async {
-        let store = await shellStore()
+    @Test func recoverableDeletedComputerSuppressesAutomaticAddComputerSheet() async throws {
+        let store = try await shellStore()
         await store.loadPairedMacs()
         store.hasRecoverableDeletedComputers = true
 
@@ -37,9 +37,9 @@ struct DisconnectedWorkspaceShellRecoveryTests {
         )
     }
 
-    private func shellStore() async -> CMUXMobileShellStore {
+    private func shellStore() async throws -> CMUXMobileShellStore {
         let suiteName = "DisconnectedWorkspaceShellRecoveryTests-\(UUID().uuidString)"
-        let defaults = UserDefaults(suiteName: suiteName) ?? .standard
+        let defaults = try #require(UserDefaults(suiteName: suiteName))
         return MobileShellComposite(
             isSignedIn: true,
             pairedMacStore: WorkspaceMacSelectionPairedMacStore([]),
