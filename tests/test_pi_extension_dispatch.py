@@ -766,6 +766,102 @@ await new Promise((resolve) => setTimeout(resolve, 250));
     return 0
 
 
+def check_terminal_feed_retry_and_failure(bun: str, root: Path, extension_path: Path) -> int:
+    retry_cmux = root / "terminal-feed-retry-cmux"
+    make_executable(
+        retry_cmux,
+        """#!/usr/bin/env python3
+import os
+import pathlib
+import sys
+
+args = " ".join(sys.argv[1:])
+payload = sys.stdin.read()
+log_path = pathlib.Path(os.environ["CMUX_TEST_PI_RETRY_LOG"])
+with log_path.open("a", encoding="utf-8") as stream:
+    stream.write(f"{args}|{payload}\\n")
+
+if "hooks feed" in args and "PostToolUse" in args:
+    count_path = pathlib.Path(os.environ["CMUX_TEST_PI_RETRY_COUNT"])
+    count = int(count_path.read_text(encoding="utf-8")) + 1 if count_path.exists() else 1
+    count_path.write_text(str(count), encoding="utf-8")
+    mode = os.environ["CMUX_TEST_PI_RETRY_MODE"]
+    if mode == "fail" or (mode == "retry" and count == 1):
+        print("transient feed failure", file=sys.stderr)
+        raise SystemExit(42)
+
+print("{}")
+""",
+    )
+    lifecycle_source = """
+const extensionPath = process.env.CMUX_TEST_PI_EXTENSION_PATH;
+const mod = await import(extensionPath);
+const handlers = new Map();
+mod.default({ on(name, handler) { handlers.set(name, handler); } });
+const ctx = {
+  cwd: "/tmp/pi-terminal-feed-retry-project",
+  sessionManager: { getSessionId() { return "pi-terminal-feed-retry-session"; } }
+};
+handlers.get("tool_execution_end")({
+  toolCallId: "retry-tool",
+  toolName: "bash",
+  result: { status: "done" },
+  isError: false
+}, ctx);
+await handlers.get("agent_end")({
+  messages: [{ role: "assistant", content: "done" }],
+  stopReason: "completed"
+}, ctx);
+"""
+
+    for mode in ("retry", "fail"):
+        log_path = root / f"terminal-feed-{mode}.log"
+        count_path = root / f"terminal-feed-{mode}.count"
+        result = run_extension(
+            bun=bun,
+            root=root,
+            extension_path=extension_path,
+            fake_cmux=retry_cmux,
+            source=lifecycle_source,
+            extra_env={
+                "CMUX_TEST_PI_RETRY_LOG": str(log_path),
+                "CMUX_TEST_PI_RETRY_COUNT": str(count_path),
+                "CMUX_TEST_PI_RETRY_MODE": mode,
+            },
+        )
+        if result.returncode != 0:
+            print(f"FAIL: terminal-feed {mode} harness failed: {result.stderr!r}")
+            return 1
+        calls = log_path.read_text(encoding="utf-8").splitlines()
+        feed_indexes = [
+            index
+            for index, line in enumerate(calls)
+            if "hooks feed" in line and "PostToolUse" in line
+        ]
+        feed_calls = [calls[index] for index in feed_indexes]
+        notification_calls = [line for line in calls if "hooks pi notification" in line]
+        stop_calls = [line for line in calls if "hooks pi stop" in line]
+        if len(feed_calls) != 2:
+            print(f"FAIL: terminal-feed {mode} did not make one bounded retry: {calls!r}")
+            return 1
+        if mode == "retry":
+            if not notification_calls or not stop_calls:
+                print(f"FAIL: successful terminal-feed retry suppressed lifecycle delivery: {calls!r}")
+                return 1
+            if feed_indexes[-1] > calls.index(notification_calls[0]):
+                print(f"FAIL: lifecycle overtook the successful terminal-feed retry: {calls!r}")
+                return 1
+        else:
+            if notification_calls or stop_calls:
+                print(f"FAIL: exhausted terminal-feed retries were declared drained: {calls!r}")
+                return 1
+            if '"message":"cmux terminal feed delivery failed"' not in result.stderr:
+                print(f"FAIL: exhausted terminal-feed retries were not surfaced: {result.stderr!r}")
+                return 1
+
+    return 0
+
+
 def check_completion_drain_deadline(bun: str, root: Path, extension_path: Path) -> int:
     deadline_log = root / "completion-deadline-cmux.log"
     deadline_cmux = root / "completion-deadline-cmux"
@@ -1205,6 +1301,7 @@ def run_checks(bun: str, root: Path, extension_path: Path) -> int:
         check_cross_session_feed_isolation,
         check_feed_cancellation,
         check_completion_order,
+        check_terminal_feed_retry_and_failure,
         check_completion_drain_deadline,
         check_timeout_serialization,
         check_error_classification,
