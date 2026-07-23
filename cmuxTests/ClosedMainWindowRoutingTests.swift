@@ -960,6 +960,47 @@ struct WindowZombieRegressionTests {
         }
     }
 
+    @Test("Committed close preserves the controller release callback")
+    func committedClosePreservesControllerReleaseCallback() async throws {
+        _ = NSApplication.shared
+        let previousAppDelegate = AppDelegate.shared
+        let app = AppDelegate()
+        AppDelegate.shared = app
+        let previousConfirmationHandler = app.debugCloseMainWindowConfirmationHandler
+        app.debugCloseMainWindowConfirmationHandler = { _ in true }
+        var survivorWindowId: UUID?
+        defer {
+            if let survivorWindowId,
+               let survivor = app.windowForMainWindowId(survivorWindowId) {
+                survivor.close()
+            }
+            app.debugCloseMainWindowConfirmationHandler = previousConfirmationHandler
+            TerminalController.shared.setActiveTabManager(nil)
+            AppDelegate.shared = previousAppDelegate
+        }
+
+        survivorWindowId = app.createMainWindow(shouldActivate: false)
+        let closingWindowId = app.createMainWindow(shouldActivate: false)
+        let retainedWindow = try #require(app.windowForMainWindowId(closingWindowId))
+        defer {
+            retainedWindow.delegate = nil
+            retainedWindow.contentViewController = nil
+            retainedWindow.contentView = nil
+            retainedWindow.orderOut(nil)
+        }
+
+        #expect(app.commitMainWindowClose(retainedWindow))
+        #expect(retainedWindow.contentView != nil)
+        retainedWindow.close()
+
+        let didReleaseGraph = await settleWindowLifecycle {
+            retainedWindow.windowController == nil
+                && retainedWindow.contentViewController == nil
+                && retainedWindow.contentView == nil
+        }
+        #expect(didReleaseGraph)
+    }
+
     private func settingsWindow() -> NSWindow? {
         NSApp.windows.first {
             $0.identifier?.rawValue == "cmux.settings" && $0.isVisible

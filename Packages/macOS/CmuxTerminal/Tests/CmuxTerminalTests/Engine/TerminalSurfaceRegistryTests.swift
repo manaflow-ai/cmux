@@ -170,6 +170,21 @@ struct TerminalSurfaceRegistryTests {
         #expect(!registry.isRightSidebarDockSurface(id: sharedId))
     }
 
+    @Test func registrationIncrementallyEvictsDeallocatedSurfaceWithoutIdLookup() {
+        let registry = TerminalSurfaceRegistry()
+        var expired: FakeSurface? = FakeSurface()
+        registry.register(expired!)
+        expired = nil
+        let generationBeforeReplacement = registry.topologyGeneration
+
+        let live = FakeSurface()
+        registry.register(live)
+
+        #expect(registry.topologyGeneration == generationBeforeReplacement + 2)
+        #expect(registry.allSurfaces().count == 1)
+        #expect(registry.allSurfaces().first === live)
+    }
+
     @Test func allSurfacesIsSortedByIdString() {
         let registry = TerminalSurfaceRegistry()
         let surfaces = (0..<5).map { _ in FakeSurface() }
