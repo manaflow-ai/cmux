@@ -88,6 +88,18 @@ class DeterminismCheckerCLITests(unittest.TestCase):
                 "expect(finished).toBe(true)\n"
             ),
             "shell.sh": 'sleep 1\nassert "$actual" "$expected"\n',
+            "shell-interpolation.sh": (
+                'actual="$(start_job; sleep 1; read_state)"\n'
+                'assert "$actual" "$expected"\n'
+            ),
+            "shell-direct-interpolation.sh": (
+                'actual="$(sleep 1)"\n'
+                'assert "$actual" "$expected"\n'
+            ),
+            "template-interpolation.ts": (
+                "const actual = `${await Bun.sleep(1)}`\n"
+                "expect(actual).toBeTruthy()\n"
+            ),
         }
 
         result = self.run_checker(fixtures)
@@ -130,11 +142,110 @@ class DeterminismCheckerCLITests(unittest.TestCase):
                     "await fixture.Bun.sleep(1)\n"
                     "expect(completed).toBe(true)\n"
                 ),
+                "cross-language.swift": (
+                    "Bun.sleep(1)\n"
+                    "#expect(completed)\n"
+                    "time.sleep(1)\n"
+                    "#expect(completed)\n"
+                ),
+                "cross-language.py": (
+                    "Bun.sleep(1)\n"
+                    "assert completed\n"
+                    "setTimeout(done, 1)\n"
+                    "assert completed\n"
+                ),
+                "cross-language.ts": (
+                    "time.sleep(1)\n"
+                    "expect(completed).toBe(true)\n"
+                    "Task.sleep(1)\n"
+                    "expect(completed).toBe(true)\n"
+                ),
             }
         )
 
         self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
         self.assertIn("test-determinism: 0 active finding(s)", result.stdout)
+
+    def test_python_import_aliases_are_tracked_until_shadowed(self) -> None:
+        positive = self.run_checker(
+            {
+                "time-alias.py": (
+                    "import time as clock_time\n"
+                    "clock_time.sleep(0.01)\n"
+                    "assert finished\n"
+                ),
+                "from-time.py": (
+                    "from time import sleep\n"
+                    "sleep(0.01)\n"
+                    "assert finished\n"
+                ),
+                "from-asyncio.py": (
+                    "from asyncio import sleep as pause\n"
+                    "await pause(0.01)\n"
+                    "assert finished\n"
+                ),
+            }
+        )
+
+        self.assertEqual(
+            positive.returncode,
+            1,
+            positive.stdout + positive.stderr,
+        )
+        for relative_path in ("time-alias.py", "from-time.py", "from-asyncio.py"):
+            self.assertIn(
+                f"fixtures/{relative_path}:2: sleep-then-assert:",
+                positive.stdout,
+            )
+
+        negative = self.run_checker(
+            {
+                "module-rebound.py": (
+                    "time = fake_clock\n"
+                    "time.sleep(0.01)\n"
+                    "assert finished\n"
+                ),
+                "alias-rebound.py": (
+                    "import time as clock_time\n"
+                    "clock_time = fake_clock\n"
+                    "clock_time.sleep(0.01)\n"
+                    "assert finished\n"
+                ),
+                "parameter-shadow.py": (
+                    "def wait(time):\n"
+                    "    time.sleep(0.01)\n"
+                    "    assert finished\n"
+                ),
+                "multiline-parameter-shadow.py": (
+                    "def wait(\n"
+                    "    time,\n"
+                    "):\n"
+                    "    time.sleep(0.01)\n"
+                    "    assert finished\n"
+                ),
+                "deleted-module.py": (
+                    "import asyncio\n"
+                    "del asyncio\n"
+                    "await asyncio.sleep(0.01)\n"
+                    "assert finished\n"
+                ),
+                "class-shadow.py": (
+                    "class time: pass\n"
+                    "time.sleep(0.01)\n"
+                    "assert finished\n"
+                ),
+            }
+        )
+
+        self.assertEqual(
+            negative.returncode,
+            0,
+            negative.stdout + negative.stderr,
+        )
+        self.assertIn(
+            "test-determinism: 0 active finding(s)",
+            negative.stdout,
+        )
 
     def test_sleep_text_inside_strings_and_comments_remains_silent(self) -> None:
         result = self.run_checker(
@@ -156,6 +267,16 @@ class DeterminismCheckerCLITests(unittest.TestCase):
                     "expect(source).toBeTruthy()\n"
                     "// Bun.sleep(1)\n"
                     "expect(finished).toBe(true)\n"
+                    'const nested = `${"Bun.sleep(1)"}`\n'
+                    "expect(nested).toBeTruthy()\n"
+                    "const escaped = `\\${Bun.sleep(1)}`\n"
+                    "expect(escaped).toBeTruthy()\n"
+                ),
+                "strings.sh": (
+                    "actual=\"$(printf 'sleep 1')\"\n"
+                    'assert "$actual" "$expected"\n'
+                    'escaped="\\$(sleep 1)"\n'
+                    'assert "$escaped" "$expected"\n'
                 ),
             }
         )
