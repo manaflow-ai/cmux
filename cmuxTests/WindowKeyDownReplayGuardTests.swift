@@ -183,8 +183,8 @@ struct WindowKeyDownReplayGuardTests {
         return previousMenu
     }
 
-    /// Option+A producing printable text ("å"). The printable-Option-text
-    /// bypass in `cmux_performKeyEquivalent` force-dispatches this into the
+    /// Option+A producing text ("å"). Unmatched Option routing in
+    /// `cmux_performKeyEquivalent` force-dispatches this into the
     /// first responder's `keyDown`, which is the unguarded dispatch the
     /// https://github.com/manaflow-ai/cmux/issues/5887 crash looped through.
     private func makeOptionTextKeyDownEvent(
@@ -206,7 +206,7 @@ struct WindowKeyDownReplayGuardTests {
     }
 
     @Test
-    func printableOptionTextKeyDownIsForceDispatchedExactlyOncePerEvent() {
+    func unmatchedOptionKeyDownIsForceDispatchedExactlyOncePerEvent() {
         _ = NSApplication.shared
         AppDelegate.installWindowResponderSwizzlesForTesting()
 

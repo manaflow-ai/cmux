@@ -1663,9 +1663,6 @@ struct ShortcutStroke: Equatable, Hashable {
         }
 
         guard event.type == .keyDown else { return false }
-        if shortcutRoutingShouldBypassForPrintableOptionText(event: event) {
-            return false
-        }
 
         return matches(
             keyCode: Self.recordableKey(from: event)?.keyCode ?? event.keyCode,

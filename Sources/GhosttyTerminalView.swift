@@ -1054,6 +1054,15 @@ class GhosttyApp {
         }
 
         appObservers.append(NotificationCenter.default.addObserver(
+            forName: NSTextInputContext.keyboardSelectionDidChangeNotification,
+            object: nil,
+            queue: .main
+        ) { [weak self] _ in
+            guard let app = self?.app else { return }
+            ghostty_app_keyboard_changed(app)
+        })
+
+        appObservers.append(NotificationCenter.default.addObserver(
             forName: NSApplication.didBecomeActiveNotification,
             object: nil,
             queue: .main
@@ -5184,7 +5193,7 @@ class GhosttyNSView: NSView, NSUserInterfaceValidations {
     private var markedSelectedRange = NSRange(location: NSNotFound, length: 0)
     private var lastPerformKeyEvent: TimeInterval?
     private(set) var externalCommittedTextDepth = 0
-    var numpadIMECommitDeduplicator = NumpadIMECommitDeduplicator()
+    private let terminalKeyInputPlanner = TerminalKeyInputPlanner()
     struct SelectionSnapshot {
         let range: NSRange
         let string: String
@@ -5197,9 +5206,6 @@ class GhosttyNSView: NSView, NSUserInterfaceValidations {
     }
     var keyTextAccumulatorForTesting: [String]? {
         keyTextAccumulator
-    }
-    func shouldSuppressShiftSpaceFallbackTextForTesting(event: NSEvent, markedTextBefore: Bool) -> Bool {
-        shouldSuppressShiftSpaceFallbackText(event: event, markedTextBefore: markedTextBefore)
     }
     // Test-only IME point override so firstRect behavior can be regression tested.
     private var imePointOverrideForTesting: (x: Double, y: Double, width: Double, height: Double)?
@@ -5459,7 +5465,6 @@ class GhosttyNSView: NSView, NSUserInterfaceValidations {
             dismissNotificationMs = (ProcessInfo.processInfo.systemUptime - dismissNotificationStart) * 1000.0
 #endif
         }
-        let flags = ShortcutStroke.normalizedModifierFlags(from: event.modifierFlags)
         if !cmuxFindEventIsPlainEscape(event) { endFindEscapeSuppression() }
         if shouldConsumeSuppressedFindEscape(event) { return }
         if cmuxFindEventIsPlainEscape(event), !hasMarkedText(), let terminalSurface, terminalSurface.searchState != nil {
@@ -5495,63 +5500,6 @@ class GhosttyNSView: NSView, NSUserInterfaceValidations {
             increments: ["probeKeyDownCount": 1]
         )
 #endif
-        if flags.contains(.control) && !flags.contains(.command) && !flags.contains(.option) && !hasMarkedText() {
-            _ = reassertTerminalFocusForInputIfFirstResponder(forceNative: true)
-            var keyEvent = ghostty_input_key_s()
-            keyEvent.action = event.isARepeat ? GHOSTTY_ACTION_REPEAT : GHOSTTY_ACTION_PRESS
-            keyEvent.keycode = UInt32(event.keyCode)
-            keyEvent.mods = modsFromEvent(event)
-            keyEvent.consumed_mods = GHOSTTY_MODS_NONE
-            keyEvent.composing = false
-            keyEvent.unshifted_codepoint = unshiftedCodepointFromEvent(event)
-            let text = (event.charactersIgnoringModifiers ?? event.characters ?? "")
-            let handled: Bool
-            if text.isEmpty {
-                keyEvent.text = nil
-                #if DEBUG
-                let ghosttySendStart = ProcessInfo.processInfo.systemUptime
-                handled = sendTimedGhosttyKey(
-                    surface,
-                    keyEvent,
-                    path: "terminal.keyDown.ctrlGhosttySend",
-                    event: event
-                )
-                ghosttySendMs = (ProcessInfo.processInfo.systemUptime - ghosttySendStart) * 1000.0
-                #else
-                handled = ghostty_surface_key(surface, keyEvent)
-                #endif
-            } else {
-                #if DEBUG
-                let sendTimingStart = CmuxTypingTiming.start()
-                let ghosttySendStart = ProcessInfo.processInfo.systemUptime
-                #endif
-                handled = text.withCString { ptr in
-                    keyEvent.text = ptr
-                    return ghostty_surface_key(surface, keyEvent)
-                }
-                #if DEBUG
-                ghosttySendMs = (ProcessInfo.processInfo.systemUptime - ghosttySendStart) * 1000.0
-                CmuxTypingTiming.logDuration(
-                    path: "terminal.keyDown.ctrlGhosttySend",
-                    startedAt: sendTimingStart,
-                    event: event,
-                    extra: "handled=\(handled ? 1 : 0)"
-                )
-                #endif
-            }
-#if DEBUG
-            cmuxDebugLog(
-                "key.ctrl path=ghostty surface=\(terminalSurface?.id.uuidString.prefix(5) ?? "nil") " +
-                "handled=\(handled ? 1 : 0) keyCode=\(event.keyCode) chars=\((event.characters?.unicodeScalarHexList ?? "")) " +
-                "ign=\((event.charactersIgnoringModifiers?.unicodeScalarHexList ?? "")) mods=\(event.modifierFlags.rawValue)"
-            )
-#endif
-            // If Ghostty handled the key (action/encoding), we're done.
-            // If not (e.g. `ignore` keybind), fall through to interpretKeyEvents
-            // so the IME gets a chance to process this event.
-            if handled { return }
-        }
-
         let action = event.isARepeat ? GHOSTTY_ACTION_REPEAT : GHOSTTY_ACTION_PRESS
 
         // Translate mods to respect Ghostty config (e.g., macos-option-as-alt)
@@ -5588,11 +5536,15 @@ class GhosttyNSView: NSView, NSUserInterfaceValidations {
         defer { keyTextAccumulator = nil }
 
         let markedTextBefore = markedText.length > 0
-        let markedStateBefore = (markedText.string, markedSelectedRange)
+        let keyboardIdBefore: String? = if !markedTextBefore {
+            KeyboardLayout.id
+        } else {
+            nil
+        }
 
-        // Capture the keyboard layout ID before interpretation so the IME
-        // forwarding decision uses the source that saw this key.
-        let keyboardIdBefore = KeyboardLayout.id
+        // AppKit may redispatch a command event from performKeyEquivalent.
+        // Interpretation now owns this event, so it must not remain replayable.
+        lastPerformKeyEvent = nil
 
         // Let the input system handle the event (for IME, dead keys, etc.)
 #if DEBUG
@@ -5620,21 +5572,6 @@ class GhosttyNSView: NSView, NSUserInterfaceValidations {
         )
 #endif
 
-        // If the keyboard layout changed, an input method grabbed the event.
-        // Sync preedit and return without sending the key to Ghostty.
-        if !markedTextBefore, let kbBefore = keyboardIdBefore, kbBefore != KeyboardLayout.id {
-            imeConsumedKeyUps.insert(event.keyCode)
-#if DEBUG
-            let syncPreeditStart = ProcessInfo.processInfo.systemUptime
-#endif
-            syncPreedit(clearIfNeeded: markedTextBefore)
-#if DEBUG
-            syncPreeditMs = (ProcessInfo.processInfo.systemUptime - syncPreeditStart) * 1000.0
-#endif
-            return
-        }
-
-        // Sync preedit so Ghostty can render the IME composition overlay.
 #if DEBUG
         let syncPreeditStart = ProcessInfo.processInfo.systemUptime
 #endif
@@ -5643,187 +5580,130 @@ class GhosttyNSView: NSView, NSUserInterfaceValidations {
         syncPreeditMs = (ProcessInfo.processInfo.systemUptime - syncPreeditStart) * 1000.0
 #endif
 
-        let accumulatedText = keyTextAccumulator ?? []
-        if shouldSuppressGhosttyKeyForwardingAfterIMEHandling(
-            before: markedStateBefore,
-            after: (markedText.string, markedSelectedRange),
-            accumulatedText: accumulatedText,
-            event: textInputEvent,
-            inputSourceId: keyboardIdBefore
-        ) {
-            imeConsumedKeyUps.insert(event.keyCode)
-            return
+        let inputSnapshot = TerminalKeyInputSnapshot(
+            hadMarkedText: markedTextBefore,
+            hasMarkedText: markedText.length > 0,
+            inputSourceChanged: !markedTextBefore && keyboardIdBefore != KeyboardLayout.id,
+            committedText: keyTextAccumulator ?? [],
+            event: terminalKeyInputEvent(
+                original: event,
+                translated: translationEvent
+            )
+        )
+        let inputActions = terminalKeyInputPlanner.actions(for: inputSnapshot)
+        let sendsPhysicalKey = inputActions.contains { inputAction in
+            if case .sendKey = inputAction { return true }
+            return false
         }
 
-        // A forwarded keyDown owns its keyUp. Clear any stale IME suppression
-        // entry left by an earlier suppressed repeat for the same physical key.
-        imeConsumedKeyUps.remove(event.keyCode)
-
-        // Build the key event
-        var keyEvent = ghostty_input_key_s()
-        keyEvent.action = action
-        keyEvent.keycode = UInt32(event.keyCode)
-        keyEvent.mods = modsFromEvent(event)
-        // Control and Command never contribute to text translation
-        keyEvent.consumed_mods = consumedModsFromFlags(translationMods)
-        keyEvent.unshifted_codepoint = unshiftedCodepointFromEvent(event)
-
-        // Treat cleared preedit as composing too, so a composing Backspace cancels
-        // composition without deleting the preceding terminal input.
-        keyEvent.composing = markedText.length > 0 || markedTextBefore
-
-        // Use accumulated text from insertText (for IME), or compute text for key
-        if !accumulatedText.isEmpty {
-            // Accumulated text comes from insertText (IME composition result).
-            // These never have "composing" set to true because these are the
-            // result of a composition.
-            keyEvent.composing = false
-            for text in accumulatedText {
-                if shouldSendText(text) {
-#if DEBUG
-                    let sendTimingStart = CmuxTypingTiming.start()
-                    let ghosttySendStart = ProcessInfo.processInfo.systemUptime
-#endif
-                    text.withCString { ptr in
-                        keyEvent.text = ptr
-                        #if DEBUG
-                        _ = sendTimedGhosttyKey(
-                            surface,
-                            keyEvent,
-                            path: "terminal.keyDown.accumulatedGhosttySend",
-                            event: event,
-                            extra: "textBytes=\(text.utf8.count)"
-                        )
-                        #else
-                        _ = sendGhosttyKey(surface, keyEvent)
-                        #endif
-                    }
-#if DEBUG
-                    ghosttySendMs += (ProcessInfo.processInfo.systemUptime - ghosttySendStart) * 1000.0
-                    CmuxTypingTiming.logDuration(
-                        path: "terminal.keyDown.accumulatedGhosttySend.total",
-                        startedAt: sendTimingStart,
-                        event: event,
-                        extra: "textBytes=\(text.utf8.count)"
-                    )
-#endif
-                } else {
-                    keyEvent.consumed_mods = GHOSTTY_MODS_NONE
-                    keyEvent.text = nil
-                    #if DEBUG
-                    let ghosttySendStart = ProcessInfo.processInfo.systemUptime
-                    _ = sendTimedGhosttyKey(
-                        surface,
-                        keyEvent,
-                        path: "terminal.keyDown.accumulatedGhosttySend",
-                        event: event
-                    )
-                    ghosttySendMs += (ProcessInfo.processInfo.systemUptime - ghosttySendStart) * 1000.0
-                    #else
-                    _ = ghostty_surface_key(surface, keyEvent)
-                    #endif
-                }
-            }
-
-            if shouldSendCommittedIMEConfirmKey(
-                event: textInputEvent,
-                markedTextBefore: markedTextBefore
-            ) {
-                keyEvent.consumed_mods = GHOSTTY_MODS_NONE
-                keyEvent.text = nil
-#if DEBUG
-                let ghosttySendStart = ProcessInfo.processInfo.systemUptime
-                _ = sendTimedGhosttyKey(
-                    surface,
-                    keyEvent,
-                    path: "terminal.keyDown.accumulatedConfirmGhosttySend",
-                    event: event
-                )
-                ghosttySendMs += (ProcessInfo.processInfo.systemUptime - ghosttySendStart) * 1000.0
-#else
-                _ = ghostty_surface_key(surface, keyEvent)
-#endif
-            }
+        if sendsPhysicalKey {
+            imeConsumedKeyUps.remove(event.keyCode)
         } else {
-            // Get the appropriate text for this key event
-            // For control characters, this returns the unmodified character
-            // so Ghostty's KeyEncoder can handle ctrl encoding
-            let suppressShiftSpaceFallbackText =
-                shouldSuppressShiftSpaceFallbackText(
-                    event: translationEvent,
-                    markedTextBefore: markedTextBefore
-                )
-            let suppressComposingFallbackText = keyEvent.composing
-            if let text = textForKeyEvent(translationEvent) {
-                if shouldSendText(text),
-                   !suppressShiftSpaceFallbackText,
-                   !suppressComposingFallbackText {
-                    var handled = false
+            imeConsumedKeyUps.insert(event.keyCode)
+        }
+
+        for inputAction in inputActions {
 #if DEBUG
-                    let sendTimingStart = CmuxTypingTiming.start()
-                    let ghosttySendStart = ProcessInfo.processInfo.systemUptime
+            let ghosttySendStart = ProcessInfo.processInfo.systemUptime
 #endif
-                    text.withCString { ptr in
-                        keyEvent.text = ptr
-                        #if DEBUG
-                        handled = sendTimedGhosttyKey(
-                            surface,
-                            keyEvent,
-                            path: "terminal.keyDown.ghosttySend",
-                            event: event,
-                            extra: "textBytes=\(text.utf8.count)"
-                        )
-                        #else
-                        handled = sendGhosttyKey(surface, keyEvent)
-                        #endif
-                    }
-                    if handled {
-                        notePotentialDeferredNumpadIMECommit(text: text, event: event)
-                    }
-#if DEBUG
-                    ghosttySendMs += (ProcessInfo.processInfo.systemUptime - ghosttySendStart) * 1000.0
-                    CmuxTypingTiming.logDuration(
-                        path: "terminal.keyDown.ghosttySend.total",
-                        startedAt: sendTimingStart,
-                        event: event,
-                        extra: "handled=\(handled ? 1 : 0) textBytes=\(text.utf8.count)"
-                    )
-#endif
-                } else {
-                    keyEvent.consumed_mods = GHOSTTY_MODS_NONE
-                    keyEvent.text = nil
-                    #if DEBUG
-                    let ghosttySendStart = ProcessInfo.processInfo.systemUptime
-                    _ = sendTimedGhosttyKey(
-                        surface,
-                        keyEvent,
-                        path: "terminal.keyDown.ghosttySend",
-                        event: event
-                    )
-                    ghosttySendMs += (ProcessInfo.processInfo.systemUptime - ghosttySendStart) * 1000.0
-                    #else
-                    _ = ghostty_surface_key(surface, keyEvent)
-                    #endif
-                }
-            } else {
-                keyEvent.consumed_mods = GHOSTTY_MODS_NONE
-                keyEvent.text = nil
-                #if DEBUG
-                let ghosttySendStart = ProcessInfo.processInfo.systemUptime
-                _ = sendTimedGhosttyKey(
-                    surface,
-                    keyEvent,
-                    path: "terminal.keyDown.ghosttySend",
-                    event: event
+            switch inputAction {
+            case .sendCommittedText(let text):
+                _ = sendCommittedPreeditText(
+                    text,
+                    action: action,
+                    surface: surface
                 )
-                ghosttySendMs += (ProcessInfo.processInfo.systemUptime - ghosttySendStart) * 1000.0
-                #else
-                _ = ghostty_surface_key(surface, keyEvent)
-                #endif
+            case .sendKey(let text, let composing):
+                _ = sendGhosttyKey(
+                    event,
+                    translationEvent: translationEvent,
+                    text: text,
+                    composing: composing,
+                    action: action,
+                    surface: surface
+                )
             }
+#if DEBUG
+            ghosttySendMs += (ProcessInfo.processInfo.systemUptime - ghosttySendStart) * 1000.0
+#endif
         }
 
         // Rendering is driven by Ghostty's wakeups/renderer.
+    }
+
+    private func terminalKeyInputEvent(
+        original event: NSEvent,
+        translated translationEvent: NSEvent
+    ) -> TerminalKeyInputEvent {
+        let key: TerminalKeyInputKey
+        switch Int(event.keyCode) {
+        case kVK_LeftArrow:
+            key = .arrowLeft
+        case kVK_RightArrow:
+            key = .arrowRight
+        case kVK_UpArrow:
+            key = .arrowUp
+        case kVK_DownArrow:
+            key = .arrowDown
+        default:
+            key = .other
+        }
+
+        let modifiers = translationEvent.modifierFlags
+            .intersection(.deviceIndependentFlagsMask)
+            .intersection([.shift, .control, .option, .command])
+        return TerminalKeyInputEvent(
+            key: key,
+            hasModifier: !modifiers.isEmpty,
+            translatedText: textForKeyEvent(translationEvent),
+            rawText: event.characters
+        )
+    }
+
+    @discardableResult
+    private func sendGhosttyKey(
+        _ event: NSEvent,
+        translationEvent: NSEvent,
+        text: String?,
+        composing: Bool,
+        action: ghostty_input_action_e,
+        surface: ghostty_surface_t
+    ) -> Bool {
+        var keyEvent = ghosttyKeyEvent(for: event, surface: surface)
+        keyEvent.action = action
+        keyEvent.consumed_mods = consumedModsFromFlags(translationEvent.modifierFlags)
+        keyEvent.composing = composing
+
+        guard let text, shouldSendText(text) else {
+            keyEvent.text = nil
+            return sendGhosttyKey(surface, keyEvent)
+        }
+
+        return text.withCString { pointer in
+            keyEvent.text = pointer
+            return sendGhosttyKey(surface, keyEvent)
+        }
+    }
+
+    @discardableResult
+    private func sendCommittedPreeditText(
+        _ text: String,
+        action: ghostty_input_action_e,
+        surface: ghostty_surface_t
+    ) -> Bool {
+        var keyEvent = ghostty_input_key_s()
+        keyEvent.action = action
+        keyEvent.keycode = 0
+        keyEvent.text = nil
+        keyEvent.composing = false
+        keyEvent.mods = GHOSTTY_MODS_NONE
+        keyEvent.consumed_mods = GHOSTTY_MODS_NONE
+        keyEvent.unshifted_codepoint = 0
+
+        return text.withCString { pointer in
+            keyEvent.text = pointer
+            return sendGhosttyKey(surface, keyEvent)
+        }
     }
 
     @discardableResult
@@ -6023,26 +5903,17 @@ class GhosttyNSView: NSView, NSUserInterfaceValidations {
     /// When control is pressed, we get the character without the control modifier
     /// so Ghostty's KeyEncoder can apply its own control character encoding.
     private func textForKeyEvent(_ event: NSEvent) -> String? {
-        guard let chars = event.characters, !chars.isEmpty else { return nil }
+        guard let chars = event.characters else { return nil }
 
         if chars.count == 1, let scalar = chars.unicodeScalars.first {
-            let flags = event.modifierFlags.intersection(.deviceIndependentFlagsMask)
-
             // If we have a single control character, return the character without
             // the control modifier so Ghostty's KeyEncoder can handle it.
             if isControlCharacterScalar(scalar) {
-                if flags.contains(.control) {
-                    return event.characters(byApplyingModifiers: event.modifierFlags.subtracting(.control))
-                }
-
-                // Some AppKit key paths can report Shift+` as a bare ESC control
-                // character even though the physical key should produce "~".
-                if scalar.value == 0x1B,
-                   flags == [.shift],
-                   event.charactersIgnoringModifiers == "`" {
-                    return "~"
-                }
+                return event.characters(
+                    byApplyingModifiers: event.modifierFlags.subtracting(.control)
+                )
             }
+
             // Private Use Area characters (function keys) should not be sent
             if scalar.value >= 0xF700 && scalar.value <= 0xF8FF {
                 return nil
@@ -6054,38 +5925,10 @@ class GhosttyNSView: NSView, NSUserInterfaceValidations {
 
     /// Get the unshifted codepoint for the key event
     private func unshiftedCodepointFromEvent(_ event: NSEvent) -> UInt32 {
-        if let layoutChars = KeyboardLayout.character(forKeyCode: event.keyCode),
-           layoutChars.count == 1,
-           let layoutScalar = layoutChars.unicodeScalars.first,
-           layoutScalar.value >= 0x20,
-           !(layoutScalar.value >= 0xF700 && layoutScalar.value <= 0xF8FF) {
-            return layoutScalar.value
-        }
-
-        guard let chars = (event.characters(byApplyingModifiers: []) ?? event.charactersIgnoringModifiers ?? event.characters),
+        guard event.type == .keyDown || event.type == .keyUp,
+              let chars = event.characters(byApplyingModifiers: []),
               let scalar = chars.unicodeScalars.first else { return 0 }
         return scalar.value
-    }
-
-    /// If AppKit consumed Shift+Space for IME/input-source switching, interpretKeyEvents
-    /// can return without insertText and without a detectable layout ID change.
-    /// In that case we must not synthesize a literal space fallback.
-    private func shouldSuppressShiftSpaceFallbackText(event: NSEvent, markedTextBefore: Bool) -> Bool {
-        guard event.keyCode == 49 else { return false }
-        let flags = event.modifierFlags.intersection(.deviceIndependentFlagsMask)
-        guard flags == [.shift] else { return false }
-        guard !markedTextBefore, markedText.length == 0 else { return false }
-        return true
-    }
-
-    private func shouldSendCommittedIMEConfirmKey(event: NSEvent, markedTextBefore: Bool) -> Bool {
-        guard markedTextBefore, markedText.length == 0 else { return false }
-        guard event.keyCode == 36 || event.keyCode == 76 else { return false }
-        // Korean IME: Enter commits the syllable AND executes the command (single step).
-        // Japanese/Chinese IME: Enter only confirms the conversion; a second Enter executes.
-        // Only send the extra Return key for Korean input sources.
-        guard let sourceId = KeyboardLayout.id else { return false }
-        return sourceId.range(of: "korean", options: .caseInsensitive) != nil
     }
 
     private func ghosttyKeyEvent(for event: NSEvent, surface: ghostty_surface_t) -> ghostty_input_key_s {
@@ -11750,22 +11593,12 @@ extension GhosttyNSView: NSTextInputClient {
             return
         }
 
-        if keyTextAccumulator != nil,
-           shouldBufferBopomofoInsertedPreedit(chars) {
-            insertBopomofoPreeditText(chars, replacementRange: replacementRange)
-            return
-        }
-
         // Clear marked text since we're inserting
         unmarkText()
 
         // Some IME/input-method paths call insertText with an empty payload to
         // flush state. There is no terminal text to send in that case.
         guard !chars.isEmpty else { return }
-
-        if shouldSuppressDeferredNumpadIMECommit(chars) {
-            return
-        }
 
 #if DEBUG
         if NSApp.currentEvent == nil {
@@ -11806,32 +11639,6 @@ extension GhosttyNSView: NSTextInputClient {
             sanitizedChars,
             preserveLiteralEscape: !isExternalCommittedText
         )
-    }
-
-    private func insertBopomofoPreeditText(_ chars: String, replacementRange: NSRange) {
-        let effectiveRange = effectiveBopomofoPreeditReplacementRange(replacementRange)
-        if let range = Range(effectiveRange, in: markedText.string) {
-            let insertionLocation = effectiveRange.location + (chars as NSString).length
-            let next = markedText.string.replacingCharacters(in: range, with: chars)
-            markedText = NSMutableAttributedString(string: next)
-            markedSelectedRange = normalizedMarkedSelectionRange(
-                NSRange(location: insertionLocation, length: 0),
-                markedLength: markedText.length
-            )
-            return
-        }
-
-        markedText.append(NSAttributedString(string: chars))
-        markedSelectedRange = normalizedMarkedSelectionRange(
-            NSRange(location: markedText.length, length: 0),
-            markedLength: markedText.length
-        )
-    }
-
-    private func effectiveBopomofoPreeditReplacementRange(_ replacementRange: NSRange) -> NSRange {
-        guard replacementRange.location == NSNotFound else { return replacementRange }
-        guard markedText.length > 0 else { return NSRange(location: 0, length: 0) }
-        return normalizedMarkedSelectionRange(markedSelectedRange, markedLength: markedText.length)
     }
 }
 

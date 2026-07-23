@@ -47,32 +47,14 @@ func browserOmnibarNormalizedModifierFlags(_ flags: NSEvent.ModifierFlags) -> NS
         .subtracting([.numericPad, .function, .capsLock])
 }
 
-func shortcutRoutingShouldBypassForPrintableOptionText(
-    event: NSEvent,
-    textInputCharacterProvider: (UInt16, NSEvent.ModifierFlags) -> String? = KeyboardLayout.textInputCharacter(forKeyCode:modifierFlags:)
-) -> Bool {
-    guard event.type == .keyDown else { return false }
-    let normalizedFlags = ShortcutStroke.normalizedModifierFlags(from: event.modifierFlags)
-    guard normalizedFlags.contains(.option),
-          !normalizedFlags.contains(.command),
-          !normalizedFlags.contains(.control) else {
-        return false
-    }
-
-    if shortcutRoutingTextIsPrintable(event.characters) {
-        return true
-    }
-
-    return shortcutRoutingTextIsPrintable(
-        textInputCharacterProvider(event.keyCode, event.modifierFlags)
-    )
-}
-
-private func shortcutRoutingTextIsPrintable(_ text: String?) -> Bool {
-    guard let text, !text.isEmpty else { return false }
-    return text.unicodeScalars.allSatisfy { scalar in
-        guard !isControlCharacterScalar(scalar) else { return false }
-        return scalar.value < 0xF700 || scalar.value > 0xF8FF
+extension NSEvent {
+    /// Whether an unmatched Option key should continue through AppKit text input.
+    var cmuxIsOptionTextInputCandidate: Bool {
+        guard type == .keyDown else { return false }
+        let flags = ShortcutStroke.normalizedModifierFlags(from: modifierFlags)
+        return flags.contains(.option)
+            && !flags.contains(.command)
+            && !flags.contains(.control)
     }
 }
 

@@ -13192,10 +13192,6 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
             return true
         }
 
-        if shouldBypassPrintableOptionTextForShortcutRouting(event: event) {
-            return false
-        }
-
         let canvasSurfaceDigitShortcutIsActive =
             shortcutEventFocusContext(event).shortcutContext.bool(ShortcutContextKnownKey.workspaceCanvasLayout.rawValue) &&
             shortcutWhenClauseAllows(action: .selectSurfaceByNumber, event: event) &&
@@ -15118,22 +15114,6 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
         return nil
     }
 
-    fileprivate func shouldBypassPrintableOptionTextForShortcutRouting(event: NSEvent) -> Bool {
-        guard shortcutRoutingShouldBypassForPrintableOptionText(event: event) else {
-            return false
-        }
-
-        if routableNumberedConfiguredShortcutDigit(event: event, action: .selectWorkspaceByNumber) != nil {
-            return false
-        }
-
-        if routableNumberedConfiguredShortcutDigit(event: event, action: .selectSurfaceByNumber) != nil {
-            return false
-        }
-
-        return true
-    }
-
     private func tabManagerForNumberedShortcut(event: NSEvent) -> TabManager? {
         preferredMainWindowContextForShortcutRouting(event: event)?.tabManager ?? tabManager
     }
@@ -16961,18 +16941,26 @@ private extension NSWindow {
             return true
         }
         let browserWebKitKeyDownReentry = firstResponderWebView != nil && cmuxBrowserWebKitKeyDownDispatchIsActive()
-        if AppDelegate.shared?.shouldBypassPrintableOptionTextForShortcutRouting(event: event) == true {
+        if event.cmuxIsOptionTextInputCandidate {
             if browserWebKitKeyDownReentry { return false }
+            if AppDelegate.shared?.handleRoutableNumberedShortcutKeyEquivalent(event) == true {
+                return true
+            }
+            if AppDelegate.shared?.handleConfiguredShortcutKeyEquivalent(event) == true {
+                return true
+            }
+
             let textInputTarget: NSResponder? = firstResponderGhosttyView
                 ?? firstResponderWebView
                 ?? self.firstResponder
             if let textInputTarget, textInputTarget !== self {
-                if cmuxForceDispatchKeyDownOnce(event, to: textInputTarget, reason: "printable Option text") {
+                if cmuxForceDispatchKeyDownOnce(
+                    event,
+                    to: textInputTarget,
+                    reason: "unmatched Option input"
+                ) {
                     return true
                 }
-                // Same event already in flight on this stack (WebKit replay /
-                // macOS 26 NSWindow.keyDown re-entry): decline so default
-                // AppKit handling proceeds instead of looping.
                 return false
             }
             return false

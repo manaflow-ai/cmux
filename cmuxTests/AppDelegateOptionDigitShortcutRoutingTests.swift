@@ -27,7 +27,7 @@ private final class OptionDigitFocusableTestView: NSView {
 struct AppDelegateOptionDigitShortcutRoutingTests {
 #if DEBUG
     @Test
-    func optionDigitWorkspaceNumberShortcutBeatsPrintableOptionTextBypass() throws {
+    func optionDigitWorkspaceNumberShortcutBeatsUnmatchedOptionRouting() throws {
         try withIsolatedShortcutRoutingState {
             let appDelegate = try #require(AppDelegate.shared)
             let windowId = appDelegate.createMainWindow()
@@ -46,7 +46,7 @@ struct AppDelegateOptionDigitShortcutRoutingTests {
 
                 #expect(
                     appDelegate.debugHandleCustomShortcut(event: event),
-                    "Explicit Option+digit workspace bindings should route before printable Option text bypass"
+                    "Explicit Option+digit workspace bindings should route before unmatched Option input"
                 )
                 #expect(
                     manager.selectedTabId == secondWorkspace.id,
@@ -94,14 +94,14 @@ struct AppDelegateOptionDigitShortcutRoutingTests {
                 )
                 #expect(
                     manager.selectedTabId == secondWorkspace.id,
-                    "Option+2 should select workspace 2 before the terminal fast path receives printable Option text"
+                    "Option+2 should select workspace 2 before unmatched Option input reaches the terminal"
                 )
             }
         }
     }
 
     @Test
-    func inactiveOptionDigitWorkspaceWhenClauseStillForwardsPrintableOptionText() throws {
+    func inactiveOptionDigitWorkspaceWhenClauseStillForwardsOptionInput() throws {
         try withIsolatedShortcutRoutingState {
             let appDelegate = try #require(AppDelegate.shared)
             let directoryURL = FileManager.default.temporaryDirectory
@@ -152,9 +152,9 @@ struct AppDelegateOptionDigitShortcutRoutingTests {
 
             #expect(
                 testWindow.performKeyEquivalent(with: event),
-                "Inactive Option+digit workspace bindings should leave printable Option text forwarding intact"
+                "Inactive Option+digit workspace bindings should leave Option input forwarding intact"
             )
-            #expect(focusableView.keyDownCallCount == 1, "Printable Option text should be forwarded to the text responder")
+            #expect(focusableView.keyDownCallCount == 1, "Option input should be forwarded to the text responder")
             #expect(focusableView.lastKeyDownCharactersIgnoringModifiers == "2")
         }
     }
