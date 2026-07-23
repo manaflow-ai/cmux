@@ -91,7 +91,23 @@ CMUX_PORT=70000
 PORT=0
 test "$(cmux_choose_dev_web_port gz016)" = "4160"
 
+# A shell launched inside another tagged app inherits its complete web-port
+# range. A new tag must not copy that ambient range. Overriding only CMUX_PORT
+# remains the supported way to pin a reload to a specific port.
+CMUX_PORT=9590
+CMUX_PORT_RANGE=10
+CMUX_PORT_END=9599
+PORT=9590
+test "$(cmux_choose_dev_web_port gz016)" = "4160"
+test "$(cmux_choose_dev_web_port_range)" = "1"
+test "$(cmux_choose_dev_web_port_end 4160 1)" = "4160"
+CMUX_PORT=4555
+test "$(cmux_choose_dev_web_port gz016)" = "4555"
+test "$(cmux_choose_dev_web_port_range)" = "1"
+test "$(cmux_choose_dev_web_port_end 4555 1)" = "4555"
+
 unset CMUX_PORT PORT
+unset CMUX_PORT_RANGE CMUX_PORT_END
 test "$(cmux_choose_dev_web_port_range)" = "1"
 test "$(cmux_choose_dev_web_port_end 4160 1)" = "4160"
 CMUX_PORT_RANGE=10
