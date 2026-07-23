@@ -7,6 +7,38 @@ import Testing
 
 extension CmxIrohOnlineAdmissionRegistryTests {
     @Test
+    func offlinePairRequiresThirtySecondsOfLeaseRemainingAtAdmission() async throws {
+        let fixture = try OnlineAdmissionFixture()
+        let nearlyExpiredBroker = OnlineAdmissionBroker(
+            responses: [.success(try fixture.discovery())]
+        )
+        let viableBroker = OnlineAdmissionBroker(
+            responses: [.success(try fixture.discovery())]
+        )
+
+        #expect(
+            await fixture.registry(
+                broker: nearlyExpiredBroker
+            ).authorizeOfflinePair(
+                try fixture.offlinePair(
+                    initiatorLifetime: 29,
+                    acceptorLifetime: 29
+                )
+            ) == .denied
+        )
+        #expect(
+            await fixture.registry(
+                broker: viableBroker
+            ).authorizeOfflinePair(
+                try fixture.offlinePair(
+                    initiatorLifetime: 31,
+                    acceptorLifetime: 31
+                )
+            ).isAccepted
+        )
+    }
+
+    @Test
     func activeOfflinePairAcceptsUntilEarlierAttestationExpiry() async throws {
         let fixture = try OnlineAdmissionFixture()
         let broker = OnlineAdmissionBroker(responses: [.success(try fixture.discovery())])

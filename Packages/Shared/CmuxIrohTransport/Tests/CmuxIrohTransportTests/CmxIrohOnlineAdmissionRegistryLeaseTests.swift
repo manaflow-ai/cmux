@@ -7,6 +7,35 @@ import Testing
 
 extension CmxIrohOnlineAdmissionRegistryTests {
     @Test
+    func pairGrantRequiresThirtySecondsOfLeaseRemainingAtAdmission() async throws {
+        let nearlyExpiredFixture = try OnlineAdmissionFixture(grantLifetime: 29)
+        let nearlyExpiredBroker = OnlineAdmissionBroker(
+            responses: [.success(try nearlyExpiredFixture.discovery())]
+        )
+        let viableFixture = try OnlineAdmissionFixture(grantLifetime: 31)
+        let viableBroker = OnlineAdmissionBroker(
+            responses: [.success(try viableFixture.discovery())]
+        )
+
+        #expect(
+            await nearlyExpiredFixture.registry(
+                broker: nearlyExpiredBroker
+            ).authorizePairGrant(
+                nearlyExpiredFixture.grant(),
+                authenticatedPeerID: nearlyExpiredFixture.initiator.endpointID
+            ) == .denied
+        )
+        #expect(
+            await viableFixture.registry(
+                broker: viableBroker
+            ).authorizePairGrant(
+                viableFixture.grant(),
+                authenticatedPeerID: viableFixture.initiator.endpointID
+            ).isAccepted
+        )
+    }
+
+    @Test
     func connectivityAllowsLocallyValidGrantOffline() async throws {
         let fixture = try OnlineAdmissionFixture()
         let broker = OnlineAdmissionBroker(responses: [.failure(.connectivity)])
