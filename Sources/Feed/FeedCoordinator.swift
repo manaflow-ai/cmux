@@ -133,7 +133,7 @@ final class FeedCoordinator: @unchecked Sendable {
         _ delivery: @escaping @Sendable () -> Result
     ) -> Result? {
         guard !events.isEmpty else { return nil }
-        feedIngressDeliveryLane.perform(
+        return feedIngressDeliveryLane.perform(
             metadata: Self.ingressMetadata(
                 for: events,
                 importance: .acknowledged
