@@ -412,8 +412,16 @@ public actor CmxIrohHostRuntime {
             await onlineAdmissionRegistry.monitor(
                 onlineLease,
                 connection: connection
-            ) {
-                await session.close()
+            ) { reason in
+                let failure: DiagnosticFailureKind = switch reason {
+                case .leaseExpired:
+                    .admissionLeaseExpired
+                case .denied:
+                    .admissionDenied
+                case .revalidationFailed:
+                    .admissionRevalidationFailed
+                }
+                await session.close(failure: failure)
             }
         }
         let pathConnectionID = UUID()
