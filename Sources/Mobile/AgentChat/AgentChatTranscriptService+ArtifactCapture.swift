@@ -16,7 +16,7 @@ extension AgentChatTranscriptService {
 
         if isEnabled {
             for record in registry.sessions(workspaceID: nil) where record.state != .ended {
-                ensureTailer(for: record)
+                ensureTailer(for: record, usesBoundedResolution: true)
             }
             return
         }
