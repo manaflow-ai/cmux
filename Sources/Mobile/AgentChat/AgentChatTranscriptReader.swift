@@ -4,6 +4,7 @@ import Foundation
 /// Reads a newline-aligned transcript suffix without retaining the discarded prefix.
 struct AgentChatTranscriptReader {
     private static let chunkSize = 64 * 1024
+    private static let maximumRetainedLineCount = 16_384
 
     func read(
         handle: FileHandle,
@@ -28,9 +29,15 @@ struct AgentChatTranscriptReader {
             data.removeSubrange(data.startIndex...newline)
             alignedStart += UInt64(removedByteCount)
         }
+        let relativeLineStarts = try retainedLineStartOffsets(data: data)
+        let trimmedPrefixCount = relativeLineStarts.first ?? 0
+        if trimmedPrefixCount > 0 {
+            let trimmedPrefixEnd = data.index(data.startIndex, offsetBy: trimmedPrefixCount)
+            data.removeSubrange(data.startIndex..<trimmedPrefixEnd)
+        }
         return AgentChatTranscriptSlice(
             data: data,
-            lineStartOffsets: lineStartOffsets(data: data, startOffset: alignedStart),
+            lineStartOffsets: relativeLineStarts.map { alignedStart + UInt64($0) },
             transcriptExtent: fileSize
         )
     }
@@ -60,11 +67,30 @@ struct AgentChatTranscriptReader {
         return Data(hasher.finalize()) == expectedDigest
     }
 
-    private func lineStartOffsets(data: Data, startOffset: UInt64) -> [UInt64] {
-        var offsets = [startOffset]
-        offsets.reserveCapacity(1 + data.count / 80)
-        for (index, byte) in data.enumerated() where byte == 0x0A {
-            offsets.append(startOffset + UInt64(index + 1))
+    private func retainedLineStartOffsets(data: Data) throws -> [Int] {
+        let limit = Self.maximumRetainedLineCount
+        var ring = [Int](repeating: 0, count: limit)
+        var retainedCount = 1
+        var totalCount = 1
+        var nextInsertionIndex = 1
+        var cancellationCountdown = Self.chunkSize
+        for (index, byte) in data.enumerated() {
+            cancellationCountdown -= 1
+            if cancellationCountdown == 0 {
+                try Task.checkCancellation()
+                cancellationCountdown = Self.chunkSize
+            }
+            guard byte == 0x0A else { continue }
+            ring[nextInsertionIndex] = index + 1
+            nextInsertionIndex = (nextInsertionIndex + 1) % limit
+            totalCount += 1
+            retainedCount = min(totalCount, limit)
+        }
+        let firstIndex = totalCount > limit ? nextInsertionIndex : 0
+        var offsets: [Int] = []
+        offsets.reserveCapacity(retainedCount)
+        for index in 0..<retainedCount {
+            offsets.append(ring[(firstIndex + index) % limit])
         }
         return offsets
     }

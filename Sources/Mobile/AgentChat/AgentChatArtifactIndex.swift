@@ -262,7 +262,11 @@ actor AgentChatArtifactIndex {
             return ChatArtifactIndexedReference(
                 path: artifact.path,
                 provenance: artifact.provenance,
-                lastReferencedSeq: absoluteSequence
+                lastReferencedSeq: absoluteSequence,
+                captureAuthorization: absoluteAuthorization(
+                    artifact.captureAuthorization,
+                    lineStartOffsets: slice.lineStartOffsets
+                )
             )
         }
         let artifacts = mergedArtifacts(
@@ -295,6 +299,10 @@ actor AgentChatArtifactIndex {
                 lastReferencedSeq: max(
                     existing?.lastReferencedSeq ?? Int.min,
                     artifact.lastReferencedSeq
+                ),
+                captureAuthorization: latestAuthorization(
+                    existing?.captureAuthorization,
+                    artifact.captureAuthorization
                 )
             )
         }
@@ -319,5 +327,32 @@ actor AgentChatArtifactIndex {
             }
         }
         return rank(lhs) <= rank(rhs) ? lhs : rhs
+    }
+
+    private static func absoluteAuthorization(
+        _ authorization: ChatArtifactCaptureAuthorization?,
+        lineStartOffsets: [UInt64]
+    ) -> ChatArtifactCaptureAuthorization? {
+        guard let authorization,
+              lineStartOffsets.indices.contains(authorization.sequence),
+              let sequence = Int(exactly: lineStartOffsets[authorization.sequence]) else {
+            return nil
+        }
+        switch authorization {
+        case .created: return .created(sequence: sequence)
+        case .attached: return .attached(sequence: sequence)
+        }
+    }
+
+    private static func latestAuthorization(
+        _ lhs: ChatArtifactCaptureAuthorization?,
+        _ rhs: ChatArtifactCaptureAuthorization?
+    ) -> ChatArtifactCaptureAuthorization? {
+        guard let lhs else { return rhs }
+        guard let rhs else { return lhs }
+        if lhs.sequence != rhs.sequence {
+            return lhs.sequence > rhs.sequence ? lhs : rhs
+        }
+        return higherPrecedence(lhs.provenance, rhs.provenance) == lhs.provenance ? lhs : rhs
     }
 }
