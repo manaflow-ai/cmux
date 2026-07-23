@@ -46,13 +46,15 @@ const MAX_SEARCH_RESPONSE_BYTES: usize = 8 * 1024 * 1024;
 #[derive(Clone, Copy, Debug, Eq, Hash, PartialEq)]
 pub(crate) enum MutationTestPoint {
     AfterPrecondition,
+    BeforeContentHashValidation,
+    BeforeContentHashExchange,
+    AfterContentHashExchange,
 }
 
 #[cfg(test)]
 #[derive(Clone, Debug, Eq, Hash, PartialEq)]
 struct MutationTestKey {
-    root: PathBuf,
-    path: String,
+    target: PathBuf,
     point: MutationTestPoint,
 }
 
@@ -61,6 +63,8 @@ struct MutationTestKey {
 struct MutationTestHook {
     reached: tokio::sync::Notify,
     resume: tokio::sync::Notify,
+    blocking_resumed: std::sync::Mutex<bool>,
+    blocking_resume: std::sync::Condvar,
 }
 
 #[cfg(test)]
@@ -88,6 +92,8 @@ impl MutationTestBarrier {
     }
 
     pub(crate) fn resume(&self) {
+        *self.hook.blocking_resumed.lock().unwrap_or_else(|error| error.into_inner()) = true;
+        self.hook.blocking_resume.notify_all();
         self.hook.resume.notify_one();
     }
 }
@@ -99,6 +105,8 @@ impl Drop for MutationTestBarrier {
         if hooks.get(&self.key).is_some_and(|hook| std::sync::Arc::ptr_eq(hook, &self.hook)) {
             hooks.remove(&self.key);
         }
+        *self.hook.blocking_resumed.lock().unwrap_or_else(|error| error.into_inner()) = true;
+        self.hook.blocking_resume.notify_all();
         self.hook.resume.notify_waiters();
     }
 }
@@ -109,11 +117,13 @@ pub(crate) fn install_mutation_test_barrier(
     path: &str,
     point: MutationTestPoint,
 ) -> MutationTestBarrier {
-    let key =
-        MutationTestKey { root: root.canonical_root().to_owned(), path: path.to_owned(), point };
+    let relative = validate_relative(path).expect("test mutation paths are valid");
+    let key = MutationTestKey { target: root.canonical_root().join(relative), point };
     let hook = std::sync::Arc::new(MutationTestHook {
         reached: tokio::sync::Notify::new(),
         resume: tokio::sync::Notify::new(),
+        blocking_resumed: std::sync::Mutex::new(false),
+        blocking_resume: std::sync::Condvar::new(),
     });
     let previous = mutation_test_hooks()
         .lock()
@@ -129,13 +139,27 @@ async fn pause_at_mutation_test_barrier(
     path: &str,
     point: MutationTestPoint,
 ) {
-    let key =
-        MutationTestKey { root: root.canonical_root().to_owned(), path: path.to_owned(), point };
+    let relative = validate_relative(path).expect("test mutation paths are valid");
+    let key = MutationTestKey { target: root.canonical_root().join(relative), point };
     let hook =
         mutation_test_hooks().lock().unwrap_or_else(|error| error.into_inner()).get(&key).cloned();
     if let Some(hook) = hook {
         hook.reached.notify_one();
         hook.resume.notified().await;
+    }
+}
+
+#[cfg(test)]
+fn pause_at_mutation_test_barrier_blocking(target: &Path, point: MutationTestPoint) {
+    let key = MutationTestKey { target: target.to_owned(), point };
+    let hook =
+        mutation_test_hooks().lock().unwrap_or_else(|error| error.into_inner()).get(&key).cloned();
+    if let Some(hook) = hook {
+        hook.reached.notify_one();
+        let mut resumed = hook.blocking_resumed.lock().unwrap_or_else(|error| error.into_inner());
+        while !*resumed {
+            resumed = hook.blocking_resume.wait(resumed).unwrap_or_else(|error| error.into_inner());
+        }
     }
 }
 
@@ -959,6 +983,11 @@ fn commit_content_hash_write(
     initial: &std::fs::Metadata,
     expected: &str,
 ) -> Result<(), RpcError> {
+    #[cfg(test)]
+    pause_at_mutation_test_barrier_blocking(
+        target.display(),
+        MutationTestPoint::BeforeContentHashExchange,
+    );
     if let Err(error) = exchange_names(target.parent_fd(), temporary_name, target.name()) {
         let error = if error.kind() == std::io::ErrorKind::NotFound {
             RpcError::new("conflict", "file disappeared before commit")
@@ -967,6 +996,16 @@ fn commit_content_hash_write(
         };
         return Err(cleanup_unpublished_temporary(target, temporary_name, error));
     }
+    #[cfg(test)]
+    pause_at_mutation_test_barrier_blocking(
+        target.display(),
+        MutationTestPoint::AfterContentHashExchange,
+    );
+    #[cfg(test)]
+    pause_at_mutation_test_barrier_blocking(
+        target.display(),
+        MutationTestPoint::BeforeContentHashValidation,
+    );
 
     let displaced_display = temporary_display(target, temporary_name);
     let validation = (|| {
@@ -1862,6 +1901,203 @@ mod tests {
         let error = writer.await.unwrap().unwrap_err();
         assert_eq!(error.code, "conflict");
         assert_eq!(tokio::fs::read(&target).await.unwrap(), b"external-change");
+    }
+
+    #[cfg(unix)]
+    #[tokio::test]
+    async fn stale_content_hash_never_publishes_new_bytes_during_validation_or_cancellation() {
+        let (_directory, root) = root().await;
+        let target = root.canonical_root().join("value.txt");
+        tokio::fs::write(&target, b"expected").await.unwrap();
+        let after_precondition =
+            install_mutation_test_barrier(&root, "value.txt", MutationTestPoint::AfterPrecondition);
+        let before_validation = install_mutation_test_barrier(
+            &root,
+            "value.txt",
+            MutationTestPoint::BeforeContentHashValidation,
+        );
+        let writer = {
+            let root = Arc::clone(&root);
+            tokio::spawn(async move {
+                write_file(
+                    &root,
+                    "value.txt",
+                    &ByteString::from_bytes(b"new-bytes"),
+                    &FilePrecondition::ContentHash(hash_bytes(b"expected")),
+                    false,
+                )
+                .await
+            })
+        };
+
+        after_precondition.wait_until_reached().await;
+        tokio::fs::write(&target, b"external-change").await.unwrap();
+        after_precondition.resume();
+        before_validation.wait_until_reached().await;
+
+        assert_eq!(
+            tokio::fs::read(&target).await.unwrap(),
+            b"external-change",
+            "a stale precondition must be rejected before replacement bytes become visible"
+        );
+        writer.abort();
+        before_validation.resume();
+        for _ in 0..100 {
+            let temporary_exists = std::fs::read_dir(root.canonical_root())
+                .unwrap()
+                .flatten()
+                .any(|entry| entry.file_name().to_string_lossy().starts_with(".cmux-write-"));
+            if !temporary_exists {
+                break;
+            }
+            tokio::time::sleep(std::time::Duration::from_millis(10)).await;
+        }
+        assert_eq!(tokio::fs::read(&target).await.unwrap(), b"external-change");
+    }
+
+    #[cfg(unix)]
+    #[tokio::test]
+    async fn content_hash_rollback_never_exchanges_an_uncertain_recovery_entry() {
+        use std::os::unix::fs::symlink;
+
+        let (_directory, root) = root().await;
+        let outside = tempdir().unwrap();
+        let target = root.canonical_root().join("value.txt");
+        tokio::fs::write(&target, b"expected").await.unwrap();
+        let before_exchange = install_mutation_test_barrier(
+            &root,
+            "value.txt",
+            MutationTestPoint::BeforeContentHashExchange,
+        );
+        let after_exchange = install_mutation_test_barrier(
+            &root,
+            "value.txt",
+            MutationTestPoint::AfterContentHashExchange,
+        );
+        let writer = {
+            let root = Arc::clone(&root);
+            tokio::spawn(async move {
+                write_file(
+                    &root,
+                    "value.txt",
+                    &ByteString::from_bytes(b"new-bytes"),
+                    &FilePrecondition::ContentHash(hash_bytes(b"expected")),
+                    false,
+                )
+                .await
+            })
+        };
+
+        before_exchange.wait_until_reached().await;
+        tokio::fs::rename(&target, root.canonical_root().join("pinned-original")).await.unwrap();
+        tokio::fs::write(&target, b"raced-entry").await.unwrap();
+        before_exchange.resume();
+        after_exchange.wait_until_reached().await;
+
+        let recovery = std::fs::read_dir(root.canonical_root())
+            .unwrap()
+            .flatten()
+            .map(|entry| entry.path())
+            .find(|path| {
+                path.file_name()
+                    .is_some_and(|name| name.to_string_lossy().starts_with(".cmux-write-"))
+            })
+            .expect("exchange retains the displaced entry under its recovery name");
+        let saved_recovery = root.canonical_root().join("saved-raced-entry");
+        tokio::fs::rename(&recovery, &saved_recovery).await.unwrap();
+        symlink(outside.path().join("outside-value"), &recovery).unwrap();
+        after_exchange.resume();
+
+        let error = writer.await.unwrap().unwrap_err();
+        assert_eq!(error.code, "partial-write");
+        assert!(error.message.contains(".cmux-write-"));
+        assert!(!target.is_symlink());
+        assert_eq!(tokio::fs::read(&target).await.unwrap(), b"new-bytes");
+        assert_eq!(tokio::fs::read(&saved_recovery).await.unwrap(), b"raced-entry");
+        assert!(!outside.path().join("outside-value").exists());
+    }
+
+    #[cfg(unix)]
+    #[tokio::test]
+    async fn unconditional_and_missing_mutations_do_not_require_target_read_permission() {
+        use std::os::unix::fs::PermissionsExt as _;
+
+        let (_directory, root) = root().await;
+        let target = root.canonical_root().join("mode-zero.txt");
+        tokio::fs::write(&target, b"old").await.unwrap();
+        tokio::fs::set_permissions(&target, std::fs::Permissions::from_mode(0)).await.unwrap();
+
+        let missing = write_file(
+            &root,
+            "mode-zero.txt",
+            &ByteString::from_bytes(b"must-not-write"),
+            &FilePrecondition::Missing,
+            false,
+        )
+        .await
+        .unwrap_err();
+        assert_eq!(missing.code, "conflict");
+
+        write_file(
+            &root,
+            "mode-zero.txt",
+            &ByteString::from_bytes(b"new"),
+            &FilePrecondition::Any,
+            false,
+        )
+        .await
+        .unwrap();
+        tokio::fs::set_permissions(&target, std::fs::Permissions::from_mode(0o600)).await.unwrap();
+        assert_eq!(tokio::fs::read(&target).await.unwrap(), b"new");
+
+        tokio::fs::set_permissions(&target, std::fs::Permissions::from_mode(0)).await.unwrap();
+        let missing =
+            remove_file_precondition_locked(&root, "mode-zero.txt", &FilePrecondition::Missing)
+                .await
+                .unwrap_err();
+        assert_eq!(missing.code, "conflict");
+        remove_file_precondition_locked(&root, "mode-zero.txt", &FilePrecondition::Any)
+            .await
+            .unwrap();
+        assert!(!target.exists());
+    }
+
+    #[cfg(unix)]
+    #[tokio::test]
+    async fn mutation_parent_symlinks_are_allowed_only_when_they_stay_in_the_workspace() {
+        use std::os::unix::fs::symlink;
+
+        let (_directory, root) = root().await;
+        let outside = tempdir().unwrap();
+        tokio::fs::create_dir(root.canonical_root().join("real")).await.unwrap();
+        symlink("real", root.canonical_root().join("inside")).unwrap();
+        symlink(outside.path(), root.canonical_root().join("outside")).unwrap();
+
+        write_file(
+            &root,
+            "inside/value.txt",
+            &ByteString::from_bytes(b"inside"),
+            &FilePrecondition::Missing,
+            false,
+        )
+        .await
+        .unwrap();
+        assert_eq!(
+            tokio::fs::read(root.canonical_root().join("real/value.txt")).await.unwrap(),
+            b"inside"
+        );
+
+        let error = write_file(
+            &root,
+            "outside/value.txt",
+            &ByteString::from_bytes(b"outside"),
+            &FilePrecondition::Missing,
+            false,
+        )
+        .await
+        .unwrap_err();
+        assert!(matches!(error.code.as_str(), "path-outside-workspace" | "symlink-not-supported"));
+        assert!(!outside.path().join("value.txt").exists());
     }
 
     #[tokio::test]
