@@ -131,9 +131,20 @@ fn io_provider_error(error: std::io::Error) -> ProviderError {
 /// The node ID authenticates the carrier peer. Direct addresses permit LAN or
 /// publicly reachable connections, while the relay URL supplies NAT traversal
 /// and a fallback path when direct QUIC cannot be established.
-#[derive(Debug, Clone, PartialEq, Eq)]
+#[derive(Clone, PartialEq, Eq)]
 pub struct IrohRoute {
     node_addr: NodeAddr,
+}
+
+impl fmt::Debug for IrohRoute {
+    fn fmt(&self, formatter: &mut fmt::Formatter<'_>) -> fmt::Result {
+        formatter
+            .debug_struct("IrohRoute")
+            .field("node_id", &self.node_id())
+            .field("relay_configured", &self.node_addr.relay_urls().next().is_some())
+            .field("direct_address_count", &self.node_addr.ip_addrs().count())
+            .finish()
+    }
 }
 
 impl IrohRoute {
@@ -172,18 +183,16 @@ impl IrohRoute {
                 ));
             }
         };
-        let node_id = NodeId::from_str(encoded_node_id).map_err(|error| {
-            ProviderError::Configuration(format!("invalid Iroh node ID: {error}"))
-        })?;
+        let node_id = NodeId::from_str(encoded_node_id)
+            .map_err(|_| ProviderError::Configuration("invalid Iroh node ID".into()))?;
 
         let relay_url = request
             .routing
             .get(ROUTING_RELAY_URL)
             .filter(|value| !value.trim().is_empty())
             .map(|value| {
-                RelayUrl::from_str(value.trim()).map_err(|error| {
-                    ProviderError::Configuration(format!("invalid Iroh relay URL: {error}"))
-                })
+                RelayUrl::from_str(value.trim())
+                    .map_err(|_| ProviderError::Configuration("invalid Iroh relay URL".into()))
             })
             .transpose()?;
         let direct_addresses = request
@@ -255,10 +264,10 @@ fn parse_direct_addresses(encoded: &str) -> Result<Vec<SocketAddr>, ProviderErro
         return Ok(Vec::new());
     }
     let values = if encoded.starts_with('[') {
-        serde_json::from_str::<Vec<String>>(encoded).map_err(|error| {
-            ProviderError::Configuration(format!(
-                "Iroh direct addresses are not a valid JSON string array: {error}"
-            ))
+        serde_json::from_str::<Vec<String>>(encoded).map_err(|_| {
+            ProviderError::Configuration(
+                "Iroh direct addresses are not a valid JSON string array".into(),
+            )
         })?
     } else {
         encoded
@@ -271,16 +280,14 @@ fn parse_direct_addresses(encoded: &str) -> Result<Vec<SocketAddr>, ProviderErro
     values
         .into_iter()
         .map(|value| {
-            value.parse::<SocketAddr>().map_err(|error| {
-                ProviderError::Configuration(format!(
-                    "invalid Iroh direct address {value:?}: {error}"
-                ))
-            })
+            value
+                .parse::<SocketAddr>()
+                .map_err(|_| ProviderError::Configuration("invalid Iroh direct address".into()))
         })
         .collect()
 }
 
-#[derive(Debug, Clone)]
+#[derive(Clone)]
 pub struct IrohProviderConfig {
     /// Stable Iroh carrier identity. Noise identity remains authoritative.
     pub secret_key: Option<SecretKey>,
@@ -292,6 +299,26 @@ pub struct IrohProviderConfig {
     pub discovery_n0: bool,
     pub alpn: Vec<u8>,
     pub maximum_frame_bytes: usize,
+}
+
+impl fmt::Debug for IrohProviderConfig {
+    fn fmt(&self, formatter: &mut fmt::Formatter<'_>) -> fmt::Result {
+        let relay_mode = match &self.relay_mode {
+            RelayMode::Disabled => "disabled",
+            RelayMode::Default => "default",
+            RelayMode::Staging => "staging",
+            RelayMode::Custom(_) => "custom",
+        };
+        formatter
+            .debug_struct("IrohProviderConfig")
+            .field("secret_key", &self.secret_key.as_ref().map(|_| "[REDACTED]"))
+            .field("relay_mode", &relay_mode)
+            .field("path_mode", &self.path_mode)
+            .field("discovery_n0", &self.discovery_n0)
+            .field("alpn", &self.alpn)
+            .field("maximum_frame_bytes", &self.maximum_frame_bytes)
+            .finish()
+    }
 }
 
 impl Default for IrohProviderConfig {
@@ -465,7 +492,7 @@ async fn bind_endpoint(config: &IrohProviderConfig) -> Result<Endpoint, Provider
     builder
         .bind()
         .await
-        .map_err(|error| ProviderError::Transport(format!("could not bind Iroh endpoint: {error}")))
+        .map_err(|_| ProviderError::Transport("could not bind Iroh endpoint".into()))
 }
 
 async fn connect_iroh_connection(
@@ -474,10 +501,8 @@ async fn connect_iroh_connection(
     alpn: &[u8],
 ) -> Result<::iroh::endpoint::Connection, ProviderError> {
     let remote_node_id = node_addr.id;
-    let connection = endpoint.connect(node_addr.clone(), alpn).await.map_err(|error| {
-        ProviderError::Transport(format!(
-            "could not connect to Iroh node {remote_node_id}: {error}"
-        ))
+    let connection = endpoint.connect(node_addr.clone(), alpn).await.map_err(|_| {
+        ProviderError::Transport(format!("could not connect to Iroh node {remote_node_id}"))
     })?;
     let authenticated_node_id = connection.remote_id();
     if authenticated_node_id != remote_node_id {
@@ -1000,11 +1025,16 @@ mod tests {
         );
         let route = IrohRoute::new(
             NodeAddr::new(node_id)
-                .with_relay_url(relay_url)
+                .with_relay_url(relay_url.clone())
                 .with_ip_addr("203.0.113.246:54321".parse().unwrap()),
         );
+        let config = IrohProviderConfig {
+            secret_key: Some(secret(46)),
+            relay_mode: RelayMode::custom([relay_url]),
+            ..IrohProviderConfig::default()
+        };
 
-        let diagnostic = format!("{route:?}");
+        let diagnostic = format!("route={route:?} config={config:?}");
 
         for secret in [
             "relay-user-marker",
@@ -1012,8 +1042,7 @@ mod tests {
             "relay-path-marker",
             "relay-query-marker",
             "relay-fragment-marker",
-            "203.0.113.246",
-            "54321",
+            "203.0.113.246:54321",
         ] {
             assert!(
                 !diagnostic.contains(secret),
@@ -1021,6 +1050,8 @@ mod tests {
             );
         }
         assert!(diagnostic.contains(&node_id.to_string()), "{diagnostic}");
+        assert!(diagnostic.contains("relay_mode: \"custom\""), "{diagnostic}");
+        assert!(diagnostic.contains("[REDACTED]"), "{diagnostic}");
     }
 
     #[test]

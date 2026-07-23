@@ -2,6 +2,7 @@
 //! transport-neutral remote daemon.
 
 use std::collections::BTreeMap;
+use std::fmt;
 use std::fs;
 use std::net::SocketAddr;
 use std::path::{Path, PathBuf};
@@ -29,7 +30,7 @@ use cmux_remote::provider::{
     IrohProviderConfig, LinkGroup, ProviderError, RelayClientConfig, RelayCredentialSource,
     RelayDaemonConfig, RelayDaemonRegistration, RelayProvider, SshProvider, SshProviderConfig,
     SupportedClientAuthModes, TransportProvider, UnixProvider, load_or_create_iroh_secret,
-    register_relay_daemon_with_credentials, sanitized_route,
+    register_relay_daemon_with_credentials, sanitized_route, sanitized_route_text,
 };
 use cmux_remote::service::{EndpointRole, ServiceMultiplexer};
 use cmux_remote::services::DaemonServices;
@@ -61,14 +62,25 @@ fn build_remote_runtime(thread_name: &str) -> anyhow::Result<tokio::runtime::Run
         .context("could not start remote Tokio runtime")
 }
 
-#[derive(Debug, Clone)]
+#[derive(Clone)]
 pub struct RelayDaemonOptions {
     pub endpoint: Url,
     pub slot: String,
     pub credentials: RelayCredentialSource,
 }
 
-#[derive(Debug, Clone)]
+impl fmt::Debug for RelayDaemonOptions {
+    fn fmt(&self, formatter: &mut fmt::Formatter<'_>) -> fmt::Result {
+        formatter
+            .debug_struct("RelayDaemonOptions")
+            .field("endpoint", &sanitized_route(&self.endpoint))
+            .field("slot", &"[REDACTED]")
+            .field("credentials", &self.credentials)
+            .finish()
+    }
+}
+
+#[derive(Clone)]
 pub struct DaemonRuntimeOptions {
     pub session: String,
     pub state_dir: Option<PathBuf>,
@@ -83,7 +95,31 @@ pub struct DaemonRuntimeOptions {
     pub replaceable_sidecar: bool,
 }
 
-#[derive(Debug, Clone, Serialize, Deserialize)]
+impl fmt::Debug for DaemonRuntimeOptions {
+    fn fmt(&self, formatter: &mut fmt::Formatter<'_>) -> fmt::Result {
+        let advertised_routes = self
+            .advertised_routes
+            .iter()
+            .map(|route| sanitized_route_text(route))
+            .collect::<Vec<_>>();
+        formatter
+            .debug_struct("DaemonRuntimeOptions")
+            .field("session", &self.session)
+            .field("state_dir", &self.state_dir)
+            .field("link_socket", &self.link_socket)
+            .field("admin_socket", &self.admin_socket)
+            .field("direct_websocket", &self.direct_websocket)
+            .field("allow_insecure_non_loopback", &self.allow_insecure_non_loopback)
+            .field("relays", &self.relays)
+            .field("iroh", &self.iroh)
+            .field("advertised_routes", &advertised_routes)
+            .field("resume_lease", &self.resume_lease)
+            .field("replaceable_sidecar", &self.replaceable_sidecar)
+            .finish()
+    }
+}
+
+#[derive(Clone, Serialize, Deserialize)]
 pub struct DaemonRuntimeInfo {
     pub session: String,
     pub state_dir: PathBuf,
@@ -95,6 +131,25 @@ pub struct DaemonRuntimeInfo {
     pub iroh_node_id: Option<String>,
     #[serde(default)]
     pub replaceable_sidecar: bool,
+}
+
+impl fmt::Debug for DaemonRuntimeInfo {
+    fn fmt(&self, formatter: &mut fmt::Formatter<'_>) -> fmt::Result {
+        let routes =
+            self.routes.iter().map(|route| sanitized_route_text(route)).collect::<Vec<_>>();
+        formatter
+            .debug_struct("DaemonRuntimeInfo")
+            .field("session", &self.session)
+            .field("state_dir", &self.state_dir)
+            .field("link_socket", &self.link_socket)
+            .field("admin_socket", &self.admin_socket)
+            .field("daemon_fingerprint", &self.daemon_fingerprint)
+            .field("routes", &routes)
+            .field("direct_websocket", &self.direct_websocket)
+            .field("iroh_node_id", &self.iroh_node_id)
+            .field("replaceable_sidecar", &self.replaceable_sidecar)
+            .finish()
+    }
 }
 
 pub struct DaemonRuntimeHandle {
@@ -127,16 +182,41 @@ impl Drop for DaemonRuntimeHandle {
     }
 }
 
-#[derive(Debug, Clone)]
+#[derive(Clone)]
 pub struct RelayClientOptions {
     pub slot: String,
     pub credentials: RelayCredentialSource,
 }
 
-#[derive(Debug, Clone)]
+impl fmt::Debug for RelayClientOptions {
+    fn fmt(&self, formatter: &mut fmt::Formatter<'_>) -> fmt::Result {
+        formatter
+            .debug_struct("RelayClientOptions")
+            .field("slot", &"[REDACTED]")
+            .field("credentials", &self.credentials)
+            .finish()
+    }
+}
+
+#[derive(Clone)]
 struct RoutedRelayProvider {
     fallback: Option<RelayClientOptions>,
     routes: BTreeMap<String, RelayClientOptions>,
+}
+
+impl fmt::Debug for RoutedRelayProvider {
+    fn fmt(&self, formatter: &mut fmt::Formatter<'_>) -> fmt::Result {
+        let routes = self
+            .routes
+            .iter()
+            .map(|(route, options)| (sanitized_route_text(route), options))
+            .collect::<Vec<_>>();
+        formatter
+            .debug_struct("RoutedRelayProvider")
+            .field("fallback", &self.fallback)
+            .field("routes", &routes)
+            .finish()
+    }
 }
 
 #[async_trait]
@@ -194,11 +274,23 @@ pub fn client_provider_registry(
     Ok(providers)
 }
 
-#[derive(Debug, Clone, PartialEq, Eq)]
+#[derive(Clone, PartialEq, Eq)]
 pub struct ResolvedRouteCandidate {
     pub endpoint: Url,
     pub routing: BTreeMap<String, String>,
     supported_client_auth: SupportedClientAuthModes,
+}
+
+impl fmt::Debug for ResolvedRouteCandidate {
+    fn fmt(&self, formatter: &mut fmt::Formatter<'_>) -> fmt::Result {
+        let routing_keys = self.routing.keys().map(String::as_str).collect::<Vec<_>>();
+        formatter
+            .debug_struct("ResolvedRouteCandidate")
+            .field("endpoint", &sanitized_route(&self.endpoint))
+            .field("routing_keys", &routing_keys)
+            .field("supported_client_auth", &self.supported_client_auth)
+            .finish()
+    }
 }
 
 impl ResolvedRouteCandidate {
@@ -254,11 +346,22 @@ pub struct ClientRuntimeOptions {
     pub ssh_bootstrap: SshBootstrapOptions,
 }
 
-#[derive(Debug, Clone)]
+#[derive(Clone)]
 pub struct ClientRuntimeInfo {
     pub local_socket: PathBuf,
     pub daemon_public_key: [u8; 32],
     pub route: String,
+}
+
+impl fmt::Debug for ClientRuntimeInfo {
+    fn fmt(&self, formatter: &mut fmt::Formatter<'_>) -> fmt::Result {
+        formatter
+            .debug_struct("ClientRuntimeInfo")
+            .field("local_socket", &self.local_socket)
+            .field("daemon_public_key", &self.daemon_public_key)
+            .field("route", &sanitized_route_text(&self.route))
+            .finish()
+    }
 }
 
 pub struct ClientRuntimeHandle {
@@ -1462,10 +1565,20 @@ mod tests {
             iroh_node_id: None,
             replaceable_sidecar: false,
         };
+        let client_options = reconnect_test_options(vec![candidate.clone()]);
+        let client_info = ClientRuntimeInfo {
+            local_socket: PathBuf::from("/tmp/client"),
+            daemon_public_key: [7; 32],
+            route: "wss://client-info-user-marker:client-info-password-marker@client-info.example/\
+                    client-info-path-marker?ticket=client-info-query-marker#\
+                    client-info-fragment-marker"
+                .into(),
+        };
 
         let diagnostic = format!(
             "candidate={candidate:?} provider={routed_provider:?} \
-             daemon_options={daemon_options:?} daemon_info={daemon_info:?}"
+             daemon_options={daemon_options:?} daemon_info={daemon_info:?} \
+             client_options={client_options:?} client_info={client_info:?}"
         );
 
         for secret in [
@@ -1498,6 +1611,11 @@ mod tests {
             "route-ticket-marker",
             "malformed-route-marker",
             "malformed-info-route-marker",
+            "client-info-user-marker",
+            "client-info-password-marker",
+            "client-info-path-marker",
+            "client-info-query-marker",
+            "client-info-fragment-marker",
         ] {
             assert!(
                 !diagnostic.contains(secret),
@@ -1507,6 +1625,7 @@ mod tests {
         assert!(diagnostic.contains("wss://candidate.example"), "{diagnostic}");
         assert!(diagnostic.contains("relay+wss://daemon.example"), "{diagnostic}");
         assert!(diagnostic.contains("relay+wss://map.example"), "{diagnostic}");
+        assert!(diagnostic.contains("wss://client-info.example"), "{diagnostic}");
         assert!(diagnostic.contains("invalid route"), "{diagnostic}");
         assert!(diagnostic.contains(cmux_remote::provider::ROUTING_DIRECT_ADDRS), "{diagnostic}");
         assert!(diagnostic.contains(cmux_remote::provider::ROUTING_RELAY_URL), "{diagnostic}");

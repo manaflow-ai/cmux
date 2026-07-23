@@ -293,7 +293,7 @@ impl fmt::Debug for RelayClientConfig {
     fn fmt(&self, formatter: &mut fmt::Formatter<'_>) -> fmt::Result {
         formatter
             .debug_struct("RelayClientConfig")
-            .field("slot", &self.slot)
+            .field("slot", &"[REDACTED]")
             .field("ticket", &"[REDACTED]")
             .field("maximum_frame_bytes", &self.maximum_frame_bytes)
             .field("control_timeout", &self.control_timeout)
@@ -659,7 +659,7 @@ impl fmt::Debug for RelayDaemonConfig {
         formatter
             .debug_struct("RelayDaemonConfig")
             .field("endpoint", &sanitized_route(&self.endpoint))
-            .field("slot", &self.slot)
+            .field("slot", &"[REDACTED]")
             .field("ticket", &"[REDACTED]")
             .field("maximum_frame_bytes", &self.maximum_frame_bytes)
             .field("control_timeout", &self.control_timeout)

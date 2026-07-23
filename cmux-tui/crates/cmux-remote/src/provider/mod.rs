@@ -89,7 +89,7 @@ impl ProviderCapabilities {
     };
 }
 
-#[derive(Debug, Clone, PartialEq, Eq)]
+#[derive(Clone, PartialEq, Eq)]
 pub struct ConnectRequest {
     pub endpoint: Url,
     pub session: SessionId,
@@ -97,6 +97,19 @@ pub struct ConnectRequest {
     /// Provider-specific, non-secret routing hints. Authentication material
     /// belongs to the Noise handshake, never this map.
     pub routing: BTreeMap<String, String>,
+}
+
+impl fmt::Debug for ConnectRequest {
+    fn fmt(&self, formatter: &mut fmt::Formatter<'_>) -> fmt::Result {
+        let routing_keys = self.routing.keys().map(String::as_str).collect::<Vec<_>>();
+        formatter
+            .debug_struct("ConnectRequest")
+            .field("endpoint", &sanitized_route(&self.endpoint))
+            .field("session", &self.session)
+            .field("lane_policy", &self.lane_policy)
+            .field("routing_keys", &routing_keys)
+            .finish()
+    }
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -159,6 +172,16 @@ pub fn sanitized_route(endpoint: &Url) -> String {
     route.set_query(None);
     route.set_fragment(None);
     route.to_string()
+}
+
+/// Returns a safe diagnostic label for a serialized route.
+///
+/// Invalid route strings are intentionally not echoed because parse failures
+/// can otherwise expose an entire credential-bearing input.
+pub fn sanitized_route_text(route: &str) -> String {
+    Url::parse(route)
+        .map(|endpoint| sanitized_route(&endpoint))
+        .unwrap_or_else(|_| "<invalid route>".into())
 }
 
 #[async_trait]
@@ -512,5 +535,20 @@ mod tests {
         assert!(diagnostic.contains("direct-addresses"), "{diagnostic}");
         assert!(diagnostic.contains("relay-url"), "{diagnostic}");
         assert!(diagnostic.contains("Single"), "{diagnostic}");
+    }
+
+    #[test]
+    fn serialized_route_diagnostics_do_not_echo_malformed_or_opaque_payloads() {
+        let malformed = sanitized_route_text("%%% malformed-route-marker %%%");
+        assert_eq!(malformed, "<invalid route>");
+        assert!(!malformed.contains("malformed-route-marker"), "{malformed}");
+
+        let opaque = sanitized_route_text(
+            "custom:opaque-path-marker?opaque-query-marker#opaque-fragment-marker",
+        );
+        for secret in ["opaque-path-marker", "opaque-query-marker", "opaque-fragment-marker"] {
+            assert!(!opaque.contains(secret), "opaque route leaked {secret:?}: {opaque}");
+        }
+        assert!(opaque.starts_with("custom:"), "{opaque}");
     }
 }
