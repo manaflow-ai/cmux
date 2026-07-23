@@ -704,8 +704,14 @@ struct CLICodexHookTimeoutRegressionTests {
         let capturedAt = root.appendingPathComponent("hook-captured-at.txt", isDirectory: false)
         let doneFile = root.appendingPathComponent("hook-done.txt", isDirectory: false)
         let legacyLock = root.appendingPathComponent("cmux-agent-hook-time.lock", isDirectory: true)
+        let monotonicClockDirectory = root.appendingPathComponent("cmux-agent-hook-clock-v2", isDirectory: true)
+        let monotonicClockState = monotonicClockDirectory.appendingPathComponent("state", isDirectory: false)
+        let seededMicros: Int64 = 1_893_456_000_123_456
+        let seededTime = Double(seededMicros) / 1_000_000
         try FileManager.default.createDirectory(at: codexHome, withIntermediateDirectories: true)
         try installMinimalHookToolPath(in: toolBin)
+        try FileManager.default.createDirectory(at: monotonicClockDirectory, withIntermediateDirectories: false)
+        try "\(seededMicros)\n".write(to: monotonicClockState, atomically: true, encoding: .utf8)
         defer { try? FileManager.default.removeItem(at: root) }
 
         try makeCodexHookExecutableShellFile(at: fakeDate, lines: [
@@ -767,6 +773,10 @@ struct CLICodexHookTimeoutRegressionTests {
         #expect(waitForFileLineCount(capturedAt, count: 1, timeout: 3))
         #expect(waitForFile(doneFile, containing: "done", timeout: 3))
         #expect(FileManager.default.fileExists(atPath: legacyLock.path))
+        let rawCapturedTime = try String(contentsOf: capturedAt, encoding: .utf8)
+            .trimmingCharacters(in: .whitespacesAndNewlines)
+        let capturedTime = try #require(Double(rawCapturedTime))
+        #expect(capturedTime > seededTime, Comment(rawValue: rawCapturedTime))
     }
 
     @Test func codexFarFutureISOEventTimeDoesNotPoisonRuntimeOrdering() throws {

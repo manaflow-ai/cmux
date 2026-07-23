@@ -188,6 +188,12 @@ import Testing
         }
         let fakeDateURL = toolBin.appendingPathComponent("date", isDirectory: false)
         try writeExecutable(fakeDateURL, "#!/bin/sh\nprintf '1893455999\\n'\n")
+        let monotonicClockDirectory = sandbox.appendingPathComponent("cmux-agent-hook-clock-v2", isDirectory: true)
+        let monotonicClockState = monotonicClockDirectory.appendingPathComponent("state", isDirectory: false)
+        let seededMicros: Int64 = 1_893_456_000_123_456
+        let seededTime = Double(seededMicros) / 1_000_000
+        try fileManager.createDirectory(at: monotonicClockDirectory, withIntermediateDirectories: false)
+        try "\(seededMicros)\n".write(to: monotonicClockState, atomically: true, encoding: .utf8)
         let clockStateURL = sandbox.appendingPathComponent("cmux-agent-hook-time.state", isDirectory: false)
         let clockStateVictimURL = sandbox.appendingPathComponent("clock-state-victim.txt", isDirectory: false)
         try "1893456000 0\n".write(to: clockStateVictimURL, atomically: true, encoding: .utf8)
@@ -230,6 +236,7 @@ import Testing
         #expect(rawTimes.count == 4)
         let times = try rawTimes.map { try #require(Double($0)) }
         #expect(times.allSatisfy { $0.isFinite && $0 > 0 })
+        #expect(times.allSatisfy { $0 > seededTime })
         for (earlier, later) in zip(times, times.dropFirst()) {
             #expect(earlier < later, Comment(rawValue: rawTimes.joined(separator: ",")))
         }

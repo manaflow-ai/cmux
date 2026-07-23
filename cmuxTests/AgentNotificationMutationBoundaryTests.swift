@@ -549,6 +549,54 @@ extension AgentNotificationRegressionTests {
         #expect(fixture.source.agentPIDPanelIdsByKey[olderKey] == nil)
     }
 
+    @Test("A displaced structured agent cannot restore pane-owned state")
+    func displacedStructuredAgentCannotRestorePaneOwnedState() throws {
+        let fixture = try makeFixture()
+        defer { fixture.restore() }
+
+        _ = fixture.source.recordAgentPID(
+            key: "codex.newer-session",
+            pid: 43_210,
+            panelId: fixture.panelId,
+            agentEventTime: 1_893_456_200,
+            enforceAgentEventOrdering: true,
+            refreshPorts: false
+        )
+
+        let lifecycleAccepted = fixture.source.setAgentLifecycle(
+            key: "claude_code",
+            panelId: fixture.panelId,
+            lifecycle: .running,
+            agentEventTime: 1_893_456_100,
+            enforceAgentEventOrdering: true
+        )
+        let statusDecision = fixture.source.upsertSidebarStatusEntry(
+            key: "claude_code",
+            value: "Running",
+            icon: "sparkles",
+            color: "#4C8DFF",
+            url: nil,
+            priority: 0,
+            format: .plain,
+            panelId: fixture.panelId,
+            pid: nil,
+            agentEventTime: 1_893_456_100
+        )
+        let notificationAccepted = fixture.source.acceptAgentRuntimeMutation(
+            statusKey: "claude_code",
+            panelId: fixture.panelId,
+            agentEventTime: 1_893_456_100,
+            enforceOrdering: true
+        )
+
+        #expect(!lifecycleAccepted)
+        #expect(statusDecision == .stale)
+        #expect(!notificationAccepted)
+        #expect(fixture.source.agentLifecycleStatesByPanelId[fixture.panelId]?["claude_code"] == nil)
+        #expect(fixture.source.statusEntries["claude_code"] == nil)
+        #expect(fixture.source.agentPIDs["codex.newer-session"] == 43_210)
+    }
+
     @Test("A stale lifecycle update cannot bypass a newer status watermark")
     func staleAgentLifecycleCannotBypassNewerStatusWatermark() throws {
         let fixture = try makeFixture()
