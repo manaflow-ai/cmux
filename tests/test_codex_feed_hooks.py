@@ -2561,6 +2561,7 @@ def test_pi_compacted_feed_pipelines_bounded_acknowledged_batch(cli_path: str, r
         socket_path,
         None,
         deferred_feed_response_count=event_count,
+        surface_delivery_target=(FAKE_WORKSPACE_ID, FAKE_SURFACE_ID),
     ) as fake:
         result = subprocess.run(
             [
@@ -2679,7 +2680,12 @@ def test_pi_compacted_feed_allows_brief_auth_delay(cli_path: str, root: Path) ->
     env["CMUX_SURFACE_ID"] = FAKE_SURFACE_ID
     env["CMUX_WORKSPACE_ID"] = FAKE_WORKSPACE_ID
 
-    with FakeCmuxSocket(socket_path, None, raw_response_delay=0.15) as fake:
+    with FakeCmuxSocket(
+        socket_path,
+        None,
+        raw_response_delay=0.15,
+        surface_delivery_target=(FAKE_WORKSPACE_ID, FAKE_SURFACE_ID),
+    ) as fake:
         result = subprocess.run(
             [
                 cli_path,

@@ -53,6 +53,7 @@ extension CMUXCLI {
         let requestLines = PiCompactedFeedEventExpander(
             agentPid: agentPid,
             workspaceId: target?.workspaceId ?? fallbackWorkspaceId,
+            surfaceId: target?.surfaceId,
             maximumRequestCount: client.isRelayBacked ? 2 : nil
         ).requestLines(from: rawObject)
         guard !requestLines.isEmpty else { return false }
@@ -91,26 +92,12 @@ extension CMUXCLI {
                 throw piHookSurfaceNotFoundError(rawSurface)
             }
         }
-        var resolvedWorkspaceId: String?
+        let resolvedWorkspaceId: String?
         do {
-            let workspaceId = try resolveWorkspaceId(rawWorkspace, client: client)
-            resolvedWorkspaceId = workspaceId
-            let listed = try client.sendV2(method: "surface.list", params: ["workspace_id": workspaceId])
-            let surfaces = listed["surfaces"] as? [[String: Any]] ?? []
-            let surfaceId: String? = if isUUID(surface) {
-                surfaces.first(where: { ($0["id"] as? String) == surface })?["id"] as? String
-            } else if let index = Int(surface) {
-                surfaces.first(where: { piHookInteger($0["index"]) == index })?["id"] as? String
-            } else {
-                surfaces.first(where: { ($0["ref"] as? String) == surface })?["id"] as? String
-            }
-            if let surfaceId {
-                return (workspaceId, surfaceId)
-            }
+            resolvedWorkspaceId = try resolveWorkspaceId(rawWorkspace, client: client)
         } catch let error as CLIError where error.v2Code == "not_found" {
             resolvedWorkspaceId = nil
         }
-
         if isUUID(surface) {
             var params: [String: Any] = ["surface_id": surface]
             if let resolvedWorkspaceId, isUUID(resolvedWorkspaceId) {
@@ -124,12 +111,34 @@ extension CMUXCLI {
                 )
                 if (payload["source"] as? String) == "surface",
                    let workspaceId = normalizedHandleValue(payload["workspace_id"] as? String),
-                   isUUID(workspaceId) {
+                   isUUID(workspaceId),
+                   let returnedSurfaceId = normalizedHandleValue(payload["surface_id"] as? String),
+                   UUID(uuidString: returnedSurfaceId) == UUID(uuidString: surface) {
                     return (workspaceId, surface)
                 }
+                throw piHookSurfaceNotFoundError(rawSurface)
             } catch let error as CLIError where error.v2Code == "method_not_found"
                     || error.v2Code == "unrecognized_method" {
-                // Older apps cannot corroborate a moved surface.
+                // Older apps lack the surface-scoped resolver. Preserve the
+                // legacy workspace-local lookup without making supported
+                // apps snapshot every surface for each Pi tool event.
+            } catch let error as CLIError where error.v2Code == "not_found" {
+                throw piHookSurfaceNotFoundError(rawSurface)
+            }
+        }
+
+        if let workspaceId = resolvedWorkspaceId {
+            let listed = try client.sendV2(method: "surface.list", params: ["workspace_id": workspaceId])
+            let surfaces = listed["surfaces"] as? [[String: Any]] ?? []
+            let surfaceId: String? = if isUUID(surface) {
+                surfaces.first(where: { ($0["id"] as? String) == surface })?["id"] as? String
+            } else if let index = Int(surface) {
+                surfaces.first(where: { piHookInteger($0["index"]) == index })?["id"] as? String
+            } else {
+                surfaces.first(where: { ($0["ref"] as? String) == surface })?["id"] as? String
+            }
+            if let surfaceId {
+                return (workspaceId, surfaceId)
             }
         }
         throw piHookSurfaceNotFoundError(rawSurface)

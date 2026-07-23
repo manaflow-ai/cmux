@@ -5,15 +5,18 @@ struct PiCompactedFeedEventExpander {
     private static let maxCompactedTerminalEvents = 64
     private let agentPid: Int
     private let workspaceId: String?
+    private let surfaceId: String?
     private let maximumRequestCount: Int
 
     init(
         agentPid: Int,
         workspaceId: String?,
+        surfaceId: String?,
         maximumRequestCount: Int? = nil
     ) {
         self.agentPid = agentPid
         self.workspaceId = workspaceId
+        self.surfaceId = surfaceId
         self.maximumRequestCount = min(
             max(1, maximumRequestCount ?? Self.maxCompactedTerminalEvents),
             Self.maxCompactedTerminalEvents
@@ -82,6 +85,9 @@ struct PiCompactedFeedEventExpander {
         ]
         if let workspaceId {
             event["workspace_id"] = workspaceId
+        }
+        if let surfaceId {
+            event["surface_id"] = surfaceId
         }
         if let cwd = string(summary["cwd"]) ?? string(fallback["cwd"]) {
             event["cwd"] = cwd

@@ -33936,6 +33936,7 @@ export default CMUXSessionRestore;
         if shouldAwaitTelemetryIngestion {
             if let target = try resolveExplicitPiHookTarget(commandArgs: commandArgs, client: activeClient) {
                 eventDict["workspace_id"] = target.workspaceId
+                eventDict["surface_id"] = target.surfaceId
                 request["params"] = [
                     "event": eventDict,
                     "wait_timeout_seconds": waitTimeout,
