@@ -331,7 +331,10 @@ mod tests {
         let mut registry = ProviderRegistry::default();
         registry.register(provider.clone()).unwrap();
 
-        let error = registry.connect(counting_request(), AuthKind::Carrier).await.unwrap_err();
+        let error = match registry.connect(counting_request(), AuthKind::Carrier).await {
+            Ok(_) => panic!("device-only provider accepted carrier authentication"),
+            Err(error) => error,
+        };
 
         assert!(matches!(
             error,
@@ -356,7 +359,10 @@ mod tests {
         let mut registry = ProviderRegistry::default();
         registry.register(provider.clone()).unwrap();
 
-        let error = registry.connect(counting_request(), AuthKind::Carrier).await.unwrap_err();
+        let error = match registry.connect(counting_request(), AuthKind::Carrier).await {
+            Ok(_) => panic!("counting provider unexpectedly connected"),
+            Err(error) => error,
+        };
 
         assert!(matches!(error, ProviderError::Transport(_)));
         assert_eq!(
