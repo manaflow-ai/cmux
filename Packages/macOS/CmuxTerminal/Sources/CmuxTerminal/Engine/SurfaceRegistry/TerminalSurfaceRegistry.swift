@@ -20,6 +20,8 @@ public import GhosttyKit
 public final class TerminalSurfaceRegistry: TerminalSurfaceRegistering, Sendable {
     private static let deadRegistrationSweepInterval = 64
 
+    // Synchronous `deinit` retirement cannot await an actor hop, so the
+    // registry keeps its short, non-suspending mutations behind one lock.
     private let lock = NSLock()
     // SAFETY: all mutable registry state is guarded by `lock`; callers arrive
     // on the main actor and from nonisolated `deinit` paths.
@@ -121,14 +123,9 @@ public final class TerminalSurfaceRegistry: TerminalSurfaceRegistering, Sendable
         _ registration: TerminalSurfaceWeakRegistration
     ) {
         registrationsByObjectId.removeValue(forKey: registration.objectId)
-        guard var objectIds = registeredObjectIdsBySurfaceId[registration.surfaceId] else {
-            return
-        }
-        objectIds.remove(registration.objectId)
-        if objectIds.isEmpty {
+        registeredObjectIdsBySurfaceId[registration.surfaceId]?.remove(registration.objectId)
+        if registeredObjectIdsBySurfaceId[registration.surfaceId]?.isEmpty == true {
             registeredObjectIdsBySurfaceId.removeValue(forKey: registration.surfaceId)
-        } else {
-            registeredObjectIdsBySurfaceId[registration.surfaceId] = objectIds
         }
     }
 
@@ -141,12 +138,9 @@ public final class TerminalSurfaceRegistry: TerminalSurfaceRegistering, Sendable
         var removed = false
         for objectId in objectIds {
             guard let registration = registrationsByObjectId[objectId] else {
-                var repairedIds = registeredObjectIdsBySurfaceId[surfaceId] ?? []
-                repairedIds.remove(objectId)
-                if repairedIds.isEmpty {
+                registeredObjectIdsBySurfaceId[surfaceId]?.remove(objectId)
+                if registeredObjectIdsBySurfaceId[surfaceId]?.isEmpty == true {
                     registeredObjectIdsBySurfaceId.removeValue(forKey: surfaceId)
-                } else {
-                    registeredObjectIdsBySurfaceId[surfaceId] = repairedIds
                 }
                 removed = true
                 continue
