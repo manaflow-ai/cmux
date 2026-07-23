@@ -96,6 +96,50 @@ struct AgentStatusRuntimeGenerationTests {
         #expect(ledger.evidenceForPanel(panelID)["codex"]?.lifecycleRevision == 2)
     }
 
+    @Test @MainActor func equalRevisionOnlyAcceptsTheSameLifecycleIdempotently() throws {
+        let panelID = UUID()
+        let runtimeKey = "codex.current-session"
+        let identity = AgentPIDProcessIdentity(
+            pid: getpid(),
+            startSeconds: 10,
+            startMicroseconds: 20
+        )
+        let ledger = AgentStatusRuntimeLedger()
+
+        #expect(ledger.recordLifecycle(
+            .running,
+            panelId: panelID,
+            statusKey: "codex",
+            observedAt: now,
+            runtimePIDKey: runtimeKey,
+            runtimeProcessIdentity: identity,
+            revision: 2
+        ))
+        #expect(!ledger.recordLifecycle(
+            .needsInput,
+            panelId: panelID,
+            statusKey: "codex",
+            observedAt: now.addingTimeInterval(1),
+            runtimePIDKey: runtimeKey,
+            runtimeProcessIdentity: identity,
+            revision: 2
+        ))
+        #expect(ledger.recordLifecycle(
+            .running,
+            panelId: panelID,
+            statusKey: "codex",
+            observedAt: now.addingTimeInterval(2),
+            runtimePIDKey: runtimeKey,
+            runtimeProcessIdentity: identity,
+            revision: 2
+        ))
+
+        let evidence = ledger.evidenceForPanel(panelID)["codex"]
+        #expect(evidence?.lifecycle == .running)
+        #expect(evidence?.lifecycleRevision == 2)
+        #expect(evidence?.lifecycleObservedAt == now)
+    }
+
     @Test @MainActor func newerExactRuntimeGenerationAcceptsUnversionedLifecycle() throws {
         let panelID = UUID()
         let runtimeKey = "codex.current-session"
@@ -169,6 +213,40 @@ struct AgentStatusRuntimeGenerationTests {
         #expect(workspace.agentPIDs["claude_code.previous-session"] == nil)
         #expect(!workspace.agentStatusRuntimeIsCurrent(event: previousEvent, panelId: panelId))
         #expect(workspace.agentStatusRuntimeIsCurrent(event: currentEvent, panelId: panelId))
+    }
+
+    @Test @MainActor func localHookRejectsForgedProcessGeneration() throws {
+        let workspace = Workspace()
+        let panelId = try #require(workspace.focusedPanelId)
+        let pid = getpid()
+        let runtimeKey = "codex.current-session"
+        defer { workspace.clearAllAgentPIDs(refreshPorts: false) }
+        workspace.recordAgentPID(
+            key: runtimeKey,
+            pid: pid,
+            panelId: panelId,
+            refreshPorts: false
+        )
+        let registeredIdentity = try #require(workspace.agentPIDProcessIdentitiesByKey[runtimeKey])
+        let forgedIdentity = AgentPIDProcessIdentity(
+            pid: pid,
+            startSeconds: registeredIdentity.startSeconds + 1,
+            startMicroseconds: registeredIdentity.startMicroseconds
+        )
+        let event = WorkstreamEvent(
+            sessionId: "codex-current-session",
+            hookEventName: .permissionRequest,
+            source: "codex",
+            ppid: Int(pid),
+            receivedAt: now,
+            extraFieldsJSON: """
+            {"_cmux_agent_status_signal":"needsInput","_cmux_agent_status_revision":1,"_cmux_agent_pid_start_seconds":\(forgedIdentity.startSeconds),"_cmux_agent_pid_start_microseconds":\(forgedIdentity.startMicroseconds)}
+            """
+        )
+        let signal = try #require(AgentStatusHookEventSignal(event: event))
+
+        #expect(!workspace.noteAgentStatusHookSignal(signal, panelId: panelId))
+        #expect(workspace.agentLifecycleStatesByPanelId[panelId]?["codex"] == nil)
     }
 
     @Test @MainActor func claudeRuntimeConfirmsExactRestorableSessionGeneration() throws {

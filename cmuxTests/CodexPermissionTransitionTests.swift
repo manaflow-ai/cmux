@@ -369,6 +369,55 @@ struct CodexPermissionDeliveryOrderingTests {
 }
 
 extension AgentNotificationRegressionTests {
+    @Test("PID-less Feed cleanup preserves an overlapping ordered approval")
+    @MainActor
+    func pidlessFeedCleanupPreservesOrderedNeedsInput() throws {
+        let fixture = try makeFixture()
+        defer { fixture.restore() }
+        let pid = getpid()
+        fixture.source.recordAgentPID(
+            key: "codex.session",
+            pid: pid,
+            panelId: fixture.panelId,
+            refreshPorts: false
+        )
+        defer { fixture.source.clearAllAgentPIDs(refreshPorts: false) }
+        let pidlessEvent = WorkstreamEvent(
+            sessionId: "codex-internal",
+            hookEventName: .permissionRequest,
+            source: "codex",
+            requestId: "pidless-approval"
+        )
+        let orderedEvent = WorkstreamEvent(
+            sessionId: "codex-session",
+            hookEventName: .permissionRequest,
+            source: "codex",
+            requestId: "ordered-approval",
+            ppid: Int(pid),
+            extraFieldsJSON: #"{"_cmux_agent_status_signal":"needsInput","_cmux_agent_status_revision":1}"#
+        )
+
+        let pidlessTarget = try #require(FeedCoordinator.shared.surfaceBlockingDecisionAttention(
+            event: pidlessEvent,
+            resolved: (fixture.source.id, fixture.panelId)
+        ))
+        let orderedTarget = try #require(FeedCoordinator.shared.surfaceBlockingDecisionAttention(
+            event: orderedEvent,
+            resolved: (fixture.source.id, fixture.panelId)
+        ))
+        defer {
+            FeedCoordinator.shared.concludeBlockingDecisionAttention(orderedTarget)
+            FeedCoordinator.shared.concludeBlockingDecisionAttention(pidlessTarget)
+        }
+
+        #expect(pidlessTarget.clearsLifecycleOnConclusion)
+        #expect(!orderedTarget.clearsLifecycleOnConclusion)
+        FeedCoordinator.shared.concludeBlockingDecisionAttention(pidlessTarget)
+
+        #expect(fixture.source.agentLifecycleStatesByPanelId[fixture.panelId]?["codex"] == .needsInput)
+        #expect(fixture.source.statusEntries["codex"]?.icon == "bell.fill")
+    }
+
     @Test("Accepted Codex resume clears its panel notification with the lifecycle")
     @MainActor
     func acceptedCodexResumeClearsOnlyItsPendingPanelNotification() throws {

@@ -325,6 +325,36 @@ struct NotificationDismissSyncTests {
         )
     }
 
+    /// Policy hooks can request a desktop banner without retaining a Mac feed
+    /// entry. Exact removal still has to dismiss and tombstone that stable id.
+    @Test func exactRemovalTombstonesEffectsOnlyNotification() {
+        let store = TerminalNotificationStore.shared
+        let previousNotifications = store.notifications
+        let tombstoneKey = TerminalNotificationStore.dismissedTombstoneDefaultsKey
+        let previousTombstones = UserDefaults.standard.stringArray(forKey: tombstoneKey)
+        defer {
+            store.replaceNotificationsForTesting(previousNotifications)
+            if let previousTombstones {
+                UserDefaults.standard.set(previousTombstones, forKey: tombstoneKey)
+            } else {
+                UserDefaults.standard.removeObject(forKey: tombstoneKey)
+            }
+            store.reloadDismissedTombstonesForTesting()
+        }
+
+        store.replaceNotificationsForTesting([])
+        UserDefaults.standard.removeObject(forKey: tombstoneKey)
+        store.reloadDismissedTombstonesForTesting()
+        let effectsOnlyID = UUID()
+
+        store.remove(id: effectsOnlyID)
+
+        #expect(
+            store.reconcileHandledNotificationIDs(deliveredIDs: [effectsOnlyID])
+                == [effectsOnlyID.uuidString]
+        )
+    }
+
     /// Superseded phone-banner dismissals are deferred behind the (throttled)
     /// replacement push: the buffer must accumulate ids across throttled
     /// supersedes, dedupe replays, and hand everything over exactly once when
