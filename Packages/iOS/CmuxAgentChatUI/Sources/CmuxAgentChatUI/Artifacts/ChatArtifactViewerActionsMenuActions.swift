@@ -2,6 +2,7 @@
 struct ChatArtifactViewerActionsMenuActions {
     let prepareShare: (String) -> Void
     let prepareSave: (String) -> Void
+    let saveToArtifacts: (String) -> Void
     let toggleSearch: (String) -> Void
     let toggleGoToLine: (String) -> Void
     let requestTop: (String) -> Void

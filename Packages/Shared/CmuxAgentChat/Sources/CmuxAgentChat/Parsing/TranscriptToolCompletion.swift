@@ -15,6 +15,16 @@ struct TranscriptToolCompletion: Sendable {
     /// Wall-clock duration in seconds, when one was parseable.
     let durationSeconds: Double?
 
+    /// Whether source-specific positive evidence authorizes mutation provenance.
+    let authorizesArtifactMutation: Bool
+
+    /// Whether the result proves the pending invocation completed successfully.
+    var succeeded: Bool {
+        guard !isError else { return false }
+        if let exitCode { return exitCode == 0 }
+        return !reportsFailureWithoutExitStatus
+    }
+
     /// Creates a completion.
     ///
     /// - Parameters:
@@ -22,16 +32,19 @@ struct TranscriptToolCompletion: Sendable {
     ///   - isError: Whether the result was flagged as an error.
     ///   - exitCode: The parsed exit code, when available.
     ///   - durationSeconds: The parsed duration, when available.
+    ///   - authorizesArtifactMutation: Whether the source proved a mutation succeeded.
     init(
         output: String?,
         isError: Bool,
         exitCode: Int? = nil,
-        durationSeconds: Double? = nil
+        durationSeconds: Double? = nil,
+        authorizesArtifactMutation: Bool
     ) {
         self.output = output
         self.isError = isError
         self.exitCode = exitCode
         self.durationSeconds = durationSeconds
+        self.authorizesArtifactMutation = authorizesArtifactMutation
     }
 
     /// Produces the completed copy of a pending tool message.
@@ -47,20 +60,22 @@ struct TranscriptToolCompletion: Sendable {
             let completed = ChatTerminalCapture(
                 command: capture.command,
                 output: output.map { budget.body($0) },
-                exitCode: exitCode ?? (isError ? 1 : 0),
+                exitCode: exitCode ?? (succeeded ? 0 : 1),
                 durationSeconds: durationSeconds,
                 isRunning: false
             )
             return message.replacingKind(.terminal(completed))
         case .toolUse(let toolUse):
-            let failed = isError || (exitCode ?? 0) != 0
             let completed = ChatToolUse(
                 toolName: toolUse.toolName,
                 summary: toolUse.summary,
                 inputDetail: toolUse.inputDetail,
                 output: output.map { budget.body($0) },
-                status: failed ? .failed : .succeeded,
-                referencedPaths: toolUse.referencedPaths
+                status: succeeded ? .succeeded : .failed,
+                referencedPaths: toolUse.referencedPaths,
+                artifactMutationAuthorized: toolUse.artifactMutationPaths.isEmpty
+                    ? nil
+                    : authorizesArtifactMutation
             )
             return message.replacingKind(.toolUse(completed))
         case .question(let question):
@@ -138,6 +153,19 @@ struct TranscriptToolCompletion: Sendable {
               let root = try? JSONSerialization.jsonObject(with: data) as? [String: Any],
               let answers = root["answers"] as? [String: Any] else { return nil }
         return answers.compactMapValues { $0 as? [String: Any] }
+    }
+
+    /// Codex custom tools can report failure only in their text envelope.
+    private var reportsFailureWithoutExitStatus: Bool {
+        guard let output else { return false }
+        let prefix = output
+            .trimmingCharacters(in: .whitespacesAndNewlines)
+            .prefix(400)
+            .lowercased()
+        return prefix.hasPrefix("script failed")
+            || prefix.hasPrefix("tool failed")
+            || prefix.hasPrefix("apply_patch verification failed")
+            || prefix.hasPrefix("error:")
     }
 }
 

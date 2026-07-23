@@ -13,6 +13,14 @@ final class AgentChatTranscriptService {
 
     let registry: AgentChatSessionRegistry
     let resolver: AgentChatTranscriptResolver
+    let artifactIndex: AgentChatArtifactIndex
+    let artifactCaptureCoordinator: AgentArtifactCaptureCoordinator?
+    let isAutomaticArtifactCaptureEnabled: @MainActor @Sendable () -> Bool
+    var artifactCaptureTasks: [String: (
+        token: UUID,
+        task: Task<Void, Never>?,
+        pending: (@Sendable () async -> Void)?
+    )] = [:]
     private var tailers: [String: AgentChatTranscriptTailer] = [:]
     private let hasEventSubscribers: @MainActor () -> Bool
     private let emitEventPayload: @MainActor ([String: Any]) -> Void
@@ -46,12 +54,18 @@ final class AgentChatTranscriptService {
         emitEventPayload: @escaping @MainActor ([String: Any]) -> Void = { payload in
             MobileHostService.emitEvent(topic: AgentChatTranscriptService.eventTopic, payload: payload)
         },
+        artifactIndex: AgentChatArtifactIndex = AgentChatArtifactIndex(),
+        artifactCaptureCoordinator: AgentArtifactCaptureCoordinator? = nil,
+        isAutomaticArtifactCaptureEnabled: @escaping @MainActor @Sendable () -> Bool = { true },
         now: @escaping () -> Date = { Date() }
     ) {
         self.registry = registry
         self.resolver = resolver
         self.hasEventSubscribers = hasEventSubscribers
         self.emitEventPayload = emitEventPayload
+        self.artifactIndex = artifactIndex
+        self.artifactCaptureCoordinator = artifactCaptureCoordinator
+        self.isAutomaticArtifactCaptureEnabled = isAutomaticArtifactCaptureEnabled
         self.now = now
         registry.onRecordChanged = { [weak self] record, previous in
             self?.handleRecordChange(record, previous: previous)
@@ -188,6 +202,7 @@ final class AgentChatTranscriptService {
             }
         case .stop, .sessionEnd:
             proseStreamer.turnEnded(sessionID: record.sessionID)
+            scheduleArtifactCapture(for: record)
         default:
             break
         }
@@ -348,7 +363,15 @@ final class AgentChatTranscriptService {
             return existing
         }
         guard !failedResolutions.contains(record.sessionID) else { return nil }
-        guard let path = resolver.transcriptPath(for: record) else {
+        let resolvedPath: String?
+        do {
+            resolvedPath = try resolver.transcriptPath(for: record)
+        } catch is CancellationError {
+            return nil
+        } catch {
+            resolvedPath = nil
+        }
+        guard let path = resolvedPath else {
             failedResolutions.insert(record.sessionID)
             #if DEBUG
             cmuxDebugLog(
@@ -398,7 +421,7 @@ final class AgentChatTranscriptService {
         if !batch.appended.isEmpty {
             // The authoritative prose for the turn just landed: settle the live
             // preview so the committed message takes over with no duplicate.
-            if Self.batchContainsAgentProse(batch.appended) {
+            if batch.appended.containsAgentProse {
                 proseStreamer.authoritativeProseArrived(sessionID: sessionID)
             }
             emit(frame: ChatSessionEventFrame(sessionID: sessionID, event: .appended(batch.appended)))
@@ -406,37 +429,9 @@ final class AgentChatTranscriptService {
         if !batch.updated.isEmpty {
             emit(frame: ChatSessionEventFrame(sessionID: sessionID, event: .updated(batch.updated)))
         }
-        if let completedAt = Self.completedAssistantTurnTimestamp(in: batch.appended) {
+        if let completedAt = batch.appended.completedAssistantTurnTimestamp {
             registry.noteAssistantTurnCompleted(sessionID: sessionID, at: completedAt)
         }
-    }
-
-    /// Whether a batch carries any committed agent prose, the signal that the
-    /// streaming preview for the turn should settle.
-    private static func batchContainsAgentProse(_ messages: [ChatMessage]) -> Bool {
-        messages.contains { message in
-            guard message.role == .agent else { return false }
-            if case .prose = message.kind { return true }
-            return false
-        }
-    }
-
-    private static func completedAssistantTurnTimestamp(in messages: [ChatMessage]) -> Date? {
-        guard !messages.isEmpty else { return nil }
-        var completedAt: Date?
-        for message in messages where message.role == .agent {
-            switch message.kind {
-            case .prose, .thought, .unsupported:
-                completedAt = max(completedAt ?? message.timestamp, message.timestamp)
-            case .toolUse, .terminal, .fileEdit, .permissionRequest, .question:
-                return nil
-            case .status:
-                break
-            case .attachment:
-                break
-            }
-        }
-        return completedAt
     }
 
     private func handleRecordChange(_ record: AgentChatSessionRecord, previous: AgentChatSessionRecord?) {
@@ -451,6 +446,7 @@ final class AgentChatTranscriptService {
         let stateChanged = previous?.state != record.state
         let transcriptBecameAvailable = previous?.transcriptPath == nil && record.transcriptPath != nil
         if stateChanged, record.state == .ended {
+            scheduleArtifactCapture(for: record)
             // The transcript can no longer grow; stop any live preview loop so
             // an agent that exits without a Stop hook doesn't leak the poll task.
             proseStreamer.turnEnded(sessionID: record.sessionID)
@@ -483,6 +479,7 @@ final class AgentChatTranscriptService {
 
     private func handleRecordRemoval(_ record: AgentChatSessionRecord) {
         proseStreamer.turnEnded(sessionID: record.sessionID)
+        removeArtifactCaptureSession(sessionID: record.sessionID)
         if let tailer = tailers.removeValue(forKey: record.sessionID) {
             Task { await tailer.stop() }
         }

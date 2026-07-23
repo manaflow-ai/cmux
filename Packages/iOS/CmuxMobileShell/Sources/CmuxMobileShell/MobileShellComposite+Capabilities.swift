@@ -22,6 +22,10 @@ extension MobileShellComposite {
     public var supportsDogfoodFeedback: Bool { supportedHostCapabilities.contains(Self.dogfoodFeedbackCapability) }
     /// Whether the Mac supports chat artifact stat/fetch/thumbnail/list RPCs.
     public var supportsChatArtifacts: Bool { supportedHostCapabilities.contains(Self.chatArtifactCapability) }
+    /// Whether chat artifact paths can be saved into the project-local store.
+    public var supportsChatArtifactSave: Bool {
+        supportedHostCapabilities.contains(Self.chatArtifactSaveCapability)
+    }
     /// Whether the Mac supports session-wide artifact gallery paging and search.
     public var supportsChatArtifactGallery: Bool {
         supportedHostCapabilities.contains(Self.chatArtifactGalleryCapability)

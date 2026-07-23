@@ -1,12 +1,36 @@
 import CmuxAgentChat
+import Darwin
 import Foundation
 
 /// Builds and caches the transcript-derived artifact scope for chat sessions.
 actor AgentChatArtifactIndex {
+    static let hardMaximumTranscriptBytes: UInt64 = 128 * 1024 * 1024
+    static let maximumRetainedArtifactCount = 1_024
+
     struct Snapshot: Sendable {
         let referencedPaths: Set<String>
         let artifacts: [ChatArtifactIndexedReference]
         let generation: String
+        let revision: UInt64
+        let transcriptLineage: String
+        let transcriptExtent: UInt64
+
+        init(
+            referencedPaths: Set<String>,
+            artifacts: [ChatArtifactIndexedReference],
+            generation: String,
+            revision: UInt64,
+            transcriptLineage: String = "",
+            transcriptExtent: UInt64? = nil
+        ) {
+            self.referencedPaths = referencedPaths
+            self.artifacts = artifacts
+            self.generation = generation
+            self.revision = revision
+            self.transcriptLineage = transcriptLineage
+            self.transcriptExtent = transcriptExtent
+                ?? UInt64(max(0, artifacts.map(\.lastReferencedSeq).max() ?? 0))
+        }
     }
 
     enum Operation: Sendable {
@@ -25,6 +49,8 @@ actor AgentChatArtifactIndex {
         let workingDirectory: String?
         let fileSize: UInt64
         let modifiedAt: Date
+        let transcriptLineage: String
+        let maximumFileBytes: UInt64
 
         var generation: String {
             "\(fileSize)-\(Int64(modifiedAt.timeIntervalSince1970 * 1_000_000))"
@@ -34,27 +60,96 @@ actor AgentChatArtifactIndex {
     private struct CacheEntry: Sendable {
         let key: CacheKey
         let snapshot: Snapshot
+        let continuityStartOffset: UInt64
+        let continuityByteCount: UInt64
+        let continuityDigest: Data
     }
 
     private var cacheBySessionID = ChatArtifactLRUCache<String, CacheEntry>(capacity: 8)
+    private var nextSnapshotRevision: UInt64 = 0
 
     func snapshot(
         sessionID: String,
         agentKind: ChatAgentKind,
         transcriptPath: String,
-        workingDirectory: String?
+        workingDirectory: String?,
+        maximumFileBytes: UInt64? = nil
     ) async throws -> Snapshot {
-        let key = try Self.cacheKey(transcriptPath: transcriptPath, workingDirectory: workingDirectory)
-        if let cached = cacheBySessionID.value(forKey: sessionID), cached.key == key {
-            return cached.snapshot
+        try Task.checkCancellation()
+        let byteLimit = min(maximumFileBytes ?? Self.hardMaximumTranscriptBytes,
+                            Self.hardMaximumTranscriptBytes)
+        let opened = try Self.openTranscript(
+            path: transcriptPath,
+            workingDirectory: workingDirectory,
+            maximumFileBytes: byteLimit
+        )
+        defer { try? opened.handle.close() }
+        let key = opened.key
+        let previous = cacheBySessionID.value(forKey: sessionID)
+        if let previous, previous.key == key {
+            return previous.snapshot
         }
+        let reader = AgentChatTranscriptReader()
+        let matchesPreviousContent = try previous.map { entry in
+            let hasSameSource = entry.key.transcriptLineage == key.transcriptLineage
+                && entry.key.transcriptPath == key.transcriptPath
+                && entry.key.workingDirectory == key.workingDirectory
+                && entry.key.maximumFileBytes == key.maximumFileBytes
+            guard hasSameSource,
+                  entry.continuityByteCount <= key.fileSize,
+                  entry.continuityStartOffset <= key.fileSize - entry.continuityByteCount else {
+                return false
+            }
+            return try reader.matchesContent(
+                handle: opened.handle,
+                startOffset: entry.continuityStartOffset,
+                byteCount: entry.continuityByteCount,
+                expectedDigest: entry.continuityDigest
+            )
+        } ?? false
+        if matchesPreviousContent,
+           let previous,
+           previous.key.fileSize == key.fileSize {
+            cacheBySessionID.insert(
+                CacheEntry(
+                    key: key,
+                    snapshot: previous.snapshot,
+                    continuityStartOffset: previous.continuityStartOffset,
+                    continuityByteCount: previous.continuityByteCount,
+                    continuityDigest: previous.continuityDigest
+                ),
+                forKey: sessionID
+            )
+            return previous.snapshot
+        }
+        let extendsPreviousTranscript = matchesPreviousContent
+            && (previous?.key.fileSize ?? key.fileSize) < key.fileSize
+        let slice = try reader.read(
+            handle: opened.handle,
+            fileSize: key.fileSize,
+            maximumBytes: key.maximumFileBytes
+        )
+        let sliceDigest = reader.digest(slice.data)
+        nextSnapshotRevision &+= 1
         let snapshot = try Self.buildSnapshot(
             agentKind: agentKind,
-            transcriptPath: transcriptPath,
+            slice: slice,
             workingDirectory: workingDirectory,
-            generation: key.generation
+            generation: "\(key.generation)-\(sliceDigest.base64EncodedString())",
+            revision: nextSnapshotRevision,
+            transcriptLineage: key.transcriptLineage,
+            previousArtifacts: extendsPreviousTranscript ? previous?.snapshot.artifacts ?? [] : []
         )
-        cacheBySessionID.insert(CacheEntry(key: key, snapshot: snapshot), forKey: sessionID)
+        cacheBySessionID.insert(
+            CacheEntry(
+                key: key,
+                snapshot: snapshot,
+                continuityStartOffset: slice.lineStartOffsets.first ?? slice.transcriptExtent,
+                continuityByteCount: UInt64(slice.data.count),
+                continuityDigest: sliceDigest
+            ),
+            forKey: sessionID
+        )
         return snapshot
     }
 
@@ -92,44 +187,137 @@ actor AgentChatArtifactIndex {
         return canonicalPath.map(CanonicalPathResult.success) ?? .notInSet
     }
 
-    private static func cacheKey(transcriptPath: String, workingDirectory: String?) throws -> CacheKey {
-        let attributes = try FileManager.default.attributesOfItem(atPath: transcriptPath)
-        let size = (attributes[.size] as? NSNumber)?.uint64Value ?? 0
-        let modifiedAt = attributes[.modificationDate] as? Date ?? Date(timeIntervalSince1970: 0)
-        return CacheKey(
-            transcriptPath: transcriptPath,
+    private static func openTranscript(
+        path: String,
+        workingDirectory: String?,
+        maximumFileBytes: UInt64
+    ) throws -> (key: CacheKey, handle: FileHandle) {
+        let descriptor = Darwin.open(
+            path,
+            O_RDONLY | O_CLOEXEC | O_NOFOLLOW | O_NONBLOCK
+        )
+        guard descriptor >= 0 else {
+            throw CocoaError(.fileReadUnknown, userInfo: [NSFilePathErrorKey: path])
+        }
+        let handle = FileHandle(fileDescriptor: descriptor, closeOnDealloc: true)
+        var status = stat()
+        guard fstat(descriptor, &status) == 0,
+              (status.st_mode & S_IFMT) == S_IFREG,
+              status.st_size >= 0 else {
+            try? handle.close()
+            throw CocoaError(.fileReadUnknown, userInfo: [NSFilePathErrorKey: path])
+        }
+        let size = UInt64(status.st_size)
+        let modifiedAt = Date(
+            timeIntervalSince1970: Double(status.st_mtimespec.tv_sec)
+                + Double(status.st_mtimespec.tv_nsec) / 1_000_000_000
+        )
+        let key = CacheKey(
+            transcriptPath: path,
             workingDirectory: workingDirectory,
             fileSize: size,
-            modifiedAt: modifiedAt
+            modifiedAt: modifiedAt,
+            transcriptLineage: "\(path):\(status.st_dev):\(status.st_ino)",
+            maximumFileBytes: maximumFileBytes
         )
+        return (key, handle)
     }
 
     private static func buildSnapshot(
         agentKind: ChatAgentKind,
-        transcriptPath: String,
+        slice: AgentChatTranscriptSlice,
         workingDirectory: String?,
-        generation: String
+        generation: String,
+        revision: UInt64,
+        transcriptLineage: String,
+        previousArtifacts: [ChatArtifactIndexedReference]
     ) throws -> Snapshot {
-        let data = try Data(contentsOf: URL(fileURLWithPath: transcriptPath), options: .mappedIfSafe)
-        let text = String(decoding: data, as: UTF8.self)
+        let text = String(decoding: slice.data, as: UTF8.self)
         let lines = text.split(separator: "\n", omittingEmptySubsequences: false).map(String.init)
         let parseResult: ChatTranscriptParseResult
         switch agentKind {
         case .codex:
-            parseResult = CodexTranscriptParser().parse(lines: lines, startingSeq: 0)
+            parseResult = CodexTranscriptParser().parse(
+                lines: lines,
+                startingSeq: 0
+            )
         case .claude, .other:
-            parseResult = ClaudeTranscriptParser().parse(lines: lines, startingSeq: 0)
+            parseResult = ClaudeTranscriptParser().parse(
+                lines: lines,
+                startingSeq: 0
+            )
         }
-        let artifacts = ChatArtifactIndexedReference.derive(
+        let relativeArtifacts = ChatArtifactIndexedReference.derive(
             from: parseResult.messages,
             supplementalReferences: parseResult.artifactReferences,
             workingDirectory: workingDirectory
+        )
+        let currentArtifacts = relativeArtifacts.compactMap { artifact -> ChatArtifactIndexedReference? in
+            guard slice.lineStartOffsets.indices.contains(artifact.lastReferencedSeq),
+                  let absoluteSequence = Int(
+                    exactly: slice.lineStartOffsets[artifact.lastReferencedSeq]
+                  ) else {
+                return nil
+            }
+            return ChatArtifactIndexedReference(
+                path: artifact.path,
+                provenance: artifact.provenance,
+                lastReferencedSeq: absoluteSequence
+            )
+        }
+        let artifacts = mergedArtifacts(
+            previousArtifacts,
+            currentArtifacts,
+            maximumCount: maximumRetainedArtifactCount
         )
         let referencedPaths = Set(artifacts.map(\.path))
         return Snapshot(
             referencedPaths: referencedPaths,
             artifacts: artifacts,
-            generation: generation
+            generation: generation,
+            revision: revision,
+            transcriptLineage: transcriptLineage,
+            transcriptExtent: slice.transcriptExtent
         )
+    }
+
+    private static func mergedArtifacts(
+        _ previous: [ChatArtifactIndexedReference],
+        _ current: [ChatArtifactIndexedReference],
+        maximumCount: Int
+    ) -> [ChatArtifactIndexedReference] {
+        var artifacts = Dictionary(uniqueKeysWithValues: previous.map { ($0.path, $0) })
+        for artifact in current {
+            let existing = artifacts[artifact.path]
+            artifacts[artifact.path] = ChatArtifactIndexedReference(
+                path: artifact.path,
+                provenance: higherPrecedence(existing?.provenance, artifact.provenance),
+                lastReferencedSeq: max(
+                    existing?.lastReferencedSeq ?? Int.min,
+                    artifact.lastReferencedSeq
+                )
+            )
+        }
+        return Array(artifacts.values.sorted {
+            if $0.lastReferencedSeq != $1.lastReferencedSeq {
+                return $0.lastReferencedSeq > $1.lastReferencedSeq
+            }
+            return $0.path < $1.path
+        }.prefix(maximumCount))
+    }
+
+    private static func higherPrecedence(
+        _ lhs: ChatArtifactProvenance?,
+        _ rhs: ChatArtifactProvenance
+    ) -> ChatArtifactProvenance {
+        guard let lhs else { return rhs }
+        let rank: (ChatArtifactProvenance) -> Int = {
+            switch $0 {
+            case .created: 0
+            case .attached: 1
+            case .referenced: 2
+            }
+        }
+        return rank(lhs) <= rank(rhs) ? lhs : rhs
     }
 }

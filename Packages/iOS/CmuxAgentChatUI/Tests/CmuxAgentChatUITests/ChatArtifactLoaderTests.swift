@@ -111,14 +111,31 @@ struct ChatArtifactLoaderTests {
         }
         #expect(await source.listRequestCount() == 1)
     }
+
+    @Test func chatSaveCapabilityRoutesToTheSessionSource() async throws {
+        let source = CountingArtifactSource()
+        let loader = ChatArtifactLoader(source: source, sessionID: "session-1")
+
+        let result = try await loader.save(path: "/tmp/plan.md")
+
+        #expect(loader.supportsArtifactSave)
+        #expect(result.reference == ".cmux/codex-session-1/artifacts/plan.md")
+        #expect(await source.lastSaveRequest() == "session-1:/tmp/plan.md")
+    }
 }
 
 private actor CountingArtifactSource: ChatEventSource {
     nonisolated let supportsArtifacts = true
+    nonisolated let supportsArtifactSave = true
     private var requests = 0
+    private var saveRequest: String?
 
     func thumbnailRequestCount() -> Int {
         requests
+    }
+
+    func lastSaveRequest() -> String? {
+        saveRequest
     }
 
     func history(sessionID: String, beforeSeq: Int?, limit: Int) async throws -> ChatHistoryPage {
@@ -166,6 +183,15 @@ private actor CountingArtifactSource: ChatEventSource {
 
     func artifactList(sessionID: String, path: String) async throws -> ChatArtifactDirectoryListing {
         throw ChatArtifactError.unsupported
+    }
+
+    func artifactSave(sessionID: String, path: String) async throws -> ChatArtifactSaveResult {
+        saveRequest = "\(sessionID):\(path)"
+        return ChatArtifactSaveResult(
+            path: "/project/.cmux/codex-session-1/artifacts/plan.md",
+            relativePath: "codex-session-1/artifacts/plan.md",
+            reference: ".cmux/codex-session-1/artifacts/plan.md"
+        )
     }
 }
 

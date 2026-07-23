@@ -1,5 +1,6 @@
 import CMUXAgentLaunch
 import CmuxAgentChat
+import CmuxArtifacts
 import Foundation
 import Testing
 
@@ -10,6 +11,35 @@ import Testing
 #endif
 
 struct AgentChatSessionRegistryLifecycleReviewRegressionTests {
+    @MainActor
+    @Test func cancelledHistoryResolutionIsNotCachedAsMissing() async throws {
+        let home = try temporaryHomeDirectory()
+        let registry = AgentChatSessionRegistry()
+        let service = AgentChatTranscriptService(
+            registry: registry,
+            resolver: AgentChatTranscriptResolver(homeDirectory: home, environment: [:])
+        )
+        let sessionID = "24ec0052-450c-4914-b1dd-2ee80d4bc84b"
+        registry.noteHookEvent(WorkstreamEvent(
+            sessionId: sessionID,
+            hookEventName: .sessionStart,
+            source: "codex",
+            workspaceId: UUID().uuidString,
+            surfaceId: UUID().uuidString,
+            cwd: "/Users/example/project",
+            ppid: 123
+        ))
+
+        let historyTask = Task { @MainActor in
+            await service.history(sessionID: sessionID, beforeSeq: nil, limit: 20)
+        }
+        historyTask.cancel()
+        _ = await historyTask.value
+
+        let debugRecord = try #require(service.debugSessionDump().first)
+        #expect(debugRecord["resolution_failed"] as? Bool == false)
+    }
+
     @MainActor
     @Test func onlyHookEventsProvideAuthoritativeAgentLifecycleState() throws {
         let registry = AgentChatSessionRegistry()
@@ -317,6 +347,98 @@ struct AgentChatSessionRegistryLifecycleReviewRegressionTests {
             guard case .stateChanged(.ended) = frame.event else { return false }
             return frame.sessionID == sessionID
         })
+    }
+
+    @MainActor
+    @Test func removedAndReusedSessionIDCapturesTheSameRevisionAgain() async throws {
+        let projectRoot = try temporaryHomeDirectory()
+        defer { try? FileManager.default.removeItem(at: projectRoot) }
+        let source = projectRoot.appendingPathComponent("plan.md")
+        try "plan".write(to: source, atomically: true, encoding: .utf8)
+        let coordinator = AgentArtifactCaptureCoordinator(
+            captureService: ArtifactCaptureService(store: LocalArtifactRepository())
+        )
+        let registry = AgentChatSessionRegistry()
+        let service = AgentChatTranscriptService(
+            registry: registry,
+            artifactCaptureCoordinator: coordinator
+        )
+        let surfaceID = UUID().uuidString
+        let workspaceID = UUID().uuidString
+        let pendingSessionID = AgentChatSessionRegistry.pendingClaudeSessionID(
+            surfaceID: surfaceID
+        )
+        let indexed = AgentChatArtifactIndex.Snapshot(
+            referencedPaths: [source.path],
+            artifacts: [ChatArtifactIndexedReference(
+                path: source.path,
+                provenance: .created,
+                lastReferencedSeq: 1
+            )],
+            generation: "generation",
+            revision: 1
+        )
+
+        registry.noteResumeInitiated(
+            sessionID: pendingSessionID,
+            source: "claude",
+            surfaceID: surfaceID,
+            workspaceID: workspaceID,
+            workingDirectory: projectRoot.path
+        )
+        let firstRecord = try #require(registry.record(sessionID: pendingSessionID))
+        service.scheduleIndexedArtifactCapture(record: firstRecord, snapshot: indexed)
+        let firstTask = try #require(service.artifactCaptureTasks[pendingSessionID]?.task)
+        await firstTask.value
+        #expect(try provenanceEventCount(projectRoot: projectRoot) == 1)
+
+        let realSessionID = UUID().uuidString
+        registry.noteResumeInitiated(
+            sessionID: realSessionID,
+            source: "claude",
+            surfaceID: surfaceID,
+            workspaceID: workspaceID,
+            workingDirectory: projectRoot.path
+        )
+        _ = registry.noteHookEvent(WorkstreamEvent(
+            sessionId: realSessionID,
+            hookEventName: .sessionStart,
+            source: "claude",
+            workspaceId: workspaceID,
+            surfaceId: surfaceID,
+            cwd: projectRoot.path,
+            ppid: nil
+        ))
+        #expect(registry.record(sessionID: pendingSessionID) == nil)
+
+        registry.noteResumeInitiated(
+            sessionID: pendingSessionID,
+            source: "claude",
+            surfaceID: surfaceID,
+            workspaceID: workspaceID,
+            workingDirectory: projectRoot.path
+        )
+        let reusedRecord = try #require(registry.record(sessionID: pendingSessionID))
+        service.scheduleIndexedArtifactCapture(record: reusedRecord, snapshot: indexed)
+        let reusedTask = try #require(service.artifactCaptureTasks[pendingSessionID]?.task)
+        await reusedTask.value
+
+        #expect(try provenanceEventCount(projectRoot: projectRoot) == 2)
+    }
+
+    private func provenanceEventCount(projectRoot: URL) throws -> Int {
+        let provenanceRoot = projectRoot.appendingPathComponent(
+            ".cmux/.metadata/provenance",
+            isDirectory: true
+        )
+        let documents = try FileManager.default.contentsOfDirectory(
+            at: provenanceRoot,
+            includingPropertiesForKeys: nil
+        )
+        let document = try #require(documents.first)
+        let data = try Data(contentsOf: document)
+        let json = try #require(JSONSerialization.jsonObject(with: data) as? [String: Any])
+        return (json["events"] as? [[String: Any]])?.count ?? 0
     }
 
     private func temporaryHomeDirectory() throws -> URL {

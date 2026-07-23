@@ -1,5 +1,6 @@
 import AppKit
 import CmuxAppKitSupportUI
+import CmuxArtifacts
 import CmuxCommandPalette
 import CmuxCore
 import CmuxFeedback
@@ -808,6 +809,8 @@ private final class SelectedWorkspaceDirectoryObserver: ObservableObject {
 struct ContentView: View {
     var updateViewModel: UpdateStateModel
     let windowId: UUID
+    let artifactStore: any ArtifactStoring
+    let artifactCaptureService: any ArtifactCapturing
     @EnvironmentObject var tabManager: TabManager
     // ContentView observes the coalesced unread projection, NOT the notification
     // store. Reading `notificationStore` directly here would re-render the entire
@@ -1916,11 +1919,17 @@ struct ContentView: View {
             titlebarHeight: RightSidebarChromeMetrics.titlebarHeight,
             windowAppearance: appearance,
             workspaceId: tabManager.selectedTabId,
+            artifactWorkspace: selectedArtifactWorkspace,
+            artifactStore: artifactStore,
+            artifactCaptureService: artifactCaptureService,
             onResumeSession: { entry in
                 resumeSession(entry: entry)
             },
             onOpenFilePreview: { filePath in
                 openFilePreviewFromSidebar(filePath: filePath)
+            },
+            onOpenArtifact: { artifact in
+                openArtifactFromSidebar(artifact)
             },
             onOpenAsPane: { mode in
                 openRightSidebarToolPane(mode)

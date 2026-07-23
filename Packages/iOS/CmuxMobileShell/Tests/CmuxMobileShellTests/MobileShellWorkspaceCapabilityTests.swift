@@ -13,15 +13,18 @@ import Testing
             "terminal.artifact.v1",
         ]
         #expect(!store.supportsChatArtifactFolders)
+        #expect(!store.supportsChatArtifactSave)
         #expect(!store.supportsTerminalArtifactList)
         #expect(!store.supportsIrohArtifactLane)
 
         store.supportedHostCapabilities.formUnion([
             "chat.artifact.folders.v1",
+            "chat.artifact.save.v1",
             "terminal.artifact.list.v1",
             "iroh.artifact_lane.v1",
         ])
         #expect(store.supportsChatArtifactFolders)
+        #expect(store.supportsChatArtifactSave)
         #expect(store.supportsTerminalArtifactList)
         #expect(store.supportsIrohArtifactLane)
     }

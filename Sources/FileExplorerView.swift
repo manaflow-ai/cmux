@@ -339,7 +339,7 @@ struct FileExplorerPanelView: NSViewRepresentable {
         }
 
         func performDisclosureAction(
-            _ action: RightSidebarKeyboardNavigation.DisclosureAction,
+            _ action: RightSidebarDisclosureAction,
             in outlineView: NSOutlineView
         ) {
             switch action {

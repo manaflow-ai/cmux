@@ -57,7 +57,9 @@ struct AgentChatTranscriptResolver: Sendable {
     /// - Parameters:
     ///   - record: The session's registry record.
     /// - Returns: An existing transcript path, or `nil` when none is found.
-    func transcriptPath(for record: AgentChatSessionRecord) -> String? {
+    /// - Throws: ``CancellationError`` when the calling task is canceled.
+    func transcriptPath(for record: AgentChatSessionRecord) throws -> String? {
+        try Task.checkCancellation()
         if let recorded = recordedTranscriptPath(for: record) {
             return recorded
         }
@@ -65,7 +67,7 @@ struct AgentChatTranscriptResolver: Sendable {
         case .claude:
             return claudeFallbackPath(record: record)
         case .codex:
-            return codexFallbackPath(sessionID: record.sessionID)
+            return try codexFallbackPath(sessionID: record.sessionID)
         case .other:
             return nil
         }
@@ -108,7 +110,7 @@ struct AgentChatTranscriptResolver: Sendable {
     /// Codex rollout files are named `rollout-<timestamp>-<session-uuid>.jsonl`
     /// under `~/.codex/sessions/YYYY/MM/DD/`; scan recent day directories for
     /// the session id.
-    private func codexFallbackPath(sessionID: String) -> String? {
+    private func codexFallbackPath(sessionID: String) throws -> String? {
         let fileManager = FileManager.default
         let root = codexConfigRoot
             .appendingPathComponent("sessions", isDirectory: true)
@@ -119,6 +121,7 @@ struct AgentChatTranscriptResolver: Sendable {
         ) else { return nil }
         let needle = sessionID.lowercased()
         for case let url as URL in enumerator {
+            try Task.checkCancellation()
             guard url.pathExtension == "jsonl" else { continue }
             if url.lastPathComponent.lowercased().contains(needle) {
                 return url.path

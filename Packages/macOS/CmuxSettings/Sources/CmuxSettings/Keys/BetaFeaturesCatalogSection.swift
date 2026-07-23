@@ -6,6 +6,14 @@ import Foundation
 /// pattern `<feature-domain>.beta.<flag-name>` so the cmux.json view
 /// groups them sensibly.
 public struct BetaFeaturesCatalogSection: SettingCatalogSection {
+    /// Artifacts: persistent project-local capture plus a searchable
+    /// right-sidebar filesystem tree. Defaults off while the surface is beta.
+    public let rightSidebarArtifacts = DefaultsKey<Bool>(
+        id: "rightSidebar.beta.artifacts.enabled",
+        defaultValue: false,
+        userDefaultsKey: "rightSidebar.beta.artifacts.enabled"
+    )
+
     /// Right-sidebar Feed: an experimental mode that surfaces inline agent
     /// decisions (permission prompts, questions) in the right-sidebar mode
     /// switcher. Defaults off; while off, the Feed mode is hidden from the

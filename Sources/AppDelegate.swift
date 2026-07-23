@@ -1,5 +1,6 @@
 import AppKit
 import CmuxAppKitSupportUI
+import CmuxArtifacts
 import CmuxAuthRuntime
 import CmuxBrowser
 import CmuxCommandPalette
@@ -783,7 +784,16 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
     /// Strongly-held observers for every active TabManager. Each observer owns
     /// Combine subscriptions that publish workspace.updated to mobile clients.
     private var mobileWorkspaceListObservers: [ObjectIdentifier: MobileWorkspaceListObserver] = [:]
-    private let agentChatTranscriptService = AgentChatTranscriptService()
+    let artifactRepository = LocalArtifactRepository()
+    lazy var artifactCaptureService = ArtifactCaptureService(store: artifactRepository)
+    private lazy var agentArtifactCaptureCoordinator = AgentArtifactCaptureCoordinator(captureService: artifactCaptureService)
+    private lazy var agentChatTranscriptService = AgentChatTranscriptService(
+        registry: AgentChatSessionRegistry(),
+        artifactCaptureCoordinator: agentArtifactCaptureCoordinator,
+        isAutomaticArtifactCaptureEnabled: {
+            RightSidebarBetaFeatureSettings.isArtifactsEnabled()
+        }
+    )
     /// The app's settings dependency container, handed over by `cmuxApp` via
     /// `configure(...)` before any main window is created. AppKit builds the
     /// main window's `NSHostingView` itself, so it injects this into the
@@ -6132,6 +6142,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
         surfaceId: UUID?,
         useLastTurnSource: Bool,
         sessionId: String?,
+        patchFileURL: URL? = nil,
         focus: Bool = true
     ) -> Bool {
         let process = Process()
@@ -6139,11 +6150,17 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
         var arguments = [
             "--socket", socketPath,
             "diff",
-            useLastTurnSource ? "--last-turn" : "--unstaged",
+        ]
+        if let patchFileURL {
+            arguments.append(patchFileURL.path)
+        } else {
+            arguments.append(useLastTurnSource ? "--last-turn" : "--unstaged")
+        }
+        arguments.append(contentsOf: [
             "--cwd", cwd,
             "--workspace", workspaceId.uuidString,
             "--focus", focus ? "true" : "false",
-        ]
+        ])
         if let surfaceId {
             arguments.append(contentsOf: ["--surface", surfaceId.uuidString])
         }
@@ -8645,7 +8662,12 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
         }
 #endif
 
-        let root = ContentView(updateViewModel: updateViewModel, windowId: windowId)
+        let root = ContentView(
+            updateViewModel: updateViewModel,
+            windowId: windowId,
+            artifactStore: artifactRepository,
+            artifactCaptureService: artifactCaptureService
+        )
             .environmentObject(tabManager)
             .environmentObject(notificationStore)
             .environmentObject(notificationStore.sidebarUnread)

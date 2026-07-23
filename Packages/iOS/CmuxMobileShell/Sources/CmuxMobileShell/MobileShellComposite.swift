@@ -94,6 +94,7 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
     static let workspaceCreateInGroupCapability = "workspace.create_in_group.v1", workspaceGroupCreateCapability = "workspace.group_create.v1"
     static let taskCreateCapability = "workspace.task_create.v1"
     static let chatArtifactCapability = "chat.artifact.v1"
+    static let chatArtifactSaveCapability = "chat.artifact.save.v1"
     static let chatArtifactGalleryCapability = "chat.artifact.gallery.v1"
     static let terminalArtifactCapability = "terminal.artifact.v1"
     static let irohArtifactLaneCapability = "iroh.artifact_lane.v1"

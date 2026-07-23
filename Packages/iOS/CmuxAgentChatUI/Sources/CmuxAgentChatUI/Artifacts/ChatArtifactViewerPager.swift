@@ -19,6 +19,8 @@ struct ChatArtifactViewerPager: View {
     @Environment(\.chatArtifactLoader) private var loader
     @State private var model: ChatArtifactViewerPagerModel
     @State private var zoomedPath: String?
+    @State private var isSavingToArtifacts = false
+    @State private var artifactSaveTask: Task<Void, Never>?
 
     init(
         initialPath: String,
@@ -53,7 +55,9 @@ struct ChatArtifactViewerPager: View {
                                 snapshot: model.toolbarSnapshot,
                                 loaderScope: loader.scope,
                                 loaderSupportsArtifacts: loader.supportsArtifacts,
-                                loaderSupportsDirectoryBrowsing: loader.supportsDirectoryBrowsing
+                                loaderSupportsDirectoryBrowsing: loader.supportsDirectoryBrowsing,
+                                loaderSupportsArtifactSave: loader.supportsArtifactSave,
+                                isSavingToArtifacts: isSavingToArtifacts
                             ),
                             actions: viewerActionsMenuActions
                         )
@@ -92,6 +96,9 @@ struct ChatArtifactViewerPager: View {
             .onChange(of: swipeOrder) { _, newOrder in
                 model.update(swipeOrder: newOrder)
             }
+            #if os(iOS)
+            .onDisappear(perform: cancelOwnedTasks)
+            #endif
     }
 
     @ViewBuilder
@@ -186,6 +193,7 @@ struct ChatArtifactViewerPager: View {
             prepareSave: { path in
                 Task { await model.prepareSave(for: path, loader: loader) }
             },
+            saveToArtifacts: saveToArtifacts,
             toggleSearch: model.toggleSearch,
             toggleGoToLine: model.toggleGoToLine,
             requestTop: model.requestTop,
@@ -223,5 +231,50 @@ struct ChatArtifactViewerPager: View {
         )
     }
 
+    private func saveToArtifacts(path: String) {
+        guard !isSavingToArtifacts else { return }
+        isSavingToArtifacts = true
+        artifactSaveTask = Task {
+            defer {
+                if !Task.isCancelled {
+                    isSavingToArtifacts = false
+                    artifactSaveTask = nil
+                }
+            }
+            do {
+                let result = try await loader.save(path: path)
+                try Task.checkCancellation()
+                toasts.present(.success(
+                    String(
+                        format: String(
+                            localized: "chat.artifact.saved_to_artifacts",
+                            defaultValue: "Saved as %@",
+                            bundle: .module
+                        ),
+                        result.reference
+                    ),
+                    systemImage: "shippingbox"
+                ))
+            } catch is CancellationError {
+                return
+            } catch {
+                guard !Task.isCancelled else { return }
+                toasts.present(.failure(
+                    String(
+                        localized: "chat.artifact.save_to_artifacts_failed",
+                        defaultValue: "Couldn’t save this file to cmux Artifacts.",
+                        bundle: .module
+                    ),
+                    systemImage: "shippingbox"
+                ))
+            }
+        }
+    }
+
+    private func cancelOwnedTasks() {
+        artifactSaveTask?.cancel()
+        artifactSaveTask = nil
+        isSavingToArtifacts = false
+    }
     #endif
 }

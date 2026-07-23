@@ -199,7 +199,7 @@ struct ClaudeTranscriptParserTests {
         #expect(edit.deletions == 0)
     }
 
-    @Test("MultiEdit and NotebookEdit map to file edits for Created provenance")
+    @Test("MultiEdit and NotebookEdit remain referenced until results arrive")
     func multiEditAndNotebookEditTools() {
         let line = assistantLine(blocks: [
             ["type": "tool_use", "id": "toolu_multi", "name": "MultiEdit",
@@ -224,7 +224,7 @@ struct ClaudeTranscriptParserTests {
             "/repo/Sources/App.swift",
             "/repo/Notes/Research.ipynb",
         ])
-        #expect(artifacts.allSatisfy { $0.provenance == .created })
+        #expect(artifacts.allSatisfy { $0.provenance == .referenced })
     }
 
     @Test("unknown tools map to a generic toolUse with summary and input detail")
@@ -412,12 +412,12 @@ struct ClaudeTranscriptParserTests {
 
         #expect(result.messages.isEmpty)
         #expect(result.artifactReferences == [
-            ChatArtifactTranscriptReference(path: "/tmp/app.js", provenance: .created, seq: 7),
-            ChatArtifactTranscriptReference(path: "/tmp/app.c", provenance: .created, seq: 7),
+            ChatArtifactTranscriptReference(path: "/tmp/app.js", provenance: .referenced, seq: 7),
+            ChatArtifactTranscriptReference(path: "/tmp/app.c", provenance: .referenced, seq: 7),
         ])
     }
 
-    @Test("only a sidechain mutation target is created")
+    @Test("only a sidechain mutation target remains pending authorization")
     func sidechainMutationTargetProvenance() {
         let line = sidechainAssistantLine(blocks: [[
             "type": "tool_use", "id": "toolu_write", "name": "Write",
@@ -427,7 +427,7 @@ struct ClaudeTranscriptParserTests {
 
         #expect(result.messages.isEmpty)
         #expect(result.artifactReferences == [
-            ChatArtifactTranscriptReference(path: "/tmp/a", provenance: .created, seq: 9),
+            ChatArtifactTranscriptReference(path: "/tmp/a", provenance: .referenced, seq: 9),
             ChatArtifactTranscriptReference(path: "/tmp/b", provenance: .referenced, seq: 9),
         ])
     }

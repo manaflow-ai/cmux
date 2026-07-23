@@ -63,7 +63,7 @@ struct ChatArtifactViewerActionsMenu: View, Equatable {
                 systemImage: "ellipsis.circle"
             )
         }
-        .disabled(snapshot.fileActionState.isRunning)
+        .disabled(snapshot.fileActionState.isRunning || value.isSavingToArtifacts)
     }
 
     @ViewBuilder
@@ -83,6 +83,20 @@ struct ChatArtifactViewerActionsMenu: View, Equatable {
                 String(localized: "chat.artifact.save_to_files", defaultValue: "Save to Files", bundle: .module),
                 systemImage: "folder.badge.plus"
             )
+        }
+        if value.loaderSupportsArtifactSave {
+            Button {
+                actions.saveToArtifacts(snapshot.path)
+            } label: {
+                Label(
+                    String(
+                        localized: "chat.artifact.save_to_artifacts",
+                        defaultValue: "Save to cmux Artifacts",
+                        bundle: .module
+                    ),
+                    systemImage: "shippingbox"
+                )
+            }
         }
         if snapshot.isTextFile {
             Button {

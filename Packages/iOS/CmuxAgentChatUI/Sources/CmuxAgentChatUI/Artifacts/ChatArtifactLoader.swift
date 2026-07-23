@@ -79,6 +79,8 @@ public struct ChatArtifactLoader: Sendable {
     public let supportsArtifacts: Bool
     /// Whether directory stat results may route into a navigable folder browser.
     public let supportsDirectoryBrowsing: Bool
+    /// Whether chat-scoped files can be persisted into project Artifacts.
+    public let supportsArtifactSave: Bool
     /// Authorization and cache namespace for artifact operations.
     public let scope: ChatArtifactLoaderScope
 
@@ -93,6 +95,7 @@ public struct ChatArtifactLoader: Sendable {
     ) async throws -> Void
     private let thumbnailHandler: @Sendable (_ path: String, _ maxDimension: Int) async throws -> ChatArtifactThumbnail
     private let listHandler: @Sendable (_ path: String) async throws -> ChatArtifactDirectoryListing
+    private let saveHandler: @Sendable (_ path: String) async throws -> ChatArtifactSaveResult
     private let thumbnailCache: ChatArtifactThumbnailCache
     private let contentCache: ChatArtifactContentCache
 
@@ -101,6 +104,7 @@ public struct ChatArtifactLoader: Sendable {
     /// - Parameters:
     ///   - supportsArtifacts: Whether artifact operations are available.
     ///   - supportsDirectoryBrowsing: Whether directory stat results may be listed.
+    ///   - supportsArtifactSave: Whether chat-scoped files can be persisted into project Artifacts.
     ///   - scope: Cache and authorization namespace for this loader.
     ///   - cache: Thumbnail cache shared by rows and viewers.
     ///   - contentCache: Full-content cache shared by viewer routes.
@@ -110,9 +114,11 @@ public struct ChatArtifactLoader: Sendable {
     ///     containing the result of `fetch`.
     ///   - thumbnail: Thumbnail operation for image artifacts.
     ///   - list: Immediate-directory listing operation.
+    ///   - save: Project-local persistence operation.
     public init(
         supportsArtifacts: Bool = false,
         supportsDirectoryBrowsing: Bool = false,
+        supportsArtifactSave: Bool = false,
         scope: ChatArtifactLoaderScope = .unsupported,
         cache: ChatArtifactThumbnailCache = ChatArtifactThumbnailCache(),
         contentCache: ChatArtifactContentCache = .applicationDefault(),
@@ -134,10 +140,14 @@ public struct ChatArtifactLoader: Sendable {
         },
         list: @escaping @Sendable (_ path: String) async throws -> ChatArtifactDirectoryListing = { _ in
             throw ChatArtifactError.unsupported
+        },
+        save: @escaping @Sendable (_ path: String) async throws -> ChatArtifactSaveResult = { _ in
+            throw ChatArtifactError.unsupported
         }
     ) {
         self.supportsArtifacts = supportsArtifacts
         self.supportsDirectoryBrowsing = supportsDirectoryBrowsing
+        self.supportsArtifactSave = supportsArtifactSave
         self.scope = scope
         self.thumbnailCache = cache
         self.contentCache = contentCache
@@ -157,6 +167,7 @@ public struct ChatArtifactLoader: Sendable {
         }
         thumbnailHandler = thumbnail
         listHandler = list
+        saveHandler = save
     }
 
     public init(
@@ -168,6 +179,7 @@ public struct ChatArtifactLoader: Sendable {
         self.init(
             supportsArtifacts: source.supportsArtifacts,
             supportsDirectoryBrowsing: source.supportsArtifactFolders,
+            supportsArtifactSave: source.supportsArtifactSave,
             scope: .chat(sessionID: sessionID),
             cache: cache,
             contentCache: contentCache,
@@ -189,6 +201,9 @@ public struct ChatArtifactLoader: Sendable {
             },
             list: { path in
                 try await source.artifactList(sessionID: sessionID, path: path)
+            },
+            save: { path in
+                try await source.artifactSave(sessionID: sessionID, path: path)
             }
         )
     }
@@ -324,6 +339,17 @@ public struct ChatArtifactLoader: Sendable {
             throw ChatArtifactError.unsupported
         }
         return try await listHandler(path)
+    }
+
+    /// Persists a chat-authorized file into the session project's artifact store.
+    ///
+    /// - Parameter path: Absolute host path authorized by the chat artifact scope.
+    /// - Returns: Stable project-local path and prompt reference.
+    public func save(path: String) async throws -> ChatArtifactSaveResult {
+        guard supportsArtifactSave else {
+            throw ChatArtifactError.unsupported
+        }
+        return try await saveHandler(path)
     }
 
     private func thumbnailCacheKey(

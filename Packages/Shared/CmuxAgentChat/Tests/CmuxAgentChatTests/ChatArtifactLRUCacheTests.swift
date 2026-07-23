@@ -18,4 +18,16 @@ struct ChatArtifactLRUCacheTests {
         #expect(cache.value(forKey: "two") == nil)
         #expect(cache.value(forKey: "three") == 3)
     }
+
+    @Test("removal releases one retained entry")
+    func removeValue() {
+        var cache = ChatArtifactLRUCache<String, Int>(capacity: 2)
+        cache.insert(1, forKey: "one")
+        cache.insert(2, forKey: "two")
+
+        #expect(cache.removeValue(forKey: "one") == 1)
+        #expect(cache.count == 1)
+        #expect(cache.value(forKey: "one") == nil)
+        #expect(cache.value(forKey: "two") == 2)
+    }
 }

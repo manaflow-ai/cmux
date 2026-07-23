@@ -299,7 +299,8 @@ public struct CodexTranscriptParser: Sendable {
                         toolName: "apply_patch",
                         summary: summary,
                         status: .succeeded,
-                        referencedPaths: paths.isEmpty ? nil : paths
+                        referencedPaths: paths.isEmpty ? nil : paths,
+                        artifactMutationAuthorized: true
                     )
                 )
             )

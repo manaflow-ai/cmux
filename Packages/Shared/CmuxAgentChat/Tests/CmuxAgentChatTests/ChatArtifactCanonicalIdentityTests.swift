@@ -19,6 +19,11 @@ struct ChatArtifactCanonicalIdentityTests {
                 editMessage(id: "created", seq: 4, path: target),
                 toolMessage(id: "referenced", seq: 9, path: symlink),
             ],
+            supplementalReferences: [ChatArtifactTranscriptReference(
+                path: target,
+                provenance: .created,
+                seq: 5
+            )],
             canonicalizer: canonicalizer
         )
 
@@ -99,10 +104,17 @@ struct ChatArtifactCanonicalIdentityTests {
         try Data("let value = 1".utf8).write(to: target)
         try FileManager.default.createSymbolicLink(at: symlink, withDestinationURL: target)
 
-        let records = ChatArtifactIndexedReference.derive(from: [
-            editMessage(id: "created", seq: 4, path: target.path),
-            toolMessage(id: "referenced", seq: 9, path: symlink.path),
-        ])
+        let records = ChatArtifactIndexedReference.derive(
+            from: [
+                editMessage(id: "created", seq: 4, path: target.path),
+                toolMessage(id: "referenced", seq: 9, path: symlink.path),
+            ],
+            supplementalReferences: [ChatArtifactTranscriptReference(
+                path: target.path,
+                provenance: .created,
+                seq: 5
+            )]
+        )
 
         #expect(records == [ChatArtifactIndexedReference(
             path: try lexicalPath(target.path),

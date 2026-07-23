@@ -16,6 +16,8 @@ public actor MobileChatEventSource: ChatEventSource {
     public nonisolated let supportsArtifacts: Bool
     /// Whether the connected Mac supports recursive chat folder browsing.
     public nonisolated let supportsArtifactFolders: Bool
+    /// Whether the connected Mac supports saving chat files to project Artifacts.
+    public nonisolated let supportsArtifactSave: Bool
     /// Whether the connected Mac supports terminal-scoped directory listing.
     public nonisolated let supportsTerminalArtifactList: Bool
     /// Whether the connected Mac supports session-wide artifact gallery pages.
@@ -25,12 +27,20 @@ public actor MobileChatEventSource: ChatEventSource {
 
     /// Creates the adapter.
     ///
-    /// - Parameter client: The connected RPC client for the paired Mac.
+    /// - Parameters:
+    ///   - client: The connected RPC client for the paired Mac.
+    ///   - supportsArtifacts: Whether basic chat artifact operations are available.
+    ///   - supportsArtifactGallery: Whether session-wide artifact gallery paging is available.
+    ///   - supportsArtifactFolders: Whether recursive chat folder browsing is available.
+    ///   - supportsArtifactSave: Whether chat artifacts can be persisted into project Artifacts.
+    ///   - supportsTerminalArtifactList: Whether terminal-scoped directory listing is available.
+    ///   - supportsArtifactLane: Whether artifact bytes may use the peer-bound Iroh lane.
     public init(
         client: MobileCoreRPCClient,
         supportsArtifacts: Bool = false,
         supportsArtifactGallery: Bool = false,
         supportsArtifactFolders: Bool = false,
+        supportsArtifactSave: Bool = false,
         supportsTerminalArtifactList: Bool = false,
         supportsArtifactLane: Bool = false
     ) {
@@ -38,6 +48,7 @@ public actor MobileChatEventSource: ChatEventSource {
         self.supportsArtifacts = supportsArtifacts
         self.supportsArtifactGallery = supportsArtifactGallery
         self.supportsArtifactFolders = supportsArtifactFolders
+        self.supportsArtifactSave = supportsArtifactSave
         self.supportsTerminalArtifactList = supportsTerminalArtifactList
         self.supportsArtifactLane = supportsArtifactLane
     }
@@ -310,6 +321,25 @@ public actor MobileChatEventSource: ChatEventSource {
         }
         return try await artifactCall(
             method: "mobile.chat.artifact.list",
+            params: [
+                "session_id": sessionID,
+                "path": path,
+            ]
+        )
+    }
+
+    /// Persists one chat-authorized host file into the session project's artifact store.
+    ///
+    /// - Parameters:
+    ///   - sessionID: Session whose artifact scope authorizes the path.
+    ///   - path: Absolute host path to persist.
+    /// - Returns: Stable project-local path and prompt reference.
+    public func artifactSave(sessionID: String, path: String) async throws -> ChatArtifactSaveResult {
+        guard supportsArtifactSave else {
+            throw ChatArtifactError.unsupported
+        }
+        return try await artifactCall(
+            method: "mobile.chat.artifact.save",
             params: [
                 "session_id": sessionID,
                 "path": path,

@@ -103,6 +103,9 @@
          location = "group:CmuxAppKitSupportUI">
       </FileRef>
       <FileRef
+         location = "group:CmuxArtifacts">
+      </FileRef>
+      <FileRef
          location = "group:CmuxBrowser">
       </FileRef>
       <FileRef
