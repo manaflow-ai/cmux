@@ -57,8 +57,7 @@ struct SidebarAppKitRowCellTests {
         canClose: Bool = true,
         settings: SidebarTabItemSettingsSnapshot? = nil,
         metadataEntries: [SidebarStatusEntry] = [],
-        shortcutHintText: String? = nil,
-        checklistAddFieldActivationToken: Int = 0
+        shortcutHintText: String? = nil
     ) -> SidebarWorkspaceRowModel {
         let resolvedSettings = settings
             ?? SidebarTabItemSettingsSnapshot(defaults: UserDefaults(suiteName: UUID().uuidString)!)
@@ -85,7 +84,7 @@ struct SidebarAppKitRowCellTests {
             colorSchemeIsDark: true,
             globalFontMagnificationPercent: 100,
             isChecklistExpanded: false,
-            checklistAddFieldActivationToken: checklistAddFieldActivationToken,
+            checklistAddFieldActivationToken: 0,
             isChecklistPopoverPresented: false,
             editingChecklistItemId: nil,
             todoControlsEnabled: false,
@@ -152,15 +151,10 @@ struct SidebarAppKitRowCellTests {
 
     private static func makeActions(
         model: SidebarWorkspaceRowModel,
-        workspace: Workspace? = nil,
-        onCommitRename: @escaping (String) -> Void = { _ in },
-        onOpenStatusURL: @escaping (URL) -> Void = { _ in },
-        onConsumeChecklistAddFieldActivation: @escaping () -> Void = {},
-        onChecklistAddItem: @escaping (String) -> Void = { _ in }
+        onOpenStatusURL: @escaping (URL) -> Void = { _ in }
     ) -> SidebarAppKitRowActions {
-        let workspace = workspace ?? Workspace()
         let commands = SidebarWorkspaceRowCommands(
-            tab: workspace,
+            tab: Workspace(),
             tabManager: nil,
             notificationStore: nil,
             index: model.index,
@@ -186,10 +180,10 @@ struct SidebarAppKitRowCellTests {
             onToggleChecklistExpansion: {},
             onToggleMetadataExpansion: {},
             onToggleMarkdownExpansion: {},
-            onConsumeChecklistAddFieldActivation: onConsumeChecklistAddFieldActivation,
+            onConsumeChecklistAddFieldActivation: {},
             checklistSetItemState: { _, _ in },
             checklistRemoveItem: { _ in },
-            checklistAddItem: onChecklistAddItem,
+            checklistAddItem: { _ in },
             checklistEditItem: { _, _ in },
             checklistMoveItem: { _, _ in },
             checklistOpenPane: {},
@@ -201,7 +195,7 @@ struct SidebarAppKitRowCellTests {
             onEndChecklistItemEdit: { _ in },
             applyTodoStatus: { _ in },
             hideTodoStatus: {},
-            commitRename: onCommitRename
+            commitRename: { _ in }
         )
     }
 
@@ -402,93 +396,6 @@ struct SidebarAppKitRowCellTests {
         activeCell.showOptimisticDeselection()
         #expect(activeApplied == [false])
         #expect(activeCell.currentModelForMeasurement?.isActive == true)
-    }
-
-    @Test
-    func suspendedCellReleasesWorkspaceOwnedByItsActions() {
-        let model = Self.makeModel()
-        let cell = SidebarWorkspaceRowTableCellView()
-        var workspace: Workspace? = Workspace()
-        weak var retainedWorkspace = workspace
-        cell.configure(
-            model: model,
-            actions: Self.makeActions(model: model, workspace: workspace!),
-            isPointerHovering: false,
-            contextMenuDidOpen: {},
-            contextMenuDidClose: {}
-        )
-
-        workspace = nil
-        #expect(retainedWorkspace != nil)
-        cell.suspendPresentation()
-        #expect(retainedWorkspace == nil)
-    }
-
-    @Test
-    func suspensionCommitsInlineRenameBeforeReleasingActions() throws {
-        let model = Self.makeModel()
-        let cell = SidebarWorkspaceRowTableCellView()
-        var committedTitle: String?
-        cell.configure(
-            model: model,
-            actions: Self.makeActions(
-                model: model,
-                onCommitRename: { committedTitle = $0 }
-            ),
-            isPointerHovering: false,
-            contextMenuDidOpen: {},
-            contextMenuDidClose: {}
-        )
-        cell.beginInlineRename()
-        let field = try #require(
-            Self.descendants(of: cell).compactMap { $0 as? SidebarRowInlineRenameField }.first
-        )
-        field.stringValue = "Renamed while closing"
-
-        cell.suspendPresentation(commitEdits: true)
-
-        #expect(committedTitle == "Renamed while closing")
-        #expect(field.isHidden)
-    }
-
-    @Test
-    func configureReappliesUnchangedModelAfterSuspension() {
-        let model = Self.makeModel()
-        let cell = Self.configuredCell(model: model)
-        var applies = 0
-        cell.applyModelProbeForTesting = { _ in applies += 1 }
-        cell.suspendPresentation()
-        cell.configure(
-            model: model, actions: Self.makeActions(model: model), isPointerHovering: false,
-            contextMenuDidOpen: {}, contextMenuDidClose: {}
-        )
-        #expect(applies == 1)
-    }
-
-    @Test
-    func checklistDraftCommitsOnlyOnceWhenFocusEndsBeforeSuspension() throws {
-        let model = Self.makeModel(checklistAddFieldActivationToken: 1)
-        var additions: [String] = []
-        var consumptions = 0
-        let cell = SidebarWorkspaceRowTableCellView()
-        cell.configure(
-            model: model,
-            actions: Self.makeActions(
-                model: model, onConsumeChecklistAddFieldActivation: { consumptions += 1 },
-                onChecklistAddItem: { additions.append($0) }
-            ),
-            isPointerHovering: false, contextMenuDidOpen: {}, contextMenuDidClose: {}
-        )
-        let field = try #require(
-            Self.descendants(of: cell).compactMap { $0 as? SidebarRowChecklistFocusField }.first { !$0.isHidden }
-        )
-        field.stringValue = "Review checklist lifecycle"
-        (field.delegate as? SidebarRowChecklistFieldBridge)?.controlTextDidEndEditing(
-            Notification(name: NSControl.textDidEndEditingNotification, object: field)
-        )
-        cell.suspendPresentation(commitEdits: true)
-        #expect(additions == ["Review checklist lifecycle"])
-        #expect(consumptions == 1)
     }
 
     @Test

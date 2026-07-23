@@ -25,10 +25,6 @@ final class WorkspaceContentViewVisibilityTests {
         }
     }
 
-    private final class AppKitSidebarMountProbeCounts {
-        var tableContainerMakes = 0
-    }
-
     private static var repoRoot: URL {
         URL(fileURLWithPath: #filePath)
             .deletingLastPathComponent()
@@ -85,26 +81,30 @@ final class WorkspaceContentViewVisibilityTests {
         let scheduler = SidebarResizerCursorReleaseScheduler()
         var releases: [Bool] = []
 
+        let initialForce = await withCheckedContinuation { continuation in
+            scheduler.schedule(force: false, delay: .zero) { force in
+                continuation.resume(returning: force)
+            }
+        }
+        #expect(initialForce == false)
+
+        let replacementForce = await withCheckedContinuation { continuation in
+            scheduler.schedule(force: false, delay: .milliseconds(200)) { force in
+                releases.append(force)
+            }
+            scheduler.schedule(force: true, delay: .milliseconds(10)) { force in
+                releases.append(force)
+                continuation.resume(returning: force)
+            }
+        }
+        #expect(replacementForce)
+        #expect(releases == [true])
+
         scheduler.schedule(force: false, delay: .zero) { force in
             releases.append(force)
         }
-        #expect(releases.isEmpty)
-        try await Task.sleep(for: .milliseconds(10))
-        #expect(releases == [false])
-        releases.removeAll()
-
-        scheduler.schedule(force: false, delay: .milliseconds(200)) { force in
-            releases.append(force)
-        }
-        scheduler.schedule(force: true, delay: .milliseconds(10)) { force in
-            releases.append(force)
-        }
-
-        try await Task.sleep(for: .milliseconds(80))
-        #expect(releases == [true])
-
         scheduler.cancelPendingRelease()
-        try await Task.sleep(for: .milliseconds(160))
+        await Task.yield()
         #expect(releases == [true])
     }
 
@@ -262,189 +262,6 @@ final class WorkspaceContentViewVisibilityTests {
             counts.verticalTabsSidebarBody == 0,
             "Minimal-mode toggles must not rebuild the vertical sidebar render context."
         )
-    }
-
-    @Test
-    @MainActor
-    func testSidebarVisibilityToggleKeepsAppKitTableContainerMounted() async throws {
-        _ = NSApplication.shared
-
-        let previousUsesCoalescedAnchorFailsafe = WindowTerminalPortal.usesCoalescedAnchorFailsafe
-        defer {
-            WindowTerminalPortal.usesCoalescedAnchorFailsafe = previousUsesCoalescedAnchorFailsafe
-        }
-
-        let suiteName = "WorkspaceContentViewVisibilityTests.AppKitSidebar.\(UUID().uuidString)"
-        let defaults = try #require(UserDefaults(suiteName: suiteName))
-        defaults.removePersistentDomain(forName: suiteName)
-        defer { defaults.removePersistentDomain(forName: suiteName) }
-        defaults.set(
-            CmuxExtensionSidebarSelection.defaultProviderId,
-            forKey: CmuxExtensionSidebarSelection.defaultsKey
-        )
-
-        let featureFlags = CmuxFeatureFlags(
-            defaults: defaults,
-            remoteFlagValueProvider: { _ in nil }
-        )
-        featureFlags.setOverride(true, for: CmuxFeatureFlags.appKitSidebarListFlag)
-
-        let tabManager = TabManager()
-        for _ in 0..<3 {
-            tabManager.addWorkspace(autoWelcomeIfNeeded: false)
-        }
-        let sidebarState = SidebarState()
-        let notificationStore = TerminalNotificationStore.shared
-        let root = ContentView(
-            updateViewModel: UpdateStateModel(),
-            windowId: UUID(),
-            featureFlags: featureFlags
-        )
-            .environmentObject(tabManager)
-            .environmentObject(notificationStore)
-            .environmentObject(notificationStore.sidebarUnread)
-            .environmentObject(sidebarState)
-            .environmentObject(SidebarSelectionState())
-            .environmentObject(FileExplorerState())
-            .environmentObject(CmuxConfigStore())
-            .defaultAppStorage(defaults)
-
-        let window = NSWindow(
-            contentRect: NSRect(x: 0, y: 0, width: 900, height: 640),
-            styleMask: [.titled, .closable, .resizable],
-            backing: .buffered,
-            defer: false
-        )
-        window.contentView = MainWindowHostingView(rootView: root)
-        defer {
-            window.contentView = nil
-            window.close()
-        }
-
-        await Self.drainMainRunLoop(for: window)
-        let initialContainers = Self.descendants(
-            of: SidebarWorkspaceTableContainerView.self,
-            in: window.contentView
-        )
-        #expect(initialContainers.count == 1)
-        let initialContainer = try #require(initialContainers.first)
-        let initialRowCount = initialContainer.tableView.numberOfRows
-        #expect(initialRowCount > 0)
-        let focusedWorkspace = try #require(tabManager.selectedWorkspace)
-        let focusedPanelId = try #require(focusedWorkspace.focusedPanelId)
-        let focusedPanel = try #require(focusedWorkspace.panels[focusedPanelId])
-        #expect(window.makeFirstResponder(initialContainer.tableView))
-        #expect(window.firstResponder === initialContainer.tableView)
-
-        sidebarState.toggle()
-        await Self.drainMainRunLoop(for: window)
-        let hiddenContainers = Self.descendants(
-            of: SidebarWorkspaceTableContainerView.self,
-            in: window.contentView
-        )
-        #expect(hiddenContainers.count == 1)
-        #expect(
-            hiddenContainers.first === initialContainer,
-            "Hiding the sidebar must preserve the existing AppKit table container."
-        )
-        let responderAfterHide = try #require(window.firstResponder)
-        #expect(
-            focusedPanel.ownedFocusIntent(for: responderAfterHide, in: window) != nil,
-            "Hiding the sidebar must return keyboard focus to the selected main panel."
-        )
-        tabManager.addWorkspace(autoWelcomeIfNeeded: false)
-        await Self.drainMainRunLoop(for: window)
-        #expect(
-            initialContainer.tableView.numberOfRows == initialRowCount,
-            "The retained native table must not apply workspace updates while hidden."
-        )
-
-        sidebarState.toggle()
-        await Self.drainMainRunLoop(for: window)
-        let reopenedContainers = Self.descendants(
-            of: SidebarWorkspaceTableContainerView.self,
-            in: window.contentView
-        )
-        #expect(reopenedContainers.count == 1)
-        #expect(
-            reopenedContainers.first === initialContainer,
-            "Reopening the sidebar must reuse the existing AppKit table container."
-        )
-        #expect(
-            initialContainer.tableView.numberOfRows > initialRowCount,
-            "Reopening must reconcile the retained table from the current workspace model."
-        )
-        let foreignField = NSTextField(frame: NSRect(x: 500, y: 400, width: 120, height: 24))
-        window.contentView?.addSubview(foreignField)
-        defer { foreignField.removeFromSuperview() }
-        #expect(window.makeFirstResponder(foreignField))
-        #expect(window.firstResponder === foreignField)
-        sidebarState.toggle()
-        await Self.drainMainRunLoop(for: window)
-        #expect(
-            window.firstResponder === foreignField,
-            "Hiding the sidebar must preserve focus owned by non-sidebar main content."
-        )
-    }
-
-    @Test
-    @MainActor
-    func appKitSidebarPersistenceIsScopedToDefaultProvider() throws {
-        #expect(
-            ContentView.retainsDefaultAppKitSidebar(
-                appKitListEnabled: true,
-                effectiveProviderId: CmuxExtensionSidebarSelection.defaultProviderId
-            )
-        )
-        #expect(
-            !ContentView.retainsDefaultAppKitSidebar(
-                appKitListEnabled: true,
-                effectiveProviderId: CmuxExtensionSidebarSelection.hostedExtensionsProviderId
-            )
-        )
-        let bundledProviderId = try #require(CmuxExtensionSidebarSelection.providers.first?.descriptor.id)
-        #expect(
-            !ContentView.retainsDefaultAppKitSidebar(
-                appKitListEnabled: true,
-                effectiveProviderId: bundledProviderId
-            )
-        )
-        let customSidebarsDirectory = FileManager.default.temporaryDirectory
-            .appendingPathComponent("cmux-sidebar-visibility-\(UUID().uuidString)", isDirectory: true)
-        try FileManager.default.createDirectory(at: customSidebarsDirectory, withIntermediateDirectories: true)
-        defer { try? FileManager.default.removeItem(at: customSidebarsDirectory) }
-        let customProviderId = CmuxExtensionSidebarSelection.customSidebarProviderPrefix + "lifecycle-test"
-        try Data().write(to: customSidebarsDirectory.appendingPathComponent("lifecycle-test.swift"))
-        CmuxExtensionSidebarSelection.withCustomSidebarsDirectoryForTesting(customSidebarsDirectory) {
-            #expect(
-                !ContentView.retainsDefaultAppKitSidebar(
-                    appKitListEnabled: true,
-                    effectiveProviderId: customProviderId
-                )
-            )
-        }
-        #expect(
-            !ContentView.retainsDefaultAppKitSidebar(
-                appKitListEnabled: false,
-                effectiveProviderId: CmuxExtensionSidebarSelection.defaultProviderId
-            )
-        )
-    }
-
-    @MainActor
-    private static func descendants<View: NSView>(
-        of type: View.Type,
-        in root: NSView?
-    ) -> [View] {
-        guard let root else { return [] }
-        var matches: [View] = []
-        if let match = root as? View {
-            matches.append(match)
-        }
-        for subview in root.subviews {
-            matches.append(contentsOf: descendants(of: type, in: subview))
-        }
-        return matches
     }
 
     @MainActor
