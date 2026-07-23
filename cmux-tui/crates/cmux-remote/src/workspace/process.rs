@@ -7,10 +7,12 @@ use std::sync::atomic::{AtomicBool, AtomicU64, AtomicUsize, Ordering};
 use std::sync::{Arc, Mutex as StdMutex};
 
 use cmux_remote_protocol::{
-    ByteString, OperationId, ProcessEnvironment, ProcessEvent, ProcessId, ProcessIo,
-    ProcessLifetime, ProcessOutputStream, ProcessOutputTruncationReason, ProcessReplayRange,
-    ProcessSignal, PtyEofPolicy, RpcError, RpcErrorDetails, RpcEvent, WorkspaceId,
-    WorkspaceResponse,
+    ByteString, OperationId, ProcessDescriptor, ProcessEnvironment, ProcessEvent, ProcessId,
+    ProcessIo, ProcessIoKind, ProcessLifetime, ProcessOutputStream, ProcessOutputTruncationReason,
+    ProcessReplayRange, ProcessSignal, ProcessState, ProcessTerminalColor, ProcessTerminalCursor,
+    ProcessTerminalCursorStyle, ProcessTerminalRow, ProcessTerminalSize, ProcessTerminalSnapshot,
+    ProcessTerminalStyledRun, ProcessTerminalUnderline, PtyEofPolicy, RpcError, RpcErrorDetails,
+    RpcEvent, WorkspaceId, WorkspaceResponse,
 };
 #[cfg(not(unix))]
 use portable_pty::ChildKiller;
@@ -55,6 +57,14 @@ const TERMINATION_GRACE: std::time::Duration = std::time::Duration::from_secs(2)
 const MAX_PROCESS_REPLAY_EVENTS: u32 = 1_024;
 const MAX_PROCESS_TIMEOUT_MS: u64 = 7 * 24 * 60 * 60 * 1_000;
 const MAX_OPERATION_ID_BYTES: usize = 256;
+const MAX_PROCESS_CATALOG_ARGUMENTS: usize = 32;
+const MAX_PROCESS_CATALOG_ARGUMENT_BYTES: usize = 512;
+const MAX_PROCESS_CATALOG_ARGV_BYTES: usize = 4 * 1024;
+const MAX_PROCESS_COMMAND_LABEL_BYTES: usize = 256;
+const MAX_PROCESS_CATALOG_CWD_BYTES: usize = 4 * 1024;
+const PROCESS_TERMINAL_SCROLLBACK_BYTES: usize = 2 * 1024 * 1024;
+const MAX_PROCESS_TERMINAL_SNAPSHOT_CELLS: usize = 64 * 1024;
+const MAX_PROCESS_TERMINAL_SNAPSHOT_BYTES: usize = 4 * 1024 * 1024;
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 struct ExitOutcome {
@@ -244,7 +254,14 @@ struct ProcessEventLogInner {
 struct EventHistory {
     events: VecDeque<RpcEvent>,
     retained_bytes: usize,
-    exited: bool,
+    exit: Option<ExitOutcome>,
+    terminal: Option<ProcessTerminalModel>,
+}
+
+struct ProcessTerminalModel {
+    terminal: ghostty_vt::Terminal,
+    render: ghostty_vt::RenderState,
+    through_sequence: u64,
 }
 
 impl ProcessEventLog {
@@ -262,7 +279,11 @@ impl ProcessEventLog {
 
     fn publish_output(&self, process: ProcessId, stderr: bool, bytes: &[u8]) {
         let data = ByteString::from_bytes(bytes);
-        self.publish(|sequence| {
+        self.publish(|sequence, history| {
+            if let Some(terminal) = history.terminal.as_mut() {
+                terminal.terminal.vt_write(bytes);
+                terminal.through_sequence = sequence;
+            }
             let event = if stderr {
                 ProcessEvent::Stderr { process, sequence, data }
             } else {
@@ -273,14 +294,14 @@ impl ProcessEventLog {
     }
 
     fn publish_exit(&self, process: ProcessId, outcome: ExitOutcome) {
-        self.publish(|sequence| RpcEvent {
+        self.publish(|sequence, _| RpcEvent {
             sequence,
             event: ProcessEvent::Exit { process, code: outcome.code, signal: outcome.signal },
         });
     }
 
     fn publish_output_truncated(&self, process: ProcessId, reason: ProcessOutputTruncationReason) {
-        self.publish(|sequence| RpcEvent {
+        self.publish(|sequence, _| RpcEvent {
             sequence,
             event: ProcessEvent::OutputTruncated { process, sequence, reason },
         });
@@ -290,16 +311,104 @@ impl ProcessEventLog {
         self.inner.retained_bytes_limit.store(retained_bytes_limit, Ordering::Release);
     }
 
-    fn publish(&self, make_event: impl FnOnce(u64) -> RpcEvent) {
+    fn enable_terminal(&self, cols: u16, rows: u16) -> Result<(), RpcError> {
+        let terminal = ghostty_vt::Terminal::new(
+            cols,
+            rows,
+            PROCESS_TERMINAL_SCROLLBACK_BYTES,
+            ghostty_vt::Callbacks::default(),
+        )
+        .map_err(terminal_model_error)?;
+        let render = ghostty_vt::RenderState::new().map_err(terminal_model_error)?;
+        let mut history =
+            self.inner.history.lock().unwrap_or_else(std::sync::PoisonError::into_inner);
+        if history.terminal.is_some() {
+            return Err(RpcError::new("internal", "process terminal model is already initialized"));
+        }
+        if !history.events.is_empty() {
+            return Err(RpcError::new(
+                "internal",
+                "process terminal model must be initialized before output",
+            ));
+        }
+        history.terminal = Some(ProcessTerminalModel { terminal, render, through_sequence: 0 });
+        Ok(())
+    }
+
+    fn resize_terminal(
+        &self,
+        cols: u16,
+        rows: u16,
+        resize_pty: impl FnOnce() -> Result<(), RpcError>,
+    ) -> Result<(), RpcError> {
+        let mut history =
+            self.inner.history.lock().unwrap_or_else(std::sync::PoisonError::into_inner);
+        let terminal = history
+            .terminal
+            .as_mut()
+            .ok_or_else(|| RpcError::new("not-a-pty", "process does not own a PTY"))?;
+        // The physical resize, VT model resize, output publication, and
+        // snapshots all serialize on the event-history lock. Output caused by
+        // SIGWINCH is therefore parsed at the new model size.
+        resize_pty()?;
+        terminal.terminal.resize(cols, rows, 0, 0).map_err(terminal_model_error)
+    }
+
+    fn snapshot_terminal(&self, process: ProcessId) -> Result<ProcessTerminalSnapshot, RpcError> {
+        let snapshot = {
+            let mut history =
+                self.inner.history.lock().unwrap_or_else(std::sync::PoisonError::into_inner);
+            let terminal = history
+                .terminal
+                .as_mut()
+                .ok_or_else(|| RpcError::new("not-a-pty", "process does not own a PTY"))?;
+            let cells = usize::from(terminal.terminal.cols())
+                .saturating_mul(usize::from(terminal.terminal.rows()));
+            if cells > MAX_PROCESS_TERMINAL_SNAPSHOT_CELLS {
+                return Err(terminal_snapshot_too_large());
+            }
+            let ProcessTerminalModel { terminal, render, through_sequence } = terminal;
+            render.update(terminal).map_err(terminal_model_error)?;
+            let scrollback_rows = terminal.history_rows();
+            let frame = render.build_frame().map_err(terminal_model_error)?;
+            process_terminal_snapshot(process, &frame, scrollback_rows, *through_sequence)
+        };
+        let encoded_bytes = serde_json::to_vec(&snapshot)
+            .map_err(|error| RpcError::new("terminal-snapshot-failed", error.to_string()))?
+            .len();
+        if encoded_bytes > MAX_PROCESS_TERMINAL_SNAPSHOT_BYTES {
+            return Err(terminal_snapshot_too_large());
+        }
+        Ok(snapshot)
+    }
+
+    fn catalog_state(&self) -> (ProcessState, ProcessReplayRange, Option<ProcessTerminalSize>) {
+        let history = self.inner.history.lock().unwrap_or_else(std::sync::PoisonError::into_inner);
+        let next_sequence = self.inner.next_sequence.load(Ordering::Acquire);
+        let state = history.exit.map_or(ProcessState::Running, |outcome| ProcessState::Exited {
+            code: outcome.code,
+            signal: outcome.signal,
+        });
+        let range = replay_range(&history, next_sequence, history.exit.is_some());
+        let pty_size = history.terminal.as_ref().map(|terminal| ProcessTerminalSize {
+            cols: terminal.terminal.cols(),
+            rows: terminal.terminal.rows(),
+        });
+        (state, range, pty_size)
+    }
+
+    fn publish(&self, make_event: impl FnOnce(u64, &mut EventHistory) -> RpcEvent) {
         let mut history =
             self.inner.history.lock().unwrap_or_else(std::sync::PoisonError::into_inner);
         // Sequence allocation, retention, and broadcast publication share one
-        // critical section. Subscribers therefore observe exactly the same
-        // total order in replay history and on the live channel.
+        // critical section with PTY model updates. Subscribers and terminal
+        // snapshots therefore observe exactly the same total output order.
         let sequence = self.inner.next_sequence.fetch_add(1, Ordering::Relaxed);
-        let event = make_event(sequence);
+        let event = make_event(sequence, &mut history);
         let retained = event_size(&event);
-        history.exited |= matches!(event.event, ProcessEvent::Exit { .. });
+        if let ProcessEvent::Exit { code, signal, .. } = &event.event {
+            history.exit = Some(ExitOutcome { code: *code, signal: *signal });
+        }
         history.retained_bytes = history.retained_bytes.saturating_add(retained);
         history.events.push_back(event.clone());
         let retained_bytes_limit = self.inner.retained_bytes_limit.load(Ordering::Acquire);
@@ -325,7 +434,7 @@ impl ProcessEventLog {
                 format!("process has not produced sequence {after_sequence}"),
             ));
         }
-        let exited = exited || history.exited;
+        let exited = exited || history.exit.is_some();
         let range = replay_range(&history, next_sequence, exited);
         let replay_gap =
             range.first_available.map_or(after_sequence < range.last_produced, |first| {
@@ -375,7 +484,7 @@ impl ProcessEventLog {
         }
         let history = self.inner.history.lock().unwrap_or_else(std::sync::PoisonError::into_inner);
         let next_sequence = self.inner.next_sequence.load(Ordering::Acquire);
-        let range = replay_range(&history, next_sequence, exited || history.exited);
+        let range = replay_range(&history, next_sequence, exited || history.exit.is_some());
         let replay_gap =
             range.first_available.map_or(after_sequence < range.last_produced, |first| {
                 after_sequence.saturating_add(1) < first
@@ -473,7 +582,7 @@ impl ProcessSubscription {
                         .unwrap_or_else(std::sync::PoisonError::into_inner);
                     let first = history.events.front().map(|event| event.sequence);
                     let next_sequence = self.inner_next_sequence();
-                    let range = replay_range(&history, next_sequence, history.exited);
+                    let range = replay_range(&history, next_sequence, history.exit.is_some());
                     let replay_gap = first
                         .map_or(self.last_delivered < range.last_produced, |first| {
                             self.last_delivered.saturating_add(1) < first
@@ -506,10 +615,19 @@ impl ProcessSubscription {
 
 type SharedMasterPty = Arc<StdMutex<Option<Box<dyn MasterPty + Send>>>>;
 
+struct ProcessCatalogMetadata {
+    command_label: String,
+    display_argv: Vec<String>,
+    display_argv_truncated: bool,
+    cwd: String,
+    io: ProcessIoKind,
+}
+
 struct ProcessRecord {
     id: ProcessId,
     owner: ClientScope,
     workspace: WorkspaceId,
+    catalog: ProcessCatalogMetadata,
     lifetime: ProcessLifetime,
     operation: Option<OperationId>,
     pid: Option<u32>,
@@ -584,6 +702,25 @@ impl ProcessStore {
             self.complete(process);
         }
     }
+
+    fn catalog_records(&self) -> Vec<Arc<ProcessRecord>> {
+        let mut active = self.active.values().cloned().collect::<Vec<_>>();
+        active.sort_by(|left, right| {
+            left.workspace
+                .0
+                .cmp(&right.workspace.0)
+                .then_with(|| left.catalog.command_label.cmp(&right.catalog.command_label))
+                .then_with(|| left.id.to_string().cmp(&right.id.to_string()))
+        });
+        active.extend(
+            self.completed_order
+                .iter()
+                .rev()
+                .filter_map(|process| self.completed.get(process).cloned()),
+        );
+        debug_assert!(active.len() <= MAX_PROCESSES + MAX_COMPLETED_PROCESSES);
+        active
+    }
 }
 
 struct PendingProcessGuard {
@@ -647,10 +784,32 @@ impl std::fmt::Debug for ProcessRecord {
             .debug_struct("ProcessRecord")
             .field("id", &self.id)
             .field("workspace", &self.workspace)
+            .field("command_label", &self.catalog.command_label)
             .field("lifetime", &self.lifetime)
             .field("pid", &self.pid)
             .field("finished", &self.finished.load(Ordering::Acquire))
             .finish_non_exhaustive()
+    }
+}
+
+impl ProcessRecord {
+    fn descriptor(&self) -> ProcessDescriptor {
+        let (state, replay, pty_size) = self.events.catalog_state();
+        ProcessDescriptor {
+            process: self.id,
+            workspace: self.workspace.clone(),
+            command_label: self.catalog.command_label.clone(),
+            display_argv: self.catalog.display_argv.clone(),
+            display_argv_truncated: self.catalog.display_argv_truncated,
+            cwd: self.catalog.cwd.clone(),
+            lifetime: self.lifetime,
+            operation: self.operation.clone(),
+            pid: self.pid,
+            io: self.catalog.io,
+            pty_size,
+            state,
+            replay,
+        }
     }
 }
 
@@ -864,13 +1023,14 @@ impl ProcessManager {
         output_drain_total_timeout: std::time::Duration,
         environment: ProcessEnvironment,
     ) -> Result<WorkspaceResponse, RpcError> {
+        let catalog = process_catalog_metadata(&argv, &cwd, ProcessIoKind::Pipes);
         let mut command = tokio::process::Command::new(&argv[0]);
         if environment == ProcessEnvironment::Clean {
             command.env_clear();
         }
         command
             .args(&argv[1..])
-            .current_dir(cwd)
+            .current_dir(&cwd)
             .envs(env)
             .stdin(if writable_stdin {
                 std::process::Stdio::piped()
@@ -917,6 +1077,7 @@ impl ProcessManager {
             id,
             owner,
             workspace,
+            catalog,
             lifetime,
             operation,
             pid,
@@ -1002,6 +1163,8 @@ impl ProcessManager {
         if term.is_empty() || term.len() > 256 || term.contains('\0') {
             return Err(RpcError::new("invalid-argument", "PTY TERM is invalid"));
         }
+        events.enable_terminal(cols, rows)?;
+        let catalog = process_catalog_metadata(&argv, &cwd, ProcessIoKind::Pty);
         let pair = native_pty_system()
             .openpty(PtySize { rows, cols, pixel_width: 0, pixel_height: 0 })
             .map_err(|error| RpcError::new("pty-open-failed", error.to_string()))?;
@@ -1057,6 +1220,7 @@ impl ProcessManager {
             id,
             owner,
             workspace,
+            catalog,
             lifetime,
             operation,
             pid: record_pid,
@@ -1339,13 +1503,15 @@ impl ProcessManager {
             .master
             .as_ref()
             .ok_or_else(|| RpcError::new("not-a-pty", "process does not own a PTY"))?;
-        master
-            .lock()
-            .unwrap_or_else(std::sync::PoisonError::into_inner)
-            .as_mut()
-            .ok_or_else(|| RpcError::new("process-exited", "PTY master is closed"))?
-            .resize(PtySize { rows, cols, pixel_width: 0, pixel_height: 0 })
-            .map_err(|error| RpcError::new("pty-resize-failed", error.to_string()))?;
+        record.events.resize_terminal(cols, rows, || {
+            master
+                .lock()
+                .unwrap_or_else(std::sync::PoisonError::into_inner)
+                .as_mut()
+                .ok_or_else(|| RpcError::new("process-exited", "PTY master is closed"))?
+                .resize(PtySize { rows, cols, pixel_width: 0, pixel_height: 0 })
+                .map_err(|error| RpcError::new("pty-resize-failed", error.to_string()))
+        })?;
         Ok(WorkspaceResponse::ProcessResized { process, cols, rows })
     }
 
@@ -1447,6 +1613,25 @@ impl ProcessManager {
     ) -> Result<WorkspaceResponse, RpcError> {
         let record = self.get(process).await?;
         record.events.read(process, after_sequence, limit, record.finished.load(Ordering::Acquire))
+    }
+
+    pub(crate) async fn list(&self) -> WorkspaceResponse {
+        let records = {
+            let mut processes = self.processes.write().await;
+            processes.reap_finished();
+            processes.catalog_records()
+        };
+        let processes = records.iter().map(|record| record.descriptor()).collect();
+        WorkspaceResponse::Processes { processes }
+    }
+
+    pub(crate) async fn snapshot_terminal(
+        &self,
+        process: ProcessId,
+    ) -> Result<WorkspaceResponse, RpcError> {
+        let record = self.get(process).await?;
+        let snapshot = record.events.snapshot_terminal(process)?;
+        Ok(WorkspaceResponse::ProcessTerminalSnapshot { snapshot })
     }
 
     pub(crate) async fn finish_operation(&self, process: ProcessId) -> Result<(), RpcError> {
@@ -1759,6 +1944,14 @@ async fn drain_output_tasks(
         }
         tokio::select! {
             biased;
+            _ = &mut total_deadline => {
+                reasons.push(ProcessOutputTruncationReason::DrainTotalTimeout {
+                    total_timeout_ms: duration_millis(total_timeout),
+                });
+                tasks.abort_all();
+                collect_output_task_failures(&mut tasks, &mut reasons).await;
+                return reasons;
+            }
             changed = activity.changed(), if activity_open => {
                 match changed {
                     Ok(()) => idle_deadline
@@ -1787,14 +1980,6 @@ async fn drain_output_tasks(
                 collect_output_task_failures(&mut tasks, &mut reasons).await;
                 return reasons;
             }
-            _ = &mut total_deadline => {
-                reasons.push(ProcessOutputTruncationReason::DrainTotalTimeout {
-                    total_timeout_ms: duration_millis(total_timeout),
-                });
-                tasks.abort_all();
-                collect_output_task_failures(&mut tasks, &mut reasons).await;
-                return reasons;
-            }
         }
     }
 }
@@ -1813,6 +1998,140 @@ async fn collect_output_task_failures(
             }),
         }
     }
+}
+
+fn process_catalog_metadata(
+    argv: &[String],
+    cwd: &std::path::Path,
+    io: ProcessIoKind,
+) -> ProcessCatalogMetadata {
+    let command = std::path::Path::new(&argv[0])
+        .file_name()
+        .and_then(std::ffi::OsStr::to_str)
+        .filter(|name| !name.is_empty())
+        .unwrap_or(&argv[0]);
+    let (command_label, _) = bounded_display_text(command, MAX_PROCESS_COMMAND_LABEL_BYTES);
+    let (cwd, _) = bounded_display_text(&cwd.to_string_lossy(), MAX_PROCESS_CATALOG_CWD_BYTES);
+
+    let mut display_argv = Vec::new();
+    let mut display_argv_bytes = 0usize;
+    let mut display_argv_truncated = argv.len() > MAX_PROCESS_CATALOG_ARGUMENTS;
+    for argument in argv.iter().take(MAX_PROCESS_CATALOG_ARGUMENTS) {
+        let remaining = MAX_PROCESS_CATALOG_ARGV_BYTES.saturating_sub(display_argv_bytes);
+        if remaining == 0 {
+            display_argv_truncated = true;
+            break;
+        }
+        let limit = remaining.min(MAX_PROCESS_CATALOG_ARGUMENT_BYTES);
+        let (argument, truncated) = bounded_display_text(argument, limit);
+        display_argv_bytes = display_argv_bytes.saturating_add(argument.len());
+        display_argv.push(argument);
+        display_argv_truncated |= truncated;
+    }
+    display_argv_truncated |= display_argv.len() < argv.len();
+
+    ProcessCatalogMetadata { command_label, display_argv, display_argv_truncated, cwd, io }
+}
+
+fn bounded_display_text(value: &str, max_bytes: usize) -> (String, bool) {
+    let mut output = String::with_capacity(value.len().min(max_bytes));
+    for character in value.chars() {
+        let escaped = character.escape_debug().collect::<String>();
+        if output.len().saturating_add(escaped.len()) > max_bytes {
+            return (output, true);
+        }
+        output.push_str(&escaped);
+    }
+    (output, false)
+}
+
+fn process_terminal_snapshot(
+    process: ProcessId,
+    frame: &ghostty_vt::RenderFrame,
+    scrollback_rows: u32,
+    through_sequence: u64,
+) -> ProcessTerminalSnapshot {
+    let (cols, rows) = frame.size;
+    let rows = (0..rows)
+        .map(|row| ProcessTerminalRow {
+            row,
+            runs: frame
+                .row_runs(row)
+                .unwrap_or_default()
+                .into_iter()
+                .map(process_terminal_run)
+                .collect(),
+        })
+        .collect();
+    let (style, blink) = frame.cursor_visual;
+    let (x, y, visible) =
+        frame.cursor.map(|cursor| (cursor.x, cursor.y, true)).unwrap_or((0, 0, false));
+    ProcessTerminalSnapshot {
+        process,
+        size: ProcessTerminalSize { cols, rows: frame.size.1 },
+        rows,
+        cursor: ProcessTerminalCursor {
+            x,
+            y,
+            style: process_terminal_cursor_style(style),
+            blink,
+            visible,
+            color: frame.cursor_color.map(process_terminal_color),
+        },
+        default_fg: process_terminal_color(frame.default_colors.1),
+        default_bg: process_terminal_color(frame.default_colors.0),
+        scrollback_rows,
+        through_sequence,
+    }
+}
+
+fn process_terminal_run(run: ghostty_vt::StyledRun) -> ProcessTerminalStyledRun {
+    ProcessTerminalStyledRun {
+        text: run.text,
+        fg: run.fg.map(process_terminal_color),
+        bg: run.bg.map(process_terminal_color),
+        attrs: run.attrs,
+        underline: run.underline.map(process_terminal_underline),
+        width_hint: run.width_hint,
+    }
+}
+
+fn process_terminal_color(color: ghostty_vt::Rgb) -> ProcessTerminalColor {
+    ProcessTerminalColor { r: color.r, g: color.g, b: color.b }
+}
+
+fn process_terminal_cursor_style(style: ghostty_vt::CursorShape) -> ProcessTerminalCursorStyle {
+    match style {
+        ghostty_vt::CursorShape::Bar => ProcessTerminalCursorStyle::Bar,
+        ghostty_vt::CursorShape::Underline => ProcessTerminalCursorStyle::Underline,
+        ghostty_vt::CursorShape::Block | ghostty_vt::CursorShape::BlockHollow => {
+            ProcessTerminalCursorStyle::Block
+        }
+    }
+}
+
+fn process_terminal_underline(underline: ghostty_vt::UnderlineStyle) -> ProcessTerminalUnderline {
+    match underline {
+        ghostty_vt::UnderlineStyle::Single => ProcessTerminalUnderline::Single,
+        ghostty_vt::UnderlineStyle::Double => ProcessTerminalUnderline::Double,
+        ghostty_vt::UnderlineStyle::Curly => ProcessTerminalUnderline::Curly,
+        ghostty_vt::UnderlineStyle::Dotted => ProcessTerminalUnderline::Dotted,
+        ghostty_vt::UnderlineStyle::Dashed => ProcessTerminalUnderline::Dashed,
+    }
+}
+
+fn terminal_model_error(error: ghostty_vt::Error) -> RpcError {
+    RpcError::new("terminal-model-failed", error.to_string())
+}
+
+fn terminal_snapshot_too_large() -> RpcError {
+    RpcError::new(
+        "terminal-snapshot-too-large",
+        format!(
+            "terminal snapshot exceeds {MAX_PROCESS_TERMINAL_SNAPSHOT_CELLS} cells or \
+             {MAX_PROCESS_TERMINAL_SNAPSHOT_BYTES} encoded bytes"
+        ),
+    )
 }
 
 fn validate_output_drain_timeouts(

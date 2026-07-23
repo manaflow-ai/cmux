@@ -193,7 +193,7 @@ The protocol includes:
 - bounded stat, read, atomic write, directory, and search operations with opaque pagination cursors;
 - patch application with per-path content-digest preconditions, dry runs, rollback details, and old/new digest results;
 - Git status, bounded unified diff, and typed structured diff files and hunks;
-- explicit pipe processes for ordinary tool calls, plus explicit PTYs with resize, signal, input, EOF policy, wait, deadlines, output retention, and replay cursors;
+- explicit pipe processes for ordinary tool calls, plus explicit PTYs with daemon-wide discovery, bounded styled terminal snapshots, resize, signal, input, EOF policy, wait, deadlines, output retention, and replay cursors;
 - operation, workspace, and detached process lifetimes, including operation-wide finish and explicit workspace close;
 - opaque UUID request IDs, idempotent input write IDs, safe cancellation for read/wait operations, and typed replay-gap errors;
 - workspace-scoped TCP routes and one tunnel stream per forwarded connection;
@@ -206,6 +206,10 @@ Process input uses monotonically increasing `write_id` values and at most 32 KiB
 Omitting process `io` selects writable pipes. Use `"io":{"type":"pipes","stdin":false}` for a noninteractive command that should start with stdin closed, or an explicit `pty` object for a terminal program.
 
 Coding-agent clients allocate an opaque process UUID before awaiting network work, reserve its event stream, then send `spawn-process-with-handle`. This prevents immediate output from racing subscription and leaves the UUID available for reconnect if the client future is canceled. Duplicate active, completed, or reserved UUIDs are rejected. Metadata, lookup, cursor, duplicate-reservation, and capacity failures reject a process stream before it opens with the original stable error. Replay gaps open successfully and remain structured terminal events. Completed replay records are bounded independently from the 64 active-process slots.
+
+`list-processes` lets a new frontend rediscover handles without prior UUID state. The catalog is daemon-wide because every authenticated client already has authority over every daemon workspace and explicit process handle. It contains active records plus the 64 most recently completed records. Each descriptor includes workspace, a bounded display-only command and argv preview, cwd, lifetime and operation, PID, pipe or PTY kind, current PTY size, running or exited state, and replay range. Environment values are never included.
+
+`snapshot-process-terminal` returns a bounded Ghostty-rendered PTY viewport with styled runs, cursor, default colors, scrollback count, and the exact process-output sequence applied to it. A reconnecting GUI subscribes after `through_sequence`. If retention advances before that subscription and reports a replay gap, the GUI requests another snapshot and retries. Pipes return `not-a-pty`. Snapshots above 65,536 cells or 4 MiB of encoded JSON are rejected.
 
 Output drain has separate idle and absolute deadlines. Actual output resets the idle deadline; reader completion does not. A read failure, reader-task failure, idle deadline, or total deadline emits typed `output-truncated` metadata before `exit`. Unix PTY slave closure is normal EOF. PTYs are explicitly unavailable on non-Unix daemons.
 

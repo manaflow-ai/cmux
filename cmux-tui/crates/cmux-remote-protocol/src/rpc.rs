@@ -126,6 +126,8 @@ pub enum RemoteCapability {
     ProcessLifecycleV2,
     ProcessReplayV1,
     ProcessHandlesV2,
+    ProcessCatalogV1,
+    ProcessTerminalSnapshotV1,
     RequestControlV1,
     ComputerUseV1,
 }
@@ -319,6 +321,13 @@ pub enum WorkspaceRequest {
         after_sequence: u64,
         limit: u32,
     },
+    /// Discover every active and recently completed process retained by this
+    /// fully authorized daemon. Client scopes are lifecycle leases, not an
+    /// authorization boundary, so this catalog is intentionally daemon-wide.
+    ListProcesses,
+    SnapshotProcessTerminal {
+        process: ProcessId,
+    },
     FinishOperation {
         operation: OperationId,
     },
@@ -440,6 +449,12 @@ pub enum WorkspaceResponse {
         process: ProcessId,
         requested_after: u64,
         range: ProcessReplayRange,
+    },
+    Processes {
+        processes: Vec<ProcessDescriptor>,
+    },
+    ProcessTerminalSnapshot {
+        snapshot: ProcessTerminalSnapshot,
     },
     OperationFinished {
         operation: OperationId,
@@ -617,6 +632,120 @@ pub enum ProcessIo {
         #[serde(default, skip_serializing_if = "PtyEofPolicy::is_reject")]
         eof: PtyEofPolicy,
     },
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "kebab-case")]
+pub enum ProcessIoKind {
+    Pipes,
+    Pty,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct ProcessDescriptor {
+    pub process: ProcessId,
+    pub workspace: WorkspaceId,
+    /// A bounded, control-character-escaped basename suitable for display.
+    pub command_label: String,
+    /// A bounded, control-character-escaped argv preview. This is display
+    /// metadata and must never be treated as an executable command.
+    pub display_argv: Vec<String>,
+    pub display_argv_truncated: bool,
+    /// Resolved daemon-side cwd, escaped and bounded for display.
+    pub cwd: String,
+    pub lifetime: ProcessLifetime,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub operation: Option<OperationId>,
+    pub pid: Option<u32>,
+    pub io: ProcessIoKind,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub pty_size: Option<ProcessTerminalSize>,
+    pub state: ProcessState,
+    pub replay: ProcessReplayRange,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(tag = "type", rename_all = "kebab-case")]
+pub enum ProcessState {
+    Running,
+    Exited { code: Option<i32>, signal: Option<i32> },
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+pub struct ProcessTerminalSize {
+    pub cols: u16,
+    pub rows: u16,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+pub struct ProcessTerminalColor {
+    pub r: u8,
+    pub g: u8,
+    pub b: u8,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "kebab-case")]
+pub enum ProcessTerminalCursorStyle {
+    Bar,
+    Block,
+    Underline,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "kebab-case")]
+pub enum ProcessTerminalUnderline {
+    Single,
+    Double,
+    Curly,
+    Dotted,
+    Dashed,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct ProcessTerminalStyledRun {
+    pub text: String,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub fg: Option<ProcessTerminalColor>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub bg: Option<ProcessTerminalColor>,
+    pub attrs: u16,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub underline: Option<ProcessTerminalUnderline>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub width_hint: Option<u16>,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct ProcessTerminalRow {
+    pub row: u16,
+    pub runs: Vec<ProcessTerminalStyledRun>,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct ProcessTerminalCursor {
+    pub x: u16,
+    pub y: u16,
+    pub style: ProcessTerminalCursorStyle,
+    pub blink: bool,
+    pub visible: bool,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub color: Option<ProcessTerminalColor>,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct ProcessTerminalSnapshot {
+    pub process: ProcessId,
+    pub size: ProcessTerminalSize,
+    pub rows: Vec<ProcessTerminalRow>,
+    pub cursor: ProcessTerminalCursor,
+    pub default_fg: ProcessTerminalColor,
+    pub default_bg: ProcessTerminalColor,
+    pub scrollback_rows: u32,
+    /// Highest process output sequence applied to this terminal model. A
+    /// reconnecting client subscribes after this cursor; after a replay gap it
+    /// takes a fresh snapshot and retries from the new cursor.
+    pub through_sequence: u64,
 }
 
 impl Default for ProcessIo {

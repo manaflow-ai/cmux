@@ -24,6 +24,7 @@ cmux-remote-protocol.workspace = true
 diffy.workspace = true
 futures-util.workspace = true
 getrandom.workspace = true
+ghostty-vt.workspace = true
 hmac.workspace = true
 http.workspace = true
 iroh = { workspace = true, optional = true }

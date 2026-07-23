@@ -552,6 +552,7 @@ dependencies = [
  "cmux-remote-protocol",
  "futures-util",
  "getrandom 0.3.4",
+ "ghostty-vt",
  "hmac",
  "serde",
  "serde_json",

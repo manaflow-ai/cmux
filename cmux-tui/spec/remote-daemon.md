@@ -1,6 +1,6 @@
 # Remote daemon protocol
 
-Status: implementation contract for protocol 3.
+Status: implementation contract for protocol 4.
 
 ## Authority boundary
 
@@ -28,7 +28,7 @@ Each frame declares one lane:
 - `bulk`: file contents, diffs, terminal replay, browser frames, and computer-use media.
 - `tunnel`: forwarded TCP bytes.
 
-Lane policy is configurable as `single`, `isolated`, or `auto`. `single` multiplexes all lanes on one link. `isolated` opens an independent link per lane. On a parallel-link provider, `auto` maps interactive and control to independent links and maps tunnel plus bulk to a third link. A provider without useful parallel links uses one prioritized link. Bulk backpressure must never consume the interactive queue reserve. The current TUI records a private input-to-write latency histogram and backpressure failures for tests; a public telemetry surface with queue depth and provider labels is not implemented in protocol 3.
+Lane policy is configurable as `single`, `isolated`, or `auto`. `single` multiplexes all lanes on one link. `isolated` opens an independent link per lane. On a parallel-link provider, `auto` maps interactive and control to independent links and maps tunnel plus bulk to a third link. A provider without useful parallel links uses one prioritized link. Bulk backpressure must never consume the interactive queue reserve. The current TUI records a private input-to-write latency histogram and backpressure failures for tests; a public telemetry surface with queue depth and provider labels is not implemented in protocol 4.
 
 A service declares every lane one logical stream may use. A multi-lane stream acknowledges setup on each declared lane before exposing buffered application data, and closes only after a terminal marker has arrived in order on every declared lane. This per-lane barrier prevents an isolated fast carrier from overtaking setup or teardown on another carrier. A failed terminal send retries under a bound, then closes the logical session so the peer cannot retain an unreachable stream.
 
@@ -77,13 +77,13 @@ Iroh supplies the same binary-link contract through authenticated QUIC, NAT trav
 - open/list workspace roots and capabilities;
 - stat, bounded read, atomic write with content preconditions, directory listing, search, and patch application;
 - Git status and structured or unified diff;
-- pipe processes and explicit PTY processes, with predeclared UUID handles, stdin, resize, signal, wait, bounded output drain, replay sequence numbers, and operation/workspace/detached lifetime;
+- pipe processes and explicit PTY processes, with predeclared UUID handles, daemon-wide discovery, bounded styled terminal snapshots, stdin, resize, signal, wait, bounded output drain, replay sequence numbers, and operation/workspace/detached lifetime;
 - workspace routes that name a remote host and port, plus per-client loopback listeners and per-connection tunnel streams;
 - capability discovery for future browser and computer-use input, screenshots, accessibility trees, and media streams.
 
 Pipe I/O is the default and recommended mode for tool calls. Omitting `io` selects writable pipes; an explicit pipes object can start with stdin closed. PTY allocation is explicit and appropriate for interactive programs, terminal emulation, or commands that change behavior when attached to a terminal.
 
-Computer-use RPC variants are negotiation placeholders and report unavailable in protocol 3. A future executor runs on the dedicated `computer-use` service with independent action, cancellation, and bulk-media flow control; it must not share the PTY-input request stream.
+Computer-use RPC variants are negotiation placeholders and report unavailable in protocol 4. A future executor runs on the dedicated `computer-use` service with independent action, cancellation, and bulk-media flow control; it must not share the PTY-input request stream.
 
 Request identifiers, operation identifiers, and cleanup ownership are scoped to one authenticated client session. A cancellation that overtakes request registration creates a bounded tombstone for the target UUID. Session-lifetime UUID uniqueness prevents a late cancellation from matching a later request. Session loss cancels that client's active requests, closes its routes, releases its workspace leases, and terminates its non-detached processes. The daemon keeps workspace roots in its global catalog after the last client disconnects, matching tmux-style persistence; an explicit final `close-workspace` removes a root. These scopes do not restrict authority: another authenticated client can list all workspaces and use any explicit workspace, process, or route identifier it learns.
 

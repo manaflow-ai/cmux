@@ -1,6 +1,6 @@
 # Remote workspace RPC contract
 
-Status: normative schema for remote protocol 3.
+Status: normative schema for remote protocol 4.
 
 This contract describes the `workspace-rpc`, `process-stream`, and `tcp-tunnel` services. Rust enum variant names serialize as kebab-case `type` values. Struct field names remain snake_case. Identifier wrappers serialize as their underlying JSON string or unsigned integer.
 
@@ -45,7 +45,7 @@ A direct service request is:
 }
 ```
 
-`id` is an opaque UUID string allocated synchronously by the client and never reused during one authenticated session. Its JSON representation is safe for JavaScript clients. `timeout_ms` is optional. A timeout is accepted only for cancel-safe requests: `capabilities`, `list-workspaces`, `stat`, `read-file`, `list-directory`, `search`, `git-status`, `diff`, `wait-process`, `read-process-events`, and both computer-use capability queries. A mutating request with `timeout_ms` returns `deadline-unsupported`.
+`id` is an opaque UUID string allocated synchronously by the client and never reused during one authenticated session. Its JSON representation is safe for JavaScript clients. `timeout_ms` is optional. A timeout is accepted only for cancel-safe requests: `capabilities`, `list-workspaces`, `stat`, `read-file`, `list-directory`, `search`, `git-status`, `diff`, `wait-process`, `read-process-events`, `list-processes`, `snapshot-process-terminal`, and both computer-use capability queries. A mutating request with `timeout_ms` returns `deadline-unsupported`.
 
 A successful direct service response uses Rust `Result` encoding:
 
@@ -118,6 +118,8 @@ Every field in the table is required unless marked optional or given a default.
 | `signal-process` | `process`, `signal:ProcessSignal` | `process-signaled` |
 | `wait-process` | `process` | `process-exit` |
 | `read-process-events` | `process`, `after_sequence:u64`, `limit:u32` | `process-events` or `process-replay-gap` |
+| `list-processes` | none | `processes` |
+| `snapshot-process-terminal` | `process` | `process-terminal-snapshot` |
 | `finish-operation` | `operation:string` | `operation-finished` |
 | `close-workspace` | `workspace` | `workspace-closed` |
 | `cancel-request` | `request:RequestId` | `request-canceled` |
@@ -125,7 +127,7 @@ Every field in the table is required unless marked optional or given a default.
 | `close-route` | `route:u64` | `closed` |
 | `computer-use-capabilities` | none | `computer-use-capabilities` |
 | `computer-use-capabilities-v1` | none | `computer-use-capabilities-v1` |
-| `invoke-computer-use` | `invocation:ComputerUseInvocation` | unavailable in protocol 3 |
+| `invoke-computer-use` | `invocation:ComputerUseInvocation` | unavailable in protocol 4 |
 | `cancel-computer-use` | `invocation:u64` | `computer-use-canceled` with `accepted:false` |
 
 Common response objects have these fields:
@@ -151,13 +153,15 @@ Common response objects have these fields:
 | `process-exit` | `process`, `code:i32|null`, `signal:i32|null` |
 | `process-events` | `process`, `range`, `events`, optional `next_cursor:u64` |
 | `process-replay-gap` | `process`, `requested_after`, `range` |
+| `processes` | `processes:[ProcessDescriptor]` |
+| `process-terminal-snapshot` | `snapshot:ProcessTerminalSnapshot` |
 | `operation-finished` | `operation`, `processes_signaled:u32` |
 | `workspace-closed` | `workspace` |
 | `request-canceled` | `request`, `accepted:bool` |
 | `route-created` | `route:u64`, `host`, `port` |
 | `closed` | no fields |
 
-Protocol 3 currently advertises `workspace-files-v1`, `workspace-search-v1`, `workspace-patch-v1`, `workspace-diff-v1`, `process-pipes-v1`, `process-pty-v1` on Unix, `tcp-routes-v1`, `computer-use-negotiation-v1`, `workspace-pagination-v1`, `workspace-patch-v2`, `structured-diff-v1`, `process-lifecycle-v2`, `process-replay-v1`, `process-handles-v2`, and `request-control-v1`.
+Protocol 4 currently advertises `workspace-files-v1`, `workspace-search-v1`, `workspace-patch-v1`, `workspace-diff-v1`, `process-pipes-v1`, `process-catalog-v1`, `process-pty-v1` and `process-terminal-snapshot-v1` on Unix, `tcp-routes-v1`, `computer-use-negotiation-v1`, `workspace-pagination-v1`, `workspace-patch-v2`, `structured-diff-v1`, `process-lifecycle-v2`, `process-replay-v1`, `process-handles-v2`, and `request-control-v1`.
 
 ## Files, search, patch, and diff
 
@@ -258,6 +262,18 @@ Programs that need terminal behavior request a PTY:
 
 `replay-gap` is terminal stream metadata containing `requested_after` and the available `range`. Completed records retain bounded replay history separately from the 64-process active admission limit. After completed-record eviction, the old UUID returns `unknown-process`. Normal clients generate a fresh UUIDv4, making accidental reuse negligible, and must never deliberately reuse a process UUID. An enrolled malicious client already has full operating-system-user authority, so the daemon does not trade long-lived availability for an unbounded permanent UUID denylist.
 
+`list-processes` returns a daemon-wide catalog. Client scopes own cleanup leases and do not filter authority, so any authenticated client sees every active process and the 64 most recently completed records. At most 64 active records exist. Running records sort by workspace, command label, and handle, followed by completed records newest first.
+
+Each `ProcessDescriptor` contains `process`, `workspace`, `command_label`, `display_argv`, `display_argv_truncated`, `cwd`, `lifetime`, optional `operation`, optional `pid`, `io`, optional `pty_size`, `state`, and `replay`. `io` is `pipes` or `pty`. `state` is `{"type":"running"}` or `{"type":"exited","code":...,"signal":...}`. `pty_size` tracks the current model dimensions. `replay` is the retained `ProcessReplayRange`.
+
+Catalog text is display metadata. The daemon escapes control characters, limits the command label to 256 encoded bytes, returns at most 32 arguments, limits each argument to 512 encoded bytes and the complete argv preview to 4 KiB, and limits cwd to 4 KiB. `display_argv_truncated` reports argument count or byte truncation. Clients must not execute `display_argv`. Catalog records never contain process environment keys or values.
+
+`snapshot-process-terminal` is valid only for a PTY and returns `not-a-pty` for pipes. The daemon feeds PTY bytes into a Ghostty VT model with a 2 MiB scrollback budget. Physical resize, model resize, PTY output publication, and snapshot capture use the same ordered lock. The snapshot contains `process`, `size`, every viewport row as styled runs, cursor position/style/blink/visibility/color, default foreground and background, `scrollback_rows`, and `through_sequence`.
+
+Styled runs contain `text`, optional RGB `fg` and `bg`, `attrs`, optional `underline`, and optional `width_hint`. Attribute bits are bold `0x1`, italic `0x2`, strikethrough `0x4`, inverse `0x8`, faint `0x10`, invisible `0x20`, and blink `0x40`. Underline is `single`, `double`, `curly`, `dotted`, or `dashed`. Cursor style is `bar`, `block`, or `underline`.
+
+`through_sequence` is the highest output event applied to the model in the snapshot. A reconnecting client takes a snapshot, then opens `process-stream` with `after` equal to `through_sequence`. If enough output arrives to evict that cursor before subscription, the stream reports `replay-gap`; the client takes a fresh snapshot and retries. The model never advances its cursor separately from event publication. A snapshot is rejected with `terminal-snapshot-too-large` above 65,536 viewport cells or 4 MiB of encoded snapshot JSON.
+
 For retained and live output, open `process-stream` with UUID process metadata and a decimal cursor:
 
 ```json
@@ -306,7 +322,7 @@ The response is `{"type":"route-created","route":9,"host":"127.0.0.1","port":300
 
 `computer-use-capabilities-v1` returns entries with `feature` and `version`. Feature strings are `screenshot`, `accessibility-tree`, `pointer`, `keyboard`, `text-input`, and `scroll`. The default daemon returns an empty list.
 
-An `invoke-computer-use` request contains an `invocation` with numeric `id`, optional `workspace`, optional `timeout_ms`, and an `action`. Action objects use the types `screenshot`, `accessibility-tree`, `pointer`, `keyboard`, `text-input`, or `scroll`. Protocol 3 returns `computer-use-unavailable` because no platform executor is wired. Future execution belongs on the separate `computer-use` service so media and long actions cannot block process input.
+An `invoke-computer-use` request contains an `invocation` with numeric `id`, optional `workspace`, optional `timeout_ms`, and an `action`. Action objects use the types `screenshot`, `accessibility-tree`, `pointer`, `keyboard`, `text-input`, or `scroll`. Protocol 4 returns `computer-use-unavailable` because no platform executor is wired. Future execution belongs on the separate `computer-use` service so media and long actions cannot block process input.
 
 | Action `type` | Fields |
 | --- | --- |

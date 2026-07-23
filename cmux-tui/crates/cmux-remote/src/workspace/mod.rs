@@ -290,12 +290,14 @@ impl WorkspaceService {
                     RemoteCapability::ProcessLifecycleV2,
                     RemoteCapability::ProcessReplayV1,
                     RemoteCapability::ProcessHandlesV2,
+                    RemoteCapability::ProcessCatalogV1,
                     RemoteCapability::RequestControlV1,
                 ];
                 #[cfg(unix)]
                 let capabilities = {
                     let mut capabilities = capabilities;
                     capabilities.push(RemoteCapability::ProcessPtyV1);
+                    capabilities.push(RemoteCapability::ProcessTerminalSnapshotV1);
                     capabilities
                 };
                 Ok(WorkspaceResponse::Capabilities { capabilities })
@@ -474,6 +476,15 @@ impl WorkspaceService {
             WorkspaceRequest::WaitProcess { process } => self.inner.processes.wait(process).await,
             WorkspaceRequest::ReadProcessEvents { process, after_sequence, limit } => {
                 self.inner.processes.read_events(process, after_sequence, limit).await
+            }
+            WorkspaceRequest::ListProcesses => {
+                // ClientScope owns cleanup leases only. One authenticated
+                // daemon grants every client authority over the same process
+                // catalog, matching workspace discovery and explicit handles.
+                Ok(self.inner.processes.list().await)
+            }
+            WorkspaceRequest::SnapshotProcessTerminal { process } => {
+                self.inner.processes.snapshot_terminal(process).await
             }
             WorkspaceRequest::FinishOperation { operation } => {
                 self.inner.processes.finish_operation_id(scope, operation).await
@@ -829,6 +840,8 @@ pub(crate) fn request_supports_cancellation(request: &WorkspaceRequest) -> bool 
             | WorkspaceRequest::Diff { .. }
             | WorkspaceRequest::WaitProcess { .. }
             | WorkspaceRequest::ReadProcessEvents { .. }
+            | WorkspaceRequest::ListProcesses
+            | WorkspaceRequest::SnapshotProcessTerminal { .. }
             | WorkspaceRequest::ComputerUseCapabilities
             | WorkspaceRequest::ComputerUseCapabilitiesV1
     )
@@ -850,8 +863,8 @@ mod tests {
     use std::collections::BTreeMap;
 
     use cmux_remote_protocol::{
-        ByteString, FilePrecondition, ProcessEnvironment, ProcessIo, ProcessLifetime,
-        ProcessSignal, RequestId,
+        ByteString, FilePrecondition, ProcessDescriptor, ProcessEnvironment, ProcessIo,
+        ProcessIoKind, ProcessLifetime, ProcessReplayRange, ProcessSignal, ProcessState, RequestId,
     };
     use tempfile::tempdir;
 
@@ -1022,7 +1035,10 @@ mod tests {
         assert!(capabilities.contains(&RemoteCapability::WorkspaceFilesV1));
         assert!(capabilities.contains(&RemoteCapability::ProcessPipesV1));
         assert!(capabilities.contains(&RemoteCapability::ProcessCatalogV1));
+        #[cfg(unix)]
         assert!(capabilities.contains(&RemoteCapability::ProcessTerminalSnapshotV1));
+        #[cfg(not(unix))]
+        assert!(!capabilities.contains(&RemoteCapability::ProcessTerminalSnapshotV1));
         #[cfg(unix)]
         assert!(capabilities.contains(&RemoteCapability::ProcessPtyV1));
         #[cfg(not(unix))]
