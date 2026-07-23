@@ -1,26 +1,67 @@
 import AppKit
+import Darwin
 import Foundation
 import WebKit
 
-struct ArtifactHTMLPreviewDocument {
+struct ArtifactHTMLPreviewDocument: Sendable {
     private static let maximumSourceBytes = 8 * 1024 * 1024
 
     let url: URL
 
-    init(sourceURL: URL) throws {
-        let values = try sourceURL.resourceValues(forKeys: [.fileSizeKey, .isRegularFileKey])
-        guard values.isRegularFile == true,
-              let fileSize = values.fileSize,
-              fileSize <= Self.maximumSourceBytes else {
-            throw CocoaError(.fileReadTooLarge)
-        }
-        let source = String(decoding: try Data(contentsOf: sourceURL), as: UTF8.self)
+    @concurrent
+    static func load(sourceURL: URL) async throws -> ArtifactHTMLPreviewDocument {
+        try ArtifactHTMLPreviewDocument(sourceURL: sourceURL)
+    }
+
+    private init(sourceURL: URL) throws {
+        let source = String(decoding: try Self.readSource(sourceURL), as: UTF8.self)
         let wrapper = Self.wrapper(source: source)
         let encoded = Data(wrapper.utf8).base64EncodedString()
         guard let url = URL(string: "data:text/html;base64,\(encoded)") else {
             throw CocoaError(.fileReadCorruptFile)
         }
         self.url = url
+    }
+
+    private static func readSource(_ sourceURL: URL) throws -> Data {
+        try Task.checkCancellation()
+        let descriptor = Darwin.open(sourceURL.path, O_RDONLY | O_CLOEXEC | O_NOFOLLOW)
+        guard descriptor >= 0 else {
+            throw CocoaError(.fileReadUnknown, userInfo: [NSFilePathErrorKey: sourceURL.path])
+        }
+        defer { Darwin.close(descriptor) }
+
+        var status = stat()
+        guard fstat(descriptor, &status) == 0,
+              (status.st_mode & S_IFMT) == S_IFREG,
+              status.st_size >= 0 else {
+            throw CocoaError(.fileReadUnknown, userInfo: [NSFilePathErrorKey: sourceURL.path])
+        }
+        guard status.st_size <= maximumSourceBytes else {
+            throw CocoaError(.fileReadTooLarge)
+        }
+
+        var data = Data()
+        data.reserveCapacity(min(Int(status.st_size), maximumSourceBytes))
+        var buffer = [UInt8](repeating: 0, count: min(64 * 1024, maximumSourceBytes + 1))
+        while data.count <= maximumSourceBytes {
+            try Task.checkCancellation()
+            let requested = min(buffer.count, maximumSourceBytes + 1 - data.count)
+            guard requested > 0 else { break }
+            let count = buffer.withUnsafeMutableBytes { bytes in
+                Darwin.read(descriptor, bytes.baseAddress, requested)
+            }
+            if count == 0 { break }
+            if count < 0 {
+                if errno == EINTR { continue }
+                throw CocoaError(.fileReadUnknown, userInfo: [NSFilePathErrorKey: sourceURL.path])
+            }
+            data.append(contentsOf: buffer.prefix(count))
+        }
+        guard data.count <= maximumSourceBytes else {
+            throw CocoaError(.fileReadTooLarge)
+        }
+        return data
     }
 
     private static func wrapper(source: String) -> String {

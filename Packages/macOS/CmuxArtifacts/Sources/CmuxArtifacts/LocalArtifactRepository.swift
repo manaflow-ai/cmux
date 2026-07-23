@@ -250,19 +250,45 @@ public actor LocalArtifactRepository: ArtifactStoring {
             ),
             to: sessionDirectory.appendingPathComponent(ArtifactPathResolver.workspaceMarkerName)
         )
-        try writeMarkerIfMissing(
+        try writeSessionMarkerIfMissing(
             ArtifactSessionMarker(
                 sessionID: context.sessionID,
                 agentName: context.agentName,
                 createdAt: capturedAt
             ),
-            to: sessionDirectory.appendingPathComponent(ArtifactPathResolver.sessionMarkerName)
+            to: sessionDirectory.appendingPathComponent(ArtifactPathResolver.sessionMarkerName),
+            paths: paths
         )
     }
 
     private func writeMarkerIfMissing(_ value: some Encodable, to url: URL) throws {
-        guard !fileManager.fileExists(atPath: url.path) else { return }
-        try encoder.encode(value).write(to: url, options: .atomic)
+        do {
+            try encoder.encode(value).write(to: url, options: .withoutOverwriting)
+        } catch {
+            guard try ArtifactBoundedFileReader().pathEntryExists(url: url) else { throw error }
+        }
+    }
+
+    private func writeSessionMarkerIfMissing(
+        _ value: ArtifactSessionMarker,
+        to url: URL,
+        paths: ArtifactStorePaths
+    ) throws {
+        let reader = ArtifactBoundedFileReader()
+        do {
+            try encoder.encode(value).write(to: url, options: .withoutOverwriting)
+            return
+        } catch {
+            guard try reader.pathEntryExists(url: url) else { throw error }
+        }
+        guard let data = try reader.data(
+            url: url,
+            allowedRoot: paths.filesystemRoot,
+            maximumBytes: 256 * 1024
+        ), let existing = try? decoder.decode(ArtifactSessionMarker.self, from: data),
+              existing.sessionID == value.sessionID else {
+            throw ArtifactStoreError.corruptProvenance(url.path)
+        }
     }
 
     func rejectSymbolicLinks(from root: URL, through descendant: URL) throws {

@@ -1,7 +1,7 @@
 import Foundation
 
-/// Plans every path an automatic batch might write before persistence begins.
-struct ArtifactAutomaticWritePlanner {
+/// Plans every path an import batch might write before persistence begins.
+struct ArtifactWritePlanner {
     let fileManager: FileManager
     let encoder: JSONEncoder
     let decoder: JSONDecoder
@@ -12,7 +12,7 @@ struct ArtifactAutomaticWritePlanner {
         existingByDigest: [String: URL],
         context: ArtifactCaptureContext,
         paths: ArtifactStorePaths
-    ) throws -> ArtifactAutomaticWritePlan {
+    ) throws -> ArtifactWritePlan {
         let resolver = ArtifactPathResolver()
         let recorder = ArtifactProvenanceRecorder(
             fileManager: fileManager,
@@ -24,7 +24,7 @@ struct ArtifactAutomaticWritePlanner {
         var reservedDestinationPaths: Set<String> = []
         var captureResolution: ArtifactCaptureDirectoryResolution?
 
-        for item in prepared where item.candidate.provenance != .manual {
+        for item in prepared {
             destinations.append(recorder.metadataURL(paths: paths, digest: item.digest))
             let source = item.candidate.sourceURL
             guard !resolver.isInsideStore(source, paths: paths),
@@ -53,7 +53,7 @@ struct ArtifactAutomaticWritePlanner {
             destinations.append(contentsOf: missingMarkerURLs(resolution: captureResolution))
         }
         var seen: Set<String> = []
-        return ArtifactAutomaticWritePlan(
+        return ArtifactWritePlan(
             destinations: destinations.filter {
                 seen.insert($0.standardizedFileURL.path).inserted
             },

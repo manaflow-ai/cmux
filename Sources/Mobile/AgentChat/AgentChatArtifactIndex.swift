@@ -5,6 +5,7 @@ import Foundation
 /// Builds and caches the transcript-derived artifact scope for chat sessions.
 actor AgentChatArtifactIndex {
     static let hardMaximumTranscriptBytes: UInt64 = 128 * 1024 * 1024
+    static let maximumRetainedArtifactCount = 1_024
 
     struct Snapshot: Sendable {
         let referencedPaths: Set<String>
@@ -261,7 +262,11 @@ actor AgentChatArtifactIndex {
                 lastReferencedSeq: absoluteSequence
             )
         }
-        let artifacts = mergedArtifacts(previousArtifacts, currentArtifacts)
+        let artifacts = mergedArtifacts(
+            previousArtifacts,
+            currentArtifacts,
+            maximumCount: maximumRetainedArtifactCount
+        )
         let referencedPaths = Set(artifacts.map(\.path))
         return Snapshot(
             referencedPaths: referencedPaths,
@@ -275,7 +280,8 @@ actor AgentChatArtifactIndex {
 
     private static func mergedArtifacts(
         _ previous: [ChatArtifactIndexedReference],
-        _ current: [ChatArtifactIndexedReference]
+        _ current: [ChatArtifactIndexedReference],
+        maximumCount: Int
     ) -> [ChatArtifactIndexedReference] {
         var artifacts = Dictionary(uniqueKeysWithValues: previous.map { ($0.path, $0) })
         for artifact in current {
@@ -289,7 +295,12 @@ actor AgentChatArtifactIndex {
                 )
             )
         }
-        return Array(artifacts.values)
+        return Array(artifacts.values.sorted {
+            if $0.lastReferencedSeq != $1.lastReferencedSeq {
+                return $0.lastReferencedSeq > $1.lastReferencedSeq
+            }
+            return $0.path < $1.path
+        }.prefix(maximumCount))
     }
 
     private static func higherPrecedence(

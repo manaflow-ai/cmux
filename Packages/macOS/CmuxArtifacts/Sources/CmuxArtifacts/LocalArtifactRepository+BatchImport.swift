@@ -30,33 +30,26 @@ extension LocalArtifactRepository {
         }
         defer { stagingLease.finish() }
         let stagedURLs = candidates.map { _ in stagingLease.makeStagedURL() }
-        let automaticIndices = candidates.indices.filter { candidates[$0].provenance != .manual }
-        var privacyValidator: ArtifactGitPrivacyValidator?
-        if !automaticIndices.isEmpty {
-            let candidateValidator = ArtifactGitIgnoreManager(fileManager: fileManager)
-                .automaticWriteValidator(
-                    projectRoot: paths.projectRoot,
-                    commandRunner: gitCommandRunner
-                )
-            if let candidateValidator,
-               await candidateValidator.storeIsUntracked(filesystemRoot: paths.filesystemRoot) {
-                privacyValidator = candidateValidator
+        let candidateValidator = ArtifactGitIgnoreManager(fileManager: fileManager)
+            .writeValidator(
+                projectRoot: paths.projectRoot,
+                commandRunner: gitCommandRunner
+            )
+        let privacyValidator: ArtifactGitPrivacyValidator?
+        if let candidateValidator,
+           await candidateValidator.storeIsUntracked(filesystemRoot: paths.filesystemRoot) {
+            privacyValidator = candidateValidator
+        } else {
+            privacyValidator = nil
+        }
+        guard let privacyValidator,
+              await privacyValidator.permits(destinations: stagedURLs) else {
+            return candidates.map { _ in
+                .rejected(.gitPrivacyUnavailable(paths.filesystemRoot.path))
             }
-            let stagingDestinations = automaticIndices.map { stagedURLs[$0] }
-            let permitsStaging = if let privacyValidator {
-                await privacyValidator.permits(destinations: stagingDestinations)
-            } else {
-                false
-            }
-            if !permitsStaging {
-                for index in automaticIndices {
-                    attempts[index] = .rejected(.gitPrivacyUnavailable(paths.filesystemRoot.path))
-                }
-                privacyValidator = nil
-            }
-            if Task.isCancelled {
-                return finalizedAttempts(attempts, candidates: candidates)
-            }
+        }
+        if Task.isCancelled {
+            return finalizedAttempts(attempts, candidates: candidates)
         }
         for (index, candidate) in candidates.enumerated() {
             guard attempts[index] == nil else { continue }
@@ -86,44 +79,38 @@ extension LocalArtifactRepository {
             }
         }
 
-        var orderedPrepared = preparedByIndex.sorted(by: { $0.key < $1.key })
-        var authorizedAutomaticPlan: ArtifactAutomaticWritePlan?
-        let automaticPrepared = orderedPrepared.filter { $0.value.candidate.provenance != .manual }
-        if !automaticPrepared.isEmpty {
-            do {
-                let preflightIndex = try buildDeduplicationIndex(
-                    prepared: orderedPrepared.map(\.value),
-                    paths: paths,
-                    configuration: configuration
-                )
-                let plan = try makeAutomaticWritePlan(
-                    prepared: automaticPrepared.map(\.value),
-                    existingByDigest: preflightIndex,
-                    context: context,
-                    paths: paths
-                )
-                if let privacyValidator,
-                   await privacyValidator.permits(destinations: plan.destinations) {
-                    authorizedAutomaticPlan = plan
-                } else {
-                    for (index, _) in automaticPrepared {
-                        attempts[index] = .rejected(.gitPrivacyUnavailable(paths.filesystemRoot.path))
-                    }
-                    orderedPrepared.removeAll { $0.value.candidate.provenance != .manual }
-                }
-            } catch {
-                let rejection = (error as? ArtifactStoreError)
-                    ?? ArtifactStoreError.pathOutsideStore(paths.filesystemRoot.path)
-                for index in preparedByIndex.keys {
-                    attempts[index] = .rejected(rejection)
-                }
-                return finalizedAttempts(attempts, candidates: candidates)
-            }
-            if Task.isCancelled {
-                return finalizedAttempts(attempts, candidates: candidates)
-            }
-        }
+        let orderedPrepared = preparedByIndex.sorted(by: { $0.key < $1.key })
         guard !orderedPrepared.isEmpty else {
+            return finalizedAttempts(attempts, candidates: candidates)
+        }
+        let authorizedWritePlan: ArtifactWritePlan
+        do {
+            let preflightIndex = try buildDeduplicationIndex(
+                prepared: orderedPrepared.map(\.value),
+                paths: paths,
+                configuration: configuration
+            )
+            authorizedWritePlan = try makeWritePlan(
+                prepared: orderedPrepared.map(\.value),
+                existingByDigest: preflightIndex,
+                context: context,
+                paths: paths
+            )
+            guard await privacyValidator.permits(destinations: authorizedWritePlan.destinations) else {
+                for (index, _) in orderedPrepared {
+                    attempts[index] = .rejected(.gitPrivacyUnavailable(paths.filesystemRoot.path))
+                }
+                return finalizedAttempts(attempts, candidates: candidates)
+            }
+        } catch {
+            let rejection = (error as? ArtifactStoreError)
+                ?? ArtifactStoreError.pathOutsideStore(paths.filesystemRoot.path)
+            for index in preparedByIndex.keys {
+                attempts[index] = .rejected(rejection)
+            }
+            return finalizedAttempts(attempts, candidates: candidates)
+        }
+        if Task.isCancelled {
             return finalizedAttempts(attempts, candidates: candidates)
         }
 
@@ -154,32 +141,28 @@ extension LocalArtifactRepository {
             for (index, _) in orderedPrepared { attempts[index] = .rejected(rejection) }
             return finalizedAttempts(attempts, candidates: candidates)
         }
-        var automaticWritePlan: ArtifactAutomaticWritePlan?
-        let refreshedAutomatic = orderedPrepared.filter { $0.value.candidate.provenance != .manual }
-        if !refreshedAutomatic.isEmpty {
-            do {
-                let refreshedPlan = try makeAutomaticWritePlan(
-                    prepared: refreshedAutomatic.map(\.value),
-                    existingByDigest: existingByDigest,
-                    context: context,
-                    paths: paths
-                )
-                if authorizedAutomaticPlan?.authorizes(refreshedPlan) == true {
-                    automaticWritePlan = refreshedPlan
-                } else {
-                    for (index, _) in refreshedAutomatic {
-                        attempts[index] = .rejected(.storeBusy(paths.filesystemRoot.path))
-                    }
-                    orderedPrepared.removeAll { $0.value.candidate.provenance != .manual }
+        let writePlan: ArtifactWritePlan
+        do {
+            let refreshedPlan = try makeWritePlan(
+                prepared: orderedPrepared.map(\.value),
+                existingByDigest: existingByDigest,
+                context: context,
+                paths: paths
+            )
+            guard authorizedWritePlan.authorizes(refreshedPlan) else {
+                for (index, _) in orderedPrepared {
+                    attempts[index] = .rejected(.storeBusy(paths.filesystemRoot.path))
                 }
-            } catch {
-                let rejection = (error as? ArtifactStoreError)
-                    ?? ArtifactStoreError.pathOutsideStore(paths.filesystemRoot.path)
-                for (index, _) in refreshedAutomatic {
-                    attempts[index] = .rejected(rejection)
-                }
-                orderedPrepared.removeAll { $0.value.candidate.provenance != .manual }
+                return finalizedAttempts(attempts, candidates: candidates)
             }
+            writePlan = refreshedPlan
+        } catch {
+            let rejection = (error as? ArtifactStoreError)
+                ?? ArtifactStoreError.pathOutsideStore(paths.filesystemRoot.path)
+            for (index, _) in orderedPrepared {
+                attempts[index] = .rejected(rejection)
+            }
+            return finalizedAttempts(attempts, candidates: candidates)
         }
 
         var captureDirectory: URL?
@@ -192,8 +175,8 @@ extension LocalArtifactRepository {
                     capturedAt: capturedAt,
                     existingByDigest: &existingByDigest,
                     captureDirectory: &captureDirectory,
-                    plannedDestination: automaticWritePlan?.copyDestination(for: prepared),
-                    plannedResolution: automaticWritePlan?.captureResolution
+                    plannedDestination: writePlan.copyDestination(for: prepared),
+                    plannedResolution: writePlan.captureResolution
                 ))
             } catch let error as ArtifactStoreError {
                 attempts[index] = .rejected(error)
@@ -224,13 +207,13 @@ extension LocalArtifactRepository {
         ).build(prepared: prepared, paths: paths)
     }
 
-    private func makeAutomaticWritePlan(
+    private func makeWritePlan(
         prepared: [PreparedArtifactImport],
         existingByDigest: [String: URL],
         context: ArtifactCaptureContext,
         paths: ArtifactStorePaths
-    ) throws -> ArtifactAutomaticWritePlan {
-        try ArtifactAutomaticWritePlanner(
+    ) throws -> ArtifactWritePlan {
+        try ArtifactWritePlanner(
             fileManager: fileManager,
             encoder: encoder,
             decoder: decoder,

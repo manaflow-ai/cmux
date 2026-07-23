@@ -40,8 +40,8 @@ struct ArtifactGitIgnoreManager {
         try updated.write(to: excludeURL, atomically: true, encoding: .utf8)
     }
 
-    /// Resolves the repository context for a fail-closed automatic import validator.
-    func automaticWriteValidator(
+    /// Resolves the repository context for a fail-closed import validator.
+    func writeValidator(
         projectRoot: URL,
         commandRunner: any ArtifactGitCommandRunning
     ) -> ArtifactGitPrivacyValidator? {
