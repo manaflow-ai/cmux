@@ -31,9 +31,14 @@ public struct SubrouterServerSelection: Sendable, Equatable {
         self.defaultServer = defaultServer
     }
 
-    /// Parses a `servers.json` payload. Returns an empty selection for a
-    /// missing/unset default, and `nil` for undecodable data (callers fall
-    /// back to the local daemon either way).
+    /// Parses a `servers.json` payload.
+    ///
+    /// An absent or empty `default` is a legitimate local-daemon selection.
+    /// Undecodable data returns `nil` — and so does a `default` naming a
+    /// missing entry or one whose URL does not parse: a partially written
+    /// or inconsistent registry that still names a server must read as
+    /// unreadable (fail closed), never silently select the local daemon
+    /// where a switch would mutate the wrong credentials.
     public init?(serversJSON data: Data) {
         struct Payload: Decodable {
             struct Entry: Decodable {
@@ -49,12 +54,16 @@ public struct SubrouterServerSelection: Sendable, Equatable {
         }
         guard
             let defaultName = payload.default?.trimmingCharacters(in: .whitespacesAndNewlines),
-            !defaultName.isEmpty,
-            let entry = payload.servers?.first(where: { $0.name == defaultName }),
-            let endpoint = SubrouterEndpoint(configurationString: entry.url)
+            !defaultName.isEmpty
         else {
             self.init(defaultServer: nil)
             return
+        }
+        guard
+            let entry = payload.servers?.first(where: { $0.name == defaultName }),
+            let endpoint = SubrouterEndpoint(configurationString: entry.url)
+        else {
+            return nil
         }
         self.init(defaultServer: Server(name: defaultName, endpoint: endpoint))
     }

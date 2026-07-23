@@ -199,9 +199,14 @@ import Testing
         #expect(SubrouterServerSelection(serversJSON: Data("not json".utf8)) == nil)
     }
 
-    @Test func defaultNamingUnknownServerMeansLocalDaemon() throws {
-        let json = Data(#"{"servers": [], "default": "gone"}"#.utf8)
-        let selection = try #require(SubrouterServerSelection(serversJSON: json))
-        #expect(selection.defaultServer == nil)
+    @Test func defaultNamingUnknownServerFailsClosed() {
+        // A registry that still names a default the entry list cannot
+        // resolve is inconsistent, not a local-daemon selection: parsing
+        // fails so the runtime treats it as unreadable instead of falling
+        // back to loopback.
+        #expect(SubrouterServerSelection(serversJSON: Data(#"{"servers": [], "default": "gone"}"#.utf8)) == nil)
+        #expect(SubrouterServerSelection(
+            serversJSON: Data(#"{"servers": [{"name": "team", "url": "ftp://subrouter-team:31415"}], "default": "team"}"#.utf8)
+        ) == nil)
     }
 }

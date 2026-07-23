@@ -76,6 +76,13 @@ public final class SubrouterStore {
     /// previous one so an older snapshot can never atomically replace a
     /// newer one on disk.
     @ObservationIgnored private var historySaveTask: Task<Void, Never>?
+    /// Whether the persisted history has been read and merged. No save may
+    /// run before this: a refresh recording before the load lands must not
+    /// overwrite the persisted file the load has not read yet.
+    @ObservationIgnored private var historyLoadCompleted: Bool
+    /// Set when a refresh recorded samples while the load was in flight;
+    /// ``finishHistoryLoad(with:)`` then persists the merged result.
+    @ObservationIgnored private var wantsHistorySaveAfterLoad = false
 
     /// Rolling usage samples per account window; the panel renders these as
     /// sparklines. Persisted to ``historyStorageURL`` when provided; starts
@@ -106,6 +113,7 @@ public final class SubrouterStore {
         self.configurationStorage = configuration
         self.historyStorageURL = historyStorageURL
         self.usageHistory = SubrouterUsageHistory()
+        self.historyLoadCompleted = historyStorageURL == nil
         self.now = now
         if let historyStorageURL {
             // Read + decode off the main actor: init runs on main (app
@@ -113,8 +121,7 @@ public final class SubrouterStore {
             // a few hundred KB at the retention caps.
             historyLoadTask = Task.detached(priority: .utility) { [weak self] in
                 let loaded = SubrouterUsageHistory.load(from: historyStorageURL)
-                guard loaded != SubrouterUsageHistory() else { return }
-                await self?.adoptPersistedUsageHistory(loaded)
+                await self?.finishHistoryLoad(with: loaded)
             }
         }
     }
@@ -126,11 +133,17 @@ public final class SubrouterStore {
         historySaveTask?.cancel()
     }
 
-    /// Adopts the history loaded from disk. Merges under any samples a
-    /// refresh recorded while the load was in flight, so losing that race
-    /// never discards the persisted week of sparkline history.
-    private func adoptPersistedUsageHistory(_ loaded: SubrouterUsageHistory) {
+    /// Adopts the history loaded from disk: merges it under any samples a
+    /// refresh recorded while the load was in flight, unlocks persistence,
+    /// and writes the merged result if a save was deferred — so neither
+    /// side of the startup race can discard the persisted week of history.
+    private func finishHistoryLoad(with loaded: SubrouterUsageHistory) {
         usageHistory.merge(olderHistory: loaded)
+        historyLoadCompleted = true
+        if wantsHistorySaveAfterLoad {
+            wantsHistorySaveAfterLoad = false
+            scheduleHistorySave()
+        }
     }
 
     // MARK: Configuration
@@ -222,7 +235,7 @@ public final class SubrouterStore {
         let client = client
         refreshTask = Task { @MainActor [weak self] in
             async let usageFetch = client.usageStatuses(endpoint: endpoint)
-            async let sessionsFetch = client.sessions(endpoint: endpoint)
+            async let sessionsFetch = Self.fetchBoundedSessions(client: client, endpoint: endpoint)
             let usageResult: Result<[SubrouterAccountUsageStatus], any Error>
             do { usageResult = .success(try await usageFetch) } catch { usageResult = .failure(error) }
             let sessionsResult: Result<[SubrouterSessionAssignment], any Error>
@@ -307,7 +320,7 @@ public final class SubrouterStore {
             snapshot = SubrouterSnapshot(
                 daemonState: .healthy,
                 usageStatuses: usage,
-                sessions: Self.boundedSessions(sessions),
+                sessions: sessions,
                 lastUpdatedAt: now(),
                 lastErrorDescription: nil
             )
@@ -344,6 +357,16 @@ public final class SubrouterStore {
         }
     }
 
+    /// Fetches sessions and applies the retention cap off the main actor,
+    /// so a large routing-history response is bounded before it ever
+    /// reaches the main-actor snapshot.
+    nonisolated private static func fetchBoundedSessions(
+        client: any SubrouterClienting,
+        endpoint: SubrouterEndpoint
+    ) async throws -> [SubrouterSessionAssignment] {
+        boundedSessions(try await client.sessions(endpoint: endpoint))
+    }
+
     /// Keeps the ``maxRetainedSessions`` most recently updated assignments,
     /// preserving the daemon's ordering for the kept subset.
     nonisolated static func boundedSessions(
@@ -361,12 +384,23 @@ public final class SubrouterStore {
     }
 
     /// Records freshly fetched usage into the rolling history and persists
-    /// it off-main when anything changed. Saves chain on the previous one
-    /// so writes land in order — overlapping detached saves could commit
-    /// an older snapshot last.
+    /// it off-main when anything changed. Persistence waits for the
+    /// startup load: a save must never overwrite the file before the load
+    /// has read it.
     private func recordUsageHistory(_ usage: [SubrouterAccountUsageStatus]) {
-        guard usageHistory.record(usageStatuses: usage, now: now()),
-              let historyStorageURL else { return }
+        guard usageHistory.record(usageStatuses: usage, now: now()) else { return }
+        guard historyLoadCompleted else {
+            wantsHistorySaveAfterLoad = true
+            return
+        }
+        scheduleHistorySave()
+    }
+
+    /// Chains one off-main save of the current history onto the previous
+    /// one, so writes land in order and an older snapshot can never
+    /// atomically replace a newer one.
+    private func scheduleHistorySave() {
+        guard let historyStorageURL else { return }
         let history = usageHistory
         let previousSave = historySaveTask
         historySaveTask = Task.detached(priority: .utility) {
