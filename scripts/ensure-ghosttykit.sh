@@ -242,8 +242,16 @@ else
   echo "==> Cached GhosttyKit.xcframework at $CACHE_XCFRAMEWORK"
 fi
 
-MACOS_ARCHIVE="$CACHE_XCFRAMEWORK/macos-arm64_x86_64/libghostty.a"
-if [[ -f "$MACOS_ARCHIVE" ]]; then
+MACOS_ARCHIVE=""
+for candidate in \
+  "$CACHE_XCFRAMEWORK/macos-arm64_x86_64/ghostty-internal.a" \
+  "$CACHE_XCFRAMEWORK/macos-arm64_x86_64/libghostty.a"; do
+  if [[ -f "$candidate" ]]; then
+    MACOS_ARCHIVE="$candidate"
+    break
+  fi
+done
+if [[ -n "$MACOS_ARCHIVE" ]]; then
   # Xcode 26 can fail to resolve symbols from Ghostty's universal static archive
   # until its ranlib index is refreshed after reuse or copy.
   echo "==> Refreshing libghostty archive index..."
