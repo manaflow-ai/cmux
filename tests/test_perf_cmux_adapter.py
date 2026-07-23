@@ -68,6 +68,7 @@ class FakeRunner:
         self.workspaces = [self.workspace]
         self.pane = "pane:4"
         self.initial_terminal = "surface:initial"
+        self.initial_terminal_id = "00000000-0000-0000-0000-000000000009"
         self.surfaces: list[dict[str, Any]] = [
             {"surface_id": self.initial_terminal, "type": "terminal", "title": "shell"}
         ]
@@ -100,15 +101,17 @@ class FakeRunner:
 
     def json_cli(self, args: list[str], timeout: float = 60) -> dict[str, Any]:
         self.events.append(("json_cli", tuple(args), timeout))
-        if args[0] == "list-workspaces":
+        both_ids = args[:2] == ["--id-format", "both"]
+        command_args = args[2:] if both_ids else args
+        if command_args[0] == "list-workspaces":
             return {
                 "workspaces": [
                     {"workspace_id": workspace} for workspace in self.workspaces
                 ]
             }
-        if args[:2] == ["workspace", "create"]:
+        if command_args[:2] == ["workspace", "create"]:
             return {"workspace_id": self.workspace}
-        if args[0] == "list-panes":
+        if command_args[0] == "list-panes":
             return {
                 "panes": [
                     {
@@ -118,19 +121,29 @@ class FakeRunner:
                     }
                 ]
             }
-        if args[0] == "list-pane-surfaces":
+        if command_args[0] == "list-pane-surfaces":
+            surfaces = deepcopy(self.surfaces)
+            if both_ids:
+                surfaces = [
+                    {
+                        **{key: value for key, value in surface.items() if key != "surface_id"},
+                        "id": self.initial_terminal_id,
+                        "ref": surface["surface_id"],
+                    }
+                    for surface in surfaces
+                ]
             return {
                 "workspace_id": self.workspace,
                 "pane_id": self.pane,
-                "surfaces": deepcopy(self.surfaces),
+                "surfaces": surfaces,
             }
-        if args[0] == "new-surface":
-            kind = args[args.index("--type") + 1]
+        if command_args[0] == "new-surface":
+            kind = command_args[command_args.index("--type") + 1]
             ref = f"surface:{len(self.surfaces) + 1}"
             item = {"surface_id": ref, "type": kind, "title": kind}
             self.surfaces.append(item)
             if kind == "browser":
-                url = args[args.index("--url") + 1]
+                url = command_args[command_args.index("--url") + 1]
                 self.browser_state[ref] = {"url": url, "title": "", "content_marker": ""}
             return {"surface_id": ref, "pane_id": self.pane, "workspace_id": self.workspace}
         raise AssertionError(f"unexpected JSON CLI call: {args}")
@@ -164,10 +177,8 @@ class FakeRunner:
         self.events.append(("rpc", method, params, timeout))
         if method == "surface.respawn":
             return {
-                "surface_id": "00000000-0000-0000-0000-000000000009",
-                "surface_ref": params["surface_id"],
-                "workspace_id": "00000000-0000-0000-0000-000000000008",
-                "workspace_ref": params["workspace_id"],
+                "surface_id": params["surface_id"],
+                "surface_ref": self.initial_terminal,
                 "type": "terminal",
             }
         if method == "debug.session_snapshot_seed_scrollback":
@@ -390,8 +401,7 @@ def test_fixture_uses_one_workspace_and_pane_exact_local_identity_and_scrollback
     )
     respawn = next(event for event in runner.events if event[:2] == ("rpc", "surface.respawn"))
     assert respawn[2] == {
-        "workspace_id": runner.workspace,
-        "surface_id": runner.initial_terminal,
+        "surface_id": runner.initial_terminal_id,
         "working_directory": str(cfg.output_root),
         "focus": False,
     }
