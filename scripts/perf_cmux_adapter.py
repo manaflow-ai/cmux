@@ -302,19 +302,6 @@ class CmuxRuntimeAdapter:
         self._launched = True
         self._details["invocation"]["launch_socket_ready_ms"] = elapsed
 
-    def _create_workspace(self) -> str:
-        payload = self._runner.json_cli(
-            [
-                "workspace",
-                "create",
-                "--name",
-                f"cmux-perf-{self.config.scenario['scenario_id']}",
-                "--cwd",
-                str(self.config.output_root),
-            ],
-            timeout=self.config.rpc_timeout_s,
-        )
-        return _extract_ref(payload, "workspace")
 
     def _new_surface(self, kind: str, *, url: str | None = None) -> str:
         if self._workspace_id is None or self._pane_id is None:
@@ -362,23 +349,20 @@ class CmuxRuntimeAdapter:
         before = self._runner.json_cli(
             ["list-workspaces"], timeout=self.config.rpc_timeout_s
         ).get("workspaces", [])
-        prior_workspaces = [
-            _extract_ref(item, "workspace")
-            for item in before
-            if isinstance(item, Mapping)
-        ]
-        self._workspace_id = self._create_workspace()
+        if not isinstance(before, list) or len(before) != 1 or not isinstance(before[0], Mapping):
+            raise ValueError("fixture requires exactly one clean startup workspace")
+        self._workspace_id = _extract_ref(before[0], "workspace")
         panes_payload = self._runner.json_cli(
             ["list-panes", "--workspace", self._workspace_id],
             timeout=self.config.rpc_timeout_s,
         )
         panes = panes_payload.get("panes", [])
         if not isinstance(panes, list) or len(panes) != 1:
-            raise ValueError("new fixture workspace must contain exactly one pane")
+            raise ValueError("clean startup workspace must contain exactly one pane")
         self._pane_id = _extract_ref(panes[0], "pane")
         initial_refs = panes[0].get("surface_ids") or panes[0].get("surface_refs") or []
         if not isinstance(initial_refs, list) or len(initial_refs) != 1:
-            raise ValueError("new fixture workspace must contain one initial terminal")
+            raise ValueError("clean startup workspace must contain one initial terminal")
         initial_terminal = initial_refs[0]
         if not isinstance(initial_terminal, str):
             raise ValueError("initial terminal reference is invalid")
@@ -409,13 +393,6 @@ class CmuxRuntimeAdapter:
                 timeout=self.config.rpc_timeout_s,
             )
 
-        for old in prior_workspaces:
-            if isinstance(old, str) and old != self._workspace_id:
-                self._runner.run_cli(
-                    ["close-workspace", "--workspace", old],
-                    timeout=self.config.rpc_timeout_s,
-                    check=False,
-                )
         self._runner.run_cli(
             ["select-workspace", "--workspace", self._workspace_id],
             timeout=self.config.rpc_timeout_s,

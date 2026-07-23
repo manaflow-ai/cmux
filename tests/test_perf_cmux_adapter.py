@@ -65,6 +65,7 @@ class FakeRunner:
     def __init__(self) -> None:
         self.events: list[Any] = []
         self.workspace = "workspace:9"
+        self.workspaces = [self.workspace]
         self.pane = "pane:4"
         self.initial_terminal = "surface:initial"
         self.surfaces: list[dict[str, Any]] = [
@@ -100,7 +101,11 @@ class FakeRunner:
     def json_cli(self, args: list[str], timeout: float = 60) -> dict[str, Any]:
         self.events.append(("json_cli", tuple(args), timeout))
         if args[0] == "list-workspaces":
-            return {"workspaces": [{"workspace_id": self.workspace}]}
+            return {
+                "workspaces": [
+                    {"workspace_id": workspace} for workspace in self.workspaces
+                ]
+            }
         if args[:2] == ["workspace", "create"]:
             return {"workspace_id": self.workspace}
         if args[0] == "list-panes":
@@ -349,9 +354,13 @@ def test_fixture_uses_one_workspace_and_pane_exact_local_identity_and_scrollback
         for item in plan.browser_surfaces
     ]
     assert all(item.url.startswith("file://") for item in plan.browser_surfaces)
-    workspace_calls = [event for event in runner.events if event[0] == "json_cli" and event[1][:2] == ("workspace", "create")]
-    assert len(workspace_calls) == 1
-    assert workspace_calls[0][1] == ("workspace", "create", "--name", "cmux-perf-mixed-test", "--cwd", str(cfg.output_root))
+    workspace_calls = [
+        event
+        for event in runner.events
+        if event[0] == "json_cli" and event[1][:2] == ("workspace", "create")
+    ]
+    assert workspace_calls == []
+    assert adapter.raw_details["fixture"]["workspace_id"] == runner.workspace
     pane_calls = [event for event in runner.events if event[0] == "json_cli" and event[1][0] == "new-surface"]
     assert pane_calls and all("--pane" in event[1] and event[1][event[1].index("--pane") + 1] == runner.pane for event in pane_calls)
     seed = next(event for event in runner.events if event[:2] == ("rpc", "debug.session_snapshot_seed_scrollback"))
@@ -366,6 +375,21 @@ def test_fixture_uses_one_workspace_and_pane_exact_local_identity_and_scrollback
         "browser-mixed-test-002": "surface:4",
     }
     json.dumps(adapter.raw_details)
+
+def test_fixture_rejects_nonunique_clean_startup_workspace(tmp_path: Path) -> None:
+    cfg = config(tmp_path)
+    runner = FakeRunner()
+    runner.workspaces.append("workspace:unexpected")
+    adapter = adapter_module.CmuxRuntimeAdapter(cfg, runner=runner, clock=FakeClock())
+
+    with pytest.raises(ValueError, match="exactly one clean startup workspace"):
+        prepare_fixture(adapter, runner, cfg)
+
+    assert not any(
+        event[0] == "json_cli" and event[1][0] == "new-surface"
+        for event in runner.events
+    )
+
 
 def test_browser_only_closes_initial_terminal_and_does_not_seed_scrollback(tmp_path: Path) -> None:
     cfg = config(tmp_path, scenario=scenario(terminals=0, browsers=2, scrollback=0))
