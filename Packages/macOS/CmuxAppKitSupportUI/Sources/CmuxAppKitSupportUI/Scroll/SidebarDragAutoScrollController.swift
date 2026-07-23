@@ -84,7 +84,21 @@ public final class SidebarDragAutoScrollController: ObservableObject {
         let viewportHeight = clipView.bounds.height
         guard viewportHeight > 0 else { return nil }
 
-        let distances = distancesToEdges(mousePoint: mousePoint, viewportHeight: viewportHeight, isFlipped: clipView.isFlipped)
+        // Points converted into the clip view are in DOCUMENT coordinates,
+        // whose origin is the scroll offset. Edge distances must be viewport
+        // relative: without removing bounds.origin, any pointer position
+        // scrolled more than one viewport height deep measures as "past the
+        // bottom edge", which planned max-speed downward scrolling from
+        // anywhere in the list (the runaway-scroll report).
+        let viewportPoint = CGPoint(
+            x: mousePoint.x - clipView.bounds.origin.x,
+            y: mousePoint.y - clipView.bounds.origin.y
+        )
+        let distances = distancesToEdges(
+            mousePoint: viewportPoint,
+            viewportHeight: viewportHeight,
+            isFlipped: clipView.isFlipped
+        )
         return SidebarDragAutoScrollPlanner(distanceToTop: distances.top, distanceToBottom: distances.bottom).plan
     }
 
