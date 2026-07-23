@@ -872,6 +872,13 @@
         "ja" : { "stringUnit" : { "state" : "translated", "value" : "タイムアウト" } }
       }
     },
+    "mobile.iroh.diagnostics.failure.transportIdleTimedOut" : {
+      "extractionState" : "manual",
+      "localizations" : {
+        "en" : { "stringUnit" : { "state" : "translated", "value" : "Transport Idle Timeout" } },
+        "ja" : { "stringUnit" : { "state" : "translated", "value" : "接続アイドルタイムアウト" } }
+      }
+    },
     "mobile.iroh.diagnostics.failure.connectionRefused" : {
       "extractionState" : "manual",
       "localizations" : {

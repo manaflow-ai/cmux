@@ -1029,19 +1029,24 @@ final class MobileHostService {
         }
     }
 
+    @discardableResult
     nonisolated static func acceptTransport(
         _ transport: any CmxByteTransport,
         authorization: MobileHostConnectionAuthorizationContext,
         artifactTransfers: MobileHostIrohArtifactTransferRegistry? = nil,
         independentEventWriter: (any MobileHostIndependentEventWriting)? = nil,
         isCurrent: @escaping @Sendable () async -> Bool
-    ) async {
+    ) async -> CmxIrohAdmittedConnectionExit {
+        let expectedExit = CmxIrohAdmittedConnectionExit(
+            lifecycle: .explicitlyInvalidated,
+            failure: .none
+        )
         MobileHostRequestActivity.beginConnection()
         guard await isCurrent() else {
             mobileHostLog.info("mobile host rejected stale transport")
             await transport.close()
             MobileHostRequestActivity.endConnection()
-            return
+            return expectedExit
         }
 
         let id = UUID()
@@ -1099,7 +1104,7 @@ final class MobileHostService {
         guard await isCurrent() else {
             await transport.close()
             MobileHostRequestActivity.endConnection()
-            return
+            return expectedExit
         }
         guard MobileHostConnectionRegistry.shared.insert(
             session,
@@ -1112,9 +1117,9 @@ final class MobileHostService {
             )
             await transport.close()
             MobileHostRequestActivity.endConnection()
-            return
+            return expectedExit
         }
-        await session.run()
+        return await session.run()
     }
 
     nonisolated static func connectionAuthorizationError(
@@ -1704,6 +1709,10 @@ actor MobileHostConnection {
     private var independentEventNegotiationInProgress = false
     private var didDecodeFirstFrame = false
     private var isClosed = false
+    private var exit = CmxIrohAdmittedConnectionExit(
+        lifecycle: .explicitlyInvalidated,
+        failure: .none
+    )
     /// stream_id → topics and their negotiated event delivery path.
     /// Populated by `mobile.events.subscribe`; cleared on close.
     private var subscriptions: [String: EventSubscription] = [:]
@@ -1760,8 +1769,8 @@ actor MobileHostConnection {
     /// The caller retains connection ownership until this method returns. This
     /// matters for Iroh, whose sibling application-lane task closes the shared
     /// QUIC session when either side of the task group finishes.
-    func run() async {
-        guard receiveTask == nil, !isClosed else { return }
+    func run() async -> CmxIrohAdmittedConnectionExit {
+        guard receiveTask == nil, !isClosed else { return exit }
         startFirstFrameTimeout()
         let transport = transport
         let connectionID = id
@@ -1773,7 +1782,13 @@ actor MobileHostConnection {
                 )
                 while !Task.isCancelled {
                     guard let data = try await transport.receive() else {
-                        await self?.close(reason: "remote closed")
+                        await self?.close(
+                            reason: "remote closed",
+                            exit: CmxIrohAdmittedConnectionExit(
+                                lifecycle: .remoteClosed,
+                                failure: .connectionClosed
+                            )
+                        )
                         return
                     }
                     await self?.handleReceive(data: data)
@@ -1781,7 +1796,13 @@ actor MobileHostConnection {
             } catch is CancellationError {
                 await self?.close(reason: "cancelled")
             } catch {
-                await self?.close(reason: String(describing: error))
+                await self?.close(
+                    reason: String(describing: error),
+                    exit: CmxIrohAdmittedConnectionExit(
+                        lifecycle: .controlReadFailed,
+                        failure: DiagnosticFailureKind.classify(error)
+                    )
+                )
             }
         }
         receiveTask = task
@@ -1793,13 +1814,21 @@ actor MobileHostConnection {
                 task.cancel()
             }
         )
+        return exit
     }
 
-    func close(reason: String) async {
+    func close(
+        reason: String,
+        exit: CmxIrohAdmittedConnectionExit = CmxIrohAdmittedConnectionExit(
+            lifecycle: .explicitlyInvalidated,
+            failure: .none
+        )
+    ) async {
         guard !isClosed else {
             return
         }
         isClosed = true
+        self.exit = exit
         firstFrameTimeoutTask?.cancel()
         firstFrameTimeoutTask = nil
         idleTimeoutTask?.cancel()
@@ -1841,7 +1870,13 @@ actor MobileHostConnection {
                         message: "Invalid frame"
                     )
                 )
-                await close(reason: "receive buffer exceeded frame limit")
+                await close(
+                    reason: "receive buffer exceeded frame limit",
+                    exit: CmxIrohAdmittedConnectionExit(
+                        lifecycle: .controlReadFailed,
+                        failure: .protocolViolation
+                    )
+                )
                 return
             }
             receiveBuffer.append(data)
@@ -1861,7 +1896,13 @@ actor MobileHostConnection {
                         return
                     }
                     guard startResponseTask(for: frame) else {
-                        await close(reason: "rpc work capacity exceeded")
+                        await close(
+                            reason: "rpc work capacity exceeded",
+                            exit: CmxIrohAdmittedConnectionExit(
+                                lifecycle: .controlReadFailed,
+                                failure: .protocolViolation
+                            )
+                        )
                         return
                     }
                 }
@@ -1877,7 +1918,13 @@ actor MobileHostConnection {
                         message: "Invalid frame"
                     )
                 )
-                await close(reason: "frame decode error")
+                await close(
+                    reason: "frame decode error",
+                    exit: CmxIrohAdmittedConnectionExit(
+                        lifecycle: .controlReadFailed,
+                        failure: .protocolViolation
+                    )
+                )
                 return
             }
         }
@@ -1928,7 +1975,13 @@ actor MobileHostConnection {
         guard !didDecodeFirstFrame else {
             return
         }
-        await close(reason: "first frame timed out")
+        await close(
+            reason: "first frame timed out",
+            exit: CmxIrohAdmittedConnectionExit(
+                lifecycle: .controlReadFailed,
+                failure: .timedOut
+            )
+        )
     }
 
     private func startIdleTimeout() {
@@ -1953,7 +2006,13 @@ actor MobileHostConnection {
         guard didDecodeFirstFrame, subscriptions.isEmpty, responseTasks.isEmpty else {
             return
         }
-        await close(reason: "idle after frame timed out")
+        await close(
+            reason: "idle after frame timed out",
+            exit: CmxIrohAdmittedConnectionExit(
+                lifecycle: .controlReadFailed,
+                failure: .timedOut
+            )
+        )
     }
 
     private func respond(to frame: Data) async {
@@ -1999,7 +2058,13 @@ actor MobileHostConnection {
                 return
             }
             _ = await sendResponse(MobileHostRPCEnvelope.encodeResponse(id: nil, result: .failure(error)))
-            await close(reason: "invalid rpc envelope")
+            await close(
+                reason: "invalid rpc envelope",
+                exit: CmxIrohAdmittedConnectionExit(
+                    lifecycle: .controlReadFailed,
+                    failure: .protocolViolation
+                )
+            )
         }
     }
 
@@ -2157,12 +2222,24 @@ actor MobileHostConnection {
         do {
             frame = try MobileSyncFrameCodec.encodeFrame(data)
         } catch {
-            await close(reason: "event frame encode failed")
+            await close(
+                reason: "event frame encode failed",
+                exit: CmxIrohAdmittedConnectionExit(
+                    lifecycle: .controlWriteFailed,
+                    failure: .protocolViolation
+                )
+            )
             return false
         }
         guard queuedEvents.count < Self.maximumQueuedEventCount,
               frame.count <= Self.maximumQueuedEventByteCount - queuedEventByteCount else {
-            await close(reason: "event queue exceeded bounded capacity")
+            await close(
+                reason: "event queue exceeded bounded capacity",
+                exit: CmxIrohAdmittedConnectionExit(
+                    lifecycle: .controlWriteFailed,
+                    failure: .protocolViolation
+                )
+            )
             return false
         }
         queuedEvents.append(QueuedEvent(topic: topic, frame: frame))
@@ -2272,7 +2349,13 @@ actor MobileHostConnection {
         do {
             frame = try MobileSyncFrameCodec.encodeFrame(response)
         } catch {
-            await close(reason: "response frame encode failed")
+            await close(
+                reason: "response frame encode failed",
+                exit: CmxIrohAdmittedConnectionExit(
+                    lifecycle: .controlWriteFailed,
+                    failure: .protocolViolation
+                )
+            )
             return false
         }
 
@@ -2285,7 +2368,13 @@ actor MobileHostConnection {
             try await writer.send(frame)
             return true
         } catch {
-            await close(reason: String(describing: error))
+            await close(
+                reason: String(describing: error),
+                exit: CmxIrohAdmittedConnectionExit(
+                    lifecycle: .controlWriteFailed,
+                    failure: DiagnosticFailureKind.classify(error)
+                )
+            )
             return false
         }
     }

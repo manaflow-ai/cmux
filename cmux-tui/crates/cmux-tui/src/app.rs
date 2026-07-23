@@ -12,6 +12,7 @@ use std::path::PathBuf;
 use std::sync::atomic::{AtomicBool, AtomicU64, AtomicUsize, Ordering};
 use std::sync::mpsc::{Receiver, RecvTimeoutError, SyncSender, TrySendError, sync_channel};
 use std::sync::{Arc, Mutex};
+use std::thread::JoinHandle;
 use std::time::{Duration, Instant};
 
 use base64::Engine;
@@ -41,6 +42,14 @@ use crate::browser_input::{
 };
 use crate::config::{Action, ChromeTheme, Config, ScrollbarPosition, SidebarView};
 use crate::keys;
+use crate::localization;
+use crate::machine::{
+    MachineActionResult, MachineController, MachineKey, MachineRailSelection, MachineRailTarget,
+    MachineRequest, MachineSession, MachineUiState, MachineUpdateStream, ManagedMachineDescriptor,
+    ManagedMachineStatus, ManagedWorkspaceDescriptor, ManagedWorkspaceSessionMutation,
+    ManagedWorkspaceStatus, ProviderActionInputError, WorkspaceCreationMode,
+    WorkspaceCreationPolicy, validate_machine_session,
+};
 use crate::pty_input::{
     PtyInputBytes, PtyInputDispatcher, PtyInputEnqueueResult, PtyInputEvent, PtyInputKind,
     PtyInputSender, PtyOperationDelivery, PtyOperationFailure,
@@ -65,6 +74,10 @@ const APP_EVENT_CAPACITY: usize = 4_096;
 const PTY_FAILURE_CAPACITY: usize = 512;
 
 pub enum AppEvent {
+    SessionScoped {
+        generation: u64,
+        event: Box<AppEvent>,
+    },
     Mux(MuxEvent),
     MuxTitlesReady,
     MuxSubscriptionRecovered {
@@ -96,6 +109,100 @@ pub enum AppEvent {
         status: SidebarPluginSurface,
         relaunch: bool,
     },
+    #[cfg(test)]
+    MachineUiUpdated(Box<MachineUiState>),
+    MachineUiUpdatedForGeneration {
+        generation: u64,
+        update: Box<MachineUiState>,
+    },
+    MachineControllerCompleted(Box<MachineControllerCompletion>),
+}
+
+/// Cancellation-aware sender used by every worker tied to one mux session.
+/// Production senders wrap events with a generation; unit-level OrderedSession
+/// tests use an unscoped sender to keep their focused assertions small.
+#[derive(Clone)]
+struct SessionEventSender {
+    tx: SyncSender<AppEvent>,
+    generation: Option<u64>,
+    stop: Arc<AtomicBool>,
+}
+
+enum SessionTrySendError {
+    Full,
+    Disconnected,
+}
+
+impl SessionEventSender {
+    fn scoped(tx: SyncSender<AppEvent>, generation: u64, stop: Arc<AtomicBool>) -> Self {
+        Self { tx, generation: Some(generation), stop }
+    }
+
+    #[cfg(test)]
+    fn unscoped(tx: SyncSender<AppEvent>) -> Self {
+        Self { tx, generation: None, stop: Arc::new(AtomicBool::new(false)) }
+    }
+
+    fn wrap(&self, event: AppEvent) -> AppEvent {
+        match self.generation {
+            Some(generation) => AppEvent::SessionScoped { generation, event: Box::new(event) },
+            None => event,
+        }
+    }
+
+    fn try_send(&self, event: AppEvent) -> Result<(), SessionTrySendError> {
+        if self.stop.load(Ordering::Acquire) {
+            return Err(SessionTrySendError::Disconnected);
+        }
+        match self.tx.try_send(self.wrap(event)) {
+            Ok(()) => Ok(()),
+            Err(TrySendError::Full(_)) => Err(SessionTrySendError::Full),
+            Err(TrySendError::Disconnected(_)) => Err(SessionTrySendError::Disconnected),
+        }
+    }
+
+    fn send(&self, event: AppEvent) -> Result<(), ()> {
+        let mut event = self.wrap(event);
+        loop {
+            if self.stop.load(Ordering::Acquire) {
+                return Err(());
+            }
+            match self.tx.try_send(event) {
+                Ok(()) => return Ok(()),
+                Err(TrySendError::Full(returned)) => {
+                    event = returned;
+                    std::thread::park_timeout(Duration::from_millis(1));
+                }
+                Err(TrySendError::Disconnected(_)) => return Err(()),
+            }
+        }
+    }
+}
+
+struct SessionEventWorker {
+    stop: Arc<AtomicBool>,
+    start: Arc<AtomicBool>,
+    mux: Option<JoinHandle<()>>,
+}
+
+impl SessionEventWorker {
+    fn activate(&self) {
+        self.start.store(true, Ordering::Release);
+    }
+
+    fn stop_and_join(&mut self) {
+        self.stop.store(true, Ordering::Release);
+        self.activate();
+        if let Some(mux) = self.mux.take() {
+            let _ = mux.join();
+        }
+    }
+}
+
+impl Drop for SessionEventWorker {
+    fn drop(&mut self) {
+        self.stop_and_join();
+    }
 }
 
 #[derive(Default)]
@@ -108,19 +215,20 @@ fn forward_mux_events(
     mut session_events: cmux_tui_core::MuxEventReceiver,
     routing_mutation_committed: Arc<AtomicU64>,
     mux_recovery_generation: Arc<AtomicU64>,
-    tx: SyncSender<AppEvent>,
+    tx: SessionEventSender,
     mux_titles: Arc<MuxTitleIngress>,
 ) {
     let mut next_recovery_generation = 0_u64;
-    loop {
-        let needs_recovery = match session_events.recv() {
+    while !tx.stop.load(Ordering::Acquire) {
+        let needs_recovery = match session_events.recv_timeout(Duration::from_millis(100)) {
             Ok(event) => {
                 if matches!(forward_mux_event(event, &tx, &mux_titles), ForwardMuxOutcome::Stop) {
                     return;
                 }
                 false
             }
-            Err(_) => {
+            Err(RecvTimeoutError::Timeout) => continue,
+            Err(RecvTimeoutError::Disconnected) => {
                 if session_events.overflowed() {
                     true
                 } else {
@@ -140,6 +248,9 @@ fn forward_mux_events(
         // retained while every event accepted before overflow is delivered.
         let overflowed_events = std::mem::replace(&mut session_events, event_source.events());
         for event in overflowed_events.try_iter() {
+            if tx.stop.load(Ordering::Acquire) {
+                return;
+            }
             if matches!(forward_mux_event(event, &tx, &mux_titles), ForwardMuxOutcome::Stop) {
                 return;
             }
@@ -177,6 +288,9 @@ fn forward_mux_events(
             continue;
         }
         for event in session_events.try_iter() {
+            if tx.stop.load(Ordering::Acquire) {
+                return;
+            }
             if matches!(forward_mux_event(event, &tx, &mux_titles), ForwardMuxOutcome::Stop) {
                 return;
             }
@@ -201,7 +315,7 @@ enum ForwardMuxOutcome {
 
 fn forward_mux_event(
     event: MuxEvent,
-    tx: &SyncSender<AppEvent>,
+    tx: &SessionEventSender,
     mux_titles: &MuxTitleIngress,
 ) -> ForwardMuxOutcome {
     match event {
@@ -223,6 +337,71 @@ fn forward_mux_event(
         Ok(()) => ForwardMuxOutcome::Continue,
         Err(_) => ForwardMuxOutcome::Stop,
     }
+}
+
+fn start_ordered_session(
+    inner: Session,
+    operations: PtyInputSender,
+    app_events: SyncSender<AppEvent>,
+    generation: u64,
+) -> anyhow::Result<(OrderedSession, SessionEventWorker, Arc<MuxTitleIngress>, Arc<AtomicU64>)> {
+    start_ordered_session_inner(inner, operations, app_events, generation, false)
+}
+
+fn prepare_ordered_session(
+    inner: Session,
+    operations: PtyInputSender,
+    app_events: SyncSender<AppEvent>,
+    generation: u64,
+) -> anyhow::Result<(OrderedSession, SessionEventWorker, Arc<MuxTitleIngress>, Arc<AtomicU64>)> {
+    start_ordered_session_inner(inner, operations, app_events, generation, true)
+}
+
+fn start_ordered_session_inner(
+    inner: Session,
+    operations: PtyInputSender,
+    app_events: SyncSender<AppEvent>,
+    generation: u64,
+    paused: bool,
+) -> anyhow::Result<(OrderedSession, SessionEventWorker, Arc<MuxTitleIngress>, Arc<AtomicU64>)> {
+    let stop = Arc::new(AtomicBool::new(false));
+    let start = Arc::new(AtomicBool::new(!paused));
+    let events = SessionEventSender::scoped(app_events, generation, stop.clone());
+    let session = OrderedSession::new_with_event_sender(inner, operations, events.clone());
+    let mux_titles = Arc::new(MuxTitleIngress::default());
+    let mux_recovery_generation = Arc::new(AtomicU64::new(0));
+    let event_source = session.inner.clone();
+    let session_events = event_source.events();
+    let routing_mutation_committed = session.routing_mutation_committed.clone();
+    let mux_recovery_sequence = mux_recovery_generation.clone();
+    let worker_events = events;
+    let worker_titles = mux_titles.clone();
+    let worker_start = start.clone();
+    let mux =
+        std::thread::Builder::new().name(format!("mux-events-{generation}")).spawn(move || {
+            while !worker_start.load(Ordering::Acquire)
+                && !worker_events.stop.load(Ordering::Acquire)
+            {
+                std::thread::park_timeout(Duration::from_millis(1));
+            }
+            if worker_events.stop.load(Ordering::Acquire) {
+                return;
+            }
+            forward_mux_events(
+                event_source,
+                session_events,
+                routing_mutation_committed,
+                mux_recovery_sequence,
+                worker_events,
+                worker_titles,
+            );
+        })?;
+    Ok((
+        session,
+        SessionEventWorker { stop, start, mux: Some(mux) },
+        mux_titles,
+        mux_recovery_generation,
+    ))
 }
 
 #[derive(Default)]
@@ -408,7 +587,7 @@ enum SessionCompletionAction {
 }
 
 struct PendingSessionMutationState {
-    events: SyncSender<AppEvent>,
+    events: SessionEventSender,
     pending_mutations: Arc<AtomicUsize>,
     pending_routing_mutations: Arc<AtomicUsize>,
     routing: bool,
@@ -480,7 +659,7 @@ impl Drop for PendingSessionMutationState {
                 .try_send(AppEvent::SessionMutationSettled { outcome, routing: self.routing })
             {
                 Ok(()) => {}
-                Err(TrySendError::Full(_)) | Err(TrySendError::Disconnected(_)) => {
+                Err(SessionTrySendError::Full | SessionTrySendError::Disconnected) => {
                     let _ = self.pending_mutations.fetch_update(
                         Ordering::AcqRel,
                         Ordering::Acquire,
@@ -653,7 +832,7 @@ fn record_surface_resize_dispatch_result(
 pub struct OrderedSession {
     inner: Session,
     operations: PtyInputSender,
-    events: SyncSender<AppEvent>,
+    events: SessionEventSender,
     remote: bool,
     pending_mutations: Arc<AtomicUsize>,
     pending_routing_mutations: Arc<AtomicUsize>,
@@ -679,7 +858,16 @@ pub struct OrderedSession {
 }
 
 impl OrderedSession {
+    #[cfg(test)]
     fn new(inner: Session, operations: PtyInputSender, events: SyncSender<AppEvent>) -> Self {
+        Self::new_with_event_sender(inner, operations, SessionEventSender::unscoped(events))
+    }
+
+    fn new_with_event_sender(
+        inner: Session,
+        operations: PtyInputSender,
+        events: SessionEventSender,
+    ) -> Self {
         let remote = matches!(inner, Session::Remote(_));
         Self {
             inner,
@@ -1697,12 +1885,37 @@ impl OrderedSession {
         self.enqueue_routing("close workspace", move |session| session.close_workspace(workspace));
     }
 
+    pub fn mark_workspaces_provider_managed(&self) -> anyhow::Result<()> {
+        self.inner.mark_workspaces_provider_managed()
+    }
+
+    pub fn workspaces_are_provider_managed(&self) -> bool {
+        self.inner.workspaces_are_provider_managed()
+    }
+
+    pub fn close_provider_managed_workspace(&self, workspace: WorkspaceId, key: String) {
+        self.enqueue_routing("close managed workspace", move |session| {
+            session.close_provider_managed_workspace(workspace, key)
+        });
+    }
+
     pub fn rename_surface(&self, surface: SurfaceId, name: String) {
         self.enqueue("rename tab", move |session| session.rename_surface(surface, name));
     }
 
     pub fn rename_workspace(&self, workspace: WorkspaceId, name: String) {
         self.enqueue("rename workspace", move |session| session.rename_workspace(workspace, name));
+    }
+
+    pub fn rename_provider_managed_workspace(
+        &self,
+        workspace: WorkspaceId,
+        key: String,
+        name: String,
+    ) {
+        self.enqueue("rename managed workspace", move |session| {
+            session.rename_provider_managed_workspace(workspace, key, name)
+        });
     }
 
     pub fn focus_pane(&self, pane: PaneId) {
@@ -1736,6 +1949,74 @@ enum RenderAction {
     Draw,
 }
 
+enum MachineRailCommand {
+    Switch(MachineKey),
+    Rename(MachineKey),
+    Delete(MachineKey),
+    Restore(MachineKey),
+    Purge(MachineKey),
+    OpenScopes,
+    OpenActions,
+    Create,
+    Connect,
+}
+
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
+pub(crate) enum WorkspaceRailSelection {
+    #[default]
+    Workspace,
+    Recoverable,
+    SessionCreation,
+    ManagedCreation(WorkspaceCreationMode),
+}
+
+impl WorkspaceRailSelection {
+    pub(crate) fn matches_mode(self, mode: Option<WorkspaceCreationMode>) -> bool {
+        matches!(
+            (self, mode),
+            (Self::SessionCreation, None)
+                | (
+                    Self::ManagedCreation(WorkspaceCreationMode::Isolated),
+                    Some(WorkspaceCreationMode::Isolated)
+                )
+                | (
+                    Self::ManagedCreation(WorkspaceCreationMode::Host),
+                    Some(WorkspaceCreationMode::Host)
+                )
+        )
+    }
+}
+
+fn workspace_creation_selection(mode: Option<WorkspaceCreationMode>) -> WorkspaceRailSelection {
+    mode.map_or(WorkspaceRailSelection::SessionCreation, WorkspaceRailSelection::ManagedCreation)
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+enum WorkspaceRailTarget {
+    Workspace(WorkspaceId),
+    Recoverable(String),
+    Create(Option<WorkspaceCreationMode>),
+}
+
+fn rail_page_size(area: Option<Rect>) -> usize {
+    area.map_or(1, |area| usize::from(area.height.saturating_sub(1)).saturating_div(3).max(1))
+}
+
+fn rail_navigation_index(key: &KeyEvent, current: usize, len: usize, page: usize) -> Option<usize> {
+    if len == 0 {
+        return None;
+    }
+    match key.code {
+        KeyCode::Up | KeyCode::Char('k') => Some(current.saturating_sub(1)),
+        KeyCode::Down | KeyCode::Char('j') => Some((current + 1).min(len - 1)),
+        KeyCode::Home => Some(0),
+        KeyCode::End => Some(len - 1),
+        KeyCode::PageUp => Some(current.saturating_sub(page)),
+        KeyCode::PageDown => Some(current.saturating_add(page).min(len - 1)),
+        _ => None,
+    }
+}
+
 impl RenderAction {
     fn merge(self, other: Self) -> Self {
         match (self, other) {
@@ -1753,16 +2034,31 @@ impl RenderAction {
 /// menu where one exists (workspace rows, panes).
 #[derive(Debug, Clone, Copy, PartialEq)]
 pub enum Hit {
+    Machine {
+        index: usize,
+        key: MachineKey,
+    },
+    NewVm,
+    ConnectMachine,
+    ProviderScope,
+    ProviderActions,
     /// Sidebar workspace entry.
     Workspace {
         index: usize,
         id: WorkspaceId,
     },
-    NewWorkspace,
+    RecoverableWorkspace {
+        index: usize,
+    },
+    CreateWorkspace {
+        mode: Option<WorkspaceCreationMode>,
+    },
     /// A visible row in the built-in file browser.
     SidebarFile {
         index: usize,
     },
+    /// The active filter editor in the built-in files sidebar footer.
+    SidebarFilterInput,
     /// Status-bar screen entry.
     ScreenEntry {
         index: usize,
@@ -1785,8 +2081,8 @@ pub enum Hit {
         surface: SurfaceId,
         track: Rect,
     },
-    /// Sidebar right border.
-    SidebarResize,
+    /// A rail's right border.
+    RailResize(RailKind),
     /// Pane border resize handle.
     PaneResize {
         horizontal: Option<(PaneId, PaneEdge)>,
@@ -1797,6 +2093,40 @@ pub enum Hit {
         pane: PaneId,
         delta: isize,
     },
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum RailKind {
+    Machine,
+    Workspace,
+}
+
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
+pub enum FocusTarget {
+    #[default]
+    Pane,
+    MachineRail,
+    WorkspaceRail,
+}
+
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
+pub struct SidebarLayout {
+    pub machine: Option<Rect>,
+    pub workspace: Option<Rect>,
+    pub content: Rect,
+}
+
+impl SidebarLayout {
+    pub fn total_width(self) -> u16 {
+        self.content.x
+    }
+
+    pub fn rail(self, kind: RailKind) -> Option<Rect> {
+        match kind {
+            RailKind::Machine => self.machine,
+            RailKind::Workspace => self.workspace,
+        }
+    }
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -1835,9 +2165,17 @@ pub enum OmnibarHit {
 /// A context-menu entry: what activating it does (the label is derived).
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum MenuAction {
+    RenameManagedMachine(MachineKey),
+    DeleteManagedMachine(MachineKey),
+    RestoreManagedMachine(MachineKey),
+    PurgeManagedMachine(MachineKey),
     RenameWorkspace(WorkspaceId),
+    RenameManagedWorkspace(WorkspaceId),
     CopyWorkspaceId(WorkspaceId),
     CloseWorkspace(WorkspaceId),
+    DeleteManagedWorkspace(WorkspaceId),
+    RestoreManagedWorkspace(usize),
+    PurgeManagedWorkspace(usize),
     RenameScreen(cmux_tui_core::ScreenId),
     CloseScreen(cmux_tui_core::ScreenId),
     BrowserBack(PaneId),
@@ -1859,14 +2197,30 @@ pub enum MenuAction {
     UseClientSize(u64),
     RestoreAllClientSizing,
     DisconnectClient(u64),
+    SelectProviderScope(usize),
+    InvokeProviderAction(usize),
 }
 
 impl MenuAction {
     pub fn label(&self) -> &'static str {
         match self {
+            MenuAction::RenameManagedMachine(_) => localization::catalog().sidebar.rename_machine,
+            MenuAction::DeleteManagedMachine(_) => localization::catalog().sidebar.delete_machine,
+            MenuAction::RestoreManagedMachine(_) => localization::catalog().sidebar.restore_machine,
+            MenuAction::PurgeManagedMachine(_) => localization::catalog().sidebar.purge_machine,
             MenuAction::RenameWorkspace(_) => "Rename workspace",
+            MenuAction::RenameManagedWorkspace(_) => {
+                localization::catalog().sidebar.rename_workspace
+            }
             MenuAction::CopyWorkspaceId(_) => "Copy workspace id",
             MenuAction::CloseWorkspace(_) => "Close workspace",
+            MenuAction::DeleteManagedWorkspace(_) => {
+                localization::catalog().sidebar.delete_workspace
+            }
+            MenuAction::RestoreManagedWorkspace(_) => {
+                localization::catalog().sidebar.restore_workspace
+            }
+            MenuAction::PurgeManagedWorkspace(_) => localization::catalog().sidebar.purge_workspace,
             MenuAction::RenameScreen(_) => "Rename screen",
             MenuAction::CloseScreen(_) => "Close screen",
             MenuAction::BrowserBack(_) => "Back",
@@ -1889,6 +2243,9 @@ impl MenuAction {
             MenuAction::UseClientSize(_) => "Use only this client size",
             MenuAction::RestoreAllClientSizing => "Use all client sizes",
             MenuAction::DisconnectClient(_) => "Disconnect",
+            MenuAction::SelectProviderScope(_) | MenuAction::InvokeProviderAction(_) => {
+                "Provider action"
+            }
         }
     }
 }
@@ -1898,6 +2255,7 @@ impl MenuAction {
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum MenuItem {
     Action(MenuAction),
+    LabeledAction { label: String, action: MenuAction },
     Submenu { label: String, items: Vec<MenuItem> },
     Separator,
 }
@@ -1905,7 +2263,7 @@ pub enum MenuItem {
 impl MenuItem {
     pub fn action(&self) -> Option<MenuAction> {
         match self {
-            MenuItem::Action(action) => Some(*action),
+            MenuItem::Action(action) | MenuItem::LabeledAction { action, .. } => Some(*action),
             MenuItem::Submenu { .. } | MenuItem::Separator => None,
         }
     }
@@ -1913,6 +2271,7 @@ impl MenuItem {
     pub fn label(&self) -> Option<&str> {
         match self {
             MenuItem::Action(action) => Some(action.label()),
+            MenuItem::LabeledAction { label, .. } => Some(label),
             MenuItem::Submenu { label, .. } => Some(label),
             MenuItem::Separator => None,
         }
@@ -2073,6 +2432,43 @@ impl ContextMenu {
     fn selected_action(&self) -> Option<MenuAction> {
         let level = self.levels.last()?;
         level.items.get(level.selected).and_then(MenuItem::action)
+    }
+
+    fn targets_provider_state(&self) -> bool {
+        fn item_targets_provider(item: &MenuItem) -> bool {
+            match item {
+                MenuItem::Action(
+                    MenuAction::SelectProviderScope(_)
+                    | MenuAction::InvokeProviderAction(_)
+                    | MenuAction::RenameManagedMachine(_)
+                    | MenuAction::DeleteManagedMachine(_)
+                    | MenuAction::RestoreManagedMachine(_)
+                    | MenuAction::PurgeManagedMachine(_)
+                    | MenuAction::RenameManagedWorkspace(_)
+                    | MenuAction::DeleteManagedWorkspace(_)
+                    | MenuAction::RestoreManagedWorkspace(_)
+                    | MenuAction::PurgeManagedWorkspace(_),
+                )
+                | MenuItem::LabeledAction {
+                    action:
+                        MenuAction::SelectProviderScope(_)
+                        | MenuAction::InvokeProviderAction(_)
+                        | MenuAction::RenameManagedMachine(_)
+                        | MenuAction::DeleteManagedMachine(_)
+                        | MenuAction::RestoreManagedMachine(_)
+                        | MenuAction::PurgeManagedMachine(_)
+                        | MenuAction::RenameManagedWorkspace(_)
+                        | MenuAction::DeleteManagedWorkspace(_)
+                        | MenuAction::RestoreManagedWorkspace(_)
+                        | MenuAction::PurgeManagedWorkspace(_),
+                    ..
+                } => true,
+                MenuItem::Submenu { items, .. } => items.iter().any(item_targets_provider),
+                MenuItem::Action(_) | MenuItem::LabeledAction { .. } | MenuItem::Separator => false,
+            }
+        }
+
+        self.levels.iter().any(|level| level.all_items.iter().any(item_targets_provider))
     }
 
     fn action_at(&self, depth: usize, item: usize) -> Option<MenuAction> {
@@ -2238,16 +2634,24 @@ fn client_menu_item(clients: &[ClientInfo], surface: SurfaceId) -> Option<MenuIt
 /// What a committed rename prompt applies to.
 #[derive(Debug, Clone, Copy)]
 pub enum PromptTarget {
+    ManagedMachine(MachineKey),
+    ConfirmDeleteManagedMachine(MachineKey),
+    ConfirmPurgeManagedMachine(MachineKey),
     Workspace(WorkspaceId),
+    ManagedWorkspace(WorkspaceId),
+    ConfirmPurgeManagedWorkspace(usize),
     Screen(cmux_tui_core::ScreenId),
     Surface(SurfaceId),
+    ConnectMachine,
+    ProviderAction(usize),
+    ConfirmProviderAction(usize),
 }
 
 /// Centered rename dialog: a text input with OK/Cancel buttons. The
 /// renderer writes the final geometry back so mouse hit-testing (buttons,
 /// dismiss-outside) matches what is drawn.
 pub struct Prompt {
-    pub label: &'static str,
+    pub label: String,
     pub input: TextInput,
     pub target: PromptTarget,
     /// Dialog rect (set by the renderer each frame).
@@ -2303,9 +2707,9 @@ impl BrowserMouseDispatch {
 }
 
 impl Prompt {
-    fn new(label: &'static str, buffer: String, target: PromptTarget) -> Self {
+    fn new(label: impl Into<String>, buffer: String, target: PromptTarget) -> Self {
         Prompt {
-            label,
+            label: label.into(),
             input: TextInput::new(buffer),
             target,
             rect: Rect::default(),
@@ -2364,6 +2768,8 @@ pub struct TabDragView {
 
 /// Mouse drag in progress.
 enum Drag {
+    /// Left press on a machine entry; switching occurs on release.
+    MachineArm { machine: MachineKey, at: (u16, u16) },
     /// Left press on a tab chip; becomes `Tab` after moving cells.
     TabArm { surface: SurfaceId, at: (u16, u16) },
     /// Tab drag with the current drop target.
@@ -2389,8 +2795,8 @@ enum Drag {
     },
     /// Scrollbar thumb drag.
     Scrollbar { surface: SurfaceId, track: Rect, anchor_y: u16, anchor_offset: u64 },
-    /// Sidebar width override drag.
-    SidebarResize,
+    /// Independent rail width override drag.
+    RailResize(RailKind),
     /// Pane split resize drag.
     ResizeSplit { horizontal: Option<(PaneId, PaneEdge)>, vertical: Option<(PaneId, PaneEdge)> },
 }
@@ -2479,8 +2885,17 @@ impl PaneFocusHistory {
 
 pub struct App {
     pub session: OrderedSession,
+    session_event_worker: Option<SessionEventWorker>,
+    session_generation: u64,
+    app_events: SyncSender<AppEvent>,
+    machine_action_worker: Option<MachineActionWorker>,
+    machine_action_in_flight: bool,
+    pending_machine_replacement: Option<PendingMachineReplacement>,
+    machine_update_pump: Option<MachineUpdatePump>,
+    machine_update_generation: u64,
     pub config: Config,
     pub chrome: ChromeTheme,
+    default_colors: cmux_tui_core::DefaultColors,
     pub tree: TreeView,
     tab_locations: HashMap<SurfaceId, [usize; 4]>,
     pub render_states: HashMap<SurfaceId, RenderState>,
@@ -2501,19 +2916,31 @@ pub struct App {
     pub prefix_armed: bool,
     pub session_label: String,
     pub sidebar_visible: bool,
-    pub sidebar_focused: bool,
+    pub focus: FocusTarget,
     pub sidebar_focus_pending: bool,
+    pub machine_ui: Option<MachineUiState>,
     pub sidebar_view: SidebarView,
     pub sidebar_files: FileBrowser,
     pub sidebar_workspace_selection: usize,
+    pub(crate) sidebar_recoverable_workspace_selection: usize,
+    pub(crate) workspace_rail_selection: WorkspaceRailSelection,
+    pub(crate) machine_rail_scroll: usize,
+    pub(crate) machine_footer_scroll: usize,
+    pub(crate) workspace_rail_scroll: usize,
+    pub(crate) workspace_footer_scroll: usize,
+    pub(crate) machine_rail_follow_selection: bool,
+    pub(crate) workspace_rail_follow_selection: bool,
     sidebar_followed_surface: Option<SurfaceId>,
     /// Width of the sidebar in the current frame (0 when hidden).
     pub sidebar_width: u16,
+    pub machine_sidebar_width: u16,
+    pub sidebar_layout: SidebarLayout,
     pub sidebar_plugin_surface: Option<SurfaceId>,
     pub sidebar_plugin_error: Option<String>,
     pub sidebar_plugin_retry_after_ms: Option<u64>,
     sidebar_plugin_retry_at: Option<Instant>,
     sidebar_width_override: Option<u16>,
+    machine_sidebar_width_override: Option<u16>,
     /// Pane region of the current frame (screen minus sidebar/status).
     pub content_area: Rect,
     /// Clickable regions of the current frame, rebuilt by the renderers.
@@ -2611,31 +3038,88 @@ fn preserve_client_view(previous: &TreeView, next: &mut TreeView) {
     }
 }
 
-/// Sidebar width for a terminal width: the configured width, hidden on
-/// terminals too narrow to give panes room next to it.
-fn sidebar_width_for(
+const MIN_RAIL_WIDTH: u16 = 10;
+const MIN_CONTENT_WIDTH: u16 = 40;
+
+fn clamp_rail_width(desired: u16, configured_max: u16, available: u16) -> Option<u16> {
+    let configured_max = if configured_max > 0 { configured_max } else { u16::MAX };
+    let effective_max = available.min(configured_max);
+    (effective_max >= MIN_RAIL_WIDTH).then_some(desired.clamp(MIN_RAIL_WIDTH, effective_max))
+}
+
+fn sidebar_layout_for(
     config: &Config,
     visible: bool,
-    width: u16,
-    override_width: Option<u16>,
-) -> u16 {
+    machine_visible: bool,
+    size: (u16, u16),
+    workspace_override: Option<u16>,
+    machine_override: Option<u16>,
+) -> SidebarLayout {
+    let (width, height) = size;
+    let content_height = height.saturating_sub(1);
     if !visible {
-        return 0;
+        return SidebarLayout {
+            content: Rect { x: 0, y: 0, width, height: content_height },
+            ..SidebarLayout::default()
+        };
     }
-    clamp_sidebar_width(config, width, override_width.unwrap_or(config.sidebar.width)).unwrap_or(0)
+
+    let workspace_desired = workspace_override.unwrap_or(config.sidebar.width);
+    let machine_can_fit = machine_visible
+        && width >= MIN_CONTENT_WIDTH.saturating_add(MIN_RAIL_WIDTH.saturating_mul(2));
+    let workspace_reserve = if machine_can_fit { MIN_RAIL_WIDTH } else { 0 };
+    let workspace_available =
+        width.saturating_sub(MIN_CONTENT_WIDTH).saturating_sub(workspace_reserve);
+    let workspace_width =
+        clamp_rail_width(workspace_desired, config.sidebar.max_width, workspace_available)
+            .unwrap_or(0);
+
+    let machine_width = if machine_can_fit && workspace_width >= MIN_RAIL_WIDTH {
+        let available = width.saturating_sub(MIN_CONTENT_WIDTH).saturating_sub(workspace_width);
+        clamp_rail_width(
+            machine_override.unwrap_or(config.machine_sidebar.width),
+            config.machine_sidebar.max_width,
+            available,
+        )
+        .unwrap_or(0)
+    } else {
+        0
+    };
+
+    let machine = (machine_width > 0).then_some(Rect { x: 0, y: 0, width: machine_width, height });
+    let workspace = (workspace_width > 0).then_some(Rect {
+        x: machine_width,
+        y: 0,
+        width: workspace_width,
+        height,
+    });
+    let sidebar_width = machine_width.saturating_add(workspace_width);
+    SidebarLayout {
+        machine,
+        workspace,
+        content: Rect {
+            x: sidebar_width,
+            y: 0,
+            width: width.saturating_sub(sidebar_width),
+            height: content_height,
+        },
+    }
 }
 
-fn clamp_sidebar_width(config: &Config, terminal_width: u16, desired: u16) -> Option<u16> {
-    let terminal_max = terminal_width.saturating_sub(40);
-    let configured_max =
-        if config.sidebar.max_width > 0 { config.sidebar.max_width } else { u16::MAX };
-    let effective_max = terminal_max.min(configured_max);
-    (effective_max >= 10).then_some(desired.clamp(10, effective_max))
-}
-
-fn sidebar_drag_width(config: &Config, content: Rect, sidebar_width: u16, x: u16) -> Option<u16> {
-    let terminal_width = content.width.saturating_add(sidebar_width);
-    clamp_sidebar_width(config, terminal_width, x.saturating_add(1))
+fn rail_drag_width(config: &Config, layout: SidebarLayout, kind: RailKind, x: u16) -> Option<u16> {
+    let rail = layout.rail(kind)?;
+    let terminal_width = layout.content.x.saturating_add(layout.content.width);
+    let other_width = match kind {
+        RailKind::Machine => layout.workspace.map_or(0, |rect| rect.width),
+        RailKind::Workspace => layout.machine.map_or(0, |rect| rect.width),
+    };
+    let available = terminal_width.saturating_sub(MIN_CONTENT_WIDTH).saturating_sub(other_width);
+    let configured_max = match kind {
+        RailKind::Machine => config.machine_sidebar.max_width,
+        RailKind::Workspace => config.sidebar.max_width,
+    };
+    let desired = x.saturating_sub(rail.x).saturating_add(1);
+    clamp_rail_width(desired, configured_max, available)
 }
 
 fn content_size_for_rect(rect: Rect, scrollbar: ScrollbarPosition) -> Option<(u16, u16)> {
@@ -2691,30 +3175,523 @@ fn stacked_header_parts_for_rect(rect: Rect) -> (Option<Rect>, Option<Rect>, Rec
     (Some(rect), None, Rect { y: rect.y.saturating_add(rect.height), height: 0, ..rect }, None)
 }
 
-pub fn run(
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum RunOutcome {
+    Quit,
+    Machine(MachineRequest),
+}
+
+struct MachineUpdatePump {
+    stop: Arc<AtomicBool>,
+    provider: Option<JoinHandle<()>>,
+    forwarder: Option<JoinHandle<()>>,
+}
+
+enum MachineControllerCommand {
+    Perform { request: MachineRequest, preparation: Box<MachineSessionPreparation> },
+    SubscribeUpdates,
+    CommitReplacement(u64),
+    AbortReplacement(u64),
+}
+
+struct MachineSessionPreparation {
+    initial_size: Option<(u16, u16)>,
+    default_colors: cmux_tui_core::DefaultColors,
+    generation: u64,
+    pty_input: PtyInputSender,
+}
+
+struct PreparedMachineSession {
+    session: OrderedSession,
+    event_worker: SessionEventWorker,
+    generation: u64,
+    mux_titles: Arc<MuxTitleIngress>,
+    mux_recovery_generation: Arc<AtomicU64>,
+    tree: TreeView,
+    label: String,
+    session_available: bool,
+    color_error: Option<String>,
+}
+
+pub(crate) struct PreparedMachineAction {
+    ui: MachineUiState,
+    session_mutation: Option<ManagedWorkspaceSessionMutation>,
+    session_label: Option<String>,
+    session: PreparedMachineSession,
+}
+
+struct PendingMachineReplacement {
+    action_id: u64,
+    action: PreparedMachineAction,
+}
+
+pub(crate) enum MachineControllerCompletion {
+    Action {
+        result: Result<Box<MachineActionResult>, String>,
+        updates: Option<Result<Option<MachineUpdateStream>, String>>,
+    },
+    ReplacementPrepared {
+        action_id: u64,
+        action: Box<PreparedMachineAction>,
+    },
+    ReplacementSettled {
+        action_id: u64,
+        committed: Result<bool, String>,
+        updates: Option<Result<Option<MachineUpdateStream>, String>>,
+    },
+    Updates(Result<Option<MachineUpdateStream>, String>),
+}
+
+struct MachineActionWorker {
+    sender: Option<SyncSender<MachineControllerCommand>>,
+    stop: Arc<AtomicBool>,
+    worker: Option<JoinHandle<()>>,
+}
+
+#[derive(Debug)]
+enum MachineSubmitError {
+    Busy(MachineRequest),
+    Stopped(MachineRequest),
+}
+
+impl MachineActionWorker {
+    fn spawn(
+        mut controller: Box<dyn MachineController>,
+        app_events: SyncSender<AppEvent>,
+    ) -> anyhow::Result<Self> {
+        let (sender, receiver) = sync_channel(1);
+        let stop = Arc::new(AtomicBool::new(false));
+        let worker_stop = stop.clone();
+        let worker =
+            std::thread::Builder::new().name("machine-actions".into()).spawn(move || {
+                let mut next_action_id = 1_u64;
+                let mut pending_replacement: Option<(u64, bool)> = None;
+                while !worker_stop.load(Ordering::Acquire) {
+                    let command = match receiver.recv_timeout(Duration::from_millis(50)) {
+                        Ok(command) => command,
+                        Err(RecvTimeoutError::Timeout) => continue,
+                        Err(RecvTimeoutError::Disconnected) => break,
+                    };
+                    let completion = match command {
+                        MachineControllerCommand::Perform { request, preparation } => {
+                            if pending_replacement.is_some() {
+                                MachineControllerCompletion::Action {
+                                    result: Err(localization::catalog()
+                                        .sidebar
+                                        .machine_replacement_pending
+                                        .to_string()),
+                                    updates: None,
+                                }
+                            } else {
+                                match controller.perform(request) {
+                                    Ok(MachineActionResult {
+                                        ui,
+                                        replacement: Some(replacement),
+                                        restart_updates,
+                                        session_mutation,
+                                        session_label,
+                                    }) => match prepare_machine_session(
+                                        replacement,
+                                        &ui,
+                                        *preparation,
+                                        app_events.clone(),
+                                    ) {
+                                        Ok(session) => {
+                                            let action_id = next_action_id;
+                                            next_action_id = next_action_id.wrapping_add(1).max(1);
+                                            pending_replacement =
+                                                Some((action_id, restart_updates));
+                                            MachineControllerCompletion::ReplacementPrepared {
+                                                action_id,
+                                                action: Box::new(PreparedMachineAction {
+                                                    ui,
+                                                    session_mutation,
+                                                    session_label,
+                                                    session,
+                                                }),
+                                            }
+                                        }
+                                        Err(error) => {
+                                            controller.abort_replacement();
+                                            MachineControllerCompletion::Action {
+                                                result: Err(error.to_string()),
+                                                updates: None,
+                                            }
+                                        }
+                                    },
+                                    result => {
+                                        let restart_updates = result
+                                            .as_ref()
+                                            .is_ok_and(|result| result.restart_updates);
+                                        let result =
+                                            result.map(Box::new).map_err(|error| error.to_string());
+                                        let updates = restart_updates.then(|| {
+                                            controller
+                                                .subscribe_updates()
+                                                .map_err(|error| error.to_string())
+                                        });
+                                        MachineControllerCompletion::Action { result, updates }
+                                    }
+                                }
+                            }
+                        }
+                        MachineControllerCommand::SubscribeUpdates => {
+                            MachineControllerCompletion::Updates(
+                                controller.subscribe_updates().map_err(|error| error.to_string()),
+                            )
+                        }
+                        MachineControllerCommand::CommitReplacement(action_id) => {
+                            match pending_replacement.take() {
+                                Some((pending_id, restart_updates)) if pending_id == action_id => {
+                                    let committed = controller
+                                        .commit_replacement()
+                                        .map(|()| true)
+                                        .map_err(|error| error.to_string());
+                                    if committed.is_err() {
+                                        controller.abort_replacement();
+                                    }
+                                    let updates =
+                                        (committed.is_ok() && restart_updates).then(|| {
+                                            controller
+                                                .subscribe_updates()
+                                                .map_err(|error| error.to_string())
+                                        });
+                                    MachineControllerCompletion::ReplacementSettled {
+                                        action_id,
+                                        committed,
+                                        updates,
+                                    }
+                                }
+                                Some(_) => {
+                                    controller.abort_replacement();
+                                    MachineControllerCompletion::ReplacementSettled {
+                                        action_id,
+                                        committed: Err(localization::catalog()
+                                            .sidebar
+                                            .machine_replacement_stale
+                                            .to_string()),
+                                        updates: None,
+                                    }
+                                }
+                                None => MachineControllerCompletion::ReplacementSettled {
+                                    action_id,
+                                    committed: Err(localization::catalog()
+                                        .sidebar
+                                        .machine_replacement_not_pending
+                                        .to_string()),
+                                    updates: None,
+                                },
+                            }
+                        }
+                        MachineControllerCommand::AbortReplacement(action_id) => {
+                            let committed = match pending_replacement.take() {
+                                Some((pending_id, _)) if pending_id == action_id => {
+                                    controller.abort_replacement();
+                                    Ok(false)
+                                }
+                                Some(_) => {
+                                    controller.abort_replacement();
+                                    Err(localization::catalog()
+                                        .sidebar
+                                        .machine_replacement_stale
+                                        .to_string())
+                                }
+                                None => Err(localization::catalog()
+                                    .sidebar
+                                    .machine_replacement_not_pending
+                                    .to_string()),
+                            };
+                            MachineControllerCompletion::ReplacementSettled {
+                                action_id,
+                                committed,
+                                updates: None,
+                            }
+                        }
+                    };
+                    if !send_machine_controller_completion(&app_events, completion, &worker_stop) {
+                        break;
+                    }
+                }
+                if pending_replacement.is_some() {
+                    controller.abort_replacement();
+                }
+                controller.close();
+            })?;
+        Ok(Self { sender: Some(sender), stop, worker: Some(worker) })
+    }
+
+    fn perform(
+        &self,
+        request: MachineRequest,
+        preparation: MachineSessionPreparation,
+    ) -> Result<(), MachineSubmitError> {
+        let Some(sender) = self.sender.as_ref() else {
+            return Err(MachineSubmitError::Stopped(request));
+        };
+        match sender.try_send(MachineControllerCommand::Perform {
+            request,
+            preparation: Box::new(preparation),
+        }) {
+            Ok(()) => Ok(()),
+            Err(TrySendError::Full(command)) => Err(MachineSubmitError::Busy(match command {
+                MachineControllerCommand::Perform { request, .. } => request,
+                MachineControllerCommand::SubscribeUpdates => {
+                    unreachable!("perform returned a subscription command")
+                }
+                MachineControllerCommand::CommitReplacement(_)
+                | MachineControllerCommand::AbortReplacement(_) => {
+                    unreachable!("perform returned a replacement decision")
+                }
+            })),
+            Err(TrySendError::Disconnected(command)) => {
+                Err(MachineSubmitError::Stopped(match command {
+                    MachineControllerCommand::Perform { request, .. } => request,
+                    MachineControllerCommand::SubscribeUpdates => {
+                        unreachable!("perform returned a subscription command")
+                    }
+                    MachineControllerCommand::CommitReplacement(_)
+                    | MachineControllerCommand::AbortReplacement(_) => {
+                        unreachable!("perform returned a replacement decision")
+                    }
+                }))
+            }
+        }
+    }
+
+    fn subscribe_updates(&self) -> bool {
+        self.sender.as_ref().is_some_and(|sender| {
+            sender.try_send(MachineControllerCommand::SubscribeUpdates).is_ok()
+        })
+    }
+
+    fn commit_replacement(&self, action_id: u64) -> bool {
+        self.sender.as_ref().is_some_and(|sender| {
+            sender.try_send(MachineControllerCommand::CommitReplacement(action_id)).is_ok()
+        })
+    }
+
+    fn abort_replacement(&self, action_id: u64) -> bool {
+        self.sender.as_ref().is_some_and(|sender| {
+            sender.try_send(MachineControllerCommand::AbortReplacement(action_id)).is_ok()
+        })
+    }
+
+    fn shutdown(&mut self) {
+        self.stop.store(true, Ordering::Release);
+        self.sender.take();
+        if self.worker.as_ref().is_some_and(JoinHandle::is_finished)
+            && let Some(worker) = self.worker.take()
+        {
+            let _ = worker.join();
+        }
+        // A provider action has a bounded transport deadline but may still be
+        // in progress. Dropping the handle detaches that bounded cleanup so
+        // quitting the TUI never waits for the provider deadline.
+        self.worker.take();
+    }
+}
+
+impl Drop for MachineActionWorker {
+    fn drop(&mut self) {
+        self.shutdown();
+    }
+}
+
+fn prepare_machine_session(
+    replacement: MachineSession,
+    machine_ui: &MachineUiState,
+    preparation: MachineSessionPreparation,
+    app_events: SyncSender<AppEvent>,
+) -> anyhow::Result<PreparedMachineSession> {
+    ensure_managed_workspace_guard(&replacement.session, Some(machine_ui))?;
+    ensure_initial_for_machine_ui(
+        &replacement.session,
+        preparation.initial_size,
+        Some(machine_ui),
+    )?;
+    let color_error = replacement
+        .session
+        .set_default_colors(preparation.default_colors)
+        .err()
+        .map(|error| error.to_string());
+    let session_available = machine_ui.session_available;
+    let (session, event_worker, mux_titles, mux_recovery_generation) = prepare_ordered_session(
+        replacement.session,
+        preparation.pty_input,
+        app_events,
+        preparation.generation,
+    )?;
+    let tree = session.tree();
+    Ok(PreparedMachineSession {
+        session,
+        event_worker,
+        generation: preparation.generation,
+        mux_titles,
+        mux_recovery_generation,
+        tree,
+        label: replacement.label,
+        session_available,
+        color_error,
+    })
+}
+
+fn send_machine_controller_completion(
+    app_events: &SyncSender<AppEvent>,
+    mut completion: MachineControllerCompletion,
+    stop: &AtomicBool,
+) -> bool {
+    loop {
+        match app_events.try_send(AppEvent::MachineControllerCompleted(Box::new(completion))) {
+            Ok(()) => return true,
+            Err(TrySendError::Full(AppEvent::MachineControllerCompleted(returned))) => {
+                completion = *returned;
+                if stop.load(Ordering::Acquire) {
+                    return false;
+                }
+                std::thread::park_timeout(Duration::from_millis(1));
+            }
+            Err(TrySendError::Full(_)) => {
+                unreachable!("machine completion sender returned a different event")
+            }
+            Err(TrySendError::Disconnected(_)) => return false,
+        }
+    }
+}
+
+impl MachineUpdatePump {
+    fn spawn(
+        updates: MachineUpdateStream,
+        app_events: SyncSender<AppEvent>,
+        generation: u64,
+    ) -> anyhow::Result<Self> {
+        let stop = updates.stop_handle();
+        let (updates, _, provider) = updates.into_parts();
+        let forwarder_stop = stop.clone();
+        let forwarder = match std::thread::Builder::new()
+            .name("machine-provider-events".into())
+            .spawn(move || {
+                while !forwarder_stop.load(Ordering::Acquire) {
+                    match updates.recv_timeout(Duration::from_millis(250)) {
+                        Ok(update) => {
+                            let mut update = Box::new(update);
+                            loop {
+                                match app_events.try_send(AppEvent::MachineUiUpdatedForGeneration {
+                                    generation,
+                                    update,
+                                }) {
+                                    Ok(()) => break,
+                                    Err(TrySendError::Full(
+                                        AppEvent::MachineUiUpdatedForGeneration {
+                                            update: returned,
+                                            ..
+                                        },
+                                    )) => {
+                                        update = returned;
+                                        if forwarder_stop.load(Ordering::Acquire) {
+                                            return;
+                                        }
+                                        std::thread::park_timeout(Duration::from_millis(1));
+                                    }
+                                    Err(TrySendError::Full(_)) => {
+                                        unreachable!(
+                                            "machine update sender returned a different event"
+                                        )
+                                    }
+                                    Err(TrySendError::Disconnected(_)) => return,
+                                }
+                            }
+                        }
+                        Err(RecvTimeoutError::Timeout) => {}
+                        Err(RecvTimeoutError::Disconnected) => break,
+                    }
+                }
+            }) {
+            Ok(forwarder) => forwarder,
+            Err(error) => {
+                stop.store(true, Ordering::Release);
+                let _ = provider.join();
+                return Err(error.into());
+            }
+        };
+        Ok(Self { stop, provider: Some(provider), forwarder: Some(forwarder) })
+    }
+
+    fn stop_and_join(&mut self) {
+        self.stop.store(true, Ordering::Release);
+        if let Some(forwarder) = self.forwarder.take() {
+            let _ = forwarder.join();
+        }
+        if let Some(provider) = self.provider.take() {
+            let _ = provider.join();
+        }
+    }
+}
+
+impl Drop for MachineUpdatePump {
+    fn drop(&mut self) {
+        self.stop_and_join();
+    }
+}
+
+fn ensure_initial_for_machine_ui(
+    session: &Session,
+    initial_size: Option<(u16, u16)>,
+    machine_ui: Option<&MachineUiState>,
+) -> anyhow::Result<()> {
+    let should_create = match machine_ui {
+        None => true,
+        Some(machine) if !machine.session_available => false,
+        Some(machine) => !matches!(
+            machine.workspace_creation_policy(),
+            Some(WorkspaceCreationPolicy::ProviderOwned { .. })
+        ),
+    };
+    if should_create {
+        session.ensure_initial(initial_size)?;
+    }
+    Ok(())
+}
+
+fn uses_provider_managed_workspaces(machine_ui: Option<&MachineUiState>) -> bool {
+    matches!(
+        machine_ui.and_then(MachineUiState::workspace_creation_policy),
+        Some(WorkspaceCreationPolicy::ProviderOwned { .. })
+    )
+}
+
+fn ensure_managed_workspace_guard(
+    session: &Session,
+    machine_ui: Option<&MachineUiState>,
+) -> anyhow::Result<()> {
+    if let Some(machine_ui) = machine_ui {
+        validate_machine_session(session, machine_ui)?;
+    }
+    Ok(())
+}
+
+pub fn run_with_machine_updates(
     session: Session,
     session_label: String,
     default_colors: cmux_tui_core::DefaultColors,
-) -> anyhow::Result<()> {
+    machine_ui: Option<MachineUiState>,
+    machine_controller: Option<Box<dyn MachineController>>,
+) -> anyhow::Result<RunOutcome> {
     let mut config = crate::config::load();
     let chrome = ChromeTheme::for_defaults(config.chrome, default_colors);
     config.apply_chrome_defaults(chrome);
+    let session_available = machine_ui.as_ref().is_none_or(|machine| machine.session_available);
     // First workspace before the terminal switches modes, so a spawn
     // failure prints a normal error. Spawn at the size the first pane
     // will actually render at (a post-spawn resize makes shells like zsh
     // repaint their prompt, leaving a reverse-video % artifact). The
     // pane's border box eats one cell on every side.
     let initial_size = crossterm::terminal::size().ok().map(|(w, h)| {
-        let sidebar = sidebar_width_for(&config, true, w, None);
-        let pane = Rect {
-            x: sidebar,
-            y: 0,
-            width: w.saturating_sub(sidebar),
-            height: h.saturating_sub(1), // status bar
-        };
+        let pane =
+            sidebar_layout_for(&config, true, machine_ui.is_some(), (w, h), None, None).content;
         content_size_for_rect(pane, config.scrollbar.position).unwrap_or((1, 1))
     });
-    session.ensure_initial(initial_size)?;
+    ensure_managed_workspace_guard(&session, machine_ui.as_ref())?;
+    ensure_initial_for_machine_ui(&session, initial_size, machine_ui.as_ref())?;
     let encoder = KeyEncoder::new()?;
     let (tx, rx) = sync_channel::<AppEvent>(APP_EVENT_CAPACITY);
     let browser_failure_tx = tx.clone();
@@ -2738,30 +3715,13 @@ pub fn run(
             let _ = failure_tx.try_send(AppEvent::PtyFailuresReady);
         }
     })?;
-    let session = OrderedSession::new(session, pty_input.sender(), tx.clone());
+    let session_generation = 1;
+    let (session, session_event_worker, mux_titles, mux_recovery_generation) =
+        start_ordered_session(session, pty_input.sender(), tx.clone(), session_generation)?;
     let stdout_lock = Arc::new(Mutex::new(()));
-    let mux_titles = Arc::new(MuxTitleIngress::default());
-    let mux_recovery_generation = Arc::new(AtomicU64::new(0));
-
-    // Session events → app channel.
-    let event_source = session.inner.clone();
-    let session_events = event_source.events();
-    let routing_mutation_committed = session.routing_mutation_committed.clone();
-    let mux_recovery_sequence = mux_recovery_generation.clone();
-    std::thread::Builder::new().name("mux-events".into()).spawn({
-        let tx = tx.clone();
-        let mux_titles = mux_titles.clone();
-        move || {
-            forward_mux_events(
-                event_source,
-                session_events,
-                routing_mutation_committed,
-                mux_recovery_sequence,
-                tx,
-                mux_titles,
-            );
-        }
-    })?;
+    let machine_action_worker = machine_controller
+        .map(|controller| MachineActionWorker::spawn(controller, tx.clone()))
+        .transpose()?;
 
     // Crossterm input → app channel.
     enable_raw_mode()?;
@@ -2783,15 +3743,18 @@ pub fn run(
     }
 
     let cell_pixels = crate::ui::graphics::detect_cell_pixels(true);
-    session.set_cell_pixel_size(cell_pixels.0, cell_pixels.1);
+    if session_available {
+        session.set_cell_pixel_size(cell_pixels.0, cell_pixels.1);
+    }
     let graphics_supported = crate::ui::graphics::probe_kitty_graphics();
 
     // Crossterm input → app channel. Start this after startup terminal
     // probes so DA / window-size responses are not consumed as key input.
+    let input_tx = tx.clone();
     std::thread::Builder::new().name("input".into()).spawn({
         move || {
             while let Ok(event) = crossterm::event::read() {
-                if tx.send(AppEvent::Input(event)).is_err() {
+                if input_tx.send(AppEvent::Input(event)).is_err() {
                     break;
                 }
             }
@@ -2818,10 +3781,20 @@ pub fn run(
 
     let sidebar_view = config.sidebar.view;
     let fallback_cwd = std::env::current_dir().unwrap_or_else(|_| PathBuf::from("."));
+    let initial_machine_notice = machine_ui.as_ref().and_then(|machine| machine.notice.clone());
     let mut app = App {
         session,
+        session_event_worker: Some(session_event_worker),
+        session_generation,
+        app_events: tx,
+        machine_action_worker,
+        machine_action_in_flight: false,
+        pending_machine_replacement: None,
+        machine_update_pump: None,
+        machine_update_generation: 0,
         config,
         chrome,
+        default_colors,
         tree: TreeView::default(),
         tab_locations: HashMap::new(),
         render_states: HashMap::new(),
@@ -2836,18 +3809,30 @@ pub fn run(
         prefix_armed: false,
         session_label,
         sidebar_visible: true,
-        sidebar_focused: false,
+        focus: FocusTarget::Pane,
         sidebar_focus_pending: false,
+        machine_ui,
         sidebar_view,
         sidebar_files: FileBrowser::new(fallback_cwd),
         sidebar_workspace_selection: 0,
+        sidebar_recoverable_workspace_selection: 0,
+        workspace_rail_selection: WorkspaceRailSelection::default(),
+        machine_rail_scroll: 0,
+        machine_footer_scroll: 0,
+        workspace_rail_scroll: 0,
+        workspace_footer_scroll: 0,
+        machine_rail_follow_selection: true,
+        workspace_rail_follow_selection: true,
         sidebar_followed_surface: None,
         sidebar_width: 0,
+        machine_sidebar_width: 0,
+        sidebar_layout: SidebarLayout::default(),
         sidebar_plugin_surface: None,
         sidebar_plugin_error: None,
         sidebar_plugin_retry_after_ms: None,
         sidebar_plugin_retry_at: None,
         sidebar_width_override: None,
+        machine_sidebar_width_override: None,
         content_area: Rect::default(),
         hits: Vec::new(),
         tab_scroll: HashMap::new(),
@@ -2862,7 +3847,7 @@ pub fn run(
         toast: None,
         shake_frames: 0,
         selection: None,
-        status_message: None,
+        status_message: initial_machine_notice,
         cell_pixels,
         pointer_shape: false,
         last_browser_hover: None,
@@ -2886,9 +3871,25 @@ pub fn run(
         encode_buf: Vec::with_capacity(64),
         quit: false,
     };
-    app.session.refresh_clients_background();
+    if app.session_available() {
+        app.session.refresh_clients_background();
+    }
+
+    if let Err(error) = app.restart_machine_updates() {
+        app.shutdown_background_workers();
+        app.cancel_pty_mouse_drag();
+        app.session.begin_shutdown();
+        let _ = app.pty_input.shutdown(Duration::from_secs(3));
+        if let Some(writer) = app.graphics_writer.as_mut() {
+            writer.shutdown(Duration::from_millis(200));
+        }
+        let _ = std::panic::take_hook();
+        let _ = restore_terminal(Some(&stdout_lock));
+        return Err(error);
+    }
 
     let result = app.event_loop(&mut terminal, rx);
+    app.shutdown_background_workers();
     app.cancel_pty_mouse_drag();
     app.session.begin_shutdown();
     let _ = app.pty_input.shutdown(Duration::from_secs(3));
@@ -2897,7 +3898,13 @@ pub fn run(
     }
     let _ = std::panic::take_hook();
     restore_terminal(Some(&stdout_lock))?;
-    result
+    result?;
+    let outcome = app
+        .machine_ui
+        .and_then(|machine| machine.request)
+        .map(RunOutcome::Machine)
+        .unwrap_or(RunOutcome::Quit);
+    Ok(outcome)
 }
 
 fn restore_terminal(stdout_lock: Option<&Arc<Mutex<()>>>) -> anyhow::Result<()> {
@@ -2916,6 +3923,99 @@ fn restore_terminal(stdout_lock: Option<&Arc<Mutex<()>>>) -> anyhow::Result<()> 
 }
 
 impl App {
+    pub fn session_available(&self) -> bool {
+        self.machine_ui.as_ref().is_none_or(|machine| machine.session_available)
+    }
+
+    pub fn workspace_creation_policy(&self) -> Option<WorkspaceCreationPolicy> {
+        self.machine_ui.as_ref().map_or(
+            Some(WorkspaceCreationPolicy::SessionOwned),
+            MachineUiState::workspace_creation_policy,
+        )
+    }
+
+    pub(crate) fn workspace_creation_modes(&self) -> Vec<Option<WorkspaceCreationMode>> {
+        match self.workspace_creation_policy() {
+            Some(WorkspaceCreationPolicy::SessionOwned) => vec![None],
+            Some(WorkspaceCreationPolicy::ProviderOwned { modes, .. }) => {
+                modes.into_iter().map(Some).collect()
+            }
+            None => Vec::new(),
+        }
+    }
+
+    fn default_workspace_creation_mode(&self) -> Option<Option<WorkspaceCreationMode>> {
+        match self.workspace_creation_policy()? {
+            WorkspaceCreationPolicy::SessionOwned => Some(None),
+            WorkspaceCreationPolicy::ProviderOwned { default_mode, modes } => {
+                modes.contains(&default_mode).then_some(Some(default_mode))
+            }
+        }
+    }
+
+    fn reconcile_workspace_rail_selection(&mut self) {
+        let modes = self.workspace_creation_modes();
+        let selection_is_valid = match self.workspace_rail_selection {
+            WorkspaceRailSelection::Workspace => true,
+            WorkspaceRailSelection::Recoverable => self.machine_ui.as_ref().is_some_and(|ui| {
+                self.sidebar_recoverable_workspace_selection < ui.recoverable_workspaces().len()
+            }),
+            _ => modes.iter().copied().any(|mode| self.workspace_rail_selection.matches_mode(mode)),
+        };
+        if self.workspace_rail_selection != WorkspaceRailSelection::Workspace && !selection_is_valid
+        {
+            self.workspace_rail_selection = self
+                .default_workspace_creation_mode()
+                .map(workspace_creation_selection)
+                .unwrap_or(WorkspaceRailSelection::Workspace);
+        }
+    }
+
+    pub fn workspace_sidebar_focused(&self) -> bool {
+        self.focus == FocusTarget::WorkspaceRail
+    }
+
+    pub fn machine_sidebar_focused(&self) -> bool {
+        self.focus == FocusTarget::MachineRail
+    }
+
+    pub fn machine_sidebar_area(&self, height: u16) -> Option<Rect> {
+        self.sidebar_layout.machine.or_else(|| {
+            (self.machine_sidebar_width > 0).then_some(Rect {
+                x: 0,
+                y: 0,
+                width: self.machine_sidebar_width,
+                height,
+            })
+        })
+    }
+
+    pub fn workspace_sidebar_area(&self, height: u16) -> Option<Rect> {
+        self.sidebar_layout.workspace.or_else(|| {
+            (self.sidebar_width > 0).then_some(Rect {
+                x: self.machine_sidebar_width,
+                y: 0,
+                width: self.sidebar_width,
+                height,
+            })
+        })
+    }
+
+    pub fn total_sidebar_width(&self) -> u16 {
+        let layout_width = self.sidebar_layout.total_width();
+        if layout_width > 0 {
+            layout_width
+        } else {
+            self.machine_sidebar_width.saturating_add(self.sidebar_width)
+        }
+    }
+
+    fn leave_workspace_sidebar(&mut self) {
+        if self.workspace_sidebar_focused() {
+            self.focus = FocusTarget::Pane;
+        }
+    }
+
     fn event_loop(
         &mut self,
         terminal: &mut RatatuiTerminal<CrosstermBackend<std::io::Stdout>>,
@@ -2960,10 +4060,14 @@ impl App {
             };
             if let Some(event) = first {
                 action = action.merge(self.handle(event)?);
+                action = action.merge(self.process_machine_requests());
             }
             for _ in 0..256 {
                 match rx.try_recv() {
-                    Ok(event) => action = action.merge(self.handle(event)?),
+                    Ok(event) => {
+                        action = action.merge(self.handle(event)?);
+                        action = action.merge(self.process_machine_requests());
+                    }
                     Err(_) => break,
                 }
             }
@@ -3013,6 +4117,424 @@ impl App {
         Ok(())
     }
 
+    fn restart_machine_updates(&mut self) -> anyhow::Result<()> {
+        let Some(worker) = self.machine_action_worker.as_ref() else {
+            return Ok(());
+        };
+        if !worker.subscribe_updates() {
+            anyhow::bail!(localization::catalog().sidebar.machine_replacement_worker_stopped)
+        }
+        Ok(())
+    }
+
+    fn replace_machine_updates(
+        &mut self,
+        updates: Option<MachineUpdateStream>,
+    ) -> anyhow::Result<()> {
+        let generation = self.machine_update_generation.wrapping_add(1).max(1);
+        let next = updates
+            .map(|updates| MachineUpdatePump::spawn(updates, self.app_events.clone(), generation))
+            .transpose()?;
+        if let Some(mut current) = self.machine_update_pump.take() {
+            current.stop_and_join();
+        }
+        self.machine_update_pump = next;
+        self.machine_update_generation = generation;
+        Ok(())
+    }
+
+    fn shutdown_background_workers(&mut self) {
+        if let Some(mut updates) = self.machine_update_pump.take() {
+            updates.stop_and_join();
+        }
+        if let Some(mut actions) = self.machine_action_worker.take() {
+            actions.shutdown();
+        }
+        if let Some(mut session_events) = self.session_event_worker.take() {
+            session_events.stop_and_join();
+        }
+    }
+
+    fn process_machine_requests(&mut self) -> RenderAction {
+        if self.machine_action_in_flight {
+            return RenderAction::None;
+        }
+        let Some(request) = self.machine_ui.as_mut().and_then(|ui| ui.request.take()) else {
+            return RenderAction::None;
+        };
+        let Some(worker) = self.machine_action_worker.as_ref() else {
+            if let Some(ui) = self.machine_ui.as_mut() {
+                ui.request = Some(request);
+            }
+            self.quit = true;
+            return RenderAction::None;
+        };
+        let preparation = MachineSessionPreparation {
+            initial_size: content_size_for_rect(self.content_area, self.config.scrollbar.position),
+            default_colors: self.default_colors,
+            generation: self.session_generation.wrapping_add(1).max(1),
+            pty_input: self.pty_input.sender(),
+        };
+        match worker.perform(request, preparation) {
+            Ok(()) => self.machine_action_in_flight = true,
+            Err(MachineSubmitError::Busy(request)) => {
+                if let Some(ui) = self.machine_ui.as_mut() {
+                    ui.request = Some(request);
+                }
+            }
+            Err(MachineSubmitError::Stopped(request)) => {
+                if let Some(ui) = self.machine_ui.as_mut() {
+                    ui.request = Some(request);
+                }
+                self.quit = true;
+            }
+        }
+        RenderAction::None
+    }
+
+    fn apply_machine_controller_completion(
+        &mut self,
+        completion: MachineControllerCompletion,
+    ) -> RenderAction {
+        match completion {
+            MachineControllerCompletion::Updates(updates) => {
+                if let Err(error) = updates
+                    .map_err(anyhow::Error::msg)
+                    .and_then(|updates| self.replace_machine_updates(updates))
+                {
+                    self.status_message = Some(format!(
+                        "{}: {error}",
+                        localization::catalog().sidebar.machine_catalog_updates_failed
+                    ));
+                    return RenderAction::Draw;
+                }
+                RenderAction::None
+            }
+            MachineControllerCompletion::Action { result, updates } => {
+                self.machine_action_in_flight = false;
+                let result = match result {
+                    Ok(result) => result,
+                    Err(error) => {
+                        self.status_message = Some(format!(
+                            "{}: {error}",
+                            localization::catalog().sidebar.machine_action_failed
+                        ));
+                        return RenderAction::Draw;
+                    }
+                };
+                let MachineActionResult {
+                    ui,
+                    replacement,
+                    restart_updates: _,
+                    session_mutation,
+                    session_label,
+                } = *result;
+                debug_assert!(replacement.is_none());
+                let mut action = RenderAction::None;
+                drop(replacement);
+                if let Some(label) = session_label {
+                    self.session_label = label;
+                }
+                action = action.merge(self.apply_machine_ui_update(ui));
+                // Provider notices apply before local mirror errors so they cannot mask them.
+                if let Some(mutation) = session_mutation {
+                    self.apply_managed_workspace_session_mutation(mutation);
+                }
+                if let Some(updates) = updates
+                    && let Err(error) = updates
+                        .map_err(anyhow::Error::msg)
+                        .and_then(|updates| self.replace_machine_updates(updates))
+                {
+                    self.status_message = Some(format!(
+                        "{}: {error}",
+                        localization::catalog().sidebar.machine_catalog_restart_failed
+                    ));
+                    action = action.merge(RenderAction::Draw);
+                }
+                action
+            }
+            MachineControllerCompletion::ReplacementPrepared { action_id, action } => {
+                if self.pending_machine_replacement.is_some() {
+                    if let Some(worker) = self.machine_action_worker.as_ref() {
+                        let _ = worker.abort_replacement(action_id);
+                    }
+                    self.machine_action_in_flight = false;
+                    self.status_message = Some(format!(
+                        "{}: {}",
+                        localization::catalog().sidebar.machine_action_failed,
+                        localization::catalog().sidebar.machine_replacement_pending
+                    ));
+                    return RenderAction::Draw;
+                }
+                self.pending_machine_replacement =
+                    Some(PendingMachineReplacement { action_id, action: *action });
+                if self
+                    .machine_action_worker
+                    .as_ref()
+                    .is_none_or(|worker| !worker.commit_replacement(action_id))
+                {
+                    self.pending_machine_replacement.take();
+                    self.machine_action_in_flight = false;
+                    self.status_message = Some(format!(
+                        "{}: {}",
+                        localization::catalog().sidebar.machine_action_failed,
+                        localization::catalog().sidebar.machine_replacement_worker_stopped
+                    ));
+                    return RenderAction::Draw;
+                }
+                RenderAction::None
+            }
+            MachineControllerCompletion::ReplacementSettled { action_id, committed, updates } => {
+                self.machine_action_in_flight = false;
+                let mut action = RenderAction::None;
+                match committed {
+                    Ok(true) => {
+                        let Some(pending) = self
+                            .pending_machine_replacement
+                            .take()
+                            .filter(|pending| pending.action_id == action_id)
+                        else {
+                            self.status_message = Some(format!(
+                                "{}: {}",
+                                localization::catalog().sidebar.machine_action_failed,
+                                localization::catalog().sidebar.machine_replacement_stale
+                            ));
+                            return RenderAction::Draw;
+                        };
+                        let PreparedMachineAction { ui, session_mutation, session_label, session } =
+                            pending.action;
+                        self.install_prepared_machine_session(session);
+                        if let Some(label) = session_label {
+                            self.session_label = label;
+                        }
+                        action = action.merge(self.apply_machine_ui_update(ui));
+                        // Provider notices apply before local mirror errors so they cannot mask them.
+                        if let Some(mutation) = session_mutation {
+                            self.apply_managed_workspace_session_mutation(mutation);
+                        }
+                    }
+                    Ok(false) => {
+                        self.pending_machine_replacement.take();
+                    }
+                    Err(error) => {
+                        self.pending_machine_replacement.take();
+                        self.status_message = Some(format!(
+                            "{}: {error}",
+                            localization::catalog().sidebar.machine_action_failed
+                        ));
+                        action = action.merge(RenderAction::Draw);
+                    }
+                }
+                if let Some(updates) = updates
+                    && let Err(error) = updates
+                        .map_err(anyhow::Error::msg)
+                        .and_then(|updates| self.replace_machine_updates(updates))
+                {
+                    self.status_message = Some(format!(
+                        "{}: {error}",
+                        localization::catalog().sidebar.machine_catalog_restart_failed
+                    ));
+                    action = action.merge(RenderAction::Draw);
+                }
+                action
+            }
+        }
+    }
+
+    fn apply_managed_workspace_session_mutation(
+        &mut self,
+        mutation: ManagedWorkspaceSessionMutation,
+    ) {
+        if !self.session.workspaces_are_provider_managed()
+            && let Err(error) = self.session.mark_workspaces_provider_managed()
+        {
+            self.status_message = Some(error.to_string());
+            return;
+        }
+        let (workspace_key, rename) = match mutation {
+            ManagedWorkspaceSessionMutation::Rename { workspace_key, name } => {
+                (workspace_key, Some(name))
+            }
+            ManagedWorkspaceSessionMutation::Close { workspace_key } => (workspace_key, None),
+        };
+        let Some(workspace_id) = self
+            .tree
+            .workspaces
+            .iter()
+            .find(|workspace| workspace.key == workspace_key)
+            .map(|workspace| workspace.id)
+        else {
+            self.status_message =
+                Some(localization::catalog().sidebar.managed_workspace_unavailable.to_string());
+            return;
+        };
+        // Queued mirror failures settle through SessionMutationOutcome::Failed.
+        // Missing mirrors must be surfaced here because no operation is queued.
+        if let Some(name) = rename {
+            self.session.rename_provider_managed_workspace(workspace_id, workspace_key, name);
+        } else {
+            self.session.close_provider_managed_workspace(workspace_id, workspace_key);
+        }
+    }
+
+    fn apply_machine_ui_update(&mut self, mut update: MachineUiState) -> RenderAction {
+        let guard_error = (uses_provider_managed_workspaces(Some(&update))
+            && !self.session.workspaces_are_provider_managed())
+        .then(|| self.session.mark_workspaces_provider_managed().err())
+        .flatten()
+        .map(|error| error.to_string());
+        if guard_error.is_some() {
+            update.session_available = false;
+        }
+        let provider_changed = self
+            .machine_ui
+            .as_ref()
+            .and_then(|machine| machine.provider.as_ref())
+            != update.provider.as_ref()
+            || self.machine_ui.as_ref().map(MachineUiState::managed_workspaces).unwrap_or_default()
+                != update.managed_workspaces()
+            || self.machine_ui.as_ref().map(MachineUiState::managed_machines).unwrap_or_default()
+                != update.managed_machines();
+        if provider_changed {
+            if self.menu.as_ref().is_some_and(ContextMenu::targets_provider_state) {
+                self.menu = None;
+            }
+            if self.prompt.as_ref().is_some_and(|prompt| {
+                matches!(
+                    prompt.target,
+                    PromptTarget::ProviderAction(_)
+                        | PromptTarget::ConfirmProviderAction(_)
+                        | PromptTarget::ManagedWorkspace(_)
+                        | PromptTarget::ConfirmPurgeManagedWorkspace(_)
+                        | PromptTarget::ManagedMachine(_)
+                        | PromptTarget::ConfirmDeleteManagedMachine(_)
+                        | PromptTarget::ConfirmPurgeManagedMachine(_)
+                )
+            }) {
+                self.prompt = None;
+            }
+        }
+        if let Some(previous) = self.machine_ui.as_ref() {
+            update.reconcile_navigation_from(previous);
+        }
+        let notice = update.notice.clone();
+        self.machine_ui = Some(update);
+        self.reconcile_workspace_rail_selection();
+        if let Some(error) = guard_error {
+            self.status_message = Some(error);
+        } else if let Some(notice) = notice {
+            self.status_message = Some(notice);
+        }
+        RenderAction::Draw
+    }
+
+    fn install_prepared_machine_session(&mut self, prepared: PreparedMachineSession) {
+        let PreparedMachineSession {
+            session,
+            event_worker,
+            generation,
+            mux_titles,
+            mux_recovery_generation,
+            tree,
+            label,
+            session_available,
+            color_error,
+        } = prepared;
+        self.session_generation = generation;
+        let previous_session = std::mem::replace(&mut self.session, session);
+        let previous_worker = self.session_event_worker.replace(event_worker);
+        self.mux_titles = mux_titles;
+        self.mux_recovery_generation = mux_recovery_generation;
+        self.session_label = label;
+        self.reset_session_presentation(tree);
+        if let Some(worker) = self.session_event_worker.as_ref() {
+            worker.activate();
+        }
+        if let Some(error) = color_error {
+            self.status_message = Some(format!(
+                "{}: {error}",
+                localization::catalog().sidebar.machine_terminal_colors_failed
+            ));
+        }
+        if session_available {
+            self.session.set_cell_pixel_size(self.cell_pixels.0, self.cell_pixels.1);
+            self.session.apply_config(self.config.clone());
+            self.session.refresh_clients_background();
+        }
+
+        if let Some(mut previous_worker) = previous_worker {
+            previous_worker.stop_and_join();
+        }
+        previous_session.begin_shutdown();
+    }
+
+    fn reset_session_presentation(&mut self, tree: TreeView) {
+        for surface in self.tab_locations.keys().copied().collect::<Vec<_>>() {
+            self.browser_input.forget_surface(surface);
+        }
+        self.tree = tree;
+        self.tab_locations.clear();
+        self.rebuild_tab_locations();
+        self.render_states.clear();
+        self.pane_areas.clear();
+        self.pane_focus_history = PaneFocusHistory::default();
+        self.pane_focus_history.sync_membership(&self.tree);
+        self.rendered_terminal_bounds.clear();
+        self.visible_size_surfaces.clear();
+        self.pending_size_releases.clear();
+        self.prefix_armed = false;
+        self.sidebar_focus_pending = false;
+        self.sidebar_files =
+            FileBrowser::new(std::env::current_dir().unwrap_or_else(|_| PathBuf::from(".")));
+        self.sidebar_workspace_selection =
+            self.tree.active_workspace.min(self.tree.workspaces.len().saturating_sub(1));
+        self.sidebar_recoverable_workspace_selection = 0;
+        self.workspace_rail_selection = WorkspaceRailSelection::Workspace;
+        self.sidebar_followed_surface = None;
+        self.sidebar_plugin_surface = None;
+        self.sidebar_plugin_error = None;
+        self.sidebar_plugin_retry_after_ms = None;
+        self.sidebar_plugin_retry_at = None;
+        self.hits.clear();
+        self.tab_scroll.clear();
+        self.hover = None;
+        self.menu = None;
+        self.clients.clear();
+        self.client_border_labels.clear();
+        self.prompt = None;
+        self.pairing_dialog = None;
+        self.pairing_queue.clear();
+        self.omnibar = None;
+        self.toast = None;
+        self.shake_frames = 0;
+        self.selection = None;
+        self.last_browser_hover = None;
+        self.deferred_input.clear();
+        self.routing_refresh_pending = false;
+        self.routing_refresh_retries_remaining = 0;
+        self.background_refresh_attempts = 0;
+        self.background_refresh_retry_at = None;
+        self.last_applied_refresh_sequence = 0;
+        self.applied_routing_generation = 0;
+        self.pending_session_completions.clear();
+        self.drag = None;
+        self.ignored_pty_mouse_buttons.clear();
+        self.encode_buf.clear();
+    }
+
+    fn request_current_machine_session(&mut self) -> bool {
+        let Some(machine) = self.machine_ui.as_mut() else { return false };
+        if machine.request.is_none() {
+            machine.request = Some(
+                machine
+                    .snapshot
+                    .active
+                    .map_or(MachineRequest::ReconnectProvider, MachineRequest::Switch),
+            );
+        }
+        true
+    }
+
     fn render_action(
         &mut self,
         terminal: &mut RatatuiTerminal<CrosstermBackend<std::io::Stdout>>,
@@ -3056,7 +4578,8 @@ impl App {
                     self.session.routing_mutation_committed() >= intent
                         && self.session.routing_mutation_started() == intent
                 });
-            let follows_sidebar_focus = input.sidebar_focus_intent && self.sidebar_focused;
+            let follows_sidebar_focus =
+                input.sidebar_focus_intent && self.workspace_sidebar_focused();
             if !follows_pending_route
                 && !follows_sidebar_focus
                 && self.input_destination(&input.event) != input.destination
@@ -3222,6 +4745,11 @@ impl App {
 
     fn replace_tree(&mut self, mut tree: TreeView) {
         let previous_active = self.active_pane();
+        let selected_workspace = self
+            .tree
+            .workspaces
+            .get(self.sidebar_workspace_selection)
+            .map(|workspace| workspace.id);
         if self.session.remote {
             preserve_client_view(&self.tree, &mut tree);
         }
@@ -3250,6 +4778,13 @@ impl App {
         }
         self.pane_focus_history.sync_membership(&tree);
         self.tree = tree;
+        self.sidebar_workspace_selection = selected_workspace
+            .and_then(|selected| {
+                self.tree.workspaces.iter().position(|workspace| workspace.id == selected)
+            })
+            .unwrap_or_else(|| {
+                self.sidebar_workspace_selection.min(self.tree.workspaces.len().saturating_sub(1))
+            });
         if self.active_pane() != previous_active
             && let Some(active) = self.active_pane()
         {
@@ -3303,7 +4838,7 @@ impl App {
             self.sidebar_plugin_surface = None;
             self.sidebar_plugin_error = Some("sidebar plugin exited".to_string());
             if self.config.sidebar.plugin.is_some() {
-                self.sidebar_focused = false;
+                self.leave_workspace_sidebar();
             }
         }
         if self.selection.is_some_and(|selection| selection.surface == surface) {
@@ -3566,22 +5101,23 @@ impl App {
     /// (each pane's border box eats one cell on every side), and push
     /// content sizes to surfaces.
     fn sync_layout(&mut self, size: (u16, u16)) {
-        let (width, height) = size;
-        self.sidebar_width = sidebar_width_for(
+        self.sidebar_layout = sidebar_layout_for(
             &self.config,
             self.sidebar_visible,
-            width,
+            self.machine_ui.is_some(),
+            size,
             self.sidebar_width_override,
+            self.machine_sidebar_width_override,
         );
-        if self.sidebar_width == 0 {
-            self.sidebar_focused = false;
+        self.sidebar_width = self.sidebar_layout.workspace.map_or(0, |rect| rect.width);
+        self.machine_sidebar_width = self.sidebar_layout.machine.map_or(0, |rect| rect.width);
+        if self.sidebar_width == 0 && self.focus == FocusTarget::WorkspaceRail {
+            self.focus = FocusTarget::Pane;
         }
-        let area = Rect {
-            x: self.sidebar_width,
-            y: 0,
-            width: width.saturating_sub(self.sidebar_width),
-            height: height.saturating_sub(1), // status bar
-        };
+        if self.machine_sidebar_width == 0 && self.focus == FocusTarget::MachineRail {
+            self.focus = FocusTarget::Pane;
+        }
+        let area = self.sidebar_layout.content;
         self.content_area = area;
         let _ = self.sync_sidebar_plugin(false);
         self.replace_tree(self.session.tree());
@@ -3711,12 +5247,9 @@ impl App {
     }
 
     pub fn sidebar_plugin_rect(&self) -> Rect {
-        Rect {
-            x: 0,
-            y: 0,
-            width: self.sidebar_width.saturating_sub(1),
-            height: self.content_area.height.saturating_add(1),
-        }
+        self.workspace_sidebar_area(self.content_area.height.saturating_add(1))
+            .map(|area| Rect { width: area.width.saturating_sub(1), ..area })
+            .unwrap_or_default()
     }
 
     fn sync_sidebar_plugin(&mut self, relaunch: bool) -> bool {
@@ -3735,7 +5268,7 @@ impl App {
             self.sidebar_plugin_error = None;
             self.sidebar_plugin_retry_after_ms = None;
             self.sidebar_plugin_retry_at = None;
-            self.sidebar_focused = false;
+            self.leave_workspace_sidebar();
             self.sidebar_focus_pending = false;
             return false;
         }
@@ -3786,7 +5319,7 @@ impl App {
             self.sidebar_plugin_error = None;
             self.sidebar_plugin_retry_after_ms = None;
             self.sidebar_plugin_retry_at = None;
-            self.sidebar_focused = false;
+            self.leave_workspace_sidebar();
             self.sidebar_focus_pending = false;
             return;
         }
@@ -3802,19 +5335,28 @@ impl App {
         if self.sidebar_focus_pending && (self.sidebar_plugin_surface.is_some() || relaunch) {
             self.sidebar_focus_pending = false;
             if self.sidebar_plugin_surface.is_some() {
-                self.sidebar_focused = true;
+                self.focus = FocusTarget::WorkspaceRail;
                 self.menu = None;
                 self.prompt = None;
                 self.omnibar = None;
                 self.selection = None;
             }
         }
-        if self.sidebar_focused && self.sidebar_plugin_surface.is_none() {
-            self.sidebar_focused = false;
+        if self.workspace_sidebar_focused() && self.sidebar_plugin_surface.is_none() {
+            self.leave_workspace_sidebar();
         }
     }
 
     fn handle(&mut self, event: AppEvent) -> anyhow::Result<RenderAction> {
+        let event = match event {
+            AppEvent::SessionScoped { generation, event }
+                if generation == self.session_generation =>
+            {
+                *event
+            }
+            AppEvent::SessionScoped { .. } => return Ok(RenderAction::None),
+            event => event,
+        };
         if let AppEvent::Input(Event::Paste(text)) = &event
             && deferred_paste_bytes(text) > MAX_DEFERRED_INPUT_BYTES
         {
@@ -3899,6 +5441,9 @@ impl App {
                         self.replace_authoritative_tree(tree, routing_generation);
                         self.session.refresh_clients_background();
                         if empty {
+                            if self.request_current_machine_session() {
+                                return Ok(RenderAction::Draw);
+                            }
                             self.quit = true;
                             return Ok(RenderAction::None);
                         }
@@ -3948,7 +5493,21 @@ impl App {
                 self.apply_sidebar_plugin_status(status, relaunch);
                 Ok(RenderAction::Draw)
             }
+            #[cfg(test)]
+            AppEvent::MachineUiUpdated(update) => Ok(self.apply_machine_ui_update(*update)),
+            AppEvent::MachineUiUpdatedForGeneration { generation, update } => {
+                if generation != self.machine_update_generation {
+                    return Ok(RenderAction::None);
+                }
+                Ok(self.apply_machine_ui_update(*update))
+            }
+            AppEvent::MachineControllerCompleted(completion) => {
+                Ok(self.apply_machine_controller_completion(*completion))
+            }
             AppEvent::Mux(MuxEvent::Empty) => {
+                if self.request_current_machine_session() {
+                    return Ok(RenderAction::Draw);
+                }
                 self.quit = true;
                 Ok(RenderAction::None)
             }
@@ -4252,7 +5811,9 @@ impl App {
                     clear_omnibar_selection(state);
                     state.input.insert_str(&text);
                     Ok(RenderAction::Draw)
-                } else if self.sidebar_focused {
+                } else if self.machine_sidebar_focused() {
+                    Ok(RenderAction::Draw)
+                } else if self.workspace_sidebar_focused() {
                     if self.config.sidebar.plugin.is_some() {
                         self.paste_sidebar(&text);
                         Ok(if self.status_message.is_some() {
@@ -4288,6 +5849,9 @@ impl App {
                 self.render_states.clear();
                 self.sidebar_plugin_surface = None;
                 Ok(RenderAction::Draw)
+            }
+            AppEvent::SessionScoped { .. } => {
+                unreachable!("session-scoped events are unwrapped before dispatch")
             }
         }
     }
@@ -4407,7 +5971,9 @@ impl App {
     fn input_destination(&self, input: &Event) -> Option<SurfaceId> {
         match input {
             Event::Key(_) | Event::Paste(_)
-                if self.prompt.is_none() && self.omnibar.is_none() && !self.sidebar_focused =>
+                if self.prompt.is_none()
+                    && self.omnibar.is_none()
+                    && self.focus == FocusTarget::Pane =>
             {
                 self.active_surface()
             }
@@ -4712,10 +6278,373 @@ impl App {
     }
 
     fn new_workspace(&mut self) -> anyhow::Result<()> {
+        let Some(mode) = self.default_workspace_creation_mode() else {
+            self.status_message = Some(
+                if self.workspace_creation_policy().is_none() {
+                    localization::catalog().sidebar.no_active_session
+                } else {
+                    localization::catalog().sidebar.managed_workspace_unsupported
+                }
+                .to_string(),
+            );
+            return Ok(());
+        };
+        self.create_workspace(mode)
+    }
+
+    fn create_workspace(&mut self, mode: Option<WorkspaceCreationMode>) -> anyhow::Result<()> {
+        if let Some(mode) = mode {
+            self.request_managed_workspace(mode);
+            return Ok(());
+        }
+        if self.workspace_creation_policy() != Some(WorkspaceCreationPolicy::SessionOwned) {
+            self.status_message =
+                Some(localization::catalog().sidebar.managed_workspace_unsupported.to_string());
+            return Ok(());
+        }
         if !self.prepare_pty_input_before_mutation() {
             return Ok(());
         }
         self.session.new_workspace(self.size_of_rect(self.content_area))
+    }
+
+    fn request_managed_workspace(&mut self, mode: WorkspaceCreationMode) {
+        let supported = matches!(
+            self.workspace_creation_policy(),
+            Some(WorkspaceCreationPolicy::ProviderOwned { modes, .. }) if modes.contains(&mode)
+        );
+        if !supported {
+            self.status_message =
+                Some(localization::catalog().sidebar.managed_workspace_unsupported.to_string());
+            return;
+        }
+        let Some(machine) = self.machine_ui.as_ref().and_then(|ui| ui.snapshot.active) else {
+            self.status_message =
+                Some(localization::catalog().sidebar.no_active_session.to_string());
+            return;
+        };
+        let request = match mode {
+            WorkspaceCreationMode::Isolated => {
+                MachineRequest::CreateManagedIsolatedWorkspace(machine)
+            }
+            WorkspaceCreationMode::Host => MachineRequest::CreateManagedHostWorkspace(machine),
+        };
+        if let Some(ui) = self.machine_ui.as_mut() {
+            ui.request = Some(request);
+        }
+    }
+
+    fn managed_machine(&self, key: MachineKey) -> Option<ManagedMachineDescriptor> {
+        self.machine_ui.as_ref()?.managed_machine(key).cloned()
+    }
+
+    fn request_rename_managed_machine(&mut self, key: MachineKey, name: String) {
+        let Some(machine) = self.managed_machine(key).filter(|machine| {
+            machine.status == ManagedMachineStatus::Active && machine.capabilities.rename
+        }) else {
+            return;
+        };
+        if let Some(ui) = self.machine_ui.as_mut() {
+            ui.request = Some(MachineRequest::RenameManagedMachine {
+                machine: key,
+                expected_version: machine.version,
+                name,
+            });
+        }
+    }
+
+    fn request_delete_managed_machine(&mut self, key: MachineKey) {
+        let Some(machine) = self.managed_machine(key).filter(|machine| {
+            machine.status == ManagedMachineStatus::Active && machine.capabilities.delete
+        }) else {
+            return;
+        };
+        if let Some(ui) = self.machine_ui.as_mut() {
+            ui.request = Some(MachineRequest::DeleteManagedMachine {
+                machine: key,
+                expected_version: machine.version,
+            });
+        }
+    }
+
+    fn request_restore_managed_machine(&mut self, key: MachineKey) {
+        let Some(machine) = self.managed_machine(key).filter(|machine| {
+            machine.status == ManagedMachineStatus::Recoverable && machine.capabilities.restore
+        }) else {
+            return;
+        };
+        if let Some(ui) = self.machine_ui.as_mut() {
+            ui.request = Some(MachineRequest::RestoreManagedMachine {
+                machine: key,
+                expected_version: machine.version,
+            });
+        }
+    }
+
+    fn request_purge_managed_machine(&mut self, key: MachineKey) {
+        let Some(machine) = self.managed_machine(key).filter(|machine| {
+            machine.status == ManagedMachineStatus::Recoverable && machine.capabilities.purge
+        }) else {
+            return;
+        };
+        if let Some(ui) = self.machine_ui.as_mut() {
+            ui.request = Some(MachineRequest::PurgeManagedMachine {
+                machine: key,
+                expected_version: machine.version,
+            });
+        }
+    }
+
+    fn open_rename_managed_machine_prompt(&mut self, key: MachineKey) {
+        let Some(machine) = self.managed_machine(key).filter(|machine| {
+            machine.status == ManagedMachineStatus::Active && machine.capabilities.rename
+        }) else {
+            return;
+        };
+        self.cancel_pty_mouse_drag();
+        self.prompt = Some(Prompt::new(
+            localization::catalog().sidebar.rename_machine,
+            machine.name,
+            PromptTarget::ManagedMachine(key),
+        ));
+    }
+
+    fn open_delete_managed_machine_prompt(&mut self, key: MachineKey) {
+        if self.managed_machine(key).is_some_and(|machine| {
+            machine.status == ManagedMachineStatus::Active && machine.capabilities.delete
+        }) {
+            self.cancel_pty_mouse_drag();
+            self.prompt = Some(Prompt::new(
+                localization::catalog().sidebar.confirm_delete_machine,
+                String::new(),
+                PromptTarget::ConfirmDeleteManagedMachine(key),
+            ));
+        }
+    }
+
+    fn open_purge_managed_machine_prompt(&mut self, key: MachineKey) {
+        if self.managed_machine(key).is_some_and(|machine| {
+            machine.status == ManagedMachineStatus::Recoverable && machine.capabilities.purge
+        }) {
+            self.cancel_pty_mouse_drag();
+            self.prompt = Some(Prompt::new(
+                localization::catalog().sidebar.confirm_purge_machine,
+                String::new(),
+                PromptTarget::ConfirmPurgeManagedMachine(key),
+            ));
+        }
+    }
+
+    fn managed_workspace_for_view(
+        &self,
+        workspace_id: WorkspaceId,
+    ) -> Option<ManagedWorkspaceDescriptor> {
+        let workspace_key = self
+            .tree
+            .workspaces
+            .iter()
+            .find(|workspace| workspace.id == workspace_id)?
+            .key
+            .as_str();
+        self.machine_ui
+            .as_ref()?
+            .managed_workspace(workspace_key)
+            .filter(|workspace| workspace.status == ManagedWorkspaceStatus::Active)
+            .cloned()
+    }
+
+    fn provider_manages_current_workspace_session(&self) -> bool {
+        self.session.workspaces_are_provider_managed()
+            || uses_provider_managed_workspaces(self.machine_ui.as_ref())
+    }
+
+    fn reject_inactive_managed_workspace_machine(&mut self) {
+        self.status_message =
+            Some(localization::catalog().sidebar.managed_workspace_machine_inactive.to_string());
+    }
+
+    fn reject_unavailable_managed_workspace_operation(&mut self) {
+        self.status_message =
+            Some(localization::catalog().sidebar.managed_workspace_unavailable.to_string());
+    }
+
+    fn reject_disallowed_managed_workspace_operation(&mut self) {
+        self.status_message = Some(
+            localization::catalog().sidebar.managed_workspace_operation_not_allowed.to_string(),
+        );
+    }
+
+    fn request_rename_managed_workspace(&mut self, workspace_id: WorkspaceId, name: String) {
+        let Some(machine) = self.machine_ui.as_ref().and_then(|ui| ui.snapshot.active) else {
+            self.reject_inactive_managed_workspace_machine();
+            return;
+        };
+        let Some(workspace) = self.managed_workspace_for_view(workspace_id) else {
+            self.reject_unavailable_managed_workspace_operation();
+            return;
+        };
+        if workspace.capabilities.rename
+            && let Some(ui) = self.machine_ui.as_mut()
+        {
+            ui.request = Some(MachineRequest::RenameManagedWorkspace {
+                machine,
+                workspace_id: workspace.id,
+                expected_version: workspace.version,
+                name,
+            });
+        } else {
+            self.reject_disallowed_managed_workspace_operation();
+        }
+    }
+
+    fn request_rename_workspace(&mut self, workspace_id: WorkspaceId, name: String) {
+        if self.provider_manages_current_workspace_session() {
+            self.request_rename_managed_workspace(workspace_id, name);
+        } else {
+            self.session.rename_workspace(workspace_id, name);
+        }
+    }
+
+    fn request_delete_workspace(&mut self, workspace_id: WorkspaceId) {
+        if self.provider_manages_current_workspace_session() {
+            let Some(machine) = self.machine_ui.as_ref().and_then(|ui| ui.snapshot.active) else {
+                self.reject_inactive_managed_workspace_machine();
+                return;
+            };
+            let Some(workspace) = self.managed_workspace_for_view(workspace_id) else {
+                self.reject_unavailable_managed_workspace_operation();
+                return;
+            };
+            if workspace.capabilities.delete
+                && let Some(ui) = self.machine_ui.as_mut()
+            {
+                ui.request = Some(MachineRequest::DeleteManagedWorkspace {
+                    machine,
+                    workspace_id: workspace.id,
+                    expected_version: workspace.version,
+                });
+            } else {
+                self.reject_disallowed_managed_workspace_operation();
+            }
+            return;
+        }
+        self.session.close_workspace(workspace_id);
+    }
+
+    fn request_restore_managed_workspace(&mut self, workspace_id: &str) {
+        let Some(workspace) = self
+            .machine_ui
+            .as_ref()
+            .and_then(|ui| ui.managed_workspace(workspace_id))
+            .filter(|workspace| {
+                workspace.status == ManagedWorkspaceStatus::Recoverable
+                    && workspace.capabilities.restore
+            })
+            .cloned()
+        else {
+            return;
+        };
+        let Some(machine) = self.machine_ui.as_ref().and_then(|ui| ui.snapshot.active) else {
+            return;
+        };
+        if let Some(ui) = self.machine_ui.as_mut() {
+            ui.request = Some(MachineRequest::RestoreManagedWorkspace {
+                machine,
+                workspace_id: workspace.id,
+                expected_version: workspace.version,
+            });
+        }
+    }
+
+    fn request_purge_managed_workspace(&mut self, workspace_id: &str) {
+        let Some(workspace) = self
+            .machine_ui
+            .as_ref()
+            .and_then(|ui| ui.managed_workspace(workspace_id))
+            .filter(|workspace| {
+                workspace.status == ManagedWorkspaceStatus::Recoverable
+                    && workspace.capabilities.purge
+            })
+            .cloned()
+        else {
+            return;
+        };
+        let Some(machine) = self.machine_ui.as_ref().and_then(|ui| ui.snapshot.active) else {
+            return;
+        };
+        if let Some(ui) = self.machine_ui.as_mut() {
+            ui.request = Some(MachineRequest::PurgeManagedWorkspace {
+                machine,
+                workspace_id: workspace.id,
+                expected_version: workspace.version,
+            });
+        }
+    }
+
+    fn workspace_rail_targets(&self) -> Vec<WorkspaceRailTarget> {
+        let mut targets = self
+            .tree
+            .workspaces
+            .iter()
+            .map(|workspace| WorkspaceRailTarget::Workspace(workspace.id))
+            .collect::<Vec<_>>();
+        targets.extend(
+            self.machine_ui
+                .as_ref()
+                .into_iter()
+                .flat_map(MachineUiState::recoverable_workspaces)
+                .map(|workspace| WorkspaceRailTarget::Recoverable(workspace.id.clone())),
+        );
+        targets
+            .extend(self.workspace_creation_modes().into_iter().map(WorkspaceRailTarget::Create));
+        targets
+    }
+
+    fn workspace_rail_target(&self) -> Option<WorkspaceRailTarget> {
+        match self.workspace_rail_selection {
+            WorkspaceRailSelection::Workspace => self
+                .tree
+                .workspaces
+                .get(self.sidebar_workspace_selection)
+                .map(|workspace| WorkspaceRailTarget::Workspace(workspace.id)),
+            WorkspaceRailSelection::Recoverable => self
+                .machine_ui
+                .as_ref()
+                .and_then(|ui| {
+                    ui.recoverable_workspaces()
+                        .get(self.sidebar_recoverable_workspace_selection)
+                        .copied()
+                })
+                .map(|workspace| WorkspaceRailTarget::Recoverable(workspace.id.clone())),
+            WorkspaceRailSelection::SessionCreation => Some(WorkspaceRailTarget::Create(None)),
+            WorkspaceRailSelection::ManagedCreation(mode) => {
+                Some(WorkspaceRailTarget::Create(Some(mode)))
+            }
+        }
+    }
+
+    fn select_workspace_rail_target(&mut self, target: WorkspaceRailTarget) {
+        match target {
+            WorkspaceRailTarget::Workspace(id) => {
+                if let Some(index) =
+                    self.tree.workspaces.iter().position(|workspace| workspace.id == id)
+                {
+                    self.sidebar_workspace_selection = index;
+                    self.workspace_rail_selection = WorkspaceRailSelection::Workspace;
+                }
+            }
+            WorkspaceRailTarget::Recoverable(id) => {
+                if let Some(index) = self.machine_ui.as_ref().and_then(|ui| {
+                    ui.recoverable_workspaces().iter().position(|workspace| workspace.id == id)
+                }) {
+                    self.sidebar_recoverable_workspace_selection = index;
+                    self.workspace_rail_selection = WorkspaceRailSelection::Recoverable;
+                }
+            }
+            WorkspaceRailTarget::Create(mode) => {
+                self.workspace_rail_selection = workspace_creation_selection(mode);
+            }
+        }
     }
 
     fn new_screen(&mut self) -> anyhow::Result<()> {
@@ -4751,7 +6680,10 @@ impl App {
             self.prefix_armed = true;
             return Ok(RenderAction::Draw);
         }
-        if self.sidebar_focused {
+        if self.machine_sidebar_focused() {
+            return Ok(self.handle_machine_sidebar_key(&key));
+        }
+        if self.workspace_sidebar_focused() {
             if self.config.sidebar.plugin.is_some() {
                 self.forward_sidebar_key(&key);
                 return Ok(if self.status_message.is_some() {
@@ -4772,9 +6704,259 @@ impl App {
         Ok(if self.status_message.is_some() { RenderAction::Draw } else { RenderAction::None })
     }
 
+    fn handle_machine_sidebar_key(&mut self, key: &KeyEvent) -> RenderAction {
+        if matches!(key.code, KeyCode::Right | KeyCode::Char('l')) {
+            if self.sidebar_layout.workspace.is_some() {
+                self.focus = FocusTarget::WorkspaceRail;
+            }
+            return RenderAction::Draw;
+        }
+        if key.code == KeyCode::Esc {
+            self.focus = FocusTarget::Pane;
+            return RenderAction::Draw;
+        }
+        if matches!(
+            key.code,
+            KeyCode::Up
+                | KeyCode::Down
+                | KeyCode::Char('j' | 'k')
+                | KeyCode::Home
+                | KeyCode::End
+                | KeyCode::PageUp
+                | KeyCode::PageDown
+        ) {
+            self.machine_rail_follow_selection = true;
+        }
+        let page = rail_page_size(self.sidebar_layout.machine);
+        let command = {
+            let Some(machine) = self.machine_ui.as_mut() else {
+                self.focus = FocusTarget::Pane;
+                return RenderAction::Draw;
+            };
+            let targets = machine.rail_targets();
+            let current = machine
+                .rail_target()
+                .and_then(|selected| targets.iter().position(|target| *target == selected))
+                .unwrap_or_default();
+            if let Some(next) = rail_navigation_index(key, current, targets.len(), page) {
+                if let Some(target) = targets.get(next).copied() {
+                    machine.select_rail_target(target);
+                }
+                None
+            } else if let Some(MachineRailTarget::Machine(machine_key)) =
+                targets.get(current).copied()
+            {
+                let managed = machine.managed_machine(machine_key);
+                match key.code {
+                    KeyCode::Char('r')
+                        if managed.is_some_and(|managed| {
+                            managed.status == ManagedMachineStatus::Active
+                                && managed.capabilities.rename
+                        }) =>
+                    {
+                        Some(MachineRailCommand::Rename(machine_key))
+                    }
+                    KeyCode::Char('d') | KeyCode::Delete
+                        if managed.is_some_and(|managed| {
+                            managed.status == ManagedMachineStatus::Active
+                                && managed.capabilities.delete
+                        }) =>
+                    {
+                        Some(MachineRailCommand::Delete(machine_key))
+                    }
+                    KeyCode::Char('p') | KeyCode::Delete
+                        if managed.is_some_and(|managed| {
+                            managed.status == ManagedMachineStatus::Recoverable
+                                && managed.capabilities.purge
+                        }) =>
+                    {
+                        Some(MachineRailCommand::Purge(machine_key))
+                    }
+                    KeyCode::Enter
+                        if managed.is_some_and(|managed| {
+                            managed.status == ManagedMachineStatus::Recoverable
+                                && managed.capabilities.restore
+                        }) =>
+                    {
+                        Some(MachineRailCommand::Restore(machine_key))
+                    }
+                    KeyCode::Enter if Some(machine_key) != machine.snapshot.active => {
+                        Some(MachineRailCommand::Switch(machine_key))
+                    }
+                    _ => None,
+                }
+            } else if key.code == KeyCode::Enter {
+                match targets.get(current).copied() {
+                    Some(MachineRailTarget::Scope) => Some(MachineRailCommand::OpenScopes),
+                    Some(MachineRailTarget::Actions) => Some(MachineRailCommand::OpenActions),
+                    Some(MachineRailTarget::NewVm) => Some(MachineRailCommand::Create),
+                    Some(MachineRailTarget::ConnectMachine) => Some(MachineRailCommand::Connect),
+                    Some(MachineRailTarget::Machine(_)) | None => None,
+                }
+            } else {
+                None
+            }
+        };
+        match command {
+            Some(MachineRailCommand::Switch(machine)) => {
+                if let Some(ui) = self.machine_ui.as_mut() {
+                    ui.request = Some(MachineRequest::Switch(machine));
+                }
+            }
+            Some(MachineRailCommand::Rename(machine)) => {
+                self.open_rename_managed_machine_prompt(machine);
+            }
+            Some(MachineRailCommand::Delete(machine)) => {
+                self.open_delete_managed_machine_prompt(machine);
+            }
+            Some(MachineRailCommand::Restore(machine)) => {
+                self.request_restore_managed_machine(machine);
+            }
+            Some(MachineRailCommand::Purge(machine)) => {
+                self.open_purge_managed_machine_prompt(machine);
+            }
+            Some(MachineRailCommand::OpenScopes) => self.open_provider_scope_menu(1, 2),
+            Some(MachineRailCommand::OpenActions) => self.open_provider_actions_menu(1, 3),
+            Some(MachineRailCommand::Create) => {
+                if let Some(ui) = self.machine_ui.as_mut() {
+                    ui.request = Some(MachineRequest::Create);
+                }
+            }
+            Some(MachineRailCommand::Connect) => {
+                self.prompt = Some(Prompt::new(
+                    localization::catalog().sidebar.connect_prompt,
+                    String::new(),
+                    PromptTarget::ConnectMachine,
+                ));
+            }
+            None => {}
+        }
+        RenderAction::Draw
+    }
+
+    fn open_provider_scope_menu(&mut self, x: u16, y: u16) {
+        let messages = &localization::catalog().sidebar;
+        let Some(provider) = self.machine_ui.as_ref().and_then(|ui| ui.provider.as_ref()) else {
+            return;
+        };
+        let selected_index =
+            provider.scopes.iter().position(|scope| scope.id == provider.selected_scope_id);
+        let items = provider
+            .scopes
+            .iter()
+            .enumerate()
+            .map(|(index, scope)| {
+                let selected = scope.id == provider.selected_scope_id;
+                let kind = match scope.kind {
+                    crate::machine::ProviderScopeKind::Personal => messages.personal_scope,
+                    crate::machine::ProviderScopeKind::Team => messages.team_scope,
+                };
+                let marker = if selected { "✓ " } else { "  " };
+                MenuItem::LabeledAction {
+                    label: format!("{marker}{} ({kind})", scope.name),
+                    action: MenuAction::SelectProviderScope(index),
+                }
+            })
+            .collect::<Vec<_>>();
+        if !items.is_empty() {
+            let mut menu = ContextMenu::with_groups(x, y, vec![items]);
+            if let (Some(level), Some(selected)) = (menu.levels.first_mut(), selected_index) {
+                level.selected = selected;
+                level.ensure_selection_visible();
+            }
+            self.menu = Some(menu);
+        }
+    }
+
+    fn open_provider_actions_menu(&mut self, x: u16, y: u16) {
+        let Some(provider) = self.machine_ui.as_ref().and_then(|ui| ui.provider.as_ref()) else {
+            return;
+        };
+        let items = provider
+            .actions
+            .iter()
+            .enumerate()
+            .map(|(index, action)| MenuItem::LabeledAction {
+                label: if action.destructive {
+                    format!("⚠ {}", action.label)
+                } else {
+                    action.label.clone()
+                },
+                action: MenuAction::InvokeProviderAction(index),
+            })
+            .collect::<Vec<_>>();
+        if !items.is_empty() {
+            self.menu = Some(ContextMenu::with_groups(x, y, vec![items]));
+        }
+    }
+
+    fn begin_provider_action(&mut self, index: usize) {
+        let Some(action) = self
+            .machine_ui
+            .as_ref()
+            .and_then(|ui| ui.provider.as_ref())
+            .and_then(|provider| provider.actions.get(index))
+            .cloned()
+        else {
+            return;
+        };
+        match action.fields.as_slice() {
+            [] if action.destructive => {
+                self.prompt = Some(Prompt::new(
+                    localization::catalog().sidebar.confirm_destructive_action,
+                    String::new(),
+                    PromptTarget::ConfirmProviderAction(index),
+                ));
+            }
+            [] => self.submit_provider_action(index, None),
+            [field] => {
+                self.prompt = Some(Prompt::new(
+                    field.label.clone(),
+                    String::new(),
+                    PromptTarget::ProviderAction(index),
+                ));
+            }
+            _ => {
+                self.status_message = Some(
+                    localization::catalog().sidebar.action_multiple_fields_unsupported.to_string(),
+                );
+            }
+        }
+    }
+
+    fn submit_provider_action(&mut self, index: usize, input: Option<&str>) {
+        let result = self
+            .machine_ui
+            .as_ref()
+            .and_then(|ui| ui.provider.as_ref())
+            .and_then(|provider| provider.actions.get(index))
+            .map(|action| action.request(input));
+        match result {
+            Some(Ok(request)) => {
+                if let Some(ui) = self.machine_ui.as_mut() {
+                    ui.request = Some(request);
+                }
+            }
+            Some(Err(error)) => {
+                self.status_message = Some(provider_action_error_message(error).to_string());
+            }
+            None => {}
+        }
+    }
+
     fn handle_builtin_sidebar_key(&mut self, key: &KeyEvent) -> anyhow::Result<RenderAction> {
         if key.code == KeyCode::Tab {
             return self.run_action(Action::ToggleSidebarView);
+        }
+        if matches!(key.code, KeyCode::Left | KeyCode::Char('h'))
+            && self.sidebar_layout.machine.is_some()
+        {
+            self.focus = FocusTarget::MachineRail;
+            return Ok(RenderAction::Draw);
+        }
+        if key.code == KeyCode::Esc {
+            self.focus = FocusTarget::Pane;
+            return Ok(RenderAction::Draw);
         }
         match self.sidebar_view {
             SidebarView::Files => {
@@ -4782,33 +6964,57 @@ impl App {
                     self.run_file_command(command);
                 }
             }
-            SidebarView::Workspaces => match key.code {
-                KeyCode::Up => {
-                    self.sidebar_workspace_selection =
-                        self.sidebar_workspace_selection.saturating_sub(1);
+            SidebarView::Workspaces => {
+                if matches!(
+                    key.code,
+                    KeyCode::Up
+                        | KeyCode::Down
+                        | KeyCode::Char('j' | 'k')
+                        | KeyCode::Home
+                        | KeyCode::End
+                        | KeyCode::PageUp
+                        | KeyCode::PageDown
+                ) {
+                    self.workspace_rail_follow_selection = true;
                 }
-                KeyCode::Char('k') if key.modifiers.contains(KeyModifiers::CONTROL) => {
-                    self.sidebar_workspace_selection =
-                        self.sidebar_workspace_selection.saturating_sub(1);
+                let targets = self.workspace_rail_targets();
+                let current = self
+                    .workspace_rail_target()
+                    .and_then(|selected| targets.iter().position(|target| target == &selected))
+                    .unwrap_or_default();
+                let page = rail_page_size(self.sidebar_layout.workspace);
+                if let Some(next) = rail_navigation_index(key, current, targets.len(), page) {
+                    if let Some(target) = targets.get(next).cloned() {
+                        self.select_workspace_rail_target(target);
+                    }
+                } else if key.code == KeyCode::Enter {
+                    match targets.get(current).cloned() {
+                        Some(WorkspaceRailTarget::Workspace(id)) => {
+                            if let Some(index) =
+                                self.tree.workspaces.iter().position(|workspace| workspace.id == id)
+                            {
+                                self.select_workspace_for_client(Some(index), None);
+                            }
+                        }
+                        Some(WorkspaceRailTarget::Create(mode)) => {
+                            self.create_workspace(mode)?;
+                        }
+                        Some(WorkspaceRailTarget::Recoverable(id)) => {
+                            self.request_restore_managed_workspace(&id);
+                        }
+                        None => {}
+                    }
                 }
-                KeyCode::Down => {
-                    self.sidebar_workspace_selection = (self.sidebar_workspace_selection + 1)
-                        .min(self.tree.workspaces.len().saturating_sub(1));
-                }
-                KeyCode::Char('j') if key.modifiers.contains(KeyModifiers::CONTROL) => {
-                    self.sidebar_workspace_selection = (self.sidebar_workspace_selection + 1)
-                        .min(self.tree.workspaces.len().saturating_sub(1));
-                }
-                KeyCode::Enter => {
-                    self.select_workspace_for_client(Some(self.sidebar_workspace_selection), None);
-                }
-                _ => {}
-            },
+            }
         }
         Ok(RenderAction::Draw)
     }
 
     fn run_file_command(&mut self, command: FileCommand) {
+        if !self.session_available() {
+            self.sidebar_files.set_message(localization::catalog().sidebar.no_active_session);
+            return;
+        }
         let result = match command {
             FileCommand::Reroot => {
                 let cwd = self
@@ -4873,18 +7079,121 @@ impl App {
     fn commit_prompt(&mut self) {
         let Some(prompt) = self.take_prompt() else { return };
         let input = prompt.input.as_str().to_string();
+        if matches!(prompt.target, PromptTarget::ConnectMachine) {
+            if !input.trim().is_empty()
+                && let Some(machine) = self.machine_ui.as_mut()
+            {
+                machine.request = Some(MachineRequest::Connect(input.trim().to_string()));
+            }
+            return;
+        }
+        if let PromptTarget::ManagedMachine(key) = prompt.target {
+            if !input.is_empty() {
+                self.request_rename_managed_machine(key, input);
+            }
+            return;
+        }
+        if let PromptTarget::ConfirmDeleteManagedMachine(key) = prompt.target {
+            if input.trim() == "CONFIRM" {
+                self.request_delete_managed_machine(key);
+            } else {
+                self.status_message =
+                    Some(localization::catalog().sidebar.confirmation_mismatch.to_string());
+                self.prompt = Some(prompt);
+                self.shake_frames = 6;
+            }
+            return;
+        }
+        if let PromptTarget::ConfirmPurgeManagedMachine(key) = prompt.target {
+            if input.trim() == "CONFIRM" {
+                self.request_purge_managed_machine(key);
+            } else {
+                self.status_message =
+                    Some(localization::catalog().sidebar.confirmation_mismatch.to_string());
+                self.prompt = Some(prompt);
+                self.shake_frames = 6;
+            }
+            return;
+        }
+        if let PromptTarget::ProviderAction(index) = prompt.target {
+            let result = self
+                .machine_ui
+                .as_ref()
+                .and_then(|ui| ui.provider.as_ref())
+                .and_then(|provider| provider.actions.get(index))
+                .map(|action| action.request(Some(&input)));
+            match result {
+                Some(Ok(request)) => {
+                    if let Some(ui) = self.machine_ui.as_mut() {
+                        ui.request = Some(request);
+                    }
+                }
+                Some(Err(error)) => {
+                    self.status_message = Some(provider_action_error_message(error).to_string());
+                    self.prompt = Some(prompt);
+                    self.shake_frames = 6;
+                }
+                None => {}
+            }
+            return;
+        }
+        if let PromptTarget::ConfirmProviderAction(index) = prompt.target {
+            if input.trim() == "CONFIRM" {
+                self.submit_provider_action(index, None);
+            } else {
+                self.status_message =
+                    Some(localization::catalog().sidebar.confirmation_mismatch.to_string());
+                self.prompt = Some(prompt);
+                self.shake_frames = 6;
+            }
+            return;
+        }
+        if let PromptTarget::ManagedWorkspace(id) = prompt.target {
+            if !input.is_empty() {
+                self.request_rename_managed_workspace(id, input);
+            }
+            return;
+        }
+        if let PromptTarget::ConfirmPurgeManagedWorkspace(index) = prompt.target {
+            if input.trim() == "CONFIRM" {
+                let workspace_id = self
+                    .machine_ui
+                    .as_ref()
+                    .and_then(|ui| ui.recoverable_workspaces().get(index).copied())
+                    .map(|workspace| workspace.id.clone());
+                if let Some(workspace_id) = workspace_id {
+                    self.request_purge_managed_workspace(&workspace_id);
+                }
+            } else {
+                self.status_message =
+                    Some(localization::catalog().sidebar.confirmation_mismatch.to_string());
+                self.prompt = Some(prompt);
+                self.shake_frames = 6;
+            }
+            return;
+        }
         if !self.prepare_pty_input_before_mutation() {
             return;
         }
         match prompt.target {
             PromptTarget::Workspace(id) => {
                 if !input.is_empty() {
-                    self.session.rename_workspace(id, input);
+                    self.request_rename_workspace(id, input);
                 }
             }
             // Empty screen/tab names clear back to the default.
             PromptTarget::Screen(id) => self.session.rename_screen(id, input),
             PromptTarget::Surface(id) => self.session.rename_surface(id, input),
+            PromptTarget::ConnectMachine
+            | PromptTarget::ManagedMachine(_)
+            | PromptTarget::ConfirmDeleteManagedMachine(_)
+            | PromptTarget::ConfirmPurgeManagedMachine(_)
+            | PromptTarget::ProviderAction(_)
+            | PromptTarget::ConfirmProviderAction(_)
+            | PromptTarget::ManagedWorkspace(_)
+            | PromptTarget::ConfirmPurgeManagedWorkspace(_) => {
+                unreachable!("handled before session mutation")
+            }
         }
     }
 
@@ -5047,7 +7356,7 @@ impl App {
     fn handle_prefixed(&mut self, key: KeyEvent) -> anyhow::Result<RenderAction> {
         // Prefix twice forwards the prefix chord literally.
         if self.config.keys.prefix.matches(&key) {
-            if self.sidebar_focused {
+            if self.workspace_sidebar_focused() {
                 self.forward_sidebar_key(&key);
             } else {
                 self.forward_key(&key);
@@ -5055,15 +7364,13 @@ impl App {
             return Ok(RenderAction::Draw);
         }
         let Some(action) = self.config.keys.action_for(&key) else {
-            if self.sidebar_focused {
-                self.sidebar_focused = false;
+            if self.focus != FocusTarget::Pane {
+                self.focus = FocusTarget::Pane;
             }
             return Ok(RenderAction::Draw); // unknown prefix command: swallow, redraw indicator
         };
-        let was_sidebar_focused = self.sidebar_focused;
-        if self.sidebar_focused {
-            self.sidebar_focused = false;
-        }
+        let was_sidebar_focused = self.workspace_sidebar_focused();
+        self.focus = FocusTarget::Pane;
         if was_sidebar_focused && action == Action::FocusSidebar {
             return Ok(RenderAction::Draw);
         }
@@ -5143,7 +7450,7 @@ impl App {
                 self.sidebar_visible = !self.sidebar_visible;
                 if !self.sidebar_visible {
                     self.session.invalidate_sidebar_plugin_sync();
-                    self.sidebar_focused = false;
+                    self.focus = FocusTarget::Pane;
                 }
             }
             Action::ToggleSidebarView => self.toggle_sidebar_view(),
@@ -5201,9 +7508,41 @@ impl App {
     }
 
     fn open_rename_workspace_prompt(&mut self) {
-        let Some(ws) = self.tree.active_workspace() else { return };
-        let prompt =
-            Prompt::new("Rename workspace", ws.name.clone(), PromptTarget::Workspace(ws.id));
+        let Some(workspace_id) = self.tree.active_workspace().map(|workspace| workspace.id) else {
+            return;
+        };
+        self.open_rename_workspace_prompt_for(workspace_id);
+    }
+
+    fn open_rename_workspace_prompt_for(&mut self, workspace_id: WorkspaceId) {
+        let Some(buffer) = self
+            .tree
+            .workspaces
+            .iter()
+            .find(|ws| ws.id == workspace_id)
+            .map(|workspace| workspace.name.clone())
+        else {
+            return;
+        };
+        let provider_managed = self.provider_manages_current_workspace_session();
+        let target = if provider_managed {
+            if self.machine_ui.as_ref().and_then(|ui| ui.snapshot.active).is_none() {
+                self.reject_inactive_managed_workspace_machine();
+                return;
+            }
+            let Some(managed) = self.managed_workspace_for_view(workspace_id) else {
+                self.reject_unavailable_managed_workspace_operation();
+                return;
+            };
+            if !managed.capabilities.rename {
+                self.reject_disallowed_managed_workspace_operation();
+                return;
+            }
+            PromptTarget::ManagedWorkspace(workspace_id)
+        } else {
+            PromptTarget::Workspace(workspace_id)
+        };
+        let prompt = Prompt::new(localization::catalog().sidebar.rename_workspace, buffer, target);
         self.cancel_pty_mouse_drag();
         self.prompt = Some(prompt);
     }
@@ -5360,18 +7699,41 @@ impl App {
             return Ok(());
         }
         match action {
-            MenuAction::RenameWorkspace(id) => {
-                let buffer = self
-                    .tree
-                    .workspaces
-                    .iter()
-                    .find(|ws| ws.id == id)
-                    .map(|ws| ws.name.clone())
-                    .unwrap_or_default();
-                self.prompt =
-                    Some(Prompt::new("Rename workspace", buffer, PromptTarget::Workspace(id)));
+            MenuAction::RenameManagedMachine(key) => {
+                self.open_rename_managed_machine_prompt(key);
             }
-            MenuAction::CloseWorkspace(id) => self.session.close_workspace(id),
+            MenuAction::DeleteManagedMachine(key) => {
+                self.open_delete_managed_machine_prompt(key);
+            }
+            MenuAction::RestoreManagedMachine(key) => {
+                self.request_restore_managed_machine(key);
+            }
+            MenuAction::PurgeManagedMachine(key) => {
+                self.open_purge_managed_machine_prompt(key);
+            }
+            MenuAction::RenameWorkspace(id) => self.open_rename_workspace_prompt_for(id),
+            MenuAction::RenameManagedWorkspace(id) => {
+                self.open_rename_workspace_prompt_for(id);
+            }
+            MenuAction::CloseWorkspace(id) => self.request_delete_workspace(id),
+            MenuAction::DeleteManagedWorkspace(id) => self.request_delete_workspace(id),
+            MenuAction::RestoreManagedWorkspace(index) => {
+                let workspace_id = self
+                    .machine_ui
+                    .as_ref()
+                    .and_then(|ui| ui.recoverable_workspaces().get(index).copied())
+                    .map(|workspace| workspace.id.clone());
+                if let Some(workspace_id) = workspace_id {
+                    self.request_restore_managed_workspace(&workspace_id);
+                }
+            }
+            MenuAction::PurgeManagedWorkspace(index) => {
+                self.prompt = Some(Prompt::new(
+                    localization::catalog().sidebar.confirm_purge_workspace,
+                    String::new(),
+                    PromptTarget::ConfirmPurgeManagedWorkspace(index),
+                ));
+            }
             MenuAction::CopyWorkspaceId(id) => {
                 if let Some(short_id) =
                     self.tree.workspaces.iter().find(|ws| ws.id == id).map(|ws| ws.short_id.clone())
@@ -5456,6 +7818,23 @@ impl App {
                     self.session.disconnect_client(client);
                 }
             }
+            MenuAction::SelectProviderScope(index) => {
+                let scope = self
+                    .machine_ui
+                    .as_ref()
+                    .and_then(|ui| ui.provider.as_ref())
+                    .and_then(|provider| provider.scopes.get(index))
+                    .map(|scope| scope.id.clone());
+                if let (Some(ui), Some(scope)) = (self.machine_ui.as_mut(), scope)
+                    && ui
+                        .provider
+                        .as_ref()
+                        .is_some_and(|provider| provider.selected_scope_id != scope)
+                {
+                    ui.request = Some(MachineRequest::SelectProviderScope(scope));
+                }
+            }
+            MenuAction::InvokeProviderAction(index) => self.begin_provider_action(index),
         }
         Ok(())
     }
@@ -5527,8 +7906,8 @@ impl App {
     }
 
     fn toggle_sidebar_focus(&mut self) {
-        if self.sidebar_focused {
-            self.sidebar_focused = false;
+        if self.workspace_sidebar_focused() {
+            self.leave_workspace_sidebar();
             self.sidebar_focus_pending = false;
             return;
         }
@@ -5539,10 +7918,12 @@ impl App {
         self.sidebar_visible = true;
         let requested = self.config.sidebar.plugin.is_some() && self.sync_sidebar_plugin(true);
         if self.config.sidebar.plugin.is_none() || self.sidebar_plugin_surface.is_some() {
-            self.sidebar_focused = true;
+            self.focus = FocusTarget::WorkspaceRail;
             if self.config.sidebar.plugin.is_none() {
                 if self.sidebar_view == SidebarView::Workspaces {
                     self.sidebar_workspace_selection = self.tree.active_workspace;
+                    self.workspace_rail_selection = WorkspaceRailSelection::Workspace;
+                    self.workspace_rail_follow_selection = true;
                 } else if !self.sync_sidebar_files_to_focus(true) {
                     self.sidebar_files.refresh();
                 }
@@ -5570,6 +7951,8 @@ impl App {
             }
             SidebarView::Workspaces => {
                 self.sidebar_workspace_selection = self.tree.active_workspace;
+                self.workspace_rail_selection = WorkspaceRailSelection::Workspace;
+                self.workspace_rail_follow_selection = true;
             }
         }
     }
@@ -5579,6 +7962,11 @@ impl App {
     }
 
     fn forward_key(&mut self, key: &KeyEvent) {
+        if !self.session_available() {
+            self.status_message =
+                Some(localization::catalog().sidebar.no_active_session.to_string());
+            return;
+        }
         if self
             .active_surface_handle()
             .is_some_and(|surface| surface.kind() == SurfaceKind::Browser)
@@ -5666,6 +8054,11 @@ impl App {
     }
 
     fn paste(&mut self, text: &str) {
+        if !self.session_available() {
+            self.status_message =
+                Some(localization::catalog().sidebar.no_active_session.to_string());
+            return;
+        }
         let Some((surface_id, surface)) = self.active_surface_with_handle() else { return };
         if surface.kind() == SurfaceKind::Browser {
             let _ = self.browser_input.enqueue(BrowserInputEvent {
@@ -5769,12 +8162,14 @@ impl App {
     }
 
     fn workspace_drop_target_at(&self, x: u16, y: u16) -> Option<usize> {
-        if self.sidebar_width < 3 || x >= self.sidebar_width.saturating_sub(1) {
+        let area = self.workspace_sidebar_area(self.content_area.height.saturating_add(1))?;
+        if area.width < 3 || x < area.x || x >= area.x + area.width.saturating_sub(1) || y < area.y
+        {
             return None;
         }
         let len = self.tree.workspaces.len();
         for index in 0..len {
-            let start = 2 + index as u16 * 3;
+            let start = area.y + 2 + index as u16 * 3;
             if y < start {
                 return Some(index);
             }
@@ -5977,7 +8372,7 @@ impl App {
         if self.active_pane() != Some(area.pane) {
             self.focus_pane_after_input(area.pane);
         }
-        self.sidebar_focused = false;
+        self.leave_workspace_sidebar();
         self.selection = None;
         if matches!(release_capture, PtyMouseReleaseCapture::Failed) {
             return PtyMousePressResult::Consumed;
@@ -6438,6 +8833,11 @@ impl App {
         bytes: PtyInputBytes,
         kind: PtyInputKind,
     ) -> PtyInputForwardResult {
+        if !self.session_available() {
+            self.status_message =
+                Some(localization::catalog().sidebar.no_active_session.to_string());
+            return PtyInputForwardResult { owned: true, accepted: false, reservation_id: None };
+        }
         let (result, reservation_id) = self
             .pty_input
             .enqueue_with_reservation(PtyInputEvent::input(surface_id, surface, bytes, kind));
@@ -6484,6 +8884,11 @@ impl App {
     }
 
     fn prepare_pty_input_before_mutation(&mut self) -> bool {
+        if !self.session_available() {
+            self.status_message =
+                Some(localization::catalog().sidebar.no_active_session.to_string());
+            return false;
+        }
         self.cancel_pty_mouse_drag();
         !matches!(self.drag, Some(Drag::PtyMouse { .. }))
     }
@@ -6811,8 +9216,21 @@ impl App {
 
         if let Some((pane, hit)) = self.omnibar_hit_at(x, y) {
             self.focus_pane_after_input(pane);
-            if let Some(state) = &self.omnibar {
+            if let Some(state) = self.omnibar.as_mut() {
                 if state.pane == pane {
+                    if hit == OmnibarHit::Edit
+                        && let Some(rect) = self
+                            .pane_areas
+                            .iter()
+                            .find(|area| area.pane == pane && area.surface == state.surface)
+                            .and_then(|area| area.omnibar)
+                    {
+                        state.select_all = false;
+                        state.input.set_cursor_from_visible_column(
+                            x.saturating_sub(rect.x) as usize,
+                            rect.width as usize,
+                        );
+                    }
                     return Ok(RenderAction::Draw);
                 }
                 self.omnibar = None;
@@ -6848,30 +9266,111 @@ impl App {
             && self.sidebar_visible
         {
             let requested = self.sync_sidebar_plugin(true);
-            self.sidebar_focused = self.sidebar_plugin_surface.is_some();
+            if self.sidebar_plugin_surface.is_some() {
+                self.focus = FocusTarget::WorkspaceRail;
+            } else {
+                self.leave_workspace_sidebar();
+            }
             self.sidebar_focus_pending = requested && self.sidebar_plugin_surface.is_none();
             return Ok(RenderAction::Draw);
         }
         // Any click outside the plugin rect returns keyboard focus to the
         // panes; otherwise typing would keep going to the plugin PTY after
         // the user clicked into a pane.
-        self.sidebar_focused = false;
+        self.leave_workspace_sidebar();
         self.sidebar_focus_pending = false;
 
         if let Some(hit) = self.hit_at(x, y) {
             match hit {
+                Hit::Machine { index, key } => {
+                    self.focus = FocusTarget::MachineRail;
+                    self.machine_rail_follow_selection = true;
+                    if let Some(machine) = self.machine_ui.as_mut() {
+                        machine.selection = index;
+                        machine.rail_selection = MachineRailSelection::Machine;
+                    }
+                    self.drag = Some(Drag::MachineArm { machine: key, at: (x, y) });
+                }
+                Hit::NewVm => {
+                    self.focus = FocusTarget::MachineRail;
+                    self.machine_rail_follow_selection = true;
+                    if let Some(machine) = self.machine_ui.as_mut() {
+                        machine.rail_selection = MachineRailSelection::NewVm;
+                        machine.request = Some(MachineRequest::Create);
+                    }
+                }
+                Hit::ConnectMachine => {
+                    self.focus = FocusTarget::MachineRail;
+                    self.machine_rail_follow_selection = true;
+                    if let Some(machine) = self.machine_ui.as_mut() {
+                        machine.rail_selection = MachineRailSelection::ConnectMachine;
+                    }
+                    self.prompt = Some(Prompt::new(
+                        localization::catalog().sidebar.connect_prompt,
+                        String::new(),
+                        PromptTarget::ConnectMachine,
+                    ));
+                }
+                Hit::ProviderScope => {
+                    self.focus = FocusTarget::MachineRail;
+                    self.machine_rail_follow_selection = true;
+                    if let Some(machine) = self.machine_ui.as_mut() {
+                        machine.rail_selection = MachineRailSelection::Scope;
+                    }
+                    self.open_provider_scope_menu(x, y);
+                }
+                Hit::ProviderActions => {
+                    self.focus = FocusTarget::MachineRail;
+                    self.machine_rail_follow_selection = true;
+                    if let Some(machine) = self.machine_ui.as_mut() {
+                        machine.rail_selection = MachineRailSelection::Actions;
+                    }
+                    self.open_provider_actions_menu(x, y);
+                }
                 Hit::Workspace { index, id } => {
+                    self.focus = FocusTarget::WorkspaceRail;
+                    self.workspace_rail_follow_selection = true;
                     self.sidebar_workspace_selection = index;
+                    self.workspace_rail_selection = WorkspaceRailSelection::Workspace;
                     self.drag = Some(Drag::WorkspaceArm { workspace: id, at: (x, y) });
                 }
-                Hit::NewWorkspace => self.new_workspace()?,
-                Hit::SidebarFile { index } => self.sidebar_files.select(index),
+                Hit::RecoverableWorkspace { index } => {
+                    self.focus = FocusTarget::WorkspaceRail;
+                    self.workspace_rail_follow_selection = true;
+                    self.sidebar_recoverable_workspace_selection = index;
+                    self.workspace_rail_selection = WorkspaceRailSelection::Recoverable;
+                }
+                Hit::CreateWorkspace { mode } => {
+                    self.focus = FocusTarget::WorkspaceRail;
+                    self.workspace_rail_follow_selection = true;
+                    self.workspace_rail_selection = workspace_creation_selection(mode);
+                    self.create_workspace(mode)?;
+                }
+                Hit::SidebarFile { index } => {
+                    self.focus = FocusTarget::WorkspaceRail;
+                    self.sidebar_files.select(index);
+                }
+                Hit::SidebarFilterInput => {
+                    self.focus = FocusTarget::WorkspaceRail;
+                    if let Some(area) =
+                        self.workspace_sidebar_area(self.content_area.height.saturating_add(1))
+                    {
+                        let input_width = area.width.saturating_sub(2);
+                        let column = x.saturating_sub(area.x + 1) as usize;
+                        self.sidebar_files
+                            .set_filter_cursor_from_visible_column(column, input_width as usize);
+                    }
+                }
                 Hit::ScreenEntry { index, .. } => {
+                    self.focus = FocusTarget::Pane;
                     if self.prepare_pty_input_before_mutation() {
                         self.select_screen_for_client(Some(index), None);
                     }
                 }
-                Hit::NewScreen => self.new_screen()?,
+                Hit::NewScreen => {
+                    self.focus = FocusTarget::Pane;
+                    self.new_screen()?;
+                }
                 Hit::Tab { pane, index } => {
                     if let Some(surface) = self
                         .tree
@@ -6893,7 +9392,13 @@ impl App {
                 Hit::Scrollbar { surface, track } => {
                     self.start_scrollbar_drag(surface, track, y);
                 }
-                Hit::SidebarResize => self.drag = Some(Drag::SidebarResize),
+                Hit::RailResize(kind) => {
+                    self.focus = match kind {
+                        RailKind::Machine => FocusTarget::MachineRail,
+                        RailKind::Workspace => FocusTarget::WorkspaceRail,
+                    };
+                    self.drag = Some(Drag::RailResize(kind));
+                }
                 Hit::PaneResize { horizontal, vertical } => {
                     self.drag = Some(Drag::ResizeSplit { horizontal, vertical });
                 }
@@ -6903,6 +9408,7 @@ impl App {
         }
 
         if let Some(area) = self.pane_area_at(x, y).copied() {
+            self.focus = FocusTarget::Pane;
             if area.content.contains(x, y) {
                 if self.surface_kind(area.surface) == Some(SurfaceKind::Browser) {
                     if self.active_pane() != Some(area.pane) {
@@ -6950,6 +9456,7 @@ impl App {
 
     fn handle_left_drag(&mut self, x: u16, y: u16) -> anyhow::Result<RenderAction> {
         match &self.drag {
+            Some(Drag::MachineArm { .. }) => Ok(RenderAction::Draw),
             Some(Drag::TabArm { surface, at }) => {
                 let (surface, at) = (*surface, *at);
                 if (x, y) != at {
@@ -7017,11 +9524,13 @@ impl App {
                 self.drag_scrollbar(surface, track, anchor_y, anchor_offset, y);
                 Ok(RenderAction::Draw)
             }
-            Some(Drag::SidebarResize) => {
-                if let Some(width) =
-                    sidebar_drag_width(&self.config, self.content_area, self.sidebar_width, x)
-                {
-                    self.sidebar_width_override = Some(width);
+            Some(Drag::RailResize(kind)) => {
+                let kind = *kind;
+                if let Some(width) = rail_drag_width(&self.config, self.sidebar_layout, kind, x) {
+                    match kind {
+                        RailKind::Machine => self.machine_sidebar_width_override = Some(width),
+                        RailKind::Workspace => self.sidebar_width_override = Some(width),
+                    }
                 }
                 Ok(RenderAction::Draw)
             }
@@ -7040,6 +9549,22 @@ impl App {
     }
 
     fn handle_left_up(&mut self, x: u16, y: u16) -> anyhow::Result<RenderAction> {
+        if let Some(Drag::MachineArm { machine, at }) = self.drag {
+            self.drag = None;
+            if (x, y) == at {
+                if self.managed_machine(machine).is_some_and(|managed| {
+                    managed.status == ManagedMachineStatus::Recoverable
+                        && managed.capabilities.restore
+                }) {
+                    self.request_restore_managed_machine(machine);
+                } else if let Some(ui) = self.machine_ui.as_mut()
+                    && Some(machine) != ui.snapshot.active
+                {
+                    ui.request = Some(MachineRequest::Switch(machine));
+                }
+            }
+            return Ok(RenderAction::Draw);
+        }
         if let Some(Drag::TabArm { surface, .. }) = self.drag {
             self.drag = None;
             if let Some((pane, index)) = self.tab_location(surface) {
@@ -7319,7 +9844,56 @@ impl App {
         self.omnibar = None;
         self.session.refresh_clients_background();
         match self.hit_at(x, y) {
+            Some(Hit::Machine { key, .. }) => {
+                let Some(machine) = self.managed_machine(key) else { return };
+                let mut actions = Vec::new();
+                match machine.status {
+                    ManagedMachineStatus::Active => {
+                        if machine.capabilities.rename {
+                            actions.push(MenuAction::RenameManagedMachine(key));
+                        }
+                        if machine.capabilities.delete {
+                            actions.push(MenuAction::DeleteManagedMachine(key));
+                        }
+                    }
+                    ManagedMachineStatus::Recoverable => {
+                        if machine.capabilities.restore {
+                            actions.push(MenuAction::RestoreManagedMachine(key));
+                        }
+                        if machine.capabilities.purge {
+                            actions.push(MenuAction::PurgeManagedMachine(key));
+                        }
+                    }
+                }
+                if !actions.is_empty() {
+                    self.menu = Some(ContextMenu::at(x, y, vec![actions]));
+                }
+                return;
+            }
             Some(Hit::Workspace { id, .. }) => {
+                if self.provider_manages_current_workspace_session() {
+                    if self.machine_ui.as_ref().and_then(|ui| ui.snapshot.active).is_none() {
+                        self.reject_inactive_managed_workspace_machine();
+                        return;
+                    }
+                    let Some(workspace) = self.managed_workspace_for_view(id) else {
+                        self.reject_unavailable_managed_workspace_operation();
+                        return;
+                    };
+                    let mut actions = Vec::new();
+                    if workspace.capabilities.rename {
+                        actions.push(MenuAction::RenameManagedWorkspace(id));
+                    }
+                    if workspace.capabilities.delete {
+                        actions.push(MenuAction::DeleteManagedWorkspace(id));
+                    }
+                    if actions.is_empty() {
+                        self.reject_disallowed_managed_workspace_operation();
+                        return;
+                    }
+                    self.menu = Some(ContextMenu::at(x, y, vec![actions]));
+                    return;
+                }
                 self.menu = Some(ContextMenu::at(
                     x,
                     y,
@@ -7328,6 +9902,24 @@ impl App {
                         vec![MenuAction::CopyWorkspaceId(id)],
                     ],
                 ));
+                return;
+            }
+            Some(Hit::RecoverableWorkspace { index }) => {
+                let Some(workspace) = self
+                    .machine_ui
+                    .as_ref()
+                    .and_then(|ui| ui.recoverable_workspaces().get(index).copied())
+                else {
+                    return;
+                };
+                let mut actions = Vec::new();
+                if workspace.capabilities.restore {
+                    actions.push(MenuAction::RestoreManagedWorkspace(index));
+                }
+                if workspace.capabilities.purge {
+                    actions.push(MenuAction::PurgeManagedWorkspace(index));
+                }
+                self.menu = Some(ContextMenu::at(x, y, vec![actions]));
                 return;
             }
             Some(Hit::ScreenEntry { id, .. }) => {
@@ -7380,6 +9972,55 @@ impl App {
     ) -> anyhow::Result<RenderAction> {
         if self.menu.is_some() || self.prompt.is_some() {
             return Ok(RenderAction::None);
+        }
+        if let Some(area) = self
+            .machine_sidebar_area(self.content_area.height.saturating_add(1))
+            .filter(|area| area.contains(x, y))
+        {
+            let footer_rows = self.machine_ui.as_ref().map_or(0, |ui| {
+                usize::from(ui.snapshot.capabilities.create)
+                    + usize::from(ui.snapshot.capabilities.connect)
+            });
+            let footer_is_clipped = footer_rows > usize::from(area.height.saturating_sub(2));
+            if footer_is_clipped {
+                self.machine_footer_scroll = if down {
+                    self.machine_footer_scroll.saturating_add(1)
+                } else {
+                    self.machine_footer_scroll.saturating_sub(1)
+                };
+            } else {
+                self.machine_rail_scroll = if down {
+                    self.machine_rail_scroll.saturating_add(3)
+                } else {
+                    self.machine_rail_scroll.saturating_sub(3)
+                };
+            }
+            self.machine_rail_follow_selection = false;
+            return Ok(RenderAction::Draw);
+        }
+        if let Some(area) = (self.config.sidebar.plugin.is_none()
+            && self.sidebar_view == SidebarView::Workspaces)
+            .then(|| self.workspace_sidebar_area(self.content_area.height.saturating_add(1)))
+            .flatten()
+            .filter(|area| area.contains(x, y))
+        {
+            let footer_rows = self.workspace_creation_modes().len();
+            let footer_is_clipped = footer_rows > usize::from(area.height.saturating_sub(2));
+            if footer_is_clipped {
+                self.workspace_footer_scroll = if down {
+                    self.workspace_footer_scroll.saturating_add(1)
+                } else {
+                    self.workspace_footer_scroll.saturating_sub(1)
+                };
+            } else {
+                self.workspace_rail_scroll = if down {
+                    self.workspace_rail_scroll.saturating_add(3)
+                } else {
+                    self.workspace_rail_scroll.saturating_sub(3)
+                };
+            }
+            self.workspace_rail_follow_selection = false;
+            return Ok(RenderAction::Draw);
         }
         let Some(area) = self.pane_area_at(x, y).copied() else { return Ok(RenderAction::None) };
         if self.surface_kind(area.surface) == Some(SurfaceKind::Pty)
@@ -7532,6 +10173,9 @@ impl App {
         y: u16,
         dispatch: BrowserMouseDispatch,
     ) {
+        if !self.session_available() {
+            return;
+        }
         let Some(surface) = self.session.surface(surface_id) else { return };
         let (px, py) = self.browser_point(content, x, y);
         let _ = self.browser_input.enqueue(BrowserInputEvent {
@@ -7581,6 +10225,7 @@ fn action_prepares_pty_release(action: Action) -> bool {
         Action::RenameTab
             | Action::RenameScreen
             | Action::RenameWorkspace
+            | Action::NewWorkspace
             | Action::ScrollUp
             | Action::ScrollDown
             | Action::BrowserEditUrl
@@ -7590,7 +10235,15 @@ fn action_prepares_pty_release(action: Action) -> bool {
 fn menu_action_prepares_pty_release(action: MenuAction) -> bool {
     !matches!(
         action,
-        MenuAction::RenameWorkspace(_)
+        MenuAction::RenameManagedMachine(_)
+            | MenuAction::DeleteManagedMachine(_)
+            | MenuAction::RestoreManagedMachine(_)
+            | MenuAction::PurgeManagedMachine(_)
+            | MenuAction::RenameWorkspace(_)
+            | MenuAction::RenameManagedWorkspace(_)
+            | MenuAction::DeleteManagedWorkspace(_)
+            | MenuAction::RestoreManagedWorkspace(_)
+            | MenuAction::PurgeManagedWorkspace(_)
             | MenuAction::CopyWorkspaceId(_)
             | MenuAction::RenameScreen(_)
             | MenuAction::BrowserEditUrl(_)
@@ -7598,7 +10251,24 @@ fn menu_action_prepares_pty_release(action: MenuAction) -> bool {
             | MenuAction::RenameTab(_)
             | MenuAction::CopyTabId(_)
             | MenuAction::CopyPaneId(_)
+            | MenuAction::SelectProviderScope(_)
+            | MenuAction::InvokeProviderAction(_)
     )
+}
+
+fn provider_action_error_message(error: ProviderActionInputError) -> &'static str {
+    let messages = &localization::catalog().sidebar;
+    match error {
+        ProviderActionInputError::Required => messages.action_required,
+        ProviderActionInputError::TooLong => messages.action_too_long,
+        ProviderActionInputError::InvalidEmail => messages.action_invalid_email,
+        ProviderActionInputError::InvalidInteger => messages.action_invalid_integer,
+        ProviderActionInputError::BelowMinimum => messages.action_below_minimum,
+        ProviderActionInputError::AboveMaximum => messages.action_above_maximum,
+        ProviderActionInputError::UnsupportedFieldCount => {
+            messages.action_multiple_fields_unsupported
+        }
+    }
 }
 
 fn deferred_paste_bytes(text: &str) -> usize {
@@ -7655,17 +10325,20 @@ fn browser_key_mapping(
 #[cfg(test)]
 mod tests {
     use super::{
-        App, AppEvent, BACKGROUND_REFRESH_RETRIES, ContextMenu, DeferredInput, Drag,
-        ForwardMuxOutcome, MenuAction, MenuItem, MuxTitleIngress, OrderedSession, PaneArea,
-        PaneFocusHistory, PendingSessionMutation, PendingSessionMutationState, PtyFailureIngress,
-        PtyMousePressResult, RenderAction, Selection, SessionCompletion, SessionCompletionAction,
-        SidebarPluginSyncClaim, SidebarPluginSyncState, SurfaceResizeDecision,
-        SurfaceResizeOwnership, browser_content_size_for_rect, browser_hover_forward_allowed,
-        client_menu_item, forward_mux_event, forward_mux_events, pane_context_menu_groups,
-        pane_parts_for_rect, preserve_client_view, record_surface_resize_dispatch_result,
-        sidebar_plugin_status_settles_passive_claim,
+        App, AppEvent, BACKGROUND_REFRESH_RETRIES, ContextMenu, DeferredInput, Drag, FocusTarget,
+        ForwardMuxOutcome, MachineActionWorker, MenuAction, MenuItem, MuxTitleIngress,
+        OrderedSession, PaneArea, PaneFocusHistory, PendingSessionMutation,
+        PendingSessionMutationState, PromptTarget, PtyFailureIngress, PtyMousePressResult,
+        RailKind, RenderAction, Selection, SessionCompletion, SessionCompletionAction,
+        SessionEventSender, SidebarLayout, SidebarPluginSyncClaim, SidebarPluginSyncState,
+        SurfaceResizeDecision, SurfaceResizeOwnership, WorkspaceRailSelection,
+        browser_content_size_for_rect, browser_hover_forward_allowed, client_menu_item,
+        forward_mux_event, forward_mux_events, pane_context_menu_groups, pane_parts_for_rect,
+        prepare_ordered_session, preserve_client_view, rail_drag_width,
+        record_surface_resize_dispatch_result, sidebar_plugin_status_settles_passive_claim,
+        start_ordered_session,
     };
-    use std::collections::{HashMap, HashSet, VecDeque};
+    use std::collections::{BTreeMap, HashMap, HashSet, VecDeque};
     use std::path::PathBuf;
     use std::sync::atomic::{AtomicBool, AtomicU64, Ordering};
     use std::sync::mpsc::Receiver;
@@ -7687,6 +10360,16 @@ mod tests {
 
     use crate::browser_input::{BrowserInputDispatcher, BrowserInputEvent, BrowserInputKind};
     use crate::config::{Action, ChromeTheme, Config, ScrollbarPosition, SidebarView};
+    use crate::localization;
+    use crate::machine::{
+        MachineActionResult, MachineCapabilities, MachineController, MachineDescriptor, MachineKey,
+        MachineRailSelection, MachineRequest, MachineSnapshot, MachineStatus, MachineUiState,
+        ManagedMachineCapabilities, ManagedMachineDescriptor, ManagedMachineStatus,
+        ManagedWorkspaceCapabilities, ManagedWorkspaceDescriptor, ManagedWorkspaceSessionMutation,
+        ManagedWorkspaceStatus, ProviderActionDescriptor, ProviderActionFieldDescriptor,
+        ProviderActionFieldKind, ProviderActionValue, ProviderPresentation,
+        ProviderScopeDescriptor, ProviderScopeKind, WorkspaceCreationMode, WorkspaceCreationPolicy,
+    };
     use crate::pty_input::{
         PtyInputBytes, PtyInputDispatcher, PtyInputEnqueueResult, PtyInputKind,
         PtyOperationDelivery, PtyOperationFailure,
@@ -8403,10 +11086,10 @@ mod tests {
         assert!(app.encode_buf.is_empty());
         app.menu = None;
 
-        app.sidebar_focused = true;
+        app.focus = FocusTarget::WorkspaceRail;
         app.handle_mouse(event(MouseEventKind::Down(MouseButton::Right), KeyModifiers::NONE))
             .unwrap();
-        assert!(!app.sidebar_focused);
+        assert!(!app.workspace_sidebar_focused());
         assert_eq!(app.encode_buf, b"\x1b[<2;5;3M");
         app.handle_mouse(event(MouseEventKind::Down(MouseButton::Left), KeyModifiers::NONE))
             .unwrap();
@@ -8436,6 +11119,14 @@ mod tests {
             .unwrap();
         assert_eq!(app.encode_buf, b"\x1b[<2;5;3m");
         assert!(app.drag.is_none());
+
+        app.encode_buf.clear();
+        app.handle_mouse(event(MouseEventKind::Down(MouseButton::Right), KeyModifiers::SHIFT))
+            .unwrap();
+        assert!(app.encode_buf.is_empty(), "Shift-right-click must bypass PTY mouse reporting");
+        assert!(app.drag.is_none());
+        assert!(app.menu.is_some(), "Shift-right-click must open the cmux context menu");
+        app.menu = None;
 
         app.handle_mouse(event(MouseEventKind::Down(MouseButton::Left), KeyModifiers::NONE))
             .unwrap();
@@ -8739,7 +11430,7 @@ mod tests {
             track: None,
         });
         app.rendered_terminal_bounds.insert(surface.id, content);
-        app.sidebar_focused = true;
+        app.focus = FocusTarget::WorkspaceRail;
 
         assert_eq!(
             app.begin_pty_mouse_drag(
@@ -8750,7 +11441,7 @@ mod tests {
             ),
             PtyMousePressResult::NotOwned
         );
-        assert!(app.sidebar_focused);
+        assert!(app.workspace_sidebar_focused());
         assert!(app.drag.is_none());
         assert!(app.encode_buf.is_empty());
         mux.close_surface(surface.id);
@@ -9107,7 +11798,7 @@ mod tests {
         let cancellation_pending = Arc::new(AtomicBool::new(false));
 
         drop(PendingSessionMutation(Arc::new(PendingSessionMutationState {
-            events,
+            events: SessionEventSender::unscoped(events),
             pending_mutations: pending_mutations.clone(),
             pending_routing_mutations,
             routing: false,
@@ -9129,7 +11820,7 @@ mod tests {
         let pending_routing_mutations = Arc::new(std::sync::atomic::AtomicUsize::new(0));
         let cancellation_pending = Arc::new(AtomicBool::new(false));
         let pending = PendingSessionMutation(Arc::new(PendingSessionMutationState {
-            events,
+            events: SessionEventSender::unscoped(events),
             pending_mutations: pending_mutations.clone(),
             pending_routing_mutations,
             routing: false,
@@ -9457,7 +12148,7 @@ mod tests {
                 session_events,
                 routing_generation,
                 forwarder_recovery_generation,
-                tx,
+                SessionEventSender::unscoped(tx),
                 titles,
             );
         });
@@ -9515,8 +12206,9 @@ mod tests {
         let (tx, rx) = std::sync::mpsc::sync_channel(1);
         tx.send(AppEvent::Mux(MuxEvent::Bell(1))).unwrap();
         let titles = MuxTitleIngress::default();
-        let forwarder =
-            std::thread::spawn(move || forward_mux_event(MuxEvent::Empty, &tx, &titles));
+        let forwarder = std::thread::spawn(move || {
+            forward_mux_event(MuxEvent::Empty, &SessionEventSender::unscoped(tx), &titles)
+        });
 
         assert!(matches!(rx.recv().unwrap(), AppEvent::Mux(MuxEvent::Bell(1))));
         assert!(matches!(rx.recv().unwrap(), AppEvent::Mux(MuxEvent::Empty)));
@@ -9529,6 +12221,7 @@ mod tests {
         tx.send(AppEvent::Mux(MuxEvent::Bell(1))).unwrap();
         let titles = MuxTitleIngress::default();
         let forwarder = std::thread::spawn(move || {
+            let tx = SessionEventSender::unscoped(tx);
             forward_mux_event(
                 MuxEvent::SurfaceResized {
                     surface: 41,
@@ -9554,8 +12247,9 @@ mod tests {
         let (tx, rx) = std::sync::mpsc::sync_channel(1);
         tx.send(AppEvent::Mux(MuxEvent::Bell(1))).unwrap();
         let titles = MuxTitleIngress::default();
-        let forwarder =
-            std::thread::spawn(move || forward_mux_event(MuxEvent::Bell(2), &tx, &titles));
+        let forwarder = std::thread::spawn(move || {
+            forward_mux_event(MuxEvent::Bell(2), &SessionEventSender::unscoped(tx), &titles)
+        });
 
         assert!(matches!(rx.recv().unwrap(), AppEvent::Mux(MuxEvent::Bell(1))));
         assert!(matches!(rx.recv().unwrap(), AppEvent::Mux(MuxEvent::Bell(2))));
@@ -9569,6 +12263,7 @@ mod tests {
         let titles = Arc::new(MuxTitleIngress::default());
         let forwarded_titles = titles.clone();
         let forwarder = std::thread::spawn(move || {
+            let tx = SessionEventSender::unscoped(tx);
             forward_mux_event(
                 MuxEvent::TitleChanged { surface: 41, title: "latest".into() },
                 &tx,
@@ -10429,7 +13124,7 @@ mod tests {
 
         app.toggle_sidebar_focus();
         assert!(app.sidebar_focus_pending);
-        assert!(!app.sidebar_focused);
+        assert!(!app.workspace_sidebar_focused());
 
         app.handle(AppEvent::SidebarPluginUpdated {
             status: SidebarPluginSurface {
@@ -10442,7 +13137,7 @@ mod tests {
         .unwrap();
 
         assert!(!app.sidebar_focus_pending);
-        assert!(app.sidebar_focused);
+        assert!(app.workspace_sidebar_focused());
         assert_eq!(app.sidebar_plugin_surface, Some(42));
     }
 
@@ -10452,10 +13147,10 @@ mod tests {
         let mut app = test_app(Session::Local(mux));
         app.sidebar_visible = true;
         app.sidebar_width = 22;
-        app.sidebar_focused = true;
+        app.focus = FocusTarget::WorkspaceRail;
 
         assert!(!app.sync_sidebar_plugin(false));
-        assert!(app.sidebar_focused);
+        assert!(app.workspace_sidebar_focused());
     }
 
     #[test]
@@ -10476,7 +13171,7 @@ mod tests {
 
         app.session.pending_mutations.store(0, Ordering::Release);
         app.sidebar_focus_pending = false;
-        app.sidebar_focused = true;
+        app.focus = FocusTarget::WorkspaceRail;
         app.sidebar_plugin_surface = Some(surface.id);
         app.replay_deferred_input().unwrap();
 
@@ -11208,10 +13903,12 @@ mod tests {
         // drag handle, exactly like the built-in sidebar.
         let divider_x = app.sidebar_width - 1;
         assert!(
-            app.hits.iter().any(|(rect, hit)| matches!(hit, super::Hit::SidebarResize)
-                && rect.x == divider_x
+            app.hits.iter().any(|(rect, hit)| matches!(
+                hit,
+                super::Hit::RailResize(RailKind::Workspace)
+            ) && rect.x == divider_x
                 && rect.width == 1),
-            "plugin sidebar must register the SidebarResize hit on the divider column"
+            "plugin sidebar must register the workspace rail resize hit on the divider column"
         );
 
         mux.close_surface(surface.id);
@@ -11313,6 +14010,42 @@ mod tests {
     }
 
     #[test]
+    fn files_filter_exposes_ratatui_cursor_and_accepts_mouse_cursor_placement() {
+        let temp = test_temp_dir("files-filter-cursor");
+        let (mux, surface) = test_mux("files-filter-cursor-test", Some(&temp));
+        let mut app = test_app(Session::Local(mux.clone()));
+        app.sidebar_width = 24;
+        app.sidebar_files = FileBrowser::new(temp.clone());
+        app.sidebar_view = SidebarView::Files;
+        app.focus = FocusTarget::WorkspaceRail;
+        app.tree = notify_tree(surface.id, false);
+        app.sidebar_files.handle_key(&KeyEvent::new(KeyCode::Char('/'), KeyModifiers::NONE));
+        assert!(app.sidebar_files.insert_filter_text("á界b"));
+
+        let mut terminal = Terminal::new(TestBackend::new(50, 12)).unwrap();
+        terminal.draw(|frame| crate::ui::draw(&mut app, frame)).unwrap();
+        let input = app
+            .hits
+            .iter()
+            .find_map(|(rect, hit)| (*hit == super::Hit::SidebarFilterInput).then_some(*rect))
+            .unwrap();
+        terminal.backend_mut().assert_cursor_position((input.x + 4, input.y));
+
+        app.handle_mouse(MouseEvent {
+            kind: MouseEventKind::Down(MouseButton::Left),
+            column: input.x + 1,
+            row: input.y,
+            modifiers: KeyModifiers::NONE,
+        })
+        .unwrap();
+        app.handle_key(KeyEvent::new(KeyCode::Delete, KeyModifiers::NONE)).unwrap();
+        assert_eq!(app.sidebar_files.query(), "áb");
+
+        mux.close_surface(surface.id);
+        std::fs::remove_dir_all(temp).unwrap();
+    }
+
+    #[test]
     fn focused_sidebar_tab_toggles_builtin_views_and_back() {
         let temp = test_temp_dir("toggle-view");
         std::fs::write(temp.join("toggle-marker.txt"), "hello").unwrap();
@@ -11321,7 +14054,7 @@ mod tests {
         app.sidebar_width = 24;
         app.sidebar_files = FileBrowser::new(temp.clone());
         app.tree = notify_tree(surface.id, false);
-        app.sidebar_focused = true;
+        app.focus = FocusTarget::WorkspaceRail;
 
         app.handle_key(KeyEvent::new(KeyCode::Tab, KeyModifiers::NONE)).unwrap();
         assert_eq!(app.sidebar_view, SidebarView::Workspaces);
@@ -11348,10 +14081,10 @@ mod tests {
 
         app.run_action(Action::FocusSidebar).unwrap();
         assert!(app.sidebar_visible);
-        assert!(app.sidebar_focused);
+        assert!(app.workspace_sidebar_focused());
 
         app.run_action(Action::FocusSidebar).unwrap();
-        assert!(!app.sidebar_focused);
+        assert!(!app.workspace_sidebar_focused());
         mux.close_surface(surface.id);
     }
 
@@ -11370,7 +14103,7 @@ mod tests {
             terminal.draw(|frame| crate::ui::draw(&mut app, frame)).unwrap();
             assert!(
                 app.hits.iter().any(|(rect, hit)| {
-                    matches!(hit, super::Hit::SidebarResize)
+                    matches!(hit, super::Hit::RailResize(RailKind::Workspace))
                         && rect.x == app.sidebar_width - 1
                         && rect.width == 1
                 }),
@@ -11382,6 +14115,1790 @@ mod tests {
         std::fs::remove_dir_all(temp).unwrap();
     }
 
+    fn provider_machine_ui() -> MachineUiState {
+        provider_machine_ui_with_policy(
+            WorkspaceCreationMode::Isolated,
+            vec![WorkspaceCreationMode::Isolated, WorkspaceCreationMode::Host],
+        )
+    }
+
+    fn provider_machine_ui_with_lifecycle() -> MachineUiState {
+        let mut ui = provider_machine_ui();
+        ui.set_managed_workspaces(
+            MachineKey(41),
+            vec![
+                ManagedWorkspaceDescriptor {
+                    id: "00000000-0000-4000-8000-000000000004".into(),
+                    name: "work".into(),
+                    mode: WorkspaceCreationMode::Isolated,
+                    status: ManagedWorkspaceStatus::Active,
+                    version: 7,
+                    recoverable_until: None,
+                    capabilities: ManagedWorkspaceCapabilities {
+                        rename: true,
+                        delete: true,
+                        restore: false,
+                        purge: false,
+                    },
+                },
+                ManagedWorkspaceDescriptor {
+                    id: "00000000-0000-4000-8000-000000000099".into(),
+                    name: "quiet-forest".into(),
+                    mode: WorkspaceCreationMode::Host,
+                    status: ManagedWorkspaceStatus::Recoverable,
+                    version: 12,
+                    recoverable_until: Some("2030-01-02T03:04:05Z".into()),
+                    capabilities: ManagedWorkspaceCapabilities {
+                        rename: false,
+                        delete: false,
+                        restore: true,
+                        purge: true,
+                    },
+                },
+            ],
+        );
+        ui
+    }
+
+    fn provider_machine_ui_with_machine_lifecycle() -> MachineUiState {
+        let mut ui = MachineUiState::new(MachineSnapshot {
+            machines: vec![
+                MachineDescriptor {
+                    key: MachineKey(41),
+                    id: "00000000-0000-4000-8000-000000000041".into(),
+                    name: "managed".into(),
+                    subtitle: "cloud".into(),
+                    status: MachineStatus::Running,
+                },
+                MachineDescriptor {
+                    key: MachineKey(42),
+                    id: "00000000-0000-4000-8000-000000000042".into(),
+                    name: "quiet-forest".into(),
+                    subtitle: String::new(),
+                    status: MachineStatus::Stopped,
+                },
+            ],
+            active: Some(MachineKey(41)),
+            capabilities: MachineCapabilities { create: true, connect: true },
+        });
+        ui.set_managed_machines(vec![
+            ManagedMachineDescriptor {
+                key: MachineKey(41),
+                id: "00000000-0000-4000-8000-000000000041".into(),
+                name: "managed".into(),
+                status: ManagedMachineStatus::Active,
+                version: 7,
+                recoverable_until: None,
+                capabilities: ManagedMachineCapabilities {
+                    rename: true,
+                    delete: true,
+                    restore: false,
+                    purge: false,
+                },
+            },
+            ManagedMachineDescriptor {
+                key: MachineKey(42),
+                id: "00000000-0000-4000-8000-000000000042".into(),
+                name: "quiet-forest".into(),
+                status: ManagedMachineStatus::Recoverable,
+                version: 12,
+                recoverable_until: Some("2030-01-02T03:04:05Z".into()),
+                capabilities: ManagedMachineCapabilities {
+                    rename: false,
+                    delete: false,
+                    restore: true,
+                    purge: true,
+                },
+            },
+        ]);
+        ui
+    }
+
+    #[test]
+    fn provider_owned_machine_keyboard_actions_use_version_and_confirmation() {
+        let mux = Mux::new("managed-machine-keyboard-test", SurfaceOptions::default());
+        let mut app = test_app(Session::Local(mux));
+        app.machine_ui = Some(provider_machine_ui_with_machine_lifecycle());
+        app.focus = FocusTarget::MachineRail;
+        app.sync_layout((100, 14));
+
+        app.handle_key(KeyEvent::new(KeyCode::Char('r'), KeyModifiers::NONE)).unwrap();
+        assert!(matches!(
+            app.prompt.as_ref().map(|prompt| prompt.target),
+            Some(PromptTarget::ManagedMachine(MachineKey(41)))
+        ));
+        app.prompt.as_mut().unwrap().input.clear();
+        app.prompt.as_mut().unwrap().input.insert_str("renamed machine");
+        app.commit_prompt();
+        assert_eq!(
+            app.machine_ui.as_ref().and_then(|ui| ui.request.as_ref()),
+            Some(&MachineRequest::RenameManagedMachine {
+                machine: MachineKey(41),
+                expected_version: 7,
+                name: "renamed machine".into(),
+            })
+        );
+
+        app.machine_ui.as_mut().unwrap().request = None;
+        app.handle_key(KeyEvent::new(KeyCode::Char('d'), KeyModifiers::NONE)).unwrap();
+        assert!(matches!(
+            app.prompt.as_ref().map(|prompt| prompt.target),
+            Some(PromptTarget::ConfirmDeleteManagedMachine(MachineKey(41)))
+        ));
+        app.prompt.as_mut().unwrap().input.insert_str("confirm");
+        app.commit_prompt();
+        assert!(app.machine_ui.as_ref().unwrap().request.is_none());
+        assert!(app.prompt.is_some());
+        app.prompt.as_mut().unwrap().input.clear();
+        app.prompt.as_mut().unwrap().input.insert_str("CONFIRM");
+        app.commit_prompt();
+        assert_eq!(
+            app.machine_ui.as_ref().and_then(|ui| ui.request.as_ref()),
+            Some(&MachineRequest::DeleteManagedMachine {
+                machine: MachineKey(41),
+                expected_version: 7,
+            })
+        );
+    }
+
+    #[test]
+    fn recoverable_machine_is_rendered_and_mouse_restorable_or_purgeable() {
+        let mux = Mux::new("managed-machine-mouse-test", SurfaceOptions::default());
+        let mut app = test_app(Session::Local(mux));
+        app.machine_ui = Some(provider_machine_ui_with_machine_lifecycle());
+        app.focus = FocusTarget::MachineRail;
+        app.sync_layout((100, 14));
+
+        let mut terminal = Terminal::new(TestBackend::new(100, 14)).unwrap();
+        terminal.draw(|frame| crate::ui::draw(&mut app, frame)).unwrap();
+        let text = buffer_text(terminal.backend().buffer());
+        assert!(text.contains("quiet-forest"), "{text}");
+        assert!(text.contains(localization::catalog().sidebar.recoverable_machine), "{text}");
+        let hit = app
+            .hits
+            .iter()
+            .find_map(|(rect, hit)| {
+                matches!(hit, super::Hit::Machine { key: MachineKey(42), .. }).then_some(*rect)
+            })
+            .unwrap();
+
+        app.handle_left_down(hit.x, hit.y, KeyModifiers::NONE).unwrap();
+        app.handle_left_up(hit.x, hit.y).unwrap();
+        assert_eq!(
+            app.machine_ui.as_ref().and_then(|ui| ui.request.as_ref()),
+            Some(&MachineRequest::RestoreManagedMachine {
+                machine: MachineKey(42),
+                expected_version: 12,
+            })
+        );
+
+        app.machine_ui.as_mut().unwrap().request = None;
+        app.open_context_menu(hit.x, hit.y);
+        assert_eq!(
+            app.menu.as_ref().map(|menu| menu.levels[0].items.clone()),
+            Some(vec![
+                MenuItem::Action(MenuAction::RestoreManagedMachine(MachineKey(42))),
+                MenuItem::Action(MenuAction::PurgeManagedMachine(MachineKey(42))),
+            ])
+        );
+        app.activate_menu(MenuAction::PurgeManagedMachine(MachineKey(42))).unwrap();
+        app.prompt.as_mut().unwrap().input.insert_str("CONFIRM");
+        app.commit_prompt();
+        assert_eq!(
+            app.machine_ui.as_ref().and_then(|ui| ui.request.as_ref()),
+            Some(&MachineRequest::PurgeManagedMachine {
+                machine: MachineKey(42),
+                expected_version: 12,
+            })
+        );
+    }
+
+    #[test]
+    fn unmanaged_machine_ignores_provider_lifecycle_shortcuts() {
+        let mux = Mux::new("unmanaged-machine-shortcuts-test", SurfaceOptions::default());
+        let mut app = test_app(Session::Local(mux));
+        app.machine_ui = Some(provider_machine_ui());
+        app.focus = FocusTarget::MachineRail;
+        app.sync_layout((100, 14));
+
+        app.handle_key(KeyEvent::new(KeyCode::Char('r'), KeyModifiers::NONE)).unwrap();
+        app.handle_key(KeyEvent::new(KeyCode::Char('d'), KeyModifiers::NONE)).unwrap();
+        app.handle_key(KeyEvent::new(KeyCode::Char('p'), KeyModifiers::NONE)).unwrap();
+        assert!(app.prompt.is_none());
+        assert!(app.machine_ui.as_ref().unwrap().request.is_none());
+    }
+
+    #[test]
+    fn provider_owned_workspace_actions_use_stable_key_and_version() {
+        let mux = Mux::new("managed-workspace-actions-test", SurfaceOptions::default());
+        let mut app = test_app(Session::Local(mux));
+        app.tree = notify_tree(1, false);
+        app.machine_ui = Some(provider_machine_ui_with_lifecycle());
+
+        app.open_rename_workspace_prompt_for(4);
+        assert!(matches!(
+            app.prompt.as_ref().map(|prompt| prompt.target),
+            Some(PromptTarget::ManagedWorkspace(4))
+        ));
+        app.prompt.as_mut().unwrap().input.clear();
+        app.prompt.as_mut().unwrap().input.insert_str("renamed work");
+        app.commit_prompt();
+        assert_eq!(
+            app.machine_ui.as_ref().and_then(|ui| ui.request.as_ref()),
+            Some(&MachineRequest::RenameManagedWorkspace {
+                machine: MachineKey(41),
+                workspace_id: "00000000-0000-4000-8000-000000000004".into(),
+                expected_version: 7,
+                name: "renamed work".into(),
+            })
+        );
+
+        app.machine_ui.as_mut().unwrap().request = None;
+        app.request_delete_workspace(4);
+        assert_eq!(
+            app.machine_ui.as_ref().and_then(|ui| ui.request.as_ref()),
+            Some(&MachineRequest::DeleteManagedWorkspace {
+                machine: MachineKey(41),
+                workspace_id: "00000000-0000-4000-8000-000000000004".into(),
+                expected_version: 7,
+            })
+        );
+
+        app.machine_ui.as_mut().unwrap().request = None;
+        app.tree.workspaces[0].key = "local-workspace".into();
+        app.open_rename_workspace_prompt_for(4);
+        assert!(app.prompt.is_none());
+        assert!(app.status_message.is_some());
+        app.request_delete_workspace(4);
+        assert!(app.machine_ui.as_ref().unwrap().request.is_none());
+    }
+
+    #[test]
+    fn provider_denied_workspace_actions_do_not_recommend_refreshing() {
+        let mux = Mux::new("managed-workspace-denied-action-test", SurfaceOptions::default());
+        let mut app = test_app(Session::Local(mux));
+        app.tree = notify_tree(1, false);
+        let mut ui = provider_machine_ui();
+        ui.set_managed_workspaces(
+            MachineKey(41),
+            vec![ManagedWorkspaceDescriptor {
+                id: "00000000-0000-4000-8000-000000000004".into(),
+                name: "work".into(),
+                mode: WorkspaceCreationMode::Isolated,
+                status: ManagedWorkspaceStatus::Active,
+                version: 7,
+                recoverable_until: None,
+                capabilities: ManagedWorkspaceCapabilities::default(),
+            }],
+        );
+        app.machine_ui = Some(ui);
+
+        app.open_rename_workspace_prompt_for(4);
+        assert!(app.prompt.is_none());
+        assert_eq!(
+            app.status_message.as_deref(),
+            Some(localization::catalog().sidebar.managed_workspace_operation_not_allowed)
+        );
+
+        app.status_message = None;
+        app.request_delete_workspace(4);
+        assert!(app.machine_ui.as_ref().unwrap().request.is_none());
+        assert_eq!(
+            app.status_message.as_deref(),
+            Some(localization::catalog().sidebar.managed_workspace_operation_not_allowed)
+        );
+    }
+
+    #[test]
+    fn inactive_provider_machine_blocks_workspace_mutations_with_actionable_status() {
+        let mux = Mux::new("inactive-provider-machine-workspace-test", SurfaceOptions::default());
+        let workspace = mux
+            .create_empty_workspace(
+                Some("work".into()),
+                Some("00000000-0000-4000-8000-000000000004".into()),
+                None,
+            )
+            .unwrap();
+        let (mut app, events) = test_app_with_events(Session::Local(mux.clone()));
+        app.replace_tree(app.session.tree());
+        app.apply_machine_ui_update(provider_machine_ui_with_lifecycle());
+        let mut inactive = provider_machine_ui_with_lifecycle();
+        inactive.snapshot.active = None;
+        app.machine_ui = Some(inactive);
+
+        app.open_rename_workspace_prompt_for(workspace.workspace);
+        assert!(app.prompt.is_none());
+        assert_eq!(
+            app.status_message.as_deref(),
+            Some(localization::catalog().sidebar.managed_workspace_machine_inactive)
+        );
+
+        app.status_message = None;
+        app.request_delete_workspace(workspace.workspace);
+        while app.session.has_pending_mutations() {
+            app.handle(events.recv_timeout(Duration::from_secs(1)).unwrap()).unwrap();
+        }
+        assert!(mux.with_state(|state| {
+            state.workspaces.iter().any(|candidate| candidate.id == workspace.workspace)
+        }));
+        assert_eq!(
+            app.status_message.as_deref(),
+            Some(localization::catalog().sidebar.managed_workspace_machine_inactive)
+        );
+    }
+
+    #[test]
+    fn provider_workspace_policy_blocks_raw_mux_rename_and_close() {
+        let mux = Mux::new("managed-workspace-raw-mutation-test", SurfaceOptions::default());
+        let placement = mux
+            .create_empty_workspace(
+                Some("work".into()),
+                Some("00000000-0000-4000-8000-000000000004".into()),
+                None,
+            )
+            .unwrap();
+        let mut app = test_app(Session::Local(mux.clone()));
+        app.replace_tree(app.session.tree());
+        app.apply_machine_ui_update(provider_machine_ui_with_lifecycle());
+
+        assert!(!mux.rename_workspace(placement.workspace, "raw rename".into()));
+        assert!(!mux.close_workspace(placement.workspace));
+        mux.with_state(|state| {
+            let workspace = state
+                .workspaces
+                .iter()
+                .find(|workspace| workspace.id == placement.workspace)
+                .unwrap();
+            assert_eq!(workspace.name, "work");
+        });
+    }
+
+    #[test]
+    fn provider_authority_without_remote_guard_disables_the_managed_session() {
+        let session = crate::session::test_remote_session_with_provider_authority_without_guard();
+        let mut app = test_app(session);
+
+        app.apply_machine_ui_update(provider_machine_ui_with_lifecycle());
+
+        assert_eq!(
+            app.machine_ui.as_ref().map(|machine| machine.session_available),
+            Some(false),
+            "an unguarded remote session must not expose provider-managed workspace mutations"
+        );
+        assert_eq!(
+            app.status_message.as_deref(),
+            Some(
+                "remote cmux server cannot guard provider-managed workspaces; upgrade the server before attaching"
+            )
+        );
+        assert!(
+            !app.session.workspaces_are_provider_managed(),
+            "provider authority alone must not mark an older remote session as guarded"
+        );
+    }
+
+    #[test]
+    fn missing_managed_descriptor_fails_closed_without_local_close() {
+        let mux = Mux::new("managed-workspace-missing-descriptor-test", SurfaceOptions::default());
+        let placement = mux
+            .create_empty_workspace(
+                Some("work".into()),
+                Some("00000000-0000-4000-8000-000000000004".into()),
+                None,
+            )
+            .unwrap();
+        let (mut app, events) = test_app_with_events(Session::Local(mux.clone()));
+        app.replace_tree(app.session.tree());
+        app.machine_ui = Some(provider_machine_ui());
+
+        app.request_delete_workspace(placement.workspace);
+        while app.session.has_pending_mutations() {
+            app.handle(events.recv_timeout(Duration::from_secs(1)).unwrap()).unwrap();
+        }
+
+        assert!(mux.with_state(|state| {
+            state.workspaces.iter().any(|workspace| workspace.id == placement.workspace)
+        }));
+        assert!(app.machine_ui.as_ref().unwrap().request.is_none());
+        assert_eq!(
+            app.status_message.as_deref(),
+            Some(localization::catalog().sidebar.managed_workspace_unavailable)
+        );
+    }
+
+    #[test]
+    fn provider_failure_never_mutates_the_local_workspace_mirror() {
+        let mux = Mux::new("managed-workspace-provider-failure-test", SurfaceOptions::default());
+        let placement = mux
+            .create_empty_workspace(
+                Some("work".into()),
+                Some("00000000-0000-4000-8000-000000000004".into()),
+                None,
+            )
+            .unwrap();
+        let (mut app, events) = test_app_with_events(Session::Local(mux.clone()));
+        app.replace_tree(app.session.tree());
+        app.machine_ui = Some(provider_machine_ui_with_lifecycle());
+        install_machine_controller(
+            &mut app,
+            Box::new(FakeMachineController {
+                actions: VecDeque::from([
+                    FakeMachineAction::Fail("provider rename failed"),
+                    FakeMachineAction::Fail("provider delete failed"),
+                ]),
+                requests: Arc::new(Mutex::new(Vec::new())),
+            }),
+        );
+
+        app.request_rename_managed_workspace(placement.workspace, "renamed".into());
+        settle_machine_action(&mut app, &events);
+        app.request_delete_workspace(placement.workspace);
+        settle_machine_action(&mut app, &events);
+
+        mux.with_state(|state| {
+            let workspace = state
+                .workspaces
+                .iter()
+                .find(|workspace| workspace.id == placement.workspace)
+                .unwrap();
+            assert_eq!(workspace.name, "work");
+        });
+        assert!(!app.session.has_pending_mutations());
+    }
+
+    #[test]
+    fn missing_provider_workspace_mirror_surfaces_an_explicit_error() {
+        let mux = Mux::new("managed-workspace-missing-mirror-test", SurfaceOptions::default());
+        mux.create_empty_workspace(
+            Some("work".into()),
+            Some("00000000-0000-4000-8000-000000000004".into()),
+            None,
+        )
+        .unwrap();
+        let mut app = test_app(Session::Local(mux));
+        app.replace_tree(app.session.tree());
+
+        for mutation in [
+            ManagedWorkspaceSessionMutation::Rename {
+                workspace_key: "00000000-0000-4000-8000-000000000099".into(),
+                name: "renamed".into(),
+            },
+            ManagedWorkspaceSessionMutation::Close {
+                workspace_key: "00000000-0000-4000-8000-000000000099".into(),
+            },
+        ] {
+            app.status_message = None;
+            app.apply_managed_workspace_session_mutation(mutation);
+            assert_eq!(
+                app.status_message.as_deref(),
+                Some(localization::catalog().sidebar.managed_workspace_unavailable)
+            );
+        }
+    }
+
+    #[test]
+    fn provider_notice_cannot_mask_missing_workspace_mirror_error() {
+        let mux = Mux::new("managed-workspace-notice-masking-test", SurfaceOptions::default());
+        mux.create_empty_workspace(
+            Some("work".into()),
+            Some("00000000-0000-4000-8000-000000000004".into()),
+            None,
+        )
+        .unwrap();
+        let (mut app, events) = test_app_with_events(Session::Local(mux));
+        app.replace_tree(app.session.tree());
+        app.apply_machine_ui_update(provider_machine_ui_with_lifecycle());
+        let mut update = provider_machine_ui_with_lifecycle();
+        update.notice = Some("provider accepted the rename".into());
+        install_machine_controller(
+            &mut app,
+            Box::new(FakeMachineController {
+                actions: VecDeque::from([FakeMachineAction::Return(Box::new(
+                    MachineActionResult::ui(update).with_session_mutation(
+                        ManagedWorkspaceSessionMutation::Rename {
+                            workspace_key: "00000000-0000-4000-8000-000000000099".into(),
+                            name: "renamed".into(),
+                        },
+                    ),
+                ))]),
+                requests: Arc::new(Mutex::new(Vec::new())),
+            }),
+        );
+        app.machine_ui.as_mut().unwrap().request = Some(MachineRequest::ReconnectProvider);
+
+        settle_machine_action(&mut app, &events);
+
+        assert_eq!(
+            app.status_message.as_deref(),
+            Some(localization::catalog().sidebar.managed_workspace_unavailable)
+        );
+    }
+
+    #[test]
+    fn rejected_provider_workspace_mirror_commit_surfaces_the_session_error() {
+        let mux = Mux::new("managed-workspace-rejected-mirror-test", SurfaceOptions::default());
+        let placement = mux
+            .create_empty_workspace(
+                Some("work".into()),
+                Some("00000000-0000-4000-8000-000000000004".into()),
+                None,
+            )
+            .unwrap();
+        let (mut app, events) = test_app_with_events(Session::Local(mux));
+        app.replace_tree(app.session.tree());
+        app.apply_machine_ui_update(provider_machine_ui_with_lifecycle());
+        let stale_key = "00000000-0000-4000-8000-000000000099";
+        app.tree.workspaces[0].key = stale_key.into();
+
+        app.apply_managed_workspace_session_mutation(ManagedWorkspaceSessionMutation::Rename {
+            workspace_key: stale_key.into(),
+            name: "renamed".into(),
+        });
+        app.handle(events.recv_timeout(Duration::from_secs(1)).unwrap()).unwrap();
+        while app.session.has_pending_mutations() {
+            app.handle(events.recv_timeout(Duration::from_secs(1)).unwrap()).unwrap();
+        }
+
+        assert!(
+            app.status_message.as_deref().is_some_and(|message| {
+                message.starts_with("session operation failed:")
+                    && message.contains("workspace id and key")
+            }),
+            "unexpected status: {:?}",
+            app.status_message
+        );
+        assert!(app.tree.workspaces.iter().any(|workspace| workspace.id == placement.workspace));
+    }
+
+    #[test]
+    fn provider_success_commits_through_the_managed_workspace_boundary() {
+        let mux = Mux::new("managed-workspace-provider-success-test", SurfaceOptions::default());
+        let workspace_key = "00000000-0000-4000-8000-000000000004";
+        let placement = mux
+            .create_empty_workspace(Some("work".into()), Some(workspace_key.into()), None)
+            .unwrap();
+        let (mut app, events) = test_app_with_events(Session::Local(mux.clone()));
+        app.replace_tree(app.session.tree());
+        app.apply_machine_ui_update(provider_machine_ui_with_lifecycle());
+        let requests = Arc::new(Mutex::new(Vec::new()));
+        install_machine_controller(
+            &mut app,
+            Box::new(FakeMachineController {
+                actions: VecDeque::from([
+                    FakeMachineAction::Return(Box::new(
+                        MachineActionResult::ui(provider_machine_ui_with_lifecycle())
+                            .with_session_mutation(ManagedWorkspaceSessionMutation::Rename {
+                                workspace_key: workspace_key.into(),
+                                name: "renamed".into(),
+                            }),
+                    )),
+                    FakeMachineAction::Return(Box::new(
+                        MachineActionResult::ui(provider_machine_ui_with_lifecycle())
+                            .with_session_mutation(ManagedWorkspaceSessionMutation::Close {
+                                workspace_key: workspace_key.into(),
+                            }),
+                    )),
+                ]),
+                requests: requests.clone(),
+            }),
+        );
+
+        app.request_rename_managed_workspace(placement.workspace, "renamed".into());
+        settle_machine_action(&mut app, &events);
+        while app.session.has_pending_mutations() {
+            app.handle(events.recv_timeout(Duration::from_secs(1)).unwrap()).unwrap();
+        }
+        assert!(mux.with_state(|state| {
+            state
+                .workspaces
+                .iter()
+                .find(|workspace| workspace.id == placement.workspace)
+                .is_some_and(|workspace| workspace.name == "renamed")
+        }));
+
+        app.request_delete_workspace(placement.workspace);
+        settle_machine_action(&mut app, &events);
+        while app.session.has_pending_mutations() {
+            app.handle(events.recv_timeout(Duration::from_secs(1)).unwrap()).unwrap();
+        }
+        assert!(!mux.with_state(|state| {
+            state.workspaces.iter().any(|workspace| workspace.id == placement.workspace)
+        }));
+        assert!(matches!(
+            requests.lock().unwrap().as_slice(),
+            [
+                MachineRequest::RenameManagedWorkspace { workspace_id, .. },
+                MachineRequest::DeleteManagedWorkspace {
+                    workspace_id: delete_workspace_id,
+                    ..
+                }
+            ] if workspace_id == workspace_key && delete_workspace_id == workspace_key
+        ));
+    }
+
+    #[test]
+    fn recoverable_workspace_is_mouse_visible_and_keyboard_restorable() {
+        let mux = Mux::new("recoverable-workspace-rail-test", SurfaceOptions::default());
+        let mut app = test_app(Session::Local(mux));
+        app.tree = notify_tree(1, false);
+        app.sidebar_view = SidebarView::Workspaces;
+        app.machine_ui = Some(provider_machine_ui_with_lifecycle());
+        app.focus = FocusTarget::WorkspaceRail;
+        app.sync_layout((100, 14));
+
+        let mut terminal = Terminal::new(TestBackend::new(100, 14)).unwrap();
+        terminal.draw(|frame| crate::ui::draw(&mut app, frame)).unwrap();
+        let text = buffer_text(terminal.backend().buffer());
+        assert!(text.contains("quiet-forest"), "{text}");
+        assert!(text.contains(localization::catalog().sidebar.recoverable_workspace));
+        let hit = app
+            .hits
+            .iter()
+            .find_map(|(rect, hit)| {
+                matches!(hit, super::Hit::RecoverableWorkspace { index: 0 }).then_some(*rect)
+            })
+            .unwrap();
+
+        app.handle_left_down(hit.x, hit.y, KeyModifiers::NONE).unwrap();
+        assert_eq!(app.workspace_rail_selection, WorkspaceRailSelection::Recoverable);
+        app.handle_key(KeyEvent::new(KeyCode::Enter, KeyModifiers::NONE)).unwrap();
+        assert_eq!(
+            app.machine_ui.as_ref().and_then(|ui| ui.request.as_ref()),
+            Some(&MachineRequest::RestoreManagedWorkspace {
+                machine: MachineKey(41),
+                workspace_id: "00000000-0000-4000-8000-000000000099".into(),
+                expected_version: 12,
+            })
+        );
+
+        app.machine_ui.as_mut().unwrap().request = None;
+        app.open_context_menu(hit.x, hit.y);
+        assert!(app.menu.as_ref().is_some_and(ContextMenu::targets_provider_state));
+        app.activate_menu(MenuAction::PurgeManagedWorkspace(0)).unwrap();
+        app.prompt.as_mut().unwrap().input.insert_str("CONFIRM");
+        app.commit_prompt();
+        assert_eq!(
+            app.machine_ui.as_ref().and_then(|ui| ui.request.as_ref()),
+            Some(&MachineRequest::PurgeManagedWorkspace {
+                machine: MachineKey(41),
+                workspace_id: "00000000-0000-4000-8000-000000000099".into(),
+                expected_version: 12,
+            })
+        );
+    }
+
+    fn provider_machine_ui_with_policy(
+        default_mode: WorkspaceCreationMode,
+        modes: Vec<WorkspaceCreationMode>,
+    ) -> MachineUiState {
+        let machine = MachineKey(41);
+        let mut ui = MachineUiState::new(MachineSnapshot {
+            machines: vec![MachineDescriptor {
+                key: machine,
+                id: "managed-41".into(),
+                name: "managed".into(),
+                subtitle: "cloud".into(),
+                status: MachineStatus::Running,
+            }],
+            active: Some(machine),
+            capabilities: MachineCapabilities { create: true, connect: true },
+        });
+        ui.session_available = false;
+        ui.set_workspace_creation_policy(
+            machine,
+            WorkspaceCreationPolicy::ProviderOwned { default_mode, modes },
+        );
+        ui
+    }
+
+    fn provider_controls_ui() -> MachineUiState {
+        let mut ui = provider_machine_ui();
+        ui.set_provider_presentation(ProviderPresentation {
+            scopes: vec![
+                ProviderScopeDescriptor {
+                    id: "personal".into(),
+                    name: "Personal".into(),
+                    kind: ProviderScopeKind::Personal,
+                    can_admin: false,
+                },
+                ProviderScopeDescriptor {
+                    id: "team-acme".into(),
+                    name: "Acme".into(),
+                    kind: ProviderScopeKind::Team,
+                    can_admin: true,
+                },
+            ],
+            selected_scope_id: "team-acme".into(),
+            actions: vec![
+                ProviderActionDescriptor {
+                    id: "invite-member".into(),
+                    label: "Invite member".into(),
+                    destructive: false,
+                    fields: vec![ProviderActionFieldDescriptor {
+                        id: "email".into(),
+                        label: "Member email".into(),
+                        kind: ProviderActionFieldKind::Email,
+                        required: true,
+                        max_length: Some(254),
+                        minimum: None,
+                        maximum: None,
+                        placeholder: None,
+                    }],
+                },
+                ProviderActionDescriptor {
+                    id: "manage-billing".into(),
+                    label: "Manage billing".into(),
+                    destructive: false,
+                    fields: Vec::new(),
+                },
+            ],
+        });
+        ui
+    }
+
+    #[test]
+    fn provider_scope_row_switches_team_with_keyboard_menu() {
+        let mux = Mux::new("provider-scope-keyboard-test", SurfaceOptions::default());
+        let mut app = test_app(Session::Local(mux));
+        app.machine_ui = Some(provider_controls_ui());
+        app.focus = FocusTarget::MachineRail;
+        app.sync_layout((100, 16));
+
+        app.handle_key(KeyEvent::new(KeyCode::Home, KeyModifiers::NONE)).unwrap();
+        assert_eq!(
+            app.machine_ui.as_ref().map(|ui| ui.rail_selection),
+            Some(MachineRailSelection::Scope)
+        );
+        app.handle_key(KeyEvent::new(KeyCode::Enter, KeyModifiers::NONE)).unwrap();
+        assert_eq!(
+            app.menu.as_ref().and_then(ContextMenu::selected_action),
+            Some(MenuAction::SelectProviderScope(1))
+        );
+
+        app.handle_key(KeyEvent::new(KeyCode::Up, KeyModifiers::NONE)).unwrap();
+        app.handle_key(KeyEvent::new(KeyCode::Enter, KeyModifiers::NONE)).unwrap();
+        assert_eq!(
+            app.machine_ui.as_ref().and_then(|ui| ui.request.as_ref()),
+            Some(&MachineRequest::SelectProviderScope("personal".into()))
+        );
+        assert!(!app.quit);
+    }
+
+    #[test]
+    fn provider_rows_and_action_prompt_are_mouse_accessible() {
+        let mux = Mux::new("provider-actions-mouse-test", SurfaceOptions::default());
+        let mut app = test_app(Session::Local(mux));
+        app.machine_ui = Some(provider_controls_ui());
+        app.sync_layout((100, 16));
+        let mut terminal = Terminal::new(TestBackend::new(100, 16)).unwrap();
+        terminal.draw(|frame| crate::ui::draw(&mut app, frame)).unwrap();
+
+        let text = buffer_text(terminal.backend().buffer());
+        assert!(text.contains("team · Acme"), "{text}");
+        assert!(text.contains("actions"), "{text}");
+        assert!(app.hits.iter().any(|(_, hit)| matches!(hit, super::Hit::ProviderScope)));
+        let actions = app
+            .hits
+            .iter()
+            .find_map(|(rect, hit)| matches!(hit, super::Hit::ProviderActions).then_some(*rect))
+            .expect("provider actions hit");
+
+        app.handle_left_down(actions.x, actions.y, KeyModifiers::NONE).unwrap();
+        let menu = app.menu.as_ref().expect("action menu opened by mouse");
+        assert_eq!(
+            menu.levels[0].items[0],
+            MenuItem::LabeledAction {
+                label: "Invite member".into(),
+                action: MenuAction::InvokeProviderAction(0),
+            }
+        );
+        let item_x = menu.levels[0].rect.x + 2;
+        let item_y = menu.levels[0].rect.y + 1;
+        app.handle_left_down(item_x, item_y, KeyModifiers::NONE).unwrap();
+        assert_eq!(app.prompt.as_ref().map(|prompt| prompt.label.as_str()), Some("Member email"));
+
+        app.prompt.as_mut().unwrap().input.insert_str("invalid");
+        app.commit_prompt();
+        assert!(app.prompt.is_some(), "invalid input keeps the editable prompt open");
+        assert_eq!(
+            app.status_message.as_deref(),
+            Some(localization::catalog().sidebar.action_invalid_email)
+        );
+
+        let prompt = app.prompt.as_mut().unwrap();
+        prompt.input.clear();
+        prompt.input.insert_str("person@example.com");
+        app.commit_prompt();
+        assert_eq!(
+            app.machine_ui.as_ref().and_then(|ui| ui.request.as_ref()),
+            Some(&MachineRequest::InvokeProviderAction {
+                action_id: "invite-member".into(),
+                values: BTreeMap::from([(
+                    "email".into(),
+                    ProviderActionValue::Text("person@example.com".into())
+                )]),
+            })
+        );
+        assert!(!app.quit);
+    }
+
+    #[test]
+    fn provider_snapshot_update_invalidates_stale_menu_and_prompt() {
+        let mux = Mux::new("provider-overlay-invalidation-test", SurfaceOptions::default());
+        let mut app = test_app(Session::Local(mux));
+        app.machine_ui = Some(provider_controls_ui());
+        app.open_provider_actions_menu(1, 3);
+        assert!(app.menu.as_ref().is_some_and(ContextMenu::targets_provider_state));
+
+        let mut update = provider_controls_ui();
+        update.provider.as_mut().unwrap().actions.remove(0);
+        app.handle(AppEvent::MachineUiUpdated(Box::new(update))).unwrap();
+        assert!(app.menu.is_none(), "a menu cannot retain provider action indexes across updates");
+
+        app.machine_ui = Some(provider_controls_ui());
+        app.begin_provider_action(0);
+        assert!(matches!(
+            app.prompt.as_ref().map(|prompt| &prompt.target),
+            Some(PromptTarget::ProviderAction(0))
+        ));
+
+        let mut update = provider_controls_ui();
+        update.provider.as_mut().unwrap().actions.swap(0, 1);
+        app.handle(AppEvent::MachineUiUpdated(Box::new(update))).unwrap();
+        assert!(app.prompt.is_none(), "a prompt cannot submit against a reordered action index");
+    }
+
+    #[test]
+    fn unavailable_zero_machine_state_skips_initial_workspace_and_renders_both_rails() {
+        let mux = Mux::new("provider-zero-state-test", SurfaceOptions::default());
+        let unavailable = MachineUiState::new(MachineSnapshot {
+            machines: Vec::new(),
+            active: None,
+            capabilities: MachineCapabilities { create: true, connect: true },
+        });
+        super::ensure_initial_for_machine_ui(
+            &Session::Local(mux.clone()),
+            Some((40, 12)),
+            Some(&unavailable),
+        )
+        .unwrap();
+        assert!(Session::Local(mux.clone()).tree().workspaces.is_empty());
+
+        let mut app = test_app(Session::Local(mux));
+        app.sidebar_view = SidebarView::Workspaces;
+        app.machine_ui = Some(MachineUiState::new(MachineSnapshot {
+            machines: Vec::new(),
+            active: None,
+            capabilities: MachineCapabilities { create: true, connect: true },
+        }));
+        app.sync_layout((100, 16));
+        assert!(app.sidebar_layout.machine.is_some());
+        assert!(app.sidebar_layout.workspace.is_some());
+        assert!(!app.session_available());
+
+        let mut terminal = Terminal::new(TestBackend::new(100, 16)).unwrap();
+        terminal.draw(|frame| crate::ui::draw(&mut app, frame)).unwrap();
+        let text = buffer_text(terminal.backend().buffer());
+        assert!(text.contains("machines"), "{text}");
+        assert!(text.contains("no machines"), "{text}");
+        assert!(text.contains("new VM"), "{text}");
+        assert!(text.contains("connect machine"), "{text}");
+        assert!(text.contains("workspaces"), "{text}");
+        assert!(
+            !app.hits.iter().any(|(_, hit)| { matches!(hit, super::Hit::CreateWorkspace { .. }) })
+        );
+
+        app.focus = FocusTarget::MachineRail;
+        app.handle_key(KeyEvent::new(KeyCode::End, KeyModifiers::NONE)).unwrap();
+        app.handle_key(KeyEvent::new(KeyCode::Enter, KeyModifiers::NONE)).unwrap();
+        assert!(app.machine_ui.as_ref().is_some_and(|ui| ui.request.is_none()));
+        assert!(app.prompt.is_some(), "connect machine is keyboard reachable");
+        app.prompt = None;
+        app.handle_key(KeyEvent::new(KeyCode::Right, KeyModifiers::NONE)).unwrap();
+        assert_eq!(app.focus, FocusTarget::WorkspaceRail);
+    }
+
+    #[test]
+    fn provider_owned_workspace_policy_never_creates_an_untracked_session_workspace() {
+        let mux = Mux::new("provider-owned-initial-workspace-test", SurfaceOptions::default());
+        let mut ui = provider_machine_ui();
+        ui.session_available = true;
+        super::ensure_initial_for_machine_ui(
+            &Session::Local(mux.clone()),
+            Some((40, 12)),
+            Some(&ui),
+        )
+        .unwrap();
+        assert!(Session::Local(mux).tree().workspaces.is_empty());
+    }
+
+    #[test]
+    fn unavailable_placeholder_blocks_session_mutations() {
+        let mux = Mux::new("provider-mutation-guard-test", SurfaceOptions::default());
+        let mut app = test_app(Session::Local(mux.clone()));
+        app.machine_ui = Some(MachineUiState::new(MachineSnapshot {
+            machines: Vec::new(),
+            active: None,
+            capabilities: MachineCapabilities::default(),
+        }));
+
+        app.run_action(Action::NewScreen).unwrap();
+
+        assert!(Session::Local(mux).tree().workspaces.is_empty());
+        assert_eq!(
+            app.status_message.as_deref(),
+            Some(localization::catalog().sidebar.no_active_session)
+        );
+    }
+
+    #[test]
+    fn provider_workspace_keyboard_action_requests_isolated_workspace() {
+        let mux = Mux::new("provider-workspace-key-test", SurfaceOptions::default());
+        let mut app = test_app(Session::Local(mux.clone()));
+        app.machine_ui = Some(provider_machine_ui());
+
+        app.run_action(Action::NewWorkspace).unwrap();
+
+        assert!(matches!(
+            app.machine_ui.as_ref().and_then(|ui| ui.request.as_ref()),
+            Some(MachineRequest::CreateManagedIsolatedWorkspace(MachineKey(41)))
+        ));
+        assert!(!app.quit);
+        assert!(Session::Local(mux).tree().workspaces.is_empty());
+    }
+
+    #[test]
+    fn provider_workspace_footer_exposes_isolated_and_shared_mouse_actions() {
+        let mux = Mux::new("provider-workspace-mouse-test", SurfaceOptions::default());
+        let mut app = test_app(Session::Local(mux));
+        app.sidebar_view = SidebarView::Workspaces;
+        app.machine_ui = Some(provider_machine_ui());
+        app.sync_layout((100, 16));
+
+        let mut terminal = Terminal::new(TestBackend::new(100, 16)).unwrap();
+        terminal.draw(|frame| crate::ui::draw(&mut app, frame)).unwrap();
+        let text = buffer_text(terminal.backend().buffer());
+        assert!(text.contains("new isolated"), "{text}");
+        assert!(text.contains("new shared"), "{text}");
+        let isolated = app
+            .hits
+            .iter()
+            .find_map(|(rect, hit)| {
+                matches!(
+                    hit,
+                    super::Hit::CreateWorkspace { mode: Some(WorkspaceCreationMode::Isolated) }
+                )
+                .then_some(*rect)
+            })
+            .expect("isolated workspace action hit");
+        let shared = app
+            .hits
+            .iter()
+            .find_map(|(rect, hit)| {
+                matches!(
+                    hit,
+                    super::Hit::CreateWorkspace { mode: Some(WorkspaceCreationMode::Host) }
+                )
+                .then_some(*rect)
+            })
+            .expect("shared workspace action hit");
+
+        app.handle_left_down(isolated.x, isolated.y, KeyModifiers::NONE).unwrap();
+        assert!(matches!(
+            app.machine_ui.as_ref().and_then(|ui| ui.request.as_ref()),
+            Some(MachineRequest::CreateManagedIsolatedWorkspace(MachineKey(41)))
+        ));
+
+        app.quit = false;
+        app.machine_ui.as_mut().unwrap().request = None;
+        app.handle_left_down(shared.x, shared.y, KeyModifiers::NONE).unwrap();
+        assert!(matches!(
+            app.machine_ui.as_ref().and_then(|ui| ui.request.as_ref()),
+            Some(MachineRequest::CreateManagedHostWorkspace(MachineKey(41)))
+        ));
+        assert!(!app.quit);
+    }
+
+    #[test]
+    fn provider_workspace_subset_and_default_drive_footer_and_new_workspace_action() {
+        let mux = Mux::new("provider-workspace-subset-test", SurfaceOptions::default());
+        let mut app = test_app(Session::Local(mux));
+        app.sidebar_view = SidebarView::Workspaces;
+        app.machine_ui = Some(provider_machine_ui_with_policy(
+            WorkspaceCreationMode::Host,
+            vec![WorkspaceCreationMode::Host],
+        ));
+        app.sync_layout((100, 12));
+
+        let mut terminal = Terminal::new(TestBackend::new(100, 12)).unwrap();
+        terminal.draw(|frame| crate::ui::draw(&mut app, frame)).unwrap();
+        let text = buffer_text(terminal.backend().buffer());
+        assert!(text.contains("new shared"), "{text}");
+        assert!(!text.contains("new isolated"), "{text}");
+
+        app.run_action(Action::NewWorkspace).unwrap();
+        assert_eq!(
+            app.machine_ui.as_ref().and_then(|ui| ui.request.as_ref()),
+            Some(&MachineRequest::CreateManagedHostWorkspace(MachineKey(41)))
+        );
+    }
+
+    #[test]
+    fn provider_workspace_default_is_independent_of_advertised_mode_order() {
+        let mux = Mux::new("provider-workspace-default-test", SurfaceOptions::default());
+        let mut app = test_app(Session::Local(mux));
+        app.sidebar_view = SidebarView::Workspaces;
+        app.machine_ui = Some(provider_machine_ui_with_policy(
+            WorkspaceCreationMode::Isolated,
+            vec![WorkspaceCreationMode::Host, WorkspaceCreationMode::Isolated],
+        ));
+        app.sync_layout((100, 12));
+
+        let mut terminal = Terminal::new(TestBackend::new(100, 12)).unwrap();
+        terminal.draw(|frame| crate::ui::draw(&mut app, frame)).unwrap();
+        let host_y = app
+            .hits
+            .iter()
+            .find_map(|(rect, hit)| {
+                matches!(
+                    hit,
+                    super::Hit::CreateWorkspace { mode: Some(WorkspaceCreationMode::Host) }
+                )
+                .then_some(rect.y)
+            })
+            .unwrap();
+        let isolated_y = app
+            .hits
+            .iter()
+            .find_map(|(rect, hit)| {
+                matches!(
+                    hit,
+                    super::Hit::CreateWorkspace { mode: Some(WorkspaceCreationMode::Isolated) }
+                )
+                .then_some(rect.y)
+            })
+            .unwrap();
+        assert!(host_y < isolated_y, "provider mode order must be preserved");
+
+        app.run_action(Action::NewWorkspace).unwrap();
+        assert_eq!(
+            app.machine_ui.as_ref().and_then(|ui| ui.request.as_ref()),
+            Some(&MachineRequest::CreateManagedIsolatedWorkspace(MachineKey(41)))
+        );
+    }
+
+    #[test]
+    fn keyboard_traverses_machine_controls_catalog_and_pinned_actions() {
+        let mux = Mux::new("machine-rail-keyboard-test", SurfaceOptions::default());
+        let mut app = test_app(Session::Local(mux));
+        app.machine_ui = Some(provider_controls_ui());
+        app.focus = FocusTarget::MachineRail;
+        app.sync_layout((100, 9));
+
+        app.handle_key(KeyEvent::new(KeyCode::Home, KeyModifiers::NONE)).unwrap();
+        assert_eq!(
+            app.machine_ui.as_ref().and_then(MachineUiState::rail_target),
+            Some(crate::machine::MachineRailTarget::Scope)
+        );
+        app.handle_key(KeyEvent::new(KeyCode::Down, KeyModifiers::NONE)).unwrap();
+        assert_eq!(
+            app.machine_ui.as_ref().and_then(MachineUiState::rail_target),
+            Some(crate::machine::MachineRailTarget::Actions)
+        );
+        app.handle_key(KeyEvent::new(KeyCode::PageDown, KeyModifiers::NONE)).unwrap();
+        assert_eq!(
+            app.machine_ui.as_ref().and_then(MachineUiState::rail_target),
+            Some(crate::machine::MachineRailTarget::NewVm)
+        );
+        app.handle_key(KeyEvent::new(KeyCode::Enter, KeyModifiers::NONE)).unwrap();
+        assert_eq!(
+            app.machine_ui.as_ref().and_then(|ui| ui.request.as_ref()),
+            Some(&MachineRequest::Create)
+        );
+
+        app.machine_ui.as_mut().unwrap().request = None;
+        app.handle_key(KeyEvent::new(KeyCode::End, KeyModifiers::NONE)).unwrap();
+        app.handle_key(KeyEvent::new(KeyCode::Enter, KeyModifiers::NONE)).unwrap();
+        assert_eq!(
+            app.machine_ui.as_ref().and_then(MachineUiState::rail_target),
+            Some(crate::machine::MachineRailTarget::ConnectMachine)
+        );
+        assert!(app.prompt.is_some());
+    }
+
+    #[test]
+    fn keyboard_traverses_every_advertised_workspace_creation_mode() {
+        let mux = Mux::new("workspace-rail-keyboard-test", SurfaceOptions::default());
+        let mut app = test_app(Session::Local(mux));
+        app.sidebar_view = SidebarView::Workspaces;
+        app.machine_ui = Some(provider_machine_ui_with_policy(
+            WorkspaceCreationMode::Isolated,
+            vec![WorkspaceCreationMode::Host, WorkspaceCreationMode::Isolated],
+        ));
+        app.focus = FocusTarget::WorkspaceRail;
+        app.sync_layout((100, 6));
+
+        app.handle_key(KeyEvent::new(KeyCode::Home, KeyModifiers::NONE)).unwrap();
+        assert_eq!(
+            app.workspace_rail_selection,
+            WorkspaceRailSelection::ManagedCreation(WorkspaceCreationMode::Host)
+        );
+        app.handle_key(KeyEvent::new(KeyCode::Enter, KeyModifiers::NONE)).unwrap();
+        assert_eq!(
+            app.machine_ui.as_ref().and_then(|ui| ui.request.as_ref()),
+            Some(&MachineRequest::CreateManagedHostWorkspace(MachineKey(41)))
+        );
+
+        app.machine_ui.as_mut().unwrap().request = None;
+        app.handle_key(KeyEvent::new(KeyCode::Down, KeyModifiers::NONE)).unwrap();
+        assert_eq!(
+            app.workspace_rail_selection,
+            WorkspaceRailSelection::ManagedCreation(WorkspaceCreationMode::Isolated)
+        );
+        app.handle_key(KeyEvent::new(KeyCode::Enter, KeyModifiers::NONE)).unwrap();
+        assert_eq!(
+            app.machine_ui.as_ref().and_then(|ui| ui.request.as_ref()),
+            Some(&MachineRequest::CreateManagedIsolatedWorkspace(MachineKey(41)))
+        );
+    }
+
+    #[test]
+    fn short_terminal_keeps_both_rails_footer_actions_clickable() {
+        let mux = Mux::new("short-rail-footer-test", SurfaceOptions::default());
+        let mut app = test_app(Session::Local(mux));
+        app.sidebar_view = SidebarView::Workspaces;
+        app.machine_ui = Some(provider_machine_ui());
+        app.sync_layout((100, 5));
+
+        let mut terminal = Terminal::new(TestBackend::new(100, 5)).unwrap();
+        terminal.draw(|frame| crate::ui::draw(&mut app, frame)).unwrap();
+
+        assert!(app.hits.iter().any(|(_, hit)| matches!(hit, super::Hit::NewVm)));
+        assert!(app.hits.iter().any(|(_, hit)| matches!(hit, super::Hit::ConnectMachine)));
+        assert!(app.hits.iter().any(|(_, hit)| {
+            matches!(
+                hit,
+                super::Hit::CreateWorkspace { mode: Some(WorkspaceCreationMode::Isolated) }
+            )
+        }));
+        assert!(app.hits.iter().any(|(_, hit)| {
+            matches!(hit, super::Hit::CreateWorkspace { mode: Some(WorkspaceCreationMode::Host) })
+        }));
+    }
+
+    #[test]
+    fn mouse_drag_resizes_machine_and_workspace_rails_independently() {
+        let mux = Mux::new("rail-mouse-resize-test", SurfaceOptions::default());
+        let mut app = test_app(Session::Local(mux));
+        app.sidebar_view = SidebarView::Workspaces;
+        app.machine_ui = Some(provider_machine_ui());
+        app.sync_layout((100, 12));
+
+        let mut terminal = Terminal::new(TestBackend::new(100, 12)).unwrap();
+        terminal.draw(|frame| crate::ui::draw(&mut app, frame)).unwrap();
+        let divider = |app: &App, kind| {
+            app.hits
+                .iter()
+                .find_map(|(rect, hit)| (*hit == super::Hit::RailResize(kind)).then_some(*rect))
+                .unwrap()
+        };
+
+        for kind in [RailKind::Machine, RailKind::Workspace] {
+            let rect = divider(&app, kind);
+            let target_x = rect.x + 3;
+            let expected =
+                rail_drag_width(&app.config, app.sidebar_layout, kind, target_x).unwrap();
+            app.handle_mouse(MouseEvent {
+                kind: MouseEventKind::Down(MouseButton::Left),
+                column: rect.x,
+                row: rect.y + 1,
+                modifiers: KeyModifiers::NONE,
+            })
+            .unwrap();
+            app.handle_mouse(MouseEvent {
+                kind: MouseEventKind::Drag(MouseButton::Left),
+                column: target_x,
+                row: rect.y + 1,
+                modifiers: KeyModifiers::NONE,
+            })
+            .unwrap();
+            app.handle_mouse(MouseEvent {
+                kind: MouseEventKind::Up(MouseButton::Left),
+                column: target_x,
+                row: rect.y + 1,
+                modifiers: KeyModifiers::NONE,
+            })
+            .unwrap();
+
+            match kind {
+                RailKind::Machine => {
+                    assert_eq!(app.machine_sidebar_width_override, Some(expected));
+                    assert_eq!(app.sidebar_width_override, None);
+                }
+                RailKind::Workspace => {
+                    assert_eq!(app.sidebar_width_override, Some(expected));
+                }
+            }
+        }
+    }
+
+    #[test]
+    fn mouse_wheel_scrolls_machine_and_workspace_rail_viewports_independently() {
+        let mux = Mux::new("rail-wheel-test", SurfaceOptions::default());
+        for index in 0..6 {
+            mux.new_workspace(Some(format!("workspace-{index}")), None).unwrap();
+        }
+        let mut app = test_app(Session::Local(mux));
+        app.sidebar_view = SidebarView::Workspaces;
+        app.replace_tree(app.session.tree());
+        let machines = (0..6)
+            .map(|index| MachineDescriptor {
+                key: MachineKey(index + 1),
+                id: format!("machine-{index}"),
+                name: format!("machine-{index}"),
+                subtitle: "cloud".into(),
+                status: MachineStatus::Running,
+            })
+            .collect();
+        app.machine_ui = Some(MachineUiState::new(MachineSnapshot {
+            machines,
+            active: Some(MachineKey(1)),
+            capabilities: MachineCapabilities { create: true, connect: true },
+        }));
+        app.sync_layout((100, 10));
+
+        let mut terminal = Terminal::new(TestBackend::new(100, 10)).unwrap();
+        terminal.draw(|frame| crate::ui::draw(&mut app, frame)).unwrap();
+        let first_machine = app.hits.iter().find_map(|(_, hit)| match hit {
+            super::Hit::Machine { key, .. } => Some(*key),
+            _ => None,
+        });
+        let first_workspace = app.hits.iter().find_map(|(_, hit)| match hit {
+            super::Hit::Workspace { id, .. } => Some(*id),
+            _ => None,
+        });
+        let machine_area = app.sidebar_layout.machine.unwrap();
+        let workspace_area = app.sidebar_layout.workspace.unwrap();
+
+        app.focus = FocusTarget::MachineRail;
+        app.handle_scroll(machine_area.x + 1, machine_area.y + 2, true, KeyModifiers::NONE)
+            .unwrap();
+        app.focus = FocusTarget::WorkspaceRail;
+        app.handle_scroll(workspace_area.x + 1, workspace_area.y + 2, true, KeyModifiers::NONE)
+            .unwrap();
+        terminal.draw(|frame| crate::ui::draw(&mut app, frame)).unwrap();
+
+        let scrolled_machine = app.hits.iter().find_map(|(_, hit)| match hit {
+            super::Hit::Machine { key, .. } => Some(*key),
+            _ => None,
+        });
+        let scrolled_workspace = app.hits.iter().find_map(|(_, hit)| match hit {
+            super::Hit::Workspace { id, .. } => Some(*id),
+            _ => None,
+        });
+        assert_ne!(scrolled_machine, first_machine);
+        assert_ne!(scrolled_workspace, first_workspace);
+        assert!(app.machine_rail_scroll > 0);
+        assert!(app.workspace_rail_scroll > 0);
+    }
+
+    #[test]
+    fn catalog_refresh_preserves_machine_and_workspace_selection_identity_and_scroll() {
+        let descriptor = |key| MachineDescriptor {
+            key: MachineKey(key),
+            id: key.to_string(),
+            name: format!("machine-{key}"),
+            subtitle: "cloud".into(),
+            status: MachineStatus::Running,
+        };
+        let mux = Mux::new("rail-refresh-test", SurfaceOptions::default());
+        mux.new_workspace(Some("first".into()), None).unwrap();
+        mux.new_workspace(Some("second".into()), None).unwrap();
+        let mut app = test_app(Session::Local(mux));
+        app.replace_tree(app.session.tree());
+        app.sidebar_workspace_selection = 1;
+        app.workspace_rail_scroll = 3;
+        let selected_workspace = app.tree.workspaces[1].id;
+        let mut initial = MachineUiState::new(MachineSnapshot {
+            machines: vec![descriptor(1), descriptor(2), descriptor(3)],
+            active: Some(MachineKey(1)),
+            capabilities: MachineCapabilities::default(),
+        });
+        initial.select_rail_target(crate::machine::MachineRailTarget::Machine(MachineKey(2)));
+        app.machine_ui = Some(initial);
+        app.machine_rail_scroll = 6;
+
+        let update = MachineUiState::new(MachineSnapshot {
+            machines: vec![descriptor(3), descriptor(2), descriptor(1)],
+            active: Some(MachineKey(1)),
+            capabilities: MachineCapabilities::default(),
+        });
+        app.apply_machine_ui_update(update);
+        let mut reordered = app.tree.clone();
+        reordered.workspaces.swap(0, 1);
+        app.replace_tree(reordered);
+
+        assert_eq!(
+            app.machine_ui.as_ref().and_then(MachineUiState::rail_target),
+            Some(crate::machine::MachineRailTarget::Machine(MachineKey(2)))
+        );
+        assert_eq!(app.machine_rail_scroll, 6);
+        assert_eq!(app.tree.workspaces[app.sidebar_workspace_selection].id, selected_workspace);
+        assert_eq!(app.workspace_rail_scroll, 3);
+    }
+
+    enum FakeMachineAction {
+        Return(Box<MachineActionResult>),
+        Fail(&'static str),
+    }
+
+    struct FakeMachineController {
+        actions: VecDeque<FakeMachineAction>,
+        requests: Arc<Mutex<Vec<MachineRequest>>>,
+    }
+
+    impl MachineController for FakeMachineController {
+        fn perform(&mut self, request: MachineRequest) -> anyhow::Result<MachineActionResult> {
+            self.requests.lock().unwrap().push(request);
+            match self.actions.pop_front().expect("fake machine action") {
+                FakeMachineAction::Return(result) => Ok(*result),
+                FakeMachineAction::Fail(message) => anyhow::bail!(message),
+            }
+        }
+    }
+
+    fn fake_controller(
+        action: FakeMachineAction,
+    ) -> (Box<dyn MachineController>, Arc<Mutex<Vec<MachineRequest>>>) {
+        let requests = Arc::new(Mutex::new(Vec::new()));
+        (
+            Box::new(FakeMachineController {
+                actions: VecDeque::from([action]),
+                requests: requests.clone(),
+            }),
+            requests,
+        )
+    }
+
+    fn install_machine_controller(app: &mut App, controller: Box<dyn MachineController>) {
+        app.machine_action_worker =
+            Some(MachineActionWorker::spawn(controller, app.app_events.clone()).unwrap());
+    }
+
+    fn unused_machine_preparation() -> super::MachineSessionPreparation {
+        let dispatcher = PtyInputDispatcher::spawn(|_| {}).unwrap();
+        super::MachineSessionPreparation {
+            initial_size: None,
+            default_colors: cmux_tui_core::DefaultColors::default(),
+            generation: 2,
+            pty_input: dispatcher.sender(),
+        }
+    }
+
+    fn settle_machine_action(app: &mut App, events: &Receiver<AppEvent>) -> RenderAction {
+        let mut action = app.process_machine_requests();
+        while app.machine_action_in_flight {
+            let event = events.recv_timeout(Duration::from_secs(1)).unwrap();
+            action = action.merge(app.handle(event).unwrap());
+        }
+        action
+    }
+
+    struct BlockingMachineController {
+        release: Receiver<()>,
+    }
+
+    impl MachineController for BlockingMachineController {
+        fn perform(&mut self, _request: MachineRequest) -> anyhow::Result<MachineActionResult> {
+            self.release.recv().expect("release blocked machine action");
+            Ok(MachineActionResult::ui(provider_machine_ui()))
+        }
+    }
+
+    struct OrderedBlockingMachineController {
+        started: std::sync::mpsc::Sender<MachineKey>,
+        release: Receiver<()>,
+        closed: Option<std::sync::mpsc::Sender<()>>,
+    }
+
+    impl MachineController for OrderedBlockingMachineController {
+        fn perform(&mut self, request: MachineRequest) -> anyhow::Result<MachineActionResult> {
+            let MachineRequest::Switch(machine) = request else {
+                panic!("ordered fake received a non-switch request");
+            };
+            self.started.send(machine).unwrap();
+            self.release.recv().expect("release ordered machine action");
+            Ok(MachineActionResult::ui(provider_machine_ui()))
+        }
+
+        fn close(&mut self) {
+            if let Some(closed) = self.closed.take() {
+                let _ = closed.send(());
+            }
+        }
+    }
+
+    #[test]
+    fn blocked_machine_action_does_not_block_the_app_event_loop() {
+        let mux = Mux::new("machine-action-responsive", SurfaceOptions::default());
+        let (mut app, _events) = test_app_with_events(Session::Local(mux));
+        app.machine_ui = Some(provider_machine_ui());
+        let (release, blocked) = std::sync::mpsc::channel();
+        install_machine_controller(
+            &mut app,
+            Box::new(BlockingMachineController { release: blocked }),
+        );
+        app.machine_ui.as_mut().unwrap().request = Some(MachineRequest::Switch(MachineKey(41)));
+        let releaser = std::thread::spawn(move || {
+            std::thread::sleep(Duration::from_millis(200));
+            release.send(()).unwrap();
+        });
+
+        let started = Instant::now();
+        let action = app.process_machine_requests();
+
+        assert!(started.elapsed() < Duration::from_millis(50));
+        assert_eq!(action, RenderAction::None);
+        releaser.join().unwrap();
+    }
+
+    #[test]
+    fn machine_action_worker_serializes_requests_in_submission_order() {
+        let (events, event_receiver) = std::sync::mpsc::sync_channel(4);
+        let (started, starts) = std::sync::mpsc::channel();
+        let (release, releases) = std::sync::mpsc::channel();
+        let mut worker = MachineActionWorker::spawn(
+            Box::new(OrderedBlockingMachineController { started, release: releases, closed: None }),
+            events,
+        )
+        .unwrap();
+
+        worker
+            .perform(MachineRequest::Switch(MachineKey(1)), unused_machine_preparation())
+            .unwrap();
+
+        assert_eq!(starts.recv_timeout(Duration::from_secs(1)).unwrap(), MachineKey(1));
+        worker
+            .perform(MachineRequest::Switch(MachineKey(2)), unused_machine_preparation())
+            .unwrap();
+        assert!(matches!(
+            worker.perform(MachineRequest::Switch(MachineKey(3)), unused_machine_preparation()),
+            Err(super::MachineSubmitError::Busy(MachineRequest::Switch(MachineKey(3))))
+        ));
+        assert!(starts.try_recv().is_err(), "second action started before the first completed");
+        release.send(()).unwrap();
+        assert!(matches!(
+            event_receiver.recv_timeout(Duration::from_secs(1)).unwrap(),
+            AppEvent::MachineControllerCompleted(_)
+        ));
+        assert_eq!(starts.recv_timeout(Duration::from_secs(1)).unwrap(), MachineKey(2));
+        release.send(()).unwrap();
+        assert!(matches!(
+            event_receiver.recv_timeout(Duration::from_secs(1)).unwrap(),
+            AppEvent::MachineControllerCompleted(_)
+        ));
+        assert!(
+            starts.try_recv().is_err(),
+            "rejected stale action replayed after the queue drained"
+        );
+        worker.shutdown();
+    }
+
+    #[test]
+    fn machine_action_worker_shutdown_never_joins_a_blocked_action() {
+        let (events, _event_receiver) = std::sync::mpsc::sync_channel(4);
+        let (started, starts) = std::sync::mpsc::channel();
+        let (release, releases) = std::sync::mpsc::channel();
+        let (closed, closes) = std::sync::mpsc::channel();
+        let mut worker = MachineActionWorker::spawn(
+            Box::new(OrderedBlockingMachineController {
+                started,
+                release: releases,
+                closed: Some(closed),
+            }),
+            events,
+        )
+        .unwrap();
+        worker
+            .perform(MachineRequest::Switch(MachineKey(1)), unused_machine_preparation())
+            .unwrap();
+        assert_eq!(starts.recv_timeout(Duration::from_secs(1)).unwrap(), MachineKey(1));
+
+        let started_shutdown = Instant::now();
+        worker.shutdown();
+
+        assert!(started_shutdown.elapsed() < Duration::from_millis(50));
+        release.send(()).unwrap();
+        closes.recv_timeout(Duration::from_secs(1)).unwrap();
+    }
+
+    #[test]
+    fn in_place_machine_switch_preserves_rail_view_focus_and_widths() {
+        let first = Mux::new("machine-switch-first", SurfaceOptions::default());
+        first.new_workspace(None, None).unwrap();
+        let second = Mux::new("machine-switch-second", SurfaceOptions::default());
+        let (mut app, events) = test_app_with_events(Session::Local(first));
+        app.replace_tree(app.session.tree());
+        app.machine_ui = Some(provider_machine_ui());
+        app.sidebar_view = SidebarView::Workspaces;
+        app.focus = FocusTarget::MachineRail;
+        app.sidebar_width_override = Some(27);
+        app.machine_sidebar_width_override = Some(19);
+        app.machine_rail_scroll = 3;
+        app.workspace_rail_scroll = 6;
+
+        let next_ui = provider_machine_ui();
+        let (controller, requests) = fake_controller(FakeMachineAction::Return(Box::new(
+            MachineActionResult::replace(next_ui, Session::Local(second), "second".into()),
+        )));
+        install_machine_controller(&mut app, controller);
+        app.machine_ui.as_mut().unwrap().request = Some(MachineRequest::Switch(MachineKey(41)));
+
+        assert!(matches!(settle_machine_action(&mut app, &events), RenderAction::Draw));
+        assert_eq!(app.session_generation, 2);
+        assert_eq!(app.session_label, "second");
+        assert_eq!(app.sidebar_view, SidebarView::Workspaces);
+        assert_eq!(app.focus, FocusTarget::MachineRail);
+        assert_eq!(app.sidebar_width_override, Some(27));
+        assert_eq!(app.machine_sidebar_width_override, Some(19));
+        assert_eq!(app.machine_rail_scroll, 3);
+        assert_eq!(app.workspace_rail_scroll, 6);
+        assert!(!app.quit);
+        assert_eq!(requests.lock().unwrap().as_slice(), &[MachineRequest::Switch(MachineKey(41))]);
+    }
+
+    #[test]
+    fn replacement_provider_notice_cannot_mask_missing_workspace_mirror_error() {
+        let first = Mux::new("machine-replacement-notice-first", SurfaceOptions::default());
+        first.new_workspace(None, None).unwrap();
+        let second = Mux::new("machine-replacement-notice-second", SurfaceOptions::default());
+        second
+            .create_empty_workspace(
+                Some("work".into()),
+                Some("00000000-0000-4000-8000-000000000004".into()),
+                None,
+            )
+            .unwrap();
+        let (mut app, events) = test_app_with_events(Session::Local(first));
+        app.replace_tree(app.session.tree());
+        app.apply_machine_ui_update(provider_machine_ui_with_lifecycle());
+        let mut update = provider_machine_ui_with_lifecycle();
+        update.notice = Some("provider accepted the rename".into());
+        let result = MachineActionResult::replace(update, Session::Local(second), "second".into())
+            .with_session_mutation(ManagedWorkspaceSessionMutation::Rename {
+                workspace_key: "00000000-0000-4000-8000-000000000099".into(),
+                name: "renamed".into(),
+            });
+        let (controller, _) = fake_controller(FakeMachineAction::Return(Box::new(result)));
+        install_machine_controller(&mut app, controller);
+        app.machine_ui.as_mut().unwrap().request = Some(MachineRequest::Switch(MachineKey(41)));
+
+        settle_machine_action(&mut app, &events);
+
+        assert_eq!(
+            app.status_message.as_deref(),
+            Some(localization::catalog().sidebar.managed_workspace_unavailable)
+        );
+    }
+
+    #[test]
+    fn machine_color_failure_status_uses_the_selected_locale() {
+        const CHILD_ENV: &str = "CMUX_MACHINE_COLOR_FAILURE_LOCALE_CHILD";
+        if std::env::var_os(CHILD_ENV).is_none() {
+            let output = std::process::Command::new(std::env::current_exe().unwrap())
+                .arg("app::tests::machine_color_failure_status_uses_the_selected_locale")
+                .arg("--exact")
+                .arg("--nocapture")
+                .env(CHILD_ENV, "1")
+                .env("LC_ALL", "ja_JP.UTF-8")
+                .output()
+                .unwrap();
+            assert!(
+                output.status.success(),
+                "Japanese machine color failure child failed:\nstdout:\n{}\nstderr:\n{}",
+                String::from_utf8_lossy(&output.stdout),
+                String::from_utf8_lossy(&output.stderr)
+            );
+            return;
+        }
+
+        let first = Mux::new("machine-color-locale-first", SurfaceOptions::default());
+        let second = Mux::new("machine-color-locale-second", SurfaceOptions::default());
+        let (mut app, _events) = test_app_with_events(Session::Local(first));
+        let pty_input = PtyInputDispatcher::spawn(|_| {}).unwrap();
+        let (session, event_worker, mux_titles, mux_recovery_generation) = prepare_ordered_session(
+            Session::Local(second),
+            pty_input.sender(),
+            app.app_events.clone(),
+            2,
+        )
+        .unwrap();
+        let tree = session.tree();
+
+        app.install_prepared_machine_session(super::PreparedMachineSession {
+            session,
+            event_worker,
+            generation: 2,
+            mux_titles,
+            mux_recovery_generation,
+            tree,
+            label: "second".into(),
+            session_available: false,
+            color_error: Some("offline".into()),
+        });
+
+        assert_eq!(
+            app.status_message.as_deref(),
+            Some("ターミナルの色を適用できませんでした: offline")
+        );
+    }
+
+    #[test]
+    fn non_switch_machine_action_keeps_the_current_session_and_rails() {
+        let mux = Mux::new("machine-non-switch", SurfaceOptions::default());
+        mux.new_workspace(None, None).unwrap();
+        let (mut app, events) = test_app_with_events(Session::Local(mux));
+        app.replace_tree(app.session.tree());
+        let original_workspace_count = app.tree.workspaces.len();
+        let original_surface = app.tree.active_surface();
+        app.machine_ui = Some(provider_machine_ui());
+        app.sidebar_width_override = Some(25);
+        app.machine_sidebar_width_override = Some(17);
+        let mut next_ui = provider_machine_ui();
+        next_ui.notice = Some("team selected".into());
+        let (controller, requests) =
+            fake_controller(FakeMachineAction::Return(Box::new(MachineActionResult::ui(next_ui))));
+        install_machine_controller(&mut app, controller);
+        app.machine_ui.as_mut().unwrap().request =
+            Some(MachineRequest::SelectProviderScope("team".into()));
+
+        settle_machine_action(&mut app, &events);
+
+        assert_eq!(app.session_generation, 1);
+        assert_eq!(app.tree.workspaces.len(), original_workspace_count);
+        assert_eq!(app.tree.active_surface(), original_surface);
+        assert_eq!(app.sidebar_width_override, Some(25));
+        assert_eq!(app.machine_sidebar_width_override, Some(17));
+        assert_eq!(app.status_message.as_deref(), Some("team selected"));
+        assert!(!app.quit);
+        assert!(matches!(
+            requests.lock().unwrap().as_slice(),
+            [MachineRequest::SelectProviderScope(scope)] if scope == "team"
+        ));
+    }
+
+    #[test]
+    fn failed_machine_switch_preserves_the_current_session() {
+        let mux = Mux::new("machine-failed-switch", SurfaceOptions::default());
+        mux.new_workspace(None, None).unwrap();
+        let (mut app, events) = test_app_with_events(Session::Local(mux));
+        app.replace_tree(app.session.tree());
+        let original_workspace_count = app.tree.workspaces.len();
+        let original_surface = app.tree.active_surface();
+        app.machine_ui = Some(provider_machine_ui());
+        let (controller, _) = fake_controller(FakeMachineAction::Fail("candidate refused"));
+        install_machine_controller(&mut app, controller);
+        app.machine_ui.as_mut().unwrap().request = Some(MachineRequest::Switch(MachineKey(99)));
+
+        settle_machine_action(&mut app, &events);
+
+        assert_eq!(app.session_generation, 1);
+        assert_eq!(app.session_label, "test");
+        assert_eq!(app.tree.workspaces.len(), original_workspace_count);
+        assert_eq!(app.tree.active_surface(), original_surface);
+        let expected =
+            format!("{}: candidate refused", localization::catalog().sidebar.machine_action_failed);
+        assert_eq!(app.status_message.as_deref(), Some(expected.as_str()));
+        assert!(!app.quit);
+    }
+
+    #[test]
+    fn stale_session_events_are_ignored_after_an_in_place_switch() {
+        let first = Mux::new("machine-stale-first", SurfaceOptions::default());
+        first.new_workspace(None, None).unwrap();
+        let second = Mux::new("machine-stale-second", SurfaceOptions::default());
+        let (mut app, events) = test_app_with_events(Session::Local(first));
+        app.machine_ui = Some(provider_machine_ui());
+        let (controller, _) =
+            fake_controller(FakeMachineAction::Return(Box::new(MachineActionResult::replace(
+                provider_machine_ui(),
+                Session::Local(second),
+                "second".into(),
+            ))));
+        install_machine_controller(&mut app, controller);
+        app.machine_ui.as_mut().unwrap().request = Some(MachineRequest::Switch(MachineKey(41)));
+        settle_machine_action(&mut app, &events);
+        app.machine_ui.as_mut().unwrap().request = None;
+
+        let action = app
+            .handle(AppEvent::SessionScoped {
+                generation: 1,
+                event: Box::new(AppEvent::Mux(MuxEvent::Empty)),
+            })
+            .unwrap();
+
+        assert_eq!(action, RenderAction::None);
+        assert_eq!(app.session_generation, 2);
+        assert!(app.machine_ui.as_ref().unwrap().request.is_none());
+        assert!(!app.quit);
+    }
+
+    #[test]
+    fn stale_machine_updates_are_ignored_after_subscription_replacement() {
+        let mux = Mux::new("machine-stale-provider-update", SurfaceOptions::default());
+        let mut app = test_app(Session::Local(mux));
+        app.machine_ui = Some(provider_machine_ui());
+        app.machine_update_generation = 2;
+        let mut stale = provider_machine_ui();
+        stale.notice = Some("stale provider update".into());
+
+        let action = app
+            .handle(AppEvent::MachineUiUpdatedForGeneration {
+                generation: 1,
+                update: Box::new(stale),
+            })
+            .unwrap();
+
+        assert_eq!(action, RenderAction::None);
+        assert_ne!(app.status_message.as_deref(), Some("stale provider update"));
+    }
+
+    #[test]
+    fn canceling_a_session_event_worker_joins_a_blocked_mux_reader() {
+        let mux = Mux::new("machine-worker-cancel", SurfaceOptions::default());
+        let pty_input = PtyInputDispatcher::spawn(|_| {}).unwrap();
+        let (events, _receiver) = std::sync::mpsc::sync_channel(4_096);
+        let (_session, mut worker, _, _) =
+            start_ordered_session(Session::Local(mux), pty_input.sender(), events, 7).unwrap();
+
+        worker.stop_and_join();
+
+        assert!(worker.mux.is_none());
+    }
+
+    #[test]
+    fn prepared_machine_session_events_stay_paused_until_commit_activation() {
+        let mux = Mux::new("prepared-machine-session-events", SurfaceOptions::default());
+        let pty_input = PtyInputDispatcher::spawn(|_| {}).unwrap();
+        let (events, receiver) = std::sync::mpsc::sync_channel(4_096);
+        let (_session, mut worker, _, _) =
+            prepare_ordered_session(Session::Local(mux.clone()), pty_input.sender(), events, 7)
+                .unwrap();
+
+        mux.new_workspace(None, None).unwrap();
+        assert!(matches!(
+            receiver.recv_timeout(Duration::from_millis(50)),
+            Err(std::sync::mpsc::RecvTimeoutError::Timeout)
+        ));
+
+        worker.activate();
+        assert!(matches!(
+            receiver.recv_timeout(Duration::from_secs(1)).unwrap(),
+            AppEvent::SessionScoped { generation: 7, .. }
+        ));
+        worker.stop_and_join();
+    }
+
     fn test_app(session: Session) -> App {
         test_app_with_events(session).0
     }
@@ -11389,11 +15906,20 @@ mod tests {
     fn test_app_with_events(session: Session) -> (App, Receiver<AppEvent>) {
         let pty_input = PtyInputDispatcher::spawn(|_| {}).unwrap();
         let (events, receiver) = std::sync::mpsc::sync_channel(4_096);
-        let session = OrderedSession::new(session, pty_input.sender(), events);
+        let session = OrderedSession::new(session, pty_input.sender(), events.clone());
         let app = App {
             session,
+            session_event_worker: None,
+            session_generation: 1,
+            app_events: events,
+            machine_action_worker: None,
+            machine_action_in_flight: false,
+            pending_machine_replacement: None,
+            machine_update_pump: None,
+            machine_update_generation: 0,
             config: Config::default(),
             chrome: ChromeTheme::dark(),
+            default_colors: cmux_tui_core::DefaultColors::default(),
             tree: TreeView::default(),
             tab_locations: HashMap::new(),
             render_states: HashMap::<u64, RenderState>::new(),
@@ -11408,18 +15934,30 @@ mod tests {
             prefix_armed: false,
             session_label: "test".to_string(),
             sidebar_visible: true,
-            sidebar_focused: false,
+            focus: FocusTarget::Pane,
             sidebar_focus_pending: false,
+            machine_ui: None,
             sidebar_view: SidebarView::Files,
             sidebar_files: FileBrowser::new(std::env::temp_dir()),
             sidebar_workspace_selection: 0,
+            sidebar_recoverable_workspace_selection: 0,
+            workspace_rail_selection: WorkspaceRailSelection::default(),
+            machine_rail_scroll: 0,
+            machine_footer_scroll: 0,
+            workspace_rail_scroll: 0,
+            workspace_footer_scroll: 0,
+            machine_rail_follow_selection: true,
+            workspace_rail_follow_selection: true,
             sidebar_followed_surface: None,
             sidebar_width: 0,
+            machine_sidebar_width: 0,
+            sidebar_layout: SidebarLayout::default(),
             sidebar_plugin_surface: None,
             sidebar_plugin_error: None,
             sidebar_plugin_retry_after_ms: None,
             sidebar_plugin_retry_at: None,
             sidebar_width_override: None,
+            machine_sidebar_width_override: None,
             content_area: Rect::default(),
             hits: Vec::new(),
             tab_scroll: HashMap::new(),
