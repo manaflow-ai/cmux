@@ -12,12 +12,12 @@ When we change the fork, update this document and the parent submodule SHA.
 
 ## Current fork changes
 
-Current cmux pinned fork patch head: `b211341be`. It combines indented
-hard-newline link continuations with the presentation-token runtime from
-`24284c3ba` and is published through
+Current cmux pinned fork main merge: `d8994a0e5`. It integrates patch head
+`b211341be`, which combines indented hard-newline link continuations with the
+presentation-token runtime from `24284c3ba`, through
 https://github.com/manaflow-ai/ghostty/pull/124.
 The corresponding universal ReleaseFast GhosttyKit archive is published at
-https://github.com/manaflow-ai/ghostty/releases/tag/xcframework-b211341be1ba902e772f57fc67c3e65d35205676-crashsubdir-cmux-crash-v1
+https://github.com/manaflow-ai/ghostty/releases/tag/xcframework-d8994a0e525be19c189c8fd39965218517eef431-crashsubdir-cmux-crash-v1
 and pinned in `scripts/ghosttykit-checksums.txt`.
 
 ### Indented hard-newline link continuations
@@ -96,7 +96,8 @@ and pinned in `scripts/ghosttykit-checksums.txt`.
     Regex work runs outside the terminal lock and stale snapshots are
     revalidated before results are applied.
   - Keeps the public surface config at 120 bytes and registers each surface's
-    callback through a one-shot post-construction setter. Callback state is
+    callback through the one-shot post-construction
+    `ghostty_surface_set_render_presented_callback` setter. Callback state is
     never inherited, and its userdata remains valid until surface destruction.
   - Carries presentation tokens through every backend. Metal uses exact
     in-flight slot ownership plus ref-counted renderer generations, so stalled,
