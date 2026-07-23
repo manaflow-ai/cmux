@@ -68,7 +68,7 @@ jobs:
                     (run) =>
                       Number(run.id) < currentRunId &&
                       run.status !== 'completed' &&
-                      ['push', 'workflow_dispatch', 'schedule'].includes(run.event)
+                      ['push', 'workflow_dispatch'].includes(run.event)
                   );
                   for (const run of earlierActiveRuns) {
                     const jobs = await github.rest.actions.listJobsForWorkflowRun({

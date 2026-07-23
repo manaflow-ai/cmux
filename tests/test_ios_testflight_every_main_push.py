@@ -21,6 +21,7 @@ def test_every_main_push_triggers_without_path_or_schedule_gates() -> None:
     assert "  workflow_dispatch:\n" in triggers
     assert "schedule:" not in triggers
     assert "paths:" not in triggers
+    assert "'schedule'" not in text
     assert "context.eventName === 'push' || context.eventName === 'workflow_dispatch'" in text
 
 
