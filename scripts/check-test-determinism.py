@@ -223,6 +223,9 @@ _PYTHON_FOR_TARGET = re.compile(
     r"^\s*(?:async\s+)?for\s+(?P<targets>.+?)\s+in\b"
 )
 _PYTHON_AS_TARGET = re.compile(r"\bas\s+(?P<name>[A-Za-z_]\w*)\b")
+_PYTHON_WALRUS_TARGET = re.compile(
+    r"\b(?P<name>[A-Za-z_]\w*)\s*:="
+)
 _JS_SLEEP_CALL = re.compile(
     r"""(?x)
     (?<![.\w])Bun\.sleep\s*\(
@@ -536,7 +539,11 @@ def _python_import_bindings(
 
 def _python_shadowed_names(line: str, candidates: set[str]) -> set[str]:
     """Return conservatively rebound Python sleep module/function names."""
-    shadowed: set[str] = set()
+    shadowed = {
+        match.group("name")
+        for match in _PYTHON_WALRUS_TARGET.finditer(line)
+        if match.group("name") in candidates
+    }
     stripped = line.lstrip()
     if not stripped.startswith(
         ("if ", "while ", "assert ", "return ", "def ", "class ")
@@ -585,6 +592,7 @@ def _python_real_sleep_lines(masked_lines: list[str]) -> set[int]:
     active_functions: set[str] = set()
     sleep_lines: set[int] = set()
     pending_parameters: Optional[str] = None
+    pending_parameter_depth = 0
 
     for idx, line in enumerate(masked_lines):
         candidates = active_modules | active_functions
@@ -600,14 +608,19 @@ def _python_real_sleep_lines(masked_lines: list[str]) -> set[int]:
             if function.group("name") in candidates:
                 shadowed.add(function.group("name"))
             pending_parameters = function.group("parameters")
+            pending_parameter_depth = (
+                1
+                + pending_parameters.count("(")
+                - pending_parameters.count(")")
+            )
         elif pending_parameters is not None:
             pending_parameters += "\n" + line
+            pending_parameter_depth += line.count("(") - line.count(")")
 
-        if pending_parameters is not None and ")" in pending_parameters:
-            parameters = pending_parameters.split(")", maxsplit=1)[0]
+        if pending_parameters is not None and pending_parameter_depth <= 0:
             shadowed.update(
                 match.group("name")
-                for match in _PYTHON_PARAMETER.finditer(parameters)
+                for match in _PYTHON_PARAMETER.finditer(pending_parameters)
                 if match.group("name") in candidates
             )
             pending_parameters = None
@@ -638,40 +651,6 @@ def _python_real_sleep_lines(masked_lines: list[str]) -> set[int]:
     return sleep_lines
 
 
-def _matching_delimiter_end(
-    line: str,
-    open_index: int,
-    open_delimiter: str,
-    close_delimiter: str,
-) -> Optional[int]:
-    """Return the index after a same-line balanced interpolation delimiter."""
-    depth = 0
-    quote: Optional[str] = None
-    i = open_index
-    while i < len(line):
-        char = line[i]
-        if quote:
-            if char == "\\":
-                i += 2
-                continue
-            if char == quote:
-                quote = None
-            i += 1
-            continue
-        if char in ('"', "'", "`"):
-            quote = char
-            i += 1
-            continue
-        if char == open_delimiter:
-            depth += 1
-        elif char == close_delimiter:
-            depth -= 1
-            if depth == 0:
-                return i + 1
-        i += 1
-    return None
-
-
 def _unescaped_token_index(line: str, token: str, start: int) -> int:
     """Return the next token not preceded by an odd backslash run."""
     index = line.find(token, start)
@@ -693,6 +672,7 @@ def _mask_noncode(lines: list[str], path_suffix: str) -> list[str]:
     quote: Optional[str] = None
     block_comment_depth = 0
     template_interpolation_depths: list[int] = []
+    shell_interpolations: list[tuple[str, int]] = []
     hash_comments = path_suffix in (".py", ".sh")
     marker_pattern = (
         _HASH_NONCODE_MARKER if hash_comments else _SLASH_NONCODE_MARKER
@@ -737,56 +717,35 @@ def _mask_noncode(lines: list[str], path_suffix: str) -> list[str]:
                         i = interpolation_start + 2
                         continue
 
-                interpolation = None
                 if path_suffix == ".sh" and quote == '"':
                     dollar_start = line.find("$(", i)
                     backtick_start = _unescaped_token_index(line, "`", i)
                     if dollar_start >= 0 and (
                         backtick_start < 0 or dollar_start < backtick_start
                     ):
-                        interpolation = ("$(", "(", ")")
+                        interpolation_start = dollar_start
+                        interpolation_kind = "paren"
+                        interpolation_token_length = 2
                     elif backtick_start >= 0:
-                        interpolation = ("`", "`", "`")
-                if interpolation is not None:
-                    token, open_delimiter, close_delimiter = interpolation
-                    interpolation_start = _unescaped_token_index(line, token, i)
+                        interpolation_start = backtick_start
+                        interpolation_kind = "backtick"
+                        interpolation_token_length = 1
+                    else:
+                        interpolation_start = -1
                     if interpolation_start >= 0 and (
                         quote_end < 0 or interpolation_start < quote_end
                     ) and (
                         escape < 0 or interpolation_start < escape
                     ):
-                        if token == "`":
-                            closing = _unescaped_token_index(
-                                line,
-                                token,
-                                interpolation_start + 1,
-                            )
-                            interpolation_end = (
-                                closing + 1 if closing >= 0 else None
-                            )
-                        else:
-                            interpolation_end = _matching_delimiter_end(
-                                line,
-                                interpolation_start + 1,
-                                open_delimiter,
-                                close_delimiter,
-                            )
-                        if interpolation_end is not None:
-                            masked[i:interpolation_start] = " " * (
-                                interpolation_start - i
-                            )
-                            inner_start = interpolation_start + len(token)
-                            inner_end = interpolation_end - 1
-                            inner = line[inner_start:inner_end]
-                            inner_masked = _mask_noncode(
-                                [inner],
-                                path_suffix,
-                            )[0]
-                            masked[interpolation_start:interpolation_end] = (
-                                list(token + inner_masked + close_delimiter)
-                            )
-                            i = interpolation_end
-                            continue
+                        masked[i:interpolation_start] = " " * (
+                            interpolation_start - i
+                        )
+                        shell_interpolations.append(
+                            (interpolation_kind, 1)
+                        )
+                        quote = None
+                        i = interpolation_start + interpolation_token_length
+                        continue
                 if escape >= 0 and (quote_end < 0 or escape < quote_end):
                     end = min(len(line), escape + 2)
                     masked[i:end] = " " * (end - i)
@@ -802,6 +761,44 @@ def _mask_noncode(lines: list[str], path_suffix: str) -> list[str]:
                 continue
 
             marker = marker_pattern.search(line, i)
+            if path_suffix == ".sh" and shell_interpolations:
+                interpolation_kind, depth = shell_interpolations[-1]
+                if interpolation_kind == "backtick":
+                    delimiter = _unescaped_token_index(line, "`", i)
+                    if delimiter >= 0 and (
+                        marker is None or delimiter < marker.start()
+                    ):
+                        shell_interpolations.pop()
+                        quote = '"'
+                        i = delimiter + 1
+                        continue
+                else:
+                    opening = _unescaped_token_index(line, "(", i)
+                    closing = _unescaped_token_index(line, ")", i)
+                    delimiters = [
+                        index
+                        for index in (opening, closing)
+                        if index >= 0
+                    ]
+                    delimiter = min(delimiters) if delimiters else -1
+                    if delimiter >= 0 and (
+                        marker is None or delimiter < marker.start()
+                    ):
+                        if line[delimiter] == "(":
+                            shell_interpolations[-1] = (
+                                interpolation_kind,
+                                depth + 1,
+                            )
+                        elif depth == 1:
+                            shell_interpolations.pop()
+                            quote = '"'
+                        else:
+                            shell_interpolations[-1] = (
+                                interpolation_kind,
+                                depth - 1,
+                            )
+                        i = delimiter + 1
+                        continue
             if (
                 path_suffix in _JS_SUFFIXES
                 and template_interpolation_depths
@@ -837,8 +834,9 @@ def _mask_noncode(lines: list[str], path_suffix: str) -> list[str]:
             else:
                 quote = token
 
-        # Only triple-quoted and template literals span source lines.
-        if quote in ('"', "'"):
+        # Shell quotes may span physical lines; Swift/Python/JS single and
+        # double quotes do not in the forms this conservative lexer supports.
+        if quote in ('"', "'") and path_suffix != ".sh":
             quote = None
         masked_lines.append("".join(masked))
 
@@ -1143,6 +1141,13 @@ def _self_test() -> int:
             {RULE_SLEEP_THEN_ASSERT},
         ),
         (
+            "tests/multiline-interpolation.sh",
+            'actual="$(sleep 1\n'
+            ')"\n'
+            'assert "$actual" "$expected"\n',
+            {RULE_SLEEP_THEN_ASSERT},
+        ),
+        (
             "web/tests/interpolation.ts",
             "const actual = `${await Bun.sleep(1)}`\n"
             "expect(actual).toBeTruthy()\n",
@@ -1207,6 +1212,16 @@ def _self_test() -> int:
             "tests/import-shadowed-runtime.py",
             "import fake_clock as time\n"
             "time.sleep(0.1)\n"
+            "assert completed\n",
+        ),
+        (
+            "tests/expression-shadowed-runtime.py",
+            "def wait(factory=make(), time=fake_clock):\n"
+            "    time.sleep(0.1)\n"
+            "    assert completed\n"
+            "if (asyncio := fake_clock):\n"
+            "    pass\n"
+            "await asyncio.sleep(0.1)\n"
             "assert completed\n",
         ),
         # Runtime spellings only identify direct APIs in their own language.
