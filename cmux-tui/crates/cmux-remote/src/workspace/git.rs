@@ -477,6 +477,7 @@ fn structured_path(path: &str) -> Option<String> {
 
 #[cfg(test)]
 mod tests {
+    use std::path::Path;
     use std::process::Command;
     use std::sync::Arc;
 
@@ -485,19 +486,35 @@ mod tests {
 
     use super::*;
 
+    fn git(root: &Path, arguments: &[&str]) {
+        let status = Command::new("git").arg("-C").arg(root).args(arguments).status().unwrap();
+        assert!(status.success(), "git {arguments:?} failed with {status}");
+    }
+
+    fn write_test_file(root: &Path, path: &str, contents: &[u8]) {
+        let path = root.join(path);
+        if let Some(parent) = path.parent() {
+            std::fs::create_dir_all(parent).unwrap();
+        }
+        std::fs::write(path, contents).unwrap();
+    }
+
+    async fn structured_diff(root: &WorkspaceRoot, staged: bool) -> StructuredDiffV1 {
+        let response =
+            diff(root, &[], staged, 3, DiffFormat::StructuredV1, None, None).await.unwrap();
+        let WorkspaceResponse::StructuredDiff { diff, .. } = response else { panic!() };
+        diff
+    }
+
     async fn git_root() -> (tempfile::TempDir, Arc<WorkspaceRoot>) {
         let directory = tempdir().unwrap();
-        let git = |args: &[&str]| {
-            let status =
-                Command::new("git").arg("-C").arg(directory.path()).args(args).status().unwrap();
-            assert!(status.success());
-        };
-        git(&["init", "-q"]);
-        git(&["config", "user.email", "test@example.com"]);
-        git(&["config", "user.name", "Test"]);
+        git(directory.path(), &["init", "-q"]);
+        git(directory.path(), &["config", "user.email", "test@example.com"]);
+        git(directory.path(), &["config", "user.name", "Test"]);
+        git(directory.path(), &["config", "core.quotePath", "true"]);
         std::fs::write(directory.path().join("tracked.txt"), "before\n").unwrap();
-        git(&["add", "tracked.txt"]);
-        git(&["commit", "-qm", "initial"]);
+        git(directory.path(), &["add", "tracked.txt"]);
+        git(directory.path(), &["commit", "-qm", "initial"]);
         let root =
             WorkspaceRoot::open(WorkspaceId("git".into()), directory.path().to_str().unwrap())
                 .await
@@ -528,6 +545,78 @@ mod tests {
         assert_eq!(diff.version, 1);
         assert_eq!(diff.files[0].new_path.as_deref(), Some("tracked.txt"));
         assert!(!diff.files[0].metadata.is_empty());
+    }
+
+    #[tokio::test]
+    async fn structured_diff_decodes_modified_git_paths() {
+        let (_directory, root) = git_root().await;
+        let paths = [
+            "quote\"name.bin",
+            "tab\tname.bin",
+            "\u{65e5}\u{672c}\u{8a9e}.bin",
+            "folder b/name.bin",
+        ];
+        for (index, path) in paths.iter().enumerate() {
+            write_test_file(root.canonical_root(), path, format!("before {index}\0").as_bytes());
+        }
+        git(root.canonical_root(), &["add", "."]);
+        git(root.canonical_root(), &["commit", "-qm", "special paths"]);
+        for (index, path) in paths.iter().enumerate() {
+            write_test_file(root.canonical_root(), path, format!("after {index}\0").as_bytes());
+        }
+
+        let parsed = structured_diff(&root, false).await;
+        assert_eq!(parsed.files.len(), paths.len());
+        for path in paths {
+            let file = parsed
+                .files
+                .iter()
+                .find(|file| file.new_path.as_deref() == Some(path))
+                .unwrap_or_else(|| panic!("missing modified path {path:?}"));
+            assert_eq!(file.old_path.as_deref(), Some(path));
+            assert!(file.hunks.is_empty());
+        }
+    }
+
+    #[tokio::test]
+    async fn structured_diff_decodes_renamed_git_paths() {
+        let (_directory, root) = git_root().await;
+        let paths = [
+            ("old\"quote.txt", "new\"quote.txt"),
+            ("old\ttab.txt", "new\ttab.txt"),
+            ("\u{53e4}\u{3044}.txt", "\u{65b0}\u{3057}\u{3044}.txt"),
+            ("old b/path.txt", "new b/path.txt"),
+        ];
+        for (index, (old, _new)) in paths.iter().enumerate() {
+            write_test_file(
+                root.canonical_root(),
+                old,
+                format!("unique contents {index}\n").as_bytes(),
+            );
+        }
+        git(root.canonical_root(), &["add", "."]);
+        git(root.canonical_root(), &["commit", "-qm", "rename sources"]);
+        for (old, new) in paths {
+            let new_path = root.canonical_root().join(new);
+            if let Some(parent) = new_path.parent() {
+                std::fs::create_dir_all(parent).unwrap();
+            }
+            std::fs::rename(root.canonical_root().join(old), new_path).unwrap();
+        }
+        git(root.canonical_root(), &["add", "-A"]);
+
+        let parsed = structured_diff(&root, true).await;
+        assert_eq!(parsed.files.len(), paths.len());
+        for (old, new) in paths {
+            let file = parsed
+                .files
+                .iter()
+                .find(|file| {
+                    file.old_path.as_deref() == Some(old) && file.new_path.as_deref() == Some(new)
+                })
+                .unwrap_or_else(|| panic!("missing rename {old:?} -> {new:?}"));
+            assert!(file.hunks.is_empty());
+        }
     }
 
     #[tokio::test]
