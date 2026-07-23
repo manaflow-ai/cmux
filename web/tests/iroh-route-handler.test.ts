@@ -65,6 +65,33 @@ describe("Iroh route boundary", () => {
     expect(brokerCalled).toBe(false);
   });
 
+  test("fails open when the configured rate-limit rule no longer exists", async () => {
+    let brokerCalled = false;
+    const dependencies = {
+      verify: async () => USER,
+      broker: broker({
+        discover: () => {
+          brokerCalled = true;
+          return Effect.succeed({ bindings: [] });
+        },
+      }),
+      firewall: {
+        id: "iroh-test-rule",
+        check: async () => ({ rateLimited: false, error: "not-found" as const }),
+      },
+    };
+
+    const response = await handleIrohRoute(
+      new Request("https://cmux.test/api/devices/iroh"),
+      "discover",
+      dependencies,
+    );
+
+    expect(response.status).toBe(200);
+    expect(await response.json()).toEqual({ bindings: [] });
+    expect(brokerCalled).toBe(true);
+  });
+
   test("bounds a firewall check that never settles", async () => {
     let brokerCalled = false;
     let aborted = false;
