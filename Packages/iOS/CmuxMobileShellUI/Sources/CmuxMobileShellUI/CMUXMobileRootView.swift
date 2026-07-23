@@ -251,7 +251,11 @@ struct CMUXMobileRootView: View {
                 showPairingScanner: showPairingScanner,
                 reconnectStoredMac: reconnectStoredMacIfNeeded
             )
-        } else if store.connectionState != .connected && !store.hasKnownPairedMac {
+        } else if MobileAuthenticatedShellPresentation.resolve(
+            connectionState: store.connectionState,
+            hasKnownPairedMac: store.hasKnownPairedMac,
+            hasHiddenComputers: store.hasHiddenComputers
+        ) == .disconnected {
             // ONLY when there are no saved Macs at all: the add-device flow (it
             // auto-presents the pairing sheet since there is nothing to list).
             DisconnectedWorkspaceShellView(

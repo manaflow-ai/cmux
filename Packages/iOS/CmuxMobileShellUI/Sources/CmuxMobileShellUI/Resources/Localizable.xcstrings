@@ -648,6 +648,20 @@
         "ja" : { "stringUnit" : { "state" : "translated", "value" : "保存" } }
       }
     },
+    "mobile.hideComputersVerifier.allHiddenKnownPairedMac" : {
+      "extractionState" : "manual",
+      "localizations" : {
+        "en" : { "stringUnit" : { "state" : "translated", "value" : "allHiddenKnownPairedMac=" } },
+        "ja" : { "stringUnit" : { "state" : "translated", "value" : "すべて非表示後も既知のMac=" } }
+      }
+    },
+    "mobile.hideComputersVerifier.allHiddenNormalEmpty" : {
+      "extractionState" : "manual",
+      "localizations" : {
+        "en" : { "stringUnit" : { "state" : "translated", "value" : "allHiddenNormalEmpty=" } },
+        "ja" : { "stringUnit" : { "state" : "translated", "value" : "すべて非表示後に通常の空リスト=" } }
+      }
+    },
     "mobile.iroh.private" : {
       "extractionState" : "manual",
       "localizations" : {

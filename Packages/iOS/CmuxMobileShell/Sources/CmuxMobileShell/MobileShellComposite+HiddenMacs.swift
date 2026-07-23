@@ -226,7 +226,7 @@ extension MobileShellComposite {
 
         guard await isScopeCurrent(scope) else { return }
         await loadPairedMacs()
-        clearSavedMacHintAfterHidingLastVisibleMacIfNeeded()
+        clearSavedMacHintWhenNoStoredMacsRemainIfNeeded()
     }
 
     /// Removes every workspace snapshot owned by a hidden stored Mac.
