@@ -72,19 +72,18 @@ final class ComputerUseOnboardingWindowController: NSObject, NSWindowDelegate {
             },
             onExpandedRequested: { [weak self] in self?.showExpandedOnboarding() }
         )
-        let hostingController = NSHostingController(rootView: rootView)
-        // These onboarding surfaces have exact reference window sizes. Disable
-        // SwiftUI's intrinsic sizing feedback so the title-bar safe area cannot
-        // silently add 32 points to the requested AppKit frame.
-        hostingController.sizingOptions = []
-        hostingController.safeAreaRegions = []
-        let window = NSWindow(contentViewController: hostingController)
+        let window = NSWindow(
+            contentRect: NSRect(origin: .zero, size: Self.expandedWindowSize),
+            styleMask: [.titled, .closable, .fullSizeContentView],
+            backing: .buffered,
+            defer: false
+        )
         window.title = String(localized: "computerUse.onboarding.windowTitle", defaultValue: "Computer Use Setup")
-        window.styleMask = [.titled, .closable, .fullSizeContentView]
         window.titleVisibility = .hidden
         window.titlebarAppearsTransparent = true
         window.isReleasedWhenClosed = false
         window.isMovableByWindowBackground = false
+        window.contentView = ComputerUseOnboardingHostingView(rootView: rootView)
         configure(
             window,
             windowSize: Self.expandedWindowSize,

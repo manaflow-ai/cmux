@@ -749,6 +749,7 @@
 		C0A710170000000000000002 /* ComputerUseMenuBarScanResult.swift in Sources */ = {isa = PBXBuildFile; fileRef = C0A710170000000000000001 /* ComputerUseMenuBarScanResult.swift */; };
 		C0A710070000000000000002 /* ComputerUseMenuBarSnapshot.swift in Sources */ = {isa = PBXBuildFile; fileRef = C0A710070000000000000001 /* ComputerUseMenuBarSnapshot.swift */; };
 		C0A710080000000000000002 /* ComputerUseMenuBarSnapshotStore.swift in Sources */ = {isa = PBXBuildFile; fileRef = C0A710080000000000000001 /* ComputerUseMenuBarSnapshotStore.swift */; };
+		C0A712400000000000000002 /* ComputerUseOnboardingHostingView.swift in Sources */ = {isa = PBXBuildFile; fileRef = C0A712400000000000000001 /* ComputerUseOnboardingHostingView.swift */; };
 		C0A711200000000000000002 /* ComputerUseOnboardingStep.swift in Sources */ = {isa = PBXBuildFile; fileRef = C0A711200000000000000001 /* ComputerUseOnboardingStep.swift */; };
 		C0A710100000000000000002 /* ComputerUseOnboardingView.swift in Sources */ = {isa = PBXBuildFile; fileRef = C0A710100000000000000001 /* ComputerUseOnboardingView.swift */; };
 		C0A710110000000000000002 /* ComputerUseOnboardingWindowController.swift in Sources */ = {isa = PBXBuildFile; fileRef = C0A710110000000000000001 /* ComputerUseOnboardingWindowController.swift */; };
@@ -2956,6 +2957,7 @@
 		C0A710170000000000000001 /* ComputerUseMenuBarScanResult.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = App/ComputerUseMenuBarScanResult.swift; sourceTree = "<group>"; };
 		C0A710070000000000000001 /* ComputerUseMenuBarSnapshot.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = App/ComputerUseMenuBarSnapshot.swift; sourceTree = "<group>"; };
 		C0A710080000000000000001 /* ComputerUseMenuBarSnapshotStore.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = App/ComputerUseMenuBarSnapshotStore.swift; sourceTree = "<group>"; };
+		C0A712400000000000000001 /* ComputerUseOnboardingHostingView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = App/ComputerUseOnboardingHostingView.swift; sourceTree = "<group>"; };
 		C0A711200000000000000001 /* ComputerUseOnboardingStep.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = App/ComputerUseOnboardingStep.swift; sourceTree = "<group>"; };
 		C0A710100000000000000001 /* ComputerUseOnboardingView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = App/ComputerUseOnboardingView.swift; sourceTree = "<group>"; };
 		C0A710110000000000000001 /* ComputerUseOnboardingWindowController.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = App/ComputerUseOnboardingWindowController.swift; sourceTree = "<group>"; };
@@ -5018,6 +5020,7 @@
 					C0A710080000000000000001 /* ComputerUseMenuBarSnapshotStore.swift */,
 					C0A710020000000000000001 /* ComputerUseDriverState.swift */,
 					C0A711200000000000000001 /* ComputerUseOnboardingStep.swift */,
+					C0A712400000000000000001 /* ComputerUseOnboardingHostingView.swift */,
 					C0A711300000000000000001 /* ComputerUsePermissionRowAction.swift */,
 					C0A710100000000000000001 /* ComputerUseOnboardingView.swift */,
 					C0A710110000000000000001 /* ComputerUseOnboardingWindowController.swift */,
@@ -7572,6 +7575,7 @@
 					C0A710170000000000000002 /* ComputerUseMenuBarScanResult.swift in Sources */,
 					C0A710070000000000000002 /* ComputerUseMenuBarSnapshot.swift in Sources */,
 					C0A710080000000000000002 /* ComputerUseMenuBarSnapshotStore.swift in Sources */,
+					C0A712400000000000000002 /* ComputerUseOnboardingHostingView.swift in Sources */,
 					C0A711200000000000000002 /* ComputerUseOnboardingStep.swift in Sources */,
 					C0A710100000000000000002 /* ComputerUseOnboardingView.swift in Sources */,
 					C0A710110000000000000002 /* ComputerUseOnboardingWindowController.swift in Sources */,

@@ -251,7 +251,7 @@ struct ComputerUseUXTests {
         }
 
         #expect(first !== second)
-        #expect(first.contentViewController !== second.contentViewController)
+        #expect(first.contentView !== second.contentView)
         #expect(first.frame.size == CGSize(width: 596, height: 435))
         #expect(first.contentView?.frame.size == CGSize(width: 596, height: 435))
         #expect(!first.styleMask.contains(.miniaturizable))
