@@ -51,6 +51,7 @@ struct TextBoxIMECompositionLayoutTests {
         let coordinator = TextBoxInputView.Coordinator(parent: inputView)
         let textView = makeTextView()
         let window = NSWindow(contentRect: textView.bounds, styleMask: [], backing: .buffered, defer: false)
+        window.isReleasedWhenClosed = false
         window.contentView = textView
         defer {
             window.contentView = nil
