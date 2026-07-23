@@ -829,6 +829,18 @@ mod tests {
         dropped: Arc<Semaphore>,
     }
 
+    struct GatedCloseLink {
+        started: Arc<Semaphore>,
+        release: Arc<Semaphore>,
+        finished: Arc<Semaphore>,
+    }
+
+    struct GatedCloseHandle {
+        started: Arc<Semaphore>,
+        release: Arc<Semaphore>,
+        finished: Arc<Semaphore>,
+    }
+
     fn controlled_receive_link(
         description: &str,
         maximum: usize,
@@ -858,6 +870,20 @@ mod tests {
                 order: order.clone(),
             },
             SerializedSendHandle { started, release, order },
+        )
+    }
+
+    fn gated_close_link() -> (GatedCloseLink, GatedCloseHandle) {
+        let started = Arc::new(Semaphore::new(0));
+        let release = Arc::new(Semaphore::new(0));
+        let finished = Arc::new(Semaphore::new(0));
+        (
+            GatedCloseLink {
+                started: started.clone(),
+                release: release.clone(),
+                finished: finished.clone(),
+            },
+            GatedCloseHandle { started, release, finished },
         )
     }
 
@@ -968,6 +994,32 @@ mod tests {
         }
     }
 
+    #[async_trait]
+    impl FrameLink for GatedCloseLink {
+        fn description(&self) -> &str {
+            "gated-close"
+        }
+
+        fn maximum_frame_bytes(&self) -> usize {
+            65_535
+        }
+
+        async fn send(&self, _frame: Bytes) -> Result<(), LinkError> {
+            Ok(())
+        }
+
+        async fn receive(&self) -> Result<Option<Bytes>, LinkError> {
+            pending().await
+        }
+
+        async fn close(&self) -> Result<(), LinkError> {
+            self.started.add_permits(1);
+            self.release.acquire().await.map_err(|_| LinkError::Closed)?.forget();
+            self.finished.add_permits(1);
+            Ok(())
+        }
+    }
+
     fn encoded_frame(lane: Lane, payload_bytes: usize) -> Bytes {
         WireFrame {
             session: SessionId::ZERO,
@@ -1030,6 +1082,16 @@ mod tests {
             .unwrap_or_else(|_| panic!("timed out waiting for {context}"))
             .unwrap();
         permit.forget();
+    }
+
+    async fn wait_for_terminal_state(mux: &LaneMuxLink) {
+        tokio::time::timeout(Duration::from_secs(1), async {
+            while mux.lifecycle.error().is_none() {
+                tokio::task::yield_now().await;
+            }
+        })
+        .await
+        .expect("aggregate link did not publish its terminal state");
     }
 
     #[tokio::test]
@@ -1100,6 +1162,73 @@ mod tests {
             .await
             .expect("terminal EOF was not sticky");
         assert!(matches!(repeated, Err(LinkError::Closed)));
+    }
+
+    #[tokio::test]
+    async fn admitted_session_close_survives_eof_on_a_different_physical() {
+        let (control, control_handle) = controlled_receive_link("control", 65_535);
+        let (rest, rest_handle) = controlled_receive_link("rest", 65_535);
+        let mux = LaneMuxLink::new(
+            "isolated-physical",
+            vec![
+                LinkRoute { lanes: vec![Lane::Control], link: Arc::new(control) },
+                LinkRoute {
+                    lanes: vec![Lane::Interactive, Lane::Bulk, Lane::Tunnel],
+                    link: Arc::new(rest),
+                },
+            ],
+        )
+        .unwrap();
+
+        control_handle.incoming.send(session_close_frame(1)).unwrap();
+        wait_for_receive_calls(&control_handle.receive_calls, 2).await;
+        drop(rest_handle.incoming);
+        wait_for_receive_calls(&rest_handle.receive_calls, 1).await;
+        wait_for_terminal_state(&mux).await;
+
+        let close = mux
+            .receive()
+            .await
+            .expect("different-physical EOF overtook admitted SESSION_CLOSE")
+            .expect("aggregate ended before admitted SESSION_CLOSE");
+        assert!(WireFrame::decode(&close).unwrap().flags.contains(FrameFlags::SESSION_CLOSE));
+        assert!(matches!(mux.receive().await, Err(LinkError::Closed)));
+    }
+
+    #[tokio::test]
+    async fn admitted_session_close_survives_outbound_dispatcher_failure() {
+        let (control, control_handle) = controlled_receive_link("control", 65_535);
+        let mux = LaneMuxLink::new(
+            "isolated-physical",
+            vec![
+                LinkRoute {
+                    lanes: vec![Lane::Control, Lane::Bulk, Lane::Tunnel],
+                    link: Arc::new(control),
+                },
+                LinkRoute {
+                    lanes: vec![Lane::Interactive],
+                    link: Arc::new(FailingSendLink { error: "writer failed" }),
+                },
+            ],
+        )
+        .unwrap();
+
+        control_handle.incoming.send(session_close_frame(1)).unwrap();
+        wait_for_receive_calls(&control_handle.receive_calls, 2).await;
+        let failure = mux.send(encoded_frame(Lane::Interactive, 1)).await;
+        assert!(
+            matches!(failure, Err(LinkError::Transport(ref message)) if message == "writer failed")
+        );
+
+        let close = mux
+            .receive()
+            .await
+            .expect("outbound failure overtook admitted SESSION_CLOSE")
+            .expect("aggregate ended before admitted SESSION_CLOSE");
+        assert!(WireFrame::decode(&close).unwrap().flags.contains(FrameFlags::SESSION_CLOSE));
+        assert!(
+            matches!(mux.receive().await, Err(LinkError::Transport(ref message)) if message == "writer failed")
+        );
     }
 
     #[tokio::test]
@@ -1243,6 +1372,37 @@ mod tests {
     }
 
     #[tokio::test]
+    async fn cancelled_first_close_does_not_publish_completion_early() {
+        let (physical, handle) = gated_close_link();
+        let mux = Arc::new(
+            LaneMuxLink::new(
+                "single-physical",
+                vec![LinkRoute { lanes: Lane::ALL.to_vec(), link: Arc::new(physical) }],
+            )
+            .unwrap(),
+        );
+
+        let first_mux = mux.clone();
+        let first = tokio::spawn(async move { first_mux.close().await });
+        wait_for_signal(&handle.started, "first physical close").await;
+        first.abort();
+        assert!(first.await.unwrap_err().is_cancelled());
+
+        let second_mux = mux.clone();
+        let second = tokio::spawn(async move { second_mux.close().await });
+        tokio::task::yield_now().await;
+        assert!(!second.is_finished(), "second close returned before physical cleanup");
+
+        handle.release.add_permits(1);
+        tokio::time::timeout(Duration::from_secs(1), second)
+            .await
+            .expect("second close did not observe background cleanup")
+            .unwrap()
+            .unwrap();
+        wait_for_signal(&handle.finished, "completed physical close").await;
+    }
+
+    #[tokio::test]
     async fn drop_cancels_pending_physical_reader() {
         let receive_calls = Arc::new(Semaphore::new(0));
         let dropped = Arc::new(Semaphore::new(0));
@@ -1291,6 +1451,25 @@ mod tests {
             .await
             .expect("close did not bypass saturated ingress");
         assert!(matches!(receive, Err(LinkError::Closed)));
+    }
+
+    #[tokio::test]
+    async fn explicit_close_discards_a_fenced_terminal_without_panicking() {
+        let (physical, handle) = controlled_receive_link("single", 65_535);
+        let mux = LaneMuxLink::new(
+            "single-physical",
+            vec![LinkRoute { lanes: Lane::ALL.to_vec(), link: Arc::new(physical) }],
+        )
+        .unwrap();
+
+        let ControlledReceiveHandle { incoming, receive_calls } = handle;
+        incoming.send(session_close_frame(1)).unwrap();
+        drop(incoming);
+        wait_for_receive_calls(&receive_calls, 2).await;
+        wait_for_terminal_state(&mux).await;
+
+        mux.close().await.unwrap();
+        assert!(matches!(mux.receive().await, Err(LinkError::Closed)));
     }
 
     #[tokio::test]

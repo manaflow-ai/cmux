@@ -758,7 +758,7 @@ mod tests {
     use tokio::sync::{Mutex as AsyncMutex, Semaphore};
 
     use super::*;
-    use crate::link::test_support;
+    use crate::link::{LaneMuxLink, LinkRoute, test_support};
 
     struct GatedRecordingLink {
         first: AtomicBool,
@@ -772,6 +772,11 @@ mod tests {
 
     struct ReceiveThenRejectAckLink {
         incoming: AsyncMutex<Option<Bytes>>,
+    }
+
+    struct GatedAckLink {
+        incoming: AsyncMutex<mpsc::UnboundedReceiver<Bytes>>,
+        send_entered: Semaphore,
     }
 
     #[async_trait]
@@ -813,6 +818,30 @@ mod tests {
 
         async fn receive(&self) -> Result<Option<Bytes>, LinkError> {
             Ok(self.incoming.lock().await.take())
+        }
+
+        async fn close(&self) -> Result<(), LinkError> {
+            Ok(())
+        }
+    }
+
+    #[async_trait]
+    impl FrameLink for GatedAckLink {
+        fn description(&self) -> &str {
+            "gated-ack"
+        }
+
+        fn maximum_frame_bytes(&self) -> usize {
+            128 * 1024
+        }
+
+        async fn send(&self, _frame: Bytes) -> Result<(), LinkError> {
+            self.send_entered.add_permits(1);
+            std::future::pending().await
+        }
+
+        async fn receive(&self) -> Result<Option<Bytes>, LinkError> {
+            Ok(self.incoming.lock().await.recv().await)
         }
 
         async fn close(&self) -> Result<(), LinkError> {
@@ -919,6 +948,60 @@ mod tests {
 
         let received = session.receive().await.unwrap().unwrap();
         assert_eq!(received.sequence, 1);
+        assert!(received.flags.contains(FrameFlags::SESSION_CLOSE));
+    }
+
+    #[tokio::test]
+    async fn duplicate_replay_ack_failure_does_not_hide_admitted_session_close() {
+        let session_id = SessionId([17; 16]);
+        let (incoming_tx, incoming_rx) = mpsc::unbounded_channel();
+        let physical = Arc::new(GatedAckLink {
+            incoming: AsyncMutex::new(incoming_rx),
+            send_entered: Semaphore::new(0),
+        });
+        let mux = Arc::new(
+            LaneMuxLink::new(
+                "duplicate replay terminal drain",
+                vec![LinkRoute { lanes: Lane::ALL.to_vec(), link: physical.clone() }],
+            )
+            .unwrap(),
+        );
+        let session = ReliableSession::new(session_id, mux.clone(), SessionLimits::default());
+        let first = WireFrame {
+            session: session_id,
+            generation: 0,
+            lane: Lane::Control,
+            flags: FrameFlags::RELIABLE,
+            sequence: 1,
+            acknowledgement: 0,
+            stream: 2,
+            payload: b"once".to_vec(),
+        };
+        incoming_tx.send(Bytes::from(first.encode().unwrap())).unwrap();
+        assert_eq!(session.receive().await.unwrap().unwrap().payload, b"once".as_slice());
+        physical.send_entered.acquire().await.unwrap().forget();
+
+        let duplicate = WireFrame { flags: first.flags.union(FrameFlags::REPLAY), ..first };
+        let close = WireFrame {
+            session: session_id,
+            generation: 0,
+            lane: Lane::Control,
+            flags: FrameFlags::RELIABLE.union(FrameFlags::SESSION_CLOSE),
+            sequence: 2,
+            acknowledgement: 0,
+            stream: 0,
+            payload: Vec::new(),
+        };
+        incoming_tx.send(Bytes::from(duplicate.encode().unwrap())).unwrap();
+        incoming_tx.send(Bytes::from(close.encode().unwrap())).unwrap();
+        drop(incoming_tx);
+
+        let received = tokio::time::timeout(Duration::from_secs(1), session.receive())
+            .await
+            .expect("session close remained hidden behind duplicate ACK")
+            .expect("duplicate ACK failure hid the admitted session close")
+            .expect("session ended before the admitted session close");
+        assert_eq!(received.sequence, 2);
         assert!(received.flags.contains(FrameFlags::SESSION_CLOSE));
     }
 
