@@ -1859,6 +1859,133 @@ mod tests {
     }
 
     #[tokio::test]
+    async fn priority_reserves_keep_control_and_interactive_available_under_bulk_pressure() {
+        const KIB: usize = 1024;
+        const TOTAL_BUDGET: usize = 8 * KIB;
+        const BULK_TUNNEL_CEILING: usize = 6 * KIB;
+        const NON_INTERACTIVE_CEILING: usize = 7 * KIB;
+
+        // This 8 KiB model fixes the production ratios: Bulk and Tunnel may
+        // consume 24 of 32 MiB, all non-Interactive traffic may consume 28
+        // MiB, Control plus Interactive retain 8 MiB, and Interactive alone
+        // retains the final 4 MiB.
+        assert_eq!(TOTAL_BUDGET - BULK_TUNNEL_CEILING, 2 * KIB);
+        assert_eq!(TOTAL_BUDGET - NON_INTERACTIVE_CEILING, KIB);
+
+        let (client_endpoint, daemon_endpoint) = endpoint_pair();
+        let client = ServiceMultiplexer::new_with_incoming_budget(
+            client_endpoint,
+            EndpointRole::Client,
+            TOTAL_BUDGET,
+        );
+        let bulk = client.open(Service::MuxControl, BTreeMap::new()).await.unwrap();
+        let additional_bulk = client.open(Service::MuxControl, BTreeMap::new()).await.unwrap();
+        let control = client.open(Service::MuxControl, BTreeMap::new()).await.unwrap();
+        let additional_control = client.open(Service::MuxControl, BTreeMap::new()).await.unwrap();
+        let interactive = client.open(Service::MuxControl, BTreeMap::new()).await.unwrap();
+
+        for _ in 0..BULK_TUNNEL_CEILING / KIB {
+            daemon_endpoint
+                .send_frame(
+                    None,
+                    Lane::Bulk,
+                    bulk.id(),
+                    Bytes::from(vec![b'b'; KIB]),
+                    FrameFlags::empty(),
+                )
+                .await
+                .unwrap();
+        }
+        daemon_endpoint
+            .send_frame(
+                None,
+                Lane::Bulk,
+                additional_bulk.id(),
+                Bytes::from_static(b"bulk-overflow"),
+                FrameFlags::empty(),
+            )
+            .await
+            .unwrap();
+        daemon_endpoint
+            .send_frame(
+                None,
+                Lane::Control,
+                control.id(),
+                Bytes::from_static(b"control-marker"),
+                FrameFlags::empty(),
+            )
+            .await
+            .unwrap();
+        daemon_endpoint
+            .send_frame(
+                None,
+                Lane::Control,
+                additional_control.id(),
+                Bytes::from_static(b"control-overflow"),
+                FrameFlags::empty(),
+            )
+            .await
+            .unwrap();
+        daemon_endpoint
+            .send_frame(
+                None,
+                Lane::Interactive,
+                interactive.id(),
+                Bytes::from_static(b"interactive-marker"),
+                FrameFlags::empty(),
+            )
+            .await
+            .unwrap();
+
+        // Receiving the last frame synchronizes with all earlier inbound
+        // frames. Keep every returned chunk alive so no permit is released
+        // before all tier outcomes have been observed.
+        let interactive_result =
+            tokio::time::timeout(Duration::from_secs(1), interactive.receive())
+                .await
+                .expect("reader stalled before applying the priority reserve policy");
+        assert_eq!(
+            bulk.receiver.lock().await.chunks.len(),
+            BULK_TUNNEL_CEILING / KIB,
+            "the original Bulk backlog must remain undrained"
+        );
+        assert_eq!(bulk.failure.borrow().clone(), None, "the admitted Bulk stream was reset");
+        let additional_bulk_result = additional_bulk.receive().await;
+        let control_result = control.receive().await;
+        let additional_control_result = additional_control.receive().await;
+
+        let additional_bulk_was_reset = matches!(
+            &additional_bulk_result,
+            Err(ServiceError::Reset(message)) if message.contains("byte budget")
+        );
+        let control_was_delivered = matches!(
+            &control_result,
+            Ok(Some(chunk))
+                if chunk.lane == Lane::Control
+                    && chunk.payload == b"control-marker".as_slice()
+        );
+        let additional_control_was_reset = matches!(
+            &additional_control_result,
+            Err(ServiceError::Reset(message)) if message.contains("byte budget")
+        );
+        let interactive_was_delivered = matches!(
+            &interactive_result,
+            Ok(Some(chunk))
+                if chunk.lane == Lane::Interactive
+                    && chunk.payload == b"interactive-marker".as_slice()
+        );
+        assert!(
+            additional_bulk_was_reset
+                && control_was_delivered
+                && additional_control_was_reset
+                && interactive_was_delivered,
+            "priority reserve violation: additional_bulk={additional_bulk_result:?}, \
+             control={control_result:?}, additional_control={additional_control_result:?}, \
+             interactive={interactive_result:?}"
+        );
+    }
+
+    #[tokio::test]
     async fn completed_stream_does_not_poison_the_next_stream() {
         let (client_endpoint, daemon_endpoint) = endpoint_pair();
         let client = ServiceMultiplexer::new(client_endpoint, EndpointRole::Client);
