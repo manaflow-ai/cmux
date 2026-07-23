@@ -315,6 +315,8 @@ class CmuxRuntimeAdapter:
             "--type",
             kind,
         ]
+        if kind == "terminal":
+            args.extend(("--working-directory", str(self.config.output_root)))
         if url is not None:
             if not url.startswith("file://"):
                 raise ValueError("browser fixture URLs must be local file URLs")
@@ -366,32 +368,37 @@ class CmuxRuntimeAdapter:
         initial_terminal = initial_refs[0]
         if not isinstance(initial_terminal, str):
             raise ValueError("initial terminal reference is invalid")
+        startup_surfaces = self._surfaces()
+        if len(startup_surfaces) != 1 or not isinstance(startup_surfaces[0], Mapping):
+            raise ValueError("clean startup workspace must contain one observable surface")
+        startup_surface = startup_surfaces[0]
+        if _extract_ref(startup_surface, "surface") != initial_terminal:
+            raise ValueError("startup surface identity changed before fixture creation")
+        if _surface_type(startup_surface) != "terminal":
+            raise ValueError("startup surface must be a terminal")
 
         self._plan = plan
         self._terminal_actual_ids.clear()
         self._browser_actual_ids.clear()
         terminals = expected["terminal_surfaces"]
-        if terminals:
-            self._terminal_actual_ids["terminal-001"] = initial_terminal
-            for index in range(2, terminals + 1):
-                self._terminal_actual_ids[f"terminal-{index:03d}"] = self._new_surface(
-                    "terminal"
-                )
+        for index in range(1, terminals + 1):
+            self._terminal_actual_ids[f"terminal-{index:03d}"] = self._new_surface(
+                "terminal"
+            )
         for browser in plan.browser_surfaces:
             self._browser_actual_ids[browser.surface_id] = self._new_surface(
                 "browser", url=browser.url
             )
-        if terminals == 0:
-            self._runner.run_cli(
-                [
-                    "close-surface",
-                    "--workspace",
-                    self._workspace_id,
-                    "--surface",
-                    initial_terminal,
-                ],
-                timeout=self.config.rpc_timeout_s,
-            )
+        self._runner.run_cli(
+            [
+                "close-surface",
+                "--workspace",
+                self._workspace_id,
+                "--surface",
+                initial_terminal,
+            ],
+            timeout=self.config.rpc_timeout_s,
+        )
 
         self._runner.run_cli(
             ["select-workspace", "--workspace", self._workspace_id],
