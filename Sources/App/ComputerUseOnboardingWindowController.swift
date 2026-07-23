@@ -170,10 +170,9 @@ final class ComputerUseOnboardingWindowController: NSObject, NSWindowDelegate {
             origin: window.frame.origin,
             size: Self.permissionCompanionWindowSize
         )
-        configure(
+        configureForPermissionCompanion(
             window,
             frame: provisionalFrame,
-            showsStandardButtons: false,
             animate: shouldAnimate(window)
         )
         beginSystemSettingsPlacementRetry(requestID: requestID)
@@ -232,10 +231,9 @@ final class ComputerUseOnboardingWindowController: NSObject, NSWindowDelegate {
             in: permissionDisplay
         )
         guard window.frame != frame else { return true }
-        configure(
+        configureForPermissionCompanion(
             window,
             frame: frame,
-            showsStandardButtons: false,
             animate: animate && shouldAnimate(window)
         )
         return true
@@ -337,6 +335,23 @@ final class ComputerUseOnboardingWindowController: NSObject, NSWindowDelegate {
         )
         NSApp.activate(ignoringOtherApps: true)
         window.makeKeyAndOrderFront(nil)
+    }
+
+    /// Applies the compact permission presentation without changing its behavior.
+    ///
+    /// Kept as one shared path for provisional and System Settings-relative
+    /// placement so the real transition can be exercised by the app test target.
+    func configureForPermissionCompanion(
+        _ window: ComputerUseOnboardingWindow,
+        frame: NSRect,
+        animate: Bool = false
+    ) {
+        configure(
+            window,
+            frame: frame,
+            showsStandardButtons: false,
+            animate: animate
+        )
     }
 
     private func configure(

@@ -489,6 +489,24 @@ struct ComputerUseUXTests {
         }
     }
 
+    @Test @MainActor func permissionCompanionUsesItsEntireFixedFrameForContent() {
+        let companionSize = CGSize(width: 532, height: 110)
+        let controller = ComputerUseOnboardingWindowController(
+            runtimeService: ComputerUseRuntimeService()
+        )
+        let window = controller.makeWindow()
+        defer { window.close() }
+
+        controller.configureForPermissionCompanion(
+            window,
+            frame: NSRect(origin: window.frame.origin, size: companionSize)
+        )
+
+        #expect(window.frame.size == companionSize)
+        #expect(window.contentView?.frame.size == companionSize)
+        #expect(window.contentLayoutRect.size == companionSize)
+    }
+
     @Test func permissionRowsKeepOneRepeatableAllowFlowUntilGranted() {
         #expect(ComputerUsePermissionRowAction.resolve(
             granted: false,
@@ -797,6 +815,62 @@ struct ComputerUseUXTests {
             environment: ["CMUX_TAG": "restart-safe"]
         )
         #expect(relaunched.authenticationToken == credential)
+    }
+
+    @Test(.timeLimit(.minutes(1))) @MainActor
+    func permissionRefreshSurvivesHelperSocketReplacement() async throws {
+        let root = FileManager.default.temporaryDirectory
+            .appendingPathComponent(
+                "cmux-computer-use-permissions-\(UUID().uuidString)",
+                isDirectory: true
+            )
+        defer { try? FileManager.default.removeItem(at: root) }
+        let home = root.appendingPathComponent("home", isDirectory: true)
+        let sockets = root.appendingPathComponent("sockets", isDirectory: true)
+        try FileManager.default.createDirectory(
+            at: home,
+            withIntermediateDirectories: true
+        )
+        try FileManager.default.createDirectory(
+            at: sockets,
+            withIntermediateDirectories: true
+        )
+        let paths = ComputerUseRuntimePaths(
+            homeDirectoryURL: home,
+            socketRootDirectoryURL: sockets,
+            userIdentifier: getuid(),
+            environment: ["CMUX_TAG": "permission-replacement"],
+            authenticationToken: "permission-test-token"
+        )
+        let runtime = ComputerUseRuntimeService(
+            bundle: Bundle(for: NSApplication.self),
+            paths: paths
+        )
+        await runtime.setEnabled(true)
+
+        let unavailable = try UnixSocketResponder(
+            path: paths.daemonSocketURL.path,
+            response: #"{"ok":false}"#
+        )
+        let refreshTask = Task { @MainActor in
+            await runtime.refreshHelperStatus()
+        }
+        while unavailable.receivedRequests.isEmpty {
+            await Task.yield()
+        }
+        unavailable.stop()
+
+        let replacement = try UnixSocketResponder(
+            path: paths.daemonSocketURL.path,
+            response: #"{"ok":true,"result":{"structuredContent":{"accessibility":true,"screen_recording":true}}}"#
+        )
+        let status = await refreshTask.value
+        replacement.stop()
+        await runtime.setEnabled(false)
+
+        #expect(runtime.permissionStatusIsKnown)
+        #expect(status.accessibility)
+        #expect(status.screenRecording)
     }
 
     @Test func helperLaunchConfigurationIsQuietAndExternallyOwned() throws {
@@ -1139,6 +1213,172 @@ struct ComputerUseUXTests {
                 break
             }
         }
+    }
+
+    @Test(.timeLimit(.minutes(1))) @MainActor
+    func backgroundActivityCannotFrontItsTargetAndViewResumesIt() async throws {
+        let directory = FileManager.default.temporaryDirectory
+            .appendingPathComponent(
+                "cmux-computer-use-background-\(UUID().uuidString)",
+                isDirectory: true
+            )
+        try FileManager.default.createDirectory(
+            at: directory,
+            withIntermediateDirectories: true
+        )
+        defer { try? FileManager.default.removeItem(at: directory) }
+
+        let target = try #require(NSWorkspace.shared.runningApplications.first {
+            $0.processIdentifier != ProcessInfo.processInfo.processIdentifier
+                && !$0.isTerminated
+                && $0.bundleIdentifier?.isEmpty == false
+                && $0.localizedName?.isEmpty == false
+                && $0.launchDate != nil
+        })
+        let targetName = try #require(target.localizedName)
+        let targetBundleIdentifier = try #require(target.bundleIdentifier)
+        let targetLaunchDate = try #require(target.launchDate)
+        let writerIdentity = try #require(AgentPIDProcessIdentity(
+            pid: ProcessInfo.processInfo.processIdentifier
+        ))
+        let backgroundSurfaceID = UUID()
+        let foregroundSurfaceID = UUID()
+        let backgroundDriverSessionID =
+            ComputerUseSessionScope.driverSessionID(
+                surfaceID: backgroundSurfaceID
+            )
+        let foregroundDriverSessionID =
+            ComputerUseSessionScope.driverSessionID(
+                surfaceID: foregroundSurfaceID
+            )
+        let backgroundLogicalSessionID = "background-logical-session"
+        let foregroundLogicalSessionID = "foreground-logical-session"
+        let backgroundSession = ComputerUseLiveDriverSession(
+            workspaceID: UUID(),
+            surfaceID: backgroundSurfaceID,
+            logicalSessionID: backgroundLogicalSessionID,
+            rootProcessIdentities: [writerIdentity]
+        )
+        let foregroundSession = ComputerUseLiveDriverSession(
+            workspaceID: UUID(),
+            surfaceID: foregroundSurfaceID,
+            logicalSessionID: foregroundLogicalSessionID,
+            rootProcessIdentities: [writerIdentity]
+        )
+        let sessions = [
+            backgroundDriverSessionID: backgroundSession,
+            foregroundDriverSessionID: foregroundSession,
+        ]
+        let sessionsBySurfaceID = Dictionary(
+            uniqueKeysWithValues: sessions.values.map {
+                ($0.surfaceID, $0)
+            }
+        )
+        var featureEnabled = false
+        var reportScannedSession = false
+        let scannedSessions = AsyncStream.makeStream(
+            of: String.self,
+            bufferingPolicy: .bufferingNewest(1)
+        )
+        defer { scannedSessions.continuation.finish() }
+        var activatedProcessIdentifiers: [pid_t] = []
+        let controller = ComputerUseWatchTargetController(
+            stateDirectoryURL: directory,
+            featureEnabled: { featureEnabled },
+            liveDriverSessions: { sessions },
+            currentLiveDriverSession: { scannedSession in
+                if reportScannedSession {
+                    scannedSessions.continuation.yield(
+                        scannedSession.logicalSessionID
+                    )
+                }
+                return sessionsBySurfaceID[scannedSession.surfaceID]
+            },
+            feed: ComputerUseWatchTargetFeed(
+                authenticationKey: Self.stateAuthenticationKey
+            ),
+            activate: { application in
+                activatedProcessIdentifiers.append(
+                    application.processIdentifier
+                )
+            }
+        )
+        controller.start()
+        defer { controller.stop() }
+
+        #expect(controller.continueInBackground(
+            driverSessionID: backgroundDriverSessionID,
+            logicalSessionID: backgroundLogicalSessionID,
+            stateWriterIdentity: writerIdentity
+        ))
+
+        let actionDate = max(Date(), targetLaunchDate)
+        let formatter = ISO8601DateFormatter()
+        formatter.formatOptions = [
+            .withInternetDateTime,
+            .withFractionalSeconds,
+        ]
+        let foregroundState = try Self.authenticatedStateData(
+            driverPID: 71_001,
+            writerPID: Int(writerIdentity.pid),
+            writerStartSeconds: writerIdentity.startSeconds,
+            writerStartMicroseconds: writerIdentity.startMicroseconds,
+            session: foregroundDriverSessionID,
+            targetApp: "cmux test host",
+            targetPID: Int(ProcessInfo.processInfo.processIdentifier),
+            targetWindowID: 7,
+            lastActionAt: formatter.string(from: actionDate)
+        )
+        let backgroundState = try Self.authenticatedStateData(
+            driverPID: 71_002,
+            writerPID: Int(writerIdentity.pid),
+            writerStartSeconds: writerIdentity.startSeconds,
+            writerStartMicroseconds: writerIdentity.startMicroseconds,
+            session: backgroundDriverSessionID,
+            targetApp: targetName,
+            targetPID: Int(target.processIdentifier),
+            targetWindowID: 8,
+            lastActionAt: formatter.string(
+                from: actionDate.addingTimeInterval(0.1)
+            )
+        )
+        try foregroundState.write(
+            to: directory.appendingPathComponent("foreground.json"),
+            options: .atomic
+        )
+        try backgroundState.write(
+            to: directory.appendingPathComponent("background.json"),
+            options: .atomic
+        )
+
+        reportScannedSession = true
+        featureEnabled = true
+        NotificationCenter.default.post(
+            name: .cmuxFeatureFlagsDidChange,
+            object: nil
+        )
+        var scannedIterator = scannedSessions.stream.makeAsyncIterator()
+        let scannedLogicalSessionID = await scannedIterator.next()
+
+        #expect(scannedLogicalSessionID == foregroundLogicalSessionID)
+        #expect(activatedProcessIdentifiers.isEmpty)
+
+        let identity = ComputerUseTargetIdentity(
+            processIdentifier: Int(target.processIdentifier),
+            bundleIdentifier: targetBundleIdentifier,
+            launchDate: targetLaunchDate
+        )
+        #expect(controller.viewTarget(
+            identity,
+            driverSessionID: backgroundDriverSessionID,
+            logicalSessionID: backgroundLogicalSessionID,
+            stateWriterIdentity: writerIdentity
+        ))
+        #expect(activatedProcessIdentifiers == [target.processIdentifier])
+        #expect(!controller.isRunningInBackground(
+            driverSessionID: backgroundDriverSessionID,
+            logicalSessionID: backgroundLogicalSessionID
+        ))
     }
 
     @Test @MainActor func computerUsePresentationModeResetsAfterLiveSessionsEnd() throws {
