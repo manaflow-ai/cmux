@@ -2,27 +2,57 @@ import Foundation
 
 /// Applies the workspace diff's byte and line caps at complete-hunk boundaries.
 struct WorkspaceDiffTruncator {
+    static let defaultMaximumBytes = 400 * 1024
+    static let defaultMaximumLines = 6_000
+    static let abuseGuardMaximumBytes = 64 * 1024 * 1024
+    static let abuseGuardMaximumLines = 1_000_000
+
     let maximumBytes: Int
     let maximumLines: Int
 
-    init(maximumBytes: Int = 400 * 1024, maximumLines: Int = 6_000) {
+    init(
+        maximumBytes: Int = Self.defaultMaximumBytes,
+        maximumLines: Int = Self.defaultMaximumLines
+    ) {
         self.maximumBytes = maximumBytes
         self.maximumLines = maximumLines
     }
 
-    func truncate(_ diff: String) -> (text: String, truncated: Bool) {
+    init(requestedMaximumLines: Int?) {
+        guard let requestedMaximumLines else {
+            self.init()
+            return
+        }
+        let clampedLines = min(
+            max(requestedMaximumLines, Self.defaultMaximumLines),
+            Self.abuseGuardMaximumLines
+        )
+        let scaledBytes = (
+            clampedLines * Self.defaultMaximumBytes + Self.defaultMaximumLines - 1
+        ) / Self.defaultMaximumLines
+        self.init(
+            maximumBytes: min(scaledBytes, Self.abuseGuardMaximumBytes),
+            maximumLines: clampedLines
+        )
+    }
+
+    func truncate(_ diff: String) -> (text: String, truncated: Bool, totalLineCount: Int) {
         let lines = diff.split(separator: "\n", omittingEmptySubsequences: false).map(String.init)
         guard diff.utf8.count > maximumBytes || lines.count > maximumLines else {
-            return (diff, false)
+            return (diff, false, lines.count)
         }
 
         let hunkStarts = lines.indices.filter { lines[$0].hasPrefix("@@") }
         guard let firstHunkStart = hunkStarts.first else {
-            return cappedPrefix(of: lines)
+            let bounded = cappedPrefix(of: lines)
+            return (bounded.text, bounded.truncated, lines.count)
         }
 
         var accepted = Array(lines[..<firstHunkStart])
-        guard fits(accepted) else { return cappedPrefix(of: accepted) }
+        guard fits(accepted) else {
+            let bounded = cappedPrefix(of: accepted)
+            return (bounded.text, bounded.truncated, lines.count)
+        }
         var acceptedBytes = byteCount(of: accepted)
         for (offset, hunkStart) in hunkStarts.enumerated() {
             let end = offset + 1 < hunkStarts.count ? hunkStarts[offset + 1] : lines.endIndex
@@ -54,7 +84,7 @@ struct WorkspaceDiffTruncator {
                 accepted.append(contentsOf: body)
             }
         }
-        return (accepted.joined(separator: "\n"), true)
+        return (accepted.joined(separator: "\n"), true, lines.count)
     }
 
     /// Rewrites `@@ -a,b +c,d @@` so the old/new counts describe exactly the

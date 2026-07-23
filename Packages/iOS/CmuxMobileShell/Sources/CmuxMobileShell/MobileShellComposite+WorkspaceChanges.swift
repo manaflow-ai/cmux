@@ -140,23 +140,29 @@ extension MobileShellComposite {
         return .transport
     }
 
-    /// Fetches the bounded unified diff for one changed path.
+    /// Fetches a progressively bounded unified diff for one changed path.
     /// - Parameters:
     ///   - workspaceID: Mac-local workspace identifier.
     ///   - path: Repository-relative changed path.
+    ///   - maxLines: Optional progressive line budget.
     /// - Returns: The decoded file-diff response.
     /// - Throws: A connection, authorization, RPC, or decoding error.
     public func fetchFileDiff(
         workspaceID: String,
-        path: String
+        path: String,
+        maxLines: Int? = nil
     ) async throws -> MobileWorkspaceFileDiffResponse {
         let client = try workspaceChangesClient()
+        var params: [String: Any] = [
+            "workspace_id": workspaceID,
+            "path": path,
+        ]
+        if let maxLines {
+            params["max_lines"] = maxLines
+        }
         let request = try MobileCoreRPCClient.requestData(
             method: "mobile.workspace.changes.file_diff",
-            params: [
-                "workspace_id": workspaceID,
-                "path": path,
-            ]
+            params: params
         )
         let data = try await client.sendRequest(request)
         guard remoteClient === client, connectionState == .connected else {

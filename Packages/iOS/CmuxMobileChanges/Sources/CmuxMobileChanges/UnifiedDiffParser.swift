@@ -19,14 +19,25 @@ public struct UnifiedDiffParser: Sendable {
     ///   - unifiedDiff: Raw Git unified-diff output.
     ///   - truncated: Whether the host truncated the raw diff.
     ///   - isBinary: Whether the file is binary.
+    ///   - totalLineCount: Number of lines in the full raw diff, when reported.
     /// - Returns: A display-ready document. Empty and rename-only diffs contain no hunks.
     public func parse(
         _ unifiedDiff: String,
         truncated: Bool = false,
-        isBinary: Bool = false
+        isBinary: Bool = false,
+        totalLineCount: Int? = nil
     ) -> FileDiffDocument {
+        let loadedLineCount = unifiedDiff.isEmpty
+            ? 0
+            : unifiedDiff.components(separatedBy: "\n").count
         guard !unifiedDiff.isEmpty, !isBinary else {
-            return FileDiffDocument(hunks: [], truncated: truncated, isBinary: isBinary)
+            return FileDiffDocument(
+                hunks: [],
+                truncated: truncated,
+                isBinary: isBinary,
+                loadedLineCount: loadedLineCount,
+                totalLineCount: totalLineCount
+            )
         }
 
         // `String.split(separator: "\n")` treats CRLF as one extended
@@ -100,7 +111,13 @@ public struct UnifiedDiffParser: Sendable {
             }
         }
         appendHunk(header: currentHeader, lines: currentLines, to: &hunks)
-        return FileDiffDocument(hunks: hunks, truncated: truncated, isBinary: isBinary)
+        return FileDiffDocument(
+            hunks: hunks,
+            truncated: truncated,
+            isBinary: isBinary,
+            loadedLineCount: loadedLineCount,
+            totalLineCount: totalLineCount
+        )
     }
 
     private func appendHunk(

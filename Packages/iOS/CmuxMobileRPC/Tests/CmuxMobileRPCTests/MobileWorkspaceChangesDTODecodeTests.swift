@@ -111,7 +111,8 @@ import Testing
           "additions": 2,
           "deletions": 1,
           "unified_diff": "@@ -1 +1,2 @@\\n-old\\n+new\\n+line\\n",
-          "truncated": true
+          "truncated": true,
+          "diff_total_lines": 12004
         }
         """.utf8)
 
@@ -123,6 +124,7 @@ import Testing
         #expect(response.deletions == 1)
         #expect(response.unifiedDiff.hasPrefix("@@ -1 +1,2 @@"))
         #expect(response.truncated)
+        #expect(response.diffTotalLines == 12_004)
     }
 
     @Test func fileDiffTreatsMissingFieldsAsDefaults() throws {
@@ -133,5 +135,6 @@ import Testing
         #expect(!response.isBinary)
         #expect(response.unifiedDiff.isEmpty)
         #expect(!response.truncated)
+        #expect(response.diffTotalLines == nil)
     }
 }

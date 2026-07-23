@@ -93,25 +93,34 @@ public struct ChangesPreviewView: View {
     }
 
     private var pagerActions: WorkspaceFileDiffPagerActions {
-        WorkspaceFileDiffPagerActions(
-            onLoad: { path, forceRefresh in
-                if !forceRefresh, let cached = cachedDocuments[path] { return cached }
-                // An intentional bounded fixture delay makes the real skeleton observable.
-                try await ContinuousClock().sleep(for: .milliseconds(150))
-                guard let document = fixture.documents[path] else {
-                    throw ChangesPreviewError.missingDocument
-                }
-                cachedDocuments[path] = document
-                return document
-            },
-            onLoadCurrentLines: { _ in
-                (1...80).map { "preview line \($0)" }
-            },
-            onPersistFontSize: { pointSize in
-                fontSize = pointSize
-                fontPreference.pointSize = pointSize
-            },
-            onCopy: { UIPasteboard.general.string = $0 },
+        let loadDocument: @MainActor @Sendable (String, Bool, Int?) async throws -> FileDiffDocument = {
+            path,
+            forceRefresh,
+            _ in
+            if !forceRefresh, let cached = cachedDocuments[path] { return cached }
+            // An intentional bounded fixture delay makes the real skeleton observable.
+            try await ContinuousClock().sleep(for: .milliseconds(150))
+            guard let document = fixture.documents[path] else {
+                throw ChangesPreviewError.missingDocument
+            }
+            cachedDocuments[path] = document
+            return document
+        }
+        let loadCurrentLines: @MainActor @Sendable (String) async throws -> [String] = { _ in
+            (1...80).map { "preview line \($0)" }
+        }
+        let persistFontSize: @MainActor @Sendable (Double) -> Void = { pointSize in
+            fontSize = pointSize
+            fontPreference.pointSize = pointSize
+        }
+        let copy: @MainActor @Sendable (String) -> Void = {
+            UIPasteboard.general.string = $0
+        }
+        return WorkspaceFileDiffPagerActions(
+            onLoad: loadDocument,
+            onLoadCurrentLines: loadCurrentLines,
+            onPersistFontSize: persistFontSize,
+            onCopy: copy,
             inlinePreview: nil
         )
     }

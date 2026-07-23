@@ -72,12 +72,15 @@ public struct WorkspaceFileDiffPagerView: View {
     private var pages: some View {
         TabView(selection: $selection) {
             ForEach(Array(files.enumerated()), id: \.element.path) { index, file in
+                let fontSizeChanged: @MainActor @Sendable (Double) -> Void = {
+                    fontSize = $0
+                }
                 FileDiffPageView(
                     fileIndex: index,
                     file: file,
                     initialDocument: cachedDocuments[file.path],
                     fontSize: fontSize,
-                    onFontSizeChanged: { fontSize = $0 },
+                    onFontSizeChanged: fontSizeChanged,
                     onPersistFontSize: actions.onPersistFontSize,
                     onLoad: actions.onLoad,
                     onLoadCurrentLines: actions.onLoadCurrentLines,

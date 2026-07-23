@@ -18,6 +18,8 @@ public struct MobileWorkspaceFileDiffResponse: Decodable, Sendable, Equatable {
     public let unifiedDiff: String
     /// Whether the host omitted complete hunks because of its response cap.
     public let truncated: Bool
+    /// Number of lines in the full diff, when reported by the host.
+    public let diffTotalLines: Int?
 
     private enum CodingKeys: String, CodingKey {
         case path
@@ -28,6 +30,7 @@ public struct MobileWorkspaceFileDiffResponse: Decodable, Sendable, Equatable {
         case deletions
         case unifiedDiff = "unified_diff"
         case truncated
+        case diffTotalLines = "diff_total_lines"
     }
 
     /// Decodes the diff response with safe defaults for omitted fields.
@@ -43,6 +46,7 @@ public struct MobileWorkspaceFileDiffResponse: Decodable, Sendable, Equatable {
         deletions = (try? container.decodeIfPresent(Int.self, forKey: .deletions)) ?? 0
         unifiedDiff = (try? container.decodeIfPresent(String.self, forKey: .unifiedDiff)) ?? ""
         truncated = (try? container.decodeIfPresent(Bool.self, forKey: .truncated)) ?? false
+        diffTotalLines = try? container.decodeIfPresent(Int.self, forKey: .diffTotalLines)
     }
 
     /// Decode a file-diff response from raw JSON data.

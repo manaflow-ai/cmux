@@ -8,7 +8,7 @@ public struct FileDiffPageView: View {
     private let fontSize: Double
     private let onFontSizeChanged: @MainActor @Sendable (Double) -> Void
     private let onPersistFontSize: @MainActor @Sendable (Double) -> Void
-    private let onLoad: @MainActor @Sendable (String, Bool) async throws -> FileDiffDocument
+    private let onLoad: @MainActor @Sendable (String, Bool, Int?) async throws -> FileDiffDocument
     private let onLoadCurrentLines: @MainActor @Sendable (String) async throws -> [String]
     private let onCopy: @MainActor @Sendable (String) -> Void
     private let inlinePreview: (@MainActor @Sendable (_ index: Int, _ revision: FileDiffPreviewRevision) -> AnyView)?
@@ -22,6 +22,8 @@ public struct FileDiffPageView: View {
     @State private var failedExpansionGapID: Int?
     @State private var failedExpansionDirection: DiffExpansionDirection?
     @State private var expansionContentTooLarge = false
+    @State private var lineBudget = FileDiffContinuation.defaultLineBudget
+    @State private var continuationLoadState = FileDiffContinuationLoadState.idle
     @Environment(\.colorScheme) private var colorScheme
 
     /// Creates one value-driven diff page.
@@ -32,7 +34,7 @@ public struct FileDiffPageView: View {
     ///   - fontSize: Current live diff font size.
     ///   - onFontSizeChanged: Live pinch callback.
     ///   - onPersistFontSize: End-of-pinch persistence callback.
-    ///   - onLoad: Parsed document loader with a force-refresh flag.
+    ///   - onLoad: Parsed document loader with refresh and optional line-budget inputs.
     ///   - onLoadCurrentLines: Fetch-once loader for the current working-tree text.
     ///   - onCopy: Clipboard seam.
     ///   - inlinePreview: Optional binary-preview builder supplied by the composition layer.
@@ -43,7 +45,7 @@ public struct FileDiffPageView: View {
         fontSize: Double,
         onFontSizeChanged: @escaping @MainActor @Sendable (Double) -> Void,
         onPersistFontSize: @escaping @MainActor @Sendable (Double) -> Void,
-        onLoad: @escaping @MainActor @Sendable (String, Bool) async throws -> FileDiffDocument,
+        onLoad: @escaping @MainActor @Sendable (String, Bool, Int?) async throws -> FileDiffDocument,
         onLoadCurrentLines: @escaping @MainActor @Sendable (String) async throws -> [String],
         onCopy: @escaping @MainActor @Sendable (String) -> Void,
         inlinePreview: (@MainActor @Sendable (_ index: Int, _ revision: FileDiffPreviewRevision) -> AnyView)? = nil
@@ -129,12 +131,20 @@ public struct FileDiffPageView: View {
                     fileKind: file.kind
                 )
                 let gutterWidth = gutterWidth(for: rows)
+                let continuation = FileDiffContinuation(
+                    lineBudget: lineBudget,
+                    document: document
+                )
                 LazyVStack(spacing: 0) {
                     ForEach(rows) { row in
                         diffRow(row, gutterWidth: gutterWidth)
                     }
-                    if document.truncated {
-                        truncatedFooter(lineCount: document.lines.count)
+                    if continuation.shouldShowFooter {
+                        FileDiffContinuationFooter(
+                            continuation: continuation,
+                            state: continuationLoadState,
+                            onShowMore: showMore
+                        )
                     }
                 }
             }
@@ -168,83 +178,12 @@ public struct FileDiffPageView: View {
     }
 
     private var binaryView: some View {
-        let policy = FileDiffPreviewPolicy(kind: file.kind)
-        return VStack(spacing: 0) {
-            if policy.allowsRevisionSelection {
-                Picker(
-                    String(localized: "changes.binary.revision", defaultValue: "Revision", bundle: .module),
-                    selection: $previewRevision
-                ) {
-                    Text(String(localized: "changes.binary.before", defaultValue: "Before", bundle: .module))
-                        .tag(FileDiffPreviewRevision.base)
-                    Text(String(localized: "changes.binary.after", defaultValue: "After", bundle: .module))
-                        .tag(FileDiffPreviewRevision.current)
-                }
-                .pickerStyle(.segmented)
-                .padding(.horizontal, 16)
-                .padding(.vertical, 10)
-            }
-            if let inlinePreview {
-                inlinePreview(fileIndex, previewRevision)
-                    .frame(maxWidth: .infinity, maxHeight: .infinity)
-            } else {
-                binaryFallbackView
-            }
-        }
-    }
-
-    private var binaryFallbackView: some View {
-        VStack(spacing: 18) {
-            binaryFileCard
-            RoundedRectangle(cornerRadius: 18, style: .continuous)
-                .fill(.secondary.opacity(0.08))
-                .overlay {
-                    Image(systemName: "photo.on.rectangle.angled")
-                        .font(.system(size: 30, weight: .medium))
-                        .symbolRenderingMode(.hierarchical)
-                        .foregroundStyle(.secondary)
-                }
-                .frame(maxWidth: 360, minHeight: 180)
-        }
-        .frame(maxWidth: .infinity, maxHeight: .infinity)
-        .padding(20)
-    }
-
-    private var binaryFileCard: some View {
-        VStack(spacing: 14) {
-            Image(systemName: "doc.richtext")
-                .font(.system(size: 34, weight: .medium))
-                .symbolRenderingMode(.hierarchical)
-                .foregroundStyle(.secondary)
-            Text(file.displayFilename)
-                .font(.headline)
-                .multilineTextAlignment(.center)
-                .lineLimit(2)
-                .truncationMode(.middle)
-            if let byteSize = file.byteSize {
-                Text(ByteCountFormatter.string(fromByteCount: max(0, byteSize), countStyle: .file))
-                    .font(.subheadline.monospacedDigit())
-                    .foregroundStyle(.secondary)
-            }
-        }
-        .padding(24)
-        .frame(maxWidth: 360)
-        .background(.secondary.opacity(0.08), in: RoundedRectangle(cornerRadius: 18, style: .continuous))
-    }
-
-    private func truncatedFooter(lineCount: Int) -> some View {
-        Text(String(
-            format: String(
-                localized: "changes.diff.truncated",
-                defaultValue: "Large diff. Showing the first %lld lines to keep things fast. See the rest on your Mac.",
-                bundle: .module
-            ),
-            Int64(lineCount)
-        ))
-        .font(.footnote)
-        .foregroundStyle(.secondary)
-        .frame(maxWidth: .infinity)
-        .padding(16)
+        FileDiffBinaryView(
+            fileIndex: fileIndex,
+            file: file,
+            previewRevision: $previewRevision,
+            inlinePreview: inlinePreview
+        )
     }
 
     private var theme: ChangesTheme {
@@ -384,8 +323,12 @@ public struct FileDiffPageView: View {
     @MainActor
     private func load(forceRefresh: Bool) async {
         loadState = .loading
+        continuationLoadState = .idle
         do {
-            let document = try await onLoad(file.path, forceRefresh)
+            let maxLines = lineBudget == FileDiffContinuation.defaultLineBudget
+                ? nil
+                : lineBudget
+            let document = try await onLoad(file.path, forceRefresh, maxLines)
             guard !Task.isCancelled else { return }
             resetExpansion()
             loadState = .loaded(document)
@@ -394,6 +337,36 @@ public struct FileDiffPageView: View {
         } catch {
             guard !Task.isCancelled else { return }
             loadState = .failed
+        }
+    }
+
+    @MainActor
+    private func showMore() {
+        guard case .loaded(let document) = loadState,
+              continuationLoadState != .loading,
+              FileDiffContinuation(
+                  lineBudget: lineBudget,
+                  document: document
+              ).canShowMore else { return }
+        let nextLineBudget = FileDiffContinuation(
+            lineBudget: lineBudget,
+            document: document
+        ).nextLineBudget
+        continuationLoadState = .loading
+        Task {
+            do {
+                let expanded = try await onLoad(file.path, false, nextLineBudget)
+                guard !Task.isCancelled else { return }
+                lineBudget = nextLineBudget
+                continuationLoadState = .idle
+                loadState = .loaded(expanded)
+            } catch is CancellationError {
+                guard !Task.isCancelled else { return }
+                continuationLoadState = .failed
+            } catch {
+                guard !Task.isCancelled else { return }
+                continuationLoadState = .failed
+            }
         }
     }
 }

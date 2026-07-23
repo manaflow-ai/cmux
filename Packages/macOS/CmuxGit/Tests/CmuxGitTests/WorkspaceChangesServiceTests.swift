@@ -149,6 +149,40 @@ import Testing
         #expect(diff.truncated)
         #expect(diff.unifiedDiff.split(separator: "\n", omittingEmptySubsequences: false).count <= 6_000)
         #expect(diff.unifiedDiff.utf8.count <= 400 * 1024)
+        #expect(diff.totalLineCount > 6_000)
+    }
+
+    @Test func fileDiffLargerLineBudgetExpandsOversizedHunkAndReportsTotal() async throws {
+        let repo = try WorkspaceChangesGitRepositoryFixture()
+        let baseline = (0..<6_500).map { "old-\($0)" }.joined(separator: "\n") + "\n"
+        let changed = (0..<6_500).map { "new-\($0)" }.joined(separator: "\n") + "\n"
+        try repo.write("large.txt", baseline)
+        try repo.git(["add", "large.txt"])
+        try repo.commit("large baseline")
+        try repo.write("large.txt", changed)
+        let service = WorkspaceChangesService()
+
+        let defaultDiff = try await service.fileDiff(
+            forDirectory: repo.root.path,
+            path: "large.txt"
+        )
+        let expandedDiff = try await service.fileDiff(
+            forDirectory: repo.root.path,
+            path: "large.txt",
+            maxLines: 24_000
+        )
+
+        #expect(defaultDiff.truncated)
+        #expect(!expandedDiff.truncated)
+        #expect(expandedDiff.unifiedDiff.count > defaultDiff.unifiedDiff.count)
+        #expect(expandedDiff.totalLineCount == defaultDiff.totalLineCount)
+        #expect(
+            expandedDiff.totalLineCount ==
+                expandedDiff.unifiedDiff.split(
+                    separator: "\n",
+                    omittingEmptySubsequences: false
+                ).count
+        )
     }
 
     @Test func fallsBackToLocalMainWhenOriginHeadIsAbsent() async throws {

@@ -90,4 +90,58 @@ import Testing
         #expect(policy.defaultRevision == revision)
         #expect(policy.allowsRevisionSelection == allowsRevisionSelection)
     }
+
+    @Test func diffContinuationGrowsByFourAndSaturatesAtHostGuard() {
+        let document = FileDiffDocument(
+            hunks: [],
+            truncated: true,
+            isBinary: false,
+            loadedLineCount: 6_000,
+            totalLineCount: 2_000_000
+        )
+
+        #expect(FileDiffContinuation(lineBudget: 6_000, document: document).nextLineBudget == 24_000)
+        #expect(FileDiffContinuation(lineBudget: 24_000, document: document).nextLineBudget == 96_000)
+        #expect(FileDiffContinuation(lineBudget: 384_000, document: document).nextLineBudget == 1_000_000)
+        #expect(FileDiffContinuation(lineBudget: 1_000_000, document: document).nextLineBudget == 1_000_000)
+    }
+
+    @Test func diffContinuationProvidesProgressAndLegacyFooterInputs() {
+        let known = FileDiffDocument(
+            hunks: [],
+            truncated: true,
+            isBinary: false,
+            loadedLineCount: 6_000,
+            totalLineCount: 12_004
+        )
+        let legacy = FileDiffDocument(
+            hunks: [],
+            truncated: true,
+            isBinary: false,
+            loadedLineCount: 5_998
+        )
+        let complete = FileDiffDocument(
+            hunks: [],
+            truncated: false,
+            isBinary: false,
+            loadedLineCount: 12_004,
+            totalLineCount: 12_004
+        )
+
+        let knownContinuation = FileDiffContinuation(lineBudget: 6_000, document: known)
+        #expect(knownContinuation.shownLineCount == 6_000)
+        #expect(knownContinuation.totalLineCount == 12_004)
+        #expect(knownContinuation.canShowMore)
+        #expect(knownContinuation.shouldShowFooter)
+
+        let legacyContinuation = FileDiffContinuation(lineBudget: 6_000, document: legacy)
+        #expect(legacyContinuation.shownLineCount == 5_998)
+        #expect(legacyContinuation.totalLineCount == nil)
+        #expect(!legacyContinuation.canShowMore)
+        #expect(legacyContinuation.shouldShowFooter)
+
+        let completeContinuation = FileDiffContinuation(lineBudget: 24_000, document: complete)
+        #expect(completeContinuation.shownLineCount == completeContinuation.totalLineCount)
+        #expect(!completeContinuation.shouldShowFooter)
+    }
 }

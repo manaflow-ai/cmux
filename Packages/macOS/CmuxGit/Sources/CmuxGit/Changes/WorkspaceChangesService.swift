@@ -33,7 +33,6 @@ public struct WorkspaceChangesService: Sendable {
     private let baseContentCache: WorkspaceChangesBaseContentCache
     private let parser = WorkspaceChangesParser()
     private let pathValidator = WorkspaceChangesPathValidator()
-    private let diffTruncator = WorkspaceDiffTruncator()
 
     /// Creates a production workspace-changes service.
     public init() {
@@ -102,20 +101,25 @@ public struct WorkspaceChangesService: Sendable {
         return changedFilesValue(from: snapshot)
     }
 
-    /// Reads a bounded unified diff for one changed repository-relative path.
+    /// Reads a progressively bounded unified diff for one changed repository-relative path.
     ///
     /// Absolute paths and paths that escape the repository root lexically or
     /// through symlinks are rejected before the path reaches Git. Output is
-    /// capped at 400 KiB or 6,000 lines at a complete-hunk boundary.
+    /// capped at 400 KiB or 6,000 lines at a complete-hunk boundary by
+    /// default. A requested line budget scales the byte budget proportionally,
+    /// up to the 1,000,000-line and 64 MiB response abuse guards.
     ///
     /// - Parameters:
     ///   - directory: An absolute workspace directory to inspect.
     ///   - path: A repository-relative path from the current changes snapshot.
+    ///   - maxLines: Optional progressive line budget. Values are clamped to
+    ///     the default minimum and response abuse guard.
     /// - Returns: The file's metadata and bounded unified diff.
     /// - Throws: ``WorkspaceChangesServiceError`` when validation or Git fails.
     public nonisolated func fileDiff(
         forDirectory directory: String,
-        path: String
+        path: String,
+        maxLines: Int? = nil
     ) async throws -> WorkspaceFileDiff {
         guard let scope = resolveScope(forDirectory: directory) else {
             throw WorkspaceChangesServiceError.notARepository
@@ -128,7 +132,12 @@ public struct WorkspaceChangesService: Sendable {
             throw WorkspaceChangesServiceError.fileNotChanged
         }
         if file.isBinary {
-            return fileDiffValue(file: file, unifiedDiff: "", truncated: false)
+            return fileDiffValue(
+                file: file,
+                unifiedDiff: "",
+                truncated: false,
+                totalLineCount: 0
+            )
         }
 
         let arguments: [String]
@@ -144,8 +153,14 @@ public struct WorkspaceChangesService: Sendable {
               acceptedExitCodes.contains(result.exitCode) else {
             throw WorkspaceChangesServiceError.gitFailure
         }
-        let bounded = diffTruncator.truncate(String(decoding: result.output, as: UTF8.self))
-        return fileDiffValue(file: file, unifiedDiff: bounded.text, truncated: bounded.truncated)
+        let truncator = WorkspaceDiffTruncator(requestedMaximumLines: maxLines)
+        let bounded = truncator.truncate(String(decoding: result.output, as: UTF8.self))
+        return fileDiffValue(
+            file: file,
+            unifiedDiff: bounded.text,
+            truncated: bounded.truncated,
+            totalLineCount: bounded.totalLineCount
+        )
     }
 
     /// Reads artifact-compatible metadata for an authorized changed file revision.
@@ -403,7 +418,8 @@ public struct WorkspaceChangesService: Sendable {
     private nonisolated func fileDiffValue(
         file: WorkspaceChangedFile,
         unifiedDiff: String,
-        truncated: Bool
+        truncated: Bool,
+        totalLineCount: Int
     ) -> WorkspaceFileDiff {
         WorkspaceFileDiff(
             path: file.path,
@@ -413,7 +429,8 @@ public struct WorkspaceChangesService: Sendable {
             additions: file.additions,
             deletions: file.deletions,
             unifiedDiff: unifiedDiff,
-            truncated: truncated
+            truncated: truncated,
+            totalLineCount: totalLineCount
         )
     }
 

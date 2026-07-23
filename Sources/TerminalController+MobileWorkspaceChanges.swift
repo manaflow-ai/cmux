@@ -129,11 +129,15 @@ extension TerminalController {
                 "workspace_id": workspaceID.uuidString,
             ])
         }
+        let maxLines = v2Int(params, "max_lines").map {
+            min(max($0, 6_000), 1_000_000)
+        }
 
         do {
             let diff = try await MobileHostService.shared.workspaceChangesService.fileDiff(
                 forDirectory: directory,
-                path: path
+                path: path,
+                maxLines: maxLines
             )
             return .ok([
                 "path": diff.path,
@@ -144,6 +148,7 @@ extension TerminalController {
                 "deletions": diff.deletions,
                 "unified_diff": diff.unifiedDiff,
                 "truncated": diff.truncated,
+                "diff_total_lines": diff.totalLineCount,
             ])
         } catch let error as WorkspaceChangesServiceError {
             return mobileWorkspaceChangesErrorResult(error, path: path)

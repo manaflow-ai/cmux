@@ -170,4 +170,11 @@ import Testing
         // The rewritten header must describe exactly the included body.
         #expect(lines[hunkStart] == "@@ -1,\(old) +1,\(new) @@")
     }
+
+    @Test func progressiveDiffBudgetClampsToResponseAbuseGuard() {
+        let bounded = WorkspaceDiffTruncator(requestedMaximumLines: Int.max)
+
+        #expect(bounded.maximumLines == 1_000_000)
+        #expect(bounded.maximumBytes == 64 * 1024 * 1024)
+    }
 }

@@ -9,18 +9,32 @@ struct DiffExpanderRow: View {
     let theme: ChangesTheme
     let onExpand: @MainActor @Sendable (DiffExpanderSnapshot, DiffExpansionDirection) -> Void
 
+    /// Split up/down halves only when the two taps do different things; a run
+    /// that fully reveals in one tap gets a single unified button.
+    private var splitsDirections: Bool {
+        snapshot.gap.directions.count > 1 && !snapshot.revealsCompletely
+    }
+
     var body: some View {
+        if splitsDirections || snapshot.gap.directions.count == 1 {
+            band(directions: snapshot.gap.directions)
+        } else {
+            band(directions: [.down], unified: true)
+        }
+    }
+
+    private func band(directions: [DiffExpansionDirection], unified: Bool = false) -> some View {
         HStack(spacing: 0) {
-            ForEach(snapshot.gap.directions, id: \.self) { direction in
+            ForEach(directions, id: \.self) { direction in
                 Button {
                     onExpand(snapshot, direction)
                 } label: {
                     HStack(spacing: 7) {
-                        if isLoading(direction) {
+                        if isLoading(direction, unified: unified) {
                             ProgressView()
                                 .controlSize(.small)
                         } else {
-                            Image(systemName: direction == .up ? "chevron.up" : "chevron.down")
+                            Image(systemName: glyph(direction, unified: unified))
                                 .font(.caption.weight(.bold))
                         }
                         Text(visibleLabel(direction))
@@ -35,9 +49,9 @@ struct DiffExpanderRow: View {
                 .buttonStyle(.plain)
                 .foregroundStyle(foregroundStyle(direction))
                 .disabled(interactionDisabled || status == .tooLarge)
-                .accessibilityLabel(accessibilityLabel(direction))
+                .accessibilityLabel(unified ? unifiedAccessibilityLabel() : accessibilityLabel(direction))
 
-                if direction != snapshot.gap.directions.last {
+                if direction != directions.last {
                     Rectangle()
                         .fill(theme.gutterSeparator)
                         .frame(width: 0.5, height: 30)
@@ -53,8 +67,28 @@ struct DiffExpanderRow: View {
         }
     }
 
-    private func isLoading(_ direction: DiffExpansionDirection) -> Bool {
-        status == .loading(direction)
+    private func isLoading(_ direction: DiffExpansionDirection, unified: Bool) -> Bool {
+        unified
+            ? status == .loading(.down) || status == .loading(.up)
+            : status == .loading(direction)
+    }
+
+    private func glyph(_ direction: DiffExpansionDirection, unified: Bool) -> String {
+        unified ? "arrow.up.and.down" : (direction == .up ? "chevron.up" : "chevron.down")
+    }
+
+    private func unifiedAccessibilityLabel() -> String {
+        guard status != .tooLarge, let count = snapshot.expansionLineCount else {
+            return visibleLabel(.down)
+        }
+        return String(
+            format: String(
+                localized: "changes.diff.expand.accessibility.all_count",
+                defaultValue: "Expand all %lld hidden lines",
+                bundle: .module
+            ),
+            Int64(count)
+        )
     }
 
     private func visibleLabel(_ direction: DiffExpansionDirection) -> String {

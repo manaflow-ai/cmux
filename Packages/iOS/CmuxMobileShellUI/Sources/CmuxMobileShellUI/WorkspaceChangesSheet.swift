@@ -71,23 +71,36 @@ public struct WorkspaceChangesSheet: View {
     }
 
     private var pagerActions: WorkspaceFileDiffPagerActions {
+        let loadDocument: @MainActor @Sendable (String, Bool, Int?) async throws -> FileDiffDocument = {
+            path,
+            forceRefresh,
+            maxLines in
+            try await self.loadDocument(
+                path: path,
+                forceRefresh: forceRefresh,
+                maxLines: maxLines
+            )
+        }
         let loadCurrentLines: @MainActor @Sendable (String) async throws -> [String] =
             store.workspaceChangesCurrentFileLinesLoader(workspaceID: workspaceID)
+        let persistFontSize: @MainActor @Sendable (Double) -> Void = { pointSize in
+            fontSize = pointSize
+            fontPreference.pointSize = pointSize
+        }
+        let copy: @MainActor @Sendable (String) -> Void = { text in
+            UIPasteboard.general.string = text
+        }
+        let inlinePreview: @MainActor @Sendable (Int, FileDiffPreviewRevision) -> AnyView = {
+            index,
+            revision in
+            inlineArtifactPreview(index: index, revision: revision)
+        }
         return WorkspaceFileDiffPagerActions(
-            onLoad: { path, forceRefresh in
-                try await loadDocument(path: path, forceRefresh: forceRefresh)
-            },
+            onLoad: loadDocument,
             onLoadCurrentLines: loadCurrentLines,
-            onPersistFontSize: { pointSize in
-                fontSize = pointSize
-                fontPreference.pointSize = pointSize
-            },
-            onCopy: { text in
-                UIPasteboard.general.string = text
-            },
-            inlinePreview: { index, revision in
-                inlineArtifactPreview(index: index, revision: revision)
-            }
+            onPersistFontSize: persistFontSize,
+            onCopy: copy,
+            inlinePreview: inlinePreview
         )
     }
 
@@ -158,16 +171,28 @@ public struct WorkspaceChangesSheet: View {
     @MainActor
     private func loadDocument(
         path: String,
-        forceRefresh: Bool
+        forceRefresh: Bool,
+        maxLines: Int?
     ) async throws -> FileDiffDocument {
-        if !forceRefresh, let cached = cachedDocuments[path] { return cached }
-        let response = try await store.fetchFileDiff(workspaceID: workspaceID, path: path)
+        if maxLines == nil,
+           !forceRefresh,
+           let cached = cachedDocuments[path] {
+            return cached
+        }
+        let response = try await store.fetchFileDiff(
+            workspaceID: workspaceID,
+            path: path,
+            maxLines: maxLines
+        )
         let document = UnifiedDiffParser().parse(
             response.unifiedDiff,
             truncated: response.truncated,
-            isBinary: response.isBinary
+            isBinary: response.isBinary,
+            totalLineCount: response.diffTotalLines
         )
-        cachedDocuments[path] = document
+        if maxLines == nil {
+            cachedDocuments[path] = document
+        }
         return document
     }
 }

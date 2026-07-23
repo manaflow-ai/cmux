@@ -175,6 +175,17 @@ import Testing
         #expect(resolvedExpander.expansionLineCount == 7)
     }
 
+    @Test func unifiedButtonOnlyWhenOneTapRevealsTheWholeRun() {
+        let gap = DiffGap(id: 1, placement: .inner, newLineRange: 1..<200, oldLineOffset: 0)
+        let short = DiffExpanderSnapshot(gap: gap, hiddenNewLineRange: 1..<121)
+        let long = DiffExpanderSnapshot(gap: gap, hiddenNewLineRange: 1..<122)
+        let unresolved = DiffExpanderSnapshot(gap: gap, hiddenNewLineRange: nil)
+
+        #expect(short.revealsCompletely)
+        #expect(!long.revealsCompletely)
+        #expect(!unresolved.revealsCompletely)
+    }
+
     @Test func deletedAndBinaryDocumentsNeverProjectExpanders() {
         let textDocument = gapFixtureDocument()
         let binaryDocument = FileDiffDocument(hunks: textDocument.hunks, truncated: false, isBinary: true)

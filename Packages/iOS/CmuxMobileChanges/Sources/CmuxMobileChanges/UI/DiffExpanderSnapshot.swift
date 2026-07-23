@@ -11,4 +11,11 @@ struct DiffExpanderSnapshot: Sendable, Equatable {
                 : min(DiffExpansionState.stepLineCount, range.count)
         }
     }
+
+    /// Whether one tap reveals the whole run, making direction irrelevant.
+    /// The row then renders a single unified button instead of a split pair,
+    /// since two buttons with identical outcomes read as a confusing duplicate.
+    var revealsCompletely: Bool {
+        hiddenNewLineRange.map { $0.count <= DiffExpansionState.shortRunThreshold } ?? false
+    }
 }
