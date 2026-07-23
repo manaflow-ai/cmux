@@ -26,6 +26,7 @@ final class ComputerUseRuntimeService {
     private var cachedStatus = ComputerUsePermissionStatus.missing
     private var acceptsNewLaunches = true
     private var desiredEnabled = false
+    private var runningHelperProcessIdentifier: pid_t?
     private var expectedTerminationProcessIdentifiers: Set<pid_t> = []
 
     init(
@@ -229,15 +230,19 @@ final class ComputerUseRuntimeService {
         configuration.createsNewApplicationInstance = true
         configuration.arguments = launch.arguments
         configuration.environment = launch.environment
-        let launched = await withCheckedContinuation { continuation in
+        let launchedProcessIdentifier: pid_t? = await withCheckedContinuation { continuation in
             NSWorkspace.shared.openApplication(
                 at: helperURL,
                 configuration: configuration
-            ) { _, error in
-                continuation.resume(returning: error == nil)
+            ) { application, error in
+                continuation.resume(
+                    returning: error == nil ? application?.processIdentifier : nil
+                )
             }
         }
-        guard launched, acceptsNewLaunches, !Task.isCancelled else {
+        guard let launchedProcessIdentifier else { return false }
+        runningHelperProcessIdentifier = launchedProcessIdentifier
+        guard acceptsNewLaunches, !Task.isCancelled else {
             terminateRunningHelper(at: helperURL)
             return false
         }
@@ -301,6 +306,9 @@ final class ComputerUseRuntimeService {
     }
 
     private func terminateRunningHelper(at helperURL: URL) {
+        if let runningHelperProcessIdentifier {
+            expectedTerminationProcessIdentifiers.insert(runningHelperProcessIdentifier)
+        }
         let expectedURL = helperURL.standardizedFileURL
         if let bundleIdentifier = Bundle(url: helperURL)?.bundleIdentifier {
             for application in NSRunningApplication.runningApplications(
@@ -313,6 +321,9 @@ final class ComputerUseRuntimeService {
     }
 
     private func recordExpectedTerminationOfRunningHelper(at helperURL: URL) {
+        if let runningHelperProcessIdentifier {
+            expectedTerminationProcessIdentifiers.insert(runningHelperProcessIdentifier)
+        }
         let expectedURL = helperURL.standardizedFileURL
         guard let bundleIdentifier = Bundle(url: helperURL)?.bundleIdentifier else { return }
         for application in NSRunningApplication.runningApplications(
@@ -339,6 +350,10 @@ final class ComputerUseRuntimeService {
     }
 
     private func helperDidTerminate(_ application: NSRunningApplication) {
+        let isTrackedHelperProcess = application.processIdentifier == runningHelperProcessIdentifier
+        if isTrackedHelperProcess {
+            runningHelperProcessIdentifier = nil
+        }
         let wasExpected = expectedTerminationProcessIdentifiers.remove(
             application.processIdentifier
         ) != nil
@@ -347,6 +362,7 @@ final class ComputerUseRuntimeService {
             desiredEnabled: desiredEnabled,
             acceptsNewLaunches: acceptsNewLaunches,
             wasExpected: wasExpected,
+            isTrackedHelperProcess: isTrackedHelperProcess,
             terminatedBundleIdentifier: application.bundleIdentifier,
             terminatedBundleURL: application.bundleURL,
             helperBundleIdentifier: Bundle(url: helperURL)?.bundleIdentifier,
@@ -373,6 +389,7 @@ final class ComputerUseRuntimeService {
         helperBundleURL: URL
     ) -> Bool {
         guard desiredEnabled, acceptsNewLaunches, !wasExpected else { return false }
+        if isTrackedHelperProcess { return true }
         guard let terminatedBundleIdentifier, let helperBundleIdentifier,
               terminatedBundleIdentifier == helperBundleIdentifier
         else {
