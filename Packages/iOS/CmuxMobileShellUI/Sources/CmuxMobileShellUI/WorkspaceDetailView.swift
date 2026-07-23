@@ -24,7 +24,7 @@ struct WorkspaceDetailView: View {
     let canCreateWorkspace: Bool
     let createTerminal: () -> Void
     let renameWorkspace: ((MobileWorkspacePreview.ID, String) -> Void)?
-    let customizeWorkspace: ((MobileWorkspacePreview.ID, WorkspaceCustomizationDraft) -> Void)?
+    let customizeWorkspace: WorkspaceCustomizationAction?
     let setWorkspaceUnread: ((MobileWorkspacePreview.ID, Bool) -> Void)?
     /// Close this workspace on the Mac. When `nil`, the close affordance is
     /// hidden from the top-bar menu, matching the workspace list's gating.
@@ -138,8 +138,8 @@ struct WorkspaceDetailView: View {
                 onSave: commitRenameFromDialog
             )
             .sheet(isPresented: $isCustomizationPresented) {
-                WorkspaceCustomizationSheet(workspace: workspace) { draft in
-                    customizeWorkspace?(workspace.id, draft)
+                WorkspaceCustomizationSheet(workspace: workspace) { initialDraft, submittedDraft in
+                    await customizeWorkspace?(workspace.id, initialDraft, submittedDraft) ?? false
                 }
             }
             .mobileConnectionRecoveryOverlay(store: store, signOut: signOut)

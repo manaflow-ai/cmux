@@ -19,7 +19,7 @@ struct WorkspaceNavigationRow: View {
     /// affordance is hidden.
     var renameWorkspace: ((MobileWorkspacePreview.ID, String) -> Void)? = nil
     /// Customize the workspace's name, description, color, and pin state on the Mac.
-    var customizeWorkspace: ((MobileWorkspacePreview.ID, WorkspaceCustomizationDraft) -> Void)? = nil
+    var customizeWorkspace: WorkspaceCustomizationAction? = nil
     /// Pin or unpin the workspace on the Mac. When `nil` the pin affordance is
     /// hidden.
     var setPinned: ((MobileWorkspacePreview.ID, Bool) -> Void)? = nil
@@ -96,8 +96,8 @@ struct WorkspaceNavigationRow: View {
             }
         }
         .sheet(isPresented: $isCustomizing) {
-            WorkspaceCustomizationSheet(workspace: workspace) { draft in
-                customizeWorkspace?(workspace.id, draft)
+            WorkspaceCustomizationSheet(workspace: workspace) { initialDraft, submittedDraft in
+                await customizeWorkspace?(workspace.id, initialDraft, submittedDraft) ?? false
             }
         }
         .confirmationDialog(

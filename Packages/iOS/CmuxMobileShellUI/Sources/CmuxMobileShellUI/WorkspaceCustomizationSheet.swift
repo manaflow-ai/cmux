@@ -5,17 +5,24 @@ import SwiftUI
 /// One editor for the durable identity of a workspace on its owning Mac.
 struct WorkspaceCustomizationSheet: View {
     private let initialDraft: WorkspaceCustomizationDraft
-    private let save: (WorkspaceCustomizationDraft) -> Void
+    private let save: @MainActor (
+        WorkspaceCustomizationDraft,
+        WorkspaceCustomizationDraft
+    ) async -> Bool
     @Environment(\.dismiss) private var dismiss
     @State private var name: String
     @State private var customDescription: String
     @State private var usesCustomColor: Bool
     @State private var customColor: Color
     @State private var isPinned: Bool
+    @State private var saveTask: Task<Void, Never>?
 
     init(
         workspace: MobileWorkspacePreview,
-        save: @escaping (WorkspaceCustomizationDraft) -> Void
+        save: @escaping @MainActor (
+            WorkspaceCustomizationDraft,
+            WorkspaceCustomizationDraft
+        ) async -> Bool
     ) {
         let draft = WorkspaceCustomizationDraft(workspace: workspace)
         initialDraft = draft
@@ -36,6 +43,7 @@ struct WorkspaceCustomizationSheet: View {
                 descriptionSection
                 appearanceSection
             }
+            .disabled(saveTask != nil)
             .accessibilityIdentifier("MobileWorkspaceCustomizationForm")
             .accessibilityActions {
                 if canSave {
@@ -53,6 +61,7 @@ struct WorkspaceCustomizationSheet: View {
                     Button(L10n.string("mobile.common.cancel", defaultValue: "Cancel")) {
                         dismiss()
                     }
+                    .disabled(saveTask != nil)
                 }
                 ToolbarItem(placement: .confirmationAction) {
                     Button(L10n.string("mobile.common.save", defaultValue: "Save")) {
@@ -62,6 +71,11 @@ struct WorkspaceCustomizationSheet: View {
                     .accessibilityIdentifier("MobileWorkspaceCustomizeSaveButton")
                 }
             }
+        }
+        .interactiveDismissDisabled(saveTask != nil)
+        .onDisappear {
+            saveTask?.cancel()
+            saveTask = nil
         }
     }
 
@@ -145,13 +159,22 @@ struct WorkspaceCustomizationSheet: View {
     }
 
     private var canSave: Bool {
-        !draft.name.isEmpty
+        saveTask == nil
+            && !draft.name.isEmpty
             && (!usesCustomColor || customColor.hexString != nil)
             && draft != initialDraft
     }
 
     private func submit() {
-        save(draft)
-        dismiss()
+        guard saveTask == nil else { return }
+        let submittedDraft = draft
+        saveTask = Task { @MainActor in
+            let succeeded = await save(initialDraft, submittedDraft)
+            guard !Task.isCancelled else { return }
+            saveTask = nil
+            if succeeded {
+                dismiss()
+            }
+        }
     }
 }

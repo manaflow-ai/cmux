@@ -14,10 +14,8 @@ struct WorkspaceCustomizationDraft: Equatable {
         let description = customDescription?
             .replacingOccurrences(of: "\r\n", with: "\n")
             .replacingOccurrences(of: "\r", with: "\n")
-        let hasDescription = description?
             .trimmingCharacters(in: .whitespacesAndNewlines)
-            .isEmpty == false
-        self.customDescription = hasDescription ? description : nil
+        self.customDescription = description?.isEmpty == false ? description : nil
         let color = customColorHex?.trimmingCharacters(in: .whitespacesAndNewlines).uppercased()
         self.customColorHex = color?.isEmpty == false ? color : nil
         self.isPinned = isPinned
@@ -33,3 +31,9 @@ struct WorkspaceCustomizationDraft: Equatable {
         )
     }
 }
+
+typealias WorkspaceCustomizationAction = @MainActor (
+    MobileWorkspacePreview.ID,
+    WorkspaceCustomizationDraft,
+    WorkspaceCustomizationDraft
+) async -> Bool

@@ -67,7 +67,6 @@ struct WorkspaceRow: View {
                         .font(.subheadline)
                         .foregroundStyle(.primary)
                         .lineLimit(2, reservesSpace: true)
-                        .accessibilityIdentifier("MobileWorkspaceDescription-\(workspace.id.rawValue)")
                 }
 
                 Text(workspace.previewLine)

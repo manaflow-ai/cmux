@@ -46,7 +46,7 @@ import Testing
             "terminal.replay.v1",
             "workspace.metadata.v1",
         ])
-        #expect(!metadataOnly.store.supportsWorkspaceMetadata)
+        #expect(metadataOnly.store.supportsWorkspaceMetadata)
         #expect(metadataOnly.store.workspaces.first?.actionCapabilities.supportsWorkspaceMetadata == false)
 
         let currentCapabilities = [

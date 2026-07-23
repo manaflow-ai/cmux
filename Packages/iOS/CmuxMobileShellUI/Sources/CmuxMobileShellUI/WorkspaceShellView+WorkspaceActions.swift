@@ -52,38 +52,50 @@ extension WorkspaceShellView {
     }
 
     /// One shared action path for customization sheets opened from the sidebar
-    /// row or workspace title. The Mac protocol applies one field per request,
-    /// so changed fields are sent in a stable order and stop at the first error.
-    var customizeWorkspaceClosure: ((MobileWorkspacePreview.ID, WorkspaceCustomizationDraft) -> Void)? {
+    /// row or workspace title. Only fields edited from the sheet's initial
+    /// snapshot are applied, so a concurrent update to an untouched field is
+    /// preserved. The Mac protocol applies one field per request; failed partial
+    /// saves keep the sheet open, and retry skips fields that already landed.
+    var customizeWorkspaceClosure: WorkspaceCustomizationAction? {
         let store = store
-        return { id, draft in
-            Task { @MainActor in
-                guard let workspace = store.workspaces.first(where: { $0.id == id }) else { return }
-                let current = WorkspaceCustomizationDraft(workspace: workspace)
-
-                if current.name != draft.name {
-                    let result = await store.renameWorkspace(id: id, title: draft.name)
-                    handleWorkspaceActionResult(result, action: .renameWorkspace)
-                    guard case .success = result else { return }
-                }
-                if current.customDescription != draft.customDescription {
-                    let result = await store.setWorkspaceDescription(id: id, draft.customDescription)
-                    handleWorkspaceActionResult(result, action: .updateWorkspaceDescription)
-                    guard case .success = result else { return }
-                }
-                if current.customColorHex != draft.customColorHex {
-                    let result = await store.setWorkspaceColor(id: id, draft.customColorHex)
-                    handleWorkspaceActionResult(result, action: .updateWorkspaceColor)
-                    guard case .success = result else { return }
-                }
-                if current.isPinned != draft.isPinned {
-                    let result = await store.setWorkspacePinned(id: id, draft.isPinned)
-                    handleWorkspaceActionResult(
-                        result,
-                        action: draft.isPinned ? .pinWorkspace : .unpinWorkspace
-                    )
-                }
+        return { id, initialDraft, submittedDraft in
+            guard !Task.isCancelled else { return false }
+            guard let workspace = store.workspaces.first(where: { $0.id == id }) else {
+                return true
             }
+            let current = WorkspaceCustomizationDraft(workspace: workspace)
+
+            if initialDraft.name != submittedDraft.name,
+               current.name != submittedDraft.name {
+                let result = await store.renameWorkspace(id: id, title: submittedDraft.name)
+                handleWorkspaceActionResult(result, action: .renameWorkspace)
+                guard case .success = result, !Task.isCancelled else { return false }
+            }
+            if initialDraft.customDescription != submittedDraft.customDescription,
+               current.customDescription != submittedDraft.customDescription {
+                let result = await store.setWorkspaceDescription(
+                    id: id,
+                    submittedDraft.customDescription
+                )
+                handleWorkspaceActionResult(result, action: .updateWorkspaceDescription)
+                guard case .success = result, !Task.isCancelled else { return false }
+            }
+            if initialDraft.customColorHex != submittedDraft.customColorHex,
+               current.customColorHex != submittedDraft.customColorHex {
+                let result = await store.setWorkspaceColor(id: id, submittedDraft.customColorHex)
+                handleWorkspaceActionResult(result, action: .updateWorkspaceColor)
+                guard case .success = result, !Task.isCancelled else { return false }
+            }
+            if initialDraft.isPinned != submittedDraft.isPinned,
+               current.isPinned != submittedDraft.isPinned {
+                let result = await store.setWorkspacePinned(id: id, submittedDraft.isPinned)
+                handleWorkspaceActionResult(
+                    result,
+                    action: submittedDraft.isPinned ? .pinWorkspace : .unpinWorkspace
+                )
+                guard case .success = result else { return false }
+            }
+            return !Task.isCancelled
         }
     }
 

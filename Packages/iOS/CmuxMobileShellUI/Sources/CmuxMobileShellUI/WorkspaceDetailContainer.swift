@@ -15,7 +15,7 @@ struct WorkspaceDetailContainer: View {
     let createWorkspace: () -> Void
     let canCreateWorkspace: Bool
     let renameWorkspace: ((MobileWorkspacePreview.ID, String) -> Void)?
-    let customizeWorkspace: ((MobileWorkspacePreview.ID, WorkspaceCustomizationDraft) -> Void)?
+    let customizeWorkspace: WorkspaceCustomizationAction?
     let setWorkspaceUnread: ((MobileWorkspacePreview.ID, Bool) -> Void)?
     let closeWorkspace: ((MobileWorkspacePreview.ID) -> Void)?
     let safeAreaContext: MobileTerminalSafeAreaContext

@@ -76,7 +76,7 @@ struct WorkspaceListView: View {
     var renameWorkspace: ((MobileWorkspacePreview.ID, String) -> Void)?
     /// Optional: edit a workspace's durable identity on the Mac. Newer hosts
     /// expose one customization sheet for name, description, color, and pin.
-    var customizeWorkspace: ((MobileWorkspacePreview.ID, WorkspaceCustomizationDraft) -> Void)? = nil
+    var customizeWorkspace: WorkspaceCustomizationAction? = nil
     /// Optional: pin/unpin a workspace on the Mac. When present, each row offers
     /// a Pin/Unpin context-menu action and pinned workspaces sort to the top.
     var setPinned: ((MobileWorkspacePreview.ID, Bool) -> Void)?
@@ -417,8 +417,8 @@ struct WorkspaceListView: View {
         .sheet(isPresented: workspaceCustomizationIsPresented) {
             if let workspaceID = workspacePendingCustomizationID,
                let workspace = workspaces.first(where: { $0.id == workspaceID }) {
-                WorkspaceCustomizationSheet(workspace: workspace) { draft in
-                    customizeWorkspace?(workspaceID, draft)
+                WorkspaceCustomizationSheet(workspace: workspace) { initialDraft, submittedDraft in
+                    await customizeWorkspace?(workspaceID, initialDraft, submittedDraft) ?? false
                 }
             }
         }
