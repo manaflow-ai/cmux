@@ -816,6 +816,173 @@ pub fn load_runtime_info(
 mod tests {
     use super::*;
 
+    #[derive(Debug, PartialEq, Eq)]
+    enum FakeInitialRouteEvent {
+        Bootstrap { endpoint: String, upgrade: bool },
+        Provider(ConnectRequest),
+    }
+
+    struct FakeInitialRouteAttempt {
+        fail_ssh_bootstrap: bool,
+        events: Vec<FakeInitialRouteEvent>,
+    }
+
+    #[async_trait]
+    impl InitialRouteAttempt<String> for FakeInitialRouteAttempt {
+        async fn bootstrap_ssh(&mut self, endpoint: &Url, upgrade: bool) -> anyhow::Result<()> {
+            self.events
+                .push(FakeInitialRouteEvent::Bootstrap { endpoint: endpoint.to_string(), upgrade });
+            if self.fail_ssh_bootstrap { Err(anyhow!("fake SSH is unreachable")) } else { Ok(()) }
+        }
+
+        async fn connect(
+            &mut self,
+            _index: usize,
+            request: ConnectRequest,
+        ) -> Result<String, InitialRouteAttemptError> {
+            let endpoint = request.endpoint.to_string();
+            self.events.push(FakeInitialRouteEvent::Provider(request));
+            Ok(endpoint)
+        }
+    }
+
+    #[derive(Default)]
+    struct FakeReconnectRouteAttempt {
+        requests: std::sync::Mutex<Vec<ConnectRequest>>,
+    }
+
+    #[async_trait]
+    impl ReconnectRouteAttempt<String> for FakeReconnectRouteAttempt {
+        async fn connect(&self, request: ConnectRequest) -> Result<String, ProviderError> {
+            let endpoint = request.endpoint.to_string();
+            self.requests.lock().unwrap().push(request);
+            Ok(endpoint)
+        }
+    }
+
+    #[tokio::test]
+    async fn failed_ssh_bootstrap_falls_back_to_next_initial_provider() {
+        let routes = vec![
+            ResolvedRouteCandidate {
+                endpoint: Url::parse("ssh://unreachable.example").unwrap(),
+                routing: BTreeMap::new(),
+            },
+            ResolvedRouteCandidate {
+                endpoint: Url::parse("iroh://next").unwrap(),
+                routing: BTreeMap::from([(
+                    cmux_remote::provider::ROUTING_DIRECT_ADDRS.into(),
+                    "127.0.0.1:4242".into(),
+                )]),
+            },
+        ];
+        let mut attempt = FakeInitialRouteAttempt { fail_ssh_bootstrap: true, events: Vec::new() };
+
+        let selected = select_initial_route(
+            &routes,
+            SessionId([5; 16]),
+            LanePolicy::Single,
+            false,
+            &mut attempt,
+        )
+        .await
+        .unwrap();
+
+        assert_eq!(selected, "iroh://next");
+        assert_eq!(
+            attempt.events,
+            [
+                FakeInitialRouteEvent::Bootstrap {
+                    endpoint: "ssh://unreachable.example".into(),
+                    upgrade: false,
+                },
+                FakeInitialRouteEvent::Provider(ConnectRequest {
+                    endpoint: Url::parse("iroh://next").unwrap(),
+                    session: SessionId([5; 16]),
+                    lane_policy: LanePolicy::Single,
+                    routing: BTreeMap::from([(
+                        cmux_remote::provider::ROUTING_DIRECT_ADDRS.into(),
+                        "127.0.0.1:4242".into(),
+                    )]),
+                }),
+            ]
+        );
+    }
+
+    #[tokio::test]
+    async fn upgrade_bootstrap_failure_is_fatal_without_provider_fallback() {
+        let routes = vec![
+            ResolvedRouteCandidate {
+                endpoint: Url::parse("ssh://upgrade.example").unwrap(),
+                routing: BTreeMap::new(),
+            },
+            ResolvedRouteCandidate {
+                endpoint: Url::parse("wss://fallback.example/v1/link").unwrap(),
+                routing: BTreeMap::new(),
+            },
+        ];
+        let mut attempt = FakeInitialRouteAttempt { fail_ssh_bootstrap: true, events: Vec::new() };
+
+        let error = select_initial_route(
+            &routes,
+            SessionId([6; 16]),
+            LanePolicy::Single,
+            true,
+            &mut attempt,
+        )
+        .await
+        .unwrap_err();
+
+        assert!(error.to_string().contains("fake SSH is unreachable"));
+        assert_eq!(
+            attempt.events,
+            [FakeInitialRouteEvent::Bootstrap {
+                endpoint: "ssh://upgrade.example".into(),
+                upgrade: true,
+            }]
+        );
+    }
+
+    #[tokio::test]
+    async fn reconnect_provider_receives_the_exact_route_candidate_hints() {
+        let routes = vec![
+            ResolvedRouteCandidate {
+                endpoint: Url::parse("iroh://first").unwrap(),
+                routing: BTreeMap::from([(
+                    cmux_remote::provider::ROUTING_RELAY_URL.into(),
+                    "https://first-relay.example".into(),
+                )]),
+            },
+            ResolvedRouteCandidate {
+                endpoint: Url::parse("iroh://second").unwrap(),
+                routing: BTreeMap::from([(
+                    cmux_remote::provider::ROUTING_RELAY_URL.into(),
+                    "https://second-relay.example".into(),
+                )]),
+            },
+        ];
+        let attempt = FakeReconnectRouteAttempt::default();
+
+        let (index, selected) =
+            select_reconnect_route(&routes, 1, SessionId([7; 16]), LanePolicy::Single, &attempt)
+                .await
+                .unwrap();
+
+        assert_eq!(index, 1);
+        assert_eq!(selected, "iroh://second");
+        assert_eq!(
+            attempt.requests.into_inner().unwrap(),
+            [ConnectRequest {
+                endpoint: Url::parse("iroh://second").unwrap(),
+                session: SessionId([7; 16]),
+                lane_policy: LanePolicy::Single,
+                routing: BTreeMap::from([(
+                    cmux_remote::provider::ROUTING_RELAY_URL.into(),
+                    "https://second-relay.example".into(),
+                )]),
+            }]
+        );
+    }
+
     #[test]
     fn remote_runtime_worker_pool_is_bounded() {
         assert!(

@@ -1687,6 +1687,25 @@ mod tests {
     }
 
     #[test]
+    fn iroh_route_candidates_keep_query_hints_isolated() {
+        let routes = [
+            "iroh://first?relay=https%3A%2F%2Ffirst-relay.example&direct=127.0.0.1%3A1111"
+                .to_string(),
+            "iroh://second?relay=https%3A%2F%2Fsecond-relay.example&direct=127.0.0.1%3A2222"
+                .to_string(),
+        ];
+
+        let candidates = resolve_route_candidates(&routes, &BTreeMap::new()).unwrap();
+
+        assert_eq!(candidates[0].endpoint.as_str(), "iroh://first");
+        assert_eq!(candidates[0].routing[ROUTING_RELAY_URL], "https://first-relay.example");
+        assert_eq!(candidates[0].routing[ROUTING_DIRECT_ADDRS], "127.0.0.1:1111");
+        assert_eq!(candidates[1].endpoint.as_str(), "iroh://second");
+        assert_eq!(candidates[1].routing[ROUTING_RELAY_URL], "https://second-relay.example");
+        assert_eq!(candidates[1].routing[ROUTING_DIRECT_ADDRS], "127.0.0.1:2222");
+    }
+
+    #[test]
     fn parse_lane_policy_and_relay_flags() {
         let args = [
             "wss://host/v1/link",
