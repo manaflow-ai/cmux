@@ -1,11 +1,13 @@
 public import AppKit
 
 /// Caches `AXWindows` responses so repeated AX polls can reuse the same
-/// snapshot while the app window graph is unchanged. Only `.windows` is
-/// cached; `.children` and `.visibleChildren` fall through to AppKit so the
-/// menu bar stays present in the accessibility tree for VoiceOver and other
-/// AX clients. `.mainWindow` / `.focusedWindow` also fall through, so AppKit
-/// remains authoritative on focus transitions.
+/// snapshot while the app window graph is unchanged. Help-tag tooltip windows
+/// are excluded from the snapshot because AX clients expect every element in
+/// `AXWindows` to behave like a window. Only `.windows` is cached; `.children`
+/// and `.visibleChildren` fall through to AppKit so the menu bar stays present
+/// in the accessibility tree for VoiceOver and other AX clients. `.mainWindow`
+/// / `.focusedWindow` also fall through, so AppKit remains authoritative on
+/// focus transitions.
 ///
 /// Construct one instance at the composition root and inject it behind
 /// ``AccessibilityWindowCaching``; the app-target `NSApplication` swizzle
@@ -16,7 +18,9 @@ public import AppKit
 /// (the swizzle guards `Thread.isMainThread` before calling
 /// ``resolve(attribute:application:)``, and the window-close observer is
 /// delivered on `.main`). Only the boundary methods that read main-actor
-/// `NSWindow`/`NSApplication` properties are annotated `@MainActor`.
+/// `NSWindow`/`NSApplication` properties are annotated `@MainActor`; public
+/// synchronous helpers that must preserve their original calling surface assert
+/// main-actor isolation internally.
 ///
 /// `@unchecked Sendable` solely so the `.main`-delivered `@Sendable`
 /// window-close observer block may capture the instance to invalidate it
@@ -38,11 +42,12 @@ public final class AccessibilityWindowCache: AccessibilityWindowCaching, @unchec
     public struct StateToken: Equatable {
         let windows: [WindowToken]
 
-        /// Builds a state token from the current window list. `@MainActor`
-        /// because it reads main-actor-isolated `NSWindow` properties.
+        /// Builds a state token from the current window list, ignoring the
+        /// same help-tag windows the snapshot omits. `@MainActor` because it
+        /// reads main-actor-isolated `NSWindow` properties.
         @MainActor
         public init(windows: [NSWindow]) {
-            self.windows = windows.map {
+            self.windows = windows.filter(\.cmux_isPublishableAXWindow).map {
                 WindowToken(
                     identity: ObjectIdentifier($0),
                     windowNumber: $0.windowNumber,
@@ -57,9 +62,13 @@ public final class AccessibilityWindowCache: AccessibilityWindowCaching, @unchec
     public struct Snapshot {
         let windows: [NSWindow]
 
-        /// Builds a snapshot from a window list.
+        /// Builds a snapshot from a window list, preserving the original
+        /// synchronous public API while enforcing the main-thread contract for
+        /// the accessibility-role read.
         public init(windows: [NSWindow]) {
-            self.windows = windows
+            self.windows = MainActor.assumeIsolated {
+                windows.filter(\.cmux_isPublishableAXWindow)
+            }
         }
     }
 
@@ -134,5 +143,13 @@ public final class AccessibilityWindowCache: AccessibilityWindowCaching, @unchec
 
     private static func supportsCaching(_ attribute: NSAccessibility.Attribute) -> Bool {
         attribute.rawValue == NSAccessibility.Attribute.windows.rawValue
+    }
+}
+
+private extension NSWindow {
+    /// Whether this window belongs in `AXWindows`.
+    @MainActor
+    var cmux_isPublishableAXWindow: Bool {
+        accessibilityRole() != .helpTag
     }
 }
