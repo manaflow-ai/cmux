@@ -476,7 +476,13 @@ import Testing
         #expect(!terminal.surface.hostedView.surfaceView.localRenderedFrameNotificationDemandIsActive)
     }
 
-    @Test func aggregateConnectionSeedBudgetReconnectsAndReleasesBytes() throws {
+    /// Crossing the shared seed budget releases the pane that crossed it and leaves the stream alone.
+    ///
+    /// This asserted `.reconnecting` and a wholly empty seed table, both of which described the old
+    /// remedy: the budget path called `beginReconnecting()` under an explicit connected guard, so a
+    /// producer running out of room restarted a healthy stream and the reattach reseeded every pane
+    /// with `clearScrollback`. One pane's ceiling cost every other pane its scrollback.
+    @Test func aggregateConnectionSeedBudgetReleasesBytesWithoutRestartingTheStream() throws {
         let fixture = attachedConnection(pendingPaneSeedByteLimit: 5)
         defer { fixture.close() }
         _ = try #require(
@@ -504,9 +510,26 @@ import Testing
             data: Data("def".utf8)
         ))
 
-        #expect(fixture.connection.connectionState == .reconnecting)
-        #expect(fixture.connection.pendingPaneSeedByteCount == 0)
-        #expect(fixture.connection.pendingPaneSeeds.isEmpty)
+        #expect(
+            fixture.connection.connectionState == .connected,
+            "a producer budget ceiling is not a transport failure"
+        )
+        // Only the pane that crossed the budget pays. Pane 8 asked for room there was none for, so its
+        // seed is released; pane 7 did nothing wrong and keeps its 3 retained bytes.
+        #expect(fixture.connection.pendingPaneSeeds[8] == nil, "the pane that overflowed is released")
+        #expect(
+            fixture.connection.pendingPaneSeeds[7]?.isEmpty == false,
+            "a pane that did not overflow keeps its seed"
+        )
+        #expect(
+            fixture.connection.pendingPaneSeedByteCount == 3,
+            "only the offending pane's bytes are returned to the budget"
+        )
+        #expect(
+            fixture.connection.snapshot().recentEvents
+                .contains { $0.hasPrefix("pane-seed-total-backpressure") },
+            "the marker proves which branch released the bytes"
+        )
     }
 
     @Test func connectionSeedCountersReleaseOnFinishPruneAndDisconnect() throws {

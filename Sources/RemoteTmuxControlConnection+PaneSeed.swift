@@ -67,8 +67,7 @@ extension RemoteTmuxControlConnection {
         let nextCount = pendingPaneSeeds[paneId]![0].bufferedLiveByteCount + data.count
         guard nextCount <= Self.maximumPendingPaneSeedLiveBytes,
               reservePendingPaneSeedBytes(data.count, paneId: paneId) else {
-            record("pane-seed-backpressure %\(paneId)")
-            if connectionState == .connected { beginReconnecting() }
+            recoverPaneSeedBudget(paneId: paneId, event: "pane-seed-backpressure")
             return true
         }
         pendingPaneSeeds[paneId]![0].bufferedLiveByteCount = nextCount
@@ -291,12 +290,34 @@ extension RemoteTmuxControlConnection {
         }
     }
 
+    /// Recovers one pane after the producer ran out of seed budget.
+    ///
+    /// A budget ceiling is not a transport failure. Both call sites used to reach for
+    /// ``beginReconnecting()`` under an explicit `connectionState == .connected` guard — a healthy
+    /// stream restarted because a renderer could not keep up — and the reattach reseeds every pane with
+    /// `clearScrollback`, emitting ESC[3J, so one slow pane truncated every sibling's scrollback.
+    ///
+    /// Dropping this pane's retained bytes is safe because the re-seed is an authoritative
+    /// `capture-pane`: the content is re-derived from tmux's own grid rather than remembered. Freeing
+    /// them first is also what makes room for the re-seed to be admitted.
+    ///
+    /// The re-seed is deferred to the next main-actor turn on purpose. This runs inside the reservation
+    /// that just failed, and seeding re-enters that same reservation, so a synchronous call recurses
+    /// until the stack overflows — measured, not theorised.
+    private func recoverPaneSeedBudget(paneId: Int, event: String) {
+        record("\(event) %\(paneId)")
+        discardPendingPaneSeeds(paneId: paneId)
+        Task { @MainActor [weak self] in
+            guard let self, !self.exited else { return }
+            _ = self.seedPane(paneId: paneId, clearScrollback: true)
+        }
+    }
+
     private func reservePendingPaneSeedBytes(_ count: Int, paneId: Int) -> Bool {
         guard count >= 0,
               count <= pendingPaneSeedByteLimit,
               pendingPaneSeedByteCount <= pendingPaneSeedByteLimit - count else {
-            record("pane-seed-total-backpressure %\(paneId)")
-            if connectionState == .connected { beginReconnecting() }
+            recoverPaneSeedBudget(paneId: paneId, event: "pane-seed-total-backpressure")
             return false
         }
         pendingPaneSeedByteCount += count
