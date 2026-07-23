@@ -4,6 +4,7 @@
 from __future__ import annotations
 
 from copy import deepcopy
+from concurrent.futures import Future, ThreadPoolExecutor as RealThreadPoolExecutor
 import importlib.util
 import json
 from pathlib import Path
@@ -59,6 +60,32 @@ class FakeClock:
         self.sleeps.append(duration)
         self.now += duration
         time.sleep(0.001)
+
+
+class InlineExecutor:
+    """Future-compatible executor for deterministic fake-clock behavior tests."""
+
+    def __init__(self, max_workers: int) -> None:
+        del max_workers
+
+    def __enter__(self) -> InlineExecutor:
+        return self
+
+    def __exit__(self, *_: Any) -> None:
+        return None
+
+    def submit(self, function: Any, *args: Any, **kwargs: Any) -> Future[Any]:
+        future: Future[Any] = Future()
+        try:
+            future.set_result(function(*args, **kwargs))
+        except BaseException as error:
+            future.set_exception(error)
+        return future
+
+    def shutdown(
+        self, wait: bool = True, *, cancel_futures: bool = False
+    ) -> None:
+        del wait, cancel_futures
 
 
 class FakeRunner:
@@ -632,11 +659,15 @@ def test_steady_primes_system_top_and_parser_deduplicates_repeated_processes(tmp
     }
 
 
-def test_churn_calls_every_planned_surface_and_records_real_metrics(tmp_path: Path) -> None:
+def test_churn_calls_every_planned_surface_and_records_real_metrics(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
     cfg = config(tmp_path)
     runner = FakeRunner()
     runner.top_payloads = [top_payload(), top_payload()]
     clock = FakeClock()
+    monkeypatch.setattr(adapter_module, "ThreadPoolExecutor", InlineExecutor)
     adapter = adapter_module.CmuxRuntimeAdapter(cfg, runner=runner, clock=clock)
     plan = prepare_fixture(adapter, runner, cfg)
 
@@ -711,6 +742,198 @@ def test_churn_calls_every_planned_surface_and_records_real_metrics(tmp_path: Pa
         "present_rate" not in item for item in result["render_observations"]
     )
     assert result["failures"] == []
+
+
+@pytest.mark.parametrize("error_type", [KeyboardInterrupt, SystemExit])
+def test_profile_setup_control_flow_exceptions_propagate(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+    error_type: type[BaseException],
+) -> None:
+    adapter = adapter_module.CmuxRuntimeAdapter(
+        config(tmp_path, profile_enabled=True),
+        runner=FakeRunner(),
+        clock=FakeClock(),
+    )
+
+    def interrupt_profile_setup(**_: Any) -> list[dict[str, Any]]:
+        raise error_type("profile setup interrupted")
+
+    monkeypatch.setattr(adapter, "_profile_metadata", interrupt_profile_setup)
+
+    with pytest.raises(error_type, match="profile setup interrupted"):
+        adapter.run_churn([])
+
+
+@pytest.mark.parametrize("error_type", [KeyboardInterrupt, SystemExit])
+def test_raw_churn_sampling_control_flow_exceptions_propagate(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+    error_type: type[BaseException],
+) -> None:
+    adapter = adapter_module.CmuxRuntimeAdapter(
+        config(
+            tmp_path,
+            churn_duration_s=0.5,
+            churn_measurement_duration_s=0.5,
+        ),
+        runner=FakeRunner(),
+        clock=FakeClock(),
+    )
+
+    def interrupt_sampling() -> dict[str, Any]:
+        raise error_type("sampling interrupted")
+
+    monkeypatch.setattr(adapter, "_raw_top", interrupt_sampling)
+
+    with pytest.raises(error_type, match="sampling interrupted"):
+        adapter.run_churn([])
+
+
+@pytest.mark.parametrize(
+    "injection_point", ["raw_top", "pre_sampling_sleep", "future_aggregation"]
+)
+@pytest.mark.parametrize("error_type", [KeyboardInterrupt, SystemExit])
+def test_profile_pool_is_joined_before_process_control_propagates(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+    error_type: type[BaseException],
+    injection_point: str,
+) -> None:
+    class RecordingExecutor:
+        instances: list[Any] = []
+
+        def __init__(self, max_workers: int) -> None:
+            self.executor = RealThreadPoolExecutor(max_workers=max_workers)
+            self.futures: list[Future[Any]] = []
+            self.shutdown_calls: list[tuple[bool, bool]] = []
+            self.instances.append(self)
+
+        def __enter__(self) -> RecordingExecutor:
+            self.executor.__enter__()
+            return self
+
+        def __exit__(self, *args: Any) -> Any:
+            return self.executor.__exit__(*args)
+
+        def submit(self, function: Any, *args: Any, **kwargs: Any) -> Future[Any]:
+            future = self.executor.submit(function, *args, **kwargs)
+            self.futures.append(future)
+            return future
+
+        def shutdown(
+            self, wait: bool = True, *, cancel_futures: bool = False
+        ) -> None:
+            self.shutdown_calls.append((wait, cancel_futures))
+            self.executor.shutdown(wait=wait, cancel_futures=cancel_futures)
+
+    def profiler(**kwargs: Any) -> dict[str, Any]:
+        time.sleep(0.02)
+        Path(kwargs["path"]).write_text("profile evidence", encoding="utf-8")
+        return {"ok": True}
+
+    runner = FakeRunner()
+    runner.top_payloads = [top_payload()]
+    clock = FakeClock()
+    adapter = adapter_module.CmuxRuntimeAdapter(
+        config(
+            tmp_path,
+            profile_enabled=True,
+            churn_duration_s=0.5,
+            churn_measurement_duration_s=0.5,
+        ),
+        runner=runner,
+        clock=clock,
+        profiler=profiler,
+    )
+    adapter._last_accounting = (
+        adapter_module._top_payload.parse_system_top_payload(top_payload())
+    )
+
+    def interrupt() -> None:
+        raise error_type("profiled process control interrupted")
+
+    monkeypatch.setattr(adapter_module, "ThreadPoolExecutor", RecordingExecutor)
+    if injection_point == "raw_top":
+        monkeypatch.setattr(adapter, "_raw_top", interrupt)
+    elif injection_point == "pre_sampling_sleep":
+        monkeypatch.setattr(clock, "sleep", lambda _: interrupt())
+    else:
+        def interrupt_aggregation(_: Any) -> Any:
+            interrupt()
+            yield
+
+        monkeypatch.setattr(adapter_module, "as_completed", interrupt_aggregation)
+
+    with pytest.raises(error_type, match="profiled process control interrupted"):
+        adapter.run_churn([])
+
+    profile_executor = RecordingExecutor.instances[0]
+    assert profile_executor.shutdown_calls == [(True, True)]
+    assert profile_executor.futures
+    assert all(future.done() for future in profile_executor.futures)
+
+
+@pytest.mark.parametrize("error_type", [KeyboardInterrupt, SystemExit])
+def test_temporary_browser_cycle_control_flow_exceptions_propagate(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+    error_type: type[BaseException],
+) -> None:
+    runner = FakeRunner()
+    runner.top_payloads = [top_payload()]
+    adapter = adapter_module.CmuxRuntimeAdapter(
+        config(
+            tmp_path,
+            churn_duration_s=0.5,
+            churn_measurement_duration_s=0.5,
+        ),
+        runner=runner,
+        clock=FakeClock(),
+    )
+
+    def interrupt_temporary_browser() -> None:
+        raise error_type("temporary browser interrupted")
+
+    monkeypatch.setattr(
+        adapter, "_temporary_browser_cycle", interrupt_temporary_browser
+    )
+
+    with pytest.raises(error_type, match="temporary browser interrupted"):
+        adapter.run_churn([])
+
+
+def test_worker_future_base_exception_is_reported_as_churn_failure(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    runner = FakeRunner()
+    runner.top_payloads = [top_payload()]
+    adapter = adapter_module.CmuxRuntimeAdapter(
+        config(
+            tmp_path,
+            churn_duration_s=0.5,
+            churn_measurement_duration_s=0.5,
+        ),
+        runner=runner,
+        clock=FakeClock(),
+    )
+    adapter._terminal_actual_ids = {"terminal-001": "surface:1"}
+
+    def interrupt_worker(*_: Any) -> dict[str, Any]:
+        raise KeyboardInterrupt("worker interrupted")
+
+    monkeypatch.setattr(adapter, "_terminal_churn", interrupt_worker)
+
+    result = adapter.run_churn([])
+
+    assert result["failures"] == [
+        {
+            "phase": "churn",
+            "surface_id": "terminal-001",
+            "message": "worker interrupted",
+        }
+    ]
 
 
 @pytest.mark.parametrize(

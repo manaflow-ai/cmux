@@ -209,6 +209,37 @@ def _run(adapter: FakeRuntimeAdapter, owned_root: Path) -> Any:
     )
 
 
+class CleanupFailingRuntimeAdapter(FakeRuntimeAdapter):
+    def __init__(
+        self,
+        owned_root: Path,
+        *,
+        body_error: BaseException | None = None,
+        stop_error: BaseException | None = None,
+        cleanup_error: BaseException | None = None,
+    ) -> None:
+        super().__init__(owned_root)
+        self.body_error = body_error
+        self.stop_error = stop_error
+        self.cleanup_error = cleanup_error
+
+    def clean_state(self) -> None:
+        super().clean_state()
+        if self.body_error is not None:
+            raise self.body_error
+
+    def stop(self) -> None:
+        super().stop()
+        if self.stop_error is not None:
+            raise self.stop_error
+
+    def cleanup_owned(self) -> dict[str, Any]:
+        result = super().cleanup_owned()
+        if self.cleanup_error is not None:
+            raise self.cleanup_error
+        return result
+
+
 def test_browser_fixture_plan_is_local_owned_stable_and_exact(tmp_path: Path) -> None:
     owned_root = tmp_path / "owned-fixtures"
     kwargs = {
@@ -359,3 +390,101 @@ def test_fixture_validation_failure_still_stops_and_cleans_owned_state(
     assert adapter.events == expected_events
     assert adapter.stopped is True
     assert adapter.cleaned is True
+
+
+def test_primary_failure_retains_every_cleanup_failure_as_traceback_notes(
+    tmp_path: Path,
+) -> None:
+    owned_root = tmp_path / "owned-primary-cleanup-failure"
+    primary_error = ValueError("primary body failure")
+    adapter = CleanupFailingRuntimeAdapter(
+        owned_root,
+        body_error=primary_error,
+        stop_error=RuntimeError("stop failure"),
+        cleanup_error=LookupError("owned cleanup failure"),
+    )
+
+    with pytest.raises(ValueError, match="primary body failure") as captured:
+        _run(adapter, owned_root)
+
+    assert captured.value is primary_error
+    notes = "\n".join(captured.value.__notes__)
+    assert adapter.events == ["clean_state", "stop", "cleanup_owned"]
+    assert "adapter.stop()" in notes
+    assert "stop failure" in notes
+    assert "adapter.cleanup_owned()" in notes
+    assert "owned cleanup failure" in notes
+    assert notes.count("Traceback (most recent call last)") == 2
+    assert [
+        {key: failure[key] for key in ("phase", "type", "message")}
+        for failure in captured.value.cleanup_failures
+    ] == [
+        {
+            "phase": "adapter.stop()",
+            "type": "RuntimeError",
+            "message": "stop failure",
+        },
+        {
+            "phase": "adapter.cleanup_owned()",
+            "type": "LookupError",
+            "message": "owned cleanup failure",
+        },
+    ]
+    assert all(
+        "Traceback (most recent call last)" in failure["traceback"]
+        for failure in captured.value.cleanup_failures
+    )
+
+
+def test_stop_and_owned_cleanup_failures_are_both_raised(tmp_path: Path) -> None:
+    owned_root = tmp_path / "owned-double-cleanup-failure"
+    adapter = CleanupFailingRuntimeAdapter(
+        owned_root,
+        stop_error=RuntimeError("stop failure"),
+        cleanup_error=LookupError("owned cleanup failure"),
+    )
+
+    with pytest.raises(ExceptionGroup) as captured:
+        _run(adapter, owned_root)
+
+    assert adapter.events[-2:] == ["stop", "cleanup_owned"]
+    assert [str(error) for error in captured.value.exceptions] == [
+        "stop failure",
+        "owned cleanup failure",
+    ]
+    assert captured.value.exceptions[0].__notes__ == [
+        "Invocation cleanup phase: adapter.stop()"
+    ]
+    assert captured.value.exceptions[1].__notes__ == [
+        "Invocation cleanup phase: adapter.cleanup_owned()"
+    ]
+    assert [failure["phase"] for failure in captured.value.cleanup_failures] == [
+        "adapter.stop()",
+        "adapter.cleanup_owned()",
+    ]
+    assert [failure["message"] for failure in captured.value.cleanup_failures] == [
+        "stop failure",
+        "owned cleanup failure",
+    ]
+    assert all(
+        "Traceback (most recent call last)" in failure["traceback"]
+        for failure in captured.value.cleanup_failures
+    )
+
+
+def test_owned_cleanup_only_failure_remains_directly_recognizable(
+    tmp_path: Path,
+) -> None:
+    owned_root = tmp_path / "owned-cleanup-only-failure"
+    adapter = CleanupFailingRuntimeAdapter(
+        owned_root,
+        cleanup_error=LookupError("owned cleanup failure"),
+    )
+
+    with pytest.raises(LookupError, match="owned cleanup failure") as captured:
+        _run(adapter, owned_root)
+
+    assert adapter.events[-2:] == ["stop", "cleanup_owned"]
+    assert captured.value.__notes__ == [
+        "Invocation cleanup phase: adapter.cleanup_owned()"
+    ]

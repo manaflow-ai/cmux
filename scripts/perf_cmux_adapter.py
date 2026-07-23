@@ -980,152 +980,179 @@ class CmuxRuntimeAdapter:
         browser_render_counts: dict[str, int] = {}
         profile_pool: ThreadPoolExecutor | None = None
         profile_futures: dict[Any, dict[str, Any]] = {}
-        if self.config.profile_enabled:
-            try:
-                work_units = {
-                    "terminal_ansi_lines": len(self._terminal_actual_ids)
-                    * self._terminal_ansi_line_target(),
-                    "browser_churn_rpc_operations": len(self._browser_actual_ids)
-                    * (browser_cycles * 2 + 2),
-                    "temporary_browser_open_close_operations": 2
-                    if self._browser_actual_ids
-                    else 0,
-                }
-                metadata = self._profile_metadata(
-                    phase="churn", work_units=work_units
-                )
-                profile_pool = ThreadPoolExecutor(
-                    max_workers=max(1, len(metadata))
-                )
-                profile_futures = {
-                    profile_pool.submit(self._run_profile, item): item
-                    for item in metadata
-                }
-            except BaseException as error:
-                failures.append({"phase": "profile_setup", "message": str(error)})
-        futures: dict[Any, tuple[str, str]] = {}
-        browser_batch_future: Any | None = None
-        worker_count = len(self._terminal_actual_ids) + bool(self._browser_actual_ids)
-        with ThreadPoolExecutor(max_workers=max(1, worker_count)) as pool:
-            for planned, actual in self._terminal_actual_ids.items():
-                future = pool.submit(self._terminal_churn, planned, actual, cycles)
-                futures[future] = ("terminal", planned)
-            if self._browser_actual_ids:
-                browser_batch_future = pool.submit(
-                    self._browser_churn_batch, browser_cycles
-                )
-                futures[browser_batch_future] = ("browser_batch", "browser-batch")
-
-            sample_count = max(
-                1,
-                math.ceil(
-                    self.config.churn_measurement_duration_s
-                    / self.config.churn_interval_s
-                ),
-            )
-            samples: list[dict[str, Any]] = []
-            for index in range(sample_count):
-                self._clock.sleep(self.config.churn_interval_s)
-                try:
-                    raw = self._raw_top()
-                    samples.append(
-                        self._parsed_sample(
-                            raw,
-                            index=index,
-                            elapsed_seconds=self._clock.monotonic() - churn_start,
-                        )
-                    )
-                except BaseException as error:
-                    failures.append(
-                        {
-                            "phase": "churn_sampling",
-                            "operation_index": index,
-                            "message": str(error),
-                        }
-                    )
-
-            if browser_batch_future is not None and not browser_batch_future.done():
-                failures.append(
-                    {
-                        "phase": "browser_measurement_window",
-                        "surface_id": "browser-batch",
-                        "message": "browser churn exceeded the fixed measurement window",
-                    }
-                )
-
-            for future in as_completed(futures):
-                kind, planned = futures[future]
-                try:
-                    value = future.result()
-                except BaseException as error:
-                    failures.append(
-                        {
-                            "phase": "churn",
-                            "surface_id": planned,
-                            "message": str(error),
-                        }
-                    )
-                    continue
-                results = value if kind == "browser_batch" else [(planned, value)]
-                result_kind = "browser" if kind == "browser_batch" else kind
-                for result_planned, result in results:
-                    operation_counts[result_kind] += result["operations"]
-                    if result_kind == "browser":
-                        browser_render_counts[result_planned] = result["render_observations"]
-                        screenshot_path = result.get("owned_screenshot_path")
-                        if isinstance(screenshot_path, str) and screenshot_path:
-                            candidate = Path(screenshot_path).absolute()
-                            expected_root = (
-                                Path(tempfile.gettempdir()) / "cmux-browser-screenshots"
-                            ).resolve()
-                            if (
-                                candidate.parent.resolve() == expected_root
-                                and candidate.name.startswith("surface-")
-                                and candidate.suffix == ".png"
-                                and candidate.is_file()
-                                and not candidate.is_symlink()
-                            ):
-                                self._owned_browser_screenshot_paths.add(candidate)
-                    latencies.extend(result["latencies"])
-                    evidence.append(
-                        {
-                            "surface_kind": result_kind,
-                            "surface_id": result_planned,
-                            **result["evidence"],
-                        }
-                    )
-
-        temporary: dict[str, Any] | None = None
         try:
-            temporary = self._temporary_browser_cycle()
-            if temporary is not None:
-                operation_counts["browser"] += 2
-        except BaseException as error:
-            failures.append(
-                {"phase": "temporary_browser_cycle", "message": str(error)}
-            )
-        churn_elapsed_s = max(
-            1e-9, self._clock.monotonic() - churn_start
-        )
+            if self.config.profile_enabled:
+                try:
+                    work_units = {
+                        "terminal_ansi_lines": len(self._terminal_actual_ids)
+                        * self._terminal_ansi_line_target(),
+                        "browser_churn_rpc_operations": len(self._browser_actual_ids)
+                        * (browser_cycles * 2 + 2),
+                        "temporary_browser_open_close_operations": 2
+                        if self._browser_actual_ids
+                        else 0,
+                    }
+                    metadata = self._profile_metadata(
+                        phase="churn", work_units=work_units
+                    )
+                    profile_pool = ThreadPoolExecutor(
+                        max_workers=max(1, len(metadata))
+                    )
+                    profile_futures = {
+                        profile_pool.submit(self._run_profile, item): item
+                        for item in metadata
+                    }
+                except Exception as error:
+                    failures.append(
+                        {"phase": "profile_setup", "message": str(error)}
+                    )
 
-        profile_records: list[dict[str, Any]] = []
-        for future in as_completed(profile_futures):
-            metadata = profile_futures[future]
+            futures: dict[Any, tuple[str, str]] = {}
+            browser_batch_future: Any | None = None
+            worker_count = len(self._terminal_actual_ids) + bool(
+                self._browser_actual_ids
+            )
+            with ThreadPoolExecutor(max_workers=max(1, worker_count)) as pool:
+                for planned, actual in self._terminal_actual_ids.items():
+                    future = pool.submit(
+                        self._terminal_churn, planned, actual, cycles
+                    )
+                    futures[future] = ("terminal", planned)
+                if self._browser_actual_ids:
+                    browser_batch_future = pool.submit(
+                        self._browser_churn_batch, browser_cycles
+                    )
+                    futures[browser_batch_future] = (
+                        "browser_batch",
+                        "browser-batch",
+                    )
+
+                sample_count = max(
+                    1,
+                    math.ceil(
+                        self.config.churn_measurement_duration_s
+                        / self.config.churn_interval_s
+                    ),
+                )
+                samples: list[dict[str, Any]] = []
+                for index in range(sample_count):
+                    self._clock.sleep(self.config.churn_interval_s)
+                    try:
+                        raw = self._raw_top()
+                        samples.append(
+                            self._parsed_sample(
+                                raw,
+                                index=index,
+                                elapsed_seconds=self._clock.monotonic()
+                                - churn_start,
+                            )
+                        )
+                    except Exception as error:
+                        failures.append(
+                            {
+                                "phase": "churn_sampling",
+                                "operation_index": index,
+                                "message": str(error),
+                            }
+                        )
+
+                if (
+                    browser_batch_future is not None
+                    and not browser_batch_future.done()
+                ):
+                    failures.append(
+                        {
+                            "phase": "browser_measurement_window",
+                            "surface_id": "browser-batch",
+                            "message": (
+                                "browser churn exceeded the fixed measurement window"
+                            ),
+                        }
+                    )
+
+                for future in as_completed(futures):
+                    kind, planned = futures[future]
+                    try:
+                        value = future.result()
+                    except BaseException as error:
+                        failures.append(
+                            {
+                                "phase": "churn",
+                                "surface_id": planned,
+                                "message": str(error),
+                            }
+                        )
+                        continue
+                    results = (
+                        value
+                        if kind == "browser_batch"
+                        else [(planned, value)]
+                    )
+                    result_kind = "browser" if kind == "browser_batch" else kind
+                    for result_planned, result in results:
+                        operation_counts[result_kind] += result["operations"]
+                        if result_kind == "browser":
+                            browser_render_counts[result_planned] = result[
+                                "render_observations"
+                            ]
+                            screenshot_path = result.get("owned_screenshot_path")
+                            if isinstance(screenshot_path, str) and screenshot_path:
+                                candidate = Path(screenshot_path).absolute()
+                                expected_root = (
+                                    Path(tempfile.gettempdir())
+                                    / "cmux-browser-screenshots"
+                                ).resolve()
+                                if (
+                                    candidate.parent.resolve() == expected_root
+                                    and candidate.name.startswith("surface-")
+                                    and candidate.suffix == ".png"
+                                    and candidate.is_file()
+                                    and not candidate.is_symlink()
+                                ):
+                                    self._owned_browser_screenshot_paths.add(
+                                        candidate
+                                    )
+                        latencies.extend(result["latencies"])
+                        evidence.append(
+                            {
+                                "surface_kind": result_kind,
+                                "surface_id": result_planned,
+                                **result["evidence"],
+                            }
+                        )
+
+            temporary: dict[str, Any] | None = None
             try:
-                profile_records.append(future.result())
-            except BaseException as error:
-                failure = {
-                    "phase": "profile_churn",
-                    "role": metadata["role"],
-                    "pid": metadata["pid"],
-                    "message": str(error),
-                }
-                profile_evidence = getattr(error, "evidence", None)
-                if profile_evidence is not None:
-                    failure["evidence"] = _plain(profile_evidence)
-                failures.append(failure)
-        if profile_pool is not None:
-            profile_pool.shutdown(wait=True)
+                temporary = self._temporary_browser_cycle()
+                if temporary is not None:
+                    operation_counts["browser"] += 2
+            except Exception as error:
+                failures.append(
+                    {"phase": "temporary_browser_cycle", "message": str(error)}
+                )
+            churn_elapsed_s = max(
+                1e-9, self._clock.monotonic() - churn_start
+            )
+
+            profile_records: list[dict[str, Any]] = []
+            for future in as_completed(profile_futures):
+                metadata = profile_futures[future]
+                try:
+                    profile_records.append(future.result())
+                except BaseException as error:
+                    failure = {
+                        "phase": "profile_churn",
+                        "role": metadata["role"],
+                        "pid": metadata["pid"],
+                        "message": str(error),
+                    }
+                    profile_evidence = getattr(error, "evidence", None)
+                    if profile_evidence is not None:
+                        failure["evidence"] = _plain(profile_evidence)
+                    failures.append(failure)
+        finally:
+            if profile_pool is not None:
+                profile_pool.shutdown(wait=True, cancel_futures=True)
         if profile_records:
             self._details["profiles"] = sorted(
                 profile_records, key=lambda item: (item["role"], item["pid"])

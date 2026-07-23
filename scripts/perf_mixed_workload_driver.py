@@ -111,6 +111,27 @@ def _immutable_mapping(value: Mapping[str, Any] | None, *, name: str) -> Mapping
     return MappingProxyType(plain)
 
 
+def _immutable_cleanup_failures(
+    value: Any,
+) -> tuple[Mapping[str, str], ...]:
+    plain = _plain_json(value)
+    if not isinstance(plain, list):
+        raise ValueError("cleanup_failures must be a sequence")
+    required_fields = {"phase", "type", "message", "traceback"}
+    failures: list[Mapping[str, str]] = []
+    for failure in plain:
+        if (
+            not isinstance(failure, dict)
+            or set(failure) != required_fields
+            or any(not isinstance(failure[field], str) for field in required_fields)
+        ):
+            raise ValueError(
+                "cleanup failures must contain phase, type, message, and traceback strings"
+            )
+        failures.append(MappingProxyType(failure))
+    return tuple(failures)
+
+
 @dataclass(frozen=True, slots=True)
 class VariantConfig:
     """One immutable build identity passed to the execution adapter."""
@@ -199,12 +220,18 @@ class InvocationFailure:
     message: str
     raw_path: str
     cleanup: Mapping[str, Any] | None = None
+    cleanup_failures: tuple[Mapping[str, str], ...] = ()
 
     def __post_init__(self) -> None:
         object.__setattr__(
             self,
             "cleanup",
             _immutable_mapping(self.cleanup, name="cleanup"),
+        )
+        object.__setattr__(
+            self,
+            "cleanup_failures",
+            _immutable_cleanup_failures(self.cleanup_failures),
         )
 
     def to_dict(self) -> dict[str, Any]:
@@ -221,6 +248,7 @@ class InvocationFailure:
             "message": self.message,
             "raw_path": self.raw_path,
             "cleanup": _plain_json(self.cleanup),
+            "cleanup_failures": _plain_json(self.cleanup_failures),
         }
 
 
@@ -292,11 +320,17 @@ def _comparison_group(
     gate = _statistics.evaluate_metric_gate(
         _statistics_metric(metric), baseline_median, candidate_median
     ).to_dict()
-    gate["metric"] = metric
-    # These are predeclared by this driver; retaining them explicitly prevents a
-    # generic statistics name from leaking into machine output.
-    gate["direction"] = direction
-    gate["threshold"] = threshold
+    relative_change = gate["relative_change"]
+    relative_regression = (
+        relative_change if direction == "lower_is_better" else -relative_change
+    )
+    gate.update(
+        metric=metric,
+        direction=direction,
+        threshold=threshold,
+        relative_regression=relative_regression,
+        passed=relative_regression <= threshold,
+    )
     return {
         "scenario_id": scenario_id,
         "order": order,
@@ -306,6 +340,17 @@ def _comparison_group(
         "comparison": comparison.to_dict(),
         "gate": gate,
     }
+
+
+def validate_accepted_analysis(analysis: Mapping[str, Any]) -> None:
+    """Require the exact fail-closed producer verdict consumed by CI."""
+
+    if not isinstance(analysis, Mapping):
+        raise ValueError("analysis must be a mapping")
+    if analysis.get("final_acceptance") is not True:
+        raise ValueError("analysis final_acceptance must be exactly true")
+    if analysis.get("status") != "accepted":
+        raise ValueError("analysis status must be exactly 'accepted'")
 
 
 def analyze_experiment(
@@ -480,6 +525,7 @@ def analyze_experiment(
         "proven": proven,
         "inconclusive": inconclusive,
         "regressed": regressed,
+        "status": "accepted" if final_acceptance else "rejected",
         "final_acceptance": final_acceptance,
     }
 
@@ -576,6 +622,7 @@ def execute_experiment(
             except Exception as error:
                 cleanup = getattr(error, "cleanup", {})
                 evidence = getattr(error, "evidence", {})
+                cleanup_failures = getattr(error, "cleanup_failures", ())
                 if not isinstance(evidence, Mapping):
                     evidence = {"serialization_error": "exception evidence was not a mapping"}
                 failure = InvocationFailure(
@@ -591,6 +638,7 @@ def execute_experiment(
                     message=str(error),
                     raw_path=raw_path.as_posix(),
                     cleanup=cleanup,
+                    cleanup_failures=cleanup_failures,
                 )
                 failures.append(failure)
                 cleanup_summaries.append(
@@ -598,6 +646,9 @@ def execute_experiment(
                         "raw_path": raw_path.as_posix(),
                         "status": "failure",
                         "cleanup": _plain_json(failure.cleanup),
+                        "cleanup_failures": _plain_json(
+                            failure.cleanup_failures
+                        ),
                     }
                 )
                 _atomic_write_json(
@@ -802,6 +853,8 @@ __all__ = [
     "main",
     "parse_cli_args",
     "run_cli_experiment",
+    "validate_accepted_analysis",
+
 ]
 
 

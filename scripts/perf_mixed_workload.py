@@ -8,6 +8,7 @@ from html import escape
 from pathlib import Path
 import re
 from types import TracebackType
+import traceback
 from typing import Any, Mapping, Protocol, Sequence
 
 
@@ -265,6 +266,28 @@ def _validate_invocation_inputs(
     return _validate_requested_shape(requested_shape)
 
 
+def _cleanup_failure_evidence(
+    failures: Sequence[tuple[str, BaseException]],
+) -> list[dict[str, str]]:
+    return [
+        {
+            "phase": phase,
+            "type": type(error).__name__,
+            "message": str(error),
+            "traceback": "".join(traceback.format_exception(error)).rstrip(),
+        }
+        for phase, error in failures
+    ]
+
+
+def _attach_cleanup_failures(
+    error: BaseException, failures: Sequence[tuple[str, BaseException]]
+) -> list[dict[str, str]]:
+    evidence = _cleanup_failure_evidence(failures)
+    error.cleanup_failures = evidence
+    return evidence
+
+
 def run_invocation(
     *,
     scenario_id: str,
@@ -320,25 +343,41 @@ def run_invocation(
         primary_error = error
         primary_traceback = error.__traceback__
     finally:
-        cleanup_error: BaseException | None = None
-        cleanup_traceback: TracebackType | None = None
+        cleanup_errors: list[tuple[str, BaseException]] = []
         try:
             adapter.stop()
         except BaseException as error:
-            cleanup_error = error
-            cleanup_traceback = error.__traceback__
+            cleanup_errors.append(("adapter.stop()", error))
         try:
             cleanup = adapter.cleanup_owned()
         except BaseException as error:
-            if cleanup_error is None:
-                cleanup_error = error
-                cleanup_traceback = error.__traceback__
-        if primary_error is None and cleanup_error is not None:
-            primary_error = cleanup_error
-            primary_traceback = cleanup_traceback
+            cleanup_errors.append(("adapter.cleanup_owned()", error))
 
     if primary_error is not None:
+        cleanup_failure_evidence = _attach_cleanup_failures(
+            primary_error, cleanup_errors
+        )
+        for failure in cleanup_failure_evidence:
+            primary_error.add_note(
+                f"Invocation cleanup failed during {failure['phase']}:\n"
+                f"{failure['traceback']}"
+            )
         raise primary_error.with_traceback(primary_traceback)
+    if len(cleanup_errors) == 1:
+        phase, error = cleanup_errors[0]
+        _attach_cleanup_failures(error, cleanup_errors)
+        error.add_note(f"Invocation cleanup phase: {phase}")
+        raise error.with_traceback(error.__traceback__)
+    if cleanup_errors:
+        for phase, error in cleanup_errors:
+            error.add_note(f"Invocation cleanup phase: {phase}")
+        grouped_error = BaseExceptionGroup(
+            "multiple invocation cleanup failures",
+            [error for _, error in cleanup_errors],
+        )
+        _attach_cleanup_failures(grouped_error, cleanup_errors)
+        raise grouped_error
+
     if result_values is None:
         raise RuntimeError("invocation completed without observations")
 

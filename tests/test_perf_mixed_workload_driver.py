@@ -241,6 +241,100 @@ def test_failures_are_written_and_execution_continues(tmp_path: Path) -> None:
     assert manifest["failures"] == [failure]
 
 
+def test_cleanup_failures_are_structured_in_raw_and_manifest_outputs(
+    tmp_path: Path,
+) -> None:
+    baseline, candidate = _variants()
+    primary_cleanup = [
+        {
+            "phase": "adapter.stop()",
+            "type": "RuntimeError",
+            "message": "primary stop failure",
+            "traceback": "Traceback: primary stop failure",
+        },
+        {
+            "phase": "adapter.cleanup_owned()",
+            "type": "LookupError",
+            "message": "primary owned cleanup failure",
+            "traceback": "Traceback: primary owned cleanup failure",
+        },
+    ]
+    grouped_cleanup = [
+        {
+            "phase": "adapter.stop()",
+            "type": "RuntimeError",
+            "message": "grouped stop failure",
+            "traceback": "Traceback: grouped stop failure",
+        },
+        {
+            "phase": "adapter.cleanup_owned()",
+            "type": "LookupError",
+            "message": "grouped owned cleanup failure",
+            "traceback": "Traceback: grouped owned cleanup failure",
+        },
+    ]
+    call_count = 0
+
+    def run_variant(variant: Any, scenario: Any, run: Any) -> dict[str, Any]:
+        nonlocal call_count
+        del variant, scenario, run
+        call_count += 1
+        if call_count == 1:
+            error = ValueError("primary body failure")
+            error.cleanup_failures = primary_cleanup
+            raise error
+        if call_count == 2:
+            error = ExceptionGroup(
+                "multiple invocation cleanup failures",
+                [RuntimeError("stop"), LookupError("cleanup")],
+            )
+            error.cleanup_failures = grouped_cleanup
+            raise error
+        return {
+            "metrics": {"steady_full_tree_cpu_percent": 10.0},
+            "cleanup": {"owned_processes_removed": 1},
+        }
+
+    result = perf_driver.execute_experiment(
+        baseline=baseline,
+        candidate=candidate,
+        output_dir=tmp_path,
+        run_variant=run_variant,
+    )
+
+    assert [failure.error_type for failure in result.failures] == [
+        "ValueError",
+        "ExceptionGroup",
+    ]
+    assert [
+        failure.to_dict()["cleanup_failures"] for failure in result.failures
+    ] == [primary_cleanup, grouped_cleanup]
+    raw_failures = [
+        json.loads((tmp_path / failure.raw_path).read_text(encoding="utf-8"))[
+            "failure"
+        ]
+        for failure in result.failures
+    ]
+    assert [failure["cleanup_failures"] for failure in raw_failures] == [
+        primary_cleanup,
+        grouped_cleanup,
+    ]
+    manifest = json.loads(result.manifest_path.read_text(encoding="utf-8"))
+    assert [failure["cleanup_failures"] for failure in manifest["failures"]] == [
+        primary_cleanup,
+        grouped_cleanup,
+    ]
+    failed_cleanup_summaries = [
+        summary
+        for summary in manifest["cleanup_summaries"]
+        if summary["status"] == "failure"
+    ]
+    assert [summary["cleanup_failures"] for summary in failed_cleanup_summaries] == [
+        primary_cleanup,
+        grouped_cleanup,
+    ]
+
+
 def test_analysis_excludes_warmups_and_keeps_ab_ba_metric_strata_separate() -> None:
     records = [
         _record(
@@ -320,6 +414,40 @@ def test_predeclared_metric_directions_and_thresholds_are_complete() -> None:
     }
 
 
+@pytest.mark.parametrize(
+    ("metric", "direction", "threshold", "candidate", "relative_regression"),
+    [
+        ("terminal_render_rate", "lower_is_better", 0.01, 95.0, -0.05),
+        ("browser_render_rate", "higher_is_better", 0.20, 90.0, 0.10),
+    ],
+)
+def test_render_gate_verdict_uses_driver_direction_and_threshold(
+    monkeypatch: pytest.MonkeyPatch,
+    metric: str,
+    direction: str,
+    threshold: float,
+    candidate: float,
+    relative_regression: float,
+) -> None:
+    monkeypatch.setattr(
+        perf_driver,
+        "METRIC_GATES",
+        {metric: (direction, threshold)},
+    )
+
+    group = perf_driver._comparison_group(
+        "mixed-heavy", "AB", metric, [100.0], [candidate]
+    )
+
+    assert group["direction"] == direction
+    assert group["gate"]["direction"] == direction
+    assert group["gate"]["threshold"] == threshold
+    assert group["gate"]["relative_regression"] == pytest.approx(
+        relative_regression
+    )
+    assert group["gate"]["passed"] is True
+
+
 def test_scenario_conclusions_and_final_acceptance_do_not_pool_workloads() -> None:
     records: list[Any] = []
     terminal_metrics = {
@@ -355,6 +483,7 @@ def test_scenario_conclusions_and_final_acceptance_do_not_pool_workloads() -> No
     assert analysis["regressed"] == ["browser-heavy"]
     assert "mixed-heavy" in analysis["inconclusive"]
     assert analysis["final_acceptance"] is False
+    assert analysis["status"] == "rejected"
 
     no_browser_regression = [
         record
@@ -534,6 +663,8 @@ def test_final_acceptance_requires_every_scenario_metric_and_order() -> None:
 
     accepted = perf_driver.analyze_experiment(complete)
     assert accepted["final_acceptance"] is True
+    assert accepted["status"] == "accepted"
+    perf_driver.validate_accepted_analysis(accepted)
 
     one_group_missing = [
         record
@@ -546,11 +677,32 @@ def test_final_acceptance_requires_every_scenario_metric_and_order() -> None:
     ]
     rejected = perf_driver.analyze_experiment(one_group_missing)
     assert rejected["final_acceptance"] is False
+    assert rejected["status"] == "rejected"
+    with pytest.raises(ValueError, match="final_acceptance"):
+        perf_driver.validate_accepted_analysis(rejected)
     browser_light = next(
         item for item in rejected["scenarios"] if item["scenario_id"] == "browser-light"
     )
     assert browser_light["complete"] is False
     assert "BA:browser_render_rate" in browser_light["missing_groups"]
+
+
+@pytest.mark.parametrize(
+    "analysis",
+    [
+        {},
+        {"final_acceptance": 1, "status": "accepted"},
+        {"final_acceptance": False, "status": "accepted"},
+        {"final_acceptance": True},
+        {"final_acceptance": True, "status": "Accepted"},
+        {"final_acceptance": True, "status": "rejected"},
+    ],
+)
+def test_analysis_acceptance_validation_is_fail_closed(
+    analysis: dict[str, Any],
+) -> None:
+    with pytest.raises(ValueError):
+        perf_driver.validate_accepted_analysis(analysis)
 
 
 def test_scenario_timing_extends_heavy_browser_measurement_windows() -> None:

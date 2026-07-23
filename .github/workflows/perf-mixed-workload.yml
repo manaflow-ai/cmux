@@ -419,6 +419,10 @@ jobs:
           import json
           import os
           from pathlib import Path
+          import sys
+
+          sys.path.insert(0, str(Path(os.environ["GITHUB_WORKSPACE"]) / "scripts"))
+          from perf_mixed_workload_driver import validate_accepted_analysis
 
           results = Path(os.environ["RESULTS_DIR"])
           paths = [
@@ -446,10 +450,10 @@ jobs:
               failures.extend((name, failure) for failure in value)
           if failures:
               raise SystemExit(f"experiment reported {len(failures)} failure(s)")
-          if analysis.get("final_acceptance") is False:
-              raise SystemExit("analysis final_acceptance is false")
-          if str(analysis.get("status", "")).lower() in {"failed", "failure", "incomplete", "rejected"}:
-              raise SystemExit(f"analysis status is {analysis['status']!r}")
+          try:
+              validate_accepted_analysis(analysis)
+          except ValueError as error:
+              raise SystemExit(str(error)) from error
           PY
 
       - name: Cleanup owned tagged state
