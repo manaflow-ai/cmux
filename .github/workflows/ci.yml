@@ -88,6 +88,8 @@ jobs:
         uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
         with:
           fetch-depth: 0
+          persist-credentials: false
+          submodules: recursive
 
       - name: Validate macOS runner guards
         run: ./tests/test_ci_self_hosted_guard.sh
@@ -173,6 +175,9 @@ jobs:
 
       - name: Validate GhosttyKit checksum verification
         run: ./tests/test_ci_ghosttykit_checksum_verification.sh
+
+      - name: Validate Zig version guard
+        run: ./tests/test_ci_zig_version_guard.sh
 
       - name: Validate Zig install without sudo
         run: ./tests/test_install_zig_ci_no_sudo.sh
