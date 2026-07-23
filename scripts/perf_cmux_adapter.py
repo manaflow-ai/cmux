@@ -392,7 +392,10 @@ class CmuxRuntimeAdapter:
                 },
                 timeout=self.config.rpc_timeout_s,
             )
-            if _extract_ref(respawned, "surface") != initial_terminal:
+            if not isinstance(respawned, Mapping) or not any(
+                respawned.get(key) == initial_terminal
+                for key in ("surface_id", "surface_ref", "id", "ref")
+            ):
                 raise ValueError("startup terminal identity changed while setting fixture cwd")
             self._terminal_actual_ids["terminal-001"] = initial_terminal
             for index in range(2, terminals + 1):
