@@ -401,20 +401,22 @@ final class cmuxUITests: XCTestCase {
             accuracy: 1,
             "Workspace search and primary tabs should be vertically aligned"
         )
+        let docsRow = app.descendants(matching: .any)["MobileWorkspaceRow-workspace-docs"]
+        let mainRow = app.descendants(matching: .any)["MobileWorkspaceRow-workspace-main"]
+        XCTAssertTrue(waitForHittable(docsRow, timeout: 3))
+        XCTAssertTrue(waitForHittable(mainRow, timeout: 3))
         tap(minimizedSearch, in: app)
 
         XCTAssertTrue(waitForHittable(searchField, timeout: 3))
         XCTAssertTrue(focusTextInput(searchField, in: app))
         searchField.typeText("Docs")
 
-        let docsRow = app.descendants(matching: .any)["MobileWorkspaceRow-workspace-docs"]
-        let mainRow = app.descendants(matching: .any)["MobileWorkspaceRow-workspace-main"]
-        XCTAssertTrue(docsRow.waitForExistence(timeout: 3))
+        XCTAssertTrue(waitForHittable(docsRow, timeout: 3))
         XCTAssertTrue(waitForNotHittable(mainRow, timeout: 3))
 
         tap(workspacesTab, in: app)
         XCTAssertTrue(waitForKeyboardDismissal(in: app))
-        XCTAssertTrue(docsRow.waitForExistence(timeout: 3))
+        XCTAssertTrue(waitForHittable(docsRow, timeout: 3))
         XCTAssertTrue(waitForNotHittable(mainRow, timeout: 3))
 
         let refreshStart = scroll.coordinate(withNormalizedOffset: CGVector(dx: 0.5, dy: 0.2))
@@ -426,7 +428,7 @@ final class cmuxUITests: XCTestCase {
             "Pull-to-refresh did not replace the preview workspace snapshot"
         )
 
-        XCTAssertTrue(docsRow.waitForExistence(timeout: 3))
+        XCTAssertTrue(waitForHittable(docsRow, timeout: 3))
         XCTAssertTrue(waitForNotHittable(mainRow, timeout: 3))
         let restoredMinimizedSearchMatches = app.tabBars.buttons
             .matching(NSPredicate(format: "label == %@", "Search"))
@@ -454,7 +456,9 @@ final class cmuxUITests: XCTestCase {
         XCTAssertEqual(searchMatches.count, 1)
         let searchButton = searchMatches.firstMatch
         XCTAssertTrue(searchButton.waitForExistence(timeout: 3))
-        let initialSearchFrame = searchButton.frame
+        guard let initialSearchFrame = waitForUsableFrame(of: searchButton, timeout: 3) else {
+            return XCTFail("Search button never acquired a usable initial frame")
+        }
 
         let workspaceRow = app.descendants(matching: .any)["MobileWorkspaceRow-workspace-main"]
         XCTAssertTrue(workspaceRow.waitForExistence(timeout: 3))
@@ -478,7 +482,10 @@ final class cmuxUITests: XCTestCase {
         XCTAssertTrue(app.staticTexts["Notification feed fixture"].waitForExistence(timeout: 3))
         XCTAssertTrue(searchButton.waitForExistence(timeout: 3))
         XCTAssertEqual(searchMatches.count, 1)
-        XCTAssertEqual(searchButton.frame, initialSearchFrame)
+        guard let notificationSearchFrame = waitForUsableFrame(of: searchButton, timeout: 3) else {
+            return XCTFail("Search button never acquired a usable notification frame")
+        }
+        XCTAssertEqual(notificationSearchFrame, initialSearchFrame)
 
         app.tabBars.buttons["Workspaces"].tap()
         XCTAssertTrue(workspaceList.waitForExistence(timeout: 3))
@@ -526,6 +533,15 @@ final class cmuxUITests: XCTestCase {
         let feed = app.descendants(matching: .any)["MobileNotificationFeed"]
         XCTAssertTrue(feed.waitForExistence(timeout: 8))
 
+        let matchingRow = app.descendants(matching: .any)[
+            "MobileNotificationFeedRow-macbook-tests-passed"
+        ]
+        let nonmatchingRow = app.descendants(matching: .any)[
+            "MobileNotificationFeedRow-studio-codex-approval"
+        ]
+        XCTAssertTrue(waitForHittable(matchingRow, timeout: 3))
+        XCTAssertTrue(waitForHittable(nonmatchingRow, timeout: 3))
+
         let searchButton = app.tabBars.buttons
             .matching(NSPredicate(format: "label == %@", "Search"))
             .firstMatch
@@ -537,13 +553,7 @@ final class cmuxUITests: XCTestCase {
         XCTAssertTrue(focusTextInput(searchField, in: app))
         searchField.typeText("Tests passed")
 
-        let matchingRow = app.descendants(matching: .any)[
-            "MobileNotificationFeedRow-macbook-tests-passed"
-        ]
-        let nonmatchingRow = app.descendants(matching: .any)[
-            "MobileNotificationFeedRow-studio-codex-approval"
-        ]
-        XCTAssertTrue(matchingRow.waitForExistence(timeout: 3))
+        XCTAssertTrue(waitForHittable(matchingRow, timeout: 3))
         XCTAssertTrue(waitForNotHittable(nonmatchingRow, timeout: 3))
     }
 
@@ -5193,7 +5203,7 @@ final class cmuxUITests: XCTestCase {
         }
         let fallbackLabels = preferAddDeviceAccessoryDoneButton
             ? ["Done", "Return", "Next"]
-            : ["Done", "Search", "Next"]
+            : ["Done", "Return", "Search", "Next"]
         for label in fallbackLabels {
             let button = app.keyboards.buttons[label]
             if button.exists {

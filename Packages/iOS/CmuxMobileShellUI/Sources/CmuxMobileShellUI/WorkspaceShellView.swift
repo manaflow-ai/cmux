@@ -357,9 +357,7 @@ struct WorkspaceShellView: View {
         NavigationStack(path: $compactNavigationPath) {
             WorkspaceListSearchHost(
                 searchText: $workspaceSearchText,
-                taskComposerAction: displaySettings.taskComposerEnabled ? {
-                    isTaskComposerPresented = true
-                } : nil
+                taskComposerAction: taskComposerAction
             ) { searchText in
                 workspaceList(
                     navigationStyle: .push,
@@ -439,6 +437,15 @@ struct WorkspaceShellView: View {
         .onAppear {
             autoOpenSelectedWorkspaceForSoakIfNeeded()
         }
+    }
+
+    private func openTaskComposer() {
+        isTaskComposerPresented = true
+    }
+
+    private var taskComposerAction: (() -> Void)? {
+        guard displaySettings.taskComposerEnabled else { return nil }
+        return openTaskComposer
     }
 
     private func splitLayout(canCreateWorkspaceForSelection: Bool) -> some View {
@@ -678,24 +685,20 @@ struct WorkspaceShellView: View {
         }
     }
 
+    private var showsTaskComposerButtonOverlay: Bool {
+        guard displaySettings.taskComposerEnabled else { return false }
+        if #available(iOS 26.0, *) {
+            return !usesCompactStack
+        }
+        return true
+    }
+
     @ViewBuilder
     private var taskComposerButtonOverlay: some View {
-        if displaySettings.taskComposerEnabled {
-            if #available(iOS 26.0, *) {
-                if !usesCompactStack {
-                    TaskComposerButton {
-                        isTaskComposerPresented = true
-                    }
-                    .padding(.trailing, 20)
-                    .padding(.bottom, 6)
-                }
-            } else {
-                TaskComposerButton {
-                    isTaskComposerPresented = true
-                }
+        if showsTaskComposerButtonOverlay {
+            TaskComposerButton(action: openTaskComposer)
                 .padding(.trailing, 20)
                 .padding(.bottom, 6)
-            }
         }
     }
     #endif
