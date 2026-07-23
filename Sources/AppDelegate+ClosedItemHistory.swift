@@ -126,12 +126,14 @@ extension AppDelegate {
                 guard windowEntry.workspaceIds.indices.contains(index) else { return nil }
                 return windowEntry.workspaceIds[index]
             }
+            let excludedStableIdentities = liveStableIdentitySet()
+            let excludedWorkspaceIds = liveWorkspaceIdSet()
             let windowId = createMainWindow(
                 sessionWindowSnapshot: windowSnapshot,
                 shouldActivate: shouldActivate,
                 remapClosedPanelHistoryFromSessionSnapshot: false,
-                excludingStableIdentitiesFromSessionSnapshot: liveStableIdentitySet(),
-                excludingWorkspaceIdsFromSessionSnapshot: liveWorkspaceIdSet(),
+                excludingStableIdentitiesFromSessionSnapshot: excludedStableIdentities,
+                excludingWorkspaceIdsFromSessionSnapshot: excludedWorkspaceIds,
                 restoredSessionSnapshotHandler: { panelIdsByWorkspaceIndex, tabManager in
                     restoredPanelIdsByWorkspaceIndex = panelIdsByWorkspaceIndex
                     restoredTabManager = tabManager
@@ -152,7 +154,8 @@ extension AppDelegate {
             }
             restoredTabManager?.remapClosedPanelHistoryAfterSessionRestore(
                 originalWorkspaceIds: originalWorkspaceIdsByIndex,
-                restoredPanelIdsByWorkspaceIndex: restoredPanelIdsByWorkspaceIndex
+                restoredPanelIdsByWorkspaceIndex: restoredPanelIdsByWorkspaceIndex,
+                ambiguousOriginalWorkspaceIds: excludedWorkspaceIds
             )
             return true
         }

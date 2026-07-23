@@ -927,6 +927,48 @@ final class TabManagerSessionSnapshotTests: XCTestCase {
         XCTAssertTrue(restoredWorkspace.panelCustomTitles.values.contains("Closed Panel"))
     }
 
+    func testWindowRestoreDoesNotRemapClosedHistoryFromExcludedWorkspaceId() throws {
+        let manager = TabManager()
+        let workspace = try XCTUnwrap(manager.selectedWorkspace)
+        workspace.setCustomTitle("Excluded Window Workspace")
+        let snapshot = manager.sessionSnapshot(includeScrollback: false)
+        var panelSnapshot = try XCTUnwrap(snapshot.workspaces.first?.panels.first)
+        panelSnapshot.customTitle = "Excluded Window Panel"
+        let recordId = UUID()
+        ClosedItemHistoryStore.shared.push(ClosedItemHistoryRecord(
+            id: recordId,
+            closedAt: Date(timeIntervalSince1970: 1),
+            entry: .panel(ClosedPanelHistoryEntry(
+                workspaceId: workspace.id,
+                paneId: UUID(),
+                tabIndex: 0,
+                snapshot: panelSnapshot
+            ))
+        ))
+
+        let restoredManager = TabManager()
+        let restoredPanelIdsByWorkspaceIndex = restoredManager.restoreSessionSnapshot(
+            snapshot,
+            remapClosedPanelHistory: false,
+            excludingWorkspaceIds: [workspace.id]
+        )
+        let restoredWorkspace = try XCTUnwrap(restoredManager.tabs.first { $0.customTitle == "Excluded Window Workspace" })
+        XCTAssertNotEqual(restoredWorkspace.id, workspace.id)
+
+        restoredManager.remapClosedPanelHistoryAfterWindowRestore(
+            originalWorkspaceIds: [workspace.id],
+            restoredPanelIdsByWorkspaceIndex: restoredPanelIdsByWorkspaceIndex,
+            ambiguousOriginalWorkspaceIds: [workspace.id]
+        )
+
+        let record = try XCTUnwrap(ClosedItemHistoryStore.shared.removeRecord(id: recordId)?.record)
+        guard case .panel(let entry) = record.entry else {
+            return XCTFail("Expected panel history record")
+        }
+        XCTAssertEqual(entry.workspaceId, workspace.id)
+        XCTAssertNotEqual(entry.workspaceId, restoredWorkspace.id)
+    }
+
     func testClosedWindowRestoreRemapsClosedWorkspaceWindowIds() throws {
         let manager = TabManager()
         let workspace = try XCTUnwrap(manager.selectedWorkspace)
@@ -1322,7 +1364,9 @@ final class TabManagerSessionSnapshotTests: XCTestCase {
         let pane = try XCTUnwrap(sourceWorkspace.bonsplitController.allPaneIds.first)
         let panelId = try XCTUnwrap(sourceWorkspace.newTerminalSurface(inPane: pane, focus: true)?.id)
         sourceWorkspace.setPanelCustomTitle(panelId: panelId, title: "Persisted Closed Tab")
-        let sourceSnapshot = sourceManager.sessionSnapshot(includeScrollback: false)
+        var sourceSnapshot = sourceManager.sessionSnapshot(includeScrollback: false)
+        let excludedStableId = UUID()
+        sourceSnapshot.workspaces[0].stableId = excludedStableId
         let panelSnapshot = try XCTUnwrap(
             sourceWorkspace.sessionSnapshot(includeScrollback: false).panels.first { $0.id == panelId }
         )
@@ -1337,13 +1381,48 @@ final class TabManagerSessionSnapshotTests: XCTestCase {
         let restoreManager = TabManager()
         _ = restoreManager.restoreSessionSnapshot(
             sourceSnapshot,
-            excludingWorkspaceIds: [sourceWorkspace.id]
+            excludingStableIdentities: [excludedStableId]
         )
         let restoredWorkspace = try XCTUnwrap(restoreManager.tabs.first { $0.customTitle == "Restored Parent" })
         XCTAssertNotEqual(restoredWorkspace.id, sourceWorkspace.id)
 
         XCTAssertTrue(restoreManager.reopenMostRecentlyClosedItem())
         XCTAssertTrue(restoredWorkspace.panelCustomTitles.values.contains("Persisted Closed Tab"))
+    }
+
+    func testSessionRestoreDoesNotRemapClosedHistoryFromExcludedWorkspaceId() throws {
+        let sourceManager = TabManager()
+        let sourceWorkspace = try XCTUnwrap(sourceManager.selectedWorkspace)
+        sourceWorkspace.setCustomTitle("Excluded Parent")
+        let sourceSnapshot = sourceManager.sessionSnapshot(includeScrollback: false)
+        var panelSnapshot = try XCTUnwrap(sourceSnapshot.workspaces.first?.panels.first)
+        panelSnapshot.customTitle = "Excluded Closed Tab"
+        let recordId = UUID()
+        ClosedItemHistoryStore.shared.push(ClosedItemHistoryRecord(
+            id: recordId,
+            closedAt: Date(timeIntervalSince1970: 1),
+            entry: .panel(ClosedPanelHistoryEntry(
+                workspaceId: sourceWorkspace.id,
+                paneId: UUID(),
+                tabIndex: 0,
+                snapshot: panelSnapshot
+            ))
+        ))
+
+        let restoreManager = TabManager()
+        _ = restoreManager.restoreSessionSnapshot(
+            sourceSnapshot,
+            excludingWorkspaceIds: [sourceWorkspace.id]
+        )
+        let restoredWorkspace = try XCTUnwrap(restoreManager.tabs.first { $0.customTitle == "Excluded Parent" })
+        XCTAssertNotEqual(restoredWorkspace.id, sourceWorkspace.id)
+
+        let record = try XCTUnwrap(ClosedItemHistoryStore.shared.removeRecord(id: recordId)?.record)
+        guard case .panel(let entry) = record.entry else {
+            return XCTFail("Expected panel history record")
+        }
+        XCTAssertEqual(entry.workspaceId, sourceWorkspace.id)
+        XCTAssertNotEqual(entry.workspaceId, restoredWorkspace.id)
     }
 
     func testSessionRestoreDoesNotRemapClosedHistoryFromDuplicatePersistedWorkspaceId() throws {

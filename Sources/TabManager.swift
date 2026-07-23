@@ -6188,7 +6188,8 @@ extension TabManager {
         if remapClosedPanelHistory {
             remapClosedPanelHistoryAfterSessionRestore(
                 originalWorkspaceIds: restoredOriginalWorkspaceIds,
-                restoredPanelIdsByWorkspaceIndex: restoredPanelIdsByWorkspaceIndex
+                restoredPanelIdsByWorkspaceIndex: restoredPanelIdsByWorkspaceIndex,
+                ambiguousOriginalWorkspaceIds: excludingWorkspaceIds
             )
         }
 
@@ -6204,7 +6205,8 @@ extension TabManager {
 
     func remapClosedPanelHistoryAfterSessionRestore(
         originalWorkspaceIds: [UUID?],
-        restoredPanelIdsByWorkspaceIndex: [[UUID: UUID]]
+        restoredPanelIdsByWorkspaceIndex: [[UUID: UUID]],
+        ambiguousOriginalWorkspaceIds: Set<UUID> = []
     ) {
         let count = min(originalWorkspaceIds.count, tabs.count)
         guard count > 0 else { return }
@@ -6216,6 +6218,7 @@ extension TabManager {
         for index in 0..<count {
             guard let originalWorkspaceId = originalWorkspaceIds[index],
                   originalWorkspaceIdCounts[originalWorkspaceId] == 1,
+                  !ambiguousOriginalWorkspaceIds.contains(originalWorkspaceId),
                   originalWorkspaceId != tabs[index].id else {
                 continue
             }
@@ -6236,7 +6239,8 @@ extension TabManager {
 
     func remapClosedPanelHistoryAfterWindowRestore(
         originalWorkspaceIds: [UUID],
-        restoredPanelIdsByWorkspaceIndex: [[UUID: UUID]]
+        restoredPanelIdsByWorkspaceIndex: [[UUID: UUID]],
+        ambiguousOriginalWorkspaceIds: Set<UUID> = []
     ) {
         guard !originalWorkspaceIds.isEmpty else { return }
         let count = min(originalWorkspaceIds.count, tabs.count)
@@ -6246,7 +6250,9 @@ extension TabManager {
         }
         var didRequestHistoryRemap = false
         for index in 0..<count {
-            guard originalWorkspaceIdCounts[originalWorkspaceIds[index]] == 1 else {
+            let originalWorkspaceId = originalWorkspaceIds[index]
+            guard originalWorkspaceIdCounts[originalWorkspaceId] == 1,
+                  !ambiguousOriginalWorkspaceIds.contains(originalWorkspaceId) else {
                 continue
             }
             didRequestHistoryRemap = true
@@ -6254,7 +6260,7 @@ extension TabManager {
                 ? restoredPanelIdsByWorkspaceIndex[index]
                 : [:]
             ClosedItemHistoryStore.shared.remapPanelWorkspaceIds(
-                from: originalWorkspaceIds[index],
+                from: originalWorkspaceId,
                 to: tabs[index].id,
                 panelIdMap: panelIdMap
             )
