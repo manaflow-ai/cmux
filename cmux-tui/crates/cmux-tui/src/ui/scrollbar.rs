@@ -1,8 +1,54 @@
 use ghostty_vt::Scrollbar;
 use ratatui::buffer::Buffer;
-use ratatui::style::Style;
+use ratatui::style::{Color, Style};
 
 use cmux_tui_core::Rect;
+
+use crate::config::ChromeTheme;
+
+/// The single scrollbar visual language used by panes, rails, and overlays.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub(crate) struct ScrollbarStyle {
+    thumb_fg: Color,
+    thumb_active_fg: Color,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub(crate) enum ScrollbarState {
+    Idle,
+    Highlighted,
+    Expanded,
+}
+
+impl ScrollbarStyle {
+    pub(crate) fn from_chrome(chrome: ChromeTheme) -> Self {
+        Self {
+            thumb_fg: chrome.scrollbar_thumb_fg,
+            thumb_active_fg: chrome.scrollbar_thumb_active_fg,
+        }
+    }
+
+    pub(crate) fn draw_thumb(
+        self,
+        buffer: &mut Buffer,
+        track: Rect,
+        thumb: (u16, u16),
+        base: Style,
+        state: ScrollbarState,
+    ) {
+        let (thumb_y, thumb_height) = thumb;
+        if track.height == 0 || thumb_height == 0 {
+            return;
+        }
+        let glyph = if state == ScrollbarState::Expanded { "▐" } else { "▕" };
+        let color =
+            if state == ScrollbarState::Idle { self.thumb_fg } else { self.thumb_active_fg };
+        let style = base.fg(color);
+        for row in thumb_y..thumb_y.saturating_add(thumb_height).min(track.height) {
+            buffer[(track.x, track.y + row)].set_symbol(glyph).set_style(style);
+        }
+    }
+}
 
 /// Thumb position and length (in track cells) for a scrollbar state.
 pub(crate) fn thumb_geometry(sb: &Scrollbar, track_height: u16) -> (u16, u16) {
@@ -16,15 +62,11 @@ pub(crate) fn viewport_thumb_geometry(
     offset: usize,
     track_height: u16,
 ) -> (u16, u16) {
-    if track_height == 0 {
+    if track_height == 0 || total_rows <= visible_rows {
         return (0, 0);
     }
-    let thumb_height = if total_rows == 0 || visible_rows >= total_rows {
-        track_height
-    } else {
-        let numerator = visible_rows.max(1) as u128 * track_height as u128;
-        numerator.div_ceil(total_rows as u128).clamp(1, track_height as u128) as u16
-    };
+    let numerator = visible_rows.max(1) as u128 * track_height as u128;
+    let thumb_height = numerator.div_ceil(total_rows as u128).clamp(1, track_height as u128) as u16;
     let max_scroll = total_rows.saturating_sub(visible_rows);
     let travel = track_height.saturating_sub(thumb_height);
     let thumb_y = if max_scroll == 0 {
@@ -73,31 +115,14 @@ pub(crate) fn viewport_drag_offset(
     (anchor_offset as i128 + delta).clamp(0, max_scroll) as usize
 }
 
-/// Draw an always-visible track and thumb for a row-based viewport.
-pub(crate) fn draw_viewport_scrollbar(
-    buffer: &mut Buffer,
-    track: Rect,
-    thumb_y: u16,
-    thumb_height: u16,
-    track_style: Style,
-    thumb_style: Style,
-) {
-    for row in 0..track.height {
-        buffer[(track.x, track.y + row)].set_symbol("│").set_style(track_style);
-    }
-    for row in thumb_y..thumb_y.saturating_add(thumb_height).min(track.height) {
-        buffer[(track.x, track.y + row)].set_symbol("█").set_style(thumb_style);
-    }
-}
-
 #[cfg(test)]
 mod tests {
     use super::*;
 
     #[test]
-    fn viewport_thumb_fills_track_when_every_row_is_visible() {
-        assert_eq!(viewport_thumb_geometry(8, 8, 0, 6), (0, 6));
-        assert_eq!(viewport_thumb_geometry(0, 8, 0, 6), (0, 6));
+    fn viewport_thumb_is_absent_when_every_row_is_visible() {
+        assert_eq!(viewport_thumb_geometry(8, 8, 0, 6), (0, 0));
+        assert_eq!(viewport_thumb_geometry(0, 8, 0, 6), (0, 0));
         assert_eq!(viewport_thumb_geometry(8, 8, 0, 0), (0, 0));
     }
 
@@ -107,5 +132,21 @@ mod tests {
         assert_eq!(viewport_jump_offset(30, 6, 6, 5), 24);
         assert_eq!(viewport_drag_offset(30, 6, 6, 0, 5), 24);
         assert_eq!(viewport_drag_offset(30, 6, 6, 24, -5), 0);
+    }
+
+    #[test]
+    fn shared_style_uses_the_terminal_thumb_glyphs_and_chrome_colors() {
+        let chrome = ChromeTheme::dark();
+        let style = ScrollbarStyle::from_chrome(chrome);
+        let track = Rect { x: 0, y: 0, width: 1, height: 4 };
+        let mut buffer = Buffer::empty(ratatui::layout::Rect::new(0, 0, 1, 4));
+
+        style.draw_thumb(&mut buffer, track, (1, 1), Style::default(), ScrollbarState::Idle);
+        assert_eq!(buffer[(0, 1)].symbol(), "▕");
+        assert_eq!(buffer[(0, 1)].fg, chrome.scrollbar_thumb_fg);
+
+        style.draw_thumb(&mut buffer, track, (2, 1), Style::default(), ScrollbarState::Expanded);
+        assert_eq!(buffer[(0, 2)].symbol(), "▐");
+        assert_eq!(buffer[(0, 2)].fg, chrome.scrollbar_thumb_active_fg);
     }
 }

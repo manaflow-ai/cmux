@@ -25,7 +25,7 @@ use crate::config::Action;
 use crate::localization::catalog;
 
 pub(crate) use scrollbar::{
-    draw_viewport_scrollbar, thumb_geometry, viewport_drag_offset, viewport_jump_offset,
+    ScrollbarState, ScrollbarStyle, thumb_geometry, viewport_drag_offset, viewport_jump_offset,
     viewport_thumb_geometry,
 };
 

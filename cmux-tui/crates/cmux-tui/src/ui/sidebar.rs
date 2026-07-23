@@ -7,7 +7,9 @@ use cmux_tui_core::Rect;
 use ratatui::Frame;
 use ratatui::style::{Color, Modifier, Style};
 
-use super::{draw_viewport_scrollbar, middle_truncate, rail, truncate, viewport_thumb_geometry};
+use super::{
+    ScrollbarState, ScrollbarStyle, middle_truncate, rail, truncate, viewport_thumb_geometry,
+};
 use crate::app::{App, Hit, RailKind, WorkspaceRailSelection};
 use crate::config::SidebarView;
 use crate::localization;
@@ -376,11 +378,15 @@ fn draw_workspaces(app: &mut App, frame: &mut Frame) {
         selected_footer,
     );
     let mut hits = Vec::new();
-    let scrollbar_track = Rect {
-        x: area.x + area.width.saturating_sub(2),
-        y: viewport.body.y,
-        width: 1,
-        height: viewport.body.height,
+    let scrollbar_track = if viewport.body.height > 0 && body_rows > viewport.body.height as usize {
+        Rect {
+            x: area.x + area.width.saturating_sub(2),
+            y: viewport.body.y,
+            width: 1,
+            height: viewport.body.height,
+        }
+    } else {
+        Rect::default()
     };
     if scrollbar_track.height > 0 {
         hits.push((
@@ -492,18 +498,21 @@ fn draw_workspaces(app: &mut App, frame: &mut Frame) {
             viewport.body_offset,
             scrollbar_track.height,
         );
-        let thumb_color = if app.workspace_sidebar_focused() {
-            app.chrome.scrollbar_thumb_active_fg
+        let expanded = app.hover.is_some_and(|(x, y)| scrollbar_track.contains(x, y))
+            || app.dragging_workspace_scrollbar();
+        let state = if expanded {
+            ScrollbarState::Expanded
+        } else if app.workspace_sidebar_focused() {
+            ScrollbarState::Highlighted
         } else {
-            app.chrome.scrollbar_thumb_fg
+            ScrollbarState::Idle
         };
-        draw_viewport_scrollbar(
+        ScrollbarStyle::from_chrome(app.chrome).draw_thumb(
             frame.buffer_mut(),
             scrollbar_track,
-            thumb_y,
-            thumb_height,
-            Style::default().fg(app.chrome.sidebar_border),
-            Style::default().fg(thumb_color).add_modifier(Modifier::BOLD),
+            (thumb_y, thumb_height),
+            Style::default(),
+            state,
         );
     }
     hits.push((rail::divider(area), Hit::RailResize(RailKind::Workspace)));

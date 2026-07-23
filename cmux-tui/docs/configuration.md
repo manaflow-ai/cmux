@@ -189,6 +189,8 @@ Chrome 136 and newer reject CDP remote debugging on the OS-default profile direc
 | --- | --- | --- | --- |
 | `scrollbar.position` | `"column"` or `"border"` | `"column"` | Dedicated scrollbar column or right-border overlay |
 
+Terminal panes, the workspace sidebar, and the shortcut modal share the same `▕` thumb, which expands to `▐` while hovered or dragged. A scrollbar is drawn only when its content exceeds the visible rows.
+
 ## Server
 
 | Key | Type | Default | Effect |

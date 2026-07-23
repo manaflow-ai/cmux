@@ -13,7 +13,7 @@ use unicode_width::UnicodeWidthStr;
 use crate::app::{App, ContextMenu, MenuItem};
 use crate::localization::catalog;
 
-use super::draw_viewport_scrollbar;
+use super::{ScrollbarState, ScrollbarStyle};
 
 /// Trusted approval dialog for a browser pairing request.
 pub fn draw_pairing_dialog(app: &mut App, frame: &mut Frame) {
@@ -329,7 +329,7 @@ pub fn draw_shortcut_help(app: &mut App, frame: &mut Frame) {
         height: 1,
     };
     help.scroll_offset = help.scroll_offset.min(rows.len().saturating_sub(visible_rows));
-    help.scrollbar_track = if visible_rows > 0 {
+    help.scrollbar_track = if visible_rows > 0 && rows.len() > visible_rows {
         Rect { x: x + width - 2, y: y + 2, width: 1, height: visible_rows as u16 }
     } else {
         Rect::default()
@@ -373,18 +373,25 @@ pub fn draw_shortcut_help(app: &mut App, frame: &mut Frame) {
         let shortcuts = format!(" {shortcuts} ");
         let shortcut_width = (shortcuts.width() as u16).min(inner_width / 2);
         let shortcut_x = x + width.saturating_sub(shortcut_width + 2);
-        let shortcut_x = shortcut_x.min(scrollbar_track.x.saturating_sub(shortcut_width + 1));
+        let shortcut_x = if scrollbar_track.height > 0 {
+            shortcut_x.min(scrollbar_track.x.saturating_sub(shortcut_width + 1))
+        } else {
+            shortcut_x
+        };
         let label_width = shortcut_x.saturating_sub(x + 3);
         buf.set_stringn(x + 2, row_y, label, label_width as usize, base);
         buf.set_stringn(shortcut_x, row_y, &shortcuts, shortcut_width as usize, shortcut_style);
     }
-    draw_viewport_scrollbar(
+    ScrollbarStyle::from_chrome(chrome).draw_thumb(
         buf,
         scrollbar_track,
-        thumb_y,
-        thumb_height,
-        base.fg(chrome.prompt_border),
-        base.fg(chrome.scrollbar_thumb_active_fg).add_modifier(Modifier::BOLD),
+        (thumb_y, thumb_height),
+        base,
+        if help.scrollbar_dragging() {
+            ScrollbarState::Expanded
+        } else {
+            ScrollbarState::Highlighted
+        },
     );
 
     let footer = if rows.len() > visible_rows {

@@ -2831,6 +2831,10 @@ impl ShortcutHelp {
             y as i128 - anchor_y as i128,
         );
     }
+
+    pub(crate) fn scrollbar_dragging(&self) -> bool {
+        self.scrollbar_drag.is_some()
+    }
 }
 
 #[derive(Debug, Clone)]
@@ -6337,6 +6341,10 @@ impl App {
         }
     }
 
+    pub fn dragging_workspace_scrollbar(&self) -> bool {
+        matches!(self.drag, Some(Drag::WorkspaceScrollbar { .. }))
+    }
+
     fn enqueue_surface_resize(
         &mut self,
         surface_id: SurfaceId,
@@ -9484,7 +9492,10 @@ impl App {
                     .filter(|hit| {
                         matches!(
                             hit,
-                            Hit::NewTab { .. } | Hit::TabScroll { .. } | Hit::Scrollbar { .. }
+                            Hit::NewTab { .. }
+                                | Hit::TabScroll { .. }
+                                | Hit::Scrollbar { .. }
+                                | Hit::WorkspaceScrollbar { .. }
                         )
                     })
                     .map(|hit| format!("{hit:?}"))
@@ -11058,7 +11069,7 @@ mod tests {
         assert!(help.scrollbar_thumb.height > 0);
         assert_eq!(
             terminal.backend().buffer()[(help.scrollbar_thumb.x, help.scrollbar_thumb.y)].symbol(),
-            "█"
+            "▕"
         );
         let track = help.scrollbar_track;
         app.handle_mouse(MouseEvent {
@@ -11103,13 +11114,12 @@ mod tests {
         let mut tall_terminal = Terminal::new(TestBackend::new(180, tall_height)).unwrap();
         tall_terminal.draw(|frame| crate::ui::draw(&mut app, frame)).unwrap();
         let help = app.shortcut_help.as_ref().unwrap();
-        assert!(help.scrollbar_track.height > 0);
-        assert_eq!(help.scrollbar_thumb, help.scrollbar_track);
-        assert_eq!(
-            tall_terminal.backend().buffer()[(help.scrollbar_thumb.x, help.scrollbar_thumb.y)]
-                .symbol(),
-            "█"
-        );
+        assert_eq!(help.scrollbar_track, Rect::default());
+        assert_eq!(help.scrollbar_thumb, Rect::default());
+        let scrollbar_x = help.rect.x + help.rect.width - 2;
+        assert!((help.rect.y + 2..help.rect.y + help.rect.height - 2).all(|y| {
+            !matches!(tall_terminal.backend().buffer()[(scrollbar_x, y)].symbol(), "▕" | "▐")
+        }));
         app.handle_key(KeyEvent::new(KeyCode::Esc, KeyModifiers::NONE)).unwrap();
         assert!(app.shortcut_help.is_none());
 
@@ -16239,7 +16249,7 @@ mod tests {
             track.height,
         );
         assert_eq!(track.x + 1, divider.x);
-        assert_eq!(terminal.backend().buffer()[(track.x, track.y + thumb_y)].symbol(), "█");
+        assert_eq!(terminal.backend().buffer()[(track.x, track.y + thumb_y)].symbol(), "▕");
 
         app.handle_mouse(MouseEvent {
             kind: MouseEventKind::Down(MouseButton::Left),
@@ -16268,6 +16278,36 @@ mod tests {
             modifiers: KeyModifiers::NONE,
         })
         .unwrap();
+    }
+
+    #[test]
+    fn workspace_rail_hides_scrollbar_when_every_row_fits() {
+        let mux = Mux::new("workspace-rail-no-scrollbar-test", SurfaceOptions::default());
+        let mut app = test_app(Session::Local(mux));
+        app.sidebar_view = SidebarView::Workspaces;
+        app.replace_tree(app.session.tree());
+        app.sync_layout((80, 30));
+
+        let mut terminal = Terminal::new(TestBackend::new(80, 30)).unwrap();
+        terminal.draw(|frame| crate::ui::draw(&mut app, frame)).unwrap();
+
+        assert!(
+            !app.hits.iter().any(|(_, hit)| matches!(hit, super::Hit::WorkspaceScrollbar { .. }))
+        );
+        let divider = app
+            .hits
+            .iter()
+            .find_map(|(rect, hit)| {
+                (*hit == super::Hit::RailResize(RailKind::Workspace)).then_some(*rect)
+            })
+            .unwrap();
+        let scrollbar_x = divider.x - 1;
+        assert!(
+            (1..29).all(|y| !matches!(
+                terminal.backend().buffer()[(scrollbar_x, y)].symbol(),
+                "▕" | "▐"
+            ))
+        );
     }
 
     #[test]

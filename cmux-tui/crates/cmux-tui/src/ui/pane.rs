@@ -13,7 +13,7 @@ use ghostty_vt::RenderState;
 use ratatui::Frame;
 use ratatui::style::{Color, Modifier, Style};
 
-use super::{thumb_geometry, truncate};
+use super::{ScrollbarState, ScrollbarStyle, thumb_geometry, truncate};
 use crate::app::{App, Hit, PaneArea, PaneEdge, Selection};
 use crate::config::{Theme, tab_label};
 use crate::session::{ClientInfo, TabNotificationView};
@@ -474,24 +474,22 @@ fn draw_scrollbar(app: &mut App, frame: &mut Frame, area: &PaneArea, focused: bo
     let hovered = app.hover.is_some_and(|(hx, hy)| track.contains(hx, hy));
     let dragging = app.dragging_scrollbar() == Some(area.surface);
     let active = hovered || dragging;
-    let glyph = if active { "▐" } else { "▕" };
-
-    let thumb_style = if active || focused {
-        Style::default().fg(app.chrome.scrollbar_thumb_active_fg)
+    // The track stays as the existing pane border or empty reserved column;
+    // the shared style paints only the thumb.
+    let state = if active {
+        ScrollbarState::Expanded
+    } else if focused {
+        ScrollbarState::Highlighted
     } else {
-        Style::default().fg(app.chrome.scrollbar_thumb_fg)
+        ScrollbarState::Idle
     };
-    for dy in 0..track.height {
-        let y = track.y + dy;
-        if track.x >= screen.width || y >= screen.height {
-            continue;
-        }
-        // The track stays the border line (drawn by draw_box); only the
-        // thumb overlays it with a solid bar.
-        if dy >= thumb_y && dy < thumb_y + thumb_len {
-            buf[(track.x, y)].set_symbol(glyph).set_style(thumb_style);
-        }
-    }
+    ScrollbarStyle::from_chrome(app.chrome).draw_thumb(
+        buf,
+        track,
+        (thumb_y, thumb_len),
+        Style::default(),
+        state,
+    );
     app.hits.push((track, Hit::Scrollbar { surface: area.surface, track }));
 }
 
