@@ -34,6 +34,23 @@ struct ChatArtifactGalleryOrderingCacheTests {
         #expect(invalidated.map(\.path) == ["/latest", "/newer"])
     }
 
+    @Test("removing an index evicts its retained generation")
+    func removalEvictsRetainedGeneration() async {
+        let cache = ChatArtifactGalleryOrderingCache()
+        let original = [item("/original", seq: 1)]
+        let replacement = [item("/replacement", seq: 2)]
+
+        _ = await cache.ordered(original, indexID: "session", generation: "one")
+        await cache.remove(indexID: "session")
+        let afterRemoval = await cache.ordered(
+            replacement,
+            indexID: "session",
+            generation: "one"
+        )
+
+        #expect(afterRemoval.map(\.path) == ["/replacement"])
+    }
+
     private func item(_ path: String, seq: Int) -> ChatArtifactIndexedReference {
         ChatArtifactIndexedReference(
             path: path,

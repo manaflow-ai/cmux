@@ -296,7 +296,17 @@ struct AgentArtifactCaptureCoordinatorTests {
             encoding: .utf8
         )
 
-        service.noteAssistantTurnCompleted(sessionID: sessionID, at: Date(timeIntervalSince1970: 2))
+        service.noteHookEvent(WorkstreamEvent(
+            sessionId: sessionID,
+            hookEventName: .stop,
+            source: "claude",
+            workspaceId: "workspace",
+            surfaceId: nil,
+            transcriptPath: transcript.path,
+            cwd: projectRoot.path,
+            ppid: nil,
+            receivedAt: Date(timeIntervalSince1970: 2)
+        ))
         let task = try #require(service.artifactCaptureTasks[sessionID]?.task)
         await task.value
 
