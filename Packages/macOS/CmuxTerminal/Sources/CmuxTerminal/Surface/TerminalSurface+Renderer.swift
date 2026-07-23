@@ -38,6 +38,13 @@ extension TerminalSurface {
             if let view = attachedView,
                let displayID = (view.window?.screen ?? NSScreen.main)?.displayID,
                displayID != 0 {
+#if DEBUG
+                if ProcessInfo.processInfo.environment["CMUX_DEBUG_SATURATE_GHOSTTY_RENDERER_MAILBOX"] == "1" {
+                    for _ in 0..<128 {
+                        ghostty_surface_set_display_id(surface, displayID)
+                    }
+                }
+#endif
                 ghostty_surface_set_display_id(surface, displayID)
             }
         }
@@ -46,6 +53,14 @@ extension TerminalSurface {
     /// Applies the occlusion state to the runtime surface.
     public func setOcclusion(_ visible: Bool) {
         guard let surface = surface else { return }
+#if DEBUG
+        if visible,
+           ProcessInfo.processInfo.environment["CMUX_DEBUG_SATURATE_GHOSTTY_RENDERER_MAILBOX"] == "1" {
+            for _ in 0..<128 {
+                ghostty_surface_set_occlusion(surface, visible)
+            }
+        }
+#endif
         ghostty_surface_set_occlusion(surface, visible)
     }
 
