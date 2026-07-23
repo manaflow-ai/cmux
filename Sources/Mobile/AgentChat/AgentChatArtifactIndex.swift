@@ -85,6 +85,9 @@ actor AgentChatArtifactIndex {
         defer { try? opened.handle.close() }
         let key = opened.key
         let previous = cacheBySessionID.value(forKey: sessionID)
+        if let previous, previous.key == key {
+            return previous.snapshot
+        }
         let reader = AgentChatTranscriptReader()
         let matchesPreviousContent = try previous.map { entry in
             let hasSameSource = entry.key.transcriptLineage == key.transcriptLineage
@@ -103,7 +106,19 @@ actor AgentChatArtifactIndex {
                 expectedDigest: entry.continuityDigest
             )
         } ?? false
-        if matchesPreviousContent, let previous, previous.key == key {
+        if matchesPreviousContent,
+           let previous,
+           previous.key.fileSize == key.fileSize {
+            cacheBySessionID.insert(
+                CacheEntry(
+                    key: key,
+                    snapshot: previous.snapshot,
+                    continuityStartOffset: previous.continuityStartOffset,
+                    continuityByteCount: previous.continuityByteCount,
+                    continuityDigest: previous.continuityDigest
+                ),
+                forKey: sessionID
+            )
             return previous.snapshot
         }
         let extendsPreviousTranscript = matchesPreviousContent
