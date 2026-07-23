@@ -6,6 +6,10 @@ SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 source "$SCRIPT_DIR/lib/mobile-attach.sh"
 # shellcheck source=scripts/lib/dev-secrets.sh
 source "$SCRIPT_DIR/lib/dev-secrets.sh"
+# shellcheck source=scripts/lib/dev-cli-shim.sh
+source "$SCRIPT_DIR/lib/dev-cli-shim.sh"
+# shellcheck source=scripts/lib/dev-web-port.sh
+source "$SCRIPT_DIR/lib/dev-web-port.sh"
 
 APP_NAME="cmux DEV"
 BUNDLE_ID="com.cmuxterm.app.debug"
@@ -53,68 +57,6 @@ should_skip_ghostty_cli_helper_zig_build() {
 
   AUTO_SKIP_ZIG_BUILD_REASON=""
   return 1
-}
-
-write_dev_cli_shim() {
-  local target="$1"
-  local fallback_bin="$2"
-  mkdir -p "$(dirname "$target")"
-  cat > "$target" <<EOF
-#!/usr/bin/env bash
-# cmux dev shim (managed by scripts/reload.sh)
-set -euo pipefail
-
-CLI_PATH_FILE="/tmp/cmux-last-cli-path"
-SOCKET_ARG=""
-EXPECT_SOCKET_VALUE=0
-for arg in "\$@"; do
-  if [[ "\$EXPECT_SOCKET_VALUE" == "1" ]]; then
-    SOCKET_ARG="\$arg"
-    EXPECT_SOCKET_VALUE=0
-    continue
-  fi
-  case "\$arg" in
-    --socket)
-      EXPECT_SOCKET_VALUE=1
-      ;;
-    --socket=*)
-      SOCKET_ARG="\${arg#--socket=}"
-      ;;
-  esac
-done
-if [[ -n "\$SOCKET_ARG" ]]; then
-  SOCKET_NAME="\$(basename "\$SOCKET_ARG")"
-  if [[ "\$SOCKET_NAME" == cmux-debug-*.sock ]]; then
-    TAG="\${SOCKET_NAME#cmux-debug-}"
-    TAG="\${TAG%.sock}"
-    if [[ "\$TAG" =~ ^[A-Za-z0-9_-]+$ ]]; then
-      TAG_CLI="\$HOME/Library/Developer/Xcode/DerivedData/cmux-\$TAG/Build/Products/Debug/cmux DEV \$TAG.app/Contents/Resources/bin/cmux"
-      if [[ -x "\$TAG_CLI" ]] && [[ "\$TAG_CLI" != "\$0" ]]; then
-        exec "\$TAG_CLI" "\$@"
-      fi
-    fi
-  fi
-fi
-if [[ -n "\${CMUX_BUNDLED_CLI_PATH:-}" ]] && [[ -f "\$CMUX_BUNDLED_CLI_PATH" ]] && [[ -x "\$CMUX_BUNDLED_CLI_PATH" ]] && [[ "\$CMUX_BUNDLED_CLI_PATH" != "\$0" ]]; then
-  exec "\$CMUX_BUNDLED_CLI_PATH" "\$@"
-fi
-
-CLI_PATH_OWNER="\$(stat -f '%u' "\$CLI_PATH_FILE" 2>/dev/null || stat -c '%u' "\$CLI_PATH_FILE" 2>/dev/null || echo -1)"
-if [[ -r "\$CLI_PATH_FILE" ]] && [[ ! -L "\$CLI_PATH_FILE" ]] && [[ "\$CLI_PATH_OWNER" == "\$(id -u)" ]]; then
-  CLI_PATH="\$(cat "\$CLI_PATH_FILE")"
-  if [[ -x "\$CLI_PATH" ]]; then
-    exec "\$CLI_PATH" "\$@"
-  fi
-fi
-
-if [[ -x "$fallback_bin" ]]; then
-  exec "$fallback_bin" "\$@"
-fi
-
-echo "error: no reload-selected dev cmux CLI found. Run ./scripts/reload.sh --tag <name> first." >&2
-exit 1
-EOF
-  chmod +x "$target"
 }
 
 select_cmux_shim_target() {
@@ -181,11 +123,11 @@ publish_reload_cli_path() {
 
   # Stable shim that always follows the last reload-selected dev CLI.
   DEV_CLI_SHIM="$HOME/.local/bin/cmux-dev"
-  write_dev_cli_shim "$DEV_CLI_SHIM" "/Applications/cmux.app/Contents/Resources/bin/cmux"
+  cmux_publish_dev_cli_shim "$DEV_CLI_SHIM" "$SCRIPT_DIR/lib/cmux-dev-shim"
 
   CMUX_SHIM_TARGET="$(select_cmux_shim_target || true)"
   if [[ -n "${CMUX_SHIM_TARGET:-}" ]]; then
-    write_dev_cli_shim "$CMUX_SHIM_TARGET" "/Applications/cmux.app/Contents/Resources/bin/cmux"
+    cmux_publish_dev_cli_shim "$CMUX_SHIM_TARGET" "$SCRIPT_DIR/lib/cmux-dev-shim"
   fi
 }
 
@@ -295,13 +237,6 @@ sanitize_path() {
   cmux_attach__slug_raw "$1"
 }
 
-is_valid_port() {
-  local port="${1:-}"
-  [[ "$port" =~ ^[0-9]+$ ]] || return 1
-  local numeric=$((10#$port))
-  (( numeric >= 1 && numeric <= 65535 ))
-}
-
 is_positive_integer() {
   local value="${1:-}"
   [[ "$value" =~ ^[0-9]+$ ]] || return 1
@@ -310,39 +245,15 @@ is_positive_integer() {
 }
 
 choose_cmux_dev_port() {
-  if is_valid_port "${CMUX_PORT:-}"; then
-    echo "$CMUX_PORT"
-    return 0
-  fi
-  if is_valid_port "${PORT:-}"; then
-    echo "$PORT"
-    return 0
-  fi
-  echo "3777"
+  cmux_choose_dev_web_port "$TAG_SLUG"
 }
 
 choose_cmux_dev_port_range() {
-  if is_positive_integer "${CMUX_PORT_RANGE:-}"; then
-    echo "$CMUX_PORT_RANGE"
-    return 0
-  fi
-  echo "1"
+  cmux_choose_dev_web_port_range
 }
 
 choose_cmux_dev_port_end() {
-  local start="$1"
-  local range="$2"
-  if is_valid_port "${CMUX_PORT_END:-}"; then
-    echo "$CMUX_PORT_END"
-    return 0
-  fi
-  local start_num=$((10#$start))
-  local range_num=$((10#$range))
-  local end=$((start_num + range_num - 1))
-  if (( end > 65535 )); then
-    end="$start_num"
-  fi
-  echo "$end"
+  cmux_choose_dev_web_port_end "$1" "$2"
 }
 
 set_plist_env() {
