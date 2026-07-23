@@ -73,6 +73,10 @@ enum ClaudeHookLiveDeliveryHarness {
             "CMUX_CLAUDE_HOOK_STATE_PATH": context.storeURL.path,
             "CMUX_CLI_SENTRY_DISABLED": "1",
             "CMUX_CLAUDE_HOOK_SENTRY_DISABLED": "1",
+            // Production Claude hooks always enter through the wrapper, which
+            // captures this timestamp before invoking the CLI. Keep direct CLI
+            // harnesses on the same ordered-mutation path.
+            "CMUX_AGENT_HOOK_CAPTURED_AT": "1893456200.000001",
         ]
     }
 

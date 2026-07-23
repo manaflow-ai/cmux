@@ -4857,12 +4857,16 @@ final class Workspace: Identifiable, ObservableObject {
     }
 
     @discardableResult
-    func clearSurfaceResumeBinding(panelId: UUID) -> Bool {
-        guard let removed = surfaceResumeBindingsByPanelId.removeValue(forKey: panelId) else {
-            return false
-        }
-        recordSurfaceResumeBindingMutation(panelId: panelId, eventTime: removed.updatedAt)
-        return true
+    func clearSurfaceResumeBinding(
+        panelId: UUID,
+        eventTime: TimeInterval? = nil
+    ) -> Bool {
+        let removed = surfaceResumeBindingsByPanelId.removeValue(forKey: panelId)
+        recordSurfaceResumeBindingMutation(
+            panelId: panelId,
+            eventTime: eventTime ?? Date().timeIntervalSince1970
+        )
+        return removed != nil
     }
 
     func surfaceResumeBinding(panelId: UUID) -> SurfaceResumeBindingSnapshot? {

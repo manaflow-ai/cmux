@@ -160,6 +160,13 @@ extension TerminalController {
 
     // MARK: - resume.set / get / clear
 
+    nonisolated func controlSurfaceInvalidAgentEventTimeError() -> String {
+        String(
+            localized: "socket.surfaceResume.error.invalidAgentEventTime",
+            defaultValue: "Missing or invalid agent_event_time; expected Unix seconds between 2000-01-01 and 2100-01-01 UTC"
+        )
+    }
+
     func controlSurfaceResumeSet(
         routing: ControlRoutingSelectors,
         explicitTargetID: UUID?,
@@ -303,10 +310,9 @@ extension TerminalController {
                 cleared: false
             ))
         }
-        _ = target.workspace.clearSurfaceResumeBinding(panelId: target.surfaceId)
-        target.workspace.recordSurfaceResumeBindingMutation(
+        _ = target.workspace.clearSurfaceResumeBinding(
             panelId: target.surfaceId,
-            eventTime: agentEventTime ?? Date().timeIntervalSince1970
+            eventTime: agentEventTime
         )
         return .result(surfaceResumeSnapshot(
             tabManager: target.tabManager,

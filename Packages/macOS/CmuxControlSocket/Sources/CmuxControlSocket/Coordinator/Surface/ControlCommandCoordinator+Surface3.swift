@@ -40,10 +40,8 @@ extension ControlCommandCoordinator {
                 nil,
                 .err(
                     code: "invalid_params",
-                    message: String(
-                        localized: "socket.surfaceResume.error.invalidAgentEventTime",
-                        defaultValue: "Missing or invalid agent_event_time; expected Unix seconds between 2000-01-01 and 2100-01-01 UTC"
-                    ),
+                    message: context?.controlSurfaceInvalidAgentEventTimeError()
+                        ?? "Missing or invalid agent_event_time; expected Unix seconds between 2000-01-01 and 2100-01-01 UTC",
                     data: nil
                 )
             )

@@ -228,6 +228,13 @@ public protocol ControlSurfaceContext: AnyObject {
 
     // MARK: - resume.set / get / clear
 
+    /// The app-bundle-resolved localized error for an invalid resume-binding
+    /// agent event time. The package requests this string through the seam so
+    /// `String(localized:)` never resolves against the package bundle.
+    ///
+    /// - Returns: The invalid agent-event-time error message.
+    nonisolated func controlSurfaceInvalidAgentEventTimeError() -> String
+
     /// Sets a resume binding for `surface.resume.set`. The app resolves the
     /// target, runs the (possibly blocking, app-bundle-localized) approval flow,
     /// and stores the binding.

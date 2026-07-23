@@ -372,6 +372,10 @@ extension ControlWorkspaceContext {
 }
 
 extension ControlSurfaceContext {
+    nonisolated func controlSurfaceInvalidAgentEventTimeError() -> String {
+        "Missing or invalid agent_event_time"
+    }
+
     func controlSurfaceRoutingResolvesTabManager(routing: ControlRoutingSelectors) -> Bool { false }
 
     func controlSurfaceList(routing: ControlRoutingSelectors) -> ControlSurfaceListSnapshot? { nil }

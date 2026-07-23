@@ -48,6 +48,8 @@ extension Workspace {
         }
         if let statusKeyToClear,
            !hasAgentRuntime(forStatusKey: statusKeyToClear),
+           let statusEntry = statusEntries[statusKeyToClear],
+           statusEntry.agentOwnerPanelID == nil || statusEntry.agentOwnerPanelID == lifecyclePanelId,
            statusEntries.removeValue(forKey: statusKeyToClear) != nil {
             didChange = true
         }
