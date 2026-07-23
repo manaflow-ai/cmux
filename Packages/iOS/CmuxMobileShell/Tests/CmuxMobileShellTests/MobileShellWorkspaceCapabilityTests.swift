@@ -40,6 +40,15 @@ import Testing
         #expect(!oldMac.store.supportsWorkspaceCreateInGroup)
         #expect(!oldMac.store.supportsWorkspaceGroupCreate)
 
+        let metadataOnly = try await connectedStore(capabilities: [
+            "events.v1",
+            "terminal.render_grid.v1",
+            "terminal.replay.v1",
+            "workspace.metadata.v1",
+        ])
+        #expect(!metadataOnly.store.supportsWorkspaceMetadata)
+        #expect(metadataOnly.store.workspaces.first?.actionCapabilities.supportsWorkspaceMetadata == false)
+
         let currentCapabilities = [
             "events.v1",
             "terminal.render_grid.v1",
