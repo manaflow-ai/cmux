@@ -15,6 +15,7 @@ public enum ShortcutAction: String, CaseIterable, Sendable, Hashable, SettingCod
     case newWindow
     case closeWindow
     case toggleFullScreen
+    case toggleZenMode
     case quit
 
     // MARK: Workspace
@@ -177,7 +178,7 @@ extension ShortcutAction {
     public var group: Group {
         switch self {
         case .openSettings, .reloadConfiguration, .showHideAllWindows, .globalSearch,
-             .newWindow, .closeWindow, .toggleFullScreen, .quit:
+             .newWindow, .closeWindow, .toggleFullScreen, .toggleZenMode, .quit:
             return .app
         case .toggleSidebar, .newTab, .newBrowserWorkspace, .saveLayoutTemplate, .openFolder, .reopenPreviousSession, .goToWorkspace,
              .commandPalette, .commandPaletteNext, .commandPalettePrevious, .sendFeedback,
@@ -333,6 +334,8 @@ extension ShortcutAction {
         case .newWindow: return "New Window"
         case .closeWindow: return "Close Window"
         case .toggleFullScreen: return "Toggle Full Screen"
+        case .toggleZenMode:
+            return String(localized: "command.toggleZenMode.title", defaultValue: "Toggle Zen Mode")
         case .quit: return "Quit cmux"
         case .toggleSidebar: return "Toggle Left Sidebar"
         case .newTab: return "New Workspace"

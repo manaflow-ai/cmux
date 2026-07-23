@@ -513,6 +513,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
     var aboutTitlebarDebugStore: AboutTitlebarDebugStore { debugWindowsCoordinator.aboutTitlebarStore }
     /// Coordinates remote tmux (`ssh … tmux -CC`) mirroring; composition-root owned.
     let remoteTmuxController = RemoteTmuxController()
+    /// Coordinates the reversible app-wide Zen Mode session.
+    private let zenModeController = ZenModeController()
     private let systemAppearanceObserver = SystemAppearanceObserver()
     private static let reloadConfigurationMenuItemIdentifier = NSUserInterfaceItemIdentifier("com.cmux.reloadConfiguration")
     private static let cachedIsRunningUnderXCTest = detectRunningUnderXCTest(ProcessInfo.processInfo.environment)
@@ -815,11 +817,17 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
     private var splitButtonTooltipRefreshScheduled = false
     private var didScheduleGhosttyCrashBreadcrumbCheck = false
     private var ghosttyCrashBreadcrumbTask: Task<Void, Never>?
+    private static let configuredShortcutChordTimeout: TimeInterval = 1
     private struct PendingConfiguredShortcutChord {
+        let id: UUID
         let firstStroke: ShortcutStroke
+        let secondStrokes: [ShortcutStroke]
+        let expiresAt: TimeInterval
         let windowNumber: Int?
+        let fallbackEvent: NSEvent
     }
     private var pendingConfiguredShortcutChord: PendingConfiguredShortcutChord?
+    private var configuredShortcutChordExpirationTimer: Timer?
     var activeConfiguredShortcutChordPrefixForCurrentEvent: ShortcutStroke?
     var shortcutEventFocusContextCache: ShortcutEventFocusContextCache?
     private var ghosttyConfigObserver: NSObjectProtocol?
@@ -1860,6 +1868,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
     }
 
     private func prepareForConfirmedAppTermination() {
+        restoreZenModeForTermination()
         isTerminatingApp = true
         _ = saveSessionSnapshotIncludingProcessDetectedIndexes(includeScrollback: true, removeWhenEmpty: false)
         ClosedItemHistoryStore.shared.flushPendingSaves()
@@ -1982,6 +1991,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
 
     func applicationWillTerminate(_ notification: Notification) {
         StartupBreadcrumbLog.append("appDelegate.willTerminate.begin")
+        restoreZenModeForTermination()
         // Backstop for any terminate path that did not route through
         // prepareForConfirmedAppTermination() (idempotent with the primary arm).
         // Apple's promised-pasteboard observer can fire before this delegate
@@ -2015,6 +2025,12 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
         enableSuddenTerminationIfNeeded()
     }
 
+    private func restoreZenModeForTermination() {
+        if let session = zenModeController.restoreForTermination() {
+            restoreZenModeWindowState(session)
+        }
+    }
+
     func applicationWillResignActive(_ notification: Notification) {
         guard !isTerminatingApp else { return }
         PortScanner.shared.setTrackedAgentScanningPaused(true)
@@ -2025,6 +2041,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
     }
 
     func persistSessionForUpdateRelaunch() {
+        restoreZenModeForTermination()
         isTerminatingApp = true
         _ = saveSessionSnapshotIncludingProcessDetectedIndexes(includeScrollback: true, removeWhenEmpty: false)
         ClosedItemHistoryStore.shared.flushPendingSaves()
@@ -3466,7 +3483,9 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
             ClosedItemHistoryStore.shared.remapWorkspaceWindowIds(from: originalWindowId, to: context.windowId)
             ClosedItemHistoryStore.shared.flushPendingSaves()
         }
-        context.sidebarState.isVisible = snapshot.sidebar.isVisible
+        context.sidebarState.isVisible = zenModeController.consumeInterruptedSidebarVisibilityRecovery(
+            windowID: snapshot.windowId ?? context.windowId
+        ) ? true : snapshot.sidebar.isVisible
         context.sidebarState.persistedWidth = CGFloat(
             SessionPersistencePolicy.sanitizedSidebarWidth(snapshot.sidebar.width)
         )
@@ -5876,6 +5895,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
 
     private func unregisterMainWindowContext(for window: NSWindow) -> MainWindowContext? {
         guard let removed = contextForMainTerminalWindow(window, reindex: false) else { return nil }
+        _ = zenModeController.endIfTargeting(windowID: removed.windowId)
         removed.teardownWindowDock()
         let removedKeys = mainWindowContexts.compactMap { key, value in
             value === removed ? key : nil
@@ -5891,6 +5911,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
 
     // Internal (not private): see notifyMainWindowContextsDidChange.
     func discardOrphanedMainWindowContext(_ context: MainWindowContext, allowWindowlessFallback: Bool = false) {
+        _ = zenModeController.endIfTargeting(windowID: context.windowId)
         context.teardownWindowDock()
         let contextKeys = mainWindowContexts.compactMap { key, value in
             value === context ? key : nil
@@ -6527,6 +6548,49 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
             return true
         }
         return false
+    }
+
+    /// Toggles app-wide Zen Mode while restoring only state changed on entry.
+    @discardableResult
+    func toggleZenMode(preferredWindow: NSWindow? = nil) -> Bool {
+        if zenModeController.isActive {
+            guard let session = zenModeController.end() else { return false }
+            restoreZenModeWindowState(session)
+            return true
+        }
+
+        guard let context = preferredRegisteredMainWindowContext(preferredWindow: preferredWindow),
+              let window = resolvedWindow(for: context),
+              let session = zenModeController.begin(
+                  windowID: context.windowId,
+                  isSidebarVisible: context.sidebarState.isVisible,
+                  isFullScreen: window.styleMask.contains(.fullScreen)
+              ) else {
+            return false
+        }
+
+        setActiveMainWindow(window)
+        if session.restoresSidebarVisibility {
+            context.sidebarState.isVisible = false
+        }
+        if session.exitsFullScreen {
+            window.toggleFullScreen(nil)
+        }
+        return true
+    }
+
+    private func restoreZenModeWindowState(_ session: ZenModeController.Session) {
+        guard let context = mainWindowContexts.values.first(where: { $0.windowId == session.windowID }) else {
+            return
+        }
+        if session.restoresSidebarVisibility, !context.sidebarState.isVisible {
+            context.sidebarState.isVisible = true
+        }
+        if session.exitsFullScreen,
+           let window = resolvedWindow(for: context),
+           window.styleMask.contains(.fullScreen) {
+            window.toggleFullScreen(nil)
+        }
     }
 
     @discardableResult
@@ -12538,6 +12602,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
     }
 
     func clearConfiguredShortcutChordState() {
+        configuredShortcutChordExpirationTimer?.invalidate()
+        configuredShortcutChordExpirationTimer = nil
         pendingConfiguredShortcutChord = nil
         activeConfiguredShortcutChordPrefixForCurrentEvent = nil
     }
@@ -12818,14 +12884,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
         let isControlOnly = hasControl && !hasCommand && !hasOption
         let controlDChar = chars == "d" || event.characters == "\u{04}"
         let isControlD = isControlOnly && (controlDChar || event.keyCode == 2)
-        let configuredShortcutEventWindowNumber = configuredShortcutChordWindowNumber(for: event)
-        if let pendingConfiguredShortcutChord,
-           pendingConfiguredShortcutChord.windowNumber == configuredShortcutEventWindowNumber {
-            activeConfiguredShortcutChordPrefixForCurrentEvent = pendingConfiguredShortcutChord.firstStroke
-        } else {
-            activeConfiguredShortcutChordPrefixForCurrentEvent = nil
-        }
-        pendingConfiguredShortcutChord = nil
+        activeConfiguredShortcutChordPrefixForCurrentEvent = resolvePendingConfiguredShortcutChord(for: event)
         defer { activeConfiguredShortcutChordPrefixForCurrentEvent = nil; clearShortcutEventFocusContextCache(for: event) }
 #if DEBUG
         if isControlD {
@@ -13287,6 +13346,9 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
             return false
         }
 
+        let configuredCmuxShortcutContext = preferredMainWindowContextForShortcutRouting(event: event)
+        let configuredCmuxShortcutActions = configuredCmuxShortcutActions(for: configuredCmuxShortcutContext)
+
         if activeConfiguredShortcutChordPrefixForCurrentEvent == nil {
             let shortcutContext = shortcutEventFocusContext(event).shortcutContext
             let availableChordActions = currentConfiguredShortcutChordActions().filter { action in
@@ -13296,21 +13358,13 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
                 // one does not swallow its first stroke elsewhere (issue #5189).
                 KeyboardShortcutSettings.effectiveWhenClause(for: action).evaluate(shortcutContext)
             }
-            if armConfiguredShortcutChordIfNeeded(event: event, actions: availableChordActions) {
+            if armConfiguredShortcutChordIfNeeded(
+                event: event,
+                actions: availableChordActions,
+                shortcuts: configuredCmuxShortcutActions.compactMap(\.shortcut)
+            ) {
                 return true
             }
-        }
-
-        let configuredCmuxShortcutContext = preferredMainWindowContextForShortcutRouting(event: event)
-        let configuredCmuxShortcutActions = configuredCmuxShortcutActions(for: configuredCmuxShortcutContext)
-
-        if activeConfiguredShortcutChordPrefixForCurrentEvent == nil,
-           armConfiguredShortcutChordIfNeeded(
-               event: event,
-               actions: [],
-               shortcuts: configuredCmuxShortcutActions.compactMap(\.shortcut)
-           ) {
-            return true
         }
 
         // Focused browser web content owns document-editing command equivalents
@@ -13370,6 +13424,10 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
             }
             targetWindow.toggleFullScreen(nil)
             return true
+        }
+
+        if matchConfiguredShortcut(event: event, action: .toggleZenMode) {
+            return toggleZenMode(preferredWindow: mainWindowForShortcutEvent(event))
         }
 
         if handleConfiguredCmuxShortcut(
@@ -15020,14 +15078,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
             return false
         }
 
-        let configuredShortcutEventWindowNumber = configuredShortcutChordWindowNumber(for: event)
-        if let pendingConfiguredShortcutChord,
-           pendingConfiguredShortcutChord.windowNumber == configuredShortcutEventWindowNumber {
-            activeConfiguredShortcutChordPrefixForCurrentEvent = pendingConfiguredShortcutChord.firstStroke
-        } else {
-            activeConfiguredShortcutChordPrefixForCurrentEvent = nil
-        }
-        pendingConfiguredShortcutChord = nil
+        activeConfiguredShortcutChordPrefixForCurrentEvent = resolvePendingConfiguredShortcutChord(for: event)
         defer {
             activeConfiguredShortcutChordPrefixForCurrentEvent = nil
             clearShortcutEventFocusContextCache(for: event)
@@ -15186,21 +15237,72 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
         shortcuts: [StoredShortcut] = []
     ) -> Bool {
         var seen = Set<StoredShortcut>()
+        var firstStroke: ShortcutStroke?
+        var secondStrokes: [ShortcutStroke] = []
         let configuredShortcuts = actions.map {
             KeyboardShortcutSettings.shortcut(for: $0)
         } + shortcuts
         for shortcut in configuredShortcuts {
             guard seen.insert(shortcut).inserted else { continue }
-            guard shortcut.hasChord else { continue }
+            guard let secondStroke = shortcut.secondStroke else { continue }
             if matchShortcutStroke(event: event, stroke: shortcut.firstStroke) {
-                pendingConfiguredShortcutChord = PendingConfiguredShortcutChord(
-                    firstStroke: shortcut.firstStroke,
-                    windowNumber: configuredShortcutChordWindowNumber(for: event)
-                )
-                return true
+                firstStroke = shortcut.firstStroke
+                if !secondStrokes.contains(secondStroke) {
+                    secondStrokes.append(secondStroke)
+                }
             }
         }
-        return false
+        guard let firstStroke else { return false }
+
+        let pending = PendingConfiguredShortcutChord(
+            id: UUID(),
+            firstStroke: firstStroke,
+            secondStrokes: secondStrokes,
+            expiresAt: event.timestamp + Self.configuredShortcutChordTimeout,
+            windowNumber: configuredShortcutChordWindowNumber(for: event),
+            fallbackEvent: event
+        )
+        pendingConfiguredShortcutChord = pending
+        configuredShortcutChordExpirationTimer?.invalidate()
+        let timer = Timer(timeInterval: Self.configuredShortcutChordTimeout, repeats: false) { [weak self] timer in
+            MainActor.assumeIsolated {
+                guard let self, self.configuredShortcutChordExpirationTimer === timer else { return }
+                self.configuredShortcutChordExpirationTimer = nil
+                self.expireConfiguredShortcutChord(id: pending.id)
+            }
+        }
+        configuredShortcutChordExpirationTimer = timer
+        RunLoop.main.add(timer, forMode: .common)
+        return true
+    }
+
+    private func resolvePendingConfiguredShortcutChord(for event: NSEvent) -> ShortcutStroke? {
+        guard let pending = pendingConfiguredShortcutChord else { return nil }
+        configuredShortcutChordExpirationTimer?.invalidate()
+        configuredShortcutChordExpirationTimer = nil
+        pendingConfiguredShortcutChord = nil
+
+        let sameWindow = pending.windowNumber == configuredShortcutChordWindowNumber(for: event)
+        if event.timestamp <= pending.expiresAt,
+           sameWindow,
+           pending.secondStrokes.contains(where: { matchShortcutStroke(event: event, stroke: $0) }) {
+            return pending.firstStroke
+        }
+
+        deliverConfiguredShortcutChordFallback(pending)
+        return nil
+    }
+
+    private func expireConfiguredShortcutChord(id: UUID) {
+        guard let pending = pendingConfiguredShortcutChord, pending.id == id else { return }
+        pendingConfiguredShortcutChord = nil
+        deliverConfiguredShortcutChordFallback(pending)
+    }
+
+    private func deliverConfiguredShortcutChordFallback(_ pending: PendingConfiguredShortcutChord) {
+        let targetWindow = pending.fallbackEvent.window
+            ?? pending.windowNumber.flatMap { NSApp.window(withWindowNumber: $0) }
+        targetWindow?.sendEvent(pending.fallbackEvent)
     }
 
     func configuredCmuxShortcutActions(

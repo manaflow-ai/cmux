@@ -2176,6 +2176,8 @@ C0DE71B10000000000000001 /* AppDelegate+AgentChatNotifications.swift in Sources 
 		39EF42EF23A2F751429718CE /* WorkspaceTodoState.swift in Sources */ = {isa = PBXBuildFile; fileRef = E9A243534CEB9E9A49B44453 /* WorkspaceTodoState.swift */; };
 		6B524A0BA34FD46A771335AB /* WorkspaceUnitTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 71F8ED91A4B55D34BE6A0668 /* WorkspaceUnitTests.swift */; };
 		84E00D47E4584162AE53BC8D /* xterm-ghostty in Resources */ = {isa = PBXBuildFile; fileRef = B2E7294509CC42FE9191870E /* xterm-ghostty */; };
+		C71600010000000000000001 /* ZenModeController.swift in Sources */ = {isa = PBXBuildFile; fileRef = C71600020000000000000001 /* ZenModeController.swift */; };
+		C71610010000000000000001 /* ZenModeControllerTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = C71610020000000000000001 /* ZenModeControllerTests.swift */; };
 /* End PBXBuildFile section */
 
 /* Begin PBXContainerItemProxy section */
@@ -4335,6 +4337,8 @@ C0DE71B10000000000000002 /* AppDelegate+AgentChatNotifications.swift */ = {isa =
 		E9A243534CEB9E9A49B44453 /* WorkspaceTodoState.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = WorkspaceTodoState.swift; sourceTree = "<group>"; };
 		71F8ED91A4B55D34BE6A0668 /* WorkspaceUnitTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = WorkspaceUnitTests.swift; sourceTree = "<group>"; };
 		B2E7294509CC42FE9191870E /* xterm-ghostty */ = {isa = PBXFileReference; lastKnownFileType = file; path = "ghostty/terminfo/78/xterm-ghostty"; sourceTree = "<group>"; };
+		C71600020000000000000001 /* ZenModeController.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ZenModeController.swift; sourceTree = "<group>"; };
+		C71610020000000000000001 /* ZenModeControllerTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ZenModeControllerTests.swift; sourceTree = "<group>"; };
 /* End PBXFileReference section */
 
 /* Begin PBXFrameworksBuildPhase section */
@@ -4753,6 +4757,7 @@ C0DE71B10000000000000002 /* AppDelegate+AgentChatNotifications.swift */ = {isa =
 					5732B0065732B0065732B006 /* WorkspacePresentationModeContentTopPaddingModifier.swift */,
 					5732B0105732B0105732B010 /* WorkspacePresentationModeRuntimeCache.swift */,
 					5732B0075732B0075732B007 /* WorkspaceTitlebarModeLayer.swift */,
+					C71600020000000000000001 /* ZenModeController.swift */,
 					C0DE46010000000000000002 /* CMUXInstalledExtensionSidebarHostView.swift */,
 				C0DE46030000000000000002 /* CMUXSidebarExtensionBrowserPanel.swift */,
 				E4C001000000000000000002 /* ExtensionSidebarWorkspaceRowView.swift */,
@@ -6335,6 +6340,7 @@ C0DE71B10000000000000002 /* AppDelegate+AgentChatNotifications.swift */ = {isa =
 				6042B0026042B0026042B002 /* KeyboardShortcutModifierHoldHintsSettingsFileTests.swift */,
 				D5671102D5671102D5671102 /* TerminalScrollSpeedSettingsFileStoreTests.swift */,
 				C71510020000000000000001 /* SessionContentWidthSettingsFileStoreTests.swift */,
+				C71610020000000000000001 /* ZenModeControllerTests.swift */,
 				6042B0036042B0036042B003 /* ShortcutHintDebugSettingsBindingTests.swift */,
 				E3309A0C /* KeyboardShortcutSettingsEqualizeSplitsTests.swift */,
 				A17110000000000000000002 /* KeyboardShortcutSpaceKeyTests.swift */,
@@ -8466,6 +8472,7 @@ C0DE71B10000000000000002 /* AppDelegate+AgentChatNotifications.swift */ = {isa =
 				249969F7EAC03A99E20C753B /* WorkspaceTodoPanel.swift in Sources */,
 				78F17D618B657B6CF929E327 /* WorkspaceTodoPanelView.swift in Sources */,
 				39EF42EF23A2F751429718CE /* WorkspaceTodoState.swift in Sources */,
+					C71600010000000000000001 /* ZenModeController.swift in Sources */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};
@@ -9211,6 +9218,7 @@ C0DE71B10000000000000002 /* AppDelegate+AgentChatNotifications.swift */ = {isa =
 				41ECF85FFD13D233A0AC75A6 /* WorkspaceTodoSidebarModelTests.swift in Sources */,
 				5B38DFE53BE108F4DA2BDBB7 /* WorkspaceTodoSnapshotTests.swift in Sources */,
 				6B524A0BA34FD46A771335AB /* WorkspaceUnitTests.swift in Sources */,
+				C71610010000000000000001 /* ZenModeControllerTests.swift in Sources */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};

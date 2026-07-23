@@ -7014,6 +7014,14 @@ struct ContentView: View {
         )
         contributions.append(
             CommandPaletteCommandContribution(
+                commandId: "palette.toggleZenMode",
+                title: constant(String(localized: "command.toggleZenMode.title", defaultValue: "Toggle Zen Mode")),
+                subtitle: constant(String(localized: "command.toggleSidebar.subtitle", defaultValue: "Layout")),
+                keywords: ["zen", "focus", "minimal", "fullscreen", "sidebar", "width"]
+            )
+        )
+        contributions.append(
+            CommandPaletteCommandContribution(
                 commandId: "palette.reopenClosedBrowserTab",
                 title: constant(String(localized: "menu.history.reopenLastClosed", defaultValue: "Reopen Last Closed")),
                 subtitle: constant(String(localized: "menu.history.title", defaultValue: "History")),
@@ -8200,6 +8208,11 @@ struct ContentView: View {
                 return
             }
             window.toggleFullScreen(nil)
+        }
+        registry.register(commandId: "palette.toggleZenMode") {
+            if AppDelegate.shared?.toggleZenMode(preferredWindow: observedWindow ?? NSApp.keyWindow ?? NSApp.mainWindow) != true {
+                NSSound.beep()
+            }
         }
         registry.register(commandId: "palette.reopenClosedBrowserTab") {
             if let appDelegate = AppDelegate.shared {

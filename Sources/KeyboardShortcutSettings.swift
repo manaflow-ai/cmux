@@ -70,6 +70,7 @@ enum KeyboardShortcutSettings {
         case newWindow
         case closeWindow
         case toggleFullScreen
+        case toggleZenMode
         case quit
 
         // Titlebar / primary UI
@@ -205,6 +206,7 @@ enum KeyboardShortcutSettings {
             case .newWindow: return String(localized: "shortcut.newWindow.label", defaultValue: "New Window")
             case .closeWindow: return String(localized: "shortcut.closeWindow.label", defaultValue: "Close Window")
             case .toggleFullScreen: return String(localized: "command.toggleFullScreen.title", defaultValue: "Toggle Full Screen")
+            case .toggleZenMode: return String(localized: "command.toggleZenMode.title", defaultValue: "Toggle Zen Mode")
             case .quit: return String(localized: "menu.quitCmux", defaultValue: "Quit cmux")
             case .toggleSidebar: return String(localized: "shortcut.toggleLeftSidebar.label", defaultValue: "Toggle Left Sidebar")
             case .newTab: return String(localized: "shortcut.newWorkspace.label", defaultValue: "New Workspace")
@@ -349,6 +351,11 @@ enum KeyboardShortcutSettings {
                 return StoredShortcut(key: "w", command: true, shift: false, option: false, control: true)
             case .toggleFullScreen:
                 return StoredShortcut(key: "f", command: true, shift: false, option: false, control: true)
+            case .toggleZenMode:
+                return StoredShortcut(
+                    first: ShortcutStroke(key: "k", command: true, shift: false, option: false, control: false),
+                    second: ShortcutStroke(key: "z", command: false, shift: false, option: false, control: false)
+                )
             case .quit:
                 return StoredShortcut(key: "q", command: true, shift: false, option: false, control: false)
             case .toggleSidebar:

@@ -61,6 +61,16 @@ export const shortcutCategories: ShortcutCategory[] = [
       { id: "closeWindow", combos: [["⌃", "⌘", "W"]], description: { en: "Close window", ja: "ウインドウを閉じる" } },
       { id: "toggleFullScreen", combos: [["⌃", "⌘", "F"]], description: { en: "Toggle full screen", ja: "フルスクリーンを切り替え" } },
       {
+        id: "toggleZenMode",
+        combos: [["⌘", "K"], ["Z"]],
+        description: { en: "Toggle Zen Mode", ja: "Zenモードを切り替え" },
+        note: {
+          en: "Hides the left sidebar, enables Minimal Mode and the session content width cap, and enters full screen; toggle again to restore only the settings Zen Mode changed.",
+          ja: "左サイドバーを隠し、ミニマルモードとセッションコンテンツの最大幅を有効にしてフルスクリーンにします。もう一度切り替えると、Zenモードが変更した設定だけを元に戻します。",
+        },
+        configValue: '["cmd+k", "z"]',
+      },
+      {
         id: "sendFeedback",
         combos: [],
         description: { en: "Send feedback", ja: "フィードバックを送信" },

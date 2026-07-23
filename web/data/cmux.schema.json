@@ -1589,6 +1589,7 @@
               "newWindow",
               "closeWindow",
               "toggleFullScreen",
+              "toggleZenMode",
               "quit",
               "toggleSidebar",
               "newTab",

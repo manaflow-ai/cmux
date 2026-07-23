@@ -1023,6 +1023,12 @@ struct cmuxApp: App {
                 targetWindow.toggleFullScreen(nil)
             }
 
+            splitCommandButton(title: String(localized: "command.toggleZenMode.title", defaultValue: "Toggle Zen Mode"), shortcut: menuShortcut(for: .toggleZenMode)) {
+                if AppDelegate.shared?.toggleZenMode(preferredWindow: NSApp.keyWindow ?? NSApp.mainWindow) != true {
+                    NSSound.beep()
+                }
+            }
+
             Divider()
 
             splitCommandButton(title: String(localized: "menu.view.splitRight", defaultValue: "Split Right"), shortcut: menuShortcut(for: .splitRight)) {
