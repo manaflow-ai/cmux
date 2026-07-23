@@ -2294,6 +2294,63 @@ mod tests {
         assert_eq!(source.next_group().await.unwrap().description(), "ws://first.invalid/v1/link");
     }
 
+    #[test]
+    fn persisted_runtime_metadata_redacts_route_credentials() {
+        let directory = tempfile::tempdir().unwrap();
+        let info = DaemonRuntimeInfo {
+            session: "persist-redaction".into(),
+            state_dir: directory.path().into(),
+            link_socket: directory.path().join("link.sock"),
+            admin_socket: directory.path().join("admin.sock"),
+            daemon_fingerprint: "public-fingerprint".into(),
+            routes: vec![
+                "wss://persist-user-marker:persist-password-marker@persist.example/\
+                 persist-path-marker?ticket=persist-query-marker#persist-fragment-marker"
+                    .into(),
+            ],
+            direct_websocket: None,
+            iroh_node_id: None,
+            replaceable_sidecar: false,
+        };
+
+        persist_runtime_info(directory.path(), &info).unwrap();
+
+        let persisted = fs::read_to_string(directory.path().join("runtime.json")).unwrap();
+        for secret in [
+            "persist-user-marker",
+            "persist-password-marker",
+            "persist-path-marker",
+            "persist-query-marker",
+            "persist-fragment-marker",
+        ] {
+            assert!(!persisted.contains(secret), "runtime metadata leaked {secret:?}: {persisted}");
+        }
+        let persisted: DaemonRuntimeInfo = serde_json::from_str(&persisted).unwrap();
+        assert_eq!(persisted.routes, ["wss://persist.example/"]);
+        assert_eq!(persisted.session, info.session);
+    }
+
+    #[test]
+    fn persisted_runtime_metadata_rejects_malformed_routes_without_echoing_them() {
+        let directory = tempfile::tempdir().unwrap();
+        let info = DaemonRuntimeInfo {
+            session: "persist-malformed".into(),
+            state_dir: directory.path().into(),
+            link_socket: directory.path().join("link.sock"),
+            admin_socket: directory.path().join("admin.sock"),
+            daemon_fingerprint: "public-fingerprint".into(),
+            routes: vec!["%%% malformed-persisted-route-marker %%%".into()],
+            direct_websocket: None,
+            iroh_node_id: None,
+            replaceable_sidecar: false,
+        };
+
+        let error = persist_runtime_info(directory.path(), &info).unwrap_err().to_string();
+
+        assert!(!error.contains("malformed-persisted-route-marker"), "{error}");
+        assert!(!directory.path().join("runtime.json").exists());
+    }
+
     #[cfg(unix)]
     #[test]
     fn long_state_path_uses_a_short_runtime_socket() {
