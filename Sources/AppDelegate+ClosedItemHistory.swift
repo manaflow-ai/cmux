@@ -4,20 +4,8 @@ extension AppDelegate {
     func clearRecentlyClosedHistory(preferredTabManager: TabManager? = nil) {
         ClosedItemHistoryStore.shared.removeAll()
 
-        var clearedManagers: Set<ObjectIdentifier> = []
-        func clear(_ manager: TabManager?) {
-            guard let manager else { return }
-            guard clearedManagers.insert(ObjectIdentifier(manager)).inserted else { return }
+        for manager in liveWorkspaceIdentityTabManagers(preferredTabManager: preferredTabManager) {
             manager.clearRecentlyClosedBrowserPanelHistory()
-        }
-
-        clear(preferredTabManager)
-        clear(tabManager)
-        for context in mainWindowContexts.values {
-            clear(context.tabManager)
-        }
-        for route in recoverableMainWindowRoutes() {
-            clear(route.tabManager)
         }
     }
 
@@ -58,25 +46,8 @@ extension AppDelegate {
     }
 
     private func recentlyClosedLegacyBrowserManagers(preferredTabManager: TabManager?) -> [TabManager] {
-        var managers: [TabManager] = []
-        var seen: Set<ObjectIdentifier> = []
-
-        func append(_ manager: TabManager?) {
-            guard let manager else { return }
-            guard manager.mostRecentLegacyClosedBrowserPanelClosedAt() != nil else { return }
-            guard seen.insert(ObjectIdentifier(manager)).inserted else { return }
-            managers.append(manager)
-        }
-
-        append(preferredTabManager)
-        append(tabManager)
-        for context in mainWindowContexts.values {
-            append(context.tabManager)
-        }
-        for route in recoverableMainWindowRoutes() {
-            append(route.tabManager)
-        }
-
+        let managers = liveWorkspaceIdentityTabManagers(preferredTabManager: preferredTabManager)
+            .filter { $0.mostRecentLegacyClosedBrowserPanelClosedAt() != nil }
         return managers.sorted { lhs, rhs in
             let lhsDate = lhs.mostRecentLegacyClosedBrowserPanelClosedAt() ?? .distantPast
             let rhsDate = rhs.mostRecentLegacyClosedBrowserPanelClosedAt() ?? .distantPast
@@ -109,8 +80,8 @@ extension AppDelegate {
             guard let manager,
                   manager.restoreClosedWorkspace(
                     workspaceEntry,
-                    excludingStableIdentities: liveStableIdentitySet(),
-                    excludingWorkspaceIds: liveWorkspaceIdSet()
+                    excludingStableIdentities: liveStableIdentitySet(preferredTabManager: preferredTabManager),
+                    excludingWorkspaceIds: liveWorkspaceIdSet(preferredTabManager: preferredTabManager)
                   )
             else {
                 return false
