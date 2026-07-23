@@ -654,7 +654,6 @@ def test_churn_calls_every_planned_surface_and_records_real_metrics(tmp_path: Pa
         event[1][event[1].index("--surface") + 1] for event in capture_calls
     } == set(adapter._terminal_actual_ids.values())
     for method in (
-        "browser.focus_webview",
         "browser.reload",
         "browser.snapshot",
         "browser.screenshot",
@@ -670,13 +669,12 @@ def test_churn_calls_every_planned_surface_and_records_real_metrics(tmp_path: Pa
         for event in runner.events
         if event[:2] == ("rpc", "surface.focus")
     ]
-    assert surface_focuses == list(adapter._browser_actual_ids.values())
     webview_focuses = [
         event
         for event in runner.events
         if event[:2] == ("rpc", "browser.focus_webview")
     ]
-    assert len(webview_focuses) == len(adapter._browser_actual_ids)
+    assert webview_focuses == []
     screenshot_calls = [
         event for event in runner.events if event[:2] == ("rpc", "browser.screenshot")
     ]
@@ -1039,7 +1037,7 @@ def test_enabled_profiles_overlap_churn_and_record_work_units(tmp_path: Path) ->
         call["work_units"]
         == {
             "terminal_ansi_lines": 3_200,
-            "browser_churn_rpc_operations": 10,
+            "browser_churn_rpc_operations": 8,
             "temporary_browser_open_close_operations": 2,
         }
         for call in profile_calls
