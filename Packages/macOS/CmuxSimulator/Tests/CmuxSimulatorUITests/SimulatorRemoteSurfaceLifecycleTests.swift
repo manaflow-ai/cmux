@@ -136,6 +136,22 @@ struct SimulatorRemoteSurfaceLifecycleTests {
         ) == 0xFF_77_88_99)
     }
 
+    @Test("Frame polling follows the host display cadence")
+    func framePollingFollowsDisplayCadence() {
+        #expect(SimulatorRemoteSurfaceView.presentationTimerIntervalNanoseconds(
+            maximumFramesPerSecond: nil
+        ) == 16_666_667)
+        #expect(SimulatorRemoteSurfaceView.presentationTimerIntervalNanoseconds(
+            maximumFramesPerSecond: 60
+        ) == 16_666_667)
+        #expect(SimulatorRemoteSurfaceView.presentationTimerIntervalNanoseconds(
+            maximumFramesPerSecond: 120
+        ) == 8_333_333)
+        #expect(SimulatorRemoteSurfaceView.presentationTimerIntervalNanoseconds(
+            maximumFramesPerSecond: 240
+        ) == 8_333_333)
+    }
+
     @Test("A released stale copy cannot replace a newer transport frame")
     func replacementRejectsStaleCopyCompletion() async throws {
         let oldDescriptor = simulatorFrameTransportDescriptor(44)

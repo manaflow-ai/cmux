@@ -150,6 +150,7 @@ final class SimulatorRemoteSurfaceView: NSView, SimulatorInputResponder {
 
     override func viewDidChangeBackingProperties() {
         super.viewDidChangeBackingProperties()
+        rebuildPresentationTimer()
         pushGeometry()
     }
 
@@ -338,7 +339,12 @@ final class SimulatorRemoteSurfaceView: NSView, SimulatorInputResponder {
         frameLayer.magnificationFilter = .linear
         layer?.addSublayer(frameLayer)
         self.frameLayer = frameLayer
-        framePipeline = SimulatorFramePresentationPipeline(source: source)
+        framePipeline = SimulatorFramePresentationPipeline(
+            source: source,
+            presentationDidComplete: { [weak self] in
+                self?.renderLatestFrame()
+            }
+        )
         frameTransportDescriptor = frameTransport
         onFrameTransportAdopted?(frameTransport)
         renderLatestFrame()
@@ -362,10 +368,13 @@ final class SimulatorRemoteSurfaceView: NSView, SimulatorInputResponder {
         guard presentationTimer == nil,
               framePipeline != nil,
               window != nil else { return }
+        let interval = Self.presentationTimerIntervalNanoseconds(
+            maximumFramesPerSecond: window?.screen?.maximumFramesPerSecond
+        )
         let timer = DispatchSource.makeTimerSource(flags: .strict, queue: .main)
         timer.schedule(
             deadline: .now(),
-            repeating: .nanoseconds(16_666_667),
+            repeating: .nanoseconds(interval),
             leeway: .milliseconds(1)
         )
         timer.setEventHandler { [weak self] in
@@ -373,6 +382,13 @@ final class SimulatorRemoteSurfaceView: NSView, SimulatorInputResponder {
         }
         presentationTimer = timer
         timer.activate()
+    }
+
+    static func presentationTimerIntervalNanoseconds(
+        maximumFramesPerSecond: Int?
+    ) -> Int {
+        let framesPerSecond = min(max(maximumFramesPerSecond ?? 60, 1), 120)
+        return Int((1_000_000_000 / Double(framesPerSecond)).rounded())
     }
 
     private func stopPresentationTimer() {

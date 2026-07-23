@@ -5,13 +5,18 @@
 @MainActor
 final class SimulatorFramePresentationPipeline {
     private let source: any SimulatorFrameSurfaceReading
+    private let presentationDidComplete: @MainActor () -> Void
     private var isActive = true
     private var copyIsInFlight = false
     private var lastCopiedSequence: UInt64?
     private var newestCompletedPresentation: SimulatorFramePresentation?
 
-    init(source: any SimulatorFrameSurfaceReading) {
+    init(
+        source: any SimulatorFrameSurfaceReading,
+        presentationDidComplete: @escaping @MainActor () -> Void
+    ) {
         self.source = source
+        self.presentationDidComplete = presentationDidComplete
     }
 
     func displayTick() -> SimulatorFramePresentation? {
@@ -61,6 +66,7 @@ final class SimulatorFramePresentationPipeline {
         if let presentation,
            newestCompletedPresentation.map({ presentation.sequence > $0.sequence }) ?? true {
             newestCompletedPresentation = presentation
+            presentationDidComplete()
         }
     }
 }
