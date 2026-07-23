@@ -182,3 +182,63 @@ import Testing
         #expect(state.sourceSurfaceID == "terminal-a")
     }
 }
+
+@Suite struct PaneMapReorderStateTests {
+    @Test func failureRollsBackToTheLatestAuthoritativeOrder() throws {
+        var state = PaneMapReorderState(authoritativePaneIDs: ["left", "middle", "right"])
+
+        let request = try #require(state.beginMove(from: 0, to: 2))
+        #expect(state.visiblePaneIDs == ["middle", "right", "left"])
+
+        state.reconcile(authoritativePaneIDs: ["left", "right", "middle"])
+        #expect(
+            state.visiblePaneIDs == ["middle", "right", "left"],
+            "An in-flight optimistic move must remain stable while the Mac refresh arrives"
+        )
+
+        #expect(state.complete(requestID: request.id, succeeded: false) == .rolledBack)
+        #expect(state.visiblePaneIDs == ["left", "right", "middle"])
+        #expect(!state.isMutationPending)
+    }
+
+    @Test func successWaitsForAndThenUsesTheAuthoritativeMacOrder() throws {
+        var state = PaneMapReorderState(authoritativePaneIDs: ["one", "two", "three"])
+
+        let request = try #require(state.beginMove(from: 2, to: 0))
+        #expect(request.orderedPaneIDs == ["three", "one", "two"])
+        #expect(state.complete(requestID: request.id, succeeded: true) == .awaitingAuthority)
+        #expect(state.visiblePaneIDs == ["three", "one", "two"])
+        #expect(state.isMutationPending)
+
+        state.reconcile(authoritativePaneIDs: ["one", "two", "three"])
+        #expect(state.visiblePaneIDs == ["one", "two", "three"])
+        #expect(!state.isMutationPending)
+    }
+
+    @Test func staleCompletionCannotOverwriteANewerMove() throws {
+        var state = PaneMapReorderState(authoritativePaneIDs: ["a", "b", "c"])
+
+        let first = try #require(state.beginMove(from: 0, to: 1))
+        #expect(state.complete(requestID: first.id, succeeded: false) == .rolledBack)
+
+        let second = try #require(state.beginMove(from: 2, to: 0))
+        #expect(state.complete(requestID: first.id, succeeded: true) == .ignored)
+        #expect(state.visiblePaneIDs == second.orderedPaneIDs)
+        #expect(state.isMutationPending)
+    }
+
+    @Test func scrollAndDragMovementDoNotResolveAsPaneSelection() {
+        var arbitration = PaneMapSelectionArbitration()
+
+        arbitration.touchBegan(at: CGPoint(x: 10, y: 10))
+        arbitration.touchMoved(to: CGPoint(x: 32, y: 10))
+        #expect(!arbitration.touchEnded(at: CGPoint(x: 32, y: 10)))
+
+        arbitration.touchBegan(at: CGPoint(x: 10, y: 10))
+        arbitration.dragSessionDidBegin()
+        #expect(!arbitration.touchEnded(at: CGPoint(x: 10, y: 10)))
+
+        arbitration.touchBegan(at: CGPoint(x: 10, y: 10))
+        #expect(arbitration.touchEnded(at: CGPoint(x: 11, y: 11)))
+    }
+}
