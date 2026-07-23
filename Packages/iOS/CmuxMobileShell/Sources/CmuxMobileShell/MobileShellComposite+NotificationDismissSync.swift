@@ -101,15 +101,25 @@ extension MobileShellComposite {
     }
 
     func scheduleNotificationReconcile(client: MobileCoreRPCClient) {
-        Task { [weak self] in
-            await self?.flushPendingNotificationDismisses()
-            await self?.reconcileNotificationsWithMac(client: client)
+        notificationReconcileTask?.cancel()
+        notificationReconcileTask = Task { @MainActor [weak self, weak client] in
+            guard let self, let client,
+                  !Task.isCancelled,
+                  self.remoteClient === client,
+                  self.connectionState == .connected else { return }
+            await self.flushPendingNotificationDismisses()
+            guard !Task.isCancelled,
+                  self.remoteClient === client,
+                  self.connectionState == .connected else { return }
+            await self.reconcileNotificationsWithMac(client: client)
         }
     }
 
     func reconcileNotificationsWithMac(client: MobileCoreRPCClient) async {
         let deliveredIDs = await deliveredNotificationClearer.deliveredIdentifiers()
-        guard remoteClient === client, connectionState == .connected else { return }
+        guard !Task.isCancelled,
+              remoteClient === client,
+              connectionState == .connected else { return }
         do {
             let request = try MobileCoreRPCClient.requestData(
                 method: "notification.reconcile",

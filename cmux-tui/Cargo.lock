@@ -182,7 +182,7 @@ dependencies = [
 
 [[package]]
 name = "cmux-client"
-version = "0.1.2"
+version = "0.3.0"
 dependencies = [
  "libc",
  "serde",
@@ -196,7 +196,9 @@ dependencies = [
  "anyhow",
  "base64",
  "cmux-tui-core",
+ "cmux-tui-machine-protocol",
  "crossterm",
+ "getrandom 0.3.4",
  "ghostty-vt",
  "libc",
  "ratatui",
@@ -204,7 +206,9 @@ dependencies = [
  "serde_json",
  "smallvec",
  "toml",
+ "unicode-segmentation",
  "unicode-width",
+ "zeroize",
 ]
 
 [[package]]
@@ -233,6 +237,16 @@ dependencies = [
  "serde_json",
  "tungstenite",
  "uds_windows",
+ "zeroize",
+]
+
+[[package]]
+name = "cmux-tui-machine-protocol"
+version = "0.1.0"
+dependencies = [
+ "serde",
+ "serde_json",
+ "zeroize",
 ]
 
 [[package]]
@@ -2110,6 +2124,12 @@ dependencies = [
  "quote",
  "syn 2.0.119",
 ]
+
+[[package]]
+name = "zeroize"
+version = "1.9.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "e13c156562582aa81c60cb29407084cdb54c4164760106ab78e6c5b0858cf64e"
 
 [[package]]
 name = "zmij"

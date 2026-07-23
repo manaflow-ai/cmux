@@ -449,6 +449,8 @@ class GhosttyApp {
     private var reloadConfigurationDepth = 0
     private(set) var usesHostLayerBackground = false
     private(set) var userGhosttyShellIntegrationMode: String = "detect"
+    private(set) var hasUserGhosttyCommand = false
+    private(set) var resolvedUserShell: String?
 
     static func retainTickNotifications() -> () -> Void {
         // The legacy release closure decremented on every call; a retention
@@ -808,6 +810,11 @@ class GhosttyApp {
             return
         }
 
+        resolvedUserShell = TerminalShellResolver.resolveCurrentUserShell()
+        if let resolvedUserShell {
+            setenv("SHELL", resolvedUserShell, 1)
+        }
+
         // Load config
         guard let primaryConfig = ghostty_config_new() else {
             #if DEBUG
@@ -967,6 +974,7 @@ class GhosttyApp {
             // If the user config is invalid, prefer a minimal fallback configuration so
             // cmux still launches with working terminals.
             ghostty_config_free(primaryConfig)
+            hasUserGhosttyCommand = false
 
             guard let fallbackConfig = ghostty_config_new() else {
                 #if DEBUG
@@ -1189,6 +1197,10 @@ class GhosttyApp {
         if appearanceSummary.shouldApplyDefaultAppearance, !appearanceSummary.hasExplicitTerminalColorDirective {
             loadCmuxDefaultAppearanceConfig(config, preferredColorScheme: preferredColorScheme)
         }
+        hasUserGhosttyCommand = GhosttyConfig.load(
+            preferredColorScheme: preferredColorScheme,
+            useCache: false
+        ).command != nil
     }
 
     func loadDefaultConfigFilesWithLegacyFallback(
@@ -1196,6 +1208,7 @@ class GhosttyApp {
         preferredColorScheme: GhosttyConfig.ColorSchemePreference = GhosttyConfig.currentColorSchemePreference(),
         conditionalThemeColorScheme: GhosttyConfig.ColorSchemePreference? = nil
     ) -> Bool {
+        hasUserGhosttyCommand = false
         // Surface-only reloads may use a terminal-derived scheme for background
         // handling, while Ghostty split-theme pairs follow app appearance.
         let themeColorScheme = conditionalThemeColorScheme ?? preferredColorScheme
@@ -2490,70 +2503,6 @@ class GhosttyApp {
         }
     }
 
-    @MainActor
-    private static func openEmbeddedBrowserLink(
-        url: URL,
-        sourceWorkspaceId: UUID,
-        sourcePanelId: UUID,
-        host: String
-    ) -> Bool {
-        guard BrowserAvailabilitySettings.isEnabled() else {
-            #if DEBUG
-            cmuxDebugLog("link.openURL deferred embedded but cmuxBrowser=disabled, opening externally url=\(url)")
-            #endif
-            return NSWorkspace.shared.open(url)
-        }
-
-        guard let app = AppDelegate.shared,
-              let resolved = app.workspaceContainingPanel(
-                panelId: sourcePanelId,
-                preferredWorkspaceId: sourceWorkspaceId
-              ) else {
-            #if DEBUG
-            cmuxDebugLog(
-                "link.openURL deferred embedded but workspace lookup failed, opening externally " +
-                "tabId=\(sourceWorkspaceId) surfaceId=\(sourcePanelId) url=\(url)"
-            )
-            #endif
-            return NSWorkspace.shared.open(url)
-        }
-
-        let workspace = resolved.workspace
-        #if DEBUG
-        if workspace.id != sourceWorkspaceId {
-            cmuxDebugLog(
-                "link.openURL workspace.remap sourceTab=\(sourceWorkspaceId) " +
-                "resolvedTab=\(workspace.id) surfaceId=\(sourcePanelId)"
-            )
-        }
-        #endif
-
-        let openedInBrowser: Bool
-        if let targetPane = workspace.preferredRightSideTargetPane(fromPanelId: sourcePanelId) {
-            #if DEBUG
-            cmuxDebugLog("link.openURL opening in existing browser pane=\(targetPane)")
-            #endif
-            openedInBrowser = workspace.newBrowserSurface(inPane: targetPane, url: url, focus: true) != nil
-        } else {
-            #if DEBUG
-            cmuxDebugLog("link.openURL opening as new browser split from surface=\(sourcePanelId)")
-            #endif
-            openedInBrowser = workspace.newBrowserSplit(from: sourcePanelId, orientation: .horizontal, url: url) != nil
-        }
-
-        guard openedInBrowser else {
-            #if DEBUG
-            cmuxDebugLog(
-                "link.openURL deferred embedded browser creation failed, opening externally " +
-                "host=\(host) url=\(url)"
-            )
-            #endif
-            return NSWorkspace.shared.open(url)
-        }
-
-        return true
-    }
-
     private func splitDirection(from direction: ghostty_action_split_direction_e) -> SplitDirection? {
         switch direction {
         case GHOSTTY_SPLIT_DIRECTION_RIGHT: return .right
@@ -2695,35 +2644,12 @@ class GhosttyApp {
         let callbackSurfaceId = callbackContext?.surfaceId
 
         if action.tag == GHOSTTY_ACTION_SHOW_CHILD_EXITED {
-            // Ghostty otherwise prints "Process exited. Press any key..."; cmux closes the panel.
-            guard let callbackRuntimeSurface = callbackContext?.terminalSurface else { return true }
-#if DEBUG
-            cmuxDebugLog(
-                "surface.action.showChildExited tab=\(callbackTabId?.uuidString.prefix(5) ?? "nil") " +
-                "surface=\(callbackSurfaceId?.uuidString.prefix(5) ?? "nil")"
+            return handleChildExitedAction(
+                runtimeSurface: callbackContext?.terminalSurface,
+                tabId: callbackTabId,
+                surfaceId: callbackSurfaceId,
+                message: action.action.child_exited
             )
-#endif
-#if DEBUG
-            TerminalChildExitProbe().write(
-                [
-                    "probeShowChildExitedTabId": callbackTabId?.uuidString ?? "",
-                    "probeShowChildExitedSurfaceId": callbackSurfaceId?.uuidString ?? "",
-                ],
-                increments: ["probeShowChildExitedCount": 1]
-            )
-#endif
-            // Avoid re-entrant close/deinit while Ghostty dispatches this callback.
-            DispatchQueue.main.async {
-                guard let app = AppDelegate.shared else { return }
-                guard GhosttyApp.terminalSurfaceRegistry.surface(id: callbackRuntimeSurface.id) === callbackRuntimeSurface else { return }
-                if let callbackSurfaceId, app.closeWindowDockRuntimeSurface(surfaceId: callbackSurfaceId, force: true) { return }
-                if let callbackTabId, let callbackSurfaceId,
-                   let manager = app.tabManagerFor(tabId: callbackTabId) ?? app.tabManager {
-                    manager.closePanelAfterChildExited(tabId: callbackTabId, surfaceId: callbackSurfaceId, runtimeSurface: callbackRuntimeSurface)
-                }
-            }
-            // Always report handled so Ghostty doesn't print the fallback prompt.
-            return true
         }
 
         guard let surfaceView = callbackContext?.surfaceView else { return false }
@@ -2823,8 +2749,10 @@ class GhosttyApp {
                 width: CGFloat(action.action.cell_size.width),
                 height: CGFloat(action.action.cell_size.height)
             )
+            let terminalSurface = surfaceView.terminalSurface
             DispatchQueue.main.async {
                 surfaceView.cellSize = cellSize
+                _ = terminalSurface?.fontSizeLineageSnapshot()
                 NotificationCenter.default.post(
                     name: .ghosttyDidUpdateCellSize,
                     object: surfaceView,
@@ -3005,195 +2933,14 @@ class GhosttyApp {
                 data: Data(bytes: cstr, count: Int(openUrl.len)),
                 encoding: .utf8
             ) ?? ""
-            #if DEBUG
-            cmuxDebugLog("link.openURL raw=\(urlString)")
-            #endif
-
-            // Try file-path resolution before URL classification. Ghostty's link detection can
-            // match path-like text as URLs; route existing local files through cmux first.
-            let trimmedUrlString = urlString.trimmingCharacters(in: .whitespacesAndNewlines)
-            var normalizedOpenURLString = urlString
-            if !trimmedUrlString.isEmpty {
-                let filePathResolution: (routed: Bool, fallbackPath: String?) = performOnMain {
-                    guard let termSurface = surfaceView.terminalSurface,
-                          let workspace = termSurface.owningWorkspace(),
-                          !workspace.isRemoteTerminalSurface(termSurface.id) else {
-                        return (false, nil)
-                    }
-                    let cwd = CommandClickFileOpenRouter.resolveWorkingDirectory(
-                        workspace: workspace,
-                        surfaceId: termSurface.id
-                    )
-                    guard let resolvedPath = TerminalPathResolver().resolveOpenURLFilePath(trimmedUrlString, cwd: cwd) else {
-                        return (false, nil)
-                    }
-                    guard CommandClickFileOpenRouter.shouldRouteInCmux(path: resolvedPath) else {
-                        return (false, resolvedPath)
-                    }
-                    #if DEBUG
-                    cmuxDebugLog("link.openURL resolvedAsFilePath=\(resolvedPath)")
-                    #endif
-                    let fileURL = URL(fileURLWithPath: resolvedPath)
-                    CommandClickFileOpenRouter.deferredOpenFileInCmux(
-                        workspace: workspace,
-                        preferredWorkspaceId: workspace.id,
-                        surfaceId: termSurface.id,
-                        filePath: resolvedPath
-                    ) {
-                        NSWorkspace.shared.open(fileURL)
-                    }
-                    return (true, resolvedPath)
-                }
-                if let fallbackPath = filePathResolution.fallbackPath {
-                    normalizedOpenURLString = fallbackPath
-                }
-                if filePathResolution.routed {
-                    return true
-                }
-            }
-
-            guard let target = resolveTerminalOpenURLTarget(normalizedOpenURLString) else {
-                #if DEBUG
-                cmuxDebugLog("link.openURL resolve failed, returning false")
-                #endif
-                return false
-            }
-            #if DEBUG
-            if UITestCaptureSink().appendLineIfConfigured(
-                envKey: "CMUX_UI_TEST_CAPTURE_OPEN_URL_PATH",
-                line: target.url.absoluteString
-            ) {
-                return true
-            }
-            #endif
-            // Route local file paths into cmux when the file-routing toggle is on.
-            // Explicit URL schemes (including file://) stay on the URL route so
-            // the OS owns non-web schemes, while bare paths like `foo.md#L42`
-            // still route into the viewer when eligible.
-            if TerminalOpenURLFileRoutingPolicy().shouldAttemptCmuxFileRouting(
-                rawOpenURLValue: trimmedUrlString,
-                target: target
-            ) {
-                let fileURL = target.url
-                let routed: Bool = performOnMain {
-                    guard let termSurface = surfaceView.terminalSurface,
-                          let workspace = termSurface.owningWorkspace(),
-                          !workspace.isRemoteTerminalSurface(termSurface.id),
-                          CommandClickFileOpenRouter.shouldRouteInCmux(path: fileURL.path) else {
-                        return false
-                    }
-                    CommandClickFileOpenRouter.deferredOpenFileInCmux(
-                        workspace: workspace,
-                        preferredWorkspaceId: workspace.id,
-                        surfaceId: termSurface.id,
-                        filePath: fileURL.path
-                    ) {
-                        NSWorkspace.shared.open(fileURL)
-                    }
-                    return true
-                }
-                if routed {
-                    return true
-                }
-                // Fall through to the existing NSWorkspace path below.
-            }
-
-            if !BrowserLinkOpenSettings.openTerminalLinksInCmuxBrowser() {
-                #if DEBUG
-                cmuxDebugLog("link.openURL cmuxBrowser=disabled, opening externally url=\(target.url)")
-                #endif
-                return performOnMain {
-                    NSWorkspace.shared.open(target.url)
-                }
-            }
-            switch target {
-            case let .external(url):
-                #if DEBUG
-                cmuxDebugLog("link.openURL target=external, opening externally url=\(url)")
-                #endif
-                return performOnMain {
-                    NSWorkspace.shared.open(url)
-                }
-            case let .embeddedBrowser(url):
-                if BrowserLinkOpenSettings.shouldOpenExternally(url) {
-                    #if DEBUG
-                    cmuxDebugLog("link.openURL target=embedded but shouldOpenExternally=true url=\(url)")
-                    #endif
-                    return performOnMain {
-                        NSWorkspace.shared.open(url)
-                    }
-                }
-                guard let host = BrowserInsecureHTTPSettings.normalizeHost(url.host ?? "") else {
-                    #if DEBUG
-                    cmuxDebugLog("link.openURL target=embedded but normalizeHost=nil host=\(url.host ?? "nil") url=\(url)")
-                    #endif
-                    return performOnMain {
-                        NSWorkspace.shared.open(url)
-                    }
-                }
-
-                // If a host whitelist is configured and this host isn't in it, open externally.
-                if !BrowserLinkOpenSettings.hostMatchesWhitelist(host) {
-                    #if DEBUG
-                    cmuxDebugLog("link.openURL target=embedded but hostWhitelist miss host=\(host) url=\(url)")
-                    #endif
-                    return performOnMain {
-                        NSWorkspace.shared.open(url)
-                    }
-                }
-                let sourceWorkspaceId = callbackTabId ?? surfaceView.tabId
-                let sourcePanelId = callbackSurfaceId ?? surfaceView.terminalSurface?.id
-                guard let sourceWorkspaceId,
-                      let sourcePanelId else {
-                    #if DEBUG
-                    cmuxDebugLog("link.openURL target=embedded but tabId/surfaceId=nil")
-                    #endif
-                    return false
-                }
-                #if DEBUG
-                cmuxDebugLog(
-                    "link.openURL target=embedded, opening in browser pane " +
-                    "host=\(host) url=\(url) tabId=\(sourceWorkspaceId) surfaceId=\(sourcePanelId)"
-                )
-                #endif
-                let canAttemptEmbeddedOpen = performOnMain {
-                    BrowserAvailabilitySettings.isEnabled() &&
-                    AppDelegate.shared?.workspaceContainingPanel(
-                        panelId: sourcePanelId,
-                        preferredWorkspaceId: sourceWorkspaceId
-                    ) != nil
-                }
-                guard canAttemptEmbeddedOpen else {
-                    #if DEBUG
-                    cmuxDebugLog(
-                        "link.openURL embedded preflight failed, opening externally " +
-                        "tabId=\(sourceWorkspaceId) surfaceId=\(sourcePanelId) url=\(url)"
-                    )
-                    #endif
-                    return performOnMain {
-                        NSWorkspace.shared.open(url)
-                    }
-                }
-
-                // Browser split creation changes focus, which unfocuses the source terminal and
-                // calls back into Ghostty. Defer that work until this open_url callback returns.
-                // From here cmux owns the open attempt and the deferred path falls back externally.
-                Task { @MainActor [url, sourceWorkspaceId, sourcePanelId, host] in
-                    let didOpen = Self.openEmbeddedBrowserLink(
-                        url: url,
-                        sourceWorkspaceId: sourceWorkspaceId,
-                        sourcePanelId: sourcePanelId,
-                        host: host
-                    )
-                    guard didOpen else {
-                        #if DEBUG
-                        cmuxDebugLog("link.openURL deferred open failed url=\(url)")
-                        #endif
-                        NSSound.beep()
-                        return
-                    }
-                }
-                return true
+            let request = TerminalLinkOpenRequest(
+                rawValue: urlString,
+                sourceWorkspaceId: callbackTabId ?? surfaceView.tabId,
+                sourcePanelId: callbackSurfaceId ?? surfaceView.terminalSurface?.id,
+                workingDirectory: surfaceView.currentDirectoryActionDispatcher.directorySnapshot()
+            )
+            return performOnMain {
+                TerminalLinkOpenCoordinator().open(request)
             }
         default:
             return false
@@ -3399,6 +3146,9 @@ class GhosttyNSView: NSView, NSUserInterfaceValidations {
     private let _scrollbarLock = NSLock()
     private var _renderedFrameFlushScheduled = false
     private let _renderedFrameLock = NSLock()
+    /// Pane-local frame demand lets a terminal-specific consumer observe a
+    /// late render without enabling notifications on every terminal surface.
+    let localRenderedFrameNotificationDemand = RenderDemandCounter()
     nonisolated let selectionAccessibilitySignal = TerminalSelectionAccessibilitySignal()
     private var selectionAccessibilityNotifier: TerminalSelectionAccessibilityNotifier?
     var cellSize: CGSize = .zero
@@ -3505,7 +3255,7 @@ class GhosttyNSView: NSView, NSUserInterfaceValidations {
     }
 
     func enqueueRenderedFrameUpdate() {
-        guard GhosttyApp.renderedFrameNotificationDemand.isActive else { return }
+        guard renderedFrameNotificationDemandIsActive else { return }
         _renderedFrameLock.lock()
         let needsSchedule = !_renderedFrameFlushScheduled
         if needsSchedule {
@@ -3524,7 +3274,7 @@ class GhosttyNSView: NSView, NSUserInterfaceValidations {
         _renderedFrameFlushScheduled = false
         _renderedFrameLock.unlock()
 
-        guard GhosttyApp.renderedFrameNotificationDemand.isActive else { return }
+        guard renderedFrameNotificationDemandIsActive else { return }
         NotificationCenter.default.post(
             name: .ghosttyDidRenderFrame,
             object: self
@@ -3652,6 +3402,7 @@ class GhosttyNSView: NSView, NSUserInterfaceValidations {
         let metalLayer = GhosttyMetalLayer()
         metalLayer.setFrameReceiver(self)
         metalLayer.setRenderDemand(GhosttyApp.renderedFrameNotificationDemand)
+        metalLayer.setLocalRenderDemand(localRenderedFrameNotificationDemand)
         metalLayer.pixelFormat = .bgra8Unorm
         metalLayer.isOpaque = false
         Task { @MainActor [weak self] in self?.reconcileSurfaceSizeAfterMetalLayerAttachIfNeeded() }
@@ -7340,7 +7091,7 @@ class GhosttyNSView: NSView, NSUserInterfaceValidations {
         // command either reaches the live stream, or the action reports false.
         if let controller = AppDelegate.shared?.remoteTmuxController,
            controller.isMirrorPaneSurface(surfaceId) {
-            return controller.handleMirrorSplitRequested(surfaceId: surfaceId, vertical: !direction.isHorizontal)
+            return controller.handleMirrorSplitRequested(surfaceId: surfaceId, vertical: !direction.isHorizontal, focusIntent: .focusCreatedPane)
         }
         guard let tabId,
               let app = AppDelegate.shared,
@@ -9909,13 +9660,12 @@ final class GhosttySurfaceScrollView: NSView {
     var isVisibleInUI: Bool { surfaceView.isVisibleInUI }
     func setVisibleInUI(_ visible: Bool) {
         let wasVisible = surfaceView.isVisibleInUI
-        // Re-realize before marking visible so we never draw into a released swap chain.
-        surfaceView.terminalSurface?.setRendererPortalVisible(visible)
-        if visible {
-            surfaceView.terminalSurface?.realizeRenderer()
-        }
+        // Make the AppKit portal presentable before asking Ghostty to realize its
+        // drawable. Ghostty remains occluded until after the enqueue below, so it
+        // cannot draw into a released swap chain during this short transition.
         surfaceView.setVisibleInUI(visible)
         isHidden = !visible
+        surfaceView.terminalSurface?.setRendererPortalVisible(visible)
         if wasVisible != visible, lastRequestedPortalOcclusionVisible != visible {
             lastRequestedPortalOcclusionVisible = visible
             surfaceView.terminalSurface?.setOcclusion(visible)
@@ -10045,7 +9795,11 @@ final class GhosttySurfaceScrollView: NSView {
     }
 #endif
 
-    func moveFocus(from previous: GhosttySurfaceScrollView? = nil, delay: TimeInterval? = nil) {
+    func moveFocus(
+        from previous: GhosttySurfaceScrollView? = nil,
+        delay: TimeInterval? = nil,
+        respectForeignFirstResponder: Bool = false
+    ) {
 #if DEBUG
         let surfaceShort = String(self.surfaceView.terminalSurface?.id.uuidString.prefix(5) ?? "nil")
         let searchActive = self.surfaceView.terminalSurface?.searchState != nil
@@ -10062,6 +9816,23 @@ final class GhosttySurfaceScrollView: NSView {
 #if DEBUG
             let before = String(describing: window.firstResponder)
 #endif
+            // Same contract as ensureFocus's default: reassert-style callers
+            // (tab-selection convergence) must not steal from a legitimate
+            // focus owner — the sidebar's inline-rename field editor was
+            // killed ~240ms into every double-click rename by the async
+            // selection pipeline landing through this path. Explicit
+            // focus-the-terminal callers (find escape, tmux mirror) keep the
+            // default and still take focus.
+            if respectForeignFirstResponder,
+               let firstResponder = window.firstResponder,
+               shouldRespectForeignFirstResponder(firstResponder, in: window, isRightSidebarOwner: {
+                   AppDelegate.shared?.isRightSidebarFocusResponder($0, in: window) == true
+               }) {
+#if DEBUG
+                cmuxDebugLog("find.moveFocus.skip to=\(surfaceShort) reason=foreignFirstResponder")
+#endif
+                return
+            }
             guard self.canRequestSurfaceFirstResponder(in: window, reason: "moveFocus") else { return }
             if let previous, previous !== self {
                 _ = previous.surfaceView.resignFirstResponder()

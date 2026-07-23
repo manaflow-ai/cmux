@@ -55,6 +55,14 @@ extension MobileShellComposite {
             return
         }
         let reconnectTargetMacDeviceID = workspaceListReconnectTargetMacDeviceID()
+        // This is the user's explicit Reconnect/pull gesture: like
+        // `recoverMobileConnection(trigger: .manual)`, it must bypass the
+        // automatic-retry cooldown. Without this, a transient backoff recorded
+        // by a failed (or deadline-abandoned) automatic attempt silently
+        // swallows the user's tap and the dial never happens.
+        if let accountID = identityProvider?.currentUserID {
+            clearTransientAutomaticReconnectBackoff(accountID: accountID)
+        }
         if connectionState == .connected {
             // The live event stream can fail before the RPC client's transport
             // closes. In that state the workspace list correctly renders the

@@ -40,7 +40,7 @@ actor AgentForkExecutableIdentityResolver {
             identityTasks[key] = task
             Task {
                 _ = await task.value
-                await self.clearIdentityTask(for: key)
+                self.clearIdentityTask(for: key)
             }
         }
         return await boundedValue(
@@ -85,7 +85,7 @@ actor AgentForkExecutableIdentityResolver {
             validationResolutionTasks[key] = task
             Task {
                 _ = await task.value
-                await self.clearValidationResolutionTask(for: key)
+                self.clearValidationResolutionTask(for: key)
             }
         }
         return await boundedValue(

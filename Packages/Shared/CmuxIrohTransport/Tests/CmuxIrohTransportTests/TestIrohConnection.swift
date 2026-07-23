@@ -13,12 +13,18 @@ actor TestIrohEventRecorder {
     }
 }
 
-actor TestIrohConnection: CmxIrohConnection, CmxIrohConnectionPathInspecting {
+actor TestIrohConnection: CmxIrohConnection,
+    CmxIrohConnectionContinuityIdentifying,
+    CmxIrohConnectionPathInspecting
+{
     private let peerIdentity: CmxIrohPeerIdentity
+    private let continuityID: UInt64
     private var bidirectionalStreams: [CmxIrohBidirectionalStream]
     private var receiveStreams: [any CmxIrohReceiveStream]
     private let natTraversalAuthorizationError: TestIrohTransportError?
     private let eventRecorder: TestIrohEventRecorder?
+    private let bidirectionalStreamFailureNumber: Int?
+    private let reportsClosureToWaiters: Bool
     private var selectedPath: CmxIrohObservedConnectionPath
     private let selectedPathStream: AsyncStream<CmxIrohObservedConnectionPath>
     private let selectedPathContinuation: AsyncStream<CmxIrohObservedConnectionPath>.Continuation
@@ -38,17 +44,23 @@ actor TestIrohConnection: CmxIrohConnection, CmxIrohConnectionPathInspecting {
 
     init(
         remoteIdentity: CmxIrohPeerIdentity,
+        continuityID: UInt64 = 1,
         bidirectionalStreams: [CmxIrohBidirectionalStream],
         receiveStreams: [any CmxIrohReceiveStream] = [],
         natTraversalAuthorizationError: TestIrohTransportError? = nil,
         eventRecorder: TestIrohEventRecorder? = nil,
-        selectedPath: CmxIrohObservedConnectionPath = .unavailable
+        selectedPath: CmxIrohObservedConnectionPath = .unavailable,
+        bidirectionalStreamFailureNumber: Int? = nil,
+        reportsClosureToWaiters: Bool = true
     ) {
         peerIdentity = remoteIdentity
+        self.continuityID = continuityID
         self.bidirectionalStreams = bidirectionalStreams
         self.receiveStreams = receiveStreams
         self.natTraversalAuthorizationError = natTraversalAuthorizationError
         self.eventRecorder = eventRecorder
+        self.bidirectionalStreamFailureNumber = bidirectionalStreamFailureNumber
+        self.reportsClosureToWaiters = reportsClosureToWaiters
         self.selectedPath = selectedPath
         let pathChanges = AsyncStream<CmxIrohObservedConnectionPath>.makeStream(
             bufferingPolicy: .bufferingNewest(1)
@@ -63,6 +75,10 @@ actor TestIrohConnection: CmxIrohConnection, CmxIrohConnectionPathInspecting {
 
     func remoteIdentity() -> CmxIrohPeerIdentity {
         peerIdentity
+    }
+
+    func connectionContinuityID() -> UInt64 {
+        continuityID
     }
 
     func observedSelectedPath() -> CmxIrohObservedConnectionPath {
@@ -92,10 +108,14 @@ actor TestIrohConnection: CmxIrohConnection, CmxIrohConnectionPathInspecting {
     }
 
     func openBidirectionalStream() async throws -> CmxIrohBidirectionalStream {
+        bidirectionalStreamOpenCount += 1
+        if bidirectionalStreamOpenCount == bidirectionalStreamFailureNumber {
+            recordClose(errorCode: 99, reason: "timed_out")
+            throw TestIrohTransportError.unsupported
+        }
         guard !bidirectionalStreams.isEmpty else {
             throw TestIrohTransportError.unsupported
         }
-        bidirectionalStreamOpenCount += 1
         await eventRecorder?.record("connection.openBidirectionalStream")
         return bidirectionalStreams.removeFirst()
     }
@@ -120,10 +140,18 @@ actor TestIrohConnection: CmxIrohConnection, CmxIrohConnectionPathInspecting {
     }
 
     func close(errorCode: UInt64, reason: String) {
+        recordClose(errorCode: errorCode, reason: reason)
+    }
+
+    func isClosed() -> Bool {
+        !closeCalls.isEmpty
+    }
+
+    private func recordClose(errorCode: UInt64, reason: String) {
         let firstClose = closeCalls.isEmpty
         closeCalls.append((errorCode, reason))
         closeContinuation.yield((errorCode, reason))
-        if firstClose {
+        if firstClose, reportsClosureToWaiters {
             let waiters = closeWaiters
             closeWaiters.removeAll()
             for waiter in waiters { waiter.resume() }
@@ -131,7 +159,7 @@ actor TestIrohConnection: CmxIrohConnection, CmxIrohConnectionPathInspecting {
     }
 
     func waitUntilClosed() async {
-        if !closeCalls.isEmpty { return }
+        if reportsClosureToWaiters, !closeCalls.isEmpty { return }
         await withCheckedContinuation { closeWaiters.append($0) }
     }
 

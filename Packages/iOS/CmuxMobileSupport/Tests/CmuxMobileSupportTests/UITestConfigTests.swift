@@ -158,6 +158,38 @@ import Testing
         #endif
     }
 
+    @Test func notificationFeedPreviewFlagIsDebugOnly() {
+        let env = ["CMUX_UITEST_NOTIFICATION_FEED_PREVIEW": "1"]
+        #if DEBUG
+        #expect(UITestConfig.notificationFeedPreviewEnabled(from: env) == true)
+        #else
+        #expect(UITestConfig.notificationFeedPreviewEnabled(from: env) == false)
+        #endif
+    }
+
+    @Test func notificationFeedPreviewFlagRequiresOne() {
+        #expect(UITestConfig.notificationFeedPreviewEnabled(from: [:]) == false)
+        #expect(UITestConfig.notificationFeedPreviewEnabled(
+            from: ["CMUX_UITEST_NOTIFICATION_FEED_PREVIEW": "0"]
+        ) == false)
+    }
+
+    @Test func taskComposerPreviewFlagIsDebugOnly() {
+        let env = ["CMUX_UITEST_TASK_COMPOSER_PREVIEW": "1"]
+        #if DEBUG
+        #expect(UITestConfig.taskComposerPreviewEnabled(from: env))
+        #else
+        #expect(!UITestConfig.taskComposerPreviewEnabled(from: env))
+        #endif
+    }
+
+    @Test func taskComposerPreviewFlagRequiresOne() {
+        #expect(!UITestConfig.taskComposerPreviewEnabled(from: [:]))
+        #expect(!UITestConfig.taskComposerPreviewEnabled(from: [
+            "CMUX_UITEST_TASK_COMPOSER_PREVIEW": "0",
+        ]))
+    }
+
     @Test func agentChatPreviewFlagIsDebugOnly() {
         let env = ["CMUX_UITEST_AGENT_CHAT_PREVIEW": "1"]
         let config = UITestEnvironmentConfig(environment: env)
@@ -191,4 +223,42 @@ import Testing
             environment: ["CMUX_UITEST_AGENT_CHAT_INLINE_PREVIEW": "0"]
         ).agentChatInlinePreviewEnabled == false)
     }
+
+    #if DEBUG
+    @Test func pairingScannerPreviewFlagCanBeEnabled() {
+        let env = ["CMUX_UITEST_SCANNER_PREVIEW": "1"]
+        #expect(UITestEnvironmentConfig(environment: env).pairingScannerPreviewEnabled == true)
+    }
+
+    @Test func onboardingPreviewFlagCanBeEnabled() {
+        let env = ["CMUX_UITEST_ONBOARDING_PREVIEW": "1"]
+        #expect(UITestEnvironmentConfig(environment: env).onboardingPreviewEnabled == true)
+    }
+
+    @Test func onboardingPreviewFlagRequiresOne() {
+        #expect(UITestEnvironmentConfig(environment: [:]).onboardingPreviewEnabled == false)
+        #expect(UITestEnvironmentConfig(
+            environment: ["CMUX_UITEST_ONBOARDING_PREVIEW": "0"]
+        ).onboardingPreviewEnabled == false)
+    }
+
+    @Test func onboardingConnectionFallbackFlagCanBeEnabled() {
+        let env = ["CMUX_UITEST_ONBOARDING_CONNECTION_FALLBACK": "1"]
+        #expect(UITestEnvironmentConfig(environment: env).onboardingConnectionFallbackEnabled == true)
+    }
+
+    @Test func onboardingConnectionFallbackFlagRequiresOne() {
+        #expect(UITestEnvironmentConfig(environment: [:]).onboardingConnectionFallbackEnabled == false)
+        #expect(UITestEnvironmentConfig(
+            environment: ["CMUX_UITEST_ONBOARDING_CONNECTION_FALLBACK": "0"]
+        ).onboardingConnectionFallbackEnabled == false)
+    }
+
+    @Test func pairingScannerPreviewFlagRequiresOne() {
+        #expect(UITestEnvironmentConfig(environment: [:]).pairingScannerPreviewEnabled == false)
+        #expect(UITestEnvironmentConfig(
+            environment: ["CMUX_UITEST_SCANNER_PREVIEW": "0"]
+        ).pairingScannerPreviewEnabled == false)
+    }
+    #endif
 }

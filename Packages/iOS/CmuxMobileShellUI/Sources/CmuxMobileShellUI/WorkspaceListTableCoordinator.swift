@@ -11,7 +11,12 @@ final class WorkspaceListTableCoordinator: NSObject, UITableViewDelegate,
 {
     private enum HeightKind: Hashable {
         case workspaceUniform
-        case workspaceWrapped(id: MobileWorkspacePreview.ID, name: String, isSelected: Bool)
+        case workspaceWrapped(
+            id: MobileWorkspacePreview.ID,
+            name: String,
+            isSelected: Bool,
+            isIndented: Bool
+        )
         case groupHeader
         case groupFooter
         case recoveryBanner(String)
@@ -35,10 +40,14 @@ final class WorkspaceListTableCoordinator: NSObject, UITableViewDelegate,
     private var dataSource: UITableViewDiffableDataSource<Int, WorkspaceListTableItem>?
     private let sizingCell = UITableViewCell(style: .default, reuseIdentifier: nil)
     private var heightCache: [HeightCacheKey: CGFloat] = [:]
-    private var dropJustCompleted = false
+    private var configuredItemsByID: [String: WorkspaceListTableItem]
 
     init(configuration: WorkspaceListTable) {
         self.configuration = configuration
+        self.configuredItemsByID = Dictionary(
+            configuration.items.map { ($0.id, $0) },
+            uniquingKeysWith: { first, _ in first }
+        )
         super.init()
     }
 
@@ -59,7 +68,7 @@ final class WorkspaceListTableCoordinator: NSObject, UITableViewDelegate,
                 withIdentifier: Self.cellReuseIdentifier,
                 for: indexPath
             )
-            self.configure(cell, for: item)
+            self.configure(cell, for: self.configuredItemsByID[item.id] ?? item)
             return cell
         }
         tableView.layoutMetricsDidChange = { [weak self, weak tableView] in
@@ -67,37 +76,72 @@ final class WorkspaceListTableCoordinator: NSObject, UITableViewDelegate,
             self.heightCache.removeAll(keepingCapacity: true)
             tableView.reloadData()
         }
+
+        previousConfiguration = nil
+        apply(configuration: configuration, in: tableView)
     }
 
     func update(configuration next: WorkspaceListTable, in tableView: UITableView) {
+        apply(configuration: next, in: tableView)
+    }
+
+    private func apply(
+        configuration next: WorkspaceListTable,
+        in tableView: UITableView
+    ) {
         let previous = previousConfiguration
         configuration = next
         tableView.dragInteractionEnabled = next.enablesReorder
         updateRefreshControl(in: tableView)
 
-        var snapshot = NSDiffableDataSourceSnapshot<Int, WorkspaceListTableItem>()
-        snapshot.appendSections([Self.section])
-        snapshot.appendItems(next.items, toSection: Self.section)
+        guard let dataSource else {
+            previousConfiguration = next
+            return
+        }
+
+        let currentSnapshot = dataSource.snapshot()
+        let structureChanged = currentSnapshot.sectionIdentifiers != [Self.section]
+            || currentSnapshot.itemIdentifiers != next.items
+        var changed: [WorkspaceListTableItem] = []
         if let previous {
-            let previousByID = Dictionary(
-                previous.items.map { ($0.id, $0) },
-                uniquingKeysWith: { first, _ in first }
-            )
-            let changed = next.items.filter { item in
-                guard let oldItem = previousByID[item.id] else { return false }
-                return itemPayloadChanged(
+            // This map already mirrors previousConfiguration. Reuse it instead
+            // of rebuilding a second full index for every live row update.
+            for item in next.items {
+                guard let oldItem = configuredItemsByID[item.id] else { continue }
+                if itemPayloadChanged(
                     item,
                     oldItem: oldItem,
                     previous: previous,
                     next: next
-                )
+                ) {
+                    changed.append(item)
+                }
             }
-            snapshot.reconfigureItems(changed)
+        }
+        if structureChanged {
+            configuredItemsByID = Dictionary(
+                next.items.map { ($0.id, $0) },
+                uniquingKeysWith: { first, _ in first }
+            )
+        } else {
+            for item in changed {
+                configuredItemsByID[item.id] = item
+            }
         }
         previousConfiguration = next
-        let animatesSnapshot = tableView.window != nil && !dropJustCompleted
-        dropJustCompleted = false
-        dataSource?.apply(snapshot, animatingDifferences: animatesSnapshot)
+
+        guard structureChanged || !changed.isEmpty else { return }
+
+        var snapshot: NSDiffableDataSourceSnapshot<Int, WorkspaceListTableItem>
+        if structureChanged {
+            snapshot = NSDiffableDataSourceSnapshot<Int, WorkspaceListTableItem>()
+            snapshot.appendSections([Self.section])
+            snapshot.appendItems(next.items, toSection: Self.section)
+        } else {
+            snapshot = currentSnapshot
+        }
+        snapshot.reconfigureItems(changed)
+        dataSource.apply(snapshot, animatingDifferences: false)
     }
 
     func tableView(
@@ -179,8 +223,8 @@ final class WorkspaceListTableCoordinator: NSObject, UITableViewDelegate,
         // a runloop later; animating the drop against the stale layout leaves
         // the lifted row ghosting at its old position until that snapshot
         // applies. The follow-up authoritative snapshot has the same order, so
-        // it settles as a no-op (and dropJustCompleted suppresses its
-        // animation for the derived header/footer adjustments).
+        // it settles as a no-op because the native data source already has the
+        // authoritative order.
         let swiftUIDestinationFull = swiftUIDestination + chromePrefixCount
         let insertionRow = swiftUIDestinationFull > sourceIndexPath.row
             ? swiftUIDestinationFull - 1
@@ -193,7 +237,6 @@ final class WorkspaceListTableCoordinator: NSObject, UITableViewDelegate,
         localSnapshot.appendItems(movedItems, toSection: Self.section)
         dataSource?.apply(localSnapshot, animatingDifferences: false)
 
-        dropJustCompleted = true
         moveRows(IndexSet(integer: source), swiftUIDestination)
         coordinator.drop(
             dropItem.dragItem,
@@ -205,7 +248,8 @@ final class WorkspaceListTableCoordinator: NSObject, UITableViewDelegate,
     }
 
     func tableView(_ tableView: UITableView, heightForRowAt indexPath: IndexPath) -> CGFloat {
-        guard let item = dataSource?.itemIdentifier(for: indexPath) else { return 44 }
+        guard let identifier = dataSource?.itemIdentifier(for: indexPath) else { return 44 }
+        let item = configuredItemsByID[identifier.id] ?? identifier
         if case .groupFooter = item { return 16 }
 
         let key = heightCacheKey(for: item, tableView: tableView)
@@ -451,24 +495,35 @@ final class WorkspaceListTableCoordinator: NSObject, UITableViewDelegate,
                 .actionCapabilities ?? .none
             return AnyView(
                 WorkspaceGroupHeaderRow(
-                    group: group,
-                    hasUnread: configuration.groupHasUnreadByID[groupID, default: false],
-                    navigationStyle: configuration.navigationStyle,
-                    isAnchorSelected: configuration.navigationStyle == .sidebar
-                        && configuration.selectedWorkspaceID == group.anchorWorkspaceID,
-                    selectWorkspace: configuration.selectWorkspace,
-                    createWorkspaceInGroup: configuration.createWorkspaceInGroup,
-                    renameGroup: capabilities.supportsGroupActions
-                        ? configuration.renameWorkspaceGroup : nil,
-                    setGroupPinned: capabilities.supportsGroupActions
-                        ? configuration.setGroupPinned : nil,
-                    ungroupWorkspaceGroup: capabilities.supportsGroupActions
-                        ? configuration.ungroupWorkspaceGroup : nil,
-                    deleteWorkspaceGroup: capabilities.supportsGroupActions
-                        ? configuration.deleteWorkspaceGroup : nil,
-                    toggleCollapsed: configuration.toggleGroupCollapsed,
-                    unreadIndicatorLeftShift: configuration.unreadIndicatorLeftShift
+                    value: WorkspaceGroupHeaderRowValue(
+                        group: group,
+                        hasUnread: configuration.groupHasUnreadByID[groupID, default: false],
+                        navigationStyle: configuration.navigationStyle,
+                        isAnchorSelected: configuration.navigationStyle == .sidebar
+                            && configuration.selectedWorkspaceID == group.anchorWorkspaceID,
+                        canCreateWorkspaceInGroup: configuration.createWorkspaceInGroup != nil,
+                        canRenameGroup: capabilities.supportsGroupActions
+                            && configuration.renameWorkspaceGroup != nil,
+                        canSetGroupPinned: capabilities.supportsGroupActions
+                            && configuration.setGroupPinned != nil,
+                        canUngroupWorkspaceGroup: capabilities.supportsGroupActions
+                            && configuration.ungroupWorkspaceGroup != nil,
+                        canDeleteWorkspaceGroup: capabilities.supportsGroupActions
+                            && configuration.deleteWorkspaceGroup != nil,
+                        canToggleCollapsed: configuration.toggleGroupCollapsed != nil,
+                        unreadIndicatorLeftShift: configuration.unreadIndicatorLeftShift
+                    ),
+                    actions: WorkspaceGroupHeaderRowActions(
+                        selectWorkspace: configuration.selectWorkspace,
+                        createWorkspaceInGroup: configuration.createWorkspaceInGroup,
+                        renameGroup: configuration.renameWorkspaceGroup,
+                        setGroupPinned: configuration.setGroupPinned,
+                        ungroupWorkspaceGroup: configuration.ungroupWorkspaceGroup,
+                        deleteWorkspaceGroup: configuration.deleteWorkspaceGroup,
+                        toggleCollapsed: configuration.toggleGroupCollapsed
+                    )
                 )
+                .equatable()
                 .frame(minHeight: 32)
             )
         case .groupFooter(let groupID):
@@ -524,7 +579,8 @@ final class WorkspaceListTableCoordinator: NSObject, UITableViewDelegate,
                     id: id,
                     name: workspace.name,
                     isSelected: configuration.navigationStyle == .sidebar
-                        && configuration.selectedWorkspaceID == id
+                        && configuration.selectedWorkspaceID == id,
+                    isIndented: item.isIndentedWorkspace
                 )
             } else {
                 kind = .workspaceUniform
@@ -592,26 +648,37 @@ final class WorkspaceListTableCoordinator: NSObject, UITableViewDelegate,
     ) -> Bool {
         switch item {
         case .workspace(let id, _):
+            let wasSelected = previous.navigationStyle == .sidebar
+                && previous.selectedWorkspaceID == id
+            let isSelected = next.navigationStyle == .sidebar
+                && next.selectedWorkspaceID == id
+            let previousConnectionStatus =
+                previous.workspacesByID[id]?.macConnectionStatus ?? previous.connectionStatus
+            let nextConnectionStatus =
+                next.workspacesByID[id]?.macConnectionStatus ?? next.connectionStatus
             return previous.workspacesByID[id] != next.workspacesByID[id]
                 || workspaceChangesChipChanged(id: id, previous: previous, next: next)
                 || oldItem.isIndentedWorkspace != item.isIndentedWorkspace
-                || previous.selectedWorkspaceID != next.selectedWorkspaceID
-                || previous.navigationStyle != next.navigationStyle
+                || wasSelected != isSelected
                 || previous.wrapWorkspaceTitles != next.wrapWorkspaceTitles
                 || previous.previewLineLimit != next.previewLineLimit
                 || previous.unreadIndicatorLeftShift != next.unreadIndicatorLeftShift
                 || previous.profilePictureLeftShift != next.profilePictureLeftShift
                 || previous.profilePictureSize != next.profilePictureSize
-                || previous.connectionStatus != next.connectionStatus
+                || previousConnectionStatus != nextConnectionStatus
                 || workspaceActionAvailabilityChanged(previous: previous, next: next)
         case .groupHeader(let id):
-            let anchorID = next.groupsByID[id]?.anchorWorkspaceID
+            let previousAnchorID = previous.groupsByID[id]?.anchorWorkspaceID
+            let nextAnchorID = next.groupsByID[id]?.anchorWorkspaceID
+            let wasAnchorSelected = previous.navigationStyle == .sidebar
+                && previous.selectedWorkspaceID == previousAnchorID
+            let isAnchorSelected = next.navigationStyle == .sidebar
+                && next.selectedWorkspaceID == nextAnchorID
             return previous.groupsByID[id] != next.groupsByID[id]
                 || previous.groupHasUnreadByID[id] != next.groupHasUnreadByID[id]
-                || anchorID.map { previous.workspacesByID[$0]?.actionCapabilities }
-                    != anchorID.map { next.workspacesByID[$0]?.actionCapabilities }
-                || previous.selectedWorkspaceID != next.selectedWorkspaceID
-                || previous.navigationStyle != next.navigationStyle
+                || previousAnchorID.map { previous.workspacesByID[$0]?.actionCapabilities }
+                    != nextAnchorID.map { next.workspacesByID[$0]?.actionCapabilities }
+                || wasAnchorSelected != isAnchorSelected
                 || previous.unreadIndicatorLeftShift != next.unreadIndicatorLeftShift
                 || groupActionAvailabilityChanged(previous: previous, next: next)
         case .groupFooter(let id):

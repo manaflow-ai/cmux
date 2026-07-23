@@ -75,7 +75,6 @@ struct WorkspaceListTable: UIViewRepresentable {
         tableView.rowHeight = UITableView.automaticDimension
         tableView.accessibilityIdentifier = "MobileWorkspaceList"
         context.coordinator.attach(to: tableView)
-        context.coordinator.update(configuration: self, in: tableView)
         return tableView
     }
 

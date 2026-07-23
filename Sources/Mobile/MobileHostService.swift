@@ -199,6 +199,13 @@ enum MobileHostSyncDecision: Equatable {
     case restart
 }
 
+/// Separates account-authenticated Iroh availability from the opt-in legacy
+/// TCP listener used by Tailscale and other private-network clients.
+struct MobileHostStartupPlan: Equatable {
+    let activatesIroh: Bool
+    let startsLegacyListener: Bool
+}
+
 /// Outcome of an explicit "Apply port" request from settings. A pure value so
 /// ``MobileHostService/portApplyDecision(enabled:currentBoundPort:requestedPort:isAvailable:)``
 /// is unit-testable without binding a real `NWListener`.
@@ -248,9 +255,17 @@ final class MobileHostService {
     /// the display name or the device id, so this reply is where a freshly
     /// paired phone learns what to call this Mac, which paired-Mac record owns
     /// the connection, and which app instance owns its routes.
-    nonisolated static func identityStatusPayload(routes: [CmxAttachRoute], now: Date = Date()) -> [String: Any] {
+    nonisolated static func identityStatusPayload(
+        routes: [CmxAttachRoute],
+        additionalCapabilities: Set<String> = [],
+        now: Date = Date()
+    ) -> [String: Any] {
         var payload = publicStatusPayload(routes: [], now: now)
         payload["routes"] = routes.mobileHostJSONObjects(for: .authenticated, at: now)
+        if !additionalCapabilities.isEmpty {
+            payload["capabilities"] = mobileHostCapabilities
+                + additionalCapabilities.sorted()
+        }
         payload["terminal_theme_revision_epoch"] = terminalThemeRevisionEpoch
         payload["mac_device_id"] = MobileHostIdentity.deviceID()
         payload["mac_instance_tag"] = MobileHostIdentity.instanceTag()
@@ -426,8 +441,11 @@ final class MobileHostService {
 
     /// Whether the mobile pairing host should bind a network listener at all.
     ///
-    /// Defaults off in every build so macOS does not ask for Local Network
-    /// permission until the user enables iOS pairing in Settings.
+    /// An explicit current or legacy preference always wins. Without one,
+    /// dev and nightly builds preserve their historical listener default so an
+    /// older iOS app can still reach an updated Mac over Tailscale. Stable
+    /// remains opt-in so macOS does not ask every user for Local Network
+    /// permission.
     nonisolated static var isListeningEnabled: Bool {
         isListeningEnabled(defaults: .standard)
     }
@@ -445,13 +463,20 @@ final class MobileHostService {
     #endif
 
     nonisolated static func isListeningEnabled(defaults: UserDefaults) -> Bool {
+        isListeningEnabled(defaults: defaults, buildFlavor: .current)
+    }
+
+    nonisolated static func isListeningEnabled(
+        defaults: UserDefaults,
+        buildFlavor: BuildFlavor
+    ) -> Bool {
         if let override = defaults.object(forKey: listeningEnabledDefaultsKey) as? Bool {
             return override
         }
         if let legacyOverride = defaults.object(forKey: legacyListeningEnabledDefaultsKey) as? Bool {
             return legacyOverride
         }
-        return SettingCatalog().mobile.iOSPairingHost.defaultValue
+        return buildFlavor != .stable
     }
 
     /// User-default key for the preferred iOS pairing listener port.
@@ -508,6 +533,19 @@ final class MobileHostService {
         guard listenerRunning else { return .start }
         if appliedPort != desiredPort { return .restart }
         return .noop
+    }
+
+    /// Iroh is an account-authenticated transport and starts for every signed-in
+    /// Mac. The legacy listener remains opt-in so existing Tailscale and private
+    /// network users keep their route without making it a prerequisite for Iroh.
+    nonisolated static func startupPlan(
+        legacyListenerEnabled: Bool,
+        legacyListenerRunning: Bool
+    ) -> MobileHostStartupPlan {
+        MobileHostStartupPlan(
+            activatesIroh: true,
+            startsLegacyListener: legacyListenerEnabled && !legacyListenerRunning
+        )
     }
 
     /// Pure pre-bind classification for an explicit "Apply port" request. Returns
@@ -680,18 +718,22 @@ final class MobileHostService {
     }
 
     func start() {
-        guard Self.isListeningEnabled else {
+        let plan = Self.startupPlan(
+            legacyListenerEnabled: Self.isListeningEnabled,
+            legacyListenerRunning: listener != nil
+        )
+        guard plan.startsLegacyListener else {
             #if DEBUG
             if Self.canPublishRoutesWithoutListenerForXCTest(defaults: .standard) {
                 publishRoutesWithoutListenerForXCTest()
-                return
             }
             #endif
-            mobileHostLog.info("mobile host listener disabled; not binding")
-            return
-        }
-        guard listener == nil else {
-            MobileHostIrohRuntime.shared.setDesiredActive(true)
+            if listener == nil {
+                mobileHostLog.info("legacy mobile host listener disabled; starting Iroh only")
+            }
+            if plan.activatesIroh {
+                MobileHostIrohRuntime.shared.setDesiredActive(true)
+            }
             return
         }
 
@@ -919,6 +961,9 @@ final class MobileHostService {
     /// no caller-supplied store to honor here.
     func syncToSettings() {
         let defaults = UserDefaults.standard
+        // Settings control only the legacy TCP/Tailscale listener. Account-
+        // authenticated Iroh stays available for signed-in Macs.
+        MobileHostIrohRuntime.shared.setDesiredActive(true)
         // An invalid stored port (`resolvedDesiredPort == nil`, e.g. mid-edit)
         // must not restart a running listener. Treat it as "no change" by
         // reusing the applied port; a fresh start still binds the default via
@@ -937,7 +982,7 @@ final class MobileHostService {
         case .start:
             start()
         case .stop:
-            stop()
+            stopLegacyListener(reason: "legacy pairing listener disabled")
         case .restart:
             restart()
         }
@@ -978,7 +1023,7 @@ final class MobileHostService {
             let transport = CmxNetworkByteTransport(acceptedConnection: connection)
             await Self.acceptTransport(
                 transport,
-                authorization: .stackBearer,
+                authorization: .legacyPrivateNetworkListener,
                 isCurrent: {
                     await MobileHostService.shared.canAcceptConnection(
                         generation: generation
@@ -988,18 +1033,24 @@ final class MobileHostService {
         }
     }
 
+    @discardableResult
     nonisolated static func acceptTransport(
         _ transport: any CmxByteTransport,
         authorization: MobileHostConnectionAuthorizationContext,
+        artifactTransfers: MobileHostIrohArtifactTransferRegistry? = nil,
         independentEventWriter: (any MobileHostIndependentEventWriting)? = nil,
         isCurrent: @escaping @Sendable () async -> Bool
-    ) async {
+    ) async -> CmxIrohAdmittedConnectionExit {
+        let expectedExit = CmxIrohAdmittedConnectionExit(
+            lifecycle: .explicitlyInvalidated,
+            failure: .none
+        )
         MobileHostRequestActivity.beginConnection()
         guard await isCurrent() else {
             mobileHostLog.info("mobile host rejected stale transport")
             await transport.close()
             MobileHostRequestActivity.endConnection()
-            return
+            return expectedExit
         }
 
         let id = UUID()
@@ -1017,7 +1068,7 @@ final class MobileHostService {
                 )
             },
             onAuthorizedRequest: { request in
-                await MobileHostService.shared.retireSupersededIrohConnections(
+                await Self.retireSupersededIrohConnections(
                     newestConnectionID: id
                 )
                 guard let clientID = Self.clientID(from: request.params) else {
@@ -1030,12 +1081,19 @@ final class MobileHostService {
                     return await Self.connectionStatusResult(
                         for: request,
                         authorization: authorization,
+                        supportsArtifactLane: artifactTransfers != nil,
                         stackStatus: { request in
                             await MobileHostService.networkStatusResult(for: request)
                         }
                     )
                 }
-                let result = await TerminalController.shared.mobileHostHandleRPC(request)
+                let result = await TerminalController.shared.mobileHostHandleRPC(
+                    request,
+                    executionContext: MobileHostRPCExecutionContext(
+                        authorization: authorization,
+                        artifactTransfers: artifactTransfers
+                    )
+                )
                 await MobileHostService.shared.recordCreatedResourcesIfNeeded(
                     request: request,
                     result: result
@@ -1050,7 +1108,7 @@ final class MobileHostService {
         guard await isCurrent() else {
             await transport.close()
             MobileHostRequestActivity.endConnection()
-            return
+            return expectedExit
         }
         guard MobileHostConnectionRegistry.shared.insert(
             session,
@@ -1063,9 +1121,9 @@ final class MobileHostService {
             )
             await transport.close()
             MobileHostRequestActivity.endConnection()
-            return
+            return expectedExit
         }
-        await session.run()
+        return await session.run()
     }
 
     nonisolated static func connectionAuthorizationError(
@@ -1085,13 +1143,19 @@ final class MobileHostService {
     nonisolated static func connectionStatusResult(
         for request: MobileHostRPCRequest,
         authorization: MobileHostConnectionAuthorizationContext,
+        supportsArtifactLane: Bool = false,
         stackStatus: @escaping @Sendable (MobileHostRPCRequest) async -> MobileHostRPCResult
     ) async -> MobileHostRPCResult {
         switch authorization {
         case .stackBearer:
             return await stackStatus(request)
         case .irohAdmission:
-            return MobileHostPublicStatusCache.result(includeIdentity: true)
+            return MobileHostPublicStatusCache.result(
+                includeIdentity: true,
+                additionalCapabilities: supportsArtifactLane
+                    ? Set([irohArtifactLaneCapability])
+                    : Set()
+            )
         }
     }
 
@@ -1209,7 +1273,12 @@ final class MobileHostService {
         MobileHostRequestActivity.endConnection()
     }
 
-    private func retireSupersededIrohConnections(newestConnectionID: UUID) async {
+    /// The registry is lock-protected and connection close is actor-isolated,
+    /// so Iroh handoff never needs to queue behind unrelated AppKit work on the
+    /// main actor. This path runs before every authorized RPC.
+    nonisolated private static func retireSupersededIrohConnections(
+        newestConnectionID: UUID
+    ) async {
         let superseded = MobileHostConnectionRegistry.shared
             .removeOlderIrohConnectionsIfNewest(id: newestConnectionID)
         for connection in superseded {
@@ -1644,6 +1713,10 @@ actor MobileHostConnection {
     private var independentEventNegotiationInProgress = false
     private var didDecodeFirstFrame = false
     private var isClosed = false
+    private var exit = CmxIrohAdmittedConnectionExit(
+        lifecycle: .explicitlyInvalidated,
+        failure: .none
+    )
     /// stream_id → topics and their negotiated event delivery path.
     /// Populated by `mobile.events.subscribe`; cleared on close.
     private var subscriptions: [String: EventSubscription] = [:]
@@ -1700,8 +1773,8 @@ actor MobileHostConnection {
     /// The caller retains connection ownership until this method returns. This
     /// matters for Iroh, whose sibling application-lane task closes the shared
     /// QUIC session when either side of the task group finishes.
-    func run() async {
-        guard receiveTask == nil, !isClosed else { return }
+    func run() async -> CmxIrohAdmittedConnectionExit {
+        guard receiveTask == nil, !isClosed else { return exit }
         startFirstFrameTimeout()
         let transport = transport
         let connectionID = id
@@ -1713,7 +1786,13 @@ actor MobileHostConnection {
                 )
                 while !Task.isCancelled {
                     guard let data = try await transport.receive() else {
-                        await self?.close(reason: "remote closed")
+                        await self?.close(
+                            reason: "remote closed",
+                            exit: CmxIrohAdmittedConnectionExit(
+                                lifecycle: .remoteClosed,
+                                failure: .connectionClosed
+                            )
+                        )
                         return
                     }
                     await self?.handleReceive(data: data)
@@ -1721,7 +1800,13 @@ actor MobileHostConnection {
             } catch is CancellationError {
                 await self?.close(reason: "cancelled")
             } catch {
-                await self?.close(reason: String(describing: error))
+                await self?.close(
+                    reason: String(describing: error),
+                    exit: CmxIrohAdmittedConnectionExit(
+                        lifecycle: .controlReadFailed,
+                        failure: DiagnosticFailureKind.classify(error)
+                    )
+                )
             }
         }
         receiveTask = task
@@ -1733,13 +1818,21 @@ actor MobileHostConnection {
                 task.cancel()
             }
         )
+        return exit
     }
 
-    func close(reason: String) async {
+    func close(
+        reason: String,
+        exit: CmxIrohAdmittedConnectionExit = CmxIrohAdmittedConnectionExit(
+            lifecycle: .explicitlyInvalidated,
+            failure: .none
+        )
+    ) async {
         guard !isClosed else {
             return
         }
         isClosed = true
+        self.exit = exit
         firstFrameTimeoutTask?.cancel()
         firstFrameTimeoutTask = nil
         idleTimeoutTask?.cancel()
@@ -1781,7 +1874,13 @@ actor MobileHostConnection {
                         message: "Invalid frame"
                     )
                 )
-                await close(reason: "receive buffer exceeded frame limit")
+                await close(
+                    reason: "receive buffer exceeded frame limit",
+                    exit: CmxIrohAdmittedConnectionExit(
+                        lifecycle: .controlReadFailed,
+                        failure: .protocolViolation
+                    )
+                )
                 return
             }
             receiveBuffer.append(data)
@@ -1801,7 +1900,13 @@ actor MobileHostConnection {
                         return
                     }
                     guard startResponseTask(for: frame) else {
-                        await close(reason: "rpc work capacity exceeded")
+                        await close(
+                            reason: "rpc work capacity exceeded",
+                            exit: CmxIrohAdmittedConnectionExit(
+                                lifecycle: .controlReadFailed,
+                                failure: .protocolViolation
+                            )
+                        )
                         return
                     }
                 }
@@ -1817,7 +1922,13 @@ actor MobileHostConnection {
                         message: "Invalid frame"
                     )
                 )
-                await close(reason: "frame decode error")
+                await close(
+                    reason: "frame decode error",
+                    exit: CmxIrohAdmittedConnectionExit(
+                        lifecycle: .controlReadFailed,
+                        failure: .protocolViolation
+                    )
+                )
                 return
             }
         }
@@ -1868,7 +1979,13 @@ actor MobileHostConnection {
         guard !didDecodeFirstFrame else {
             return
         }
-        await close(reason: "first frame timed out")
+        await close(
+            reason: "first frame timed out",
+            exit: CmxIrohAdmittedConnectionExit(
+                lifecycle: .controlReadFailed,
+                failure: .timedOut
+            )
+        )
     }
 
     private func startIdleTimeout() {
@@ -1893,7 +2010,13 @@ actor MobileHostConnection {
         guard didDecodeFirstFrame, subscriptions.isEmpty, responseTasks.isEmpty else {
             return
         }
-        await close(reason: "idle after frame timed out")
+        await close(
+            reason: "idle after frame timed out",
+            exit: CmxIrohAdmittedConnectionExit(
+                lifecycle: .controlReadFailed,
+                failure: .timedOut
+            )
+        )
     }
 
     private func respond(to frame: Data) async {
@@ -1939,7 +2062,13 @@ actor MobileHostConnection {
                 return
             }
             _ = await sendResponse(MobileHostRPCEnvelope.encodeResponse(id: nil, result: .failure(error)))
-            await close(reason: "invalid rpc envelope")
+            await close(
+                reason: "invalid rpc envelope",
+                exit: CmxIrohAdmittedConnectionExit(
+                    lifecycle: .controlReadFailed,
+                    failure: .protocolViolation
+                )
+            )
         }
     }
 
@@ -1958,11 +2087,23 @@ actor MobileHostConnection {
             // it the registration had been lost (events emitted in the gap
             // were never delivered), so it requests a catch-up replay instead
             // of trusting delta continuity.
-            let alreadySubscribed = subscriptions[streamID] != nil
+            let existingSubscription = subscriptions[streamID]
+            let alreadySubscribed = existingSubscription != nil
             let requestedTransport = request.params["event_transport"] as? String
             let selectedTransport: MobileHostEventTransport
-            if requestedTransport == MobileHostEventTransport.irohServerEvents.rawValue,
-               await prepareIndependentEventWriter() {
+            if let existingSubscription {
+                // An idempotent subscribe proves the authenticated control
+                // connection and registration. Keep its negotiated lane only
+                // while the client still advertises an active reader. Never
+                // re-probe or re-upgrade here: actual event delivery owns lane
+                // failure detection and atomically falls back to control.
+                if requestedTransport == MobileHostEventTransport.irohServerEvents.rawValue {
+                    selectedTransport = existingSubscription.transport
+                } else {
+                    selectedTransport = .control
+                }
+            } else if requestedTransport == MobileHostEventTransport.irohServerEvents.rawValue,
+                      await prepareIndependentEventWriter() {
                 selectedTransport = .irohServerEvents
             } else {
                 selectedTransport = .control
@@ -2085,12 +2226,24 @@ actor MobileHostConnection {
         do {
             frame = try MobileSyncFrameCodec.encodeFrame(data)
         } catch {
-            await close(reason: "event frame encode failed")
+            await close(
+                reason: "event frame encode failed",
+                exit: CmxIrohAdmittedConnectionExit(
+                    lifecycle: .controlWriteFailed,
+                    failure: .protocolViolation
+                )
+            )
             return false
         }
         guard queuedEvents.count < Self.maximumQueuedEventCount,
               frame.count <= Self.maximumQueuedEventByteCount - queuedEventByteCount else {
-            await close(reason: "event queue exceeded bounded capacity")
+            await close(
+                reason: "event queue exceeded bounded capacity",
+                exit: CmxIrohAdmittedConnectionExit(
+                    lifecycle: .controlWriteFailed,
+                    failure: .protocolViolation
+                )
+            )
             return false
         }
         queuedEvents.append(QueuedEvent(topic: topic, frame: frame))
@@ -2200,7 +2353,13 @@ actor MobileHostConnection {
         do {
             frame = try MobileSyncFrameCodec.encodeFrame(response)
         } catch {
-            await close(reason: "response frame encode failed")
+            await close(
+                reason: "response frame encode failed",
+                exit: CmxIrohAdmittedConnectionExit(
+                    lifecycle: .controlWriteFailed,
+                    failure: .protocolViolation
+                )
+            )
             return false
         }
 
@@ -2213,7 +2372,13 @@ actor MobileHostConnection {
             try await writer.send(frame)
             return true
         } catch {
-            await close(reason: String(describing: error))
+            await close(
+                reason: String(describing: error),
+                exit: CmxIrohAdmittedConnectionExit(
+                    lifecycle: .controlWriteFailed,
+                    failure: DiagnosticFailureKind.classify(error)
+                )
+            )
             return false
         }
     }

@@ -17,7 +17,7 @@ extension MobileHostIrohRuntime {
             accountID: accountID,
             appInstanceID: appInstanceID
         )
-        let deviceID = MobileHostIdentity.deviceID().lowercased()
+        let deviceID = cmxCanonicalDeviceID(MobileHostIdentity.deviceID())
         let cachedBinding = try await brokerCredentials.loadBinding(
             accountID: accountID,
             appInstanceID: appInstanceID
@@ -85,8 +85,11 @@ extension MobileHostIrohRuntime {
             lastKnownTag = tag
         }
 
-        let broker = try CmxIrohTrustBrokerClient(
-            baseURL: AuthEnvironment.vmAPIBaseURL,
+        guard let brokerBaseURL = AuthEnvironment.irohBrokerBaseURL else {
+            throw CmxIrohTrustBrokerClientError.invalidBaseURL
+        }
+        let rawBroker = try CmxIrohTrustBrokerClient(
+            baseURL: brokerBaseURL,
             tokenSource: CmxIrohBrokerTokenSource(
                 accessToken: { [weak auth] in
                     guard let auth,
@@ -98,28 +101,48 @@ extension MobileHostIrohRuntime {
                           let tokens = try? await auth.currentTokens() else { return nil }
                     return tokens.refreshToken
                 }
-            )
+            ),
+            backpressureMode: .callerOwned
+        )
+        let broker = CmxIrohBackpressuredHostBroker(
+            broker: rawBroker,
+            gate: brokerBackpressureGate,
+            accountID: accountID
+        )
+        let relayPolicyBroker = CmxIrohBackpressuredRelayPolicyBroker(
+            broker: rawBroker,
+            gate: brokerBackpressureGate,
+            accountID: accountID
         )
         let endpointRelayProfile: CmxIrohEndpointRelayProfile?
         let managedRelayURLs: Set<String>
         let resolvedPolicyService: CmxIrohRelayPolicyService?
         let resolvedEffectivePolicy: CmxIrohEffectiveRelayPolicy?
+        var freshRelayCredential: CmxIrohRelayTokenResponse?
         if let relayPolicyTrustRoot {
             let service = CmxIrohRelayPolicyService(
                 policyCache: relayPolicyCache,
                 preferenceStore: relayPreferenceStore,
                 credentialStore: customRelayCredentials,
-                broker: broker
+                broker: relayPolicyBroker
             )
             let effective: CmxIrohEffectiveRelayPolicy
+            diagnosticLog.record(DiagnosticEvent(.relayPolicyRefreshStarted))
             do {
-                effective = try await service.refresh(
+                let outcome = try await service.refreshWithCredential(
                     endpointID: derivedEndpointID,
                     accountID: accountID,
                     trustRoot: relayPolicyTrustRoot,
                     now: Date()
                 )
+                effective = outcome.effective
+                freshRelayCredential = outcome.relayCredential
+                diagnosticLog.record(DiagnosticEvent(.relayPolicyRefreshSucceeded))
             } catch {
+                diagnosticLog.record(DiagnosticEvent(
+                    .relayPolicyRefreshFailed,
+                    b: Self.diagnosticFailureKind(for: error).rawValue
+                ))
                 effective = await service.restore(
                     accountID: accountID,
                     trustRoot: relayPolicyTrustRoot,
@@ -153,6 +176,9 @@ extension MobileHostIrohRuntime {
         let compatibleCachedRelay = cachedRelay.flatMap { relay in
             Set(relay.relayFleet) == managedRelayURLs ? relay : nil
         }
+        let freshCompatibleRelay = freshRelayCredential.flatMap { relay in
+            Set(relay.relayFleet) == managedRelayURLs ? relay : nil
+        }
         let configuration = CmxIrohHostRuntimeConfiguration(
             accountID: accountID,
             deviceID: deviceID,
@@ -170,7 +196,7 @@ extension MobileHostIrohRuntime {
             ),
             managedRelayURLs: managedRelayURLs,
             endpointRelayProfile: endpointRelayProfile,
-            cachedRelayCredential: compatibleCachedRelay,
+            cachedRelayCredential: freshCompatibleRelay ?? compatibleCachedRelay,
             cachedHostPolicy: cachedHostPolicy
         )
         let credentialRepository = brokerCredentials
@@ -185,28 +211,66 @@ extension MobileHostIrohRuntime {
             configuration: configuration,
             pendingRevocations: pendingRevocations,
             protocolConfiguration: protocolConfiguration,
-            handleTransport: { session, isCurrent in
+            handleTransport: { [weak self] session, isCurrent in
+                guard let self else {
+                    await session.close()
+                    return
+                }
+                let diagnosticSessionID = await self.makeDiagnosticSessionID()
+                let diagnosticLog = await self.diagnosticLog
+                diagnosticLog.record(DiagnosticEvent(
+                    .admissionSucceeded,
+                    a: DiagnosticTransportKind.iroh.rawValue
+                ))
+                diagnosticLog.record(DiagnosticEvent(
+                    .transportSessionLifecycle,
+                    a: DiagnosticSessionLifecycleKind.established.rawValue,
+                    b: Int(CmxTransportSessionPurpose.foregroundControl.rawValue),
+                    c: diagnosticSessionID
+                ))
                 let eventWriter = MobileHostIrohServerEventWriter(
                     session: session
                 )
-                let laneRouter = MobileHostIrohApplicationLaneRouter(session: session)
-                await withTaskGroup(of: Void.self) { group in
-                    group.addTask {
+                let artifactTransfers = MobileHostIrohArtifactTransferRegistry()
+                let laneRouter = MobileHostIrohApplicationLaneRouter(
+                    session: session,
+                    artifactHandler: MobileHostIrohArtifactLaneHandler(
+                        registry: artifactTransfers
+                    )
+                )
+                let connectionSupervisor = CmxIrohAdmittedConnectionSupervisor(
+                    runControl: {
                         await MobileHostService.acceptTransport(
                             session.controlTransport,
                             authorization: .irohAdmission(session.peer),
+                            artifactTransfers: artifactTransfers,
                             independentEventWriter: eventWriter,
                             isCurrent: isCurrent
                         )
-                    }
-                    group.addTask {
+                    },
+                    runApplicationLanes: {
                         await laneRouter.run(isCurrent: isCurrent)
+                    },
+                    closeConnection: {
+                        await session.close()
+                    },
+                    stopApplicationLanes: {
+                        await laneRouter.stop()
                     }
-                    _ = await group.next()
-                    group.cancelAll()
-                    await session.close()
-                    await laneRouter.stop()
-                }
+                )
+                let exit = await connectionSupervisor.run()
+                diagnosticLog.record(DiagnosticEvent(
+                    .transportSessionLifecycle,
+                    a: exit.lifecycle.rawValue,
+                    b: Int(CmxTransportSessionPurpose.foregroundControl.rawValue),
+                    c: diagnosticSessionID
+                ))
+                diagnosticLog.record(DiagnosticEvent(
+                    .sessionClosed,
+                    a: DiagnosticTransportKind.iroh.rawValue,
+                    b: exit.failure == .none ? nil : exit.failure.rawValue,
+                    c: diagnosticSessionID
+                ))
             },
             handleBinding: { [weak self] registration, discovery, attestation in
                 let binding = registration.binding
@@ -293,9 +357,17 @@ extension MobileHostIrohRuntime {
                 )
             },
             handleLANRefresh: {
+                guard MobileHostService.isListeningEnabled else {
+                    await lanPublisher.stop()
+                    return
+                }
                 await lanPublisher.refresh()
             },
             handleLANPolicy: { context, directAddresses in
+                guard MobileHostService.isListeningEnabled else {
+                    await lanPublisher.stop()
+                    return
+                }
                 await lanPublisher.activate(
                     rendezvous: context.rendezvous,
                     binding: context.binding,
@@ -332,6 +404,10 @@ extension MobileHostIrohRuntime {
         runtime = hostRuntime
         activeAccountID = accountID
         activeAppInstanceID = appInstanceID
+        diagnosticLog.record(DiagnosticEvent(
+            .endpointActive,
+            a: DiagnosticTransportKind.iroh.rawValue
+        ))
         relayPolicyService = resolvedPolicyService
         relayPolicyEffective = resolvedEffectivePolicy
         relayPolicyDiagnostics = await resolvedPolicyService?.diagnosticsSnapshot()

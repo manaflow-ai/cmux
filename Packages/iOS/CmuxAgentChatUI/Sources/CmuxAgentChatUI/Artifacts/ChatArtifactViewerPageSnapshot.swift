@@ -1,7 +1,7 @@
 import Foundation
 
 /// Immutable render state for one path-keyed artifact viewer page.
-struct ChatArtifactViewerPageSnapshot: Identifiable, Equatable {
+struct ChatArtifactViewerPageSnapshot: Identifiable, Equatable, Sendable {
     let path: String
     let state: ChatArtifactViewerState
     let textChunks: [String]

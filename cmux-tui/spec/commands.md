@@ -1,6 +1,6 @@
 # Command Contract
 
-This file specifies the JSON command contract for the cmux-tui protocol. Implemented commands match protocol v7 in `cmux-tui/crates/cmux-tui-core/src/server.rs`.
+This file specifies the JSON command contract for the cmux-tui protocol. Implemented commands match protocol v9 in `cmux-tui/crates/cmux-tui-core/src/server.rs`.
 
 ## Notation
 
@@ -36,14 +36,22 @@ Common CLI exit codes for every mapping are `0` success, `1` command error, `2` 
 `Tree`:
 
 ```text
-object{workspaces:array<Workspace>}
+object{workspace_revision?:uint64,pane_revision?:uint64,workspaces:array<Workspace>}
 ```
 
 `Workspace`:
 
 ```text
-object{id:Id,name:string,active:boolean,screens:array<Screen>}
+object{id:Id,key?:string,name:string,active:boolean,screens:array<Screen>}
 ```
+
+`workspace_revision` and `Workspace.key` are present on servers advertising
+`workspace-registry-v1`. They are omitted by older servers, so clients must
+treat a missing revision as `0` and a missing key as unavailable.
+
+`pane_revision` changes only when the live pane-ID set changes. Renderers can
+use it to invalidate pane-membership caches without scanning unchanged trees.
+Older servers omit it, so clients must treat it as unavailable.
 
 `Screen`:
 
@@ -63,22 +71,32 @@ object{
 
 ```text
 object{type:"leaf",pane:Id}
-| object{type:"split",dir:"right"|"down",ratio:float32,a:Layout,b:Layout}
+| object{type:"split",split:Id,dir:"right"|"down",ratio:float32,a:Layout,b:Layout}
+| object{type:"stack",panes:array<Id>,expanded:Id}
 ```
+
+Stack `panes` must be non-empty, and `expanded` must identify one of those panes.
+
+`split` is stable for the lifetime of that split node. Ratio changes, pane focus, tab changes, and leaf swaps preserve it. Collapsing the split removes the id. A later split receives a new id. Protocol v7 and older canonical layouts omit this field.
 
 `DeclarativeLayout`:
 
 ```text
 object{type:"leaf",cwd?:string,command?:array<string>}
 | object{type:"split",dir:"right"|"down",ratio:float32,a:DeclarativeLayout,b:DeclarativeLayout}
+| object{type:"stack",panes:array<Id>,expanded:Id}
 ```
+
+Applying a stack creates one fresh pane per exported pane id, preserves membership order, and expands the corresponding member. Stack `panes` must be non-empty, and `expanded` must identify one of those panes.
 
 `Pane`:
 
 ```text
-object{id:Id,name:string|null,active_tab:usize,tabs:array<Tab>}
+object{id:Id,name:string|null,active_tab:usize,focused_at?:u64,tabs:array<Tab>}
 | object{id:Id,dead:true}
 ```
+
+`focused_at` is an additive focus-only monotonic sequence. Clients must default it to `0` when connected to servers that omit it.
 
 `Tab`:
 
@@ -100,21 +118,23 @@ The `dead` pane variant is serialized only if the tree references a pane missing
 
 Every surface has one authoritative cell grid. Byte and render attach modes observe the same grid; attaching by itself never resizes it.
 
-Each attached client reports the cell grid available for a surface with `resize-surface`. The authoritative grid uses the smallest reported `cols` and the smallest reported `rows`, matching tmux's `window-size smallest` policy. Input does not claim or change sizing ownership. When a client detaches from a surface or disconnects, its report is removed and the surface expands to the minimum of the remaining reports.
+Each client reports the cell grid available for every surface it currently displays with `resize-surface`. The authoritative grid uses the smallest reported `cols` and the smallest reported `rows`, matching tmux's `window-size smallest` policy. Input does not claim or change sizing ownership. When a tab becomes hidden, the client sends `release-surface-size`; detaching or disconnecting also removes its reports. The surface expands to the minimum of the remaining visible clients.
 
-The final effective grid stores the session's latest client size for later unsized creation. Internal server-only resizes, including sidebar plugin tracking, do not update this session default.
+The final effective grid is retained while at least one client still reports a visible surface. Once the final report is released or disconnected, existing surfaces keep their last grids and later unsized headless creation uses the configured default, normally `80x24`. Internal server-only resizes, including sidebar plugin tracking, do not update the client-size cache.
 
 Size-aware creation commands are `apply-layout`, `new-tab`, `new-browser-tab`, `new-workspace`, `new-screen`, `split`, and `run`. Their rules are:
 
 | Input | Behavior |
 | --- | --- |
-| both `cols` and `rows` supplied | Clamp each to at least `1`, use the pair for the new surface or surfaces, and record the effective grid as the latest client size |
-| neither supplied | Use the latest client size, or the configured legacy server default if no client size has been observed |
+| both `cols` and `rows` supplied | Clamp each to `1..10000`, use the pair for the new surface or surfaces, and record the effective grid as the latest client size |
+| neither supplied | Use the latest active client size, or the configured server default when no client reports remain |
 | only one supplied | Preserve protocol-v6 behavior: the incomplete pair is ignored; clients must always send both |
 
-The JSON type `uint16` supplies the upper bound. `resize-surface` requires both fields and clamps each to at least `1`. Attached clients update their own persistent report. Unattached control clients resize directly and update the session default without joining the viewer set.
+`resize-surface` requires both fields and clamps each to `1..10000`, matching tmux's window bounds. Every live control connection enters the same shared reducer. Attached clients retain the report until release; an unattached one-shot report is removed when its connection closes. A disconnected client id is rejected.
 
-Frontends report their grid after attach and whenever their viewport changes. A frontend must not re-report merely because another client changed the authoritative surface size. See [`render.md`](render.md#sizing-and-multi-client-presentation) for presentation guidance.
+`set-client-sizing` controls tmux-style `ignore-size` participation. A normal request supplies `client` and `enabled`. Supplying `exclusive:true` with an enabled client atomically includes only that client. Omitting `client` with `enabled:true` atomically includes all clients. Ignored clients keep reporting; if every attached client is ignored, all ignored reports participate as tmux's global fallback.
+
+Frontends report their grid after a surface becomes visible and whenever that viewport changes. They release the report when the surface becomes hidden, even if its attach stream remains cached. A frontend must not re-report merely because another client changed the authoritative surface size. See [`render.md`](render.md#sizing-and-multi-client-presentation) for presentation guidance.
 
 ## Implemented Commands
 
@@ -133,8 +153,12 @@ Params: none.
 Result:
 
 ```text
-object{app:"cmux-tui",version:string,protocol:uint32,session:string,pid:uint32}
+object{app:"cmux-tui",version:string,build_commit?:string|null,ghostty_commit?:string|null,protocol:uint32,capabilities:array<string>,session:string,pid:uint32}
 ```
+
+`build_commit` and `ghostty_commit` are additive build-stamp fields. They are omitted or `null` when the binary was built without the corresponding stamp, so clients must preserve compatibility with older servers and unstamped local builds.
+
+`capabilities` is additive build-level feature negotiation within a protocol version. Clients must treat a missing field as an empty list. `provider-managed-workspace-authority-v2` advertises pre-provisioned provider ownership and authority-gated post-provider rename and close commits.
 
 Errors:
 
@@ -156,10 +180,10 @@ Example:
 
 ```json
 {"id":1,"cmd":"identify"}
-{"id":1,"ok":true,"data":{"app":"cmux-tui","version":"0.1.0","protocol":7,"session":"main","pid":12345}}
+{"id":1,"ok":true,"data":{"app":"cmux-tui","version":"0.1.0","build_commit":"abc123","ghostty_commit":"def456","protocol":9,"capabilities":["attach-initial-size","workspace-registry-v1","provider-managed-workspace-authority-v2"],"session":"main","pid":12345}}
 ```
 
-This implemented example reports the current protocol 6; a v7 server reports `7` in the same `protocol` field, including in `ping`.
+The current server reports protocol `9` in this field and in `ping`. Clients must negotiate protocol 8 before requiring stable split ids or sending `set-split-ratio`, and protocol 9 before decoding stack layouts or sending `new-pane`.
 
 ### ping
 
@@ -176,8 +200,10 @@ Params: none.
 Result:
 
 ```text
-object{ok:true,version:string,protocol:uint32}
+object{ok:true,version:string,build_commit?:string|null,ghostty_commit?:string|null,protocol:uint32}
 ```
+
+`build_commit` and `ghostty_commit` have the same optional build-stamp semantics as `identify`.
 
 Errors: `bad request: ...`.
 
@@ -187,7 +213,7 @@ Example:
 
 ```json
 {"id":2,"cmd":"ping"}
-{"id":2,"ok":true,"data":{"ok":true,"version":"0.1.0","protocol":7}}
+{"id":2,"ok":true,"data":{"ok":true,"version":"0.1.0","build_commit":"abc123","ghostty_commit":"def456","protocol":9}}
 ```
 
 ### set-client-info
@@ -417,7 +443,7 @@ Example:
 | status | implemented |
 | since | protocol 5 |
 
-Returns the full workspace, screen, pane, tab, and split-tree snapshot. The snapshot includes active flags, active pane ids, active tab indexes, tab titles, tab names, surface kinds, browser source, size, and dead flags.
+Returns the full workspace, screen, pane, tab, and split-tree snapshot. The snapshot includes the ordered workspace registry revision, each workspace's stable key, active flags, active pane ids, active tab indexes, tab titles, tab names, surface kinds, browser source, size, and dead flags.
 
 Params: none.
 
@@ -447,7 +473,7 @@ Example:
 
 ```json
 {"id":2,"cmd":"list-workspaces"}
-{"id":2,"ok":true,"data":{"workspaces":[{"id":4,"name":"1","active":true,"screens":[{"id":3,"name":null,"active":true,"active_pane":2,"layout":{"type":"leaf","pane":2},"panes":[{"id":2,"name":null,"active_tab":0,"tabs":[{"surface":1,"kind":"pty","browser_source":null,"name":null,"title":"","size":{"cols":80,"rows":24},"dead":false}]}]}]}]}}
+{"id":2,"ok":true,"data":{"workspace_revision":1,"workspaces":[{"id":4,"key":"6ba7b810-9dad-41d1-80b4-00c04fd430c8","name":"1","active":true,"screens":[{"id":3,"name":null,"active":true,"active_pane":2,"layout":{"type":"leaf","pane":2},"panes":[{"id":2,"name":null,"active_tab":0,"focused_at":1,"tabs":[{"surface":1,"kind":"pty","browser_source":null,"name":null,"title":"","size":{"cols":80,"rows":24},"dead":false}]}]}]}]}}
 ```
 
 ### export-layout
@@ -484,7 +510,7 @@ CLI mapping: verb `export-layout`; flags `[--screen <id>]`; plain stdout and JSO
 | status | implemented |
 | since | protocol 6 |
 
-Creates a new screen in the given or active workspace from a declarative split tree. Each leaf creates a new pane with one PTY surface. `command` is argv (`array<string>`), not a shell string. Ratios use the same clamp path as `set-ratio`. Initial dimensions follow the shared [Sizing](#sizing) contract; one supplied dimension without the other retains the protocol-v6 incomplete-pair behavior.
+Creates a new screen in the given or active workspace from a declarative layout. Each leaf or stack member creates a new pane with one PTY surface. `command` is argv (`array<string>`), not a shell string. Ratios use the same clamp path as `set-ratio`. Initial dimensions follow the shared [Sizing](#sizing) contract; one supplied dimension without the other retains the protocol-v6 incomplete-pair behavior.
 
 Params:
 
@@ -492,7 +518,7 @@ Params:
 | --- | --- | --- | --- |
 | `workspace` | `Id` | default active workspace | Existing workspace; if omitted and none exists, one is created |
 | `name` | `string` | default null | New screen name |
-| `layout` | `DeclarativeLayout` | required | Must contain at least one leaf |
+| `layout` | `DeclarativeLayout` | required | Must contain at least one pane |
 | `cols` | `uint16` | default null | Paired with `rows`; final value clamped to at least 1 |
 | `rows` | `uint16` | default null | Paired with `cols`; final value clamped to at least 1 |
 
@@ -703,7 +729,7 @@ Example:
 | status | implemented |
 | since | protocol 5 |
 
-Creates a new PTY tab in a pane and makes it the active tab. If `pane` is absent, the active pane of the active screen is used. If the session has no workspaces and no pane is supplied, v5 creates a new workspace containing the tab. In that empty-session fallback, a supplied `cwd` is silently dropped because v5 delegates to `new_workspace(None, size)`. The new tab inherits the active surface working directory of the target pane when `cwd` is absent. Initial dimensions follow [Sizing](#sizing).
+Creates a new PTY tab in a pane and makes it the active tab. If `pane` is absent, the active pane of the active screen is used. If the selected workspace exists but has no screens, the command materializes its first screen, pane, and terminal and preserves `cwd`. If the session has no workspaces, the command creates a workspace containing the tab; that legacy fallback ignores `cwd`. The new tab inherits the active surface working directory of the target pane when `cwd` is absent. Initial dimensions follow [Sizing](#sizing).
 
 Params:
 
@@ -756,7 +782,7 @@ Example:
 | status | implemented |
 | since | protocol 5 |
 
-Creates a browser tab in a pane and makes it active. If `pane` is absent, the active pane is used. If the session has no workspaces and no pane is supplied, v5 creates a new workspace containing the browser tab. The browser runtime may connect to an external CDP endpoint or launch Chrome according to mux configuration. Initial dimensions follow [Sizing](#sizing).
+Creates a browser tab in a pane and makes it active. If `pane` is absent, the active pane is used. If the selected workspace exists but has no screens, the command materializes its first screen, pane, and browser tab. If the session has no workspaces, the command creates a workspace containing the browser tab. The browser runtime may connect to an external CDP endpoint or launch Chrome according to mux configuration. Initial dimensions follow [Sizing](#sizing).
 
 Params:
 
@@ -807,7 +833,7 @@ Example:
 | status | implemented |
 | since | protocol 5 |
 
-Creates a new workspace with one screen, one pane, and one PTY tab, then makes the new workspace active. If `name` is absent, the workspace name is the next 1-based workspace count at creation time. Initial dimensions follow [Sizing](#sizing).
+Creates a new workspace with one screen, one pane, and one PTY tab, then makes the new workspace active. If `name` is absent, the workspace name is the zero-based workspace count at creation time. Initial dimensions follow [Sizing](#sizing).
 
 Params:
 
@@ -845,6 +871,81 @@ Example:
 ```json
 {"id":8,"cmd":"new-workspace","name":"ops"}
 {"id":8,"ok":true,"data":{"surface":10}}
+```
+
+### create-workspace
+
+Requires the `workspace-registry-v1` capability. Clients must not send this command to a server that omits the capability.
+
+| Field | Value |
+| --- | --- |
+| name | `create-workspace` |
+| status | implemented |
+| since | protocol 7 |
+
+Adds an empty workspace to the ordered registry and makes it active. The caller may provide a stable key or let the mux generate one. `expected_revision` provides compare-and-swap protection against concurrent registry mutations.
+
+Params:
+
+| Name | JSON type | Required/default | Constraints |
+| --- | --- | --- | --- |
+| `name` | `string` | default null | Defaults to the zero-based workspace count at creation time |
+| `key` | `string` | default generated UUID | Must be non-empty and unique |
+| `expected_revision` | `uint64` | default null | Must equal the current registry revision when supplied |
+
+Result:
+
+```text
+object{workspace:Id,key:string,index:uint64,workspace_revision:uint64}
+```
+
+Errors include `workspace key cannot be empty`, `workspace key already exists: <key>`, `workspace revision conflict: expected <n>, current <n>`, and malformed request errors.
+
+Example:
+
+```json
+{"id":9,"cmd":"create-workspace","name":"ops","key":"ops-stable","expected_revision":1}
+{"id":9,"ok":true,"data":{"workspace":12,"key":"ops-stable","index":1,"workspace_revision":2}}
+```
+
+### create-terminal
+
+Requires the `workspace-registry-v1` capability. Clients must not send this command to a server that omits the capability.
+
+| Field | Value |
+| --- | --- |
+| name | `create-terminal` |
+| status | implemented |
+| since | protocol 7 |
+
+Creates a PTY terminal in an existing workspace selected by stable `key` or numeric `workspace` id. An empty workspace receives its first screen and pane; a populated workspace receives a new active tab in its active pane. `argv` executes directly, while `command` executes through the default shell.
+
+Params:
+
+| Name | JSON type | Required/default | Constraints |
+| --- | --- | --- | --- |
+| `workspace` | `Id` | required unless `key` is supplied | Mutually identifies the target with `key` |
+| `key` | `string` | required unless `workspace` is supplied | Must match `workspace` when both are supplied |
+| `argv` | `string[]` | default shell | Mutually exclusive with `command`; must be non-empty when supplied |
+| `command` | `string` | default null | Mutually exclusive with `argv`; must be non-empty when supplied |
+| `cwd` | `string` | default inherited | PTY child working directory |
+| `name` | `string` | default null | New terminal tab name |
+| `cols` | `uint16` | default null | Paired with `rows`; final value clamped to at least 1 |
+| `rows` | `uint16` | default null | Paired with `cols`; final value clamped to at least 1 |
+
+Result:
+
+```text
+object{surface:Id,pane:Id,screen:Id,workspace:Id,key:string}
+```
+
+Errors include missing, unknown, or mismatched workspace selectors; mutually exclusive or empty commands; PTY spawn failures; and malformed requests.
+
+Example:
+
+```json
+{"id":10,"cmd":"create-terminal","key":"ops-stable","command":"htop","cwd":"/tmp"}
+{"id":10,"ok":true,"data":{"surface":15,"pane":14,"screen":13,"workspace":12,"key":"ops-stable"}}
 ```
 
 ### new-screen
@@ -895,6 +996,55 @@ Example:
 ```json
 {"id":9,"cmd":"new-screen","workspace":4}
 {"id":9,"ok":true,"data":{"surface":12}}
+```
+
+### new-pane
+
+| Field | Value |
+| --- | --- |
+| name | `new-pane` |
+| status | implemented |
+| since | protocol 9 |
+
+Creates a PTY pane after the current panes in creation order, focuses it, and reapplies the default automatic layout. Panes one through five use one full-height left column and up to four equal right-side rows. Panes six through twelve fill balanced columns of four. Above twelve panes, the first pane stays full-height on the left while the remaining panes form a right-side stack whose focused member expands. The new surface inherits the active surface working directory of `pane` when available.
+
+Params:
+
+| Name | JSON type | Required/default | Constraints |
+| --- | --- | --- | --- |
+| `pane` | `Id` | required | Pane whose screen receives the new pane |
+| `cols` | `uint16` | default null | Paired with `rows`; final value clamped to at least 1 |
+| `rows` | `uint16` | default null | Paired with `cols`; final value clamped to at least 1 |
+
+Result:
+
+```text
+object{surface:Id}
+```
+
+Errors:
+
+| Error | Condition |
+| --- | --- |
+| `unknown pane <id>` | Target pane is not in any screen tree |
+| `pane creation failed` | PTY creation or child spawn fails; raw runtime details are logged internally only |
+| `bad request: ...` | Missing fields or wrong JSON type |
+
+CLI mapping:
+
+| Item | Value |
+| --- | --- |
+| Verb | `new-pane` |
+| Flags | `--pane <id> [--cols <n> --rows <n>]` |
+| Plain stdout | new surface id followed by newline |
+| JSON stdout | exact result object |
+| Exit codes | common |
+
+Example:
+
+```json
+{"id":10,"cmd":"new-pane","pane":2}
+{"id":10,"ok":true,"data":{"surface":14}}
 ```
 
 ### split
@@ -995,6 +1145,51 @@ Example:
 ```json
 {"id":11,"cmd":"set-ratio","pane":2,"dir":"right","ratio":0.7}
 {"id":11,"ok":true,"data":{}}
+```
+
+`set-ratio` remains supported in protocol v8 for existing clients. Its pane-and-direction lookup can be ambiguous when same-direction splits are nested, so new frontends should use `set-split-ratio` with the canonical layout's stable split id.
+
+### set-split-ratio
+
+| Field | Value |
+| --- | --- |
+| name | `set-split-ratio` |
+| status | implemented |
+| since | protocol 8 |
+
+Sets the ratio of exactly one canonical split node. The server clamps the supplied ratio to `0.05..0.95`. The split id and every unrelated node remain unchanged.
+
+Params:
+
+| Name | JSON type | Required/default | Constraints |
+| --- | --- | --- | --- |
+| `split` | `Id` | required | Stable split id from `list-workspaces` or `export-layout` |
+| `ratio` | `float32` | required | Clamped to `0.05..0.95` |
+
+Result: `object{}`.
+
+Errors:
+
+| Error | Condition |
+| --- | --- |
+| `unknown split <id>` | No live split node has the id |
+| `bad request: ...` | Missing fields or wrong JSON type |
+
+CLI mapping:
+
+| Item | Value |
+| --- | --- |
+| Verb | `set-split-ratio` |
+| Flags | `--split <id> --ratio <number>` |
+| Plain stdout | no output |
+| JSON stdout | exact result object |
+| Exit codes | common |
+
+Example:
+
+```json
+{"id":12,"cmd":"set-split-ratio","split":9,"ratio":0.7}
+{"id":12,"ok":true,"data":{}}
 ```
 
 ### pane-neighbor
@@ -1296,18 +1491,20 @@ Example:
 | status | implemented |
 | since | protocol 5 |
 
-Closes a workspace and every screen, pane, and tab in it. The active workspace selection is adjusted to keep a remaining workspace active when possible.
+Closes a workspace and every screen, pane, and tab in it. The workspace may be selected by stable key or numeric id. The active workspace selection is adjusted to keep a remaining workspace active when possible. `expected_revision` provides compare-and-swap protection against concurrent registry mutations. Stable-key selection, revision CAS, and the mutation result require `workspace-registry-v1`; the legacy numeric-id form remains available without it. After provider ownership is enabled, this ordinary command fails without changing workspace state.
 
 Params:
 
 | Name | JSON type | Required/default | Constraints |
 | --- | --- | --- | --- |
-| `workspace` | `Id` | required | Must identify a live workspace |
+| `workspace` | `Id` | required unless `key` is supplied | Must identify a live workspace |
+| `key` | `string` | required unless `workspace` is supplied | Must match `workspace` when both are supplied |
+| `expected_revision` | `uint64` | default null | Must equal the current registry revision when supplied |
 
 Result:
 
 ```text
-object{}
+object{workspace:Id,key:string,workspace_revision:uint64}
 ```
 
 Errors:
@@ -1315,7 +1512,11 @@ Errors:
 | Error | Condition |
 | --- | --- |
 | `unknown workspace <id>` | Workspace id does not exist |
-| `bad request: ...` | Missing `workspace` or wrong JSON type |
+| `unknown workspace key <key>` | Workspace key does not exist |
+| `workspace id and key do not identify the same workspace` | Supplied selectors identify different workspaces |
+| `workspace revision conflict: ...` | Compare-and-swap guard is stale |
+| `cannot close a provider-managed workspace directly; use the managed workspace lifecycle controls` | Provider ownership is enabled for this mux generation |
+| `bad request: ...` | Missing selector or wrong JSON type |
 
 CLI mapping:
 
@@ -1331,7 +1532,78 @@ Example:
 
 ```json
 {"id":16,"cmd":"close-workspace","workspace":4}
-{"id":16,"ok":true,"data":{}}
+{"id":16,"ok":true,"data":{"workspace":4,"key":"ops-stable","workspace_revision":3}}
+```
+
+### mark-workspaces-provider-managed
+
+Requires the `provider-managed-workspace-authority-v2` capability. Clients must not send this command to a server that omits the capability.
+
+| Field | Value |
+| --- | --- |
+| name | `mark-workspaces-provider-managed` |
+| status | implemented |
+| since | protocol 9 additive capability |
+
+Verifies that the provider frontend holds the authority provisioned when this mux generation started. The mux is already provider-owned before this handshake and before its first control client. Repeated authorized requests are idempotent. `rename-workspace` and `close-workspace` fail for every current and future workspace in the generation even when the handshake is missing or invalid.
+
+Params: `object{authority:string}`. The authority is required and must match the mux's pre-provisioned value.
+
+Result: `object{}`.
+
+Errors:
+
+| Error | Condition |
+| --- | --- |
+| `invalid provider workspace authority` | Authority is missing from this mux generation or does not match |
+| `bad request: ...` | Authority is missing or has the wrong JSON type |
+
+This control-only command has no public CLI mapping. The provider-aware TUI sends it before exposing provider-owned workspace lifecycle controls.
+
+Example:
+
+```json
+{"id":17,"cmd":"mark-workspaces-provider-managed","authority":"<provider-authority>"}
+{"id":17,"ok":true,"data":{}}
+```
+
+### close-provider-managed-workspace
+
+Requires the `provider-managed-workspace-authority-v2` capability. Clients must not send this command to a server that omits the capability.
+
+| Field | Value |
+| --- | --- |
+| name | `close-provider-managed-workspace` |
+| status | implemented |
+| since | protocol 9 additive capability |
+
+Commits a provider-approved close to the local mux mirror. Both selectors are required and must identify the same live workspace. Clients must send this command only after the external provider durably accepts the close.
+
+Params:
+
+| Name | JSON type | Required/default | Constraints |
+| --- | --- | --- | --- |
+| `workspace` | `Id` | required | Must identify a live workspace |
+| `key` | `string` | required | Must identify the same workspace as `workspace` |
+| `authority` | `string` | required | Must match the mux's pre-provisioned provider authority |
+
+Result: `object{workspace:Id,key:string,workspace_revision:uint64}`.
+
+Errors:
+
+| Error | Condition |
+| --- | --- |
+| `invalid provider workspace authority` | Authority is missing from this mux generation or does not match |
+| `workspace id and key do not identify the same workspace` | Supplied selectors identify different workspaces |
+| `bad request: ...` | Missing fields or wrong JSON type |
+
+This control-only command has no public CLI mapping.
+
+Example:
+
+```json
+{"id":18,"cmd":"close-provider-managed-workspace","workspace":4,"key":"ops-stable","authority":"<provider-authority>"}
+{"id":18,"ok":true,"data":{"workspace":4,"key":"ops-stable","workspace_revision":3}}
 ```
 
 ### rename-pane
@@ -1483,19 +1755,21 @@ Example:
 | status | implemented |
 | since | protocol 5 |
 
-Sets a workspace name. Unlike pane, surface, and screen names, an empty `name` is stored as the workspace name and does not clear to a generated fallback in v5.
+Sets a workspace name. The workspace may be selected by stable key or numeric id. Unlike pane, surface, and screen names, an empty `name` is stored as the workspace name. `expected_revision` provides compare-and-swap protection against concurrent registry mutations. Stable-key selection, revision CAS, and the mutation result require `workspace-registry-v1`; the legacy numeric-id form remains available without it. After provider ownership is enabled, this ordinary command fails without changing workspace state.
 
 Params:
 
 | Name | JSON type | Required/default | Constraints |
 | --- | --- | --- | --- |
-| `workspace` | `Id` | required | Must identify a live workspace |
+| `workspace` | `Id` | required unless `key` is supplied | Must identify a live workspace |
+| `key` | `string` | required unless `workspace` is supplied | Must match `workspace` when both are supplied |
 | `name` | `string` | required | Empty string is stored |
+| `expected_revision` | `uint64` | default null | Must equal the current registry revision when supplied |
 
 Result:
 
 ```text
-object{}
+object{workspace:Id,key:string,workspace_revision:uint64}
 ```
 
 Errors:
@@ -1503,6 +1777,10 @@ Errors:
 | Error | Condition |
 | --- | --- |
 | `unknown workspace <id>` | Workspace id does not exist |
+| `unknown workspace key <key>` | Workspace key does not exist |
+| `workspace id and key do not identify the same workspace` | Supplied selectors identify different workspaces |
+| `workspace revision conflict: ...` | Compare-and-swap guard is stale |
+| `cannot rename a provider-managed workspace directly; use the managed workspace lifecycle controls` | Provider ownership is enabled for this mux generation |
 | `bad request: ...` | Missing fields or wrong JSON type |
 
 CLI mapping:
@@ -1519,7 +1797,47 @@ Example:
 
 ```json
 {"id":20,"cmd":"rename-workspace","workspace":4,"name":"prod"}
-{"id":20,"ok":true,"data":{}}
+{"id":20,"ok":true,"data":{"workspace":4,"key":"ops-stable","workspace_revision":2}}
+```
+
+### rename-provider-managed-workspace
+
+Requires the `provider-managed-workspace-authority-v2` capability. Clients must not send this command to a server that omits the capability.
+
+| Field | Value |
+| --- | --- |
+| name | `rename-provider-managed-workspace` |
+| status | implemented |
+| since | protocol 9 additive capability |
+
+Commits a provider-approved rename to the local mux mirror. Both selectors are required and must identify the same live workspace. Clients must send this command only after the external provider durably accepts the rename.
+
+Params:
+
+| Name | JSON type | Required/default | Constraints |
+| --- | --- | --- | --- |
+| `workspace` | `Id` | required | Must identify a live workspace |
+| `key` | `string` | required | Must identify the same workspace as `workspace` |
+| `name` | `string` | required | Empty string is stored |
+| `authority` | `string` | required | Must match the mux's pre-provisioned provider authority |
+
+Result: `object{workspace:Id,key:string,workspace_revision:uint64}`.
+
+Errors:
+
+| Error | Condition |
+| --- | --- |
+| `invalid provider workspace authority` | Authority is missing from this mux generation or does not match |
+| `workspace id and key do not identify the same workspace` | Supplied selectors identify different workspaces |
+| `bad request: ...` | Missing fields or wrong JSON type |
+
+This control-only command has no public CLI mapping.
+
+Example:
+
+```json
+{"id":21,"cmd":"rename-provider-managed-workspace","workspace":4,"key":"ops-stable","name":"prod","authority":"<provider-authority>"}
+{"id":21,"ok":true,"data":{"workspace":4,"key":"ops-stable","workspace_revision":2}}
 ```
 
 ### resize-surface
@@ -1569,6 +1887,34 @@ Example:
 {"id":21,"cmd":"resize-surface","surface":1,"cols":120,"rows":40}
 {"id":21,"ok":true,"data":{"accepted":true,"reservation_id":7}}
 ```
+
+### release-surface-size
+
+| Field | Value |
+| --- | --- |
+| name | `release-surface-size` |
+| status | implemented |
+| since | protocol 7 |
+
+Removes the requesting client's sizing lease for a surface without closing its attach stream. Frontends use this when a pane switches tabs or otherwise stops displaying the surface.
+
+Params:
+
+| Name | JSON type | Required/default | Constraints |
+| --- | --- | --- | --- |
+| `surface` | `Id` | required | An attached surface; an absent lease is a successful no-op |
+
+Result: empty object.
+
+CLI mapping:
+
+| Item | Value |
+| --- | --- |
+| Verb | `release-surface-size` |
+| Flags | `--surface <id>` |
+| Plain stdout | no output |
+| JSON stdout | exact result object |
+| Exit codes | common |
 
 ### focus-pane
 
@@ -1819,19 +2165,21 @@ Example:
 | status | implemented |
 | since | protocol 5 |
 
-Moves an existing workspace to zero-based `index`. Moving a workspace to its current index is an `ok:true` no-op. This command is documented from the consumer-side landed contract; it is not present in this branch's `server.rs`, so out-of-range index behavior and event emission could not be verified here.
+Moves an existing workspace to zero-based insertion `index`. The workspace may be selected by stable key or numeric id. The destination is clamped to the last workspace after removing the source, so moving right produces a final index one less than the requested insertion index. Moving a workspace to its current position is an `ok:true` no-op that preserves the current revision. `expected_revision` provides compare-and-swap protection against concurrent registry mutations. Stable-key selection, revision CAS, and the mutation result require `workspace-registry-v1`; the legacy numeric-id form remains available without it.
 
 Params:
 
 | Name | JSON type | Required/default | Constraints |
 | --- | --- | --- | --- |
-| `workspace` | `Id` | required | Workspace to move |
-| `index` | `usize` | required | Zero-based destination index |
+| `workspace` | `Id` | required unless `key` is supplied | Workspace to move |
+| `key` | `string` | required unless `workspace` is supplied | Must match `workspace` when both are supplied |
+| `index` | `usize` | required | Zero-based insertion index |
+| `expected_revision` | `uint64` | default null | Must equal the current registry revision when supplied |
 
 Result:
 
 ```text
-object{}
+object{workspace:Id,key:string,workspace_revision:uint64}
 ```
 
 Errors:
@@ -1839,8 +2187,10 @@ Errors:
 | Error | Condition |
 | --- | --- |
 | `unknown workspace <id>` | Workspace id does not exist |
+| `unknown workspace key <key>` | Workspace key does not exist |
+| `workspace id and key do not identify the same workspace` | Supplied selectors identify different workspaces |
+| `workspace revision conflict: ...` | Compare-and-swap guard is stale |
 | `bad request: ...` | Missing fields or wrong JSON type |
-| unverified error string | Non-same-position out-of-range index behavior could not be checked in this branch |
 
 CLI mapping:
 
@@ -1856,7 +2206,7 @@ Example:
 
 ```json
 {"id":27,"cmd":"move-workspace","workspace":4,"index":0}
-{"id":27,"ok":true,"data":{}}
+{"id":27,"ok":true,"data":{"workspace":4,"key":"ops-stable","workspace_revision":4}}
 ```
 
 ### scroll-surface
@@ -1964,7 +2314,7 @@ Example:
 | name | `attach-surface` |
 | status | implemented |
 | since | protocol 5 |
-| `mode` field | protocol 7 additive extension |
+| `mode`, `cols`, `rows` fields | protocol 7 additive extensions |
 
 Attaches the connection to a PTY surface stream. In protocol v5, the server first sends a `vt-state` event for the current surface state, then sends live `output` events for subsequent PTY bytes, and finally sends `detached` when the stream ends. The command response is sent after the initial `vt-state` event in v5.
 
@@ -1972,12 +2322,16 @@ Protocol v6 changes the attach stream ordering to `vt-state -> (resized | output
 
 Protocol v7 adds `mode`. `mode:"bytes"`, including the default when the field is absent, is the exact protocol-v6 attach behavior above. `mode:"render"` selects the authoritative styled-cell stream specified in [`render.md`](render.md): `render-state -> (render-delta | scroll-changed)* -> detached`. A client must require `identify.protocol >= 7` before selecting render mode.
 
+Servers advertising the `attach-initial-size` capability accept paired `cols` and `rows`. The pair records the attaching client's initial viewer-size claim before initial state is generated. Supplying only one dimension is an error. Clients must not send either field to a server that omits the capability, including an older protocol-v7 server.
+
 Params:
 
 | Name | JSON type | Required/default | Constraints |
 | --- | --- | --- | --- |
 | `surface` | `Id` | required | Must identify a live PTY surface |
 | `mode` | `string` | default `"bytes"` | Protocol 7: `"bytes"` or `"render"` |
+| `cols` | `uint16` | default null | `attach-initial-size` capability; paired with `rows`, clamped to at least 1 |
+| `rows` | `uint16` | default null | `attach-initial-size` capability; paired with `cols`, clamped to at least 1 |
 
 Result:
 
@@ -1992,6 +2346,7 @@ Errors:
 | `unknown surface <id>` | Surface id does not exist |
 | `browser panes are not supported over attach yet` | Surface is a browser |
 | `bad attach mode <mode>` | `mode` is not `"bytes"` or `"render"` |
+| `attach-surface cols and rows must be supplied together` | Only one initial dimension is supplied |
 | `render attach requires protocol 7` | Server does not implement render mode |
 | terminal error string | VT replay generation fails |
 | thread spawn error string | Server cannot create the attach writer thread |
@@ -2002,7 +2357,7 @@ CLI mapping:
 | Item | Value |
 | --- | --- |
 | Verb | `attach-surface` |
-| Flags | `--surface <id> [--mode bytes|render]` |
+| Flags | `--surface <id> [--mode bytes|render] [--cols <n> --rows <n>]` |
 | Plain stdout | JSON event object per line |
 | JSON stdout | JSON event object per line |
 | Exit codes | common; runs until `detached`, connection closes, or interrupted |
@@ -2141,7 +2496,7 @@ Example:
 | status | implemented |
 | since | protocol 6 |
 
-Spawns a command in a new PTY tab and returns the new surface id. `argv` executes directly without a shell. `command` executes through the session shell as `shell -lc <command>`. Exactly one of `argv` or `command` is required. By default the tab is created in the active pane. With `pane`, it is created in that pane. With `new_workspace:true`, a new workspace is created instead. Initial dimensions follow [Sizing](#sizing).
+Spawns a command in a new PTY tab and returns the new surface id. `argv` executes directly without a shell. `command` executes through the session shell as `shell -lc <command>`. Exactly one of `argv` or `command` is required. By default the tab is created in the active pane. With `pane`, it is created in that pane. With `new_workspace:true`, a new workspace is created instead. `key` assigns that workspace a caller-owned stable identity so detached or provider-backed frontends can reconcile it after a display-name change. Initial dimensions follow [Sizing](#sizing).
 
 Params:
 
@@ -2151,7 +2506,8 @@ Params:
 | `command` | `string` | required if `argv` absent | Executed via shell `-lc` |
 | `cwd` | `string` | default null | Working directory |
 | `pane` | `IdRef` | default null | Mutually exclusive with `new_workspace:true` |
-| `new_workspace` | `boolean` | default false | Create isolated workspace |
+| `new_workspace` | `boolean` | default false | Create a new workspace |
+| `key` | `string` | default null | Protocol 9; valid only with `new_workspace:true`; unique stable workspace key |
 | `name` | `string` | default null | Sets surface name; also workspace name when `new_workspace:true` |
 | `cols` | `uint16` | default null | Used only with `rows` |
 | `rows` | `uint16` | default null | Used only with `cols` |
@@ -2169,6 +2525,8 @@ Errors:
 | `argv or command is required` | Neither is supplied |
 | `argv and command are mutually exclusive` | Both are supplied |
 | `pane and new_workspace are mutually exclusive` | Both placement options are supplied by a raw socket caller |
+| `key requires new_workspace` | A stable key is supplied without workspace creation |
+| `workspace key already exists: <key>` | The stable key is already present in the session |
 | `unknown pane <id>` | Supplied pane does not exist |
 | spawn or PTY error string | PTY creation or child spawn fails |
 | `bad request: ...` | Wrong JSON type |
@@ -2178,7 +2536,7 @@ CLI mapping:
 | Item | Value |
 | --- | --- |
 | Verb | `run` |
-| Flags | `[--pane <id> | --new-workspace] [--cwd <path>] [--name <name>] -- <argv...>` or `--command <cmd>` |
+| Flags | `[--pane <id> \| --new-workspace [--key <key>]] [--cwd <path>] [--name <name>] -- <argv...>` or `--command <cmd>` |
 | Plain stdout | new surface id followed by newline |
 | JSON stdout | exact result object |
 | Exit codes | common |
@@ -2188,6 +2546,8 @@ Example:
 ```json
 {"id":102,"cmd":"run","argv":["python3","-m","http.server"],"cwd":"/tmp","name":"server"}
 {"id":102,"ok":true,"data":{"surface":31,"pane":2,"screen":3,"workspace":4}}
+{"id":103,"cmd":"run","argv":["/bin/zsh","-l"],"new_workspace":true,"key":"workspace-019c","name":"cloud"}
+{"id":103,"ok":true,"data":{"surface":32,"pane":5,"screen":6,"workspace":7}}
 ```
 
 ### send-key
@@ -2509,7 +2869,7 @@ Example:
 
 ## Proposed Hooks Config
 
-Hooks are proposed protocol v8 config, not a socket command. They are declared in `~/.config/cmux/cmux-tui.json` under `hooks`, with legacy `mux.json` still accepted.
+Hooks are proposed protocol v10 config, not a socket command. They are declared in `~/.config/cmux/cmux-tui.json` under `hooks`, with legacy `mux.json` still accepted.
 
 Schema:
 
@@ -2579,3 +2939,5 @@ The following v5 behaviors are awkward for generated bindings and should be norm
 | Error taxonomy | Errors are strings from `anyhow`, IO, base64, and terminal layers | Add stable machine error codes while preserving messages |
 | Optional size pair | Supplying only one of `cols` or `rows` is silently ignored | Reject partial size pairs |
 | Unknown fields | Unknown request fields are ignored by serde | Reject unknown fields or define extension slots |
+
+Protocol v9 adds `new-pane`; its implemented result is `{surface}`. A future result expansion may add `{pane,screen,workspace}` only behind a newer protocol version.
