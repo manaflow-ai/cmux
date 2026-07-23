@@ -28,12 +28,10 @@ class PiCmuxCommandDispatcher {
   private routableState: SurfaceDispatchState = "unknown";
   private explicitSurfaceUnavailable = false;
   private didWarnSurfaceUnavailable = false;
-  private feedRunning = false;
-  private activeFeed: {
-    sessionId: string | null;
+  private activeFeeds = new Map<string | null, {
     cancellation: PiCommandCancellation;
     command: PiFeedCommand;
-  } | null = null;
+  }>();
 
   get canDispatch(): boolean {
     return this.routableState !== "unavailable";
@@ -73,7 +71,7 @@ class PiCmuxCommandDispatcher {
       }
       this.pendingFeedCommands.set(key, command);
     }
-    this.startNextFeed();
+    this.startNextFeed(sessionId);
   }
 
   async finishFeedForSession(sessionId: string): Promise<void> {
@@ -82,12 +80,12 @@ class PiCmuxCommandDispatcher {
       this.pendingFeedCommands.delete(key);
       if (command.terminal) this.priorityFeedCommands.push(command);
     }
-    const active = this.activeFeed?.sessionId === sessionId ? this.activeFeed : null;
+    const active = this.activeFeeds.get(sessionId);
     if (active && !active.command.terminal) {
       active.cancellation.cancelled = true;
       active.cancellation.cancel?.();
     }
-    this.startNextFeed();
+    this.startNextFeed(sessionId);
     await this.waitForFeedDrainUntilDeadline(sessionId);
   }
 
@@ -130,7 +128,7 @@ class PiCmuxCommandDispatcher {
   }
 
   private hasFeedWork(sessionId: string): boolean {
-    if (this.activeFeed?.sessionId === sessionId) return true;
+    if (this.activeFeeds.has(sessionId)) return true;
     if (this.priorityFeedCommands.some((command) => command.context.sessionId === sessionId)) return true;
     for (const command of this.pendingFeedCommands.values()) {
       if (command.context.sessionId === sessionId) return true;
@@ -281,7 +279,7 @@ class PiCmuxCommandDispatcher {
     this.priorityFeedCommands = this.priorityFeedCommands.filter(
       (command) => command.context.sessionId !== sessionId,
     );
-    const active = this.activeFeed?.sessionId === sessionId ? this.activeFeed : null;
+    const active = this.activeFeeds.get(sessionId);
     if (active) {
       active.cancellation.cancelled = true;
       active.cancellation.cancel?.();
@@ -289,25 +287,29 @@ class PiCmuxCommandDispatcher {
     this.resolveDrainedFeedSessions();
   }
 
-  private startNextFeed(): void {
-    if (this.feedRunning) return;
+  private startNextFeed(sessionId: string | null): void {
+    if (this.activeFeeds.has(sessionId)) return;
     if (!this.canDispatch) {
       this.pendingFeedCommands.clear();
       this.priorityFeedCommands = [];
       this.resolveDrainedFeedSessions();
       return;
     }
-    let command = this.priorityFeedCommands.shift();
+    const priorityIndex = this.priorityFeedCommands.findIndex(
+      (pending) => pending.context.sessionId === sessionId,
+    );
+    let command = priorityIndex >= 0 ? this.priorityFeedCommands.splice(priorityIndex, 1)[0] : undefined;
     if (!command) {
-      const next = this.pendingFeedCommands.entries().next();
-      if (next.done) return;
-      const [key, pending] = next.value;
-      this.pendingFeedCommands.delete(key);
-      command = pending;
+      for (const [key, pending] of this.pendingFeedCommands) {
+        if (pending.context.sessionId !== sessionId) continue;
+        this.pendingFeedCommands.delete(key);
+        command = pending;
+        break;
+      }
     }
-    this.feedRunning = true;
+    if (!command) return;
     const cancellation: PiCommandCancellation = { cancelled: false };
-    this.activeFeed = { sessionId: command.context.sessionId, cancellation, command };
+    this.activeFeeds.set(sessionId, { cancellation, command });
     void this.execute(command.args, command.cwd, command.input, command.context, cancellation)
       .then((result) => {
         if (result.error instanceof Error && result.error.message.includes("timed out after")) {
@@ -317,9 +319,8 @@ class PiCmuxCommandDispatcher {
       })
       .catch(() => {})
       .finally(() => {
-        if (this.activeFeed?.cancellation === cancellation) this.activeFeed = null;
-        this.feedRunning = false;
-        this.startNextFeed();
+        if (this.activeFeeds.get(sessionId)?.cancellation === cancellation) this.activeFeeds.delete(sessionId);
+        this.startNextFeed(sessionId);
         this.resolveDrainedFeedSessions();
       });
   }
