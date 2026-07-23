@@ -47,8 +47,8 @@ def run_extension(
 def main() -> int:
     bun = shutil.which("bun")
     if bun is None:
-        print("SKIP: bun not found")
-        return 0
+        print("FAIL: bun not found; Pi extension dispatch coverage requires Bun")
+        return 1
 
     try:
         cli_path = resolve_cmux_cli()
