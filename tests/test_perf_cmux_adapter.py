@@ -982,6 +982,49 @@ def test_browser_batch_overlaps_hidden_safe_work_with_ordered_activation(
     assert activations == actual_ids
 
 
+def test_churn_measurement_window_can_outlast_fixed_workload(tmp_path: Path) -> None:
+    cfg = config(
+        tmp_path,
+        scenario=scenario(terminals=0, browsers=2, scrollback=0),
+        churn_measurement_duration_s=2.0,
+    )
+    runner = FakeRunner()
+    runner.top_payloads = [top_payload() for _ in range(4)]
+    release_batch = threading.Event()
+    batch_done = threading.Event()
+
+    class ReleasingClock(FakeClock):
+        def sleep(self, duration: float) -> None:
+            super().sleep(duration)
+            if len(self.sleeps) == 3:
+                release_batch.set()
+            if len(self.sleeps) == 4:
+                assert batch_done.wait(timeout=1.0)
+
+    adapter = adapter_module.CmuxRuntimeAdapter(
+        cfg, runner=runner, clock=ReleasingClock()
+    )
+    prepare_fixture(adapter, runner, cfg)
+    original_batch = adapter._browser_churn_batch
+
+    def delayed_batch(cycles: int) -> list[tuple[str, dict[str, Any]]]:
+        assert release_batch.wait(timeout=1.0)
+        try:
+            return original_batch(cycles)
+        finally:
+            batch_done.set()
+
+    adapter._browser_churn_batch = delayed_batch
+    result = adapter.run_churn([])
+
+    assert result["failures"] == []
+    assert len(result["samples"]) == 4
+    assert adapter.raw_details["churn"]["fixed_duration_s"] == 2.0
+    assert adapter.raw_details["churn"]["workload_target_duration_s"] == 1.0
+
+
+
+
 def test_churn_rejects_browser_work_that_outlives_fixed_measurement_window(
     tmp_path: Path,
 ) -> None:

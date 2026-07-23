@@ -553,6 +553,29 @@ def test_final_acceptance_requires_every_scenario_metric_and_order() -> None:
     assert "BA:browser_render_rate" in browser_light["missing_groups"]
 
 
+def test_scenario_timing_extends_only_mixed_heavy_measurement_window() -> None:
+    timings = {
+        scenario.scenario_id: perf_driver._scenario_timing(scenario)
+        for scenario in perf_driver._contract.scenario_matrix()
+    }
+
+    default = {
+        "churn_duration_s": 5.0,
+        "churn_measurement_duration_s": 5.0,
+        "profile_duration_s": 5.0,
+    }
+    assert timings["mixed-heavy"] == {
+        "churn_duration_s": 5.0,
+        "churn_measurement_duration_s": 12.0,
+        "profile_duration_s": 12.0,
+    }
+    assert all(
+        timing == default
+        for scenario_id, timing in timings.items()
+        if scenario_id != "mixed-heavy"
+    )
+
+
 def test_platform_bridge_passes_exact_variant_scenario_and_profile_scope(
     tmp_path: Path,
 ) -> None:
