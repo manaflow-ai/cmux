@@ -172,6 +172,15 @@ extension RemoteTmuxControlConnection {
                     initialBatchAwaiting = awaiting
                     flushInitialBatchIfDrained()
                 }
+                // A list-windows reply carrying windows means this attach is serving the session,
+                // whether it is the first attach or a reconnect. That is the edge the reattach budget
+                // resets on, and it has to be here rather than in the initial-batch flush: the batch
+                // is armed only when `windowsByID` is empty, and a reconnect keeps the frozen tree,
+                // so a recovered mirror never reached that path. The cap was therefore counting
+                // incidents for the connection's whole life instead of consecutive failures — a
+                // mirror that recovered from three separate blips would refuse to recover from the
+                // fourth.
+                if !order.isEmpty { clearTransportDeathReattachBudget() }
                 for (id, window) in next {
                     applyWindowName(windowId: id, name: window.name)
                     stagePendingLayout(

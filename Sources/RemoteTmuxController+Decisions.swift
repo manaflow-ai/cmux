@@ -494,6 +494,10 @@ extension RemoteTmuxController {
         }
         do {
             _ = try mirrorSession(host: host, sessionName: sessionName, into: manager, select: false)
+            // Same late guarantee as the other create-then-mirror path: this returns before the
+            // stream could publish anything, so an unready mirror is dropped afterwards instead of
+            // being left as a workspace wired to nothing.
+            dropMirrorIfTopologyNeverPublishes(host: host, sessionName: sessionName, in: manager)
         } catch {
             return .createdPending(sessionName: sessionName)
         }

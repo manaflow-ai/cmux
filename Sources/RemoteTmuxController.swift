@@ -113,7 +113,7 @@ final class RemoteTmuxController {
         let connection = RemoteTmuxControlConnection(
             host: host,
             sessionName: sessionName,
-            createIfMissing: createIfMissing
+            attachMode: .forCreateIfMissing(createIfMissing)
         )
         // Insert only after a successful launch, so a failed `start()` never
         // leaves a dead (never-started, `exited == false`) connection that a
@@ -470,6 +470,20 @@ final class RemoteTmuxController {
     }
 
     private func presentNewSessionFailureAlert(host: RemoteTmuxHost, detail: String, manager: TabManager) {
+        // Never put a modal on screen from a test host. `reportNewSessionFailure` is a var so a suite
+        // can stub it, but that is per-suite discipline and the paths reaching it keep growing — the
+        // readiness guard that drops a mirror whose stream never published a topology is a new one. A
+        // seeded fuzz run duly interrupted a developer mid-session with "Couldn't Create a tmux
+        // Session on user@fuzz-single-channel-2", and `runModal` on a host with no key window blocks
+        // the run as well as stealing focus. Suppressing it here is one guard for every suite, present
+        // and future, and matches how SessionPersistence and Workspace already gate test-only
+        // behaviour. A test that cares about the report asserts on the stubbed closure instead.
+        guard ProcessInfo.processInfo.environment["XCTestConfigurationFilePath"] == nil else {
+            #if DEBUG
+            cmuxDebugLog("remote-tmux: suppressed new-session failure alert under test: \(host.destination) \(detail)")
+            #endif
+            return
+        }
         let alert = NSAlert()
         alert.alertStyle = .warning
         alert.messageText = String(
@@ -542,6 +556,9 @@ final class RemoteTmuxController {
                 }
                 let select = manager.selectedTab?.id == activeTabId
                 _ = try self.mirrorSession(host: host, sessionName: name, into: manager, select: select)
+                // This path answered before the stream could prove itself, so readiness is enforced
+                // after the fact (see `dropMirrorIfTopologyNeverPublishes`).
+                self.dropMirrorIfTopologyNeverPublishes(host: host, sessionName: name, in: manager)
             } catch {
                 #if DEBUG
                 cmuxDebugLog("remote-tmux: new-session on active mirror's host failed: \(error)")
@@ -820,7 +837,9 @@ final class RemoteTmuxController {
         if let mirror = sessionMirrors.removeValue(forKey: key) {
             mirror.detachObserver()
         }
-        removeCachedConnection(forKey: key)?.stop()
+        // Safe for every reason: a session that already ended leaves the stream past `.connected`,
+        // so this degrades to the plain teardown and only a live client is asked to detach.
+        removeCachedConnection(forKey: key)?.detachThenStop()
         let hostHasOtherMirrors = sessionMirrors.values.contains(where: { $0.host.connectionHash == host.connectionHash })
         if !hostHasOtherMirrors {
             let hostHasOtherConnections = connectionsByHostSession.values
@@ -983,7 +1002,7 @@ final class RemoteTmuxController {
         }
         sessionMirrors.removeValue(forKey: entry.key)
         entry.value.detachObserver()
-        removeCachedConnection(forKey: entry.key)?.stop()
+        removeCachedConnection(forKey: entry.key)?.detachThenStop()
         let hostHasOtherMirrors = sessionMirrors.values.contains { $0.host.connectionHash == host.connectionHash }
         if !hostHasOtherMirrors, !connectionsByHostSession.values.contains(where: { $0.host.connectionHash == host.connectionHash }) { transportRegistry.remove(connectionHash: host.connectionHash); RemoteTmuxSSHTransport.spawnControlMasterExit(host: host) }
         releaseLoginOfferIfHostHasNoMirrors(host: host)
@@ -1066,7 +1085,7 @@ final class RemoteTmuxController {
         }
         if let mirror = sessionMirrors.removeValue(forKey: key) {
             mirror.detachObserver()
-            removeCachedConnection(forKey: key)?.stop()
+            removeCachedConnection(forKey: key)?.detachThenStop()
             let hostHasOtherMirrors = sessionMirrors.values.contains { $0.host.connectionHash == host.connectionHash }
             if !hostHasOtherMirrors,
                !connectionsByHostSession.values.contains(where: { $0.host.connectionHash == host.connectionHash }) {
@@ -1075,7 +1094,7 @@ final class RemoteTmuxController {
             }
             return
         }
-        removeCachedConnection(forKey: key)?.stop()
+        removeCachedConnection(forKey: key)?.detachThenStop()
     }
 
     /// Detaches every control connection on app quit and closes the shared SSH
