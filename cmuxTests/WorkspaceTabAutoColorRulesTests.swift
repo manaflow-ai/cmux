@@ -73,14 +73,75 @@ struct WorkspaceTabAutoColorRulesTests {
 
     /// Two keywords that fold to the same string still get a total order, so
     /// the winner never depends on dictionary iteration order.
+    ///
+    /// Asserted as a concrete expected order rather than "two runs agree":
+    /// equal runs stay equal even if the raw-keyword tie-break is dropped, so
+    /// only naming the winner proves the secondary ordering is still there.
     @Test
     func keywordsFoldingToTheSameStringStillOrderDeterministically() throws {
         try withDefaults("foldedTies") { defaults in
-            let raw = ["Deploy": "Red", "déploy": "Blue"]
-            let first = WorkspaceTabAutoColorRules.ruleSet(raw: raw, defaults: defaults)
-            let second = WorkspaceTabAutoColorRules.ruleSet(raw: raw, defaults: defaults)
-            #expect(first.rules.map(\.keyword) == second.rules.map(\.keyword))
-            #expect(first.colorHex(forTitle: "deploy prod") == second.colorHex(forTitle: "deploy prod"))
+            var oneOrder: [String: String] = [:]
+            oneOrder["Deploy"] = "Red"
+            oneOrder["déploy"] = "Blue"
+
+            var otherOrder: [String: String] = [:]
+            otherOrder["déploy"] = "Blue"
+            otherOrder["Deploy"] = "Red"
+
+            for raw in [oneOrder, otherOrder] {
+                let ruleSet = WorkspaceTabAutoColorRules.ruleSet(raw: raw, defaults: defaults)
+                // Both fold to "deploy", so the raw keyword decides: "D" sorts
+                // before "d".
+                #expect(ruleSet.rules.map(\.keyword) == ["Deploy", "déploy"])
+                #expect(ruleSet.colorHex(forTitle: "deploy prod") == "#C0392B")
+            }
+        }
+    }
+
+    /// `raw` is keyed by the keyword *as typed*, so `"deploy"` and `" deploy "`
+    /// are two entries that trim down to one keyword. Duplicates that agree
+    /// collapse to a single rule; duplicates that disagree are dropped, because
+    /// no tie-break can pick a non-arbitrary winner and painting the wrong
+    /// color is worse than painting none.
+    @Test
+    func duplicateTrimmedKeywordsCollapseWhenTheyAgreeAndAreDroppedWhenTheyConflict() throws {
+        try withDefaults("duplicates") { defaults in
+            let agreeing = WorkspaceTabAutoColorRules.ruleSet(
+                raw: ["deploy": "Red", "  deploy  ": "Red"],
+                defaults: defaults
+            )
+            #expect(agreeing.rules.map(\.keyword) == ["deploy"])
+            #expect(agreeing.colorHex(forTitle: "deploy staging") == "#C0392B")
+
+            let conflicting = WorkspaceTabAutoColorRules.ruleSet(
+                raw: ["deploy": "Red", "  deploy  ": "Blue"],
+                defaults: defaults
+            )
+            #expect(conflicting.rules.isEmpty)
+            #expect(conflicting.colorHex(forTitle: "deploy staging") == nil)
+
+            // One ambiguous keyword must not take the unambiguous ones down.
+            let mixed = WorkspaceTabAutoColorRules.ruleSet(
+                raw: ["deploy": "Red", " deploy ": "Blue", "docs": "Blue"],
+                defaults: defaults
+            )
+            #expect(mixed.rules.map(\.keyword) == ["docs"])
+            #expect(mixed.colorHex(forTitle: "deploy docs") == "#1565C0")
+        }
+    }
+
+    /// The settings card keys its rows by keyword, so a duplicate keyword would
+    /// mean duplicate `ForEach` IDs. Canonicalization is what guarantees it.
+    @Test
+    func resolvedRulesNeverRepeatAKeyword() throws {
+        try withDefaults("uniqueKeywords") { defaults in
+            let ruleSet = WorkspaceTabAutoColorRules.ruleSet(
+                raw: ["deploy": "Red", " deploy": "Red", "deploy ": "Red", "docs": "Blue"],
+                defaults: defaults
+            )
+            let keywords = ruleSet.rules.map(\.keyword)
+            #expect(keywords.count == Set(keywords).count)
+            #expect(keywords.sorted() == ["deploy", "docs"])
         }
     }
 
