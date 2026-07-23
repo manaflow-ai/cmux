@@ -80,7 +80,7 @@ public final class SidebarDragAutoScrollController: ObservableObject {
         return (top: viewportHeight - mousePoint.y, bottom: mousePoint.y)
     }
 
-    private func planForMousePoint(_ mousePoint: CGPoint, in clipView: NSClipView) -> SidebarAutoScrollPlan? {
+    func planForMousePoint(_ mousePoint: CGPoint, in clipView: NSClipView) -> SidebarAutoScrollPlan? {
         let viewportHeight = clipView.bounds.height
         guard viewportHeight > 0 else { return nil }
 
