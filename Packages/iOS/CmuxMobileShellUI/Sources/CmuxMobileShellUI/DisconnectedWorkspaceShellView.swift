@@ -235,8 +235,9 @@ struct DisconnectedWorkspaceShellView: View {
             if showsDeletedComputerRecoveryAction, let store {
                 DeletedComputerRecoveryButton(
                     isProminent: true,
+                    isRecovering: store.isRecoveringDeletedComputer,
                     recover: { await store.recoverForgottenIrohMacFromAccount() },
-                    reload: { await reloadAfterDeletedComputerRecovery() }
+                    reloadAfterFailure: { await reloadAfterFailedDeletedComputerRecovery() }
                 )
                 DeletedComputerRecoveryFooter()
                     .font(.footnote)
@@ -270,8 +271,9 @@ struct DisconnectedWorkspaceShellView: View {
     private func deletedComputerRecoverySection(store: CMUXMobileShellStore) -> some View {
         Section {
             DeletedComputerRecoveryButton(
+                isRecovering: store.isRecoveringDeletedComputer,
                 recover: { await store.recoverForgottenIrohMacFromAccount() },
-                reload: { await reloadAfterDeletedComputerRecovery() }
+                reloadAfterFailure: { await reloadAfterFailedDeletedComputerRecovery() }
             )
         } footer: {
             DeletedComputerRecoveryFooter()
@@ -355,7 +357,7 @@ struct DisconnectedWorkspaceShellView: View {
         }
     }
 
-    private func reloadAfterDeletedComputerRecovery() async {
+    private func reloadAfterFailedDeletedComputerRecovery() async {
         await store?.loadPairedMacs()
         await store?.loadRegistryDevices()
     }

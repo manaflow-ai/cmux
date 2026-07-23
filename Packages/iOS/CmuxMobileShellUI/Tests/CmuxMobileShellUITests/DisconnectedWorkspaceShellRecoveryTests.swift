@@ -19,8 +19,8 @@ struct DisconnectedWorkspaceShellRecoveryTests {
 
     @Test func recoverableDeletedComputerSuppressesAutomaticAddComputerSheet() async {
         let store = await shellStore()
-        store.hasRecoverableDeletedComputers = true
         await store.loadPairedMacs()
+        store.hasRecoverableDeletedComputers = true
 
         let view = disconnectedView(store: store)
 

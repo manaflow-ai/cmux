@@ -13,6 +13,10 @@ extension MobileShellComposite {
     /// before persistence clears the forgotten marker.
     @discardableResult
     public func recoverForgottenIrohMacFromAccount() async -> Bool {
+        guard !isRecoveringDeletedComputer else { return false }
+        isRecoveringDeletedComputer = true
+        defer { isRecoveringDeletedComputer = false }
+
         guard isSignedIn,
               let scope = await currentScopeSnapshot(),
               let personalIrohDiscovery else { return false }

@@ -2136,6 +2136,9 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
     /// True when the current account/team scope has a deleted-computer marker
     /// that can be recovered through explicit same-account Iroh discovery.
     public internal(set) var hasRecoverableDeletedComputers = false
+    /// True while the explicit deleted-computer recovery path is scanning and
+    /// reconnecting through account-scoped Iroh discovery.
+    public internal(set) var isRecoveringDeletedComputer = false
 
     var pairedMacsForIdentityMatching: [MobilePairedMac] {
         storedPairedMacs.isEmpty ? pairedMacs : storedPairedMacs
@@ -2378,6 +2381,7 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
             loaded = try await pairedMacStore.loadAll(stackUserID: scope.userID, teamID: scope.teamID)
         } catch {
             mobileShellLog.error("paired mac store loadAll failed: \(String(describing: error), privacy: .public)")
+            hasRecoverableDeletedComputers = false
             return
         }
         // The await above suspended the main actor; a sign-out, user switch, or

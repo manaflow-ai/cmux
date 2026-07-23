@@ -145,8 +145,9 @@ struct DeviceTreeView: View {
     private var deletedComputerRecoverySection: some View {
         Section {
             DeletedComputerRecoveryButton(
+                isRecovering: store.isRecoveringDeletedComputer,
                 recover: { await store.recoverForgottenIrohMacFromAccount() },
-                reload: {
+                reloadAfterFailure: {
                     await reload()
                 }
             )
