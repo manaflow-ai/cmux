@@ -7,12 +7,20 @@ final class RecoverableMainWindowRoute {
     let windowId: UUID
     weak var tabManager: TabManager?
     weak var window: NSWindow?
+    let sidebarSnapshot: SessionSidebarSnapshot
     let order: UInt64
 
-    init(windowId: UUID, tabManager: TabManager, window: NSWindow?, order: UInt64) {
+    init(
+        windowId: UUID,
+        tabManager: TabManager,
+        window: NSWindow?,
+        sidebarSnapshot: SessionSidebarSnapshot,
+        order: UInt64
+    ) {
         self.windowId = windowId
         self.tabManager = tabManager
         self.window = window
+        self.sidebarSnapshot = sidebarSnapshot
         self.order = order
     }
 }
@@ -130,12 +138,18 @@ extension AppDelegate {
         }
     }
 
-    func rememberRecoverableMainWindowRoute(windowId: UUID, tabManager: TabManager, window: NSWindow?) {
+    func rememberRecoverableMainWindowRoute(
+        windowId: UUID,
+        tabManager: TabManager,
+        window: NSWindow?,
+        sidebarSnapshot: SessionSidebarSnapshot
+    ) {
         guard tabManagerCanOwnRecoverableMainWindowRoute(tabManager) else { return }
         mainWindowRouteLedger.routesByWindowId[windowId] = RecoverableMainWindowRoute(
             windowId: windowId,
             tabManager: tabManager,
             window: window,
+            sidebarSnapshot: sidebarSnapshot,
             order: mainWindowRouteLedger.issueOrder()
         )
 #if DEBUG

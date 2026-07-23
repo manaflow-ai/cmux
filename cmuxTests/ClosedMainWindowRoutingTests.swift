@@ -1460,6 +1460,70 @@ struct FinalCloseRoutingRegressionTests {
 }
 
 @MainActor
+@Suite("Workspace shared agent observer retirement", .serialized)
+struct WorkspaceSharedAgentObserverRetirementTests {
+    @Test("Retirement rejects queued and future shared agent index publications")
+    func retirementRejectsQueuedAndFutureSharedAgentIndexPublications() async throws {
+        let manager = TabManager()
+        let workspace = try #require(manager.selectedWorkspace)
+        defer {
+            if !manager.isFinalizedForWindowClose {
+                manager.finalizeAllWorkspacesForWindowClose()
+            }
+            workspace.teardownAllPanels()
+            workspace.teardownRemoteConnection()
+        }
+
+        await drainMainActorQueue()
+        var publicationCount = 0
+        let publication = workspace.objectWillChange.sink {
+            publicationCount += 1
+        }
+        defer { publication.cancel() }
+
+        NotificationCenter.default.post(
+            name: .sharedLiveAgentIndexDidChange,
+            object: SharedLiveAgentIndex.shared,
+            userInfo: ["workspaceId": workspace.id]
+        )
+        await drainMainActorQueue()
+        #expect(publicationCount > 0)
+
+        // Queue one final matching publication, then retire before its
+        // MainActor task can mutate the workspace.
+        NotificationCenter.default.post(
+            name: .sharedLiveAgentIndexDidChange,
+            object: SharedLiveAgentIndex.shared,
+            userInfo: ["workspaceId": workspace.id]
+        )
+        workspace.retireFromOwningTabManager()
+        let countAfterRetirement = publicationCount
+        await drainMainActorQueue()
+        #expect(publicationCount == countAfterRetirement)
+
+        for _ in 0..<3 {
+            NotificationCenter.default.post(
+                name: .sharedLiveAgentIndexDidChange,
+                object: SharedLiveAgentIndex.shared,
+                userInfo: ["workspaceId": workspace.id]
+            )
+        }
+        await drainMainActorQueue()
+        #expect(publicationCount == countAfterRetirement)
+    }
+
+    private func drainMainActorQueue() async {
+        await Task.yield()
+        await withCheckedContinuation { (continuation: CheckedContinuation<Void, Never>) in
+            DispatchQueue.main.async {
+                continuation.resume()
+            }
+        }
+        await Task.yield()
+    }
+}
+
+@MainActor
 @Suite("Window zombie regressions", .serialized)
 struct WindowZombieRegressionTests {
     @Test("SwiftUI window state does not own its native window")

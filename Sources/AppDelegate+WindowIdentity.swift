@@ -20,6 +20,22 @@ extension AppDelegate {
         })
     }
 
+    func mainWindowForClose(windowId: UUID) -> NSWindow? {
+        if let context = mainWindowContexts.values.first(where: { $0.windowId == windowId }),
+           let window = context.window,
+           !hasCommittedMainWindowClose(window) {
+            return window
+        }
+        guard let route = recoverableMainWindowRoute(windowId: windowId),
+              let window = route.window,
+              NSApp.windows.contains(where: { $0 === window }),
+              mainWindowId(from: window) == windowId,
+              !hasCommittedMainWindowClose(window) else {
+            return nil
+        }
+        return window
+    }
+
     func startupPrimaryWindowIdForInitialMainWindow() -> UUID? {
         guard !didAttemptStartupSessionRestore else { return nil }
         guard !didHandleExplicitOpenIntentAtStartup else { return nil }
