@@ -34,4 +34,8 @@ public struct ArtifactCaptureContext: Equatable, Sendable {
         self.sessionID = sessionID
         self.agentName = agentName
     }
+
+    var sessionIdentity: ArtifactSessionIdentity {
+        ArtifactSessionIdentity(provider: agentName, sessionID: sessionID)
+    }
 }

@@ -39,11 +39,13 @@ extension CMUXCLI {
     private func projectFilesAgentIdentity(
         environment: [String: String]
     ) throws -> (sessionID: String?, name: String?) {
-        let launchName = normalizedProjectFilesEnvironmentValue(
-            environment["CMUX_AGENT_LAUNCH_KIND"]
-        )?.lowercased()
+        let launchName = canonicalProjectFilesAgentName(
+            normalizedProjectFilesEnvironmentValue(environment["CMUX_AGENT_LAUNCH_KIND"])
+        )
         let explicitName = launchName
-            ?? normalizedProjectFilesEnvironmentValue(environment["CMUX_AGENT_NAME"])?.lowercased()
+            ?? canonicalProjectFilesAgentName(
+                normalizedProjectFilesEnvironmentValue(environment["CMUX_AGENT_NAME"])
+            )
         let sessionByAgent: [(name: String, keys: [String])] = [
             ("codex", ["CODEX_THREAD_ID", "CODEX_SESSION_ID", "CMUX_CODEX_SESSION_ID"]),
             ("claude", ["CLAUDE_CODE_SESSION_ID", "CMUX_CLAUDE_SESSION_ID"]),
@@ -66,9 +68,7 @@ extension CMUXCLI {
             throw ambiguousProjectFilesAgentIdentityError()
         }
         if let nativeIdentity = nativeIdentities.first {
-            let supportedLaunchNames = Set(sessionByAgent.map(\.name))
             if let launchName,
-               supportedLaunchNames.contains(launchName),
                launchName != nativeIdentity.name {
                 throw ambiguousProjectFilesAgentIdentityError()
             }
@@ -84,6 +84,15 @@ extension CMUXCLI {
         guard let value = value?.trimmingCharacters(in: .whitespacesAndNewlines),
               !value.isEmpty else { return nil }
         return value
+    }
+
+    private func canonicalProjectFilesAgentName(_ value: String?) -> String? {
+        guard let value else { return nil }
+        switch value.lowercased() {
+        case "codexteams", "codex-teams": return "codex"
+        case "claudeteams", "claude-teams": return "claude"
+        default: return value.lowercased()
+        }
     }
 
     private func ambiguousProjectFilesAgentIdentityError() -> CLIError {
