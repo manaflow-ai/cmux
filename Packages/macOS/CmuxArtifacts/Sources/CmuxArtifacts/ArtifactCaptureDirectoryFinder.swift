@@ -11,9 +11,9 @@ struct ArtifactCaptureDirectoryFinder {
         context: ArtifactCaptureContext,
         pathResolver: ArtifactPathResolver,
         kind: CmuxSessionContentKind = .artifacts
-    ) -> ArtifactCaptureDirectoryResolution {
+    ) throws -> ArtifactCaptureDirectoryResolution {
         if let sessionID = normalized(context.sessionID),
-           let sessionRoot = markerDirectories(
+           let sessionRoot = try markerDirectories(
                paths: paths,
                markerName: ArtifactPathResolver.sessionMarkerName,
                pathResolver: pathResolver,
@@ -27,7 +27,7 @@ struct ArtifactCaptureDirectoryFinder {
         let fallback = pathResolver.contentDirectory(paths: paths, context: context, kind: kind)
         guard normalized(context.sessionID) == nil,
               let workspaceID = normalized(context.workspaceID),
-              let sessionRoot = markerDirectories(
+              let sessionRoot = try markerDirectories(
                   paths: paths,
                   markerName: ArtifactPathResolver.workspaceMarkerName,
                   pathResolver: pathResolver,
@@ -45,7 +45,7 @@ struct ArtifactCaptureDirectoryFinder {
         markerName: String,
         pathResolver: ArtifactPathResolver,
         matches: (Marker) -> Bool
-    ) -> [URL] {
+    ) throws -> [URL] {
         guard let enumerator = fileManager.enumerator(
             at: paths.filesystemRoot,
             includingPropertiesForKeys: [
@@ -55,8 +55,12 @@ struct ArtifactCaptureDirectoryFinder {
         ) else { return [] }
         var directories: [URL] = []
         var visited = 0
+        var exceededNodeBudget = false
         for case let url as URL in enumerator {
-            guard visited < nodeBudget else { break }
+            guard visited < nodeBudget else {
+                exceededNodeBudget = true
+                break
+            }
             visited += 1
             if pathResolver.refersToSameLocation(url, paths.metadataRoot) {
                 enumerator.skipDescendants()
@@ -82,6 +86,9 @@ struct ArtifactCaptureDirectoryFinder {
             directories.append(
                 paths.filesystemRoot.appendingPathComponent(relativePath, isDirectory: true)
             )
+        }
+        guard !exceededNodeBudget else {
+            throw ArtifactStoreError.scanIncomplete(paths.filesystemRoot.path)
         }
         return directories.sorted {
             $0.path.localizedStandardCompare($1.path) == .orderedAscending

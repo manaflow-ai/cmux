@@ -96,7 +96,7 @@ extension LocalArtifactRepository {
                     paths: paths,
                     configuration: configuration
                 )
-                let plan = makeAutomaticWritePlan(
+                let plan = try makeAutomaticWritePlan(
                     prepared: automaticPrepared.map(\.value),
                     existingByDigest: preflightIndex,
                     context: context,
@@ -157,17 +157,26 @@ extension LocalArtifactRepository {
         var automaticWritePlan: ArtifactAutomaticWritePlan?
         let refreshedAutomatic = orderedPrepared.filter { $0.value.candidate.provenance != .manual }
         if !refreshedAutomatic.isEmpty {
-            let refreshedPlan = makeAutomaticWritePlan(
-                prepared: refreshedAutomatic.map(\.value),
-                existingByDigest: existingByDigest,
-                context: context,
-                paths: paths
-            )
-            if authorizedAutomaticPlan?.authorizes(refreshedPlan) == true {
-                automaticWritePlan = refreshedPlan
-            } else {
+            do {
+                let refreshedPlan = try makeAutomaticWritePlan(
+                    prepared: refreshedAutomatic.map(\.value),
+                    existingByDigest: existingByDigest,
+                    context: context,
+                    paths: paths
+                )
+                if authorizedAutomaticPlan?.authorizes(refreshedPlan) == true {
+                    automaticWritePlan = refreshedPlan
+                } else {
+                    for (index, _) in refreshedAutomatic {
+                        attempts[index] = .rejected(.storeBusy(paths.filesystemRoot.path))
+                    }
+                    orderedPrepared.removeAll { $0.value.candidate.provenance != .manual }
+                }
+            } catch {
+                let rejection = (error as? ArtifactStoreError)
+                    ?? ArtifactStoreError.pathOutsideStore(paths.filesystemRoot.path)
                 for (index, _) in refreshedAutomatic {
-                    attempts[index] = .rejected(.storeBusy(paths.filesystemRoot.path))
+                    attempts[index] = .rejected(rejection)
                 }
                 orderedPrepared.removeAll { $0.value.candidate.provenance != .manual }
             }
@@ -220,8 +229,8 @@ extension LocalArtifactRepository {
         existingByDigest: [String: URL],
         context: ArtifactCaptureContext,
         paths: ArtifactStorePaths
-    ) -> ArtifactAutomaticWritePlan {
-        ArtifactAutomaticWritePlanner(
+    ) throws -> ArtifactAutomaticWritePlan {
+        try ArtifactAutomaticWritePlanner(
             fileManager: fileManager,
             encoder: encoder,
             decoder: decoder,

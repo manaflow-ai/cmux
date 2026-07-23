@@ -56,7 +56,12 @@ struct ArtifactPathResolver: Sendable {
 
     func slug(preferred: String?, fallbackPrefix: String, identity: String?) -> String {
         let preferredSlug = normalized(preferred)
-        let identitySlug = normalized(identity).map { String($0.prefix(16)) }
+        let identitySlug = normalized(identity).map { readableIdentity in
+            ArtifactIdentitySlug().value(
+                readableIdentity: readableIdentity,
+                stableIdentity: identity ?? readableIdentity
+            )
+        }
         if let preferredSlug, let identitySlug {
             return "\(String(preferredSlug.prefix(48)))-\(identitySlug)"
         }
