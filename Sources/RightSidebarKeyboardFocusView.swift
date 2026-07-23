@@ -1,4 +1,5 @@
 import AppKit
+import Bonsplit
 
 final class RightSidebarKeyboardFocusView: NSView {
     override var acceptsFirstResponder: Bool { true }
