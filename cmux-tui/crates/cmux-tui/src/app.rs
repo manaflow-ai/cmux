@@ -6804,6 +6804,12 @@ impl App {
                     RenderAction::None
                 });
             } else {
+                if self.sidebar_view == SidebarView::Files
+                    && let Some(text) = input.associated_text()
+                    && self.sidebar_files.insert_filter_text(text)
+                {
+                    return Ok(RenderAction::Draw);
+                }
                 return self.handle_builtin_sidebar_key(&key);
             }
         }
@@ -10677,8 +10683,7 @@ mod tests {
         app.sidebar_files = FileBrowser::new(temp.clone());
         app.sidebar_view = SidebarView::Files;
         app.focus = FocusTarget::WorkspaceRail;
-        app.sidebar_files
-            .handle_key(&KeyEvent::new(KeyCode::Char('/'), KeyModifiers::NONE));
+        app.sidebar_files.handle_key(&KeyEvent::new(KeyCode::Char('/'), KeyModifiers::NONE));
 
         app.handle(AppEvent::Input(Event::EnhancedKey(EnhancedKeyEvent {
             key_event: KeyEvent::new(KeyCode::Char('w'), KeyModifiers::ALT),

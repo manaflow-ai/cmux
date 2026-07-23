@@ -21,7 +21,9 @@ pub(crate) struct ForeignViewportMessages {
 
 #[derive(Debug, PartialEq, Eq)]
 pub(crate) struct TerminalMessages {
+    pub clear_history_help: &'static str,
     pub clear_history_failed: &'static str,
+    pub clear_history_unsupported: &'static str,
     pub keyboard_text_too_large: &'static str,
 }
 
@@ -152,7 +154,9 @@ static ENGLISH: Catalog = Catalog {
     },
     foreign_viewport: ForeignViewportMessages { terminal_grid: "terminal grid" },
     terminal: TerminalMessages {
+        clear_history_help: "Clear PTY history while preserving its active prompt.",
         clear_history_failed: "Could not clear terminal history",
+        clear_history_unsupported: "clear-history is not supported by this server; restart the cmux-tui server",
         keyboard_text_too_large: "Keyboard text exceeds the 4 MiB PTY buffer limit",
     },
     sidebar: SidebarMessages {
@@ -236,7 +240,9 @@ static JAPANESE: Catalog = Catalog {
     },
     foreign_viewport: ForeignViewportMessages { terminal_grid: "端末グリッド" },
     terminal: TerminalMessages {
+        clear_history_help: "アクティブなプロンプトを保持したまま PTY 履歴を消去します。",
         clear_history_failed: "ターミナル履歴を消去できませんでした",
+        clear_history_unsupported: "このサーバーでは clear-history を使用できません。cmux-tui サーバーを再起動してください",
         keyboard_text_too_large: "キーボード入力が 4 MiB の PTY バッファ上限を超えています",
     },
     sidebar: SidebarMessages {
@@ -338,6 +344,14 @@ mod tests {
         assert_eq!(
             catalog_for_locale("ja_JP.UTF-8").terminal.keyboard_text_too_large,
             "キーボード入力が 4 MiB の PTY バッファ上限を超えています"
+        );
+        assert_eq!(
+            catalog_for_locale("ja_JP.UTF-8").terminal.clear_history_help,
+            "アクティブなプロンプトを保持したまま PTY 履歴を消去します。"
+        );
+        assert_eq!(
+            catalog_for_locale("ja_JP.UTF-8").terminal.clear_history_unsupported,
+            "このサーバーでは clear-history を使用できません。cmux-tui サーバーを再起動してください"
         );
         assert_eq!(
             catalog_for_locale("ja_JP.UTF-8").sidebar.machine_provider_disconnected,

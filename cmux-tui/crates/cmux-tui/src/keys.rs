@@ -12,6 +12,7 @@ pub struct KeyboardInput {
     shifted_key: Option<char>,
     base_layout_key: Option<char>,
     associated_text: String,
+    consumed_alt: bool,
     enhanced: bool,
 }
 
@@ -22,6 +23,7 @@ impl From<KeyEvent> for KeyboardInput {
             shifted_key: None,
             base_layout_key: None,
             associated_text: String::new(),
+            consumed_alt: false,
             enhanced: false,
         }
     }
@@ -29,11 +31,14 @@ impl From<KeyEvent> for KeyboardInput {
 
 impl From<EnhancedKeyEvent> for KeyboardInput {
     fn from(event: EnhancedKeyEvent) -> Self {
+        let consumed_alt =
+            option_generated_text(&event.key_event, event.shifted_key, event.text.as_str());
         Self {
             key_event: event.key_event,
             shifted_key: event.shifted_key,
             base_layout_key: event.base_layout_key,
             associated_text: event.text,
+            consumed_alt,
             enhanced: true,
         }
     }
@@ -69,10 +74,16 @@ impl KeyboardInput {
             logical.code = KeyCode::Char(shifted_key);
             logical.modifiers.remove(KeyModifiers::SHIFT);
         }
+        if self.consumed_alt {
+            logical.modifiers.remove(KeyModifiers::ALT);
+        }
 
         let fallback = self.base_layout_key.and_then(|base_layout_key| {
             let mut base = self.key_event;
             base.code = KeyCode::Char(base_layout_key);
+            if self.consumed_alt {
+                base.modifiers.remove(KeyModifiers::ALT);
+            }
             (base != logical).then_some(base)
         });
         (logical, fallback)
@@ -85,6 +96,7 @@ impl KeyboardInput {
                 self.shifted_key,
                 self.base_layout_key,
                 &self.associated_text,
+                self.consumed_alt,
             )
         } else {
             key_input_from(&self.key_event)
@@ -250,7 +262,13 @@ pub fn key_input_from(event: &KeyEvent) -> Option<KeyInput> {
 /// guessing the keyboard layout from US punctuation pairs.
 #[cfg(test)]
 pub fn key_input_from_enhanced(event: &EnhancedKeyEvent) -> Option<KeyInput> {
-    key_input_from_parts(&event.key_event, event.shifted_key, event.base_layout_key, &event.text)
+    key_input_from_parts(
+        &event.key_event,
+        event.shifted_key,
+        event.base_layout_key,
+        &event.text,
+        option_generated_text(&event.key_event, event.shifted_key, &event.text),
+    )
 }
 
 fn key_input_from_parts(
@@ -258,12 +276,9 @@ fn key_input_from_parts(
     shifted_key: Option<char>,
     base_layout_key: Option<char>,
     associated_text: &str,
+    consumed_alt: bool,
 ) -> Option<KeyInput> {
     let mut input = key_input_from(event)?;
-    let layout_text = match event.code {
-        KeyCode::Char(unshifted) => Some(shifted_key.unwrap_or(unshifted).to_string()),
-        _ => None,
-    };
 
     if let KeyCode::Char(unshifted) = event.code {
         if let Some(base_layout_key) = base_layout_key {
@@ -277,9 +292,7 @@ fn key_input_from_parts(
         if input.mods.contains(Mods::SHIFT) {
             input.consumed_mods = input.consumed_mods | Mods::SHIFT;
         }
-        let option_generated_text =
-            input.mods.contains(Mods::ALT) && layout_text.as_deref() != Some(associated_text);
-        if option_generated_text {
+        if consumed_alt {
             input.consumed_mods = input.consumed_mods | Mods::ALT;
             input.macos_option_as_alt = false;
         }
@@ -292,6 +305,22 @@ fn key_input_from_parts(
         }
     }
     Some(input)
+}
+
+fn option_generated_text(
+    event: &KeyEvent,
+    shifted_key: Option<char>,
+    associated_text: &str,
+) -> bool {
+    if associated_text.is_empty() || !event.modifiers.contains(KeyModifiers::ALT) {
+        return false;
+    }
+    let layout_char = match event.code {
+        KeyCode::Char(unshifted) => shifted_key.unwrap_or(unshifted),
+        _ => return true,
+    };
+    let mut chars = associated_text.chars();
+    chars.next() != Some(layout_char) || chars.next().is_some()
 }
 
 #[cfg(test)]
