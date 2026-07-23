@@ -1305,6 +1305,47 @@ struct GhostMainWindowContextLifecycleTests {
         #expect(GhosttyApp.terminalSurfaceRegistry.surface(id: terminalPanel.id) == nil)
     }
 
+    @Test("Activating the first main window retires the unowned launch bootstrap manager")
+    func activatingFirstMainWindowRetiresUnownedLaunchBootstrapManager() throws {
+        _ = NSApplication.shared
+        let app = AppDelegate()
+        let bootstrapManager = TabManager(initialTerminalInput: "")
+        let bootstrapWorkspace = try #require(bootstrapManager.selectedWorkspace)
+        let bootstrapPanel = try #require(bootstrapWorkspace.focusedTerminalPanel)
+        let windowManager = TabManager(initialTerminalInput: "")
+        let windowId = UUID()
+        let window = makeMainWindow(id: windowId)
+        defer {
+            app.unregisterMainWindowContextForTesting(windowId: windowId)
+            if !bootstrapManager.isFinalizedForWindowClose {
+                bootstrapManager.finalizeAllWorkspacesForWindowClose()
+            }
+            if !windowManager.isFinalizedForWindowClose {
+                windowManager.finalizeAllWorkspacesForWindowClose()
+            }
+            bootstrapWorkspace.teardownAllPanels()
+            bootstrapWorkspace.teardownRemoteConnection()
+            window.orderOut(nil)
+        }
+
+        app.tabManager = bootstrapManager
+        app.registerMainWindow(
+            window,
+            windowId: windowId,
+            tabManager: windowManager,
+            sidebarState: SidebarState(),
+            sidebarSelectionState: SidebarSelectionState(),
+            fileExplorerState: FileExplorerState()
+        )
+        app.setActiveMainWindow(window)
+
+        #expect(app.tabManager === windowManager)
+        #expect(bootstrapManager.isFinalizedForWindowClose)
+        #expect(bootstrapManager.tabs.isEmpty)
+        #expect(bootstrapWorkspace.isRetiredFromOwningTabManager)
+        #expect(GhosttyApp.terminalSurfaceRegistry.surface(id: bootstrapPanel.id) == nil)
+    }
+
     @Test("Finalized manager rejects late workspace acquisition")
     func finalizedManagerRejectsLateWorkspaceAcquisition() throws {
         let manager = TabManager()
