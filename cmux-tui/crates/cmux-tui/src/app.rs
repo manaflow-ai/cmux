@@ -16304,14 +16304,17 @@ mod tests {
             kind: None,
             reservation_id: None,
             label: "clear terminal history",
-            error: "unsupported".into(),
+            error: "remote server does not support clear-history; restart the cmux-tui server"
+                .into(),
             lane_failed: false,
             delivery: PtyOperationDelivery::KnownNotDelivered,
         });
 
         assert_eq!(
             app.status_message.as_deref(),
-            Some("ターミナル履歴を消去できませんでした: unsupported")
+            Some(
+                "ターミナル履歴を消去できませんでした: このサーバーでは clear-history を使用できません。cmux-tui サーバーを再起動してください"
+            )
         );
     }
 

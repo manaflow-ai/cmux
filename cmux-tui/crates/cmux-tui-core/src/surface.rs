@@ -1825,6 +1825,49 @@ mod tests {
     }
 
     #[test]
+    fn clear_history_waits_for_prompt_metadata_after_submitting_input() {
+        let mux = Mux::new_for_test("clear-delayed-prompt-output", SurfaceOptions::default());
+        let surface =
+            Surface::spawn_for_test(1, SurfaceOptions::default(), Arc::downgrade(&mux)).unwrap();
+        let writer = CapturingWriter::default();
+        *surface.as_pty().unwrap().writer.lock().unwrap() = Box::new(writer.clone());
+        let before = surface
+            .with_terminal(|term| {
+                for line in 0..40 {
+                    term.vt_write(format!("history-{line}\r\n").as_bytes());
+                }
+                term.vt_write(b"\x1b]133;A\x07prompt> \x1b]133;B\x07sleep 1");
+                assert!(term.history_rows() > 0);
+                term.viewport_text().unwrap()
+            })
+            .unwrap();
+
+        // Enter reaches the child before its delayed OSC 133 output. Clearing
+        // in this window must not inject Ctrl-L into the new foreground job.
+        surface.write_bytes(b"\r").unwrap();
+        surface.clear_history().unwrap();
+
+        surface.with_terminal(|term| {
+            assert_eq!(term.history_rows(), 0);
+            assert_eq!(term.viewport_text().unwrap(), before);
+        });
+        assert_eq!(&*writer.0.lock().unwrap(), b"\r");
+
+        surface.with_terminal(|term| {
+            term.vt_write(
+                b"\r\n\x1b]133;C\x07finished\r\n\x1b]133;D\x07\x1b]133;A\x07prompt> \x1b]133;B\x07",
+            );
+        });
+        surface.clear_history().unwrap();
+
+        surface.with_terminal(|term| {
+            assert_eq!(term.history_rows(), 0);
+            assert!(term.viewport_text().unwrap().trim().is_empty());
+        });
+        assert_eq!(&*writer.0.lock().unwrap(), b"\r\x0c");
+    }
+
+    #[test]
     fn clear_history_preserves_the_current_non_prompt_row_without_child_input() {
         let mux = Mux::new_for_test("clear-non-prompt-history", SurfaceOptions::default());
         let surface =
