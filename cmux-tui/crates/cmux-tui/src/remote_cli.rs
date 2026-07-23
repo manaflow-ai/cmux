@@ -1495,11 +1495,42 @@ fn run_remote_link(args: &[String]) -> anyhow::Result<()> {
     tokio_runtime()?.block_on(proxy_stdio(&link))
 }
 
+struct RemoteStopArgs {
+    session: String,
+    state_dir: Option<PathBuf>,
+}
+
+fn parse_remote_stop_args(args: &[String]) -> anyhow::Result<RemoteStopArgs> {
+    let mut session = "main".to_string();
+    let mut state_dir = None;
+    let mut seen = BTreeSet::new();
+    let mut index = 0;
+    while index < args.len() {
+        let argument = &args[index];
+        index += 1;
+        match argument.as_str() {
+            "--session" => {
+                require_unique_flag(&mut seen, "--session")?;
+                session = strict_option_value(args, &mut index, "--session")?;
+            }
+            "--state-dir" => {
+                require_unique_flag(&mut seen, "--state-dir")?;
+                state_dir = Some(strict_option_value(args, &mut index, "--state-dir")?.into());
+            }
+            option if option.starts_with("--") => {
+                return Err(anyhow!("unknown option {option:?} for remote-stop"));
+            }
+            _ => return Err(anyhow!("remote-stop accepts no positional arguments")),
+        }
+    }
+    Ok(RemoteStopArgs { session, state_dir })
+}
+
 fn run_remote_stop(args: &[String]) -> anyhow::Result<()> {
-    let session = flag_value(args, "--session").unwrap_or_else(|| "main".into());
-    let state_dir = flag_value(args, "--state-dir").map(PathBuf::from);
-    let (_, default_link, default_admin) = daemon_paths(&session, state_dir.as_deref())?;
-    let runtime = match load_runtime_info(&session, state_dir.as_deref()) {
+    let parsed = parse_remote_stop_args(args)?;
+    let (_, default_link, default_admin) =
+        daemon_paths(&parsed.session, parsed.state_dir.as_deref())?;
+    let runtime = match load_runtime_info(&parsed.session, parsed.state_dir.as_deref()) {
         Ok(runtime) => runtime,
         Err(_)
             if UnixStream::connect(&default_link).is_err()
@@ -2539,6 +2570,27 @@ esac
         ] {
             let args = args.into_iter().map(str::to_string).collect::<Vec<_>>();
             assert!(parse_known_daemons_args(&args).is_err(), "unexpectedly accepted {args:?}");
+        }
+    }
+
+    #[test]
+    fn remote_stop_parser_rejects_ambiguous_admin_arguments() {
+        let parsed = parse_remote_stop_args(
+            &["--session", "dev", "--state-dir", "/tmp/remote-state"].map(str::to_string),
+        )
+        .unwrap();
+        assert_eq!(parsed.session, "dev");
+        assert_eq!(parsed.state_dir, Some("/tmp/remote-state".into()));
+
+        for args in [
+            vec!["--session"],
+            vec!["--session", "dev", "--session", "other"],
+            vec!["--state-dir"],
+            vec!["--unknown"],
+            vec!["unexpected"],
+        ] {
+            let args = args.into_iter().map(str::to_string).collect::<Vec<_>>();
+            assert!(parse_remote_stop_args(&args).is_err(), "unexpectedly accepted {args:?}");
         }
     }
 
