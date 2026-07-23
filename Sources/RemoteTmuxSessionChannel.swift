@@ -141,6 +141,16 @@ final class RemoteTmuxSessionChannel: RemoteTmuxSessionSource {
 
     var connectionState: RemoteTmuxConnectionState { underlying.connectionState }
     var exited: Bool { underlying.exited }
+
+    /// Scoped before forwarding: the ring belongs to the shared stream, so without the session's own
+    /// id every session on the host writes indistinguishable pane events into it.
+    func record(_ event: String) {
+        if let scopedSessionId {
+            underlying.record("[$\(scopedSessionId)] \(event)")
+        } else {
+            underlying.record("[\(scopedSessionName)] \(event)")
+        }
+    }
     var sessionId: Int? { scopedSessionId }
     // These build from this session's OWN ids (windowIds / ownedPaneIds), not a filter
     // over the full shared map, so each read is O(this session's windows) rather than
@@ -267,8 +277,14 @@ final class RemoteTmuxSessionChannel: RemoteTmuxSessionSource {
     @discardableResult func sendTracked(_ command: String, completion: @escaping (Bool) -> Void) -> Bool {
         underlying.sendTracked(command, completion: completion)
     }
-    func repaintPaneVisibleScreen(paneId: Int) { underlying.repaintPaneVisibleScreen(paneId: paneId) }
-    func seedPane(paneId: Int) { underlying.seedPane(paneId: paneId) }
+    @discardableResult
+    func repaintPaneVisibleScreen(paneId: Int) -> UUID? {
+        underlying.repaintPaneVisibleScreen(paneId: paneId)
+    }
+    @discardableResult
+    func seedPane(paneId: Int, clearScrollback: Bool) -> UUID? {
+        underlying.seedPane(paneId: paneId, clearScrollback: clearScrollback)
+    }
     func unsubscribePanePath(paneId: Int) { underlying.unsubscribePanePath(paneId: paneId) }
     func unsubscribePaneReflow(paneId: Int) { underlying.unsubscribePaneReflow(paneId: paneId) }
     func unsubscribePaneHeader(paneId: Int) { underlying.unsubscribePaneHeader(paneId: paneId) }
@@ -346,6 +362,12 @@ final class RemoteTmuxSessionChannel: RemoteTmuxSessionSource {
                 guard let self, self.ownsPane(paneId) else { return }
                 for o in self.observers.values { o.onPaneOutput?(paneId, data) }
             },
+            // Scoped by pane like `%output`: a seed carries the pane's authoritative snapshot, so
+            // delivering another session's seed would repaint this session's surface from the wrong pane.
+            onPaneSeed: { [weak self] paneId, seed in
+                guard let self, self.ownsPane(paneId) else { return }
+                for o in self.observers.values { o.onPaneSeed?(paneId, seed) }
+            },
             onPaneCwd: { [weak self] paneId, path in
                 guard let self, self.ownsPane(paneId) else { return }
                 for o in self.observers.values { o.onPaneCwd?(paneId, path) }
@@ -362,6 +384,10 @@ final class RemoteTmuxSessionChannel: RemoteTmuxSessionSource {
                 // The shared stream's %session-changed describes the hidden view session,
                 // not this real session; per-session rename is driven by the coordinator.
             },
+            // `onAuthRequired` is deliberately NOT fanned. The host's login offer is made once by the
+            // view coordinator, which registers it on the shared stream itself
+            // (``RemoteTmuxViewConnection/onAuthRequired``); fanning per channel would offer one login
+            // tab per session on the host for a single parked stream.
             onTopologyChanged: { [weak self] in
                 guard let self else { return }
                 self.recomputeOwnedPanes()
@@ -375,6 +401,13 @@ final class RemoteTmuxSessionChannel: RemoteTmuxSessionSource {
                 if signature == self.lastTopologySignature { return }
                 self.lastTopologySignature = signature
                 for o in self.observers.values { o.onTopologyChanged?() }
+            },
+            // A reconnect re-attaches the shared stream, and every session's mirror has to re-apply
+            // its size afterwards: the mirror answers this by force-resizing its visible windows.
+            // Host-global by nature, so it fans to every channel.
+            onReconnectReady: { [weak self] in
+                guard let self else { return }
+                for o in self.observers.values { o.onReconnectReady?() }
             },
             onExit: {
                 // Deliberately NOT fanned. The shared stream's `%exit` is host-stream

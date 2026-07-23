@@ -2562,6 +2562,14 @@ private final class FuzzPeer {
         case let .panePath(pane):
             feed(block(["/tmp/cmux-fuzz"]))
             return "pane-path(%\(pane))"
+        case let .paneOutputReset(pane, _):
+            // Per-pane flow control: cmux asks tmux to drop or resume this pane's output. Both are
+            // acknowledged with an empty block, like the other fire-and-forget commands here.
+            feed(block([]))
+            return "pane-output-reset(%\(pane))"
+        case let .paneOutputContinue(pane, _):
+            feed(block([]))
+            return "pane-output-continue(%\(pane))"
         case .paneReflow:
             // An empty reply is the documented safe default (no reflow).
             feed(block([]))
