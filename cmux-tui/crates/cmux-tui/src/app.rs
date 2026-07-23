@@ -4941,7 +4941,8 @@ impl App {
         self.rebuild_tab_locations();
     }
 
-    fn apply_session_completions_through(&mut self, authoritative_generation: u64) {
+    fn apply_session_completions_through(&mut self, authoritative_generation: u64) -> bool {
+        let mut applied = false;
         while self
             .pending_session_completions
             .front()
@@ -4949,7 +4950,9 @@ impl App {
         {
             let completion = self.pending_session_completions.pop_front().unwrap();
             self.apply_session_completion(completion);
+            applied = true;
         }
+        applied
     }
 
     fn complete_remote_tree_refresh(&self, refresh_stale: bool) {
@@ -5693,9 +5696,14 @@ impl App {
                         refresh_sequence,
                     } => {
                         if !self.accept_refresh_sequence(refresh_sequence) {
-                            self.apply_session_completions_through(authoritative_generation);
+                            let applied_completion =
+                                self.apply_session_completions_through(authoritative_generation);
                             self.complete_routing_after_stale_identity_result();
-                            return Ok(RenderAction::None);
+                            return Ok(if applied_completion {
+                                RenderAction::Draw
+                            } else {
+                                RenderAction::None
+                            });
                         }
                         self.session.clear_surface_sync_failures();
                         self.session.reconcile_exited_surfaces(&tree);
