@@ -3974,13 +3974,17 @@ pub fn run_with_machine_updates(
 }
 
 fn enable_host_keyboard_protocol(stdout: &mut impl Write) -> std::io::Result<()> {
-    stdout.execute(PushKeyboardEnhancementFlags(
+    let result = stdout.execute(PushKeyboardEnhancementFlags(
         KeyboardEnhancementFlags::DISAMBIGUATE_ESCAPE_CODES
             | KeyboardEnhancementFlags::REPORT_ALTERNATE_KEYS
             | KeyboardEnhancementFlags::REPORT_ALL_KEYS_AS_ESCAPE_CODES
             | KeyboardEnhancementFlags::REPORT_ASSOCIATED_TEXT,
-    ))?;
-    Ok(())
+    ));
+    match result {
+        Ok(_) => Ok(()),
+        Err(error) if error.kind() == std::io::ErrorKind::Unsupported => Ok(()),
+        Err(error) => Err(error),
+    }
 }
 
 fn disable_host_keyboard_protocol(stdout: &mut impl Write) -> std::io::Result<()> {
@@ -5843,7 +5847,7 @@ impl App {
                 match &input {
                     TerminalInput::Paste(_) => "Paste exceeds the 4 MiB PTY buffer limit",
                     TerminalInput::Keyboard(_) => {
-                        "Keyboard text exceeds the 4 MiB PTY buffer limit"
+                        localization::catalog().terminal.keyboard_text_too_large
                     }
                     _ => unreachable!("fixed-size input cannot exceed the byte limit"),
                 }

@@ -22,6 +22,7 @@ pub(crate) struct ForeignViewportMessages {
 #[derive(Debug, PartialEq, Eq)]
 pub(crate) struct TerminalMessages {
     pub clear_history_failed: &'static str,
+    pub keyboard_text_too_large: &'static str,
 }
 
 #[derive(Debug, PartialEq, Eq)]
@@ -150,7 +151,10 @@ static ENGLISH: Catalog = Catalog {
         approve: "[ Approve enter ]",
     },
     foreign_viewport: ForeignViewportMessages { terminal_grid: "terminal grid" },
-    terminal: TerminalMessages { clear_history_failed: "Could not clear terminal history" },
+    terminal: TerminalMessages {
+        clear_history_failed: "Could not clear terminal history",
+        keyboard_text_too_large: "Keyboard text exceeds the 4 MiB PTY buffer limit",
+    },
     sidebar: SidebarMessages {
         machines: "machines",
         workspaces: "workspaces",
@@ -232,7 +236,8 @@ static JAPANESE: Catalog = Catalog {
     },
     foreign_viewport: ForeignViewportMessages { terminal_grid: "端末グリッド" },
     terminal: TerminalMessages {
-        clear_history_failed: "ターミナル履歴を消去できませんでした"
+        clear_history_failed: "ターミナル履歴を消去できませんでした",
+        keyboard_text_too_large: "キーボード入力が 4 MiB の PTY バッファ上限を超えています",
     },
     sidebar: SidebarMessages {
         machines: "マシン",
@@ -330,6 +335,10 @@ mod tests {
         assert_eq!(catalog_for_locale("en_US.UTF-8"), &ENGLISH);
         assert_eq!(catalog_for_locale("ja_JP.UTF-8"), &JAPANESE);
         assert_eq!(catalog_for_locale("C"), &ENGLISH);
+        assert_eq!(
+            catalog_for_locale("ja_JP.UTF-8").terminal.keyboard_text_too_large,
+            "キーボード入力が 4 MiB の PTY バッファ上限を超えています"
+        );
         assert_eq!(
             catalog_for_locale("ja_JP.UTF-8").sidebar.machine_provider_disconnected,
             "マシンプロバイダーから切断されました。再接続しています"

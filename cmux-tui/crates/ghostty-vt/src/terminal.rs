@@ -235,12 +235,6 @@ enum PromptSemantic {
     Output,
 }
 
-impl PromptSemantic {
-    fn is_prompt(self) -> bool {
-        matches!(self, Self::Prompt | Self::Input | Self::InputUntilEndOfLine)
-    }
-}
-
 #[derive(Default)]
 struct PromptSemanticTracker {
     state: PromptTrackState,
@@ -295,11 +289,11 @@ impl PromptSemanticTracker {
         for &byte in data {
             let state = std::mem::take(&mut self.state);
             self.state = match state {
+                // The PTY stream is UTF-8. Accept only 7-bit ESC forms so
+                // continuation bytes cannot masquerade as 8-bit C1 controls.
                 PromptTrackState::Ground => match byte {
                     0x1b => PromptTrackState::Escape,
-                    0x9d => PromptTrackState::Osc(PromptOsc::default()),
-                    0x9b => Self::csi(),
-                    b'\n' | 0x0b | 0x0c | 0x84 | 0x85 => {
+                    b'\n' | 0x0b | 0x0c => {
                         self.end_line();
                         PromptTrackState::Ground
                     }
@@ -322,7 +316,7 @@ impl PromptSemanticTracker {
                     _ => PromptTrackState::Ground,
                 },
                 PromptTrackState::Osc(mut osc) => match byte {
-                    0x07 | 0x9c => {
+                    0x07 => {
                         self.finish_osc(osc.action);
                         PromptTrackState::Ground
                     }
@@ -1296,6 +1290,13 @@ impl Terminal {
         if self.active_screen() == Screen::Alternate {
             return false;
         }
+        match self.prompt_semantic.semantic(Screen::Primary) {
+            PromptSemantic::Prompt
+            | PromptSemantic::Input
+            | PromptSemantic::InputUntilEndOfLine => return true,
+            PromptSemantic::Output => return false,
+            PromptSemantic::Unknown => {}
+        }
         let Some((x, y)) = self.cursor_position() else {
             return false;
         };
@@ -1326,7 +1327,7 @@ impl Terminal {
             return false;
         }
         let mut cell_semantic = sys::GHOSTTY_CELL_SEMANTIC_OUTPUT;
-        let cell_marks_prompt = check(unsafe {
+        check(unsafe {
             sys::ghostty_cell_get(
                 cell,
                 sys::GHOSTTY_CELL_DATA_SEMANTIC_CONTENT,
@@ -1337,8 +1338,7 @@ impl Terminal {
             && matches!(
                 cell_semantic,
                 sys::GHOSTTY_CELL_SEMANTIC_INPUT | sys::GHOSTTY_CELL_SEMANTIC_PROMPT
-            );
-        cell_marks_prompt || self.prompt_semantic.semantic(Screen::Primary).is_prompt()
+            )
     }
 
     /// Whether any mouse tracking mode is enabled by the application.
