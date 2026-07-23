@@ -8,6 +8,7 @@ struct ArtifactSidebarThumbnailView: View {
     let fileURL: URL
     let kind: ArtifactFileKind?
     let isDirectory: Bool
+    let modifiedAt: Date?
 
     @State private var thumbnail: NSImage?
 
@@ -27,7 +28,7 @@ struct ArtifactSidebarThumbnailView: View {
         }
         .frame(width: 24, height: 24)
         .clipShape(.rect(cornerRadius: 4))
-        .task(id: fileURL) {
+        .task(id: modifiedAt) {
             await loadThumbnailIfNeeded()
         }
     }
@@ -47,8 +48,8 @@ struct ArtifactSidebarThumbnailView: View {
 
     @MainActor
     private func loadThumbnailIfNeeded() async {
+        thumbnail = nil
         guard kind == .image || kind == .video else {
-            thumbnail = nil
             return
         }
         let request = QLThumbnailGenerator.Request(
