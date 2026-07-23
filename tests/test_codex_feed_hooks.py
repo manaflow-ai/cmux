@@ -80,6 +80,7 @@ class FakeCmuxSocket:
         drop_first_surface_list: bool = False,
         feed_response_gate: threading.Event | None = None,
         feed_response_ok: bool = True,
+        include_feed_item_id: bool = True,
         deferred_feed_response_count: int | None = None,
         raw_response_delay: float = 0,
         surfaces_by_workspace: dict[str, list[dict]] | None = None,
@@ -91,6 +92,7 @@ class FakeCmuxSocket:
         self.drop_first_surface_list = drop_first_surface_list
         self.feed_response_gate = feed_response_gate
         self.feed_response_ok = feed_response_ok
+        self.include_feed_item_id = include_feed_item_id
         self.deferred_feed_response_count = deferred_feed_response_count
         self.raw_response_delay = raw_response_delay
         self.surfaces_by_workspace = surfaces_by_workspace
@@ -167,6 +169,8 @@ class FakeCmuxSocket:
                         if self.feed_response_gate is not None:
                             self.feed_response_gate.wait(timeout=3)
                     result: dict = {"status": "acknowledged"}
+                    if frame.get("method") == "feed.push" and self.include_feed_item_id:
+                        result["item_id"] = "33333333-3333-3333-3333-333333333333"
                     if frame.get("method") == "surface.list":
                         if self.drop_first_surface_list and not self._dropped_surface_list:
                             self._dropped_surface_list = True
@@ -2811,6 +2815,49 @@ def test_pi_feed_rejects_failed_server_ack(cli_path: str, root: Path) -> None:
         )
 
 
+def test_pi_feed_rejects_unconfirmed_server_ack(cli_path: str, root: Path) -> None:
+    socket_path = root / "cmux-pi-feed-unconfirmed-ack.sock"
+    env = os.environ.copy()
+    for key in ("CMUX_SOCKET", "CMUX_SOCKET_CAPABILITY", "CMUX_SOCKET_PATH", "CMUX_SOCKET_PASSWORD"):
+        env.pop(key, None)
+    env["CMUX_SURFACE_ID"] = FAKE_SURFACE_ID
+    env["CMUX_WORKSPACE_ID"] = FAKE_WORKSPACE_ID
+    payload = {
+        "session_id": "pi-unconfirmed-session",
+        "cwd": "/tmp/pi-unconfirmed-project",
+        "hook_event_name": "PostToolUse",
+        "tool_call_id": "pi-unconfirmed-tool",
+        "tool_name": "bash",
+    }
+
+    with FakeCmuxSocket(socket_path, None, include_feed_item_id=False):
+        result = subprocess.run(
+            [
+                cli_path,
+                "--socket",
+                str(socket_path),
+                "hooks",
+                "feed",
+                "--source",
+                "pi",
+                "--event",
+                "PostToolUse",
+            ],
+            input=json.dumps(payload),
+            capture_output=True,
+            text=True,
+            check=False,
+            env=env,
+            timeout=10,
+        )
+
+    if result.returncode == 0:
+        raise AssertionError(
+            "Pi feed accepted an acknowledgment without authoritative insertion proof: "
+            f"stdout={result.stdout!r} stderr={result.stderr!r}"
+        )
+
+
 def test_pi_feed_rejects_connection_failure(cli_path: str, root: Path) -> None:
     socket_path = root / "missing-pi-feed.sock"
     env = os.environ.copy()
@@ -3242,6 +3289,7 @@ def main() -> int:
             test_pi_compacted_feed_allows_brief_auth_delay(cli_path, root)
             test_pi_feed_waits_for_server_ack(cli_path, root)
             test_pi_feed_rejects_failed_server_ack(cli_path, root)
+            test_pi_feed_rejects_unconfirmed_server_ack(cli_path, root)
             test_pi_feed_rejects_connection_failure(cli_path, root)
             test_pi_hook_rejects_invalid_explicit_surface(cli_path, root)
             test_pi_hook_rehomes_moved_explicit_surface(cli_path, root)
