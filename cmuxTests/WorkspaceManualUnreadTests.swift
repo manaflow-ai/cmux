@@ -1738,10 +1738,14 @@ final class WorkspaceManualUnreadTests: XCTestCase {
         let restoredPanelId = try XCTUnwrap(restored.focusedPanelId)
         let restoredTabId = try XCTUnwrap(restored.surfaceIdFromPanelId(restoredPanelId))
         XCTAssertFalse(restored.manualUnreadPanelIds.contains(restoredPanelId))
-        XCTAssertTrue(restored.hasRestoredUnreadIndicator(panelId: restoredPanelId))
+        // The snapshot carries the notification, so restore puts it back still unread and
+        // leaves the restored-unread indicator off. The notification drives the badge, and
+        // setting the indicator as well would count the same notification twice.
+        XCTAssertFalse(restored.hasRestoredUnreadIndicator(panelId: restoredPanelId))
+        XCTAssertTrue(store.hasUnreadNotification(forTabId: restored.id, surfaceId: restoredPanelId))
         XCTAssertTrue(restored.bonsplitController.tab(restoredTabId)?.showsNotificationBadge ?? false)
         XCTAssertFalse(store.hasManualUnread(forTabId: restored.id))
-        XCTAssertEqual(store.unreadCount(forTabId: restored.id), 0)
+        XCTAssertEqual(store.unreadCount(forTabId: restored.id), 1)
 
         restored.markPanelRead(restoredPanelId)
 
@@ -1788,12 +1792,16 @@ final class WorkspaceManualUnreadTests: XCTestCase {
 
         let restoredPanelId = try XCTUnwrap(restored.focusedPanelId)
         XCTAssertTrue(restored.manualUnreadPanelIds.contains(restoredPanelId))
-        XCTAssertTrue(restored.hasRestoredUnreadIndicator(panelId: restoredPanelId))
+        // Manual panel unread survives restore on its own. The restored-unread indicator
+        // stays off because the snapshot's unread notification comes back instead.
+        XCTAssertFalse(restored.hasRestoredUnreadIndicator(panelId: restoredPanelId))
+        XCTAssertTrue(store.hasUnreadNotification(forTabId: restored.id, surfaceId: restoredPanelId))
 
         restored.markPanelRead(restoredPanelId)
 
         XCTAssertFalse(restored.manualUnreadPanelIds.contains(restoredPanelId))
         XCTAssertFalse(restored.hasRestoredUnreadIndicator(panelId: restoredPanelId))
+        XCTAssertFalse(store.hasUnreadNotification(forTabId: restored.id, surfaceId: restoredPanelId))
     }
 
     func testSessionRestorePreservesFocusedReadIndicator() throws {
@@ -1961,7 +1969,10 @@ final class WorkspaceManualUnreadTests: XCTestCase {
         restored.restoreSessionSnapshot(snapshot)
 
         XCTAssertFalse(store.hasManualUnread(forTabId: restored.id))
-        XCTAssertTrue(store.hasRestoredUnreadIndicator(forTabId: restored.id))
+        // The workspace-level notification is restored unread, so it carries the unread
+        // state and the restored-unread indicator is not set on top of it.
+        XCTAssertFalse(store.hasRestoredUnreadIndicator(forTabId: restored.id))
+        XCTAssertTrue(store.hasUnreadNotification(forTabId: restored.id, surfaceId: nil))
         XCTAssertEqual(store.unreadCount(forTabId: restored.id), 1)
 
         store.markRead(forTabId: restored.id)
@@ -2004,14 +2015,19 @@ final class WorkspaceManualUnreadTests: XCTestCase {
         let restored = Workspace()
         restored.restoreSessionSnapshot(snapshot)
 
+        // Manual workspace unread and the restored workspace notification are independent,
+        // so the count is the notification (1) plus the manual indicator (1). unreadCount
+        // adds one for any workspace-level indicator on top of the per-notification count.
         XCTAssertTrue(store.hasManualUnread(forTabId: restored.id))
-        XCTAssertTrue(store.hasRestoredUnreadIndicator(forTabId: restored.id))
-        XCTAssertEqual(store.unreadCount(forTabId: restored.id), 1)
+        XCTAssertFalse(store.hasRestoredUnreadIndicator(forTabId: restored.id))
+        XCTAssertTrue(store.hasUnreadNotification(forTabId: restored.id, surfaceId: nil))
+        XCTAssertEqual(store.unreadCount(forTabId: restored.id), 2)
 
         store.clearManualUnread(forTabId: restored.id)
 
         XCTAssertFalse(store.hasManualUnread(forTabId: restored.id))
-        XCTAssertTrue(store.hasRestoredUnreadIndicator(forTabId: restored.id))
+        XCTAssertFalse(store.hasRestoredUnreadIndicator(forTabId: restored.id))
+        XCTAssertTrue(store.hasUnreadNotification(forTabId: restored.id, surfaceId: nil))
         XCTAssertEqual(store.unreadCount(forTabId: restored.id), 1)
 
         store.markRead(forTabId: restored.id)
