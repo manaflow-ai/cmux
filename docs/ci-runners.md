@@ -2,8 +2,9 @@
 
 Every CI/CD job picks its runner from a repository variable instead of a
 hardcoded label. Linux uses Blacksmith. macOS uses ephemeral Tart VMs on the
-cmux Mac fleet. Changing a runner type is a single repository-variable update
-that takes effect on the next workflow run.
+cmux Mac fleet, except the guarded dual-Xcode lane (see below). Changing a
+runner type is a single repository-variable update that takes effect on the
+next workflow run.
 
 | Variable            | Used by                                                    | Active value                | Fallback baked into the workflow |
 | ------------------- | ---------------------------------------------------------- | --------------------------- | -------------------------------- |
@@ -39,6 +40,33 @@ self-hosted labels are the `tart-*` labels, and each Tart-aware canary checks
 that the resolved runner name starts with `tart-cmux-` and that the guest has
 the immutable `/etc/cmux-tart-ci` marker.
 
+## Guarded dual-Xcode lane
+
+The 2026-07-10 incident: `MACOS_RUNNER_15` was flipped to `tart-macos-15`
+alongside the Tart canary rollout (#7796). The Tart Sequoia image ships only
+SDK-26 Xcodes, so `swift-package-tests` — which must build the universal
+Ghostty CLI helper with an SDK-15 Xcode (16.x,
+`CMUX_CI_REQUIRED_MACOS_SDK_MAJOR=15`) in addition to running tests on the
+pinned SDK-26 Xcode (`vars.CMUX_CI_XCODE_APP_MACOS_15`) — failed on every
+branch with "No Xcode.app found under /Applications with macOS SDK major 15",
+and app-host shard 4 failed because the image also lacked `node` (since
+worked around in the workflow). Required CI was red for everyone while the
+failures read as fleet breakage.
+
+`swift-package-tests` therefore routes through `MACOS_RUNNER_DUAL_XCODE`
+(contract: image ships both an SDK-15 Xcode and the pinned SDK-26 Xcode;
+headless is fine), and `workflow-guard-tests` runs
+`scripts/ci/check-macos-runner-routing.sh` against the live value on every
+`ci.yml` run, failing closed with remediation instructions if the variable is
+set to a label outside the validated allowlist. To cut this lane over to a
+new runner type (including Tart): prove `swift-package-tests` green on the
+new label via `workflow_dispatch`, extend the allowlist in that script in a
+reviewed PR, then flip the variable.
+
+The release and nightly helper builds route through `MACOS_RUNNER_15` and
+need the same SDK-15 Xcode, so they will fail while `MACOS_RUNNER_15` points
+at `tart-macos-15` and the image lacks an SDK-15 Xcode.
+
 ## Break-glass: switch a runner type to a paid provider
 
 There is no automatic overflow. If the Tart pool is unavailable or its queue is
@@ -56,7 +84,10 @@ gh variable set MACOS_RUNNER_DISPLAY    --repo manaflow-ai/cmux -b depot-macos-l
 gh variable set MACOS_RUNNER_IOS        --repo manaflow-ai/cmux -b blacksmith-6vcpu-macos-26
 ```
 
-Restore the self-hosted pool with explicit labels:
+Restore the self-hosted pool with explicit labels (`MACOS_RUNNER_DUAL_XCODE`
+stays on a cloud label until a Tart image passes the dual-Xcode contract and
+the allowlist in `scripts/ci/check-macos-runner-routing.sh` is extended in a
+reviewed PR):
 
 ```bash
 gh variable set MACOS_RUNNER_15         --repo manaflow-ai/cmux -b tart-macos-15

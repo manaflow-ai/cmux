@@ -175,11 +175,13 @@ if [ -z "$BEST_DIR" ] && [ -n "$BETA_DIR" ]; then
 fi
 
 if [ -z "$BEST_DIR" ]; then
+  RUNNER_HINT="runner: ${RUNNER_NAME:-unknown}"
   if [ -n "$REQUIRED_SDK_MAJOR" ]; then
-    echo "No Xcode.app found under $APPLICATIONS_DIR with macOS SDK major $REQUIRED_SDK_MAJOR" >&2
+    echo "No Xcode.app found under $APPLICATIONS_DIR with macOS SDK major $REQUIRED_SDK_MAJOR ($RUNNER_HINT)" >&2
+    echo "This job's runner image does not ship the required Xcode toolchain. If this is a self-hosted VM (e.g. tart-*), the job was routed to a runner whose image lacks an SDK-$REQUIRED_SDK_MAJOR Xcode: fix the MACOS_RUNNER_* repository variable or the VM image before re-running (see docs/ci-runners.md)." >&2
     exit 1
   fi
-  echo "No Xcode.app found under $APPLICATIONS_DIR" >&2
+  echo "No Xcode.app found under $APPLICATIONS_DIR ($RUNNER_HINT)" >&2
   exit 1
 fi
 

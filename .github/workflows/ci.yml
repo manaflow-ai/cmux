@@ -92,6 +92,14 @@ jobs:
       - name: Validate macOS runner guards
         run: ./tests/test_ci_self_hosted_guard.sh
 
+      - name: Validate macOS lane routing variables
+        env:
+          MACOS_RUNNER_DUAL_XCODE_VALUE: ${{ vars.MACOS_RUNNER_DUAL_XCODE }}
+        run: ./scripts/ci/check-macos-runner-routing.sh
+
+      - name: Validate macOS lane routing guard behavior
+        run: ./tests/test_ci_macos_runner_routing_guard.sh
+
       - name: Validate release SDK build lane
         run: ./tests/test_ci_release_sdk_lane.sh
 
@@ -1039,6 +1047,11 @@ jobs:
     # linux-preflight itself succeeds. Require the direct needs explicitly.
     if: ${{ !cancelled() && needs.changes.result == 'success' && needs.linux-preflight.result == 'success' && needs.changes.outputs.macos == 'true' }}
     # Build the release helper with SDK 15, then run package tests with SDK 26.
+    # This dual-Xcode lane variable must stay on an image shipping BOTH Xcodes
+    # (2026-07-10: MACOS_RUNNER_15=tart-macos-15 killed this job on every
+    # branch because the Tart image has no SDK-15 Xcode). The routing guard in
+    # workflow-guard-tests (scripts/ci/check-macos-runner-routing.sh) enforces
+    # the validated allowlist for this variable.
     runs-on: ${{ vars.MACOS_RUNNER_DUAL_XCODE || 'blacksmith-6vcpu-macos-15' }}
     timeout-minutes: 40
     env:

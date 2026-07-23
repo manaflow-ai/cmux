@@ -154,4 +154,34 @@ if ! grep -Fq "Pinned Xcode developer dir does not exist" <<< "$missing_output";
   exit 1
 fi
 
+# A runner image with no SDK-matching Xcode at all (2026-07-10: tart-macos-15
+# images lack an SDK-15 Xcode) must fail with the runner identity and a
+# routing remediation hint, not just a bare not-found line.
+no_sdk_dir="$tmp_dir/no-sdk-15-apps"
+mkdir -p "$no_sdk_dir"
+no_match_output="$(
+  PATH="$bin_dir:/usr/bin:/bin" \
+    GITHUB_ENV="$env_file" \
+    CMUX_TEST_XCODE_SELECT_LOG="$xcode_select_log" \
+    CMUX_XCODE_APPLICATIONS_DIR="$no_sdk_dir" \
+    CMUX_CI_REQUIRED_MACOS_SDK_MAJOR=15 \
+    RUNNER_NAME="tart-cmux-test-1" \
+    "$SCRIPT" 2>&1 >/dev/null
+)" && {
+  echo "FAIL: scan with no SDK-15 Xcode should fail"
+  exit 1
+}
+
+if ! grep -Fq "No Xcode.app found under $no_sdk_dir with macOS SDK major 15 (runner: tart-cmux-test-1)" <<< "$no_match_output"; then
+  echo "FAIL: no-matching-Xcode failure did not name the runner"
+  printf '%s\n' "$no_match_output" >&2
+  exit 1
+fi
+
+if ! grep -Fq "fix the MACOS_RUNNER_* repository variable or the VM image" <<< "$no_match_output"; then
+  echo "FAIL: no-matching-Xcode failure did not include the routing remediation hint"
+  printf '%s\n' "$no_match_output" >&2
+  exit 1
+fi
+
 echo "PASS: CI Xcode selection fast path"
