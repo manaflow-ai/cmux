@@ -1781,52 +1781,99 @@ mod tests {
     }
 
     #[tokio::test]
-    async fn full_frame_queue_reset_errors_the_local_stream() {
+    async fn tiny_frame_respects_minimum_aggregate_budget_charge() {
         let (client_endpoint, daemon_endpoint) = endpoint_pair();
         let client = ServiceMultiplexer::new_with_incoming_budget(
             client_endpoint,
             EndpointRole::Client,
-            257,
+            1023,
         );
         let stream = client.open(Service::WorkspaceRpc, BTreeMap::new()).await.unwrap();
-        for _ in 0..=256 {
-            daemon_endpoint
-                .send_frame(
-                    None,
-                    Lane::Control,
-                    stream.id(),
-                    Bytes::from_static(b"x"),
-                    FrameFlags::empty(),
-                )
-                .await
-                .unwrap();
-        }
-
-        let failure =
-            tokio::time::timeout(Duration::from_secs(1), stream.wait_for_failure()).await.unwrap();
-        assert!(matches!(
-            failure,
-            ServiceError::Reset(message) if message.contains("frame queue")
-        ));
-        let error = tokio::time::timeout(Duration::from_secs(1), stream.receive())
-            .await
-            .unwrap()
-            .unwrap_err();
-        assert!(matches!(error, ServiceError::Reset(message) if message.contains("frame queue")));
-        assert!(client.streams.lock().await.is_empty());
-
-        let next = client.open(Service::WorkspaceRpc, BTreeMap::new()).await.unwrap();
         daemon_endpoint
             .send_frame(
                 None,
                 Lane::Control,
-                next.id(),
-                Bytes::from(vec![b'y'; 257]),
+                stream.id(),
+                Bytes::from_static(b"x"),
                 FrameFlags::empty(),
             )
             .await
             .unwrap();
-        assert_eq!(next.receive().await.unwrap().unwrap().payload.len(), 257);
+
+        let error = tokio::time::timeout(Duration::from_secs(1), stream.receive())
+            .await
+            .expect("reader stalled while enforcing the aggregate byte budget")
+            .expect_err("a one-byte frame must consume at least one KiB of aggregate budget");
+        assert!(matches!(error, ServiceError::Reset(message) if message.contains("byte budget")));
+        assert!(client.streams.lock().await.is_empty());
+    }
+
+    #[tokio::test]
+    async fn undrained_bulk_stream_does_not_reset_or_block_interactive_stream() {
+        const FRAME_COUNT: u64 = 1024;
+        const FRAME_BYTES: usize = 1024;
+
+        let (client_endpoint, daemon_endpoint) = endpoint_pair();
+        let client = ServiceMultiplexer::new_with_incoming_budget(
+            client_endpoint,
+            EndpointRole::Client,
+            2 * 1024 * 1024,
+        );
+        let bulk = client.open(Service::MuxControl, BTreeMap::new()).await.unwrap();
+        let interactive = client.open(Service::MuxControl, BTreeMap::new()).await.unwrap();
+
+        for index in 0..FRAME_COUNT {
+            let mut payload = vec![0; FRAME_BYTES];
+            payload[..size_of::<u64>()].copy_from_slice(&index.to_le_bytes());
+            daemon_endpoint
+                .send_frame(None, Lane::Bulk, bulk.id(), Bytes::from(payload), FrameFlags::empty())
+                .await
+                .unwrap();
+        }
+        daemon_endpoint
+            .send_frame(
+                None,
+                Lane::Interactive,
+                interactive.id(),
+                Bytes::from_static(b"interactive-marker"),
+                FrameFlags::empty(),
+            )
+            .await
+            .unwrap();
+
+        let marker = tokio::time::timeout(Duration::from_secs(1), interactive.receive())
+            .await
+            .expect("interactive stream was blocked behind the undrained bulk stream")
+            .expect("interactive stream reset while the bulk stream was undrained")
+            .expect("interactive stream ended before delivering its marker");
+        assert_eq!(marker.lane, Lane::Interactive);
+        assert_eq!(marker.payload, b"interactive-marker".as_slice());
+        assert_eq!(bulk.failure.borrow().clone(), None, "undrained bulk stream was reset");
+        assert_eq!(interactive.failure.borrow().clone(), None, "interactive stream was reset");
+
+        tokio::time::timeout(Duration::from_secs(1), async {
+            for expected in 0..FRAME_COUNT {
+                let chunk = bulk
+                    .receive()
+                    .await
+                    .expect("bulk stream reset while draining its backlog")
+                    .expect("bulk stream ended before its backlog was drained");
+                assert_eq!(chunk.lane, Lane::Bulk);
+                assert_eq!(chunk.payload.len(), FRAME_BYTES);
+                assert!(!chunk.finished);
+                assert!(!chunk.reset);
+                let sequence = u64::from_le_bytes(
+                    chunk.payload[..size_of::<u64>()]
+                        .try_into()
+                        .expect("sequence prefix must be eight bytes"),
+                );
+                assert_eq!(sequence, expected);
+            }
+        })
+        .await
+        .expect("bulk backlog did not drain within one second");
+        assert_eq!(bulk.failure.borrow().clone(), None, "bulk stream reset after draining");
+        assert_eq!(client.streams.lock().await.len(), 2);
     }
 
     #[tokio::test]
