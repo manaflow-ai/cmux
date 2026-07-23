@@ -91,8 +91,14 @@ class FakeRunner:
             "digest": "a" * 64,
             "byte_count": 4096,
         }
+        self.previous_snapshot_fingerprint: dict[str, Any] | None = None
 
     def _restore_with_fresh_ids(self) -> None:
+        self.previous_snapshot_fingerprint = deepcopy(self.snapshot_fingerprint)
+        self.snapshot_fingerprint = {
+            **self.snapshot_fingerprint,
+            "digest": "b" * 64,
+        }
         self.restore_count += 1
         suffix = f"restored-{self.restore_count}"
         old_workspace = self.workspace
@@ -139,9 +145,13 @@ class FakeRunner:
     def clean_persisted_state(self) -> None:
         self.events.append("clean_persisted_state")
 
-    def persisted_snapshot_fingerprint(self) -> dict[str, Any]:
-        self.events.append("persisted_snapshot_fingerprint")
-        return deepcopy(self.snapshot_fingerprint)
+    def persisted_snapshot_fingerprint(self, source: str = "primary") -> dict[str, Any]:
+        self.events.append(("persisted_snapshot_fingerprint", source))
+        if source == "primary":
+            return deepcopy(self.snapshot_fingerprint)
+        if source == "previous" and self.previous_snapshot_fingerprint is not None:
+            return deepcopy(self.previous_snapshot_fingerprint)
+        raise ValueError(f"unavailable persisted snapshot source: {source}")
 
     def launch(self, label: str) -> float:
         self.events.append(("launch", label))
@@ -757,11 +767,12 @@ def test_snapshot_restore_relaunches_without_cleaning_and_strictly_verifies_shap
     original_workspace = adapter._workspace_id
     original_pane = adapter._pane_id
     original_terminals = dict(adapter._terminal_actual_ids)
+    expected_persisted = deepcopy(runner.snapshot_fingerprint)
     original_browsers = dict(adapter._browser_actual_ids)
 
     captured = adapter.snapshot()
     assert captured["elapsed_ms"] == 4.5
-    assert runner.events[-1] == "persisted_snapshot_fingerprint"
+    assert runner.events[-1] == ("persisted_snapshot_fingerprint", "primary")
     before_restore = len(runner.events)
     adapter.restore(captured)
     restored_events = runner.events[before_restore:]
@@ -794,8 +805,9 @@ def test_snapshot_restore_relaunches_without_cleaning_and_strictly_verifies_shap
         if event[:2] == ("rpc", "debug.session_snapshot_benchmark")
     ]
     assert len(benchmark_calls) == 1
-    assert adapter.raw_details["snapshot"]["persisted_before"] == runner.snapshot_fingerprint
-    assert adapter.raw_details["snapshot"]["persisted_after"] == runner.snapshot_fingerprint
+    assert adapter.raw_details["snapshot"]["persisted_before"] == expected_persisted
+    assert adapter.raw_details["snapshot"]["persisted_after"] == expected_persisted
+    assert runner.snapshot_fingerprint != expected_persisted
     assert adapter.observe_fixture()["browsers"][0]["content_marker"] == plan.browser_surfaces[0].content_marker
     runner.snapshot_fingerprint["digest"] = "0" * 64
     with pytest.raises(ValueError, match="persisted snapshot fingerprint"):

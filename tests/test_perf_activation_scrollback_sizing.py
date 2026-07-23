@@ -87,6 +87,11 @@ def test_persisted_snapshot_fingerprint_uses_exact_tagged_primary_file(
         / "session-com.cmuxterm.app.debug.fingerprint.test.json"
     )
     snapshot_path.parent.mkdir(parents=True)
+    previous_payload = b'{"owned":"previous"}'
+    previous_path = snapshot_path.with_name(
+        "session-com.cmuxterm.app.debug.fingerprint.test-previous.json"
+    )
+    previous_path.write_bytes(previous_payload)
     snapshot_path.write_bytes(payload)
 
     assert runner.persisted_snapshot_fingerprint() == {
@@ -95,6 +100,11 @@ def test_persisted_snapshot_fingerprint_uses_exact_tagged_primary_file(
         "byte_count": len(payload),
     }
 
+    assert runner.persisted_snapshot_fingerprint(source="previous") == {
+        "algorithm": "sha256",
+        "digest": hashlib.sha256(previous_payload).hexdigest(),
+        "byte_count": len(previous_payload),
+    }
 
 if __name__ == "__main__":
     test_default_scrollback_seed_is_bounded_above_budget_floor()
