@@ -12084,7 +12084,7 @@ class TerminalController {
     /// guard position (after the selected-tab guard, before delivery), so a
     /// gated request still reports tab errors exactly like the main lane.
     private nonisolated func notifyCurrent(_ args: String) -> String {
-        let (title, subtitle, body, meta) = parseNotificationPayload(args)
+        let (title, subtitle, body, meta, _) = parseNotificationPayload(args)
         let deliver = shouldDeliverAgentNotification(meta)
         return v2MainSync {
             guard let tabManager = self.tabManager else { return "ERROR: TabManager not available" }
@@ -12115,7 +12115,7 @@ class TerminalController {
         let parts = trimmed.split(separator: " ", maxSplits: 1).map(String.init)
         let surfaceArg = parts.first ?? ""
         let payload = parts.count > 1 ? parts[1] : ""
-        let (title, subtitle, body, meta) = parseNotificationPayload(payload)
+        let (title, subtitle, body, meta, _) = parseNotificationPayload(payload)
         let deliver = shouldDeliverAgentNotification(meta)
 
         return v2MainSync {
@@ -12154,7 +12154,7 @@ class TerminalController {
         let tabArg = parts.count > 0 ? parts[0] : ""
         let panelArg = parts.count > 1 ? parts[1] : ""
         let payload = parts.count > 2 ? parts[2] : ""
-        let (title, subtitle, body, meta) = parseNotificationPayload(payload)
+        let (title, subtitle, body, meta, dedupeKey) = parseNotificationPayload(payload)
         let deliver = shouldDeliverAgentNotification(meta)
         let fastPath: (workspaceId: UUID, panelId: UUID)?
         if let workspaceId = UUID(uuidString: tabArg), let panelId = UUID(uuidString: panelArg) {
@@ -12174,6 +12174,14 @@ class TerminalController {
                 // sync deliverer retargets); only a target gone everywhere errors.
                 guard AppDelegate.shared?.agentNotificationDeliveryTarget(claimedTabId: fastPath.workspaceId, surfaceId: fastPath.panelId) != nil else {
                     return "ERROR: Panel not found"
+                }
+                if let dedupeKey,
+                   !TerminalMutationBus.shared.claimNotificationDedupeKey(
+                       tabId: fastPath.workspaceId,
+                       surfaceId: fastPath.panelId,
+                       dedupeKey: dedupeKey
+                   ) {
+                    return "OK"
                 }
                 self.deliverNotificationSynchronously(
                     tabId: fastPath.workspaceId,
@@ -12197,6 +12205,14 @@ class TerminalController {
             guard let panelId = UUID(uuidString: panelArg),
                   AppDelegate.shared?.agentNotificationDeliveryTarget(claimedTabId: tab.id, surfaceId: panelId) != nil else {
                 return "ERROR: Panel not found"
+            }
+            if let dedupeKey,
+               !TerminalMutationBus.shared.claimNotificationDedupeKey(
+                   tabId: tab.id,
+                   surfaceId: panelId,
+                   dedupeKey: dedupeKey
+               ) {
+                return "OK"
             }
             self.deliverNotificationSynchronously(
                 tabId: tab.id,
@@ -12235,7 +12251,7 @@ class TerminalController {
         guard !payload.isEmpty else {
             return "ERROR: Usage: notify_target_async <workspace_uuid> <surface_uuid> <title>|<subtitle>|<body>"
         }
-        let (title, subtitle, body, meta) = parseNotificationPayload(payload)
+        let (title, subtitle, body, meta, dedupeKey) = parseNotificationPayload(payload)
 
         // Hook and PTY-derived agent notifications share one gate + mutation-bus path.
         guard AgentNotificationDelivery().enqueue(
@@ -12245,7 +12261,8 @@ class TerminalController {
             subtitle: subtitle,
             body: body,
             category: meta?.category,
-            pending: meta?.pending ?? false
+            pending: meta?.pending ?? false,
+            dedupeKey: dedupeKey
         ) else {
 #if DEBUG
             if let meta {
@@ -13103,33 +13120,42 @@ class TerminalController {
     }
 
     /// Parses a `title|subtitle|body` notification payload, plus an OPTIONAL 4th
-    /// `meta` segment (e.g. `c=turn-complete;p=1`) that agent hooks append to gate
-    /// delivery by user config. The 4th segment is only treated as meta when it
-    /// begins with `c=`; otherwise it is folded back into the body, so legacy
+    /// metadata segment that agent hooks append to gate or deduplicate delivery.
+    /// The 4th segment is only treated as metadata when it matches the category
+    /// grammar or a cmux-owned critical-alert key; otherwise it is folded back
+    /// into the body, so legacy
     /// callers whose body itself contains `|` parse byte-identically to before
     /// (the fold reconstructs exactly the `maxSplits: 2` result).
     /// `nonisolated`: pure string parsing, run by the worker-lane notify
     /// bodies on the socket-worker thread.
-    private nonisolated func parseNotificationPayload(_ args: String) -> (title: String, subtitle: String, body: String, meta: AgentNotificationMeta?) {
+    private nonisolated func parseNotificationPayload(_ args: String) -> (
+        title: String,
+        subtitle: String,
+        body: String,
+        meta: AgentNotificationMeta?,
+        dedupeKey: String?
+    ) {
         let trimmed = args.trimmingCharacters(in: .whitespacesAndNewlines)
-        guard !trimmed.isEmpty else { return ("Notification", "", "", nil) }
+        guard !trimmed.isEmpty else { return ("Notification", "", "", nil, nil) }
         var parts = trimmed.split(separator: "|", maxSplits: 3, omittingEmptySubsequences: false).map(String.init)
         var meta: AgentNotificationMeta? = nil
+        var dedupeKey: String? = nil
         if parts.count == 4 {
-            // The 4th segment is treated as gating metadata only when it parses
-            // as the FULL `c=<category>;p=<0|1>` grammar. Anything else — including
-            // a legacy body that happens to contain "|c=..." — is folded back into
-            // the body so pre-meta callers parse byte-identically to before.
-            // Conscious tradeoff: this reserves exactly three trailing literals
-            // ("|c=turn-complete;p=<0|1>", "|c=needs-permission;p=<0|1>",
-            // "|c=idle-reminder;p=<0|1>") in notify payloads; any other "c=..."
-            // tail (unknown categories included) stays part of the body. Accepted
-            // because the only meta producers are cmux's own agent hooks (whose
-            // fields are |-sanitized) and a collision requires one of those exact
-            // suffixes.
+            // Reserve only the full category grammar and cmux's namespaced Codex
+            // critical fingerprint. Every other fourth segment is folded back
+            // into the body so legacy payloads keep their prior parsing.
             let candidate = parts[3].trimmingCharacters(in: .whitespacesAndNewlines)
             if candidate.hasPrefix("c="), let parsed = AgentNotificationMeta(meta: candidate) {
                 meta = parsed
+            } else if candidate.hasPrefix("d=codex-critical:") {
+                let value = String(candidate.dropFirst(2))
+                let allowed = CharacterSet.alphanumerics.union(CharacterSet(charactersIn: "-_:"))
+                if !value.isEmpty, value.count <= 128,
+                   value.unicodeScalars.allSatisfy({ allowed.contains($0) }) {
+                    dedupeKey = value
+                } else {
+                    parts[2] += "|" + parts[3]
+                }
             } else {
                 parts[2] += "|" + parts[3]
             }
@@ -13140,7 +13166,7 @@ class TerminalController {
         let body = parts.count > 2
             ? parts[2].trimmingCharacters(in: .whitespacesAndNewlines)
             : (parts.count > 1 ? parts[1].trimmingCharacters(in: .whitespacesAndNewlines) : "")
-        return (title.isEmpty ? "Notification" : title, subtitle, body, meta)
+        return (title.isEmpty ? "Notification" : title, subtitle, body, meta, dedupeKey)
     }
 
     /// Applies the user's agent-notification settings to a parsed meta tag.

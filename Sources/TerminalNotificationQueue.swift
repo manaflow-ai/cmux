@@ -56,25 +56,61 @@ final class TerminalMutationBus: @unchecked Sendable {
     private var drainScheduled = false
     private var nextSequence: UInt64 = 0
     private var currentNotificationGeneration: UInt64 = 0
+    private var recentNotificationDedupeKeys: [String: TimeInterval] = [:]
     private let maxMutationsPerDrain = 16
 #if DEBUG
     private var drainsSuspendedForTesting = false
 #endif
 
+    @discardableResult
     nonisolated func enqueueNotification(
         tabId: UUID,
         surfaceId: UUID?,
         title: String,
         subtitle: String,
         body: String,
-        coalesces: Bool = true
-    ) {
-        enqueueNotification(QueuedTerminalNotification(
+        coalesces: Bool = true,
+        dedupeKey: String? = nil
+    ) -> Bool {
+        if let dedupeKey,
+           !claimNotificationDedupeKey(tabId: tabId, surfaceId: surfaceId, dedupeKey: dedupeKey) {
+            return false
+        }
+        return enqueueNotification(QueuedTerminalNotification(
             key: QueuedTerminalNotificationKey(tabId: tabId, surfaceId: surfaceId),
             title: title,
             subtitle: subtitle,
             body: body
         ), coalesces: coalesces)
+    }
+
+    nonisolated func claimNotificationDedupeKey(
+        tabId: UUID,
+        surfaceId: UUID?,
+        dedupeKey: String
+    ) -> Bool {
+        let now = Date().timeIntervalSince1970
+        lock.lock()
+        recentNotificationDedupeKeys = recentNotificationDedupeKeys.filter { now - $0.value <= 2 * 60 }
+        let scopedKey = [
+            surfaceId.map { "surface:\($0.uuidString)" } ?? "workspace:\(tabId.uuidString)",
+            dedupeKey,
+        ].joined(separator: "|")
+        guard recentNotificationDedupeKeys[scopedKey] == nil else {
+            lock.unlock()
+            return false
+        }
+        recentNotificationDedupeKeys[scopedKey] = now
+        if recentNotificationDedupeKeys.count > 128 {
+            let keep = recentNotificationDedupeKeys
+                .sorted { lhs, rhs in lhs.value > rhs.value }
+                .prefix(128)
+            recentNotificationDedupeKeys = Dictionary(
+                uniqueKeysWithValues: keep.map { ($0.key, $0.value) }
+            )
+        }
+        lock.unlock()
+        return true
     }
 
     nonisolated func enqueueClearAllNotifications() {
@@ -185,7 +221,10 @@ final class TerminalMutationBus: @unchecked Sendable {
         lock.unlock()
     }
 
-    private func enqueueNotification(_ notification: QueuedTerminalNotification, coalesces: Bool) {
+    private func enqueueNotification(
+        _ notification: QueuedTerminalNotification,
+        coalesces: Bool
+    ) -> Bool {
         let shouldScheduleDrain: Bool
         let removedCount: Int
         let pendingCount: Int
@@ -228,8 +267,9 @@ final class TerminalMutationBus: @unchecked Sendable {
         )
 #endif
 
-        guard shouldScheduleDrain else { return }
+        guard shouldScheduleDrain else { return true }
         scheduleDrain()
+        return true
     }
 
     private func enqueueClear(

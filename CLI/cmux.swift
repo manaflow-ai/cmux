@@ -25604,6 +25604,7 @@ struct CMUXCLI {
         let statusValue: String
         let subtitle: String
         let body: String
+        let codexErrorInfo: String?
     }
 
     private struct CodexHookFailureCandidate {
@@ -25712,11 +25713,24 @@ struct CMUXCLI {
         var sawAssistantMessage = false
         var sawTerminalTurn = false
         var sawRelevantTurn = turnId == nil
+        var currentTurnId: String?
         for line in lines {
             let trimmed = line.trimmingCharacters(in: .whitespacesAndNewlines)
             guard !trimmed.isEmpty,
                   let data = trimmed.data(using: .utf8),
                   let object = try? JSONSerialization.jsonObject(with: data, options: []) as? [String: Any] else {
+                continue
+            }
+
+            let objectType = object["type"] as? String
+            if objectType == "turn_context",
+               let payload = object["payload"] as? [String: Any] {
+                currentTurnId = firstString(in: payload, keys: ["turn_id", "turnId"])
+                if let turnId {
+                    sawRelevantTurn = currentTurnId == turnId
+                } else {
+                    sawRelevantTurn = true
+                }
                 continue
             }
 
@@ -25734,17 +25748,18 @@ struct CMUXCLI {
 
             switch eventType {
             case "task_started":
-                let payloadTurnId = firstString(in: payload, keys: ["turn_id", "turnId"])
+                let payloadTurnId = firstString(in: payload, keys: ["turn_id", "turnId"]) ?? currentTurnId
                 if let turnId {
                     guard payloadTurnId == turnId else {
                         continue
                     }
                 }
+                currentTurnId = payloadTurnId
                 sawRelevantTurn = true
                 candidate = nil
                 candidateCanPublishBeforeTerminal = false
             case "error":
-                let payloadTurnId = firstString(in: payload, keys: ["turn_id", "turnId"])
+                let payloadTurnId = firstString(in: payload, keys: ["turn_id", "turnId"]) ?? currentTurnId
                 if let turnId, let payloadTurnId {
                     guard payloadTurnId == turnId else {
                         continue
@@ -25760,7 +25775,7 @@ struct CMUXCLI {
                     candidateCanPublishBeforeTerminal = turnId == nil || payloadTurnId == turnId || sawRelevantTurn
                 }
             case "stream_error":
-                let payloadTurnId = firstString(in: payload, keys: ["turn_id", "turnId"])
+                let payloadTurnId = firstString(in: payload, keys: ["turn_id", "turnId"]) ?? currentTurnId
                 if let turnId, let payloadTurnId {
                     guard payloadTurnId == turnId else {
                         continue
@@ -25776,7 +25791,7 @@ struct CMUXCLI {
                     candidateCanPublishBeforeTerminal = turnId == nil || payloadTurnId == turnId || sawRelevantTurn
                 }
             case "task_complete", "turn_complete":
-                let payloadTurnId = firstString(in: payload, keys: ["turn_id", "turnId"])
+                let payloadTurnId = firstString(in: payload, keys: ["turn_id", "turnId"]) ?? currentTurnId
                 if let turnId {
                     guard payloadTurnId == turnId else {
                         continue
@@ -25819,6 +25834,33 @@ struct CMUXCLI {
                     )
                     candidateCanPublishBeforeTerminal = false
                 }
+            case "turn_aborted":
+                let payloadTurnId = firstString(in: payload, keys: ["turn_id", "turnId"]) ?? currentTurnId
+                if let turnId {
+                    if let payloadTurnId {
+                        guard payloadTurnId == turnId else { continue }
+                    } else {
+                        guard sawRelevantTurn else { continue }
+                    }
+                }
+                sawRelevantTurn = true
+                sawTerminalTurn = true
+                if firstString(in: payload, keys: ["reason"])?.lowercased() == "budget_limited" {
+                    candidate = CodexHookFailureCandidate(
+                        message: String(
+                            localized: "agent.codex.error.budgetLimited",
+                            defaultValue: "Codex stopped because the turn budget was reached"
+                        ),
+                        codexErrorInfo: "budget_limited",
+                        additionalDetails: nil,
+                        isStreamError: false
+                    )
+                } else {
+                    // Interrupted, replaced, and review-ended turns are deliberate
+                    // lifecycle transitions, not user-actionable failures by themselves.
+                    // Preserve any fatal error already recorded for the same turn.
+                }
+                candidateCanPublishBeforeTerminal = false
             default:
                 break
             }
@@ -26259,13 +26301,22 @@ struct CMUXCLI {
 
         let subtitle: String
         let statusValue: String
-        if signal.contains("usage_limit") ||
+        let body: String
+        if signal.contains("session_budget_exceeded") ||
+            signal.contains("budget_limited") ||
+            signal.contains("budget limited") ||
+            signal.contains("turn budget") {
+            subtitle = String(localized: "agent.codex.error.subtitle.budget", defaultValue: "Budget reached")
+            statusValue = String(localized: "agent.codex.error.status.budget", defaultValue: "Codex budget reached")
+            body = candidate.additionalDetails ?? candidate.message
+        } else if signal.contains("usage_limit") ||
             signal.contains("usage limit") ||
             signal.contains("rate_limit") ||
             signal.contains("rate limit") ||
             signal.contains("credits") {
             subtitle = String(localized: "agent.codex.error.subtitle.rateLimit", defaultValue: "Rate limit")
             statusValue = String(localized: "agent.codex.error.status.rateLimit", defaultValue: "Codex rate limit")
+            body = candidate.additionalDetails ?? candidate.message
         } else if signal.contains("unauthorized") ||
                     signal.contains("auth") ||
                     signal.contains("access token") ||
@@ -26273,6 +26324,7 @@ struct CMUXCLI {
                     signal.contains("login") {
             subtitle = String(localized: "agent.codex.error.subtitle.auth", defaultValue: "Auth error")
             statusValue = String(localized: "agent.codex.error.status.auth", defaultValue: "Codex auth error")
+            body = candidate.additionalDetails ?? candidate.message
         } else if signal.contains("response_stream") ||
                     signal.contains("stream disconnected") ||
                     signal.contains("connection") ||
@@ -26282,16 +26334,21 @@ struct CMUXCLI {
                     signal.contains("timeout") {
             subtitle = String(localized: "agent.codex.error.subtitle.network", defaultValue: "Network error")
             statusValue = String(localized: "agent.codex.error.status.network", defaultValue: "Codex network error")
+            body = String(
+                localized: "agent.codex.error.networkMessage",
+                defaultValue: "Codex lost its connection before finishing. Try again."
+            )
         } else {
             subtitle = String(localized: "agent.codex.error.subtitle.generic", defaultValue: "Error")
             statusValue = String(localized: "agent.codex.error.status.generic", defaultValue: "Codex error")
+            body = candidate.additionalDetails ?? candidate.message
         }
 
-        let detail = candidate.additionalDetails ?? candidate.message
         return CodexHookFailureSummary(
             statusValue: statusValue,
             subtitle: subtitle,
-            body: truncate(normalizedSingleLine(detail), maxLength: 220)
+            body: truncate(normalizedSingleLine(body), maxLength: 220),
+            codexErrorInfo: candidate.codexErrorInfo
         )
     }
 
@@ -26600,8 +26657,21 @@ struct CMUXCLI {
         if let leasePath, !leasePath.isEmpty {
             monitorArgs += ["--lease", leasePath]
         }
+        if let codexPID = agentPIDFromHookEnvironment(agentName: "codex", env: env) {
+            if let startTime = sessionsListProcessIdentity(for: codexPID)?.startTime {
+                monitorArgs += ["--pid", String(codexPID)]
+                monitorArgs += ["--pid-start", String(startTime)]
+            } else {
+                // A bare PID is unsafe after reuse. If its start-time identity is
+                // unavailable, fail closed and treat the watched Codex process as gone.
+                monitorArgs += ["--pid-gone"]
+            }
+        }
         process.arguments = monitorArgs
-        process.environment = env.merging(["CMUX_CLI_SENTRY_DISABLED": "1"], uniquingKeysWith: { _, new in new })
+        process.environment = env.merging(
+            ["CMUX_CLI_SENTRY_DISABLED": "1"],
+            uniquingKeysWith: { _, new in new }
+        )
         process.standardInput = FileHandle.nullDevice
         process.standardOutput = FileHandle.nullDevice
         process.standardError = FileHandle.nullDevice
@@ -26625,6 +26695,11 @@ struct CMUXCLI {
         let turnId = optionValue(commandArgs, name: "--turn")
         var transcriptPath = optionValue(commandArgs, name: "--transcript")
         let leasePath = optionValue(commandArgs, name: "--lease")
+        let codexPIDStartTime = optionValue(commandArgs, name: "--pid-start").flatMap(TimeInterval.init)
+        let requestedCodexPID = optionValue(commandArgs, name: "--pid").flatMap(Int.init)
+            ?? agentPIDFromHookEnvironment(agentName: "codex", env: env)
+        let codexPIDWasGoneBeforeRegistration = commandArgs.contains("--pid-gone")
+        let codexPID = codexPIDStartTime == nil ? nil : requestedCodexPID
 
         guard !workspaceId.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty,
               !sessionId.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty else {
@@ -26674,6 +26749,8 @@ struct CMUXCLI {
                 case .failure(let failure):
                     publishCodexMonitorFailure(
                         failure,
+                        sessionId: sessionId,
+                        turnId: turnId,
                         workspaceId: workspaceId,
                         surfaceId: surfaceId,
                         client: client
@@ -26697,7 +26774,98 @@ struct CMUXCLI {
 
             let remaining = deadline.timeIntervalSinceNow
             guard remaining > 0 else { return }
-            waitForCodexTranscriptChange(path: transcriptPath, leasePath: leasePath, timeout: min(30, remaining))
+            let processExited = codexPIDWasGoneBeforeRegistration
+                || codexProcessExitedWhileWaitingForTranscriptChange(
+                    path: transcriptPath,
+                    leasePath: leasePath,
+                    codexPID: codexPID,
+                    codexPIDStartTime: codexPIDStartTime,
+                    timeout: min(30, remaining)
+                )
+            guard processExited else { continue }
+
+            if transcriptPath == nil {
+                transcriptPath = findCodexTranscriptPath(sessionId: sessionId, env: env)
+            }
+            if let currentTranscriptPath = transcriptPath {
+                switch readCodexTranscriptFailure(
+                    path: currentTranscriptPath,
+                    turnId: turnId,
+                    requireTerminalCompletion: true
+                ) {
+                case .failure(let failure):
+                    publishCodexMonitorFailure(
+                        failure,
+                        sessionId: sessionId,
+                        turnId: turnId,
+                        workspaceId: workspaceId,
+                        surfaceId: surfaceId,
+                        client: client
+                    )
+                    return
+                case .healthy:
+                    return
+                case .pending, .unavailable:
+                    break
+                }
+            }
+
+            // Stop hooks are fire-and-forget and can land just after the agent
+            // process exits. Give the authoritative transcript/lease signal a
+            // bounded chance to arrive before synthesizing a process-exit error.
+            _ = codexProcessExitedWhileWaitingForTranscriptChange(
+                path: transcriptPath,
+                leasePath: leasePath,
+                codexPID: nil,
+                codexPIDStartTime: nil,
+                timeout: min(2, max(0, deadline.timeIntervalSinceNow))
+            )
+            if isCodexMonitorLeaseRetired(path: leasePath) {
+                return
+            }
+            if transcriptPath == nil {
+                transcriptPath = findCodexTranscriptPath(sessionId: sessionId, env: env)
+            }
+            if let currentTranscriptPath = transcriptPath {
+                switch readCodexTranscriptFailure(
+                    path: currentTranscriptPath,
+                    turnId: turnId,
+                    requireTerminalCompletion: true
+                ) {
+                case .failure(let failure):
+                    publishCodexMonitorFailure(
+                        failure,
+                        sessionId: sessionId,
+                        turnId: turnId,
+                        workspaceId: workspaceId,
+                        surfaceId: surfaceId,
+                        client: client
+                    )
+                    return
+                case .healthy:
+                    return
+                case .pending, .unavailable:
+                    break
+                }
+            }
+
+            publishCodexMonitorFailure(
+                CodexHookFailureCandidate(
+                    message: String(
+                        localized: "agent.codex.error.processExited",
+                        defaultValue: "Codex exited before finishing the turn"
+                    ),
+                    codexErrorInfo: "process_exited",
+                    additionalDetails: nil,
+                    isStreamError: false
+                ),
+                sessionId: sessionId,
+                turnId: turnId,
+                workspaceId: workspaceId,
+                surfaceId: surfaceId,
+                client: client
+            )
+            return
         }
     }
 
@@ -26725,14 +26893,30 @@ struct CMUXCLI {
 
     private func publishCodexMonitorFailure(
         _ failure: CodexHookFailureCandidate,
+        sessionId: String,
+        turnId: String?,
         workspaceId: String,
         surfaceId: String?,
         client: SocketClient
     ) {
         let summary = summarizeCodexHookFailureCandidate(failure)
         if let surfaceId, !surfaceId.isEmpty {
-            let payload = "Codex|\(sanitizeNotificationField(summary.subtitle))|\(sanitizeNotificationField(summary.body))"
-            _ = try? sendV1Command("notify_target \(workspaceId) \(surfaceId) \(payload)", client: client)
+            let fingerprint = AgentHookNotificationPolicy.codexCriticalFingerprint(
+                sessionId: sessionId,
+                turnId: turnId,
+                failureKind: AgentHookNotificationPolicy.codexCriticalFailureKind(
+                    codexErrorInfo: failure.codexErrorInfo,
+                    body: summary.body
+                )
+            )
+            var payload = "Codex|\(sanitizeNotificationField(summary.subtitle))|\(sanitizeNotificationField(summary.body))"
+            if let fingerprint {
+                payload += "|d=\(fingerprint)"
+            }
+            _ = try? sendV1Command(
+                "notify_target \(workspaceId) \(surfaceId) \(payload)",
+                client: client
+            )
         }
         _ = try? sendV1Command(
             "set_status codex \(summary.statusValue) --icon=exclamationmark.triangle.fill --color=#FF453A --priority=100 --tab=\(workspaceId)\(socketPanelOption(surfaceId))",
@@ -26740,11 +26924,41 @@ struct CMUXCLI {
         )
     }
 
-    private func waitForCodexTranscriptChange(path: String?, leasePath: String?, timeout: TimeInterval) {
-        guard timeout > 0 else { return }
+    private func codexProcessExitedWhileWaitingForTranscriptChange(
+        path: String?,
+        leasePath: String?,
+        codexPID: Int?,
+        codexPIDStartTime: TimeInterval?,
+        timeout: TimeInterval
+    ) -> Bool {
+        guard timeout > 0 else { return false }
+        if let codexPID, let codexPIDStartTime,
+           let identity = sessionsListProcessIdentity(for: codexPID),
+           abs(identity.startTime - codexPIDStartTime) >= 0.001 {
+            return true
+        }
+        if let codexPID, codexMonitorProcessIsGone(pid: codexPID) {
+            return true
+        }
 
-        let semaphore = DispatchSemaphore(value: 0)
+        var signalPipe: [Int32] = [-1, -1]
+        guard pipe(&signalPipe) == 0 else { return false }
+        let readSignalFD = signalPipe[0]
+        let writeSignalFD = signalPipe[1]
+        _ = fcntl(writeSignalFD, F_SETFL, O_NONBLOCK)
+        defer {
+            close(readSignalFD)
+            close(writeSignalFD)
+        }
+        let signalWake: @Sendable (UInt8) -> Void = { code in
+            var code = code
+            _ = withUnsafePointer(to: &code) { pointer in
+                Darwin.write(writeSignalFD, pointer, 1)
+            }
+        }
         var sources: [DispatchSourceFileSystemObject] = []
+        var processSource: DispatchSourceProcess?
+        let cancellationGroup = DispatchGroup()
 
         func addFileSource(path: String?, eventMask: DispatchSource.FileSystemEvent) {
             guard let path, !path.isEmpty else { return }
@@ -26757,10 +26971,12 @@ struct CMUXCLI {
                 queue: DispatchQueue.global(qos: .utility)
             )
             source.setEventHandler {
-                semaphore.signal()
+                signalWake(1)
             }
+            cancellationGroup.enter()
             source.setCancelHandler {
                 close(fd)
+                cancellationGroup.leave()
             }
             source.resume()
             sources.append(source)
@@ -26769,13 +26985,48 @@ struct CMUXCLI {
         addFileSource(path: path, eventMask: [.write, .extend, .delete, .rename])
         addFileSource(path: leasePath, eventMask: [.write, .delete, .rename])
 
-        guard !sources.isEmpty else {
-            _ = DispatchSemaphore(value: 0).wait(timeout: .now() + timeout)
-            return
+        if let codexPID, codexPID > 0, codexPID <= Int(Int32.max) {
+            let source = DispatchSource.makeProcessSource(
+                identifier: pid_t(codexPID),
+                eventMask: .exit,
+                queue: DispatchQueue.global(qos: .utility)
+            )
+            source.setEventHandler {
+                signalWake(2)
+            }
+            cancellationGroup.enter()
+            source.setCancelHandler {
+                cancellationGroup.leave()
+            }
+            source.resume()
+            processSource = source
+            if codexMonitorProcessIsGone(pid: codexPID) {
+                sources.forEach { $0.cancel() }
+                source.cancel()
+                cancellationGroup.wait()
+                return true
+            }
         }
 
-        _ = semaphore.wait(timeout: .now() + timeout)
+        var pollDescriptor = pollfd(fd: readSignalFD, events: Int16(POLLIN), revents: 0)
+        let timeoutMilliseconds = Int32(min(Double(Int32.max), ceil(timeout * 1_000)))
+        let pollResult = Darwin.poll(&pollDescriptor, 1, timeoutMilliseconds)
+        var wakeCode: UInt8 = 0
+        if pollResult > 0 {
+            _ = withUnsafeMutablePointer(to: &wakeCode) { pointer in
+                Darwin.read(readSignalFD, pointer, 1)
+            }
+        }
         sources.forEach { $0.cancel() }
+        processSource?.cancel()
+        cancellationGroup.wait()
+        return wakeCode == 2
+    }
+
+    private func codexMonitorProcessIsGone(pid: Int) -> Bool {
+        guard pid > 0, pid <= Int(Int32.max) else { return false }
+        errno = 0
+        return kill(pid_t(pid), 0) != 0 && errno == ESRCH
     }
 
     private func extractMessageText(from message: [String: Any]) -> String? {
@@ -31082,6 +31333,14 @@ export default CMUXSessionRestore;
                 transcriptSubagentSession: codexSubagentSignals.isSubagentSession,
                 env: env
             ) || staleIdleStopHasNewerRunningSession
+            if def.name == "codex",
+               !sessionId.isEmpty,
+               normalizedHookValue(input.turnId) == nil,
+               !suppressVisibleMutations {
+                // An unscoped top-level Stop is authoritative for the session.
+                // Nested unscoped Stops must leave the parent monitor alive.
+                retireCodexMonitorLeases(sessionId: sessionId, turnId: nil, env: env)
+            }
             let suppressCompletionNotification = suppressVisibleMutations
                 || codexSubagentSignals.hasSubagentNotificationRelay
 
@@ -31120,6 +31379,19 @@ export default CMUXSessionRestore;
                 category: stopNotificationStatus == .idle ? .turnComplete : .other,
                 body: body
             )
+            let codexCriticalTurnId = normalizedHookValue(input.turnId)
+                ?? mapped?.activePromptTurnIds?.compactMap({ normalizedHookValue($0) }).last
+                ?? normalizedHookValue(mapped?.activePromptTurnId)
+            let codexCriticalFingerprint = def.name == "codex" && stopNotificationStatus == .error
+                ? AgentHookNotificationPolicy.codexCriticalFingerprint(
+                    sessionId: sessionId,
+                    turnId: codexCriticalTurnId,
+                    failureKind: AgentHookNotificationPolicy.codexCriticalFailureKind(
+                        codexErrorInfo: codexFailure?.codexErrorInfo,
+                        body: body
+                    )
+                )
+                : nil
             let stopNotificationAlreadyRouted = (input.rawObject?["cmux_notification_routed"] as? Bool) == true
                 || (input.object?["cmux_notification_routed"] as? Bool) == true
             // Antigravity's integration defines a stop with active background work
@@ -31136,6 +31408,11 @@ export default CMUXSessionRestore;
                 && (grokAssistantMessage != nil || !hasGrokTranscriptContext)
             let shouldPublishStopAlert = (shouldPublishStopNotification || shouldPublishGrokStopFallbackNotification)
                 && !suppressCompletionNotification
+            let isCodexCriticalAlert = def.name == "codex" && stopNotificationStatus == .error
+            let codexCriticalUsesDeliveryDedupe = isCodexCriticalAlert && codexCriticalFingerprint != nil
+            let shouldSendStopAlertNotification: Bool
+            shouldSendStopAlertNotification = shouldPublishStopAlert
+                && (codexCriticalUsesDeliveryDedupe || shouldSendNotification(fingerprint: notificationFingerprint))
             if suppressVisibleMutations {
                 telemetry.breadcrumb(
                     staleIdleStopHasNewerRunningSession
@@ -31145,14 +31422,17 @@ export default CMUXSessionRestore;
             } else if suppressCompletionNotification {
                 telemetry.breadcrumb("\(def.name)-hook.stop.subagent-notification-suppressed")
             }
-            if shouldPublishStopAlert, shouldSendNotification(fingerprint: notificationFingerprint) {
+            if shouldSendStopAlertNotification {
                 // Tag successful turn-end pings so the app's "Agent Finished"
                 // setting covers every built-in agent, not just Claude. Error
                 // alerts stay untagged and always deliver.
                 let stopMeta: String? = stopNotificationStatus == .idle
                     ? AgentHookNotifyCategory.turnComplete.metaSegment(pending: antigravityHasActiveBackgroundWork)
                     : nil
-                let payload = notificationPayload(title: def.displayName, subtitle: subtitle, body: body, meta: stopMeta)
+                var payload = notificationPayload(title: def.displayName, subtitle: subtitle, body: body, meta: stopMeta)
+                if let codexCriticalFingerprint {
+                    payload += "|d=\(codexCriticalFingerprint)"
+                }
                 let notifyCommand = "notify_target_async \(workspaceId) \(surfaceId) \(payload)"
 #if DEBUG
                 agentHookDebugLog(

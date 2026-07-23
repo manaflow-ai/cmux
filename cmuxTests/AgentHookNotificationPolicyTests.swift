@@ -65,6 +65,56 @@ struct AgentHookNotificationPolicyTests {
             category: .idleReminder,
             body: "waiting"
         ) == nil)
+        let firstCritical = AgentHookNotificationPolicy.codexCriticalFingerprint(
+            sessionId: "session-1",
+            turnId: "turn-1",
+            failureKind: "stream-disconnected"
+        )
+        #expect(firstCritical?.hasPrefix("codex-critical:") == true)
+        #expect(firstCritical != AgentHookNotificationPolicy.codexCriticalFingerprint(
+            sessionId: "session-2",
+            turnId: "turn-1",
+            failureKind: "stream-disconnected"
+        ))
+        #expect(firstCritical != AgentHookNotificationPolicy.codexCriticalFingerprint(
+            sessionId: "session-1",
+            turnId: "turn-2",
+            failureKind: "stream-disconnected"
+        ))
+        #expect(firstCritical != AgentHookNotificationPolicy.codexCriticalFingerprint(
+            sessionId: "session-1",
+            turnId: "turn-1",
+            failureKind: "model-capacity"
+        ))
+        #expect(AgentHookNotificationPolicy.codexCriticalFingerprint(
+            sessionId: "",
+            turnId: "turn-1",
+            failureKind: "stream-disconnected"
+        ) == nil)
+        #expect(AgentHookNotificationPolicy.codexCriticalFingerprint(
+            sessionId: "session-1",
+            turnId: nil,
+            failureKind: "stream-disconnected"
+        ) == nil)
+        #expect(AgentHookNotificationPolicy.codexCriticalFailureKind(
+            codexErrorInfo: "response_stream_disconnected",
+            body: "Try again later"
+        ) == "info:response_stream_disconnected")
+        #expect(AgentHookNotificationPolicy.codexCriticalFailureKind(
+            codexErrorInfo: "other",
+            body: "Selected model is at capacity. Please try a different model."
+        ) == "model-capacity")
+        #expect(AgentHookNotificationPolicy.codexCriticalFailureKind(
+            codexErrorInfo: nil,
+            body: "Unclassified failure"
+        )?.hasPrefix("body:") == true)
+        #expect(AgentHookNotificationPolicy.codexCriticalFailureKind(
+            codexErrorInfo: nil,
+            body: "Codex ended before sending a final response"
+        ) == AgentHookNotificationPolicy.codexCriticalFailureKind(
+            codexErrorInfo: "other",
+            body: "  CODEX ended before   sending a final response  "
+        ))
         #expect(AgentHookNotificationPolicy.dedupeFingerprint(
             agentName: "grok",
             sessionId: "",

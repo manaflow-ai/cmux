@@ -26,7 +26,8 @@ struct AgentNotificationDelivery: Sendable {
         body: String,
         category: AgentNotifyCategory?,
         pending: Bool,
-        coalesces: Bool = false
+        coalesces: Bool = false,
+        dedupeKey: String? = nil
     ) -> Bool {
         if let category,
            !agentNotificationShouldDeliver(
@@ -38,14 +39,14 @@ struct AgentNotificationDelivery: Sendable {
            ) {
             return false
         }
-        TerminalMutationBus.shared.enqueueNotification(
+        return TerminalMutationBus.shared.enqueueNotification(
             tabId: workspaceID,
             surfaceId: surfaceID,
             title: title,
             subtitle: subtitle,
             body: body,
-            coalesces: coalesces
+            coalesces: coalesces,
+            dedupeKey: dedupeKey
         )
-        return true
     }
 }

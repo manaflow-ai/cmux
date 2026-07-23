@@ -210,6 +210,50 @@ enum AgentHookNotificationPolicy {
         return "\(status?.rawValue ?? "attention"):\(stableHash(of: body))"
     }
 
+    /// Critical Codex failures have two publishers: the normal Stop hook and
+    /// the independent transcript monitor. Keep this fingerprint separate from
+    /// the generic agent policy so routine Codex notifications remain undeduped.
+    static func codexCriticalFingerprint(
+        sessionId: String,
+        turnId: String?,
+        failureKind: String?
+    ) -> String? {
+        guard !sessionId.isEmpty,
+              let turnId = turnId?.trimmingCharacters(in: .whitespacesAndNewlines),
+              !turnId.isEmpty,
+              let failureKind = failureKind?.trimmingCharacters(in: .whitespacesAndNewlines),
+              !failureKind.isEmpty else {
+            return nil
+        }
+        let eventIdentity = [sessionId, turnId, failureKind].joined(separator: "\u{0}")
+        return "codex-critical:\(stableHash(of: eventIdentity))"
+    }
+
+    static func codexCriticalFailureKind(codexErrorInfo: String?, body: String) -> String? {
+        let normalizedInfo = codexErrorInfo?
+            .trimmingCharacters(in: .whitespacesAndNewlines)
+            .lowercased()
+        if let normalizedInfo,
+           !normalizedInfo.isEmpty,
+           normalizedInfo != "other",
+           normalizedInfo != "unknown" {
+            return "info:\(normalizedInfo)"
+        }
+
+        let normalizedBody = body.lowercased()
+        if normalizedBody.contains("selected model is at capacity") { return "model-capacity" }
+        if normalizedBody.contains("stream disconnected") { return "stream-disconnected" }
+        if normalizedBody.contains("budget") && normalizedBody.contains("reached") { return "budget-limited" }
+        if normalizedBody.contains("rate limit") || normalizedBody.contains("too many requests") { return "rate-limit" }
+        if normalizedBody.contains("quota") { return "quota" }
+        if normalizedBody.contains("exited before finishing") { return "process-exit" }
+        let normalizedFallback = normalizedBody
+            .split(whereSeparator: { $0.isWhitespace })
+            .joined(separator: " ")
+        guard !normalizedFallback.isEmpty else { return nil }
+        return "body:\(stableHash(of: normalizedFallback))"
+    }
+
     static func preservesDedupeAcrossSessionStart(agentName: String) -> Bool {
         agentName == "grok"
     }
