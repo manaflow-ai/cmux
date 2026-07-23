@@ -110,8 +110,7 @@ extension CMUXCLI {
 
             case "rm", "delete":
                 let name = try noteRequiredOperand(parsed.operands, subcommand: "rm")
-                let note = try await repository.resolveNote(projectRoot: projectRoot, name: name)
-                try await repository.deleteNote(projectRoot: projectRoot, name: note.relativePath)
+                let note = try await repository.deleteNote(projectRoot: projectRoot, name: name)
                 if jsonOutput {
                     print(jsonString(notePayload(note)))
                 } else {

@@ -34,7 +34,7 @@ extension LocalArtifactRepository: NoteStoring {
         text: String,
         mode: CmuxNoteWriteMode,
         context: ArtifactCaptureContext
-    ) throws -> CmuxProjectNote {
+    ) async throws -> CmuxProjectNote {
         let incoming = Data(text.utf8)
         guard incoming.count <= Self.maximumNoteBytes else {
             throw CmuxNoteStoreError.noteTooLarge(
@@ -44,9 +44,113 @@ extension LocalArtifactRepository: NoteStoring {
         }
         let paths = ArtifactStorePaths(projectRoot: context.projectRoot)
         try prepare(paths: paths)
+        let preflightPlan = try makeNoteWritePlan(
+            name: name,
+            context: context,
+            paths: paths
+        )
+        try await validateNoteWritePrivacy(plan: preflightPlan, paths: paths)
+
         let lease = try ArtifactStoreMutationLease.acquire(directory: paths.filesystemRoot)
         defer { lease.finish() }
+        let plan = try makeNoteWritePlan(name: name, context: context, paths: paths)
+        guard plan.privacyDestinations.map(\.standardizedFileURL.path)
+            == preflightPlan.privacyDestinations.map(\.standardizedFileURL.path) else {
+            throw ArtifactStoreError.gitPrivacyUnavailable(paths.filesystemRoot.path)
+        }
 
+        if plan.existing == nil {
+            try createCaptureDirectory(
+                plan.contentDirectory,
+                paths: paths,
+                context: context,
+                capturedAt: now()
+            )
+        }
+
+        let parent = plan.destination.deletingLastPathComponent()
+        try rejectSymbolicLinks(from: paths.filesystemRoot, through: parent)
+        try fileManager.createDirectory(at: parent, withIntermediateDirectories: true)
+        try rejectSymbolicLinks(from: paths.filesystemRoot, through: parent)
+
+        let finalData: Data
+        if mode == .append, let existing = plan.existing {
+            let current = try noteData(existing, paths: paths)
+            let combinedCount = current.count + incoming.count
+            guard combinedCount <= Self.maximumNoteBytes else {
+                throw CmuxNoteStoreError.noteTooLarge(
+                    actual: Int64(combinedCount),
+                    limit: Self.maximumNoteBytes
+                )
+            }
+            var combined = current
+            combined.append(incoming)
+            finalData = combined
+        } else {
+            finalData = incoming
+        }
+        try CmuxNoteAtomicWriter().write(finalData, to: plan.destination)
+
+        guard let relativePath = ArtifactPathResolver().relativePath(
+            plan.destination,
+            root: paths.filesystemRoot
+        ), let node = try ArtifactExactPathResolver().fileNode(
+            relativePath: relativePath,
+            paths: paths
+        ) else {
+            throw CmuxNoteStoreError.pathOutsideStore(plan.destination.path)
+        }
+        return CmuxProjectNoteResolver().note(node)
+    }
+
+    /// Searches only live Markdown notes while sharing artifact search bounds.
+    public func searchNotes(projectRoot: URL, query: String) throws -> [CmuxNoteSearchResult] {
+        let paths = ArtifactStorePaths(projectRoot: projectRoot)
+        try prepare(paths: paths)
+        let snapshot = try completeSnapshot(paths: paths)
+        let resolver = CmuxProjectNoteResolver()
+        let noteSnapshot = ArtifactSnapshot(
+            projectRoot: snapshot.projectRoot,
+            filesystemRoot: snapshot.filesystemRoot,
+            nodes: resolver.noteNodes(snapshot: snapshot),
+            isTruncated: false
+        )
+        return try ArtifactSearchEngine(configuration: configuration(projectRoot: projectRoot))
+            .results(snapshot: noteSnapshot, query: query)
+            .map { result in
+                CmuxNoteSearchResult(
+                    note: resolver.note(result.node),
+                    matchedContent: result.matchedContent,
+                    snippet: result.snippet
+                )
+            }
+    }
+
+    /// Deletes one exactly resolved note without following a replaced symbolic link.
+    ///
+    /// - Returns: Metadata for the note that was removed.
+    @discardableResult
+    public func deleteNote(projectRoot: URL, name: String) throws -> CmuxProjectNote {
+        let paths = ArtifactStorePaths(projectRoot: projectRoot)
+        try prepare(paths: paths)
+        let lease = try ArtifactStoreMutationLease.acquire(directory: paths.filesystemRoot)
+        defer { lease.finish() }
+        let resolver = CmuxProjectNoteResolver()
+        let note = try resolver.resolveExact(
+            notes: resolver.notes(snapshot: completeSnapshot(paths: paths)),
+            rawName: name
+        )
+        guard Darwin.unlink(note.absolutePath) == 0 else {
+            throw CmuxNoteStoreError.pathOutsideStore(note.absolutePath)
+        }
+        return note
+    }
+
+    private func makeNoteWritePlan(
+        name: String,
+        context: ArtifactCaptureContext,
+        paths: ArtifactStorePaths
+    ) throws -> CmuxNoteWritePlan {
         let resolver = CmuxProjectNoteResolver()
         let snapshot = try completeSnapshot(paths: paths)
         let pathResolver = ArtifactPathResolver()
@@ -94,93 +198,36 @@ extension LocalArtifactRepository: NoteStoring {
             existing = nil
         }
 
-        let destination: URL
         if let existing {
-            destination = URL(fileURLWithPath: existing.absolutePath, isDirectory: false)
-        } else {
-            guard let creationRelativePath else {
-                throw CmuxNoteStoreError.noteNotFound(name)
-            }
-            try createCaptureDirectory(
-                resolution.directory,
-                paths: paths,
-                context: context,
-                capturedAt: now()
+            return CmuxNoteWritePlan(
+                contentDirectory: resolution.directory,
+                destination: URL(fileURLWithPath: existing.absolutePath, isDirectory: false),
+                existing: existing
             )
-            destination = resolution.directory.appendingPathComponent(creationRelativePath)
         }
-
-        let parent = destination.deletingLastPathComponent()
-        try rejectSymbolicLinks(from: paths.filesystemRoot, through: parent)
-        try fileManager.createDirectory(at: parent, withIntermediateDirectories: true)
-        try rejectSymbolicLinks(from: paths.filesystemRoot, through: parent)
-
-        let finalData: Data
-        if mode == .append, let existing {
-            let current = try noteData(existing, paths: paths)
-            let combinedCount = current.count + incoming.count
-            guard combinedCount <= Self.maximumNoteBytes else {
-                throw CmuxNoteStoreError.noteTooLarge(
-                    actual: Int64(combinedCount),
-                    limit: Self.maximumNoteBytes
-                )
-            }
-            var combined = current
-            combined.append(incoming)
-            finalData = combined
-        } else {
-            finalData = incoming
+        guard let creationRelativePath else {
+            throw CmuxNoteStoreError.noteNotFound(name)
         }
-        try CmuxNoteAtomicWriter().write(finalData, to: destination)
-
-        guard let relativePath = pathResolver.relativePath(
-            destination,
-            root: paths.filesystemRoot
-        ), let node = try ArtifactExactPathResolver().fileNode(
-            relativePath: relativePath,
-            paths: paths
-        ) else {
-            throw CmuxNoteStoreError.pathOutsideStore(destination.path)
-        }
-        return resolver.note(node)
+        return CmuxNoteWritePlan(
+            contentDirectory: resolution.directory,
+            destination: resolution.directory.appendingPathComponent(creationRelativePath),
+            existing: nil
+        )
     }
 
-    /// Searches only live Markdown notes while sharing artifact search bounds.
-    public func searchNotes(projectRoot: URL, query: String) throws -> [CmuxNoteSearchResult] {
-        let paths = ArtifactStorePaths(projectRoot: projectRoot)
-        try prepare(paths: paths)
-        let snapshot = try completeSnapshot(paths: paths)
-        let resolver = CmuxProjectNoteResolver()
-        let noteSnapshot = ArtifactSnapshot(
-            projectRoot: snapshot.projectRoot,
-            filesystemRoot: snapshot.filesystemRoot,
-            nodes: resolver.noteNodes(snapshot: snapshot),
-            isTruncated: false
-        )
-        return try ArtifactSearchEngine(configuration: configuration(projectRoot: projectRoot))
-            .results(snapshot: noteSnapshot, query: query)
-            .map { result in
-                CmuxNoteSearchResult(
-                    note: resolver.note(result.node),
-                    matchedContent: result.matchedContent,
-                    snippet: result.snippet
-                )
-            }
-    }
-
-    /// Deletes one resolved note without following a replaced symbolic link.
-    public func deleteNote(projectRoot: URL, name: String) throws {
-        let paths = ArtifactStorePaths(projectRoot: projectRoot)
-        try prepare(paths: paths)
-        let lease = try ArtifactStoreMutationLease.acquire(directory: paths.filesystemRoot)
-        defer { lease.finish() }
-        let resolver = CmuxProjectNoteResolver()
-        let note = try resolver.resolveExact(
-            notes: resolver.notes(snapshot: completeSnapshot(paths: paths)),
-            rawName: name
-        )
-        guard Darwin.unlink(note.absolutePath) == 0 else {
-            throw CmuxNoteStoreError.pathOutsideStore(note.absolutePath)
+    private func validateNoteWritePrivacy(
+        plan: CmuxNoteWritePlan,
+        paths: ArtifactStorePaths
+    ) async throws {
+        let validator = ArtifactGitIgnoreManager(fileManager: fileManager)
+            .automaticWriteValidator(
+                projectRoot: paths.projectRoot,
+                commandRunner: gitCommandRunner
+            )
+        guard let validator,
+              await validator.storeIsUntracked(filesystemRoot: paths.filesystemRoot),
+              await validator.permits(destinations: plan.privacyDestinations) else {
+            throw ArtifactStoreError.gitPrivacyUnavailable(paths.filesystemRoot.path)
         }
     }
 
