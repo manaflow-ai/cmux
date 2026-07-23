@@ -477,7 +477,6 @@ final class ComputerUseRuntimeService {
         terminateRunningHelper(at: installedHelperURL ?? paths.installedHelperAppURL)
         clearTrackedHelperProcess()
         try? FileManager.default.removeItem(at: paths.daemonSocketURL)
-        try? FileManager.default.removeItem(at: paths.authenticationTokenFileURL)
         cachedStatus = .unknown
     }
 

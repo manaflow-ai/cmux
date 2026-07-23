@@ -263,18 +263,27 @@ final class ComputerUseUXCoordinator {
         onboardingGateTask = Task { @MainActor [weak self] in
             guard let self else { return }
             defer { onboardingGateTask = nil }
-            // Do not launch a helper status probe before onboarding. On an
-            // ungranted Accessibility identity, even AXIsProcessTrusted() can
-            // create a system warning and race the drag-to-grant flow.
-            let status = runtimeService.status()
+            let enabled = featureEnabled()
+            if enabled {
+                // A real tool invocation is the authority to finish any
+                // in-flight startup recovery before reading permission state.
+                // This also serializes behind the launch-time reconciliation,
+                // so a fast agent call cannot mistake a healthy helper for an
+                // unknown one and reopen completed onboarding.
+                await runtimeService.setEnabled(true)
+            }
+            let status = enabled
+                ? await runtimeService.refreshHelperStatus()
+                : runtimeService.status()
             let shouldPresent = ComputerUseOnboardingWindowController.shouldPresentAutomatically(
                 seen: userDefaults.bool(forKey: ComputerUseOnboardingWindowController.seenDefaultsKey),
-                featureEnabled: featureEnabled(),
+                featureEnabled: enabled,
                 permissionStatusIsKnown: runtimeService.permissionStatusIsKnown,
                 accessibilityGranted: status.accessibility,
                 screenRecordingGranted: status.screenRecording
             )
             guard shouldPresent else { return }
+            guard onboardingWindowController?.isVisible != true else { return }
             presentOnboarding()
         }
     }

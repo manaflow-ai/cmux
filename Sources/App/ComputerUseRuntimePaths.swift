@@ -46,8 +46,6 @@ struct ComputerUseRuntimePaths: Sendable {
             rootDirectoryURL: socketRootDirectoryURL,
             userIdentifier: userIdentifier
         )
-        self.authenticationToken = authenticationToken.flatMap(Self.nonEmptyToken)
-            ?? Self.makeAuthenticationToken()
         computerUseDirectoryURL = homeDirectoryURL
             .appendingPathComponent("Library/Application Support/cmux/computer-use", isDirectory: true)
         runtimeDirectoryURL = socketRootDirectoryURL
@@ -55,6 +53,12 @@ struct ComputerUseRuntimePaths: Sendable {
             .appendingPathComponent(scope, isDirectory: true)
         daemonSocketURL = runtimeDirectoryURL.appendingPathComponent("cua.sock")
         authenticationTokenFileURL = runtimeDirectoryURL.appendingPathComponent("auth-token")
+        self.authenticationToken = authenticationToken.flatMap(Self.nonEmptyToken)
+            ?? Self.persistedAuthenticationToken(
+                at: authenticationTokenFileURL,
+                ownedBy: userIdentifier
+            )
+            ?? Self.makeAuthenticationToken()
         stateDirectoryURL = computerUseDirectoryURL
             .appendingPathComponent("runtime", isDirectory: true)
             .appendingPathComponent(scope, isDirectory: true)
@@ -120,6 +124,70 @@ struct ComputerUseRuntimePaths: Sendable {
 
     private static func nonEmptyToken(_ rawValue: String) -> String? {
         rawValue.isEmpty ? nil : rawValue
+    }
+
+    /// Reuses the private scope credential across ordinary host restarts.
+    ///
+    /// Agent MCP proxies can outlive the cmux UI process. Rotating this token
+    /// on every app launch leaves those otherwise healthy proxies permanently
+    /// authenticated to the previous helper generation. The file is accepted
+    /// only when the kernel confirms that it is a single-link, owner-only
+    /// regular file; an explicit Computer Use disable still deletes it.
+    private static func persistedAuthenticationToken(
+        at fileURL: URL,
+        ownedBy expectedOwner: uid_t
+    ) -> String? {
+        let descriptor = Darwin.open(
+            fileURL.path,
+            O_RDONLY | O_CLOEXEC | O_NOFOLLOW
+        )
+        guard descriptor >= 0 else { return nil }
+        defer { Darwin.close(descriptor) }
+
+        var metadata = stat()
+        guard Darwin.fstat(descriptor, &metadata) == 0,
+              (metadata.st_mode & mode_t(S_IFMT)) == mode_t(S_IFREG),
+              metadata.st_uid == expectedOwner,
+              metadata.st_nlink == 1,
+              (metadata.st_mode & mode_t(0o777)) == mode_t(0o600),
+              metadata.st_size > 0,
+              metadata.st_size <= 1_024
+        else {
+            return nil
+        }
+
+        var bytes = [UInt8](repeating: 0, count: Int(metadata.st_size))
+        var offset = 0
+        while offset < bytes.count {
+            let count = bytes.withUnsafeMutableBytes { buffer -> Int in
+                guard let baseAddress = buffer.baseAddress else { return -1 }
+                return Darwin.read(
+                    descriptor,
+                    baseAddress.advanced(by: offset),
+                    bytes.count - offset
+                )
+            }
+            if count < 0, errno == EINTR { continue }
+            guard count > 0 else { return nil }
+            offset += count
+        }
+
+        guard var token = String(bytes: bytes, encoding: .utf8) else { return nil }
+        if token.last == "\n" {
+            token.removeLast()
+        }
+        guard nonEmptyToken(token) != nil,
+              token.utf8.count >= 32,
+              token.utf8.count <= 256,
+              token.utf8.allSatisfy({
+                  ($0 >= 97 && $0 <= 122)
+                      || ($0 >= 65 && $0 <= 90)
+                      || ($0 >= 48 && $0 <= 57)
+              })
+        else {
+            return nil
+        }
+        return token
     }
 
     private static func makeAuthenticationToken() -> String {
