@@ -128,6 +128,56 @@ struct NoteCLIIntegrationTests {
         #expect(fileManager.fileExists(atPath: path))
     }
 
+    @Test("Agent-native session identifiers select distinct project-file roots")
+    func nativeAgentSessionIdentifiersTakePrecedence() throws {
+        let cases: [(environment: [String: String], sessionID: String, agentName: String)] = [
+            (["CODEX_THREAD_ID": "codex-thread"], "codex-thread", "codex"),
+            (["CODEX_SESSION_ID": "codex-session"], "codex-session", "codex"),
+            (["CLAUDE_CODE_SESSION_ID": "claude-session"], "claude-session", "claude"),
+            (["OPENCODE_SESSION_ID": "opencode-session"], "opencode-session", "opencode"),
+        ]
+        let fileManager = FileManager.default
+        let projectRoot = fileManager.temporaryDirectory
+            .appendingPathComponent("cmux-note-native-session-\(UUID().uuidString)", isDirectory: true)
+        try fileManager.createDirectory(at: projectRoot, withIntermediateDirectories: true)
+        defer { try? fileManager.removeItem(at: projectRoot) }
+        let cliPath = try BundledCLITestSupport.bundledCLIPath(
+            for: BundledCLILinkageTests.self
+        )
+        var sessionRoots: Set<String> = []
+
+        for (index, testCase) in cases.enumerated() {
+            var environment = testCase.environment
+            environment["CMUX_AGENT_SESSION_ID"] = "generic-fallback"
+            environment["CMUX_AGENT_NAME"] = "generic"
+            environment["CMUX_WORKSPACE_ID"] = "shared-workspace"
+            let written = try runCLI(
+                cliPath,
+                [
+                    "note", "write", "plan-\(index)", "--text", "private",
+                    "--project", projectRoot.path, "--json",
+                ],
+                environment: environment
+            )
+            #expect(written.status == 0)
+            let payload = try jsonObject(written.stdout)
+            let relativePath = try #require(payload["relative_path"] as? String)
+            let sessionRoot = String(try #require(relativePath.split(separator: "/").first))
+            sessionRoots.insert(sessionRoot)
+            let markerURL = projectRoot.appendingPathComponent(
+                ".cmux/\(sessionRoot)/_session.json"
+            )
+            let marker = try #require(
+                JSONSerialization.jsonObject(with: Data(contentsOf: markerURL))
+                    as? [String: Any]
+            )
+            #expect(marker["sessionID"] as? String == testCase.sessionID)
+            #expect(marker["agentName"] as? String == testCase.agentName)
+        }
+
+        #expect(sessionRoots.count == cases.count)
+    }
+
     private func runCLI(
         _ executablePath: String,
         _ arguments: [String],
@@ -142,6 +192,14 @@ struct NoteCLIIntegrationTests {
         process.arguments = arguments
         var environment = ProcessInfo.processInfo.environment
         for key in Array(environment.keys) where key.hasPrefix("CMUX_") {
+            environment.removeValue(forKey: key)
+        }
+        for key in [
+            "CODEX_THREAD_ID",
+            "CODEX_SESSION_ID",
+            "CLAUDE_CODE_SESSION_ID",
+            "OPENCODE_SESSION_ID",
+        ] {
             environment.removeValue(forKey: key)
         }
         environment.merge(additions) { _, supplied in supplied }
