@@ -5606,9 +5606,27 @@ def _self_test() -> int:
                 "    let timing: Timing\n"
                 "}\n"
             ),
+            "Packages/CmuxClock/Tests/CmuxClockTests/Support/BaseEnvironment.swift": (
+                "class BaseEnvironment {\n"
+                "    let timing: Timing\n"
+                "}\n"
+            ),
+            "Packages/CmuxClock/Tests/CmuxClockTests/Support/InheritedEnvironment.swift": (
+                "final class InheritedEnvironment: BaseEnvironment {}\n"
+            ),
             "Packages/CmuxClock/Tests/CmuxClockTests/EnvironmentTests.swift": (
                 "let environment: Environment\n"
                 "try await environment.timing.clock.sleep(for: .milliseconds(300))\n"
+                "#expect(widget.isRendered)\n"
+            ),
+            "Packages/CmuxClock/Tests/CmuxClockTests/InheritedEnvironmentTests.swift": (
+                "let environment: InheritedEnvironment\n"
+                "try await environment.timing.clock.sleep(for: .milliseconds(300))\n"
+                "#expect(widget.isRendered)\n"
+            ),
+            "Packages/CmuxClock/Tests/CmuxClockTests/ModuleQualifiedClockTests.swift": (
+                "let clock = CmuxClock.SystemUpdateClock()\n"
+                "try await clock.sleep(for: .milliseconds(300))\n"
                 "#expect(widget.isRendered)\n"
             ),
         }
@@ -5635,6 +5653,28 @@ def _self_test() -> int:
                 "POSITIVE collected transitive project clock member: missing "
                 f"{RULE_SLEEP_THEN_ASSERT!r} "
                 f"(got {sorted(transitive_collection_rules)})"
+            )
+        inherited_collection_rules = {
+            finding.rule
+            for finding in collection_findings
+            if finding.path.endswith("/InheritedEnvironmentTests.swift")
+        }
+        if RULE_SLEEP_THEN_ASSERT not in inherited_collection_rules:
+            failures.append(
+                "POSITIVE collected inherited project clock container: missing "
+                f"{RULE_SLEEP_THEN_ASSERT!r} "
+                f"(got {sorted(inherited_collection_rules)})"
+            )
+        qualified_collection_rules = {
+            finding.rule
+            for finding in collection_findings
+            if finding.path.endswith("/ModuleQualifiedClockTests.swift")
+        }
+        if RULE_SLEEP_THEN_ASSERT not in qualified_collection_rules:
+            failures.append(
+                "POSITIVE module-qualified project clock: missing "
+                f"{RULE_SLEEP_THEN_ASSERT!r} "
+                f"(got {sorted(qualified_collection_rules)})"
             )
 
     shadowed_project_clock_sources = [
