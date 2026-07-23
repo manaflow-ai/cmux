@@ -8,10 +8,21 @@ extension SocketClient {
         responseTimeout: TimeInterval
     ) throws -> [String] {
         guard !commands.isEmpty else { return [] }
+        let deadline = Date.now.addingTimeInterval(responseTimeout)
         if isRelayBacked {
-            return try commands.map { command in
-                try send(command: command, responseTimeout: responseTimeout)
+            var responses: [String] = []
+            responses.reserveCapacity(commands.count)
+            for command in commands {
+                let remaining = deadline.timeIntervalSinceNow
+                guard remaining > 0 else {
+                    throw CLIError(message: String(
+                        localized: "cli.socket.error.commandTimedOut",
+                        defaultValue: "Command timed out"
+                    ))
+                }
+                responses.append(try send(command: command, responseTimeout: remaining))
             }
+            return responses
         }
         guard socketFD >= 0 else {
             throw CLIError(message: String(
@@ -20,7 +31,6 @@ extension SocketClient {
             ))
         }
 
-        let deadline = Date.now.addingTimeInterval(responseTimeout)
         let payload = commands
             .map { capabilityWrappedCommand($0) + "\n" }
             .joined()
