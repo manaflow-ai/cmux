@@ -203,15 +203,21 @@ struct CmuxNoteRepositoryTests {
     func rejectsInvalidUTF8() async throws {
         let root = try ArtifactTestSupport.temporaryDirectory()
         defer { ArtifactTestSupport.remove(root) }
-        let note = root.appendingPathComponent(".cmux/session/notes/binary.md")
-        try FileManager.default.createDirectory(
-            at: note.deletingLastPathComponent(),
-            withIntermediateDirectories: true
+        let repository = LocalArtifactRepository()
+        let note = try await repository.writeNote(
+            name: "binary",
+            text: "valid",
+            mode: .replace,
+            context: ArtifactCaptureContext(
+                projectRoot: root,
+                sessionID: "session:binary",
+                agentName: "codex"
+            )
         )
-        try Data([0xFF, 0xFE]).write(to: note)
+        try Data([0xFF, 0xFE]).write(to: URL(fileURLWithPath: note.absolutePath))
 
-        await #expect(throws: CmuxNoteStoreError.invalidUTF8("session/notes/binary.md")) {
-            _ = try await LocalArtifactRepository().readNote(projectRoot: root, name: "binary")
+        await #expect(throws: CmuxNoteStoreError.invalidUTF8(note.relativePath)) {
+            _ = try await repository.readNote(projectRoot: root, name: "binary")
         }
     }
 }

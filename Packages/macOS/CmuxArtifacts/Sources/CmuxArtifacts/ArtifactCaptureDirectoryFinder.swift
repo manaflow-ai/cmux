@@ -13,16 +13,21 @@ struct ArtifactCaptureDirectoryFinder {
         kind: CmuxSessionContentKind = .artifacts
     ) throws -> ArtifactCaptureDirectoryResolution {
         let sessionIdentity = context.sessionIdentity
-        if sessionIdentity.sessionID != nil,
-           let sessionRoot = try markerDirectories(
-               paths: paths,
-               markerName: ArtifactPathResolver.sessionMarkerName,
-               pathResolver: pathResolver,
-               matches: { (marker: ArtifactSessionMarker) in marker.identity == sessionIdentity }
-           ).first {
-            return ArtifactCaptureDirectoryResolution(
-                directory: sessionRoot.appendingPathComponent(kind.rawValue, isDirectory: true)
-            )
+        let markerCatalog = ArtifactMarkerDirectoryCatalog(
+            fileManager: fileManager,
+            decoder: decoder,
+            nodeBudget: nodeBudget
+        )
+        if sessionIdentity.sessionID != nil {
+            let matches = try markerCatalog.sessionDirectories(
+                paths: paths,
+                pathResolver: pathResolver
+            ).filter { $0.marker.identity == sessionIdentity }.map(\.directory)
+            if let sessionRoot = try uniqueDirectory(matches, paths: paths) {
+                return ArtifactCaptureDirectoryResolution(
+                    directory: sessionRoot.appendingPathComponent(kind.rawValue, isDirectory: true)
+                )
+            }
         }
 
         let fallback = pathResolver.contentDirectory(paths: paths, context: context, kind: kind)
@@ -34,13 +39,14 @@ struct ArtifactCaptureDirectoryFinder {
             )
             return ArtifactCaptureDirectoryResolution(directory: fallback)
         }
-        guard let workspaceID = normalized(context.workspaceID),
-              let sessionRoot = try markerDirectories(
-                  paths: paths,
-                  markerName: ArtifactPathResolver.workspaceMarkerName,
-                  pathResolver: pathResolver,
-                  matches: { (marker: ArtifactWorkspaceMarker) in marker.workspaceID == workspaceID }
-              ).first else {
+        guard let workspaceID = normalized(context.workspaceID) else {
+            return ArtifactCaptureDirectoryResolution(directory: fallback)
+        }
+        let matches = try markerCatalog.workspaceDirectories(
+            paths: paths,
+            pathResolver: pathResolver
+        ).filter { $0.marker.workspaceID == workspaceID }.map(\.directory)
+        guard let sessionRoot = try uniqueDirectory(matches, paths: paths) else {
             return ArtifactCaptureDirectoryResolution(directory: fallback)
         }
         return ArtifactCaptureDirectoryResolution(
@@ -67,56 +73,14 @@ struct ArtifactCaptureDirectoryFinder {
         }
     }
 
-    private func markerDirectories<Marker: Decodable>(
-        paths: ArtifactStorePaths,
-        markerName: String,
-        pathResolver: ArtifactPathResolver,
-        matches: (Marker) -> Bool
-    ) throws -> [URL] {
-        guard let enumerator = fileManager.enumerator(
-            at: paths.filesystemRoot,
-            includingPropertiesForKeys: [
-                .isRegularFileKey, .isDirectoryKey, .isSymbolicLinkKey, .fileSizeKey,
-            ],
-            options: [.skipsPackageDescendants]
-        ) else { return [] }
-        var directories: [URL] = []
-        var visited = 0
-        var exceededNodeBudget = false
-        for case let url as URL in enumerator {
-            guard visited < nodeBudget else {
-                exceededNodeBudget = true
-                break
-            }
-            visited += 1
-            if pathResolver.refersToSameLocation(url, paths.metadataRoot) {
-                enumerator.skipDescendants()
-                continue
-            }
-            guard url.lastPathComponent == markerName,
-                  let data = try? ArtifactBoundedFileReader().data(
-                      url: url,
-                      allowedRoot: paths.filesystemRoot,
-                      maximumBytes: 256 * 1024
-                  ),
-                  let marker = try? decoder.decode(Marker.self, from: data),
-                  matches(marker) else {
-                continue
-            }
-            let directory = url.deletingLastPathComponent()
-            guard let relativePath = pathResolver.relativePath(directory, root: paths.filesystemRoot) else {
-                continue
-            }
-            directories.append(
-                paths.filesystemRoot.appendingPathComponent(relativePath, isDirectory: true)
-            )
+    private func uniqueDirectory(
+        _ matches: [URL],
+        paths: ArtifactStorePaths
+    ) throws -> URL? {
+        guard matches.count <= 1 else {
+            throw ArtifactStoreError.corruptProvenance(paths.filesystemRoot.path)
         }
-        guard !exceededNodeBudget else {
-            throw ArtifactStoreError.scanIncomplete(paths.filesystemRoot.path)
-        }
-        return directories.sorted {
-            $0.path.localizedStandardCompare($1.path) == .orderedAscending
-        }
+        return matches.first
     }
 
     private func normalized(_ value: String?) -> String? {
