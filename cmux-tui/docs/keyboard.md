@@ -31,13 +31,14 @@ These defaults come from `Keys::default`.
 | `Ctrl-b n` | Next screen in the active workspace |
 | `Alt-]` | Next screen in the active workspace |
 | `Ctrl-b c` | New screen in the active workspace |
-| `Ctrl-b z` | Toggle zoom for the active pane |
+| `Ctrl-b z` | Maximize the active pane or restore the pane layout |
 | `Ctrl-b o` | Focus the next pane in the current screen |
 | `Ctrl-b {` | Swap the active pane with the previous pane |
 | `Ctrl-b }` | Swap the active pane with the next pane |
 | `Ctrl-b w` | Next workspace |
 | `Ctrl-b W` | New workspace |
 | `Ctrl-b s` | Show or hide the sidebar |
+| `Ctrl-b m` | Toggle the sidebar between compact and full width; shows it when hidden |
 | `Ctrl-b e` | Toggle the built-in sidebar between files and workspaces |
 | `Ctrl-b S` | Focus the built-in sidebar or configured sidebar plugin; a prefixed command returns focus to the pane |
 | `Ctrl-b h` or `Ctrl-b Left` | Focus left |
@@ -150,6 +151,7 @@ new-screen
 next-workspace
 new-workspace
 toggle-sidebar
+toggle-sidebar-compact
 toggle-sidebar-view
 focus-sidebar
 focus-left

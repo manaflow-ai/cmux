@@ -107,6 +107,58 @@ impl TreeView {
             .find(|pane| pane.id == id)
     }
 
+    pub fn surface(&self, id: SurfaceId) -> Option<&TabView> {
+        self.workspaces
+            .iter()
+            .flat_map(|workspace| workspace.screens.iter())
+            .flat_map(|screen| screen.panes.iter())
+            .flat_map(|pane| pane.tabs.iter())
+            .find(|tab| tab.surface == id)
+    }
+
+    /// Resolve either the numeric protocol id or the short id shown by the
+    /// TUI and CLI.
+    pub fn resolve_surface(&self, reference: &str) -> Option<SurfaceId> {
+        let tabs = || {
+            self.workspaces
+                .iter()
+                .flat_map(|workspace| workspace.screens.iter())
+                .flat_map(|screen| screen.panes.iter())
+                .flat_map(|pane| pane.tabs.iter())
+        };
+        tabs().find(|tab| tab.short_id == reference).map(|tab| tab.surface).or_else(|| {
+            let numeric = reference.parse::<SurfaceId>().ok()?;
+            tabs().find(|tab| tab.surface == numeric).map(|tab| tab.surface)
+        })
+    }
+
+    /// Select the workspace, screen, pane, and tab containing a surface.
+    /// Single-surface clients reapply this to every remote tree snapshot so
+    /// unrelated focus changes cannot move them to another terminal.
+    pub fn select_surface(&mut self, id: SurfaceId) -> bool {
+        let location =
+            self.workspaces.iter().enumerate().find_map(|(workspace_index, workspace)| {
+                workspace.screens.iter().enumerate().find_map(|(screen_index, screen)| {
+                    screen.panes.iter().enumerate().find_map(|(pane_index, pane)| {
+                        pane.tabs
+                            .iter()
+                            .position(|tab| tab.surface == id)
+                            .map(|tab_index| (workspace_index, screen_index, pane_index, tab_index))
+                    })
+                })
+            });
+        let Some((workspace_index, screen_index, pane_index, tab_index)) = location else {
+            return false;
+        };
+        self.active_workspace = workspace_index;
+        let workspace = &mut self.workspaces[workspace_index];
+        workspace.active_screen = screen_index;
+        let screen = &mut workspace.screens[screen_index];
+        screen.active_pane = screen.panes[pane_index].id;
+        screen.panes[pane_index].active_tab = tab_index;
+        true
+    }
+
     /// The active surface of the active pane of the active screen.
     pub fn active_surface(&self) -> Option<SurfaceId> {
         let screen = self.active_screen()?;
@@ -456,6 +508,36 @@ mod tests {
         .unwrap();
 
         assert!(matches!(layout, Node::Stack { expanded: 4, .. }));
+    }
+
+    #[test]
+    fn selecting_surface_updates_the_full_active_path() {
+        let mut tree = parse_tree(&json!({
+            "workspaces": [{
+                "id": 1,
+                "active": true,
+                "screens": [{
+                    "id": 2,
+                    "active": true,
+                    "active_pane": 3,
+                    "layout": {"type": "leaf", "pane": 3},
+                    "panes": [{
+                        "id": 3,
+                        "active_tab": 0,
+                        "tabs": [
+                            {"surface": 4, "short_id": "aaa004"},
+                            {"surface": 5, "short_id": "bbb005"}
+                        ]
+                    }]
+                }]
+            }]
+        }));
+
+        assert_eq!(tree.resolve_surface("bbb005"), Some(5));
+        assert_eq!(tree.resolve_surface("4"), Some(4));
+        assert!(tree.select_surface(5));
+        assert_eq!(tree.active_surface(), Some(5));
+        assert!(!tree.select_surface(99));
     }
 
     #[test]

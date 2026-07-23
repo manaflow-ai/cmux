@@ -29,6 +29,7 @@
 //!   "sidebar": {
 //!     "view": "files",
 //!     "width": 22,
+//!     "compact_width": 10,
 //!     "max_width": 0,
 //!     "plugin": {
 //!       "command": ["/path/to/plugin-binary"],
@@ -80,7 +81,8 @@
 //! `close-pane`, `rename-tab` (alias: `rename-pane`), `rename-screen`,
 //! `rename-workspace`, `close-screen`, `prev-screen`, `next-screen`,
 //! `select-screen-0` through `select-screen-9`, `new-screen`,
-//! `next-workspace`, `new-workspace`, `toggle-sidebar`, `toggle-sidebar-view`, `focus-sidebar`,
+//! `next-workspace`, `new-workspace`, `toggle-sidebar`, `toggle-sidebar-compact`,
+//! `toggle-sidebar-view`, `focus-sidebar`,
 //! `focus-left`, `focus-right`, `focus-up`, `focus-down`, `focus-next-pane`,
 //! `swap-pane-prev`, `swap-pane-next`, `zoom-pane`, `resize-grow`,
 //! `resize-shrink`, `scroll-up`, `scroll-down`, `browser-back`,
@@ -379,6 +381,7 @@ struct RawTabs {
 struct RawSidebar {
     view: Option<String>,
     width: Option<u16>,
+    compact_width: Option<u16>,
     max_width: Option<u16>,
     plugin: Option<RawSidebarPlugin>,
 }
@@ -532,13 +535,20 @@ pub struct Sidebar {
     /// Built-in view used when `plugin` is unset. The default is the file browser.
     pub view: SidebarView,
     pub width: u16,
+    pub compact_width: u16,
     pub max_width: u16,
     pub plugin: Option<SidebarPluginOptions>,
 }
 
 impl Default for Sidebar {
     fn default() -> Self {
-        Sidebar { view: SidebarView::Workspaces, width: 22, max_width: 0, plugin: None }
+        Sidebar {
+            view: SidebarView::Workspaces,
+            width: 22,
+            compact_width: 10,
+            max_width: 0,
+            plugin: None,
+        }
     }
 }
 
@@ -621,6 +631,7 @@ pub enum Action {
     NextWorkspace,
     NewWorkspace,
     ToggleSidebar,
+    ToggleSidebarCompact,
     ToggleSidebarView,
     FocusSidebar,
     FocusLeft,
@@ -666,6 +677,7 @@ impl Action {
             Action::NextWorkspace => "next-workspace".to_string(),
             Action::NewWorkspace => "new-workspace".to_string(),
             Action::ToggleSidebar => "toggle-sidebar".to_string(),
+            Action::ToggleSidebarCompact => "toggle-sidebar-compact".to_string(),
             Action::ToggleSidebarView => "toggle-sidebar-view".to_string(),
             Action::FocusSidebar => "focus-sidebar".to_string(),
             Action::FocusLeft => "focus-left".to_string(),
@@ -723,6 +735,47 @@ impl Chord {
         };
         self.code == key.code && mods_match
     }
+
+    /// Human-readable form used beside context-menu actions. Keep this
+    /// derived from the resolved chord so config overrides teach the keys
+    /// that are actually active.
+    pub fn display_label(&self) -> Option<String> {
+        let mut modifiers = Vec::new();
+        if self.mods.contains(KeyModifiers::CONTROL) {
+            modifiers.push("Ctrl");
+        }
+        if self.mods.contains(KeyModifiers::ALT) {
+            modifiers.push("Alt");
+        }
+        if self.mods.contains(KeyModifiers::SHIFT) {
+            modifiers.push("Shift");
+        }
+        if self.mods.contains(KeyModifiers::SUPER) {
+            modifiers.push("Super");
+        }
+        let key = match self.code {
+            KeyCode::Char(' ') => "Space".to_string(),
+            KeyCode::Char(character) => character.to_string(),
+            KeyCode::Tab => "Tab".to_string(),
+            KeyCode::BackTab => "BackTab".to_string(),
+            KeyCode::Enter => "Enter".to_string(),
+            KeyCode::Esc => "Esc".to_string(),
+            KeyCode::Left => "Left".to_string(),
+            KeyCode::Right => "Right".to_string(),
+            KeyCode::Up => "Up".to_string(),
+            KeyCode::Down => "Down".to_string(),
+            KeyCode::PageUp => "PageUp".to_string(),
+            KeyCode::PageDown => "PageDown".to_string(),
+            KeyCode::Home => "Home".to_string(),
+            KeyCode::End => "End".to_string(),
+            _ => return None,
+        };
+        if modifiers.is_empty() {
+            Some(key)
+        } else {
+            Some(format!("{}-{key}", modifiers.join("-")))
+        }
+    }
 }
 
 /// Resolved key bindings: the prefix chord plus one chord per action.
@@ -770,6 +823,7 @@ impl Default for Keys {
                 bind(KeyCode::Char('w'), Action::NextWorkspace),
                 bind(KeyCode::Char('W'), Action::NewWorkspace),
                 bind(KeyCode::Char('s'), Action::ToggleSidebar),
+                bind(KeyCode::Char('m'), Action::ToggleSidebarCompact),
                 bind(KeyCode::Char('e'), Action::ToggleSidebarView),
                 bind(KeyCode::Char('S'), Action::FocusSidebar),
                 bind(KeyCode::Char('o'), Action::FocusNextPane),
@@ -820,6 +874,18 @@ impl Keys {
             .iter()
             .find(|(chord, _)| chord.mods.contains(KeyModifiers::ALT) && chord.matches(key))
             .map(|(_, a)| *a)
+    }
+
+    /// The first configured shortcut for an action, including the prefix
+    /// for prefix-only chords. Returns `None` when the action is unbound.
+    pub fn shortcut_label(&self, action: Action) -> Option<String> {
+        let chord = self.bindings.iter().find(|(_, bound)| *bound == action)?.0;
+        let chord_label = chord.display_label()?;
+        if chord.mods.contains(KeyModifiers::ALT) {
+            Some(chord_label)
+        } else {
+            Some(format!("{} {chord_label}", self.prefix.display_label()?))
+        }
     }
 
     /// Apply config overrides: `"prefix"` rebinds the prefix; any action
@@ -928,6 +994,7 @@ fn all_actions() -> &'static [Action] {
         Action::NextWorkspace,
         Action::NewWorkspace,
         Action::ToggleSidebar,
+        Action::ToggleSidebarCompact,
         Action::ToggleSidebarView,
         Action::FocusSidebar,
         Action::FocusLeft,
@@ -1129,6 +1196,10 @@ pub fn load() -> Config {
     if let Some(w) = raw.sidebar.width {
         config.sidebar.width = w.clamp(10, 60);
     }
+    if let Some(w) = raw.sidebar.compact_width {
+        config.sidebar.compact_width = w.clamp(10, 60);
+    }
+    config.sidebar.compact_width = config.sidebar.compact_width.min(config.sidebar.width);
     if let Some(view) = raw.sidebar.view {
         match parse_sidebar_view(&view) {
             Ok(view) => config.sidebar.view = view,
@@ -2003,6 +2074,7 @@ mod tests {
                 "sidebar": {
                     "view": "workspaces",
                     "width": 30,
+                    "compact_width": 12,
                     "max_width": 38,
                     "plugin": {
                         "command": ["/tmp/sidebar-plugin", "--mode", "test"],
@@ -2038,6 +2110,7 @@ mod tests {
         assert_eq!(config.tabs.min_width, 9);
         assert!(!config.tabs.solid_background);
         assert_eq!(config.sidebar.width, 30);
+        assert_eq!(config.sidebar.compact_width, 12);
         assert_eq!(config.sidebar.max_width, 38);
         assert_eq!(config.sidebar.view, SidebarView::Workspaces);
         let plugin = config.sidebar.plugin.as_ref().expect("sidebar plugin config");
@@ -2196,6 +2269,7 @@ mod tests {
             ("swap-pane-prev", Action::SwapPanePrev),
             ("swap-pane-next", Action::SwapPaneNext),
             ("scroll-up", Action::ScrollUp),
+            ("toggle-sidebar-compact", Action::ToggleSidebarCompact),
             ("toggle-sidebar-view", Action::ToggleSidebarView),
         ];
         for (name, action) in cases {
@@ -2255,6 +2329,22 @@ mod tests {
         let plain_left = Chord { code: KeyCode::Left, mods: KeyModifiers::NONE };
         assert!(plain_left.matches(&KeyEvent::new(KeyCode::Left, KeyModifiers::NONE)));
         assert!(!plain_left.matches(&KeyEvent::new(KeyCode::Left, KeyModifiers::SHIFT)));
+    }
+
+    #[test]
+    fn shortcut_labels_follow_resolved_bindings_and_prefix() {
+        let mut keys = Keys::default();
+        assert_eq!(keys.shortcut_label(Action::ZoomPane).as_deref(), Some("Ctrl-b z"));
+        assert_eq!(keys.shortcut_label(Action::NewPaneSmart).as_deref(), Some("Alt-n"));
+
+        let mut raw = HashMap::new();
+        raw.insert("prefix".to_string(), Value::String("ctrl+a".to_string()));
+        raw.insert("zoom-pane".to_string(), Value::String("f".to_string()));
+        raw.insert("toggle-sidebar".to_string(), Value::String("none".to_string()));
+        keys.apply(&raw);
+
+        assert_eq!(keys.shortcut_label(Action::ZoomPane).as_deref(), Some("Ctrl-a f"));
+        assert_eq!(keys.shortcut_label(Action::ToggleSidebar), None);
     }
 
     #[test]

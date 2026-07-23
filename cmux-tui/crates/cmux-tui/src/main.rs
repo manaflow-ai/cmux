@@ -23,7 +23,7 @@ use std::path::PathBuf;
 use std::sync::Arc;
 use std::sync::atomic::{AtomicBool, Ordering};
 
-use cmux_tui_core::{Mux, SurfaceOptions};
+use cmux_tui_core::{Mux, SurfaceKind, SurfaceOptions};
 use session::{RemoteSession, Session};
 
 static SHUTDOWN_REQUESTED: AtomicBool = AtomicBool::new(false);
@@ -56,13 +56,14 @@ cmux-tui - terminal multiplexer backed by libghostty-vt
 
 USAGE:
   cmux-tui [OPTIONS]           Start a session (TUI + control socket)
-  cmux-tui attach [OPTIONS]    Attach to an existing session's socket
+  cmux-tui attach [OPTIONS]    Attach to an existing session or one terminal
   cmux-tui <verb> [OPTIONS]    Run one control-socket command
   cmux-tui plugin <subcommand> Manage sidebar plugins locally
 
 OPTIONS:
   --session <name>   Session name (default: main). Determines the socket path.
   --socket <path>    Explicit control socket path.
+  --surface <id>     With attach, show only this terminal (numeric or short id).
   --headless         Run only the control socket, no TUI.
   --ws <addr>        Also listen for WebSocket clients (default: off).
   --ws-token <token> Allow a static-token bypass for interactive pairing.
@@ -79,7 +80,8 @@ KEYS (prefix: Ctrl-b)
   ,  rename screen     $    rename workspace   c    new screen
   n/p  next/prev screen
   h/j/k/l or arrows    move focus              d    quit (attach: detach)
-  w  next workspace    W    new workspace       s    toggle sidebar
+  w  next workspace    W    new workspace       z    maximize/restore pane
+  s  show/hide sidebar m    compact/full sidebar
   e  toggle sidebar view                       S    focus sidebar
   <  browser back      >    browser forward     r/u  browser reload/edit URL
   Ctrl-b  send a literal Ctrl-b
@@ -87,7 +89,8 @@ KEYS (prefix: Ctrl-b)
 MOUSE
   Mouse-aware PTYs receive clicks, motion, and wheel events. Hold Shift
   to select text or open the cmux pane menu. Right-click a pane for
-  rename/new tab/split/close; right-click a
+  rename/new tab/split/close, maximize, and sidebar controls; menus show
+  their configured keyboard shortcuts. Right-click a
   workspace-sidebar row or a status-bar screen for rename/close. Click
   tab-bar entries to switch tabs (+ for a new tab), and status-bar
   screen entries to switch screens (+ for a new screen).
@@ -120,6 +123,7 @@ struct Args {
     attach: bool,
     session: String,
     socket: Option<PathBuf>,
+    surface: Option<String>,
     headless: bool,
     ws: Option<String>,
     ws_token: Option<String>,
@@ -142,6 +146,7 @@ fn parse_args(args: impl IntoIterator<Item = String>) -> Args {
         attach: false,
         session: "main".to_string(),
         socket: None,
+        surface: None,
         headless: false,
         ws: None,
         ws_token: None,
@@ -162,6 +167,10 @@ fn parse_args(args: impl IntoIterator<Item = String>) -> Args {
                 out.socket = Some(
                     args.next().unwrap_or_else(|| usage_exit("--socket needs a value")).into(),
                 );
+            }
+            "--surface" => {
+                out.surface =
+                    Some(args.next().unwrap_or_else(|| usage_exit("--surface needs a value")));
             }
             "--headless" => out.headless = true,
             "--ws" => {
@@ -185,6 +194,9 @@ fn parse_args(args: impl IntoIterator<Item = String>) -> Args {
             }
             other => usage_exit(&format!("unknown argument {other:?}")),
         }
+    }
+    if out.surface.is_some() && !out.attach {
+        usage_exit("--surface requires `cmux-tui attach`");
     }
     out
 }
@@ -228,7 +240,20 @@ fn run_attach(args: Args) -> anyhow::Result<()> {
     let socket_path =
         args.socket.unwrap_or_else(|| cmux_tui_core::server::default_socket_path(&args.session));
     let remote = RemoteSession::connect(&socket_path)?;
-    run_tui(Session::Remote(remote), args.session)
+    let surface_only = if let Some(reference) = args.surface.as_deref() {
+        let tree = remote.refresh_tree()?;
+        let surface = tree.resolve_surface(reference).ok_or_else(|| {
+            anyhow::anyhow!("unknown terminal {reference:?}; use `cmux-tui ids` to list surfaces")
+        })?;
+        let tab = tree.surface(surface).expect("resolved surface must remain in the snapshot");
+        if tab.kind != SurfaceKind::Pty {
+            anyhow::bail!("surface {reference:?} is a browser, not a terminal");
+        }
+        Some(surface)
+    } else {
+        None
+    };
+    run_tui(Session::Remote(remote), args.session, surface_only)
 }
 
 fn run_server(args: Args) -> anyhow::Result<()> {
@@ -245,7 +270,7 @@ fn run_server(args: Args) -> anyhow::Result<()> {
         && socket_path.exists()
         && let Ok(remote) = RemoteSession::connect(&socket_path)
     {
-        return run_tui(Session::Remote(remote), args.session);
+        return run_tui(Session::Remote(remote), args.session, None);
     }
 
     let mut surface_options = SurfaceOptions::default();
@@ -283,7 +308,7 @@ fn run_server(args: Args) -> anyhow::Result<()> {
     let result = if args.headless {
         run_headless(&mux, &socket_path)
     } else {
-        run_tui(Session::Local(mux.clone()), args.session)
+        run_tui(Session::Local(mux.clone()), args.session, None)
     };
     drop(websocket_server);
     mux.shutdown();
@@ -291,7 +316,11 @@ fn run_server(args: Args) -> anyhow::Result<()> {
     result
 }
 
-fn run_tui(session: Session, session_label: String) -> anyhow::Result<()> {
+fn run_tui(
+    session: Session,
+    session_label: String,
+    surface_only: Option<cmux_tui_core::SurfaceId>,
+) -> anyhow::Result<()> {
     crossterm::terminal::enable_raw_mode()?;
     let config = config::load();
     let mut colors = config.terminal_defaults;
@@ -308,7 +337,7 @@ fn run_tui(session: Session, session_label: String) -> anyhow::Result<()> {
         eprintln!("cmux-tui: failed to set default colors: {err}");
     }
     raw_result?;
-    app::run(session, session_label, colors)
+    app::run(session, session_label, colors, surface_only)
 }
 
 fn run_headless(mux: &Arc<Mux>, socket_path: &std::path::Path) -> anyhow::Result<()> {

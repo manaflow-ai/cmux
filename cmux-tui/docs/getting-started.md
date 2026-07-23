@@ -41,6 +41,14 @@ cargo run -p cmux-tui -- attach --session agents
 
 Detach from an attached TUI with prefix `d`. With default keys, that is `Ctrl-b d`. The server keeps running, and another `attach` reconnects to the same tree. PTY tabs attach with a Ghostty VT-state replay followed by a live output stream.
 
+Attach only one terminal by numeric or short surface id:
+
+```bash
+cargo run -p cmux-tui -- attach --session agents --surface <surface-id>
+```
+
+Single-terminal attach reserves the full host grid for that PTY. It omits the sidebar, status bar, pane border, and other tabs, and exits when the target terminal closes.
+
 ## Sessions and sockets
 
 The default socket path is:

@@ -42,6 +42,7 @@ The built-in sidebar defaults to the workspace list. Set `"sidebar": {"view": "f
 | --- | --- | --- | --- |
 | `sidebar.view` | `"files"` or `"workspaces"` | `"workspaces"` | Built-in sidebar view when `sidebar.plugin` is unset |
 | `sidebar.width` | integer | `22` | Sidebar width, clamped to 10 through 60 on load |
+| `sidebar.compact_width` | integer | `10` | Width used by compact mode, clamped to 10 through 60 and capped at `sidebar.width` |
 | `sidebar.max_width` | integer | `0` | Maximum live drag width; `0` means no configured maximum |
 | `sidebar.plugin.command` | array of strings | unset | External sidebar plugin argv; when set, the sidebar hosts this program in a PTY instead of the built-in list |
 | `sidebar.plugin.cwd` | string | unset | Working directory for the sidebar plugin process |
@@ -135,6 +136,7 @@ WebSocket clients pair through a six-digit browser/TUI comparison by default. We
 | `keys.next-workspace` | chord string or array or `"none"` | `"w"` | Next workspace |
 | `keys.new-workspace` | chord string or array or `"none"` | `"W"` | New workspace |
 | `keys.toggle-sidebar` | chord string or array or `"none"` | `"s"` | Toggle sidebar |
+| `keys.toggle-sidebar-compact` | chord string or array or `"none"` | `"m"` | Toggle compact/full sidebar width and show the sidebar |
 | `keys.toggle-sidebar-view` | chord string or array or `"none"` | `"e"` | Toggle the built-in files/workspaces view; a plugin still takes precedence |
 | `keys.focus-sidebar` | chord string or array or `"none"` | `"S"` | Focus the built-in sidebar or sidebar plugin; a prefixed command returns focus to the pane |
 | `keys.focus-next-pane` | chord string or array or `"none"` | `"o"` | Cycle to the next pane in the current screen |
@@ -190,6 +192,7 @@ Chord strings can be single characters or a key name with optional `ctrl`, `cont
   "sidebar": {
     "view": "files",
     "width": 24,
+    "compact_width": 10,
     "max_width": 40
   },
   "browser": {
@@ -224,6 +227,7 @@ Chord strings can be single characters or a key name with optional `ctrl`, `cont
     "prev-screen": ["p", "alt+["],
     "rename-tab": "r",
     "rename-screen": ",",
+    "toggle-sidebar-compact": "m",
     "toggle-sidebar-view": "e",
     "focus-left": ["h", "left", "alt+h", "alt+left"],
     "focus-right": ["l", "right", "alt+l", "alt+right"],

@@ -35,12 +35,14 @@ use ghostty_vt::{
 };
 use ratatui::Terminal as RatatuiTerminal;
 use ratatui::backend::CrosstermBackend;
+use unicode_width::UnicodeWidthStr;
 
 use crate::browser_input::{
     BrowserInputDispatcher, BrowserInputEvent, BrowserInputKind, BrowserResizeFailure,
 };
 use crate::config::{Action, ChromeTheme, Config, ScrollbarPosition, SidebarView};
 use crate::keys;
+use crate::localization::catalog;
 use crate::pty_input::{
     PtyInputBytes, PtyInputDispatcher, PtyInputEnqueueResult, PtyInputEvent, PtyInputKind,
     PtyInputSender, PtyOperationDelivery, PtyOperationFailure,
@@ -1750,7 +1752,7 @@ impl RenderAction {
 /// A clickable region of the current frame. The renderers rebuild the hit
 /// map every draw, so hit-testing always matches what is on screen.
 /// Left-click performs the action; right-click opens the matching context
-/// menu where one exists (workspace rows, panes).
+/// menu where one exists (sidebar rows and divider, screens, panes).
 #[derive(Debug, Clone, Copy, PartialEq)]
 pub enum Hit {
     /// Sidebar workspace entry.
@@ -1855,6 +1857,11 @@ pub enum MenuAction {
     SplitDown(PaneId),
     CloseTab(PaneId),
     ClosePane(PaneId),
+    TogglePaneZoom { pane: PaneId, zoomed: bool },
+    ToggleSidebar { visible: bool },
+    ToggleSidebarCompact { compact: bool },
+    ToggleSidebarView { view: SidebarView },
+    FocusSidebar,
     SetClientSizing { client: u64, enabled: bool },
     UseClientSize(u64),
     RestoreAllClientSizing,
@@ -1863,6 +1870,7 @@ pub enum MenuAction {
 
 impl MenuAction {
     pub fn label(&self) -> &'static str {
+        let menu = &catalog().menu;
         match self {
             MenuAction::RenameWorkspace(_) => "Rename workspace",
             MenuAction::CopyWorkspaceId(_) => "Copy workspace id",
@@ -1884,6 +1892,15 @@ impl MenuAction {
             MenuAction::SplitDown(_) => "Split down",
             MenuAction::CloseTab(_) => "Close tab",
             MenuAction::ClosePane(_) => "Close pane",
+            MenuAction::TogglePaneZoom { zoomed: false, .. } => menu.maximize_pane,
+            MenuAction::TogglePaneZoom { zoomed: true, .. } => menu.restore_pane_layout,
+            MenuAction::ToggleSidebar { visible: false } => menu.show_sidebar,
+            MenuAction::ToggleSidebar { visible: true } => menu.hide_sidebar,
+            MenuAction::ToggleSidebarCompact { compact: false } => menu.compact_sidebar,
+            MenuAction::ToggleSidebarCompact { compact: true } => menu.full_sidebar,
+            MenuAction::ToggleSidebarView { view: SidebarView::Workspaces } => menu.sidebar_files,
+            MenuAction::ToggleSidebarView { view: SidebarView::Files } => menu.sidebar_workspaces,
+            MenuAction::FocusSidebar => menu.focus_sidebar,
             MenuAction::SetClientSizing { enabled: true, .. } => "Use for sizing",
             MenuAction::SetClientSizing { enabled: false, .. } => "Exclude from sizing",
             MenuAction::UseClientSize(_) => "Use only this client size",
@@ -1893,11 +1910,37 @@ impl MenuAction {
     }
 }
 
+fn keyboard_action_for_menu(action: MenuAction) -> Option<Action> {
+    match action {
+        MenuAction::RenameWorkspace(_) => Some(Action::RenameWorkspace),
+        MenuAction::RenameScreen(_) => Some(Action::RenameScreen),
+        MenuAction::CloseScreen(_) => Some(Action::CloseScreen),
+        MenuAction::BrowserBack(_) => Some(Action::BrowserBack),
+        MenuAction::BrowserForward(_) => Some(Action::BrowserForward),
+        MenuAction::BrowserReload(_) => Some(Action::BrowserReload),
+        MenuAction::BrowserEditUrl(_) => Some(Action::BrowserEditUrl),
+        MenuAction::RenameTab(_) => Some(Action::RenameTab),
+        MenuAction::NewTab(_) => Some(Action::NewTab),
+        MenuAction::NewBrowserTab(_) => Some(Action::NewBrowserTab),
+        MenuAction::SplitRight(_) => Some(Action::SplitRight),
+        MenuAction::SplitDown(_) => Some(Action::SplitDown),
+        MenuAction::CloseTab(_) => Some(Action::CloseTab),
+        MenuAction::ClosePane(_) => Some(Action::ClosePane),
+        MenuAction::TogglePaneZoom { .. } => Some(Action::ZoomPane),
+        MenuAction::ToggleSidebar { .. } => Some(Action::ToggleSidebar),
+        MenuAction::ToggleSidebarCompact { .. } => Some(Action::ToggleSidebarCompact),
+        MenuAction::ToggleSidebarView { .. } => Some(Action::ToggleSidebarView),
+        MenuAction::FocusSidebar => Some(Action::FocusSidebar),
+        _ => None,
+    }
+}
+
 /// One row in a context menu. Separators divide related action groups and
 /// are skipped by keyboard and mouse selection.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum MenuItem {
     Action(MenuAction),
+    ActionWithShortcut { action: MenuAction, shortcut: String },
     Submenu { label: String, items: Vec<MenuItem> },
     Separator,
 }
@@ -1905,16 +1948,25 @@ pub enum MenuItem {
 impl MenuItem {
     pub fn action(&self) -> Option<MenuAction> {
         match self {
-            MenuItem::Action(action) => Some(*action),
+            MenuItem::Action(action) | MenuItem::ActionWithShortcut { action, .. } => Some(*action),
             MenuItem::Submenu { .. } | MenuItem::Separator => None,
         }
     }
 
     pub fn label(&self) -> Option<&str> {
         match self {
-            MenuItem::Action(action) => Some(action.label()),
+            MenuItem::Action(action) | MenuItem::ActionWithShortcut { action, .. } => {
+                Some(action.label())
+            }
             MenuItem::Submenu { label, .. } => Some(label),
             MenuItem::Separator => None,
+        }
+    }
+
+    pub fn shortcut(&self) -> Option<&str> {
+        match self {
+            MenuItem::ActionWithShortcut { shortcut, .. } => Some(shortcut),
+            _ => None,
         }
     }
 
@@ -1941,13 +1993,19 @@ pub struct MenuLevel {
 
 impl MenuLevel {
     fn new(x: u16, y: u16, items: Vec<MenuItem>) -> Self {
-        let label_w = items
+        let content_w = items
             .iter()
-            .filter_map(MenuItem::label)
-            .map(|label| label.chars().count())
+            .filter_map(|item| {
+                let label = item.label()?;
+                let suffix = item
+                    .shortcut()
+                    .map(|shortcut| shortcut.width() + 2)
+                    .unwrap_or(if matches!(item, MenuItem::Submenu { .. }) { 2 } else { 0 });
+                Some(label.width() + suffix)
+            })
             .max()
             .unwrap_or(0) as u16;
-        let width = label_w + 2 + ContextMenu::PAD * 2 + 2;
+        let width = content_w + 2 + ContextMenu::PAD * 2 + 2;
         let height = items.len() as u16 + 2;
         let selected = items.iter().position(MenuItem::selectable).unwrap_or(0);
         let visible_rows = items.len();
@@ -2016,6 +2074,7 @@ impl ContextMenu {
     /// Horizontal padding between the menu edge and the item labels.
     pub const PAD: u16 = 1;
 
+    #[cfg(test)]
     fn at(x: u16, y: u16, groups: Vec<Vec<MenuAction>>) -> Self {
         Self::with_groups(
             x,
@@ -2500,7 +2559,10 @@ pub struct App {
     pending_size_releases: HashSet<SurfaceId>,
     pub prefix_armed: bool,
     pub session_label: String,
+    /// When set, render only this PTY surface without session chrome.
+    surface_only: Option<SurfaceId>,
     pub sidebar_visible: bool,
+    pub sidebar_compact: bool,
     pub sidebar_focused: bool,
     pub sidebar_focus_pending: bool,
     pub sidebar_view: SidebarView,
@@ -2614,13 +2676,19 @@ fn preserve_client_view(previous: &TreeView, next: &mut TreeView) {
 fn sidebar_width_for(
     config: &Config,
     visible: bool,
+    compact: bool,
     width: u16,
     override_width: Option<u16>,
 ) -> u16 {
     if !visible {
         return 0;
     }
-    clamp_sidebar_width(config, width, override_width.unwrap_or(config.sidebar.width)).unwrap_or(0)
+    let desired = if compact {
+        config.sidebar.compact_width
+    } else {
+        override_width.unwrap_or(config.sidebar.width)
+    };
+    clamp_sidebar_width(config, width, desired).unwrap_or(0)
 }
 
 fn clamp_sidebar_width(config: &Config, terminal_width: u16, desired: u16) -> Option<u16> {
@@ -2693,6 +2761,7 @@ pub fn run(
     session: Session,
     session_label: String,
     default_colors: cmux_tui_core::DefaultColors,
+    surface_only: Option<SurfaceId>,
 ) -> anyhow::Result<()> {
     let mut config = crate::config::load();
     let chrome = ChromeTheme::for_defaults(config.chrome, default_colors);
@@ -2703,7 +2772,10 @@ pub fn run(
     // repaint their prompt, leaving a reverse-video % artifact). The
     // pane's border box eats one cell on every side.
     let initial_size = crossterm::terminal::size().ok().map(|(w, h)| {
-        let sidebar = sidebar_width_for(&config, true, w, None);
+        if surface_only.is_some() {
+            return (w.max(1), h.max(1));
+        }
+        let sidebar = sidebar_width_for(&config, true, false, w, None);
         let pane = Rect {
             x: sidebar,
             y: 0,
@@ -2833,7 +2905,9 @@ pub fn run(
         pending_size_releases: HashSet::new(),
         prefix_armed: false,
         session_label,
-        sidebar_visible: true,
+        surface_only,
+        sidebar_visible: surface_only.is_none(),
+        sidebar_compact: false,
         sidebar_focused: false,
         sidebar_focus_pending: false,
         sidebar_view,
@@ -2913,6 +2987,10 @@ fn restore_terminal(stdout_lock: Option<&Arc<Mutex<()>>>) -> anyhow::Result<()> 
 }
 
 impl App {
+    pub fn is_surface_only(&self) -> bool {
+        self.surface_only.is_some()
+    }
+
     fn event_loop(
         &mut self,
         terminal: &mut RatatuiTerminal<CrosstermBackend<std::io::Stdout>>,
@@ -3208,6 +3286,12 @@ impl App {
         let previous_active = self.active_pane();
         if self.session.remote {
             preserve_client_view(&self.tree, &mut tree);
+        }
+        if let Some(surface) = self.surface_only
+            && !tree.select_surface(surface)
+        {
+            tree = TreeView::default();
+            self.quit = true;
         }
         let live_browsers = tree
             .workspaces
@@ -3551,12 +3635,17 @@ impl App {
     /// content sizes to surfaces.
     fn sync_layout(&mut self, size: (u16, u16)) {
         let (width, height) = size;
-        self.sidebar_width = sidebar_width_for(
-            &self.config,
-            self.sidebar_visible,
-            width,
-            self.sidebar_width_override,
-        );
+        self.sidebar_width = if self.surface_only.is_some() {
+            0
+        } else {
+            sidebar_width_for(
+                &self.config,
+                self.sidebar_visible,
+                self.sidebar_compact,
+                width,
+                self.sidebar_width_override,
+            )
+        };
         if self.sidebar_width == 0 {
             self.sidebar_focused = false;
         }
@@ -3564,19 +3653,29 @@ impl App {
             x: self.sidebar_width,
             y: 0,
             width: width.saturating_sub(self.sidebar_width),
-            height: height.saturating_sub(1), // status bar
+            height: if self.surface_only.is_some() { height } else { height.saturating_sub(1) },
         };
         self.content_area = area;
-        let _ = self.sync_sidebar_plugin(false);
+        if self.surface_only.is_none() {
+            let _ = self.sync_sidebar_plugin(false);
+        }
         self.replace_tree(self.session.tree());
-        self.sidebar_workspace_selection =
-            self.sidebar_workspace_selection.min(self.tree.workspaces.len().saturating_sub(1));
-        self.sync_sidebar_files_to_focus(false);
+        if self.surface_only.is_none() {
+            self.sidebar_workspace_selection =
+                self.sidebar_workspace_selection.min(self.tree.workspaces.len().saturating_sub(1));
+            self.sync_sidebar_files_to_focus(false);
+        }
         let layout = self
             .tree
             .active_screen()
             .map(|screen| {
-                if let Some(pane) = screen.zoomed_pane {
+                if self.surface_only.is_some() {
+                    layout_screen(
+                        &cmux_tui_core::Node::Leaf(screen.active_pane),
+                        area,
+                        Some(screen.active_pane),
+                    )
+                } else if let Some(pane) = screen.zoomed_pane {
                     layout_screen(&cmux_tui_core::Node::Leaf(pane), area, Some(pane))
                 } else {
                     layout_screen(&screen.layout, area, Some(screen.active_pane))
@@ -3606,7 +3705,9 @@ impl App {
             let Some(surface_id) = pane.active_surface() else { continue };
             let has_browser_omnibar =
                 pane.tabs.get(pane.active_tab).is_some_and(|tab| tab.kind == SurfaceKind::Browser);
-            let (bar, omnibar, content, track) = if stacked_headers.contains(&pane_id) {
+            let (bar, omnibar, content, track) = if self.surface_only.is_some() {
+                (None, None, rect, None)
+            } else if stacked_headers.contains(&pane_id) {
                 stacked_header_parts_for_rect(rect)
             } else {
                 pane_parts_for_rect(rect, self.config.scrollbar.position, has_browser_omnibar)
@@ -3656,6 +3757,9 @@ impl App {
             }
             let Some(pane) = screen.pane(area.pane) else { continue };
             for tab in &pane.tabs {
+                if self.surface_only.is_some_and(|surface| surface != tab.surface) {
+                    continue;
+                }
                 if self.session.has_surface(tab.surface) {
                     continue;
                 }
@@ -3932,6 +4036,10 @@ impl App {
             AppEvent::Mux(MuxEvent::SurfaceExited(id)) => {
                 self.retire_surface_state(id);
                 self.remove_surface_from_tree(id);
+                if self.surface_only == Some(id) {
+                    self.quit = true;
+                    return Ok(RenderAction::None);
+                }
                 Ok(RenderAction::Draw)
             }
             AppEvent::Mux(MuxEvent::SurfaceResized { surface, cols, rows, reservation_id }) => {
@@ -5057,10 +5165,20 @@ impl App {
     /// Execute one bound action. Shared by the (configurable) prefix keys
     /// and any future command surface.
     fn run_action(&mut self, action: Action) -> anyhow::Result<RenderAction> {
+        let pane = self.active_pane();
+        self.run_action_for_pane(action, pane)
+    }
+
+    /// Execute an action against an explicit pane. Context menus use this
+    /// shared path because right-clicking does not change keyboard focus.
+    fn run_action_for_pane(
+        &mut self,
+        action: Action,
+        pane: Option<PaneId>,
+    ) -> anyhow::Result<RenderAction> {
         if action_prepares_pty_release(action) && !self.prepare_pty_input_before_mutation() {
             return Ok(RenderAction::None);
         }
-        let pane = self.active_pane();
         match action {
             Action::NewTab => {
                 self.new_terminal_tab(pane)?;
@@ -5121,6 +5239,10 @@ impl App {
                     self.session.invalidate_sidebar_plugin_sync();
                     self.sidebar_focused = false;
                 }
+            }
+            Action::ToggleSidebarCompact => {
+                self.sidebar_compact = !self.sidebar_compact;
+                self.sidebar_visible = true;
             }
             Action::ToggleSidebarView => self.toggle_sidebar_view(),
             Action::FocusSidebar => self.toggle_sidebar_focus(),
@@ -5332,6 +5454,29 @@ impl App {
     }
 
     fn activate_menu(&mut self, action: MenuAction) -> anyhow::Result<()> {
+        match action {
+            MenuAction::TogglePaneZoom { pane, .. } => {
+                self.run_action_for_pane(Action::ZoomPane, Some(pane))?;
+                return Ok(());
+            }
+            MenuAction::ToggleSidebar { .. } => {
+                self.run_action(Action::ToggleSidebar)?;
+                return Ok(());
+            }
+            MenuAction::ToggleSidebarCompact { .. } => {
+                self.run_action(Action::ToggleSidebarCompact)?;
+                return Ok(());
+            }
+            MenuAction::ToggleSidebarView { .. } => {
+                self.run_action(Action::ToggleSidebarView)?;
+                return Ok(());
+            }
+            MenuAction::FocusSidebar => {
+                self.run_action(Action::FocusSidebar)?;
+                return Ok(());
+            }
+            _ => {}
+        }
         if menu_action_prepares_pty_release(action) && !self.prepare_pty_input_before_mutation() {
             return Ok(());
         }
@@ -5410,6 +5555,11 @@ impl App {
                 }
             }
             MenuAction::ClosePane(id) => self.session.close_pane(id),
+            MenuAction::TogglePaneZoom { .. }
+            | MenuAction::ToggleSidebar { .. }
+            | MenuAction::ToggleSidebarCompact { .. }
+            | MenuAction::ToggleSidebarView { .. }
+            | MenuAction::FocusSidebar => unreachable!("shared menu actions return above"),
             MenuAction::SetClientSizing { client, enabled } => {
                 self.session.set_client_sizing(client, enabled);
             }
@@ -6997,6 +7147,7 @@ impl App {
                 if let Some(width) =
                     sidebar_drag_width(&self.config, self.content_area, self.sidebar_width, x)
                 {
+                    self.sidebar_compact = false;
                     self.sidebar_width_override = Some(width);
                 }
                 Ok(RenderAction::Draw)
@@ -7289,6 +7440,29 @@ impl App {
         }
     }
 
+    fn menu_item(&self, action: MenuAction) -> MenuItem {
+        keyboard_action_for_menu(action)
+            .and_then(|bound| self.config.keys.shortcut_label(bound))
+            .map(|shortcut| MenuItem::ActionWithShortcut { action, shortcut })
+            .unwrap_or(MenuItem::Action(action))
+    }
+
+    fn menu_group(&self, actions: impl IntoIterator<Item = MenuAction>) -> Vec<MenuItem> {
+        actions.into_iter().map(|action| self.menu_item(action)).collect()
+    }
+
+    fn sidebar_menu_actions(&self) -> Vec<MenuAction> {
+        let mut actions = vec![
+            MenuAction::ToggleSidebar { visible: self.sidebar_visible },
+            MenuAction::ToggleSidebarCompact { compact: self.sidebar_compact },
+        ];
+        if self.config.sidebar.plugin.is_none() {
+            actions.push(MenuAction::ToggleSidebarView { view: self.sidebar_view });
+        }
+        actions.push(MenuAction::FocusSidebar);
+        actions
+    }
+
     fn open_context_menu(&mut self, x: u16, y: u16) {
         self.cancel_pty_mouse_drag();
         self.menu = None;
@@ -7296,26 +7470,44 @@ impl App {
         self.session.refresh_clients_background();
         match self.hit_at(x, y) {
             Some(Hit::Workspace { id, .. }) => {
-                self.menu = Some(ContextMenu::at(
+                self.menu = Some(ContextMenu::with_groups(
                     x,
                     y,
                     vec![
-                        vec![MenuAction::RenameWorkspace(id), MenuAction::CloseWorkspace(id)],
-                        vec![MenuAction::CopyWorkspaceId(id)],
+                        self.menu_group([
+                            MenuAction::RenameWorkspace(id),
+                            MenuAction::CloseWorkspace(id),
+                        ]),
+                        self.menu_group([MenuAction::CopyWorkspaceId(id)]),
+                        self.menu_group(self.sidebar_menu_actions()),
                     ],
                 ));
                 return;
             }
             Some(Hit::ScreenEntry { id, .. }) => {
-                self.menu = Some(ContextMenu::at(
+                self.menu = Some(ContextMenu::with_groups(
                     x,
                     y,
-                    vec![vec![MenuAction::RenameScreen(id), MenuAction::CloseScreen(id)]],
+                    vec![
+                        self.menu_group([
+                            MenuAction::RenameScreen(id),
+                            MenuAction::CloseScreen(id),
+                        ]),
+                        self.menu_group(self.sidebar_menu_actions()),
+                    ],
                 ));
                 return;
             }
             Some(Hit::Clients { surface }) => {
                 self.open_clients_menu(x, y, surface);
+                return;
+            }
+            Some(Hit::SidebarFile { .. } | Hit::SidebarResize) => {
+                self.menu = Some(ContextMenu::with_groups(
+                    x,
+                    y,
+                    vec![self.menu_group(self.sidebar_menu_actions())],
+                ));
                 return;
             }
             _ => {}
@@ -7326,8 +7518,18 @@ impl App {
                 self.browser_source(area.surface) == Some(BrowserSource::External);
             let mut groups = pane_context_menu_groups(area.pane, is_browser, external_browser)
                 .into_iter()
-                .map(|group| group.into_iter().map(MenuItem::Action).collect())
+                .map(|group| self.menu_group(group))
                 .collect::<Vec<Vec<MenuItem>>>();
+            if self.surface_only.is_none() {
+                let zoomed = self
+                    .tree
+                    .active_screen()
+                    .is_some_and(|screen| screen.zoomed_pane == Some(area.pane));
+                groups.push(
+                    self.menu_group([MenuAction::TogglePaneZoom { pane: area.pane, zoomed }]),
+                );
+                groups.push(self.menu_group(self.sidebar_menu_actions()));
+            }
             if let Some(clients) = client_menu_item(&self.clients, area.surface) {
                 groups.push(vec![clients]);
             }
@@ -7639,7 +7841,7 @@ mod tests {
         SurfaceResizeOwnership, browser_content_size_for_rect, browser_hover_forward_allowed,
         client_menu_item, forward_mux_event, forward_mux_events, pane_context_menu_groups,
         pane_parts_for_rect, preserve_client_view, record_surface_resize_dispatch_result,
-        sidebar_plugin_status_settles_passive_claim,
+        sidebar_plugin_status_settles_passive_claim, sidebar_width_for,
     };
     use std::collections::{HashMap, HashSet, VecDeque};
     use std::path::PathBuf;
@@ -7699,6 +7901,86 @@ mod tests {
                 MenuItem::Action(MenuAction::CopyPaneId(pane)),
             ]
         );
+    }
+
+    #[test]
+    fn pane_context_menu_teaches_shortcuts_for_zoom_and_sidebar_controls() {
+        let mux = Mux::new("shortcut-menu-test", SurfaceOptions::default());
+        let mut app = test_app(Session::Local(mux));
+        app.tree = notify_tree(41, false);
+        app.sidebar_view = SidebarView::Workspaces;
+        app.pane_areas.push(PaneArea {
+            pane: 2,
+            surface: 41,
+            rect: Rect { x: 0, y: 0, width: 80, height: 24 },
+            bar: None,
+            omnibar: None,
+            content: Rect { x: 0, y: 0, width: 80, height: 24 },
+            track: None,
+        });
+
+        app.open_context_menu(10, 10);
+        let items = &app.menu.as_ref().unwrap().levels[0].items;
+        let shortcut = |target| {
+            items.iter().find(|item| item.action() == Some(target)).and_then(MenuItem::shortcut)
+        };
+        assert_eq!(
+            shortcut(MenuAction::TogglePaneZoom { pane: 2, zoomed: false }),
+            Some("Ctrl-b z")
+        );
+        assert_eq!(shortcut(MenuAction::ToggleSidebar { visible: true }), Some("Ctrl-b s"));
+        assert_eq!(shortcut(MenuAction::ToggleSidebarCompact { compact: false }), Some("Ctrl-b m"));
+        assert_eq!(
+            shortcut(MenuAction::ToggleSidebarView { view: SidebarView::Workspaces }),
+            Some("Ctrl-b e")
+        );
+        assert_eq!(shortcut(MenuAction::FocusSidebar), Some("Ctrl-b S"));
+
+        let mut terminal = Terminal::new(TestBackend::new(100, 40)).unwrap();
+        terminal.draw(|frame| crate::ui::draw(&mut app, frame)).unwrap();
+        let rendered = buffer_text(terminal.backend().buffer());
+        assert!(rendered.contains("Ctrl-b z"));
+        assert!(rendered.contains("Ctrl-b m"));
+    }
+
+    #[test]
+    fn compact_sidebar_width_and_action_preserve_the_full_width() {
+        let mut config = Config::default();
+        config.sidebar.width = 28;
+        config.sidebar.compact_width = 10;
+        assert_eq!(sidebar_width_for(&config, true, false, 100, Some(35)), 35);
+        assert_eq!(sidebar_width_for(&config, true, true, 100, Some(35)), 10);
+        assert_eq!(sidebar_width_for(&config, false, true, 100, Some(35)), 0);
+
+        let mux = Mux::new("compact-sidebar-action-test", SurfaceOptions::default());
+        let mut app = test_app(Session::Local(mux));
+        app.sidebar_visible = false;
+        assert!(app.run_action(Action::ToggleSidebarCompact).is_ok());
+        assert!(app.sidebar_visible);
+        assert!(app.sidebar_compact);
+        assert!(app.run_action(Action::ToggleSidebarCompact).is_ok());
+        assert!(!app.sidebar_compact);
+    }
+
+    #[test]
+    fn single_surface_layout_uses_every_terminal_cell_without_chrome() {
+        let (mux, surface) = test_mux("single-surface-layout-test", None);
+        let mut app = test_app(Session::Local(mux.clone()));
+        app.surface_only = Some(surface.id);
+
+        app.sync_layout((80, 24));
+
+        assert_eq!(app.sidebar_width, 0);
+        assert_eq!(app.content_area, Rect { x: 0, y: 0, width: 80, height: 24 });
+        assert_eq!(app.pane_areas.len(), 1);
+        let area = app.pane_areas[0];
+        assert_eq!(area.surface, surface.id);
+        assert_eq!(area.rect, app.content_area);
+        assert_eq!(area.content, app.content_area);
+        assert!(area.bar.is_none());
+        assert!(area.track.is_none());
+
+        mux.close_surface(surface.id);
     }
 
     #[test]
@@ -11382,7 +11664,9 @@ mod tests {
             pending_size_releases: HashSet::new(),
             prefix_armed: false,
             session_label: "test".to_string(),
+            surface_only: None,
             sidebar_visible: true,
+            sidebar_compact: false,
             sidebar_focused: false,
             sidebar_focus_pending: false,
             sidebar_view: SidebarView::Files,

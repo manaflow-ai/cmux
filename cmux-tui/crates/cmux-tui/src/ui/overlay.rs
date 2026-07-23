@@ -8,6 +8,7 @@ use ratatui::Frame;
 use ratatui::buffer::Buffer;
 use ratatui::layout::Position;
 use ratatui::style::{Modifier, Style};
+use unicode_width::UnicodeWidthStr;
 
 use crate::app::{App, ContextMenu, MenuItem};
 use crate::localization::catalog;
@@ -249,14 +250,31 @@ pub fn draw_menu(app: &mut App, frame: &mut Frame) {
                 for dx in 0..inner_w {
                     set_cell(buf, inner_x + dx, row_y, " ", style);
                 }
+                let shortcut_width =
+                    item.shortcut().map(|shortcut| shortcut.width() as u16 + 2).unwrap_or(0);
                 let arrow_width = matches!(item, MenuItem::Submenu { .. }) as u16 * 2;
                 buf.set_stringn(
                     inner_x + pad + 1,
                     row_y,
                     label,
-                    inner_w.saturating_sub(pad * 2 + arrow_width) as usize,
+                    inner_w.saturating_sub(pad * 2 + arrow_width + shortcut_width) as usize,
                     style,
                 );
+                if let Some(shortcut) = item.shortcut() {
+                    let shortcut_width =
+                        (shortcut.width() as u16).min(inner_w.saturating_sub(pad * 2));
+                    if shortcut_width > 0 {
+                        let shortcut_x =
+                            x + level.rect.width.saturating_sub(pad + 1 + shortcut_width);
+                        buf.set_stringn(
+                            shortcut_x,
+                            row_y,
+                            shortcut,
+                            shortcut_width as usize,
+                            style,
+                        );
+                    }
+                }
                 if matches!(item, MenuItem::Submenu { .. }) && inner_w > 2 {
                     buf.set_stringn(x + width - pad - 3, row_y, " ›", 2, style);
                 }

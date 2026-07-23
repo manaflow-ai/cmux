@@ -19,6 +19,19 @@ pub(crate) struct ForeignViewportMessages {
     pub terminal_grid: &'static str,
 }
 
+#[derive(Debug, PartialEq, Eq)]
+pub(crate) struct MenuMessages {
+    pub maximize_pane: &'static str,
+    pub restore_pane_layout: &'static str,
+    pub show_sidebar: &'static str,
+    pub hide_sidebar: &'static str,
+    pub compact_sidebar: &'static str,
+    pub full_sidebar: &'static str,
+    pub sidebar_files: &'static str,
+    pub sidebar_workspaces: &'static str,
+    pub focus_sidebar: &'static str,
+}
+
 impl ForeignViewportMessages {
     pub fn hint(&self, cols: u16, rows: u16) -> Option<ForeignViewportHint> {
         let mut bytes = [0_u8; FOREIGN_VIEWPORT_HINT_CAPACITY];
@@ -61,6 +74,7 @@ const fn decimal_width(mut value: u16) -> usize {
 pub(crate) struct Catalog {
     pub pairing: PairingMessages,
     pub foreign_viewport: ForeignViewportMessages,
+    pub menu: MenuMessages,
 }
 
 static ENGLISH: Catalog = Catalog {
@@ -72,6 +86,17 @@ static ENGLISH: Catalog = Catalog {
         approve: "[ Approve enter ]",
     },
     foreign_viewport: ForeignViewportMessages { terminal_grid: "terminal grid" },
+    menu: MenuMessages {
+        maximize_pane: "Maximize pane",
+        restore_pane_layout: "Restore pane layout",
+        show_sidebar: "Show sidebar",
+        hide_sidebar: "Hide sidebar",
+        compact_sidebar: "Use compact sidebar",
+        full_sidebar: "Use full sidebar",
+        sidebar_files: "Show files in sidebar",
+        sidebar_workspaces: "Show workspaces in sidebar",
+        focus_sidebar: "Focus sidebar",
+    },
 };
 
 static JAPANESE: Catalog = Catalog {
@@ -83,6 +108,17 @@ static JAPANESE: Catalog = Catalog {
         approve: "[ 承認 enter ]",
     },
     foreign_viewport: ForeignViewportMessages { terminal_grid: "端末グリッド" },
+    menu: MenuMessages {
+        maximize_pane: "ペインを最大化",
+        restore_pane_layout: "ペイン配置を復元",
+        show_sidebar: "サイドバーを表示",
+        hide_sidebar: "サイドバーを隠す",
+        compact_sidebar: "サイドバーをコンパクト表示",
+        full_sidebar: "サイドバーを通常表示",
+        sidebar_files: "サイドバーにファイルを表示",
+        sidebar_workspaces: "サイドバーにワークスペースを表示",
+        focus_sidebar: "サイドバーにフォーカス",
+    },
 };
 
 pub(crate) fn catalog() -> &'static Catalog {
@@ -110,6 +146,8 @@ mod tests {
         assert_eq!(catalog_for_locale("en_US.UTF-8"), &ENGLISH);
         assert_eq!(catalog_for_locale("ja_JP.UTF-8"), &JAPANESE);
         assert_eq!(catalog_for_locale("C"), &ENGLISH);
+        assert_eq!(ENGLISH.menu.maximize_pane, "Maximize pane");
+        assert_eq!(JAPANESE.menu.maximize_pane, "ペインを最大化");
     }
 
     #[test]

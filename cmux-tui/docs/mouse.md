@@ -28,11 +28,13 @@ Wheel over a PTY pane focuses that pane first. When the inner app enables termin
 
 Drag pane borders to resize the matching split. Dragging a corner adjusts both intersecting split axes. The ratio is clamped from 0.05 to 0.95. Outer edges that do not correspond to a split do not change layout.
 
-Drag the sidebar border to resize the sidebar for the current TUI session. The configured base width still comes from `sidebar.width`.
+Drag the sidebar border to resize the sidebar for the current TUI session. Dragging leaves compact mode and sets the full-width override. The configured full and compact widths come from `sidebar.width` and `sidebar.compact_width`.
 
 ## Context Menus
 
-Right-click a pane for rename tab, close tab, new tab, new browser tab, browser actions when applicable, split right, split down, close pane, and ID copying. The menu separates current-tab, creation, browser, pane-layout, and ID actions. When an inner PTY app enables mouse tracking, right-click is forwarded to the app; hold Shift while right-clicking to open the cmux menu. Right-click a workspace row for rename, close, or ID copying. Right-click a screen in the status bar for rename or close.
+Right-click a pane for rename tab, close tab, new tab, new browser tab, browser actions when applicable, split right, split down, close pane, maximize/restore, sidebar controls, and ID copying. When an inner PTY app enables mouse tracking, right-click is forwarded to the app; hold Shift while right-clicking to open the cmux menu. Right-click a workspace row, screen, sidebar file, or sidebar divider for its local actions and sidebar controls.
+
+Each menu action with a configured key shows the resolved shortcut on the right. Remapped prefix and action keys appear immediately, and unbound actions omit the shortcut.
 
 Menus draw bordered overlays. Divider rows collapse as needed to keep every action visible when the flat menu would fit. Up and Down move the selected row, Enter activates it, and Esc closes the menu. A right press, drag to a row, and release activates that row. A plain right-click opens the menu and leaves it open.
 
