@@ -435,6 +435,35 @@ struct RemoteResumeBindingTests {
         #expect(staleClear["cleared"] as? Bool == false)
         #expect(workspace.surfaceResumeBinding(panelId: surfaceID)?.checkpointId == "ordered-session")
 
+        let orderedClear = try v2Result(request: [
+            "id": "ordered-resume-clear",
+            "method": "surface.resume.clear",
+            "params": [
+                "window_id": windowID.uuidString,
+                "surface_id": surfaceID.uuidString,
+                "checkpoint_id": "ordered-session",
+                "source": "agent-hook",
+                "agent_event_time": 300.0,
+            ],
+        ])
+        #expect(orderedClear["cleared"] as? Bool == true)
+        #expect(workspace.surfaceResumeBinding(panelId: surfaceID) == nil)
+
+        let staleSet = try v2Result(request: [
+            "id": "stale-resume-set-after-clear",
+            "method": "surface.resume.set",
+            "params": [
+                "window_id": windowID.uuidString,
+                "surface_id": surfaceID.uuidString,
+                "command": "codex resume stale-session",
+                "checkpoint_id": "stale-session",
+                "source": "agent-hook",
+                "agent_event_time": 250.0,
+            ],
+        ])
+        #expect(staleSet["resume_binding"] is NSNull)
+        #expect(workspace.surfaceResumeBinding(panelId: surfaceID) == nil)
+
         let invalidClear = try v2Envelope(request: [
             "id": "invalid-resume-clear-time",
             "method": "surface.resume.clear",
@@ -446,14 +475,25 @@ struct RemoteResumeBindingTests {
         ])
         #expect(invalidClear["ok"] as? Bool == false)
 
+        _ = try v2Result(request: [
+            "id": "manual-resume-set",
+            "method": "surface.resume.set",
+            "params": [
+                "window_id": windowID.uuidString,
+                "surface_id": surfaceID.uuidString,
+                "command": "codex resume manual-session",
+                "checkpoint_id": "manual-session",
+                "source": "manual",
+            ],
+        ])
         let manualClear = try v2Result(request: [
             "id": "manual-resume-clear",
             "method": "surface.resume.clear",
             "params": [
                 "window_id": windowID.uuidString,
                 "surface_id": surfaceID.uuidString,
-                "checkpoint_id": "ordered-session",
-                "source": "agent-hook",
+                "checkpoint_id": "manual-session",
+                "source": "manual",
             ],
         ])
         #expect(manualClear["cleared"] as? Bool == true)

@@ -56,4 +56,16 @@ struct ControlCommandCoordinatorSidebarV1Tests {
 
         #expect(response == "ERROR: Invalid agent event time 'not-a-time' - must be a positive finite number")
     }
+
+    @Test func setAgentPIDRejectsMalformedAgentEventTimeBeforeMutation() {
+        let context = FakeSidebarV1ControlCommandContext()
+        let coordinator = ControlCommandCoordinator(context: context)
+
+        let response = coordinator.handleSidebarV1(
+            command: "set_agent_pid",
+            args: "claude_code 42424 --agent-event-time=not-a-time"
+        )
+
+        #expect(response == "ERROR: Invalid agent event time 'not-a-time' - must be a positive finite number")
+    }
 }

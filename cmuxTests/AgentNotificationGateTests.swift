@@ -74,6 +74,15 @@ import Testing
         #expect(c?.pending == true)
     }
 
+    @Test func metaAcceptsCanonicalAgentEventOrderingFields() {
+        let ordered = AgentNotificationMeta(
+            meta: "c=needs-permission;p=0;k=claude_code;t=1893456200.000000"
+        )
+
+        #expect(ordered?.category == .needsPermission)
+        #expect(ordered?.pending == false)
+    }
+
     @Test func metaUnknownCategoryIsRejected() {
         // Only the three known category literals are wire-valid; anything else
         // (including "c=other") stays part of the legacy notification body.

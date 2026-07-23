@@ -494,6 +494,31 @@ extension AgentNotificationRegressionTests {
         #expect(fixture.source.hasRunningAgentLifecycle(key: "claude_code", panelId: fixture.panelId))
     }
 
+    @Test("A stale PID registration cannot bypass a newer runtime watermark")
+    func staleAgentPIDRegistrationCannotRebindAfterNewerEvent() throws {
+        let fixture = try makeFixture()
+        defer { fixture.restore() }
+        fixture.source.setAgentLifecycle(
+            key: "claude_code",
+            panelId: fixture.panelId,
+            lifecycle: .idle,
+            agentEventTime: 200
+        )
+
+        let bus = TerminalMutationBus.shared
+        bus.discardPendingNotifications()
+        TerminalController.shared.controlSidebarScheduleAgentPIDRecord(
+            target: .workspace(fixture.source.id),
+            key: "claude_code.session",
+            pid: 43_210,
+            panelID: fixture.panelId
+        )
+        bus.drainForTesting()
+
+        #expect(fixture.source.agentPIDs["claude_code.session"] == nil)
+        #expect(fixture.source.agentPIDPanelIdsByKey["claude_code.session"] == nil)
+    }
+
     @Test("An authorized-workspace clear cancels a confined in-flight relay delivery")
     func authorizedWorkspaceClearCancelsConfinedInFlightRelayDelivery() async throws {
         let fixture = try makeFixture(policyHookCommand: "cat")

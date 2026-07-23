@@ -24,6 +24,7 @@ struct ClaudeNotificationStatusLifecycleTests {
             storeURL: context.root.appendingPathComponent("claude-hook-sessions.json")
         )
         environment["CMUX_CLAUDE_PID"] = "\(claudePID)"
+        environment["CMUX_AGENT_HOOK_CAPTURED_AT"] = "1893456300.000000"
 
         let result = harness.runProcess(
             executablePath: context.cliPath,
@@ -48,6 +49,49 @@ struct ClaudeNotificationStatusLifecycleTests {
             statusCommand.contains("--pid=\(claudePID)"),
             "Claude notification status must be PID-backed so the stale PID sweep can clear it after abrupt agent exit; command=\(statusCommand)"
         )
+        let notifyCommand = try #require(
+            context.state.snapshot().first { $0.hasPrefix("notify_target_async ") }
+        )
+        #expect(
+            notifyCommand.contains(";k=claude_code;t=1893456300.000000"),
+            "The notification itself must carry the event watermark so a delayed older clear cannot erase it; command=\(notifyCommand)"
+        )
+    }
+
+    @Test func claudeClearSessionStartOrdersPIDAndNotificationClear() throws {
+        let harness = ClaudeHookSurfaceResolutionSwiftTests()
+        let context = try harness.makeClaudeHookContext(name: "claude-ordered-visible-mutations")
+        defer { context.cleanup() }
+        _ = harness.startClaudeSurfaceResolutionServer(
+            context: context,
+            surfaces: [(context.surfaceId, "surface:1", true)],
+            ttyName: "ttys-claude-ordered-visible-mutations",
+            ttySurfaceId: context.surfaceId
+        )
+        var environment = harness.claudeHookEnvironment(
+            context: context,
+            surfaceId: context.surfaceId,
+            ttyName: "ttys-claude-ordered-visible-mutations",
+            storeURL: context.root.appendingPathComponent("claude-hook-sessions.json")
+        )
+        environment["CMUX_CLAUDE_PID"] = "42424"
+        environment["CMUX_AGENT_HOOK_CAPTURED_AT"] = "1893456200.000000"
+
+        let result = harness.runProcess(
+            executablePath: context.cliPath,
+            arguments: ["hooks", "claude", "session-start"],
+            environment: environment,
+            standardInput: #"{"session_id":"claude-ordered-visible-mutations","source":"clear","cwd":"\#(context.root.path)","hook_event_name":"SessionStart"}"#,
+            timeout: 5
+        )
+        harness.assertSuccessfulHook(result)
+
+        let commands = context.state.snapshot()
+        let pidCommand = try #require(commands.first { $0.hasPrefix("set_agent_pid claude_code ") })
+        #expect(pidCommand.contains("--agent-event-time=1893456200.000000"))
+        let clearCommand = try #require(commands.first { $0.hasPrefix("clear_notifications ") })
+        #expect(clearCommand.contains("--agent-status-key=claude_code"))
+        #expect(clearCommand.contains("--agent-event-time=1893456200.000000"))
     }
 
     @Test func staleClaudeNotificationHasNoVisibleMutationSideEffects() throws {
