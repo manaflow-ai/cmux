@@ -553,7 +553,7 @@ def test_final_acceptance_requires_every_scenario_metric_and_order() -> None:
     assert "BA:browser_render_rate" in browser_light["missing_groups"]
 
 
-def test_scenario_timing_extends_only_mixed_heavy_measurement_window() -> None:
+def test_scenario_timing_extends_heavy_browser_measurement_windows() -> None:
     timings = {
         scenario.scenario_id: perf_driver._scenario_timing(scenario)
         for scenario in perf_driver._contract.scenario_matrix()
@@ -564,6 +564,11 @@ def test_scenario_timing_extends_only_mixed_heavy_measurement_window() -> None:
         "churn_measurement_duration_s": 5.0,
         "profile_duration_s": 5.0,
     }
+    assert timings["browser-heavy"] == {
+        "churn_duration_s": 5.0,
+        "churn_measurement_duration_s": 15.0,
+        "profile_duration_s": 15.0,
+    }
     assert timings["mixed-heavy"] == {
         "churn_duration_s": 5.0,
         "churn_measurement_duration_s": 12.0,
@@ -572,7 +577,7 @@ def test_scenario_timing_extends_only_mixed_heavy_measurement_window() -> None:
     assert all(
         timing == default
         for scenario_id, timing in timings.items()
-        if scenario_id != "mixed-heavy"
+        if scenario_id not in {"browser-heavy", "mixed-heavy"}
     )
 
 
