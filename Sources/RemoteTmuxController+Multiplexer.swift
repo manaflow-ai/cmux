@@ -154,7 +154,7 @@ extension RemoteTmuxController {
                 return mirror.mirroredWorkspaceId
             }
             guard !workspaceIds.isEmpty else {
-                throw RemoteTmuxError.unreachable("could not mirror any tmux session on \(host.destination)")
+                throw multiplexedMirrorFailure(host: host)
             }
             if activate {
                 selectFirstMirrorWorkspace(for: host, in: targetManager)
@@ -226,14 +226,30 @@ extension RemoteTmuxController {
             return mirror.mirroredWorkspaceId
         }
         guard !workspaceIds.isEmpty else {
+            // Ask before stopping: `stopMultiplexedHost` discards the view that holds the verdict.
+            let failure = multiplexedMirrorFailure(host: host)
             stopMultiplexedHost(host: host)
-            throw RemoteTmuxError.unreachable("could not mirror any tmux session on \(host.destination)")
+            throw failure
         }
         if activate {
             selectFirstMirrorWorkspace(for: host, in: targetManager)
             _ = appDelegate.focusMainWindow(windowId: resolvedWindowId)
         }
         return .mirrored(windowId: resolvedWindowId, workspaceIds: workspaceIds)
+    }
+
+    /// Why a host ended up with nothing mirrored.
+    ///
+    /// A stream that is waiting for a passcode produces no error of its own — it prints a prompt and
+    /// sits there — so the deadline expires first and the generic message sends the user to check the
+    /// network instead of their second factor. The view latches that observation while its connection
+    /// still exists; the live connection is consulted too, for the case where nothing has torn down yet.
+    func multiplexedMirrorFailure(host: RemoteTmuxHost) -> RemoteTmuxError {
+        let view = multiplexedViewsByHost[host.connectionHash]
+        let awaited = view?.lastStreamAwaitedCredentials == true
+            || view?.connection?.isAwaitingCredentials == true
+        return RemoteTmuxController.mirrorFailure(
+            destination: host.destination, awaitingCredentials: awaited)
     }
 
     /// Brings up the host's single shared view connection and wires its reconcile to
