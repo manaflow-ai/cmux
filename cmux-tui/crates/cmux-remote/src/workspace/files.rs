@@ -1275,7 +1275,8 @@ fn stat_named(
     };
     if result == 0 {
         // SAFETY: successful `fstatat` initialized `status`.
-        return Ok(Some(RawEntryState::from_stat(unsafe { &status.assume_init() })));
+        let status = unsafe { status.assume_init() };
+        return Ok(Some(RawEntryState::from_stat(&status)));
     }
     let error = std::io::Error::last_os_error();
     if error.kind() == std::io::ErrorKind::NotFound {
