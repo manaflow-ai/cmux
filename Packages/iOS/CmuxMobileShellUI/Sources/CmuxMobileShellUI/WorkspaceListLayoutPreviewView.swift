@@ -209,6 +209,14 @@ public struct WorkspaceListLayoutPreviewView: View {
         ProcessInfo.processInfo.environment["CMUX_UITEST_NOTIFICATION_BANNER"] == "1"
     }
 
+    /// `CMUX_UITEST_WORKSPACE_LIST_PREVIEW_TABS=1` wraps the list in a tab
+    /// scaffold mirroring the shell's TabView, so scroll-edge behavior against
+    /// the real floating tab bar can be exercised without Mac pairing. Off by
+    /// default: the App Store screenshot rig expects the bare list chrome.
+    private var showsTabScaffold: Bool {
+        ProcessInfo.processInfo.environment["CMUX_UITEST_WORKSPACE_LIST_PREVIEW_TABS"] == "1"
+    }
+
     public var body: some View {
         let workspacesBinding = $model.workspaces
         let refreshGenerationBinding = $refreshGeneration
@@ -220,7 +228,7 @@ public struct WorkspaceListLayoutPreviewView: View {
             } else if UITestConfig.workspaceDetailDelayedTerminalPreviewEnabled {
                 WorkspaceDetailDelayedTerminalPreviewView()
             } else {
-                NavigationStack {
+                let workspaceListStack = NavigationStack {
                     WorkspaceListSearchHost { searchText in
                         WorkspaceListView(
                             workspaces: model.workspaces,
@@ -301,6 +309,19 @@ public struct WorkspaceListLayoutPreviewView: View {
                             .frame(width: 1, height: 1)
                             .accessibilityHidden(true)
                     }
+                }
+                if showsTabScaffold {
+                    TabView {
+                        Tab("Workspaces", systemImage: "rectangle.stack") {
+                            workspaceListStack
+                        }
+                        Tab("Notifications", systemImage: "bell") {
+                            Text("Notification feed fixture")
+                                .foregroundStyle(.secondary)
+                        }
+                    }
+                } else {
+                    workspaceListStack
                 }
             }
         }

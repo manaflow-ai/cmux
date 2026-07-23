@@ -1,9 +1,9 @@
-import CmuxMobileShellModel
 import CmuxMobileSupport
 import SwiftUI
 
 struct WorkspaceTitleMenuContent: View {
-    let workspace: MobileWorkspacePreview
+    let workspaceName: String
+    let hasUnread: Bool
     let canRenameWorkspace: Bool
     let canToggleReadState: Bool
     let canCloseWorkspace: Bool
@@ -13,7 +13,7 @@ struct WorkspaceTitleMenuContent: View {
 
     var body: some View {
         if canRenameWorkspace || canToggleReadState || canCloseWorkspace {
-            Section(workspace.name) {
+            Section(workspaceName) {
                 if canRenameWorkspace {
                     Button(action: presentRename) {
                         Label(
@@ -27,10 +27,10 @@ struct WorkspaceTitleMenuContent: View {
                 if canToggleReadState {
                     Button(action: toggleReadState) {
                         Label(
-                            workspace.hasUnread
+                            hasUnread
                                 ? L10n.string("mobile.workspace.markRead", defaultValue: "Mark as Read")
                                 : L10n.string("mobile.workspace.markUnread", defaultValue: "Mark as Unread"),
-                            systemImage: workspace.hasUnread ? "envelope.open" : "envelope.badge"
+                            systemImage: hasUnread ? "envelope.open" : "envelope.badge"
                         )
                     }
                     .accessibilityIdentifier("MobileWorkspaceTitleReadStateMenuItem")

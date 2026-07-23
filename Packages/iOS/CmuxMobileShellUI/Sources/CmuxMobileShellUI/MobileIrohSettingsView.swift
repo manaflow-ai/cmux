@@ -137,6 +137,11 @@ struct MobileIrohSettingsView: View {
                 eventCount: model.diagnosticReport.events.count,
                 exportText: model.diagnosticExportText,
                 needsAttention: !model.snapshot.staleRelayIDs.isEmpty || model.snapshot.failureDescription != nil,
+                verboseLogEnabled: model.verboseLogEnabled,
+                verboseLogShareURL: model.verboseLogShareURL,
+                setVerboseLog: { enabled in
+                    Task { await model.setVerboseLog(enabled) }
+                },
                 refresh: model.refresh,
                 clear: {
                     Task { await model.clearDiagnosticReport() }
@@ -324,6 +329,11 @@ private extension MobileIrohSettingsView {
             L10n.string("mobile.iroh.diagnostics.failure.offline", defaultValue: "Offline")
         case .some(.timedOut):
             L10n.string("mobile.iroh.diagnostics.failure.timedOut", defaultValue: "Timed Out")
+        case .some(.transportIdleTimedOut):
+            L10n.string(
+                "mobile.iroh.diagnostics.failure.transportIdleTimedOut",
+                defaultValue: "Transport Idle Timeout"
+            )
         case .some(.connectionRefused):
             L10n.string(
                 "mobile.iroh.diagnostics.failure.connectionRefused",
@@ -447,6 +457,9 @@ private struct MobileIrohDiagnosticsSection: View {
     let eventCount: Int
     let exportText: String
     let needsAttention: Bool
+    let verboseLogEnabled: Bool
+    let verboseLogShareURL: URL?
+    let setVerboseLog: (Bool) -> Void
     let refresh: () -> Void
     let clear: () -> Void
 
@@ -512,6 +525,37 @@ private struct MobileIrohDiagnosticsSection: View {
             }
             .disabled(exportText.isEmpty)
             .accessibilityIdentifier("MobileIrohShareDiagnosticReport")
+
+            Toggle(isOn: Binding(
+                get: { verboseLogEnabled },
+                set: setVerboseLog
+            )) {
+                Text(L10n.string(
+                    "mobile.iroh.diagnostics.verboseLog",
+                    defaultValue: "Verbose Connection Log"
+                ))
+            }
+            .accessibilityIdentifier("MobileIrohVerboseLogToggle")
+            if verboseLogEnabled {
+                Text(L10n.string(
+                    "mobile.iroh.diagnostics.verboseLog.footer",
+                    defaultValue: "Records detailed connection activity to a file on this device for troubleshooting. Terminal contents and credentials are never written."
+                ))
+                .font(.footnote)
+                .foregroundStyle(.secondary)
+            }
+            if let verboseLogShareURL {
+                ShareLink(item: verboseLogShareURL) {
+                    Label(
+                        L10n.string(
+                            "mobile.iroh.diagnostics.shareVerboseLog",
+                            defaultValue: "Share Verbose Log"
+                        ),
+                        systemImage: "doc.text"
+                    )
+                }
+                .accessibilityIdentifier("MobileIrohShareVerboseLog")
+            }
 
             Button(role: .destructive) {
                 showsClearConfirmation = true

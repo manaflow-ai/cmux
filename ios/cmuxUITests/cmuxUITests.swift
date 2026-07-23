@@ -42,6 +42,169 @@ final class cmuxUITests: XCTestCase {
         XCTAssertTrue(emailCodeButton.isEnabled)
     }
 
+    /// Exercises the complete first-run activation path without Stack auth,
+    /// a Mac, camera hardware, or network access. The first launch forces the
+    /// durable progress key to `welcome`; advancing to Connect writes the real
+    /// `.connect` milestone. The default connection scene must describe
+    /// same-account automatic discovery without presenting QR as the primary
+    /// path. The first two product scenes use production-app screenshots, with
+    /// the notification scene showing the shipped chronological feed. The
+    /// connection scene keeps its live connection-state illustration. Relaunching
+    /// after the simulated search finishes must resume at Connect and expose QR
+    /// as an explicit fallback.
+    @MainActor
+    func testOnboardingScenesNotificationFeedResumeAndScannerFallback() throws {
+        let app = XCUIApplication()
+        let baseArguments = ["-AppleLanguages", "(en)", "-AppleLocale", "en_US"]
+        let progressOverride = [
+            "-dev.cmux.mobile.onboarding.redesign.progress.v1",
+            "welcome",
+        ]
+        app.launchArguments = baseArguments + progressOverride
+        app.launchEnvironment = [
+            "CMUX_UITEST_MOCK_DATA": "1",
+            "CMUX_UITEST_ONBOARDING_PREVIEW": "1",
+            "CMUX_UITEST_ONBOARDING_CONNECTION_FALLBACK": "0",
+            "CMUX_UITEST_SCANNER_PREVIEW": "1",
+        ]
+        app.launch()
+        defer { app.terminate() }
+
+        func element(_ identifier: String) -> XCUIElement {
+            app.descendants(matching: .any)[identifier]
+        }
+
+        func capture(_ name: String) {
+            let attachment = XCTAttachment(screenshot: app.screenshot())
+            attachment.name = name
+            attachment.lifetime = .keepAlways
+            add(attachment)
+        }
+
+        let agentsScene = element("MobileOnboardingAgentsScene")
+        XCTAssertTrue(agentsScene.waitForExistence(timeout: 8))
+        let header = element("MobileOnboardingHeader")
+        let progress = element("MobileOnboardingProgressIndicator")
+        let footer = element("MobileOnboardingFooter")
+        let pageViewport = element("MobileOnboardingPageViewport")
+        XCTAssertTrue(header.waitForExistence(timeout: 4))
+        XCTAssertTrue(progress.waitForExistence(timeout: 4))
+        XCTAssertTrue(footer.waitForExistence(timeout: 4))
+        XCTAssertTrue(pageViewport.waitForExistence(timeout: 4))
+
+        let initialHeaderFrame = header.frame
+        let initialProgressFrame = progress.frame
+        let initialFooterFrame = footer.frame
+
+        func assertStableChrome(
+            includeFooter: Bool = true,
+            file: StaticString = #filePath,
+            line: UInt = #line
+        ) {
+            XCTAssertEqual(header.frame.minX, initialHeaderFrame.minX, accuracy: 0.5, file: file, line: line)
+            XCTAssertEqual(header.frame.minY, initialHeaderFrame.minY, accuracy: 0.5, file: file, line: line)
+            XCTAssertEqual(header.frame.width, initialHeaderFrame.width, accuracy: 0.5, file: file, line: line)
+            XCTAssertEqual(header.frame.height, initialHeaderFrame.height, accuracy: 0.5, file: file, line: line)
+            XCTAssertEqual(progress.frame.midX, initialProgressFrame.midX, accuracy: 0.5, file: file, line: line)
+            XCTAssertEqual(progress.frame.midY, initialProgressFrame.midY, accuracy: 0.5, file: file, line: line)
+            if includeFooter {
+                XCTAssertEqual(footer.frame.minY, initialFooterFrame.minY, accuracy: 0.5, file: file, line: line)
+                XCTAssertEqual(footer.frame.maxY, initialFooterFrame.maxY, accuracy: 0.5, file: file, line: line)
+            }
+        }
+
+        func assertPageVisible(
+            _ page: XCUIElement,
+            timeout: TimeInterval = 4,
+            file: StaticString = #filePath,
+            line: UInt = #line
+        ) {
+            XCTAssertTrue(page.waitForExistence(timeout: timeout), file: file, line: line)
+            XCTAssertTrue(page.frame.intersects(app.frame), file: file, line: line)
+        }
+
+        capture("onboarding-01-agents")
+        XCTAssertTrue(element("MobileOnboardingScreenshot-workspaces").exists)
+
+        let primaryButton = app.buttons["MobileOnboardingPrimaryButton"]
+        XCTAssertTrue(primaryButton.waitForExistence(timeout: 4))
+        primaryButton.tap()
+
+        let notificationsScene = element("MobileOnboardingNotificationsScene")
+        assertPageVisible(notificationsScene)
+        XCTAssertFalse(app.staticTexts["Your agents keep working on your Mac"].exists)
+        XCTAssertTrue(app.staticTexts["Every agent alert, in one place"].exists)
+        let notificationsBody = app.staticTexts.matching(NSPredicate(
+            format: "label == %@",
+            "The Notifications feed keeps every agent alert from your paired Macs in chronological order, even when push alerts are off. Tap one to open its workspace."
+        )).firstMatch
+        XCTAssertTrue(notificationsBody.exists)
+        XCTAssertTrue(app.buttons["MobileOnboardingBackButton"].exists)
+        XCTAssertTrue(app.buttons["MobileOnboardingSkipButton"].exists)
+        XCTAssertTrue(element("MobileOnboardingScreenshot-notifications").exists)
+        XCTAssertTrue(primaryButton.exists)
+        assertStableChrome()
+        capture("onboarding-02-notifications")
+
+        let backButton = app.buttons["MobileOnboardingBackButton"]
+        backButton.tap()
+        assertPageVisible(agentsScene)
+        XCTAssertTrue(backButton.waitForNonExistence(timeout: 2))
+        assertStableChrome()
+        capture("onboarding-02a-agents-after-back")
+
+        primaryButton.tap()
+        assertPageVisible(notificationsScene)
+        XCTAssertTrue(backButton.waitForExistence(timeout: 2))
+        XCTAssertFalse(app.staticTexts["Your agents keep working on your Mac"].exists)
+        XCTAssertTrue(app.staticTexts["Every agent alert, in one place"].exists)
+        assertStableChrome()
+        capture("onboarding-02b-notifications-after-return")
+
+        primaryButton.tap()
+
+        let connectScene = element("MobileOnboardingConnectScene")
+        assertPageVisible(connectScene)
+        XCTAssertTrue(app.staticTexts["Your Mac connects automatically"].exists)
+        XCTAssertTrue(app.staticTexts[
+            "Keep cmux open on your Mac and sign in with the same account. cmux finds it and connects securely."
+        ].exists)
+        XCTAssertTrue(app.staticTexts["Looking for your Mac…"].exists)
+        XCTAssertFalse(app.buttons["Scan Mac QR"].exists)
+        XCTAssertFalse(app.buttons["Use QR Code Instead"].exists)
+        assertStableChrome(includeFooter: false)
+        capture("onboarding-03-connect")
+
+        // Drop only the launch-domain override. The application-domain value
+        // written while entering Connect must now be the source of truth. The
+        // preview marks automatic discovery finished so QR appears only as the
+        // fallback on this second launch.
+        app.terminate()
+        app.launchArguments = baseArguments
+        app.launchEnvironment["CMUX_UITEST_ONBOARDING_CONNECTION_FALLBACK"] = "1"
+        app.launch()
+
+        assertPageVisible(connectScene, timeout: 8)
+        XCTAssertTrue(app.buttons["Check Again"].exists)
+        XCTAssertTrue(app.buttons["Use QR Code Instead"].exists)
+        capture("onboarding-04-resumed-connect")
+
+        let qrFallbackButton = app.buttons["MobileOnboardingSecondaryButton"]
+        XCTAssertTrue(qrFallbackButton.waitForExistence(timeout: 4))
+        qrFallbackButton.tap()
+
+        let scannerPreview = element("MobilePairingScannerPreview")
+        let scannerCancel = app.buttons["MobileScannerCancelButton"]
+        XCTAssertTrue(scannerPreview.waitForExistence(timeout: 4))
+        XCTAssertTrue(scannerCancel.waitForExistence(timeout: 4))
+        capture("onboarding-05-scanner-fallback")
+
+        scannerCancel.tap()
+        XCTAssertTrue(connectScene.waitForExistence(timeout: 4))
+        XCTAssertTrue(scannerPreview.waitForNonExistence(timeout: 2))
+        capture("onboarding-06-scanner-cancelled")
+    }
+
     @MainActor
     func testAddDeviceManualHostValidationUsesStableIdentifiers() throws {
         let invalidHostApp = launchAddDeviceApp(environment: [
@@ -463,6 +626,27 @@ final class cmuxUITests: XCTestCase {
         }
     }
 
+    /// Switching templates without a template-specific directory must keep the
+    /// selected Mac's focused project instead of restoring older task history.
+    @MainActor
+    func testTaskComposerTemplateSwitchPreservesFocusedDirectory() throws {
+        let app = launchApp(mockData: false, environment: [
+            "CMUX_UITEST_TASK_COMPOSER_PREVIEW": "1",
+            "CMUX_UITEST_TASK_COMPOSER_OPEN_DIRECTORY_PREVIEW": "1",
+        ])
+        defer { app.terminate() }
+
+        XCTAssertTrue(app.textFields["MobileTaskComposerPrompt"].waitForExistence(timeout: 8))
+        let directory = app.buttons["MobileTaskComposerDirectory"]
+        XCTAssertTrue(directory.waitForExistence(timeout: 3))
+        XCTAssertEqual(directory.value as? String, "/Users/ui/current-project")
+
+        selectTaskComposerAgent(named: "Codex", in: app)
+
+        XCTAssertEqual(app.buttons["MobileTaskComposerCreateButton"].label, "Start Codex")
+        XCTAssertEqual(directory.value as? String, "/Users/ui/current-project")
+    }
+
     /// The composer keeps the launch route visible while the prompt receives
     /// focus, so the user can verify the agent, Mac, and folder while typing.
     @MainActor
@@ -604,6 +788,8 @@ final class cmuxUITests: XCTestCase {
             (name: "OpenCode", action: "Start OpenCode"),
             (name: "Shell", action: "Open Shell"),
         ]
+        let agentMenu = app.buttons["MobileTaskComposerAgentMenu"]
+        let stableAgentMenuWidth = agentMenu.frame.width
         for template in templates {
             selectTaskComposerAgent(named: template.name, in: app)
             let selectedAction = NSPredicate(
@@ -613,8 +799,14 @@ final class cmuxUITests: XCTestCase {
             expectation(for: selectedAction, evaluatedWith: create)
             waitForExpectations(timeout: 3)
             XCTAssertEqual(
-                app.buttons["MobileTaskComposerAgentMenu"].value as? String,
+                agentMenu.value as? String,
                 template.name
+            )
+            XCTAssertEqual(
+                agentMenu.frame.width,
+                stableAgentMenuWidth,
+                accuracy: 0.5,
+                "Changing to a longer agent title must not resize and clip the menu label"
             )
         }
     }
@@ -819,6 +1011,25 @@ final class cmuxUITests: XCTestCase {
         XCTAssertEqual(selectedPath.label, "/Users/ui/mobile-root")
     }
 
+    /// An ambiguous list failure can still be caused by macOS Files and
+    /// Folders protection, so the recovery copy must point users at that
+    /// permission without claiming it is definitely the cause.
+    @MainActor
+    func testTaskComposerDirectoryFailureMentionsProtectedFolderPermission() throws {
+        let app = launchApp(mockData: false, environment: [
+            "CMUX_UITEST_TASK_COMPOSER_PREVIEW": "1",
+            "CMUX_UITEST_TASK_DIRECTORY_PERMISSION_FAILURE_PREVIEW": "1",
+        ])
+        defer { app.terminate() }
+
+        XCTAssertTrue(app.staticTexts["Couldn’t Open Folder"].waitForExistence(timeout: 8))
+        let permissionCopy = app.staticTexts.matching(NSPredicate(
+            format: "label == %@",
+            "The Mac could not list this folder. If this is a protected folder such as Downloads, allow cmux access in Mac System Settings › Privacy & Security › Files & Folders, then retry."
+        )).firstMatch
+        XCTAssertTrue(permissionCopy.waitForExistence(timeout: 3))
+    }
+
     /// Regression: scrolling a full directory page must not trap SwiftUI's
     /// lazy layout on the main thread or make the picker impossible to dismiss.
     @MainActor
@@ -959,6 +1170,48 @@ final class cmuxUITests: XCTestCase {
         }
     }
 
+    /// The optional workspace name must replace the generated task title on
+    /// the workspace-create request without becoming required input.
+    @MainActor
+    func testTaskComposerOptionalWorkspaceNameOverridesGeneratedTitle() throws {
+        let app = launchApp(mockData: false, environment: [
+            "CMUX_UITEST_TASK_COMPOSER_PREVIEW": "1",
+        ])
+        defer { app.terminate() }
+
+        let workspaceName = app.textFields["MobileTaskComposerWorkspaceName"]
+        XCTAssertTrue(workspaceName.waitForExistence(timeout: 8))
+        XCTAssertTrue(
+            app.staticTexts["Workspace name (optional)"].exists,
+            "The workspace name field must state that it is optional"
+        )
+        let prompt = app.textFields["MobileTaskComposerPrompt"]
+        XCTAssertTrue(prompt.waitForExistence(timeout: 3))
+        let machine = app.buttons["MobileTaskComposerMachineMenu"]
+        XCTAssertTrue(machine.waitForExistence(timeout: 3))
+        XCTAssertGreaterThan(
+            workspaceName.frame.minY,
+            prompt.frame.maxY,
+            "Workspace name should sit outside and below the prompt canvas"
+        )
+        XCTAssertLessThan(
+            workspaceName.frame.maxY,
+            machine.frame.minY,
+            "Workspace name should lead the workspace context card"
+        )
+
+        try typeText("Release checklist", into: workspaceName, in: app)
+        try typeText("Verify the release", into: prompt, in: app)
+
+        let create = app.buttons["MobileTaskComposerCreateButton"]
+        XCTAssertTrue(create.waitForExistence(timeout: 3))
+        tap(create, in: app)
+
+        let submittedTitle = app.staticTexts["MobileTaskComposerSubmittedTitle"]
+        XCTAssertTrue(submittedTitle.waitForExistence(timeout: 3))
+        XCTAssertEqual(submittedTitle.label, "Release checklist")
+    }
+
     /// Regression: the template form's default-directory field must identify
     /// itself as Directory instead of exposing only its "~" placeholder.
     @MainActor
@@ -995,6 +1248,10 @@ final class cmuxUITests: XCTestCase {
         XCTAssertTrue(create.waitForExistence(timeout: 3))
 
         tap(create, in: app)
+
+        let failureTitle = app.staticTexts["MobileTaskComposerFailureTitle"]
+        XCTAssertTrue(failureTitle.waitForExistence(timeout: 3))
+        XCTAssertEqual(failureTitle.label, "Couldn’t start this task")
 
         let failure = app.staticTexts["MobileTaskComposerFailure"]
         XCTAssertTrue(failure.waitForExistence(timeout: 3))
@@ -1191,11 +1448,15 @@ final class cmuxUITests: XCTestCase {
         let create = app.buttons["MobileTaskComposerCreateButton"]
         XCTAssertTrue(create.waitForExistence(timeout: 3))
         XCTAssertEqual(create.label, "Start Claude")
+        let restingButtonFrame = create.frame
         tap(create, in: app)
 
         let startingPredicate = NSPredicate(format: "label == %@", "Preparing workspace…")
         expectation(for: startingPredicate, evaluatedWith: create)
         waitForExpectations(timeout: 3)
+
+        XCTAssertEqual(create.frame.height, restingButtonFrame.height, accuracy: 1)
+        XCTAssertEqual(create.frame.width, restingButtonFrame.width, accuracy: 1)
 
         let draftState = app.staticTexts["MobileTaskComposerSubmissionDraftState"]
         XCTAssertTrue(draftState.waitForExistence(timeout: 3))
@@ -2982,6 +3243,8 @@ final class cmuxUITests: XCTestCase {
         }
         let app = launchApp(mockData: true, environment: [
             "CMUX_UITEST_ADD_DEVICE_PORT": String(portText.dropLast()),
+        ], launchArguments: [
+            "-cmux.mobile.taskComposerEnabled", "YES",
         ])
         let pairingForm = app.otherElements["MobileAddDeviceForm"]
         XCTAssertTrue(pairingForm.waitForExistence(timeout: 8))
@@ -4673,12 +4936,16 @@ final class cmuxUITests: XCTestCase {
                 element.tap()
             }
 
-            if waitForKeyboardFocus(of: element, timeout: 1) || app.keyboards.firstMatch.exists {
+            if debugDescriptionReportsKeyboardFocus(of: element)
+                || waitForKeyboardFocus(of: element, timeout: 1)
+                || debugDescriptionReportsKeyboardFocus(of: element) {
                 return true
             }
             RunLoop.current.run(until: Date().addingTimeInterval(0.1))
         }
-        return waitForKeyboardFocus(of: element, timeout: 0.5) || app.keyboards.firstMatch.exists
+        return debugDescriptionReportsKeyboardFocus(of: element)
+            || waitForKeyboardFocus(of: element, timeout: 0.5)
+            || debugDescriptionReportsKeyboardFocus(of: element)
     }
 
     @MainActor
@@ -4780,6 +5047,10 @@ final class cmuxUITests: XCTestCase {
             object: element
         )
         return XCTWaiter.wait(for: [expectation], timeout: timeout) == .completed
+    }
+
+    private func debugDescriptionReportsKeyboardFocus(of element: XCUIElement) -> Bool {
+        element.debugDescription.contains("Keyboard Focused")
     }
 
     @MainActor

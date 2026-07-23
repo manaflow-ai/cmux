@@ -133,6 +133,9 @@ struct ClaudeHookSessionRecord: Codable {
     var cwd: String?
     var transcriptPath: String?
     var pid: Int?
+    /// Exact process-generation identity captured when the hook recorded `pid`.
+    var pidStartSeconds: Int64? = nil
+    var pidStartMicroseconds: Int64? = nil
     var launchCommand: AgentHookLaunchCommandRecord?
     /// Last hook-observed `permission_mode`, re-applied as `--permission-mode`
     /// on user-owned session restore (https://github.com/manaflow-ai/cmux/issues/8066).
@@ -1121,7 +1124,17 @@ final class ClaudeHookSessionStore {
             record.transcriptPath = transcriptPath
         }
         if let pid {
+            let previousPID = record.pid
             record.pid = pid
+            if let identity = processStartIdentity(pid: pid) {
+                record.pidStartSeconds = identity.seconds
+                record.pidStartMicroseconds = identity.microseconds
+            } else if previousPID != pid {
+                // A different numeric PID without a captured start identity cannot
+                // inherit generation authority from the previous process.
+                record.pidStartSeconds = nil
+                record.pidStartMicroseconds = nil
+            }
         }
         if let launchCommand {
             let existingHasArguments = !(record.launchCommand?.arguments.isEmpty ?? true)
@@ -1160,6 +1173,18 @@ final class ClaudeHookSessionStore {
             record.hadPendingBackgroundWorkAtStop = hadPendingBackgroundWorkAtStop
         }
         record.updatedAt = now
+    }
+
+    private func processStartIdentity(pid: Int) -> (seconds: Int64, microseconds: Int64)? {
+        guard pid > 0, pid <= Int(Int32.max) else { return nil }
+        var info = proc_bsdinfo()
+        let expectedSize = MemoryLayout<proc_bsdinfo>.stride
+        let size = proc_pidinfo(pid_t(pid), PROC_PIDTBSDINFO, 0, &info, Int32(expectedSize))
+        guard size == expectedSize else { return nil }
+        return (
+            seconds: Int64(info.pbi_start_tvsec),
+            microseconds: Int64(info.pbi_start_tvusec)
+        )
     }
 
     func clearNotificationEmission(sessionId: String) throws {
@@ -3600,6 +3625,10 @@ struct CMUXCLI {
 
         case "ping":
             let response = try sendV1Command("ping", client: client)
+            print(response)
+
+        case "iroh-diag":
+            let response = try sendV1Command("iroh_diag", client: client)
             print(response)
 
         case "capabilities":
@@ -12950,11 +12979,12 @@ struct CMUXCLI {
         let subArgs = Array(args.dropFirst())
         let browserValueTextFormatter = BrowserValueTextFormatter()
 
-        // A post-action snapshot can spend 3s in document readiness, 10s in the
-        // requested action, 10s in snapshot JavaScript, and 2.5s in recovery.
-        // Keep transport headroom beyond that 25.5s app-side maximum.
+        // A committed navigation can spend up to 15s waiting for its delegate callback.
+        // A post-action snapshot can then spend another 10s in JavaScript and 2.5s in
+        // recovery. Keep transport headroom beyond that 27.5s app-side maximum when
+        // --snapshot-after is requested.
         func sendBrowserAutomationRequest(method: String, params: [String: Any]) throws -> [String: Any] {
-            let responseTimeout: TimeInterval = (params["snapshot_after"] as? Bool) == true ? 30 : 20
+            let responseTimeout: TimeInterval = (params["snapshot_after"] as? Bool) == true ? 35 : 20
             return try client.sendV2(method: method, params: params, responseTimeout: responseTimeout)
         }
 
@@ -13374,7 +13404,10 @@ struct CMUXCLI {
                 guard !url.isEmpty else {
                     throw CLIError(message: "browser <surface> open requires a URL")
                 }
-                let payload = try client.sendV2(method: "browser.navigate", params: ["surface_id": sid, "url": url])
+                let payload = try sendBrowserAutomationRequest(
+                    method: "browser.navigate",
+                    params: ["surface_id": sid, "url": url]
+                )
                 output(payload, fallback: "OK")
                 return
             }
@@ -14915,6 +14948,13 @@ struct CMUXCLI {
             Usage: cmux ping
 
             Check connectivity to the cmux socket server.
+            """
+        case "iroh-diag":
+            return """
+            Usage: cmux iroh-diag
+
+            Print the host's iroh Connection Report (cmuxdiag v1 compact export),
+            the same data as Settings > Networking > Connection Report.
             """
         case "capabilities":
             return """
@@ -35111,6 +35151,7 @@ export default CMUXSessionRestore;
           hooks <agent> <install|uninstall|event> [options; opencode supports --project]
           hooks feed --source <agent> [--event <event>]
           ping
+          iroh-diag
           version
           capabilities
           events [--after <seq>] [--cursor-file <path>] [--name <event>] [--category <category>] [--reconnect] [--limit <n>] [--no-ack] [--no-heartbeat]

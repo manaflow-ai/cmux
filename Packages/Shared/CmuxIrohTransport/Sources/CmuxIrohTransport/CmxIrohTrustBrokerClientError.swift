@@ -18,6 +18,9 @@ public enum CmxIrohTrustBrokerClientError:
     case invalidResponse
 
     static func preservesVerifiedPolicyDuringRefresh(_ error: any Error) -> Bool {
+        if (error as? any CmxRetryAfterProviding)?.retryAfterSeconds != nil {
+            return true
+        }
         guard let brokerError = error as? Self else { return false }
         switch brokerError {
         case .connectivity:
@@ -40,6 +43,9 @@ public enum CmxIrohTrustBrokerClientError:
 
     /// Accepts only failures that are safe to retry before any binding is trusted.
     static func retriesInitialActivation(_ error: any Error) -> Bool {
+        if (error as? any CmxRetryAfterProviding)?.retryAfterSeconds != nil {
+            return true
+        }
         guard let brokerError = error as? Self else { return false }
         switch brokerError {
         case .connectivity, .rateLimited:

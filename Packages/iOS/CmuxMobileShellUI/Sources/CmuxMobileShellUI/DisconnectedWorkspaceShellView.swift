@@ -14,6 +14,7 @@ struct DisconnectedWorkspaceShellView: View {
     /// setup from reconnect guidance.
     let hasKnownPairedMac: Bool
     let showAddDevice: () -> Void
+    let showPairingScanner: () -> Void
     let signOut: () -> Void
     /// The setup gate to highlight in the "Trouble connecting?" help (iOS only).
     /// The root passes `.macUnreachable` for a returning device whose stored Mac
@@ -27,13 +28,10 @@ struct DisconnectedWorkspaceShellView: View {
     var store: CMUXMobileShellStore?
 
     @State private var showingSettings = false
+    @State private var settingsPairingScannerHandoff = SettingsPairingScannerHandoff()
 
     #if os(iOS)
     @State private var isShowingSetupHelp = false
-    /// The computer whose destructive remove action is awaiting confirmation.
-    /// Stored at list scope so reusable rows do not own transient presentation
-    /// state while `List` is recycling swipe-action rows.
-    @State private var computerPendingRemovalID: String?
     /// The computer a reconnect attempt is in flight for. Also the re-entry
     /// guard: while non-nil, row taps are ignored.
     @State private var connectingMacID: String?
@@ -71,7 +69,7 @@ struct DisconnectedWorkspaceShellView: View {
                     // auto-present the pairing sheet when there is nothing to pick,
                     // so a returning user is not buried under the add-device flow.
                     await store?.loadPairedMacs()
-                    if store?.pairedMacs.isEmpty ?? true {
+                    if shouldAutoPresentAddDeviceAfterLoadingSavedMacs {
                         showAddDevice()
                         return
                     }
@@ -99,7 +97,9 @@ struct DisconnectedWorkspaceShellView: View {
             // this device has paired a Mac before (offline recovery) or not.
             SetupHelpView(highlight: setupHelpHighlight) { isShowingSetupHelp = false }
         }
-        .sheet(isPresented: $showingSettings) {
+        .sheet(isPresented: $showingSettings, onDismiss: {
+            settingsPairingScannerHandoff.settingsDidDismiss(startScanner: showPairingScanner)
+        }) {
             // Reuse the same Settings sheet the workspace list opens from its
             // Settings button so the no-devices screen's chrome matches. There is no
             // connected host or QR to rescan here, but the store is forwarded so
@@ -108,6 +108,11 @@ struct DisconnectedWorkspaceShellView: View {
             MobileSettingsView(
                 connectedHostName: "",
                 rescanQR: nil,
+                startPairingScanner: {
+                    settingsPairingScannerHandoff.requestScannerAfterDismiss(
+                        isSettingsPresented: $showingSettings
+                    )
+                },
                 signOut: signOut,
                 store: store
             )
@@ -133,6 +138,17 @@ struct DisconnectedWorkspaceShellView: View {
         store.map { MacComputerSnapshot.snapshots(from: $0) } ?? []
     }
 
+    var showsHiddenComputers: Bool {
+        store?.hasHiddenComputers == true
+    }
+
+    var shouldAutoPresentAddDeviceAfterLoadingSavedMacs: Bool {
+        guard let store else { return false }
+        return store.pairedMacLoadState == .loaded
+            && store.pairedMacs.isEmpty
+            && !showsHiddenComputers
+    }
+
     @ViewBuilder
     private var content: some View {
         if !savedComputers.isEmpty {
@@ -144,7 +160,7 @@ struct DisconnectedWorkspaceShellView: View {
 
     /// The returning-user state: a real list of the saved computers, one row per
     /// logical Mac, with presence, last-seen, tap-to-reconnect, and
-    /// swipe-to-remove — the same row component as the Computers screen.
+    /// swipe-to-hide — the same row component as the Computers screen.
     /// Snapshot boundary (see AGENTS.md): rows receive immutable
     /// ``MacComputerSnapshot`` values and closures only, never the store.
     private func savedComputersList(_ computers: [MacComputerSnapshot]) -> some View {
@@ -153,9 +169,7 @@ struct DisconnectedWorkspaceShellView: View {
                 ForEach(computers) { computer in
                     MacComputerRow(
                         computer: computer,
-                        requestRemove: { computerPendingRemovalID = $0 },
-                        isConfirmingRemove: removalConfirmationBinding(for: computer.id),
-                        confirmRemove: { _ in confirmComputerRemoval() },
+                        hide: { _ in hideComputer(computer) },
                         style: .reconnect,
                         connect: { _ in connect(to: computer) },
                         isConnecting: connectingMacID == computer.id
@@ -166,8 +180,11 @@ struct DisconnectedWorkspaceShellView: View {
             } footer: {
                 Text(L10n.string(
                     "mobile.disconnected.listFooter",
-                    defaultValue: "Tap a computer to reconnect. Swipe left to remove one."
+                    defaultValue: "Tap a computer to reconnect. Swipe left to hide one."
                 ))
+            }
+            if showsHiddenComputers, let store {
+                hiddenComputersSection(store: store)
             }
             Section {
                 Button(action: showAddDevice) {
@@ -212,12 +229,29 @@ struct DisconnectedWorkspaceShellView: View {
                 defaultValue: "Add a computer to start syncing terminal workspaces."
             ))
         } actions: {
-            Button(action: showAddDevice) {
-                Text(L10n.string("mobile.addDevice.title", defaultValue: "Add Computer"))
+            if showsHiddenComputers, let store {
+                VStack(alignment: .leading, spacing: 8) {
+                    Text(HiddenComputersCopy.title)
+                        .font(.headline)
+                    hiddenComputersRows(store: store)
+                    Text(HiddenComputersCopy.footer)
+                        .font(.footnote)
+                        .foregroundStyle(.secondary)
+                }
+                .frame(maxWidth: 320)
+                Button(action: showAddDevice) {
+                    Text(L10n.string("mobile.addDevice.title", defaultValue: "Add Computer"))
+                }
+                .buttonStyle(.bordered)
+                .accessibilityIdentifier("MobileShowAddDeviceButton")
+            } else {
+                Button(action: showAddDevice) {
+                    Text(L10n.string("mobile.addDevice.title", defaultValue: "Add Computer"))
+                }
+                .buttonStyle(.borderedProminent)
+                .tint(.blue)
+                .accessibilityIdentifier("MobileShowAddDeviceButton")
             }
-            .buttonStyle(.borderedProminent)
-            .tint(.blue)
-            .accessibilityIdentifier("MobileShowAddDeviceButton")
             Button {
                 isShowingSetupHelp = true
             } label: {
@@ -226,6 +260,44 @@ struct DisconnectedWorkspaceShellView: View {
             .font(.callout)
             .accessibilityIdentifier("MobileDisconnectedSetupHelpButton")
         }
+    }
+
+    private func hiddenComputersSection(store: CMUXMobileShellStore) -> some View {
+        HiddenComputersSection(
+            computers: store.hiddenComputers,
+            isRecoveringLegacyComputer: store.isRecoveringHiddenComputer,
+            unhide: { computer in
+                await store.unhideMacDeviceID(
+                    computer.macDeviceID,
+                    instanceTag: computer.instanceTag
+                )
+            },
+            recoverLegacyComputer: { computer in
+                await store.recoverHiddenIrohMacFromAccount(
+                    macDeviceID: computer.macDeviceID,
+                    instanceTag: computer.instanceTag
+                )
+            }
+        )
+    }
+
+    private func hiddenComputersRows(store: CMUXMobileShellStore) -> some View {
+        HiddenComputersRows(
+            computers: store.hiddenComputers,
+            isRecoveringLegacyComputer: store.isRecoveringHiddenComputer,
+            unhide: { computer in
+                await store.unhideMacDeviceID(
+                    computer.macDeviceID,
+                    instanceTag: computer.instanceTag
+                )
+            },
+            recoverLegacyComputer: { computer in
+                await store.recoverHiddenIrohMacFromAccount(
+                    macDeviceID: computer.macDeviceID,
+                    instanceTag: computer.instanceTag
+                )
+            }
+        )
     }
 
     /// Reconnect this row's computer. `switchToMac` promotes a live secondary
@@ -277,31 +349,9 @@ struct DisconnectedWorkspaceShellView: View {
         )
     }
 
-    private func removalConfirmationBinding(for deviceID: String) -> Binding<Bool> {
-        Binding(
-            get: { computerPendingRemovalID == deviceID },
-            set: { isPresented in
-                if isPresented {
-                    computerPendingRemovalID = deviceID
-                } else if computerPendingRemovalID == deviceID {
-                    computerPendingRemovalID = nil
-                }
-            }
-        )
-    }
-
-    private func confirmComputerRemoval() {
-        guard let pairingID = computerPendingRemovalID,
-              let computer = savedComputers.first(where: { $0.id == pairingID }) else {
-            return
-        }
-        computerPendingRemovalID = nil
+    private func hideComputer(_ computer: MacComputerSnapshot) {
         Task {
-            await store?.forgetMac(
-                macDeviceID: computer.deviceId,
-                instanceTag: computer.instanceTag
-            )
-            await store?.loadPairedMacs()
+            await store?.hideMac(macDeviceID: computer.deviceId)
         }
     }
     #else

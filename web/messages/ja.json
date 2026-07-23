@@ -2749,6 +2749,29 @@
       }
     }
   },
+  "cloudBillingReturn": {
+    "eyebrow": "cmux Cloud",
+    "returnTitle": "ターミナルに戻る",
+    "returnBody": "続けるには、ssh cmux.cloud を実行したターミナルに戻ってください。",
+    "statuses": {
+      "checkoutSuccess": {
+        "title": "お支払いが完了しました",
+        "body": "サブスクリプションが確認されました。新しい利用上限が反映されるまで少し時間がかかる場合があります。"
+      },
+      "checkoutCanceled": {
+        "title": "お支払いはキャンセルされました",
+        "body": "プランを変更せずにチェックアウトを終了しました。"
+      },
+      "portalReturn": {
+        "title": "請求ポータルから戻りました",
+        "body": "請求ポータルでの変更が反映されるまで少し時間がかかる場合があります。"
+      },
+      "default": {
+        "title": "請求手続きが完了しました",
+        "body": "請求フローが完了しました。"
+      }
+    }
+  },
   "landing": {
     "bestTerminal": {
       "metaTitle": "2026年、Mac に最適なターミナル — cmux",

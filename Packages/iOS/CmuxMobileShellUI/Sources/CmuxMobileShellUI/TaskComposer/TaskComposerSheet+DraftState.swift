@@ -4,19 +4,15 @@ import Foundation
 
 extension TaskComposerSheet {
     func selectTemplate(_ template: MobileTaskTemplate) {
-        updateSubmissionRequest {
+        updateSubmissionRequest(reconcileRecovery: true) {
             selectedTemplateID = template.id
-            guard !didEditDirectory else { return }
-            directory = Self.suggestedDirectory(
-                    template: template,
-                    macDeviceID: selectedMacDeviceID,
-                    templateStore: store.taskTemplateStore
-            )
+            syncSuggestedDirectory()
         }
     }
 
     func restoreSubmittedDraft(_ snapshot: MobileTaskSubmissionSnapshot) {
         prompt = snapshot.prompt
+        workspaceName = snapshot.workspaceName
         selectedTemplateID = snapshot.templateID
         selectedMacDeviceID = snapshot.macDeviceID
         directory = snapshot.directory
@@ -40,17 +36,64 @@ extension TaskComposerSheet {
         )
     }
 
-    /// Applies a composer mutation and defers request comparison to a low-
-    /// frequency persistence or submission boundary.
-    func updateSubmissionRequest(_ update: () -> Void) {
+    /// Applies a composer mutation and keeps each text-entry update O(1).
+    /// Text fields resolve effective equivalence on focus loss or submission;
+    /// discrete controls can resolve immediately after their single mutation.
+    func updateSubmissionRequest(
+        reconcileRecovery: Bool = false,
+        _ update: () -> Void
+    ) {
         if submissionPhase.offersRetry {
             submissionPhase = .idle
         }
         failureText = nil
+        failureTitleStyle = .launchFailed
         update()
         submissionIdentity.markRequestDirty()
-        completedOperationRecovery = nil
+        if var recovery = completedOperationRecovery {
+            recovery.markCurrentRequestDifferent()
+            completedOperationRecovery = recovery
+            if reconcileRecovery {
+                resolveCompletedOperationRecoveryAfterEditing()
+            }
+        }
         isStartAgainConfirmationPresented = false
+    }
+
+    var activeCompletedOperationRecovery: TaskComposerCompletedOperationRecovery? {
+        guard completedOperationRecovery?.appliesToCurrentRequest == true else { return nil }
+        return completedOperationRecovery
+    }
+
+    var blockingCompletedOperationRecovery: TaskComposerCompletedOperationRecovery? {
+        guard completedOperationRecovery?.blocksSubmission == true else { return nil }
+        return completedOperationRecovery
+    }
+
+    func resolveCompletedOperationRecoveryAfterEditing() {
+        guard let operationID = completedOperationRecovery?.submittedSnapshot.operationID else { return }
+        reconcileCompletedOperationRecovery(
+            with: makeSubmissionSnapshot(operationID: operationID)
+        )
+    }
+
+    @discardableResult
+    private func reconcileCompletedOperationRecovery(
+        with currentSnapshot: MobileTaskSubmissionSnapshot?
+    ) -> UUID? {
+        guard var recovery = completedOperationRecovery else { return nil }
+        let shouldRestoreRecoveryBanner = recovery.reconcileCurrentRequest(currentSnapshot)
+        completedOperationRecovery = recovery
+        guard recovery.appliesToCurrentRequest else {
+            failureText = nil
+            failureTitleStyle = .launchFailed
+            return nil
+        }
+        if shouldRestoreRecoveryBanner {
+            failureTitleStyle = .taskAccepted
+            failureText = recoveryFailureMessage(for: recovery.phase)
+        }
+        return recovery.submittedSnapshot.operationID
     }
 
     func submissionSnapshot() -> MobileTaskSubmissionSnapshot? {
@@ -65,14 +108,16 @@ extension TaskComposerSheet {
         let resolved = submissionIdentity.resolveCurrentRequest {
             makeSubmissionSnapshot(operationID: candidateID)
         }
+        let completedOperationID = reconcileCompletedOperationRecovery(with: resolved)
         return MobileTaskComposerDraft(
             prompt: prompt,
             templateID: selectedTemplateID,
             macDeviceID: selectedMacDeviceID.isEmpty ? nil : selectedMacDeviceID,
             directory: directory,
             didEditDirectory: didEditDirectory,
+            workspaceName: workspaceName,
             operationID: resolved?.operationID ?? submissionIdentity.id,
-            completedOperationID: completedOperationRecovery?.submittedSnapshot.operationID
+            completedOperationID: completedOperationID
         )
     }
 
@@ -83,6 +128,7 @@ extension TaskComposerSheet {
             prompt: prompt,
             macDeviceID: selectedMacDeviceID,
             directory: directory,
+            workspaceName: workspaceName,
             didEditDirectory: didEditDirectory,
             operationID: operationID
         )
