@@ -29,9 +29,6 @@ struct ArtifactSourceSnapshotter {
             ? normalizedConfiguration.maximumTextFileBytes
             : normalizedConfiguration.maximumFileBytes
         let batchLimit = maximumBytes.map { max(0, $0) }
-        guard batchLimit != 0 else {
-            throw ArtifactStoreError.batchByteLimitReached(limit: 0)
-        }
 
         try rejectSymbolicLink(at: paths.importStagingRoot)
         try fileManager.createDirectory(at: paths.importStagingRoot, withIntermediateDirectories: true)
@@ -55,7 +52,10 @@ struct ArtifactSourceSnapshotter {
             throw ArtifactStoreError.fileTooLarge(actual: sourceStatus.st_size, limit: limit)
         }
         if let batchLimit, sourceStatus.st_size > batchLimit {
-            throw ArtifactStoreError.batchByteLimitReached(limit: batchLimit)
+            throw ArtifactStoreError.batchByteLimitReached(
+                actual: sourceStatus.st_size,
+                limit: batchLimit
+            )
         }
 
         let stagedDescriptor = open(
@@ -82,7 +82,7 @@ struct ArtifactSourceSnapshotter {
                 throw ArtifactStoreError.fileTooLarge(actual: size, limit: limit)
             }
             if let batchLimit, size > batchLimit {
-                throw ArtifactStoreError.batchByteLimitReached(limit: batchLimit)
+                throw ArtifactStoreError.batchByteLimitReached(actual: size, limit: batchLimit)
             }
             try stagedHandle.write(contentsOf: data)
         }

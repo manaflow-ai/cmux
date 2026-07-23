@@ -30,16 +30,20 @@ actor AgentArtifactCaptureCoordinator {
         return await captureService.automaticTranscriptScanByteLimit(projectRoot: projectRoot)
     }
 
+    @discardableResult
     func capture(
         record: AgentChatSessionRecord,
         snapshot: AgentChatArtifactIndex.Snapshot
-    ) async {
+    ) async -> AgentArtifactCaptureProgress {
         let completedState = completedStateBySession.value(forKey: record.sessionID)
-        guard !Task.isCancelled,
-              let projectRoot = projectRoot(for: record),
-              completedState.flatMap(\.revision).map({ snapshot.revision > $0 }) ?? true,
-              inFlightRevisionBySession[record.sessionID].map({ snapshot.revision > $0 }) ?? true else {
-            return
+        guard !Task.isCancelled else { return .blocked }
+        guard let projectRoot = projectRoot(for: record),
+              completedState.flatMap(\.revision).map({ snapshot.revision > $0 }) ?? true else {
+            return .complete
+        }
+        guard inFlightRevisionBySession[record.sessionID]
+            .map({ snapshot.revision > $0 }) ?? true else {
+            return .blocked
         }
         inFlightRevisionBySession[record.sessionID] = snapshot.revision
         defer {
@@ -86,7 +90,7 @@ actor AgentArtifactCaptureCoordinator {
                 ),
                 forKey: record.sessionID
             )
-            return
+            return .complete
         }
         let outcomes = await captureService.capture(
             candidates: pending.map {
@@ -99,7 +103,7 @@ actor AgentArtifactCaptureCoordinator {
         )
         guard !Task.isCancelled,
               inFlightRevisionBySession[record.sessionID] == snapshot.revision else {
-            return
+            return .blocked
         }
         let processedCount = outcomes.prefix { !isRetryableBlocker($0) }.count
         var updatedCheckpoint = checkpoint
@@ -125,6 +129,12 @@ actor AgentArtifactCaptureCoordinator {
                 forKey: record.sessionID
             )
         }
+        guard processedCount < pending.count else { return .complete }
+        guard outcomes.indices.contains(processedCount),
+              outcomes[processedCount] == .skipped(.candidateLimitReached) else {
+            return .blocked
+        }
+        return .needsContinuation
     }
 
     func save(

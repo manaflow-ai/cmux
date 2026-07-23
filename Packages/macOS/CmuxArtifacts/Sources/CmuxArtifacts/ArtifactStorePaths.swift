@@ -3,6 +3,19 @@ public import Foundation
 /// Deterministic paths inside one project's session-oriented `.cmux` filesystem.
 public struct ArtifactStorePaths: Equatable, Sendable {
     static let trackableControlFileNames = ["artifacts.json", "cmux.json", "dock.json"]
+    static let managedPathComponentNames = Set(
+        trackableControlFileNames + [
+            ArtifactPathResolver.sessionMarkerName,
+            ArtifactPathResolver.workspaceMarkerName,
+            ".metadata",
+        ]
+    )
+
+    static func isManagedPathComponent(_ name: String) -> Bool {
+        managedPathComponentNames.contains {
+            $0.caseInsensitiveCompare(name) == .orderedSame
+        }
+    }
 
     /// Normalized project root.
     public let projectRoot: URL
