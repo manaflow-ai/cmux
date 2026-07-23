@@ -8924,13 +8924,21 @@ final class Workspace: Identifiable, ObservableObject {
     }
 
     @discardableResult
-    private func moveSurfaceToAdjacentPane(panelId: UUID, direction: NavigationDirection) -> Bool {
-        guard panels[panelId] != nil,
+    func moveSurfaceToAdjacentPane(panelId: UUID, direction: NavigationDirection) -> Bool {
+        guard layoutMode != .canvas,
+              !isRemoteTmuxMirror,
+              panels[panelId] != nil,
               let sourcePaneId = paneId(forPanelId: panelId),
               let targetPaneId = bonsplitController.adjacentPane(to: sourcePaneId, direction: direction) else {
             return false
         }
-        return moveSurface(panelId: panelId, toPane: targetPaneId, focus: true)
+        clearSplitZoom()
+        return moveSurface(
+            panelId: panelId,
+            toPane: targetPaneId,
+            atIndex: insertionIndexAfterSelectedTab(in: targetPaneId),
+            focus: true
+        )
     }
 
     func detachSurface(panelId: UUID) -> DetachedSurfaceTransfer? {

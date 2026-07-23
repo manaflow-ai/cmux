@@ -48,6 +48,14 @@ public enum ShortcutAction: String, CaseIterable, Sendable, Hashable, SettingCod
     case moveSurfaceLeft
     /// Moves the selected surface one position right.
     case moveSurfaceRight
+    /// Moves the selected surface to the previous pane in spatial order.
+    case moveSurfaceToPreviousPane
+    /// Moves the selected surface to the next pane in spatial order.
+    case moveSurfaceToNextPane
+    case moveSurfaceToPaneLeft
+    case moveSurfaceToPaneRight
+    case moveSurfaceToPaneUp
+    case moveSurfaceToPaneDown
     case selectSurfaceByNumber
     case nextSidebarTab
     case prevSidebarTab
@@ -186,7 +194,10 @@ extension ShortcutAction {
              .switchRightSidebarToSessions, .switchRightSidebarToFeed,
              .switchRightSidebarToDock, .triggerFlash:
             return .workspace
-        case .nextSurface, .prevSurface, .moveSurfaceLeft, .moveSurfaceRight, .selectSurfaceByNumber,
+        case .nextSurface, .prevSurface, .moveSurfaceLeft, .moveSurfaceRight,
+             .moveSurfaceToPreviousPane, .moveSurfaceToNextPane,
+             .moveSurfaceToPaneLeft, .moveSurfaceToPaneRight, .moveSurfaceToPaneUp, .moveSurfaceToPaneDown,
+             .selectSurfaceByNumber,
              .nextSidebarTab, .prevSidebarTab, .moveWorkspaceUp, .moveWorkspaceDown, .focusHistoryBack, .focusHistoryForward,
              .selectWorkspaceByNumber, .renameTab, .renameWorkspace,
              .editWorkspaceDescription, .markWorkspaceDone, .cycleWorkspaceStatus, .toggleChecklistItemComplete, .closeTab, .closeOtherTabsInPane, .closeWorkspace,
@@ -360,8 +371,14 @@ extension ShortcutAction {
         case .triggerFlash: return "Flash Focused Panel"
         case .nextSurface: return "Next Surface"
         case .prevSurface: return "Previous Surface"
-        case .moveSurfaceLeft: return String(localized: "shortcut.moveSurfaceLeft.label", defaultValue: "Move Surface Left")
-        case .moveSurfaceRight: return String(localized: "shortcut.moveSurfaceRight.label", defaultValue: "Move Surface Right")
+        case .moveSurfaceLeft: return String(localized: "shortcut.moveSurfaceLeft.label", defaultValue: "Reorder Surface Left")
+        case .moveSurfaceRight: return String(localized: "shortcut.moveSurfaceRight.label", defaultValue: "Reorder Surface Right")
+        case .moveSurfaceToPreviousPane: return String(localized: "shortcut.moveSurfaceToPreviousPane.label", defaultValue: "Move Surface to Previous Pane")
+        case .moveSurfaceToNextPane: return String(localized: "shortcut.moveSurfaceToNextPane.label", defaultValue: "Move Surface to Next Pane")
+        case .moveSurfaceToPaneLeft: return String(localized: "shortcut.moveSurfaceToPaneLeft.label", defaultValue: "Move Surface to Pane on Left")
+        case .moveSurfaceToPaneRight: return String(localized: "shortcut.moveSurfaceToPaneRight.label", defaultValue: "Move Surface to Pane on Right")
+        case .moveSurfaceToPaneUp: return String(localized: "shortcut.moveSurfaceToPaneUp.label", defaultValue: "Move Surface to Pane Above")
+        case .moveSurfaceToPaneDown: return String(localized: "shortcut.moveSurfaceToPaneDown.label", defaultValue: "Move Surface to Pane Below")
         case .selectSurfaceByNumber: return "Select Surface 1…9"
         case .nextSidebarTab: return "Next Workspace"
         case .prevSidebarTab: return "Previous Workspace"
