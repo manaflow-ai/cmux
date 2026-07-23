@@ -5,20 +5,18 @@ import Foundation
 /// hidden sidebar claims the latest request when it mounts.
 @MainActor
 final class WorkspaceTodoChecklistAddRequestStore: ObservableObject {
-    struct Request: Equatable {
-        let workspaceID: UUID
-        let token: UInt64
-    }
-
     @Published private(set) var revision: UInt64 = 0
-    private var pendingRequest: Request?
+    private var pendingRequest: WorkspaceTodoChecklistAddRequest?
     private var nextToken: UInt64 = 0
 
     @discardableResult
     func request(workspaceID: UUID) -> UInt64 {
         nextToken &+= 1
         let token = nextToken
-        pendingRequest = Request(workspaceID: workspaceID, token: token)
+        pendingRequest = WorkspaceTodoChecklistAddRequest(
+            workspaceID: workspaceID,
+            token: token
+        )
         revision &+= 1
         return token
     }
@@ -26,7 +24,7 @@ final class WorkspaceTodoChecklistAddRequestStore: ObservableObject {
     /// Atomically removes and returns the request when this sidebar still owns
     /// its workspace. A single add field can own focus, so a newer request
     /// explicitly supersedes an older unclaimed request.
-    func claimLatest(workspaceIDs: Set<UUID>) -> Request? {
+    func claimLatest(workspaceIDs: Set<UUID>) -> WorkspaceTodoChecklistAddRequest? {
         guard let pendingRequest,
               workspaceIDs.contains(pendingRequest.workspaceID) else {
             return nil

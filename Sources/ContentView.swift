@@ -5338,6 +5338,13 @@ struct ContentView: View {
     private func commandPaletteCommandsFingerprint(commandsContext: CommandPaletteCommandsContext) -> Int {
         var hasher = Hasher()
         hasher.combine(commandsContext.snapshot.fingerprint())
+        let target = currentCommandPaletteActionTarget()
+        hasher.combine(target.windowID)
+        hasher.combine(target.workspaceID)
+        hasher.combine(target.panelID)
+        hasher.combine(CmuxConfigStore.actionCatalogCacheKey(
+            startingFrom: commandPaletteConfigDirectory(for: target)
+        ))
         hasher.combine(cmuxConfigStore.configRevision)
         return hasher.finalize()
     }
@@ -6949,7 +6956,8 @@ struct ContentView: View {
 
     private func commandPaletteActionRegistry(
         commandsContext: CommandPaletteCommandsContext,
-        target: CommandPaletteActionTarget? = nil
+        target: CommandPaletteActionTarget? = nil,
+        configCatalog explicitConfigCatalog: CmuxConfigActionCatalog? = nil
     ) -> CmuxActionRegistry {
         let actionTarget = target ?? currentCommandPaletteActionTarget()
         let actionContext = CommandPaletteActionContext(
@@ -6958,7 +6966,9 @@ struct ContentView: View {
             owningWindowID: windowId
         )
         let context = commandsContext.snapshot
-        let configCatalog = commandPaletteConfigCatalog(for: actionTarget)
+        let configCatalog = explicitConfigCatalog
+            ?? commandPaletteConfigSnapshot(for: actionTarget)?.catalog
+            ?? cmuxConfigStore.unconfiguredActionCatalog()
         var handlerRegistry = CommandPaletteHandlerRegistry()
         registerCommandPaletteHandlers(
             &handlerRegistry,
@@ -7031,20 +7041,50 @@ struct ContentView: View {
             request.complete(.commandNotFound)
             return
         }
+        guard commandPaletteControlTargetIsAvailable(request.target) else {
+            request.complete(.targetUnavailable)
+            return
+        }
+
+        let configDirectory = commandPaletteConfigDirectory(for: request.target)
+        guard let configSnapshot = cmuxConfigStore.cachedActionCatalogSnapshot(
+            startingFrom: configDirectory,
+            revalidate: false
+        ), configSnapshot.cacheKey == CmuxConfigStore.actionCatalogCacheKey(
+            startingFrom: configDirectory
+        ) else {
+            request.complete(.configurationPending)
+            return
+        }
+        if let listedSnapshotID = request.target.configSnapshotID,
+           listedSnapshotID != configSnapshot.id {
+            request.complete(.configurationChanged)
+            return
+        }
+        let resolvedTarget = CommandPaletteActionTarget(
+            windowID: request.target.windowID,
+            workspaceID: request.target.workspaceID,
+            panelID: request.target.panelID,
+            configSnapshotID: configSnapshot.id
+        )
         let terminalOpenTargets = resolveCommandPaletteTerminalOpenTargets(
             for: .commands,
-            target: request.target
+            target: resolvedTarget
         )
         let actionRegistry = commandPaletteActionRegistry(
             commandsContext: commandPaletteCommandsContext(
                 terminalOpenTargets: terminalOpenTargets,
-                target: request.target
+                target: resolvedTarget
             ),
-            target: request.target
+            target: resolvedTarget,
+            configCatalog: configSnapshot.catalog
         )
         switch request.operation {
         case .list:
-            request.complete(.listed(actionRegistry.actions.map(commandPaletteControlItem)))
+            request.complete(.listed(
+                target: resolvedTarget,
+                commands: actionRegistry.actions.map(commandPaletteControlItem)
+            ))
         case .run(let commandID, let arguments, let workingDirectory):
             guard let command = actionRegistry.action(id: commandID) else {
                 request.complete(.commandNotFound)
@@ -7064,6 +7104,20 @@ struct ContentView: View {
             )
             request.complete(.ran(commandPaletteControlItem(command), result: result))
         }
+    }
+
+    private func commandPaletteControlTargetIsAvailable(
+        _ target: CommandPaletteActionTarget
+    ) -> Bool {
+        guard target.windowID == windowId else { return false }
+        guard let workspaceID = target.workspaceID else {
+            return target.panelID == nil && tabManager.tabs.isEmpty
+        }
+        guard let workspace = tabManager.tabs.first(where: { $0.id == workspaceID }) else {
+            return false
+        }
+        guard let panelID = target.panelID else { return true }
+        return workspace.panels[panelID] != nil
     }
 
     private func commandPaletteControlItem(
@@ -10113,11 +10167,14 @@ struct ContentView: View {
                 guard let fileURL = commandPaletteFileURL(path) else {
                     return commandPaletteFileUnavailableResult()
                 }
-                return tabManager.attachFilesToTerminalTextBoxInput(
+                guard let result = tabManager.attachFilesToTerminalTextBoxInput(
                     workspaceID: workspaceID,
                     panelID: panelID,
                     fileURLs: [fileURL]
-                ) ? .queued : commandPaletteTargetUnavailableResult()
+                ) else {
+                    return commandPaletteTargetUnavailableResult()
+                }
+                return commandPaletteTerminalAttachmentResult(result)
             }
             guard tabManager.attachFileToTerminalTextBoxInput(
                 workspaceID: workspaceID,
@@ -10284,7 +10341,7 @@ struct ContentView: View {
                 ) else {
                     return commandPaletteTargetUnavailableResult()
                 }
-                commandPaletteResult(
+                return commandPaletteResult(
                     for: executeConfiguredActionOutcome(
                         captured,
                         context: context,
@@ -10419,9 +10476,17 @@ struct ContentView: View {
         )
     }
 
-    private func commandPaletteConfigCatalog(
+    private func commandPaletteConfigSnapshot(
         for target: CommandPaletteActionTarget
-    ) -> CmuxConfigActionCatalog {
+    ) -> CmuxConfigActionCatalogSnapshot? {
+        cmuxConfigStore.cachedActionCatalogSnapshot(
+            startingFrom: commandPaletteConfigDirectory(for: target)
+        )
+    }
+
+    private func commandPaletteConfigDirectory(
+        for target: CommandPaletteActionTarget
+    ) -> String? {
         let directory: String?
         if let panelContext = commandPalettePanelContext(for: target) {
             directory = panelContext.workspace.configurationTrackingDirectory(
@@ -10433,7 +10498,7 @@ struct ContentView: View {
         } else {
             directory = nil
         }
-        return cmuxConfigStore.actionCatalog(startingFrom: directory)
+        return directory
     }
 
     private func currentCommandPaletteActionTarget() -> CommandPaletteActionTarget {
@@ -11777,6 +11842,31 @@ struct ContentView: View {
                 defaultValue: "The terminal action could not be completed."
             )
         )
+    }
+
+    private func commandPaletteTerminalAttachmentResult(
+        _ result: TerminalPanel.TextBoxAttachmentRequestResult
+    ) -> CmuxActionExecutionResult {
+        switch result {
+        case .completed:
+            return .completed
+        case .queued:
+            return .queued
+        case .queueFull:
+            return .failed(
+                code: "attachment_queue_full",
+                message: String(
+                    localized: "action.error.terminalAttachmentQueueFull",
+                    defaultValue: "The terminal text-box attachment queue is full."
+                )
+            )
+        case .invalidFiles:
+            return commandPaletteFileUnavailableResult()
+        case .insertionFailed:
+            return commandPaletteTerminalActionFailedResult(
+                code: "terminal_text_box_attachment_failed"
+            )
+        }
     }
 
     private func commandPaletteNotificationNotApplicableResult() -> CmuxActionExecutionResult {

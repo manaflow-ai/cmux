@@ -110,16 +110,6 @@ enum DefaultTerminalRegistration {
 
 @MainActor
 enum DefaultTerminalUserAction {
-    enum FailurePresentation {
-        case alert(presentingWindow: NSWindow?)
-        case silent
-    }
-
-    enum RequestOutcome: Equatable {
-        case alreadyDefault
-        case queued
-    }
-
     private struct RegistrationOperation {
         let id: UUID
         let task: Task<Void, Error>

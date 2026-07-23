@@ -49,15 +49,6 @@ private struct SessionPaneRestoreEntry {
     let snapshot: SessionPaneLayoutSnapshot
 }
 
-enum PanelPinMutationOutcome: Equatable {
-    /// The requested pin state is durable without further work.
-    case completed
-    /// The requested pin state is optimistic while a remote mirror verifies it.
-    case queued
-    /// The target rejected the requested pin state.
-    case failed
-}
-
 extension Workspace {
     func sessionSnapshot(
         includeScrollback: Bool,
@@ -2172,6 +2163,7 @@ final class Workspace: Identifiable, ObservableObject {
             let oldDirectory = oldValue.trimmingCharacters(in: .whitespacesAndNewlines)
             let newDirectory = currentDirectory.trimmingCharacters(in: .whitespacesAndNewlines)
             guard oldDirectory != newDirectory else { return }
+            emitConfigTrackingEvent(.workspaceDirectoryChanged)
             scheduleExtensionSidebarProjectRootRefresh(for: currentDirectory)
             // Notify the sidebar so anchor-cwd-driven group config (color,
             // icon, context menu, newWorkspacePlacement) refreshes even
@@ -2280,6 +2272,17 @@ final class Workspace: Identifiable, ObservableObject {
     /// sites were written against. Single seam; delete when the subscribers
     /// move to @Observable observation.
     let panelsPublisher = CurrentValueSubject<[UUID: any Panel], Never>([:])
+    /// Semantic directory events consumed by config tracking. Unlike
+    /// `$panelDirectories`, panel events retain the changed panel identity so a
+    /// hot cwd report updates one contribution instead of rescanning the tree.
+    private let configTrackingEventChannel = WorkspaceConfigTrackingEventChannel()
+    var configTrackingEvents: AsyncStream<WorkspaceConfigTrackingEvent> {
+        configTrackingEventChannel.events
+    }
+
+    private func emitConfigTrackingEvent(_ event: WorkspaceConfigTrackingEvent) {
+        configTrackingEventChannel.send(event)
+    }
     /// Legacy Combine bridge for the remaining `$paneLayoutVersion`
     /// subscribers; same contract as `panelsPublisher`.
     let paneLayoutVersionPublisher = CurrentValueSubject<Int, Never>(0)
@@ -2374,6 +2377,33 @@ final class Workspace: Identifiable, ObservableObject {
 
     /// Published directory for each panel
     @Published var panelDirectories: [UUID: String] = [:]
+
+    func setTrackedPanelDirectory(
+        _ directory: String,
+        for panelID: UUID,
+        forcePublish: Bool = false
+    ) {
+        guard forcePublish || panelDirectories[panelID] != directory else { return }
+        panelDirectories[panelID] = directory
+        emitConfigTrackingEvent(.panelDirectoryChanged(panelID))
+    }
+
+    @discardableResult
+    func removeTrackedPanelDirectory(for panelID: UUID) -> String? {
+        guard let removed = panelDirectories.removeValue(forKey: panelID) else { return nil }
+        emitConfigTrackingEvent(.panelDirectoryChanged(panelID))
+        return removed
+    }
+
+    func replaceTrackedPanelDirectories(with directories: [UUID: String]) {
+        let candidateIDs = Set(panelDirectories.keys).union(directories.keys)
+        let changedIDs = candidateIDs.filter { panelDirectories[$0] != directories[$0] }
+        guard !changedIDs.isEmpty else { return }
+        panelDirectories = directories
+        for panelID in changedIDs.sorted(by: { $0.uuidString < $1.uuidString }) {
+            emitConfigTrackingEvent(.panelDirectoryChanged(panelID))
+        }
+    }
     /// Optional human-friendly sidebar label per panel, reported via
     /// `report_pwd <label> --path=<real-path>`. Display-only: the File
     /// Explorer, Finder root, and git probing always use `panelDirectories`.
@@ -2685,7 +2715,7 @@ final class Workspace: Identifiable, ObservableObject {
     var focusedSurfaceId: UUID? { focusedPanelId }
     var surfaceDirectories: [UUID: String] {
         get { panelDirectories }
-        set { panelDirectories = newValue }
+        set { replaceTrackedPanelDirectories(with: newValue) }
     }
 
     var processTitle: String
@@ -4656,23 +4686,36 @@ final class Workspace: Identifiable, ObservableObject {
     private func configTrackingDirectory(for panelId: UUID?) -> String? {
         // Remote workspace directories are remote-host paths; no local per-directory config can apply.
         if usesRemoteDirectoryProvenance { return nil }
-        if let panelId {
-            for candidate in [panelDirectories[panelId], terminalPanel(for: panelId)?.requestedWorkingDirectory] {
-                let trimmed = candidate?.trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
-                if !trimmed.isEmpty { return trimmed }
-            }
+        if let panelId,
+           let panelDirectory = panelConfigTrackingDirectory(for: panelId) {
+            return panelDirectory
         }
         let trimmedCurrentDirectory = currentDirectory.trimmingCharacters(in: .whitespacesAndNewlines)
         return trimmedCurrentDirectory.isEmpty ? nil : trimmedCurrentDirectory
     }
 
+    private func panelConfigTrackingDirectory(for panelID: UUID) -> String? {
+        for candidate in [panelDirectories[panelID], terminalPanel(for: panelID)?.requestedWorkingDirectory] {
+            let trimmed = candidate?.trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
+            if !trimmed.isEmpty { return trimmed }
+        }
+        return nil
+    }
+
     /// Returns the local config lookup directory for an immutable panel target.
-    /// Terminal panels prefer their own reported/requested cwd, non-terminal
-    /// panels inherit the workspace cwd, and remote paths never enter local
-    /// config discovery.
+    /// Resolves the effective lookup directory for an action target. A panel
+    /// without an explicit directory inherits the workspace cwd.
     func configurationTrackingDirectory(panelID: UUID?) -> String? {
         if let panelID, panels[panelID] == nil { return nil }
         return configTrackingDirectory(for: panelID)
+    }
+
+    /// Resolves only a panel's own directory contribution. Workspace fallback
+    /// is indexed separately so a workspace cwd change never rewrites every
+    /// panel contribution.
+    func configurationTrackingPanelContributionDirectory(panelID: UUID) -> String? {
+        guard panels[panelID] != nil, !usesRemoteDirectoryProvenance else { return nil }
+        return panelConfigTrackingDirectory(for: panelID)
     }
 
     @discardableResult
@@ -4725,7 +4768,13 @@ final class Workspace: Identifiable, ObservableObject {
             remoteDirectoryReportPanelIds.insert(panelId); remoteDirectoryTrustRequiredPanelIds.insert(panelId)
         }
         let directoryChanged = panelDirectories[panelId] != trimmed
-        if directoryChanged || provenanceChanged { panelDirectories[panelId] = trimmed }
+        if directoryChanged || provenanceChanged {
+            setTrackedPanelDirectory(
+                trimmed,
+                for: panelId,
+                forcePublish: provenanceChanged
+            )
+        }
         let trimmedDisplayLabel = displayLabel?.trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
         if !trimmedDisplayLabel.isEmpty {
             if panelDirectoryDisplayLabels[panelId] != trimmedDisplayLabel {
@@ -5124,7 +5173,9 @@ final class Workspace: Identifiable, ObservableObject {
         for panelId in Array(pendingTerminalInputObserversByPanelId.keys) where !validSurfaceIds.contains(panelId) {
             removePendingTerminalInputObservers(forPanelId: panelId)
         }
-        panelDirectories = panelDirectories.filter { validSurfaceIds.contains($0.key) }
+        replaceTrackedPanelDirectories(
+            with: panelDirectories.filter { validSurfaceIds.contains($0.key) }
+        )
         panelDirectoryDisplayLabels = panelDirectoryDisplayLabels.filter { validSurfaceIds.contains($0.key) }
         remoteDirectoryTrustRequiredPanelIds = remoteDirectoryTrustRequiredPanelIds.filter { validSurfaceIds.contains($0) }
         remoteDirectoryReportPanelIds = remoteDirectoryReportPanelIds.filter { validSurfaceIds.contains($0) }
@@ -5267,7 +5318,12 @@ final class Workspace: Identifiable, ObservableObject {
     }
 
     /// Ephemeral remote tmux mirror; excluded from cmux session restore.
-    var isRemoteTmuxMirror: Bool = false
+    var isRemoteTmuxMirror: Bool = false {
+        willSet {
+            guard newValue != isRemoteTmuxMirror else { return }
+            emitConfigTrackingEvent(.structuralChanged)
+        }
+    }
     weak var remoteTmuxSessionMirror: RemoteTmuxSessionMirror?
     /// Bound action for this mirror's outbound window-order mutation boundary.
     var remoteTmuxWindowOrderSync: (([UUID], ((Bool) -> Void)?) -> Bool)?
@@ -5542,6 +5598,9 @@ final class Workspace: Identifiable, ObservableObject {
             clearRemoteRelayIDAliases()
         }
         remoteConfiguration = configuration
+        if previousConfiguration != configuration {
+            emitConfigTrackingEvent(.structuralChanged)
+        }
         let clearedRemoteDirectoryTrust = !remoteDirectoryTrustRequiredPanelIds.isEmpty ||
             !remoteDirectoryReportPanelIds.isEmpty
         remoteDirectoryTrustRequiredPanelIds = Set(remoteDirectoryTrustRequiredPanelIds.filter {
@@ -5676,10 +5735,14 @@ final class Workspace: Identifiable, ObservableObject {
         remoteLastDaemonErrorFingerprint = nil
         remoteLastPortConflictFingerprint = nil
         if clearConfiguration {
+            let configurationChanged = remoteConfiguration != nil
             remotePTYSessionIDsByPanelId.removeAll()
             endedPersistentRemotePTYAttachSurfaceIds.removeAll()
             clearRemoteRelayIDAliases()
             remoteConfiguration = nil
+            if configurationChanged {
+                emitConfigTrackingEvent(.structuralChanged)
+            }
             pendingRemoteDisconnectReplacementsBySurfaceId.removeAll()
             remoteDisconnectPlaceholderPanelIds.removeAll()
             skipControlMasterCleanupAfterDetachedRemoteTransfer = false
@@ -8567,7 +8630,7 @@ final class Workspace: Identifiable, ObservableObject {
         panels[agentPanel.id] = agentPanel
         panelTitles[agentPanel.id] = agentPanel.displayTitle
         if let directory, !directory.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
-            panelDirectories[agentPanel.id] = directory
+            setTrackedPanelDirectory(directory, for: agentPanel.id)
             if trustsAgentDirectory { remoteDirectoryReportPanelIds.insert(agentPanel.id); remoteDirectoryTrustRequiredPanelIds.insert(agentPanel.id) }
         }
 
@@ -9114,7 +9177,7 @@ final class Workspace: Identifiable, ObservableObject {
         }
 
         if let directory = detached.directory {
-            panelDirectories[detached.panelId] = directory
+            setTrackedPanelDirectory(directory, for: detached.panelId)
         }
         if let directoryDisplayLabel = detached.directoryDisplayLabel {
             panelDirectoryDisplayLabels[detached.panelId] = directoryDisplayLabel
@@ -9169,7 +9232,7 @@ final class Workspace: Identifiable, ObservableObject {
         ) else {
             removeBrowserOpenTabSuggestionIfNeeded(panel: detached.panel, panelId: detached.panelId)
             panels.removeValue(forKey: detached.panelId)
-            panelDirectories.removeValue(forKey: detached.panelId)
+            removeTrackedPanelDirectory(for: detached.panelId)
             panelDirectoryDisplayLabels.removeValue(forKey: detached.panelId)
             surfaceTTYNames.removeValue(forKey: detached.panelId)
             surfaceResumeBindingsByPanelId.removeValue(forKey: detached.panelId)
@@ -11275,6 +11338,7 @@ extension Workspace: PaneTreeHosting {
             invalidateSidebarObservation: false
         )
         panelsPublisher.send(newValue)
+        emitConfigTrackingEvent(.structuralChanged)
     }
 
     /// Legacy `@Published paneLayoutVersion` willSet; same contract.

@@ -1273,14 +1273,6 @@ struct CmuxSurfaceTabBarButton: Codable, Sendable, Hashable, Identifiable {
     }
 }
 
-enum CmuxConfigPaletteTargetRequirement: Sendable, Equatable {
-    case unavailable
-    case window
-    case workspace
-    case panelInPane
-    case terminalPanel
-}
-
 struct CmuxResolvedConfigAction: Identifiable, Sendable, Hashable {
     var id: String
     var title: String
@@ -1747,104 +1739,6 @@ struct CmuxConfigIssue: Identifiable, Equatable, Sendable {
     }
 }
 
-/// Immutable action/command resolution for one configuration directory.
-///
-/// Command-palette automation captures this value alongside its immutable
-/// window/workspace/panel target. Resolving a background workspace therefore
-/// never changes the selected workspace or the store's published live config.
-struct CmuxConfigActionCatalog: Sendable {
-    let loadedCommands: [CmuxCommandDefinition]
-    let loadedActions: [CmuxResolvedConfigAction]
-    let commandSourcePaths: [String: String]
-    let configurationIssues: [CmuxConfigIssue]
-    let resolvedNewWorkspaceAction: CmuxResolvedConfigAction?
-    let resolvedNewWorkspaceCommand: CmuxResolvedCommand?
-
-    let configuredNewWorkspaceActionID: String?
-    let configuredNewWorkspaceActionSourcePath: String?
-    let configuredNewWorkspaceCommandName: String?
-    let configuredNewWorkspaceCommandSourcePath: String?
-
-    private let actionLookup: [String: CmuxResolvedConfigAction]
-
-    init(
-        loadedCommands: [CmuxCommandDefinition],
-        loadedActions: [CmuxResolvedConfigAction],
-        commandSourcePaths: [String: String],
-        configurationIssues: [CmuxConfigIssue],
-        resolvedNewWorkspaceAction: CmuxResolvedConfigAction?,
-        resolvedNewWorkspaceCommand: CmuxResolvedCommand?,
-        configuredNewWorkspaceActionID: String?,
-        configuredNewWorkspaceActionSourcePath: String?,
-        configuredNewWorkspaceCommandName: String?,
-        configuredNewWorkspaceCommandSourcePath: String?
-    ) {
-        self.loadedCommands = loadedCommands
-        self.loadedActions = loadedActions
-        self.commandSourcePaths = commandSourcePaths
-        self.configurationIssues = configurationIssues
-        self.resolvedNewWorkspaceAction = resolvedNewWorkspaceAction
-        self.resolvedNewWorkspaceCommand = resolvedNewWorkspaceCommand
-        self.configuredNewWorkspaceActionID = configuredNewWorkspaceActionID
-        self.configuredNewWorkspaceActionSourcePath = configuredNewWorkspaceActionSourcePath
-        self.configuredNewWorkspaceCommandName = configuredNewWorkspaceCommandName
-        self.configuredNewWorkspaceCommandSourcePath = configuredNewWorkspaceCommandSourcePath
-        self.actionLookup = Dictionary(uniqueKeysWithValues: loadedActions.map { ($0.id, $0) })
-    }
-
-    func resolvedAction(id: String) -> CmuxResolvedConfigAction? {
-        let canonicalID = CmuxSurfaceTabBarBuiltInAction(configID: id)?.configID ?? id
-        return actionLookup[canonicalID]
-    }
-
-    func paletteCustomActions() -> [CmuxResolvedConfigAction] {
-        let builtInIDs = Set(CmuxSurfaceTabBarBuiltInAction.allCases.map(\.configID))
-        return loadedActions.filter { action in
-            action.palette && !builtInIDs.contains(action.id)
-        }
-    }
-
-    /// Composes user palette actions with cmux-owned action IDs. Exact ID
-    /// conflicts become visible configuration issues; non-colliding
-    /// `palette.*` IDs remain valid stable user IDs.
-    func composingPaletteActions(
-        reservedActionIDs: Set<String>,
-        diagnosticActionID: (CmuxConfigIssue) -> String
-    ) -> (issues: [CmuxConfigIssue], actions: [CmuxResolvedConfigAction]) {
-        let configuredActions = paletteCustomActions()
-        let baseIssues = configurationIssues
-        var collidingActionIDs = Set(
-            configuredActions.lazy.map(\.id).filter(reservedActionIDs.contains)
-        )
-        var issues = baseIssues
-
-        // Diagnostics are themselves command-palette actions. Iterate to a
-        // fixed point so their generated IDs cannot silently collide either.
-        while true {
-            issues = baseIssues + configuredActions.compactMap { action in
-                guard collidingActionIDs.contains(action.id) else { return nil }
-                return CmuxConfigIssue(
-                    kind: .paletteActionIDCollision,
-                    settingName: "actions",
-                    commandName: action.id,
-                    sourcePath: action.actionSourcePath
-                )
-            }
-            let diagnosticIDs = Set(issues.map(diagnosticActionID))
-            let nextCollidingIDs = Set(configuredActions.lazy.map(\.id).filter {
-                reservedActionIDs.contains($0) || diagnosticIDs.contains($0)
-            })
-            guard nextCollidingIDs != collidingActionIDs else { break }
-            collidingActionIDs = nextCollidingIDs
-        }
-
-        return (
-            issues,
-            configuredActions.filter { !collidingActionIDs.contains($0.id) }
-        )
-    }
-}
-
 @MainActor
 final class CmuxConfigStore: ObservableObject {
     private static let defaultNewWorkspaceContextMenu: [CmuxConfigContextMenuItem] = [
@@ -1880,6 +1774,8 @@ final class CmuxConfigStore: ObservableObject {
     private weak var tabManager: TabManager?
     let globalConfigPath: String
     private let fileWatchingEnabled: Bool
+    private let actionCatalogRawReader: any CmuxConfigActionCatalogRawReading
+    private let actionCatalogReadCoordinator: CmuxConfigActionCatalogReadCoordinator
 
     nonisolated static func defaultGlobalConfigPath() -> String {
         let home = FileManager.default.homeDirectoryForCurrentUser.path
@@ -1921,6 +1817,7 @@ final class CmuxConfigStore: ObservableObject {
         let fileSize: UInt64
         let modificationDate: Date?
         let workspaceColorPaletteFingerprint: String
+        let contentDigest: String
         let config: CmuxConfigFile?
         let issue: CmuxConfigIssue?
     }
@@ -1928,14 +1825,32 @@ final class CmuxConfigStore: ObservableObject {
     private struct ParsedConfigResult {
         let config: CmuxConfigFile?
         let issue: CmuxConfigIssue?
+        let contentDigest: String
     }
 
     private var surfaceTabBarWorkspaceCommands: [String: CmuxResolvedCommand] = [:]
     private var resolvedNewWorkspaceCommandCache: CmuxResolvedCommand?
     private var resolvedNewWorkspaceActionCache: CmuxResolvedConfigAction?
+    private var loadedActionCatalogSnapshot: CmuxConfigActionCatalogSnapshot?
+    private var actionCatalogSnapshotsByKey: [String: CmuxConfigActionCatalogSnapshot] = [:]
+    /// Shared-input baseline established only by synchronous `loadAll()`.
+    /// A standalone `<global>` background refresh must not advance it while
+    /// per-directory snapshots still embed the previous global bytes.
+    private var lastLoadAllGlobalSourceFingerprint: String?
+    private var actionCatalogRefreshTasks: [String: Task<CmuxConfigActionCatalogSnapshot?, Never>] = [:]
+    private var actionCatalogRefreshTokens: [String: UUID] = [:]
+    private var actionCatalogRefreshSequence: UInt64 = 0
+    private var actionCatalogFreshWaiters:
+        [String: [UUID: CmuxConfigActionCatalogFreshWaiter]] = [:]
+    private var actionCatalogDirectoryIndex = CmuxConfigActionCatalogDirectoryIndex(
+        globalKey: "<global>"
+    )
+    private var actionCatalogTrackedWorkspaceIdentities: [UUID: ObjectIdentifier] = [:]
+    private var actionCatalogStructuralRefreshTasks: [UUID: Task<Void, Never>] = [:]
     private var parsedConfigCache: [String: ParsedConfigCacheEntry] = [:]
     private var lifetimeCancellables = Set<AnyCancellable>()
     private var trackingCancellables = Set<AnyCancellable>()
+    private var actionCatalogTrackingTasks: [UUID: Task<Void, Never>] = [:]
     // The local config still uses a bespoke DispatchSource watcher because it
     // performs search-directory *path re-resolution* (not just reload-on-change).
     // The global config and hook files use CmuxFileWatch.FileWatcher.
@@ -1968,11 +1883,16 @@ final class CmuxConfigStore: ObservableObject {
     init(
         globalConfigPath: String = CmuxConfigStore.defaultGlobalConfigPath(),
         localConfigPath: String? = nil,
-        startFileWatchers: Bool = false
+        startFileWatchers: Bool = false,
+        actionCatalogRawReader: any CmuxConfigActionCatalogRawReading =
+            CmuxConfigActionCatalogProcessReader.shared,
+        actionCatalogReadCoordinator: CmuxConfigActionCatalogReadCoordinator = .shared
     ) {
         self.globalConfigPath = globalConfigPath
         self.localConfigPath = localConfigPath
         self.fileWatchingEnabled = startFileWatchers
+        self.actionCatalogRawReader = actionCatalogRawReader
+        self.actionCatalogReadCoordinator = actionCatalogReadCoordinator
         self.localConfigSearchDirectory = localConfigPath.map(Self.searchDirectoryForLocalConfigPath(_:))
         NotificationCenter.default.publisher(for: CmuxActionTrust.didChangeNotification)
             .receive(on: DispatchQueue.main)
@@ -1990,6 +1910,15 @@ final class CmuxConfigStore: ObservableObject {
     }
 
     deinit {
+        actionCatalogTrackingTasks.values.forEach { $0.cancel() }
+        actionCatalogStructuralRefreshTasks.values.forEach { $0.cancel() }
+        actionCatalogRefreshTasks.values.forEach { $0.cancel() }
+        for waiters in actionCatalogFreshWaiters.values {
+            for waiter in waiters.values {
+                waiter.deadlineTimer?.invalidate()
+                waiter.continuation.resume(returning: nil)
+            }
+        }
         localFileWatchSource?.cancel()
         localFallbackDirectoryWatchSource?.cancel()
         hookWatchTasks.values.forEach { $0.cancel() }
@@ -2003,13 +1932,12 @@ final class CmuxConfigStore: ObservableObject {
         self.tabManager = tabManager
 
         tabManager.selectedTabIdPublisher
-            .compactMap { [weak tabManager] tabId -> Workspace? in
-                guard let tabId, let tabManager else { return nil }
-                return tabManager.tabs.first(where: { $0.id == tabId })
-            }
-            .removeDuplicates(by: { $0.id == $1.id })
-            .map { workspace -> AnyPublisher<String?, Never> in
-                workspace.$surfaceTabBarDirectory.eraseToAnyPublisher()
+            .map { [weak tabManager] tabId -> AnyPublisher<String?, Never> in
+                guard let tabId,
+                      let workspace = tabManager?.tabs.first(where: { $0.id == tabId }) else {
+                    return Just(nil).eraseToAnyPublisher()
+                }
+                return workspace.$surfaceTabBarDirectory.eraseToAnyPublisher()
             }
             .switchToLatest()
             .removeDuplicates()
@@ -2020,12 +1948,11 @@ final class CmuxConfigStore: ObservableObject {
 
         tabManager.tabsPublisher
             .receive(on: DispatchQueue.main)
-            .sink { [weak self] _ in
+            .sink { [weak self] tabs in
                 self?.applySurfaceTabBarButtonsToCurrentManager()
+                self?.reconcileActionCatalogWorkspaceTracking(in: tabs)
             }
             .store(in: &trackingCancellables)
-
-        updateLocalConfigPath(tabManager.selectedWorkspace?.surfaceTabBarDirectory)
     }
 
     func notificationHooks(startingFrom directory: String?) -> [CmuxResolvedNotificationHook] {
@@ -2112,27 +2039,706 @@ final class CmuxConfigStore: ObservableObject {
         return paths.reversed()
     }
 
-    /// Resolves the action catalog for an explicit working directory without
-    /// changing the config followed by the selected workspace.
-    ///
-    /// Each call revalidates the target config through the parsed-file cache,
-    /// so background `palette.list`/`palette.run` calls observe file changes
-    /// while the store's published interactive state remains untouched.
-    func actionCatalog(startingFrom directory: String?) -> CmuxConfigActionCatalog {
-        let trimmedDirectory = directory?
-            .trimmingCharacters(in: .whitespacesAndNewlines)
-        let localPath = trimmedDirectory.flatMap { directory in
-            directory.isEmpty ? nil : resolvedLocalConfigPath(startingFrom: directory)
+    /// Lexical cache identity for one config lookup directory. Standardizing
+    /// the path does not touch the filesystem, so palette reads remain safe on
+    /// network-backed or disconnected working directories.
+    nonisolated static func actionCatalogCacheKey(startingFrom directory: String?) -> String {
+        normalizedActionCatalogDirectory(startingFrom: directory) ?? "<global>"
+    }
+
+    private nonisolated static func normalizedActionCatalogDirectory(
+        startingFrom directory: String?
+    ) -> String? {
+        let trimmed = directory?.trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
+        guard !trimmed.isEmpty else { return nil }
+        let expanded: String
+        if trimmed == "~" {
+            expanded = FileManager.default.homeDirectoryForCurrentUser.path
+        } else if trimmed.hasPrefix("~/") {
+            expanded = (FileManager.default.homeDirectoryForCurrentUser.path as NSString)
+                .appendingPathComponent(String(trimmed.dropFirst(2)))
+        } else {
+            expanded = trimmed
         }
-        let localResult = localPath.map { parseConfig(at: $0) }
-        let globalResult = parseConfig(at: globalConfigPath)
-        return resolveActionCatalog(
-            localConfig: localResult?.config,
-            localIssue: localResult?.issue,
-            localPath: localPath,
-            globalConfig: globalResult.config,
-            globalIssue: globalResult.issue
+        guard (expanded as NSString).isAbsolutePath else { return nil }
+        return URL(fileURLWithPath: expanded, isDirectory: true).standardizedFileURL.path
+    }
+
+    /// Runs killable filesystem discovery/read in the bundled CLI helper, then
+    /// decodes the bounded bytes without touching main-actor state. Callers
+    /// resolve the returned source into a catalog on the main actor.
+    nonisolated static func loadActionCatalogSource(
+        startingFrom directory: String?,
+        globalConfigPath: String,
+        workspaceColorPalette: [String: String],
+        rawReader: any CmuxConfigActionCatalogRawReading
+    ) async -> CmuxConfigActionCatalogSource? {
+        let normalizedDirectory = normalizedActionCatalogDirectory(startingFrom: directory)
+        guard let rawSource = await rawReader.read(
+            request: CmuxConfigActionCatalogRawReadRequest(
+                directory: normalizedDirectory,
+                globalConfigPath: globalConfigPath,
+                maximumConfigBytes: CmuxConfigActionCatalogProcessReader
+                    .defaultMaximumConfigBytes
+            )
+        ) else {
+            return nil
+        }
+        let local = rawSource.localPath.flatMap { localPath in
+            rawSource.local.map {
+                backgroundParseConfig(
+                    $0,
+                    at: localPath,
+                    workspaceColorPalette: workspaceColorPalette
+                )
+            }
+        }
+        let global = backgroundParseConfig(
+            rawSource.global,
+            at: globalConfigPath,
+            workspaceColorPalette: workspaceColorPalette
         )
+        return CmuxConfigActionCatalogSource(
+            localPath: rawSource.localPath,
+            local: local,
+            global: global,
+            fingerprint: actionCatalogSourceFingerprint(
+                localPath: rawSource.localPath,
+                localContentDigest: local?.contentDigest,
+                globalConfigPath: globalConfigPath,
+                globalContentDigest: global.contentDigest,
+                workspaceColorPaletteFingerprint: WorkspaceTabColorSettings
+                    .paletteCacheFingerprint(workspaceColorPalette)
+            )
+        )
+    }
+
+    private nonisolated static func backgroundParseConfig(
+        _ rawFile: CmuxConfigActionCatalogRawFile,
+        at path: String,
+        workspaceColorPalette: [String: String]
+    ) -> CmuxConfigActionCatalogSource.ParsedConfig {
+        switch rawFile.status {
+        case .missing:
+            return .init(config: nil, issue: nil, contentDigest: "<missing>")
+        case .unreadable:
+            return .init(
+                config: nil,
+                issue: backgroundSchemaIssue(path: path, message: "cmux.json is empty"),
+                contentDigest: "<unreadable>"
+            )
+        case .tooLarge:
+            return .init(
+                config: nil,
+                issue: backgroundSchemaIssue(
+                    path: path,
+                    message: actionCatalogTooLargeMessage(
+                        maximumBytes: CmuxConfigActionCatalogProcessReader.defaultMaximumConfigBytes
+                    )
+                ),
+                contentDigest: "<too-large:\(CmuxConfigActionCatalogProcessReader.defaultMaximumConfigBytes)>"
+            )
+        case .data:
+            break
+        }
+        let data = rawFile.data
+        let contentDigest = actionCatalogContentDigest(data)
+        guard !data.isEmpty else {
+            return .init(
+                config: nil,
+                issue: backgroundSchemaIssue(path: path, message: "cmux.json is empty"),
+                contentDigest: contentDigest
+            )
+        }
+        let sanitized: Data
+        do {
+            sanitized = try JSONCParser.preprocess(data: data)
+        } catch {
+            return .init(
+                config: nil,
+                issue: backgroundSchemaIssue(
+                    path: path,
+                    message: "JSONC preprocessing failed: \(backgroundSchemaErrorMessage(error))"
+                ),
+                contentDigest: contentDigest
+            )
+        }
+        do {
+            let decoder = JSONDecoder()
+            decoder.userInfo[.cmuxWorkspaceColorDefaults] = workspaceColorPalette
+            return .init(
+                config: try decoder.decode(CmuxConfigFile.self, from: sanitized),
+                issue: nil,
+                contentDigest: contentDigest
+            )
+        } catch {
+            return .init(
+                config: nil,
+                issue: backgroundSchemaIssue(
+                    path: path,
+                    message: backgroundSchemaErrorMessage(error)
+                ),
+                contentDigest: contentDigest
+            )
+        }
+    }
+
+    private nonisolated static func actionCatalogContentDigest(_ data: Data) -> String {
+        Data(SHA256.hash(data: data)).base64EncodedString()
+    }
+
+    nonisolated static func actionCatalogTooLargeMessage(
+        maximumBytes: Int,
+        locale: Locale = .current
+    ) -> String {
+        let format = String(
+            localized: "config.actionCatalog.error.tooLarge",
+            defaultValue: "cmux.json exceeds the %lld-byte action catalog limit",
+            table: nil,
+            bundle: .main,
+            locale: locale,
+            comment: "Config error when cmux.json exceeds the action catalog byte limit"
+        )
+        return String(format: format, Int64(maximumBytes))
+    }
+
+    private nonisolated static func actionCatalogSourceFingerprint(
+        localPath: String?,
+        localContentDigest: String?,
+        globalConfigPath: String,
+        globalContentDigest: String,
+        workspaceColorPaletteFingerprint: String
+    ) -> String {
+        let identity = [
+            localPath ?? "<none>",
+            localContentDigest ?? "<none>",
+            globalConfigPath,
+            globalContentDigest,
+            workspaceColorPaletteFingerprint,
+        ].joined(separator: "\u{0}")
+        return actionCatalogContentDigest(Data(identity.utf8))
+    }
+
+    private nonisolated static func backgroundSchemaIssue(
+        path: String,
+        message: String
+    ) -> CmuxConfigIssue {
+        CmuxConfigIssue(
+            kind: .schemaError,
+            settingName: (path as NSString).lastPathComponent,
+            sourcePath: path,
+            message: message
+        )
+    }
+
+    private nonisolated static func backgroundSchemaErrorMessage(_ error: Error) -> String {
+        let context: DecodingError.Context?
+        let extraKey: CodingKey?
+        switch error {
+        case DecodingError.typeMismatch(_, let value),
+             DecodingError.valueNotFound(_, let value),
+             DecodingError.dataCorrupted(let value):
+            context = value
+            extraKey = nil
+        case DecodingError.keyNotFound(let key, let value):
+            context = value
+            extraKey = key
+        default:
+            return backgroundSanitizedConfigText(error.localizedDescription)
+        }
+        guard let context else { return String(describing: error) }
+        let codingPath = context.codingPath + (extraKey.map { [$0] } ?? [])
+        let path = codingPath.map(\.stringValue).filter { !$0.isEmpty }.joined(separator: ".")
+        let detail = backgroundSanitizedConfigText(context.debugDescription)
+        if path.isEmpty { return detail }
+        return detail.isEmpty ? path : "\(path): \(detail)"
+    }
+
+    private nonisolated static func backgroundSanitizedConfigText(_ text: String) -> String {
+        let dangerous: Set<Unicode.Scalar> = [
+            "\u{200B}", "\u{200C}", "\u{200D}", "\u{200E}", "\u{200F}",
+            "\u{202A}", "\u{202B}", "\u{202C}", "\u{202D}", "\u{202E}",
+            "\u{2066}", "\u{2067}", "\u{2068}", "\u{2069}", "\u{FEFF}",
+        ]
+        return String(text.unicodeScalars.filter { !dangerous.contains($0) })
+            .trimmingCharacters(in: .whitespacesAndNewlines)
+    }
+
+    func actionCatalog(from source: CmuxConfigActionCatalogSource) -> CmuxConfigActionCatalog {
+        return resolveActionCatalog(
+            localConfig: source.local?.config,
+            localIssue: source.local?.issue,
+            localPath: source.localPath,
+            globalConfig: source.global.config,
+            globalIssue: source.global.issue
+        )
+    }
+
+    /// Pure in-memory lookup used by command-palette registry construction.
+    /// A hit is returned immediately and revalidated in the background. A miss
+    /// schedules detached discovery and fails closed at the caller.
+    func cachedActionCatalogSnapshot(
+        startingFrom directory: String?,
+        revalidate: Bool = true
+    ) -> CmuxConfigActionCatalogSnapshot? {
+        let key = Self.actionCatalogCacheKey(startingFrom: directory)
+        if let cached = actionCatalogSnapshotsByKey[key] {
+            if revalidate {
+                scheduleActionCatalogRefresh(
+                    startingFrom: directory,
+                    policy: .revalidate
+                )
+            }
+            return cached
+        }
+        if revalidate {
+            scheduleActionCatalogRefresh(
+                startingFrom: directory,
+                policy: .ifMissing
+            )
+        }
+        return nil
+    }
+
+    func cachedActionCatalog(
+        startingFrom directory: String?,
+        revalidate: Bool = true
+    ) -> CmuxConfigActionCatalog? {
+        cachedActionCatalogSnapshot(
+            startingFrom: directory,
+            revalidate: revalidate
+        )?.catalog
+    }
+
+    /// Waits for one shared bounded off-main config read and returns the snapshot it
+    /// published. Socket-worker palette calls use this freshness boundary
+    /// before they hop back to the main actor to list or execute handlers.
+    func freshActionCatalogSnapshot(
+        startingFrom directory: String?,
+        deadline: Date? = nil
+    ) async -> CmuxConfigActionCatalogSnapshot? {
+        let key = Self.actionCatalogCacheKey(startingFrom: directory)
+        let minimumRefreshSequence = actionCatalogRefreshSequence &+ 1
+        guard deadline.map({ Date() < $0 }) ?? true else { return nil }
+        let waiterID = UUID()
+
+        // One continuation per request avoids periodic MainActor wakeups. A
+        // task that began before this call cannot satisfy the waiter's minimum
+        // sequence. Its completion starts one coalesced follow-up generation.
+        return await withTaskCancellationHandler {
+            await withCheckedContinuation { continuation in
+                let deadlineTimer = deadline.map { deadline in
+                    let timer = Timer(fire: deadline, interval: 0, repeats: false) {
+                        [weak self] _ in
+                        Task { @MainActor [weak self] in
+                        self?.finishActionCatalogFreshWaiter(
+                            key: key,
+                            waiterID: waiterID,
+                            snapshot: nil
+                        )
+                        }
+                    }
+                    RunLoop.main.add(timer, forMode: .common)
+                    return timer
+                }
+                actionCatalogFreshWaiters[key, default: [:]][waiterID] =
+                    CmuxConfigActionCatalogFreshWaiter(
+                        minimumRefreshSequence: minimumRefreshSequence,
+                        directory: directory,
+                        continuation: continuation,
+                        deadlineTimer: deadlineTimer
+                    )
+                scheduleActionCatalogRefreshForFreshWaitersIfNeeded(key: key)
+            }
+        } onCancel: {
+            Task { @MainActor [weak self] in
+                self?.finishActionCatalogFreshWaiter(
+                    key: key,
+                    waiterID: waiterID,
+                    snapshot: nil
+                )
+            }
+        }
+    }
+
+    @discardableResult
+    func refreshActionCatalog(startingFrom directory: String?) async -> CmuxConfigActionCatalog {
+        if let snapshot = await refreshedActionCatalogSnapshot(
+            startingFrom: directory,
+            policy: .replace
+        ) {
+            return snapshot.catalog
+        }
+        return cachedActionCatalog(startingFrom: directory, revalidate: false)
+            ?? currentActionCatalog()
+    }
+
+    func currentActionCatalog() -> CmuxConfigActionCatalog {
+        if let loadedActionCatalogSnapshot { return loadedActionCatalogSnapshot.catalog }
+        return unconfiguredActionCatalog()
+    }
+
+    /// A catalog containing only cmux-owned built-ins. Use this when the
+    /// target directory's config has not been resolved yet so actions from a
+    /// different directory cannot leak into the target's palette.
+    func unconfiguredActionCatalog() -> CmuxConfigActionCatalog {
+        return resolveActionCatalog(
+            localConfig: nil,
+            localIssue: nil,
+            localPath: nil,
+            globalConfig: nil,
+            globalIssue: nil
+        )
+    }
+
+    private func reconcileActionCatalogWorkspaceTracking(in tabs: [Workspace]) {
+        let liveWorkspaces = Dictionary(
+            tabs.map { ($0.id, $0) },
+            uniquingKeysWith: { first, _ in first }
+        )
+        for (workspaceID, identity) in Array(actionCatalogTrackedWorkspaceIdentities) {
+            guard let workspace = liveWorkspaces[workspaceID],
+                  ObjectIdentifier(workspace) == identity else {
+                stopTrackingActionCatalogDirectories(workspaceID: workspaceID)
+                continue
+            }
+        }
+
+        for workspace in tabs {
+            let identity = ObjectIdentifier(workspace)
+            guard actionCatalogTrackedWorkspaceIdentities[workspace.id] != identity else {
+                continue
+            }
+            reconcileTrackedActionCatalogDirectories(for: workspace)
+            actionCatalogTrackedWorkspaceIdentities[workspace.id] = identity
+            let events = workspace.configTrackingEvents
+            actionCatalogTrackingTasks[workspace.id] = Task {
+                @MainActor [weak self, weak workspace] in
+                for await event in events {
+                    guard !Task.isCancelled, let self, let workspace else { return }
+                    self.handleActionCatalogTrackingEvent(event, workspace: workspace)
+                }
+            }
+        }
+        prewarmTrackedActionCatalogDirectories()
+    }
+
+    private func stopTrackingActionCatalogDirectories(workspaceID: UUID) {
+        actionCatalogTrackingTasks.removeValue(forKey: workspaceID)?.cancel()
+        actionCatalogStructuralRefreshTasks.removeValue(forKey: workspaceID)?.cancel()
+        actionCatalogTrackedWorkspaceIdentities.removeValue(forKey: workspaceID)
+        applyActionCatalogDirectoryIndexMutation(
+            actionCatalogDirectoryIndex.removeWorkspace(workspaceID: workspaceID)
+        )
+    }
+
+    private func handleActionCatalogTrackingEvent(
+        _ event: WorkspaceConfigTrackingEvent,
+        workspace: Workspace
+    ) {
+        guard actionCatalogTrackedWorkspaceIdentities[workspace.id] == ObjectIdentifier(workspace) else {
+            return
+        }
+        switch event {
+        case .panelDirectoryChanged(let panelID):
+            let source = CmuxConfigActionCatalogDirectorySource.panel(
+                workspaceID: workspace.id,
+                panelID: panelID
+            )
+            let mutation: CmuxConfigActionCatalogDirectoryIndexMutation
+            if workspace.panels[panelID] != nil {
+                mutation = actionCatalogDirectoryIndex.replaceContribution(
+                    source: source,
+                    key: trackedActionCatalogKey(
+                        for: workspace.configurationTrackingPanelContributionDirectory(
+                            panelID: panelID
+                        )
+                    )
+                )
+            } else {
+                mutation = actionCatalogDirectoryIndex.removeContribution(source: source)
+            }
+            applyActionCatalogDirectoryIndexMutation(mutation)
+            if tabManager?.selectedTabId == workspace.id,
+               workspace.focusedPanelId == panelID {
+                prewarmTrackedActionCatalogDirectories(for: workspace)
+            }
+        case .workspaceDirectoryChanged:
+            applyActionCatalogDirectoryIndexMutation(
+                actionCatalogDirectoryIndex.replaceContribution(
+                    source: .workspace(workspace.id),
+                    key: trackedActionCatalogKey(
+                        for: workspace.configurationTrackingDirectory(panelID: nil)
+                    )
+                )
+            )
+            if tabManager?.selectedTabId == workspace.id {
+                prewarmTrackedActionCatalogDirectories(for: workspace)
+            }
+        case .structuralChanged:
+            scheduleStructuralActionCatalogDirectoryRefresh(for: workspace)
+        }
+    }
+
+    /// `panelsWillChange(to:)` emits before PaneTreeModel stores its new value.
+    /// Deferring one main-actor turn guarantees structural reconciliation reads
+    /// the post-mutation panel registry while coalescing synchronous churn.
+    private func scheduleStructuralActionCatalogDirectoryRefresh(for workspace: Workspace) {
+        let workspaceID = workspace.id
+        actionCatalogStructuralRefreshTasks.removeValue(forKey: workspaceID)?.cancel()
+        actionCatalogStructuralRefreshTasks[workspaceID] = Task {
+            @MainActor [weak self, weak workspace] in
+            await Task.yield()
+            guard !Task.isCancelled, let self, let workspace,
+                  self.actionCatalogTrackedWorkspaceIdentities[workspaceID]
+                    == ObjectIdentifier(workspace) else {
+                return
+            }
+            self.reconcileTrackedActionCatalogDirectories(for: workspace)
+        }
+    }
+
+    private func reconcileTrackedActionCatalogDirectories(for workspace: Workspace) {
+        var panelKeys: [UUID: String] = [:]
+        for panelID in workspace.panels.keys {
+            if let key = trackedActionCatalogKey(
+                for: workspace.configurationTrackingPanelContributionDirectory(
+                    panelID: panelID
+                )
+            ) {
+                panelKeys[panelID] = key
+            }
+        }
+        applyActionCatalogDirectoryIndexMutation(
+            actionCatalogDirectoryIndex.replaceWorkspace(
+                workspaceID: workspace.id,
+                workspaceKey: trackedActionCatalogKey(
+                    for: workspace.configurationTrackingDirectory(panelID: nil)
+                ),
+                panelKeys: panelKeys
+            )
+        )
+        if tabManager?.selectedTabId == workspace.id {
+            prewarmTrackedActionCatalogDirectories(for: workspace)
+        }
+    }
+
+    private func trackedActionCatalogKey(for directory: String?) -> String? {
+        guard let directory else { return nil }
+        return Self.actionCatalogCacheKey(startingFrom: directory)
+    }
+
+    private func applyActionCatalogDirectoryIndexMutation(
+        _ mutation: CmuxConfigActionCatalogDirectoryIndexMutation
+    ) {
+        for key in mutation.inactiveKeys
+            where actionCatalogDirectoryIndex.referenceCount(for: key) == 0 {
+            actionCatalogRefreshTasks.removeValue(forKey: key)?.cancel()
+            actionCatalogRefreshTokens.removeValue(forKey: key)
+            actionCatalogSnapshotsByKey.removeValue(forKey: key)
+            finishAllActionCatalogFreshWaiters(key: key)
+        }
+    }
+
+    private func prewarmTrackedActionCatalogDirectories() {
+        if let selectedWorkspace = tabManager?.selectedWorkspace {
+            prewarmTrackedActionCatalogDirectories(for: selectedWorkspace)
+        } else {
+            scheduleActionCatalogRefresh(startingFrom: nil, policy: .ifMissing)
+        }
+    }
+
+    private func prewarmTrackedActionCatalogDirectories(for selectedWorkspace: Workspace) {
+        scheduleActionCatalogRefresh(startingFrom: nil, policy: .ifMissing)
+        scheduleActionCatalogRefresh(
+            startingFrom: selectedWorkspace.configurationTrackingDirectory(panelID: nil),
+            policy: .ifMissing
+        )
+        if let focusedPanelID = selectedWorkspace.focusedPanelId {
+            scheduleActionCatalogRefresh(
+                startingFrom: selectedWorkspace.configurationTrackingDirectory(
+                    panelID: focusedPanelID
+                ),
+                policy: .ifMissing
+            )
+        }
+    }
+
+    private func scheduleActionCatalogRefreshForFreshWaitersIfNeeded(key: String) {
+        guard actionCatalogRefreshTasks[key] == nil,
+              let waiter = actionCatalogFreshWaiters[key]?.values.first else {
+            return
+        }
+        _ = scheduleActionCatalogRefresh(
+            startingFrom: waiter.directory,
+            policy: .replace
+        )
+    }
+
+    private func finishActionCatalogFreshWaiter(
+        key: String,
+        waiterID: UUID,
+        snapshot: CmuxConfigActionCatalogSnapshot?
+    ) {
+        guard var waiters = actionCatalogFreshWaiters[key],
+              let waiter = waiters.removeValue(forKey: waiterID) else {
+            return
+        }
+        if waiters.isEmpty {
+            actionCatalogFreshWaiters.removeValue(forKey: key)
+        } else {
+            actionCatalogFreshWaiters[key] = waiters
+        }
+        waiter.deadlineTimer?.invalidate()
+        waiter.continuation.resume(returning: snapshot)
+    }
+
+    private func finishAllActionCatalogFreshWaiters(key: String) {
+        guard let waiters = actionCatalogFreshWaiters.removeValue(forKey: key) else {
+            return
+        }
+        for waiter in waiters.values {
+            waiter.deadlineTimer?.invalidate()
+            waiter.continuation.resume(returning: nil)
+        }
+    }
+
+    private func resolveActionCatalogFreshWaiters(
+        key: String,
+        completedRefreshSequence: UInt64,
+        snapshot: CmuxConfigActionCatalogSnapshot
+    ) {
+        guard let waiters = actionCatalogFreshWaiters[key] else { return }
+        let completedWaiterIDs = waiters.compactMap { waiterID, waiter in
+            waiter.minimumRefreshSequence <= completedRefreshSequence ? waiterID : nil
+        }
+        for waiterID in completedWaiterIDs {
+            finishActionCatalogFreshWaiter(
+                key: key,
+                waiterID: waiterID,
+                snapshot: snapshot
+            )
+        }
+    }
+
+    private func refreshedActionCatalogSnapshot(
+        startingFrom directory: String?,
+        policy: CmuxConfigActionCatalogRefreshPolicy
+    ) async -> CmuxConfigActionCatalogSnapshot? {
+        var nextPolicy = policy
+        // A forced refresh can be superseded by another forced refresh while
+        // its detached read is suspended. Join the replacement instead of
+        // publishing or returning the superseded source.
+        for _ in 0..<3 {
+            if let task = scheduleActionCatalogRefresh(
+                startingFrom: directory,
+                policy: nextPolicy
+            ), let snapshot = await task.value {
+                return snapshot
+            }
+            nextPolicy = .revalidate
+        }
+        return nil
+    }
+
+    @discardableResult
+    private func scheduleActionCatalogRefresh(
+        startingFrom directory: String?,
+        policy: CmuxConfigActionCatalogRefreshPolicy
+    ) -> Task<CmuxConfigActionCatalogSnapshot?, Never>? {
+        let key = Self.actionCatalogCacheKey(startingFrom: directory)
+        switch policy {
+        case .ifMissing:
+            if actionCatalogSnapshotsByKey[key] != nil {
+                return nil
+            }
+            if let task = actionCatalogRefreshTasks[key] { return task }
+        case .revalidate:
+            if let task = actionCatalogRefreshTasks[key] { return task }
+        case .replace:
+            actionCatalogRefreshTasks.removeValue(forKey: key)?.cancel()
+        }
+        let refreshToken = UUID()
+        actionCatalogRefreshSequence &+= 1
+        let refreshSequence = actionCatalogRefreshSequence
+        actionCatalogRefreshTokens[key] = refreshToken
+        let globalConfigPath = globalConfigPath
+        let readCoordinationKey = globalConfigPath + "\u{0}" + key
+        let readLane: CmuxConfigActionCatalogReadCoordinator.Lane = key == Self
+            .actionCatalogCacheKey(startingFrom: nil) ? .global : .general
+        let workspaceColorPalette = WorkspaceTabColorSettings.resolvedPaletteMap()
+        let rawReader = actionCatalogRawReader
+        let readCoordinator = actionCatalogReadCoordinator
+        let task: Task<CmuxConfigActionCatalogSnapshot?, Never> = Task { @MainActor [weak self] in
+            let source = await readCoordinator.run(
+                key: readCoordinationKey,
+                lane: readLane,
+                requestID: refreshToken
+            ) {
+                await Self.loadActionCatalogSource(
+                    startingFrom: directory,
+                    globalConfigPath: globalConfigPath,
+                    workspaceColorPalette: workspaceColorPalette,
+                    rawReader: rawReader
+                )
+            }
+            guard let self else { return nil }
+            guard let source else {
+                if self.actionCatalogRefreshTokens[key] == refreshToken {
+                    self.actionCatalogRefreshTasks.removeValue(forKey: key)
+                    self.actionCatalogRefreshTokens.removeValue(forKey: key)
+                    // The bounded scheduler rejected this distinct key. Fail
+                    // closed instead of spinning retries while its queue is full.
+                    self.finishAllActionCatalogFreshWaiters(key: key)
+                }
+                return nil
+            }
+            guard self.actionCatalogRefreshTokens[key] == refreshToken else {
+                return nil
+            }
+            self.actionCatalogRefreshTasks.removeValue(forKey: key)
+            self.actionCatalogRefreshTokens.removeValue(forKey: key)
+            guard !Task.isCancelled else { return nil }
+            let snapshot = self.storeActionCatalogSnapshot(
+                self.actionCatalog(from: source),
+                forKey: key,
+                sourceFingerprint: source.fingerprint
+            )
+            self.resolveActionCatalogFreshWaiters(
+                key: key,
+                completedRefreshSequence: refreshSequence,
+                snapshot: snapshot
+            )
+            self.scheduleActionCatalogRefreshForFreshWaitersIfNeeded(key: key)
+            return snapshot
+        }
+        actionCatalogRefreshTasks[key] = task
+        return task
+    }
+
+    @discardableResult
+    func storeActionCatalogSnapshot(
+        _ catalog: @autoclosure () -> CmuxConfigActionCatalog,
+        forKey key: String,
+        sourceFingerprint: String,
+        notifyActiveChange: Bool = true
+    ) -> CmuxConfigActionCatalogSnapshot {
+        if let existing = actionCatalogSnapshotsByKey[key],
+           existing.sourceFingerprint == sourceFingerprint {
+            return existing
+        }
+        let snapshot = CmuxConfigActionCatalogSnapshot(
+            id: UUID(),
+            cacheKey: key,
+            sourceFingerprint: sourceFingerprint,
+            catalog: catalog()
+        )
+        actionCatalogSnapshotsByKey[key] = snapshot
+        if notifyActiveChange,
+           key == Self.actionCatalogCacheKey(startingFrom: localConfigSearchDirectory) {
+            configRevision &+= 1
+        }
+        return snapshot
     }
 
     private func resolveActionCatalog(
@@ -2227,6 +2833,10 @@ final class CmuxConfigStore: ObservableObject {
     }
 
     func loadAll() {
+        // A reload is an explicit freshness boundary. Size and modification
+        // time alone cannot distinguish equal-length edits with preserved
+        // metadata, so never carry parsed bytes across reload generations.
+        parsedConfigCache.removeAll(keepingCapacity: true)
         var configuredNewWorkspaceContextMenu: [CmuxConfigContextMenuItem]?
         var configuredNewWorkspaceContextMenuSourcePath: String?
         var configuredNewWorkspaceMenuSectionOrder: CmuxNewWorkspaceMenuSectionOrder?
@@ -2244,6 +2854,79 @@ final class CmuxConfigStore: ObservableObject {
             globalConfig: globalConfig,
             globalIssue: globalParseResult.issue
         )
+        let activeCatalogDirectory = localConfigSearchDirectory
+        let activeCatalogKey = Self.actionCatalogCacheKey(
+            startingFrom: activeCatalogDirectory
+        )
+        let globalCatalogKey = Self.actionCatalogCacheKey(startingFrom: nil)
+        let paletteFingerprint = WorkspaceTabColorSettings.paletteCacheFingerprint()
+        let globalSourceFingerprint = Self.actionCatalogSourceFingerprint(
+            localPath: nil,
+            localContentDigest: nil,
+            globalConfigPath: globalConfigPath,
+            globalContentDigest: globalParseResult.contentDigest,
+            workspaceColorPaletteFingerprint: paletteFingerprint
+        )
+        let globalInputsChanged = lastLoadAllGlobalSourceFingerprint.map {
+            $0 != globalSourceFingerprint
+        } ?? true
+        if globalInputsChanged {
+            // Every per-directory catalog embeds these shared inputs. Invalidate
+            // every publication token and cached identity when they change.
+            actionCatalogRefreshTasks.values.forEach { $0.cancel() }
+            actionCatalogRefreshTasks.removeAll(keepingCapacity: true)
+            actionCatalogRefreshTokens.removeAll(keepingCapacity: true)
+            actionCatalogSnapshotsByKey.removeAll(keepingCapacity: true)
+        } else {
+            // Selection and local-file reloads only revalidate the active key.
+            // Keeping its snapshot until fingerprint comparison preserves an
+            // exact list target when the underlying bytes did not change.
+            actionCatalogRefreshTasks.removeValue(forKey: activeCatalogKey)?.cancel()
+            actionCatalogRefreshTokens.removeValue(forKey: activeCatalogKey)
+        }
+        actionCatalogRefreshSequence &+= 1
+        let reloadSequence = actionCatalogRefreshSequence
+        let activeSnapshot = storeActionCatalogSnapshot(
+            actionCatalog,
+            forKey: activeCatalogKey,
+            sourceFingerprint: Self.actionCatalogSourceFingerprint(
+                localPath: localPath,
+                localContentDigest: localParseResult?.contentDigest,
+                globalConfigPath: globalConfigPath,
+                globalContentDigest: globalParseResult.contentDigest,
+                workspaceColorPaletteFingerprint: paletteFingerprint
+            ),
+            notifyActiveChange: false
+        )
+        loadedActionCatalogSnapshot = activeSnapshot
+        resolveActionCatalogFreshWaiters(
+            key: activeCatalogKey,
+            completedRefreshSequence: reloadSequence,
+            snapshot: activeSnapshot
+        )
+        if activeCatalogKey != globalCatalogKey {
+            let globalSnapshot = storeActionCatalogSnapshot(
+                resolveActionCatalog(
+                    localConfig: nil,
+                    localIssue: nil,
+                    localPath: nil,
+                    globalConfig: globalConfig,
+                    globalIssue: globalParseResult.issue
+                ),
+                forKey: globalCatalogKey,
+                sourceFingerprint: globalSourceFingerprint,
+                notifyActiveChange: false
+            )
+            resolveActionCatalogFreshWaiters(
+                key: globalCatalogKey,
+                completedRefreshSequence: reloadSequence,
+                snapshot: globalSnapshot
+            )
+        }
+        lastLoadAllGlobalSourceFingerprint = globalSourceFingerprint
+        for key in Array(actionCatalogFreshWaiters.keys) {
+            scheduleActionCatalogRefreshForFreshWaitersIfNeeded(key: key)
+        }
         let commands = actionCatalog.loadedCommands
         let sourcePaths = actionCatalog.commandSourcePaths
         let resolvedActions = actionCatalog.loadedActions
@@ -2375,6 +3058,10 @@ final class CmuxConfigStore: ObservableObject {
         }
         applySurfaceTabBarButtonsToCurrentManager()
         configRevision &+= 1
+        // Keep the selected palette hot. Other workspace and panel catalogs
+        // load lazily through `freshActionCatalogSnapshot`, so one config save
+        // never fans out into an app-wide filesystem scan.
+        prewarmTrackedActionCatalogDirectories()
     }
 
     private func resolvedLocalNotificationHookPaths(fallbackLocalPath: String?) -> [String] {
@@ -3174,32 +3861,50 @@ final class CmuxConfigStore: ObservableObject {
         let fileManager = FileManager.default
         guard fileManager.fileExists(atPath: path) else {
             parsedConfigCache.removeValue(forKey: path)
-            return ParsedConfigResult(config: nil, issue: nil)
+            return ParsedConfigResult(
+                config: nil,
+                issue: nil,
+                contentDigest: "<missing>"
+            )
         }
 
         let attributes = try? fileManager.attributesOfItem(atPath: path)
         let fileSize = (attributes?[.size] as? NSNumber)?.uint64Value ?? 0
         let modificationDate = attributes?[.modificationDate] as? Date
-        let paletteFingerprint = WorkspaceTabColorSettings.paletteCacheFingerprint()
+        let workspaceColorPalette = WorkspaceTabColorSettings.resolvedPaletteMap()
+        let paletteFingerprint = WorkspaceTabColorSettings.paletteCacheFingerprint(
+            workspaceColorPalette
+        )
 
         if let cached = parsedConfigCache[path],
            cached.fileSize == fileSize,
            cached.modificationDate == modificationDate,
            cached.workspaceColorPaletteFingerprint == paletteFingerprint {
-            return ParsedConfigResult(config: cached.config, issue: cached.issue)
+            return ParsedConfigResult(
+                config: cached.config,
+                issue: cached.issue,
+                contentDigest: cached.contentDigest
+            )
         }
 
-        guard let data = fileManager.contents(atPath: path),
+        let rawData = fileManager.contents(atPath: path)
+        let contentDigest = rawData.map(Self.actionCatalogContentDigest) ?? "<unreadable>"
+        guard let data = rawData,
               !data.isEmpty else {
             let issue = schemaIssue(path: path, message: "cmux.json is empty")
             parsedConfigCache[path] = ParsedConfigCacheEntry(
                 fileSize: fileSize,
                 modificationDate: modificationDate,
                 workspaceColorPaletteFingerprint: paletteFingerprint,
+                contentDigest: contentDigest,
                 config: nil,
                 issue: issue
             )
-            return ParsedConfigResult(config: nil, issue: issue)
+            return ParsedConfigResult(
+                config: nil,
+                issue: issue,
+                contentDigest: contentDigest
+            )
         }
         let sanitized: Data
         do {
@@ -3210,34 +3915,51 @@ final class CmuxConfigStore: ObservableObject {
                 fileSize: fileSize,
                 modificationDate: modificationDate,
                 workspaceColorPaletteFingerprint: paletteFingerprint,
+                contentDigest: contentDigest,
                 config: nil,
                 issue: issue
             )
             NSLog("[CmuxConfig] JSONC preprocessing error at %@: %@", path, String(describing: error))
-            return ParsedConfigResult(config: nil, issue: issue)
+            return ParsedConfigResult(
+                config: nil,
+                issue: issue,
+                contentDigest: contentDigest
+            )
         }
 
         do {
-            let config = try JSONDecoder().decode(CmuxConfigFile.self, from: sanitized)
+            let decoder = JSONDecoder()
+            decoder.userInfo[.cmuxWorkspaceColorDefaults] = workspaceColorPalette
+            let config = try decoder.decode(CmuxConfigFile.self, from: sanitized)
             parsedConfigCache[path] = ParsedConfigCacheEntry(
                 fileSize: fileSize,
                 modificationDate: modificationDate,
                 workspaceColorPaletteFingerprint: paletteFingerprint,
+                contentDigest: contentDigest,
                 config: config,
                 issue: nil
             )
-            return ParsedConfigResult(config: config, issue: nil)
+            return ParsedConfigResult(
+                config: config,
+                issue: nil,
+                contentDigest: contentDigest
+            )
         } catch {
             let issue = schemaIssue(path: path, message: schemaErrorMessage(error))
             parsedConfigCache[path] = ParsedConfigCacheEntry(
                 fileSize: fileSize,
                 modificationDate: modificationDate,
                 workspaceColorPaletteFingerprint: paletteFingerprint,
+                contentDigest: contentDigest,
                 config: nil,
                 issue: issue
             )
             NSLog("[CmuxConfig] parse error at %@: %@", path, String(describing: error))
-            return ParsedConfigResult(config: nil, issue: issue)
+            return ParsedConfigResult(
+                config: nil,
+                issue: issue,
+                contentDigest: contentDigest
+            )
         }
     }
 

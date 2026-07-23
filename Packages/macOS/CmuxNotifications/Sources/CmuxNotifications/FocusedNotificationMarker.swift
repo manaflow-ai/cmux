@@ -64,13 +64,6 @@ public final class FocusedNotificationMarker {
         case markedWorkspaceWithoutNotification(UUID)
     }
 
-    private struct UnreadState {
-        let isUnread: Bool
-        let readsWorkspace: Bool
-        let readsPanel: Bool
-        let clearsWorkspaceManualUnread: Bool
-    }
-
     /// Toggles the focused notification's unread state, returning whether
     /// anything was toggled. Mirrors `toggleFocusedNotificationUnread`.
     @discardableResult

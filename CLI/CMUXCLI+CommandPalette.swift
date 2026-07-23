@@ -282,15 +282,19 @@ extension CMUXCLI {
         guard let data = rawValue.data(using: .utf8),
               let object = try? JSONSerialization.jsonObject(with: data),
               let target = object as? [String: Any],
-              Set(target.keys) == ["window_id", "workspace_id", "panel_id"],
+              Set(target.keys) == [
+                  "window_id", "workspace_id", "panel_id", "config_snapshot_id",
+              ],
               let windowID = target["window_id"] as? String,
               UUID(uuidString: windowID) != nil else {
             throw invalidTarget()
         }
         let workspaceID = target["workspace_id"]
         let panelID = target["panel_id"]
+        let configSnapshotID = target["config_snapshot_id"]
         guard workspaceID is NSNull || (workspaceID as? String).flatMap(UUID.init(uuidString:)) != nil,
               panelID is NSNull || (panelID as? String).flatMap(UUID.init(uuidString:)) != nil,
+              (configSnapshotID as? String).flatMap(UUID.init(uuidString:)) != nil,
               !(panelID is String && workspaceID is NSNull) else {
             throw invalidTarget()
         }

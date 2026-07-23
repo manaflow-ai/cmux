@@ -43,47 +43,80 @@ extension TerminalController: ControlCommandPaletteContext, ControlInlineVSCodeC
             invalidArgumentValuesFormat: String(
                 localized: "socket.palette.error.invalidArgumentValues",
                 defaultValue: "Invalid values for action arguments: %@"
+            ),
+            configurationPending: String(
+                localized: "socket.palette.error.configurationPending",
+                defaultValue: "The command palette configuration is still loading; retry the command."
+            ),
+            configurationChanged: String(
+                localized: "socket.palette.error.configurationChanged",
+                defaultValue: "Command palette configuration changed; run palette list again."
             )
         )
     }
 
     func controlCommandPaletteList(
-        routing: ControlRoutingSelectors
-    ) -> ControlCommandPaletteListResolution {
-        guard let (_, target, handler) = controlCommandPaletteTarget(routing: routing) else {
+        routing: ControlRoutingSelectors,
+        deadline: Date?
+    ) async -> ControlCommandPaletteListResolution {
+        guard let (context, target, handler) = controlCommandPaletteTarget(routing: routing) else {
             return .windowNotFound
+        }
+        switch await prepareCommandPaletteTarget(
+            context: context,
+            target: target,
+            deadline: deadline
+        ) {
+        case .ready:
+            break
+        case .configurationPending:
+            return .configurationPending
+        case .targetUnavailable:
+            return .windowNotFound
+        }
+        guard commandPaletteDeadlineAllowsDispatch(deadline) else {
+            return .configurationPending
         }
         let request = CommandPaletteControlRequest(target: target, operation: .list)
-        handler(request)
-        guard case .listed(let commands)? = request.result else {
-            return .windowNotFound
+        return withSocketCommandPolicy(commandKey: "palette.list", isV2: true) {
+            handler(request)
+            guard let result = request.result else {
+                return .windowNotFound
+            }
+            if case .configurationPending = result { return .configurationPending }
+            guard case .listed(let listedTarget, let commands) = result else {
+                return .windowNotFound
+            }
+            return .listed(
+                target: ControlCommandPaletteTarget(
+                    windowID: listedTarget.windowID,
+                    workspaceID: listedTarget.workspaceID,
+                    panelID: listedTarget.panelID,
+                    configSnapshotID: listedTarget.configSnapshotID
+                ),
+                commands: commands.map(controlCommandPaletteItem)
+            )
         }
-        return .listed(
-            target: ControlCommandPaletteTarget(
-                windowID: target.windowID,
-                workspaceID: target.workspaceID,
-                panelID: target.panelID
-            ),
-            commands: commands.map(controlCommandPaletteItem)
-        )
     }
 
     func controlCommandPaletteRun(
         routing: ControlRoutingSelectors,
         commandID: String,
         arguments: [String: String],
-        workingDirectory: String?
-    ) -> ControlCommandPaletteRunResolution {
-        guard let (windowID, target, handler) = controlCommandPaletteTarget(routing: routing) else {
+        workingDirectory: String?,
+        deadline: Date?
+    ) async -> ControlCommandPaletteRunResolution {
+        guard let (context, target, handler) = controlCommandPaletteTarget(routing: routing) else {
             return .windowNotFound
         }
-        return controlCommandPaletteRun(
-            windowID: windowID,
+        return await controlCommandPaletteRun(
+            context: context,
             target: target,
             handler: handler,
             commandID: commandID,
             arguments: arguments,
-            workingDirectory: workingDirectory
+            workingDirectory: workingDirectory,
+            deadline: deadline
         )
     }
 
@@ -91,21 +124,23 @@ extension TerminalController: ControlCommandPaletteContext, ControlInlineVSCodeC
         target: ControlCommandPaletteTarget,
         commandID: String,
         arguments: [String: String],
-        workingDirectory: String?
-    ) -> ControlCommandPaletteRunResolution {
+        workingDirectory: String?,
+        deadline: Date?
+    ) async -> ControlCommandPaletteRunResolution {
         switch controlCommandPaletteTarget(target) {
         case .windowNotFound:
             return .windowNotFound
         case .targetUnavailable:
             return .targetUnavailable
-        case .resolved(let windowID, let actionTarget, let handler):
-            return controlCommandPaletteRun(
-                windowID: windowID,
+        case .resolved(let context, let actionTarget, let handler):
+            return await controlCommandPaletteRun(
+                context: context,
                 target: actionTarget,
                 handler: handler,
                 commandID: commandID,
                 arguments: arguments,
-                workingDirectory: workingDirectory
+                workingDirectory: workingDirectory,
+                deadline: deadline
             )
         }
     }
@@ -193,7 +228,7 @@ extension TerminalController: ControlCommandPaletteContext, ControlInlineVSCodeC
     private func controlCommandPaletteTarget(
         routing: ControlRoutingSelectors
     ) -> (
-        windowID: UUID,
+        context: AppDelegate.MainWindowContext,
         target: CommandPaletteActionTarget,
         handler: (CommandPaletteControlRequest) -> Void
     )? {
@@ -209,7 +244,7 @@ extension TerminalController: ControlCommandPaletteContext, ControlInlineVSCodeC
               let handler = context.commandPaletteControlHandler else {
             return nil
         }
-        return (context.windowId, target, handler)
+        return (context, target, handler)
     }
 
     /// Resolves a list-time identity without consulting current focus. Every
@@ -235,6 +270,9 @@ extension TerminalController: ControlCommandPaletteContext, ControlInlineVSCodeC
         guard let handler = context.commandPaletteControlHandler else {
             return .targetUnavailable
         }
+        guard target.configSnapshotID != nil else {
+            return .targetUnavailable
+        }
 
         if let workspaceID = target.workspaceID {
             guard let workspace = tabManager.tabs.first(where: { $0.id == workspaceID }) else {
@@ -251,24 +289,41 @@ extension TerminalController: ControlCommandPaletteContext, ControlInlineVSCodeC
         }
 
         return .resolved(
-            windowID: context.windowId,
+            context: context,
             target: CommandPaletteActionTarget(
                 windowID: target.windowID,
                 workspaceID: target.workspaceID,
-                panelID: target.panelID
+                panelID: target.panelID,
+                configSnapshotID: target.configSnapshotID
             ),
             handler: handler
         )
     }
 
     private func controlCommandPaletteRun(
-        windowID: UUID,
+        context: AppDelegate.MainWindowContext,
         target: CommandPaletteActionTarget,
         handler: (CommandPaletteControlRequest) -> Void,
         commandID: String,
         arguments: [String: String],
-        workingDirectory: String?
-    ) -> ControlCommandPaletteRunResolution {
+        workingDirectory: String?,
+        deadline: Date?
+    ) async -> ControlCommandPaletteRunResolution {
+        switch await prepareCommandPaletteTarget(
+            context: context,
+            target: target,
+            deadline: deadline
+        ) {
+        case .ready:
+            break
+        case .configurationPending:
+            return .configurationPending
+        case .targetUnavailable:
+            return .targetUnavailable
+        }
+        guard commandPaletteDeadlineAllowsDispatch(deadline) else {
+            return .configurationPending
+        }
         let request = CommandPaletteControlRequest(
             target: target,
             operation: .run(
@@ -277,8 +332,92 @@ extension TerminalController: ControlCommandPaletteContext, ControlInlineVSCodeC
                 workingDirectory: workingDirectory
             )
         )
-        handler(request)
-        return controlCommandPaletteRunResolution(request.result, windowID: windowID)
+        return withSocketCommandPolicy(commandKey: "palette.run", isV2: true) {
+            handler(request)
+            return controlCommandPaletteRunResolution(
+                request.result,
+                windowID: context.windowId
+            )
+        }
+    }
+
+    private func prepareCommandPaletteTarget(
+        context: AppDelegate.MainWindowContext,
+        target: CommandPaletteActionTarget,
+        deadline: Date?
+    ) async -> PreparedCommandPaletteTargetResolution {
+        guard let configStore = context.cmuxConfigStore else {
+            // Handler-only contexts are an internal/testable extension seam.
+            // They are not advertised as socket-ready by AppDelegate, but
+            // direct callers may still use a handler that supplies its own
+            // versioned target.
+            return commandPaletteConfigDirectory(context: context, target: target) == nil
+                ? .targetUnavailable
+                : .ready
+        }
+        var directory: String?
+        for _ in 0..<3 {
+            guard commandPaletteDeadlineAllowsDispatch(deadline) else {
+                return .configurationPending
+            }
+            guard let currentDirectory = commandPaletteConfigDirectory(
+                context: context,
+                target: target
+            ) else {
+                return .targetUnavailable
+            }
+            directory = currentDirectory.value
+            guard let snapshot = await configStore.freshActionCatalogSnapshot(
+                startingFrom: directory,
+                deadline: deadline
+            ) else {
+                continue
+            }
+            guard commandPaletteDeadlineAllowsDispatch(deadline) else {
+                return .configurationPending
+            }
+            guard let revalidatedDirectory = commandPaletteConfigDirectory(
+                context: context,
+                target: target
+            ) else {
+                return .targetUnavailable
+            }
+            guard snapshot.cacheKey == CmuxConfigStore.actionCatalogCacheKey(
+                startingFrom: revalidatedDirectory.value
+            ) else {
+                directory = revalidatedDirectory.value
+                continue
+            }
+            return .ready
+        }
+        return .configurationPending
+    }
+
+    private func commandPaletteDeadlineAllowsDispatch(_ deadline: Date?) -> Bool {
+        !Task.isCancelled && (deadline.map { Date() < $0 } ?? true)
+    }
+
+    private func commandPaletteConfigDirectory(
+        context: AppDelegate.MainWindowContext,
+        target: CommandPaletteActionTarget
+    ) -> OptionalDirectory? {
+        guard target.windowID == context.windowId,
+              AppDelegate.shared?.mainWindowContext(for: context.tabManager) === context else {
+            return nil
+        }
+        guard let workspaceID = target.workspaceID else {
+            guard target.panelID == nil, context.tabManager.tabs.isEmpty else { return nil }
+            return OptionalDirectory(value: nil)
+        }
+        guard let workspace = context.tabManager.tabs.first(where: { $0.id == workspaceID }) else {
+            return nil
+        }
+        if let panelID = target.panelID, workspace.panels[panelID] == nil {
+            return nil
+        }
+        return OptionalDirectory(
+            value: workspace.configurationTrackingDirectory(panelID: target.panelID)
+        )
     }
 
     private func controlCommandPaletteRunResolution(
@@ -315,6 +454,12 @@ extension TerminalController: ControlCommandPaletteContext, ControlInlineVSCodeC
             }
         case .commandNotFound:
             return .commandNotFound
+        case .configurationPending:
+            return .configurationPending
+        case .configurationChanged:
+            return .configurationChanged
+        case .targetUnavailable:
+            return .targetUnavailable
         case .listed, .none:
             return .windowNotFound
         }
@@ -554,15 +699,4 @@ extension TerminalController: ControlCommandPaletteContext, ControlInlineVSCodeC
         }
         return tabManager.selectedWorkspace ?? tabManager.tabs.first
     }
-}
-
-@MainActor
-private enum ExactCommandPaletteTargetResolution {
-    case windowNotFound
-    case targetUnavailable
-    case resolved(
-        windowID: UUID,
-        target: CommandPaletteActionTarget,
-        handler: (CommandPaletteControlRequest) -> Void
-    )
 }

@@ -15,6 +15,10 @@ public struct ControlCommandPaletteStrings: Sendable, Equatable {
     public let argumentsMustBeStringObject: String
     /// The action identifier is unavailable in the current context.
     public let commandNotFound: String
+    /// The exact target's config snapshot is still loading off the main actor.
+    public let configurationPending: String
+    /// The exact list-time config changed and must be listed again.
+    public let configurationChanged: String
     /// Format string for a comma-separated list of missing arguments.
     public let missingArgumentsFormat: String
     /// Format string for a comma-separated list of unknown arguments.
@@ -32,7 +36,9 @@ public struct ControlCommandPaletteStrings: Sendable, Equatable {
         commandNotFound: String,
         missingArgumentsFormat: String,
         unknownArgumentsFormat: String,
-        invalidArgumentValuesFormat: String
+        invalidArgumentValuesFormat: String,
+        configurationPending: String = "The command palette configuration is still loading; retry the command.",
+        configurationChanged: String = "Command palette configuration changed; run palette list again."
     ) {
         self.windowNotFound = windowNotFound
         self.targetUnavailable = targetUnavailable
@@ -43,5 +49,7 @@ public struct ControlCommandPaletteStrings: Sendable, Equatable {
         self.missingArgumentsFormat = missingArgumentsFormat
         self.unknownArgumentsFormat = unknownArgumentsFormat
         self.invalidArgumentValuesFormat = invalidArgumentValuesFormat
+        self.configurationPending = configurationPending
+        self.configurationChanged = configurationChanged
     }
 }

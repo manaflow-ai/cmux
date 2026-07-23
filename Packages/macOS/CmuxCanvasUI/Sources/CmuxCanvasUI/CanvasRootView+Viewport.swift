@@ -248,6 +248,10 @@ extension CanvasRootView: CanvasViewportControlling {
         callbacks.onViewportSettled(window)
     }
 
+    /// Whether the viewport is currently in fit-all overview mode.
+    ///
+    /// The value remains `true` until the viewport restores the magnification
+    /// and origin captured when overview mode was entered.
     public var isOverviewEnabled: Bool {
         overviewRestore != nil
     }

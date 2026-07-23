@@ -164,6 +164,17 @@ struct ControlCommandExecutionPolicyTests {
         )
     }
 
+    @Test func commandPaletteRunsOnlyOnTheSocketWorker() {
+        #expect(
+            ControlCommandExecutionPolicy(forMethod: "palette.list")
+                == .socketWorker(mainThreadCallable: false)
+        )
+        #expect(
+            ControlCommandExecutionPolicy(forMethod: "palette.run")
+                == .socketWorker(mainThreadCallable: false)
+        )
+    }
+
     @Test func v1PingRunsOnTheWorkerAndIsMainThreadCallable() {
         // `ping` is the dispatcher's former hard-coded worker fast path; it is
         // a pure probe, so in-process main-thread callers may run it inline.

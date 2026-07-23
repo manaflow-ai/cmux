@@ -87,7 +87,6 @@ public final class ControlCommandCoordinator {
         if let result = handleSurface(request) { return result }
         if let result = handleSystem(request) { return result }
         if let result = handleProject(request) { return result }
-        if let result = handleCommandPalette(request) { return result }
         if let result = handleDebug(request) { return result }
         // The v2 browser.* domain stays app-side: PR 5778 moved its
         // JS-evaluating methods onto the socket-worker lane (nonisolated
@@ -95,6 +94,17 @@ public final class ControlCommandCoordinator {
         // host; re-lift it against that architecture in a follow-up.
         // handleSidebarV1 / handleBrowserPanelV1 are V1 string-command handlers;
         // the app's v1 dispatcher calls them directly with (command:args:).
+        return nil
+    }
+
+    /// Runs coordinator domains whose work must suspend without occupying the
+    /// main actor. The socket dispatcher invokes this only from its worker
+    /// lane, then encodes the returned value on that worker.
+    public func handleAsync(
+        _ request: ControlRequest,
+        deadline: Date? = nil
+    ) async -> ControlCallResult? {
+        if let result = await handleCommandPalette(request, deadline: deadline) { return result }
         return nil
     }
 

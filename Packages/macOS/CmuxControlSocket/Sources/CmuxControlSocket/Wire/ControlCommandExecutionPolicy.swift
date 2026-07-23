@@ -265,6 +265,11 @@ public enum ControlCommandExecutionPolicy: Sendable, Equatable {
         // sending input never activates or reselects anything.
         "surface.send_text",
         "surface.send_key",
+        // Palette calls await detached config discovery before reading or
+        // invoking the live main-actor registry. Only the connection's
+        // dedicated worker thread blocks while that async work is in flight.
+        "palette.list",
+        "palette.run",
         // Directory expansion and filesystem validation run on the socket
         // worker. Only routing and queueing the inline editor cross to main.
         // The async serve-web request is acknowledged as queued, so this verb

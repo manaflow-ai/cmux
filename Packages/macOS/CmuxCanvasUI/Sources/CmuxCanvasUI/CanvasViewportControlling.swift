@@ -38,7 +38,14 @@ public protocol CanvasViewportControlling: AnyObject {
     func modelDidChangeExternally(animated: Bool)
 }
 
+/// Default implementations for idempotent canvas viewport state changes.
 public extension CanvasViewportControlling {
+    /// Enters or exits fit-all overview mode when the current state differs.
+    ///
+    /// - Parameter enabled: `true` to show the fit-all overview, or `false` to
+    ///   restore the viewport state captured before overview mode was entered.
+    /// - Returns: `true` when the viewport reached the requested state. Entering
+    ///   overview can return `false` when the canvas has no content to fit.
     @discardableResult
     func setOverviewEnabled(_ enabled: Bool) -> Bool {
         guard isOverviewEnabled != enabled else { return true }

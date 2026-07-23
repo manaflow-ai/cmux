@@ -7,6 +7,10 @@ public enum ControlCommandPaletteRunResolution: Sendable, Equatable {
     /// The immutable list-time window still exists, but its workspace, panel,
     /// or command-palette handler no longer does.
     case targetUnavailable
+    /// The target is live, but its detached config snapshot is still loading.
+    case configurationPending
+    /// The exact list-time action catalog no longer matches current config.
+    case configurationChanged
     /// The requested identifier is not available in the window's current
     /// command-palette context.
     case commandNotFound

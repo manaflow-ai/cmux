@@ -4545,11 +4545,17 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
         action(tabManager, source)
     }
 
+    private func isCommandPaletteControlReady(_ context: MainWindowContext?) -> Bool {
+        guard let context else { return false }
+        return context.commandPaletteControlHandler != nil
+            && context.cmuxConfigStore != nil
+    }
+
     /// Register a terminal window with the AppDelegate so menu commands and socket control
     /// can target whichever window is currently active.
     ///
-    /// - Returns: Whether the window's command-palette handler was ready and
-    ///   the socket listener was therefore safe to publish or reconcile.
+    /// - Returns: Whether the window's command-palette handler and config store
+    ///   were ready, making the socket listener safe to publish or reconcile.
     @discardableResult
     func registerMainWindow(
         _ window: NSWindow,
@@ -4650,9 +4656,9 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
             "mainWindow.register windowId=\(String(windowId.uuidString.prefix(8))) window={\(debugWindowToken(window))} manager=\(debugManagerToken(tabManager)) priorActiveMgr=\(priorManagerToken) \(debugShortcutRouteSnapshot())"
         )
 #endif
-        let isCommandPaletteControlReady = mainWindowContext(for: tabManager)?
-            .commandPaletteControlHandler != nil
-        if isCommandPaletteControlReady {
+        let commandPaletteContext = mainWindowContext(for: tabManager)
+        let commandPaletteControlIsReady = isCommandPaletteControlReady(commandPaletteContext)
+        if commandPaletteControlIsReady {
             activateSocketListener(
                 for: tabManager,
                 source: "mainWindow.register"
@@ -4674,7 +4680,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
         ) {
             saveSessionSnapshotAfterLoadingProcessDetectedIndexes(includeScrollback: false)
         }
-        return isCommandPaletteControlReady
+        return commandPaletteControlIsReady
     }
 
 #if DEBUG
@@ -7325,7 +7331,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
             ?? tabManagerFor(windowId: windowId)
             ?? preferredRegisteredMainWindowContext()?.tabManager
             ?? mainWindowContexts.values.first?.tabManager {
-            if initialContext?.commandPaletteControlHandler != nil {
+            if isCommandPaletteControlReady(initialContext) {
                 activateSocketListener(
                     for: manager,
                     source: "bootstrapInitialMainWindow.\(debugSource)"
@@ -9483,11 +9489,6 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
 
     func isCmuxCLIInstalledInPATH() -> Bool {
         CmuxCLIPathInstaller().isInstalled()
-    }
-
-    enum CLIPathResultPresentation {
-        case resultAlert
-        case silent
     }
 
     @objc func installCmuxCLIInPath(_ sender: Any?) {

@@ -2,14 +2,6 @@ import CmuxCommandPalette
 import AppKit
 import Foundation
 
-@MainActor
-struct CommandPaletteAuthActions {
-    let isAuthenticated: Bool
-    let isWorking: Bool
-    let beginSignIn: @MainActor (NSWindow) -> Bool
-    let signOut: @MainActor () async -> Void
-}
-
 extension ContentView {
     static let commandPaletteAuthSignInCommandId = "palette.auth.signIn"
     static let commandPaletteAuthSignOutCommandId = "palette.auth.signOut"

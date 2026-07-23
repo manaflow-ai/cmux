@@ -16,6 +16,7 @@ extension CMUXCLIErrorOutputRegressionTests {
         #expect(result.stdout.contains("window_id"))
         #expect(result.stdout.contains("workspace_id"))
         #expect(result.stdout.contains("panel_id"))
+        #expect(result.stdout.contains("config_snapshot_id"))
     }
 
     @Test func paletteListTargetsAWindowWithoutPrefocusingIt() throws {
@@ -153,10 +154,12 @@ extension CMUXCLIErrorOutputRegressionTests {
         let windowID = UUID()
         let workspaceID = UUID()
         let panelID = UUID()
+        let configSnapshotID = UUID()
         let target: [String: Any] = [
             "window_id": windowID.uuidString,
             "workspace_id": workspaceID.uuidString,
             "panel_id": panelID.uuidString,
+            "config_snapshot_id": configSnapshotID.uuidString,
         ]
         let targetData = try JSONSerialization.data(withJSONObject: target, options: [.sortedKeys])
         let targetJSON = try #require(String(data: targetData, encoding: .utf8))
@@ -189,6 +192,7 @@ extension CMUXCLIErrorOutputRegressionTests {
         #expect(forwardedTarget["window_id"] as? String == windowID.uuidString)
         #expect(forwardedTarget["workspace_id"] as? String == workspaceID.uuidString)
         #expect(forwardedTarget["panel_id"] as? String == panelID.uuidString)
+        #expect(forwardedTarget["config_snapshot_id"] as? String == configSnapshotID.uuidString)
         #expect(params["surface_id"] == nil)
         #expect(params["workspace_id"] == nil)
         #expect(params["window_id"] == nil)

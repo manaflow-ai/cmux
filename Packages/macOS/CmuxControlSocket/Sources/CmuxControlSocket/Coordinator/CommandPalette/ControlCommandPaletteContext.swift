@@ -1,3 +1,5 @@
+public import Foundation
+
 /// The command-palette-domain slice of the control-command seam.
 ///
 /// The app conformer resolves these calls against the live contribution and
@@ -11,16 +13,18 @@ public protocol ControlCommandPaletteContext: AnyObject {
     /// Lists the palette actions available in the routed window's current UI
     /// context.
     func controlCommandPaletteList(
-        routing: ControlRoutingSelectors
-    ) -> ControlCommandPaletteListResolution
+        routing: ControlRoutingSelectors,
+        deadline: Date?
+    ) async -> ControlCommandPaletteListResolution
 
     /// Runs one palette action through the same handler Cmd+Shift+P uses.
     func controlCommandPaletteRun(
         routing: ControlRoutingSelectors,
         commandID: String,
         arguments: [String: String],
-        workingDirectory: String?
-    ) -> ControlCommandPaletteRunResolution
+        workingDirectory: String?,
+        deadline: Date?
+    ) async -> ControlCommandPaletteRunResolution
 
     /// Runs an action against the immutable identity returned by
     /// `palette.list`, without consulting current focus or selection.
@@ -35,6 +39,7 @@ public protocol ControlCommandPaletteContext: AnyObject {
         target: ControlCommandPaletteTarget,
         commandID: String,
         arguments: [String: String],
-        workingDirectory: String?
-    ) -> ControlCommandPaletteRunResolution
+        workingDirectory: String?,
+        deadline: Date?
+    ) async -> ControlCommandPaletteRunResolution
 }

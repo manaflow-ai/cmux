@@ -1141,99 +1141,6 @@ final class CmuxConfigDecodingTests: XCTestCase {
     }
 
     @MainActor
-    func testActionCatalogResolvesPerDirectoryWithoutMutatingPublishedStore() throws {
-        let root = FileManager.default.temporaryDirectory.appendingPathComponent(
-            "cmux-config-store-\(UUID().uuidString)",
-            isDirectory: true
-        )
-        let globalDirectory = root.appendingPathComponent("global", isDirectory: true)
-        let projectA = root.appendingPathComponent("project-a", isDirectory: true)
-        let projectB = root.appendingPathComponent("project-b", isDirectory: true)
-        let configA = projectA.appendingPathComponent(".cmux/cmux.json")
-        let configB = projectB.appendingPathComponent(".cmux/cmux.json")
-        try FileManager.default.createDirectory(at: globalDirectory, withIntermediateDirectories: true)
-        try FileManager.default.createDirectory(
-            at: configA.deletingLastPathComponent(),
-            withIntermediateDirectories: true
-        )
-        try FileManager.default.createDirectory(
-            at: configB.deletingLastPathComponent(),
-            withIntermediateDirectories: true
-        )
-        defer { try? FileManager.default.removeItem(at: root) }
-
-        let globalConfig = globalDirectory.appendingPathComponent("cmux.json")
-        try """
-        {
-          "actions": {
-            "global.action": { "type": "command", "command": "echo global" }
-          }
-        }
-        """.write(to: globalConfig, atomically: true, encoding: .utf8)
-        try """
-        {
-          "actions": {
-            "project.action": { "type": "workspaceCommand", "commandName": "Project A" },
-            "cmux.newTerminal": { "title": "Terminal A" }
-          },
-          "commands": [{
-            "name": "Project A",
-            "workspace": { "name": "A" }
-          }]
-        }
-        """.write(to: configA, atomically: true, encoding: .utf8)
-        try """
-        {
-          "actions": {
-            "project.action": { "type": "workspaceCommand", "commandName": "Project B" },
-            "cmux.newTerminal": { "title": "Terminal B" }
-          },
-          "commands": [{
-            "name": "Project B",
-            "workspace": { "name": "B" }
-          }]
-        }
-        """.write(to: configB, atomically: true, encoding: .utf8)
-
-        let store = CmuxConfigStore(
-            globalConfigPath: globalConfig.path,
-            localConfigPath: configA.path,
-            startFileWatchers: false
-        )
-        store.loadAll()
-        let ambientLocalPath = store.localConfigPath
-        let ambientRevision = store.configRevision
-        let ambientActions = store.loadedActions
-        let ambientCommands = store.loadedCommands.map { "\($0.name)|\($0.command ?? "")" }
-        let ambientSourcePaths = store.commandSourcePaths
-        let ambientIssues = store.configurationIssues
-
-        let catalogA = store.actionCatalog(startingFrom: projectA.path)
-        let catalogB = store.actionCatalog(startingFrom: projectB.path)
-
-        XCTAssertEqual(catalogA.resolvedAction(id: "project.action")?.workspaceCommandName, "Project A")
-        XCTAssertEqual(catalogB.resolvedAction(id: "project.action")?.workspaceCommandName, "Project B")
-        XCTAssertEqual(catalogA.resolvedAction(id: "project.action")?.actionSourcePath, configA.path)
-        XCTAssertEqual(catalogB.resolvedAction(id: "project.action")?.actionSourcePath, configB.path)
-        XCTAssertEqual(catalogA.resolvedAction(id: "cmux.newTerminal")?.title, "Terminal A")
-        XCTAssertEqual(catalogB.resolvedAction(id: "cmux.newTerminal")?.title, "Terminal B")
-        XCTAssertNotNil(catalogA.resolvedAction(id: "global.action"))
-        XCTAssertNotNil(catalogB.resolvedAction(id: "global.action"))
-        XCTAssertEqual(catalogA.loadedCommands.map(\.name), ["Project A"])
-        XCTAssertEqual(catalogB.loadedCommands.map(\.name), ["Project B"])
-
-        XCTAssertEqual(store.localConfigPath, ambientLocalPath)
-        XCTAssertEqual(store.configRevision, ambientRevision)
-        XCTAssertEqual(store.loadedActions, ambientActions)
-        XCTAssertEqual(
-            store.loadedCommands.map { "\($0.name)|\($0.command ?? "")" },
-            ambientCommands
-        )
-        XCTAssertEqual(store.commandSourcePaths, ambientSourcePaths)
-        XCTAssertEqual(store.configurationIssues, ambientIssues)
-    }
-
-    @MainActor
     func testResolvedNewWorkspaceCommandExposesMissingCommandIssue() throws {
         let root = FileManager.default.temporaryDirectory.appendingPathComponent(
             "cmux-config-store-\(UUID().uuidString)",
@@ -1932,30 +1839,6 @@ final class CmuxConfigDecodingTests: XCTestCase {
         }
         """
         XCTAssertThrowsError(try decode(json))
-    }
-
-    func testDecodeAcceptsNoncollidingCommandPaletteActionID() throws {
-        let json = """
-        {
-          "actions": {
-            "palette.customDeploy": {
-              "type": "command",
-              "command": "echo collision"
-            }
-          }
-        }
-        """
-
-        let config = try decode(json)
-        XCTAssertNotNil(config.actions["palette.customDeploy"])
-    }
-
-    func testDecodeRejectsControlCharactersInActionID() {
-        let json = #"{"actions":{"custom.\u001bunsafe":{"type":"command","command":"echo unsafe"}}}"#
-
-        XCTAssertThrowsError(try decode(json)) { error in
-            XCTAssertTrue(String(describing: error).contains("control or format characters"))
-        }
     }
 }
 

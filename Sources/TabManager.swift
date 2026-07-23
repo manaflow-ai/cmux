@@ -1050,9 +1050,9 @@ class TabManager: ObservableObject {
         workspaceID: UUID,
         panelID: UUID,
         fileURLs: [URL]
-    ) -> Bool {
+    ) -> TerminalPanel.TextBoxAttachmentRequestResult? {
         terminalPanel(tabId: workspaceID, panelId: panelID)?
-            .attachFilesToTextBoxInput(fileURLs) ?? false
+            .attachFilesToTextBoxInput(fileURLs)
     }
 
     @discardableResult

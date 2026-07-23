@@ -8,22 +8,29 @@ extension ControlCommandCoordinator {
     }
 
     /// Dispatches `palette.list` and `palette.run`.
-    func handleCommandPalette(_ request: ControlRequest) -> ControlCallResult? {
+    func handleCommandPalette(
+        _ request: ControlRequest,
+        deadline: Date?
+    ) async -> ControlCallResult? {
         switch request.method {
         case "palette.list":
-            return commandPaletteList(request.params)
+            return await commandPaletteList(request.params, deadline: deadline)
         case "palette.run":
-            return commandPaletteRun(request.params)
+            return await commandPaletteRun(request.params, deadline: deadline)
         default:
             return nil
         }
     }
 
     /// `palette.list` — list the exact live actions exposed by Cmd+Shift+P.
-    func commandPaletteList(_ params: [String: JSONValue]) -> ControlCallResult {
+    func commandPaletteList(
+        _ params: [String: JSONValue],
+        deadline: Date?
+    ) async -> ControlCallResult {
         let strings = commandPaletteStrings
-        let resolution = commandPaletteContext?.controlCommandPaletteList(
-            routing: routingSelectors(params)
+        let resolution = await commandPaletteContext?.controlCommandPaletteList(
+            routing: routingSelectors(params),
+            deadline: deadline
         ) ?? .windowNotFound
         switch resolution {
         case .windowNotFound:
@@ -32,7 +39,20 @@ extension ControlCommandCoordinator {
                 message: strings.windowNotFound,
                 data: nil
             )
+        case .configurationPending:
+            return .err(
+                code: "configuration_pending",
+                message: strings.configurationPending,
+                data: nil
+            )
         case .listed(let target, let commands):
+            guard target.configSnapshotID != nil else {
+                return .err(
+                    code: "configuration_pending",
+                    message: strings.configurationPending,
+                    data: nil
+                )
+            }
             return .ok(.object([
                 // Keep the original flat fields so existing clients can feed
                 // them back as ordinary routing selectors. New clients should
@@ -51,7 +71,10 @@ extension ControlCommandCoordinator {
     }
 
     /// `palette.run` — invoke the live handler for one stable action id.
-    func commandPaletteRun(_ params: [String: JSONValue]) -> ControlCallResult {
+    func commandPaletteRun(
+        _ params: [String: JSONValue],
+        deadline: Date?
+    ) async -> ControlCallResult {
         let strings = commandPaletteStrings
         guard let commandID = string(params, "command_id") else {
             return .err(
@@ -100,18 +123,20 @@ extension ControlCommandCoordinator {
         }
         let resolution: ControlCommandPaletteRunResolution
         if let target {
-            resolution = commandPaletteContext?.controlCommandPaletteRun(
+            resolution = await commandPaletteContext?.controlCommandPaletteRun(
                 target: target,
                 commandID: commandID,
                 arguments: arguments,
-                workingDirectory: rawString(params, "cwd")
+                workingDirectory: rawString(params, "cwd"),
+                deadline: deadline
             ) ?? .windowNotFound
         } else {
-            resolution = commandPaletteContext?.controlCommandPaletteRun(
+            resolution = await commandPaletteContext?.controlCommandPaletteRun(
                 routing: routingSelectors(params),
                 commandID: commandID,
                 arguments: arguments,
-                workingDirectory: rawString(params, "cwd")
+                workingDirectory: rawString(params, "cwd"),
+                deadline: deadline
             ) ?? .windowNotFound
         }
         switch resolution {
@@ -125,6 +150,18 @@ extension ControlCommandCoordinator {
             return .err(
                 code: "target_unavailable",
                 message: strings.targetUnavailable,
+                data: target.map(commandPaletteTargetPayload)
+            )
+        case .configurationPending:
+            return .err(
+                code: "configuration_pending",
+                message: strings.configurationPending,
+                data: target.map(commandPaletteTargetPayload)
+            )
+        case .configurationChanged:
+            return .err(
+                code: "configuration_changed",
+                message: strings.configurationChanged,
                 data: target.map(commandPaletteTargetPayload)
             )
         case .commandNotFound:
@@ -270,11 +307,15 @@ extension ControlCommandCoordinator {
     /// Encodes the exact target identity returned by `palette.list` and
     /// accepted by `palette.run`.
     private func commandPaletteTargetPayload(_ target: ControlCommandPaletteTarget) -> JSONValue {
-        .object([
+        var payload: [String: JSONValue] = [
             "window_id": .string(target.windowID.uuidString),
             "workspace_id": target.workspaceID.map { .string($0.uuidString) } ?? .null,
             "panel_id": target.panelID.map { .string($0.uuidString) } ?? .null,
-        ])
+        ]
+        if let configSnapshotID = target.configSnapshotID {
+            payload["config_snapshot_id"] = .string(configSnapshotID.uuidString)
+        }
+        return .object(payload)
     }
 
     /// Parses an immutable target returned by `palette.list`. Its presence is
@@ -288,6 +329,7 @@ extension ControlCommandCoordinator {
               target["window_id"] != nil,
               target["workspace_id"] != nil,
               target["panel_id"] != nil,
+              target["config_snapshot_id"] != nil,
               let windowID = uuid(target, "window_id") else {
             return .invalid
         }
@@ -303,11 +345,15 @@ extension ControlCommandCoordinator {
         if panelID != nil, workspaceID == nil {
             return .invalid
         }
+        guard let configSnapshotID = uuid(target, "config_snapshot_id") else {
+            return .invalid
+        }
 
         return .target(ControlCommandPaletteTarget(
             windowID: windowID,
             workspaceID: workspaceID,
-            panelID: panelID
+            panelID: panelID,
+            configSnapshotID: configSnapshotID
         ))
     }
 

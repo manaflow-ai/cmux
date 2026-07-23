@@ -5,15 +5,17 @@ import Testing
 @MainActor
 @Suite("ControlCommandCoordinator command palette")
 struct ControlCommandCoordinatorCommandPaletteTests {
-    @Test func listReturnsLiveActionMetadataAndForwardsRouting() throws {
+    @Test func listReturnsLiveActionMetadataAndForwardsRouting() async throws {
         let context = FakeCommandPaletteControlCommandContext()
         let windowID = UUID()
         let workspaceID = UUID()
         let panelID = UUID()
+        let configSnapshotID = UUID()
         let target = ControlCommandPaletteTarget(
             windowID: windowID,
             workspaceID: workspaceID,
-            panelID: panelID
+            panelID: panelID,
+            configSnapshotID: configSnapshotID
         )
         let command = ControlCommandPaletteItem(
             id: "palette.demo",
@@ -32,7 +34,7 @@ struct ControlCommandCoordinatorCommandPaletteTests {
         context.listResolution = .listed(target: target, commands: [command])
         let coordinator = ControlCommandCoordinator(context: context)
 
-        let result = try #require(coordinator.handle(request(
+        let result = try #require(await coordinator.handleAsync(request(
             method: "palette.list",
             params: ["workspace_id": .string(workspaceID.uuidString)]
         )))
@@ -53,6 +55,7 @@ struct ControlCommandCoordinatorCommandPaletteTests {
             "window_id": .string(windowID.uuidString),
             "workspace_id": .string(workspaceID.uuidString),
             "panel_id": .string(panelID.uuidString),
+            "config_snapshot_id": .string(configSnapshotID.uuidString),
         ]))
         #expect(payload["count"] == .int(1))
         #expect(payload["commands"] == .array([.object([
@@ -71,19 +74,20 @@ struct ControlCommandCoordinatorCommandPaletteTests {
         ])]))
     }
 
-    @Test func listPreservesUnresolvedSelectorPresenceForAppRouting() throws {
+    @Test func listPreservesUnresolvedSelectorPresenceForAppRouting() async throws {
         let context = FakeCommandPaletteControlCommandContext()
         context.listResolution = .listed(
             target: ControlCommandPaletteTarget(
                 windowID: UUID(),
                 workspaceID: nil,
-                panelID: nil
+                panelID: nil,
+                configSnapshotID: UUID()
             ),
             commands: []
         )
         let coordinator = ControlCommandCoordinator(context: context)
 
-        _ = try #require(coordinator.handle(request(
+        _ = try #require(await coordinator.handleAsync(request(
             method: "palette.list",
             params: [
                 "group_id": .string("workspace_group:missing"),
@@ -102,6 +106,27 @@ struct ControlCommandCoordinatorCommandPaletteTests {
         #expect(routing.surfaceID == nil)
         #expect(routing.hasPaneIDParam)
         #expect(routing.paneID == nil)
+    }
+
+    @Test func listFailsClosedWithoutAConfigVersion() async throws {
+        let context = FakeCommandPaletteControlCommandContext()
+        context.listResolution = .listed(
+            target: ControlCommandPaletteTarget(
+                windowID: UUID(),
+                workspaceID: nil,
+                panelID: nil
+            ),
+            commands: []
+        )
+        let coordinator = ControlCommandCoordinator(context: context)
+
+        let result = try #require(await coordinator.handleAsync(request(method: "palette.list")))
+        guard case .err(let code, let message, _) = result else {
+            Issue.record("expected configuration-pending error")
+            return
+        }
+        #expect(code == "configuration_pending")
+        #expect(message == context.paletteStrings.configurationPending)
     }
 
     @Test func routingSelectorInitializerInfersPresenceForExistingCallers() {
@@ -136,7 +161,7 @@ struct ControlCommandCoordinatorCommandPaletteTests {
         #expect(!omitted.hasPaneIDParam)
     }
 
-    @Test func runInvokesTheRequestedLiveAction() throws {
+    @Test func runInvokesTheRequestedLiveAction() async throws {
         let context = FakeCommandPaletteControlCommandContext()
         let windowID = UUID()
         let command = ControlCommandPaletteItem(
@@ -150,7 +175,7 @@ struct ControlCommandCoordinatorCommandPaletteTests {
         context.runResolution = .completed(windowID: windowID, command: command)
         let coordinator = ControlCommandCoordinator(context: context)
 
-        let result = try #require(coordinator.handle(request(
+        let result = try #require(await coordinator.handleAsync(request(
             method: "palette.run",
             params: [
                 "command_id": .string("palette.demo"),
@@ -177,16 +202,17 @@ struct ControlCommandCoordinatorCommandPaletteTests {
         #expect(payload["status"] == .string("completed"))
     }
 
-    @Test func runEchoesTheListedTargetInsteadOfUsingCurrentRoutingSelectors() throws {
+    @Test func runEchoesTheListedTargetInsteadOfUsingCurrentRoutingSelectors() async throws {
         let context = FakeCommandPaletteControlCommandContext()
         let windowID = UUID()
         let workspaceID = UUID()
         let panelID = UUID()
+        let configSnapshotID = UUID()
         let command = testCommand()
         context.runResolution = .completed(windowID: windowID, command: command)
         let coordinator = ControlCommandCoordinator(context: context)
 
-        _ = try #require(coordinator.handle(request(
+        _ = try #require(await coordinator.handleAsync(request(
             method: "palette.run",
             params: [
                 "command_id": .string(command.id),
@@ -199,6 +225,7 @@ struct ControlCommandCoordinatorCommandPaletteTests {
                     "window_id": .string(windowID.uuidString),
                     "workspace_id": .string(workspaceID.uuidString),
                     "panel_id": .string(panelID.uuidString),
+                    "config_snapshot_id": .string(configSnapshotID.uuidString),
                 ]),
             ]
         )))
@@ -206,16 +233,17 @@ struct ControlCommandCoordinatorCommandPaletteTests {
         #expect(context.runTarget == ControlCommandPaletteTarget(
             windowID: windowID,
             workspaceID: workspaceID,
-            panelID: panelID
+            panelID: panelID,
+            configSnapshotID: configSnapshotID
         ))
         #expect(context.runCall == nil)
     }
 
-    @Test func runRejectsMalformedImmutableTargetWithoutFallingBack() throws {
+    @Test func runRejectsMalformedImmutableTargetWithoutFallingBack() async throws {
         let context = FakeCommandPaletteControlCommandContext()
         let coordinator = ControlCommandCoordinator(context: context)
 
-        let result = try #require(coordinator.handle(request(
+        let result = try #require(await coordinator.handleAsync(request(
             method: "palette.run",
             params: [
                 "command_id": .string("palette.demo"),
@@ -225,6 +253,7 @@ struct ControlCommandCoordinatorCommandPaletteTests {
                     "workspace_id": .null,
                     // A panel without a workspace cannot be an exact target.
                     "panel_id": .string(UUID().uuidString),
+                    "config_snapshot_id": .string(UUID().uuidString),
                 ]),
             ]
         )))
@@ -238,17 +267,19 @@ struct ControlCommandCoordinatorCommandPaletteTests {
         #expect(context.runCall == nil)
     }
 
-    @Test func runReportsAStaleImmutableTargetSeparatelyFromAMissingWindow() throws {
+    @Test func runReportsAStaleImmutableTargetSeparatelyFromAMissingWindow() async throws {
         let context = FakeCommandPaletteControlCommandContext()
         context.runResolution = .targetUnavailable
         let coordinator = ControlCommandCoordinator(context: context)
+        let configSnapshotID = UUID()
         let target = ControlCommandPaletteTarget(
             windowID: UUID(),
             workspaceID: UUID(),
-            panelID: UUID()
+            panelID: UUID(),
+            configSnapshotID: configSnapshotID
         )
 
-        let result = try #require(coordinator.handle(request(
+        let result = try #require(await coordinator.handleAsync(request(
             method: "palette.run",
             params: [
                 "command_id": .string("palette.demo"),
@@ -256,6 +287,7 @@ struct ControlCommandCoordinatorCommandPaletteTests {
                     "window_id": .string(target.windowID.uuidString),
                     "workspace_id": .string(target.workspaceID!.uuidString),
                     "panel_id": .string(target.panelID!.uuidString),
+                    "config_snapshot_id": .string(configSnapshotID.uuidString),
                 ]),
             ]
         )))
@@ -270,10 +302,11 @@ struct ControlCommandCoordinatorCommandPaletteTests {
             "window_id": .string(target.windowID.uuidString),
             "workspace_id": .string(target.workspaceID!.uuidString),
             "panel_id": .string(target.panelID!.uuidString),
+            "config_snapshot_id": .string(configSnapshotID.uuidString),
         ]))
     }
 
-    @Test func runDistinguishesQueuedAndPresentedActions() throws {
+    @Test func runDistinguishesQueuedAndPresentedActions() async throws {
         let context = FakeCommandPaletteControlCommandContext()
         let windowID = UUID()
         let command = testCommand()
@@ -285,7 +318,7 @@ struct ControlCommandCoordinatorCommandPaletteTests {
 
         for (resolution, expectedStatus) in cases {
             context.runResolution = resolution
-            let result = try #require(coordinator.handle(request(
+            let result = try #require(await coordinator.handleAsync(request(
                 method: "palette.run",
                 params: ["command_id": .string(command.id)]
             )))
@@ -297,7 +330,7 @@ struct ControlCommandCoordinatorCommandPaletteTests {
         }
     }
 
-    @Test func runMapsAllTypedValidationAndFailureResults() throws {
+    @Test func runMapsAllTypedValidationAndFailureResults() async throws {
         let context = FakeCommandPaletteControlCommandContext()
         let windowID = UUID()
         let command = testCommand()
@@ -308,7 +341,7 @@ struct ControlCommandCoordinatorCommandPaletteTests {
             command: command,
             names: ["extra"]
         )
-        let unknown = try #require(coordinator.handle(request(
+        let unknown = try #require(await coordinator.handleAsync(request(
             method: "palette.run",
             params: ["command_id": .string(command.id)]
         )))
@@ -325,7 +358,7 @@ struct ControlCommandCoordinatorCommandPaletteTests {
             command: command,
             names: ["overwrite"]
         )
-        let invalid = try #require(coordinator.handle(request(
+        let invalid = try #require(await coordinator.handleAsync(request(
             method: "palette.run",
             params: ["command_id": .string(command.id)]
         )))
@@ -343,7 +376,7 @@ struct ControlCommandCoordinatorCommandPaletteTests {
             code: "action_failed",
             message: "Action failed to start"
         )
-        let failed = try #require(coordinator.handle(request(
+        let failed = try #require(await coordinator.handleAsync(request(
             method: "palette.run",
             params: ["command_id": .string(command.id)]
         )))
@@ -356,11 +389,11 @@ struct ControlCommandCoordinatorCommandPaletteTests {
         #expect(failedData["window_id"] == .string(windowID.uuidString))
     }
 
-    @Test func runRejectsMissingAndUnavailableActionIDs() throws {
+    @Test func runRejectsMissingAndUnavailableActionIDs() async throws {
         let context = FakeCommandPaletteControlCommandContext()
         let coordinator = ControlCommandCoordinator(context: context)
 
-        let missing = try #require(coordinator.handle(request(method: "palette.run")))
+        let missing = try #require(await coordinator.handleAsync(request(method: "palette.run")))
         guard case .err(let missingCode, let missingMessage, _) = missing else {
             Issue.record("expected missing-id error")
             return
@@ -370,7 +403,7 @@ struct ControlCommandCoordinatorCommandPaletteTests {
         #expect(context.runCall == nil)
 
         context.runResolution = .commandNotFound
-        let unavailable = try #require(coordinator.handle(request(
+        let unavailable = try #require(await coordinator.handleAsync(request(
             method: "palette.run",
             params: ["command_id": .string("palette.hidden")]
         )))
@@ -383,7 +416,7 @@ struct ControlCommandCoordinatorCommandPaletteTests {
         #expect(data == .object(["command_id": .string("palette.hidden")]))
     }
 
-    @Test func runReturnsTheStaticSchemaWhenRequiredArgumentsAreMissing() throws {
+    @Test func runReturnsTheStaticSchemaWhenRequiredArgumentsAreMissing() async throws {
         let context = FakeCommandPaletteControlCommandContext()
         let windowID = UUID()
         let argument = ControlCommandPaletteArgument(
@@ -408,7 +441,7 @@ struct ControlCommandCoordinatorCommandPaletteTests {
         )
         let coordinator = ControlCommandCoordinator(context: context)
 
-        let result = try #require(coordinator.handle(request(
+        let result = try #require(await coordinator.handleAsync(request(
             method: "palette.run",
             params: ["command_id": .string(command.id)]
         )))
@@ -427,11 +460,11 @@ struct ControlCommandCoordinatorCommandPaletteTests {
         ])]))
     }
 
-    @Test func runRejectsNonStringArgumentValuesBeforeDispatch() throws {
+    @Test func runRejectsNonStringArgumentValuesBeforeDispatch() async throws {
         let context = FakeCommandPaletteControlCommandContext()
         let coordinator = ControlCommandCoordinator(context: context)
 
-        let result = try #require(coordinator.handle(request(
+        let result = try #require(await coordinator.handleAsync(request(
             method: "palette.run",
             params: [
                 "command_id": .string("palette.demo"),
@@ -446,6 +479,70 @@ struct ControlCommandCoordinatorCommandPaletteTests {
         #expect(code == "invalid_params")
         #expect(message == context.paletteStrings.argumentsMustBeStringObject)
         #expect(context.runCall == nil)
+    }
+
+    @Test func pendingTargetConfigurationFailsClosedForListAndRun() async throws {
+        let context = FakeCommandPaletteControlCommandContext()
+        let coordinator = ControlCommandCoordinator(context: context)
+
+        context.listResolution = .configurationPending
+        let listResult = try #require(await coordinator.handleAsync(request(method: "palette.list")))
+        guard case .err(let listCode, let listMessage, _) = listResult else {
+            Issue.record("expected configuration-pending list error")
+            return
+        }
+        #expect(listCode == "configuration_pending")
+        #expect(listMessage == context.paletteStrings.configurationPending)
+
+        context.runResolution = .configurationPending
+        let runResult = try #require(await coordinator.handleAsync(request(
+            method: "palette.run",
+            params: ["command_id": .string("palette.demo")]
+        )))
+        guard case .err(let runCode, let runMessage, _) = runResult else {
+            Issue.record("expected configuration-pending run error")
+            return
+        }
+        #expect(runCode == "configuration_pending")
+        #expect(runMessage == context.paletteStrings.configurationPending)
+    }
+
+    @Test func changedExactTargetRequiresRelisting() async throws {
+        let context = FakeCommandPaletteControlCommandContext()
+        context.runResolution = .configurationChanged
+        let coordinator = ControlCommandCoordinator(context: context)
+        let target = ControlCommandPaletteTarget(
+            windowID: UUID(),
+            workspaceID: UUID(),
+            panelID: UUID(),
+            configSnapshotID: UUID()
+        )
+
+        let result = try #require(await coordinator.handleAsync(request(
+            method: "palette.run",
+            params: [
+                "command_id": .string("palette.demo"),
+                "target": .object([
+                    "window_id": .string(target.windowID.uuidString),
+                    "workspace_id": .string(target.workspaceID!.uuidString),
+                    "panel_id": .string(target.panelID!.uuidString),
+                    "config_snapshot_id": .string(target.configSnapshotID!.uuidString),
+                ]),
+            ]
+        )))
+
+        guard case .err(let code, let message, let data) = result else {
+            Issue.record("expected changed-configuration error")
+            return
+        }
+        #expect(code == "configuration_changed")
+        #expect(message == context.paletteStrings.configurationChanged)
+        #expect(data == .object([
+            "window_id": .string(target.windowID.uuidString),
+            "workspace_id": .string(target.workspaceID!.uuidString),
+            "panel_id": .string(target.panelID!.uuidString),
+            "config_snapshot_id": .string(target.configSnapshotID!.uuidString),
+        ]))
     }
 
     private func request(

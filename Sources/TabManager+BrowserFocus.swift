@@ -1,20 +1,5 @@
 import AppKit
 
-enum BrowserStateMutationOutcome: Equatable {
-    /// The requested postcondition already holds.
-    case alreadySatisfied
-    /// The model changed synchronously.
-    case completed
-    /// The model accepted work that finishes asynchronously.
-    case queued
-    /// The target rejected the requested postcondition.
-    case failed
-
-    var wasAccepted: Bool {
-        self != .failed
-    }
-}
-
 extension TabManager {
     /// Resolves a browser panel from explicit command-action identities without
     /// consulting or mutating the visible workspace selection.

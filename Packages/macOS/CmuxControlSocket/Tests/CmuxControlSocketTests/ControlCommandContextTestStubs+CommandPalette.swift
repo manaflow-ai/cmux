@@ -18,22 +18,25 @@ extension ControlCommandPaletteContext {
     }
 
     func controlCommandPaletteList(
-        routing: ControlRoutingSelectors
-    ) -> ControlCommandPaletteListResolution { .windowNotFound }
+        routing: ControlRoutingSelectors,
+        deadline: Date?
+    ) async -> ControlCommandPaletteListResolution { .windowNotFound }
 
     func controlCommandPaletteRun(
         routing: ControlRoutingSelectors,
         commandID: String,
         arguments: [String: String],
-        workingDirectory: String?
-    ) -> ControlCommandPaletteRunResolution { .windowNotFound }
+        workingDirectory: String?,
+        deadline: Date?
+    ) async -> ControlCommandPaletteRunResolution { .windowNotFound }
 
     func controlCommandPaletteRun(
         target: ControlCommandPaletteTarget,
         commandID: String,
         arguments: [String: String],
-        workingDirectory: String?
-    ) -> ControlCommandPaletteRunResolution { .windowNotFound }
+        workingDirectory: String?,
+        deadline: Date?
+    ) async -> ControlCommandPaletteRunResolution { .windowNotFound }
 }
 
 extension ControlInlineVSCodeContext {

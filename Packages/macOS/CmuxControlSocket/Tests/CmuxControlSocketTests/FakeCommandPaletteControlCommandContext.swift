@@ -33,8 +33,9 @@ final class FakeCommandPaletteControlCommandContext: ControlCommandContext {
     }
 
     func controlCommandPaletteList(
-        routing: ControlRoutingSelectors
-    ) -> ControlCommandPaletteListResolution {
+        routing: ControlRoutingSelectors,
+        deadline: Date?
+    ) async -> ControlCommandPaletteListResolution {
         listRouting = routing
         return listResolution
     }
@@ -43,8 +44,9 @@ final class FakeCommandPaletteControlCommandContext: ControlCommandContext {
         routing: ControlRoutingSelectors,
         commandID: String,
         arguments: [String: String],
-        workingDirectory: String?
-    ) -> ControlCommandPaletteRunResolution {
+        workingDirectory: String?,
+        deadline: Date?
+    ) async -> ControlCommandPaletteRunResolution {
         runCall = (routing, commandID, arguments, workingDirectory)
         return runResolution
     }
@@ -53,8 +55,9 @@ final class FakeCommandPaletteControlCommandContext: ControlCommandContext {
         target: ControlCommandPaletteTarget,
         commandID: String,
         arguments: [String: String],
-        workingDirectory: String?
-    ) -> ControlCommandPaletteRunResolution {
+        workingDirectory: String?,
+        deadline: Date?
+    ) async -> ControlCommandPaletteRunResolution {
         runTarget = target
         return runResolution
     }

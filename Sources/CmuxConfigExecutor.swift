@@ -2,49 +2,8 @@ import AppKit
 import Bonsplit
 import Foundation
 
-/// Observable lifecycle state for a configured cmux action.
-///
-/// Boolean execution APIs remain available for shortcut and menu call sites,
-/// while command-palette automation uses this value to distinguish completed
-/// work from queued work and UI that owns the remaining interaction.
-enum CmuxConfiguredActionExecutionOutcome: Sendable, Equatable {
-    case completed
-    case queued
-    case presented
-    case failed
-
-    var isAccepted: Bool {
-        switch self {
-        case .completed, .queued, .presented:
-            true
-        case .failed:
-            false
-        }
-    }
-}
-
-/// Immutable model identity for a configured action's workspace and panel.
-///
-/// Callers resolve routing once and pass the resulting IDs here. The executor
-/// resolves and captures the live models before any asynchronous confirmation
-/// sheet, so a later focus change cannot redirect the authorized action.
-struct CmuxActionModelTarget: Sendable, Equatable {
-    let workspaceID: UUID?
-    let panelID: UUID?
-
-    init(workspaceID: UUID?, panelID: UUID?) {
-        self.workspaceID = workspaceID
-        self.panelID = panelID
-    }
-}
-
 @MainActor
 struct CmuxConfigExecutor {
-
-    private struct ResolvedModelTarget {
-        let workspace: Workspace?
-        let panelID: UUID?
-    }
 
     @discardableResult
     static func execute(

@@ -3123,49 +3123,6 @@ final class WorkspaceCreationWorkingDirectoryInheritanceTests: XCTestCase {
         }
     }
 
-    func testDetachedWorkspaceUsesExplicitUnselectedSourceForInheritance() throws {
-        try withWorkspaceWorkingDirectoryInheritanceSetting(nil) {
-            let selectedCwd = "/tmp/cmux-selected-\(UUID().uuidString)"
-            let targetCwd = "/tmp/cmux-target-\(UUID().uuidString)"
-            let manager = TabManager(
-                initialWorkingDirectory: selectedCwd,
-                autoWelcomeIfNeeded: false
-            )
-            let selectedWorkspace = try XCTUnwrap(manager.selectedWorkspace)
-            let targetWorkspace = manager.addWorkspace(
-                workingDirectory: targetCwd,
-                inheritWorkingDirectory: false,
-                select: false,
-                autoWelcomeIfNeeded: false
-            )
-            let detached = makeDetachedWorkspaceTestTransfer(sourceWorkspaceId: targetWorkspace.id)
-
-            let inserted = try XCTUnwrap(manager.addWorkspace(
-                fromDetachedSurface: detached,
-                select: false,
-                sourceWorkspaceID: targetWorkspace.id
-            ))
-
-            XCTAssertEqual(inserted.currentDirectory, targetCwd)
-            XCTAssertEqual(inserted.surfaceTabBarDirectory, targetCwd)
-            XCTAssertEqual(manager.selectedWorkspace?.id, selectedWorkspace.id)
-        }
-    }
-
-    func testDetachedWorkspaceRejectsStaleExplicitSource() throws {
-        let manager = TabManager(autoWelcomeIfNeeded: false)
-        let source = try XCTUnwrap(manager.selectedWorkspace)
-        let detached = makeDetachedWorkspaceTestTransfer(sourceWorkspaceId: source.id)
-        let originalWorkspaceIDs = manager.tabs.map(\.id)
-
-        XCTAssertNil(manager.addWorkspace(
-            fromDetachedSurface: detached,
-            select: false,
-            sourceWorkspaceID: UUID()
-        ))
-        XCTAssertEqual(manager.tabs.map(\.id), originalWorkspaceIDs)
-    }
-
     func testDisabledInheritanceLeavesDetachedWorkspaceFallbackCwdUnsetWhenTransferHasNoDirectory() throws {
         try withWorkspaceWorkingDirectoryInheritanceSetting(false) {
             let sourceCwd = "/tmp/cmux-source-\(UUID().uuidString)"
@@ -4711,44 +4668,6 @@ final class WorkspaceSplitWorkingDirectoryTests: XCTestCase {
         )
     }
 
-    func testResolvedWorkingDirectoryUsesExplicitPanelWithoutChangingFocus() throws {
-        let focusedCwd = "/tmp/cmux-focused-cwd-\(UUID().uuidString)"
-        let targetCwd = "/tmp/cmux-target-cwd-\(UUID().uuidString)"
-        let manager = TabManager(
-            initialWorkingDirectory: focusedCwd,
-            autoWelcomeIfNeeded: false
-        )
-        let workspace = try XCTUnwrap(manager.selectedWorkspace)
-        let focusedPanelID = try XCTUnwrap(workspace.focusedPanelId)
-        let paneID = try XCTUnwrap(workspace.paneId(forPanelId: focusedPanelID))
-        let targetPanel = try XCTUnwrap(workspace.newTerminalSurface(
-            inPane: paneID,
-            focus: false,
-            workingDirectory: targetCwd
-        ))
-
-        XCTAssertEqual(workspace.focusedPanelId, focusedPanelID)
-        XCTAssertEqual(workspace.resolvedWorkingDirectory(panelID: targetPanel.id), targetCwd)
-        XCTAssertEqual(workspace.resolvedWorkingDirectory(), focusedCwd)
-        XCTAssertNil(workspace.resolvedWorkingDirectory(panelID: UUID()))
-        XCTAssertEqual(workspace.focusedPanelId, focusedPanelID)
-    }
-
-    func testNewTerminalSurfaceRejectsStaleExplicitSourcePanel() throws {
-        let workspace = Workspace()
-        let paneID = try XCTUnwrap(workspace.bonsplitController.focusedPaneId)
-        let originalPanelIDs = Set(workspace.panels.keys)
-
-        let outcome = workspace.newTerminalSurfaceOutcome(
-            inPane: paneID,
-            focus: false,
-            workingDirectoryFallbackSourcePanelId: UUID()
-        )
-
-        XCTAssertNil(outcome.panel)
-        XCTAssertEqual(Set(workspace.panels.keys), originalPanelIDs)
-    }
-
     func testNewTerminalSplitSkipsFreedInheritedSurfacePointer() throws {
 #if DEBUG
         let workspace = Workspace()
@@ -5436,46 +5355,6 @@ final class WorkspaceBrowserProfileSelectionTests: XCTestCase {
         )
     }
 
-    func testNewBrowserSurfaceUsesExplicitBackgroundSourceProfile() throws {
-        let workspace = Workspace()
-        let profileA = try makeTemporaryBrowserProfile(named: "Explicit Source")
-        let profileB = try makeTemporaryBrowserProfile(named: "Live Focus")
-        let paneID = try XCTUnwrap(workspace.bonsplitController.focusedPaneId)
-        let browserA = try XCTUnwrap(workspace.newBrowserSurface(
-            inPane: paneID,
-            focus: true,
-            preferredProfileID: profileA.id
-        ))
-        let browserB = try XCTUnwrap(workspace.newBrowserSurface(
-            inPane: paneID,
-            focus: true,
-            preferredProfileID: profileB.id
-        ))
-        XCTAssertEqual(workspace.focusedPanelId, browserB.id)
-
-        let created = try XCTUnwrap(workspace.newBrowserSurface(
-            inPane: paneID,
-            focus: false,
-            sourcePanelID: browserA.id
-        ))
-
-        XCTAssertEqual(created.profileID, profileA.id)
-        XCTAssertEqual(workspace.focusedPanelId, browserB.id)
-    }
-
-    func testNewBrowserSurfaceRejectsStaleExplicitSourcePanel() throws {
-        let workspace = Workspace()
-        let paneID = try XCTUnwrap(workspace.bonsplitController.focusedPaneId)
-        let originalPanelIDs = Set(workspace.panels.keys)
-
-        XCTAssertNil(workspace.newBrowserSurface(
-            inPane: paneID,
-            focus: false,
-            sourcePanelID: UUID()
-        ))
-        XCTAssertEqual(Set(workspace.panels.keys), originalPanelIDs)
-    }
-
     func testNewBrowserSurfaceFailureDoesNotMutatePreferredProfile() throws {
         let workspace = Workspace()
         let preferredProfile = try makeTemporaryBrowserProfile(named: "Preferred")
@@ -6006,35 +5885,6 @@ final class WorkspacePanelGitBranchTests: XCTestCase {
             1
         )
         XCTAssertEqual(workspace.focusedPanelId, firstPanel.id)
-    }
-
-    func testRightSidebarToolAndTodoActionsHonorExplicitBackgroundPane() throws {
-        let workspace = Workspace()
-        let sourcePanelID = try XCTUnwrap(workspace.focusedPanelId)
-        let sourcePaneID = try XCTUnwrap(workspace.paneId(forPanelId: sourcePanelID))
-        let focusedPanel = try XCTUnwrap(
-            workspace.newTerminalSplit(from: sourcePanelID, orientation: .horizontal)
-        )
-        let focusedPaneID = try XCTUnwrap(workspace.paneId(forPanelId: focusedPanel.id))
-        XCTAssertNotEqual(sourcePaneID, focusedPaneID)
-        XCTAssertEqual(workspace.focusedPanelId, focusedPanel.id)
-
-        let tool = try XCTUnwrap(workspace.openOrFocusRightSidebarToolSurface(
-            inPane: sourcePaneID,
-            mode: .files,
-            focus: false,
-            sourcePanelID: sourcePanelID
-        ))
-        XCTAssertEqual(workspace.paneId(forPanelId: tool.id), sourcePaneID)
-        XCTAssertEqual(workspace.focusedPanelId, focusedPanel.id)
-
-        let todo = try XCTUnwrap(WorkspaceTodoActions.openTodoPane(
-            for: workspace,
-            sourcePanelID: sourcePanelID,
-            focus: false
-        ))
-        XCTAssertEqual(workspace.paneId(forPanelId: todo.id), sourcePaneID)
-        XCTAssertEqual(workspace.focusedPanelId, focusedPanel.id)
     }
 
     func testClosingFocusedSplitRestoresBranchForRemainingFocusedPanel() {
@@ -7700,82 +7550,5 @@ final class ExtensionWorktreePrototypeTests: XCTestCase {
             throw NSError(domain: "ExtensionWorktreePrototypeTests", code: Int(process.terminationStatus))
         }
         return output
-    }
-}
-
-@MainActor
-final class CommandPaletteStaticActionAPITests: XCTestCase {
-    func testNonInteractivePanelCloseHonorsTheExplicitBackgroundPanel() throws {
-        let manager = TabManager(autoWelcomeIfNeeded: false)
-        let workspace = try XCTUnwrap(manager.tabs.first)
-        let backgroundPanelID = try XCTUnwrap(workspace.focusedPanelId)
-        let selectedPanel = try XCTUnwrap(
-            workspace.newTerminalSurfaceInFocusedPane(focus: true, initialInput: nil)
-        )
-        XCTAssertEqual(workspace.focusedPanelId, selectedPanel.id)
-
-        XCTAssertTrue(manager.closePanelNonInteractively(
-            workspaceID: workspace.id,
-            panelID: backgroundPanelID,
-            allowPinnedWorkspace: true
-        ))
-
-        XCTAssertNil(workspace.panels[backgroundPanelID])
-        XCTAssertNotNil(workspace.panels[selectedPanel.id])
-        XCTAssertEqual(workspace.focusedPanelId, selectedPanel.id)
-    }
-
-    func testNonInteractiveWorkspaceBatchPrevalidatesTheExactSet() throws {
-        let manager = TabManager(autoWelcomeIfNeeded: false)
-        let selectedWorkspace = try XCTUnwrap(manager.tabs.first)
-        let pinnedWorkspace = manager.addWorkspace(select: false, autoWelcomeIfNeeded: false)
-        let survivor = manager.addWorkspace(select: false, autoWelcomeIfNeeded: false)
-        pinnedWorkspace.isPinned = true
-
-        XCTAssertFalse(manager.closeWorkspacesNonInteractively(
-            [pinnedWorkspace.id, UUID()],
-            allowPinned: true
-        ))
-        XCTAssertNotNil(manager.tabs.first(where: { $0.id == pinnedWorkspace.id }))
-
-        XCTAssertTrue(manager.closeWorkspacesNonInteractively(
-            [pinnedWorkspace.id],
-            allowPinned: true
-        ))
-        XCTAssertNil(manager.tabs.first(where: { $0.id == pinnedWorkspace.id }))
-        XCTAssertNotNil(manager.tabs.first(where: { $0.id == survivor.id }))
-        XCTAssertEqual(manager.selectedWorkspace?.id, selectedWorkspace.id)
-    }
-
-    func testExplicitTextBoxAttachmentFlushesWhenTheViewMounts() throws {
-        let manager = TabManager(autoWelcomeIfNeeded: false)
-        let workspace = try XCTUnwrap(manager.tabs.first)
-        let panel = try XCTUnwrap(workspace.focusedTerminalPanel)
-        let fileURL = FileManager.default.temporaryDirectory
-            .appendingPathComponent("cmux-palette-attachment-\(UUID().uuidString).txt")
-        try Data("fixture".utf8).write(to: fileURL)
-        defer { try? FileManager.default.removeItem(at: fileURL) }
-
-        XCTAssertTrue(panel.attachFilesToTextBoxInput([fileURL]))
-
-        let view = TextBoxInputTextView(frame: NSRect(x: 0, y: 0, width: 320, height: 120))
-        var attachedURLs: [URL] = []
-        view.onInsertFileURLs = { urls, _ in
-            attachedURLs = urls
-            return true
-        }
-        let window = NSWindow(
-            contentRect: NSRect(x: 0, y: 0, width: 320, height: 120),
-            styleMask: [.titled],
-            backing: .buffered,
-            defer: false
-        )
-        window.contentView = view
-        defer { window.close() }
-
-        panel.registerTextBoxInputView(view)
-        panel.textBoxInputViewDidMoveToWindow(view)
-
-        XCTAssertEqual(attachedURLs, [fileURL.standardizedFileURL])
     }
 }

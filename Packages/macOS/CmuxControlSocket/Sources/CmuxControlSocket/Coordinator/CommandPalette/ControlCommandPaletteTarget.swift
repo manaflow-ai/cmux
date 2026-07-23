@@ -13,6 +13,8 @@ public struct ControlCommandPaletteTarget: Sendable, Equatable {
     public let workspaceID: UUID?
     /// The panel selected within ``workspaceID``, if one exists.
     public let panelID: UUID?
+    /// The config catalog version used when the actions were enumerated.
+    public let configSnapshotID: UUID?
 
     /// Creates an immutable command-palette target.
     ///
@@ -20,9 +22,16 @@ public struct ControlCommandPaletteTarget: Sendable, Equatable {
     ///   - windowID: The window that owns the action registry.
     ///   - workspaceID: The resolved workspace, if one existed at list time.
     ///   - panelID: The resolved panel, if one existed at list time.
-    public init(windowID: UUID, workspaceID: UUID?, panelID: UUID?) {
+    ///   - configSnapshotID: The config catalog returned by `palette.list`.
+    public init(
+        windowID: UUID,
+        workspaceID: UUID?,
+        panelID: UUID?,
+        configSnapshotID: UUID? = nil
+    ) {
         self.windowID = windowID
         self.workspaceID = workspaceID
         self.panelID = panelID
+        self.configSnapshotID = configSnapshotID
     }
 }

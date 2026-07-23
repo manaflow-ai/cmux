@@ -44,7 +44,19 @@ public protocol HostBrowserAuthSessionFactory {
     ) -> any HostBrowserAuthSession
 }
 
+/// Default compatibility behavior for factories without per-window routing.
 public extension HostBrowserAuthSessionFactory {
+    /// Creates an unstarted attempt by delegating to the original factory
+    /// requirement when the factory does not support an exact window.
+    ///
+    /// - Parameters:
+    ///   - signInURL: The hosted sign-in page URL.
+    ///   - callbackScheme: The custom scheme used by the callback redirect.
+    ///   - presentationAnchor: The requested presentation window. The default
+    ///     implementation ignores this value.
+    ///   - completion: The terminal result, delivered exactly once on the main
+    ///     actor.
+    /// - Returns: A browser-auth session that has not been started.
     func makeSession(
         signInURL: URL,
         callbackScheme: String,

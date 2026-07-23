@@ -16954,13 +16954,14 @@ struct CMUXCLI {
             the target window's current context. Action IDs and argument names
             are strings declared by the live action registry, including custom
             actions loaded from cmux.json. Echo the target object from JSON list
-            output into --target to preserve its exact window, workspace, and pane.
+            output into --target to preserve its exact window, workspace, pane,
+            and config snapshot.
 
             Examples:
               cmux palette list
               cmux palette run palette.newTerminalTab
               cmux palette run palette.renameWorkspace --arg name=api
-              cmux palette run palette.renameWorkspace --arg name=api --target '{"window_id":"...","workspace_id":"...","panel_id":"..."}'
+              cmux palette run palette.renameWorkspace --arg name=api --target '{"window_id":"...","workspace_id":"...","panel_id":"...","config_snapshot_id":"..."}'
               cmux palette palette.terminalOpenDirectory.vscodeInline
             """)
         case "vscode":
@@ -35383,6 +35384,11 @@ private enum CMUXCLIOutput {
 @main
 struct CMUXTermMain {
     static func main() {
+        if let exitCode = CMUXActionCatalogReadHelper().runIfRequested(
+            arguments: CommandLine.arguments
+        ) {
+            exit(exitCode)
+        }
         let initialSIGPIPEInspectionPayload = CMUXCLI.currentSIGPIPEInspectionPayload()
         _ = signal(SIGPIPE, SIG_DFL)
         configureCLIStdioNoSIGPIPE()

@@ -1,6 +1,6 @@
 import CmuxCommandPalette
 import Foundation
-import XCTest
+import Testing
 
 #if canImport(cmux_DEV)
 @testable import cmux_DEV
@@ -8,14 +8,18 @@ import XCTest
 @testable import cmux
 #endif
 
-final class RightSidebarCommandPaletteTests: XCTestCase {
-    func testCommandPaletteIncludesDefaultRightSidebarModes() throws {
+@Suite("Right sidebar command palette actions", .serialized)
+struct RightSidebarCommandPaletteActionTests {
+    @Test
+    func includesDefaultModesWithExactTargetRequirements() throws {
         try withSavedBetaFeatureDefaults {
             let defaults = UserDefaults.standard
             defaults.removeObject(forKey: RightSidebarBetaFeatureSettings.feedEnabledKey)
             defaults.removeObject(forKey: RightSidebarBetaFeatureSettings.dockEnabledKey)
             let contributions = ContentView.commandPaletteRightSidebarModeCommandContributions()
-            let contributionsByID = Dictionary(uniqueKeysWithValues: contributions.map { ($0.commandId, $0) })
+            let contributionsByID = Dictionary(
+                uniqueKeysWithValues: contributions.map { ($0.commandId, $0) }
+            )
             let unavailableContext = CommandPaletteContextSnapshot()
             var panelWithoutPaneContext = CommandPaletteContextSnapshot()
             panelWithoutPaneContext.setBool(CommandPaletteContextKeys.hasFocusedPanel, true)
@@ -25,32 +29,44 @@ final class RightSidebarCommandPaletteTests: XCTestCase {
 
             for mode in RightSidebarMode.availableModes() {
                 let commandID = ContentView.commandPaletteRightSidebarModeCommandID(mode)
-                let contribution = try XCTUnwrap(
-                    contributionsByID[commandID],
-                    "Expected command palette contribution for \(mode.rawValue)"
-                )
+                let contribution = try #require(contributionsByID[commandID])
 
-                XCTAssertEqual(contribution.title(availableContext), mode.shortcutAction?.label ?? mode.label)
-                XCTAssertEqual(
-                    contribution.subtitle(availableContext),
-                    String(localized: "command.rightSidebarMode.subtitle", defaultValue: "Right Sidebar")
+                #expect(
+                    contribution.title(availableContext)
+                        == (mode.shortcutAction?.label ?? mode.label)
                 )
-                XCTAssertTrue(contribution.keywords.contains("right"))
-                XCTAssertTrue(contribution.keywords.contains("sidebar"))
-                XCTAssertTrue(contribution.keywords.contains(mode.rawValue))
-                XCTAssertFalse(contribution.when(unavailableContext))
-                XCTAssertFalse(contribution.when(panelWithoutPaneContext))
-                XCTAssertTrue(contribution.when(availableContext))
-                XCTAssertTrue(contribution.enablement(availableContext))
+                #expect(
+                    contribution.subtitle(availableContext)
+                        == String(
+                            localized: "command.rightSidebarMode.subtitle",
+                            defaultValue: "Right Sidebar"
+                        )
+                )
+                #expect(contribution.keywords.contains("right"))
+                #expect(contribution.keywords.contains("sidebar"))
+                #expect(contribution.keywords.contains(mode.rawValue))
+                #expect(!contribution.when(unavailableContext))
+                #expect(!contribution.when(panelWithoutPaneContext))
+                #expect(contribution.when(availableContext))
+                #expect(contribution.enablement(availableContext))
             }
 
-            XCTAssertEqual(contributions.count, 3)
-            XCTAssertNil(contributionsByID[ContentView.commandPaletteRightSidebarModeCommandID(.feed)])
-            XCTAssertNil(contributionsByID[ContentView.commandPaletteRightSidebarModeCommandID(.dock)])
+            #expect(contributions.count == 3)
+            #expect(
+                contributionsByID[
+                    ContentView.commandPaletteRightSidebarModeCommandID(.feed)
+                ] == nil
+            )
+            #expect(
+                contributionsByID[
+                    ContentView.commandPaletteRightSidebarModeCommandID(.dock)
+                ] == nil
+            )
         }
     }
 
-    func testRightSidebarToolPaneActionsRequireCapturedPanel() {
+    @Test
+    func toolPaneActionsRequireCapturedPanelAndPane() {
         let contributions = ContentView.commandPaletteRightSidebarToolPaneCommandContributions()
         let unavailableContext = CommandPaletteContextSnapshot()
         var panelWithoutPaneContext = CommandPaletteContextSnapshot()
@@ -59,16 +75,17 @@ final class RightSidebarCommandPaletteTests: XCTestCase {
         availableContext.setBool(CommandPaletteContextKeys.hasFocusedPanel, true)
         availableContext.setBool(CommandPaletteContextKeys.panelHasPane, true)
 
-        XCTAssertFalse(contributions.isEmpty)
+        #expect(!contributions.isEmpty)
         for contribution in contributions {
-            XCTAssertFalse(contribution.when(unavailableContext))
-            XCTAssertFalse(contribution.when(panelWithoutPaneContext))
-            XCTAssertTrue(contribution.when(availableContext))
+            #expect(!contribution.when(unavailableContext))
+            #expect(!contribution.when(panelWithoutPaneContext))
+            #expect(contribution.when(availableContext))
         }
     }
 
+    @Test
     @MainActor
-    func testRightSidebarRejectionsBeepOnlyForCommandPaletteInvocations() {
+    func rejectionsBeepOnlyForCommandPaletteInvocations() {
         var beeps = 0
         let automationResult = ContentView.commandPaletteRightSidebarRejected(
             .targetUnavailable,
@@ -76,8 +93,8 @@ final class RightSidebarCommandPaletteTests: XCTestCase {
             beep: { beeps += 1 }
         )
 
-        XCTAssertEqual(automationResult, .targetUnavailable)
-        XCTAssertEqual(beeps, 0)
+        #expect(automationResult == .targetUnavailable)
+        #expect(beeps == 0)
 
         let paletteResult = ContentView.commandPaletteRightSidebarRejected(
             .targetUnavailable,
@@ -85,42 +102,50 @@ final class RightSidebarCommandPaletteTests: XCTestCase {
             beep: { beeps += 1 }
         )
 
-        XCTAssertEqual(paletteResult, .targetUnavailable)
-        XCTAssertEqual(beeps, 1)
+        #expect(paletteResult == .targetUnavailable)
+        #expect(beeps == 1)
     }
 
-    func testCommandPaletteRightSidebarActionsUseModeShortcutActions() {
+    @Test
+    func modeActionsUseModeShortcutActions() {
         withSavedBetaFeatureDefaults {
             let defaults = UserDefaults.standard
             defaults.set(true, forKey: RightSidebarBetaFeatureSettings.feedEnabledKey)
             defaults.set(true, forKey: RightSidebarBetaFeatureSettings.dockEnabledKey)
 
             for mode in RightSidebarMode.allCases {
-                XCTAssertEqual(
+                #expect(
                     ContentView.commandPaletteShortcutAction(
                         forCommandID: ContentView.commandPaletteRightSidebarModeCommandID(mode)
-                    ),
-                    mode.shortcutAction
+                    ) == mode.shortcutAction
                 )
             }
         }
     }
 
-    func testCommandPaletteUnreadActionsUseConfigurableShortcutActions() {
-        XCTAssertEqual(
-            ContentView.commandPaletteShortcutAction(forCommandID: "palette.toggleUnread"),
-            .toggleUnread
+    @Test
+    func unreadActionsUseConfigurableShortcutActions() {
+        #expect(
+            ContentView.commandPaletteShortcutAction(forCommandID: "palette.toggleUnread")
+                == .toggleUnread
         )
-        XCTAssertEqual(
-            ContentView.commandPaletteShortcutAction(forCommandID: "palette.markOldestUnreadAndJumpNext"),
-            .markOldestUnreadAndJumpNext
+        #expect(
+            ContentView.commandPaletteShortcutAction(
+                forCommandID: "palette.markOldestUnreadAndJumpNext"
+            ) == .markOldestUnreadAndJumpNext
         )
     }
 
-    private func withSavedBetaFeatureDefaults(_ body: () throws -> Void) rethrows {
+    private func withSavedBetaFeatureDefaults(
+        _ body: () throws -> Void
+    ) rethrows {
         let defaults = UserDefaults.standard
-        let previousFeed = defaults.object(forKey: RightSidebarBetaFeatureSettings.feedEnabledKey)
-        let previousDock = defaults.object(forKey: RightSidebarBetaFeatureSettings.dockEnabledKey)
+        let previousFeed = defaults.object(
+            forKey: RightSidebarBetaFeatureSettings.feedEnabledKey
+        )
+        let previousDock = defaults.object(
+            forKey: RightSidebarBetaFeatureSettings.dockEnabledKey
+        )
         defer {
             restore(previousFeed, forKey: RightSidebarBetaFeatureSettings.feedEnabledKey)
             restore(previousDock, forKey: RightSidebarBetaFeatureSettings.dockEnabledKey)
