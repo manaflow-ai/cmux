@@ -438,6 +438,23 @@ struct ComputerUseUXTests {
         ))
     }
 
+    @Test func trackedHelperTerminationRecoversWhenLaunchServicesDropsBundleMetadata() {
+        let helperURL = URL(
+            fileURLWithPath: "/Users/tester/Library/Application Support/cmux/computer-use/helper/tag/cmux Computer Use.app"
+        )
+
+        #expect(ComputerUseRuntimeService.shouldRecoverAfterHelperTermination(
+            desiredEnabled: true,
+            acceptsNewLaunches: true,
+            wasExpected: false,
+            isTrackedHelperProcess: true,
+            terminatedBundleIdentifier: nil,
+            terminatedBundleURL: nil,
+            helperBundleIdentifier: "com.cmuxterm.app.debug.tag.computer-use",
+            helperBundleURL: helperURL
+        ))
+    }
+
     @Test func untaggedRuntimeUsesBundleIdentityToIsolateAppVariants() {
         let production = ComputerUseRuntimePaths(
             homeDirectoryURL: URL(fileURLWithPath: "/Users/tester"),

@@ -366,6 +366,7 @@ final class ComputerUseRuntimeService {
         desiredEnabled: Bool,
         acceptsNewLaunches: Bool,
         wasExpected: Bool,
+        isTrackedHelperProcess: Bool = false,
         terminatedBundleIdentifier: String?,
         terminatedBundleURL: URL?,
         helperBundleIdentifier: String?,
