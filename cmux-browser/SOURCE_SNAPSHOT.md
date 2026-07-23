@@ -29,3 +29,24 @@ wrapper and documentation are not private snapshot material.
 The private archive retains the annotated tag above. The commit, tree, blob,
 and content IDs provide the reproducible identity needed to audit this slice
 without exposing private history.
+
+## Slice 2: terminal-host protocol core
+
+- Import date: 2026-07-22
+- Private candidate commit:
+  `0821bef9ec386799dc80f7ef67263d31461c2b4a`
+- Private candidate tree:
+  `8f65f11a28479674dcb1d0a20f849c2f00b6073c`
+- Private archive tag:
+  `cmux-browser-public-snapshot-20260722-slice1`
+- Provenance: Manaflow rights-controlled
+- License: GPL-3.0-or-later
+
+| Public path | Source blob | SHA-256 |
+| --- | --- | --- |
+| `overlay/chrome/services/cmux_terminal_renderer/public/cpp/cmux_terminal_host_protocol.h` | `445525a315a835bbc2a8c59f2ace1468f52c96c6` | `43f91660cba42c1519ec02e78d979fc7d188619f6f6db69576828b1e5abe843c` |
+| `overlay/chrome/services/cmux_terminal_renderer/public/cpp/cmux_terminal_host_protocol.cc` | `f702cda32c7ba7d54f1b29472ec16489e71487b1` | `d4576498c885b74174b1d88bfd23be0e44530bfdf9c17986ca7b87e45db9ffba` |
+| `overlay/chrome/services/cmux_terminal_renderer/public/cpp/cmux_terminal_host_protocol_test.cc` | `45ef259456208cdec0f87356d21f1003bbb226b4` | `02d21dd83c9fba65c28293145ccbcc252c9cb663d7036c43add70bd1001d2d97` |
+
+The three Slice 2 source files were copied byte-for-byte. The public-only
+host-test wrapper and documentation are not private snapshot material.
