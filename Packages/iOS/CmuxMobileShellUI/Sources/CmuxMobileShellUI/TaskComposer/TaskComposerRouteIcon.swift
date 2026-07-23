@@ -56,7 +56,7 @@ struct TaskComposerRouteLabel: View {
             Spacer(minLength: 0)
             Image(systemName: chevronSystemName)
                 .font(.caption2.weight(.bold))
-                .foregroundStyle(Color.secondary.opacity(0.55))
+                .foregroundStyle(.tertiary)
                 .accessibilityHidden(true)
         }
         .frame(maxWidth: .infinity, minHeight: 52, alignment: .leading)
