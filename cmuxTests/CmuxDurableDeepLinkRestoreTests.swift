@@ -311,6 +311,18 @@ struct CmuxDurableDeepLinkRestoreTests {
 
             var snapshot = liveWorkspace.sessionSnapshot(includeScrollback: false)
             snapshot.customTitle = "Restored cross-window workspace"
+            let panelSnapshot = try #require(snapshot.panels.first)
+            let panelRecordId = UUID()
+            ClosedItemHistoryStore.shared.push(ClosedItemHistoryRecord(
+                id: panelRecordId,
+                closedAt: Date(),
+                entry: .panel(ClosedPanelHistoryEntry(
+                    workspaceId: liveWorkspace.id,
+                    paneId: UUID(),
+                    tabIndex: 0,
+                    snapshot: panelSnapshot
+                ))
+            ))
             let recordId = UUID()
             ClosedItemHistoryStore.shared.push(ClosedItemHistoryRecord(
                 id: recordId,
@@ -334,6 +346,13 @@ struct CmuxDurableDeepLinkRestoreTests {
                 context.tabManager.tabs.map(\.id)
             }
             #expect(Set(allWorkspaceIds).count == allWorkspaceIds.count)
+            let panelRecord = try #require(ClosedItemHistoryStore.shared.removeRecord(id: panelRecordId)?.record)
+            guard case .panel(let panelEntry) = panelRecord.entry else {
+                Issue.record("Expected closed panel history record")
+                return
+            }
+            #expect(panelEntry.workspaceId == liveWorkspace.id)
+            #expect(panelEntry.workspaceId != restoredWorkspace.id)
             #expect(appDelegate.mainWindowContexts.values.contains { $0.windowId == liveWindowId })
         }
     }

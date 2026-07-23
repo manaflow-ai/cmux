@@ -4226,6 +4226,7 @@ class TabManager: ObservableObject {
         let preRestoreFocus = currentFocusHistoryEntry
         var reservedWorkspaceIds = callerExcludedWorkspaceIds
         reservedWorkspaceIds.formUnion(liveWorkspaceIdSet())
+        let sourceWorkspaceIdIsAmbiguous = reservedWorkspaceIds.contains(entry.workspaceId)
         var excludedStableIdentities = callerExcludedStableIdentities
         excludedStableIdentities.formUnion(liveStableIdentitySet())
         let identitySelector = WorkspaceSessionRestoreIdentity()
@@ -4264,11 +4265,13 @@ class TabManager: ObservableObject {
         // different group section after intervening reorders. Renormalize
         // so the restored member lands beside its group.
         let needsNormalize = workspace.groupId != nil && !workspaceGroups.isEmpty
-        ClosedItemHistoryStore.shared.remapPanelWorkspaceIds(
-            from: entry.workspaceId,
-            to: workspace.id,
-            panelIdMap: restoredPanelIds
-        )
+        if !sourceWorkspaceIdIsAmbiguous {
+            ClosedItemHistoryStore.shared.remapPanelWorkspaceIds(
+                from: entry.workspaceId,
+                to: workspace.id,
+                panelIdMap: restoredPanelIds
+            )
+        }
 
         if let currentIndex = tabs.firstIndex(where: { $0.id == workspace.id }) {
             let removed = tabs.remove(at: currentIndex)
