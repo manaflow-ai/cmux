@@ -1027,6 +1027,58 @@ struct GhostMainWindowContextLifecycleTests {
         }
     }
 
+    @Test("Stale context key exact owner can commit its close")
+    func staleContextKeyExactOwnerCanCommitItsClose() throws {
+        _ = NSApplication.shared
+        let previousAppDelegate = AppDelegate.shared
+        let app = AppDelegate()
+        defer {
+            TerminalController.shared.setActiveTabManager(nil)
+            AppDelegate.shared = previousAppDelegate
+        }
+
+        let windowId = UUID()
+        let window = makeMainWindow(id: windowId)
+        let manager = TabManager()
+        let workspace = try #require(manager.selectedWorkspace)
+        let terminalPanel = try #require(workspace.focusedTerminalPanel)
+        defer {
+            app.unregisterMainWindowContextForTesting(windowId: windowId)
+            if !manager.isFinalizedForWindowClose {
+                manager.finalizeAllWorkspacesForWindowClose()
+            }
+            workspace.teardownAllPanels()
+            workspace.teardownRemoteConnection()
+            window.orderOut(nil)
+        }
+
+        app.registerMainWindow(
+            window,
+            windowId: windowId,
+            tabManager: manager,
+            sidebarState: SidebarState(),
+            sidebarSelectionState: SidebarSelectionState(),
+            fileExplorerState: FileExplorerState()
+        )
+        window.makeKeyAndOrderFront(nil)
+
+#if DEBUG
+        let injectedMismatch = app.debugInjectWindowContextKeyMismatch(windowId: windowId)
+        #expect(injectedMismatch)
+        guard injectedMismatch else { return }
+#else
+        Issue.record("debugInjectWindowContextKeyMismatch requires a Debug test host")
+        return
+#endif
+
+        #expect(app.commitMainWindowClose(window))
+        #expect(!app.mainWindowContexts.values.contains { $0.windowId == windowId })
+        #expect(manager.isFinalizedForWindowClose)
+        #expect(manager.tabs.isEmpty)
+        #expect(workspace.isRetiredFromOwningTabManager)
+        #expect(GhosttyApp.terminalSurfaceRegistry.surface(id: terminalPanel.id) == nil)
+    }
+
     @Test("Ordered-out recoverable owner can commit its close")
     func orderedOutRecoverableOwnerCanCommitItsClose() throws {
         _ = NSApplication.shared
