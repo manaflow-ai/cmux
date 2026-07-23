@@ -10,6 +10,7 @@ use base64::Engine as _;
 use base64::engine::general_purpose::STANDARD_NO_PAD;
 use serde::de::Error as _;
 use serde::{Deserialize, Deserializer, Serialize, Serializer};
+use subtle::ConstantTimeEq;
 use zeroize::Zeroize;
 
 pub const PROTOCOL_NAME: &str = "cmux.machine-agent";
@@ -20,6 +21,8 @@ pub const MAX_STREAM_WINDOW_BYTES: u32 = 1024 * 1024;
 pub const MAX_ACTIVE_STREAMS: usize = 64;
 pub const MAX_RECENT_OPEN_IDS: usize = 1024;
 pub const MAX_RECENT_MIGRATIONS: usize = 64;
+pub const MIN_HEARTBEAT_INTERVAL_MS: u64 = 1_000;
+pub const MAX_HEARTBEAT_INTERVAL_MS: u64 = 60_000;
 
 const MAX_ID_BYTES: usize = 128;
 const MAX_SESSION_BYTES: usize = 128;
@@ -68,6 +71,18 @@ macro_rules! impl_redacted_secret {
         }
 
         impl_string_serde!($type);
+    };
+}
+
+macro_rules! impl_constant_time_eq {
+    ($type:ty) => {
+        impl PartialEq for $type {
+            fn eq(&self, other: &Self) -> bool {
+                bool::from(self.0.as_bytes().ct_eq(other.0.as_bytes()))
+            }
+        }
+
+        impl Eq for $type {}
     };
 }
 
@@ -184,7 +199,41 @@ pub struct Registered {
     pub generation: u64,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub pairing_code: Option<PairingCode>,
-    pub heartbeat_interval_ms: u64,
+    pub heartbeat_interval_ms: HeartbeatIntervalMs,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord)]
+pub struct HeartbeatIntervalMs(u64);
+
+impl HeartbeatIntervalMs {
+    pub fn new(value: u64) -> Result<Self, InvalidValue> {
+        (MIN_HEARTBEAT_INTERVAL_MS..=MAX_HEARTBEAT_INTERVAL_MS)
+            .contains(&value)
+            .then_some(Self(value))
+            .ok_or(InvalidValue)
+    }
+
+    pub fn get(self) -> u64 {
+        self.0
+    }
+}
+
+impl Serialize for HeartbeatIntervalMs {
+    fn serialize<S>(&self, serializer: S) -> Result<S::Ok, S::Error>
+    where
+        S: Serializer,
+    {
+        serializer.serialize_u64(self.0)
+    }
+}
+
+impl<'de> Deserialize<'de> for HeartbeatIntervalMs {
+    fn deserialize<D>(deserializer: D) -> Result<Self, D::Error>
+    where
+        D: Deserializer<'de>,
+    {
+        Self::new(u64::deserialize(deserializer)?).map_err(D::Error::custom)
+    }
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
@@ -345,7 +394,7 @@ impl fmt::Debug for AgentVersion {
 
 impl_string_serde!(AgentVersion);
 
-#[derive(Clone, PartialEq, Eq)]
+#[derive(Clone)]
 pub struct MachineSecret(String);
 
 impl MachineSecret {
@@ -365,8 +414,9 @@ impl MachineSecret {
 }
 
 impl_redacted_secret!(MachineSecret);
+impl_constant_time_eq!(MachineSecret);
 
-#[derive(Clone, PartialEq, Eq, Hash)]
+#[derive(Clone)]
 pub struct MigrationToken(String);
 
 impl MigrationToken {
@@ -386,8 +436,9 @@ impl MigrationToken {
 }
 
 impl_redacted_secret!(MigrationToken);
+impl_constant_time_eq!(MigrationToken);
 
-#[derive(Clone, PartialEq, Eq)]
+#[derive(Clone)]
 pub struct PairingCode(String);
 
 impl PairingCode {
@@ -413,6 +464,7 @@ impl PairingCode {
 }
 
 impl_redacted_secret!(PairingCode);
+impl_constant_time_eq!(PairingCode);
 
 #[derive(Clone, PartialEq, Eq)]
 pub struct ErrorCode(String);
@@ -624,6 +676,22 @@ mod tests {
         assert!(PairingCode::new("CODE\n123").is_err());
         assert!(OpaqueId::new("x".repeat(MAX_ID_BYTES + 1)).is_err());
         assert!(SessionName::new("../agents").is_err());
+        assert!(HeartbeatIntervalMs::new(MIN_HEARTBEAT_INTERVAL_MS - 1).is_err());
+        assert!(HeartbeatIntervalMs::new(MAX_HEARTBEAT_INTERVAL_MS + 1).is_err());
+
+        let busy_loop_heartbeat = json!({
+            "protocol": "cmux.machine-agent",
+            "version": 1,
+            "message": {
+                "type": "registered",
+                "body": {
+                    "machine_id": "machine-1",
+                    "generation": 1,
+                    "heartbeat_interval_ms": 0
+                }
+            }
+        });
+        assert!(serde_json::from_value::<Envelope>(busy_loop_heartbeat).is_err());
 
         let oversized_payload = json!({
             "protocol": "cmux.machine-agent",
@@ -640,13 +708,24 @@ mod tests {
     }
 
     #[test]
+    fn credential_wrappers_compare_without_exposing_values() {
+        assert_eq!(secret(), secret());
+        assert_ne!(secret(), MachineSecret::new("fedcba9876543210fedcba9876543210").unwrap());
+        assert_eq!(
+            MigrationToken::new("migration-token-1234").unwrap(),
+            MigrationToken::new("migration-token-1234").unwrap()
+        );
+        assert_ne!(PairingCode::new("ABCD-EFGH").unwrap(), PairingCode::new("WXYZ-1234").unwrap());
+    }
+
+    #[test]
     fn every_message_round_trips() {
         let messages = vec![
             Message::Registered(Registered {
                 machine_id: id("machine-1"),
                 generation: 4,
                 pairing_code: Some(PairingCode::new("ABCD-EFGH").unwrap()),
-                heartbeat_interval_ms: 1_000,
+                heartbeat_interval_ms: HeartbeatIntervalMs::new(1_000).unwrap(),
             }),
             Message::ReconnectGeneration(ReconnectGeneration {
                 generation: 5,

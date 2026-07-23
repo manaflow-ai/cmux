@@ -22,8 +22,8 @@ use super::transport::{
 };
 
 const HANDSHAKE_TIMEOUT: Duration = Duration::from_secs(10);
-const MIN_HEARTBEAT: Duration = Duration::from_millis(100);
-const MAX_HEARTBEAT: Duration = Duration::from_secs(60);
+const MIN_HEARTBEAT: Duration = Duration::from_millis(protocol::MIN_HEARTBEAT_INTERVAL_MS);
+const MAX_HEARTBEAT: Duration = Duration::from_millis(protocol::MAX_HEARTBEAT_INTERVAL_MS);
 const EVENT_QUEUE_CAPACITY: usize = 128;
 const RECONNECT_BASE: Duration = Duration::from_millis(250);
 const RECONNECT_MAX: Duration = Duration::from_secs(30);
@@ -295,7 +295,7 @@ impl MachineAgent {
             control.close();
             anyhow::bail!("machine-agent registration changed the machine identity");
         }
-        let heartbeat = Duration::from_millis(registered.heartbeat_interval_ms);
+        let heartbeat = Duration::from_millis(registered.heartbeat_interval_ms.get());
         if !(MIN_HEARTBEAT..=MAX_HEARTBEAT).contains(&heartbeat) {
             control.close();
             anyhow::bail!("machine-agent registration supplied an invalid heartbeat interval");
@@ -1091,7 +1091,7 @@ mod tests {
             machine_id: OpaqueId::new("machine-test").unwrap(),
             generation,
             pairing_code: code.map(|code| PairingCode::new(code).unwrap()),
-            heartbeat_interval_ms: 500,
+            heartbeat_interval_ms: protocol::HeartbeatIntervalMs::new(1_000).unwrap(),
         })
     }
 
@@ -1190,7 +1190,7 @@ mod tests {
         let (cloud, mut servers) = QueueCloud::new();
         let mut idle = WirePeer::new(servers.remove(0));
         let mut replacement = WirePeer::new(servers.remove(0));
-        replacement.reader.get_ref().set_read_timeout(Some(Duration::from_secs(2))).unwrap();
+        replacement.reader.get_ref().set_read_timeout(Some(Duration::from_secs(5))).unwrap();
         let local = Arc::new(QueueLocal { streams: Mutex::new(VecDeque::new()) });
         let stop = AtomicStop::new();
         let agent = MachineAgent::new(
@@ -1209,7 +1209,7 @@ mod tests {
             machine_id: OpaqueId::new("machine-test").unwrap(),
             generation: 1,
             pairing_code: None,
-            heartbeat_interval_ms: 100,
+            heartbeat_interval_ms: protocol::HeartbeatIntervalMs::new(1_000).unwrap(),
         }));
         assert!(matches!(idle.read().message, Message::Ping(_)));
         let Message::Hello(reconnected) = replacement.read().message else {

@@ -64,7 +64,7 @@ If replacement registration fails, the agent sends `generation_rejected` and res
 
 ## Local state
 
-The default identity is stored in the private `machine-agent/identity.json` directory beside the normal cmux config. `--state` selects another path. A missing state directory is created with mode 0700. Existing directories must be owned by the current user and inaccessible to group and others.
+The default identity is stored in `identity.json` inside the private `machine-agent/` directory beside the normal cmux config. `--state` selects another file path. A missing parent state directory is created with mode 0700. Existing directories must be owned by the current user and inaccessible to group and others.
 
 The identity file contains only schema version, machine id, and machine secret. It must be a current-user-owned regular file with mode 0600 and exactly one link. Symlinks and hard links are rejected. A process-lifetime nonblocking lock keyed by machine id and session prevents two agents from flapping one registration.
 

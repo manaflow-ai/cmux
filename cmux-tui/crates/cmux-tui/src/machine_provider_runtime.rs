@@ -24,7 +24,9 @@ use crate::machine::{
 };
 #[cfg(test)]
 use crate::machine_provider_client::UnixProviderConnector;
-use crate::machine_provider_client::{MachineProviderConnector, ProviderClient};
+use crate::machine_provider_client::{
+    MachineProviderConnector, ProviderClient, ProviderClientError,
+};
 use crate::machine_runtime::MachineRuntime;
 use crate::session::{RemoteSession, Session};
 
@@ -1148,8 +1150,16 @@ impl ProviderMachineRuntime {
     }
 
     fn connect_external_enabled(&self) -> anyhow::Result<bool> {
-        Ok(self.snapshot.capabilities.connect_external_machine
-            && self.client.supports_capability(protocol::EXTERNAL_MACHINE_CONNECT_CAPABILITY)?)
+        if !self.snapshot.capabilities.connect_external_machine {
+            return Ok(false);
+        }
+        match self.client.supports_capability(protocol::EXTERNAL_MACHINE_CONNECT_CAPABILITY) {
+            Ok(enabled) => Ok(enabled),
+            Err(ProviderClientError::Disconnected | ProviderClientError::NotAuthenticated) => {
+                Ok(false)
+            }
+            Err(error) => Err(error.into()),
+        }
     }
 
     fn next_mutation_id(&self) -> anyhow::Result<protocol::OpaqueId> {
@@ -2925,6 +2935,47 @@ mod tests {
         );
         controller.close();
         server.join().unwrap();
+    }
+
+    #[test]
+    fn disconnected_provider_external_connect_falls_back_to_local_validation() {
+        let socket = TestProviderSocket::bind();
+        let listener = socket.listener();
+        let (disconnect, disconnect_now) = mpsc::channel();
+        let server = thread::spawn(move || {
+            let (_stream, _reader) = serve_initial_snapshot_with_capabilities(
+                &listener,
+                snapshot(1, "Existing", protocol::MachineStatus::Running),
+                &[protocol::EXTERNAL_MACHINE_CONNECT_CAPABILITY],
+            );
+            disconnect_now.recv().unwrap();
+        });
+
+        let provider = ProviderMachineRuntime::connect(&socket.path, token()).unwrap();
+        disconnect.send(()).unwrap();
+        server.join().unwrap();
+        let deadline = std::time::Instant::now() + Duration::from_secs(2);
+        while provider.client.is_live() && std::time::Instant::now() < deadline {
+            thread::yield_now();
+        }
+        assert!(!provider.client.is_live(), "provider reader did not observe disconnect");
+        let mut controller = ProviderMachineController {
+            provider,
+            local: MachineRuntime::external(Vec::new(), true),
+            active_local: None,
+            pending_active_local: None,
+        };
+
+        let Err(error) = controller.perform_request(MachineRequest::Connect("PAIR 4J7K".into()))
+        else {
+            panic!("disconnected provider unexpectedly handled local connect input");
+        };
+
+        assert_eq!(
+            error.to_string(),
+            "machine address must be a host or user@host without whitespace"
+        );
+        controller.close();
     }
 
     #[test]

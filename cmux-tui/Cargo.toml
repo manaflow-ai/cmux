@@ -52,6 +52,7 @@ bindgen = "0.72"
 smallvec = "1"
 getrandom = "0.3"
 zeroize = "1.9"
+subtle = "2.6.1"
 
 [profile.release]
 lto = "thin"

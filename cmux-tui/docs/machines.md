@@ -86,10 +86,17 @@ Start a persistent local session in one terminal or service supervisor:
 npx cmux --headless --session agents
 ```
 
-Start its outbound agent in another terminal:
+First verify Cloud host trust and authentication once, then exit back to your local shell:
 
 ```bash
 ssh cmux.cloud
+```
+
+Quit the Cloud TUI so SSH returns to your local shell.
+
+Start the outbound agent from another local terminal:
+
+```bash
 npx cmux machine-agent --session agents
 ```
 

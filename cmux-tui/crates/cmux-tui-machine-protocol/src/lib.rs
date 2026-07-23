@@ -12,6 +12,7 @@ use std::fmt;
 use serde::de::Error as _;
 use serde::ser::SerializeMap as _;
 use serde::{Deserialize, Deserializer, Serialize, Serializer};
+use subtle::ConstantTimeEq;
 use zeroize::Zeroize;
 
 pub const PROTOCOL_NAME: &str = "cmux.machine-provider";
@@ -96,7 +97,7 @@ impl std::error::Error for InvalidOpaqueId {}
 /// Debug output is redacted because a pairing code can be a bearer
 /// credential. Internal whitespace is retained so providers can define their
 /// own human-readable pairing-code format.
-#[derive(Clone, PartialEq, Eq)]
+#[derive(Clone)]
 pub struct ExternalMachineSpecifier(String);
 
 impl ExternalMachineSpecifier {
@@ -126,6 +127,14 @@ impl Drop for ExternalMachineSpecifier {
         self.0.zeroize();
     }
 }
+
+impl PartialEq for ExternalMachineSpecifier {
+    fn eq(&self, other: &Self) -> bool {
+        bool::from(self.0.as_bytes().ct_eq(other.0.as_bytes()))
+    }
+}
+
+impl Eq for ExternalMachineSpecifier {}
 
 impl Serialize for ExternalMachineSpecifier {
     fn serialize<S>(&self, serializer: S) -> Result<S::Ok, S::Error>
@@ -160,7 +169,7 @@ impl fmt::Display for InvalidExternalMachineSpecifier {
 impl std::error::Error for InvalidExternalMachineSpecifier {}
 
 /// A bearer credential. Debug output is deliberately redacted.
-#[derive(Clone, PartialEq, Eq)]
+#[derive(Clone)]
 pub struct BearerToken(String);
 
 impl BearerToken {
@@ -192,6 +201,14 @@ impl Drop for BearerToken {
         self.0.zeroize();
     }
 }
+
+impl PartialEq for BearerToken {
+    fn eq(&self, other: &Self) -> bool {
+        bool::from(self.0.as_bytes().ct_eq(other.0.as_bytes()))
+    }
+}
+
+impl Eq for BearerToken {}
 
 impl Serialize for BearerToken {
     fn serialize<S>(&self, serializer: S) -> Result<S::Ok, S::Error>
@@ -1053,6 +1070,14 @@ mod tests {
 
     fn specifier(value: &str) -> ExternalMachineSpecifier {
         ExternalMachineSpecifier::new(value).unwrap()
+    }
+
+    #[test]
+    fn credential_wrappers_compare_without_exposing_values() {
+        assert_eq!(token("single-use-ticket"), token("single-use-ticket"));
+        assert_ne!(token("single-use-ticket"), token("different-ticket"));
+        assert_eq!(specifier("PAIR 4J7K"), specifier("PAIR 4J7K"));
+        assert_ne!(specifier("PAIR 4J7K"), specifier("PAIR 9Q2M"));
     }
 
     fn empty_snapshot() -> SnapshotResult {

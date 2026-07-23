@@ -9,6 +9,7 @@ publish.workspace = true
 [dependencies]
 base64.workspace = true
 serde.workspace = true
+subtle.workspace = true
 zeroize.workspace = true
 
 [dev-dependencies]

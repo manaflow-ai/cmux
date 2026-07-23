@@ -28,10 +28,56 @@ struct StoredIdentity {
 pub(super) fn load_or_create(path: &Path) -> anyhow::Result<MachineIdentity> {
     ensure_private_parent(path)?;
     match fs::symlink_metadata(path) {
-        Ok(_) => load(path),
+        Ok(_) => {
+            remove_orphaned_temporary_links(path)?;
+            load(path)
+        }
         Err(error) if error.kind() == io::ErrorKind::NotFound => create(path),
         Err(error) => Err(error.into()),
     }
+}
+
+fn remove_orphaned_temporary_links(path: &Path) -> anyhow::Result<()> {
+    let target = fs::symlink_metadata(path)?;
+    if !target.file_type().is_file()
+        || target.uid() != unsafe { libc::geteuid() }
+        || target.permissions().mode() & 0o777 != 0o600
+    {
+        return Ok(());
+    }
+    let parent =
+        path.parent().ok_or_else(|| anyhow::anyhow!("machine-agent state path has no parent"))?;
+    let file_name =
+        path.file_name().ok_or_else(|| anyhow::anyhow!("machine-agent state path has no name"))?;
+    let prefix = format!(".{}.", file_name.to_string_lossy());
+    let suffix = ".tmp";
+    let mut removed = false;
+    for entry in fs::read_dir(parent)? {
+        let entry = entry?;
+        let name = entry.file_name();
+        let name = name.to_string_lossy();
+        if !name.starts_with(&prefix)
+            || !name.ends_with(suffix)
+            || name.len() <= prefix.len() + suffix.len()
+        {
+            continue;
+        }
+        let candidate = fs::symlink_metadata(entry.path())?;
+        if candidate.file_type().is_file()
+            && candidate.dev() == target.dev()
+            && candidate.ino() == target.ino()
+        {
+            match fs::remove_file(entry.path()) {
+                Ok(()) => removed = true,
+                Err(error) if error.kind() == io::ErrorKind::NotFound => {}
+                Err(error) => return Err(error.into()),
+            }
+        }
+    }
+    if removed {
+        sync_directory(parent)?;
+    }
+    Ok(())
 }
 
 fn load(path: &Path) -> anyhow::Result<MachineIdentity> {
@@ -298,6 +344,24 @@ mod tests {
         fs::rename(&state.path, &target).unwrap();
         symlink(&target, &state.path).unwrap();
         assert!(load_or_create(&state.path).is_err());
+    }
+
+    #[test]
+    fn identity_recovers_only_its_orphaned_temporary_hardlinks() {
+        let state = test_state("orphaned-temporary-link");
+        let identity = load_or_create(&state.path).unwrap();
+        let orphan = state.directory.join(".identity.json.crashed.tmp");
+        fs::hard_link(&state.path, &orphan).unwrap();
+        assert_eq!(fs::metadata(&state.path).unwrap().nlink(), 2);
+
+        assert_eq!(load_or_create(&state.path).unwrap(), identity);
+        assert!(!orphan.exists());
+        assert_eq!(fs::metadata(&state.path).unwrap().nlink(), 1);
+
+        let unrelated = state.directory.join(".identity.json.unrelated.tmp");
+        OpenOptions::new().write(true).create_new(true).mode(0o600).open(&unrelated).unwrap();
+        assert_eq!(load_or_create(&state.path).unwrap(), identity);
+        assert!(unrelated.exists());
     }
 
     #[test]
