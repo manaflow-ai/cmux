@@ -18,6 +18,15 @@ struct RemoteTmuxControlStreamParser {
     private let maxBufferedLineBytes: Int
     private let maxCommandBlockBytes: Int
     private var buffer: [UInt8] = []
+
+    /// Bytes received since the last newline, decoded.
+    ///
+    /// Exposed because before control mode an unterminated line is the shape of a prompt: something
+    /// written without a newline because it is waiting to be answered. `feed` only emits a message on
+    /// a newline, so a bare `Passcode: ` otherwise sits here unseen — which is exactly the case a
+    /// transport that authenticates itself produces, and the reason such a stream used to fail with
+    /// nothing to explain it.
+    var unterminatedTail: String { String(decoding: buffer, as: UTF8.self) }
     private var inBlock = false
     /// Whether control mode has been entered. Entering happens once per stream, so the scan for
     /// the enter DCS stops after it — searching later lines could match a DCS that is genuinely

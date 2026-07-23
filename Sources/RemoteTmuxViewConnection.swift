@@ -31,6 +31,12 @@ final class RemoteTmuxViewConnection {
     private(set) var connection: RemoteTmuxControlConnection?
     /// The current regrouped workspaces (home session → ordered window ids).
     private(set) var workspaces: [RemoteTmuxLinkedWorkspaceModel.Workspace] = []
+    /// Whether the stream this view last carried ended waiting for credentials.
+    ///
+    /// Latched rather than read on demand: by the time a caller gives up waiting, `connection` is
+    /// already nil, so asking it what happened returns nothing. Measured — an earlier version of this
+    /// check read through the live connection and found `conn=nil` every time.
+    private(set) var lastStreamAwaitedCredentials = false
     /// Fires after `workspaces` changes (the controller rebuilds cmux workspaces).
     var onWorkspacesChanged: (() -> Void)?
     /// Fires when the view connection permanently ends.
@@ -176,6 +182,7 @@ final class RemoteTmuxViewConnection {
         // than a single mirror. `detachThenStop` degrades to a plain stop when the transport does not
         // need it or the stream is already past `.connected`, so this is safe on every path that
         // stops a view.
+        latchCredentialVerdict()
         connection?.detachThenStop()
         connection = nil
         resolveFirstWorkspacesWaiters(false)
@@ -625,9 +632,22 @@ final class RemoteTmuxViewConnection {
         // once (it discards the window).
         guard !isStopped else { return }
         isStopped = true
+        latchCredentialVerdict()
         workspaces = []
         resolveFirstWorkspacesWaiters(false)
         onEnded?()
+    }
+
+    /// Installs a connection without starting a stream, so the teardown path is drivable in a test.
+    func adoptConnectionForTesting(_ connection: RemoteTmuxControlConnection) {
+        self.connection = connection
+    }
+
+    /// Records whether the stream was waiting for credentials, while the connection still exists to
+    /// be asked. Only ever latches true: a later teardown must not erase the reason for the first one.
+    private func latchCredentialVerdict() {
+        guard let connection, connection.isAwaitingCredentials else { return }
+        lastStreamAwaitedCredentials = true
     }
 
     private func quoted(_ v: String) -> String { RemoteTmuxHost.shellSingleQuoted(v) }

@@ -274,6 +274,13 @@ final class RemoteTmuxControlConnection {
     /// unreachable". Reset at the start of each spawn.
     private var stderrBuffer = ""
     private var preControlOutputBuffer = ""
+    /// Whether the bytes before control mode are an unanswered credential prompt: a transport waiting
+    /// for a passcode it has no terminal to ask on.
+    var isAwaitingCredentials: Bool {
+        guard !enterReceived else { return false }
+        return RemoteTmuxSSHTransport.indicatesUnansweredCredentialPrompt(
+            preControlOutputBuffer + parser.unterminatedTail)
+    }
     /// Last client size applied via ``setClientSize(columns:rows:)``, re-applied
     /// after a reconnect so the resumed session keeps the mirror's grid instead of
     /// reverting to ssh's default 80×24.
@@ -949,7 +956,12 @@ final class RemoteTmuxControlConnection {
         }
     }
 
-    private func ingest(_ data: Data) {
+    /// Feeds stream bytes through this connection's own parser.
+    ///
+    /// Internal rather than private so a test can drive the real path: the pre-control credential
+    /// check reads the parser's unterminated tail, and a test that brings its own parser would not
+    /// exercise it.
+    func ingest(_ data: Data) {
         for message in parser.feed(data) {
             handle(message)
         }
@@ -1398,7 +1410,12 @@ final class RemoteTmuxControlConnection {
         case .ignoredNotification:
             break
         case let .unparsed(line):
-            if connectionState == .reconnecting, !enterReceived {
+            // Both phases, not just reconnecting. A first attach needs this as much as a reconnect:
+            // a transport that authenticates itself never reports a failure, it prints a prompt and
+            // waits, and that prompt is the only evidence it produces. Gated to `.reconnecting` the
+            // buffer was always empty on a first attach, so a credential check against it could not
+            // be true wherever it was placed — measured, after three fixes that never fired.
+            if connectionState == .reconnecting || connectionState == .connecting, !enterReceived {
                 preControlOutputBuffer += line + "\n"
                 if preControlOutputBuffer.utf8.count > Self.maxStderrBytes {
                     preControlOutputBuffer = String(
