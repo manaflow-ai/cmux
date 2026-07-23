@@ -106,7 +106,13 @@ extension AppDelegate {
                 workspaceEntry.windowId.flatMap { tabManagerFor(windowId: $0) }
                 ?? preferredTabManager
                 ?? tabManager
-            guard let manager, manager.restoreClosedWorkspace(workspaceEntry) else {
+            guard let manager,
+                  manager.restoreClosedWorkspace(
+                    workspaceEntry,
+                    excludingStableIdentities: liveStableIdentitySet(),
+                    excludingWorkspaceIds: liveWorkspaceIdSet()
+                  )
+            else {
                 return false
             }
             activateMainWindowIfNeeded(for: manager, shouldActivate: shouldActivate)

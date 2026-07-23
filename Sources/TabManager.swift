@@ -4218,10 +4218,16 @@ class TabManager: ObservableObject {
     }
 
     @discardableResult
-    func restoreClosedWorkspace(_ entry: ClosedWorkspaceHistoryEntry) -> Bool {
+    func restoreClosedWorkspace(
+        _ entry: ClosedWorkspaceHistoryEntry,
+        excludingStableIdentities callerExcludedStableIdentities: Set<UUID> = [],
+        excludingWorkspaceIds callerExcludedWorkspaceIds: Set<UUID> = []
+    ) -> Bool {
         let preRestoreFocus = currentFocusHistoryEntry
-        var reservedWorkspaceIds = liveWorkspaceIdSet()
-        let excludedStableIdentities = liveStableIdentitySet()
+        var reservedWorkspaceIds = callerExcludedWorkspaceIds
+        reservedWorkspaceIds.formUnion(liveWorkspaceIdSet())
+        var excludedStableIdentities = callerExcludedStableIdentities
+        excludedStableIdentities.formUnion(liveStableIdentitySet())
         let identitySelector = WorkspaceSessionRestoreIdentity()
         let restoredWorkspaceId = identitySelector.restoredWorkspaceId(
             persistedWorkspaceId: entry.snapshot.workspaceId,

@@ -285,6 +285,59 @@ struct CmuxDurableDeepLinkRestoreTests {
         #expect(!restoredWorkspace.panels.values.contains { $0.stableSurfaceId == liveStableSurfaceId })
     }
 
+    @Test func closedWorkspaceRestoreThroughAppDelegateExcludesOtherWindowWorkspaceIds() async throws {
+        try await AppContextSerialGate.withExclusiveAppContext {
+            let previousAppDelegate = AppDelegate.shared
+            let appDelegate = AppDelegate()
+            AppDelegate.shared = appDelegate
+            ClosedItemHistoryStore.shared.removeAll()
+            defer {
+                for context in Array(appDelegate.mainWindowContexts.values) {
+                    appDelegate.unregisterMainWindowContextForTesting(windowId: context.windowId)
+                }
+                ClosedItemHistoryStore.shared.removeAll()
+                AppDelegate.shared = previousAppDelegate
+            }
+
+            let liveManager = TabManager()
+            let liveWorkspace = try #require(liveManager.selectedWorkspace)
+            liveWorkspace.setCustomTitle("Live workspace in another window")
+            let liveWindowId = appDelegate.registerMainWindowContextForTesting(tabManager: liveManager)
+
+            let targetManager = TabManager()
+            let targetWorkspace = try #require(targetManager.selectedWorkspace)
+            targetWorkspace.setCustomTitle("Target window workspace")
+            let targetWindowId = appDelegate.registerMainWindowContextForTesting(tabManager: targetManager)
+
+            var snapshot = liveWorkspace.sessionSnapshot(includeScrollback: false)
+            snapshot.customTitle = "Restored cross-window workspace"
+            let recordId = UUID()
+            ClosedItemHistoryStore.shared.push(ClosedItemHistoryRecord(
+                id: recordId,
+                closedAt: Date(),
+                entry: .workspace(ClosedWorkspaceHistoryEntry(
+                    workspaceId: liveWorkspace.id,
+                    windowId: targetWindowId,
+                    workspaceIndex: targetManager.tabs.count,
+                    snapshot: snapshot
+                ))
+            ))
+
+            #expect(appDelegate.reopenClosedHistoryItem(id: recordId, shouldActivate: false))
+
+            let restoredWorkspace = try #require(
+                targetManager.tabs.first { $0.customTitle == "Restored cross-window workspace" }
+            )
+            #expect(restoredWorkspace.id != liveWorkspace.id)
+            #expect(restoredWorkspace.stableId != liveWorkspace.stableId)
+            let allWorkspaceIds = appDelegate.mainWindowContexts.values.flatMap { context in
+                context.tabManager.tabs.map(\.id)
+            }
+            #expect(Set(allWorkspaceIds).count == allWorkspaceIds.count)
+            #expect(appDelegate.mainWindowContexts.values.contains { $0.windowId == liveWindowId })
+        }
+    }
+
     @Test func closedWindowRestoreWithLiveIdentityMintsFreshStableIds() async throws {
         try await AppContextSerialGate.withExclusiveAppContext {
             let previousAppDelegate = AppDelegate.shared
