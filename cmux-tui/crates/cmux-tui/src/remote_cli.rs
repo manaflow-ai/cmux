@@ -1793,6 +1793,40 @@ esac
     }
 
     #[test]
+    fn unsupported_future_route_does_not_block_supported_fallback() {
+        let routes = [
+            "future+quic://user:secret@future.example/capability?ticket=secret".to_string(),
+            "wss://supported.example/v1/link".to_string(),
+        ];
+
+        let candidates =
+            resolve_route_candidates(&routes, &BTreeMap::new(), &test_provider_registry()).unwrap();
+
+        assert_eq!(candidates.len(), 1);
+        assert_eq!(candidates[0].endpoint.as_str(), "wss://supported.example/v1/link");
+    }
+
+    #[test]
+    fn unsupported_routes_report_schemes_without_endpoint_secrets() {
+        let routes = [
+            "future+quic://user:password@future.example/private-capability?ticket=route-secret"
+                .to_string(),
+            "next+tcp://other.example/another-secret".to_string(),
+        ];
+
+        let error = resolve_route_candidates(&routes, &BTreeMap::new(), &test_provider_registry())
+            .err()
+            .expect("unsupported routes should fail");
+        let message = error.to_string();
+
+        assert!(message.contains("future+quic"));
+        assert!(message.contains("next+tcp"));
+        for secret in ["user", "password", "private-capability", "route-secret", "another-secret"] {
+            assert!(!message.contains(secret), "{secret:?} leaked in {message:?}");
+        }
+    }
+
+    #[test]
     fn parse_lane_policy_and_relay_flags() {
         let args = [
             "wss://host/v1/link",
