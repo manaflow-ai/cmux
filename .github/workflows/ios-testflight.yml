@@ -55,33 +55,49 @@ jobs:
               const currentRunId = Number(context.runId);
               const maxWaits = 300;
               for (let wait = 0; wait < maxWaits; wait += 1) {
-                const runs = await github.rest.actions.listWorkflowRuns({
-                  owner,
-                  repo,
-                  workflow_id: 'ios-testflight.yml',
-                  branch: 'main',
-                  per_page: 100,
-                });
-                const earlierActiveRuns = runs.data.workflow_runs.filter(
-                  (run) =>
-                    Number(run.id) < currentRunId &&
-                    run.status !== 'completed' &&
-                    ['push', 'workflow_dispatch', 'schedule'].includes(run.event)
-                );
                 const blockingRuns = [];
-                for (const run of earlierActiveRuns) {
-                  const jobs = await github.rest.actions.listJobsForWorkflowRun({
+                try {
+                  const runs = await github.rest.actions.listWorkflowRuns({
                     owner,
                     repo,
-                    run_id: run.id,
+                    workflow_id: 'ios-testflight.yml',
+                    branch: 'main',
                     per_page: 100,
                   });
-                  const uploadJob = jobs.data.jobs.find(
-                    (job) => job.name === 'Upload to TestFlight'
+                  const earlierActiveRuns = runs.data.workflow_runs.filter(
+                    (run) =>
+                      Number(run.id) < currentRunId &&
+                      run.status !== 'completed' &&
+                      ['push', 'workflow_dispatch', 'schedule'].includes(run.event)
                   );
-                  if (!uploadJob || uploadJob.status !== 'completed') {
-                    blockingRuns.push(run.id);
+                  for (const run of earlierActiveRuns) {
+                    const jobs = await github.rest.actions.listJobsForWorkflowRun({
+                      owner,
+                      repo,
+                      run_id: run.id,
+                      per_page: 100,
+                    });
+                    const uploadJob = jobs.data.jobs.find(
+                      (job) => job.name === 'Upload to TestFlight'
+                    );
+                    if (!uploadJob || uploadJob.status !== 'completed') {
+                      blockingRuns.push(run.id);
+                    }
                   }
+                } catch (error) {
+                  if (wait === maxWaits - 1) {
+                    core.setFailed(
+                      `timed out ordering main TestFlight uploads after GitHub API errors: ${error.message}`
+                    );
+                    return;
+                  }
+                  if (wait % 5 === 0) {
+                    core.warning(
+                      `could not inspect earlier TestFlight runs; retrying: ${error.message}`
+                    );
+                  }
+                  await new Promise((resolve) => setTimeout(resolve, 60_000));
+                  continue;
                 }
                 if (blockingRuns.length === 0) break;
                 if (wait === maxWaits - 1) {
@@ -495,10 +511,8 @@ jobs:
         uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
 
       - name: Assign uploaded build to the internal beta group
-        id: assign
         run: |
           set -euo pipefail
-          export CMUX_TESTFLIGHT_ASSIGN_STATE_OUT_FILE="$RUNNER_TEMP/ios-testflight-assign-state.txt"
           if [ -z "${BUILD_NUMBER:-}" ] || [ "$BUILD_NUMBER" = "unknown" ]; then
             echo "missing uploaded build number for internal TestFlight assignment" >&2
             exit 1
@@ -506,19 +520,3 @@ jobs:
           python3 ./ios/scripts/asc_assign_internal_testflight_group.py \
             --bundle-id dev.cmux.app.internal \
             --build-number "$BUILD_NUMBER"
-          ASSIGNMENT_STATE="unknown"
-          if [ -f "$CMUX_TESTFLIGHT_ASSIGN_STATE_OUT_FILE" ]; then
-            ASSIGNMENT_STATE="$(cat "$CMUX_TESTFLIGHT_ASSIGN_STATE_OUT_FILE")"
-          fi
-          echo "assignment_state=$ASSIGNMENT_STATE" >> "$GITHUB_OUTPUT"
-
-      - name: Upload assignment-state artifact
-        if: success()
-        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
-        with:
-          # The decide job's assign-only retry logic looks for this exact
-          # artifact name (internal groups have no beta-review "pending" state,
-          # so a successful run is always complete).
-          name: ios-testflight-assignment-state-complete
-          path: ${{ runner.temp }}/ios-testflight-assign-state.txt
-          retention-days: 30

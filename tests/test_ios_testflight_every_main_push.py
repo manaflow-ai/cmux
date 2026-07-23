@@ -35,6 +35,9 @@ def test_main_push_runs_are_preserved_and_uploaded_in_order() -> None:
     assert "cancel-in-progress: false" in text
     assert "Number(run.id) < currentRunId" in text
     assert "uploadJob.status !== 'completed'" in text
+    assert "could not inspect earlier TestFlight runs; retrying" in text
+    assert "ios-testflight-assignment-state-complete" not in text
+    assert "CMUX_TESTFLIGHT_ASSIGN_STATE_OUT_FILE" not in text
 
 
 def test_automatic_lane_stays_on_cmux_internal_identity() -> None:
