@@ -152,73 +152,129 @@ pub fn kitty_graphic_placement(
     if !placement.viewport_visible
         || pane.width == 0
         || pane.height == 0
-        || placement.grid_cols == 0
-        || placement.grid_rows == 0
+        || placement.pixel_width == 0
+        || placement.pixel_height == 0
+        || placement.source_width == 0
+        || placement.source_height == 0
     {
         return None;
     }
 
-    let origin_col = i64::from(placement.viewport_col);
-    let origin_row = i64::from(placement.viewport_row);
-    let grid_cols = i64::from(placement.grid_cols);
-    let grid_rows = i64::from(placement.grid_rows);
-    let pane_cols = i64::from(pane.width);
-    let pane_rows = i64::from(pane.height);
-    let clip_left = (-origin_col).max(0).min(grid_cols);
-    let clip_top = (-origin_row).max(0).min(grid_rows);
-    let mut clip_right = (origin_col + grid_cols - pane_cols).max(0).min(grid_cols - clip_left);
-    let mut clip_bottom = (origin_row + grid_rows - pane_rows).max(0).min(grid_rows - clip_top);
-    let x_offset = if clip_left == 0 { placement.x_offset } else { 0 };
-    let y_offset = if clip_top == 0 { placement.y_offset } else { 0 };
-
-    // Kitty applies X/Y after sizing the c/r cell rectangle. At a right or
-    // bottom pane edge that sub-cell offset would bleed into a border or
-    // sibling. The protocol cannot crop a destination by partial cells, so
-    // conservatively crop enough whole trailing cells to contain the offset.
-    let initial_cols = grid_cols - clip_left - clip_right;
-    let initial_rows = grid_rows - clip_top - clip_bottom;
-    let right_slack = (pane_cols - (origin_col.max(0) + initial_cols)).max(0);
-    let bottom_slack = (pane_rows - (origin_row.max(0) + initial_rows)).max(0);
-    let cell_width = i64::from(cell_pixels.0.max(1));
-    let cell_height = i64::from(cell_pixels.1.max(1));
-    let x_overflow = (i64::from(x_offset) - right_slack * cell_width).max(0);
-    let y_overflow = (i64::from(y_offset) - bottom_slack * cell_height).max(0);
-    clip_right += div_ceil(x_overflow, cell_width).min(initial_cols);
-    clip_bottom += div_ceil(y_overflow, cell_height).min(initial_rows);
-    let visible_cols = grid_cols - clip_left - clip_right;
-    let visible_rows = grid_rows - clip_top - clip_bottom;
-    if visible_cols <= 0 || visible_rows <= 0 {
+    let cell_width = u32::from(cell_pixels.0.max(1));
+    let cell_height = u32::from(cell_pixels.1.max(1));
+    let cell_width_i64 = i64::from(cell_width);
+    let cell_height_i64 = i64::from(cell_height);
+    let pane_width = i64::from(pane.width) * cell_width_i64;
+    let pane_height = i64::from(pane.height) * cell_height_i64;
+    let image_left =
+        i64::from(placement.viewport_col) * cell_width_i64 + i64::from(placement.x_offset);
+    let image_top =
+        i64::from(placement.viewport_row) * cell_height_i64 + i64::from(placement.y_offset);
+    let image_right = image_left.saturating_add(i64::from(placement.pixel_width));
+    let image_bottom = image_top.saturating_add(i64::from(placement.pixel_height));
+    let visible_left = image_left.max(0);
+    let visible_top = image_top.max(0);
+    let mut visible_width = image_right.min(pane_width).saturating_sub(visible_left);
+    let mut visible_height = image_bottom.min(pane_height).saturating_sub(visible_top);
+    if visible_width <= 0 || visible_height <= 0 {
         return None;
     }
 
-    let source_left = proportional_pixels(placement.source_width, clip_left, grid_cols)
-        .min(placement.source_width);
-    let source_right = proportional_pixels(placement.source_width, clip_right, grid_cols)
-        .min(placement.source_width.saturating_sub(source_left));
-    let source_top = proportional_pixels(placement.source_height, clip_top, grid_rows)
-        .min(placement.source_height);
-    let source_bottom = proportional_pixels(placement.source_height, clip_bottom, grid_rows)
-        .min(placement.source_height.saturating_sub(source_top));
-    let source = GraphicSourceRect {
+    // Explicit Kitty axes can only occupy whole cells. Keep the inferred axes
+    // omitted and conservatively discard only an unrepresentable trailing
+    // partial cell on explicit axes.
+    if placement.columns > 0 {
+        visible_width -= visible_width % cell_width_i64;
+    }
+    if placement.rows > 0 {
+        visible_height -= visible_height % cell_height_i64;
+    }
+    if visible_width <= 0 || visible_height <= 0 {
+        return None;
+    }
+
+    let source_left = proportional_boundary(
+        placement.source_width,
+        u32::try_from(visible_left.saturating_sub(image_left)).ok()?,
+        placement.pixel_width,
+    );
+    let source_right = proportional_boundary(
+        placement.source_width,
+        u32::try_from(visible_left.saturating_add(visible_width).saturating_sub(image_left))
+            .ok()?,
+        placement.pixel_width,
+    );
+    let source_top = proportional_boundary(
+        placement.source_height,
+        u32::try_from(visible_top.saturating_sub(image_top)).ok()?,
+        placement.pixel_height,
+    );
+    let source_bottom = proportional_boundary(
+        placement.source_height,
+        u32::try_from(visible_top.saturating_add(visible_height).saturating_sub(image_top)).ok()?,
+        placement.pixel_height,
+    );
+    let mut source = GraphicSourceRect {
         x: placement.source_x.saturating_add(source_left),
         y: placement.source_y.saturating_add(source_top),
-        width: placement.source_width.saturating_sub(source_left).saturating_sub(source_right),
-        height: placement.source_height.saturating_sub(source_top).saturating_sub(source_bottom),
+        width: source_right.saturating_sub(source_left),
+        height: source_bottom.saturating_sub(source_top),
     };
     if source.width == 0 || source.height == 0 {
         return None;
     }
-    let clipped = clip_left > 0 || clip_top > 0 || clip_right > 0 || clip_bottom > 0;
-    let columns = if clipped {
-        Some(u32::try_from(visible_cols).ok()?)
+
+    let columns = if placement.columns > 0 {
+        Some(u32::try_from(visible_width).ok()?.checked_div(cell_width)?)
     } else {
-        (placement.columns > 0).then_some(placement.columns)
+        None
     };
-    let rows = if clipped {
-        Some(u32::try_from(visible_rows).ok()?)
+    let rows = if placement.rows > 0 {
+        Some(u32::try_from(visible_height).ok()?.checked_div(cell_height)?)
     } else {
-        (placement.rows > 0).then_some(placement.rows)
+        None
     };
+    if placement.columns > 0 && columns == Some(0) || placement.rows > 0 && rows == Some(0) {
+        return None;
+    }
+
+    // Source-boundary rounding can make an inferred axis one pixel too large.
+    // Trim only the trailing source edge until the actual Kitty result fits.
+    if columns.is_some() && rows.is_none() {
+        source.height = fit_inferred_source_dimension(
+            columns?.saturating_mul(cell_width),
+            source.width,
+            source.height,
+            u32::try_from(visible_height).ok()?,
+        );
+    } else if columns.is_none() && rows.is_some() {
+        source.width = fit_inferred_source_dimension(
+            rows?.saturating_mul(cell_height),
+            source.height,
+            source.width,
+            u32::try_from(visible_width).ok()?,
+        );
+    } else if columns.is_none() && rows.is_none() {
+        source.width = source.width.min(u32::try_from(visible_width).ok()?);
+        source.height = source.height.min(u32::try_from(visible_height).ok()?);
+    }
+    if source.width == 0 || source.height == 0 {
+        return None;
+    }
+
+    let (rendered_width, rendered_height) =
+        rendered_pixel_size(source, columns, rows, cell_width, cell_height)?;
+    let output_right = visible_left.saturating_add(i64::from(rendered_width));
+    let output_bottom = visible_top.saturating_add(i64::from(rendered_height));
+    if output_right > pane_width || output_bottom > pane_height {
+        return None;
+    }
+    let cursor_col = u32::try_from(visible_left).ok()?.checked_div(cell_width)?;
+    let cursor_row = u32::try_from(visible_top).ok()?.checked_div(cell_height)?;
+    let x_offset = u32::try_from(visible_left).ok()? % cell_width;
+    let y_offset = u32::try_from(visible_top).ok()? % cell_height;
+    let grid_cols = x_offset.saturating_add(rendered_width).div_ceil(cell_width);
+    let grid_rows = y_offset.saturating_add(rendered_height).div_ceil(cell_height);
 
     Some(GraphicPlacement {
         key: GraphicPlacementKey {
@@ -228,10 +284,10 @@ pub fn kitty_graphic_placement(
         },
         image,
         rect: Rect {
-            x: pane.x.saturating_add(u16::try_from(origin_col.max(0)).ok()?),
-            y: pane.y.saturating_add(u16::try_from(origin_row.max(0)).ok()?),
-            width: u16::try_from(visible_cols).ok()?,
-            height: u16::try_from(visible_rows).ok()?,
+            x: pane.x.saturating_add(u16::try_from(cursor_col).ok()?),
+            y: pane.y.saturating_add(u16::try_from(cursor_row).ok()?),
+            width: u16::try_from(grid_cols).ok()?,
+            height: u16::try_from(grid_rows).ok()?,
         },
         columns,
         rows,
@@ -242,19 +298,70 @@ pub fn kitty_graphic_placement(
     })
 }
 
-fn div_ceil(value: i64, divisor: i64) -> i64 {
-    if value <= 0 { 0 } else { 1 + (value - 1) / divisor.max(1) }
-}
-
-fn proportional_pixels(total: u32, clipped: i64, cells: i64) -> u32 {
-    if cells <= 0 || clipped <= 0 {
+fn proportional_boundary(source_pixels: u32, output_pixels: u32, rendered_pixels: u32) -> u32 {
+    if rendered_pixels == 0 {
         return 0;
     }
     u32::try_from(
-        u64::from(total).saturating_mul(u64::try_from(clipped).unwrap_or(u64::MAX))
-            / u64::try_from(cells).unwrap_or(1),
+        u128::from(source_pixels) * u128::from(output_pixels) / u128::from(rendered_pixels),
     )
-    .unwrap_or(total)
+    .unwrap_or(source_pixels)
+    .min(source_pixels)
+}
+
+fn rounded_ratio(value: u32, numerator: u32, denominator: u32) -> Option<u32> {
+    if denominator == 0 {
+        return None;
+    }
+    u32::try_from(
+        (u128::from(value) * u128::from(numerator) + u128::from(denominator) / 2)
+            / u128::from(denominator),
+    )
+    .ok()
+}
+
+fn rendered_pixel_size(
+    source: GraphicSourceRect,
+    columns: Option<u32>,
+    rows: Option<u32>,
+    cell_width: u32,
+    cell_height: u32,
+) -> Option<(u32, u32)> {
+    match (columns, rows) {
+        (None, None) => Some((source.width, source.height)),
+        (Some(columns), None) => {
+            let width = columns.checked_mul(cell_width)?;
+            Some((width, rounded_ratio(width, source.height, source.width)?))
+        }
+        (None, Some(rows)) => {
+            let height = rows.checked_mul(cell_height)?;
+            Some((rounded_ratio(height, source.width, source.height)?, height))
+        }
+        (Some(columns), Some(rows)) => {
+            Some((columns.checked_mul(cell_width)?, rows.checked_mul(cell_height)?))
+        }
+    }
+}
+
+fn fit_inferred_source_dimension(
+    explicit_pixels: u32,
+    fixed_source: u32,
+    inferred_source: u32,
+    maximum_pixels: u32,
+) -> u32 {
+    let mut low = 0;
+    let mut high = inferred_source;
+    while low < high {
+        let candidate = low + (high - low).div_ceil(2);
+        if rounded_ratio(explicit_pixels, candidate, fixed_source)
+            .is_some_and(|pixels| pixels <= maximum_pixels)
+        {
+            low = candidate;
+        } else {
+            high = candidate - 1;
+        }
+    }
+    low
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -893,10 +1000,10 @@ mod tests {
             source_y: 20,
             source_width: 80,
             source_height: 40,
-            columns: 8,
-            rows: 4,
-            grid_cols: 8,
-            grid_rows: 4,
+            columns: 0,
+            rows: 0,
+            grid_cols: 9,
+            grid_rows: 3,
             pixel_width: 80,
             pixel_height: 40,
             viewport_col: -2,
@@ -912,13 +1019,14 @@ mod tests {
         )
         .unwrap();
         assert_eq!(outer.rect, Rect { x: 10, y: 5, width: 5, height: 2 });
-        assert_eq!(outer.source, Some(GraphicSourceRect { x: 30, y: 30, width: 50, height: 20 }));
+        assert_eq!(outer.source, Some(GraphicSourceRect { x: 26, y: 35, width: 50, height: 25 }));
+        assert_eq!((outer.columns, outer.rows), (None, None));
         assert_eq!((outer.x_offset, outer.y_offset), (0, 0));
         assert_eq!(outer.z, 3);
     }
 
     #[test]
-    fn terminal_offsets_at_right_and_bottom_edges_are_coarsely_cropped_inside_pane() {
+    fn terminal_offsets_at_right_and_bottom_edges_are_contained_inside_pane() {
         let inner_image = KittyImage {
             id: 4,
             generation: 1,
@@ -956,15 +1064,16 @@ mod tests {
             &inner,
         )
         .unwrap();
-        assert_eq!(outer.rect, Rect { x: 13, y: 7, width: 1, height: 1 });
+        assert_eq!(outer.rect, Rect { x: 13, y: 7, width: 2, height: 2 });
         assert_eq!(outer.source, Some(GraphicSourceRect { x: 0, y: 0, width: 50, height: 50 }));
         assert_eq!((outer.x_offset, outer.y_offset), (4, 5));
+        let pixels = rendered_pixel_size(&outer);
         assert!(
-            u32::from(outer.rect.x - pane.x + outer.rect.width) * 10 + outer.x_offset
+            u32::from(outer.rect.x - pane.x) * 10 + outer.x_offset + pixels.0
                 <= u32::from(pane.width) * 10
         );
         assert!(
-            u32::from(outer.rect.y - pane.y + outer.rect.height) * 20 + outer.y_offset
+            u32::from(outer.rect.y - pane.y) * 20 + outer.y_offset + pixels.1
                 <= u32::from(pane.height) * 20
         );
     }
@@ -1024,7 +1133,7 @@ mod tests {
             ",X=4,Y=5,c=2,r=2",
             Rect { x: 0, y: 0, width: 2, height: 2 },
         );
-        assert_eq!(outer.rect, Rect { x: 0, y: 0, width: 1, height: 1 });
+        assert_eq!(outer.rect, Rect { x: 0, y: 0, width: 2, height: 2 });
         assert_eq!(outer.source, Some(GraphicSourceRect { x: 0, y: 0, width: 10, height: 20 }));
         assert_eq!((outer.x_offset, outer.y_offset), (4, 5));
 
