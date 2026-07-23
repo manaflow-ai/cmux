@@ -55,6 +55,26 @@ struct ChatMessageBatchClassificationTests {
         #expect([prose, tool].completedAssistantTurnTimestamp == date(3))
     }
 
+    @Test("An answered question before final prose allows turn completion")
+    func acceptsAnsweredQuestionBeforeFinalProse() {
+        let question = message(
+            role: .agent,
+            timestamp: 2,
+            kind: .question(ChatQuestion(
+                prompt: "Which path?",
+                options: [ChatQuestion.Option(label: "Safe")],
+                selectedOptionLabel: "Safe"
+            ))
+        )
+        let prose = message(
+            role: .agent,
+            timestamp: 3,
+            kind: .prose(ChatProse(text: "Finished"))
+        )
+
+        #expect([prose, question].completedAssistantTurnTimestamp == date(3))
+    }
+
     @Test("Thought-only and unsupported batches do not complete a turn")
     func requiresFinalAgentProse() {
         let thought = message(

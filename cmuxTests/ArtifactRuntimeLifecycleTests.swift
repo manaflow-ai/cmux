@@ -136,6 +136,53 @@ struct ArtifactRuntimeLifecycleTests {
         #expect(service.debugSessionDump().first?["tailer_active"] as? Bool == true)
     }
 
+    @Test("Automatic capture retries transient store contention")
+    func captureRetriesTransientStoreContention() async throws {
+        let root = try temporaryDirectory()
+        defer { try? FileManager.default.removeItem(at: root) }
+        let source = root.appendingPathComponent("artifact.md", isDirectory: false)
+        try "artifact".write(to: source, atomically: true, encoding: .utf8)
+        let store = OutOfOrderCaptureStore(
+            suspendsFirstImport: false,
+            rejectsFirstImportAsBusy: true
+        )
+        let service = AgentChatTranscriptService(
+            registry: AgentChatSessionRegistry(),
+            artifactCaptureCoordinator: AgentArtifactCaptureCoordinator(
+                captureService: ArtifactCaptureService(store: store)
+            )
+        )
+        let record = AgentChatSessionRecord(
+            sessionID: "contention-session",
+            agentKind: .claude,
+            workspaceID: "workspace",
+            surfaceID: nil,
+            workingDirectory: root.path,
+            transcriptPath: nil,
+            state: .idle,
+            lastActivityAt: .now,
+            title: nil,
+            pid: nil
+        )
+        let snapshot = AgentChatArtifactIndex.Snapshot(
+            referencedPaths: [source.path],
+            artifacts: [ChatArtifactIndexedReference(
+                path: source.path,
+                provenance: .created,
+                lastReferencedSeq: 1
+            )],
+            generation: "contention",
+            revision: 1
+        )
+
+        service.scheduleIndexedArtifactCapture(record: record, snapshot: snapshot)
+        let task = try #require(service.artifactCaptureTasks[record.sessionID]?.task)
+        await task.value
+
+        #expect(await store.importCount == 2)
+        #expect(await store.importedPaths == [source.path])
+    }
+
     @Test("Artifacts focus waits for its search endpoint instead of accepting the sidebar host")
     func artifactsFocusTargetsSearchEndpoint() {
         let defaults = UserDefaults.standard
