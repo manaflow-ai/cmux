@@ -243,6 +243,7 @@ impl ClientIdentityStore {
         route_hints: Vec<String>,
         auth: KnownDaemonAuth,
     ) -> Result<KnownDaemon, IdentityError> {
+        let name = credential_free_route_hint(&name).unwrap_or(name);
         let route_hints = credential_free_route_hints(route_hints)?;
         let fingerprint = public_key_fingerprint(&public_key);
         let now = unix_time()?;
@@ -1063,9 +1064,7 @@ fn credential_free_route_hints_lossy(routes: &[String]) -> Vec<String> {
 fn sanitize_loaded_known_daemon(daemon: &mut KnownDaemon) -> bool {
     let original_routes = std::mem::take(&mut daemon.route_hints);
     let mut changed = false;
-    if original_routes.iter().any(|route| route == &daemon.name)
-        && let Ok(name) = credential_free_route_hint(&daemon.name)
-    {
+    if let Ok(name) = credential_free_route_hint(&daemon.name) {
         changed |= name != daemon.name;
         daemon.name = name;
     }
@@ -1316,7 +1315,9 @@ mod tests {
 
         let daemon = store
             .pin_daemon(
-                "host".into(),
+                "wss://name-user-marker:name-password-marker@daemon-name.test/\
+                 name-path-marker?ticket=name-query-marker"
+                    .into(),
                 key,
                 vec![
                     "wss://route-user-marker:route-password-marker@example.test/\
@@ -1328,8 +1329,13 @@ mod tests {
             .unwrap();
 
         assert_eq!(daemon.route_hints, vec!["wss://example.test/"]);
+        assert_eq!(daemon.name, "wss://daemon-name.test/");
         let persisted = fs::read_to_string(temp.path().join("known-daemons.json")).unwrap();
         for secret in [
+            "name-user-marker",
+            "name-password-marker",
+            "name-path-marker",
+            "name-query-marker",
             "route-user-marker",
             "route-password-marker",
             "route-private-marker",
