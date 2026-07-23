@@ -10818,17 +10818,39 @@ mod tests {
     }
 
     #[test]
-    fn pointer_motion_is_discarded_while_a_mutation_can_change_its_target() {
+    fn pointer_motion_keeps_only_the_latest_position_until_routing_settles() {
         let mux = Mux::new("deferred-motion-test", SurfaceOptions::default());
-        let (mut app, events) = test_app_with_events(Session::Local(mux));
-        let (started_tx, started_rx) = std::sync::mpsc::channel();
-        let (release_tx, release_rx) = std::sync::mpsc::channel();
-        app.session.enqueue_routing("blocking mutation", move |_| {
-            started_tx.send(()).unwrap();
-            release_rx.recv().unwrap();
-            Ok(())
-        });
-        started_rx.recv_timeout(Duration::from_secs(1)).unwrap();
+        let mut app = test_app(Session::Local(mux));
+        app.session.pending_mutations.store(1, Ordering::Release);
+        app.session.pending_routing_mutations.store(1, Ordering::Release);
+
+        for (column, row) in [(9, 3), (14, 6)] {
+            app.handle(AppEvent::Input(Event::Mouse(MouseEvent {
+                kind: MouseEventKind::Moved,
+                column,
+                row,
+                modifiers: KeyModifiers::NONE,
+            })))
+            .unwrap();
+        }
+
+        assert!(app.deferred_input.is_empty());
+        assert_eq!(app.hover, None);
+        assert_eq!(app.status_message, None);
+
+        app.session.pending_mutations.store(0, Ordering::Release);
+        app.session.pending_routing_mutations.store(0, Ordering::Release);
+        app.replay_deferred_input().unwrap();
+
+        assert_eq!(app.hover, Some((14, 6)));
+        assert_eq!(app.status_message, None);
+    }
+
+    #[test]
+    fn pointer_motion_continues_during_non_routing_background_mutation() {
+        let mux = Mux::new("background-pointer-test", SurfaceOptions::default());
+        let mut app = test_app(Session::Local(mux));
+        app.session.pending_mutations.store(1, Ordering::Release);
 
         app.handle(AppEvent::Input(Event::Mouse(MouseEvent {
             kind: MouseEventKind::Moved,
@@ -10839,42 +10861,8 @@ mod tests {
         .unwrap();
 
         assert!(app.deferred_input.is_empty());
-        assert_eq!(
-            app.status_message.as_deref(),
-            Some("Pointer input was discarded while the layout changed")
-        );
-        release_tx.send(()).unwrap();
-        let settled = events.recv_timeout(Duration::from_secs(1)).unwrap();
-        app.handle(settled).unwrap();
-    }
-
-    #[test]
-    fn pointer_input_continues_during_non_routing_background_mutation() {
-        let mux = Mux::new("background-pointer-test", SurfaceOptions::default());
-        let (mut app, events) = test_app_with_events(Session::Local(mux));
-        let (started_tx, started_rx) = std::sync::mpsc::channel();
-        let (release_tx, release_rx) = std::sync::mpsc::channel();
-        app.session.enqueue("blocking background sync", move |_| {
-            started_tx.send(()).unwrap();
-            release_rx.recv().unwrap();
-            Ok(())
-        });
-        started_rx.recv_timeout(Duration::from_secs(1)).unwrap();
-
-        app.handle(AppEvent::Input(Event::Mouse(MouseEvent {
-            kind: MouseEventKind::Moved,
-            column: 9,
-            row: 3,
-            modifiers: KeyModifiers::NONE,
-        })))
-        .unwrap();
-
-        assert_ne!(
-            app.status_message.as_deref(),
-            Some("Pointer input was discarded while the layout changed")
-        );
-        release_tx.send(()).unwrap();
-        app.handle(events.recv_timeout(Duration::from_secs(1)).unwrap()).unwrap();
+        assert_eq!(app.hover, Some((9, 3)));
+        assert_eq!(app.status_message, None);
     }
 
     #[test]
