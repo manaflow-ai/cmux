@@ -2006,7 +2006,12 @@ mod tests {
         );
         mux.set_default_colors(defaults);
         let surface = mux.new_workspace(None, Some((20, 4))).unwrap();
-        surface.try_with_terminal(|term| term.vt_write(b"\x1b[31mR")).unwrap();
+        surface
+            .try_with_terminal(|term| {
+                term.vt_write(b"\x1b[31mR");
+                term.vt_write(b"\x1b_Ga=T,t=d,f=32,i=75,p=1,s=1,v=1,c=1,r=1,q=2;/wAAfw==\x1b\\");
+            })
+            .unwrap();
         // Re-applying through the mux exercises the existing-surface path and
         // publishes a fresh immutable render frame for the protocol server.
         mux.set_default_colors(defaults);
@@ -2040,6 +2045,10 @@ mod tests {
             .find(|run| run["text"].as_str().is_some_and(|text| text.contains('R')))
             .expect("configured palette run");
         assert_eq!(red_run["fg"], "#445566");
+        assert_eq!(state["graphics"]["images"][0]["id"], 75);
+        assert_eq!(state["graphics"]["images"][0]["format"], "rgba");
+        assert_eq!(state["graphics"]["images"][0]["data"], "/wAAfw==");
+        assert_eq!(state["graphics"]["placements"][0]["image_id"], 75);
 
         let colors = surface.attach_stream().unwrap().colors;
         assert_eq!(colors.selection_bg, Some(Rgb { r: 0x22, g: 0x33, b: 0x44 }));

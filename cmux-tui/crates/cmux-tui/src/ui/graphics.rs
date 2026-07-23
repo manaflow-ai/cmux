@@ -234,6 +234,11 @@ mod tests {
     }
 
     #[test]
+    fn outer_image_ids_do_not_alias_distant_surface_ids() {
+        assert_ne!(image_id(1), image_id(2_000_000_001));
+    }
+
+    #[test]
     fn zero_sized_placement_hides_a_previously_visible_image() {
         let visible = GraphicPlacement {
             surface: 7,
