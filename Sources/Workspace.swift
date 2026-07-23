@@ -4652,17 +4652,18 @@ final class Workspace: Identifiable, ObservableObject {
 #endif
         return restoredDirectoryStillExists
     }
-
     func updatePanelShellActivityState(panelId: UUID, state: PanelShellActivityState) {
         guard panels[panelId] != nil else { return }
         let previousState = panelShellActivityStates[panelId] ?? .unknown
         if previousState == state {
+            noteAgentStatusShellActivity(state, panelId: panelId)
             if let terminalPanel = panels[panelId] as? TerminalPanel {
                 terminalPanel.updateShellActivityState(state)
             }
             return
         }
         panelShellActivityStates[panelId] = state
+        noteAgentStatusShellActivity(state, panelId: panelId)
         if let terminalPanel = panels[panelId] as? TerminalPanel {
             terminalPanel.updateShellActivityState(state)
         }
@@ -4683,7 +4684,6 @@ final class Workspace: Identifiable, ObservableObject {
         )
 #endif
     }
-
     func restorableAgentForHibernation(
         panelId: UUID,
         index: RestorableAgentSessionIndex

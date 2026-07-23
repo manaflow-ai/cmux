@@ -176,10 +176,21 @@ extension Workspace {
         let processIdentity = pidNamespace == .local
             ? Self.agentPIDProcessIdentity(pid: pid)
             : nil
+        let runtimeGenerationChanged = previous.pid != nil && (
+            previous.pid != pid || previous.pidNamespace != pidNamespace ||
+            (previous.identity != nil && processIdentity != nil && previous.identity != processIdentity)
+        )
         agentPIDs[key] = pid
         agentPIDProcessIdentitiesByKey[key] = processIdentity
         agentPIDNamespacesByKey[key] = pidNamespace
         if let panelId { recordAgentPIDOwnership(key: key, panelId: panelId) } else { removeAgentPIDOwnership(key: key) }
+        if runtimeGenerationChanged {
+            let statusKey = agentStatusKey(forAgentPIDKey: key)
+            for changedPanelId in [previous.panelId, panelId].compactMap({ $0 }) {
+                sidebarAgentRuntimeObservation.agentStatusLedger.remove(statusKey: statusKey, panelId: changedPanelId)
+                agentLifecycleStatesByPanelId[changedPanelId]?.removeValue(forKey: statusKey)
+            }
+        }
         if previous.pid != pid ||
             previous.panelId != panelId ||
             previous.identity != processIdentity ||
@@ -190,7 +201,7 @@ extension Workspace {
         }
         if refreshPorts { refreshTrackedAgentPorts() }
         if let panelId { reconcileAgentStatuses(panelId: panelId) }
-        return didClearOtherStructuredAgentRuntime
+        return didClearOtherStructuredAgentRuntime || runtimeGenerationChanged
     }
 
     @discardableResult

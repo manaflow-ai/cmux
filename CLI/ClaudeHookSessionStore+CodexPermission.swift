@@ -204,10 +204,17 @@ extension ClaudeHookSessionStore {
                   current.runtime.matches(runtime) else {
                 return false
             }
-            let identity = codexPermissionIdentity(turnId: turnId, requestId: requestId)
-                .correlatedToLatestToolStart(in: current.startedIdentities ?? [])
+            let reportedIdentity = codexPermissionIdentity(turnId: turnId, requestId: requestId)
+            if current.identity.exactlyMatches(reportedIdentity)
+                || (!current.identity.isScoped && !reportedIdentity.isScoped) {
+                return true
+            }
+            let identity = reportedIdentity
+                .correlatedToUniqueActiveToolStart(
+                    in: current.startedIdentities ?? [],
+                    excluding: current.resolvedIdentities
+                )
             return current.identity.exactlyMatches(identity)
-                || (!current.identity.isScoped && !identity.isScoped)
         }
     }
 

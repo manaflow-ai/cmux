@@ -78,7 +78,8 @@ struct AgentStatusReconcilerTests {
             outputObservedAt: now,
             foregroundAgentStatusKey: "codex",
             foregroundObservedAt: now,
-            shellActivity: .promptIdle
+            shellActivity: .promptIdle,
+            shellActivityObservedAt: now.addingTimeInterval(1)
         )
 
         let resolution = reconciler.resolve(
@@ -95,7 +96,8 @@ struct AgentStatusReconcilerTests {
         let evidence = AgentStatusEvidence(
             lifecycle: .needsInput,
             lifecycleObservedAt: now,
-            shellActivity: .promptIdle
+            shellActivity: .promptIdle,
+            shellActivityObservedAt: now.addingTimeInterval(-1)
         )
 
         let resolution = reconciler.resolve(

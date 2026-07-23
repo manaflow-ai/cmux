@@ -132,7 +132,7 @@ struct CodexPermissionTransitionTests {
         #expect(started.state.identity == identity)
     }
 
-    @Test func requestWithoutToolIDCorrelatesToLatestStartInSameTurn() {
+    @Test func requestWithoutToolIDCorrelatesToOnlyActiveStartInSameTurn() {
         let first = CodexPermissionSignalIdentity(turnID: "turn-4", requestID: "call-1")
         let second = CodexPermissionSignalIdentity(turnID: "turn-4", requestID: "call-2")
         let firstStarted = CodexPermissionTransitionMachine.reduce(
@@ -141,8 +141,14 @@ struct CodexPermissionTransitionTests {
             identity: first,
             runtime: runtime
         )
-        let secondStarted = CodexPermissionTransitionMachine.reduce(
+        let firstCompleted = CodexPermissionTransitionMachine.reduce(
             current: firstStarted.state,
+            event: .toolCompleted,
+            identity: first,
+            runtime: runtime
+        )
+        let secondStarted = CodexPermissionTransitionMachine.reduce(
+            current: firstCompleted.state,
             event: .toolStarted,
             identity: second,
             runtime: runtime
@@ -246,7 +252,7 @@ struct CodexPermissionTransitionTests {
         let permissionArrivedLate = CodexPermissionTransitionMachine.reduce(
             current: completed.state,
             event: .permissionRequested,
-            identity: CodexPermissionSignalIdentity(turnID: "turn-7", requestID: nil),
+            identity: tool,
             runtime: runtime
         )
 

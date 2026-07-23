@@ -80,6 +80,20 @@ final class AgentStatusRuntimeLedger {
         }
     }
 
+    func recordShellActivity(
+        _ shellActivity: PanelShellActivityState,
+        panelId: UUID,
+        statusKeys: Set<String>,
+        observedAt: Date
+    ) {
+        updateEvidence(panelId: panelId, statusKeys: statusKeys) { evidence in
+            guard evidence.shellActivityObservedAt.map({ $0 <= observedAt }) ?? true else { return false }
+            evidence.shellActivity = shellActivity
+            evidence.shellActivityObservedAt = observedAt
+            return true
+        }
+    }
+
     func seedLifecycleIfMissing(
         _ lifecycle: AgentHibernationLifecycleState?,
         panelId: UUID,

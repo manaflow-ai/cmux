@@ -28,8 +28,9 @@ struct CodexPermissionTransitionMachine {
         identity: CodexPermissionSignalIdentity,
         runtime: CodexPermissionRuntimeGeneration
     ) -> CodexPermissionTransition {
-        let identity = identity.correlatedToLatestToolStart(
-            in: current?.startedIdentities ?? []
+        let identity = identity.correlatedToUniqueActiveToolStart(
+            in: current?.startedIdentities ?? [],
+            excluding: current?.resolvedIdentities ?? []
         )
         if let current {
             if current.resolvedIdentities.contains(where: { $0.exactlyMatches(identity) })

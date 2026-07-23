@@ -17,12 +17,16 @@ struct CodexPermissionSignalIdentity: Codable, Equatable, Sendable {
         return turnID == other.turnID
     }
 
-    func correlatedToLatestToolStart(
-        in startedIdentities: [Self]
+    func correlatedToUniqueActiveToolStart(
+        in startedIdentities: [Self],
+        excluding resolvedIdentities: [Self]
     ) -> Self {
         guard requestID == nil, let turnID else { return self }
-        return startedIdentities.last(where: {
-            $0.turnID == turnID && $0.requestID != nil
-        }) ?? self
+        let active = startedIdentities.filter { candidate in
+            candidate.turnID == turnID &&
+                candidate.requestID != nil &&
+                !resolvedIdentities.contains(where: { $0.exactlyMatches(candidate) })
+        }
+        return active.count == 1 ? active[0] : self
     }
 }

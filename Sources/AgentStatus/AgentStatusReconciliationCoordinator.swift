@@ -8,15 +8,27 @@ final class AgentStatusReconciliationCoordinator {
         [UUID: AgentPIDProcessIdentity],
         [UUID: [AgentPIDProcessIdentity: Set<String>]]
     ) async -> [UUID: String]
+    typealias DeadlineSleeper = @Sendable (Duration) async throws -> Void
 
     private static let minimumSweepInterval: Duration = .seconds(30)
+    private static let maximumSweepDuration: Duration = .seconds(30)
 
     private let detector: Detector
+    private let deadlineSleeper: DeadlineSleeper
     private var sweepTask: Task<Void, Never>?
+    private var sweepDeadlineTask: Task<Void, Never>?
+    private var sweepGeneration: UInt64 = 0
     private var lastSweepStartedAt: ContinuousClock.Instant?
     private var outputActivityGates: [UUID: AtomicBooleanGate] = [:]
 
-    init(detector: @escaping Detector = AgentStatusReconciliationCoordinator.detectForegroundAgentStatusKeys) {
+    init(
+        deadlineSleeper: @escaping DeadlineSleeper = { duration in
+            // A genuine reconciliation deadline; the injected sleeper keeps tests deterministic.
+            try await Task.sleep(for: duration)
+        },
+        detector: @escaping Detector = AgentStatusReconciliationCoordinator.detectForegroundAgentStatusKeys
+    ) {
+        self.deadlineSleeper = deadlineSleeper
         self.detector = detector
     }
 
@@ -45,7 +57,13 @@ final class AgentStatusReconciliationCoordinator {
         at sweepInstant: ContinuousClock.Instant = .now,
         observedAt: Date = .now
     ) -> Task<Void, Never>? {
-        guard sweepTask == nil else { return nil }
+        if sweepTask != nil {
+            guard let lastSweepStartedAt,
+                  lastSweepStartedAt.duration(to: sweepInstant) >= Self.maximumSweepDuration else {
+                return nil
+            }
+            cancelActiveSweep()
+        }
         if let lastSweepStartedAt,
            lastSweepStartedAt.duration(to: sweepInstant) < Self.minimumSweepInterval {
             return nil
@@ -75,15 +93,20 @@ final class AgentStatusReconciliationCoordinator {
         let foregroundIdentitySnapshot = foregroundProcessIdentities
         let rootStatusKeySnapshot = rootStatusKeysByPanelId
         let trackedPanelIds = panelIds
+        sweepGeneration &+= 1
+        let generation = sweepGeneration
         let task = Task { @MainActor [weak self] in
             let observedStatusKeys = await detector(
                 foregroundIdentitySnapshot,
                 rootStatusKeySnapshot
             )
             guard let self else { return }
-            defer { self.sweepTask = nil }
+            defer { self.completeSweep(generation: generation) }
+            guard !Task.isCancelled,
+                  self.sweepGeneration == generation else { return }
 
             let reconciledAt = Date.now
+            var workspacesByID: [UUID: Workspace] = [:]
             for panelId in trackedPanelIds {
                 guard let owner = AppDelegate.shared?.workspaceContainingPanel(panelId: panelId),
                       owner.workspace.agentStatusForegroundProbeIsCurrent(
@@ -98,15 +121,39 @@ final class AgentStatusReconciliationCoordinator {
                     panelId: panelId,
                     observedAt: observedAt
                 )
+                workspacesByID[owner.workspace.id] = owner.workspace
             }
-            for manager in tabManagers {
-                for workspace in manager.tabs {
-                    workspace.reconcileAgentStatuses(now: reconciledAt)
-                }
+            for workspace in workspacesByID.values {
+                workspace.reconcileAgentStatuses(now: reconciledAt)
             }
         }
         sweepTask = task
+        let deadlineSleeper = deadlineSleeper
+        sweepDeadlineTask = Task { @MainActor [weak self] in
+            do {
+                try await deadlineSleeper(Self.maximumSweepDuration)
+            } catch {
+                return
+            }
+            guard let self, self.sweepGeneration == generation else { return }
+            self.cancelActiveSweep()
+        }
         return task
+    }
+
+    private func cancelActiveSweep() {
+        sweepGeneration &+= 1
+        sweepTask?.cancel()
+        sweepDeadlineTask?.cancel()
+        sweepTask = nil
+        sweepDeadlineTask = nil
+    }
+
+    private func completeSweep(generation: UInt64) {
+        guard sweepGeneration == generation else { return }
+        sweepDeadlineTask?.cancel()
+        sweepDeadlineTask = nil
+        sweepTask = nil
     }
 
     private nonisolated static func detectForegroundAgentStatusKeys(

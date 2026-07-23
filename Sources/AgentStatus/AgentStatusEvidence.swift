@@ -12,6 +12,7 @@ struct AgentStatusEvidence: Equatable, Sendable {
     var foregroundAgentStatusKey: String?
     var foregroundObservedAt: Date?
     var shellActivity: PanelShellActivityState
+    var shellActivityObservedAt: Date?
 
     init(
         lifecycle: AgentHibernationLifecycleState? = nil,
@@ -22,7 +23,8 @@ struct AgentStatusEvidence: Equatable, Sendable {
         titleObservedAt: Date? = nil,
         foregroundAgentStatusKey: String? = nil,
         foregroundObservedAt: Date? = nil,
-        shellActivity: PanelShellActivityState = .unknown
+        shellActivity: PanelShellActivityState = .unknown,
+        shellActivityObservedAt: Date? = nil
     ) {
         self.lifecycle = lifecycle
         self.lifecycleObservedAt = lifecycleObservedAt
@@ -33,5 +35,6 @@ struct AgentStatusEvidence: Equatable, Sendable {
         self.foregroundAgentStatusKey = foregroundAgentStatusKey
         self.foregroundObservedAt = foregroundObservedAt
         self.shellActivity = shellActivity
+        self.shellActivityObservedAt = shellActivityObservedAt
     }
 }

@@ -13,14 +13,18 @@ struct AgentStatusReconciler: Sendable {
         now: Date
     ) -> AgentStatusResolution? {
         guard hasLiveRuntime else { return nil }
+        let promptIdleIsAuthoritative = evidence.shellActivity == .promptIdle && {
+            guard let shellObservedAt = evidence.shellActivityObservedAt else { return false }
+            return evidence.lifecycleObservedAt.map { shellObservedAt >= $0 } ?? true
+        }()
+        if promptIdleIsAuthoritative {
+            return AgentStatusResolution(lifecycle: .idle, confidence: .confident)
+        }
         // Needs Input is an exact-runtime-generation state, not an activity
         // estimate. Keep it until a counter-signal replaces it or that runtime
         // exits; elapsed wall time alone cannot prove a prompt was resolved.
         if evidence.lifecycle == .needsInput {
             return AgentStatusResolution(lifecycle: .needsInput, confidence: .confident)
-        }
-        if evidence.shellActivity == .promptIdle {
-            return AgentStatusResolution(lifecycle: .idle, confidence: .confident)
         }
 
         let latestActivity = [evidence.outputObservedAt, evidence.titleObservedAt]

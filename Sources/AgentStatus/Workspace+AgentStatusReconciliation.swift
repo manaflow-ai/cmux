@@ -163,6 +163,22 @@ extension Workspace {
         )
     }
 
+    func noteAgentStatusShellActivity(
+        _ shellActivity: PanelShellActivityState,
+        panelId: UUID,
+        observedAt: Date = .now
+    ) {
+        let statusKeys = trackedAgentStatusKeys(panelId: panelId)
+        guard !statusKeys.isEmpty else { return }
+        agentStatusLedger.recordShellActivity(
+            shellActivity,
+            panelId: panelId,
+            statusKeys: statusKeys,
+            observedAt: observedAt
+        )
+        reconcileAgentStatuses(panelId: panelId, now: observedAt)
+    }
+
     func reconcileAgentStatuses(panelId: UUID? = nil, now: Date = .now) {
         let panelIds: [UUID]
         if let panelId {

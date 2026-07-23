@@ -12,6 +12,17 @@ import Testing
 struct AgentStatusReconciliationRecoveryTests {
     private let now = Date(timeIntervalSince1970: 10_000)
 
+    @Test func promptIdleWithoutRecencyDegradesHonestly() {
+        let resolution = AgentStatusReconciler().resolve(
+            evidence: AgentStatusEvidence(shellActivity: .promptIdle),
+            statusKey: "codex",
+            hasLiveRuntime: true,
+            now: now
+        )
+
+        #expect(resolution == AgentStatusResolution(lifecycle: .unknown, confidence: .uncertain))
+    }
+
     @Test @MainActor func replacementRuntimeAcceptsRestartedLifecycleRevision() throws {
         let workspace = Workspace()
         let panelID = try #require(workspace.focusedPanelId)
@@ -133,7 +144,9 @@ struct AgentStatusReconciliationRecoveryTests {
             panelId: panelID,
             refreshPorts: false
         )
-        let coordinator = AgentStatusReconciliationCoordinator { _, _ in
+        let coordinator = AgentStatusReconciliationCoordinator(
+            deadlineSleeper: { _ in }
+        ) { _, _ in
             while !Task.isCancelled { await Task.yield() }
             return [:]
         }
@@ -143,6 +156,7 @@ struct AgentStatusReconciliationRecoveryTests {
             at: cycleStart,
             observedAt: now
         ))
+        await stalledSweep.value
 
         let replacementSweep = coordinator.reconcile(
             tabManagers: [manager],
@@ -151,9 +165,7 @@ struct AgentStatusReconciliationRecoveryTests {
         )
 
         #expect(replacementSweep != nil)
-        stalledSweep.cancel()
         replacementSweep?.cancel()
-        await stalledSweep.value
         await replacementSweep?.value
     }
 }
