@@ -575,6 +575,8 @@ struct ComputerUseUXTests {
         #expect(configuration.environment["CUA_DRIVER_RS_UPDATE_CHECK"] == "false")
         #expect(configuration.environment["CUA_DRIVER_RS_RESPONSIBILITY_DISCLAIMED"] == "1")
         #expect(configuration.environment["CUA_DRIVER_SOCKET_AUTH_TOKEN"] == "test-auth-token")
+        #expect(configuration.environment["CUA_DRIVER_SOCKET_AUTHORIZED_ROOT_PID"]
+            == String(ProcessInfo.processInfo.processIdentifier))
     }
 
     @Test func menuBarRequiresAComputerUsePairedSession() {
@@ -756,11 +758,13 @@ struct ComputerUseUXTests {
             featureEnabled: { true }
         )
 
-        #expect(!controller.isRunningInBackground)
-        controller.continueInBackground()
-        #expect(controller.isRunningInBackground)
-        controller.resetPresentationMode()
-        #expect(!controller.isRunningInBackground)
+        #expect(!controller.isRunningInBackground(driverSessionID: "session-a"))
+        controller.continueInBackground(driverSessionID: "session-a")
+        #expect(controller.isRunningInBackground(driverSessionID: "session-a"))
+        #expect(!controller.isRunningInBackground(driverSessionID: "session-b"))
+        controller.continueInBackground(driverSessionID: "session-b")
+        #expect(controller.isRunningInBackground(driverSessionID: "session-a"))
+        #expect(controller.isRunningInBackground(driverSessionID: "session-b"))
     }
 
     @Test func watchTargetDoesNotReFrontAfterUserFocusAwayOrIdleGap() {
@@ -787,11 +791,15 @@ struct ComputerUseUXTests {
             let now = Date(timeIntervalSince1970: 2_000_000_000)
             try writeState(
                 to: directory.appendingPathComponent("older.json"),
-                pid: 10, session: nil, targetPID: 500, lastActionAt: now.addingTimeInterval(-3)
+                pid: 10, session: "session-a", targetPID: 500, lastActionAt: now.addingTimeInterval(-3)
             )
             try writeState(
                 to: directory.appendingPathComponent("newer.json"),
-                pid: 11, session: nil, targetPID: 600, lastActionAt: now.addingTimeInterval(-1)
+                pid: 11, session: "session-a-mcp-11", targetPID: 600, lastActionAt: now.addingTimeInterval(-1)
+            )
+            try writeState(
+                to: directory.appendingPathComponent("foreign.json"),
+                pid: 12, session: "session-b", targetPID: 700, lastActionAt: now
             )
             // A cursor feed file in the same directory must never be mistaken for a
             // driver state.
@@ -799,8 +807,13 @@ struct ComputerUseUXTests {
                 to: directory.appendingPathComponent("11.cursor.json"),
                 driverPID: 11, visible: true, x: 1, y: 1, updatedAt: now
             )
-            let selected = ComputerUseWatchTargetFeed().scan(directoryURL: directory, now: now)
-            #expect(selected?.targetPID == 600)
+            let selected = ComputerUseWatchTargetFeed().scan(
+                directoryURL: directory,
+                driverSessionIDs: ["session-a", "session-b"],
+                now: now
+            )
+            #expect(selected.map(\.driverSessionID) == ["session-a", "session-b"])
+            #expect(selected.map(\.targetPID) == [600, 700])
         }
     }
 
@@ -810,11 +823,52 @@ struct ComputerUseUXTests {
             // Older than the freshness window -> the session is no longer driving.
             try writeState(
                 to: directory.appendingPathComponent("stale.json"),
-                pid: 10, session: nil, targetPID: 500, lastActionAt: now.addingTimeInterval(-30)
+                pid: 10, session: "session-a", targetPID: 500, lastActionAt: now.addingTimeInterval(-30)
             )
             let feed = ComputerUseWatchTargetFeed(freshnessInterval: 5)
-            #expect(feed.scan(directoryURL: directory, now: now) == nil)
+            #expect(feed.scan(
+                directoryURL: directory,
+                driverSessionIDs: ["session-a"],
+                now: now
+            ).isEmpty)
         }
+    }
+
+    @Test func watchTargetFeedRejectsPathologicallyLargeStateDirectory() throws {
+        try withStateDirectory { directory in
+            let now = Date(timeIntervalSince1970: 2_000_000_000)
+            try writeState(
+                to: directory.appendingPathComponent("valid.json"),
+                pid: 10,
+                session: "session-a",
+                targetPID: 500,
+                lastActionAt: now
+            )
+            for index in 0 ..< 4_096 {
+                try Data("{}".utf8).write(
+                    to: directory.appendingPathComponent("junk-\(index).json")
+                )
+            }
+
+            #expect(ComputerUseWatchTargetFeed().scan(
+                directoryURL: directory,
+                driverSessionIDs: ["session-a"],
+                now: now
+            ).isEmpty)
+        }
+    }
+
+    @Test func unavailablePermissionStatusIsNotReportedAsDenied() {
+        #expect(!ComputerUsePermissionStatus.unknown.isKnown)
+        #expect(!ComputerUsePermissionStatus.unknown.accessibility)
+        #expect(!ComputerUsePermissionStatus.unknown.screenRecording)
+        #expect(ComputerUsePermissionStatus(structuredContent: [
+            "accessibility": true,
+            "screen_recording": false,
+        ])?.isKnown == true)
+        #expect(ComputerUsePermissionStatus(structuredContent: [
+            "accessibility": true,
+        ]) == nil)
     }
 
     // MARK: - Cursor overlay
