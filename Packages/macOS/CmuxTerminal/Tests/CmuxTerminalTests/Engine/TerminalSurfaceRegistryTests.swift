@@ -27,7 +27,7 @@ private final class RouteRetireRecorder: MainWindowRouteRetiring {
         self.onRetire = onRetire
     }
 
-    func retireRecoverableMainWindowRoutesWithoutRegisteredTerminalSurfaces(reason: String) {
+    func retireInactiveRecoverableMainWindowRoutes(reason: String) {
         reasons.append(reason)
         let count = reasons.count
         onRetire(count)

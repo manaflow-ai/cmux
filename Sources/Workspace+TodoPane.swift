@@ -15,6 +15,7 @@ extension Workspace {
         focus: Bool? = nil,
         targetIndex: Int? = nil
     ) -> WorkspaceTodoPanel? {
+        guard !isRetiredFromOwningTabManager else { return nil }
         let shouldFocusNewTab = focus ?? (bonsplitController.focusedPaneId == paneId)
         let previousFocusedPanelId = focusedPanelId
         let previousHostedView = focusedTerminalPanel?.hostedView
@@ -70,6 +71,7 @@ extension Workspace {
         inPane paneId: PaneID,
         focus: Bool = true
     ) -> WorkspaceTodoPanel? {
+        guard !isRetiredFromOwningTabManager else { return nil }
         for (existingId, panel) in panels {
             guard let todoPanel = panel as? WorkspaceTodoPanel else { continue }
             if focus {

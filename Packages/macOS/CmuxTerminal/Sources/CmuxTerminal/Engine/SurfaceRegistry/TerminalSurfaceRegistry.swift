@@ -64,7 +64,7 @@ public final class TerminalSurfaceRegistry: TerminalSurfaceRegistering, Sendable
     }
 
     /// Attaches the collaborator notified when a surface unregisters, so
-    /// recoverable main-window routes without surfaces can be retired.
+    /// recoverable main-window route lifecycle can be audited.
     public func attachRouteRetirer(_ routeRetirer: any MainWindowRouteRetiring) {
         lock.lock()
         self.routeRetirer = routeRetirer
@@ -262,7 +262,7 @@ public final class TerminalSurfaceRegistry: TerminalSurfaceRegistering, Sendable
         guard shouldSchedule else { return }
         Task { @MainActor [weak self] in
             let routeRetirer = self?.beginScheduledRouteRetireSweep()
-            routeRetirer?.retireRecoverableMainWindowRoutesWithoutRegisteredTerminalSurfaces(
+            routeRetirer?.retireInactiveRecoverableMainWindowRoutes(
                 reason: "terminalSurface.unregister"
             )
         }
