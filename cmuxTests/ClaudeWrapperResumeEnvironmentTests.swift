@@ -183,11 +183,10 @@ import Testing
             toolBin.appendingPathComponent("perl", isDirectory: false),
             "#!/bin/sh\nprintf '1893456000.000000'\n"
         )
-        try "1893456000 0\n".write(
-            to: sandbox.appendingPathComponent("cmux-agent-hook-time.state", isDirectory: false),
-            atomically: true,
-            encoding: .utf8
-        )
+        let clockStateURL = sandbox.appendingPathComponent("cmux-agent-hook-time.state", isDirectory: false)
+        let clockStateVictimURL = sandbox.appendingPathComponent("clock-state-victim.txt", isDirectory: false)
+        try "1893456000 0\n".write(to: clockStateVictimURL, atomically: true, encoding: .utf8)
+        try fileManager.createSymbolicLink(at: clockStateURL, withDestinationURL: clockStateVictimURL)
 
         let hook = Process()
         hook.executableURL = URL(fileURLWithPath: "/bin/sh")
@@ -203,6 +202,9 @@ import Testing
         hook.standardOutput = FileHandle.nullDevice
         hook.standardError = FileHandle.nullDevice
         try runWithBoundedWait(hook, shellDescription: "Claude fallback hook timestamps", timeout: 10)
+
+        #expect(try String(contentsOf: clockStateVictimURL, encoding: .utf8) == "1893456000 0\n")
+        #expect(try clockStateURL.resourceValues(forKeys: [.isSymbolicLinkKey]).isSymbolicLink == false)
 
         let rawTimes = try String(contentsOf: capturedAtURL, encoding: .utf8)
             .split(whereSeparator: \.isNewline)

@@ -142,8 +142,12 @@ struct CLICodexHookTimeoutRegressionTests {
         let fakeDate = root.appendingPathComponent("date", isDirectory: false)
         let capturedAt = root.appendingPathComponent("hook-captured-at.txt", isDirectory: false)
         let doneFile = root.appendingPathComponent("hook-done.txt", isDirectory: false)
+        let clockState = root.appendingPathComponent("cmux-agent-hook-time.state", isDirectory: false)
+        let clockStateVictim = root.appendingPathComponent("clock-state-victim.txt", isDirectory: false)
         try FileManager.default.createDirectory(at: codexHome, withIntermediateDirectories: true)
         try installMinimalHookToolPath(in: toolBin)
+        try "must remain unchanged\n".write(to: clockStateVictim, atomically: true, encoding: .utf8)
+        try FileManager.default.createSymbolicLink(at: clockState, withDestinationURL: clockStateVictim)
         defer { try? FileManager.default.removeItem(at: root) }
 
         try makeCodexHookExecutableShellFile(at: fakeDate, lines: [
@@ -191,6 +195,8 @@ struct CLICodexHookTimeoutRegressionTests {
         #expect(run.status == 0, Comment(rawValue: run.stderr))
         #expect(run.stdout == "{}\n")
         #expect(waitForFile(doneFile, containing: "done", timeout: 3))
+        #expect(try String(contentsOf: clockStateVictim, encoding: .utf8) == "must remain unchanged\n")
+        #expect(try clockState.resourceValues(forKeys: [.isSymbolicLinkKey]).isSymbolicLink == false)
         let secondRun = runCodexHookProcess(
             executablePath: "/bin/sh",
             arguments: ["-c", command],

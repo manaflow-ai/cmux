@@ -475,6 +475,23 @@ struct RemoteResumeBindingTests {
         ])
         #expect(invalidClear["ok"] as? Bool == false)
 
+        for invalidEventTime in [1.0, 1e300, 4_102_444_801.0] {
+            let invalidSet = try v2Envelope(request: [
+                "id": "invalid-resume-set-time-\(invalidEventTime)",
+                "method": "surface.resume.set",
+                "params": [
+                    "window_id": windowID.uuidString,
+                    "surface_id": surfaceID.uuidString,
+                    "command": "codex resume poisoned-session",
+                    "checkpoint_id": "poisoned-session",
+                    "source": "agent-hook",
+                    "agent_event_time": invalidEventTime,
+                ],
+            ])
+            #expect(invalidSet["ok"] as? Bool == false)
+        }
+        #expect(workspace.surfaceResumeBinding(panelId: surfaceID) == nil)
+
         _ = try v2Result(request: [
             "id": "manual-resume-set",
             "method": "surface.resume.set",

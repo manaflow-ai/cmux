@@ -85,6 +85,15 @@ import Testing
         #expect(ordered?.agentEventTime == 1_893_456_200)
     }
 
+    @Test(arguments: ["1", "1e300", "4102444801"])
+    func metaRejectsOutOfRangeAgentEventTimes(rawEventTime: String) {
+        #expect(
+            AgentNotificationMeta(
+                meta: "c=needs-permission;p=0;k=claude_code;t=\(rawEventTime)"
+            ) == nil
+        )
+    }
+
     @Test func metaUnknownCategoryIsRejected() {
         // Unknown category literals stay part of the legacy notification body;
         // the ungated `other` category is valid only in the ordered four-field form.
