@@ -22,12 +22,19 @@ struct NotificationFeedDaySection: Identifiable, Equatable, Sendable {
 @Observable
 final class NotificationFeedProjection {
     var filter: MobileNotificationFeedFilter = .all {
-        didSet { rebuild() }
+        didSet {
+            guard filter != oldValue else { return }
+            scheduleRebuild()
+        }
     }
     var searchText = "" {
         didSet {
             guard searchText != oldValue else { return }
-            rebuild()
+            scheduleRebuild(
+                debounce: searchText.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
+                    ? nil
+                    : .milliseconds(200)
+            )
         }
     }
 
@@ -38,6 +45,11 @@ final class NotificationFeedProjection {
     @ObservationIgnored private var sourceItems: [MobileNotificationFeedItem] = []
     @ObservationIgnored private var referenceDate: Date
     @ObservationIgnored private var calendar: Calendar
+    @ObservationIgnored private var sourceRevision = 0
+    @ObservationIgnored private var indexedSourceRevision: Int?
+    @ObservationIgnored private var indexedItems: [NotificationFeedIndexedItem] = []
+    @ObservationIgnored private var rebuildRevision = 0
+    @ObservationIgnored private var rebuildTask: Task<Void, Never>?
 
     init(referenceDate: Date = .now, calendar: Calendar = .autoupdatingCurrent) {
         self.referenceDate = referenceDate
@@ -51,29 +63,89 @@ final class NotificationFeedProjection {
         guard sourceItems != items || self.referenceDate != referenceDate else { return }
         sourceItems = items
         self.referenceDate = referenceDate
+        sourceRevision &+= 1
         sourceItemCount = items.count
         sourceUnreadCount = items.lazy.filter { !$0.isRead }.count
-        rebuild()
+        scheduleRebuild()
     }
 
-    private func rebuild() {
+    func waitForPendingRebuild() async {
+        await rebuildTask?.value
+    }
+
+    private func scheduleRebuild(debounce: Duration? = nil) {
+        rebuildRevision &+= 1
+        let requestedRebuildRevision = rebuildRevision
+        let requestedSourceRevision = sourceRevision
         let query = searchText.trimmingCharacters(in: .whitespacesAndNewlines)
-        let filteredItems = filter.apply(to: sourceItems)
-        let searchedItems = query.isEmpty
-            ? filteredItems
-            : filteredItems.filter { item in
-                [
-                    item.title,
-                    item.subtitle,
-                    item.body,
-                    item.workspaceTitle,
-                    item.surfaceTitle,
-                    item.macDisplayName,
-                ]
-                .compactMap(\.self)
-                .contains { $0.localizedStandardContains(query) }
+        let requestedFilter = filter
+        let requestedReferenceDate = referenceDate
+        let requestedCalendar = calendar
+        let cachedIndex = indexedSourceRevision == requestedSourceRevision ? indexedItems : nil
+        let requestedSourceItems = cachedIndex == nil ? sourceItems : []
+
+        rebuildTask?.cancel()
+        rebuildTask = Task { [weak self] in
+            if let debounce {
+                do {
+                    try await ContinuousClock().sleep(for: debounce)
+                } catch {
+                    return
+                }
             }
-        let visibleItems = searchedItems.sorted { lhs, rhs in
+            guard !Task.isCancelled else { return }
+
+            let worker = Task.detached(priority: .userInitiated) {
+                let items = cachedIndex ?? requestedSourceItems.map(NotificationFeedIndexedItem.init)
+                guard !Task.isCancelled else { return Optional<NotificationFeedProjectionOutput>.none }
+                return NotificationFeedProjection.build(
+                    indexedItems: items,
+                    filter: requestedFilter,
+                    query: query,
+                    referenceDate: requestedReferenceDate,
+                    calendar: requestedCalendar
+                )
+            }
+            let output = await withTaskCancellationHandler(
+                operation: { await worker.value },
+                onCancel: { worker.cancel() }
+            )
+            guard
+                !Task.isCancelled,
+                let output,
+                let self,
+                self.rebuildRevision == requestedRebuildRevision,
+                self.sourceRevision == requestedSourceRevision
+            else {
+                return
+            }
+
+            self.indexedItems = output.indexedItems
+            self.indexedSourceRevision = requestedSourceRevision
+            self.sections = output.sections
+        }
+    }
+
+    nonisolated private static func build(
+        indexedItems: [NotificationFeedIndexedItem],
+        filter: MobileNotificationFeedFilter,
+        query: String,
+        referenceDate: Date,
+        calendar: Calendar
+    ) -> NotificationFeedProjectionOutput? {
+        var visibleItems: [MobileNotificationFeedItem] = []
+        visibleItems.reserveCapacity(indexedItems.count)
+        for indexedItem in indexedItems {
+            guard !Task.isCancelled else { return nil }
+            if filter == .unread, indexedItem.item.isRead {
+                continue
+            }
+            if !query.isEmpty, !indexedItem.searchCorpus.localizedStandardContains(query) {
+                continue
+            }
+            visibleItems.append(indexedItem.item)
+        }
+        visibleItems.sort { lhs, rhs in
             if lhs.createdAt != rhs.createdAt {
                 return lhs.createdAt > rhs.createdAt
             }
@@ -85,7 +157,7 @@ final class NotificationFeedProjection {
         let today = calendar.startOfDay(for: referenceDate)
         let yesterday = calendar.date(byAdding: .day, value: -1, to: today)
 
-        sections = grouped.keys.sorted(by: >).map { day in
+        let sections = grouped.keys.sorted(by: >).map { day in
             let kind: NotificationFeedDaySection.Kind
             if calendar.isDate(day, inSameDayAs: today) {
                 kind = .today
@@ -100,5 +172,33 @@ final class NotificationFeedProjection {
                 items: grouped[day] ?? []
             )
         }
+        return NotificationFeedProjectionOutput(
+            indexedItems: indexedItems,
+            sections: sections
+        )
     }
+}
+
+private struct NotificationFeedIndexedItem: Sendable {
+    let item: MobileNotificationFeedItem
+    let searchCorpus: String
+
+    init(_ item: MobileNotificationFeedItem) {
+        self.item = item
+        self.searchCorpus = [
+            item.title,
+            item.subtitle,
+            item.body,
+            item.workspaceTitle,
+            item.surfaceTitle,
+            item.macDisplayName,
+        ]
+        .compactMap(\.self)
+        .joined(separator: "\n")
+    }
+}
+
+private struct NotificationFeedProjectionOutput: Sendable {
+    let indexedItems: [NotificationFeedIndexedItem]
+    let sections: [NotificationFeedDaySection]
 }
