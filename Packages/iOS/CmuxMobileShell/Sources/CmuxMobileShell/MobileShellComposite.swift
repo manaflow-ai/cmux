@@ -1260,6 +1260,7 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
         storedPairedMacs = []
         pairedMacAliasIDsByRepresentativeID = [:]
         pairedMacs = []
+        pairedMacLoadState = .notLoaded
         hasRecoverableDeletedComputers = false
         resetTerminalThemes()
         // Likewise drop the registry-backed device tree so a shared device never
@@ -1372,6 +1373,7 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
         storedPairedMacs = []
         pairedMacAliasIDsByRepresentativeID = [:]
         pairedMacs = []
+        pairedMacLoadState = .notLoaded
         forgottenMacDeviceIDsByScope = [:]
         hasRecoverableDeletedComputers = false
         registryDevices = []
@@ -2108,6 +2110,16 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
 
     // MARK: - Paired Mac switching
 
+    /// Whether the current signed-in scope's paired-Mac list is known.
+    public enum PairedMacLoadState: Equatable, Sendable {
+        /// No load has completed for the current scope.
+        case notLoaded
+        /// The current scope's paired-Mac list loaded successfully.
+        case loaded
+        /// The current scope's paired-Mac list could not be loaded.
+        case failed
+    }
+
     /// Every Mac paired with this device, for the host switcher. Refreshed via
     /// ``loadPairedMacs()`` and after switch/forget. Cleared on sign-out so a
     /// shared device never shows the previous user's Macs. The active row is
@@ -2123,6 +2135,8 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
 
     /// Full store rows for identity-sensitive paths; ``pairedMacs`` is display-coalesced.
     private var storedPairedMacs: [MobilePairedMac] = []
+    /// Load status for ``pairedMacs`` in the current signed-in account/team scope.
+    public internal(set) var pairedMacLoadState: PairedMacLoadState = .notLoaded
     /// Visible representative id to all stored ids for that logical paired Mac.
     public private(set) var pairedMacAliasIDsByRepresentativeID: [String: [String]] = [:]
     /// Same-session delete tombstones keyed by signed-in account/team scope.
@@ -2137,6 +2151,9 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
     /// True when the current account/team scope has a deleted-computer marker
     /// that can be recovered through explicit same-account Iroh discovery.
     public internal(set) var hasRecoverableDeletedComputers = false
+    /// True while the explicit deleted-computer recovery path is scanning and
+    /// reconnecting through account-scoped Iroh discovery.
+    public internal(set) var isRecoveringDeletedComputer = false
 
     var pairedMacsForIdentityMatching: [MobilePairedMac] {
         storedPairedMacs.isEmpty ? pairedMacs : storedPairedMacs
@@ -2371,14 +2388,20 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
             storedPairedMacs = []
             pairedMacAliasIDsByRepresentativeID = [:]
             pairedMacs = []
+            pairedMacLoadState = .failed
             hasRecoverableDeletedComputers = false
             return
         }
+        pairedMacLoadState = .notLoaded
         let loaded: [MobilePairedMac]
         do {
             loaded = try await pairedMacStore.loadAll(stackUserID: scope.userID, teamID: scope.teamID)
         } catch {
             mobileShellLog.error("paired mac store loadAll failed: \(String(describing: error), privacy: .public)")
+            if await isScopeCurrent(scope) {
+                pairedMacLoadState = .failed
+                hasRecoverableDeletedComputers = false
+            }
             return
         }
         // The await above suspended the main actor; a sign-out, user switch, or
@@ -2393,6 +2416,7 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
             return
         }
         hasRecoverableDeletedComputers = hasForgottenMacs
+        pairedMacLoadState = .loaded
         storedPairedMacs = visibleLoaded
         let supportedRouteKinds = runtime?.supportedRouteKinds ?? []
         let coalesced = Self.coalescePairedMacsByDialEndpoint(
