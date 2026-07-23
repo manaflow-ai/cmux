@@ -174,7 +174,7 @@ public actor LocalArtifactRepository: ArtifactStoring {
         return best.0
     }
 
-    /// Creates a recursive watcher stream that emits immediately and on change.
+    /// Creates a recursive watcher stream that emits on subsequent changes.
     public func changes(projectRoot: URL) -> AsyncStream<Void> {
         let paths = ArtifactStorePaths(projectRoot: projectRoot)
         do {
@@ -186,7 +186,6 @@ public actor LocalArtifactRepository: ArtifactStoring {
             return AsyncStream { $0.finish() }
         }
         return AsyncStream(bufferingPolicy: .bufferingNewest(1)) { continuation in
-            continuation.yield(())
             let task = Task {
                 for await _ in watcher.events {
                     guard !Task.isCancelled else { break }

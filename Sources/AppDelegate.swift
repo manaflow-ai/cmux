@@ -810,7 +810,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
     private var shortcutMonitor: Any?
     private var shortcutDefaultsObserver: NSObjectProtocol?
     private var menuBarVisibilityObserver: NSObjectProtocol?
-    private var mobileHostSettingsObserver: NSObjectProtocol?
+    private var runtimeServiceSettingsObserver: NSObjectProtocol?
     private var reloadConfigurationMenuItemRefreshScheduled = false
     /// Orchestrates per-window cmux config-store reloads + window-title refresh.
     /// Holds `self` weakly through the environment seam to avoid a retain cycle.
@@ -2072,7 +2072,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
         ensureMobileWorkspaceListObserver(for: tabManager)
         MobileTerminalRenderObserver.shared.start()
         agentChatTranscriptService.start()
-        installMobileHostSettingsObserver()
+        installRuntimeServiceSettingsObserver()
         scheduleGhosttyCrashBreadcrumbIfNeeded(notificationStore: notificationStore)
         startPaneMemoryGuardrailIfNeeded()
         disableSuddenTerminationIfNeeded()
@@ -9118,21 +9118,22 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
         syncMenuBarExtraVisibility(defaults: defaults)
     }
 
-    private func installMobileHostSettingsObserver() {
-        guard mobileHostSettingsObserver == nil else { return }
-        mobileHostSettingsObserver = NotificationCenter.default.addObserver(
+    private func installRuntimeServiceSettingsObserver() {
+        guard runtimeServiceSettingsObserver == nil else { return }
+        runtimeServiceSettingsObserver = NotificationCenter.default.addObserver(
             forName: UserDefaults.didChangeNotification,
             object: nil,
             queue: .main
         ) { [weak self] _ in
             Task { @MainActor [weak self] in
-                self?.syncMobileHostService()
+                self?.syncRuntimeServicesToSettings()
             }
         }
     }
 
-    private func syncMobileHostService() {
+    private func syncRuntimeServicesToSettings() {
         MobileHostService.shared.syncToSettings()
+        agentChatTranscriptService.reconcileAutomaticArtifactCaptureAvailability()
     }
 
     private func syncActivationPolicy(defaults: UserDefaults = .standard) {

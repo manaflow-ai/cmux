@@ -72,7 +72,6 @@ actor SidebarArtifactStore: ArtifactStoring {
     func changes(projectRoot: URL) -> AsyncStream<Void> {
         let pair = AsyncStream<Void>.makeStream()
         continuations.append(pair.continuation)
-        pair.continuation.yield(())
         return pair.stream
     }
 }

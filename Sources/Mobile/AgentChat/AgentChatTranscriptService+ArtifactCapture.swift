@@ -8,6 +8,31 @@ extension AgentChatTranscriptService {
         artifactCaptureCoordinator != nil && isAutomaticArtifactCaptureEnabled()
     }
 
+    /// Reconciles transcript ownership after the Artifacts beta setting changes.
+    func reconcileAutomaticArtifactCaptureAvailability() {
+        let isEnabled = artifactCaptureCoordinator != nil && isAutomaticArtifactCaptureEnabled()
+        guard automaticArtifactCaptureWasEnabled != isEnabled else { return }
+        automaticArtifactCaptureWasEnabled = isEnabled
+
+        if isEnabled {
+            for record in registry.sessions(workspaceID: nil) where record.state != .ended {
+                ensureTailer(for: record)
+            }
+            return
+        }
+
+        let captureTasks = artifactCaptureTasks.values.compactMap(\.task)
+        artifactCaptureTasks.removeAll()
+        captureTasks.forEach { $0.cancel() }
+        guard !hasEventSubscribers() else { return }
+
+        let artifactOnlyTailers = Array(tailers.values)
+        tailers.removeAll()
+        for tailer in artifactOnlyTailers {
+            Task { await tailer.stop() }
+        }
+    }
+
     /// Applies one authoritative transcript completion and captures its artifact generation.
     func noteAssistantTurnCompleted(sessionID: String, at timestamp: Date) {
         registry.noteAssistantTurnCompleted(sessionID: sessionID, at: timestamp)
