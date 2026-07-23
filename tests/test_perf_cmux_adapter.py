@@ -945,6 +945,7 @@ def test_browser_batch_overlaps_hidden_safe_work_with_ordered_activation(
     original_rpc = runner.rpc
     actual_ids = list(adapter._browser_actual_ids.values())
     first_reload_started = threading.Event()
+    second_focus_entered = threading.Event()
     entered_reload: set[str] = set()
     entered_lock = threading.Lock()
     both_reloading = threading.Event()
@@ -954,6 +955,7 @@ def test_browser_batch_overlaps_hidden_safe_work_with_ordered_activation(
     ) -> dict[str, Any]:
         if method == "browser.reload" and params is not None:
             first_reload_started.set()
+            assert second_focus_entered.wait(timeout=1.0)
             with entered_lock:
                 entered_reload.add(params["surface_id"])
                 if len(entered_reload) == 2:
@@ -962,6 +964,7 @@ def test_browser_batch_overlaps_hidden_safe_work_with_ordered_activation(
         if method == "surface.focus" and params is not None:
             if params["surface_id"] == actual_ids[1]:
                 assert first_reload_started.wait(timeout=1.0)
+                second_focus_entered.set()
         return original_rpc(method, params, timeout)
 
     runner.rpc = rpc_with_overlap_contract
