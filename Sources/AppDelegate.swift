@@ -4548,13 +4548,17 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
         cmuxConfigStore: CmuxConfigStore? = nil
     ) {
         let key = ObjectIdentifier(window)
-        let exactIdentityOwner = mainWindowContexts[key]?.tabManager
-            ?? mainWindowContexts.values.first(where: { $0.window === window })?.tabManager
-            ?? recoverableMainWindowTabManager(forExactWindow: window)
-        if let exactIdentityOwner, exactIdentityOwner !== tabManager {
+        let exactContextOwner = mainWindowContexts[key]
+            ?? mainWindowContexts.values.first(where: { $0.window === window })
+        let exactIdentityOwner = exactContextOwner.map { context in
+            (windowId: context.windowId, tabManager: context.tabManager)
+        } ?? recoverableMainWindowIdentity(forExactWindow: window)
+        if let exactIdentityOwner,
+           exactIdentityOwner.windowId != windowId || exactIdentityOwner.tabManager !== tabManager {
 #if DEBUG
             cmuxDebugLog(
-                "mainWindow.register.exactOwnerMismatch windowId=\(String(windowId.uuidString.prefix(8)))"
+                "mainWindow.register.exactOwnerMismatch supplied=\(String(windowId.uuidString.prefix(8))) " +
+                    "owner=\(String(exactIdentityOwner.windowId.uuidString.prefix(8)))"
             )
 #endif
             finalizeRejectedMainWindowRegistrationIfUnowned(tabManager)

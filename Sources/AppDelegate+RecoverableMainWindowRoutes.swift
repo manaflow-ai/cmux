@@ -230,11 +230,14 @@ extension AppDelegate {
         return route
     }
 
-    func recoverableMainWindowTabManager(forExactWindow window: NSWindow) -> TabManager? {
-        sortedRecoverableMainWindowRoutes().first { route in
+    func recoverableMainWindowIdentity(forExactWindow window: NSWindow) -> (windowId: UUID, tabManager: TabManager)? {
+        guard let route = sortedRecoverableMainWindowRoutes().first(where: { route in
             guard route.window === window, let manager = route.tabManager else { return false }
             return tabManagerCanOwnRecoverableMainWindowRoute(manager)
-        }?.tabManager
+        }), let manager = route.tabManager else {
+            return nil
+        }
+        return (route.windowId, manager)
     }
 
     func ownsMainWindowTabManager(_ tabManager: TabManager) -> Bool {

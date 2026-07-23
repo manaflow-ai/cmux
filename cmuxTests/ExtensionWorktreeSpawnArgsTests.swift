@@ -23,6 +23,9 @@ struct ExtensionWorktreeSpawnArgsTests {
             worktreePath: "/tmp/project/.cmux/worktrees/cmux-sidebar-123",
             branchName: "cmux-sidebar-123",
             workspaceTitle: "cmux-sidebar-123",
+            createdHead: "0000000000000000000000000000000000000000",
+            generatedArtifactRelativePath: "cmux-sample-dev/index.html",
+            generatedArtifactContents: Data(),
             setupCommand: setupCommand
         )
     }
