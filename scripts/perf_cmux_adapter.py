@@ -868,18 +868,16 @@ class CmuxRuntimeAdapter:
         for planned, actual in self._browser_actual_ids.items():
             activation_latencies: list[dict[str, Any]] = []
             activation_evidence: list[dict[str, Any]] = []
-            for label, method in (
-                ("browser_surface_focus", "surface.focus"),
-                ("browser_focus", "browser.focus_webview"),
-            ):
-                latency, payload = self._timed_rpc(
-                    label,
-                    planned,
-                    method,
-                    {"workspace_id": self._workspace_id, "surface_id": actual},
-                )
-                activation_latencies.append(latency)
-                activation_evidence.append({"label": label, "payload": payload})
+            latency, payload = self._timed_rpc(
+                "browser_surface_focus",
+                planned,
+                "surface.focus",
+                {"workspace_id": self._workspace_id, "surface_id": actual},
+            )
+            activation_latencies.append(latency)
+            activation_evidence.append(
+                {"label": "browser_surface_focus", "payload": payload}
+            )
             activations[planned] = (activation_latencies, activation_evidence)
 
         results_by_planned: dict[str, dict[str, Any]] = {}
@@ -976,7 +974,7 @@ class CmuxRuntimeAdapter:
                     "terminal_ansi_lines": len(self._terminal_actual_ids)
                     * self._terminal_ansi_line_target(),
                     "browser_churn_rpc_operations": len(self._browser_actual_ids)
-                    * (browser_cycles * 2 + 3),
+                    * (browser_cycles * 2 + 2),
                     "temporary_browser_open_close_operations": 2
                     if self._browser_actual_ids
                     else 0,
