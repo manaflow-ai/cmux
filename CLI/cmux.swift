@@ -5111,6 +5111,10 @@ struct CMUXCLI {
             print(versionSummary())
             return
         }
+        if command == "__herdr-compat" {
+            try runHerdrCompat(commandArgs: commandArgs, jsonOutput: jsonOutput)
+            return
+        }
 
         // Check for --help/-h on subcommands before resolving sockets,
         // so help text is available even when cmux is not running.
