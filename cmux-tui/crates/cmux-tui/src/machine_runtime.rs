@@ -5,10 +5,17 @@ use std::ffi::OsString;
 #[cfg(test)]
 use std::io::Read;
 use std::io::{self, BufRead, BufReader, Write};
+#[cfg(unix)]
+use std::os::unix::net::UnixStream;
+#[cfg(unix)]
+use std::os::unix::process::CommandExt;
 use std::path::PathBuf;
 use std::process::{Child, ChildStdin, ChildStdout, Command, Stdio};
+use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::{Arc, Mutex};
 use std::thread::{self, JoinHandle};
+#[cfg(unix)]
+use std::time::{Duration, Instant};
 
 use crate::config::{MachineConfig, MachineTargetConfig};
 use crate::machine::{
@@ -20,6 +27,10 @@ use crate::session::{
 };
 
 const SSH_DIAGNOSTIC_BYTES: usize = 4096;
+#[cfg(unix)]
+const SSH_TERMINATION_GRACE: Duration = Duration::from_millis(250);
+#[cfg(unix)]
+const SSH_DIAGNOSTIC_DRAIN_GRACE: Duration = Duration::from_millis(50);
 /// Provider-backed machine keys grow upward from one. Client-local overlay
 /// keys live in the upper half so the two process-local catalogs cannot
 /// collide without changing the provider protocol.
@@ -259,28 +270,54 @@ fn ssh_arguments(
 fn spawn_transport_process(
     command: &mut Command,
 ) -> anyhow::Result<(ChildStdin, ChildStdout, Arc<Process>)> {
+    #[cfg(unix)]
+    let (stderr_cancel, stderr_cancel_worker) = UnixStream::pair()
+        .map_err(|error| anyhow::anyhow!("cannot create ssh diagnostics cancellation: {error}"))?;
+    #[cfg(unix)]
+    command.process_group(0);
     let mut child =
         command.spawn().map_err(|error| anyhow::anyhow!("cannot start ssh: {error}"))?;
+    #[cfg(unix)]
+    let process_group = match libc::pid_t::try_from(child.id()) {
+        Ok(process_group) => process_group,
+        Err(_) => {
+            let _ = child.kill();
+            let _ = child.wait();
+            return Err(anyhow::anyhow!("ssh process ID is invalid"));
+        }
+    };
     let stdin = child.stdin.take().ok_or_else(|| anyhow::anyhow!("ssh stdin unavailable"))?;
     let stdout = child.stdout.take().ok_or_else(|| anyhow::anyhow!("ssh stdout unavailable"))?;
     let stderr = child.stderr.take().ok_or_else(|| anyhow::anyhow!("ssh stderr unavailable"))?;
     let diagnostics = Arc::new(BoundedDiagnosticBuffer::new(SSH_DIAGNOSTIC_BYTES));
     let worker_diagnostics = Arc::clone(&diagnostics);
-    let worker = thread::Builder::new()
-        .name("machine-ssh-stderr".to_string())
-        .spawn(move || worker_diagnostics.drain(stderr));
+    let worker = thread::Builder::new().name("machine-ssh-stderr".to_string()).spawn(move || {
+        #[cfg(unix)]
+        worker_diagnostics.drain_cancellable(stderr, stderr_cancel_worker);
+        #[cfg(not(unix))]
+        worker_diagnostics.drain(stderr);
+    });
     let worker = match worker {
         Ok(worker) => worker,
         Err(error) => {
+            #[cfg(unix)]
+            unsafe {
+                libc::kill(-process_group, libc::SIGKILL);
+            }
             let _ = child.kill();
             let _ = child.wait();
             return Err(anyhow::anyhow!("cannot monitor ssh diagnostics: {error}"));
         }
     };
     let process = Arc::new(Process {
-        child: Mutex::new(child),
+        child: Mutex::new(Some(child)),
         diagnostics,
+        #[cfg(unix)]
+        process_group,
+        #[cfg(unix)]
+        stderr_cancel,
         stderr_worker: Mutex::new(Some(worker)),
+        closed: AtomicBool::new(false),
     });
     Ok((stdin, stdout, process))
 }
@@ -290,17 +327,26 @@ fn shell_quote(value: &str) -> String {
 }
 
 struct Process {
-    child: Mutex<Child>,
+    child: Mutex<Option<Child>>,
     diagnostics: Arc<BoundedDiagnosticBuffer>,
+    #[cfg(unix)]
+    process_group: libc::pid_t,
+    #[cfg(unix)]
+    stderr_cancel: UnixStream,
     stderr_worker: Mutex<Option<JoinHandle<()>>>,
+    closed: AtomicBool,
 }
 
 impl Process {
     fn diagnostic_after_stdout_eof(&self) -> Option<String> {
-        let exited =
-            self.child.lock().ok().and_then(|mut child| child.try_wait().ok().flatten()).is_some();
+        let exited = self
+            .child
+            .lock()
+            .ok()
+            .and_then(|mut child| child.as_mut()?.try_wait().ok().flatten())
+            .is_some();
         if exited {
-            self.join_stderr();
+            let _ = self.terminate_and_reap();
         }
         self.diagnostic()
     }
@@ -309,23 +355,87 @@ impl Process {
         self.diagnostics.sanitized()
     }
 
-    fn join_stderr(&self) {
+    #[cfg(unix)]
+    fn signal_group(&self, signal: libc::c_int) {
+        let _ = unsafe { libc::kill(-self.process_group, signal) };
+    }
+
+    #[cfg(unix)]
+    fn group_is_alive(&self) -> bool {
+        let result = unsafe { libc::kill(-self.process_group, 0) };
+        result == 0 || io::Error::last_os_error().kind() == io::ErrorKind::PermissionDenied
+    }
+
+    fn finish_stderr(&self) {
         if let Ok(mut worker) = self.stderr_worker.lock()
             && let Some(worker) = worker.take()
         {
+            #[cfg(unix)]
+            {
+                let deadline = Instant::now() + SSH_DIAGNOSTIC_DRAIN_GRACE;
+                while !worker.is_finished() && Instant::now() < deadline {
+                    thread::sleep(Duration::from_millis(1));
+                }
+                if !worker.is_finished() {
+                    let _ = self.stderr_cancel.shutdown(std::net::Shutdown::Both);
+                }
+            }
             let _ = worker.join();
         }
+    }
+
+    fn terminate_and_reap(&self) -> io::Result<()> {
+        let mut result = Ok(());
+        if !self.closed.swap(true, Ordering::AcqRel) {
+            match self.child.lock() {
+                Ok(mut child) => {
+                    if let Some(mut child) = child.take() {
+                        #[cfg(unix)]
+                        {
+                            self.signal_group(libc::SIGTERM);
+                            let deadline = Instant::now() + SSH_TERMINATION_GRACE;
+                            while self.group_is_alive() && Instant::now() < deadline {
+                                let _ = child.try_wait();
+                                thread::sleep(Duration::from_millis(10));
+                            }
+                            if self.group_is_alive() {
+                                self.signal_group(libc::SIGKILL);
+                            }
+                        }
+                        #[cfg(not(unix))]
+                        {
+                            let running = match child.try_wait() {
+                                Ok(status) => status.is_none(),
+                                Err(error) => {
+                                    result = Err(error);
+                                    true
+                                }
+                            };
+                            if running
+                                && let Err(error) = child.kill()
+                                && result.is_ok()
+                            {
+                                result = Err(error);
+                            }
+                        }
+                        if let Err(error) = child.wait()
+                            && result.is_ok()
+                        {
+                            result = Err(error);
+                        }
+                    }
+                }
+                Err(_) => result = Err(io::Error::other("ssh lock poisoned")),
+            }
+        }
+        self.finish_stderr();
+        result
     }
 }
 
 impl Drop for Process {
     fn drop(&mut self) {
-        let Ok(child) = self.child.get_mut() else { return };
-        if child.try_wait().ok().flatten().is_none() {
-            let _ = child.kill();
-        }
-        let _ = child.wait();
-        self.join_stderr();
+        let _ = self.terminate_and_reap();
     }
 }
 
@@ -367,12 +477,7 @@ impl RemoteMessageWriter for ProcessWriter {
     }
 
     fn close(&mut self) -> io::Result<()> {
-        let mut child =
-            self.process.child.lock().map_err(|_| io::Error::other("ssh lock poisoned"))?;
-        if child.try_wait()?.is_none() {
-            child.kill()?;
-        }
-        Ok(())
+        self.process.terminate_and_reap()
     }
 }
 
@@ -439,7 +544,7 @@ mod tests {
         let waiter = thread::spawn(move || {
             let _ = result_sender.send(diagnostic_process.diagnostic_after_stdout_eof());
         });
-        let prompt_result = result_receiver.recv_timeout(std::time::Duration::from_millis(500));
+        let prompt_result = result_receiver.recv_timeout(Duration::from_millis(500));
         let completed_promptly = prompt_result.is_ok();
         let diagnostic = match prompt_result {
             Ok(diagnostic) => diagnostic,
@@ -448,7 +553,7 @@ mod tests {
                     libc::kill(helper_pid, libc::SIGKILL);
                 }
                 result_receiver
-                    .recv_timeout(std::time::Duration::from_secs(5))
+                    .recv_timeout(Duration::from_secs(5))
                     .expect("diagnostic reader should stop once the inherited descriptor closes")
             }
         };
