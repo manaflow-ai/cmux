@@ -97,21 +97,88 @@ public actor DeviceRegistryService: DeviceRegistryRefreshing {
 
     // MARK: - Reconnect route policy (pure, testable)
 
-    /// Choose the routes to persist for the next reconnect.
+    /// Fixed reference instant used to stamp registry routes during dedup.
+    /// The registry response has no per-route timestamps at this layer, so using
+    /// one constant keeps duplicate-endpoint tie-breaking deterministic and
+    /// clock-free for tests.
+    private static let mergeReferenceDate = Date(timeIntervalSinceReferenceDate: 0)
+
+    /// Choose the routes to persist for the next reconnect, with the registry
+    /// authoritative when reachable.
     ///
-    /// The reconnect path connects on `local` routes immediately (no added
-    /// latency on the common case) and only *replaces* the persisted routes when
-    /// the registry returns a usable, different set, so a stale-route Mac gets
-    /// rescued on the next reconnect trigger. Returns `nil` to signal "no change
-    /// needed" (registry unavailable, empty, or identical), letting callers skip
-    /// a redundant store write and fall back to the locally persisted routes.
+    /// The reconnect path connects on the locally persisted routes immediately
+    /// (no added latency) and only *replaces* them when the registry returns a
+    /// usable, different set, so a stale-route Mac (moved networks / changed port)
+    /// gets rescued on the next reconnect trigger. The registry routes are first
+    /// deduped by endpoint through the shared ``CmxRouteCandidateSet`` model so
+    /// a duplicated response persists cleanly without reordering the dialer's
+    /// existing priority hints.
+    ///
+    /// Returns the deduped registry routes when they differ from the local cache
+    /// by full route equality — a new/changed endpoint, or a changed
+    /// `priority`/`id`/`kind` — and `nil` when nothing changed (registry
+    /// unavailable/empty, or it re-advertises exactly the cached routes), so
+    /// callers skip a redundant store write and fall back to the locally
+    /// persisted routes.
+    ///
+    /// This deliberately does NOT union the local cache in: the reconnect path
+    /// dials a *single* route, so persisting a stale cached route alongside the
+    /// fresh registry one could make it dial the dead address and fail. Unioning
+    /// every source into a freshness-ranked candidate set the phone *tries in
+    /// order* (#6351) is the follow-up that the ``CmxRouteCandidateSet`` model
+    /// here is the foundation for; it requires the dial path to iterate
+    /// candidates rather than pick one.
     public static func selectReconnectRoutes(
         local: [CmxAttachRoute],
         registry: [CmxAttachRoute]?
     ) -> [CmxAttachRoute]? {
         guard let registry, !registry.isEmpty else { return nil }
-        guard registry != local else { return nil }
-        return registry
+        // Dedup the registry response by transport + endpoint via the shared
+        // model, preserving its order. We intentionally do NOT proximity-rank
+        // here: the reconnect dialer (`firstReconnectHostPortRoute`) orders by the
+        // Mac-assigned route `priority` — the Mac's own reachability hint — so a
+        // proximity reordering would just be discarded, and a proximity order is
+        // only safe once the dial path tries candidates in order (the follow-up
+        // the `CmxRouteCandidateSet` ranking is the foundation for).
+        let deduped = CmxRouteCandidateSet(routes: registry, source: .registry, lastSeenAt: mergeReferenceDate)
+            .dedupedRoutes()
+        // No change vs the local cache (same endpoints AND same metadata,
+        // order-independent): skip the write and keep the local routes.
+        if deduped.count == local.count {
+            func sortComponent(_ value: String) -> String {
+                "\(value.utf8.count)#\(value)"
+            }
+            func sortOptional(_ value: String?) -> String {
+                guard let value else { return "nil" }
+                return "some\(sortComponent(value))"
+            }
+            func endpointKey(_ endpoint: CmxAttachEndpoint) -> String {
+                switch endpoint {
+                case let .hostPort(host, port):
+                    return "hostPort\(sortComponent(host))\(sortComponent(String(port)))"
+                case let .peer(id, relayHint, directAddrs, relayURL):
+                    let addrs = directAddrs.map(sortComponent).joined()
+                    return "peer"
+                        + sortComponent(id)
+                        + sortOptional(relayHint)
+                        + sortComponent(String(directAddrs.count))
+                        + addrs
+                        + sortOptional(relayURL)
+                case let .url(url):
+                    return "url\(sortComponent(url))"
+                }
+            }
+            let key: (CmxAttachRoute) -> String = {
+                sortComponent($0.kind.rawValue)
+                    + sortComponent($0.id)
+                    + sortComponent(String($0.priority))
+                    + endpointKey($0.endpoint)
+            }
+            if deduped.sorted { key($0) < key($1) } == local.sorted { key($0) < key($1) } {
+                return nil
+            }
+        }
+        return deduped
     }
 
     /// Whether a background registry refresh may write back into the paired-Mac
