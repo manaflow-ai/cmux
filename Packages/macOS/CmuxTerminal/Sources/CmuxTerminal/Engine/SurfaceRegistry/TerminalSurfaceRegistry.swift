@@ -19,9 +19,10 @@ public import GhosttyKit
 /// to the main actor, as it always did.
 public final class TerminalSurfaceRegistry: TerminalSurfaceRegistering, Sendable {
     private let lock = NSLock()
-    // SAFETY: all seven are guarded by `lock`; callers arrive on the main
+    // SAFETY: all eight are guarded by `lock`; callers arrive on the main
     // actor and from nonisolated `deinit` paths.
     nonisolated(unsafe) private let surfaces = NSHashTable<AnyObject>.weakObjects()
+    nonisolated(unsafe) private var registeredSurfaceIdsByObject: [ObjectIdentifier: UUID] = [:]
     nonisolated(unsafe) private var registeredSurfaceCountsById: [UUID: Int] = [:]
     nonisolated(unsafe) private var runtimeSurfaceOwners: [UInt: UUID] = [:]
     nonisolated(unsafe) private var surfaceFocusPlacements: [UUID: TerminalSurfaceFocusPlacement] = [:]
@@ -56,6 +57,10 @@ public final class TerminalSurfaceRegistry: TerminalSurfaceRegistering, Sendable
         surfaces.add(surface)
         surfaceFocusPlacements[surface.id] = surface.focusPlacement
         if !wasRegistered {
+            let objectId = ObjectIdentifier(surface)
+            if let staleSurfaceId = registeredSurfaceIdsByObject.updateValue(surface.id, forKey: objectId) {
+                decrementRegisteredSurfaceCount(for: staleSurfaceId)
+            }
             registeredSurfaceCountsById[surface.id, default: 0] += 1
             generation &+= 1
         }
@@ -66,19 +71,18 @@ public final class TerminalSurfaceRegistry: TerminalSurfaceRegistering, Sendable
     /// main-window routes.
     public func unregister(_ surface: any TerminalSurfacing) {
         lock.lock()
-        guard surfaces.contains(surface) else {
+        let objectId = ObjectIdentifier(surface)
+        let wasPresentInWeakTable = surfaces.contains(surface)
+        let registeredSurfaceId = registeredSurfaceIdsByObject.removeValue(forKey: objectId)
+        guard wasPresentInWeakTable || registeredSurfaceId == surface.id else {
             lock.unlock()
             return
         }
-        let surfaceId = surface.id
-        surfaces.remove(surface)
-        let remainingCount = max(0, (registeredSurfaceCountsById[surfaceId] ?? 1) - 1)
-        if remainingCount == 0 {
-            registeredSurfaceCountsById.removeValue(forKey: surfaceId)
-            surfaceFocusPlacements.removeValue(forKey: surfaceId)
-        } else {
-            registeredSurfaceCountsById[surfaceId] = remainingCount
+        let surfaceId = registeredSurfaceId ?? surface.id
+        if wasPresentInWeakTable {
+            surfaces.remove(surface)
         }
+        decrementRegisteredSurfaceCount(for: surfaceId)
         generation &+= 1
         let shouldScheduleRouteRetireSweep = !routeRetireSweepScheduled
         if shouldScheduleRouteRetireSweep {
@@ -92,6 +96,19 @@ public final class TerminalSurfaceRegistry: TerminalSurfaceRegistering, Sendable
             routeRetirer?.retireRecoverableMainWindowRoutesWithoutRegisteredTerminalSurfaces(
                 reason: "terminalSurface.unregister"
             )
+        }
+    }
+
+    /// Updates the per-id count without scanning the weak object table. The
+    /// separate object-id ledger remains available during `deinit`, after
+    /// Foundation has already cleared the table's weak reference.
+    private func decrementRegisteredSurfaceCount(for surfaceId: UUID) {
+        let remainingCount = max(0, (registeredSurfaceCountsById[surfaceId] ?? 1) - 1)
+        if remainingCount == 0 {
+            registeredSurfaceCountsById.removeValue(forKey: surfaceId)
+            surfaceFocusPlacements.removeValue(forKey: surfaceId)
+        } else {
+            registeredSurfaceCountsById[surfaceId] = remainingCount
         }
     }
 
