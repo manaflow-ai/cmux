@@ -357,15 +357,26 @@ mod tests {
     #[test]
     fn workspace_requests_use_latency_appropriate_lanes() {
         let workspace = WorkspaceId("workspace".into());
-        assert_eq!(
-            rpc_traffic_class(&WorkspaceRequest::WriteProcess {
-                process: ProcessId(1),
-                write_id: 1,
-                data: ByteString::from_bytes(b"x"),
-                eof: false,
-            }),
-            RpcTrafficClass::Interactive
-        );
+        let process_input = rpc_traffic_class(&WorkspaceRequest::WriteProcess {
+            process: ProcessId(1),
+            write_id: 1,
+            data: ByteString::from_bytes(b"x"),
+            eof: false,
+        });
+        let process_resize = rpc_traffic_class(&WorkspaceRequest::ResizeProcess {
+            process: ProcessId(1),
+            cols: 80,
+            rows: 24,
+        });
+        let process_signal = rpc_traffic_class(&WorkspaceRequest::SignalProcess {
+            process: ProcessId(1),
+            signal: cmux_remote_protocol::ProcessSignal::Interrupt,
+        });
+        assert_eq!(rpc_lane(process_input), Lane::Interactive);
+        assert_eq!(rpc_lane(process_resize), Lane::Interactive);
+        assert_eq!(rpc_lane(process_signal), Lane::Interactive);
+        assert_ne!(process_input, process_signal);
+        assert_eq!(process_resize, process_signal);
         assert_eq!(
             rpc_traffic_class(&WorkspaceRequest::WriteFile {
                 workspace,
