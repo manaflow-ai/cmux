@@ -11173,10 +11173,7 @@ final class GhosttySurfaceScrollView: NSView {
 
                 // Check if we're currently at the bottom (with threshold for float drift)
                 let currentOrigin = scrollView.contentView.bounds.origin
-                let documentHeight = documentView.frame.height
-                let viewportHeight = scrollView.contentView.bounds.height
-                let distanceFromBottom = documentHeight - currentOrigin.y - viewportHeight
-                let isAtBottom = distanceFromBottom <= Self.scrollToBottomThreshold
+                let isAtBottom = viewportIsAtBottom()
 
                 // Update userScrolledAwayFromBottom based on current position
                 if isAtBottom {
@@ -11204,21 +11201,15 @@ final class GhosttySurfaceScrollView: NSView {
 
     private func handleScrollChange() {
         synchronizeSurfaceView()
+        updateUserScrolledAwayFromBottomState()
     }
     private func handleLiveScroll() {
         cancelPendingNotificationScrollRestoreForUserInput()
         let cellHeight = surfaceView.cellSize.height
         guard cellHeight > 0 else { return }
         let visibleRect = scrollView.contentView.documentVisibleRect
-        let documentHeight = documentView.frame.height
-        let scrollOffset = documentHeight - visibleRect.origin.y - visibleRect.height
-
-        // Track if user has scrolled away from bottom to review scrollback
-        if scrollOffset > Self.scrollToBottomThreshold {
-            userScrolledAwayFromBottom = true
-        } else if scrollOffset <= 0 {
-            userScrolledAwayFromBottom = false
-        }
+        let scrollOffset = scrollOffsetFromBottom(for: visibleRect)
+        updateUserScrolledAwayFromBottomState(scrollOffset: scrollOffset)
 
         let row = Int(scrollOffset / cellHeight)
 
@@ -11261,6 +11252,28 @@ final class GhosttySurfaceScrollView: NSView {
         scrollView.scrollerStyle = .overlay
         updateTrackingAreas()
         return didChange
+    }
+
+    private func scrollOffsetFromBottom(for visibleRect: NSRect) -> CGFloat {
+        max(0, documentView.frame.height - visibleRect.origin.y - visibleRect.height)
+    }
+
+    private func viewportIsAtBottom(visibleRect: NSRect? = nil) -> Bool {
+        let visibleRect = visibleRect ?? scrollView.contentView.documentVisibleRect
+        return viewportIsAtBottom(scrollOffset: scrollOffsetFromBottom(for: visibleRect))
+    }
+
+    private func viewportIsAtBottom(scrollOffset: CGFloat) -> Bool {
+        scrollOffset <= Self.scrollToBottomThreshold
+    }
+
+    private func updateUserScrolledAwayFromBottomState(visibleRect: NSRect? = nil) {
+        let visibleRect = visibleRect ?? scrollView.contentView.documentVisibleRect
+        updateUserScrolledAwayFromBottomState(scrollOffset: scrollOffsetFromBottom(for: visibleRect))
+    }
+
+    private func updateUserScrolledAwayFromBottomState(scrollOffset: CGFloat) {
+        userScrolledAwayFromBottom = !viewportIsAtBottom(scrollOffset: scrollOffset)
     }
 
     private func handlePreferredScrollerStyleChange() {
