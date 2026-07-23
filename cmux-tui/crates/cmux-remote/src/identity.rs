@@ -243,7 +243,7 @@ impl ClientIdentityStore {
         route_hints: Vec<String>,
         auth: KnownDaemonAuth,
     ) -> Result<KnownDaemon, IdentityError> {
-        let name = credential_free_route_hint(&name).unwrap_or(name);
+        let name = credential_free_daemon_name(name);
         let route_hints = credential_free_route_hints(route_hints)?;
         let fingerprint = public_key_fingerprint(&public_key);
         let now = unix_time()?;
@@ -1063,13 +1063,17 @@ fn credential_free_route_hints_lossy(routes: &[String]) -> Vec<String> {
 
 fn sanitize_loaded_known_daemon(daemon: &mut KnownDaemon) -> bool {
     let original_routes = std::mem::take(&mut daemon.route_hints);
-    let mut changed = false;
-    if let Ok(name) = credential_free_route_hint(&daemon.name) {
-        changed |= name != daemon.name;
-        daemon.name = name;
-    }
+    let original_name = std::mem::take(&mut daemon.name);
+    daemon.name = credential_free_daemon_name(original_name.clone());
     daemon.route_hints = credential_free_route_hints_lossy(&original_routes);
-    changed || daemon.route_hints != original_routes
+    daemon.name != original_name || daemon.route_hints != original_routes
+}
+
+fn credential_free_daemon_name(name: String) -> String {
+    if !name.contains("://") {
+        return name;
+    }
+    credential_free_route_hint(&name).unwrap_or(name)
 }
 
 fn clear_url_username(endpoint: &mut url::Url) -> Result<(), IdentityError> {
@@ -1113,7 +1117,11 @@ fn route_debug_label(route: &str) -> String {
 }
 
 fn daemon_name_debug_label(name: &str) -> String {
-    if url::Url::parse(name).is_ok() { route_debug_label(name) } else { name.to_string() }
+    if name.contains("://") && url::Url::parse(name).is_ok() {
+        route_debug_label(name)
+    } else {
+        name.to_string()
+    }
 }
 
 fn validate_relay_access(
@@ -1348,6 +1356,8 @@ mod tests {
 
     #[test]
     fn credential_free_routes_preserve_only_reconnect_material() {
+        assert_eq!(credential_free_daemon_name("daemon:dev".into()), "daemon:dev");
+
         let websocket = url::Url::parse(
             &credential_free_route_hint(
                 "wss://user:password@example.test/private?ticket=secret#fragment",
