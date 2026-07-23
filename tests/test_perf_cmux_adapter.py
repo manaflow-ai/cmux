@@ -64,8 +64,9 @@ class FakeRunner:
 
     def __init__(self) -> None:
         self.events: list[Any] = []
+        self.startup_workspace = "workspace:startup"
         self.workspace = "workspace:9"
-        self.workspaces = [self.workspace]
+        self.workspaces = [self.startup_workspace]
         self.pane = "pane:4"
         self.initial_terminal = "surface:initial"
         self.initial_terminal_id = "00000000-0000-0000-0000-000000000009"
@@ -89,6 +90,8 @@ class FakeRunner:
     def launch(self, label: str) -> float:
         self.events.append(("launch", label))
         self.stopped = False
+        if label == "restore":
+            self.workspaces = [self.startup_workspace, self.workspace]
         return 12.5
 
     def stop_app(self) -> None:
@@ -110,6 +113,7 @@ class FakeRunner:
                 ]
             }
         if command_args[:2] == ["workspace", "create"]:
+            self.workspaces.append(self.workspace)
             return {"workspace_id": self.workspace}
         if command_args[0] == "list-panes":
             return {
@@ -156,6 +160,9 @@ class FakeRunner:
         check: bool = True,
     ) -> str:
         self.events.append(("run_cli", tuple(args), input_text, timeout, check))
+        if args[0] == "close-workspace":
+            workspace = args[args.index("--workspace") + 1]
+            self.workspaces = [item for item in self.workspaces if item != workspace]
         if args[0] == "close-surface":
             surface = args[args.index("--surface") + 1]
             self.surfaces = [item for item in self.surfaces if item["surface_id"] != surface]
@@ -376,10 +383,28 @@ def test_fixture_uses_one_workspace_and_pane_exact_local_identity_and_scrollback
     workspace_calls = [
         event
         for event in runner.events
-        if event[0] == "json_cli" and event[1][:2] == ("workspace", "create")
+        if event[0] == "json_cli" and "workspace" in event[1] and "create" in event[1]
     ]
-    assert workspace_calls == []
+    assert len(workspace_calls) == 1
     assert adapter.raw_details["fixture"]["workspace_id"] == runner.workspace
+    unpin = next(
+        event
+        for event in runner.events
+        if event[0] == "run_cli" and event[1][0] == "workspace-action"
+    )
+    assert unpin[1] == (
+        "workspace-action",
+        "--workspace",
+        runner.startup_workspace,
+        "--action",
+        "unpin",
+    )
+    closed_startup = next(
+        event
+        for event in runner.events
+        if event[0] == "run_cli" and event[1][0] == "close-workspace"
+    )
+    assert runner.startup_workspace in closed_startup[1]
     pane_calls = [
         event
         for event in runner.events
@@ -399,12 +424,7 @@ def test_fixture_uses_one_workspace_and_pane_exact_local_identity_and_scrollback
     assert terminal_calls[0][1][terminal_calls[0][1].index("--working-directory") + 1] == str(
         cfg.output_root
     )
-    respawn = next(event for event in runner.events if event[:2] == ("rpc", "surface.respawn"))
-    assert respawn[2] == {
-        "surface_id": runner.initial_terminal_id,
-        "working_directory": str(cfg.output_root),
-        "focus": False,
-    }
+    assert not any(event[:2] == ("rpc", "surface.respawn") for event in runner.events)
     assert not any(
         event[0] == "run_cli" and event[1][0] == "close-surface"
         for event in runner.events
@@ -646,6 +666,12 @@ def test_snapshot_restore_relaunches_without_cleaning_and_strictly_verifies_shap
 
     assert restored_events[:2] == ["stop_app", ("launch", "restore")]
     assert "clean_persisted_state" not in restored_events
+    assert any(
+        event[0] == "run_cli"
+        and event[1][0] == "close-workspace"
+        and runner.startup_workspace in event[1]
+        for event in restored_events
+    )
     assert adapter.observe_fixture()["browsers"][0]["content_marker"] == plan.browser_surfaces[0].content_marker
     runner.snapshot_payload["shape"]["browsers"] = 1
     with pytest.raises(ValueError, match="snapshot"):
