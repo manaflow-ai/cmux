@@ -2215,6 +2215,14 @@ mod tests {
         let keys = Keys::default();
         let action = |code, modifiers| keys.modeless_action_for(&KeyEvent::new(code, modifiers));
         assert_eq!(action(KeyCode::Char('k'), KeyModifiers::SUPER), Some(Action::ClearHistory));
+        assert_eq!(
+            action(KeyCode::Char('k'), KeyModifiers::SUPER | KeyModifiers::CONTROL),
+            None
+        );
+        assert_eq!(
+            action(KeyCode::Char('k'), KeyModifiers::SUPER | KeyModifiers::ALT),
+            None
+        );
         assert_eq!(action(KeyCode::Char('t'), KeyModifiers::SUPER), None);
         assert_eq!(action(KeyCode::Char('w'), KeyModifiers::SUPER), None);
         assert_eq!(action(KeyCode::Char('d'), KeyModifiers::SUPER), None);

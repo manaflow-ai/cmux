@@ -7711,7 +7711,7 @@ mod tests {
         enable_host_keyboard_protocol(&mut output).unwrap();
         disable_host_keyboard_protocol(&mut output).unwrap();
 
-        assert_eq!(output, b"\x1b[>1u\x1b[<1u");
+        assert_eq!(output, b"\x1b[>5u\x1b[<1u");
     }
 
     #[test]
@@ -8009,7 +8009,9 @@ mod tests {
         let (mut app, events) = test_app_with_events(Session::Local(mux.clone()));
         app.sidebar_visible = false;
         app.replace_tree(app.session.tree());
-        app.handle_key(KeyEvent::new(KeyCode::Char('k'), KeyModifiers::SUPER)).unwrap();
+        let action =
+            app.handle_key(KeyEvent::new(KeyCode::Char('k'), KeyModifiers::SUPER)).unwrap();
+        assert_eq!(action, RenderAction::None);
         while app.session.has_pending_mutations() {
             let event = events.recv_timeout(Duration::from_secs(1)).unwrap();
             app.handle(event).unwrap();
@@ -8022,6 +8024,25 @@ mod tests {
             assert!(!viewport.contains("visible-content"));
         });
         mux.close_surface(surface.id);
+    }
+
+    #[test]
+    fn clear_history_is_a_noop_for_browser_surfaces() {
+        let mux = Mux::new("clear-history-browser-test", SurfaceOptions::default());
+        let mut app = test_app(Session::Local(mux.clone()));
+        let surface = 73;
+        app.tree = browser_completion_tree(surface, surface);
+        app.render_states.insert(surface, RenderState::new().unwrap());
+        app.selection = Some(Selection { surface, anchor: (1, 1), head: (2, 1) });
+
+        let action = app.run_action(Action::ClearHistory).unwrap();
+
+        assert_eq!(action, RenderAction::None);
+        assert!(!app.session.has_pending_mutations());
+        assert!(app.render_states.contains_key(&surface));
+        assert!(app.selection.is_some_and(|selection| selection.surface == surface));
+        assert!(app.status_message.is_none());
+        mux.shutdown();
     }
 
     #[test]

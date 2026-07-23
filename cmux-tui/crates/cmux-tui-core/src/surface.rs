@@ -1732,6 +1732,7 @@ mod tests {
     #[test]
     fn clear_history_updates_the_authoritative_terminal_and_attach_mirrors() {
         let mux = Mux::new_for_test("clear-history", SurfaceOptions::default());
+        let events = mux.subscribe();
         let surface =
             Surface::spawn_for_test(1, SurfaceOptions::default(), Arc::downgrade(&mux)).unwrap();
         surface.with_terminal(|term| {
@@ -1759,5 +1760,6 @@ mod tests {
         });
         assert_eq!(mirror.history_rows(), 0);
         assert!(mirror.viewport_text().unwrap().trim().is_empty());
+        assert!(matches!(events.try_recv(), Ok(MuxEvent::SurfaceOutput(1))));
     }
 }

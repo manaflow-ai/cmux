@@ -5376,7 +5376,7 @@ mod tests {
         let identity = handle_command(&mux, 0, Command::Identify, &test_writer()).unwrap();
 
         let capabilities = identity["capabilities"].as_array().expect("capabilities");
-        for expected in ["attach-initial-size", "workspace-registry-v1"] {
+        for expected in ["attach-initial-size", "workspace-registry-v1", "clear-history-v1"] {
             assert!(capabilities.iter().any(|value| value.as_str() == Some(expected)));
         }
     }
