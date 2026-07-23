@@ -3,12 +3,18 @@ import Foundation
 
 actor ConfiguredArtifactStore: ArtifactStoring {
     let fixedConfiguration: ArtifactCaptureConfiguration
+    let limitsAggregateBatchToFirstCandidate: Bool
     private(set) var importCount = 0
     private(set) var batchImportCount = 0
     private(set) var configurationReadCount = 0
+    private(set) var receivedMaximumBatchBytes: [Int64?] = []
 
-    init(configuration: ArtifactCaptureConfiguration) {
+    init(
+        configuration: ArtifactCaptureConfiguration,
+        limitsAggregateBatchToFirstCandidate: Bool = false
+    ) {
         fixedConfiguration = configuration
+        self.limitsAggregateBatchToFirstCandidate = limitsAggregateBatchToFirstCandidate
     }
 
     func locateProjectRoot(startingAt: URL) -> URL { startingAt }
@@ -48,11 +54,20 @@ actor ConfiguredArtifactStore: ArtifactStoring {
         candidates: [ArtifactCandidate],
         context: ArtifactCaptureContext,
         configuration: ArtifactCaptureConfiguration,
-        maximumBatchBytes _: Int64?,
+        maximumBatchBytes: Int64?,
         capturedAt: Date
     ) -> [ArtifactImportAttempt] {
         batchImportCount += 1
-        return candidates.map { candidate in
+        receivedMaximumBatchBytes.append(maximumBatchBytes)
+        return candidates.enumerated().map { index, candidate in
+            if limitsAggregateBatchToFirstCandidate,
+               let maximumBatchBytes,
+               index > candidates.startIndex {
+                return .rejected(.batchByteLimitReached(
+                    actual: 0,
+                    limit: maximumBatchBytes
+                ))
+            }
             do {
                 return .imported(try importFile(
                     sourceURL: candidate.sourceURL,

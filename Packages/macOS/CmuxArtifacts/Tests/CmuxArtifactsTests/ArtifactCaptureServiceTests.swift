@@ -160,6 +160,34 @@ struct ArtifactCaptureServiceTests {
         #expect(await store.importCount == sources.count)
     }
 
+    @Test("Manual selections continue across aggregate byte-bounded batches")
+    func boundsManualSelectionBatchBytes() async throws {
+        let root = try ArtifactTestSupport.temporaryDirectory()
+        defer { ArtifactTestSupport.remove(root) }
+        var configuration = ArtifactCaptureConfiguration.defaultValue
+        configuration.maximumFileBytes = 8
+        configuration.maximumTextFileBytes = 4
+        configuration.maximumFilesPerCapture = 3
+        let store = ConfiguredArtifactStore(
+            configuration: configuration,
+            limitsAggregateBatchToFirstCandidate: true
+        )
+        let sources = (0..<3).map { root.appendingPathComponent("artifact-\($0).md") }
+
+        let attempts = await ArtifactCaptureService(store: store).add(
+            sourceURLs: sources,
+            context: ArtifactCaptureContext(projectRoot: root)
+        )
+
+        #expect(attempts.allSatisfy {
+            if case .imported = $0 { return true }
+            return false
+        })
+        #expect(await store.importCount == sources.count)
+        #expect(await store.batchImportCount == sources.count)
+        #expect(await store.receivedMaximumBatchBytes == [8, 8, 8])
+    }
+
     @Test("Ephemeral prefixes match canonical macOS path aliases")
     func matchesCanonicalTemporaryAlias() throws {
         let temporary = try ArtifactTestSupport.temporaryDirectory()
