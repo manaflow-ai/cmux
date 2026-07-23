@@ -8,13 +8,14 @@ extension CMUXCLI {
     /// then `exec` replaces cmux so stdout, stderr, signals, and exit status remain
     /// exactly those of Herdr.
     func runHerdrCompat(commandArgs: [String], jsonOutput: Bool) throws {
+        let usage = Self.herdrCompatUsage
         if commandArgs.first.map({ $0 == "--help" || $0 == "-h" }) ?? false {
-            print(Self.herdrCompatUsage)
+            print(usage)
             return
         }
 
         guard let command = commandArgs.first else {
-            throw CLIError(message: Self.herdrCompatUsage, exitCode: 2)
+            throw CLIError(message: usage, exitCode: 2)
         }
         guard let translated = Self.herdrCompatArguments(
             command: command,
@@ -23,11 +24,17 @@ extension CMUXCLI {
         ) else {
             let format = String(
                 localized: "cli.herdrCompat.error.unknownCommand",
-                defaultValue: "Unknown compatibility command '%@'. Supported commands: status, snapshot, list-workspaces, list-tabs, list-panes."
+                defaultValue: "Unknown compatibility command '%1$@'. Supported commands: %2$@."
             )
-            throw CLIError(message: String(format: format, command), exitCode: 2)
+            throw CLIError(
+                message: String(format: format, command, Self.herdrCompatCommandList),
+                exitCode: 2
+            )
         }
-        guard let executable = Self.resolveHerdrExecutable() else {
+        guard let executable = resolveExecutableInSearchPath(
+            "herdr",
+            searchPath: ProcessInfo.processInfo.environment["PATH"]
+        ) else {
             throw CLIError(
                 message: missingProviderExecutableMessage(
                     displayName: "Herdr",
@@ -39,16 +46,15 @@ extension CMUXCLI {
 
         let argv = [executable] + translated
         var cArguments = argv.map { strdup($0) } + [nil]
-        defer { cArguments.dropLast().forEach { free($0) } }
-        let code = cliExecFailureErrno {
+        defer { Self.freeHerdrCompatArguments(cArguments) }
+        _ = cliExecFailureErrno {
             execv(executable, &cArguments)
         }
-        let format = String(
-            localized: "cli.herdrCompat.error.launchFailed",
-            defaultValue: "Failed to launch compatibility provider at %@: %@"
-        )
         throw CLIError(
-            message: String(format: format, executable, String(cString: strerror(code))),
+            message: String(
+                localized: "cli.herdrCompat.error.launchFailed",
+                defaultValue: "Couldn't start the required command. Verify it is installed and try again."
+            ),
             exitCode: 126
         )
     }
@@ -58,43 +64,41 @@ extension CMUXCLI {
         arguments: [String],
         jsonOutput: Bool = false
     ) -> [String]? {
-        let prefix: [String]
-        switch command {
-        case "status":
-            prefix = ["status"] + (jsonOutput && !arguments.contains("--json") ? ["--json"] : [])
-        case "snapshot":
-            prefix = ["api", "snapshot"]
-        case "list-workspaces":
-            prefix = ["workspace", "list"]
-        case "list-tabs":
-            prefix = ["tab", "list"]
-        case "list-panes":
-            prefix = ["pane", "list"]
-        default:
+        guard var prefix = herdrCompatCommands.first(where: { $0.name == command })?.arguments else {
             return nil
+        }
+        if command == "status", jsonOutput, !arguments.contains("--json") {
+            prefix.append("--json")
         }
         return prefix + arguments
     }
 
-    static func resolveHerdrExecutable(
-        environment: [String: String] = ProcessInfo.processInfo.environment,
-        fileManager: FileManager = .default
-    ) -> String? {
-        for directory in (environment["PATH"] ?? "").split(separator: ":", omittingEmptySubsequences: false) {
-            let base = directory.isEmpty ? fileManager.currentDirectoryPath : String(directory)
-            let candidate = URL(fileURLWithPath: base, isDirectory: true)
-                .appendingPathComponent("herdr", isDirectory: false).path
-            if fileManager.isExecutableFile(atPath: candidate) {
-                return candidate
-            }
-        }
-        return nil
+    private static let herdrCompatCommands: [(name: String, arguments: [String])] = [
+        ("status", ["status"]),
+        ("snapshot", ["api", "snapshot"]),
+        ("list-workspaces", ["workspace", "list"]),
+        ("list-tabs", ["tab", "list"]),
+        ("list-panes", ["pane", "list"]),
+    ]
+
+    private static var herdrCompatCommandList: String {
+        herdrCompatCommands.map(\.name).joined(separator: ", ")
     }
 
-    private static let herdrCompatUsage = """
-    Usage: cmux __herdr-compat <command> [options]
+    private static func freeHerdrCompatArguments(_ arguments: [UnsafeMutablePointer<CChar>?]) {
+        arguments.dropLast().forEach { free($0) }
+    }
 
-    Hidden compatibility bridge to an installed Herdr CLI.
-    Commands: status, snapshot, list-workspaces, list-tabs, list-panes
-    """
+    private static var herdrCompatUsage: String {
+        let format = String(
+            localized: "cli.herdrCompat.usage",
+            defaultValue: """
+            Usage: cmux __herdr-compat <command> [options]
+
+            Hidden compatibility bridge to an installed Herdr CLI.
+            Commands: %@
+            """
+        )
+        return String(format: format, herdrCompatCommandList)
+    }
 }
