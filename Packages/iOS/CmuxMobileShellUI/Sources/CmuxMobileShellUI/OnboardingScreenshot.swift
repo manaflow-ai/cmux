@@ -19,10 +19,17 @@ struct OnboardingScreenshot: View {
     let accessibilityLabel: String
 
     @Environment(\.locale) private var locale
+    @State private var screenshot: UIImage?
 
     var body: some View {
-        Image(uiImage: Self.image(content: content, language: language))
-            .resizable()
+        Group {
+            if let screenshot {
+                Image(uiImage: screenshot)
+                    .resizable()
+            } else {
+                Color.clear
+            }
+        }
             .aspectRatio(contentMode: .fill)
             .frame(maxWidth: .infinity)
             .frame(height: 330, alignment: .top)
@@ -35,33 +42,61 @@ struct OnboardingScreenshot: View {
             .accessibilityElement()
             .accessibilityLabel(accessibilityLabel)
             .accessibilityIdentifier(content.accessibilityIdentifier)
+            .task(id: resourceName) {
+                screenshot = nil
+                let loadedScreenshot = await Self.image(
+                    content: content,
+                    language: language
+                )
+                guard !Task.isCancelled else { return }
+                screenshot = loadedScreenshot
+            }
     }
 
     private var language: OnboardingScreenshotLanguage {
         OnboardingScreenshotLanguage.resolve(locale: locale)
     }
 
+    private var resourceName: String {
+        Self.resourceName(content: content, language: language)
+    }
+
     @MainActor
     static func image(
         content: Content,
         language: OnboardingScreenshotLanguage
-    ) -> UIImage {
+    ) async -> UIImage {
         let resourceName = resourceName(content: content, language: language)
         let cacheKey = resourceName as NSString
         if let cachedImage = screenshotCache.object(forKey: cacheKey) {
             return cachedImage
         }
 
+        guard let loaded = await loadImage(resourceName: resourceName) else {
+            assertionFailure("Missing onboarding screenshot: \(resourceName).png")
+            return UIImage()
+        }
+        screenshotCache.setObject(
+            loaded.image,
+            forKey: cacheKey,
+            cost: loaded.cost
+        )
+        return loaded.image
+    }
+
+    @concurrent
+    private static func loadImage(
+        resourceName: String
+    ) async -> (image: UIImage, cost: Int)? {
         guard let url = Bundle.module.url(
             forResource: resourceName,
             withExtension: "png"
         ), let data = try? Data(contentsOf: url),
-              let image = UIImage(data: data, scale: 3) else {
-            assertionFailure("Missing onboarding screenshot: \(resourceName).png")
-            return UIImage()
+              let sourceImage = UIImage(data: data, scale: 3),
+              let preparedImage = await sourceImage.byPreparingForDisplay() else {
+            return nil
         }
-        screenshotCache.setObject(image, forKey: cacheKey, cost: data.count)
-        return image
+        return (preparedImage, data.count)
     }
 
     @MainActor private static let screenshotCache: NSCache<NSString, UIImage> = {

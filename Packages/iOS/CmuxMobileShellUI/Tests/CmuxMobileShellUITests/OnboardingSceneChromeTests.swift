@@ -88,10 +88,10 @@ import UIKit
         )
     }
 
-    @Test @MainActor func everyLocalizedOnboardingScreenshotLoads() {
+    @Test @MainActor func everyLocalizedOnboardingScreenshotLoads() async {
         for content in OnboardingScreenshot.Content.allCases {
             for language in OnboardingScreenshotLanguage.allCases {
-                let image = OnboardingScreenshot.image(
+                let image = await OnboardingScreenshot.image(
                     content: content,
                     language: language
                 )
