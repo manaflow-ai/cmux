@@ -183,12 +183,19 @@ jobs:
         shell: bash
         run: |
           CMUX_TUI_PROBE="$(dist/cmux-tui-${{ matrix.target }} remote-probe --json)"
-          export CMUX_TUI_PROBE
+          CMUX_TUI_EXPECTED_BUILD_IDENTITY="$(git rev-parse HEAD)"
+          export CMUX_TUI_PROBE CMUX_TUI_EXPECTED_BUILD_IDENTITY
           python3 - <<'PY'
           import json
           import os
 
           probe = json.loads(os.environ["CMUX_TUI_PROBE"])
+          expected_identity = os.environ["CMUX_TUI_EXPECTED_BUILD_IDENTITY"]
+          if probe.get("build_identity") != expected_identity:
+              raise SystemExit(
+                  f"binary build identity {probe.get('build_identity')!r} "
+                  f"!= {expected_identity!r}"
+              )
           if probe.get("npm_bootstrap_version") is not None:
               raise SystemExit(
                   "non-npm binary unexpectedly advertises npm bootstrap version "
@@ -461,13 +468,20 @@ jobs:
           dist/binaries/cmux-tui-x86_64-unknown-linux-gnu --version >/tmp/cmux-tui-version.txt 2>&1 || \
             dist/binaries/cmux-tui-x86_64-unknown-linux-gnu --help >/tmp/cmux-tui-version.txt 2>&1
           CMUX_TUI_PROBE="$(dist/binaries/cmux-tui-x86_64-unknown-linux-gnu remote-probe --json)"
-          export CMUX_TUI_PROBE
+          CMUX_TUI_EXPECTED_BUILD_IDENTITY="$(git rev-parse HEAD)"
+          export CMUX_TUI_PROBE CMUX_TUI_EXPECTED_BUILD_IDENTITY
           python3 - <<'PY'
           import json
           import os
 
           probe = json.loads(os.environ["CMUX_TUI_PROBE"])
           expected = os.environ["NPM_VERSION"]
+          expected_identity = os.environ["CMUX_TUI_EXPECTED_BUILD_IDENTITY"]
+          if probe.get("build_identity") != expected_identity:
+              raise SystemExit(
+                  f"binary build identity {probe.get('build_identity')!r} "
+                  f"!= {expected_identity!r}"
+              )
           if probe.get("distribution_version") != expected:
               raise SystemExit(
                   f"binary distribution version {probe.get('distribution_version')!r} != {expected!r}"
