@@ -98,7 +98,7 @@ import Testing
         #expect(recorded.contains("CLAUDE_CODE_USE_VERTEX=1"), Comment(rawValue: recorded))
     }
 
-    @Test func claudeFallbackHookTimesIncreaseWithinOneShellProcess() throws {
+    @Test func claudeFallbackHookTimesIncreaseWithoutWaitingForLegacyClockLock() throws {
         let fileManager = FileManager.default
         let repoRoot = URL(fileURLWithPath: #filePath).deletingLastPathComponent().deletingLastPathComponent()
         let wrapperURL = repoRoot.appendingPathComponent("Resources/bin/cmux-claude-wrapper", isDirectory: false)
@@ -196,6 +196,18 @@ import Testing
         let clockStateVictimURL = sandbox.appendingPathComponent("clock-state-victim.txt", isDirectory: false)
         try "1893456000 0\n".write(to: clockStateVictimURL, atomically: true, encoding: .utf8)
         try fileManager.createSymbolicLink(at: clockStateURL, withDestinationURL: clockStateVictimURL)
+        let legacyLockURL = sandbox.appendingPathComponent("cmux-agent-hook-time.lock", isDirectory: true)
+        try fileManager.createDirectory(at: legacyLockURL, withIntermediateDirectories: false)
+        try "\(ProcessInfo.processInfo.processIdentifier)\n".write(
+            to: legacyLockURL.appendingPathComponent("owner"),
+            atomically: true,
+            encoding: .utf8
+        )
+        try "1893455999\n".write(
+            to: legacyLockURL.appendingPathComponent("started"),
+            atomically: true,
+            encoding: .utf8
+        )
 
         let hook = Process()
         hook.executableURL = URL(fileURLWithPath: "/bin/sh")
@@ -210,17 +222,18 @@ import Testing
         hook.standardInput = FileHandle.nullDevice
         hook.standardOutput = FileHandle.nullDevice
         hook.standardError = FileHandle.nullDevice
-        try runWithBoundedWait(hook, shellDescription: "Claude fallback hook timestamps", timeout: 10)
+        try runWithBoundedWait(hook, shellDescription: "Claude fallback hook timestamps", timeout: 1)
 
         #expect(try String(contentsOf: clockStateVictimURL, encoding: .utf8) == "1893456000 0\n")
-        #expect(try clockStateURL.resourceValues(forKeys: [.isSymbolicLinkKey]).isSymbolicLink == false)
+        #expect(try clockStateURL.resourceValues(forKeys: [.isSymbolicLinkKey]).isSymbolicLink == true)
+        #expect(fileManager.fileExists(atPath: legacyLockURL.path))
 
         let rawTimes = try String(contentsOf: capturedAtURL, encoding: .utf8)
             .split(whereSeparator: \.isNewline)
             .map(String.init)
         #expect(rawTimes.count == 4)
         let times = try rawTimes.map { try #require(Double($0)) }
-        #expect(rawTimes.allSatisfy { $0.hasPrefix("1893456000.") })
+        #expect(times.allSatisfy { $0.isFinite && $0 > 0 })
         for (earlier, later) in zip(times, times.dropFirst()) {
             #expect(earlier < later, Comment(rawValue: rawTimes.joined(separator: ",")))
         }

@@ -750,8 +750,8 @@ struct CLICodexHookTimeoutRegressionTests {
         let surfaceId = "22222222-2222-2222-2222-222222222222"
         let sessionId = "codex-stale-stop-metadata-session"
         let stateURL = root.appendingPathComponent("codex-hook-sessions.json")
-        let newerRunningEventTime: TimeInterval = 200
-        let staleStopEventTime: TimeInterval = 100
+        let newerRunningEventTime: TimeInterval = 1_893_456_200
+        let staleStopEventTime: TimeInterval = 1_893_456_100
         try FileManager.default.createDirectory(at: root, withIntermediateDirectories: true)
         defer {
             Darwin.close(listenerFD)
@@ -836,6 +836,82 @@ struct CLICodexHookTimeoutRegressionTests {
         #expect(session["activePromptTurnIds"] as? [String] == ["newer-turn"])
         #expect(session["terminalPromptTurnIds"] == nil)
         #expect(session["updatedAt"] as? Double == newerRunningEventTime)
+    }
+
+    @Test func codexInstalledHookDoesNotWaitForStalledLegacyTimestampLock() throws {
+        let cliPath = try bundledCLIPath()
+        let root = FileManager.default.temporaryDirectory
+            .appendingPathComponent("cmux-codex-hook-stalled-clock-\(UUID().uuidString)", isDirectory: true)
+        let codexHome = root.appendingPathComponent(".codex", isDirectory: true)
+        let toolBin = root.appendingPathComponent("tools", isDirectory: true)
+        let fakeCLI = root.appendingPathComponent("cmux", isDirectory: false)
+        let fakeDate = root.appendingPathComponent("date", isDirectory: false)
+        let capturedAt = root.appendingPathComponent("hook-captured-at.txt", isDirectory: false)
+        let doneFile = root.appendingPathComponent("hook-done.txt", isDirectory: false)
+        let legacyLock = root.appendingPathComponent("cmux-agent-hook-time.lock", isDirectory: true)
+        try FileManager.default.createDirectory(at: codexHome, withIntermediateDirectories: true)
+        try installMinimalHookToolPath(in: toolBin)
+        defer { try? FileManager.default.removeItem(at: root) }
+
+        try makeCodexHookExecutableShellFile(at: fakeDate, lines: [
+            "#!/bin/sh",
+            "printf '1893456000\\n'",
+        ])
+        try makeCodexHookExecutableShellFile(at: fakeCLI, lines: [
+            "#!/bin/sh",
+            "printf '%s\\n' \"$CMUX_AGENT_HOOK_CAPTURED_AT\" >> \"$CMUX_TEST_CAPTURED_AT\"",
+            "cat >/dev/null",
+            "printf 'done\\n' >> \"$CMUX_TEST_DONE\"",
+        ])
+
+        let install = runCodexHookProcess(
+            executablePath: cliPath,
+            arguments: ["hooks", "codex", "install", "--yes"],
+            environment: codexHookTestEnvironment(root: root, codexHome: codexHome),
+            timeout: 5
+        )
+        #expect(!install.timedOut, Comment(rawValue: install.stderr))
+        #expect(install.status == 0, Comment(rawValue: install.stderr))
+
+        let command = try #require(
+            codexHookEntries(in: codexHome).first { $0.eventName == "UserPromptSubmit" }?.command
+        )
+        try FileManager.default.createDirectory(at: legacyLock, withIntermediateDirectories: false)
+        try "\(ProcessInfo.processInfo.processIdentifier)\n".write(
+            to: legacyLock.appendingPathComponent("owner"),
+            atomically: true,
+            encoding: .utf8
+        )
+        try "1893456000\n".write(
+            to: legacyLock.appendingPathComponent("started"),
+            atomically: true,
+            encoding: .utf8
+        )
+
+        let run = runCodexHookProcess(
+            executablePath: "/bin/sh",
+            arguments: ["-c", command],
+            environment: [
+                "HOME": root.path,
+                "PATH": toolBin.path,
+                "TMPDIR": root.path,
+                "CMUX_AGENT_HOOK_DATE_BIN": fakeDate.path,
+                "CMUX_SURFACE_ID": "surface-123",
+                "CMUX_BUNDLED_CLI_PATH": fakeCLI.path,
+                "CMUX_CODEX_PID": "4242",
+                "CMUX_TEST_CAPTURED_AT": capturedAt.path,
+                "CMUX_TEST_DONE": doneFile.path,
+            ],
+            standardInput: #"{"session_id":"codex-session","prompt":"stalled clock"}"#,
+            timeout: 1
+        )
+
+        #expect(!run.timedOut, Comment(rawValue: run.stderr))
+        #expect(run.status == 0, Comment(rawValue: run.stderr))
+        #expect(run.stdout == "{}\n")
+        #expect(waitForFileLineCount(capturedAt, count: 1, timeout: 3))
+        #expect(waitForFile(doneFile, containing: "done", timeout: 3))
+        #expect(FileManager.default.fileExists(atPath: legacyLock.path))
     }
 
     @Test func codexFarFutureISOEventTimeDoesNotPoisonRuntimeOrdering() throws {

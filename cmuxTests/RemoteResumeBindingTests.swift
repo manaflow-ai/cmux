@@ -578,6 +578,39 @@ struct RemoteResumeBindingTests {
     }
 
     @Test
+    func newerResumeClearWinsWhenItInterleavesBetweenSetAcceptanceAndCommit() throws {
+        let workspace = Workspace()
+        let surfaceID = try #require(workspace.focusedPanelId)
+        let initialBinding = SurfaceResumeBindingSnapshot(
+            kind: "codex",
+            command: "codex resume initial-session",
+            checkpointId: "initial-session",
+            source: "agent-hook",
+            updatedAt: 1_893_456_100
+        )
+        let delayedBinding = SurfaceResumeBindingSnapshot(
+            kind: "codex",
+            command: "codex resume delayed-session",
+            checkpointId: "delayed-session",
+            source: "agent-hook",
+            updatedAt: 1_893_456_200
+        )
+
+        #expect(workspace.setSurfaceResumeBinding(initialBinding, panelId: surfaceID))
+        #expect(workspace.acceptsSurfaceResumeBindingMutation(
+            panelId: surfaceID,
+            agentEventTime: delayedBinding.updatedAt
+        ))
+
+        #expect(workspace.clearSurfaceResumeBinding(
+            panelId: surfaceID,
+            eventTime: 1_893_456_300
+        ))
+        #expect(!workspace.setSurfaceResumeBinding(delayedBinding, panelId: surfaceID))
+        #expect(workspace.surfaceResumeBinding(panelId: surfaceID) == nil)
+    }
+
+    @Test
     func remoteRegistrationRejectsMissingProvenanceAndInvalidPersistentOwnership() throws {
         _ = NSApplication.shared
         let previousAppDelegate = AppDelegate.shared

@@ -519,6 +519,36 @@ extension AgentNotificationRegressionTests {
         #expect(fixture.source.agentPIDPanelIdsByKey["claude_code.session"] == nil)
     }
 
+    @Test("An older structured agent cannot replace a newer pane runtime")
+    func olderStructuredAgentCannotReplaceNewerPaneRuntime() throws {
+        let fixture = try makeFixture()
+        defer { fixture.restore() }
+        let newerKey = "codex.newer-session"
+        let olderKey = "claude_code.older-session"
+
+        _ = fixture.source.recordAgentPID(
+            key: newerKey,
+            pid: 43_210,
+            panelId: fixture.panelId,
+            agentEventTime: 1_893_456_200,
+            enforceAgentEventOrdering: true,
+            refreshPorts: false
+        )
+        _ = fixture.source.recordAgentPID(
+            key: olderKey,
+            pid: 43_211,
+            panelId: fixture.panelId,
+            agentEventTime: 1_893_456_100,
+            enforceAgentEventOrdering: true,
+            refreshPorts: false
+        )
+
+        #expect(fixture.source.agentPIDs[newerKey] == 43_210)
+        #expect(fixture.source.agentPIDPanelIdsByKey[newerKey] == fixture.panelId)
+        #expect(fixture.source.agentPIDs[olderKey] == nil)
+        #expect(fixture.source.agentPIDPanelIdsByKey[olderKey] == nil)
+    }
+
     @Test("A stale lifecycle update cannot bypass a newer status watermark")
     func staleAgentLifecycleCannotBypassNewerStatusWatermark() throws {
         let fixture = try makeFixture()
