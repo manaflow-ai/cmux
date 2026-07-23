@@ -5631,11 +5631,16 @@ class TerminalController {
         v2ApplyIMessageModeSideEffects(for: event)
         Task { @MainActor in self.agentChatTranscriptService?.noteHookEvent(event) }
 
-        let result = FeedCoordinator.shared.ingestBlocking(
-            event: event,
-            waitTimeout: waitTimeout,
-            requiresIngestionAcknowledgment: requiresIngestionAcknowledgment
-        )
+        let result = if requiresIngestionAcknowledgment && waitTimeout == 0 {
+            v2MainSync {
+                FeedCoordinator.shared.ingestAcknowledged(event)
+            }
+        } else {
+            FeedCoordinator.shared.ingestBlocking(
+                event: event,
+                waitTimeout: waitTimeout
+            )
+        }
         CmuxEventBus.shared.publishWorkstreamEvent(
             event,
             phase: "completed",

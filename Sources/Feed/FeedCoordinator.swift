@@ -98,29 +98,23 @@ final class FeedCoordinator: @unchecked Sendable {
         return store.items.last?.id
     }
 
+    @MainActor
+    func ingestAcknowledged(_ event: WorkstreamEvent) -> IngestBlockingResult {
+        .acknowledged(itemId: ingestOnMainActor(event))
+    }
+
     /// Ingests a wire-frame event and, when `waitTimeout` > 0, blocks the
     /// current (non-main) thread until the item is resolved or the
     /// timeout elapses.
     func ingestBlocking(
         event: WorkstreamEvent,
-        waitTimeout: TimeInterval,
-        requiresIngestionAcknowledgment: Bool = false
+        waitTimeout: TimeInterval
     ) -> IngestBlockingResult {
         if waitTimeout <= 0 {
-            guard requiresIngestionAcknowledgment else {
-                DispatchQueue.main.async {
-                    MainActor.assumeIsolated {
-                        _ = FeedCoordinator.shared.ingestOnMainActor(event)
-                    }
-                }
-                return .acknowledged(itemId: nil)
+            Task { @MainActor in
+                _ = FeedCoordinator.shared.ingestOnMainActor(event)
             }
-            let itemId = DispatchQueue.main.sync {
-                MainActor.assumeIsolated {
-                    FeedCoordinator.shared.ingestOnMainActor(event)
-                }
-            }
-            return .acknowledged(itemId: itemId)
+            return .acknowledged(itemId: nil)
         }
         guard let requestId = event.requestId else {
             DispatchQueue.main.async {

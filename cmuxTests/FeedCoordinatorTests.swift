@@ -484,19 +484,10 @@ struct FeedCoordinatorTests {
             toolInputJSON: #"{"kind":"object"}"#,
             requestId: "pi-authoritative-ack-request"
         )
-        let done = DispatchSemaphore(value: 0)
-        let resultBox = IngestResultBox()
-        DispatchQueue.global(qos: .userInitiated).async {
-            resultBox.value = FeedCoordinator.shared.ingestBlocking(
-                event: event,
-                waitTimeout: 0,
-                requiresIngestionAcknowledgment: true
-            )
-            done.signal()
+        let result = await MainActor.run {
+            FeedCoordinator.shared.ingestAcknowledged(event)
         }
-
-        #expect(done.wait(timeout: .now() + 2) == .success)
-        guard case .acknowledged(let itemId?) = resultBox.value else {
+        guard case .acknowledged(let itemId?) = result else {
             Issue.record("zero-wait acknowledgment must identify the inserted Feed item")
             return
         }
@@ -535,8 +526,7 @@ struct FeedCoordinatorTests {
         DispatchQueue.global(qos: .userInitiated).async {
             resultBox.value = FeedCoordinator.shared.ingestBlocking(
                 event: event,
-                waitTimeout: 0,
-                requiresIngestionAcknowledgment: false
+                waitTimeout: 0
             )
             done.signal()
         }
