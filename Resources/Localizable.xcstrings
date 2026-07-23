@@ -5417,7 +5417,7 @@
     "cli.herdrCompat.usage": {
       "extractionState": "manual",
       "localizations": {
-        "en": { "stringUnit": { "state": "translated", "value": "Usage: cmux __herdr-compat <command> [options]\n\nHidden compatibility bridge to an installed Herdr CLI.\nCommands: %@" } },
+        "en": { "stringUnit": { "state": "translated", "value": "Usage: cmux __herdr-compat <command> [options]\n\nHidden compatibility bridge to an installed provider CLI.\nCommands: %@\n\nNotes:\n  - `status` accepts cmux `--json` (mapped to provider `status --json`).\n  - `snapshot`, `list-workspaces`, `list-tabs`, and `list-panes` always return JSON;\n    cmux `--json` is accepted and ignored for those aliases." } },
         "ja": { "stringUnit": { "state": "translated", "value": "使用法: cmux __herdr-compat <command> [options]\n\nインストール済みの Herdr CLI への非表示の互換ブリッジです。\nコマンド: %@" } }
       }
     },
