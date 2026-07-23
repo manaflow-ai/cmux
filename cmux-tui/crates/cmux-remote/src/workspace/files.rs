@@ -666,7 +666,7 @@ pub(crate) async fn read_full_file(
     {
         let root = root.unix_root();
         let path = path.to_owned();
-        return tokio::task::spawn_blocking(move || {
+        tokio::task::spawn_blocking(move || {
             let target = root.resolve_target(&path, false)?;
             let mut file = open_regular_entry(&target, "read")?;
             let bytes = read_file_bounded_sync(&mut file, target.display(), maximum)?;
@@ -674,7 +674,7 @@ pub(crate) async fn read_full_file(
             Ok(bytes)
         })
         .await
-        .map_err(blocking_task_error)?;
+        .map_err(blocking_task_error)?
     }
     #[cfg(not(unix))]
     {
@@ -779,7 +779,7 @@ pub(crate) async fn write_bytes_locked_with_outcome(
         })
         .await
         .map_err(|error| MutationFailure::unknown(blocking_task_error(error)))?;
-        return result.map_err(|error| progress.fail(error));
+        result.map_err(|error| progress.fail(error))
     }
     #[cfg(not(unix))]
     {
@@ -920,7 +920,7 @@ pub(crate) async fn remove_file_precondition_locked_with_outcome(
         })
         .await
         .map_err(|error| MutationFailure::unknown(blocking_task_error(error)))?;
-        return result.map_err(|error| progress.fail(error));
+        result.map_err(|error| progress.fail(error))
     }
     #[cfg(not(unix))]
     {
@@ -999,10 +999,10 @@ impl RawEntryState {
     fn from_stat(status: &libc::stat) -> Self {
         let (modified, changed) = raw_stat_timestamps(status);
         Self {
-            dev: status.st_dev as u64,
-            ino: status.st_ino as u64,
-            mode: status.st_mode as u32,
-            size: u64::try_from(status.st_size).unwrap_or(0),
+            dev: normalize_stat_value(status.st_dev),
+            ino: normalize_stat_value(status.st_ino),
+            mode: normalize_stat_value(status.st_mode),
+            size: normalize_stat_value(status.st_size),
             modified,
             changed,
         }
@@ -1030,11 +1030,20 @@ impl RawEntryState {
     }
 }
 
+#[cfg(unix)]
+fn normalize_stat_value<T, U>(value: T) -> U
+where
+    T: TryInto<U>,
+    U: Default,
+{
+    value.try_into().unwrap_or_default()
+}
+
 #[cfg(any(target_os = "linux", target_os = "android", target_vendor = "apple"))]
 fn raw_stat_timestamps(status: &libc::stat) -> ((i64, i64), (i64, i64)) {
     (
-        (status.st_mtime as i64, status.st_mtime_nsec as i64),
-        (status.st_ctime as i64, status.st_ctime_nsec as i64),
+        (normalize_stat_value(status.st_mtime), normalize_stat_value(status.st_mtime_nsec)),
+        (normalize_stat_value(status.st_ctime), normalize_stat_value(status.st_ctime_nsec)),
     )
 }
 
@@ -1187,11 +1196,13 @@ fn commit_unix_write(
             commit_content_hash_write(
                 &target,
                 &temporary_name,
-                &mut temporary,
-                &mut temporary_metadata,
-                pinned,
-                expected,
-                &content_hash,
+                ContentHashWrite {
+                    staged_file: &mut temporary,
+                    staged_metadata: &mut temporary_metadata,
+                    pinned_file: pinned,
+                    expected_hash: expected,
+                    requested_hash: &content_hash,
+                },
                 progress,
             )?;
         }
@@ -1272,14 +1283,19 @@ fn commit_any_write(
 }
 
 #[cfg(unix)]
+struct ContentHashWrite<'a> {
+    staged_file: &'a mut File,
+    staged_metadata: &'a mut std::fs::Metadata,
+    pinned_file: &'a mut File,
+    expected_hash: &'a str,
+    requested_hash: &'a str,
+}
+
+#[cfg(unix)]
 fn commit_content_hash_write(
     target: &UnixWorkspaceTarget,
     temporary_name: &CStr,
-    temporary: &mut File,
-    temporary_metadata: &mut std::fs::Metadata,
-    pinned: &mut File,
-    expected: &str,
-    requested: &str,
+    mut write: ContentHashWrite<'_>,
     progress: &mut MutationProgress,
 ) -> Result<(), RpcError> {
     #[cfg(test)]
@@ -1287,19 +1303,22 @@ fn commit_content_hash_write(
         target.display(),
         MutationTestPoint::BeforeContentHashValidation,
     );
-    let (actual, pinned_metadata) = match hash_before_publish(pinned, target) {
+    let (actual, pinned_metadata) = match hash_before_publish(write.pinned_file, target) {
         Ok(result) => result,
         Err(error) => {
             return Err(cleanup_unpublished_temporary(target, temporary_name, error, progress));
         }
     };
-    if !actual.eq_ignore_ascii_case(expected) {
+    if !actual.eq_ignore_ascii_case(write.expected_hash) {
         return Err(cleanup_unpublished_temporary(
             target,
             temporary_name,
             RpcError::new(
                 "conflict",
-                format!("content hash changed before commit: expected {expected}, found {actual}"),
+                format!(
+                    "content hash changed before commit: expected {}, found {actual}",
+                    write.expected_hash
+                ),
             ),
             progress,
         ));
@@ -1321,13 +1340,20 @@ fn commit_content_hash_write(
     }
     let temporary_path = temporary_display(target, temporary_name);
     let refreshed_temporary = (|| {
-        temporary
+        write
+            .staged_file
             .set_permissions(std::fs::Permissions::from_mode(pinned_identity.mode & 0o7777))
             .map_err(|error| io_error("set-permissions", &temporary_path, error))?;
-        temporary.sync_all().map_err(|error| io_error("sync-temporary", &temporary_path, error))?;
-        temporary.metadata().map_err(|error| io_error("stat-temporary", &temporary_path, error))
+        write
+            .staged_file
+            .sync_all()
+            .map_err(|error| io_error("sync-temporary", &temporary_path, error))?;
+        write
+            .staged_file
+            .metadata()
+            .map_err(|error| io_error("stat-temporary", &temporary_path, error))
     })();
-    *temporary_metadata = match refreshed_temporary {
+    *write.staged_metadata = match refreshed_temporary {
         Ok(metadata) => metadata,
         Err(error) => {
             return Err(cleanup_unpublished_temporary(target, temporary_name, error, progress));
@@ -1397,14 +1423,10 @@ fn commit_content_hash_write(
     if let Err(error) = validate_exchanged_write(
         target,
         temporary_name,
-        temporary,
-        pinned,
-        temporary_metadata,
+        &mut write,
         &pinned_identity,
         &published,
         &recovery,
-        expected,
-        requested,
     ) {
         rollback_exchange(target, temporary_name, &published, &recovery, progress)?;
         return Err(error);
@@ -1424,35 +1446,30 @@ fn commit_content_hash_write(
 }
 
 #[cfg(unix)]
-#[allow(clippy::too_many_arguments)]
 fn validate_exchanged_write(
     target: &UnixWorkspaceTarget,
     temporary_name: &CStr,
-    published_file: &mut File,
-    recovery_file: &mut File,
-    staged_metadata: &std::fs::Metadata,
+    write: &mut ContentHashWrite<'_>,
     pinned_identity: &RawEntryState,
     published: &RawEntryState,
     recovery: &RawEntryState,
-    expected: &str,
-    requested: &str,
 ) -> Result<(), RpcError> {
-    let staged_identity = RawEntryState::from_metadata(staged_metadata);
+    let staged_identity = RawEntryState::from_metadata(write.staged_metadata);
     if !published.matches_snapshot(&staged_identity) || !recovery.matches_snapshot(pinned_identity)
     {
         return Err(RpcError::new("conflict", "file identity changed during commit"));
     }
 
     let (published_hash, published_metadata) =
-        hash_file_sync(published_file, target.display(), MAX_HASH_BYTES)?;
-    if !published_hash.eq_ignore_ascii_case(requested) {
+        hash_file_sync(write.staged_file, target.display(), MAX_HASH_BYTES)?;
+    if !published_hash.eq_ignore_ascii_case(write.requested_hash) {
         return Err(RpcError::new("conflict", "staged file content changed during commit"));
     }
 
     let recovery_display = temporary_display(target, temporary_name);
     let (recovery_hash, recovery_metadata) =
-        hash_file_sync(recovery_file, &recovery_display, MAX_HASH_BYTES)?;
-    if !recovery_hash.eq_ignore_ascii_case(expected) {
+        hash_file_sync(write.pinned_file, &recovery_display, MAX_HASH_BYTES)?;
+    if !recovery_hash.eq_ignore_ascii_case(write.expected_hash) {
         return Err(RpcError::new("conflict", "file content changed during commit"));
     }
 
@@ -3231,7 +3248,7 @@ mod tests {
         let (_directory, root) = root().await;
         let target = root.canonical_root().join("mode-zero.txt");
         tokio::fs::write(&target, b"old").await.unwrap();
-        tokio::fs::set_permissions(&target, std::fs::Permissions::from_mode(0)).await.unwrap();
+        tokio::fs::set_permissions(&target, std::fs::Permissions::from_mode(0o000)).await.unwrap();
 
         let missing = write_file(
             &root,
@@ -3256,7 +3273,7 @@ mod tests {
         tokio::fs::set_permissions(&target, std::fs::Permissions::from_mode(0o600)).await.unwrap();
         assert_eq!(tokio::fs::read(&target).await.unwrap(), b"new");
 
-        tokio::fs::set_permissions(&target, std::fs::Permissions::from_mode(0)).await.unwrap();
+        tokio::fs::set_permissions(&target, std::fs::Permissions::from_mode(0o000)).await.unwrap();
         let missing =
             remove_file_precondition_locked(&root, "mode-zero.txt", &FilePrecondition::Missing)
                 .await

@@ -1,5 +1,4 @@
 use std::sync::Arc;
-use std::sync::atomic::{AtomicBool, AtomicUsize, Ordering};
 use std::time::{Duration, Instant};
 
 use bytes::Bytes;
@@ -12,7 +11,7 @@ use cmux_remote::session::SessionLimits;
 use cmux_remote_protocol::{FrameFlags, Lane, LanePolicy, SessionId};
 use sha2::{Digest, Sha256};
 use tempfile::tempdir;
-use tokio::sync::{Barrier, mpsc, oneshot};
+use tokio::sync::{mpsc, watch};
 use url::Url;
 use zeroize::Zeroizing;
 
@@ -20,9 +19,12 @@ const MAXIMUM_FRAME_BYTES: usize = 65_535;
 const BULK_BYTES_PER_DIRECTION: usize = 64 * 1024 * 1024;
 const BULK_CHUNK_BYTES: usize = 4 * 1024;
 const BULK_FRAME_COUNT: usize = BULK_BYTES_PER_DIRECTION / BULK_CHUNK_BYTES;
-const ECHO_COUNT: usize = 1_024;
-const MINIMUM_BULK_PROGRESS_DURING_ECHOES: usize = 128 * 1024;
-const MAXIMUM_STAGNANT_ECHO_INTERVALS: usize = 128;
+// Keep this regression strictly sequential so every sample models one
+// keystroke round trip. The black-box transport proof harness separately
+// requires 1,000 markers overlapping a 64 MiB transfer.
+const ECHO_COUNT: usize = 256;
+const BULK_FRAMES_PER_ECHO: usize = BULK_FRAME_COUNT / ECHO_COUNT;
+const RECEIVER_FENCE_FRAMES_PER_ECHO: usize = BULK_FRAMES_PER_ECHO / 2;
 const CLIENT_BULK_STREAM: u64 = 41;
 const SERVER_BULK_STREAM: u64 = 42;
 const INTERACTIVE_STREAM: u64 = 7;
@@ -30,18 +32,24 @@ const ECHO_TIMEOUT: Duration = Duration::from_secs(5);
 const TEST_TIMEOUT: Duration = Duration::from_secs(90);
 const P95_BOUND: Duration = Duration::from_millis(250);
 const P99_BOUND: Duration = Duration::from_secs(1);
+const _: () = {
+    assert!(BULK_FRAME_COUNT == ECHO_COUNT * BULK_FRAMES_PER_ECHO);
+    assert!(RECEIVER_FENCE_FRAMES_PER_ECHO < BULK_FRAMES_PER_ECHO);
+};
 
 #[derive(Debug)]
 struct BulkReport {
     started: Instant,
-    finished: Instant,
     bytes: usize,
 }
 
 #[derive(Debug)]
 struct ReceiveReport {
+    started: Instant,
+    bulk_finished: Instant,
     finished: Instant,
     bytes: usize,
+    digest: [u8; 32],
 }
 
 #[derive(Debug)]
@@ -50,6 +58,13 @@ struct LatencyMetrics {
     p95: Duration,
     p99: Duration,
     max: Duration,
+}
+
+#[derive(Debug)]
+struct EchoFenceReport {
+    responses: usize,
+    daemon_received_client_bulk: usize,
+    client_received_daemon_bulk: usize,
 }
 
 #[tokio::test(flavor = "multi_thread", worker_threads = 4)]
@@ -117,87 +132,45 @@ async fn interactive_echo_stays_responsive_during_bidirectional_bulk_transfer() 
         // 128 MiB of debug-build byte assertions on async worker threads.
         let expected_client_bulk = expected_bulk_digest(0x39);
         let expected_server_bulk = expected_bulk_digest(0xa7);
-        let start = Arc::new(Barrier::new(3));
-        let client_bulk_progress = Arc::new(AtomicUsize::new(0));
-        let server_bulk_progress = Arc::new(AtomicUsize::new(0));
-        let client_bulk_received = Arc::new(AtomicUsize::new(0));
-        let server_bulk_received = Arc::new(AtomicUsize::new(0));
-        let client_bulk_finished = Arc::new(AtomicBool::new(false));
-        let server_bulk_finished = Arc::new(AtomicBool::new(false));
-        let (client_bulk_started_tx, client_bulk_started_rx) = oneshot::channel();
-        let (server_bulk_started_tx, server_bulk_started_rx) = oneshot::channel();
+        // A query releases exactly one fixed Bulk epoch in each direction. The
+        // responder waits for both remote receivers to observe half that epoch
+        // before replying. Every measured RTT therefore causally contains new
+        // receiver-observed Bulk without using transfer duration as a clock.
+        let (client_epoch_tx, client_epoch_rx) = mpsc::channel(1);
+        let (server_epoch_tx, server_epoch_rx) = mpsc::channel(1);
+        let (daemon_bulk_progress_tx, daemon_bulk_progress_rx) = watch::channel(0_usize);
+        let (client_bulk_progress_tx, client_bulk_progress_rx) = watch::channel(0_usize);
+        let (query_tx, query_rx) = mpsc::channel(1);
         let (echo_tx, mut echo_rx) = mpsc::channel(1);
 
         let server_receive = tokio::spawn(run_server_receiver(
             daemon_client.clone(),
-            expected_client_bulk,
-            client_bulk_received.clone(),
+            query_tx,
+            daemon_bulk_progress_tx,
         ));
-        let client_receive = tokio::spawn(run_client_receiver(
-            client.clone(),
-            echo_tx,
-            expected_server_bulk,
-            server_bulk_received.clone(),
+        let client_receive =
+            tokio::spawn(run_client_receiver(client.clone(), echo_tx, client_bulk_progress_tx));
+        let responder = tokio::spawn(run_echo_responder(
+            daemon_client.clone(),
+            query_rx,
+            daemon_bulk_progress_rx,
+            client_bulk_progress_rx,
         ));
-
-        let client_bulk = tokio::spawn(send_client_bulk(
-            client.clone(),
-            start.clone(),
-            client_bulk_progress.clone(),
-            client_bulk_finished.clone(),
-            client_bulk_started_tx,
-        ));
-        let server_bulk = tokio::spawn(send_server_bulk(
-            daemon_client,
-            start.clone(),
-            server_bulk_progress.clone(),
-            server_bulk_finished.clone(),
-            server_bulk_started_tx,
-        ));
-
-        start.wait().await;
-        client_bulk_started_rx.await.unwrap();
-        server_bulk_started_rx.await.unwrap();
+        let client_bulk = tokio::spawn(send_client_bulk(client.clone(), client_epoch_rx));
+        let server_bulk = tokio::spawn(send_server_bulk(daemon_client, server_epoch_rx));
 
         let mut latencies = Vec::with_capacity(ECHO_COUNT);
-        let mut issued_at = Vec::with_capacity(ECHO_COUNT);
-        let mut client_sent_window =
-            BulkProgressWindow::new(client_bulk_progress.load(Ordering::Acquire));
-        let mut server_sent_window =
-            BulkProgressWindow::new(server_bulk_progress.load(Ordering::Acquire));
-        let mut client_received_window =
-            BulkProgressWindow::new(client_bulk_received.load(Ordering::Acquire));
-        let mut server_received_window =
-            BulkProgressWindow::new(server_bulk_received.load(Ordering::Acquire));
         for index in 0..ECHO_COUNT {
-            assert!(
-                !client_bulk.is_finished(),
-                "client-to-daemon Bulk task stopped before echo {index} was issued"
-            );
-            assert!(
-                !server_bulk.is_finished(),
-                "daemon-to-client Bulk task stopped before echo {index} was issued"
-            );
-            assert_bulk_still_active(
-                "client-to-daemon",
-                &client_bulk_progress,
-                &client_bulk_finished,
-                index,
-            );
-            assert_bulk_still_active(
-                "daemon-to-client",
-                &server_bulk_progress,
-                &server_bulk_finished,
-                index,
-            );
-
             let payload = echo_payload(index);
             let issued = Instant::now();
-            issued_at.push(issued);
             client
                 .send(Lane::Interactive, INTERACTIVE_STREAM, payload.clone(), FrameFlags::empty())
                 .await
                 .unwrap();
+            let (client_credit, server_credit) =
+                tokio::join!(client_epoch_tx.send(index), server_epoch_tx.send(index),);
+            client_credit.expect("client Bulk producer stopped before its epoch credit");
+            server_credit.expect("server Bulk producer stopped before its epoch credit");
             let echoed = tokio::time::timeout(ECHO_TIMEOUT, echo_rx.recv())
                 .await
                 .expect("Interactive echo exceeded the finite fairness bound")
@@ -205,42 +178,34 @@ async fn interactive_echo_stays_responsive_during_bidirectional_bulk_transfer() 
             let elapsed = issued.elapsed();
             assert_eq!(echoed, payload, "Interactive echo {index} was corrupted");
             latencies.push(elapsed);
-
-            client_sent_window.observe(client_bulk_progress.load(Ordering::Acquire));
-            server_sent_window.observe(server_bulk_progress.load(Ordering::Acquire));
-            client_received_window.observe(client_bulk_received.load(Ordering::Acquire));
-            server_received_window.observe(server_bulk_received.load(Ordering::Acquire));
         }
-
-        client_sent_window.assert_progress("client-to-daemon sender");
-        server_sent_window.assert_progress("daemon-to-client sender");
-        client_received_window.assert_progress("client-to-daemon receiver");
-        server_received_window.assert_progress("daemon-to-client receiver");
+        drop((client_epoch_tx, server_epoch_tx));
 
         let client_bulk = client_bulk.await.unwrap();
         let server_bulk = server_bulk.await.unwrap();
+        let responder = responder.await.unwrap();
         let server_receive = server_receive.await.unwrap();
         let client_receive = client_receive.await.unwrap();
 
         assert_eq!(client_bulk.bytes, BULK_BYTES_PER_DIRECTION);
         assert_eq!(server_bulk.bytes, BULK_BYTES_PER_DIRECTION);
-        assert_eq!(server_receive.bytes, BULK_BYTES_PER_DIRECTION);
-        assert_eq!(client_receive.bytes, BULK_BYTES_PER_DIRECTION);
-        assert_eq!(client_bulk_progress.load(Ordering::Acquire), BULK_BYTES_PER_DIRECTION);
-        assert_eq!(server_bulk_progress.load(Ordering::Acquire), BULK_BYTES_PER_DIRECTION);
-        assert_eq!(client_bulk_received.load(Ordering::Acquire), BULK_BYTES_PER_DIRECTION);
-        assert_eq!(server_bulk_received.load(Ordering::Acquire), BULK_BYTES_PER_DIRECTION);
-
-        let overlap_start = client_bulk.started.max(server_bulk.started);
-        let overlap_end = client_bulk.finished.min(server_bulk.finished);
-        let overlapping_echoes = issued_at
-            .iter()
-            .filter(|issued| **issued >= overlap_start && **issued < overlap_end)
-            .count();
+        assert_eq!(server_receive.bytes, client_bulk.bytes);
+        assert_eq!(client_receive.bytes, server_bulk.bytes);
+        assert_eq!(responder.responses, ECHO_COUNT);
+        assert!(responder.daemon_received_client_bulk >= receiver_fence_target(ECHO_COUNT - 1));
+        assert!(responder.client_received_daemon_bulk >= receiver_fence_target(ECHO_COUNT - 1));
         assert_eq!(
-            overlapping_echoes, ECHO_COUNT,
-            "all Interactive echoes must be issued while both fixed 64 MiB transfers are active"
+            server_receive.digest, expected_client_bulk,
+            "client-to-daemon Bulk digest changed",
         );
+        assert_eq!(
+            client_receive.digest, expected_server_bulk,
+            "daemon-to-client Bulk digest changed",
+        );
+        assert!(server_receive.started <= server_receive.bulk_finished);
+        assert!(server_receive.bulk_finished <= server_receive.finished);
+        assert!(client_receive.started <= client_receive.bulk_finished);
+        assert!(client_receive.bulk_finished <= client_receive.finished);
 
         let metrics = latency_metrics(latencies);
         assert!(
@@ -270,8 +235,7 @@ async fn interactive_echo_stays_responsive_during_bidirectional_bulk_transfer() 
         eprintln!(
             "interactive-under-bulk: echoes={ECHO_COUNT} bulk_each_mib={} \
              p50={:?} p95={:?} p99={:?} max={:?} transfer={:?} aggregate_mib_s={:.1} \
-             sent_during_echoes_mib={:.2}/{:.2} received_during_echoes_mib={:.2}/{:.2} \
-             max_stagnant_intervals={}/{}/{}/{}",
+             receiver_fenced_mib={:.2}/{:.2}",
             BULK_BYTES_PER_DIRECTION / (1024 * 1024),
             metrics.p50,
             metrics.p95,
@@ -279,14 +243,8 @@ async fn interactive_echo_stays_responsive_during_bidirectional_bulk_transfer() 
             metrics.max,
             transfer_duration,
             aggregate_mib_per_second,
-            client_sent_window.progress() as f64 / (1024.0 * 1024.0),
-            server_sent_window.progress() as f64 / (1024.0 * 1024.0),
-            client_received_window.progress() as f64 / (1024.0 * 1024.0),
-            server_received_window.progress() as f64 / (1024.0 * 1024.0),
-            client_sent_window.maximum_stagnant_intervals,
-            server_sent_window.maximum_stagnant_intervals,
-            client_received_window.maximum_stagnant_intervals,
-            server_received_window.maximum_stagnant_intervals,
+            responder.daemon_received_client_bulk as f64 / (1024.0 * 1024.0),
+            responder.client_received_daemon_bulk as f64 / (1024.0 * 1024.0),
         );
 
         client.close().await.unwrap();
@@ -298,106 +256,127 @@ async fn interactive_echo_stays_responsive_during_bidirectional_bulk_transfer() 
 
 async fn send_client_bulk(
     client: Arc<ClientConnection>,
-    start: Arc<Barrier>,
-    progress: Arc<AtomicUsize>,
-    finished: Arc<AtomicBool>,
-    started_tx: oneshot::Sender<()>,
+    mut epochs: mpsc::Receiver<usize>,
 ) -> BulkReport {
-    start.wait().await;
-    let started = Instant::now();
-    let mut started_tx = Some(started_tx);
-    for index in 0..BULK_FRAME_COUNT {
-        client
-            .send(Lane::Bulk, CLIENT_BULK_STREAM, bulk_payload(0x39, index), FrameFlags::empty())
-            .await
-            .unwrap();
-        progress.store((index + 1) * BULK_CHUNK_BYTES, Ordering::Release);
-        if let Some(started_tx) = started_tx.take() {
-            let _ = started_tx.send(());
+    let mut started = None;
+    for expected_epoch in 0..ECHO_COUNT {
+        let epoch = epochs.recv().await.expect("client Bulk epoch source stopped early");
+        assert_eq!(epoch, expected_epoch, "client Bulk epoch changed order");
+        started.get_or_insert_with(Instant::now);
+        let first = epoch * BULK_FRAMES_PER_ECHO;
+        for index in first..first + BULK_FRAMES_PER_ECHO {
+            client
+                .send(
+                    Lane::Bulk,
+                    CLIENT_BULK_STREAM,
+                    bulk_payload(0x39, index),
+                    FrameFlags::empty(),
+                )
+                .await
+                .unwrap();
         }
     }
-    let finished_at = Instant::now();
-    finished.store(true, Ordering::Release);
-    BulkReport { started, finished: finished_at, bytes: BULK_BYTES_PER_DIRECTION }
+    BulkReport { started: started.unwrap(), bytes: BULK_BYTES_PER_DIRECTION }
 }
 
 async fn send_server_bulk(
     daemon: Arc<ServerConnection>,
-    start: Arc<Barrier>,
-    progress: Arc<AtomicUsize>,
-    finished: Arc<AtomicBool>,
-    started_tx: oneshot::Sender<()>,
+    mut epochs: mpsc::Receiver<usize>,
 ) -> BulkReport {
-    start.wait().await;
-    let started = Instant::now();
-    let mut started_tx = Some(started_tx);
-    for index in 0..BULK_FRAME_COUNT {
-        daemon
-            .send(Lane::Bulk, SERVER_BULK_STREAM, bulk_payload(0xa7, index), FrameFlags::empty())
-            .await
-            .unwrap();
-        progress.store((index + 1) * BULK_CHUNK_BYTES, Ordering::Release);
-        if let Some(started_tx) = started_tx.take() {
-            let _ = started_tx.send(());
+    let mut started = None;
+    for expected_epoch in 0..ECHO_COUNT {
+        let epoch = epochs.recv().await.expect("server Bulk epoch source stopped early");
+        assert_eq!(epoch, expected_epoch, "server Bulk epoch changed order");
+        started.get_or_insert_with(Instant::now);
+        let first = epoch * BULK_FRAMES_PER_ECHO;
+        for index in first..first + BULK_FRAMES_PER_ECHO {
+            daemon
+                .send(
+                    Lane::Bulk,
+                    SERVER_BULK_STREAM,
+                    bulk_payload(0xa7, index),
+                    FrameFlags::empty(),
+                )
+                .await
+                .unwrap();
         }
     }
-    let finished_at = Instant::now();
-    finished.store(true, Ordering::Release);
-    BulkReport { started, finished: finished_at, bytes: BULK_BYTES_PER_DIRECTION }
+    BulkReport { started: started.unwrap(), bytes: BULK_BYTES_PER_DIRECTION }
 }
 
 async fn run_server_receiver(
     daemon: Arc<ServerConnection>,
-    expected_digest: [u8; 32],
-    progress: Arc<AtomicUsize>,
+    query_tx: mpsc::Sender<(usize, Bytes)>,
+    progress: watch::Sender<usize>,
 ) -> ReceiveReport {
     let mut bulk_index = 0;
+    let mut started = None;
+    let mut bulk_finished = None;
     let mut echo_count = 0;
     let mut bulk_digest = Sha256::new();
     while bulk_index < BULK_FRAME_COUNT || echo_count < ECHO_COUNT {
         let frame = daemon.receive().await.unwrap().expect("client connection closed early");
         match (frame.lane, frame.stream) {
             (Lane::Bulk, CLIENT_BULK_STREAM) => {
+                let received_at = Instant::now();
+                if started.is_none() {
+                    started = Some(received_at);
+                }
                 assert_bulk_frame_header(&frame.payload, bulk_index);
                 bulk_digest.update(&frame.payload);
                 bulk_index += 1;
-                progress.store(bulk_index * BULK_CHUNK_BYTES, Ordering::Release);
+                progress.send_replace(bulk_index * BULK_CHUNK_BYTES);
+                if bulk_index == BULK_FRAME_COUNT {
+                    bulk_finished = Some(received_at);
+                }
             }
             (Lane::Interactive, INTERACTIVE_STREAM) => {
                 assert_eq!(frame.payload, echo_payload(echo_count));
-                daemon
-                    .send(Lane::Interactive, INTERACTIVE_STREAM, frame.payload, FrameFlags::empty())
+                query_tx
+                    .send((echo_count, frame.payload))
                     .await
-                    .unwrap();
+                    .expect("Interactive responder stopped");
                 echo_count += 1;
             }
             (lane, stream) => panic!("unexpected client frame on {lane}/{stream}"),
         }
     }
-    assert_eq!(bulk_index * BULK_CHUNK_BYTES, BULK_BYTES_PER_DIRECTION);
+    assert_eq!(bulk_index, BULK_FRAME_COUNT);
     assert_eq!(echo_count, ECHO_COUNT);
-    let actual_digest: [u8; 32] = bulk_digest.finalize().into();
-    assert_eq!(actual_digest, expected_digest, "client-to-daemon Bulk digest changed");
-    ReceiveReport { finished: Instant::now(), bytes: bulk_index * BULK_CHUNK_BYTES }
+    ReceiveReport {
+        started: started.unwrap(),
+        bulk_finished: bulk_finished.unwrap(),
+        finished: Instant::now(),
+        bytes: bulk_index * BULK_CHUNK_BYTES,
+        digest: bulk_digest.finalize().into(),
+    }
 }
 
 async fn run_client_receiver(
     client: Arc<ClientConnection>,
     echo_tx: mpsc::Sender<Bytes>,
-    expected_digest: [u8; 32],
-    progress: Arc<AtomicUsize>,
+    progress: watch::Sender<usize>,
 ) -> ReceiveReport {
     let mut bulk_index = 0;
+    let mut started = None;
+    let mut bulk_finished = None;
     let mut echo_count = 0;
     let mut bulk_digest = Sha256::new();
     while bulk_index < BULK_FRAME_COUNT || echo_count < ECHO_COUNT {
         let frame = client.receive().await.unwrap().expect("daemon connection closed early");
         match (frame.lane, frame.stream) {
             (Lane::Bulk, SERVER_BULK_STREAM) => {
+                let received_at = Instant::now();
+                if started.is_none() {
+                    started = Some(received_at);
+                }
                 assert_bulk_frame_header(&frame.payload, bulk_index);
                 bulk_digest.update(&frame.payload);
                 bulk_index += 1;
-                progress.store(bulk_index * BULK_CHUNK_BYTES, Ordering::Release);
+                progress.send_replace(bulk_index * BULK_CHUNK_BYTES);
+                if bulk_index == BULK_FRAME_COUNT {
+                    bulk_finished = Some(received_at);
+                }
             }
             (Lane::Interactive, INTERACTIVE_STREAM) => {
                 echo_tx.send(frame.payload).await.expect("Interactive echo consumer stopped");
@@ -406,75 +385,70 @@ async fn run_client_receiver(
             (lane, stream) => panic!("unexpected daemon frame on {lane}/{stream}"),
         }
     }
-    assert_eq!(bulk_index * BULK_CHUNK_BYTES, BULK_BYTES_PER_DIRECTION);
+    assert_eq!(bulk_index, BULK_FRAME_COUNT);
     assert_eq!(echo_count, ECHO_COUNT);
-    let actual_digest: [u8; 32] = bulk_digest.finalize().into();
-    assert_eq!(actual_digest, expected_digest, "daemon-to-client Bulk digest changed");
-    ReceiveReport { finished: Instant::now(), bytes: bulk_index * BULK_CHUNK_BYTES }
+    ReceiveReport {
+        started: started.unwrap(),
+        bulk_finished: bulk_finished.unwrap(),
+        finished: Instant::now(),
+        bytes: bulk_index * BULK_CHUNK_BYTES,
+        digest: bulk_digest.finalize().into(),
+    }
 }
 
-fn assert_bulk_still_active(
+async fn run_echo_responder(
+    daemon: Arc<ServerConnection>,
+    mut queries: mpsc::Receiver<(usize, Bytes)>,
+    mut daemon_received_client_bulk: watch::Receiver<usize>,
+    mut client_received_daemon_bulk: watch::Receiver<usize>,
+) -> EchoFenceReport {
+    let mut daemon_progress = 0;
+    let mut client_progress = 0;
+    for expected_index in 0..ECHO_COUNT {
+        let (index, payload) =
+            queries.recv().await.expect("Interactive query source stopped early");
+        assert_eq!(index, expected_index, "Interactive query changed order");
+        let target = receiver_fence_target(index);
+        daemon_progress = wait_for_receiver_progress(
+            &mut daemon_received_client_bulk,
+            target,
+            "client-to-daemon",
+        )
+        .await;
+        client_progress = wait_for_receiver_progress(
+            &mut client_received_daemon_bulk,
+            target,
+            "daemon-to-client",
+        )
+        .await;
+        daemon
+            .send(Lane::Interactive, INTERACTIVE_STREAM, payload, FrameFlags::empty())
+            .await
+            .unwrap();
+    }
+    EchoFenceReport {
+        responses: ECHO_COUNT,
+        daemon_received_client_bulk: daemon_progress,
+        client_received_daemon_bulk: client_progress,
+    }
+}
+
+async fn wait_for_receiver_progress(
+    progress: &mut watch::Receiver<usize>,
+    target: usize,
     direction: &str,
-    progress: &AtomicUsize,
-    finished: &AtomicBool,
-    echo_index: usize,
-) {
-    let bytes = progress.load(Ordering::Acquire);
-    assert!(bytes > 0, "{direction} Bulk had not started before echo {echo_index}");
-    assert!(
-        bytes < BULK_BYTES_PER_DIRECTION,
-        "{direction} Bulk finished before echo {echo_index} was issued"
-    );
-    assert!(
-        !finished.load(Ordering::Acquire),
-        "{direction} Bulk task finished before echo {echo_index} was issued"
-    );
+) -> usize {
+    progress
+        .wait_for(|received| *received >= target)
+        .await
+        .unwrap_or_else(|_| panic!("{direction} Bulk receiver stopped before {target} bytes"));
+    let received = *progress.borrow_and_update();
+    assert!(received >= target, "{direction} Bulk receiver fence opened early");
+    received
 }
 
-struct BulkProgressWindow {
-    start: usize,
-    previous: usize,
-    stagnant_intervals: usize,
-    maximum_stagnant_intervals: usize,
-}
-
-impl BulkProgressWindow {
-    fn new(start: usize) -> Self {
-        Self { start, previous: start, stagnant_intervals: 0, maximum_stagnant_intervals: 0 }
-    }
-
-    fn observe(&mut self, current: usize) {
-        assert!(
-            current >= self.previous,
-            "Bulk progress moved backwards from {} to {current} bytes",
-            self.previous,
-        );
-        if current == self.previous {
-            self.stagnant_intervals += 1;
-        } else {
-            self.stagnant_intervals = 0;
-        }
-        self.maximum_stagnant_intervals =
-            self.maximum_stagnant_intervals.max(self.stagnant_intervals);
-        self.previous = current;
-    }
-
-    fn progress(&self) -> usize {
-        self.previous.saturating_sub(self.start)
-    }
-
-    fn assert_progress(&self, path: &str) {
-        let progress = self.progress();
-        assert!(
-            progress >= MINIMUM_BULK_PROGRESS_DURING_ECHOES,
-            "{path} Bulk advanced only {progress} bytes during the Interactive echo window"
-        );
-        assert!(
-            self.maximum_stagnant_intervals <= MAXIMUM_STAGNANT_ECHO_INTERVALS,
-            "{path} Bulk made no progress for {} consecutive echo intervals",
-            self.maximum_stagnant_intervals,
-        );
-    }
+fn receiver_fence_target(echo_index: usize) -> usize {
+    (echo_index * BULK_FRAMES_PER_ECHO + RECEIVER_FENCE_FRAMES_PER_ECHO) * BULK_CHUNK_BYTES
 }
 
 fn bulk_payload(seed: u8, index: usize) -> Bytes {

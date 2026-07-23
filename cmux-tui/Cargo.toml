@@ -9,6 +9,7 @@ members = [
     "crates/cmux-remote-protocol",
     "crates/cmux-remote",
     "crates/cmux-relay",
+    "crates/cmux-tui-machine-protocol",
     "crates/cmux-tui",
 ]
 
@@ -35,6 +36,7 @@ cmux-tui-core = { path = "crates/cmux-tui-core" }
 cmux-tui-cdp = { path = "crates/cmux-tui-cdp" }
 cmux-remote-protocol = { path = "crates/cmux-remote-protocol" }
 cmux-remote = { path = "crates/cmux-remote" }
+cmux-tui-machine-protocol = { path = "crates/cmux-tui-machine-protocol" }
 anyhow = "1"
 async-trait = "0.1"
 axum = { version = "0.8", features = ["ws"] }
@@ -45,6 +47,7 @@ portable-pty = "0.9"
 crossterm = "0.29"
 ratatui = "0.30"
 unicode-width = "0.2"
+unicode-segmentation = "1"
 base64 = "0.22"
 libc = "0.2"
 tungstenite = { version = "0.29", default-features = false, features = ["handshake"] }

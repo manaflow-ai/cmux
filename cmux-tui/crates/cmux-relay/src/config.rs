@@ -269,6 +269,7 @@ pub enum RelayCommand {
         ttl: Duration,
     },
     Help,
+    Version,
 }
 
 impl RelayCommand {
@@ -292,6 +293,9 @@ impl RelayCommand {
         if command == "help" {
             return Ok(Self::Help);
         }
+        if command == "version" {
+            return Ok(Self::Version);
+        }
         if command == "ticket" {
             return Self::parse_ticket(config, args);
         }
@@ -303,6 +307,7 @@ impl RelayCommand {
             let argument = argument.to_string_lossy();
             match argument.as_ref() {
                 "-h" | "--help" => return Ok(Self::Help),
+                "-V" | "--version" => return Ok(Self::Version),
                 "--allow-open" => config.allow_open = true,
                 "--bind" => config.bind = parse_next("--bind", &mut args)?,
                 "--lease-seconds" => {
@@ -411,6 +416,7 @@ impl RelayCommand {
             let argument = argument.to_string_lossy();
             match argument.as_ref() {
                 "-h" | "--help" => return Ok(Self::Help),
+                "-V" | "--version" => return Ok(Self::Version),
                 "--permission" => {
                     let value = parse_next_string("--permission", &mut args)?;
                     permission = Some(match value.as_str() {
@@ -473,6 +479,7 @@ impl RelayCommand {
     pub const fn help() -> &'static str {
         "cmux-relay [serve] [OPTIONS]\n\
          cmux-relay ticket --permission register|connect --slot SLOT [OPTIONS]\n\n\
+         Global options: -h, --help, -V, --version.\n\n\
          Serve options:\n\
            --bind ADDR                       Bind address (CMUX_RELAY_BIND)\n\
            --lease-seconds N                 Daemon control lease\n\
@@ -610,6 +617,18 @@ mod tests {
             RelayConfig { bind: "0.0.0.0:8787".parse().unwrap(), ..RelayConfig::default() };
         let command = RelayCommand::parse(config, [OsString::from("--allow-open")]).unwrap();
         assert!(matches!(command, RelayCommand::Serve(config) if config.allow_open));
+    }
+
+    #[test]
+    fn version_is_available_as_a_flag_or_command() {
+        for arguments in [vec!["--version"], vec!["-V"], vec!["version"]] {
+            let command = RelayCommand::parse(
+                RelayConfig::default(),
+                arguments.into_iter().map(OsString::from),
+            )
+            .unwrap();
+            assert!(matches!(command, RelayCommand::Version));
+        }
     }
 
     #[test]

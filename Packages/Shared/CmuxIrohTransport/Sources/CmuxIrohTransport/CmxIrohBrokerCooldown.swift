@@ -59,6 +59,9 @@ public extension CmxIrohBrokerCooldown {
     /// Floor applied to a 429 whose response carried no Retry-After header.
     static let defaultRateLimitedSeconds = 60
 
+    /// Longest server Retry-After directive accepted from the broker.
+    static let maximumRetryAfterSeconds = 24 * 60 * 60
+
     /// Seconds of cooldown one broker failure demands, or `nil` when the
     /// error is not a rate-limit signal. Prefers the server's own Retry-After
     /// directive; a bare 429 still arms a short default floor so a missing

@@ -190,6 +190,17 @@ describe("apns route policy", () => {
     expect(normalizeApnsBundle("dev.cmux.ios.-bad")).toBeNull();
   });
 
+  test("allows the internal TestFlight bundle id as a production APNs topic", () => {
+    // The scheduled internal TestFlight lane ships dev.cmux.app.internal
+    // (.github/workflows/ios-testflight.yml); TestFlight uses the production
+    // APNs environment. Rejecting it here makes every internal-beta phone fail
+    // device-token registration with invalid_bundle_id, so pushes never arrive.
+    expect(normalizeApnsBundle("dev.cmux.app.internal")).toEqual({
+      bundleId: "dev.cmux.app.internal",
+      environment: "production",
+    });
+  });
+
   test("bounds and trims push payloads before sending to APNs", () => {
     const parsed = parsePushPayload({
       title: " agent ",

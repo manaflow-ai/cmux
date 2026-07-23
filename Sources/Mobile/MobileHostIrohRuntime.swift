@@ -77,6 +77,7 @@ final class MobileHostIrohRuntime {
     let appInstances: CmxIrohAppInstanceRepository
     let identities: CmxIrohIdentityRepository
     let brokerCredentials: CmxIrohBrokerCredentialRepository
+    let brokerBackpressureGate: CmxIrohBrokerBackpressureGate
     let hostPolicies: CmxIrohHostPolicyCache
     let pendingRevocations: CmxIrohPendingRevocationOutbox
     let customRelayProfiles: CmxIrohCustomRelayProfileStore
@@ -115,26 +116,29 @@ final class MobileHostIrohRuntime {
     var signOutPreparationTask: Task<Void, Never>?
     var signOutPreparationRevision: UInt64 = 0
     var lifecycleRevision: UInt64 = 0
-    var brokerCooldown = CmxIrohBrokerCooldown()
 
     private init() {
+        let installState = CmxIrohUserDefaultsInstallStateStore()
         diagnosticLog = DiagnosticLog(
             buildStamp: Self.diagnosticBuildStamp,
             role: .macHost
         )
-        appInstances = CmxIrohAppInstanceRepository()
+        appInstances = CmxIrohAppInstanceRepository(store: installState)
+        brokerBackpressureGate = CmxIrohBrokerBackpressureGate(store: installState)
         #if DEBUG
         identities = CmxIrohIdentityRepository(
             secureStore: CmxIrohDevelopmentFileIdentityStore(
                 directory: Self.developmentStoreDirectory(service: "identity")
-            )
+            ),
+            installState: installState
         )
         brokerCredentials = CmxIrohBrokerCredentialRepository(
             secureStore: CmxIrohDevelopmentFileCredentialStore(
                 directory: Self.developmentStoreDirectory(
                     service: "broker-credentials"
                 )
-            )
+            ),
+            installState: installState
         )
         hostPolicies = CmxIrohHostPolicyCache(
             secureStore: CmxIrohDevelopmentFileCredentialStore(
@@ -169,8 +173,10 @@ final class MobileHostIrohRuntime {
             )
         )
         #else
-        identities = CmxIrohIdentityRepository()
-        brokerCredentials = CmxIrohBrokerCredentialRepository()
+        identities = CmxIrohIdentityRepository(installState: installState)
+        brokerCredentials = CmxIrohBrokerCredentialRepository(
+            installState: installState
+        )
         hostPolicies = CmxIrohHostPolicyCache()
         pendingRevocations = CmxIrohPendingRevocationOutbox(
             secureStore: CmxIrohKeychainCredentialStore(
@@ -269,7 +275,6 @@ final class MobileHostIrohRuntime {
         } catch is CancellationError {
             return
         } catch {
-            recordBrokerCooldown(for: error, accountID: targetAccountID)
             diagnosticLog.record(DiagnosticEvent(
                 .endpointFailed,
                 a: DiagnosticTransportKind.iroh.rawValue,
@@ -279,17 +284,6 @@ final class MobileHostIrohRuntime {
                 "Iroh host activation failed: \(String(describing: error), privacy: .private)"
             )
         }
-    }
-
-    func recordBrokerCooldown(for error: any Error, accountID: String) {
-        guard let retryAfterSeconds = CmxIrohBrokerCooldown.directiveSeconds(
-            for: error
-        ) else { return }
-        brokerCooldown.record(
-            accountID: accountID,
-            retryAfterSeconds: retryAfterSeconds,
-            now: Date()
-        )
     }
 
     nonisolated static func diagnosticFailureKind(

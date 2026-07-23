@@ -196,10 +196,7 @@ impl WorkspaceClient {
             let _ = events.close().await;
             return Err(RpcError::new(
                 "protocol",
-                format!(
-                    "spawn-process returned handle {} for requested handle {}",
-                    started, process
-                ),
+                format!("spawn-process returned handle {started} for requested handle {process}"),
             ));
         }
         Ok(SpawnedProcess { process, pid, operation, events })

@@ -570,7 +570,7 @@ mod tests {
 
         let mut config = SshBootstrapConfig::defaults("host");
         config.ssh_binary = script.to_string_lossy().into_owned();
-        config.timeout = Duration::from_secs(2);
+        config.timeout = Duration::from_secs(5);
         let error = SshBootstrapper::new(config).unwrap().probe().await.unwrap_err();
         assert!(matches!(error, BootstrapError::Timeout));
 

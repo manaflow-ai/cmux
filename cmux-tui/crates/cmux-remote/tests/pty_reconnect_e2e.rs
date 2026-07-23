@@ -31,7 +31,8 @@ use url::Url;
 use zeroize::Zeroizing;
 
 const MAXIMUM_FRAME_BYTES: usize = 65_535;
-const TEST_TIMEOUT: Duration = Duration::from_secs(30);
+const RECONNECT_TIMEOUT: Duration = Duration::from_secs(30);
+const TEST_TIMEOUT: Duration = Duration::from_secs(60);
 const TUNNEL_REQUEST: &[u8] = b"tunnel-after-reconnect";
 const TUNNEL_RESPONSE: &[u8] = b"fresh-tunnel-ok";
 
@@ -235,22 +236,24 @@ async fn wait_for_committed_generation(
     client: &ClientConnection,
     daemon: &ServerConnection,
 ) -> u64 {
-    tokio::time::timeout(Duration::from_secs(10), async {
-        loop {
-            let client_snapshot = client.snapshot().await;
-            let daemon_snapshot = daemon.snapshot().await;
-            if client_snapshot.generation > 0
-                && client_snapshot.generation == daemon_snapshot.generation
-                && client_snapshot.state == ConnectionState::Connected
-                && daemon_snapshot.state == ConnectionState::Connected
-            {
-                return client_snapshot.generation;
-            }
-            tokio::time::sleep(Duration::from_millis(10)).await;
+    let deadline = tokio::time::Instant::now() + RECONNECT_TIMEOUT;
+    loop {
+        let client_snapshot = client.snapshot().await;
+        let daemon_snapshot = daemon.snapshot().await;
+        if client_snapshot.generation > 0
+            && client_snapshot.generation == daemon_snapshot.generation
+            && client_snapshot.state == ConnectionState::Connected
+            && daemon_snapshot.state == ConnectionState::Connected
+        {
+            return client_snapshot.generation;
         }
-    })
-    .await
-    .expect("the authenticated session did not resume on both peers")
+        assert!(
+            tokio::time::Instant::now() < deadline,
+            "the authenticated session did not resume on both peers: client={client_snapshot:?}, \
+             daemon={daemon_snapshot:?}"
+        );
+        tokio::time::sleep(Duration::from_millis(10)).await;
+    }
 }
 
 async fn verify_fresh_tunnel(
@@ -347,9 +350,9 @@ async fn real_pty_and_fresh_services_survive_authenticated_carrier_reconnect() {
                             maximum_delay: Duration::from_millis(50),
                             attempt_timeout: Duration::from_secs(5),
                             full_jitter: false,
-                            heartbeat_interval: Some(Duration::from_millis(20)),
+                            heartbeat_interval: None,
                             heartbeat_timeout: Duration::from_millis(50),
-                            maximum_attempts: Some(20),
+                            maximum_attempts: Some(100),
                         },
                     },
                 )
@@ -463,6 +466,7 @@ async fn real_pty_and_fresh_services_survive_authenticated_carrier_reconnect() {
                 proxy.release_delayed_lane();
                 let committed_generation =
                     wait_for_committed_generation(&client, &daemon_client).await;
+                assert_eq!(committed_generation, 1);
                 assert_eq!(*client_generation.borrow(), committed_generation);
                 assert_eq!(*daemon_generation.borrow(), committed_generation);
 

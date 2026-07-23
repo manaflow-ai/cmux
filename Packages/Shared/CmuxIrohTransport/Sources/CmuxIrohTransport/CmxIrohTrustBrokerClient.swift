@@ -37,14 +37,14 @@ struct CmxIrohURLSessionTransport: CmxIrohHTTPTransport {
 public actor CmxIrohTrustBrokerClient: CmxIrohRelayPolicyServing {
     private struct BindingRequest: Encodable { let bindingId: String }
     private struct EndpointRequest: Encodable { let endpointId: String }
-    private struct RelayAccessCredential: Decodable {
+    private struct RelayAccessCredential: Decodable, Sendable {
         let relayUrl: String
         let token: String
         let expiresAt: Int64
         let refreshAfter: Int64
         let ttlSeconds: Int64
     }
-    private struct RelayAccessResponse: Decodable {
+    private struct RelayAccessResponse: Decodable, Sendable {
         let token: String?
         let expiresAt: Int64?
         let ttlSeconds: Int64?
@@ -76,7 +76,7 @@ public actor CmxIrohTrustBrokerClient: CmxIrohRelayPolicyServing {
         let initiatorBindingId: String
         let acceptorBindingId: String
     }
-    private struct RevokeResponse: Decodable {
+    private struct RevokeResponse: Decodable, Sendable {
         let revoked: Bool
         let lanRendezvousRotated: Bool
 
@@ -86,30 +86,26 @@ public actor CmxIrohTrustBrokerClient: CmxIrohRelayPolicyServing {
         }
     }
     private struct BrokerError: Decodable { let error: String }
-    private struct RouteCooldown: Sendable {
-        let code: String?
-        let retryUntil: Date
-    }
 
     private let baseURL: URL
     private let tokenSource: CmxIrohBrokerTokenSource
     private let transport: any CmxIrohHTTPTransport
     private let requestTimeout: TimeInterval
-    private let now: @Sendable () -> Date
-    private var routeCooldowns: [String: RouteCooldown] = [:]
+    private let backpressureGate: CmxIrohBrokerBackpressureGate?
 
     /// Creates a client that rejects cleartext non-loopback API origins.
     public init(
         baseURL: URL,
         tokenSource: CmxIrohBrokerTokenSource,
-        requestTimeout: TimeInterval = 10
+        requestTimeout: TimeInterval = 10,
+        backpressureMode: CmxIrohBrokerBackpressureMode = .automatic
     ) throws {
         try self.init(
             baseURL: baseURL,
             tokenSource: tokenSource,
             transport: CmxIrohURLSessionTransport(),
             requestTimeout: requestTimeout,
-            now: Date.init
+            backpressureMode: backpressureMode
         )
     }
 
@@ -119,7 +115,7 @@ public actor CmxIrohTrustBrokerClient: CmxIrohRelayPolicyServing {
         tokenSource: CmxIrohBrokerTokenSource,
         transport: any CmxIrohHTTPTransport,
         requestTimeout: TimeInterval = 10,
-        now: @escaping @Sendable () -> Date = Date.init
+        backpressureMode: CmxIrohBrokerBackpressureMode = .automatic
     ) throws {
         guard Self.isAllowedBaseURL(baseURL), requestTimeout > 0 else {
             throw CmxIrohTrustBrokerClientError.invalidBaseURL
@@ -128,19 +124,42 @@ public actor CmxIrohTrustBrokerClient: CmxIrohRelayPolicyServing {
         self.tokenSource = tokenSource
         self.transport = transport
         self.requestTimeout = requestTimeout
-        self.now = now
+        switch backpressureMode {
+        case .automatic:
+            backpressureGate = CmxIrohBrokerBackpressureGate()
+        case .callerOwned:
+            backpressureGate = nil
+        }
+    }
+
+    public func preflight(operation: CmxIrohBrokerOperation) async throws {
+        guard let backpressureGate else { return }
+        try await backpressureGate.preflight(
+            accountID: CmxIrohBrokerBackpressureGate.directClientScope,
+            operation: operation
+        )
     }
 
     public func issueChallenge(
         _ request: CmxIrohChallengeRequest
     ) async throws -> CmxIrohChallengeResponse {
-        try await send(path: "api/devices/iroh/challenge", method: "POST", body: request)
+        try await send(
+            path: "api/devices/iroh/challenge",
+            method: "POST",
+            body: request,
+            operation: .registration
+        )
     }
 
     public func register(
         _ request: CmxIrohRegisterRequest
     ) async throws -> CmxIrohRegistrationResponse {
-        try await send(path: "api/devices/iroh/register", method: "POST", body: request)
+        try await send(
+            path: "api/devices/iroh/register",
+            method: "POST",
+            body: request,
+            operation: .registration
+        )
     }
 
     /// Runs the challenge and signed registration legs without regenerating payload bytes.
@@ -148,13 +167,27 @@ public actor CmxIrohTrustBrokerClient: CmxIrohRelayPolicyServing {
         prepared: CmxIrohPreparedRegistration,
         signer: CmxIrohRegistrationSigner
     ) async throws -> CmxIrohRegistrationResponse {
-        let challenge = try await issueChallenge(prepared.challengeRequest)
-        let request = try signer.sign(prepared: prepared, challenge: challenge)
-        return try await register(request)
+        try await withBackpressure(operation: .registration) {
+            let challenge: CmxIrohChallengeResponse = try await self.sendUngated(
+                path: "api/devices/iroh/challenge",
+                method: "POST",
+                body: prepared.challengeRequest
+            )
+            let request = try signer.sign(prepared: prepared, challenge: challenge)
+            return try await self.sendUngated(
+                path: "api/devices/iroh/register",
+                method: "POST",
+                body: request
+            )
+        }
     }
 
     public func discover() async throws -> CmxIrohDiscoveryResponse {
-        try await sendWithoutBody(path: "api/devices/iroh", method: "GET")
+        try await sendWithoutBody(
+            path: "api/devices/iroh",
+            method: "GET",
+            operation: .discovery
+        )
     }
 
     public func issuePairGrant(
@@ -167,7 +200,8 @@ public actor CmxIrohTrustBrokerClient: CmxIrohRelayPolicyServing {
             body: PairGrantRequest(
                 initiatorBindingId: initiatorBindingID,
                 acceptorBindingId: acceptorBindingID
-            )
+            ),
+            operation: .pairGrant
         )
     }
 
@@ -177,7 +211,8 @@ public actor CmxIrohTrustBrokerClient: CmxIrohRelayPolicyServing {
         try await send(
             path: "api/devices/iroh/endpoint-attestations",
             method: "POST",
-            body: BindingRequest(bindingId: bindingID)
+            body: BindingRequest(bindingId: bindingID),
+            operation: .endpointAttestation
         )
     }
 
@@ -188,7 +223,8 @@ public actor CmxIrohTrustBrokerClient: CmxIrohRelayPolicyServing {
         let response: RelayAccessResponse = try await send(
             path: "api/relay/token",
             method: "POST",
-            body: EndpointRequest(endpointId: endpointID.endpointID)
+            body: EndpointRequest(endpointId: endpointID.endpointID),
+            operation: .relayCredential
         )
         return try Self.relayTokenResponse(response, endpointID: endpointID)
     }
@@ -200,7 +236,8 @@ public actor CmxIrohTrustBrokerClient: CmxIrohRelayPolicyServing {
         let response: RelayAccessResponse = try await send(
             path: "api/relay/token",
             method: "POST",
-            body: EndpointRequest(endpointId: endpointID.endpointID)
+            body: EndpointRequest(endpointId: endpointID.endpointID),
+            operation: .relayCredential
         )
         guard let policy = response.policy,
               let preference = response.preference,
@@ -231,49 +268,88 @@ public actor CmxIrohTrustBrokerClient: CmxIrohRelayPolicyServing {
 
     /// Fetches the current account relay preference.
     public func relayPreference() async throws -> CmxIrohRelayPreferenceResponse {
-        try await sendWithoutBody(path: "api/relay/preferences", method: "GET")
+        try await sendWithoutBody(
+            path: "api/relay/preferences",
+            method: "GET",
+            operation: .relayPreference
+        )
     }
 
     /// Replaces the current account relay preference using optimistic concurrency.
     public func updateRelayPreference(
         _ request: CmxIrohRelayPreferenceUpdateRequest
     ) async throws -> CmxIrohRelayPreferenceResponse {
-        try await send(path: "api/relay/preferences", method: "PUT", body: request)
+        try await send(
+            path: "api/relay/preferences",
+            method: "PUT",
+            body: request,
+            operation: .relayPreference
+        )
     }
 
     public func revoke(bindingID: String) async throws {
         let response: RevokeResponse = try await send(
             path: "api/devices/iroh",
             method: "DELETE",
-            body: BindingRequest(bindingId: bindingID)
+            body: BindingRequest(bindingId: bindingID),
+            operation: .revocation
         )
         guard response.revoked, response.lanRendezvousRotated else {
             throw CmxIrohTrustBrokerClientError.invalidResponse
         }
     }
 
-    private func send<Response: Decodable, Body: Encodable>(
+    private func send<Response: Decodable & Sendable, Body: Encodable>(
+        path: String,
+        method: String,
+        body: Body,
+        operation: CmxIrohBrokerOperation
+    ) async throws -> Response {
+        let encoded = try JSONEncoder().encode(body)
+        return try await withBackpressure(operation: operation) {
+            try await self.performRequest(path: path, method: method, body: encoded)
+        }
+    }
+
+    private func sendWithoutBody<Response: Decodable & Sendable>(
+        path: String,
+        method: String,
+        operation: CmxIrohBrokerOperation
+    ) async throws -> Response {
+        try await withBackpressure(operation: operation) {
+            try await self.performRequest(path: path, method: method, body: nil)
+        }
+    }
+
+    private func sendUngated<Response: Decodable & Sendable, Body: Encodable>(
         path: String,
         method: String,
         body: Body
     ) async throws -> Response {
-        let encoded = try JSONEncoder().encode(body)
-        return try await perform(path: path, method: method, body: encoded)
+        try await performRequest(
+            path: path,
+            method: method,
+            body: JSONEncoder().encode(body)
+        )
     }
 
-    private func sendWithoutBody<Response: Decodable>(
-        path: String,
-        method: String
-    ) async throws -> Response {
-        try await perform(path: path, method: method, body: nil)
+    private func withBackpressure<Result: Sendable>(
+        operation: CmxIrohBrokerOperation,
+        _ body: @escaping @Sendable () async throws -> Result
+    ) async throws -> Result {
+        guard let backpressureGate else { return try await body() }
+        return try await backpressureGate.perform(
+            accountID: CmxIrohBrokerBackpressureGate.directClientScope,
+            operation: operation,
+            body
+        )
     }
 
-    private func perform<Response: Decodable>(
+    private func performRequest<Response: Decodable & Sendable>(
         path: String,
         method: String,
         body: Data?
     ) async throws -> Response {
-        try applyRouteCooldown(path: path, method: method)
         let accessToken = await tokenSource.accessToken()
         let refreshToken = await tokenSource.refreshToken()
         guard let accessToken, let refreshToken else {
@@ -313,12 +389,6 @@ public actor CmxIrohTrustBrokerClient: CmxIrohRelayPolicyServing {
                let retryAfterSeconds = Self.retryAfterSeconds(
                    http.value(forHTTPHeaderField: "Retry-After")
                ) {
-                recordRouteCooldown(
-                    path: path,
-                    method: method,
-                    code: code,
-                    retryAfterSeconds: retryAfterSeconds
-                )
                 throw CmxIrohTrustBrokerClientError.rateLimited(
                     code: code,
                     retryAfterSeconds: retryAfterSeconds
@@ -336,36 +406,6 @@ public actor CmxIrohTrustBrokerClient: CmxIrohRelayPolicyServing {
         } catch {
             throw CmxIrohTrustBrokerClientError.invalidResponse
         }
-    }
-
-    private func applyRouteCooldown(path: String, method: String) throws {
-        let key = routeCooldownKey(path: path, method: method)
-        guard let cooldown = routeCooldowns[key] else { return }
-        let remaining = cooldown.retryUntil.timeIntervalSince(now())
-        guard remaining > 0 else {
-            routeCooldowns[key] = nil
-            return
-        }
-        throw CmxIrohTrustBrokerClientError.rateLimited(
-            code: cooldown.code,
-            retryAfterSeconds: max(1, Int(ceil(remaining)))
-        )
-    }
-
-    private func recordRouteCooldown(
-        path: String,
-        method: String,
-        code: String?,
-        retryAfterSeconds: Int
-    ) {
-        routeCooldowns[routeCooldownKey(path: path, method: method)] = RouteCooldown(
-            code: code,
-            retryUntil: now().addingTimeInterval(TimeInterval(retryAfterSeconds))
-        )
-    }
-
-    private func routeCooldownKey(path: String, method: String) -> String {
-        "\(method.uppercased()) \(path)"
     }
 
     private static func isAllowedBaseURL(_ url: URL) -> Bool {
@@ -392,7 +432,7 @@ public actor CmxIrohTrustBrokerClient: CmxIrohRelayPolicyServing {
               !value.isEmpty,
               value.utf8.allSatisfy({ (48 ... 57).contains($0) }),
               let seconds = Int(value),
-              (1 ... 86_400).contains(seconds),
+              (1 ... CmxIrohBrokerCooldown.maximumRetryAfterSeconds).contains(seconds),
               String(seconds) == value else {
             return nil
         }

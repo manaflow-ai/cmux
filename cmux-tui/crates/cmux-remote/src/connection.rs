@@ -462,6 +462,14 @@ impl ClientConnection {
             diagnostics.lane_bindings = lane_bindings;
             diagnostics.physical_link_count = physical_link_count;
             diagnostics.transport = transport;
+            // Generation, topology, and Connected form one committed
+            // diagnostic snapshot. The best-effort retirement of the old
+            // carrier below is cancellation-sensitive, so an aborted caller
+            // must not leave a fully published replacement labeled as
+            // Reconnecting forever.
+            if !self.closed.load(Ordering::Acquire) {
+                diagnostics.state = ConnectionState::Connected;
+            }
         }
         drop(active_session);
         drop(active_group);
@@ -1511,6 +1519,66 @@ mod tests {
         let snapshot = client.snapshot().await;
         assert_eq!(snapshot.generation, 1);
         assert_eq!(snapshot.state, ConnectionState::Connected);
+    }
+
+    #[tokio::test]
+    async fn cancelled_reconnect_after_commit_stays_observably_connected() {
+        let directory = tempdir().unwrap();
+        let auth =
+            AuthDatabase::load_or_create(directory.path(), "cancel-reconnect", true).unwrap();
+        let (daemon, _accepted) = RemoteDaemon::new(auth, SessionLimits::default());
+        let initial = Arc::new(HangingCloseGroup {
+            inner: Arc::new(FaultGroup {
+                daemon: daemon.clone(),
+                epochs: Mutex::new(Vec::new()),
+                evidence: CarrierEvidence::LocalPeer { uid: None, pid: None },
+            }),
+        });
+        let client = ClientConnection::connect(
+            initial,
+            ClientConnectionConfig {
+                identity: StaticIdentity::generate().unwrap(),
+                expected_daemon: None,
+                auth: ClientAuthMode::Carrier,
+                device_name: "cancel-reconnect-client".into(),
+                session: SessionId([96; 16]),
+                lane_policy: LanePolicy::Single,
+                limits: SessionLimits::default(),
+                reconnect: ReconnectPolicy {
+                    heartbeat_interval: None,
+                    ..ReconnectPolicy::default()
+                },
+            },
+        )
+        .await
+        .unwrap();
+        let replacement = Arc::new(FaultGroup {
+            daemon,
+            epochs: Mutex::new(Vec::new()),
+            evidence: CarrierEvidence::LocalPeer { uid: None, pid: None },
+        });
+        let mut generation = client.subscribe_generation();
+        let reconnect = tokio::spawn({
+            let client = client.clone();
+            async move { client.reconnect(replacement).await }
+        });
+
+        tokio::time::timeout(Duration::from_secs(2), async {
+            while *generation.borrow() == 0 {
+                generation.changed().await.unwrap();
+            }
+        })
+        .await
+        .expect("replacement generation was not committed");
+        assert!(!reconnect.is_finished(), "old carrier retirement did not remain pending");
+        assert_eq!(client.snapshot().await.state, ConnectionState::Connected);
+
+        reconnect.abort();
+        assert!(reconnect.await.unwrap_err().is_cancelled());
+        let snapshot = client.snapshot().await;
+        assert_eq!(snapshot.generation, 1);
+        assert_eq!(snapshot.state, ConnectionState::Connected);
+        client.close().await.unwrap();
     }
 
     #[tokio::test]

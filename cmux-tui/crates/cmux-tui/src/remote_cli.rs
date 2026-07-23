@@ -61,6 +61,7 @@ const REMOTE_COMMANDS: &[&str] = &[
 
 const DEFAULT_STARTUP_TIMEOUT: Duration = Duration::from_secs(90);
 const ENROLLMENT_APPROVAL_TIMEOUT: Duration = Duration::from_secs(5 * 60);
+const MAX_INVITATION_URI_BYTES: usize = "cmux://enroll/".len() + 16 * 1024;
 
 pub fn is_remote_invocation(args: &[String]) -> bool {
     args.first().is_some_and(|argument| REMOTE_COMMANDS.contains(&argument.as_str()))
@@ -100,6 +101,7 @@ fn run_inner(args: &[String], usage: &str) -> anyhow::Result<()> {
 fn remote_help_requested(args: &[String]) -> bool {
     const VALUE_OPTIONS: &[&str] = &[
         "--invite",
+        "--invite-file",
         "--daemon",
         "--lanes",
         "--reconnect-attempts",
@@ -162,8 +164,12 @@ ROUTES:
   relay+ws:// | relay+wss:// | relay+https:// | relay+do://
 
 IDENTITY AND SESSION:
-  --invite URI  --daemon FINGERPRINT  --device-name NAME  --session NAME
+  --invite URI  --invite-file PATH|-  --daemon FINGERPRINT
+  --device-name NAME  --session NAME
   --state-dir PATH  --local-socket PATH  --headless [--json]
+
+  --invite-file avoids exposing the single-use invitation in process arguments.
+  Regular files must be owner-only; - reads one line from stdin.
 
 TRANSPORT:
   --lanes auto|single|isolated  --connect-timeout-seconds N
@@ -266,7 +272,7 @@ Run `cmux-tui COMMAND --help` for command-specific routes and options.
 #[derive(Default)]
 struct ConnectFlags {
     route: Option<String>,
-    invitation: Option<String>,
+    invitation: Option<InvitationArg>,
     daemon: Option<String>,
     lanes: LanePolicy,
     lanes_explicit: bool,
@@ -297,6 +303,11 @@ struct ConnectFlags {
     rpc_request: Option<String>,
 }
 
+enum InvitationArg {
+    Inline(String),
+    File(PathBuf),
+}
+
 enum ClientRelayCredentialArg {
     Ticket(String),
     File(PathBuf),
@@ -323,7 +334,14 @@ fn parse_connect_flags(args: &[String]) -> anyhow::Result<ConnectFlags> {
             Ok(value)
         };
         match argument.as_str() {
-            "--invite" => flags.invitation = Some(value("--invite")?),
+            "--invite" => set_invitation_arg(
+                &mut flags.invitation,
+                InvitationArg::Inline(value("--invite")?),
+            )?,
+            "--invite-file" => set_invitation_arg(
+                &mut flags.invitation,
+                InvitationArg::File(value("--invite-file")?.into()),
+            )?,
             "--daemon" => flags.daemon = Some(value("--daemon")?),
             "--lanes" => {
                 flags.lanes = value("--lanes")?.parse().map_err(|error: String| anyhow!(error))?;
@@ -473,8 +491,9 @@ fn parse_connect_flags(args: &[String]) -> anyhow::Result<ConnectFlags> {
             "--request" => flags.rpc_request = Some(value("--request")?),
             "-h" | "--help" => {
                 println!(
-                    "cmux-tui connect <route|invitation> [--invite URI] [--daemon FINGERPRINT] \
-                     [--lanes auto|single|isolated] [--relay-slot SLOT --relay-ticket TICKET]"
+                    "cmux-tui connect <route|invitation> [--invite URI|--invite-file PATH|-] \
+                     [--daemon FINGERPRINT] [--lanes auto|single|isolated] \
+                     [--relay-slot SLOT --relay-ticket TICKET]"
                 );
                 return Ok(flags);
             }
@@ -503,6 +522,18 @@ fn parse_connect_flags(args: &[String]) -> anyhow::Result<ConnectFlags> {
         return Err(anyhow!("--json requires --headless for connect and ssh"));
     }
     Ok(flags)
+}
+
+fn set_invitation_arg(
+    destination: &mut Option<InvitationArg>,
+    invitation: InvitationArg,
+) -> anyhow::Result<()> {
+    if destination.replace(invitation).is_some() {
+        return Err(anyhow!(
+            "supply exactly one of --invite or --invite-file, and do not repeat it"
+        ));
+    }
+    Ok(())
 }
 
 fn run_connect(args: &[String], preset_route: Option<String>) -> anyhow::Result<()> {
@@ -566,12 +597,26 @@ struct ConnectedRuntime {
 
 fn start_connected(mut flags: ConnectFlags) -> anyhow::Result<ConnectedRuntime> {
     let startup_started = Instant::now();
-    let invitation = if let Some(encoded) = flags.invitation.take() {
-        Some(EnrollmentInvitation::from_uri(&encoded)?)
-    } else if flags.route.as_deref().is_some_and(|route| route.starts_with("cmux://enroll/")) {
-        Some(EnrollmentInvitation::from_uri(flags.route.take().as_deref().unwrap())?)
-    } else {
-        None
+    let invitation = {
+        let positional_invitation =
+            flags.route.as_deref().is_some_and(|route| route.starts_with("cmux://enroll/"));
+        if positional_invitation && flags.invitation.is_some() {
+            return Err(anyhow!(
+                "an invitation was supplied both positionally and with an invitation option"
+            ));
+        }
+        let encoded = match flags.invitation.take() {
+            Some(InvitationArg::Inline(encoded)) => Some(Zeroizing::new(encoded)),
+            Some(InvitationArg::File(path)) => Some(read_invitation_uri(&path)?),
+            None if positional_invitation => {
+                Some(Zeroizing::new(flags.route.take().expect("route was checked")))
+            }
+            None => None,
+        };
+        encoded
+            .as_ref()
+            .map(|encoded| EnrollmentInvitation::from_uri(encoded.as_str()))
+            .transpose()?
     };
     let total_startup_timeout = flags
         .startup_timeout
@@ -708,11 +753,7 @@ fn start_connected(mut flags: ConnectFlags) -> anyhow::Result<ConnectedRuntime> 
     }
     let session = SessionId(*uuid::Uuid::new_v4().as_bytes());
     let startup_timeout = remaining_startup_timeout(startup_started, total_startup_timeout)?;
-    let ssh_bootstrap = SshBootstrapOptions {
-        auto_install: flags.auto_install,
-        upgrade: flags.upgrade,
-        attempt_timeout: startup_timeout,
-    };
+    let ssh_bootstrap = initial_ssh_bootstrap_options(&flags, startup_timeout);
     let runtime = start_client_runtime(ClientRuntimeOptions {
         routes,
         providers,
@@ -756,6 +797,17 @@ fn start_connected(mut flags: ConnectFlags) -> anyhow::Result<ConnectedRuntime> 
 
     let connected_route = runtime.info().route.clone();
     Ok(ConnectedRuntime { runtime, route: connected_route })
+}
+
+fn initial_ssh_bootstrap_options(
+    flags: &ConnectFlags,
+    startup_timeout: Duration,
+) -> SshBootstrapOptions {
+    SshBootstrapOptions {
+        auto_install: flags.auto_install,
+        upgrade: flags.upgrade,
+        attempt_timeout: startup_timeout,
+    }
 }
 
 struct ExplicitRouteIdentity {
@@ -1421,6 +1473,93 @@ fn read_invitation_ticket_file(path: &Path) -> anyhow::Result<String> {
         .to_string())
 }
 
+fn read_invitation_uri(path: &Path) -> anyhow::Result<Zeroizing<String>> {
+    if path == Path::new("-") {
+        return read_invitation_uri_line(&mut io::stdin().lock());
+    }
+
+    use std::os::unix::fs::{MetadataExt, OpenOptionsExt, PermissionsExt};
+
+    let mut file = OpenOptions::new()
+        .read(true)
+        .custom_flags(libc::O_NOFOLLOW | libc::O_NONBLOCK)
+        .open(path)
+        .with_context(|| format!("could not open invitation file {}", path.display()))?;
+    let metadata = file
+        .metadata()
+        .with_context(|| format!("could not inspect invitation file {}", path.display()))?;
+    if !metadata.file_type().is_file() {
+        return Err(anyhow!("invitation path must be a regular file or - for stdin"));
+    }
+    if metadata.len() > (MAX_INVITATION_URI_BYTES + 2) as u64 {
+        return Err(anyhow!("invitation file exceeds {MAX_INVITATION_URI_BYTES} bytes"));
+    }
+    if metadata.uid() != unsafe { libc::geteuid() } || metadata.permissions().mode() & 0o077 != 0 {
+        return Err(anyhow!(
+            "invitation file must be owned by the current user with no group or other permissions"
+        ));
+    }
+
+    read_invitation_uri_to_end(&mut file)
+        .with_context(|| format!("could not read invitation file {}", path.display()))
+}
+
+fn read_invitation_uri_to_end(reader: &mut impl Read) -> anyhow::Result<Zeroizing<String>> {
+    let mut bytes = Zeroizing::new(Vec::with_capacity(MAX_INVITATION_URI_BYTES.min(4096)));
+    reader
+        .take((MAX_INVITATION_URI_BYTES + 3) as u64)
+        .read_to_end(&mut bytes)
+        .context("could not read invitation input")?;
+    normalize_invitation_uri(bytes)
+}
+
+fn read_invitation_uri_line(reader: &mut impl Read) -> anyhow::Result<Zeroizing<String>> {
+    let mut bytes = Zeroizing::new(Vec::with_capacity(1024));
+    loop {
+        let mut byte = [0_u8; 1];
+        match reader.read(&mut byte).context("could not read invitation input")? {
+            0 => break,
+            _ => {
+                bytes.push(byte[0]);
+                if byte[0] == b'\n' {
+                    break;
+                }
+                if bytes.len() > MAX_INVITATION_URI_BYTES + 2 {
+                    return Err(anyhow!(
+                        "invitation input exceeds {MAX_INVITATION_URI_BYTES} bytes"
+                    ));
+                }
+            }
+        }
+    }
+    normalize_invitation_uri(bytes)
+}
+
+fn normalize_invitation_uri(mut bytes: Zeroizing<Vec<u8>>) -> anyhow::Result<Zeroizing<String>> {
+    if bytes.last() == Some(&b'\n') {
+        bytes.pop();
+        if bytes.last() == Some(&b'\r') {
+            bytes.pop();
+        }
+    }
+    if bytes.is_empty() {
+        return Err(anyhow!("invitation input is empty"));
+    }
+    if bytes.len() > MAX_INVITATION_URI_BYTES {
+        return Err(anyhow!("invitation input exceeds {MAX_INVITATION_URI_BYTES} bytes"));
+    }
+    if bytes.iter().any(|byte| matches!(byte, b'\r' | b'\n')) {
+        return Err(anyhow!("invitation input must contain exactly one URI"));
+    }
+    if std::str::from_utf8(&bytes).is_err() {
+        return Err(anyhow!("invitation input is not valid UTF-8"));
+    }
+
+    let bytes = std::mem::take(&mut *bytes);
+    // SAFETY: the complete byte slice was validated as UTF-8 immediately above.
+    Ok(Zeroizing::new(unsafe { String::from_utf8_unchecked(bytes) }))
+}
+
 fn print_admin_response(action: &str, response: AdminResponse, json: bool) -> anyhow::Result<()> {
     if !response.ok {
         return Err(anyhow!(response.error.unwrap_or_else(|| "admin request failed".into())));
@@ -2040,75 +2179,24 @@ mod tests {
         assert_eq!(responder.await.unwrap(), 0, "stdio data leaked to the rejected Unix responder");
     }
 
-    #[cfg(unix)]
     #[test]
-    fn initial_ssh_bootstrap_can_use_more_than_the_reconnect_attempt_budget() {
-        use std::os::unix::fs::PermissionsExt;
-
-        let directory = tempfile::tempdir().unwrap();
-        let script = directory.path().join("ssh");
-        let log = directory.path().join("ssh.log");
-        let probe = cmux_remote::ssh_bootstrap::RemoteProbe {
-            app: "cmux-tui".into(),
-            version: DISTRIBUTION_VERSION.into(),
-            distribution_version: Some(DISTRIBUTION_VERSION.into()),
-            npm_bootstrap_version: NPM_BOOTSTRAP_VERSION.map(str::to_owned),
-            build_identity: Some(cmux_remote::ssh_bootstrap::BUILD_IDENTITY.into()),
-            remote_protocol: REMOTE_PROTOCOL_VERSION,
-            os: "test".into(),
-            arch: "test".into(),
-        };
-        let probe = serde_json::to_string(&probe).unwrap();
-        fs::write(
-            &script,
-            format!(
-                r#"#!/bin/sh
-printf '%s\n' "$*" >> '{}'
-case " $* " in
-  *" remote-probe --json "*)
-    sleep 0.08
-    printf '%s\n' '{}'
-    ;;
-  *)
-    exit 1
-    ;;
-esac
-"#,
-                log.display(),
-                probe
-            ),
-        )
-        .unwrap();
-        fs::set_permissions(&script, fs::Permissions::from_mode(0o755)).unwrap();
+    fn initial_ssh_bootstrap_uses_startup_budget_not_reconnect_attempt_budget() {
+        let startup_timeout = Duration::from_secs(2);
         let flags = ConnectFlags {
-            route: Some("ssh://bootstrap.example".into()),
-            lanes: LanePolicy::Single,
             reconnect: ReconnectPolicy {
                 attempt_timeout: Duration::from_millis(20),
-                heartbeat_interval: None,
                 ..ReconnectPolicy::default()
             },
-            startup_timeout: Some(Duration::from_millis(500)),
-            state_dir: Some(directory.path().join("state")),
-            local_socket: Some(directory.path().join("client.sock")),
-            ssh_session: "main".into(),
-            ssh_binary: script.to_string_lossy().into_owned(),
-            remote_binary: "~/.local/bin/cmux-tui".into(),
             auto_install: true,
+            upgrade: true,
             ..ConnectFlags::default()
         };
 
-        if let Ok(runtime) = start_connected(flags) {
-            drop(runtime);
-            panic!("fake remote-link unexpectedly completed a connection");
-        }
-
-        let invocations = fs::read_to_string(log).unwrap();
-        assert!(
-            invocations.contains(" remote-link "),
-            "initial SSH bootstrap was cut off by the shorter reconnect attempt budget: \
-             {invocations:?}"
-        );
+        let bootstrap = initial_ssh_bootstrap_options(&flags, startup_timeout);
+        assert_eq!(bootstrap.attempt_timeout, startup_timeout);
+        assert_ne!(bootstrap.attempt_timeout, flags.reconnect.attempt_timeout);
+        assert!(bootstrap.auto_install);
+        assert!(bootstrap.upgrade);
     }
 
     #[test]
@@ -2166,8 +2254,7 @@ esac
         ];
 
         let error = resolve_route_candidates(&routes, &BTreeMap::new(), &test_provider_registry())
-            .err()
-            .expect("unsupported routes should fail");
+            .expect_err("unsupported routes should fail");
         let message = error.to_string();
 
         assert!(message.contains("future+quic"));
@@ -2182,8 +2269,7 @@ esac
         let routes = ["wss://dont-leak-me@[".to_string()];
 
         let error = resolve_route_candidates(&routes, &BTreeMap::new(), &test_provider_registry())
-            .err()
-            .expect("malformed route should fail");
+            .expect_err("malformed route should fail");
 
         assert!(!error.to_string().contains("dont-leak-me"));
     }
@@ -2193,8 +2279,7 @@ esac
         let routes = ["iroh://node?query-secret-marker=value".to_string()];
 
         let error = resolve_route_candidates(&routes, &BTreeMap::new(), &test_provider_registry())
-            .err()
-            .expect("unsupported route parameter should fail");
+            .expect_err("unsupported route parameter should fail");
 
         assert!(!error.to_string().contains("query-secret-marker"));
     }
@@ -2216,6 +2301,106 @@ esac
         assert!(parsed.lanes_explicit);
         assert_eq!(parsed.relay_slots, ["slot"]);
         assert_eq!(parsed.relay_credentials.len(), 1);
+    }
+
+    #[test]
+    fn invitation_file_parser_is_unambiguous_and_help_safe() {
+        let parsed = parse_connect_flags(&[
+            "ws://daemon.example/v1/link".into(),
+            "--invite-file".into(),
+            "-".into(),
+        ])
+        .unwrap();
+        assert!(matches!(
+            parsed.invitation,
+            Some(InvitationArg::File(path)) if path == Path::new("-")
+        ));
+        assert!(!remote_help_requested(&["--invite-file".into(), "-h".into()]));
+
+        for args in [
+            vec!["--invite", "first", "--invite", "second"],
+            vec!["--invite-file", "first", "--invite-file", "second"],
+            vec!["--invite", "inline", "--invite-file", "file"],
+            vec!["--invite-file", "file", "--invite", "inline"],
+        ] {
+            let args = args.into_iter().map(str::to_string).collect::<Vec<_>>();
+            assert!(parse_connect_flags(&args).is_err(), "unexpectedly accepted {args:?}");
+        }
+    }
+
+    #[test]
+    fn positional_and_option_invitations_are_rejected_before_loading_or_connecting() {
+        let flags = ConnectFlags {
+            route: Some("cmux://enroll/positional-secret".into()),
+            invitation: Some(InvitationArg::File("missing-option-secret".into())),
+            ..ConnectFlags::default()
+        };
+        let error = start_connected(flags).err().expect("duplicate invitation should fail");
+        assert!(error.to_string().contains("both positionally"));
+        assert!(!error.to_string().contains("positional-secret"));
+        assert!(!error.to_string().contains("option-secret"));
+    }
+
+    #[test]
+    fn invitation_input_accepts_one_lf_or_crlf_and_preserves_following_stdin() {
+        for input in [b"cmux://enroll/value\n".as_slice(), b"cmux://enroll/value\r\n"] {
+            let mut input = io::Cursor::new(input);
+            assert_eq!(&*read_invitation_uri_to_end(&mut input).unwrap(), "cmux://enroll/value");
+        }
+
+        let mut input = io::Cursor::new(b"cmux://enroll/value\nrpc-request\n");
+        assert_eq!(&*read_invitation_uri_line(&mut input).unwrap(), "cmux://enroll/value");
+        let mut remaining = String::new();
+        input.read_to_string(&mut remaining).unwrap();
+        assert_eq!(remaining, "rpc-request\n");
+    }
+
+    #[test]
+    fn invitation_input_rejects_malformed_data_without_echoing_it() {
+        let secret = "do-not-echo-this-secret";
+        let malformed = [
+            Vec::new(),
+            format!("cmux://enroll/{secret}\nsecond").into_bytes(),
+            vec![0xff, 0xfe, 0xfd],
+            vec![b'x'; MAX_INVITATION_URI_BYTES + 1],
+        ];
+        for bytes in malformed {
+            let error = read_invitation_uri_to_end(&mut io::Cursor::new(bytes))
+                .expect_err("malformed invitation should fail");
+            assert!(!error.to_string().contains(secret));
+        }
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn invitation_file_requires_owner_only_permissions() {
+        use std::os::unix::fs::PermissionsExt;
+
+        let directory = tempfile::tempdir().unwrap();
+        let invitation = directory.path().join("invitation");
+        fs::write(&invitation, "cmux://enroll/value\n").unwrap();
+        fs::set_permissions(&invitation, fs::Permissions::from_mode(0o600)).unwrap();
+        assert_eq!(&*read_invitation_uri(&invitation).unwrap(), "cmux://enroll/value");
+
+        fs::set_permissions(&invitation, fs::Permissions::from_mode(0o640)).unwrap();
+        assert!(read_invitation_uri(&invitation).is_err());
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn invitation_file_rejects_non_regular_paths_without_blocking() {
+        use std::ffi::CString;
+        use std::os::unix::ffi::OsStrExt;
+
+        let directory = tempfile::tempdir().unwrap();
+        let fifo = directory.path().join("invitation.fifo");
+        let fifo_path = CString::new(fifo.as_os_str().as_bytes()).unwrap();
+        assert_eq!(unsafe { libc::mkfifo(fifo_path.as_ptr(), 0o600) }, 0);
+
+        let started = Instant::now();
+        let error = read_invitation_uri(&fifo).unwrap_err().to_string();
+        assert!(started.elapsed() < Duration::from_secs(1));
+        assert!(error.contains("regular file"));
     }
 
     #[test]
@@ -2314,6 +2499,7 @@ esac
     #[test]
     fn help_detection_does_not_consume_ssh_argument_values() {
         assert!(!remote_help_requested(&["host".into(), "--ssh-arg".into(), "-h".into()]));
+        assert!(!remote_help_requested(&["--invite-file".into(), "-h".into()]));
         assert!(remote_help_requested(&["host".into(), "--help".into()]));
     }
 

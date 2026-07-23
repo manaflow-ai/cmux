@@ -1,7 +1,7 @@
 use std::time::{SystemTime, UNIX_EPOCH};
 
 use anyhow::{Context, anyhow};
-use cmux_relay::{Relay, RelayCommand, TicketAuthority};
+use cmux_relay::{Relay, RelayCommand, TicketAuthority, version_string};
 use cmux_remote_protocol::{RelayPermission, RelayRole, RelayTicketClaims};
 
 #[tokio::main]
@@ -9,6 +9,10 @@ async fn main() -> anyhow::Result<()> {
     match RelayCommand::from_process()? {
         RelayCommand::Help => {
             print!("{}", RelayCommand::help());
+            Ok(())
+        }
+        RelayCommand::Version => {
+            println!("cmux-relay {}", version_string());
             Ok(())
         }
         RelayCommand::Ticket { secret, issuer, permission, slot, lane, generation, ttl } => {

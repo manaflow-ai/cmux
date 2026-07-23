@@ -23,6 +23,9 @@ use tokio::sync::watch;
 use url::Url;
 use zeroize::Zeroizing;
 
+const RECONNECT_TEST_TIMEOUT: Duration = Duration::from_secs(60);
+const MAXIMUM_EXPECTED_RECONNECT_GENERATION: u64 = 20;
+
 struct DropProxy {
     address: std::net::SocketAddr,
     cut: watch::Sender<u64>,
@@ -291,18 +294,25 @@ async fn native_relay_recovers_after_every_carrier_is_dropped() {
     assert_eq!(before_mux.payload, b"before mux reconnect".as_slice());
 
     proxy.wait_for_active(8).await;
-    let mut generation = client.subscribe_generation();
+    let generation = client.subscribe_generation();
     proxy.drop_all();
-    tokio::time::timeout(Duration::from_secs(10), async {
-        while *generation.borrow() == 0 {
-            generation.changed().await.unwrap();
+    let snapshot = tokio::time::timeout(RECONNECT_TEST_TIMEOUT, async {
+        loop {
+            let client_snapshot = client.snapshot().await;
+            let daemon_snapshot = server.snapshot().await;
+            if client_snapshot.generation > 0
+                && client_snapshot.generation == daemon_snapshot.generation
+                && client_snapshot.state == ConnectionState::Connected
+                && daemon_snapshot.state == ConnectionState::Connected
+            {
+                break client_snapshot;
+            }
+            tokio::time::sleep(Duration::from_millis(10)).await;
         }
     })
     .await
-    .unwrap();
-    let snapshot = client.snapshot().await;
-    assert_eq!(snapshot.state, ConnectionState::Connected);
-    assert!(snapshot.generation > 0);
+    .expect("relay reconnect did not commit on both peers");
+    assert_eq!(*generation.borrow(), snapshot.generation);
 
     workspace.send(Bytes::from_static(b"after reconnect")).await.unwrap();
     let after = tokio::time::timeout(Duration::from_secs(2), daemon_workspace.receive())
@@ -419,7 +429,7 @@ async fn native_relay_recovers_concurrent_clients_and_persistent_streams() {
                     maximum_delay: Duration::from_millis(50),
                     attempt_timeout: Duration::from_secs(1),
                     full_jitter: false,
-                    heartbeat_interval: Some(Duration::from_millis(20)),
+                    heartbeat_interval: None,
                     heartbeat_timeout: Duration::from_millis(50),
                     maximum_attempts: Some(100),
                 },
@@ -446,22 +456,24 @@ async fn native_relay_recovers_concurrent_clients_and_persistent_streams() {
 
     proxy.wait_for_active(29).await;
     proxy.drop_all();
-    tokio::time::timeout(Duration::from_secs(30), async {
-        loop {
-            let mut recovered = true;
-            for client in &clients {
-                let snapshot = client.snapshot().await;
-                recovered &=
-                    snapshot.state == ConnectionState::Connected && snapshot.generation > 0;
-            }
-            if recovered {
-                break;
-            }
-            tokio::time::sleep(Duration::from_millis(10)).await;
+    let deadline = tokio::time::Instant::now() + RECONNECT_TEST_TIMEOUT;
+    let recovered_generations = loop {
+        let mut snapshots = Vec::with_capacity(clients.len());
+        for client in &clients {
+            snapshots.push(client.snapshot().await);
         }
-    })
-    .await
-    .unwrap();
+        if snapshots.iter().all(|snapshot| {
+            snapshot.state == ConnectionState::Connected
+                && (1..=MAXIMUM_EXPECTED_RECONNECT_GENERATION).contains(&snapshot.generation)
+        }) {
+            break snapshots.iter().map(|snapshot| snapshot.generation).collect::<Vec<_>>();
+        }
+        assert!(
+            tokio::time::Instant::now() < deadline,
+            "concurrent relay clients did not recover exactly once: {snapshots:#?}"
+        );
+        tokio::time::sleep(Duration::from_millis(10)).await;
+    };
 
     for (client_stream, server_stream) in client_streams.iter().zip(&server_streams) {
         client_stream.send(Bytes::from_static(b"after concurrent cut")).await.unwrap();
@@ -471,6 +483,13 @@ async fn native_relay_recovers_concurrent_clients_and_persistent_streams() {
             .unwrap()
             .unwrap();
         assert_eq!(after.payload, b"after concurrent cut".as_slice());
+    }
+
+    tokio::time::sleep(Duration::from_millis(200)).await;
+    for (client, expected_generation) in clients.iter().zip(&recovered_generations) {
+        let snapshot = client.snapshot().await;
+        assert_eq!(snapshot.state, ConnectionState::Connected);
+        assert_eq!(snapshot.generation, *expected_generation);
     }
 
     for client in clients {

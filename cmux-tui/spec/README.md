@@ -1,6 +1,6 @@
 # cmux-tui Programmability Contract
 
-This directory is the source of truth for the cmux-tui control protocol, the generated `cmux-tui` command surface, plugin contracts, and future generated language bindings. The implemented protocol described here is protocol version 9, as defined by `cmux-tui-core/src/server.rs`.
+This directory is the source of truth for the cmux-tui control protocol, the generated `cmux-tui` command surface, plugin contracts, the separately versioned machine-provider boundary, and future generated language bindings. The implemented mux protocol described here is protocol version 9, as defined by `cmux-tui-core/src/server.rs`.
 
 The authenticated remote daemon has an independent protocol version. [`remote-daemon.md`](remote-daemon.md) and [`remote-rpc.md`](remote-rpc.md) define remote protocol 4; `mux-control` carries control protocol 9 inside that session.
 
@@ -24,7 +24,7 @@ Protocol v7 is additive for v6 clients: `attach-surface.mode` defaults to `"byte
 
 Generated clients must inspect `identify.protocol` before using features newer than the connected server. Bindings may expose proposed APIs behind version checks, but they must not send proposed commands to an older server unless the caller explicitly opts into probing.
 
-`identify.capabilities` negotiates additive build-level features within one protocol version. Clients must treat a missing capability list as empty. They must require `attach-initial-size` before sending initial `cols` or `rows` on `attach-surface`, and `workspace-registry-v1` before using registry creation, placement, stable-key, or revision-CAS APIs.
+`identify.capabilities` negotiates additive build-level features within one protocol version. Clients must treat a missing capability list as empty. They must require `attach-initial-size` before sending initial `cols` or `rows` on `attach-surface`, `workspace-registry-v1` before using registry creation, placement, stable-key, or revision-CAS APIs, and `provider-managed-workspace-authority-v2` before committing provider-owned workspace mirrors with a pre-provisioned authority.
 
 ## Generation Model
 
@@ -48,7 +48,10 @@ The generator must preserve the wire command names, parameter names, result shap
 | `plugins.md` | Sidebar plugin PTY, manifest, lifecycle, focus, and config contract |
 | `remote-daemon.md` | Remote protocol 4 authority, transport, authentication, reliability, and service contract |
 | `remote-rpc.md` | Remote protocol 4 workspace RPC envelopes, schemas, process execution, diffs, and routes |
+| `machine-provider.md` | Implemented static catalog and authenticated dynamic-provider v1 contract |
 
 ## Implemented Inventory
 
 Protocol v9 implements the socket commands listed in `commands.md` and the event names listed in `events.md`. Events include subscribe events, attach-stream events, and the implemented `empty` and `detached` lifecycle events.
+
+The client also implements `machine-provider-v0`, an in-process static Unix/SSH catalog, and `machine-provider-v1`, an authenticated dynamic-provider protocol over Unix sockets, direct child processes, or the built-in SSH connector. Both are versioned separately from protocol v9.

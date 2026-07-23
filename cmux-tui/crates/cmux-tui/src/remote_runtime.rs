@@ -303,6 +303,7 @@ impl ResolvedRouteCandidate {
         Ok(Self { endpoint, routing, supported_client_auth })
     }
 
+    #[cfg(test)]
     pub fn supported_client_auth(&self) -> SupportedClientAuthModes {
         self.supported_client_auth
     }
@@ -1308,7 +1309,7 @@ mod tests {
 
     fn resolved_test_route(
         route: &str,
-        supported_auth: cmux_remote::provider::SupportedClientAuthModes,
+        supported_auth: SupportedClientAuthModes,
     ) -> ResolvedRouteCandidate {
         resolved_test_route_with_routing(route, BTreeMap::new(), supported_auth)
     }
@@ -1316,7 +1317,7 @@ mod tests {
     fn resolved_test_route_with_routing(
         route: &str,
         routing: BTreeMap<String, String>,
-        supported_auth: cmux_remote::provider::SupportedClientAuthModes,
+        supported_auth: SupportedClientAuthModes,
     ) -> ResolvedRouteCandidate {
         ResolvedRouteCandidate::with_supported_client_auth_for_test(
             Url::parse(route).unwrap(),
@@ -1482,10 +1483,7 @@ mod tests {
         )
         .unwrap();
 
-        assert_eq!(
-            candidate.supported_client_auth(),
-            cmux_remote::provider::SupportedClientAuthModes::DeviceOnly
-        );
+        assert_eq!(candidate.supported_client_auth(), SupportedClientAuthModes::DeviceOnly);
         for scheme in ["ws", "wss", "relay+ws", "relay+wss", "relay+https", "relay+do", "iroh"] {
             assert_eq!(
                 providers.supported_client_auth(scheme).unwrap(),
@@ -1644,12 +1642,9 @@ mod tests {
         let routes = vec![
             resolved_test_route(
                 "wss://network.example/v1/link",
-                cmux_remote::provider::SupportedClientAuthModes::DeviceOnly,
+                SupportedClientAuthModes::DeviceOnly,
             ),
-            resolved_test_route(
-                "ssh://carrier.example",
-                cmux_remote::provider::SupportedClientAuthModes::DeviceOrCarrier,
-            ),
+            resolved_test_route("ssh://carrier.example", SupportedClientAuthModes::DeviceOrCarrier),
         ];
         let mut attempt = FakeInitialRouteAttempt {
             fail_ssh_bootstrap: false,
@@ -1661,7 +1656,7 @@ mod tests {
             &routes,
             SessionId([13; 16]),
             LanePolicy::Single,
-            cmux_remote::crypto::AuthKind::Carrier,
+            AuthKind::Carrier,
             false,
             &mut attempt,
         )
@@ -1692,12 +1687,9 @@ mod tests {
         let routes = vec![
             resolved_test_route(
                 "wss://network.example/v1/link",
-                cmux_remote::provider::SupportedClientAuthModes::DeviceOnly,
+                SupportedClientAuthModes::DeviceOnly,
             ),
-            resolved_test_route(
-                "ssh://carrier.example",
-                cmux_remote::provider::SupportedClientAuthModes::DeviceOrCarrier,
-            ),
+            resolved_test_route("ssh://carrier.example", SupportedClientAuthModes::DeviceOrCarrier),
         ];
         let attempt = FakeReconnectRouteAttempt::default();
 
@@ -1706,7 +1698,7 @@ mod tests {
             0,
             SessionId([14; 16]),
             LanePolicy::Single,
-            cmux_remote::crypto::AuthKind::Carrier,
+            AuthKind::Carrier,
             &attempt,
         )
         .await
@@ -1730,7 +1722,7 @@ mod tests {
     async fn carrier_route_selection_fails_without_dialing_when_every_route_is_device_only() {
         let routes = vec![resolved_test_route(
             "wss://network.example/v1/link",
-            cmux_remote::provider::SupportedClientAuthModes::DeviceOnly,
+            SupportedClientAuthModes::DeviceOnly,
         )];
         let mut attempt = FakeInitialRouteAttempt {
             fail_ssh_bootstrap: false,
@@ -1742,7 +1734,7 @@ mod tests {
             &routes,
             SessionId([15; 16]),
             LanePolicy::Single,
-            cmux_remote::crypto::AuthKind::Carrier,
+            AuthKind::Carrier,
             false,
             &mut attempt,
         )
@@ -2046,14 +2038,17 @@ mod tests {
             ssh_bootstrap: SshBootstrapOptions {
                 auto_install: true,
                 upgrade: false,
-                attempt_timeout: Duration::from_millis(500),
+                // This launches a real subprocess while hundreds of TUI tests
+                // run concurrently. Keep the watchdog independent of host
+                // scheduler latency; the reconnect budget remains 20 ms.
+                attempt_timeout: Duration::from_secs(30),
             },
         };
         let source = RuntimeReconnectGroups::new(options, 0);
 
         assert_eq!(
             source.resolution_timeout(Duration::from_millis(20)),
-            Duration::from_millis(540)
+            Duration::from_millis(30_040)
         );
         assert_eq!(source.next_group().await.unwrap().description(), "ssh://fallback.example");
         assert_eq!(
@@ -2275,7 +2270,7 @@ mod tests {
     }
 
     #[tokio::test]
-    async fn reconnect_source_cycles_normalized_route_candidates() {
+    async fn reconnect_source_cycles_candidates_with_sanitized_descriptions() {
         let ssh = SshProviderConfig::default();
         let options = ClientRuntimeOptions {
             routes: vec![test_route("ws://first.invalid"), test_route("ws://second.invalid")],
@@ -2298,8 +2293,8 @@ mod tests {
             },
         };
         let source = RuntimeReconnectGroups::new(options, 0);
-        assert_eq!(source.next_group().await.unwrap().description(), "ws://second.invalid/v1/link");
-        assert_eq!(source.next_group().await.unwrap().description(), "ws://first.invalid/v1/link");
+        assert_eq!(source.next_group().await.unwrap().description(), "ws://second.invalid/");
+        assert_eq!(source.next_group().await.unwrap().description(), "ws://first.invalid/");
     }
 
     #[test]

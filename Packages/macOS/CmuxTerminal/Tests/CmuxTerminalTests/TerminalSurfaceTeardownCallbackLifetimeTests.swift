@@ -1,4 +1,5 @@
 import AppKit
+import CmuxTerminalCore
 import Foundation
 import GhosttyKit
 import Testing
@@ -14,6 +15,18 @@ import Testing
 /// native free to the runtime teardown coordinator.
 @MainActor
 @Suite(.serialized) struct TerminalSurfaceTeardownCallbackLifetimeTests {
+    @Test func cancellingEventWaitReturnsWithoutWaitingForDeadline() async {
+        let recorder = TeardownOrderRecorder()
+        let wait = Task {
+            await recorder.waitForEventCount(1, timeout: .seconds(60))
+        }
+
+        await recorder.waitUntilEventWaiterIsRegistered()
+        wait.cancel()
+
+        #expect(await wait.value == false)
+    }
+
     @Test func teardownSurfaceKeepsTeeLeaseUntilNativeFree() async {
         let recorder = TeardownOrderRecorder()
         let surface = makeSurface()
@@ -33,14 +46,19 @@ import Testing
             "tee lease was released before the native free; the IO reader thread can still fire the tee callback"
         )
 
-        await recorder.waitForEventCount(2)
+        let completed = await recorder.waitForEventCount(2)
+        #expect(completed, "timed out waiting for native free and tee-lease release")
         #expect(recorder.events == [.nativeFree, .teeLeaseRelease])
     }
 
     @Test func agentHibernationSuspendKeepsTeeLeaseUntilNativeFree() async {
         let recorder = TeardownOrderRecorder()
-        let surface = makeSurface()
-        surface.installRuntimeSurfaceForTesting(fakeRuntimeSurface())
+        let registry = TerminalSurfaceRegistry()
+        let surface = makeSurface(registry: registry)
+        let runtimeSurface = UnsafeMutableRawPointer.allocate(byteCount: 8, alignment: 8)
+        registry.registerRuntimeSurface(runtimeSurface, ownerId: surface.id)
+        surface.installRuntimeSurfaceForTesting(runtimeSurface)
+        defer { runtimeSurface.deallocate() }
         surface.mobileByteTeeLease = RecordingTerminalByteTeeLease(recorder: recorder)
         TerminalSurface.runtimeSurfaceFreeOverrideForTesting = { _ in
             recorder.record(.nativeFree)
@@ -54,7 +72,8 @@ import Testing
             "tee lease was released before the native free; the IO reader thread can still fire the tee callback"
         )
 
-        await recorder.waitForEventCount(2)
+        let completed = await recorder.waitForEventCount(2)
+        #expect(completed, "timed out waiting for native free and tee-lease release")
         #expect(recorder.events == [.nativeFree, .teeLeaseRelease])
     }
 
@@ -77,7 +96,8 @@ import Testing
             "deinit released the tee lease inline instead of handing it to the teardown coordinator"
         )
 
-        await recorder.waitForEventCount(2)
+        let completed = await recorder.waitForEventCount(2)
+        #expect(completed, "timed out waiting for native free and tee-lease release")
         // The native free must land before the tee-lease release: ghostty's IO
         // reader thread can fire the tee callback until the free joins it.
         #expect(recorder.events == [.nativeFree, .teeLeaseRelease])
@@ -110,7 +130,8 @@ import Testing
 
         // The coordinator releases the manual IO context before the tee
         // lease, so the lease event doubles as the completion beacon.
-        await recorder.waitForEventCount(2)
+        let completed = await recorder.waitForEventCount(2)
+        #expect(completed, "timed out waiting for native free and tee-lease release")
         #expect(recorder.events == [.nativeFree, .teeLeaseRelease])
         #expect(weakBox == nil, "manual IO write box must still be released after the native free")
     }
@@ -134,11 +155,14 @@ import Testing
             }
         )
 
-        await recorder.waitForEventCount(2)
+        let completed = await recorder.waitForEventCount(2)
+        #expect(completed, "timed out waiting for native free and tee-lease release")
         #expect(recorder.events == [.nativeFree, .teeLeaseRelease])
     }
 
-    private func makeSurface() -> TerminalSurface {
+    private func makeSurface(
+        registry: any TerminalSurfaceRegistering = FakeSurfaceRegistry()
+    ) -> TerminalSurface {
         let nativeView = FakeTerminalSurfaceNativeView(frame: NSRect(x: 0, y: 0, width: 800, height: 600))
         let paneHost = FakeTerminalSurfacePaneHost(surfaceView: nativeView)
         return TerminalSurface(
@@ -146,7 +170,7 @@ import Testing
             context: GHOSTTY_SURFACE_CONTEXT_SPLIT,
             configTemplate: nil,
             dependencies: TerminalSurfaceRuntimeDependencies(
-                registry: FakeSurfaceRegistry(),
+                registry: registry,
                 engine: FakeTerminalEngine(),
                 viewProvider: FakeTerminalSurfaceViewProvider(surfaceView: nativeView, paneHost: paneHost),
                 spawnPolicy: FakeSpawnPolicyProvider(),

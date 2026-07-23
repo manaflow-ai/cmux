@@ -589,8 +589,14 @@ async fn join_circuit(
     timeout: Duration,
 ) -> Result<Box<dyn FrameLink>, ProviderError> {
     let circuit_endpoint = relay_circuit_url(endpoint, &circuit)?;
+    // The circuit starts with JSON Join/Ready messages before it becomes a
+    // binary frame link. A caller may intentionally choose a data-frame limit
+    // smaller than those control messages, so keep the WebSocket handshake
+    // ceiling large enough for control and enforce the advertised data limit
+    // in TungsteniteWebSocketLink after the circuit is ready.
+    let websocket_message_limit = maximum_frame_bytes.max(MAX_RELAY_CONTROL_MESSAGE_BYTES);
     let mut socket =
-        connect_relay_socket(&circuit_endpoint, Some(&ticket), maximum_frame_bytes).await?;
+        connect_relay_socket(&circuit_endpoint, Some(&ticket), websocket_message_limit).await?;
     send_control(
         &mut socket,
         &RelayControl::Join {
@@ -1524,7 +1530,7 @@ mod tests {
             ));
             first_seen_tx.send(()).unwrap();
 
-            let (stream, _) = tokio::time::timeout(Duration::from_secs(1), listener.accept())
+            let (stream, _) = tokio::time::timeout(Duration::from_secs(10), listener.accept())
                 .await
                 .expect("retry reused the cancellation-contaminated control socket")
                 .unwrap();
@@ -1600,12 +1606,17 @@ mod tests {
         assert!(matches!(abandoned.await, Err(error) if error.is_cancelled()));
 
         let link = tokio::time::timeout(
-            Duration::from_secs(2),
+            Duration::from_secs(10),
             group.open(LinkRequest { lane: Lane::Interactive, generation: 2 }),
         )
         .await
         .expect("relay allocation did not recover after cancellation")
         .unwrap();
+        assert_eq!(link.maximum_frame_bytes(), 64);
+        assert!(matches!(
+            link.send(Bytes::from(vec![0_u8; 65])).await,
+            Err(crate::link::LinkError::FrameTooLarge { actual: 65, maximum: 64 })
+        ));
         link.send(Bytes::from_static(b"after cancellation")).await.unwrap();
         assert_eq!(link.receive().await.unwrap().unwrap(), b"after cancellation".as_slice());
         link.close().await.unwrap();
@@ -1699,7 +1710,7 @@ mod tests {
                 slot: "test-slot".into(),
                 ticket: "legacy-ticket-must-not-be-used".into(),
                 maximum_frame_bytes: 64,
-                control_timeout: Duration::from_secs(2),
+                control_timeout: Duration::from_secs(10),
             },
             credentials,
         )

@@ -41,13 +41,16 @@ Create a single-device, five-minute invitation:
 cmux-tui enroll create --session dev
 ```
 
-The returned `cmux://enroll/...` URI contains a random 256-bit secret, the daemon public key, expiry, and route hints. It can be opened as a deep link or encoded as a QR code. The client still needs local approval:
+The returned `cmux://enroll/...` URI contains a random 256-bit secret, the daemon public key, expiry, and route hints. It can be opened as a deep link or encoded as a QR code. Store a copied URI in an owner-only file and pass the filename so the secret does not appear in process arguments:
 
 ```sh
-cmux-tui connect 'cmux://enroll/...' --device-name macbook
+chmod 600 invitation.txt
+cmux-tui connect --invite-file invitation.txt --device-name macbook
 cmux-tui enroll pending --session dev
 cmux-tui enroll approve <invitation-id> --session dev
 ```
+
+`--invite-file -` reads exactly one line from stdin. This leaves subsequent stdin lines available to `rpc`. Inline `--invite` and positional invitation URIs remain compatible, but shells and process inspection can expose those forms.
 
 Invitation startup stays alive through the invitation's remaining lifetime and the five-minute approval window. `--connect-timeout-seconds` can impose a different bound, and canceling the client also cancels connection setup.
 
@@ -102,6 +105,7 @@ Every command that selects SSH as its initial route performs the same probe and 
 | --- | --- |
 | positional route | `ws`, `wss`, `unix`, `ssh`, `iroh`, or relay URL; an invitation URI is also accepted |
 | `--invite <uri>` | Supply an invitation separately so a positional route can be tried first |
+| `--invite-file <path>` | Read one invitation from an owner-only file, or one stdin line when the path is `-`, without putting the secret in process arguments |
 | `--daemon <fingerprint>` | Select one known enrolled or carrier daemon when no route is supplied or several match |
 | `--lanes <policy>` | `auto`, `single`, or `isolated`; default `auto`; only the `cmux-tui ssh` shorthand defaults to `single` |
 | `--connect-timeout-seconds <n>` | Bound initial setup; ordinary connections default to 90 seconds and invitations include their approval window |
