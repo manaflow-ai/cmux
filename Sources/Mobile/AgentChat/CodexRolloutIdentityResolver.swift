@@ -3,6 +3,7 @@ import Foundation
 /// Collapses open Codex rollout files into one logical parent session.
 nonisolated struct CodexRolloutIdentityResolver: Sendable {
     private let maximumSessionMetaBytes = 4 * 1_024 * 1_024
+    private let sessionMetaReadChunkBytes = 4 * 1_024
 
     func resolve(
         openRolloutPaths: [String],
@@ -12,8 +13,11 @@ nonisolated struct CodexRolloutIdentityResolver: Sendable {
         var orderedSessionIDs: [String] = []
         var pathBySessionID: [String: String] = [:]
         var parentBySessionID: [String: String] = [:]
+        var canonicalSessionIDBySessionID: [String: String] = [:]
+        var seenPaths: Set<String> = []
 
-        for path in openRolloutPaths {
+        for path in openRolloutPaths where seenPaths.insert(path).inserted {
+            guard !Task.isCancelled else { return nil }
             let fallbackSessionID = sessionIDFromPath((path as NSString).lastPathComponent)
             let metadata = sessionMetadata(atPath: path)
             guard let sessionID = metadata.sessionID ?? fallbackSessionID else { continue }
@@ -25,10 +29,28 @@ nonisolated struct CodexRolloutIdentityResolver: Sendable {
                parentSessionID != sessionID {
                 parentBySessionID[sessionID] = parentSessionID
             }
+            if let canonicalSessionID = metadata.canonicalSessionID {
+                canonicalSessionIDBySessionID[sessionID] = canonicalSessionID
+            }
         }
 
         guard !orderedSessionIDs.isEmpty else { return nil }
         let openSessionIDs = Set(orderedSessionIDs)
+        let canonicalSessionIDs = orderedSessionIDs.compactMap {
+            canonicalSessionIDBySessionID[$0]
+        }
+        if let canonicalSessionID = Set(canonicalSessionIDs).onlyElement,
+           orderedSessionIDs.allSatisfy({ sessionID in
+               sessionID == canonicalSessionID
+                   || canonicalSessionIDBySessionID[sessionID] == canonicalSessionID
+           }),
+           let path = pathBySessionID[canonicalSessionID] {
+            return CodexRolloutIdentity(
+                sessionID: canonicalSessionID,
+                transcriptPath: path
+            )
+        }
+
         let roots = orderedSessionIDs.compactMap {
             rootSessionID(
                 for: $0,
@@ -47,9 +69,15 @@ nonisolated struct CodexRolloutIdentityResolver: Sendable {
             return CodexRolloutIdentity(sessionID: preferred, transcriptPath: path)
         }
 
-        let fallback = orderedSessionIDs[0]
-        guard let path = pathBySessionID[fallback] else { return nil }
-        return CodexRolloutIdentity(sessionID: fallback, transcriptPath: path)
+        if orderedSessionIDs.count == 1,
+           let onlySessionID = orderedSessionIDs.first,
+           canonicalSessionIDBySessionID[onlySessionID].map({ $0 == onlySessionID }) ?? true,
+           parentBySessionID[onlySessionID] == nil,
+           let path = pathBySessionID[onlySessionID] {
+            return CodexRolloutIdentity(sessionID: onlySessionID, transcriptPath: path)
+        }
+
+        return nil
     }
 
     private func rootSessionID(
@@ -59,29 +87,54 @@ nonisolated struct CodexRolloutIdentityResolver: Sendable {
     ) -> String? {
         var current = sessionID
         var visited: Set<String> = []
-        while let parent = parentBySessionID[current], openSessionIDs.contains(parent) {
+        while let parent = parentBySessionID[current] {
+            guard openSessionIDs.contains(parent) else { return nil }
             guard visited.insert(current).inserted else { return nil }
             current = parent
         }
         return current
     }
 
-    private func sessionMetadata(atPath path: String) -> (sessionID: String?, parentSessionID: String?) {
-        guard let handle = FileHandle(forReadingAtPath: path) else { return (nil, nil) }
+    private func sessionMetadata(
+        atPath path: String
+    ) -> (sessionID: String?, canonicalSessionID: String?, parentSessionID: String?) {
+        guard let handle = FileHandle(forReadingAtPath: path) else { return (nil, nil, nil) }
         defer { try? handle.close() }
-        guard let data = try? handle.read(upToCount: maximumSessionMetaBytes + 1),
-              !data.isEmpty,
-              let newline = data.firstIndex(of: 0x0A),
-              data.distance(from: data.startIndex, to: newline) <= maximumSessionMetaBytes,
-              let object = try? JSONSerialization.jsonObject(with: data[..<newline]) as? [String: Any],
+        guard let data = sessionMetaLine(from: handle),
+              let object = try? JSONSerialization.jsonObject(with: data) as? [String: Any],
               object["type"] as? String == "session_meta",
               let payload = object["payload"] as? [String: Any] else {
-            return (nil, nil)
+            return (nil, nil, nil)
         }
         return (
             normalized(payload["id"] as? String),
+            normalized(payload["session_id"] as? String),
             normalized(payload["parent_thread_id"] as? String)
         )
+    }
+
+    private func sessionMetaLine(from handle: FileHandle) -> Data? {
+        var line = Data()
+        while line.count <= maximumSessionMetaBytes {
+            guard !Task.isCancelled,
+                  let chunk = try? handle.read(
+                      upToCount: min(
+                          sessionMetaReadChunkBytes,
+                          maximumSessionMetaBytes + 1 - line.count
+                      )
+                  ),
+                  !chunk.isEmpty else {
+                return nil
+            }
+            if let newline = chunk.firstIndex(of: 0x0A) {
+                let prefix = chunk[..<newline]
+                guard line.count + prefix.count <= maximumSessionMetaBytes else { return nil }
+                line.append(contentsOf: prefix)
+                return line
+            }
+            line.append(chunk)
+        }
+        return nil
     }
 
     private func normalized(_ value: String?) -> String? {

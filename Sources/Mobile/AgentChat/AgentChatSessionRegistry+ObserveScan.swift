@@ -161,7 +161,7 @@ extension AgentChatSessionRegistry {
         }
         observeLastStartedAt = Date()
         let id = UUID()
-        let hookStore = hookStore
+        let hookStore = self.hookStore
         let scanTask = Task.detached {
             let preferredCodexSessionIDBySurfaceID = Self.storedCodexSessionIDBySurfaceID(
                 from: hookStore.entries(agentSource: "codex")

@@ -61,6 +61,27 @@ struct CodexCodeModeRolloutIdentityTests {
     }
 
     @Test
+    func canonicalSessionIDResolvesAcrossClosedIntermediateRollout() throws {
+        let fixture = try makeFixtureDirectory()
+        defer { try? FileManager.default.removeItem(at: fixture.root) }
+        let primary = try writeRollout(directory: fixture.rollouts, sessionID: Self.primaryID)
+        let grandchild = try writeRollout(
+            directory: fixture.rollouts,
+            sessionID: Self.grandchildID,
+            canonicalSessionID: Self.primaryID,
+            parentThreadID: Self.childID
+        )
+
+        let session = try #require(observedSession(
+            openRollouts: [grandchild, primary],
+            preferredSessionID: nil
+        ))
+
+        #expect(session.sessionID == Self.primaryID)
+        #expect(session.transcriptPath == primary)
+    }
+
+    @Test
     func partialMetadataFallsBackToStoredSurfaceBinding() throws {
         let fixture = try makeFixtureDirectory()
         defer { try? FileManager.default.removeItem(at: fixture.root) }
@@ -74,6 +95,22 @@ struct CodexCodeModeRolloutIdentityTests {
 
         #expect(session.sessionID == Self.primaryID)
         #expect(session.transcriptPath == primary)
+    }
+
+    @Test
+    func ambiguousPartialMetadataDoesNotChooseDescriptorOrder() throws {
+        let fixture = try makeFixtureDirectory()
+        defer { try? FileManager.default.removeItem(at: fixture.root) }
+        let child = try writePartialRollout(directory: fixture.rollouts, sessionID: Self.childID)
+        let grandchild = try writePartialRollout(
+            directory: fixture.rollouts,
+            sessionID: Self.grandchildID
+        )
+
+        #expect(observedSession(
+            openRollouts: [grandchild, child],
+            preferredSessionID: nil
+        ) == nil)
     }
 
     private func observedSession(
@@ -123,6 +160,7 @@ struct CodexCodeModeRolloutIdentityTests {
     private func writeRollout(
         directory: URL,
         sessionID: String,
+        canonicalSessionID: String? = nil,
         parentThreadID: String? = nil,
         trailingBytes: Int = 0
     ) throws -> String {
@@ -132,7 +170,7 @@ struct CodexCodeModeRolloutIdentityTests {
             "originator": "codex-tui",
         ]
         if let parentThreadID {
-            payload["session_id"] = parentThreadID
+            payload["session_id"] = canonicalSessionID ?? parentThreadID
             payload["parent_thread_id"] = parentThreadID
             payload["source"] = ["subagent": ["other": "guardian"]]
             payload["multi_agent_version"] = "1"
