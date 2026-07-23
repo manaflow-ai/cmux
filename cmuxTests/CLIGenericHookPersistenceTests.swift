@@ -3110,6 +3110,121 @@ extension CLINotifyProcessIntegrationRegressionTests {
         )
     }
 
+    func testCodexHookInstallRollsBackHooksFileWhenConfigTomlApprovalIsDeclined() throws {
+        let cliPath = try bundledCLIPath()
+        let root = FileManager.default.temporaryDirectory
+            .appendingPathComponent("cmux-codex-hook-install-rollback-\(UUID().uuidString)", isDirectory: true)
+        let codexHome = root.appendingPathComponent(".codex", isDirectory: true)
+        let hookURL = codexHome.appendingPathComponent("hooks.json", isDirectory: false)
+        let configURL = codexHome.appendingPathComponent("config.toml", isDirectory: false)
+        try FileManager.default.createDirectory(at: codexHome, withIntermediateDirectories: true)
+        try "model = \"gpt-5.4\"\n".write(to: configURL, atomically: true, encoding: .utf8)
+        defer { try? FileManager.default.removeItem(at: root) }
+
+        let result = runProcess(
+            executablePath: cliPath,
+            arguments: ["hooks", "codex", "install"],
+            environment: [
+                "HOME": root.path,
+                "CODEX_HOME": codexHome.path,
+                "PATH": "/usr/bin:/bin:/usr/sbin:/sbin",
+                "CMUX_CLI_SENTRY_DISABLED": "1",
+            ],
+            standardInput: "y\nn\n",
+            timeout: 5
+        )
+
+        XCTAssertFalse(result.timedOut, result.stderr)
+        XCTAssertEqual(result.status, 0, result.stderr)
+        XCTAssertTrue(result.stdout.contains("Aborted"), result.stdout)
+        XCTAssertFalse(
+            FileManager.default.fileExists(atPath: hookURL.path),
+            "Declining the Codex config.toml update must not leave hooks.json installed but disabled"
+        )
+        XCTAssertEqual(try String(contentsOf: configURL, encoding: .utf8), "model = \"gpt-5.4\"\n")
+    }
+
+    func testCodexHookInstallRestoresExistingHooksFileBytesWhenConfigTomlApprovalIsDeclined() throws {
+        let cliPath = try bundledCLIPath()
+        let root = FileManager.default.temporaryDirectory
+            .appendingPathComponent("cmux-codex-hook-install-restore-\(UUID().uuidString)", isDirectory: true)
+        let codexHome = root.appendingPathComponent(".codex", isDirectory: true)
+        let hookURL = codexHome.appendingPathComponent("hooks.json", isDirectory: false)
+        let configURL = codexHome.appendingPathComponent("config.toml", isDirectory: false)
+        let originalHooksData = Data("""
+        {"version":1,"hooks":{"SessionStart":[{"hooks":[{"command":"echo user-hook"}]}]}}
+
+        """.utf8)
+        try FileManager.default.createDirectory(at: codexHome, withIntermediateDirectories: true)
+        try originalHooksData.write(to: hookURL, options: .atomic)
+        try "model = \"gpt-5.4\"\n".write(to: configURL, atomically: true, encoding: .utf8)
+        defer { try? FileManager.default.removeItem(at: root) }
+
+        let result = runProcess(
+            executablePath: cliPath,
+            arguments: ["hooks", "codex", "install"],
+            environment: [
+                "HOME": root.path,
+                "CODEX_HOME": codexHome.path,
+                "PATH": "/usr/bin:/bin:/usr/sbin:/sbin",
+                "CMUX_CLI_SENTRY_DISABLED": "1",
+            ],
+            standardInput: "y\nn\n",
+            timeout: 5
+        )
+
+        XCTAssertFalse(result.timedOut, result.stderr)
+        XCTAssertEqual(result.status, 0, result.stderr)
+        XCTAssertTrue(result.stdout.contains("Aborted"), result.stdout)
+        XCTAssertEqual(
+            try Data(contentsOf: hookURL),
+            originalHooksData,
+            "Declining the Codex config.toml update must restore the exact previous hooks.json bytes"
+        )
+        XCTAssertEqual(try String(contentsOf: configURL, encoding: .utf8), "model = \"gpt-5.4\"\n")
+    }
+
+    func testCodexHookInstallRestoresHooksFileWhenConfigTomlReadFails() throws {
+        let cliPath = try bundledCLIPath()
+        let root = FileManager.default.temporaryDirectory
+            .appendingPathComponent("cmux-codex-hook-install-config-read-fails-\(UUID().uuidString)", isDirectory: true)
+        let codexHome = root.appendingPathComponent(".codex", isDirectory: true)
+        let hookURL = codexHome.appendingPathComponent("hooks.json", isDirectory: false)
+        let configURL = codexHome.appendingPathComponent("config.toml", isDirectory: true)
+        let originalHooksData = Data("""
+        {"version":1,"hooks":{"SessionStart":[{"hooks":[{"command":"echo user-hook"}]}]}}
+
+        """.utf8)
+        try FileManager.default.createDirectory(at: codexHome, withIntermediateDirectories: true)
+        try originalHooksData.write(to: hookURL, options: .atomic)
+        try FileManager.default.createDirectory(at: configURL, withIntermediateDirectories: true)
+        defer { try? FileManager.default.removeItem(at: root) }
+
+        let result = runProcess(
+            executablePath: cliPath,
+            arguments: ["hooks", "codex", "install", "--yes"],
+            environment: [
+                "HOME": root.path,
+                "CODEX_HOME": codexHome.path,
+                "PATH": "/usr/bin:/bin:/usr/sbin:/sbin",
+                "CMUX_CLI_SENTRY_DISABLED": "1",
+            ],
+            standardInput: "",
+            timeout: 5
+        )
+
+        XCTAssertFalse(result.timedOut, result.stderr)
+        XCTAssertNotEqual(result.status, 0, result.stdout)
+        XCTAssertEqual(
+            try Data(contentsOf: hookURL),
+            originalHooksData,
+            "A config.toml read failure after writing hooks.json must restore the exact previous hooks.json bytes"
+        )
+        var isConfigDirectory = ObjCBool(false)
+        XCTAssertTrue(FileManager.default.fileExists(atPath: configURL.path, isDirectory: &isConfigDirectory))
+        XCTAssertTrue(isConfigDirectory.boolValue)
+    }
+
     func testGrokHookInstallRejectsFileAtHooksDirectory() throws {
         let cliPath = try bundledCLIPath()
         let root = FileManager.default.temporaryDirectory
