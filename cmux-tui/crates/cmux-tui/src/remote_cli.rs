@@ -1624,6 +1624,47 @@ mod tests {
     use super::*;
 
     #[cfg(unix)]
+    #[tokio::test]
+    async fn stdio_proxy_rejects_failed_peer_authentication_before_forwarding_data() {
+        use cmux_remote::admin::UnixPeerAuthError;
+        use tokio::io::AsyncReadExt;
+        use tokio::net::UnixListener;
+
+        let directory = tempfile::tempdir().unwrap();
+        let socket = directory.path().join("impostor-link.sock");
+        let listener = UnixListener::bind(&socket).unwrap();
+        let responder = tokio::spawn(async move {
+            let (mut stream, _) = listener.accept().await.unwrap();
+            let mut byte = [0_u8; 1];
+            tokio::time::timeout(Duration::from_secs(1), stream.read(&mut byte))
+                .await
+                .expect("stdio proxy kept the rejected connection open")
+                .unwrap()
+        });
+        let expected_uid = unsafe { libc::geteuid() };
+        let peer_uid = expected_uid.wrapping_add(1);
+
+        let error = proxy_stdio_with_io(
+            &socket,
+            tokio::io::empty(),
+            tokio::io::sink(),
+            |_| Err(UnixPeerAuthError::WrongUid { peer_uid, expected_uid }),
+        )
+        .await
+        .unwrap_err();
+
+        assert!(matches!(
+            error.downcast_ref::<UnixPeerAuthError>(),
+            Some(UnixPeerAuthError::WrongUid { .. })
+        ));
+        assert_eq!(
+            responder.await.unwrap(),
+            0,
+            "stdio data leaked to the rejected Unix responder"
+        );
+    }
+
+    #[cfg(unix)]
     #[test]
     fn initial_ssh_bootstrap_can_use_more_than_the_reconnect_attempt_budget() {
         use std::os::unix::fs::PermissionsExt;
