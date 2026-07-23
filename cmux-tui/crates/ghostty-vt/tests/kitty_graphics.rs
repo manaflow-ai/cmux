@@ -70,6 +70,7 @@ fn rgba_snapshot_preserves_alpha_crop_offsets_z_and_real_cell_geometry() {
     assert_eq!((placement.source_x, placement.source_y), (1, 0));
     assert_eq!((placement.source_width, placement.source_height), (1, 2));
     assert_eq!((placement.x_offset, placement.y_offset), (3, 4));
+    assert_eq!((placement.columns, placement.rows), (2, 3));
     assert_eq!((placement.grid_cols, placement.grid_rows), (2, 3));
     assert_eq!((placement.pixel_width, placement.pixel_height), (20, 60));
     assert_eq!(placement.z, -2);
@@ -154,6 +155,36 @@ fn replay_reconstructs_preexisting_images_and_placements() {
     assert_eq!(actual.image(21).unwrap().data, expected.image(21).unwrap().data);
     assert_eq!(actual.placements[0].z, 4);
     assert_eq!((actual.placements[0].grid_cols, actual.placements[0].grid_rows), (2, 2));
+}
+
+#[test]
+fn replay_preserves_native_and_single_axis_placement_sizing() {
+    let mut source = terminal();
+    source.vt_write(&kitty(
+        "a=t,t=d,f=24,i=23,s=20,v=10,q=2",
+        &encode_base64(&vec![255; 20 * 10 * 3]),
+    ));
+    source.vt_write(&kitty("a=p,i=23,p=1,C=1,q=2", ""));
+    source.vt_write(b"\x1b[2;1H");
+    source.vt_write(&kitty("a=p,i=23,p=2,c=2,C=1,q=2", ""));
+    source.vt_write(b"\x1b[3;1H");
+    source.vt_write(&kitty("a=p,i=23,p=3,r=2,C=1,q=2", ""));
+
+    let replay = source.vt_replay().unwrap();
+    let mut mirror = terminal();
+    mirror.vt_write(&replay);
+    let actual = mirror.kitty_graphics_snapshot().unwrap();
+    let sizing = |placement_id| {
+        let placement = actual
+            .placements
+            .iter()
+            .find(|placement| placement.placement_id == placement_id)
+            .unwrap();
+        (placement.columns, placement.rows)
+    };
+    assert_eq!(sizing(1), (0, 0));
+    assert_eq!(sizing(2), (2, 0));
+    assert_eq!(sizing(3), (0, 2));
 }
 
 #[test]

@@ -1664,13 +1664,22 @@ fn kitty_replay_placement(placement: &kitty::KittyPlacement) -> Option<Vec<u8>> 
     let row = u32::try_from(placement.viewport_row.max(0)).ok()?.saturating_add(1);
     let x_offset = if clip_cols == 0 { placement.x_offset } else { 0 };
     let y_offset = if clip_rows == 0 { placement.y_offset } else { 0 };
-    Some(
-        format!(
-            "\x1b7\x1b[{row};{col}H\x1b_Ga=p,i={},p={},x={source_x},y={source_y},w={source_width},h={source_height},X={x_offset},Y={y_offset},c={cols},r={rows},z={},C=1,q=2;\x1b\\\x1b8",
-            placement.image_id, placement.placement_id, placement.z
-        )
-        .into_bytes(),
-    )
+    let clipped = clip_cols > 0 || clip_rows > 0;
+    let columns =
+        if clipped { Some(cols) } else { (placement.columns > 0).then_some(placement.columns) };
+    let rows = if clipped { Some(rows) } else { (placement.rows > 0).then_some(placement.rows) };
+    let mut command = format!(
+        "\x1b7\x1b[{row};{col}H\x1b_Ga=p,i={},p={},x={source_x},y={source_y},w={source_width},h={source_height},X={x_offset},Y={y_offset}",
+        placement.image_id, placement.placement_id
+    );
+    if let Some(columns) = columns {
+        command.push_str(&format!(",c={columns}"));
+    }
+    if let Some(rows) = rows {
+        command.push_str(&format!(",r={rows}"));
+    }
+    command.push_str(&format!(",z={},C=1,q=2;\x1b\\\x1b8", placement.z));
+    Some(command.into_bytes())
 }
 
 fn proportional_clip(total_pixels: u32, clipped_cells: u32, total_cells: u32) -> u32 {

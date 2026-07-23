@@ -81,6 +81,8 @@ pub struct GraphicPlacement {
     pub key: GraphicPlacementKey,
     pub image: Arc<GraphicImage>,
     pub rect: Rect,
+    pub columns: Option<u32>,
+    pub rows: Option<u32>,
     pub source: Option<GraphicSourceRect>,
     pub x_offset: u32,
     pub y_offset: u32,
@@ -109,6 +111,8 @@ impl GraphicPlacement {
                 data: GraphicData::Base64(Arc::from(data_b64)),
             }),
             rect,
+            columns: Some(u32::from(rect.width)),
+            rows: Some(u32::from(rect.height)),
             source: None,
             x_offset: 0,
             y_offset: 0,
@@ -204,6 +208,17 @@ pub fn kitty_graphic_placement(
     if source.width == 0 || source.height == 0 {
         return None;
     }
+    let clipped = clip_left > 0 || clip_top > 0 || clip_right > 0 || clip_bottom > 0;
+    let columns = if clipped {
+        Some(u32::try_from(visible_cols).ok()?)
+    } else {
+        (placement.columns > 0).then_some(placement.columns)
+    };
+    let rows = if clipped {
+        Some(u32::try_from(visible_rows).ok()?)
+    } else {
+        (placement.rows > 0).then_some(placement.rows)
+    };
 
     Some(GraphicPlacement {
         key: GraphicPlacementKey {
@@ -218,6 +233,8 @@ pub fn kitty_graphic_placement(
             width: u16::try_from(visible_cols).ok()?,
             height: u16::try_from(visible_rows).ok()?,
         },
+        columns,
+        rows,
         source: Some(source),
         x_offset,
         y_offset,
@@ -399,14 +416,14 @@ fn place_image(image_id: u32, placement_id: u32, placement: &GraphicPlacement) -
             source.x, source.y, source.width, source.height
         ));
     }
-    command.push_str(&format!(
-        ",X={},Y={},c={},r={},z={},C=1,q=2;{ESC}\\{ESC}8",
-        placement.x_offset,
-        placement.y_offset,
-        placement.rect.width,
-        placement.rect.height,
-        placement.z
-    ));
+    command.push_str(&format!(",X={},Y={}", placement.x_offset, placement.y_offset));
+    if let Some(columns) = placement.columns {
+        command.push_str(&format!(",c={columns}"));
+    }
+    if let Some(rows) = placement.rows {
+        command.push_str(&format!(",r={rows}"));
+    }
+    command.push_str(&format!(",z={},C=1,q=2;{ESC}\\{ESC}8", placement.z));
     command.into_bytes()
 }
 
@@ -556,6 +573,8 @@ mod tests {
             key: GraphicPlacementKey { image: image.key, placement_id, ordinal },
             image,
             rect,
+            columns: Some(u32::from(rect.width)),
+            rows: Some(u32::from(rect.height)),
             source: None,
             x_offset: 0,
             y_offset: 0,
@@ -728,6 +747,8 @@ mod tests {
             source_y: 20,
             source_width: 80,
             source_height: 40,
+            columns: 8,
+            rows: 4,
             grid_cols: 8,
             grid_rows: 4,
             pixel_width: 80,
@@ -770,6 +791,8 @@ mod tests {
             source_y: 0,
             source_width: 100,
             source_height: 100,
+            columns: 2,
+            rows: 2,
             grid_cols: 2,
             grid_rows: 2,
             pixel_width: 20,

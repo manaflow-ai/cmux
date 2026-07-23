@@ -2421,6 +2421,8 @@ fn render_graphics_json(
                 "source_y": placement.source_y,
                 "source_width": placement.source_width,
                 "source_height": placement.source_height,
+                "columns": placement.columns,
+                "rows": placement.rows,
                 "grid_cols": placement.grid_cols,
                 "grid_rows": placement.grid_rows,
                 "pixel_width": placement.pixel_width,
