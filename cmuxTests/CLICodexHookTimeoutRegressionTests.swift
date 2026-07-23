@@ -178,6 +178,22 @@ struct CLICodexHookTimeoutRegressionTests {
             commandBody: promptHook.body,
             root: root.appendingPathComponent("clock-lock-order", isDirectory: true)
         )
+        let sharedClockDirectory = root.appendingPathComponent("cmux-agent-hook-clock-v2", isDirectory: true)
+        try FileManager.default.createDirectory(
+            at: sharedClockDirectory,
+            withIntermediateDirectories: false
+        )
+        try FileManager.default.setAttributes(
+            [.posixPermissions: 0o700],
+            ofItemAtPath: sharedClockDirectory.path
+        )
+        let poisonedClockMicros: Int64 = 4_102_444_799_000_000
+        try "\(poisonedClockMicros)\n".write(
+            to: sharedClockDirectory.appendingPathComponent("state", isDirectory: false),
+            atomically: true,
+            encoding: .utf8
+        )
+        let maximumAcceptedCaptureTime = Date().timeIntervalSince1970 + 5 * 60
         let run = runCodexHookProcess(
             executablePath: "/bin/sh",
             arguments: ["-c", command],
@@ -234,6 +250,10 @@ struct CLICodexHookTimeoutRegressionTests {
             #expect(rawValue.contains("."), Comment(rawValue: rawValue))
             return value
         }
+        #expect(
+            capturedTimes.allSatisfy { $0 <= maximumAcceptedCaptureTime },
+            "A poisoned future clock state must not become the emitted ordering watermark"
+        )
         #expect(
             capturedTimes[0] < capturedTimes[1],
             Comment(rawValue: rawCapturedTimes.joined(separator: ","))

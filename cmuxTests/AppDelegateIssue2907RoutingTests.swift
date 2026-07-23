@@ -781,6 +781,72 @@ final class AppDelegateIssue2907RoutingTests: XCTestCase {
         XCTAssertEqual(getBinding["auto_resume"] as? Bool, false)
     }
 
+    func testStaleRelayedSurfaceResumeSetAuthenticatesBeforeReturningBinding() throws {
+        _ = NSApplication.shared
+        let previousAppDelegate = AppDelegate.shared
+        let app = AppDelegate()
+        defer {
+            AppDelegate.shared = previousAppDelegate
+        }
+
+        let windowId = UUID()
+        let window = makeMainWindow(id: windowId)
+        defer {
+            TerminalController.shared.setActiveTabManager(nil)
+            app.unregisterMainWindowContextForTesting(windowId: windowId)
+            window.orderOut(nil)
+        }
+
+        let manager = TabManager(autoWelcomeIfNeeded: false)
+        app.registerMainWindow(
+            window,
+            windowId: windowId,
+            tabManager: manager,
+            sidebarState: SidebarState(),
+            sidebarSelectionState: SidebarSelectionState(),
+            fileExplorerState: FileExplorerState()
+        )
+        TerminalController.shared.setActiveTabManager(manager)
+
+        let workspace = try XCTUnwrap(manager.selectedWorkspace)
+        let panelId = try XCTUnwrap(workspace.focusedPanelId)
+        let currentEventTime = Date().timeIntervalSince1970
+        XCTAssertTrue(workspace.setSurfaceResumeBinding(
+            SurfaceResumeBindingSnapshot(
+                command: "codex resume private-session",
+                cwd: "/private/project",
+                checkpointId: "private-session",
+                source: "agent-hook",
+                environment: ["PRIVATE_VALUE": "must-not-leak"],
+                updatedAt: currentEventTime
+            ),
+            panelId: panelId,
+            agentEventTime: currentEventTime
+        ))
+
+        let (raw, envelope) = try v2Envelope(
+            method: "surface.resume.set",
+            params: [
+                "window_id": windowId.uuidString,
+                "workspace_id": workspace.id.uuidString,
+                "surface_id": panelId.uuidString,
+                "command": "codex resume attacker-session",
+                "source": "agent-hook",
+                "agent_event_time": currentEventTime - 1,
+                "_cmux_remote_workspace_id": UUID().uuidString,
+            ]
+        )
+
+        XCTAssertEqual(envelope["ok"] as? Bool, false, raw)
+        XCTAssertNil(envelope["result"], raw)
+        let error = try XCTUnwrap(envelope["error"] as? [String: Any], raw)
+        XCTAssertEqual(error["code"] as? String, "internal_error", raw)
+        XCTAssertEqual(
+            workspace.surfaceResumeBinding(panelId: panelId)?.checkpointId,
+            "private-session"
+        )
+    }
+
     func testSurfaceResumeSetCannotEnableAutoResumeFromSocket() throws {
         _ = NSApplication.shared
         let previousAppDelegate = AppDelegate.shared

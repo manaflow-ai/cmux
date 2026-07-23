@@ -83,4 +83,16 @@ struct ControlCommandCoordinatorSidebarV1Tests {
             response == "ERROR: Invalid agent event time '\(rawEventTime)' - must be between 2000-01-01 and 2100-01-01 UTC"
         )
     }
+
+    @Test func setStatusRejectsPlausibleEpochThatIsFarInTheFuture() {
+        let context = FakeSidebarV1ControlCommandContext()
+        let coordinator = ControlCommandCoordinator(context: context)
+
+        let response = coordinator.handleSidebarV1(
+            command: "set_status",
+            args: "codex Running --agent-event-time=4102444800"
+        )
+
+        #expect(response.hasPrefix("ERROR: Invalid agent event time"))
+    }
 }

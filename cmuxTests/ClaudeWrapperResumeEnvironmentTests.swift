@@ -167,6 +167,18 @@ import Testing
             JSONSerialization.jsonObject(with: Data(settings.utf8)) as? [String: Any]
         )
         let hooks = try #require(settingsObject["hooks"] as? [String: Any])
+        let preToolUseMatchers = try #require(hooks["PreToolUse"] as? [[String: Any]])
+        let ordinaryPreToolUse = try #require(
+            preToolUseMatchers.first { ($0["matcher"] as? String) == "" }
+        )
+        let ordinaryPreToolUseHooks = try #require(ordinaryPreToolUse["hooks"] as? [[String: Any]])
+        let statusHook = try #require(ordinaryPreToolUseHooks.first {
+            ($0["command"] as? String)?.contains("hooks claude pre-tool-use") == true
+        })
+        #expect(
+            statusHook["async"] as? Bool != true,
+            "State-changing PreToolUse must finish before later lifecycle hooks can start"
+        )
         let stopMatchers = try #require(hooks["Stop"] as? [[String: Any]])
         let stopHooks = try #require(stopMatchers.first?["hooks"] as? [[String: Any]])
         let command = try #require(stopHooks.first?["command"] as? String)
