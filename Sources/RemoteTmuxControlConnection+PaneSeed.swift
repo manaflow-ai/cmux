@@ -303,8 +303,16 @@ extension RemoteTmuxControlConnection {
     /// them first is also what makes room for the re-seed to be admitted.
     private func recoverPaneSeedBudget(paneId: Int, event: String) {
         record("\(event) %\(paneId)")
+        // Freeing this pane's retained bytes is the urgent half and is safe to do here.
         discardPendingPaneSeeds(paneId: paneId)
-        _ = seedPane(paneId: paneId, clearScrollback: true)
+        // The re-seed is NOT. This runs inside the reservation that just failed, and seeding re-enters
+        // that same reservation — calling it synchronously recurses until the stack overflows, which is
+        // what a fuzz run measured. Handing it to the next main-actor turn breaks the cycle, and by then
+        // the discard above has already made room.
+        Task { @MainActor [weak self] in
+            guard let self, !self.exited else { return }
+            _ = self.seedPane(paneId: paneId, clearScrollback: true)
+        }
     }
 
     private func reservePendingPaneSeedBytes(_ count: Int, paneId: Int) -> Bool {
