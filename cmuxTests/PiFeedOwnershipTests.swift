@@ -156,6 +156,59 @@ struct PiFeedOwnershipTests {
 
     @MainActor
     @Test
+    func sameSessionPiPostToolBatchCoalescesTranscriptUpdate() throws {
+        let previousAppDelegate = AppDelegate.shared
+        let previousTranscriptService = TerminalController.shared.agentChatTranscriptService
+        let appDelegate = AppDelegate()
+        AppDelegate.shared = appDelegate
+        let tabManager = TabManager(autoWelcomeIfNeeded: false)
+        appDelegate.tabManager = tabManager
+
+        let workspace = tabManager.addWorkspace(select: true)
+        let surfaceId = try #require(workspace.focusedPanelId)
+        let registry = AgentChatSessionRegistry()
+        TerminalController.shared.agentChatTranscriptService = AgentChatTranscriptService(
+            registry: registry,
+            hasEventSubscribers: { false },
+            emitEventPayload: { _ in }
+        )
+        defer {
+            if tabManager.tabs.contains(where: { $0.id == workspace.id }) {
+                tabManager.closeWorkspace(workspace)
+            }
+            TerminalController.shared.agentChatTranscriptService = previousTranscriptService
+            appDelegate.tabManager = nil
+            AppDelegate.shared = previousAppDelegate
+        }
+
+        let store = WorkstreamStore(ringCapacity: 100)
+        FeedCoordinator.shared.install(store: store)
+        let sessionId = "pi-coalesced-transcript-batch"
+        let events = (0..<64).map { index in
+            WorkstreamEvent(
+                sessionId: sessionId,
+                hookEventName: .postToolUse,
+                source: "pi",
+                workspaceId: workspace.id.uuidString,
+                surfaceId: surfaceId.uuidString,
+                toolName: "Bash",
+                requestId: "pi-coalesced-transcript-request-\(index)",
+                receivedAt: Date(timeIntervalSinceReferenceDate: TimeInterval(index))
+            )
+        }
+
+        guard case .ok = TerminalController.shared.v2IngestAcknowledgedFeedEvents(events) else {
+            Issue.record("expected Pi PostToolUse batch acknowledgment")
+            return
+        }
+        let record = try #require(registry.record(sessionID: sessionId))
+        #expect(record.version == 1)
+        #expect(record.lastActivityAt == events.last?.receivedAt)
+        #expect(store.items.count == 64)
+    }
+
+    @MainActor
+    @Test
     func blockingInsertionUsesOneLiveWorkspaceSnapshotForEveryConsumer() async throws {
         let previousAppDelegate = AppDelegate.shared
         let appDelegate = AppDelegate()
