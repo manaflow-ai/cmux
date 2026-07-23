@@ -933,6 +933,11 @@ class CmuxRuntimeAdapter:
             1,
             math.ceil(self.config.churn_duration_s / self.config.churn_interval_s),
         )
+        browser_cycles = (
+            max(1, math.ceil(cycles / len(self._browser_actual_ids)))
+            if self._browser_actual_ids
+            else 0
+        )
         before_render = self._render_stats()
         churn_start = self._clock.monotonic()
         failures: list[dict[str, Any]] = []
@@ -948,7 +953,7 @@ class CmuxRuntimeAdapter:
                     "terminal_ansi_lines": len(self._terminal_actual_ids)
                     * self._terminal_ansi_line_target(),
                     "browser_churn_rpc_operations": len(self._browser_actual_ids)
-                    * (cycles * 3 + 2),
+                    * (browser_cycles * 3 + 2),
                     "temporary_browser_open_close_operations": 2
                     if self._browser_actual_ids
                     else 0,
@@ -966,14 +971,17 @@ class CmuxRuntimeAdapter:
             except BaseException as error:
                 failures.append({"phase": "profile_setup", "message": str(error)})
         futures: dict[Any, tuple[str, str]] = {}
+        browser_batch_future: Any | None = None
         worker_count = len(self._terminal_actual_ids) + bool(self._browser_actual_ids)
         with ThreadPoolExecutor(max_workers=max(1, worker_count)) as pool:
             for planned, actual in self._terminal_actual_ids.items():
                 future = pool.submit(self._terminal_churn, planned, actual, cycles)
                 futures[future] = ("terminal", planned)
             if self._browser_actual_ids:
-                future = pool.submit(self._browser_churn_batch, cycles)
-                futures[future] = ("browser_batch", "browser-batch")
+                browser_batch_future = pool.submit(
+                    self._browser_churn_batch, browser_cycles
+                )
+                futures[browser_batch_future] = ("browser_batch", "browser-batch")
 
             sample_count = max(1, cycles)
             samples: list[dict[str, Any]] = []
@@ -996,6 +1004,15 @@ class CmuxRuntimeAdapter:
                             "message": str(error),
                         }
                     )
+
+            if browser_batch_future is not None and not browser_batch_future.done():
+                failures.append(
+                    {
+                        "phase": "browser_measurement_window",
+                        "surface_id": "browser-batch",
+                        "message": "browser churn exceeded the fixed measurement window",
+                    }
+                )
 
             for future in as_completed(futures):
                 kind, planned = futures[future]
@@ -1138,7 +1155,10 @@ class CmuxRuntimeAdapter:
             "requested_operations": _plain(operations),
             "fixed_duration_s": self.config.churn_duration_s,
             "measured_elapsed_s": churn_elapsed_s,
-            "cycles_per_surface": cycles,
+            "cycles_per_surface": {
+                "terminal": cycles if self._terminal_actual_ids else 0,
+                "browser": browser_cycles,
+            },
             "surface_evidence": sorted(
                 evidence, key=lambda item: (item["surface_kind"], item["surface_id"])
             ),
