@@ -722,6 +722,10 @@ if [[ -z "$TAG" ]]; then
   )
 fi
 XCODEBUILD_ARGS+=(PRODUCT_BUNDLE_IDENTIFIER="$BUNDLE_ID")
+# The helper is assembled before Xcode emits the host's processed Info.plist.
+# Pass the final tagged display name explicitly so its TCC entry matches the
+# app the user is dogfooding instead of falling back to the untagged product.
+XCODEBUILD_ARGS+=(CMUX_CUA_HELPER_DISPLAY_NAME="cmux Computer Use")
 # Scope the sidebar ExtensionKit point per build tag so concurrent dev builds (and
 # their tagged sample extensions) don't share one point. The host bundle declares
 # the point under Contents/Extensions, and Info.plist carries the same identifier.
@@ -1048,6 +1052,14 @@ if [[ -d "$PWD/ghostty" ]]; then
     "$PWD/scripts/build-ghostty-cli-helper.sh" --output "$GHOSTTY_HELPER_DEST"
   fi
 fi
+BIN_DIR="$APP_PATH/Contents/Resources/bin"
+CUA_DRIVER_DEST="$BIN_DIR/cmux-cua-driver"
+if [[ -x "$CUA_DRIVER_DEST" ]]; then
+  echo "Preserving Xcode-built cmux cua-driver at $CUA_DRIVER_DEST"
+else
+  mkdir -p "$BIN_DIR"
+  "$PWD/scripts/build-cua-driver.sh" --output "$CUA_DRIVER_DEST"
+fi
 if [[ -x "$CMUXD_SRC" ]]; then
   BIN_DIR="$APP_PATH/Contents/Resources/bin"
   mkdir -p "$BIN_DIR"
@@ -1073,6 +1085,11 @@ fi
 CLI_PATH="$APP_PATH/Contents/Resources/bin/cmux"
 publish_reload_cli_path "$CLI_PATH"
 
+TAG_LAUNCHD_LABEL=""
+if [[ -n "${TAG_SLUG:-}" ]]; then
+  TAG_LAUNCHD_LABEL="${BUNDLE_ID}.reload"
+fi
+
 # Tag mode: always terminate the existing same-tag instance after a successful build,
 # even without --launch. A stale tagged app pinned to this bundle id would otherwise
 # keep running against freshly-overwritten resources, and macOS would foreground it
@@ -1082,6 +1099,10 @@ if [[ -n "$TAG" ]]; then
   sleep 0.3
   pkill -f "${APP_NAME}.app/Contents/MacOS/${BASE_APP_NAME}" || true
   sleep 0.3
+  # Tagged --launch runs are handed off to launchd so they survive the terminal or
+  # automation process that invoked reload.sh. Remove a still-registered prior job
+  # after giving the app a chance to quit gracefully.
+  /bin/launchctl remove "$TAG_LAUNCHD_LABEL" >/dev/null 2>&1 || true
 fi
 
 if [[ "$LAUNCH" -eq 1 ]]; then
@@ -1167,22 +1188,25 @@ if [[ "$LAUNCH" -eq 1 ]]; then
   LAUNCH_CMD=()
   LAUNCH_RETRY_CMD=()
   if [[ -n "${TAG_SLUG:-}" ]]; then
-    # Launch tagged apps directly so LaunchServices cannot reuse a stale
-    # LSEnvironment for the tag's bundle id.
+    # Launch tagged apps through a per-tag launchd job. A plain background child
+    # can be terminated when the invoking terminal/automation process exits, while
+    # launchd also lets us avoid LaunchServices reusing stale LSEnvironment values.
     APP_EXECUTABLE="$APP_PATH/Contents/MacOS/${BASE_APP_NAME}"
     if [[ ! -x "$APP_EXECUTABLE" ]]; then
       echo "error: tagged app executable not found: $APP_EXECUTABLE" >&2
       exit 1
     fi
-    TAG_LAUNCH_LOG="/tmp/cmux-launch-${TAG_SLUG}.out"
+    CMUX_TAG_LAUNCH_LOG_DIRECTORY="$(mktemp -d "${TMPDIR:-/tmp}/cmux-launch-${TAG_SLUG}.XXXXXX")"
+    chmod 0700 "$CMUX_TAG_LAUNCH_LOG_DIRECTORY"
+    TAG_LAUNCH_LOG="$CMUX_TAG_LAUNCH_LOG_DIRECTORY/launch.out"
+    (umask 077 && : > "$TAG_LAUNCH_LOG")
+    chmod 0600 "$TAG_LAUNCH_LOG"
     if [[ -n "${CMUX_SOCKET_PATH_VALUE:-}" ]]; then
-      # 3>&- 4>&-: close the script's saved-stdout/stderr dups (exec 3>&1 4>&2
-      # above) so the long-lived app can't inherit a caller's pipe write end —
-      # an `ssh host reload.sh --launch | …` pipeline would otherwise never see
-      # EOF and hang until the app dies.
-      nohup "${OPEN_CLEAN_ENV[@]}" "${TAG_LAUNCH_ENV[@]}" CMUX_SOCKET_PATH="$CMUX_SOCKET_PATH_VALUE" CMUXD_UNIX_PATH="$CMUXD_SOCKET" "$APP_EXECUTABLE" >"$TAG_LAUNCH_LOG" 2>&1 3>&- 4>&- &
+      /bin/launchctl submit -l "$TAG_LAUNCHD_LABEL" -o "$TAG_LAUNCH_LOG" -e "$TAG_LAUNCH_LOG" -- \
+        "${OPEN_CLEAN_ENV[@]}" "${TAG_LAUNCH_ENV[@]}" CMUX_SOCKET_PATH="$CMUX_SOCKET_PATH_VALUE" CMUXD_UNIX_PATH="$CMUXD_SOCKET" "$APP_EXECUTABLE"
     else
-      nohup "${OPEN_CLEAN_ENV[@]}" "${TAG_LAUNCH_ENV[@]}" "$APP_EXECUTABLE" >"$TAG_LAUNCH_LOG" 2>&1 3>&- 4>&- &
+      /bin/launchctl submit -l "$TAG_LAUNCHD_LABEL" -o "$TAG_LAUNCH_LOG" -e "$TAG_LAUNCH_LOG" -- \
+        "${OPEN_CLEAN_ENV[@]}" "${TAG_LAUNCH_ENV[@]}" "$APP_EXECUTABLE"
     fi
   else
     echo "/tmp/cmux-debug.sock" > /tmp/cmux-last-socket-path || true

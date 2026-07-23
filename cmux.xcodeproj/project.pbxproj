@@ -37,6 +37,7 @@
 		C7A52F000000000000000002 /* AgentChatTranscriptService+Wire.swift in Sources */ = {isa = PBXBuildFile; fileRef = C7A52F000000000000000001 /* AgentChatTranscriptService+Wire.swift */; };
 		ACA7C4A7000000000000000B /* AgentChatTranscriptService.swift in Sources */ = {isa = PBXBuildFile; fileRef = ACA7C4A7000000000000000C /* AgentChatTranscriptService.swift */; };
 		ACA7C4A70000000000000009 /* AgentChatTranscriptTailer.swift in Sources */ = {isa = PBXBuildFile; fileRef = ACA7C4A7000000000000000A /* AgentChatTranscriptTailer.swift */; };
+		C0A710A10000000000000002 /* AgentCursorPointerView.swift in Sources */ = {isa = PBXBuildFile; fileRef = C0A710A10000000000000001 /* AgentCursorPointerView.swift */; };
 		79390005AA11BB22CC33DD05 /* AgentDeliveryTargetResolution.swift in Sources */ = {isa = PBXBuildFile; fileRef = 79390006AA11BB22CC33DD06 /* AgentDeliveryTargetResolution.swift */; };
 		A9F200000000000000000001 /* AgentExecutableResolver.swift in Sources */ = {isa = PBXBuildFile; fileRef = A9F100000000000000000001 /* AgentExecutableResolver.swift */; };
 		A9F200000000000000000002 /* AgentExecutableResolverError.swift in Sources */ = {isa = PBXBuildFile; fileRef = A9F100000000000000000002 /* AgentExecutableResolverError.swift */; };
@@ -135,7 +136,7 @@
 		F4350A120000000000000001 /* AppBundleIconPersistencePolicy.swift in Sources */ = {isa = PBXBuildFile; fileRef = F4350A130000000000000001 /* AppBundleIconPersistencePolicy.swift */; };
 		804100000000000000000009 /* AppDelegate+AdjacentNavigationShortcut.swift in Sources */ = {isa = PBXBuildFile; fileRef = 80410000000000000000000A /* AppDelegate+AdjacentNavigationShortcut.swift */; };
 		C0DE45AC0000000000000001 /* AppDelegate+AgentChat.swift in Sources */ = {isa = PBXBuildFile; fileRef = C0DE45AC0000000000000002 /* AppDelegate+AgentChat.swift */; };
-C0DE71B10000000000000001 /* AppDelegate+AgentChatNotifications.swift in Sources */ = {isa = PBXBuildFile; fileRef = C0DE71B10000000000000002 /* AppDelegate+AgentChatNotifications.swift */; };
+		C0DE71B10000000000000001 /* AppDelegate+AgentChatNotifications.swift in Sources */ = {isa = PBXBuildFile; fileRef = C0DE71B10000000000000002 /* AppDelegate+AgentChatNotifications.swift */; };
 		D35A00000000000000000001 /* AppDelegate+BrowserDesignMode.swift in Sources */ = {isa = PBXBuildFile; fileRef = D35B00000000000000000001 /* AppDelegate+BrowserDesignMode.swift */; };
 		C4A570010000000000000001 /* AppDelegate+CanvasShortcutRouting.swift in Sources */ = {isa = PBXBuildFile; fileRef = C4A570010000000000000002 /* AppDelegate+CanvasShortcutRouting.swift */; };
 		C4160A030000000000000001 /* AppDelegate+ClosedItemHistory.swift in Sources */ = {isa = PBXBuildFile; fileRef = C4160A030000000000000002 /* AppDelegate+ClosedItemHistory.swift */; };
@@ -736,6 +737,35 @@ C0DE71B10000000000000001 /* AppDelegate+AgentChatNotifications.swift in Sources 
 		A91C0D110000000000000002 /* CompletedRestoredAgentForkAvailabilityTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = A91C0D110000000000000001 /* CompletedRestoredAgentForkAvailabilityTests.swift */; };
 		E5807290DBD44C26BFC5434E /* CompletedRestoredAgentGenerationTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = A37946EDBC5645DCB867DE82 /* CompletedRestoredAgentGenerationTests.swift */; };
 		A91C0D100000000000000002 /* CompletedRestoredAgentInputRoutingTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = A91C0D100000000000000001 /* CompletedRestoredAgentInputRoutingTests.swift */; };
+		C0A7101A0000000000000002 /* ComputerUseAppDragSource.swift in Sources */ = {isa = PBXBuildFile; fileRef = C0A7101A0000000000000001 /* ComputerUseAppDragSource.swift */; };
+		C0A7101B0000000000000002 /* ComputerUseAppDragSourceView.swift in Sources */ = {isa = PBXBuildFile; fileRef = C0A7101B0000000000000001 /* ComputerUseAppDragSourceView.swift */; };
+		C0A710A00000000000000002 /* ComputerUseCursorOverlayController.swift in Sources */ = {isa = PBXBuildFile; fileRef = C0A710A00000000000000001 /* ComputerUseCursorOverlayController.swift */; };
+		C0A710020000000000000002 /* ComputerUseDriverState.swift in Sources */ = {isa = PBXBuildFile; fileRef = C0A710020000000000000001 /* ComputerUseDriverState.swift */; };
+		C0A710C20000000000000002 /* ComputerUseHelperLaunchConfiguration.swift in Sources */ = {isa = PBXBuildFile; fileRef = C0A710C20000000000000001 /* ComputerUseHelperLaunchConfiguration.swift */; };
+		C0A710FF0000000000000002 /* ComputerUseLiveSettingRepository.swift in Sources */ = {isa = PBXBuildFile; fileRef = C0A710FF0000000000000001 /* ComputerUseLiveSettingRepository.swift */; };
+		C0A710090000000000000002 /* ComputerUseMenuBarController.swift in Sources */ = {isa = PBXBuildFile; fileRef = C0A710090000000000000001 /* ComputerUseMenuBarController.swift */; };
+		C0A710180000000000000002 /* ComputerUseMenuBarRefreshPolicy.swift in Sources */ = {isa = PBXBuildFile; fileRef = C0A710180000000000000001 /* ComputerUseMenuBarRefreshPolicy.swift */; };
+		C0A710060000000000000002 /* ComputerUseMenuBarRow.swift in Sources */ = {isa = PBXBuildFile; fileRef = C0A710060000000000000001 /* ComputerUseMenuBarRow.swift */; };
+		C0A710170000000000000002 /* ComputerUseMenuBarScanResult.swift in Sources */ = {isa = PBXBuildFile; fileRef = C0A710170000000000000001 /* ComputerUseMenuBarScanResult.swift */; };
+		C0A710070000000000000002 /* ComputerUseMenuBarSnapshot.swift in Sources */ = {isa = PBXBuildFile; fileRef = C0A710070000000000000001 /* ComputerUseMenuBarSnapshot.swift */; };
+		C0A710080000000000000002 /* ComputerUseMenuBarSnapshotStore.swift in Sources */ = {isa = PBXBuildFile; fileRef = C0A710080000000000000001 /* ComputerUseMenuBarSnapshotStore.swift */; };
+		C0A712400000000000000002 /* ComputerUseOnboardingHostingView.swift in Sources */ = {isa = PBXBuildFile; fileRef = C0A712400000000000000001 /* ComputerUseOnboardingHostingView.swift */; };
+		C0A711200000000000000002 /* ComputerUseOnboardingStep.swift in Sources */ = {isa = PBXBuildFile; fileRef = C0A711200000000000000001 /* ComputerUseOnboardingStep.swift */; };
+		C0A710100000000000000002 /* ComputerUseOnboardingView.swift in Sources */ = {isa = PBXBuildFile; fileRef = C0A710100000000000000001 /* ComputerUseOnboardingView.swift */; };
+		C0A710110000000000000002 /* ComputerUseOnboardingWindowController.swift in Sources */ = {isa = PBXBuildFile; fileRef = C0A710110000000000000001 /* ComputerUseOnboardingWindowController.swift */; };
+		C0A711210000000000000002 /* ComputerUseOnboardingWindowPlacement.swift in Sources */ = {isa = PBXBuildFile; fileRef = C0A711210000000000000001 /* ComputerUseOnboardingWindowPlacement.swift */; };
+		C0A711300000000000000002 /* ComputerUsePermissionRowAction.swift in Sources */ = {isa = PBXBuildFile; fileRef = C0A711300000000000000001 /* ComputerUsePermissionRowAction.swift */; };
+		C0A710C30000000000000002 /* ComputerUsePermissionStatus.swift in Sources */ = {isa = PBXBuildFile; fileRef = C0A710C30000000000000001 /* ComputerUsePermissionStatus.swift */; };
+		C0A710C10000000000000002 /* ComputerUseRuntimePaths.swift in Sources */ = {isa = PBXBuildFile; fileRef = C0A710C10000000000000001 /* ComputerUseRuntimePaths.swift */; };
+		C0A710010000000000000002 /* ComputerUseRuntimeService.swift in Sources */ = {isa = PBXBuildFile; fileRef = C0A710010000000000000001 /* ComputerUseRuntimeService.swift */; };
+		C0A710030000000000000002 /* ComputerUseSessionScope.swift in Sources */ = {isa = PBXBuildFile; fileRef = C0A710030000000000000001 /* ComputerUseSessionScope.swift */; };
+		C0A710050000000000000002 /* ComputerUseStateRepository.swift in Sources */ = {isa = PBXBuildFile; fileRef = C0A710050000000000000001 /* ComputerUseStateRepository.swift */; };
+		C0A710040000000000000002 /* ComputerUseStateScan.swift in Sources */ = {isa = PBXBuildFile; fileRef = C0A710040000000000000001 /* ComputerUseStateScan.swift */; };
+		C0A710160000000000000002 /* ComputerUseTargetIdentity.swift in Sources */ = {isa = PBXBuildFile; fileRef = C0A710160000000000000001 /* ComputerUseTargetIdentity.swift */; };
+		C0A710130000000000000002 /* ComputerUseUXCoordinator.swift in Sources */ = {isa = PBXBuildFile; fileRef = C0A710130000000000000001 /* ComputerUseUXCoordinator.swift */; };
+		C0A710120000000000000002 /* ComputerUseUXTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = C0A710120000000000000001 /* ComputerUseUXTests.swift */; };
+		D1F00A100000000000000002 /* ComputerUseWatchTargetController.swift in Sources */ = {isa = PBXBuildFile; fileRef = D1F00A100000000000000001 /* ComputerUseWatchTargetController.swift */; };
+		C0A710190000000000000002 /* ComputerUseWindowDragRegion.swift in Sources */ = {isa = PBXBuildFile; fileRef = C0A710190000000000000001 /* ComputerUseWindowDragRegion.swift */; };
 		3023A1013023A1013023A101 /* ConfigSettingsView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 3023B1013023B1013023B101 /* ConfigSettingsView.swift */; };
 		3023A1003023A1003023A100 /* ConfigSource.swift in Sources */ = {isa = PBXBuildFile; fileRef = 3023B1003023B1003023B100 /* ConfigSource.swift */; };
 		C0DE43000000000000000005 /* ContentView+AgentChatCommandPalette.swift in Sources */ = {isa = PBXBuildFile; fileRef = C0DE43000000000000000006 /* ContentView+AgentChatCommandPalette.swift */; };
@@ -1427,6 +1457,7 @@ C0DE71B10000000000000001 /* AppDelegate+AgentChatNotifications.swift in Sources 
 		842300000000000000000005 /* RestorableAgentProcessGenerationTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 842300000000000000000006 /* RestorableAgentProcessGenerationTests.swift */; };
 		842300000000000000000003 /* RestorableAgentProcessLiveness+ProcessIdentity.swift in Sources */ = {isa = PBXBuildFile; fileRef = 842300000000000000000004 /* RestorableAgentProcessLiveness+ProcessIdentity.swift */; };
 		A5001662 /* RestorableAgentSession+Campfire.swift in Sources */ = {isa = PBXBuildFile; fileRef = A5001663 /* RestorableAgentSession+Campfire.swift */; };
+		C0A710140000000000000002 /* RestorableAgentSession+ComputerUse.swift in Sources */ = {isa = PBXBuildFile; fileRef = C0A710140000000000000001 /* RestorableAgentSession+ComputerUse.swift */; };
 		858200000000000000000006 /* RestorableAgentSession+Kimi.swift in Sources */ = {isa = PBXBuildFile; fileRef = 858200000000000000000005 /* RestorableAgentSession+Kimi.swift */; };
 		A5001660 /* RestorableAgentSession.swift in Sources */ = {isa = PBXBuildFile; fileRef = A5001661 /* RestorableAgentSession.swift */; };
 		C6711A020000000000000001 /* RestorableAgentSessionIndexCodexWeakRecordTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = C6711B020000000000000001 /* RestorableAgentSessionIndexCodexWeakRecordTests.swift */; };
@@ -1790,6 +1821,7 @@ C0DE71B10000000000000001 /* AppDelegate+AgentChatNotifications.swift in Sources 
 		736200000000000000000004 /* TabManager+WorkspaceCustomTitle.swift in Sources */ = {isa = PBXBuildFile; fileRef = 736200000000000000000003 /* TabManager+WorkspaceCustomTitle.swift */; };
 		A5001003 /* TabManager.swift in Sources */ = {isa = PBXBuildFile; fileRef = A5001013 /* TabManager.swift */; };
 		F8120F5386FBE726864D340B /* TabManagerBackgroundWorkspaceMountBoundTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 481E6848F8513F27E496F7BE /* TabManagerBackgroundWorkspaceMountBoundTests.swift */; };
+		C0DE71510000000000000001 /* TabManagerBootstrapTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = C0DE71510000000000000002 /* TabManagerBootstrapTests.swift */; };
 		C0DE64160000000000000001 /* TabManagerNotificationFocusRegressionTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = C0DE64160000000000000002 /* TabManagerNotificationFocusRegressionTests.swift */; };
 		2BB56A710BB1FC50367E5BCF /* TabManagerSessionSnapshotTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 10D684CFFB8CDEF89CE2D9E1 /* TabManagerSessionSnapshotTests.swift */; };
 		C06552030000000000000001 /* TabManagerTitleUpdateStalenessTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = C06552030000000000000002 /* TabManagerTitleUpdateStalenessTests.swift */; };
@@ -2281,6 +2313,7 @@ C0DE71B10000000000000001 /* AppDelegate+AgentChatNotifications.swift in Sources 
 		C7A52F000000000000000001 /* AgentChatTranscriptService+Wire.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = "AgentChatTranscriptService+Wire.swift"; sourceTree = "<group>"; };
 		ACA7C4A7000000000000000C /* AgentChatTranscriptService.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = "AgentChatTranscriptService.swift"; sourceTree = "<group>"; };
 		ACA7C4A7000000000000000A /* AgentChatTranscriptTailer.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = "AgentChatTranscriptTailer.swift"; sourceTree = "<group>"; };
+		C0A710A10000000000000001 /* AgentCursorPointerView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = App/AgentCursorPointerView.swift; sourceTree = "<group>"; };
 		79390006AA11BB22CC33DD06 /* AgentDeliveryTargetResolution.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AgentDeliveryTargetResolution.swift; sourceTree = "<group>"; };
 		A9F100000000000000000001 /* AgentExecutableResolver.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AgentExecutableResolver.swift; sourceTree = "<group>"; };
 		A9F100000000000000000002 /* AgentExecutableResolverError.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AgentExecutableResolverError.swift; sourceTree = "<group>"; };
@@ -2376,7 +2409,7 @@ C0DE71B10000000000000001 /* AppDelegate+AgentChatNotifications.swift in Sources 
 		F4350A130000000000000001 /* AppBundleIconPersistencePolicy.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = App/AppBundleIconPersistencePolicy.swift; sourceTree = "<group>"; };
 		80410000000000000000000A /* AppDelegate+AdjacentNavigationShortcut.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "AppDelegate+AdjacentNavigationShortcut.swift"; sourceTree = "<group>"; };
 		C0DE45AC0000000000000002 /* AppDelegate+AgentChat.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "AppDelegate+AgentChat.swift"; sourceTree = "<group>"; };
-C0DE71B10000000000000002 /* AppDelegate+AgentChatNotifications.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "AppDelegate+AgentChatNotifications.swift"; sourceTree = "<group>"; };
+		C0DE71B10000000000000002 /* AppDelegate+AgentChatNotifications.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "AppDelegate+AgentChatNotifications.swift"; sourceTree = "<group>"; };
 		D35B00000000000000000001 /* AppDelegate+BrowserDesignMode.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "AppDelegate+BrowserDesignMode.swift"; sourceTree = "<group>"; };
 		C4A570010000000000000002 /* AppDelegate+CanvasShortcutRouting.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "AppDelegate+CanvasShortcutRouting.swift"; sourceTree = "<group>"; };
 		C4160A030000000000000002 /* AppDelegate+ClosedItemHistory.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "AppDelegate+ClosedItemHistory.swift"; sourceTree = "<group>"; };
@@ -2915,6 +2948,35 @@ C0DE71B10000000000000002 /* AppDelegate+AgentChatNotifications.swift */ = {isa =
 		A91C0D110000000000000001 /* CompletedRestoredAgentForkAvailabilityTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CompletedRestoredAgentForkAvailabilityTests.swift; sourceTree = "<group>"; };
 		A37946EDBC5645DCB867DE82 /* CompletedRestoredAgentGenerationTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CompletedRestoredAgentGenerationTests.swift; sourceTree = "<group>"; };
 		A91C0D100000000000000001 /* CompletedRestoredAgentInputRoutingTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CompletedRestoredAgentInputRoutingTests.swift; sourceTree = "<group>"; };
+		C0A7101A0000000000000001 /* ComputerUseAppDragSource.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = App/ComputerUseAppDragSource.swift; sourceTree = "<group>"; };
+		C0A7101B0000000000000001 /* ComputerUseAppDragSourceView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = App/ComputerUseAppDragSourceView.swift; sourceTree = "<group>"; };
+		C0A710A00000000000000001 /* ComputerUseCursorOverlayController.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = App/ComputerUseCursorOverlayController.swift; sourceTree = "<group>"; };
+		C0A710020000000000000001 /* ComputerUseDriverState.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = App/ComputerUseDriverState.swift; sourceTree = "<group>"; };
+		C0A710C20000000000000001 /* ComputerUseHelperLaunchConfiguration.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = App/ComputerUseHelperLaunchConfiguration.swift; sourceTree = "<group>"; };
+		C0A710FF0000000000000001 /* ComputerUseLiveSettingRepository.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = App/ComputerUseLiveSettingRepository.swift; sourceTree = "<group>"; };
+		C0A710090000000000000001 /* ComputerUseMenuBarController.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = App/ComputerUseMenuBarController.swift; sourceTree = "<group>"; };
+		C0A710180000000000000001 /* ComputerUseMenuBarRefreshPolicy.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = App/ComputerUseMenuBarRefreshPolicy.swift; sourceTree = "<group>"; };
+		C0A710060000000000000001 /* ComputerUseMenuBarRow.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = App/ComputerUseMenuBarRow.swift; sourceTree = "<group>"; };
+		C0A710170000000000000001 /* ComputerUseMenuBarScanResult.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = App/ComputerUseMenuBarScanResult.swift; sourceTree = "<group>"; };
+		C0A710070000000000000001 /* ComputerUseMenuBarSnapshot.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = App/ComputerUseMenuBarSnapshot.swift; sourceTree = "<group>"; };
+		C0A710080000000000000001 /* ComputerUseMenuBarSnapshotStore.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = App/ComputerUseMenuBarSnapshotStore.swift; sourceTree = "<group>"; };
+		C0A712400000000000000001 /* ComputerUseOnboardingHostingView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = App/ComputerUseOnboardingHostingView.swift; sourceTree = "<group>"; };
+		C0A711200000000000000001 /* ComputerUseOnboardingStep.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = App/ComputerUseOnboardingStep.swift; sourceTree = "<group>"; };
+		C0A710100000000000000001 /* ComputerUseOnboardingView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = App/ComputerUseOnboardingView.swift; sourceTree = "<group>"; };
+		C0A710110000000000000001 /* ComputerUseOnboardingWindowController.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = App/ComputerUseOnboardingWindowController.swift; sourceTree = "<group>"; };
+		C0A711210000000000000001 /* ComputerUseOnboardingWindowPlacement.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = App/ComputerUseOnboardingWindowPlacement.swift; sourceTree = "<group>"; };
+		C0A711300000000000000001 /* ComputerUsePermissionRowAction.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = App/ComputerUsePermissionRowAction.swift; sourceTree = "<group>"; };
+		C0A710C30000000000000001 /* ComputerUsePermissionStatus.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = App/ComputerUsePermissionStatus.swift; sourceTree = "<group>"; };
+		C0A710C10000000000000001 /* ComputerUseRuntimePaths.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = App/ComputerUseRuntimePaths.swift; sourceTree = "<group>"; };
+		C0A710010000000000000001 /* ComputerUseRuntimeService.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = App/ComputerUseRuntimeService.swift; sourceTree = "<group>"; };
+		C0A710030000000000000001 /* ComputerUseSessionScope.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = App/ComputerUseSessionScope.swift; sourceTree = "<group>"; };
+		C0A710050000000000000001 /* ComputerUseStateRepository.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = App/ComputerUseStateRepository.swift; sourceTree = "<group>"; };
+		C0A710040000000000000001 /* ComputerUseStateScan.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = App/ComputerUseStateScan.swift; sourceTree = "<group>"; };
+		C0A710160000000000000001 /* ComputerUseTargetIdentity.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = App/ComputerUseTargetIdentity.swift; sourceTree = "<group>"; };
+		C0A710130000000000000001 /* ComputerUseUXCoordinator.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = App/ComputerUseUXCoordinator.swift; sourceTree = "<group>"; };
+		C0A710120000000000000001 /* ComputerUseUXTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ComputerUseUXTests.swift; sourceTree = "<group>"; };
+		D1F00A100000000000000001 /* ComputerUseWatchTargetController.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = App/ComputerUseWatchTargetController.swift; sourceTree = "<group>"; };
+		C0A710190000000000000001 /* ComputerUseWindowDragRegion.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = App/ComputerUseWindowDragRegion.swift; sourceTree = "<group>"; };
 		3023B1013023B1013023B101 /* ConfigSettingsView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Settings/ConfigSettingsView.swift; sourceTree = "<group>"; };
 		3023B1003023B1003023B100 /* ConfigSource.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Settings/ConfigSource.swift; sourceTree = "<group>"; };
 		C0DE43000000000000000006 /* ContentView+AgentChatCommandPalette.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "ContentView+AgentChatCommandPalette.swift"; sourceTree = "<group>"; };
@@ -3598,6 +3660,7 @@ C0DE71B10000000000000002 /* AppDelegate+AgentChatNotifications.swift */ = {isa =
 		842300000000000000000006 /* RestorableAgentProcessGenerationTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = RestorableAgentProcessGenerationTests.swift; sourceTree = "<group>"; };
 		842300000000000000000004 /* RestorableAgentProcessLiveness+ProcessIdentity.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "RestorableAgentProcessLiveness+ProcessIdentity.swift"; sourceTree = "<group>"; };
 		A5001663 /* RestorableAgentSession+Campfire.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "RestorableAgentSession+Campfire.swift"; sourceTree = "<group>"; };
+		C0A710140000000000000001 /* RestorableAgentSession+ComputerUse.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "App/RestorableAgentSession+ComputerUse.swift"; sourceTree = "<group>"; };
 		858200000000000000000005 /* RestorableAgentSession+Kimi.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "RestorableAgentSession+Kimi.swift"; sourceTree = "<group>"; };
 		A5001661 /* RestorableAgentSession.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = RestorableAgentSession.swift; sourceTree = "<group>"; };
 		C6711B020000000000000001 /* RestorableAgentSessionIndexCodexWeakRecordTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = RestorableAgentSessionIndexCodexWeakRecordTests.swift; sourceTree = "<group>"; };
@@ -3949,6 +4012,7 @@ C0DE71B10000000000000002 /* AppDelegate+AgentChatNotifications.swift */ = {isa =
 		736200000000000000000003 /* TabManager+WorkspaceCustomTitle.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "TabManager+WorkspaceCustomTitle.swift"; sourceTree = "<group>"; };
 		A5001013 /* TabManager.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = TabManager.swift; sourceTree = "<group>"; };
 		481E6848F8513F27E496F7BE /* TabManagerBackgroundWorkspaceMountBoundTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = TabManagerBackgroundWorkspaceMountBoundTests.swift; sourceTree = "<group>"; };
+		C0DE71510000000000000002 /* TabManagerBootstrapTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = TabManagerBootstrapTests.swift; sourceTree = "<group>"; };
 		C0DE64160000000000000002 /* TabManagerNotificationFocusRegressionTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = TabManagerNotificationFocusRegressionTests.swift; sourceTree = "<group>"; };
 		10D684CFFB8CDEF89CE2D9E1 /* TabManagerSessionSnapshotTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = TabManagerSessionSnapshotTests.swift; sourceTree = "<group>"; };
 		C06552030000000000000002 /* TabManagerTitleUpdateStalenessTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = TabManagerTitleUpdateStalenessTests.swift; sourceTree = "<group>"; };
@@ -4951,6 +5015,36 @@ C0DE71B10000000000000002 /* AppDelegate+AgentChatNotifications.swift */ = {isa =
 				AB7F2E9143904957AAA70726 /* ShortcutBareStartRouting.swift */,
 					E5C0F1A1E5C0F1A1E5C0F1A1 /* TerminalFindEscapeRouting.swift */,
 					C7934BB35B66491B1BCA8064 /* MenuBarExtraController.swift */,
+					C0A7101A0000000000000001 /* ComputerUseAppDragSource.swift */,
+					C0A7101B0000000000000001 /* ComputerUseAppDragSourceView.swift */,
+					C0A710090000000000000001 /* ComputerUseMenuBarController.swift */,
+					C0A710FF0000000000000001 /* ComputerUseLiveSettingRepository.swift */,
+					C0A710180000000000000001 /* ComputerUseMenuBarRefreshPolicy.swift */,
+					C0A710060000000000000001 /* ComputerUseMenuBarRow.swift */,
+					C0A710170000000000000001 /* ComputerUseMenuBarScanResult.swift */,
+					C0A710070000000000000001 /* ComputerUseMenuBarSnapshot.swift */,
+					C0A710080000000000000001 /* ComputerUseMenuBarSnapshotStore.swift */,
+					C0A710020000000000000001 /* ComputerUseDriverState.swift */,
+					C0A711200000000000000001 /* ComputerUseOnboardingStep.swift */,
+					C0A712400000000000000001 /* ComputerUseOnboardingHostingView.swift */,
+					C0A711300000000000000001 /* ComputerUsePermissionRowAction.swift */,
+					C0A710100000000000000001 /* ComputerUseOnboardingView.swift */,
+					C0A710110000000000000001 /* ComputerUseOnboardingWindowController.swift */,
+					C0A711210000000000000001 /* ComputerUseOnboardingWindowPlacement.swift */,
+					C0A710190000000000000001 /* ComputerUseWindowDragRegion.swift */,
+					C0A710C20000000000000001 /* ComputerUseHelperLaunchConfiguration.swift */,
+					C0A710C30000000000000001 /* ComputerUsePermissionStatus.swift */,
+					C0A710C10000000000000001 /* ComputerUseRuntimePaths.swift */,
+					C0A710010000000000000001 /* ComputerUseRuntimeService.swift */,
+					C0A710030000000000000001 /* ComputerUseSessionScope.swift */,
+					C0A710050000000000000001 /* ComputerUseStateRepository.swift */,
+					C0A710A10000000000000001 /* AgentCursorPointerView.swift */,
+					C0A710A00000000000000001 /* ComputerUseCursorOverlayController.swift */,
+					D1F00A100000000000000001 /* ComputerUseWatchTargetController.swift */,
+					C0A710040000000000000001 /* ComputerUseStateScan.swift */,
+					C0A710160000000000000001 /* ComputerUseTargetIdentity.swift */,
+					C0A710130000000000000001 /* ComputerUseUXCoordinator.swift */,
+					C0A710140000000000000001 /* RestorableAgentSession+ComputerUse.swift */,
 					C0DE70510000000000000001 /* MenuBarProfilingLauncher.swift */,
 					C0DE70550000000000000001 /* MenuBarProfilingMenuItem.swift */,
 					C0DE70540000000000000001 /* MenuBarProfilingMenuItemTarget.swift */,
@@ -6426,9 +6520,11 @@ C0DE71B10000000000000002 /* AppDelegate+AgentChatNotifications.swift */ = {isa =
 				D7AB00000000000000B020 /* NotificationDismissSyncTests.swift */,
 				4E5F60720000000000000002 /* NotificationSoundSettingsTests.swift */,
 				C0DE64160000000000000002 /* TabManagerNotificationFocusRegressionTests.swift */,
+				C0DE71510000000000000002 /* TabManagerBootstrapTests.swift */,
 				C06552030000000000000002 /* TabManagerTitleUpdateStalenessTests.swift */,
 				C06552020000000000000002 /* TabManagerTitleUpdateTests.swift */,
 				42092CDB2109E250F7F2A76E /* TabManagerUnitTests.swift */,
+				C0A710120000000000000001 /* ComputerUseUXTests.swift */,
 				AB12CD340000000000000002 /* WorkspaceTodoNotificationRegressionTests.swift */,
 				DCE71A0F7E02A07A155241E4 /* SidebarWorkspaceRowStatusGlyphRemovalTests.swift */,
 				9C5C9824B98FFC44A2C44F47 /* WorkspaceTodoSnapshotTests.swift */,
@@ -7001,7 +7097,7 @@ C0DE71B10000000000000002 /* AppDelegate+AgentChatNotifications.swift */ = {isa =
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 			shellPath = /bin/sh;
-			shellScript = "set -euo pipefail\nDEST=\"${TARGET_BUILD_DIR}/${UNLOCALIZED_RESOURCES_FOLDER_PATH}\"\nGHOSTTY_DEST=\"${DEST}/ghostty\"\nTERMINFO_DEST=\"${DEST}/terminfo\"\nCMUX_SHELL_DEST=\"${DEST}/shell-integration\"\nBIN_DEST=\"${DEST}/bin\"\nSRC_SHARE=\"${SRCROOT}/ghostty/zig-out/share\"\nGHOSTTY_SRC=\"${SRC_SHARE}/ghostty\"\nTERMINFO_SRC=\"${SRC_SHARE}/terminfo\"\nFALLBACK_GHOSTTY=\"${SRCROOT}/Resources/ghostty\"\nFALLBACK_TERMINFO=\"${SRCROOT}/Resources/ghostty/terminfo\"\nTERMINFO_OVERLAY=\"${SRCROOT}/Resources/terminfo-overlay\"\nCMUX_SHELL_SRC=\"${SRCROOT}/Resources/shell-integration\"\nCMUX_GHOSTTY_ZSH_SRC=\"${SRCROOT}/ghostty/src/shell-integration/zsh/ghostty-integration\"\nBUILD_GHOSTTY_HELPER=\"${SRCROOT}/scripts/build-ghostty-cli-helper.sh\"\nGHOSTTY_HELPER_DEST=\"${BIN_DEST}/ghostty\"\nmkdir -p \"$BIN_DEST\"\nif [ -d \"$GHOSTTY_SRC\" ]; then\n  mkdir -p \"$GHOSTTY_DEST\"\n  rsync -a --delete \"$GHOSTTY_SRC/\" \"$GHOSTTY_DEST/\"\nelif [ -d \"$FALLBACK_GHOSTTY\" ]; then\n  mkdir -p \"$GHOSTTY_DEST\"\n  rsync -a --delete \"$FALLBACK_GHOSTTY/\" \"$GHOSTTY_DEST/\"\nfi\nif [ -d \"$TERMINFO_SRC\" ]; then\n  mkdir -p \"$TERMINFO_DEST\"\n  rsync -a --delete \"$TERMINFO_SRC/\" \"$TERMINFO_DEST/\"\nelif [ -d \"$FALLBACK_TERMINFO\" ]; then\n  mkdir -p \"$TERMINFO_DEST\"\n  rsync -a --delete \"$FALLBACK_TERMINFO/\" \"$TERMINFO_DEST/\"\nfi\n# Overlay any cmux-specific terminfo adjustments.\n# This intentionally does not use --delete so we only patch specific entries.\nif [ -d \"$TERMINFO_OVERLAY\" ]; then\n  mkdir -p \"$TERMINFO_DEST\"\n  rsync -a \"$TERMINFO_OVERLAY/\" \"$TERMINFO_DEST/\"\nfi\nif [ -d \"$CMUX_SHELL_SRC\" ]; then\n  mkdir -p \"$CMUX_SHELL_DEST\"\n  # Use '/.' so dotfiles like .zshenv/.zprofile are copied too.\n  rsync -a \"$CMUX_SHELL_SRC/.\" \"$CMUX_SHELL_DEST/\"\nfi\nif [ -f \"$CMUX_GHOSTTY_ZSH_SRC\" ]; then\n  mkdir -p \"$CMUX_SHELL_DEST\"\n  rsync -a \"$CMUX_GHOSTTY_ZSH_SRC\" \"$CMUX_SHELL_DEST/ghostty-integration.zsh\"\nfi\nif [ ! -x \"$BUILD_GHOSTTY_HELPER\" ]; then\n  echo \"error: missing Ghostty CLI helper build script at $BUILD_GHOSTTY_HELPER\" >&2\n  exit 1\nfi\nARCHS_LIST=\" ${ARCHS:-} \"\nHAS_ARM64=0\nHAS_X86_64=0\nGHOSTTY_HELPER_TARGET=\"\"\ncase \"$ARCHS_LIST\" in\n  *\" arm64 \"*) HAS_ARM64=1 ;;\nesac\ncase \"$ARCHS_LIST\" in\n  *\" x86_64 \"*) HAS_X86_64=1 ;;\nesac\nif [ \"$HAS_ARM64\" -eq 1 ] && [ \"$HAS_X86_64\" -eq 1 ]; then\n  \"$BUILD_GHOSTTY_HELPER\" --universal --output \"$GHOSTTY_HELPER_DEST\"\nelif [ \"$HAS_ARM64\" -eq 1 ]; then\n  GHOSTTY_HELPER_TARGET=\"aarch64-macos\"\nelif [ \"$HAS_X86_64\" -eq 1 ]; then\n  GHOSTTY_HELPER_TARGET=\"x86_64-macos\"\nfi\nif [ -n \"$GHOSTTY_HELPER_TARGET\" ]; then\n  \"$BUILD_GHOSTTY_HELPER\" --target \"$GHOSTTY_HELPER_TARGET\" --output \"$GHOSTTY_HELPER_DEST\"\nelif [ \"$HAS_ARM64\" -eq 0 ] || [ \"$HAS_X86_64\" -eq 0 ]; then\n  \"$BUILD_GHOSTTY_HELPER\" --output \"$GHOSTTY_HELPER_DEST\"\nfi\nif [ ! -x \"$GHOSTTY_HELPER_DEST\" ]; then\n  echo \"error: Ghostty CLI helper was not created at $GHOSTTY_HELPER_DEST\" >&2\n  exit 1\nfi\nINFO_PLIST=\"${TARGET_BUILD_DIR}/${INFOPLIST_PATH}\"\nCOMMIT=\"$(git -C \"${SRCROOT}\" rev-parse --short=9 HEAD 2>/dev/null || true)\"\nif [ -n \"$COMMIT\" ] && [ -f \"$INFO_PLIST\" ]; then\n  /usr/libexec/PlistBuddy -c \"Set :CMUXCommit $COMMIT\" \"$INFO_PLIST\" >/dev/null 2>&1 || /usr/libexec/PlistBuddy -c \"Add :CMUXCommit string $COMMIT\" \"$INFO_PLIST\" >/dev/null 2>&1 || true\nfi\n";
+			shellScript = "set -euo pipefail\nDEST=\"${TARGET_BUILD_DIR}/${UNLOCALIZED_RESOURCES_FOLDER_PATH}\"\nGHOSTTY_DEST=\"${DEST}/ghostty\"\nTERMINFO_DEST=\"${DEST}/terminfo\"\nCMUX_SHELL_DEST=\"${DEST}/shell-integration\"\nBIN_DEST=\"${DEST}/bin\"\nLIBEXEC_DEST=\"${DEST}/libexec\"\nSRC_SHARE=\"${SRCROOT}/ghostty/zig-out/share\"\nGHOSTTY_SRC=\"${SRC_SHARE}/ghostty\"\nTERMINFO_SRC=\"${SRC_SHARE}/terminfo\"\nFALLBACK_GHOSTTY=\"${SRCROOT}/Resources/ghostty\"\nFALLBACK_TERMINFO=\"${SRCROOT}/Resources/ghostty/terminfo\"\nTERMINFO_OVERLAY=\"${SRCROOT}/Resources/terminfo-overlay\"\nCMUX_SHELL_SRC=\"${SRCROOT}/Resources/shell-integration\"\nCMUX_GHOSTTY_ZSH_SRC=\"${SRCROOT}/ghostty/src/shell-integration/zsh/ghostty-integration\"\nBUILD_GHOSTTY_HELPER=\"${SRCROOT}/scripts/build-ghostty-cli-helper.sh\"\nGHOSTTY_HELPER_DEST=\"${BIN_DEST}/ghostty\"\nBUILD_CUA_DRIVER=\"${SRCROOT}/scripts/build-cua-driver.sh\"\nCUA_DRIVER_DEST=\"${BIN_DEST}/cmux-cua-driver\"\nmkdir -p \"$BIN_DEST\" \"$LIBEXEC_DEST\"\nif [ -d \"$GHOSTTY_SRC\" ]; then\n  mkdir -p \"$GHOSTTY_DEST\"\n  rsync -a --delete \"$GHOSTTY_SRC/\" \"$GHOSTTY_DEST/\"\nelif [ -d \"$FALLBACK_GHOSTTY\" ]; then\n  mkdir -p \"$GHOSTTY_DEST\"\n  rsync -a --delete \"$FALLBACK_GHOSTTY/\" \"$GHOSTTY_DEST/\"\nfi\nif [ -d \"$TERMINFO_SRC\" ]; then\n  mkdir -p \"$TERMINFO_DEST\"\n  rsync -a --delete \"$TERMINFO_SRC/\" \"$TERMINFO_DEST/\"\nelif [ -d \"$FALLBACK_TERMINFO\" ]; then\n  mkdir -p \"$TERMINFO_DEST\"\n  rsync -a --delete \"$FALLBACK_TERMINFO/\" \"$TERMINFO_DEST/\"\nfi\n# Overlay any cmux-specific terminfo adjustments.\n# This intentionally does not use --delete so we only patch specific entries.\nif [ -d \"$TERMINFO_OVERLAY\" ]; then\n  mkdir -p \"$TERMINFO_DEST\"\n  rsync -a \"$TERMINFO_OVERLAY/\" \"$TERMINFO_DEST/\"\nfi\nif [ -d \"$CMUX_SHELL_SRC\" ]; then\n  mkdir -p \"$CMUX_SHELL_DEST\"\n  # Use '/.' so dotfiles like .zshenv/.zprofile are copied too.\n  rsync -a \"$CMUX_SHELL_SRC/.\" \"$CMUX_SHELL_DEST/\"\nfi\nif [ -f \"$CMUX_GHOSTTY_ZSH_SRC\" ]; then\n  mkdir -p \"$CMUX_SHELL_DEST\"\n  rsync -a \"$CMUX_GHOSTTY_ZSH_SRC\" \"$CMUX_SHELL_DEST/ghostty-integration.zsh\"\nfi\nif [ ! -x \"$BUILD_GHOSTTY_HELPER\" ]; then\n  echo \"error: missing Ghostty CLI helper build script at $BUILD_GHOSTTY_HELPER\" >&2\n  exit 1\nfi\nARCHS_LIST=\" ${ARCHS:-} \"\nHAS_ARM64=0\nHAS_X86_64=0\nGHOSTTY_HELPER_TARGET=\"\"\ncase \"$ARCHS_LIST\" in\n  *\" arm64 \"*) HAS_ARM64=1 ;;\nesac\ncase \"$ARCHS_LIST\" in\n  *\" x86_64 \"*) HAS_X86_64=1 ;;\nesac\nif [ \"$HAS_ARM64\" -eq 1 ] && [ \"$HAS_X86_64\" -eq 1 ]; then\n  \"$BUILD_GHOSTTY_HELPER\" --universal --output \"$GHOSTTY_HELPER_DEST\"\nelif [ \"$HAS_ARM64\" -eq 1 ]; then\n  GHOSTTY_HELPER_TARGET=\"aarch64-macos\"\nelif [ \"$HAS_X86_64\" -eq 1 ]; then\n  GHOSTTY_HELPER_TARGET=\"x86_64-macos\"\nfi\nif [ -n \"$GHOSTTY_HELPER_TARGET\" ]; then\n  \"$BUILD_GHOSTTY_HELPER\" --target \"$GHOSTTY_HELPER_TARGET\" --output \"$GHOSTTY_HELPER_DEST\"\nelif [ \"$HAS_ARM64\" -eq 0 ] || [ \"$HAS_X86_64\" -eq 0 ]; then\n  \"$BUILD_GHOSTTY_HELPER\" --output \"$GHOSTTY_HELPER_DEST\"\nfi\nif [ ! -x \"$GHOSTTY_HELPER_DEST\" ]; then\n  echo \"error: Ghostty CLI helper was not created at $GHOSTTY_HELPER_DEST\" >&2\n  exit 1\nfi\nif [ ! -x \"$BUILD_CUA_DRIVER\" ]; then\n  echo \"error: missing cmux cua-driver build script at $BUILD_CUA_DRIVER\" >&2\n  exit 1\nfi\n\"$BUILD_CUA_DRIVER\" --output \"$CUA_DRIVER_DEST\" --archs \"${ARCHS:-}\"\nif [ ! -x \"$CUA_DRIVER_DEST\" ]; then\n  echo \"error: cmux cua-driver was not created at $CUA_DRIVER_DEST\" >&2\n  exit 1\nfi\nINFO_PLIST=\"${TARGET_BUILD_DIR}/${INFOPLIST_PATH}\"\nCOMMIT=\"$(git -C \"${SRCROOT}\" rev-parse --short=9 HEAD 2>/dev/null || true)\"\nif [ -n \"$COMMIT\" ] && [ -f \"$INFO_PLIST\" ]; then\n  /usr/libexec/PlistBuddy -c \"Set :CMUXCommit $COMMIT\" \"$INFO_PLIST\" >/dev/null 2>&1 || /usr/libexec/PlistBuddy -c \"Add :CMUXCommit string $COMMIT\" \"$INFO_PLIST\" >/dev/null 2>&1 || true\nfi\n";
 		};
 		C0DEFF100000000000000003 /* Build Command Palette Nucleo FFI */ = {
 			isa = PBXShellScriptBuildPhase;
@@ -7126,6 +7222,7 @@ C0DE71B10000000000000002 /* AppDelegate+AgentChatNotifications.swift */ = {isa =
 				C7A52F000000000000000002 /* AgentChatTranscriptService+Wire.swift in Sources */,
 				ACA7C4A7000000000000000B /* AgentChatTranscriptService.swift in Sources */,
 				ACA7C4A70000000000000009 /* AgentChatTranscriptTailer.swift in Sources */,
+					C0A710A10000000000000002 /* AgentCursorPointerView.swift in Sources */,
 				79390005AA11BB22CC33DD05 /* AgentDeliveryTargetResolution.swift in Sources */,
 				A9F200000000000000000001 /* AgentExecutableResolver.swift in Sources */,
 				A9F200000000000000000002 /* AgentExecutableResolverError.swift in Sources */,
@@ -7475,6 +7572,34 @@ C0DE71B10000000000000002 /* AppDelegate+AgentChatNotifications.swift */ = {isa =
 				C0DE86060000000000000003 /* CommandPaletteRestoreFocusTarget.swift in Sources */,
 				C0DEF4110000000000000001 /* CommandPaletteSettingsToggle.swift in Sources */,
 				C1713002C1713002C1713002 /* CommandPaletteShortcutRouting.swift in Sources */,
+					C0A7101A0000000000000002 /* ComputerUseAppDragSource.swift in Sources */,
+					C0A7101B0000000000000002 /* ComputerUseAppDragSourceView.swift in Sources */,
+					C0A710A00000000000000002 /* ComputerUseCursorOverlayController.swift in Sources */,
+					C0A710020000000000000002 /* ComputerUseDriverState.swift in Sources */,
+					C0A710C20000000000000002 /* ComputerUseHelperLaunchConfiguration.swift in Sources */,
+					C0A710FF0000000000000002 /* ComputerUseLiveSettingRepository.swift in Sources */,
+					C0A710090000000000000002 /* ComputerUseMenuBarController.swift in Sources */,
+					C0A710180000000000000002 /* ComputerUseMenuBarRefreshPolicy.swift in Sources */,
+					C0A710060000000000000002 /* ComputerUseMenuBarRow.swift in Sources */,
+					C0A710170000000000000002 /* ComputerUseMenuBarScanResult.swift in Sources */,
+					C0A710070000000000000002 /* ComputerUseMenuBarSnapshot.swift in Sources */,
+					C0A710080000000000000002 /* ComputerUseMenuBarSnapshotStore.swift in Sources */,
+					C0A712400000000000000002 /* ComputerUseOnboardingHostingView.swift in Sources */,
+					C0A711200000000000000002 /* ComputerUseOnboardingStep.swift in Sources */,
+					C0A710100000000000000002 /* ComputerUseOnboardingView.swift in Sources */,
+					C0A710110000000000000002 /* ComputerUseOnboardingWindowController.swift in Sources */,
+					C0A711210000000000000002 /* ComputerUseOnboardingWindowPlacement.swift in Sources */,
+					C0A711300000000000000002 /* ComputerUsePermissionRowAction.swift in Sources */,
+					C0A710C30000000000000002 /* ComputerUsePermissionStatus.swift in Sources */,
+					C0A710C10000000000000002 /* ComputerUseRuntimePaths.swift in Sources */,
+					C0A710010000000000000002 /* ComputerUseRuntimeService.swift in Sources */,
+					C0A710030000000000000002 /* ComputerUseSessionScope.swift in Sources */,
+					C0A710050000000000000002 /* ComputerUseStateRepository.swift in Sources */,
+					C0A710040000000000000002 /* ComputerUseStateScan.swift in Sources */,
+					C0A710160000000000000002 /* ComputerUseTargetIdentity.swift in Sources */,
+					C0A710130000000000000002 /* ComputerUseUXCoordinator.swift in Sources */,
+					D1F00A100000000000000002 /* ComputerUseWatchTargetController.swift in Sources */,
+					C0A710190000000000000002 /* ComputerUseWindowDragRegion.swift in Sources */,
 				3023A1013023A1013023A101 /* ConfigSettingsView.swift in Sources */,
 				3023A1003023A1003023A100 /* ConfigSource.swift in Sources */,
 				C0DE43000000000000000005 /* ContentView+AgentChatCommandPalette.swift in Sources */,
@@ -7936,6 +8061,7 @@ C0DE71B10000000000000002 /* AppDelegate+AgentChatNotifications.swift */ = {isa =
 				C6711A060000000000000001 /* RestorableAgentHookSessionStoreFile.swift in Sources */,
 				842300000000000000000003 /* RestorableAgentProcessLiveness+ProcessIdentity.swift in Sources */,
 				A5001662 /* RestorableAgentSession+Campfire.swift in Sources */,
+				C0A710140000000000000002 /* RestorableAgentSession+ComputerUse.swift in Sources */,
 				858200000000000000000006 /* RestorableAgentSession+Kimi.swift in Sources */,
 				A5001660 /* RestorableAgentSession.swift in Sources */,
 				C13519000000000000000005 /* RestorableAgentTypes.swift in Sources */,
@@ -8831,6 +8957,7 @@ C0DE71B10000000000000002 /* AppDelegate+AgentChatNotifications.swift */ = {isa =
 				A91C0D110000000000000002 /* CompletedRestoredAgentForkAvailabilityTests.swift in Sources */,
 				E5807290DBD44C26BFC5434E /* CompletedRestoredAgentGenerationTests.swift in Sources */,
 				A91C0D100000000000000002 /* CompletedRestoredAgentInputRoutingTests.swift in Sources */,
+				C0A710120000000000000002 /* ComputerUseUXTests.swift in Sources */,
 				C65930010000000000000002 /* CrashDiagnosticSessionPolicyTests.swift in Sources */,
 				DEBDADADADADADADAD000003 /* DebugDogfoodCredentialResolverTests.swift in Sources */,
 				C0DE31410000000000000103 /* DebugEventLogSerializedAppendTests.swift in Sources */,
@@ -9118,6 +9245,7 @@ C0DE71B10000000000000002 /* AppDelegate+AgentChatNotifications.swift */ = {isa =
 				A7206B010000000000000001 /* SystemAppearanceObserverTests.swift in Sources */,
 				FBE660ABA1854983B84368C6 /* SystemWideHotkeyShortcutPolicyTests.swift in Sources */,
 				F8120F5386FBE726864D340B /* TabManagerBackgroundWorkspaceMountBoundTests.swift in Sources */,
+				C0DE71510000000000000001 /* TabManagerBootstrapTests.swift in Sources */,
 				C0DE64160000000000000001 /* TabManagerNotificationFocusRegressionTests.swift in Sources */,
 				2BB56A710BB1FC50367E5BCF /* TabManagerSessionSnapshotTests.swift in Sources */,
 				C06552030000000000000001 /* TabManagerTitleUpdateStalenessTests.swift in Sources */,

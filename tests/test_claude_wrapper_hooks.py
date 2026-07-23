@@ -8,6 +8,7 @@ from __future__ import annotations
 import base64
 import json
 import os
+import plistlib
 import shutil
 import socket
 import subprocess
@@ -24,6 +25,20 @@ SOURCE_WRAPPER = ROOT / "Resources" / "bin" / "cmux-claude-wrapper"
 def make_executable(path: Path, content: str) -> None:
     path.write_text(content, encoding="utf-8")
     path.chmod(0o755)
+
+
+def write_helper_info(path: Path, bundle_identifier: str) -> None:
+    path.parent.mkdir(parents=True, exist_ok=True)
+    with path.open("wb") as file:
+        plistlib.dump(
+            {
+                "CFBundleExecutable": "cmux-cua-driver",
+                "CFBundleIdentifier": bundle_identifier,
+                "CFBundleName": "cmux Computer Use",
+                "CFBundlePackageType": "APPL",
+            },
+            file,
+        )
 
 
 def read_lines(path: Path) -> list[str]:
@@ -48,10 +63,11 @@ def run_wrapper(
     node_options: str | None = None,
     tmpdir: str | None = None,
     hooks_disabled: bool = False,
+    setup_sandbox=None,
 ) -> tuple[int, list[str], list[str], str, str, str, str, str, str, str]:
     with tempfile.TemporaryDirectory(prefix="cmux-claude-wrapper-test-") as td:
         tmp = Path(td)
-        wrapper_dir = tmp / "wrapper-bin"
+        wrapper_dir = tmp / "cmux.app" / "Contents" / "Resources" / "bin"
         real_dir = tmp / "real-bin"
         bundled_dir = tmp / "bundled cli"
         wrapper_dir.mkdir(parents=True, exist_ok=True)
@@ -181,6 +197,7 @@ exit 0
         env["FAKE_CMUX_PING_OK"] = "1" if socket_state == "live" else "0"
         env["CMUX_BUNDLED_CLI_PATH"] = str(bundled_cli_path)
         env["CLAUDECODE"] = "nested-session-sentinel"
+        env.pop("CMUX_CLAUDE_HOOK_CMUX_BIN", None)
         if hooks_disabled:
             env["CMUX_CLAUDE_HOOKS_DISABLED"] = "1"
         else:
@@ -188,13 +205,20 @@ exit 0
         env.pop("NODE_OPTIONS", None)
         if tmpdir is not None:
             env["TMPDIR"] = tmpdir
-        if node_options is not None:
+        if node_options == "__CMUX_TEST_PRELOAD__":
+            preload_path = tmp / "cmux-test-preload.js"
+            preload_path.write_text("// benign preload used to test MCP env scrubbing\n", encoding="utf-8")
+            env["NODE_OPTIONS"] = f"--require={preload_path}"
+        elif node_options is not None:
             env["NODE_OPTIONS"] = node_options
+        if setup_sandbox is not None:
+            setup_sandbox(tmp, env)
+        run_cwd = Path(env.pop("FAKE_WRAPPER_CWD", str(tmp)))
 
         try:
             proc = subprocess.run(
                 [str(wrapper), *argv],
-                cwd=tmp,
+                cwd=run_cwd,
                 env=env,
                 capture_output=True,
                 text=True,
@@ -888,6 +912,499 @@ def test_passthrough_flags_bypass_hook_injection(failures: list[str]) -> None:
         expect("--settings" not in real_argv, f"{flag} passthrough: expected no --settings injection, got {real_argv}", failures)
         expect("--session-id" not in real_argv, f"{flag} passthrough: expected no --session-id injection, got {real_argv}", failures)
         expect(node_options == "__UNSET__", f"{flag} passthrough: expected no NODE_OPTIONS injection, got {node_options!r}", failures)
+
+
+# --- cmux computer use MCP injection ------------------------------------------
+#
+# The wrapper attaches the bundled cmux-cua-driver MCP server via --mcp-config.
+# Source checkouts without the bundled binary may opt in through CMUX_CUA_DRIVER;
+# there is no Node/Bun MCP fallback.
+
+
+def computer_use_sandbox(
+    *,
+    bundled_driver: bool = True,
+    override_driver: bool = False,
+    group_writable_override: bool = False,
+    group_writable_ancestor: bool = False,
+    disabled: bool = False,
+    managed_sideload_source: str | None = None,
+    path_helper_trap: bool = False,
+    auth_token: bool = True,
+    auth_token_file: bool = False,
+):
+    def setup(tmp: Path, env: dict) -> None:
+        sandbox_home = tmp / "home"
+        sandbox_home.mkdir()
+        env["HOME"] = str(sandbox_home)
+        env["BUN_OPTIONS"] = "--preload=/tmp/cmux-mcp-preload-should-not-load.js"
+        env.pop("CMUX_CUA_DRIVER", None)
+        env.pop("CMUX_CUA_AUTH_TOKEN_FILE", None)
+        env.pop("CUA_DRIVER_SOCKET_AUTH_TOKEN", None)
+        if auth_token_file:
+            token_file = tmp / "auth-token"
+            token_file.write_text("cmux-test-auth-token\n", encoding="utf-8")
+            token_file.chmod(0o600)
+            env["CMUX_CUA_AUTH_TOKEN_FILE"] = str(token_file)
+        elif auth_token:
+            env["CUA_DRIVER_SOCKET_AUTH_TOKEN"] = "cmux-test-auth-token"
+        if bundled_driver:
+            make_executable(
+                tmp / "cmux.app" / "Contents" / "Resources" / "bin" / "cmux-cua-driver",
+                "#!/usr/bin/env bash\nexit 0\n",
+            )
+            helper_driver = (
+                tmp
+                / "cmux.app"
+                / "Contents"
+                / "Library"
+                / "cmux Computer Use.app"
+                / "Contents"
+                / "MacOS"
+                / "cmux-cua-driver"
+            )
+            helper_driver.parent.mkdir(parents=True)
+            make_executable(
+                helper_driver,
+                "#!/usr/bin/env bash\nexit 0\n",
+            )
+            write_helper_info(
+                helper_driver.parents[1] / "Info.plist",
+                "com.cmuxterm.test.current.computer-use",
+            )
+        if override_driver:
+            env["CMUX_CUA_DRIVER"] = "/bin/echo"
+        if group_writable_override:
+            override_dir = tmp / "override-bin"
+            override_dir.mkdir(parents=True, exist_ok=True)
+            override = override_dir / "cua-driver"
+            make_executable(override, "#!/usr/bin/env bash\nexit 0\n")
+            override.chmod(0o775)
+            env["CMUX_CUA_DRIVER"] = str(override)
+        if group_writable_ancestor:
+            # Group-writable (not world-writable) parent with a
+            # correctly-permissioned driver: rejection can only come from the
+            # ancestor group-write check.
+            ancestor_dir = tmp / "group-writable-dir"
+            ancestor_dir.mkdir(parents=True, exist_ok=True)
+            ancestor_dir.chmod(0o775)
+            ancestor = ancestor_dir / "cua-driver"
+            make_executable(ancestor, "#!/usr/bin/env bash\nexit 0\n")
+            env["CMUX_CUA_DRIVER"] = str(ancestor)
+        if path_helper_trap:
+            helper_dir = tmp / "path-helper-trap"
+            helper_dir.mkdir(parents=True, exist_ok=True)
+            for helper in ("env", "stat", "tr"):
+                make_executable(helper_dir / helper, f"#!/bin/sh\necho unexpected {helper} >&2\nexit 99\n")
+            env["PATH"] = f"{helper_dir}:{env['PATH']}"
+        if disabled:
+            env["CMUX_COMPUTER_USE_MCP_DISABLED"] = "1"
+        # Point every managed-policy source at the sandbox and neutralize the
+        # real MDM domain so tests never depend on the host's managed state.
+        env["CMUX_CLAUDE_MANAGED_SETTINGS_FILE"] = str(tmp / "managed-settings.json")
+        env["CMUX_CLAUDE_MANAGED_SETTINGS_DIR"] = str(tmp / "managed-settings.d")
+        env["CMUX_CLAUDE_REMOTE_SETTINGS_FILE"] = str(tmp / "remote-settings.json")
+        env["CMUX_CLAUDE_SKIP_DEFAULTS"] = "1"
+        if managed_sideload_source == "base":
+            (tmp / "managed-settings.json").write_text(
+                '{"disableSideloadFlags": true}\n', encoding="utf-8"
+            )
+        elif managed_sideload_source == "fragment":
+            frag_dir = tmp / "managed-settings.d"
+            frag_dir.mkdir(parents=True, exist_ok=True)
+            (frag_dir / "20-security.json").write_text(
+                '{"disableSideloadFlags": true}\n', encoding="utf-8"
+            )
+        elif managed_sideload_source == "remote":
+            (tmp / "remote-settings.json").write_text(
+                '{"disableSideloadFlags": true}\n', encoding="utf-8"
+            )
+        elif managed_sideload_source == "policy_helper":
+            (tmp / "managed-settings.json").write_text(
+                '{"policyHelper": {"path": "/usr/local/bin/helper"}}\n', encoding="utf-8"
+            )
+
+    return setup
+
+
+def injected_mcp_config_index(argv: list[str]) -> int | None:
+    # The wrapper must inject the single-token `--mcp-config=<json>` form:
+    # --mcp-config is variadic in the claude CLI, so a separate value token
+    # would swallow a following positional prompt as another config.
+    for index, arg in enumerate(argv):
+        if arg.startswith("--mcp-config="):
+            return index
+    return None
+
+
+def extract_injected_mcp_config(argv: list[str]) -> dict | None:
+    index = injected_mcp_config_index(argv)
+    if index is None:
+        return None
+    return json.loads(argv[index].split("=", 1)[1])
+
+
+def expect_computer_use_env_scrubbed(
+    server: dict,
+    failures: list[str],
+    context: str,
+    *,
+    helper_owned: bool,
+) -> None:
+    env = server.get("env")
+    expect(isinstance(env, dict), f"{context}: expected MCP env, got {server}", failures)
+    if not isinstance(env, dict):
+        return
+    expected_common = {
+        "CUA_DRIVER_DEFAULT_SESSION": "cmux-surface:test",
+        "CUA_DRIVER_RS_MCP_FORCE_PROXY": "1",
+        "CUA_DRIVER_RS_EXTERNAL_PERMISSION_FLOW": "0",
+        "CUA_DRIVER_SOCKET_AUTH_TOKEN": "cmux-test-auth-token",
+        "CUA_DRIVER_RS_TELEMETRY_ENABLED": "false",
+        "CUA_DRIVER_RS_UPDATE_CHECK": "false",
+        "CUA_DRIVER_CURSOR_GRADIENT": "#12c7f5,#2d8cff,#6c5cff",
+        "CUA_DRIVER_CURSOR_BLOOM": "#2d8cff",
+        "CUA_DRIVER_CURSOR_LABEL": "cmux",
+        "NODE_OPTIONS": "",
+        "BUN_OPTIONS": "",
+    }
+    for key, value in expected_common.items():
+        expect(env.get(key) == value, f"{context}: expected {key}={value!r}, got {env}", failures)
+    state_dir = env.get("CUA_DRIVER_STATE_DIR", "")
+    expect(
+        state_dir.endswith("/Library/Application Support/cmux/computer-use/runtime/default/state"),
+        f"{context}: unexpected state directory {state_dir!r}",
+        failures,
+    )
+    expect("CUA_DRIVER_EMBEDDED" not in env, f"{context}: computer use must never be embedded: {env}", failures)
+    expect("CUA_DRIVER_RS_PERMISSIONS_GATE" not in env, f"{context}: proxy must not own the daemon gate: {env}", failures)
+    expect("CUA_DRIVER_DAEMON_APP" not in env, f"{context}: proxy must not launch the helper: {env}", failures)
+
+
+def expect_cua_driver_config(
+    config: dict | None,
+    failures: list[str],
+    context: str,
+    expected_name: str,
+    *,
+    helper_owned: bool,
+) -> None:
+    expect(config is not None, f"{context}: expected --mcp-config=<json>", failures)
+    if config is None:
+        return
+    server = config.get("mcpServers", {}).get("cmux-computer-use", {})
+    command = server.get("command")
+    expect(
+        isinstance(command, str) and Path(command).is_absolute() and Path(command).name == expected_name,
+        f"{context}: expected absolute {expected_name} command, got {config}",
+        failures,
+    )
+    args = server.get("args", [])
+    expect(
+        len(args) == 3 and args[:2] == ["mcp", "--socket"],
+        f"{context}: expected shared daemon proxy args, got {config}",
+        failures,
+    )
+    if len(args) == 3:
+        expect(
+            args[2].startswith("/tmp/cmux-cua-") and args[2].endswith("/default/cua.sock"),
+            f"{context}: expected short per-user daemon socket, got {args[2]!r}",
+            failures,
+        )
+    if helper_owned:
+        expect(
+            isinstance(command, str)
+            and Path(command).parts[-4:] == (
+                "cmux Computer Use.app",
+                "Contents",
+                "MacOS",
+                expected_name,
+            ),
+            f"{context}: proxy command must use the signed cmux Computer Use helper, got {command}",
+            failures,
+        )
+    expect_computer_use_env_scrubbed(server, failures, context, helper_owned=helper_owned)
+
+
+def test_live_socket_attaches_cua_driver_when_available(failures: list[str]) -> None:
+    code, real_argv, _, stderr, _, _, _, _, _, launch_argv_b64 = run_wrapper(
+        socket_state="live",
+        argv=["hello"],
+        node_options="__CMUX_TEST_PRELOAD__",
+        setup_sandbox=computer_use_sandbox(),
+    )
+    expect(code == 0, f"computer use inject: wrapper exited {code}: {stderr}", failures)
+    expect(
+        "--mcp-config" not in real_argv,
+        f"computer use inject: a separate value token would let the variadic --mcp-config swallow positional prompts, got {real_argv}",
+        failures,
+    )
+    config = extract_injected_mcp_config(real_argv)
+    expect_cua_driver_config(
+        config,
+        failures,
+        "computer use inject",
+        "cmux-cua-driver",
+        helper_owned=True,
+    )
+    inject_index = injected_mcp_config_index(real_argv)
+    expect(
+        inject_index is not None and inject_index < real_argv.index("hello"),
+        f"computer use inject: expected --mcp-config=<json> before user args, got {real_argv}",
+        failures,
+    )
+    # Injection must happen after launch-argv capture so restore/resume records
+    # the user's own command, not cmux's injected flag.
+    captured = decode_nul_argv(launch_argv_b64)
+    expect(
+        injected_mcp_config_index(captured) is None and "--mcp-config" not in captured,
+        f"computer use inject: captured launch argv must not include the injected flag, got {captured}",
+        failures,
+    )
+
+
+def test_computer_use_wrapper_is_a_pure_proxy(failures: list[str]) -> None:
+    source = SOURCE_WRAPPER.read_text(encoding="utf-8")
+    expect(
+        "cmux_computer_use_standalone_helper" not in source,
+        "computer use wrapper must not install or replace the standalone helper",
+        failures,
+    )
+    expect(
+        "CUA_DRIVER_DAEMON_APP" not in source,
+        "computer use wrapper must not own helper daemon launch",
+        failures,
+    )
+    expect(
+        "CUA_DRIVER_RS_MCP_FORCE_PROXY" in source,
+        "computer use wrapper must force the shared daemon proxy path",
+        failures,
+    )
+
+
+def test_computer_use_skips_without_daemon_credential(failures: list[str]) -> None:
+    code, real_argv, _, stderr, _, _, _, _, _, _ = run_wrapper(
+        socket_state="live",
+        argv=["hello"],
+        setup_sandbox=computer_use_sandbox(auth_token=False),
+    )
+    expect(code == 0, f"computer use missing auth: wrapper exited {code}: {stderr}", failures)
+    expect(
+        extract_injected_mcp_config(real_argv) is None,
+        f"computer use missing auth: expected no MCP injection, got {real_argv}",
+        failures,
+    )
+
+
+def test_computer_use_reads_private_daemon_credential_file(failures: list[str]) -> None:
+    code, real_argv, _, stderr, _, _, _, _, _, _ = run_wrapper(
+        socket_state="live",
+        argv=["hello"],
+        setup_sandbox=computer_use_sandbox(auth_token=False, auth_token_file=True),
+    )
+    expect(code == 0, f"computer use auth file: wrapper exited {code}: {stderr}", failures)
+    expect_cua_driver_config(
+        extract_injected_mcp_config(real_argv),
+        failures,
+        "computer use auth file",
+        "cmux-cua-driver",
+        helper_owned=True,
+    )
+
+
+def test_computer_use_probe_uses_absolute_system_helpers(failures: list[str]) -> None:
+    code, real_argv, _, stderr, _, _, _, _, _, _ = run_wrapper(
+        socket_state="live",
+        argv=["hello"],
+        setup_sandbox=computer_use_sandbox(path_helper_trap=True),
+    )
+    expect(code == 0, f"computer use helper trap: wrapper exited {code}: {stderr}", failures)
+    expect(
+        extract_injected_mcp_config(real_argv) is not None,
+        f"computer use helper trap: expected injection despite PATH helper traps, got {real_argv}",
+        failures,
+    )
+
+
+def test_computer_use_driver_does_not_require_external_runtime_auth(failures: list[str]) -> None:
+    code, real_argv, _, stderr, _, _, _, _, _, _ = run_wrapper(
+        socket_state="live",
+        argv=["hello"],
+        node_options="__CMUX_TEST_PRELOAD__",
+        setup_sandbox=computer_use_sandbox(),
+    )
+    expect(code == 0, f"computer use no external auth: wrapper exited {code}: {stderr}", failures)
+    config = extract_injected_mcp_config(real_argv)
+    expect_cua_driver_config(
+        config,
+        failures,
+        "computer use no external auth",
+        "cmux-cua-driver",
+        helper_owned=True,
+    )
+
+
+def test_computer_use_uses_trusted_cua_driver_override(failures: list[str]) -> None:
+    code, real_argv, _, stderr, _, _, _, _, _, _ = run_wrapper(
+        socket_state="live",
+        argv=["hello"],
+        setup_sandbox=computer_use_sandbox(bundled_driver=False, override_driver=True),
+    )
+    expect(code == 0, f"computer use override: wrapper exited {code}: {stderr}", failures)
+    config = extract_injected_mcp_config(real_argv)
+    expect_cua_driver_config(
+        config,
+        failures,
+        "computer use override",
+        "echo",
+        helper_owned=False,
+    )
+
+
+def test_computer_use_driver_skipped_for_strict_mcp_config(failures: list[str]) -> None:
+    code, real_argv, _, stderr, _, _, _, _, _, _ = run_wrapper(
+        socket_state="live",
+        argv=["--strict-mcp-config", "--mcp-config", "{}", "-p", "hello"],
+        setup_sandbox=computer_use_sandbox(),
+    )
+    expect(code == 0, f"computer use strict: wrapper exited {code}: {stderr}", failures)
+    expect(
+        injected_mcp_config_index(real_argv) is None,
+        f"computer use strict: expected no injected --mcp-config=<json>, got {real_argv}",
+        failures,
+    )
+    expect(
+        real_argv.count("--mcp-config") == 1,
+        f"computer use strict: expected the user's own --mcp-config to survive, got {real_argv}",
+        failures,
+    )
+
+
+def test_computer_use_driver_skipped_when_disabled(failures: list[str]) -> None:
+    code, real_argv, _, stderr, _, _, _, _, _, _ = run_wrapper(
+        socket_state="live",
+        argv=["hello"],
+        setup_sandbox=computer_use_sandbox(disabled=True),
+    )
+    expect(code == 0, f"computer use disabled: wrapper exited {code}: {stderr}", failures)
+    expect(
+        injected_mcp_config_index(real_argv) is None,
+        f"computer use disabled: expected no injection with kill switch, got {real_argv}",
+        failures,
+    )
+
+
+def test_computer_use_driver_skipped_when_no_driver_available(failures: list[str]) -> None:
+    code, real_argv, _, stderr, _, _, _, _, _, _ = run_wrapper(
+        socket_state="live",
+        argv=["hello"],
+        setup_sandbox=computer_use_sandbox(bundled_driver=False),
+    )
+    expect(code == 0, f"computer use no-driver: wrapper exited {code}: {stderr}", failures)
+    expect(
+        injected_mcp_config_index(real_argv) is None,
+        f"computer use no-driver: expected no injection without bundled driver or override, got {real_argv}",
+        failures,
+    )
+
+
+def test_hooks_disabled_is_fully_inert_for_computer_use(failures: list[str]) -> None:
+    # CMUX_CLAUDE_HOOKS_DISABLED is the documented master opt-out: the wrapper
+    # stays fully inert even when the bundled driver is present — no hook
+    # injection, no computer-use attach, no argv changes.
+    code, real_argv, _, stderr, _, _, _, _, _, _ = run_wrapper(
+        socket_state="live",
+        argv=["hello"],
+        hooks_disabled=True,
+        setup_sandbox=computer_use_sandbox(),
+    )
+    expect(code == 0, f"computer use hooks-disabled: wrapper exited {code}: {stderr}", failures)
+    expect(
+        real_argv == ["hello"],
+        f"computer use hooks-disabled: expected fully inert passthrough argv, got {real_argv}",
+        failures,
+    )
+
+
+def test_stale_socket_fails_closed_for_computer_use(failures: list[str]) -> None:
+    # CMUX_SURFACE_ID can be stale (a shell that outlived cmux). Without a
+    # live socket ping there is no authoritative evidence cmux owns this
+    # process chain, so the TCC-sensitive driver must NOT be attached.
+    code, real_argv, _, stderr, _, _, _, _, _, _ = run_wrapper(
+        socket_state="stale",
+        argv=["hello"],
+        setup_sandbox=computer_use_sandbox(),
+    )
+    expect(code == 0, f"computer use stale-socket: wrapper exited {code}: {stderr}", failures)
+    expect(
+        "--settings" not in real_argv,
+        f"computer use stale-socket: hooks must not be injected on passthrough, got {real_argv}",
+        failures,
+    )
+    expect("hello" in real_argv, f"computer use stale-socket: prompt must survive, got {real_argv}", failures)
+    expect(
+        injected_mcp_config_index(real_argv) is None,
+        f"computer use stale-socket: expected NO attach (fail closed), got {real_argv}",
+        failures,
+    )
+
+
+def test_computer_use_skipped_under_managed_sideload_policy(failures: list[str]) -> None:
+    # Claude Code managed policy disableSideloadFlags makes claude refuse to
+    # start when a non-SDK --mcp-config flag is passed; the wrapper must not
+    # inject computer use under that policy, through ANY managed-settings
+    # channel (base file, fragment dir, cached remote), and must also skip when
+    # a policyHelper is configured (its output cannot be ruled out). Hooks via
+    # --settings are unaffected by the policy and must still inject.
+    for source in ("base", "fragment", "remote", "policy_helper"):
+        code, real_argv, _, stderr, _, _, _, _, _, _ = run_wrapper(
+            socket_state="live",
+            argv=["hello"],
+            setup_sandbox=computer_use_sandbox(managed_sideload_source=source),
+        )
+        expect(code == 0, f"managed sideload [{source}]: wrapper exited {code}: {stderr}", failures)
+        expect(
+            injected_mcp_config_index(real_argv) is None,
+            f"managed sideload [{source}]: expected no --mcp-config injection, got {real_argv}",
+            failures,
+        )
+        expect(
+            "--settings" in real_argv,
+            f"managed sideload [{source}]: hook injection must survive, got {real_argv}",
+            failures,
+        )
+
+
+def test_computer_use_rejects_group_writable_ancestor(failures: list[str]) -> None:
+    # Write permission on a parent directory allows renaming the driver away
+    # and dropping a replacement regardless of the file's own permissions.
+    code, real_argv, _, stderr, _, _, _, _, _, _ = run_wrapper(
+        socket_state="live",
+        argv=["hello"],
+        setup_sandbox=computer_use_sandbox(bundled_driver=False, group_writable_ancestor=True),
+    )
+    expect(code == 0, f"computer use group-writable ancestor: wrapper exited {code}: {stderr}", failures)
+    expect(
+        injected_mcp_config_index(real_argv) is None,
+        f"computer use group-writable ancestor: expected rejection, got {real_argv}",
+        failures,
+    )
+
+
+def test_computer_use_rejects_group_writable_override(failures: list[str]) -> None:
+    # A group-writable override binary could be swapped by another local user
+    # and then run under cmux's TCC identity; the wrapper must reject it.
+    code, real_argv, _, stderr, _, _, _, _, _, _ = run_wrapper(
+        socket_state="live",
+        argv=["hello"],
+        setup_sandbox=computer_use_sandbox(bundled_driver=False, group_writable_override=True),
+    )
+    expect(code == 0, f"computer use group-writable override: wrapper exited {code}: {stderr}", failures)
+    expect(
+        injected_mcp_config_index(real_argv) is None,
+        f"computer use group-writable override: expected rejection, got {real_argv}",
+        failures,
+    )
 
 
 def test_agents_subcommand_removes_cmux_terminal_fingerprint(failures: list[str]) -> None:
@@ -1894,6 +2411,21 @@ def main() -> int:
     test_plain_claude_launch_argv_has_no_empty_argument(failures)
     test_command_like_invocations_bypass_hook_injection(failures)
     test_passthrough_flags_bypass_hook_injection(failures)
+    test_live_socket_attaches_cua_driver_when_available(failures)
+    test_computer_use_wrapper_is_a_pure_proxy(failures)
+    test_computer_use_skips_without_daemon_credential(failures)
+    test_computer_use_reads_private_daemon_credential_file(failures)
+    test_computer_use_probe_uses_absolute_system_helpers(failures)
+    test_computer_use_driver_does_not_require_external_runtime_auth(failures)
+    test_computer_use_uses_trusted_cua_driver_override(failures)
+    test_computer_use_driver_skipped_for_strict_mcp_config(failures)
+    test_computer_use_driver_skipped_when_disabled(failures)
+    test_computer_use_driver_skipped_when_no_driver_available(failures)
+    test_hooks_disabled_is_fully_inert_for_computer_use(failures)
+    test_stale_socket_fails_closed_for_computer_use(failures)
+    test_computer_use_skipped_under_managed_sideload_policy(failures)
+    test_computer_use_rejects_group_writable_ancestor(failures)
+    test_computer_use_rejects_group_writable_override(failures)
     test_agents_subcommand_removes_cmux_terminal_fingerprint(failures)
     test_hooks_disabled_preserves_cmux_terminal_env_for_custom_hooks(failures)
     test_live_socket_preserves_third_party_claude_auth_for_fresh_launch(failures)

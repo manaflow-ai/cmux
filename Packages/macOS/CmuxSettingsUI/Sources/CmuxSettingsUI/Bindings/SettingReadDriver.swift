@@ -19,9 +19,14 @@ import SwiftUI
 /// The driver is store-agnostic — it only needs an `AsyncStream<Value>` — so
 /// the same path works for every key kind (UserDefaults, JSON, secret) and
 /// for both `@State`-backed and `@Observable`-backed consumers.
-@MainActor
+// Deliberately NOT @MainActor: it is held by the nonisolated `LiveSetting`
+// DynamicProperty (see LiveSetting.swift for why that must stay nonisolated on
+// macOS 26.4.x), so its methods must be callable from a nonisolated context.
+// The only mutable state is `task`, and every access happens on the main thread
+// (SwiftUI drives `update()` there) except `deinit`'s cancel, which is
+// thread-safe — so `nonisolated(unsafe)` is sound here.
 final class SettingReadDriver<Value: Sendable> {
-    private var task: Task<Void, Never>?
+    nonisolated(unsafe) private var task: Task<Void, Never>?
 
     /// Starts forwarding `makeStream()`'s elements into `sink`. Idempotent:
     /// the first call wins and later calls are no-ops, so the subscription is

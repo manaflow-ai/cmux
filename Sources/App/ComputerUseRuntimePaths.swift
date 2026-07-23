@@ -1,0 +1,123 @@
+import Darwin
+import Foundation
+
+/// Filesystem paths shared by the app-owned Computer Use runtime and agent wrappers.
+struct ComputerUseRuntimePaths: Sendable {
+    static let daemonSocketEnvironmentKey = "CMUX_CUA_SOCKET_PATH"
+    static let stateDirectoryEnvironmentKey = "CMUX_CUA_STATE_DIR"
+    static let runtimeScopeEnvironmentKey = "CMUX_CUA_RUNTIME_SCOPE"
+    static let authenticationTokenEnvironmentKey = "CUA_DRIVER_SOCKET_AUTH_TOKEN"
+    static let authenticationTokenFileEnvironmentKey = "CMUX_CUA_AUTH_TOKEN_FILE"
+
+    let scope: String
+    let authenticationToken: String
+    let computerUseDirectoryURL: URL
+    let runtimeDirectoryURL: URL
+    let daemonSocketURL: URL
+    let authenticationTokenFileURL: URL
+    let stateDirectoryURL: URL
+    let installedHelperDirectoryURL: URL
+    let installedHelperAppURL: URL
+
+    init(
+        homeDirectoryURL: URL = FileManager.default.homeDirectoryForCurrentUser,
+        socketRootDirectoryURL: URL = FileManager.default.temporaryDirectory,
+        userIdentifier: uid_t = getuid(),
+        environment: [String: String] = ProcessInfo.processInfo.environment,
+        bundleIdentifier: String? = Bundle.main.bundleIdentifier,
+        authenticationToken: String? = nil
+    ) {
+        let candidateScope: String
+        if let rawTag = environment["CMUX_TAG"], !rawTag.isEmpty {
+            // CMUX_TAG is user-controlled and sanitization is intentionally
+            // lossy. Include a digest of the raw value so tags such as
+            // "foo/bar" and "foo?bar" cannot share one helper daemon.
+            candidateScope = Self.taggedScope(rawTag)
+        } else {
+            candidateScope = Self.sanitizedScope(
+                environment[Self.runtimeScopeEnvironmentKey]
+                    ?? environment["CMUX_BUNDLE_ID"]
+                    ?? bundleIdentifier
+            )
+        }
+        scope = Self.socketSafeScope(
+            candidateScope,
+            rootDirectoryURL: socketRootDirectoryURL,
+            userIdentifier: userIdentifier
+        )
+        self.authenticationToken = authenticationToken.flatMap(Self.nonEmptyToken)
+            ?? Self.makeAuthenticationToken()
+        computerUseDirectoryURL = homeDirectoryURL
+            .appendingPathComponent("Library/Application Support/cmux/computer-use", isDirectory: true)
+        runtimeDirectoryURL = socketRootDirectoryURL
+            .appendingPathComponent("cmux-cua-\(userIdentifier)", isDirectory: true)
+            .appendingPathComponent(scope, isDirectory: true)
+        daemonSocketURL = runtimeDirectoryURL.appendingPathComponent("cua.sock")
+        authenticationTokenFileURL = runtimeDirectoryURL.appendingPathComponent("auth-token")
+        stateDirectoryURL = computerUseDirectoryURL
+            .appendingPathComponent("runtime", isDirectory: true)
+            .appendingPathComponent(scope, isDirectory: true)
+            .appendingPathComponent("state", isDirectory: true)
+        installedHelperDirectoryURL = computerUseDirectoryURL
+            .appendingPathComponent("helper", isDirectory: true)
+            .appendingPathComponent(scope, isDirectory: true)
+        installedHelperAppURL = installedHelperDirectoryURL
+            .appendingPathComponent("cmux Computer Use.app", isDirectory: true)
+    }
+
+    private static func sanitizedScope(_ rawValue: String?) -> String {
+        guard let rawValue, !rawValue.isEmpty else { return "default" }
+        let allowed = CharacterSet(
+            charactersIn: "abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789-_."
+        )
+        let scalars = rawValue.unicodeScalars.map { allowed.contains($0) ? Character(String($0)) : "-" }
+        let candidate = String(scalars).trimmingCharacters(in: CharacterSet(charactersIn: ".-"))
+        // Preserve the complete sanitized identity here. `socketSafeScope`
+        // performs the length bound and adds a stable hash when truncation is
+        // required, so two long tags with the same prefix remain isolated.
+        return candidate.isEmpty ? "default" : candidate
+    }
+
+    private static func taggedScope(_ rawTag: String) -> String {
+        "\(sanitizedScope(rawTag))-\(stableScopeHash(rawTag))"
+    }
+
+    private static func socketSafeScope(
+        _ candidate: String,
+        rootDirectoryURL: URL,
+        userIdentifier: uid_t
+    ) -> String {
+        let socketParent = rootDirectoryURL
+            .appendingPathComponent("cmux-cua-\(userIdentifier)", isDirectory: true)
+        let fixedByteCount = socketParent.path.utf8.count + "/".utf8.count + "/cua.sock".utf8.count
+        let maximumScopeByteCount = max(1, 103 - fixedByteCount)
+        guard candidate.utf8.count > maximumScopeByteCount else { return candidate }
+
+        let hash = stableScopeHash(candidate)
+        let suffix = "-\(hash)"
+        let prefixByteCount = max(0, maximumScopeByteCount - suffix.utf8.count)
+        if prefixByteCount == 0 {
+            return String(hash.suffix(maximumScopeByteCount))
+        }
+        return String(candidate.prefix(prefixByteCount)) + suffix
+    }
+
+    private static func stableScopeHash(_ value: String) -> String {
+        var hash: UInt64 = 14_695_981_039_346_656_037
+        for byte in value.utf8 {
+            hash ^= UInt64(byte)
+            hash &*= 1_099_511_628_211
+        }
+        let unpadded = String(hash, radix: 16)
+        return String(repeating: "0", count: max(0, 16 - unpadded.count)) + unpadded
+    }
+
+    private static func nonEmptyToken(_ rawValue: String) -> String? {
+        rawValue.isEmpty ? nil : rawValue
+    }
+
+    private static func makeAuthenticationToken() -> String {
+        UUID().uuidString.replacingOccurrences(of: "-", with: "")
+            + UUID().uuidString.replacingOccurrences(of: "-", with: "")
+    }
+}

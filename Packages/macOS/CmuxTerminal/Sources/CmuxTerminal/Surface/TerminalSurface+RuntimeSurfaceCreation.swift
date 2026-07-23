@@ -159,6 +159,10 @@ extension TerminalSurface {
         if !spawnPolicy.ampHooksEnabled {
             setManagedEnvironmentValue("CMUX_AMP_HOOKS_DISABLED", "1")
         }
+        setManagedEnvironmentValue(
+            Self.computerUseAppEnabledEnvironmentKey,
+            spawnPolicy.computerUseEnabled ? "1" : "0"
+        )
 
         if let cliBinURL = Bundle.main.resourceURL?.appendingPathComponent("bin") {
             let cliBinPath = cliBinURL.path

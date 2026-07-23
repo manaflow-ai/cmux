@@ -1605,6 +1605,11 @@
       "exampleConfig": "設定例",
       "metaTitle": "設定",
       "schemaDescriptions": {
+        "computerUse": {
+          "description": "ローカルのコンピュータ操作ツールとメニューバー表示の設定です。",
+          "enabled": "cmux ターミナルで起動した対応エージェントが、ローカルのコンピュータ操作ツールを接続できるようにします。",
+          "showInMenuBar": "実行中のコンピュータ操作セッションとフォーカス操作をメニューバーに表示します。"
+        },
         "agentChat": {
           "description": "Agent Chat GUI サーバーの設定です。組み込みの「新しいエージェントチャット」アクションは、この URL をブラウザワークスペースで開き、先に /healthz を確認し、サーバーが停止している場合は設定した起動コマンドを実行できます。",
           "url": "このマシン上の Agent Chat GUI サーバーのベース URL です。cmux はワークスペースを開く前に <url>/healthz を確認します。",

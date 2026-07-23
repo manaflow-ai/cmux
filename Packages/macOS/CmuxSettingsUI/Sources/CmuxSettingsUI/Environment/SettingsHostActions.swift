@@ -182,6 +182,28 @@ public protocol SettingsHostActions: AnyObject {
     /// Applies the host-side OS `AppleLanguages` override for a changed app
     /// language selection.
     func applyLanguageOverride(_ language: AppLanguage)
+
+    /// Gives the host a chance to refresh computer-use permission state.
+    func refreshComputerUsePermissions() async
+
+    /// Whether the Computer Use helper currently has Accessibility permission.
+    func computerUseAccessibilityGranted() -> Bool
+
+    /// Whether the Computer Use helper currently has Screen Recording permission.
+    func computerUseScreenRecordingGranted() -> Bool
+
+    /// Starts the helper-owned Accessibility permission flow.
+    func requestComputerUseAccessibility()
+
+    /// Starts the helper-owned Screen Recording permission flow.
+    func requestComputerUseScreenRecording()
+
+    /// Opens the Accessibility pane in System Settings.
+    func openComputerUseAccessibilitySettings()
+
+    /// Opens the Screen Recording pane in System Settings.
+    func openComputerUseScreenRecordingSettings()
+
 }
 
 public extension SettingsHostActions {
@@ -200,6 +222,13 @@ public extension SettingsHostActions {
     /// Default no-op for package previews and tests without app-language ownership.
     func applyLanguageOverride(_ language: AppLanguage) {}
 
+    func refreshComputerUsePermissions() async {}
+    func computerUseAccessibilityGranted() -> Bool { false }
+    func computerUseScreenRecordingGranted() -> Bool { false }
+    func requestComputerUseAccessibility() {}
+    func requestComputerUseScreenRecording() {}
+    func openComputerUseAccessibilitySettings() {}
+    func openComputerUseScreenRecordingSettings() {}
     func openMobilePairingWindow() {}
 
     /// Default no-op preview action for hosts without a Sleepy Mode overlay.

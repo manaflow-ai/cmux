@@ -105,8 +105,203 @@ resolve_hook_cmux_bin() {
     printf '%s' "cmux"
 }
 
-# The interactive session, `exec`/`e`, and `resume` entrypoints all START a
-# Codex session, so all three must receive cmux's hook injection; everything
+cmux_computer_use_json_escape() {
+    local value="$1"
+    value="${value//\\/\\\\}"
+    value="${value//\"/\\\"}"
+    value="${value//$'\n'/\\n}"
+    value="${value//$'\r'/\\r}"
+    value="${value//$'\t'/\\t}"
+    printf '%s' "$value"
+}
+
+cmux_computer_use_group_or_world_writable_dir() {
+    # Group write is as disqualifying as world write on the OVERRIDE path:
+    # write permission on a directory allows renaming the driver away and
+    # dropping a replacement, regardless of the file's own permissions. The
+    # bundled path never runs this check, so macOS's root:admin 775 dirs
+    # (/Applications) do not affect normal installs.
+    local dir="$1"
+    local stat_bin=/usr/bin/stat
+    [[ -x "$stat_bin" ]] || stat_bin=/bin/stat
+    [[ -x "$stat_bin" ]] || return 1
+    local mode
+    mode="$("$stat_bin" -f %Lp "$dir" 2>/dev/null || "$stat_bin" -c %a "$dir" 2>/dev/null)" || return 1
+    [[ "$mode" =~ ^[0-9]+$ ]] || return 1
+    local group=$(( (mode / 10) % 10 ))
+    local other=$((mode % 10))
+    (( (group & 2) != 0 || (other & 2) != 0 ))
+}
+
+cmux_computer_use_dir_owner() {
+    local dir="$1"
+    local stat_bin=/usr/bin/stat
+    [[ -x "$stat_bin" ]] || stat_bin=/bin/stat
+    [[ -x "$stat_bin" ]] || return 1
+    "$stat_bin" -f %u "$dir" 2>/dev/null || "$stat_bin" -c %u "$dir" 2>/dev/null
+}
+
+cmux_computer_use_trusted_path_ancestors() {
+    local path="$1"
+    local id_bin=/usr/bin/id
+    [[ -x "$id_bin" ]] || id_bin=/bin/id
+    [[ -x "$id_bin" ]] || return 1
+    local current_uid
+    current_uid="$("$id_bin" -u 2>/dev/null)" || return 1
+    local dir="${path%/*}"
+    [[ "$dir" = /* ]] || return 1
+    while :; do
+        local owner
+        owner="$(cmux_computer_use_dir_owner "$dir")" || return 1
+        [[ "$owner" == "0" || "$owner" == "$current_uid" ]] || return 1
+        cmux_computer_use_group_or_world_writable_dir "$dir" && return 1
+        [[ "$dir" == "/" ]] && break
+        dir="${dir%/*}"
+        [[ -n "$dir" ]] || dir="/"
+    done
+}
+
+cmux_computer_use_trusted_executable_file() {
+    # The override binary itself must be a regular file (canonicalization has
+    # already resolved symlinks), owned by root or the current user, and not
+    # group- or other-writable: with group/other write, another local user
+    # could swap the binary that runs under cmux's TCC identity.
+    local path="$1"
+    local stat_bin=/usr/bin/stat
+    [[ -x "$stat_bin" ]] || stat_bin=/bin/stat
+    [[ -x "$stat_bin" ]] || return 1
+    local id_bin=/usr/bin/id
+    [[ -x "$id_bin" ]] || id_bin=/bin/id
+    [[ -x "$id_bin" ]] || return 1
+    [[ -f "$path" && ! -L "$path" ]] || return 1
+    local current_uid owner mode
+    current_uid="$("$id_bin" -u 2>/dev/null)" || return 1
+    owner="$("$stat_bin" -f %u "$path" 2>/dev/null || "$stat_bin" -c %u "$path" 2>/dev/null)" || return 1
+    [[ "$owner" == "0" || "$owner" == "$current_uid" ]] || return 1
+    mode="$("$stat_bin" -f %Lp "$path" 2>/dev/null || "$stat_bin" -c %a "$path" 2>/dev/null)" || return 1
+    [[ "$mode" =~ ^[0-9]+$ ]] || return 1
+    (( ((mode / 10) % 10 & 2) == 0 && (mode % 10 & 2) == 0 ))
+}
+
+cmux_computer_use_canonical_executable() {
+    local candidate="$1"
+    [[ "$candidate" = /* && -x "$candidate" ]] || return 1
+    local path="$candidate"
+    local hops=0
+    while :; do
+        local dir="${path%/*}"
+        local base="${path##*/}"
+        local dir_real
+        dir_real="$(cd "$dir" 2>/dev/null && pwd -P)" || return 1
+        path="$dir_real/$base"
+        [[ -L "$path" ]] || break
+        (( hops < 16 )) || return 1
+        local target
+        target="$(/usr/bin/readlink "$path" 2>/dev/null || readlink "$path" 2>/dev/null)" || return 1
+        if [[ "$target" = /* ]]; then
+            path="$target"
+        else
+            path="$dir_real/$target"
+        fi
+        hops=$((hops + 1))
+    done
+    [[ -x "$path" ]] || return 1
+    printf '%s' "$path"
+}
+
+cmux_computer_use_resolve_driver() {
+    local self_dir app_contents bundled_driver override driver_real
+    self_dir="$(cd "$(dirname "$0")" && pwd)" || return 1
+    app_contents="$(cd "$self_dir/../.." 2>/dev/null && pwd)" || return 1
+    bundled_driver="$app_contents/Library/cmux Computer Use.app/Contents/MacOS/cmux-cua-driver"
+    if [[ -x "$bundled_driver" ]]; then
+        printf '%s' "$bundled_driver"
+        return 0
+    fi
+
+    override="${CMUX_CUA_DRIVER:-}"
+    [[ -n "$override" ]] || return 1
+    driver_real="$(cmux_computer_use_canonical_executable "$override")" || return 1
+    cmux_computer_use_trusted_path_ancestors "$driver_real" || return 1
+    cmux_computer_use_trusted_executable_file "$driver_real" || return 1
+    printf '%s' "$driver_real"
+}
+
+cmux_computer_use_auth_token() {
+    local auth_file metadata owner mode token
+    auth_file="${CMUX_CUA_AUTH_TOKEN_FILE:-}"
+    if [[ -n "$auth_file" && "$auth_file" == /* && -f "$auth_file" && ! -L "$auth_file" ]]; then
+        metadata="$(/usr/bin/stat -f '%u %Lp' "$auth_file" 2>/dev/null || true)"
+        read -r owner mode <<< "$metadata"
+        if [[ "$owner" == "$(/usr/bin/id -u)" && "$mode" == "600" ]]; then
+            IFS= read -r token < "$auth_file" || true
+            if [[ -n "$token" ]]; then
+                printf '%s' "$token"
+                return 0
+            fi
+        fi
+    fi
+    token="${CUA_DRIVER_SOCKET_AUTH_TOKEN:-}"
+    [[ -n "$token" ]] || return 1
+    printf '%s' "$token"
+}
+
+cmux_codex_emit_computer_use_args() {
+    [[ "${CMUX_COMPUTER_USE_MCP_DISABLED:-0}" == "1" ]] && return 1
+    local arg
+    for arg in "$@"; do
+        case "$arg" in
+            --strict-mcp-config|--strict-mcp-config=*)
+                return 1
+                ;;
+        esac
+    done
+    local driver default_session runtime_scope runtime_uid cua_socket state_dir auth_token
+    driver="$(cmux_computer_use_resolve_driver)" || return 1
+    auth_token="$(cmux_computer_use_auth_token)" || return 1
+    # Stable per-terminal session id so the branded cursor survives helper restarts.
+    default_session="cmux-${CMUX_SURFACE_ID:-$$}"
+    runtime_scope="${CMUX_CUA_RUNTIME_SCOPE:-${CMUX_TAG:-default}}"
+    runtime_scope="$(printf '%s' "$runtime_scope" | LC_ALL=C /usr/bin/tr -c 'A-Za-z0-9_.-' '-' | /usr/bin/sed -E 's/^[.-]+//; s/[.-]+$//' | /usr/bin/cut -c1-64)"
+    [[ -n "$runtime_scope" ]] || runtime_scope="default"
+    runtime_uid="$(/usr/bin/id -u)"
+    cua_socket="${CMUX_CUA_SOCKET_PATH:-/tmp/cmux-cua-${runtime_uid}/${runtime_scope}/cua.sock}"
+    state_dir="${CMUX_CUA_STATE_DIR:-${HOME}/Library/Application Support/cmux/computer-use/runtime/${runtime_scope}/state}"
+    # The helper owns external onboarding; the proxy keeps this false so its
+    # first driving call waits until that helper reports both grants.
+    printf '%s\0' \
+        "-c" \
+        "mcp_servers.cmux-computer-use.command=\"$(cmux_computer_use_json_escape "$driver")\"" \
+        "-c" \
+        "mcp_servers.cmux-computer-use.args=[\"mcp\",\"--socket\",\"$(cmux_computer_use_json_escape "$cua_socket")\"]" \
+        "-c" \
+        'mcp_servers.cmux-computer-use.env.CUA_DRIVER_RS_MCP_FORCE_PROXY="1"' \
+        "-c" \
+        'mcp_servers.cmux-computer-use.env.CUA_DRIVER_RS_EXTERNAL_PERMISSION_FLOW="0"' \
+        "-c" \
+        "mcp_servers.cmux-computer-use.env.CUA_DRIVER_SOCKET_AUTH_TOKEN=\"$(cmux_computer_use_json_escape "$auth_token")\"" \
+        "-c" \
+        "mcp_servers.cmux-computer-use.env.CUA_DRIVER_DEFAULT_SESSION=\"$(cmux_computer_use_json_escape "$default_session")\"" \
+        "-c" \
+        "mcp_servers.cmux-computer-use.env.CUA_DRIVER_RS_TELEMETRY_ENABLED=\"false\"" \
+        "-c" \
+        "mcp_servers.cmux-computer-use.env.CUA_DRIVER_RS_UPDATE_CHECK=\"false\"" \
+        "-c" \
+        "mcp_servers.cmux-computer-use.env.CUA_DRIVER_CURSOR_GRADIENT=\"#12c7f5,#2d8cff,#6c5cff\"" \
+        "-c" \
+        "mcp_servers.cmux-computer-use.env.CUA_DRIVER_CURSOR_BLOOM=\"#2d8cff\"" \
+        "-c" \
+        "mcp_servers.cmux-computer-use.env.CUA_DRIVER_CURSOR_LABEL=\"cmux\"" \
+        "-c" \
+        "mcp_servers.cmux-computer-use.env.CUA_DRIVER_STATE_DIR=\"$(cmux_computer_use_json_escape "$state_dir")\"" \
+        "-c" \
+        "mcp_servers.cmux-computer-use.env.NODE_OPTIONS=\"\"" \
+        "-c" \
+        "mcp_servers.cmux-computer-use.env.BUN_OPTIONS=\"\""
+}
+
+# The interactive session, `exec`/`e`, `resume`, and `fork` entrypoints all
+# START a Codex session, so all of them must receive cmux's hook injection; everything
 # else (review, login, mcp, doctor, --help, --version, ...) passes through
 # untouched. `resume` is critical: cmux auto-resumes a session as `codex resume
 # <id>` after a Mac relaunch, and without hooks the resumed process fires no
@@ -117,10 +312,14 @@ resolve_hook_cmux_bin() {
 # `--dangerously-bypass-hook-trust` / `-c hooks.X=...` flags before the `resume`
 # subcommand, so prepending them is safe. Mirrors should_inject_claude_hooks: a
 # leading non-option token that is a known Codex subcommand means "not a session"
-# unless it is exec or resume.
+# unless it is exec, resume, or fork.
 codex_subcommand_starts_session() {
+    # `fork` duplicates a previous interactive session into a new live one:
+    # it takes an optional prompt and accepts the same global flags before
+    # the subcommand as `resume` (verified against codex-cli 0.144), so it
+    # needs hook and computer-use injection exactly like exec/resume.
     case "$1" in
-        exec|e|resume) return 0 ;;
+        exec|e|resume|fork) return 0 ;;
         *) return 1 ;;
     esac
 }
@@ -252,16 +451,44 @@ exec_real_codex_passthrough() {
     exec "$REAL_CODEX" "$@"
 }
 
-# Opt-out, outside cmux, or stale/dead socket: pass straight through.
-if [[ "${CMUX_CODEX_HOOKS_DISABLED:-}" == "1" ]]; then
-    exec_real_codex_passthrough "$@"
-fi
-if [[ "$IN_CMUX" == "0" ]] || ! cmux_socket_available; then
+cmux_codex_computer_use_args=()
+cmux_codex_read_computer_use_args() {
+    local arg
+    while IFS= read -r -d '' arg; do
+        cmux_codex_computer_use_args+=("$arg")
+    done < <(cmux_codex_emit_computer_use_args "$@" 2>/dev/null)
+    (( ${#cmux_codex_computer_use_args[@]} > 0 )) || return 1
+    return 0
+}
+
+# Outside cmux the wrapper does nothing: computer use is a feature of
+# cmux-launched agents, so plain `codex` in a random terminal stays untouched.
+if [[ "$IN_CMUX" == "0" ]]; then
     exec_real_codex_passthrough "$@"
 fi
 
-# Not a session entrypoint (review/login/doctor/--help/...): pass through.
+# Not a session entrypoint (review/login/doctor/--help/...): pass through with
+# no injection of any kind.
 if ! should_inject_codex_hooks "$@"; then
+    exec_real_codex_passthrough "$@"
+fi
+
+# CMUX_CODEX_HOOKS_DISABLED is the documented MASTER opt-out: "the wrapper
+# does NOTHING but exec the real codex" (see header). That means fully inert
+# — no cmux calls, no computer-use attach, no argv changes — matching the
+# claude wrapper's long-standing inertness contract and test. Computer use
+# has its own kill switch (CMUX_COMPUTER_USE_MCP_DISABLED) for the normal
+# path, but the master opt-out wins over everything.
+if [[ "${CMUX_CODEX_HOOKS_DISABLED:-}" == "1" ]]; then
+    exec_real_codex_passthrough "$@"
+fi
+# Dead/stale socket: fail closed with NO computer-use attach. CMUX_SURFACE_ID
+# alone can be STALE (e.g. a tmux shell that outlived cmux); an embedded
+# driver spawned there would inherit TCC identity from the real responsible
+# process (Terminal/tmux), yielding permission-denied tools or misattributed
+# permission prompts. A live socket ping is the authority bar for every
+# computer-use attach, the same bar hook injection already uses.
+if ! cmux_socket_available; then
     exec_real_codex_passthrough "$@"
 fi
 
@@ -350,9 +577,15 @@ cmux_codex_read_inject_args() {
     return 0
 }
 
+# Computer-use args are generated independently of hook injection: the bundled
+# cua-driver is local and does not need the cmux hook socket, so a failed or
+# empty `hooks codex inject-args` emit must not silently drop computer use.
+cmux_codex_read_computer_use_args "$@" || true
+
 if cmux_codex_read_inject_args; then
-    exec "$REAL_CODEX" "${cmux_codex_injected_args[@]}" "$@"
+    exec "$REAL_CODEX" "${cmux_codex_computer_use_args[@]}" "${cmux_codex_injected_args[@]}" "$@"
 fi
 
-# Emit failed or returned nothing: never break codex, just pass through.
-exec_real_codex_passthrough "$@"
+# Hook emit failed or returned nothing: never break codex, pass through (with
+# the computer-use MCP still attached when it resolved above).
+exec_real_codex_passthrough "${cmux_codex_computer_use_args[@]}" "$@"

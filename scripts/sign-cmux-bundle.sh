@@ -15,12 +15,13 @@
 #   CMUX_TIMESTAMP             set to "none" for un-timestamped local sigs
 #
 # Signs in the Apple-documented inside-out order:
-#   1. CLI helpers under Contents/Resources/bin/* with minimal
+#   1. Helpers under Contents/Resources/bin/* and libexec/* with minimal
 #      hardened-runtime entitlements (no application-identifier).
-#   2. Each nested plugin under Contents/PlugIns/* with --deep.
-#   3. Each nested framework under Contents/Frameworks/* with --deep
+#   2. The nested cmux Computer Use app with the Developer ID identity.
+#   3. Each nested plugin under Contents/PlugIns/* with --deep.
+#   4. Each nested framework under Contents/Frameworks/* with --deep
 #      (covers Sparkle's XPCServices and Updater.app).
-#   4. The main app bundle with the provided app-level entitlements,
+#   5. The main app bundle with the provided app-level entitlements,
 #      WITHOUT --deep. --deep here would overwrite helper/plugin
 #      signatures and re-introduce the app-id mismatch that amfi on
 #      notarized macOS 26 Tahoe rejects with errno 163.
@@ -59,14 +60,26 @@ fi
 
 COMMON=(--force --options runtime "${TS_FLAG[@]}" --sign "$IDENTITY")
 
-# 1. CLI helpers
-for helper in "$APP_PATH/Contents/Resources/bin"/*; do
-  [[ -f "$helper" && -x "$helper" ]] || continue
-  echo "==> signing helper $(basename "$helper")"
-  /usr/bin/codesign "${COMMON[@]}" --entitlements "$HELPER_ENTITLEMENTS" "$helper"
+# 1. CLI and private helpers
+for helper_dir in bin libexec; do
+  for helper in "$APP_PATH/Contents/Resources/$helper_dir"/*; do
+    [[ -f "$helper" && -x "$helper" ]] || continue
+    echo "==> signing helper $(basename "$helper")"
+    /usr/bin/codesign "${COMMON[@]}" --entitlements "$HELPER_ENTITLEMENTS" "$helper"
+  done
 done
 
-# 2. Plugins
+# 2. Computer Use helper app
+COMPUTER_USE_HELPER="$APP_PATH/Contents/Library/cmux Computer Use.app"
+if [[ -d "$COMPUTER_USE_HELPER" ]]; then
+  echo "==> signing nested helper $(basename "$COMPUTER_USE_HELPER")"
+  /usr/bin/codesign \
+    "${COMMON[@]}" \
+    --entitlements "$HELPER_ENTITLEMENTS" \
+    "$COMPUTER_USE_HELPER"
+fi
+
+# 3. Plugins
 if [[ -d "$APP_PATH/Contents/PlugIns" ]]; then
   while IFS= read -r -d '' plugin; do
     echo "==> signing plugin $(basename "$plugin")"
@@ -74,7 +87,7 @@ if [[ -d "$APP_PATH/Contents/PlugIns" ]]; then
   done < <(find "$APP_PATH/Contents/PlugIns" -mindepth 1 -maxdepth 1 -print0)
 fi
 
-# 3. Frameworks
+# 4. Frameworks
 if [[ -d "$APP_PATH/Contents/Frameworks" ]]; then
   "$SCRIPT_DIR/remove-sparkle-sandbox-xpc-services.sh" "$APP_PATH"
   while IFS= read -r -d '' framework; do
@@ -83,12 +96,15 @@ if [[ -d "$APP_PATH/Contents/Frameworks" ]]; then
   done < <(find "$APP_PATH/Contents/Frameworks" -mindepth 1 -maxdepth 1 -print0)
 fi
 
-# 4. Main app bundle (no --deep).
+# 5. Main app bundle (no --deep).
 echo "==> signing main bundle"
 /usr/bin/codesign "${COMMON[@]}" --entitlements "$APP_ENTITLEMENTS" "$APP_PATH"
 
 echo "==> verifying"
 /usr/bin/codesign --verify --deep --strict --verbose=2 "$APP_PATH"
+if [[ -d "$COMPUTER_USE_HELPER" ]]; then
+  /usr/bin/codesign --verify --strict --verbose=2 "$COMPUTER_USE_HELPER"
+fi
 "$SCRIPT_DIR/verify-command-palette-nucleo-ffi-artifact.sh" "$APP_PATH"
 "$SCRIPT_DIR/verify-diff-sidecar-artifact.sh" \
   "$APP_PATH/Contents/Resources/bin/cmux-diff-sidecar" \
@@ -110,13 +126,22 @@ fi
   }
 
 # Helpers must NOT carry the main app's application-identifier.
-for helper in "$APP_PATH/Contents/Resources/bin"/*; do
-  [[ -f "$helper" && -x "$helper" ]] || continue
-  if /usr/bin/codesign -d --entitlements :- "$helper" 2>&1 \
-       | grep -q "application-identifier"; then
-    echo "error: helper $(basename "$helper") unexpectedly carries application-identifier" >&2
-    exit 1
-  fi
+for helper_dir in bin libexec; do
+  for helper in "$APP_PATH/Contents/Resources/$helper_dir"/*; do
+    [[ -f "$helper" && -x "$helper" ]] || continue
+    if /usr/bin/codesign -d --entitlements :- "$helper" 2>&1 \
+         | grep -q "application-identifier"; then
+      echo "error: helper $(basename "$helper") unexpectedly carries application-identifier" >&2
+      exit 1
+    fi
+  done
 done
+
+if [[ -d "$COMPUTER_USE_HELPER" ]] \
+   && /usr/bin/codesign -d --entitlements :- "$COMPUTER_USE_HELPER" 2>&1 \
+        | grep -q "application-identifier"; then
+  echo "error: nested Computer Use helper unexpectedly carries application-identifier" >&2
+  exit 1
+fi
 
 echo "==> signing OK: $APP_PATH"

@@ -1,0 +1,24 @@
+<svg width="1024" height="1024" viewBox="0 0 1024 1024" xmlns="http://www.w3.org/2000/svg">
+  <defs>
+    <linearGradient id="bg" x1="0" y1="0" x2="0" y2="1">
+      <stop offset="0" stop-color="#141E38"/>
+      <stop offset="1" stop-color="#070B16"/>
+    </linearGradient>
+    <radialGradient id="glow" cx="0.5" cy="0.45" r="0.52">
+      <stop offset="0" stop-color="#2d8cff" stop-opacity="0.60"/>
+      <stop offset="0.45" stop-color="#2d8cff" stop-opacity="0.20"/>
+      <stop offset="1" stop-color="#2d8cff" stop-opacity="0"/>
+    </radialGradient>
+    <linearGradient id="cur" x1="0.18" y1="0.08" x2="0.86" y2="0.96">
+      <stop offset="0" stop-color="#12c7f5"/>
+      <stop offset="0.5" stop-color="#2d8cff"/>
+      <stop offset="1" stop-color="#6c5cff"/>
+    </linearGradient>
+  </defs>
+  <rect x="0" y="0" width="1024" height="1024" rx="224" ry="224" fill="url(#bg)"/>
+  <circle cx="512" cy="466" r="366" fill="url(#glow)"/>
+  <g transform="translate(237,224) scale(22.9)">
+    <path d="M19.87,19.21l-6-15.92a2,2,0,0,0-3.74,0l-6,15.92a2,2,0,0,0,.65,2.3A2.21,2.21,0,0,0,6.17,22a2.24,2.24,0,0,0,1.23-.37L12,18.57l4.6,3.06a2.22,2.22,0,0,0,2.62-.12A2,2,0,0,0,19.87,19.21Z"
+      fill="url(#cur)" stroke="#FFFFFF" stroke-width="1.05" stroke-linejoin="round" stroke-linecap="round"/>
+  </g>
+</svg>
