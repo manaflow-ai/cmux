@@ -1687,11 +1687,6 @@ fn rename_noreplace_error(path: &Path, error: std::io::Error) -> RpcError {
 }
 
 #[cfg(unix)]
-fn same_file(left: &std::fs::Metadata, right: &std::fs::Metadata) -> bool {
-    left.dev() == right.dev() && left.ino() == right.ino()
-}
-
-#[cfg(unix)]
 fn blocking_task_error(error: tokio::task::JoinError) -> RpcError {
     RpcError::new("internal", format!("workspace file task failed: {error}"))
 }

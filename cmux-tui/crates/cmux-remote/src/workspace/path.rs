@@ -121,6 +121,7 @@ impl WorkspaceRoot {
 
     /// Resolve the parent of a write target, optionally creating missing
     /// directories one component at a time.
+    #[cfg(not(unix))]
     pub(crate) async fn resolve_write_target(
         &self,
         input: &str,
