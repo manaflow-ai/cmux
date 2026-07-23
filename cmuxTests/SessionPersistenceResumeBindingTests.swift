@@ -9,6 +9,38 @@ import Testing
 #endif
 
 @Suite struct SessionPersistenceResumeBindingTests {
+    /// Regression for the first nushell dogfood round: the inline startup input
+    /// is embedded verbatim into zsh launcher scripts, so it must stay raw
+    /// POSIX; the nushell `^/bin/sh -c "…"` envelope may be applied only at the
+    /// typed boundary (`startupInputWithLauncherScript`), per explicit dialect.
+    /// Wrapping the inline input made the launcher's `nu) /bin/sh -c '<cmd>'`
+    /// dispatch fail with "/bin/sh: ^/bin/sh: No such file or directory".
+    @Test func nushellTypingEnvelopeAppliesOnlyAtTheTypedBoundary() throws {
+        let binding = SurfaceResumeBindingSnapshot(
+            kind: "claude",
+            command: "'claude' '--resume' 'session-nu-envelope'",
+            checkpointId: "session-nu-envelope",
+            source: "agent-hook",
+            autoResume: true
+        )
+
+        let raw = try #require(binding.inlineStartupInput)
+        #expect(!raw.contains("^/bin/sh"), "inline input must stay raw POSIX: \(raw)")
+
+        let typedNu = try #require(binding.startupInputWithLauncherScript(
+            allowLauncherScript: false,
+            dialect: .nushell
+        ))
+        #expect(typedNu.hasPrefix(#"^/bin/sh -c ""#), "\(typedNu)")
+        #expect(typedNu.hasSuffix("\"\n"), "trailing newline must stay outside the wrap: \(typedNu)")
+
+        let typedPosix = try #require(binding.startupInputWithLauncherScript(
+            allowLauncherScript: false,
+            dialect: .posix
+        ))
+        #expect(typedPosix == raw, "POSIX dialect must pass the inline input through unchanged")
+    }
+
     @Test func agentHookSurfaceResumeStartupInputPreservesCustomAbsoluteAgentExecutable() throws {
         let binding = SurfaceResumeBindingSnapshot(
             kind: "codex",

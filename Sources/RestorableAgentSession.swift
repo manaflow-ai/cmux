@@ -36,6 +36,68 @@ fileprivate func shellSingleQuoted(_ value: String) -> String {
     TerminalStartupShellQuoting.singleQuoted(value)
 }
 
+/// Which syntax family the user's interactive shell parses. Everything cmux
+/// generates is POSIX; nushell is the one supported login shell that cannot
+/// parse it (see ``NushellTypedShellCommand``).
+enum TerminalStartupShellDialect: Equatable {
+    case posix
+    case nushell
+
+    /// Maps a shell executable path to its dialect by basename. Everything
+    /// except `nu` is treated as POSIX: every other login shell cmux supports
+    /// (zsh/bash/fish/csh/dash/ksh) parses the POSIX command strings cmux
+    /// generates.
+    static func forShellPath(_ shell: String?) -> TerminalStartupShellDialect {
+        guard let shell = shell?.trimmingCharacters(in: .whitespacesAndNewlines),
+              !shell.isEmpty else {
+            return .posix
+        }
+        return URL(fileURLWithPath: shell).lastPathComponent == "nu" ? .nushell : .posix
+    }
+
+    /// Dialect of the login shell cmux spawns terminal surfaces with — the
+    /// same `$SHELL` fallback chain the spawn path uses.
+    static var loginShell: TerminalStartupShellDialect {
+        forShellPath(ProcessInfo.processInfo.environment["SHELL"])
+    }
+
+    /// Dialect for input typed into a remote host's shell after attach.
+    /// cmux does not (yet) know the remote login shell — the SSH bootstrap
+    /// resolves `$SHELL` on the host at runtime and nothing reports it back —
+    /// so remote input stays POSIX, which is what cmux has always sent to
+    /// remotes. If the bootstrap ever reports the remote shell, this is the
+    /// single seam to replace with real detection.
+    static let remoteHost: TerminalStartupShellDialect = .posix
+}
+
+/// Final rendering step for cmux-generated POSIX one-liners that get typed
+/// into (or pasted into) the user's interactive shell. POSIX shells receive
+/// the command verbatim; nushell receives it delegated through `/bin/sh`.
+/// Launcher-script inputs (`/bin/zsh '<script>'`) parse in every supported
+/// shell and do not need this.
+struct TerminalStartupTypedShellCommand {
+    /// Dialect of the shell that will parse the rendered input.
+    let dialect: TerminalStartupShellDialect
+
+    /// Defaults to the login shell cmux spawns local surfaces with; pass
+    /// ``TerminalStartupShellDialect/remoteHost`` when the input is typed
+    /// into a remote host's shell instead.
+    init(dialect: TerminalStartupShellDialect = .loginShell) {
+        self.dialect = dialect
+    }
+
+    /// Renders `posixCommand` for typing: verbatim for POSIX shells,
+    /// delegated through `/bin/sh` for nushell (which cannot parse POSIX).
+    func typedInput(posixCommand: String) -> String {
+        switch dialect {
+        case .posix:
+            return posixCommand
+        case .nushell:
+            return NushellTypedShellCommand().wrapping(posixCommand: posixCommand)
+        }
+    }
+}
+
 enum TerminalStartupWorkingDirectoryPrefix {
     static func optionalChangeDirectoryPrefix(for workingDirectory: String?) -> String? {
         guard let workingDirectory = normalized(workingDirectory) else { return nil }
@@ -770,18 +832,23 @@ struct SessionRestorableAgentSnapshot: Codable, Sendable {
     /// user-owned claude resume/fork when no explicit launch flag covers it.
     var permissionMode: String? = nil
 
+    /// Input that resumes this agent session when typed into a shell.
+    /// `dialect` must match the shell that will parse it (see
+    /// ``startupInput(command:fileManager:temporaryDirectory:allowLauncherScript:allowOversizedInlineInput:dialect:)``).
     func resumeStartupInput(
         fileManager: FileManager = .default,
         temporaryDirectory: URL = FileManager.default.temporaryDirectory,
         allowLauncherScript: Bool = true,
-        allowOversizedInlineInput: Bool = false
+        allowOversizedInlineInput: Bool = false,
+        dialect: TerminalStartupShellDialect = .loginShell
     ) -> String? {
         startupInput(
             command: resumeCommand,
             fileManager: fileManager,
             temporaryDirectory: temporaryDirectory,
             allowLauncherScript: allowLauncherScript,
-            allowOversizedInlineInput: allowOversizedInlineInput
+            allowOversizedInlineInput: allowOversizedInlineInput,
+            dialect: dialect
         )
     }
 
@@ -808,28 +875,40 @@ struct SessionRestorableAgentSnapshot: Codable, Sendable {
         return "/bin/zsh \(shellSingleQuoted(scriptURL.path))"
     }
 
+    /// Input that forks this agent conversation when typed into a shell.
+    /// `dialect` must match the shell that will parse it — `.remoteHost` for
+    /// remote forks.
     func forkStartupInput(
         fileManager: FileManager = .default,
         temporaryDirectory: URL = FileManager.default.temporaryDirectory,
-        allowLauncherScript: Bool = true
+        allowLauncherScript: Bool = true,
+        dialect: TerminalStartupShellDialect = .loginShell
     ) -> String? {
         startupInput(
             command: forkCommand,
             fileManager: fileManager,
             temporaryDirectory: temporaryDirectory,
-            allowLauncherScript: allowLauncherScript
+            allowLauncherScript: allowLauncherScript,
+            dialect: dialect
         )
     }
 
+    /// `dialect` describes the shell that will parse the returned input. Local
+    /// surfaces type into the user's login shell (`.loginShell` default);
+    /// remote workspaces type into the remote host's shell after attach, which
+    /// cmux treats as POSIX regardless of the local `$SHELL` — pass `.posix`
+    /// there so a local nushell login never leaks `^/bin/sh -c "…"` to a
+    /// remote zsh/bash.
     private func startupInput(
         command: String?,
         fileManager: FileManager,
         temporaryDirectory: URL,
         allowLauncherScript: Bool = true,
-        allowOversizedInlineInput: Bool = false
+        allowOversizedInlineInput: Bool = false,
+        dialect: TerminalStartupShellDialect = .loginShell
     ) -> String? {
         guard let command else { return nil }
-        let inlineInput = command + "\n"
+        let inlineInput = TerminalStartupTypedShellCommand(dialect: dialect).typedInput(posixCommand: command) + "\n"
         guard inlineInput.utf8.count > Self.maxInlineStartupInputBytes else {
             return inlineInput
         }

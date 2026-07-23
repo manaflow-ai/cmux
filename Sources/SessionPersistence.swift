@@ -388,16 +388,41 @@ struct SurfaceResumeBindingSnapshot: Codable, Equatable, Sendable {
         inlineStartupInput(repairPortableAgentExecutable: true)
     }
 
+    /// ``WorkspaceSurfaceResumeBinding`` conformance shim: local restores
+    /// type into the login shell, so the protocol shape resolves the dialect
+    /// implicitly.
     func startupInputWithLauncherScript(
         fileManager: FileManager = .default,
         temporaryDirectory: URL = FileManager.default.temporaryDirectory,
         allowLauncherScript: Bool = true
     ) -> String? {
+        startupInputWithLauncherScript(
+            fileManager: fileManager,
+            temporaryDirectory: temporaryDirectory,
+            allowLauncherScript: allowLauncherScript,
+            dialect: .loginShell
+        )
+    }
+
+    /// Startup input for typing into an interactive shell of the given
+    /// dialect, falling back to a `/bin/zsh '<script>'` launcher line when the
+    /// inline form exceeds the paste budget.
+    func startupInputWithLauncherScript(
+        fileManager: FileManager = .default,
+        temporaryDirectory: URL = FileManager.default.temporaryDirectory,
+        allowLauncherScript: Bool = true,
+        dialect: TerminalStartupShellDialect
+    ) -> String? {
         guard let inlineInput = inlineStartupInput else { return nil }
-        guard inlineInput.utf8.count > Self.maxInlineStartupInputBytes else {
-            return inlineInput
+        // This return value is typed into the user's interactive shell, so it
+        // is the dialect boundary: nushell logins get the POSIX command
+        // delegated through /bin/sh. The launcher-script fallback below stays
+        // unwrapped — `/bin/zsh '<script>'` parses in every supported shell.
+        let typedInline = Self.typedStartupInput(inlineInput, dialect: dialect)
+        guard typedInline.utf8.count > Self.maxInlineStartupInputBytes else {
+            return typedInline
         }
-        guard allowLauncherScript else { return inlineInput }
+        guard allowLauncherScript else { return typedInline }
         guard let scriptURL = SurfaceResumeBindingScriptStore.writeLauncherScript(
             inlineInput: inlineInput,
             binding: self,
@@ -426,6 +451,17 @@ struct SurfaceResumeBindingSnapshot: Codable, Equatable, Sendable {
             return nil
         }
         return "/bin/zsh \(Self.shellSingleQuoted(scriptURL.path))"
+    }
+
+    /// Renders an inline startup input for typing into the user's interactive
+    /// shell, applying the nushell `/bin/sh` envelope when the login shell is
+    /// nushell (the trailing newline stays outside the wrap).
+    private static func typedStartupInput(
+        _ inlineInput: String,
+        dialect: TerminalStartupShellDialect = .loginShell
+    ) -> String {
+        let command = inlineInput.hasSuffix("\n") ? String(inlineInput.dropLast()) : inlineInput
+        return TerminalStartupTypedShellCommand(dialect: dialect).typedInput(posixCommand: command) + "\n"
     }
 
     private static func normalized(_ rawValue: String?) -> String? {
@@ -1288,6 +1324,10 @@ enum TerminalStartupReturnShellScript {
             #"case "${_cmux_resume_shell:t}" in"#,
             #"  zsh|bash) "$_cmux_resume_shell" -lic \#(quotedCommand) ;;"#,
             #"  csh|tcsh) "$_cmux_resume_shell" -c \#(quotedCommand) ;;"#,
+            // The command is POSIX; nushell cannot parse it (`nu -c` would be
+            // a parse error), so run it through /bin/sh. The trailing
+            // `exec -l "$_cmux_resume_shell"` below still lands the user in nu.
+            #"  nu) /bin/sh -c \#(quotedCommand) ;;"#,
             #"  *) "$_cmux_resume_shell" -c \#(quotedCommand) ;;"#,
             #"esac"#,
         ] + zshIntegrationReentryLines
@@ -1298,6 +1338,30 @@ enum TerminalStartupReturnShellScript {
             let quotedDirectory = TerminalStartupShellQuoting.singleQuoted(workingDirectory)
             lines.append(#"{ cd -- \#(quotedDirectory) 2>/dev/null || true; }"#)
         }
+        // Nushell logins must re-enter through the cmux bootstrap payload
+        // (`-e`), otherwise the resumed surface's shell loses the
+        // cmux-cli-shims PATH re-front and the fish-parity integration (the
+        // spawn-time replacement command is skipped for script-command
+        // surfaces). The payload is rebuilt at runtime from
+        // CMUX_SHELL_INTEGRATION_DIR — same squash rule as the Swift spawn
+        // path — so a persisted script keeps working after the app bundle
+        // moves.
+        lines.append(contentsOf: [
+            #"if [ "${_cmux_resume_shell:t}" = "nu" ] && [ -n "${CMUX_SHELL_INTEGRATION_DIR:-}" ] && [ -r "$CMUX_SHELL_INTEGRATION_DIR/nushell/cmux-nushell-bootstrap.nu" ]; then"#,
+            #"  _cmux_nu_bootstrap="$(/usr/bin/grep -v '^[[:space:]]*#' "$CMUX_SHELL_INTEGRATION_DIR/nushell/cmux-nushell-bootstrap.nu" | /usr/bin/grep -v '^[[:space:]]*$' | /usr/bin/paste -sd ';' -)""#,
+            #"  if [ -n "$_cmux_nu_bootstrap" ]; then"#,
+            #"    if [ -r "$CMUX_SHELL_INTEGRATION_DIR/nushell/cmux-nushell-integration.nu" ]; then"#,
+            // The path lands inside a nushell double-quoted string: escape
+            // backslashes then double quotes so an unusual bundle path cannot
+            // break the payload.
+            #"      _cmux_nu_integration_dir="${CMUX_SHELL_INTEGRATION_DIR//\\/\\\\}""#,
+            #"      _cmux_nu_integration_dir="${_cmux_nu_integration_dir//\"/\\\"}""#,
+            #"      _cmux_nu_bootstrap="$_cmux_nu_bootstrap; source \"$_cmux_nu_integration_dir/nushell/cmux-nushell-integration.nu\"""#,
+            #"    fi"#,
+            #"    exec "$_cmux_resume_shell" -l -e "$_cmux_nu_bootstrap""#,
+            #"  fi"#,
+            #"fi"#,
+        ])
         lines.append(#"exec -l "$_cmux_resume_shell""#)
         return lines
     }

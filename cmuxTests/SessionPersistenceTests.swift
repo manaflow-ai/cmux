@@ -2186,6 +2186,210 @@ final class SocketListenerAcceptPolicyTests: XCTestCase {
         )
     }
 
+    /// Regression: nushell parses none of the POSIX resume command (`&&`/`||` are
+    /// dedicated parse errors, `[ … ]` is a list literal, and even a POSIX-quoted
+    /// command head like `'claude' '--resume'` is rejected), so both the typed
+    /// sessions-panel resume and the restore launcher hard-failed for nushell login
+    /// shells. The typed path now renders through
+    /// `TerminalStartupTypedShellCommand.typedInput` which wraps the POSIX command as
+    /// `^/bin/sh -c "…"` for the nushell dialect; this drives that exact string
+    /// through a real `nu -c` with a hostile user config (PATH rebuilt, shim dir
+    /// dropped) and asserts the cmux wrapper still runs and re-injects hooks.
+    /// (The restore launcher's zsh script gained a matching `nu)` branch that
+    /// dispatches `/bin/sh -c` directly; same envelope, exercised by
+    /// `testResumeLauncherScriptDispatchesNushellThroughBinSh`.)
+    func testClaudeResumeCommandExecutesThroughWrapperInsideNushellTypedInput() throws {
+        let nuURL = [
+            ProcessInfo.processInfo.environment["CMUX_TEST_NU_BIN"],
+            "/opt/homebrew/bin/nu",
+            "/usr/local/bin/nu",
+            "/usr/bin/nu",
+        ]
+        .compactMap { $0 }
+        .map { URL(fileURLWithPath: $0) }
+        .first { FileManager.default.isExecutableFile(atPath: $0.path) }
+        guard let nuURL else {
+            throw XCTSkip("nushell is not installed; install nu to exercise the nushell typed-resume dispatch")
+        }
+
+        let sandbox = try makeClaudeResumeWrapperShimSandbox()
+        defer { sandbox.removeSandbox() }
+        let nuConfigDir = sandbox.homeURL.appendingPathComponent(".config/nushell", isDirectory: true)
+        try FileManager.default.createDirectory(at: nuConfigDir, withIntermediateDirectories: true)
+        // Hostile nushell config: rebuild PATH with the user's real claude first —
+        // the exact shadowing that breaks the shim for nushell users.
+        try (
+            "$env.PATH = [\"\(sandbox.realBinDirectoryURL.path)\", \"/usr/bin\", \"/bin\"]\n"
+        ).write(to: nuConfigDir.appendingPathComponent("env.nu"), atomically: true, encoding: .utf8)
+        try "".write(to: nuConfigDir.appendingPathComponent("config.nu"), atomically: true, encoding: .utf8)
+
+        let snapshot = Self.makeClaudeRestorableSnapshot(workingDirectory: sandbox.sandboxURL.path)
+        let resumeCommand = try XCTUnwrap(snapshot.resumeCommand)
+        let typedForNushell = TerminalStartupTypedShellCommand(dialect: .nushell)
+            .typedInput(posixCommand: resumeCommand)
+
+        let recorded = try runClaudeResumeCommand(
+            typedForNushell,
+            shellURL: nuURL,
+            arguments: ["-c"],
+            sandbox: sandbox,
+            environmentOverrides: [
+                "XDG_CONFIG_HOME": sandbox.homeURL.appendingPathComponent(".config").path
+            ]
+        )
+        XCTAssertTrue(
+            recorded.hasPrefix("wrapper "),
+            "nushell-typed resume must parse and exec the cmux wrapper. Recorded invocation: \(recorded.isEmpty ? "<none>" : recorded)"
+        )
+        XCTAssertTrue(
+            recorded.contains("--settings"),
+            "nushell-typed resume must re-inject the hook --settings via the wrapper. Recorded invocation: \(recorded.isEmpty ? "<none>" : recorded)"
+        )
+    }
+
+    /// The restore launcher script's shell dispatch must route nushell logins through
+    /// `/bin/sh -c` (nushell cannot parse the POSIX command that `*)`'s
+    /// `"$_cmux_resume_shell" -c` would hand it) while leaving the POSIX branches
+    /// untouched, and must still `exec -l` back into the user's nushell afterwards —
+    /// re-entering through the cmux `-e` bootstrap payload so the resumed surface's
+    /// shell keeps the cmux-cli-shims PATH re-front (a plain `exec -l nu` left the
+    /// resumed terminal shim-less because script-command surfaces skip the spawn-time
+    /// replacement command).
+    func testResumeLauncherScriptDispatchesNushellThroughBinSh() {
+        let lines = TerminalStartupReturnShellScript.commandThenReturnLines(
+            command: "cd -- '/tmp/p' && 'claude' '--resume' 'SID'",
+            workingDirectory: "/tmp/p"
+        )
+        let script = lines.joined(separator: "\n")
+        XCTAssertTrue(
+            script.contains("nu) /bin/sh -c "),
+            "launcher script must dispatch nushell logins through /bin/sh: \(script)"
+        )
+        XCTAssertTrue(
+            script.contains(#"zsh|bash) "$_cmux_resume_shell" -lic "#),
+            "posix dispatch branches must stay untouched: \(script)"
+        )
+        XCTAssertTrue(
+            script.contains(#"exec "$_cmux_resume_shell" -l -e "$_cmux_nu_bootstrap""#),
+            "launcher must exec nushell with the cmux bootstrap payload: \(script)"
+        )
+        XCTAssertTrue(
+            script.contains("cmux-nushell-bootstrap.nu"),
+            "launcher must rebuild the nushell payload from CMUX_SHELL_INTEGRATION_DIR: \(script)"
+        )
+        XCTAssertTrue(
+            script.contains(#"exec -l "$_cmux_resume_shell""#),
+            "launcher must keep the plain login-shell exec for POSIX shells: \(script)"
+        )
+    }
+
+    /// Regression for the first nushell dogfood round: the surface auto-resume
+    /// launcher (`startupCommandWithLauncherScript` → zsh script → `nu)` branch)
+    /// received an inline input that had already been wrapped for nushell typing
+    /// (`^/bin/sh -c "…"`), so `/bin/sh` printed
+    /// `"/bin/sh: ^/bin/sh: No such file or directory"`, the agent never resumed,
+    /// and the follow-up `exec -l nu` produced a shim-less shell. The inline input
+    /// must stay raw POSIX for script embedding; this drives the *actual generated
+    /// launcher script* through real zsh with a fake `nu` login shell and asserts
+    /// (a) the resume command reaches the cmux wrapper and (b) nushell is exec'd
+    /// with the cmux bootstrap payload.
+    func testSurfaceResumeLauncherScriptResumesAndReentersBootstrappedNushell() throws {
+        let sandbox = try makeClaudeResumeWrapperShimSandbox()
+        defer { sandbox.removeSandbox() }
+
+        // Fake nu login shell that records its argv instead of exec'ing.
+        let fakeNuURL = sandbox.sandboxURL.appendingPathComponent("nu", isDirectory: false)
+        let nuArgsURL = sandbox.sandboxURL.appendingPathComponent("nu-args.txt", isDirectory: false)
+        try (
+            "#!/bin/sh\n"
+                + "printf '%s\\n' \"$@\" > \(shellQuotedForTest(nuArgsURL.path))\n"
+        ).write(to: fakeNuURL, atomically: true, encoding: .utf8)
+        try FileManager.default.setAttributes([.posixPermissions: 0o755], ofItemAtPath: fakeNuURL.path)
+
+        // Stub bundle shell-integration dir with the nushell bootstrap +
+        // integration shape (content mechanics are covered by the Python tests
+        // against the real files).
+        let integrationDir = sandbox.sandboxURL.appendingPathComponent("shell-integration", isDirectory: true)
+        let nushellDir = integrationDir.appendingPathComponent("nushell", isDirectory: true)
+        try FileManager.default.createDirectory(at: nushellDir, withIntermediateDirectories: true)
+        try "# comment\n_cmux_bootstrap_marker\n".write(
+            to: nushellDir.appendingPathComponent("cmux-nushell-bootstrap.nu"),
+            atomically: true,
+            encoding: .utf8
+        )
+        try "# integration stub\n".write(
+            to: nushellDir.appendingPathComponent("cmux-nushell-integration.nu"),
+            atomically: true,
+            encoding: .utf8
+        )
+
+        let binding = SurfaceResumeBindingSnapshot(
+            kind: "claude",
+            command: "'claude' '--resume' 'claude-session-123'",
+            checkpointId: "claude-session-123",
+            source: "agent-hook",
+            autoResume: true
+        )
+        let launchCommand = try XCTUnwrap(binding.startupCommandWithLauncherScript(
+            temporaryDirectory: sandbox.sandboxURL
+        ))
+        XCTAssertTrue(launchCommand.hasPrefix("/bin/zsh "), launchCommand)
+        XCTAssertFalse(
+            launchCommand.contains("^/bin/sh"),
+            "surface command must not carry the nushell typing envelope: \(launchCommand)"
+        )
+        let scriptPath = launchCommand
+            .replacingOccurrences(of: "/bin/zsh ", with: "")
+            .trimmingCharacters(in: CharacterSet(charactersIn: "'"))
+        let scriptContents = try String(contentsOfFile: scriptPath, encoding: .utf8)
+        XCTAssertFalse(
+            scriptContents.contains("^/bin/sh"),
+            "launcher script must embed raw POSIX, not the nushell typing envelope: \(scriptContents)"
+        )
+
+        let process = Process()
+        process.executableURL = URL(fileURLWithPath: "/bin/zsh")
+        process.arguments = [scriptPath]
+        process.environment = [
+            "HOME": sandbox.homeURL.path,
+            "SHELL": fakeNuURL.path,
+            // The recording "real" claude is PATH-resolvable so the embedded
+            // command executes whether or not the binding rewrote it to the
+            // wrapper resolver token.
+            "PATH": "\(sandbox.realBinDirectoryURL.path):/usr/bin:/bin",
+            "CMUX_CLAUDE_WRAPPER_SHIM": sandbox.shimURL.path,
+            "CMUX_SHELL_INTEGRATION_DIR": integrationDir.path,
+        ]
+        let scriptStderr = Pipe()
+        process.standardInput = FileHandle.nullDevice
+        process.standardOutput = FileHandle.nullDevice
+        process.standardError = scriptStderr
+        try runWithBoundedWait(process, shellDescription: "/bin/zsh \(scriptPath)")
+
+        let stderrText = String(
+            data: scriptStderr.fileHandleForReading.readDataToEndOfFile(),
+            encoding: .utf8
+        ) ?? ""
+        XCTAssertFalse(
+            stderrText.contains("^/bin/sh"),
+            "the dogfood symptom: /bin/sh received the nushell typing envelope. stderr: \(stderrText)"
+        )
+        let recorded = (try? String(contentsOf: sandbox.recordURL, encoding: .utf8)) ?? ""
+        XCTAssertTrue(
+            recorded.contains("--resume claude-session-123"),
+            "the resume command must execute through /bin/sh. Recorded: \(recorded.isEmpty ? "<none>" : recorded), stderr: \(stderrText)"
+        )
+        let nuArgs = (try? String(contentsOf: nuArgsURL, encoding: .utf8)) ?? ""
+        XCTAssertTrue(
+            nuArgs.contains("_cmux_bootstrap_marker"),
+            "the launcher must exec nushell with the cmux bootstrap payload. nu argv: \(nuArgs.isEmpty ? "<none>" : nuArgs)"
+        )
+        XCTAssertTrue(
+            nuArgs.contains("cmux-nushell-integration.nu"),
+            "the payload must source the bundled integration. nu argv: \(nuArgs)"
+        )
+    }
+
     /// Regression for the stale-shim fallback: `CMUX_CLAUDE_WRAPPER_SHIM` can outlive
     /// its file (macOS reaps idle temporary-directory contents after ~3 days), and bare
     /// `${VAR:-claude}` parameter expansion would exec the dead path and hard-fail

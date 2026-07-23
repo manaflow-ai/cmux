@@ -1478,7 +1478,9 @@ extension Workspace {
                 if shouldAutoResumeAgent && restoredHibernation == nil && restoredBindingLaunch == nil
                     && !agentSessionAlreadyActive {
                     if restoresRemoteWorkspaceTerminalSnapshot {
-                        restorableAgent?.resumeStartupInput(allowLauncherScript: false, allowOversizedInlineInput: true)
+                        // Typed into the remote host's shell after attach, not
+                        // the local login shell: keep POSIX.
+                        restorableAgent?.resumeStartupInput(allowLauncherScript: false, allowOversizedInlineInput: true, dialect: .remoteHost)
                             .map(SurfaceResumeStartupLaunch.input)
                     } else {
                         restorableAgent?.resumeStartupCommand()
@@ -10683,7 +10685,7 @@ final class Workspace: Identifiable, ObservableObject {
         destination: BonsplitController.ExternalTabDropRequest.Destination
     ) -> Bool {
         guard let resumeCommand = entry.resumeCommand else { return false }
-        let inputWithReturn = resumeCommand + "\n"
+        let inputWithReturn = TerminalStartupTypedShellCommand().typedInput(posixCommand: resumeCommand) + "\n"
         switch destination {
         case .insert(let paneId, _):
             let panel = newTerminalSurface(
@@ -10887,7 +10889,9 @@ final class Workspace: Identifiable, ObservableObject {
               let startupInput = launchSnapshot.forkStartupInput(
                   fileManager: fileManager,
                   temporaryDirectory: temporaryDirectory,
-                  allowLauncherScript: !isRemoteFork
+                  allowLauncherScript: !isRemoteFork,
+                  // Remote forks type into the remote host's shell: keep POSIX.
+                  dialect: isRemoteFork ? .remoteHost : .loginShell
               ) else {
             return nil
         }
@@ -10920,7 +10924,9 @@ final class Workspace: Identifiable, ObservableObject {
               let startupInput = launchSnapshot.forkStartupInput(
                   fileManager: fileManager,
                   temporaryDirectory: temporaryDirectory,
-                  allowLauncherScript: remoteStartupCommand == nil
+                  allowLauncherScript: remoteStartupCommand == nil,
+                  // Remote forks type into the remote host's shell: keep POSIX.
+                  dialect: remoteStartupCommand == nil ? .loginShell : .remoteHost
               ) else {
             return nil
         }
@@ -10987,7 +10993,9 @@ final class Workspace: Identifiable, ObservableObject {
               let startupInput = launchSnapshot.forkStartupInput(
                   fileManager: fileManager,
                   temporaryDirectory: temporaryDirectory,
-                  allowLauncherScript: remoteStartupCommand == nil
+                  allowLauncherScript: remoteStartupCommand == nil,
+                  // Remote forks type into the remote host's shell: keep POSIX.
+                  dialect: remoteStartupCommand == nil ? .loginShell : .remoteHost
               ) else {
             return nil
         }

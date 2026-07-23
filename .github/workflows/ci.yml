@@ -919,6 +919,41 @@ jobs:
         with:
           node-version: "20"
 
+      - name: Install pinned nushell (shell-integration tests)
+        if: ${{ matrix.shard == fromJSON(env.CMUX_APP_HOST_FOCUSED_REGRESSION_SHARD) }}
+        run: |
+          set -euo pipefail
+
+          # tests/test_nushell_*.py drive the bundled nushell shell
+          # integration through a real `nu`. Pin the release binary (no brew:
+          # deterministic, fast, checksum-verified) and match the version the
+          # integration was verified against.
+          NU_VERSION="0.113.1"
+          case "$(uname -m)" in
+            arm64|aarch64)
+              NU_ARCH="aarch64-apple-darwin"
+              NU_SHA256="458aa21674221b2e8adbd784f9ba8113288b78f3c352465cef37b114ff3dffd5"
+              ;;
+            x86_64)
+              NU_ARCH="x86_64-apple-darwin"
+              NU_SHA256="18ec6448cd8562b4f94ba24bace6164c5d8b8d634c8105751ec45e17d34549b2"
+              ;;
+            *)
+              echo "unsupported runner arch for pinned nushell: $(uname -m)" >&2
+              exit 1
+              ;;
+          esac
+
+          NU_DIR="$RUNNER_TEMP/cmux-nushell"
+          mkdir -p "$NU_DIR"
+          curl -fsSL --retry 3 -o "$NU_DIR/nu.tar.gz" \
+            "https://github.com/nushell/nushell/releases/download/${NU_VERSION}/nu-${NU_VERSION}-${NU_ARCH}.tar.gz"
+          echo "$NU_SHA256  $NU_DIR/nu.tar.gz" | shasum -a 256 -c -
+          tar -xzf "$NU_DIR/nu.tar.gz" -C "$NU_DIR" --strip-components=1
+          test -x "$NU_DIR/nu"
+          "$NU_DIR/nu" --version
+          echo "$NU_DIR" >> "$GITHUB_PATH"
+
       - name: Run CLI no-socket regressions
         if: ${{ matrix.shard == fromJSON(env.CMUX_APP_HOST_FOCUSED_REGRESSION_SHARD) }}
         run: |
@@ -954,6 +989,9 @@ jobs:
           python3 tests/test_issue_2448_shell_claude_wrapper_dispatch.py
           python3 tests/test_issue_8093_ghostty_ssh_binary_path.py
           python3 tests/test_issue_6714_zsh_shim_noclobber.py
+          python3 tests/test_nushell_shim_path_refront.py
+          python3 tests/test_nushell_resume_command_dialect.py
+          python3 tests/test_nushell_integration_hooks.py
           python3 tests/test_shell_git_branch_stale_cwd.py
           python3 tests/test_shell_git_config_remote_url_parsing.py
           CMUX_CLI_BIN="$CLI_BIN" python3 tests/test_claude_hook_stop_last_assistant.py

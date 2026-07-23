@@ -29,7 +29,13 @@ enum SessionRestoredTerminalCommandStore {
                 let quotedDirectory = shellSingleQuoted(workingDirectory)
                 lines.append("{ cd -- \(quotedDirectory) 2>/dev/null || [ ! -d \(quotedDirectory) ]; } || exit $?")
             }
-            lines.append("exec \"${SHELL:-/bin/zsh}\" -lc \(shellSingleQuoted(trimmedCommand))")
+            // Nushell cannot parse the POSIX command (`nu -lc` has no such
+            // flags and `nu -c` would be a parse error); run it through
+            // /bin/sh with the same run-command-then-exit lifecycle.
+            lines.append(#"case "${SHELL:t}" in"#)
+            lines.append("  nu) exec /bin/sh -c \(shellSingleQuoted(trimmedCommand)) ;;")
+            lines.append("  *) exec \"${SHELL:-/bin/zsh}\" -lc \(shellSingleQuoted(trimmedCommand)) ;;")
+            lines.append("esac")
 
             try (lines.joined(separator: "\n") + "\n").write(
                 to: scriptURL,
