@@ -729,6 +729,20 @@ final class FileExplorerStore: ObservableObject {
     /// Paths that are logically expanded (persisted across provider changes)
     private(set) var expandedPaths: Set<String> = []
 
+    /// Last text typed into Find, preserved across sidebar-tab switches within a workspace.
+    /// This is deliberately not published because it is read only when the AppKit view reseeds.
+    private(set) var findQuery = ""
+
+    /// Last displayed Find snapshot, preserved across sidebar-tab switches within a workspace.
+    ///
+    /// This is deliberately not published. Streaming search writes this field on every
+    /// displayed frame, and publishing it would invalidate the entire SwiftUI workspace tree,
+    /// including terminal panels. The AppKit Find view reads it only for cache reseeding.
+    private(set) var findSnapshot = FileSearchSnapshot.empty
+
+    /// Tracks workspace identity independently from cwd changes within the workspace.
+    private var currentWorkspaceId: UUID?
+
     /// Stable navigation selection. The outline view mirrors this path after reloads.
     private(set) var selectedPath: String?
 
@@ -770,6 +784,28 @@ final class FileExplorerStore: ObservableObject {
     }
 
     // MARK: - Public API
+
+    func setFindQuery(_ query: String) {
+        guard query != findQuery else { return }
+        findQuery = query
+    }
+
+    func setFindSnapshot(_ snapshot: FileSearchSnapshot) {
+        guard snapshot != findSnapshot else { return }
+        findSnapshot = snapshot
+    }
+
+    /// Clears per-workspace UI state only when the bound tab changes.
+    func beginWorkspace(_ workspaceId: UUID?) {
+        guard workspaceId != currentWorkspaceId else { return }
+        currentWorkspaceId = workspaceId
+        expandedPaths = []
+        selectedPath = nil
+        selectedPaths = []
+        pendingDescendIntoFirstChildPath = nil
+        findQuery = ""
+        findSnapshot = .empty
+    }
 
     func applyWorkspaceRoot(
         _ request: FileExplorerWorkspaceRoot,

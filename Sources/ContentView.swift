@@ -2379,10 +2379,12 @@ struct ContentView: View {
             // No selection means we have no local cwd to scope by; clear so the
             // sessions panel doesn't keep filtering by a stale previous tab.
             sessionIndexStore.setCurrentDirectoryIfChanged(nil)
+            fileExplorerStore.beginWorkspace(nil)
             fileExplorerStore.applyWorkspaceRoot(.none)
             return
         }
 
+        fileExplorerStore.beginWorkspace(tab.id)
         fileExplorerStore.showHiddenFiles = true
 
         if tab.usesRemoteDirectoryProvenance {

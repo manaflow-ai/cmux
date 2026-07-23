@@ -57,7 +57,7 @@ extension FileExplorerNSOutlineView {
     }
 }
 
-extension FileExplorerSearchResultsTableView {
+extension FileExplorerSearchOutlineView {
     func handleOpenSelectionShortcut(_ event: NSEvent) -> Bool {
         guard event.isFileExplorerOpenSelectionShortcut(in: fileExplorerPanelPlacement) else { return false }
         onCommit?()

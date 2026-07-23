@@ -1,4 +1,5 @@
 import AppKit
+import Combine
 import Testing
 
 #if canImport(cmux_DEV)
@@ -525,6 +526,95 @@ struct FileExplorerStoreTests {
         }
     }
 
+    // MARK: - Per-workspace Find state
+
+    @Test
+    func testFindStateAndExpansionPersistAcrossSameWorkspaceCalls() {
+        let store = FileExplorerStore()
+        let workspaceId = UUID()
+        store.beginWorkspace(workspaceId)
+
+        let node = FileExplorerNode(name: "src", path: "/project/src", isDirectory: true)
+        node.children = []
+        store.expand(node: node)
+        store.setFindQuery("login")
+        let results = [Self.searchResult(relativePath: "src/auth.swift")]
+        store.setFindSnapshot(FileSearchSnapshot(
+            query: "login",
+            results: results,
+            status: .matches,
+            isSearching: false,
+            totalMatchCount: results.count
+        ))
+
+        store.beginWorkspace(workspaceId)
+
+        #expect(store.findQuery == "login")
+        #expect(store.findSnapshot.results.count == 1)
+        #expect(store.expandedPaths.contains("/project/src"))
+    }
+
+    @Test
+    func testBeginWorkspaceWithDifferentIdClearsFindAndExpansion() {
+        let store = FileExplorerStore()
+        store.beginWorkspace(UUID())
+
+        let node = FileExplorerNode(name: "src", path: "/project/src", isDirectory: true)
+        node.children = []
+        store.expand(node: node)
+        store.setFindQuery("login")
+        let results = [Self.searchResult(relativePath: "src/auth.swift")]
+        store.setFindSnapshot(FileSearchSnapshot(
+            query: "login",
+            results: results,
+            status: .matches,
+            isSearching: false,
+            totalMatchCount: results.count
+        ))
+
+        store.beginWorkspace(UUID())
+
+        #expect(store.findQuery.isEmpty)
+        #expect(store.findSnapshot == .empty)
+        #expect(store.expandedPaths.isEmpty)
+        #expect(store.selectedPath == nil)
+        #expect(store.selectedPaths.isEmpty)
+    }
+
+    @Test
+    func testBeginWorkspaceNilAlsoClearsState() {
+        let store = FileExplorerStore()
+        store.beginWorkspace(UUID())
+        store.setFindQuery("login")
+
+        store.beginWorkspace(nil)
+
+        #expect(store.findQuery.isEmpty)
+        #expect(store.findSnapshot == .empty)
+    }
+
+    @Test
+    func findStateSettersDoNotPublish() {
+        let store = FileExplorerStore()
+        var emissionCount = 0
+        let cancellable = store.objectWillChange.sink { emissionCount += 1 }
+
+        store.setFindQuery("needle")
+        let results = [Self.searchResult(relativePath: "result.txt")]
+        store.setFindSnapshot(FileSearchSnapshot(
+            query: "needle",
+            results: results,
+            status: .matches,
+            isSearching: false,
+            totalMatchCount: results.count
+        ))
+        #expect(emissionCount == 0)
+
+        store.rootPath = "/tmp/positive-control"
+        #expect(emissionCount == 1)
+        withExtendedLifetime(cancellable) {}
+    }
+
     // MARK: - Error clearing
 
     @Test
@@ -614,6 +704,16 @@ struct FileExplorerStoreTests {
         let node = FileExplorerNode(name: "file.txt", path: "/project/file.txt", isDirectory: false)
         store.expand(node: node)
         #expect(!(store.isExpanded(node)))
+    }
+
+    private static func searchResult(relativePath: String) -> FileSearchResult {
+        FileSearchResult(
+            path: "/tmp/cmux-find-content-revision-test/\(relativePath)",
+            relativePath: relativePath,
+            lineNumber: 1,
+            columnNumber: 1,
+            preview: "needle"
+        )
     }
 }
 
@@ -731,10 +831,99 @@ struct FileSearchControllerTests {
         controller.onSnapshotChanged = { snapshots.append($0) }
 
         controller.search(query: "needle", rootPath: rootURL.path, isLocal: true)
+        var finalSnapshot = try await waitForSettledSearchSnapshot { snapshots.last }
+
+        #expect(finalSnapshot.status == .matches)
+        #expect(finalSnapshot.totalMatchCount == 650)
+        #expect(finalSnapshot.hasMore)
+        #expect(finalSnapshot.results.count < 650)
+        while finalSnapshot.hasMore {
+            controller.loadMore()
+            finalSnapshot = try #require(snapshots.last)
+        }
+        #expect(finalSnapshot.results.count == 650)
+        #expect(!finalSnapshot.isTruncated)
+    }
+
+#if DEBUG
+    @Test
+    func testPipelineUpdateBurstCoalescesAndTerminalBypassesPendingSlot() async throws {
+        let controller = FileSearchController()
+        var snapshots: [FileSearchSnapshot] = []
+        controller.onSnapshotChanged = { snapshots.append($0) }
+
+        for count in 1...5 {
+            controller.debugEnqueuePipelineUpdate(FileSearchPipelineUpdate(
+                results: (0..<count).map { index in
+                    FileSearchResult(
+                        path: "/tmp/file\(index).txt",
+                        relativePath: "file\(index).txt",
+                        lineNumber: 1,
+                        columnNumber: 1,
+                        preview: "needle"
+                    )
+                },
+                status: .matches,
+                shouldStopProcess: false
+            ))
+        }
+
+        await Task.yield()
+        #expect(controller.debugPipelineDeliveryCount == 1)
+        #expect(snapshots.last?.totalMatchCount == 5)
+
+        controller.debugEnqueuePipelineUpdate(FileSearchPipelineUpdate(
+            results: (0..<6).map { index in
+                FileSearchResult(
+                    path: "/tmp/file\(index).txt",
+                    relativePath: "file\(index).txt",
+                    lineNumber: 1,
+                    columnNumber: 1,
+                    preview: "needle"
+                )
+            },
+            status: .matches,
+            shouldStopProcess: true
+        ))
+        #expect(controller.debugPipelineDeliveryCount == 2)
+        #expect(snapshots.last?.isTruncated == true)
+    }
+#endif
+
+    @Test
+    func testSpawnFailurePublishesSettledFailedSnapshot() async throws {
+        let defaults = UserDefaults.standard
+        let key = RipgrepIntegrationSettings.customRipgrepPathKey
+        let previousValue = defaults.object(forKey: key)
+        defer {
+            if let previousValue {
+                defaults.set(previousValue, forKey: key)
+            } else {
+                defaults.removeObject(forKey: key)
+            }
+        }
+
+        let executableDirectory = FileManager.default.temporaryDirectory
+            .appendingPathComponent(UUID().uuidString, isDirectory: true)
+        defer { try? FileManager.default.removeItem(at: executableDirectory) }
+        try FileManager.default.createDirectory(at: executableDirectory, withIntermediateDirectories: true)
+        try FileManager.default.setAttributes(
+            [.posixPermissions: NSNumber(value: 0o755)],
+            ofItemAtPath: executableDirectory.path
+        )
+        defaults.set(executableDirectory.path, forKey: key)
+
+        let controller = FileSearchController()
+        var snapshots: [FileSearchSnapshot] = []
+        controller.onSnapshotChanged = { snapshots.append($0) }
+        controller.search(query: "needle", rootPath: "/tmp", isLocal: true)
         let finalSnapshot = try await waitForSettledSearchSnapshot { snapshots.last }
 
-        #expect(finalSnapshot.status == .limited(500))
-        #expect(finalSnapshot.results.count == 500)
+        guard case .failed = finalSnapshot.status else {
+            Issue.record("Expected spawn failure, got \(finalSnapshot.status)")
+            return
+        }
+        #expect(!finalSnapshot.isSearching)
     }
 
     @Test(.enabled(if: FileSearchControllerTests.hasRipgrep(), "ripgrep is required for file search behavior tests"))
@@ -987,6 +1176,217 @@ struct FileSearchControllerTests {
     }
 
     @Test
+    func testEarlyPaintContentRevisionDefersUntilTerminalFrame() async throws {
+        let store = FileExplorerStore()
+        let state = FileExplorerState()
+        let searchController = SpyFileSearchController()
+        let coordinator = FileExplorerPanelView.Coordinator(
+            store: store,
+            state: state,
+            onOpenFilePreview: { _ in }
+        )
+        let container = FileExplorerContainerView(
+            coordinator: coordinator,
+            presentation: .find,
+            searchController: searchController
+        )
+        store.provider = MockFileExplorerProvider(homePath: "/tmp")
+        store.setRootPath("/tmp/cmux-find-early-paint-revision-test")
+        container.updateHeader(store: store)
+        container.updatePresentation(.find)
+
+        let searchField = try #require(Self.findSearchField(in: container))
+        searchField.stringValue = "needle"
+        container.controlTextDidChange(Notification(name: NSControl.textDidChangeNotification, object: searchField))
+        try await waitForSearchRequestCount(1, in: searchController)
+        let originalRequestCount = searchController.searchRequests.count
+        let results = [Self.searchResult(relativePath: "first.txt")]
+
+        searchController.publish(FileSearchSnapshot(
+            query: "needle",
+            results: results,
+            status: .matches,
+            isSearching: true,
+            totalMatchCount: results.count
+        ))
+        store.reload()
+        container.updateHeader(store: store)
+        container.updatePresentation(.find)
+        #expect(searchController.searchRequests.count == originalRequestCount)
+
+        searchController.publish(FileSearchSnapshot(
+            query: "needle",
+            results: results,
+            status: .matches,
+            isSearching: false,
+            totalMatchCount: results.count
+        ))
+        #expect(searchController.searchRequests.count == originalRequestCount + 1)
+        #expect(searchController.searchRequests.last?.contentRevision == store.contentRevision)
+    }
+
+    @Test
+    func testSearchStatusFramesRenderProgressTotalsAndFailures() throws {
+        let store = FileExplorerStore()
+        let state = FileExplorerState()
+        let searchController = SpyFileSearchController()
+        let coordinator = FileExplorerPanelView.Coordinator(
+            store: store,
+            state: state,
+            onOpenFilePreview: { _ in }
+        )
+        let container = FileExplorerContainerView(
+            coordinator: coordinator,
+            presentation: .find,
+            searchController: searchController
+        )
+        store.provider = MockFileExplorerProvider(homePath: "/tmp")
+        store.setRootPath("/tmp/cmux-find-status-frame-test")
+        container.updateHeader(store: store)
+        container.updatePresentation(.find)
+
+        let statusLabel = try #require(Self.findSearchStatusLabel(in: container))
+        let resultsView = try #require(Self.findSearchResultsView(in: container))
+        searchController.publish(FileSearchSnapshot(
+            query: "needle",
+            results: [],
+            status: .searching,
+            isSearching: true,
+            totalMatchCount: 0
+        ))
+        #expect(statusLabel.stringValue == String(
+            format: String(localized: "fileExplorer.search.searching", defaultValue: "%d matches, searching"),
+            0
+        ))
+        #expect(resultsView.debugAppliedWorkCount == 0)
+
+        let results = [Self.searchResult(relativePath: "first.txt")]
+        searchController.publish(FileSearchSnapshot(
+            query: "needle",
+            results: results,
+            status: .matches,
+            isSearching: true,
+            totalMatchCount: 100
+        ))
+        #expect(statusLabel.stringValue == String(
+            format: String(localized: "fileExplorer.search.searching", defaultValue: "%d matches, searching"),
+            100
+        ))
+        #expect(resultsView.debugAppliedWorkCount == 1)
+
+        searchController.publish(FileSearchSnapshot(
+            query: "needle",
+            results: results,
+            status: .matches,
+            isSearching: false,
+            totalMatchCount: 650
+        ))
+        #expect(statusLabel.stringValue == String(
+            format: String(localized: "fileExplorer.search.matches", defaultValue: "%d matches"),
+            650
+        ))
+
+        searchController.publish(FileSearchSnapshot(
+            query: "needle",
+            results: results,
+            status: .matches,
+            isSearching: false,
+            totalMatchCount: 5000,
+            isTruncated: true
+        ))
+        #expect(statusLabel.stringValue == String(
+            format: String(localized: "fileExplorer.search.limit", defaultValue: "First %d matches"),
+            5000
+        ))
+
+        searchController.publish(FileSearchSnapshot(
+            query: "needle",
+            results: results,
+            status: .failed("boom"),
+            isSearching: false,
+            totalMatchCount: results.count
+        ))
+        #expect(statusLabel.stringValue.contains("boom"))
+    }
+
+    @Test
+    func testGroupedSearchContextMenuUsesSelectionPayloadsAndActions() throws {
+        let store = FileExplorerStore()
+        let state = FileExplorerState()
+        let searchController = SpyFileSearchController()
+        var openedPaths: [String] = []
+        let coordinator = FileExplorerPanelView.Coordinator(
+            store: store,
+            state: state,
+            onOpenFilePreview: { openedPaths.append($0) }
+        )
+        let container = FileExplorerContainerView(
+            coordinator: coordinator,
+            presentation: .find,
+            searchController: searchController
+        )
+        store.provider = MockFileExplorerProvider(homePath: "/tmp")
+        store.setRootPath("/tmp/cmux-find-menu-test")
+        container.updateHeader(store: store)
+        container.updatePresentation(.find)
+
+        let results = [
+            Self.searchResult(relativePath: "first.txt"),
+            Self.searchResult(relativePath: "nested/second.txt"),
+        ]
+        searchController.publish(FileSearchSnapshot(
+            query: "needle",
+            results: results,
+            status: .matches,
+            isSearching: false,
+            totalMatchCount: results.count
+        ))
+
+        let outline = try #require(Self.findSearchOutlineView(in: container))
+        outline.selectRowIndexes(IndexSet([1, 3]), byExtendingSelection: false)
+        let menu = try #require(outline.menu)
+        container.menuNeedsUpdate(menu)
+
+        let selectors = [
+            "contextMenuOpenSearchResultInCmux:",
+            "contextMenuOpenSearchResultExternally:",
+            "contextMenuRevealSearchResultInFinder:",
+            "contextMenuInsertSearchResultPath:",
+            "contextMenuInsertSearchResultRelativePath:",
+            "contextMenuCopySearchResultPath:",
+            "contextMenuCopySearchResultRelativePath:",
+        ]
+        let items = try selectors.map { selectorName in
+            try #require(Self.menuItem(action: NSSelectorFromString(selectorName), in: menu))
+        }
+        #expect(items[0].representedObject is FileExplorerSearchResultsView.SearchResultPathPair)
+        #expect(items[1].representedObject is FileExplorerExternalOpenRequest)
+        #expect(items[2].representedObject is FileExplorerSearchResultsView.SearchResultPathPair)
+        for item in items[3...] {
+            #expect(item.representedObject is [FileExplorerSearchResultsView.SearchResultPathPair])
+        }
+
+        let copyPathItem = items[5]
+        _ = NSApp.sendAction(try #require(copyPathItem.action), to: copyPathItem.target, from: copyPathItem)
+        #expect(NSPasteboard.general.string(forType: .string) == results.map(\.path).joined(separator: "\n"))
+
+        let copyRelativePathItem = items[6]
+        _ = NSApp.sendAction(
+            try #require(copyRelativePathItem.action),
+            to: copyRelativePathItem.target,
+            from: copyRelativePathItem
+        )
+        #expect(
+            NSPasteboard.general.string(forType: .string) ==
+                results.map(\.relativePath).joined(separator: "\n")
+        )
+
+        let openItem = items[0]
+        _ = NSApp.sendAction(try #require(openItem.action), to: openItem.target, from: openItem)
+        #expect(openedPaths == [results[1].path])
+    }
+
+    @Test
     func testRipgrepResolverPrefersConfiguredBinaryPath() {
         let configuredPath = "/nix/store/custom-ripgrep/bin/rg"
         let fallbackPath = "/usr/local/bin/rg"
@@ -1172,24 +1572,82 @@ struct FileSearchControllerTests {
         return nil
     }
 
+    private static func findSearchStatusLabel(in root: NSView) -> NSTextField? {
+        if let label = root as? NSTextField,
+           label.accessibilityIdentifier() == "FileExplorerSearchStatusLabel" {
+            return label
+        }
+        for subview in root.subviews {
+            if let label = findSearchStatusLabel(in: subview) {
+                return label
+            }
+        }
+        return nil
+    }
+
+    private static func findSearchResultsView(in root: NSView) -> FileExplorerSearchResultsView? {
+        if let resultsView = root as? FileExplorerSearchResultsView {
+            return resultsView
+        }
+        for subview in root.subviews {
+            if let resultsView = findSearchResultsView(in: subview) {
+                return resultsView
+            }
+        }
+        return nil
+    }
+
+    private static func findSearchOutlineView(in root: NSView) -> FileExplorerSearchOutlineView? {
+        if let outlineView = root as? FileExplorerSearchOutlineView {
+            return outlineView
+        }
+        for subview in root.subviews {
+            if let outlineView = findSearchOutlineView(in: subview) {
+                return outlineView
+            }
+        }
+        return nil
+    }
+
+    private static func menuItem(action: Selector, in menu: NSMenu) -> NSMenuItem? {
+        for item in menu.items {
+            if item.action == action {
+                return item
+            }
+            if let submenu = item.submenu,
+               let match = menuItem(action: action, in: submenu) {
+                return match
+            }
+        }
+        return nil
+    }
+
     private final class SpyFileSearchController: FileSearchControlling {
         struct SearchRequest: Equatable {
             let query: String
             let rootPath: String
             let isLocal: Bool
             let contentRevision: Int
+            let options: FileSearchOptions
         }
 
         var onSnapshotChanged: ((FileSearchSnapshot) -> Void)?
         var searchRequests: [SearchRequest] = []
         var cancelCount = 0
 
-        func search(query rawQuery: String, rootPath: String, isLocal: Bool, contentRevision: Int) {
+        func search(
+            query rawQuery: String,
+            rootPath: String,
+            isLocal: Bool,
+            contentRevision: Int,
+            options: FileSearchOptions
+        ) {
             searchRequests.append(SearchRequest(
                 query: rawQuery,
                 rootPath: rootPath,
                 isLocal: isLocal,
-                contentRevision: contentRevision
+                contentRevision: contentRevision,
+                options: options
             ))
         }
 
@@ -1200,5 +1658,7 @@ struct FileSearchControllerTests {
         func cancel(clear: Bool) {
             cancelCount += 1
         }
+
+        func loadMore() {}
     }
 }

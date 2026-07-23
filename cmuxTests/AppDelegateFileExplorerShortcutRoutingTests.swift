@@ -73,7 +73,7 @@ struct AppDelegateFileExplorerShortcutRoutingTests {
                 defer: false
             )
             let contentView = NSView(frame: window.contentRect(forFrameRect: window.frame))
-            let resultsView = FileExplorerSearchResultsTableView(frame: NSRect(x: 0, y: 0, width: 240, height: 180))
+            let resultsView = FileExplorerSearchOutlineView(frame: NSRect(x: 0, y: 0, width: 240, height: 180))
             resultsView.addTableColumn(NSTableColumn(identifier: NSUserInterfaceItemIdentifier("name")))
             var commitCount = 0
             resultsView.onCommit = {
