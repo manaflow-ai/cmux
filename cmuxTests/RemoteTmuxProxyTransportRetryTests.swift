@@ -2383,7 +2383,7 @@ private struct FuzzTransportProfile: RemoteTmuxTransportProfile {
 private final class FuzzPeer {
     /// A drain is bounded: past this the connection is generating commands without end, which is
     /// the finding rather than a reason to keep answering.
-    static let answerLimit = 200
+    nonisolated static let answerLimit = 200
     /// A generous FIFO ceiling. The real depth for three windows is under a dozen; this is set to
     /// catch a leak, not to restate the product's arithmetic.
     static let pendingCommandCeiling = 64
