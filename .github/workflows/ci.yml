@@ -252,6 +252,9 @@ jobs:
       - name: Validate test determinism gate
         run: python3 scripts/check-test-determinism.py --strict
 
+      - name: Validate fork PR artifact workflow guards
+        run: ./tests/test_ci_fork_pr_artifact.sh
+
   remote-daemon-tests:
     needs: changes
     if: ${{ needs.changes.outputs.go == 'true' }}
