@@ -865,27 +865,27 @@ class CmuxRuntimeAdapter:
         self, cycles: int
     ) -> list[tuple[str, dict[str, Any]]]:
         activations: dict[str, tuple[list[dict[str, Any]], list[dict[str, Any]]]] = {}
-        for planned, actual in self._browser_actual_ids.items():
-            activation_latencies: list[dict[str, Any]] = []
-            activation_evidence: list[dict[str, Any]] = []
-            latency, payload = self._timed_rpc(
-                "browser_surface_focus",
-                planned,
-                "surface.focus",
-                {"workspace_id": self._workspace_id, "surface_id": actual},
-            )
-            activation_latencies.append(latency)
-            activation_evidence.append(
-                {"label": "browser_surface_focus", "payload": payload}
-            )
-            activations[planned] = (activation_latencies, activation_evidence)
-
         results_by_planned: dict[str, dict[str, Any]] = {}
         with ThreadPoolExecutor(max_workers=max(1, len(self._browser_actual_ids))) as pool:
             futures = {
                 pool.submit(self._browser_churn, planned, actual, cycles): planned
                 for planned, actual in self._browser_actual_ids.items()
             }
+            for planned, actual in self._browser_actual_ids.items():
+                activation_latencies: list[dict[str, Any]] = []
+                activation_evidence: list[dict[str, Any]] = []
+                latency, payload = self._timed_rpc(
+                    "browser_surface_focus",
+                    planned,
+                    "surface.focus",
+                    {"workspace_id": self._workspace_id, "surface_id": actual},
+                )
+                activation_latencies.append(latency)
+                activation_evidence.append(
+                    {"label": "browser_surface_focus", "payload": payload}
+                )
+                activations[planned] = (activation_latencies, activation_evidence)
+
             for future in as_completed(futures):
                 results_by_planned[futures[future]] = future.result()
 
