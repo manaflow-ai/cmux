@@ -29,10 +29,6 @@ struct DeviceTreeView: View {
     /// Stored at list scope so reusable rows do not own transient presentation
     /// state while `List` is recycling swipe-action rows.
     @State private var computerPendingRemovalID: String?
-    @State private var isRecoveringDeletedComputer = false
-    @State private var recoveryAlertMessage: String?
-    @State private var recoveryTask: Task<Void, Never>?
-    @State private var recoveryAttemptID = 0
 
     /// The user's computers as immutable snapshots, sourced from the paired-Mac
     /// backup (`pairedMacs`) — this feature's source of truth, the same set that
@@ -106,19 +102,6 @@ struct DeviceTreeView: View {
                 }
             }
             .refreshable { await reload() }
-            .alert(
-                L10n.string(
-                    "mobile.computers.recoverFailedTitle",
-                    defaultValue: "Couldn't recover computer"
-                ),
-                isPresented: recoveryAlertPresented
-            ) {
-                Button(L10n.string("mobile.common.ok", defaultValue: "OK"), role: .cancel) {
-                    recoveryAlertMessage = nil
-                }
-            } message: {
-                Text(recoveryAlertMessage ?? "")
-            }
             .task {
                 // This screen is the user's connection-debug view. The online dots
                 // (presence) and secondary workspace counts already update live via
@@ -134,7 +117,6 @@ struct DeviceTreeView: View {
                     await store.refreshComputersScreen()
                 }
             }
-            .onDisappear(perform: cancelRecoveryTask)
         }
         .accessibilityIdentifier("MobileDeviceTree")
     }
@@ -162,32 +144,14 @@ struct DeviceTreeView: View {
     @ViewBuilder
     private var deletedComputerRecoverySection: some View {
         Section {
-            Button(action: recoverDeletedComputer) {
-                Label {
-                    Text(isRecoveringDeletedComputer
-                        ? L10n.string(
-                            "mobile.computers.recoveringDeleted",
-                            defaultValue: "Recovering Deleted Computer…"
-                        )
-                        : L10n.string(
-                            "mobile.computers.recoverDeleted",
-                            defaultValue: "Recover Deleted Computer"
-                        ))
-                } icon: {
-                    if isRecoveringDeletedComputer {
-                        ProgressView().controlSize(.small)
-                    } else {
-                        Image(systemName: "arrow.uturn.backward")
-                    }
+            DeletedComputerRecoveryButton(
+                recover: { await store.recoverForgottenIrohMacFromAccount() },
+                reload: {
+                    await reload()
                 }
-            }
-            .disabled(isRecoveringDeletedComputer)
-            .accessibilityIdentifier("MobileRecoverDeletedComputerButton")
+            )
         } footer: {
-            Text(L10n.string(
-                "mobile.computers.recoverDeletedFooter",
-                defaultValue: "Deleted computers stay hidden on this phone. To recover one, open cmux on that Mac, sign in to this same account, then tap Recover Deleted Computer."
-            ))
+            DeletedComputerRecoveryFooter()
         }
     }
 
@@ -232,48 +196,6 @@ struct DeviceTreeView: View {
             )
             await reload()
         }
-    }
-
-    private var recoveryAlertPresented: Binding<Bool> {
-        Binding(
-            get: { recoveryAlertMessage != nil },
-            set: { isPresented in
-                if !isPresented { recoveryAlertMessage = nil }
-            }
-        )
-    }
-
-    private func recoverDeletedComputer() {
-        guard !isRecoveringDeletedComputer else { return }
-        isRecoveringDeletedComputer = true
-        recoveryAlertMessage = nil
-        recoveryAttemptID += 1
-        let attemptID = recoveryAttemptID
-        recoveryTask = Task { @MainActor in
-            let recovered = await store.recoverForgottenIrohMacFromAccount()
-            guard isCurrentRecoveryAttempt(attemptID) else { return }
-            await reload()
-            guard isCurrentRecoveryAttempt(attemptID) else { return }
-            isRecoveringDeletedComputer = false
-            recoveryTask = nil
-            if !recovered {
-                recoveryAlertMessage = L10n.string(
-                    "mobile.computers.recoverFailedMessage",
-                    defaultValue: "No deleted computer was recovered. Open cmux on the Mac, sign in to this same account, and try again."
-                )
-            }
-        }
-    }
-
-    private func cancelRecoveryTask() {
-        recoveryAttemptID += 1
-        recoveryTask?.cancel()
-        recoveryTask = nil
-        isRecoveringDeletedComputer = false
-    }
-
-    private func isCurrentRecoveryAttempt(_ attemptID: Int) -> Bool {
-        !Task.isCancelled && recoveryAttemptID == attemptID
     }
 
     private func reload() async {
