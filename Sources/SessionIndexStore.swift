@@ -686,13 +686,17 @@ final class SessionIndexStore: ObservableObject {
         return combined.sorted { $0.modified > $1.modified }
     }
 
-    private struct ClaudeParsed {
+    struct ClaudeParsed {
         var title: String = ""
         var cwd: String?
         var branch: String?
         var pr: PullRequestLink?
         var model: String?
         var permissionMode: String?
+        /// User-set title from `/name`. Highest precedence when present.
+        var customTitle: String?
+        /// Claude Code auto-generated title from the first turn.
+        var aiTitle: String?
     }
 
     private struct ClaudeSessionRoot: Hashable {
@@ -766,7 +770,12 @@ final class SessionIndexStore: ObservableObject {
         return roots
     }
 
-    nonisolated private static func extractClaudeMetadata(head: String, tail: String, projectDir: String) -> ClaudeParsed {
+    nonisolated static func extractClaudeMetadata(
+        head: String,
+        tail: String,
+        projectDir: String,
+        titlePolicy: CmuxVaultSessionTitlePolicy = .renameable
+    ) -> ClaudeParsed {
         var out = ClaudeParsed()
         out.cwd = decodeClaudeProjectDir(projectDir)
 
@@ -831,10 +840,39 @@ final class SessionIndexStore: ObservableObject {
                let model = message["model"] as? String, !model.isEmpty {
                 out.model = model
             }
+            // Claude Code writes session-level title metadata as standalone JSONL
+            // records near the end of the file. Capture the three known shapes
+            // so the sidebar reflects /name renames instead of stale first-line.
+            switch type {
+            case "custom-title":
+                if let t = (obj["customTitle"] as? String)?
+                    .trimmingCharacters(in: .whitespacesAndNewlines),
+                   !t.isEmpty {
+                    out.customTitle = t
+                }
+            case "ai-title":
+                if let t = (obj["aiTitle"] as? String)?
+                    .trimmingCharacters(in: .whitespacesAndNewlines),
+                   !t.isEmpty {
+                    out.aiTitle = t
+                }
+            default: break
+            }
         }
         // Strip the [1m] suffix some Claude internal model IDs carry (claude-opus-4-7[1m]).
         if let m = out.model, let bracket = m.firstIndex(of: "[") {
             out.model = String(m[..<bracket])
+        }
+        // Title precedence depends on policy. `.renameable` (default) honors the
+        // user's `/name` rename and the agent-generated title; `.firstMessageOnly`
+        // sticks with the first-user-message scrape from the head loop.
+        switch titlePolicy {
+        case .renameable:
+            if let override = out.customTitle ?? out.aiTitle {
+                out.title = override
+            }
+        case .firstMessageOnly:
+            break
         }
         return out
     }
@@ -1414,6 +1452,9 @@ final class SessionIndexStore: ObservableObject {
         let roots = claudeSessionRoots()
         guard !roots.isEmpty else { return [] }
         let fm = FileManager.default
+        let titlePolicy = CmuxVaultAgentRegistry
+            .loadBuiltInAgentConfigs(workingDirectory: cwdFilter)[CmuxVaultBuiltInAgentID.claudeCode]?
+            .sessionTitlePolicy ?? .renameable
 
         // Pre-filter via rg when we have a needle — rg is parallel, mmaps the
         // file, and scans the WHOLE file (not just our 128 KB head), so it both
@@ -1520,7 +1561,12 @@ final class SessionIndexStore: ObservableObject {
                             true
                         )
                     }
-                    let parsed = extractClaudeMetadata(head: head, tail: tail, projectDir: candidate.dirName)
+                    let parsed = extractClaudeMetadata(
+                        head: head,
+                        tail: tail,
+                        projectDir: candidate.dirName,
+                        titlePolicy: titlePolicy
+                    )
                     if let cwdFilter, parsed.cwd != cwdFilter { return (idx, nil, false) }
                     let sid = candidate.url.deletingPathExtension().lastPathComponent
                     let entry = SessionEntry(
