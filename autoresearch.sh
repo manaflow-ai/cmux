@@ -134,8 +134,8 @@ mkdir -p "$artifact_root"
 [ -d "$artifact_root" ] && [ -w "$artifact_root" ] \
   || fail "artifact directory is not writable: $artifact_root"
 
-gh auth status --hostname github.com >/dev/null \
-  || fail "gh is not authenticated; configure gh or set GH_CONFIG_DIR"
+gh auth status --hostname github.com >/dev/null 2>&1 \
+  || fail "authentication is unavailable; authenticate and retry"
 
 run_once() {
   local sequence="$1"
