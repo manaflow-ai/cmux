@@ -193,3 +193,32 @@ import Testing
         #expect(scrubbed.exceptions?.first?.type == "EXC_BAD_INSTRUCTION")
     }
 }
+
+@Suite struct MacSentryStartupPolicyTests {
+    @Test func xctestLaunchDoesNotStartSentry() {
+        #expect(
+            MacSentryStartupPolicy.shouldStart(
+                telemetryEnabled: true,
+                isRunningUnderXCTest: true
+            ) == false
+        )
+    }
+
+    @Test func normalTelemetryEnabledLaunchStartsSentry() {
+        #expect(
+            MacSentryStartupPolicy.shouldStart(
+                telemetryEnabled: true,
+                isRunningUnderXCTest: false
+            ) == true
+        )
+    }
+
+    @Test func telemetryOptOutStillPreventsSentryStartup() {
+        #expect(
+            MacSentryStartupPolicy.shouldStart(
+                telemetryEnabled: false,
+                isRunningUnderXCTest: false
+            ) == false
+        )
+    }
+}
