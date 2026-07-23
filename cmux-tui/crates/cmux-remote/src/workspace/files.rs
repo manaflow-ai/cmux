@@ -2703,6 +2703,71 @@ mod tests {
 
     #[cfg(any(target_os = "linux", target_os = "android", target_vendor = "apple"))]
     #[tokio::test]
+    async fn content_hash_write_rejects_staged_rewrite_with_restored_mtime() {
+        use std::io::Write as _;
+        use std::os::unix::fs::{MetadataExt as _, PermissionsExt as _};
+
+        let (_directory, root) = root().await;
+        let target = root.canonical_root().join("value.txt");
+        tokio::fs::write(&target, b"expected").await.unwrap();
+        let before_exchange = install_mutation_test_barrier(
+            &root,
+            "value.txt",
+            MutationTestPoint::BeforeContentHashExchange,
+        );
+        let writer = {
+            let root = Arc::clone(&root);
+            tokio::spawn(async move {
+                write_file(
+                    &root,
+                    "value.txt",
+                    &ByteString::from_bytes(b"new-byte"),
+                    &FilePrecondition::ContentHash(hash_bytes(b"expected")),
+                    false,
+                )
+                .await
+            })
+        };
+
+        before_exchange.wait_until_reached().await;
+        let staged = recovery_entry(&root, ".cmux-write-");
+        let before = std::fs::metadata(&staged).unwrap();
+        let before_modified = before.modified().unwrap();
+        let mut raced =
+            std::fs::OpenOptions::new().write(true).truncate(true).open(&staged).unwrap();
+        raced.write_all(b"tampered").unwrap();
+        raced.sync_all().unwrap();
+        raced.set_times(std::fs::FileTimes::new().set_modified(before_modified)).unwrap();
+        let after = raced.metadata().unwrap();
+        assert_eq!(
+            (
+                before.dev(),
+                before.ino(),
+                before.len(),
+                before.permissions().mode() & 0o7777,
+                before.mtime(),
+                before.mtime_nsec(),
+            ),
+            (
+                after.dev(),
+                after.ino(),
+                after.len(),
+                after.permissions().mode() & 0o7777,
+                after.mtime(),
+                after.mtime_nsec(),
+            ),
+        );
+        drop(raced);
+        before_exchange.resume();
+
+        let error = writer.await.unwrap().unwrap_err();
+        assert_eq!(error.code, "conflict");
+        assert_eq!(tokio::fs::read(&target).await.unwrap(), b"expected");
+        assert!(!has_recovery_entry(&root, ".cmux-write-"));
+    }
+
+    #[cfg(any(target_os = "linux", target_os = "android", target_vendor = "apple"))]
+    #[tokio::test]
     async fn content_hash_write_rejects_an_in_place_staged_file_mutation() {
         use std::os::unix::fs::MetadataExt as _;
 

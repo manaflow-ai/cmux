@@ -31,8 +31,8 @@ impl ByteString {
 pub struct RequestId(uuid::Uuid);
 
 impl RequestId {
-    pub fn new_v4() -> Self {
-        Self(uuid::Uuid::new_v4())
+    pub const fn from_uuid(value: uuid::Uuid) -> Self {
+        Self(value)
     }
 
     pub const fn from_u128(value: u128) -> Self {

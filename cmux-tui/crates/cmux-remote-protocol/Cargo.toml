@@ -14,4 +14,6 @@ workspace = true
 base64.workspace = true
 serde.workspace = true
 serde_json.workspace = true
-uuid.workspace = true
+# Wire types only parse and serialize UUIDs. Random UUID generation belongs in
+# native clients so this crate remains usable by the Cloudflare Worker target.
+uuid = { version = "1", default-features = false, features = ["serde"] }

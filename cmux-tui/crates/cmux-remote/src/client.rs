@@ -152,7 +152,7 @@ impl WorkspaceClient {
     }
 
     fn next_request_id(&self) -> RequestId {
-        RequestId::new_v4()
+        RequestId::from_uuid(uuid::Uuid::new_v4())
     }
 
     pub async fn process_events(
