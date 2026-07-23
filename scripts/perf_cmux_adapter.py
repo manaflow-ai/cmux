@@ -368,14 +368,20 @@ class CmuxRuntimeAdapter:
         initial_terminal = initial_refs[0]
         if not isinstance(initial_terminal, str):
             raise ValueError("initial terminal reference is invalid")
-        startup_surfaces = self._surfaces()
+        startup_surfaces = self._surfaces(include_uuids=True)
         if len(startup_surfaces) != 1 or not isinstance(startup_surfaces[0], Mapping):
             raise ValueError("clean startup workspace must contain one observable surface")
         startup_surface = startup_surfaces[0]
-        if _extract_ref(startup_surface, "surface") != initial_terminal:
+        if not any(
+            startup_surface.get(key) == initial_terminal
+            for key in ("surface_id", "surface_ref", "id", "ref")
+        ):
             raise ValueError("startup surface identity changed before fixture creation")
         if _surface_type(startup_surface) != "terminal":
             raise ValueError("startup surface must be a terminal")
+        startup_surface_id = startup_surface.get("surface_id") or startup_surface.get("id")
+        if not isinstance(startup_surface_id, str) or not startup_surface_id:
+            raise ValueError("startup surface listing is missing its UUID")
 
         self._plan = plan
         self._terminal_actual_ids.clear()
@@ -385,15 +391,14 @@ class CmuxRuntimeAdapter:
             respawned = self._runner.rpc(
                 "surface.respawn",
                 {
-                    "workspace_id": self._workspace_id,
-                    "surface_id": initial_terminal,
+                    "surface_id": startup_surface_id,
                     "working_directory": str(self.config.output_root),
                     "focus": False,
                 },
                 timeout=self.config.rpc_timeout_s,
             )
             if not isinstance(respawned, Mapping) or not any(
-                respawned.get(key) == initial_terminal
+                respawned.get(key) == startup_surface_id
                 for key in ("surface_id", "surface_ref", "id", "ref")
             ):
                 raise ValueError("startup terminal identity changed while setting fixture cwd")
@@ -457,7 +462,7 @@ class CmuxRuntimeAdapter:
             "scrollback_evidence": seed_evidence,
         }
 
-    def _surfaces(self) -> list[Mapping[str, Any]]:
+    def _surfaces(self, *, include_uuids: bool = False) -> list[Mapping[str, Any]]:
         if self._workspace_id is None or self._pane_id is None:
             raise RuntimeError("fixture has not been created")
         workspaces = self._runner.json_cli(
@@ -478,17 +483,22 @@ class CmuxRuntimeAdapter:
             raise ValueError("fixture workspace must contain exactly one pane")
         if _extract_ref(panes[0], "pane") != self._pane_id:
             raise ValueError("fixture pane identity changed")
+        surface_args = [
+            "list-pane-surfaces",
+            "--workspace",
+            self._workspace_id,
+            "--pane",
+            self._pane_id,
+        ]
+        if include_uuids:
+            surface_args[0:0] = ["--id-format", "both"]
         payload = self._runner.json_cli(
-            [
-                "list-pane-surfaces",
-                "--workspace",
-                self._workspace_id,
-                "--pane",
-                self._pane_id,
-            ],
+            surface_args,
             timeout=self.config.rpc_timeout_s,
         )
-        if any(key in payload for key in ("pane_id", "pane_ref")) and _extract_ref(payload, "pane") != self._pane_id:
+        if any(key in payload for key in ("pane_id", "pane_ref")) and not any(
+            payload.get(key) == self._pane_id for key in ("pane_id", "pane_ref")
+        ):
             raise ValueError("surface listing came from the wrong pane")
         surfaces = payload.get("surfaces", [])
         if not isinstance(surfaces, list):
