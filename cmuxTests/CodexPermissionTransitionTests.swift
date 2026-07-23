@@ -20,13 +20,13 @@ struct CodexPermissionTransitionTests {
         let identity = CodexPermissionSignalIdentity(turnID: "turn-1", requestID: "call-1")
         let resumed = CodexPermissionTransitionMachine.reduce(
             current: nil,
-            phase: .resumed,
+            event: .toolCompleted,
             identity: identity,
             runtime: runtime
         )
         let reorderedPermission = CodexPermissionTransitionMachine.reduce(
             current: resumed.state,
-            phase: .needsInput,
+            event: .permissionRequested,
             identity: identity,
             runtime: runtime
         )
@@ -45,7 +45,7 @@ struct CodexPermissionTransitionTests {
         )
         let newerPermission = CodexPermissionTransitionMachine.reduce(
             current: resolved,
-            phase: .needsInput,
+            event: .permissionRequested,
             identity: CodexPermissionSignalIdentity(turnID: "turn-1", requestID: "call-2"),
             runtime: runtime
         )
@@ -63,24 +63,27 @@ struct CodexPermissionTransitionTests {
         )
         let staleScopedResume = CodexPermissionTransitionMachine.reduce(
             current: pending,
-            phase: .resumed,
+            event: .toolCompleted,
             identity: CodexPermissionSignalIdentity(turnID: "turn-2", requestID: "call-old"),
             runtime: runtime
         )
         let unscopedResume = CodexPermissionTransitionMachine.reduce(
             current: pending,
-            phase: .resumed,
+            event: .toolCompleted,
             identity: CodexPermissionSignalIdentity(turnID: nil, requestID: nil),
             runtime: runtime
         )
         let exactResume = CodexPermissionTransitionMachine.reduce(
             current: pending,
-            phase: .resumed,
+            event: .toolCompleted,
             identity: pending.identity,
             runtime: runtime
         )
 
-        #expect(staleScopedResume.accepted == false)
+        #expect(staleScopedResume.accepted)
+        #expect(staleScopedResume.effect == .none)
+        #expect(staleScopedResume.state.phase == .needsInput)
+        #expect(staleScopedResume.state.identity == pending.identity)
         #expect(unscopedResume.accepted == false)
         #expect(exactResume.accepted)
         #expect(exactResume.effect == .resolveNeedsInput)
@@ -99,7 +102,7 @@ struct CodexPermissionTransitionTests {
         )
         let transition = CodexPermissionTransitionMachine.reduce(
             current: pending,
-            phase: .resumed,
+            event: .toolCompleted,
             identity: pending.identity,
             runtime: reusedPID
         )

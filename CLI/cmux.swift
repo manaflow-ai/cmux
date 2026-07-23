@@ -31005,12 +31005,12 @@ export default CMUXSessionRestore;
                 )
             }
 
-        case .toolActivity:
+        case .toolStarted, .toolCompleted:
             guard def.name == "codex" else { break }
             let mapped = sessionId.isEmpty ? nil : (try? store.lookup(sessionId: sessionId))
             guard let target = resolveAgentHookTarget(mapped: mapped) else {
                 didSendFeedTelemetry = true
-                telemetry.breadcrumb("\(def.name)-hook.tool-activity.unresolved")
+                telemetry.breadcrumb("\(def.name)-hook.tool-transition.unresolved")
                 print("{}")
                 return
             }
@@ -31019,7 +31019,7 @@ export default CMUXSessionRestore;
             sendAgentFeedTelemetryUnlessSuppressed(workspaceId: workspaceId, surfaceId: surfaceId)
             let pid = inferredPID ?? mapped?.pid
             guard !shouldSuppressNestedAgentVisibleMutations(currentAgentPID: pid, env: env) else {
-                telemetry.breadcrumb("\(def.name)-hook.tool-activity.nested-suppressed")
+                telemetry.breadcrumb("\(def.name)-hook.tool-transition.nested-suppressed")
                 break
             }
             guard !sessionId.isEmpty else { break }
@@ -31027,20 +31027,38 @@ export default CMUXSessionRestore;
                     sessionId: sessionId,
                     turnId: input.turnId
                 )) != true else {
-                telemetry.breadcrumb("\(def.name)-hook.tool-activity.stale")
+                telemetry.breadcrumb("\(def.name)-hook.tool-transition.stale")
                 break
             }
-            let transition = try? store.recordCodexPermissionResumed(
-                sessionId: sessionId,
-                workspaceId: workspaceId,
-                surfaceId: surfaceId,
-                cwd: hookCwd ?? mapped?.cwd,
-                transcriptPath: input.transcriptPath ?? mapped?.transcriptPath,
-                turnId: input.turnId,
-                requestId: input.requestId,
-                pid: pid,
-                launchCommand: mapped?.launchCommand
-            )
+            let transition: CodexPermissionTransition?
+            switch action {
+            case .toolStarted:
+                transition = try? store.recordCodexToolStarted(
+                    sessionId: sessionId,
+                    workspaceId: workspaceId,
+                    surfaceId: surfaceId,
+                    cwd: hookCwd ?? mapped?.cwd,
+                    transcriptPath: input.transcriptPath ?? mapped?.transcriptPath,
+                    turnId: input.turnId,
+                    requestId: input.requestId,
+                    pid: pid,
+                    launchCommand: mapped?.launchCommand
+                )
+            case .toolCompleted:
+                transition = try? store.recordCodexToolCompleted(
+                    sessionId: sessionId,
+                    workspaceId: workspaceId,
+                    surfaceId: surfaceId,
+                    cwd: hookCwd ?? mapped?.cwd,
+                    transcriptPath: input.transcriptPath ?? mapped?.transcriptPath,
+                    turnId: input.turnId,
+                    requestId: input.requestId,
+                    pid: pid,
+                    launchCommand: mapped?.launchCommand
+                )
+            default:
+                transition = nil
+            }
             guard transition?.effect == .resolveNeedsInput else { break }
             setAgentLifecycle(
                 client: client,
@@ -34115,50 +34133,69 @@ export default CMUXSessionRestore;
                     uniquingKeysWith: { _, new in new }
                 )
             )
-            if let mapped = try? store.lookup(sessionId: sessionId),
-               let transition = try? store.recordCodexPermissionResumed(
-                   sessionId: sessionId,
-                   workspaceId: mapped.workspaceId,
-                   surfaceId: mapped.surfaceId,
-                   cwd: eventDict["cwd"] as? String ?? mapped.cwd,
-                   transcriptPath: firstString(in: stdinObj, keys: ["transcript_path", "transcriptPath"])
-                       ?? mapped.transcriptPath,
-                   turnId: turnId,
-                   requestId: permissionRequestId,
-                   pid: agentPid,
-                   launchCommand: mapped.launchCommand
-               ),
-               transition.effect == .resolveNeedsInput {
-                eventDict["workspace_id"] = mapped.workspaceId
-                eventDict["surface_id"] = mapped.surfaceId
-                eventDict[FeedEventClassifier.agentStatusSignalField] = "running"
-                eventDict[FeedEventClassifier.agentStatusRevisionField] = transition.state.revision
-                func publishResolution(using lifecycleClient: SocketClient) {
-                    setAgentLifecycle(
-                        client: lifecycleClient,
-                        key: "codex",
-                        lifecycle: .running,
+            if let mapped = try? store.lookup(sessionId: sessionId) {
+                let transcriptPath = firstString(
+                    in: stdinObj,
+                    keys: ["transcript_path", "transcriptPath"]
+                ) ?? mapped.transcriptPath
+                let transition: CodexPermissionTransition?
+                if hookEventName == "PreToolUse" {
+                    transition = try? store.recordCodexToolStarted(
+                        sessionId: sessionId,
                         workspaceId: mapped.workspaceId,
                         surfaceId: mapped.surfaceId,
-                        onlyIfNeedsInput: true,
-                        runtimePIDKey: "codex.\(sessionId)",
-                        runtimePID: transition.state.runtime.pid,
-                        revision: transition.state.revision,
-                        clearNotificationsIfResumed: true
+                        cwd: eventDict["cwd"] as? String ?? mapped.cwd,
+                        transcriptPath: transcriptPath,
+                        turnId: turnId,
+                        requestId: permissionRequestId,
+                        pid: agentPid,
+                        launchCommand: mapped.launchCommand
+                    )
+                } else {
+                    transition = try? store.recordCodexToolCompleted(
+                        sessionId: sessionId,
+                        workspaceId: mapped.workspaceId,
+                        surfaceId: mapped.surfaceId,
+                        cwd: eventDict["cwd"] as? String ?? mapped.cwd,
+                        transcriptPath: transcriptPath,
+                        turnId: turnId,
+                        requestId: permissionRequestId,
+                        pid: agentPid,
+                        launchCommand: mapped.launchCommand
                     )
                 }
-                if let client {
-                    publishResolution(using: client)
-                } else if let socketPath {
-                    let lifecycleClient = SocketClient(path: socketPath)
-                    defer { lifecycleClient.close() }
-                    if (try? lifecycleClient.connect()) != nil,
-                       (try? authenticateClientIfNeeded(
-                           lifecycleClient,
-                           explicitPassword: socketPassword,
-                           socketPath: socketPath
-                       )) != nil {
-                        publishResolution(using: lifecycleClient)
+                if let transition, transition.effect == .resolveNeedsInput {
+                    eventDict["workspace_id"] = mapped.workspaceId
+                    eventDict["surface_id"] = mapped.surfaceId
+                    eventDict[FeedEventClassifier.agentStatusSignalField] = "running"
+                    eventDict[FeedEventClassifier.agentStatusRevisionField] = transition.state.revision
+                    func publishResolution(using lifecycleClient: SocketClient) {
+                        setAgentLifecycle(
+                            client: lifecycleClient,
+                            key: "codex",
+                            lifecycle: .running,
+                            workspaceId: mapped.workspaceId,
+                            surfaceId: mapped.surfaceId,
+                            onlyIfNeedsInput: true,
+                            runtimePIDKey: "codex.\(sessionId)",
+                            runtimePID: transition.state.runtime.pid,
+                            revision: transition.state.revision,
+                            clearNotificationsIfResumed: true
+                        )
+                    }
+                    if let client {
+                        publishResolution(using: client)
+                    } else if let socketPath {
+                        let lifecycleClient = SocketClient(path: socketPath)
+                        defer { lifecycleClient.close() }
+                        if (try? lifecycleClient.connect()) != nil,
+                           (try? authenticateClientIfNeeded(
+                               lifecycleClient,
+                               explicitPassword: socketPassword,
+                               socketPath: socketPath
+                           )) != nil {
+                            publishResolution(using: lifecycleClient)
+                        }
                     }
                 }
             }

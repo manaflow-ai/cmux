@@ -41,7 +41,7 @@ extension ClaudeHookSessionStore {
             }
             let transition = CodexPermissionTransitionMachine.reduce(
                 current: record.codexPermissionState,
-                phase: .needsInput,
+                event: .permissionRequested,
                 identity: identity,
                 runtime: runtime
             )
@@ -71,7 +71,7 @@ extension ClaudeHookSessionStore {
     }
 
     @discardableResult
-    func recordCodexPermissionResumed(
+    func recordCodexToolStarted(
         sessionId: String,
         workspaceId: String,
         surfaceId: String,
@@ -81,6 +81,58 @@ extension ClaudeHookSessionStore {
         requestId: String? = nil,
         pid: Int?,
         launchCommand: AgentHookLaunchCommandRecord? = nil
+    ) throws -> CodexPermissionTransition? {
+        try recordCodexToolEvent(
+            .toolStarted,
+            sessionId: sessionId,
+            workspaceId: workspaceId,
+            surfaceId: surfaceId,
+            cwd: cwd,
+            transcriptPath: transcriptPath,
+            turnId: turnId,
+            requestId: requestId,
+            pid: pid,
+            launchCommand: launchCommand
+        )
+    }
+
+    @discardableResult
+    func recordCodexToolCompleted(
+        sessionId: String,
+        workspaceId: String,
+        surfaceId: String,
+        cwd: String?,
+        transcriptPath: String? = nil,
+        turnId: String? = nil,
+        requestId: String? = nil,
+        pid: Int?,
+        launchCommand: AgentHookLaunchCommandRecord? = nil
+    ) throws -> CodexPermissionTransition? {
+        try recordCodexToolEvent(
+            .toolCompleted,
+            sessionId: sessionId,
+            workspaceId: workspaceId,
+            surfaceId: surfaceId,
+            cwd: cwd,
+            transcriptPath: transcriptPath,
+            turnId: turnId,
+            requestId: requestId,
+            pid: pid,
+            launchCommand: launchCommand
+        )
+    }
+
+    private func recordCodexToolEvent(
+        _ event: CodexPermissionEvent,
+        sessionId: String,
+        workspaceId: String,
+        surfaceId: String,
+        cwd: String?,
+        transcriptPath: String?,
+        turnId: String?,
+        requestId: String?,
+        pid: Int?,
+        launchCommand: AgentHookLaunchCommandRecord?
     ) throws -> CodexPermissionTransition? {
         let normalized = normalizeSessionId(sessionId)
         guard !normalized.isEmpty else { return nil }
@@ -99,7 +151,7 @@ extension ClaudeHookSessionStore {
             }
             let transition = CodexPermissionTransitionMachine.reduce(
                 current: record.codexPermissionState,
-                phase: .resumed,
+                event: event,
                 identity: codexPermissionIdentity(turnId: turnId, requestId: requestId),
                 runtime: runtime
             )
@@ -152,9 +204,10 @@ extension ClaudeHookSessionStore {
                   current.runtime.matches(runtime) else {
                 return false
             }
-            return current.identity.exactlyMatches(
-                codexPermissionIdentity(turnId: turnId, requestId: requestId)
-            ) || (!current.identity.isScoped && normalizeOptional(turnId) == nil && normalizeOptional(requestId) == nil)
+            let identity = codexPermissionIdentity(turnId: turnId, requestId: requestId)
+                .correlatedToLatestToolStart(in: current.startedIdentities ?? [])
+            return current.identity.exactlyMatches(identity)
+                || (!current.identity.isScoped && !identity.isScoped)
         }
     }
 

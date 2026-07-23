@@ -16,4 +16,13 @@ struct CodexPermissionSignalIdentity: Codable, Equatable, Sendable {
         }
         return turnID == other.turnID
     }
+
+    func correlatedToLatestToolStart(
+        in startedIdentities: [Self]
+    ) -> Self {
+        guard requestID == nil, let turnID else { return self }
+        return startedIdentities.last(where: {
+            $0.turnID == turnID && $0.requestID != nil
+        }) ?? self
+    }
 }

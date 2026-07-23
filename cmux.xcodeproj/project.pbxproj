@@ -722,6 +722,8 @@ C0DE71B10000000000000001 /* AppDelegate+AgentChatNotifications.swift in Sources 
 		A9F200000000000000000016 /* CodexAppServerQueuedInput.swift in Sources */ = {isa = PBXBuildFile; fileRef = A9F100000000000000000016 /* CodexAppServerQueuedInput.swift */; };
 		A9E02000000000000000000E /* CodexAppServerSession.swift in Sources */ = {isa = PBXBuildFile; fileRef = A9E01000000000000000000E /* CodexAppServerSession.swift */; };
 		A9E040000000000000000002 /* CodexAppServerSessionTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = A9E040000000000000000001 /* CodexAppServerSessionTests.swift */; };
+		D8628D1B000000000000001B /* CodexPermissionEvent.swift in Sources */ = {isa = PBXBuildFile; fileRef = D8628D1A000000000000001A /* CodexPermissionEvent.swift */; };
+		D8628D1C000000000000001C /* CodexPermissionEvent.swift in Sources */ = {isa = PBXBuildFile; fileRef = D8628D1A000000000000001A /* CodexPermissionEvent.swift */; };
 		D8628D120000000000000012 /* CodexPermissionPhase.swift in Sources */ = {isa = PBXBuildFile; fileRef = D8628D0A000000000000000A /* CodexPermissionPhase.swift */; };
 		D8628D130000000000000013 /* CodexPermissionPhase.swift in Sources */ = {isa = PBXBuildFile; fileRef = D8628D0A000000000000000A /* CodexPermissionPhase.swift */; };
 		D8628D0E000000000000000E /* CodexPermissionRuntimeGeneration.swift in Sources */ = {isa = PBXBuildFile; fileRef = D8628D080000000000000008 /* CodexPermissionRuntimeGeneration.swift */; };
@@ -2918,6 +2920,7 @@ C0DE71B10000000000000002 /* AppDelegate+AgentChatNotifications.swift */ = {isa =
 		A9F100000000000000000016 /* CodexAppServerQueuedInput.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Panels/CodexAppServerQueuedInput.swift; sourceTree = "<group>"; };
 		A9E01000000000000000000E /* CodexAppServerSession.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Panels/CodexAppServerSession.swift; sourceTree = "<group>"; };
 		A9E040000000000000000001 /* CodexAppServerSessionTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CodexAppServerSessionTests.swift; sourceTree = "<group>"; };
+		D8628D1A000000000000001A /* CodexPermissionEvent.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CodexPermissionEvent.swift; sourceTree = "<group>"; };
 		D8628D0A000000000000000A /* CodexPermissionPhase.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CodexPermissionPhase.swift; sourceTree = "<group>"; };
 		D8628D080000000000000008 /* CodexPermissionRuntimeGeneration.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CodexPermissionRuntimeGeneration.swift; sourceTree = "<group>"; };
 		D8628D090000000000000009 /* CodexPermissionSignalIdentity.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CodexPermissionSignalIdentity.swift; sourceTree = "<group>"; };
@@ -6010,6 +6013,7 @@ C0DE71B10000000000000002 /* AppDelegate+AgentChatNotifications.swift */ = {isa =
 				E60610400000000000000001 /* SSHPTYAttachReconnectInputFilterPumpIO.swift */,
 				C0DECAFE0000000000000002 /* CodexTeamsApprovalBridge.swift */,
 				D8628D0A000000000000000A /* CodexPermissionPhase.swift */,
+				D8628D1A000000000000001A /* CodexPermissionEvent.swift */,
 				D8628D080000000000000008 /* CodexPermissionRuntimeGeneration.swift */,
 				D8628D090000000000000009 /* CodexPermissionSignalIdentity.swift */,
 				D8628D0B000000000000000B /* CodexPermissionState.swift */,
@@ -8584,6 +8588,7 @@ C0DE71B10000000000000002 /* AppDelegate+AgentChatNotifications.swift */ = {isa =
 				B9000033A1B2C3D4E5F60719 /* CMUXCLI+TopRendering.swift in Sources */,
 				D1FF52000000000000000001 /* CMUXCLI+TypedDiffViewer.swift in Sources */,
 				06CC2F6C1340C7424D1C7E0A /* CMUXCLI+WorkspaceTodo.swift in Sources */,
+				D8628D1B000000000000001B /* CodexPermissionEvent.swift in Sources */,
 				D8628D120000000000000012 /* CodexPermissionPhase.swift in Sources */,
 				D8628D0E000000000000000E /* CodexPermissionRuntimeGeneration.swift in Sources */,
 				D8628D100000000000000010 /* CodexPermissionSignalIdentity.swift in Sources */,
@@ -8865,6 +8870,7 @@ C0DE71B10000000000000002 /* AppDelegate+AgentChatNotifications.swift */ = {isa =
 					A6AC72080000000000000001 /* CMUXWorkspaceLoadingCLIRegressionTests.swift in Sources */,
 				AAE06C3AEC68484DA33D42A1 /* CoalesceLatestPublisherDemandTests.swift in Sources */,
 				A9E040000000000000000002 /* CodexAppServerSessionTests.swift in Sources */,
+				D8628D1C000000000000001C /* CodexPermissionEvent.swift in Sources */,
 				D8628D130000000000000013 /* CodexPermissionPhase.swift in Sources */,
 				D8628D0F000000000000000F /* CodexPermissionRuntimeGeneration.swift in Sources */,
 				D8628D110000000000000011 /* CodexPermissionSignalIdentity.swift in Sources */,
