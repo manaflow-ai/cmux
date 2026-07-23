@@ -146,23 +146,88 @@ extension CmuxExtensionWorktreeCreationResult {
                 throw rollbackRefused("Generated artifact directory contains other content.")
             }
 
-            try FileManager.default.removeItem(at: artifactURL)
-            try await CmuxExtensionWorktreePrototype.run(
-                "rmdir",
-                [artifactDirectory.path],
+            let worktreeLockPathData = try await CmuxExtensionWorktreePrototype.runCapturingOutput(
+                "git",
+                ["-C", worktreeURL.path, "rev-parse", "--git-path", "locked"],
                 failureDescription: "Could not remove the unclaimed worktree."
             )
-            try await CmuxExtensionWorktreePrototype.run(
-                "git",
-                ["-C", projectRootURL.path, "worktree", "remove", worktreeURL.path],
-                failureDescription: "Could not remove the unclaimed worktree."
-            )
-            try await CmuxExtensionWorktreePrototype.run(
-                "git",
-                ["-C", projectRootURL.path, "update-ref", "-d", branchRef, createdHead],
-                failureDescription: "Could not delete the unclaimed worktree branch."
-            )
+            let worktreeLockPath = String(decoding: worktreeLockPathData, as: UTF8.self)
+                .trimmingCharacters(in: .whitespacesAndNewlines)
+            guard !worktreeLockPath.isEmpty else {
+                throw rollbackRefused("Could not resolve the worktree lock path.")
+            }
+            let worktreeLockURL = worktreeLockPath.hasPrefix("/")
+                ? URL(fileURLWithPath: worktreeLockPath).standardizedFileURL
+                : worktreeURL.appendingPathComponent(worktreeLockPath).standardizedFileURL
+            guard !FileManager.default.fileExists(atPath: worktreeLockURL.path) else {
+                throw rollbackRefused("Worktree is locked.")
+            }
+
+            let artifactBackupURL = worktreeURL
+                .deletingLastPathComponent()
+                .appendingPathComponent(".cmux-rollback-\(UUID().uuidString)", isDirectory: false)
+            try FileManager.default.moveItem(at: artifactURL, to: artifactBackupURL)
+
+            do {
+                try await CmuxExtensionWorktreePrototype.run(
+                    "rmdir",
+                    [artifactDirectory.path],
+                    failureDescription: "Could not remove the unclaimed worktree."
+                )
+                try await CmuxExtensionWorktreePrototype.run(
+                    "git",
+                    ["-C", projectRootURL.path, "worktree", "remove", worktreeURL.path],
+                    failureDescription: "Could not remove the unclaimed worktree."
+                )
+                try await CmuxExtensionWorktreePrototype.run(
+                    "git",
+                    ["-C", projectRootURL.path, "update-ref", "-d", branchRef, createdHead],
+                    failureDescription: "Could not delete the unclaimed worktree branch."
+                )
+            } catch let cleanupError {
+                guard FileManager.default.fileExists(atPath: worktreeURL.path) else {
+                    throw rollbackRefused(
+                        "Cleanup failed after checkout removal; generated artifact retained at "
+                            + artifactBackupURL.path + ". " + cleanupError.localizedDescription
+                    )
+                }
+
+                do {
+                    try restoreGeneratedArtifact(from: artifactBackupURL, to: artifactURL)
+                } catch let restoreError {
+                    throw rollbackRefused(
+                        "Cleanup failed and generated artifact could not be restored; backup retained at "
+                            + artifactBackupURL.path + ". " + restoreError.localizedDescription
+                    )
+                }
+                throw cleanupError
+            }
+
+            try FileManager.default.removeItem(at: artifactBackupURL)
         }.value
+    }
+
+    private func restoreGeneratedArtifact(from backupURL: URL, to artifactURL: URL) throws {
+        let backupValues = try backupURL.resourceValues(forKeys: [.isRegularFileKey, .isSymbolicLinkKey])
+        guard backupValues.isRegularFile == true,
+              backupValues.isSymbolicLink != true,
+              try Data(contentsOf: backupURL) == generatedArtifactContents else {
+            throw rollbackRefused("Generated artifact backup changed before it could be restored.")
+        }
+
+        let artifactDirectory = artifactURL.deletingLastPathComponent()
+        var isDirectory: ObjCBool = false
+        if FileManager.default.fileExists(atPath: artifactDirectory.path, isDirectory: &isDirectory) {
+            guard isDirectory.boolValue else {
+                throw rollbackRefused("Generated artifact directory could not be restored.")
+            }
+        } else {
+            try FileManager.default.createDirectory(
+                at: artifactDirectory,
+                withIntermediateDirectories: false
+            )
+        }
+        try FileManager.default.moveItem(at: backupURL, to: artifactURL)
     }
 
     private func rollbackRefused(_ details: String) -> NSError {
