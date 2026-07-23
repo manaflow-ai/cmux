@@ -937,6 +937,15 @@ mod tests {
     }
 
     #[test]
+    fn request_ids_are_uuid_json_strings() {
+        const ENCODED: &str = "\"018f47a2-17d6-4c16-a8b1-7b3d5d998271\"";
+        let request: RequestId =
+            serde_json::from_str(ENCODED).expect("request ID should decode from a UUID string");
+
+        assert_eq!(serde_json::to_string(&request).unwrap(), ENCODED);
+    }
+
+    #[test]
     fn legacy_responses_and_errors_default_new_detail_fields() {
         let patch: WorkspaceResponse = serde_json::from_value(serde_json::json!({
             "type": "patch",

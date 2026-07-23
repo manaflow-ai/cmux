@@ -1237,6 +1237,218 @@ mod tests {
         );
     }
 
+    async fn assert_process_stream_open_rejected(
+        workspace: WorkspaceService,
+        scope: ClientScope,
+        metadata: BTreeMap<String, String>,
+        expected_code: &str,
+        expected_message: &str,
+    ) {
+        let (client_endpoint, daemon_endpoint) = endpoint_pair();
+        let client = ServiceMultiplexer::new(client_endpoint, EndpointRole::Client);
+        let daemon = ServiceMultiplexer::new(daemon_endpoint, EndpointRole::Daemon);
+        let client_stream =
+            client.open(Service::ProcessStream, metadata).await.expect("open process stream");
+        let incoming = daemon
+            .accept()
+            .await
+            .expect("accept process stream")
+            .expect("process stream was not delivered");
+        let handler = tokio::spawn(DaemonServices::serve_process_stream(
+            workspace,
+            scope,
+            incoming.stream,
+            incoming.metadata,
+        ));
+
+        let response =
+            tokio::time::timeout(std::time::Duration::from_secs(2), client_stream.receive())
+                .await
+                .expect("process-stream rejection timed out")
+                .expect("process-stream rejection became a transport error")
+                .expect("process stream closed without a rejection");
+        assert_eq!(response.lane, Lane::Control);
+        assert_eq!(
+            serde_json::from_slice::<ServiceControl>(&response.payload).unwrap(),
+            ServiceControl::Rejected {
+                code: expected_code.into(),
+                message: expected_message.into(),
+            }
+        );
+        handler
+            .await
+            .expect("process-stream handler panicked")
+            .expect("process-stream handler returned an error after rejecting the open");
+        client.shutdown().await;
+        daemon.shutdown().await;
+    }
+
+    #[tokio::test]
+    async fn process_stream_metadata_failure_is_rejected_before_open() {
+        assert_process_stream_open_rejected(
+            WorkspaceService::new(),
+            ClientScope::new("metadata-rejection", cmux_remote_protocol::SessionId([13; 16])),
+            BTreeMap::new(),
+            "invalid-argument",
+            "missing process",
+        )
+        .await;
+    }
+
+    #[tokio::test]
+    async fn process_stream_unknown_process_and_invalid_cursor_keep_rpc_errors() {
+        let workspace = WorkspaceService::new();
+        let scope = ClientScope::new("rpc-rejections", cmux_remote_protocol::SessionId([14; 16]));
+        let unknown = ProcessId::from_u128(0x8000_0000_0030_0000);
+        assert_process_stream_open_rejected(
+            workspace.clone(),
+            scope.clone(),
+            BTreeMap::from([("process".into(), unknown.to_string()), ("after".into(), "0".into())]),
+            "unknown-process",
+            &format!("unknown process {unknown}"),
+        )
+        .await;
+
+        let reserved = ProcessId::from_u128(0x8000_0000_0030_0001);
+        assert_process_stream_open_rejected(
+            workspace,
+            scope,
+            BTreeMap::from([
+                ("process".into(), reserved.to_string()),
+                ("after".into(), "1".into()),
+                ("reserve".into(), "true".into()),
+            ]),
+            "invalid-replay-cursor",
+            "a pre-spawn process stream must start after sequence zero",
+        )
+        .await;
+    }
+
+    #[tokio::test]
+    async fn process_stream_duplicate_reservation_is_rejected_before_open() {
+        let workspace = WorkspaceService::new();
+        let scope =
+            ClientScope::new("duplicate-reservation", cmux_remote_protocol::SessionId([15; 16]));
+        let process = ProcessId::from_u128(0x8000_0000_0030_0002);
+        workspace
+            .subscribe_or_reserve_process(&scope, process, 0, true)
+            .await
+            .expect("seed process reservation");
+
+        assert_process_stream_open_rejected(
+            workspace.clone(),
+            scope.clone(),
+            BTreeMap::from([
+                ("process".into(), process.to_string()),
+                ("after".into(), "0".into()),
+                ("reserve".into(), "true".into()),
+            ]),
+            "duplicate-process-id",
+            &format!("process handle {process} is already reserved"),
+        )
+        .await;
+        workspace.release_process_reservation(&scope, process).await;
+    }
+
+    #[tokio::test]
+    async fn process_stream_reservation_capacity_is_rejected_before_open() {
+        const RESERVATION_LIMIT: u128 = 256;
+
+        let workspace = WorkspaceService::new();
+        let scope =
+            ClientScope::new("reservation-capacity", cmux_remote_protocol::SessionId([16; 16]));
+        let base = 0x8000_0000_0040_0000;
+        for index in 0..RESERVATION_LIMIT {
+            workspace
+                .subscribe_or_reserve_process(&scope, ProcessId::from_u128(base + index), 0, true)
+                .await
+                .expect("seed process reservation capacity");
+        }
+        let rejected = ProcessId::from_u128(base + RESERVATION_LIMIT);
+        assert_process_stream_open_rejected(
+            workspace.clone(),
+            scope.clone(),
+            BTreeMap::from([
+                ("process".into(), rejected.to_string()),
+                ("after".into(), "0".into()),
+                ("reserve".into(), "true".into()),
+            ]),
+            "resource-exhausted",
+            "pending process reservation limit of 256 reached",
+        )
+        .await;
+        for index in 0..RESERVATION_LIMIT {
+            workspace.release_process_reservation(&scope, ProcessId::from_u128(base + index)).await;
+        }
+    }
+
+    #[tokio::test]
+    async fn workspace_client_preserves_process_stream_rejection_code() {
+        let (client_endpoint, daemon_endpoint) = endpoint_pair();
+        let client_multiplexer = ServiceMultiplexer::new(client_endpoint, EndpointRole::Client);
+        let daemon_multiplexer = ServiceMultiplexer::new(daemon_endpoint, EndpointRole::Daemon);
+        let daemon = daemon_multiplexer.clone();
+        let unknown = ProcessId::from_u128(0x8000_0000_0050_0000);
+        let server = tokio::spawn(async move {
+            let mut rpc_streams = Vec::new();
+            for _ in 0..5 {
+                let incoming = daemon
+                    .accept()
+                    .await
+                    .expect("accept workspace RPC stream")
+                    .expect("workspace RPC stream was not delivered");
+                assert_eq!(incoming.service, Service::WorkspaceRpc);
+                let lane = match incoming.metadata.get("lane").map(String::as_str) {
+                    Some("interactive") => Lane::Interactive,
+                    Some("bulk") => Lane::Bulk,
+                    Some("control") | None => Lane::Control,
+                    lane => panic!("unexpected workspace RPC lane {lane:?}"),
+                };
+                send_opened(&incoming.stream, lane)
+                    .await
+                    .expect("acknowledge workspace RPC stream");
+                rpc_streams.push(incoming.stream);
+            }
+
+            let incoming = daemon
+                .accept()
+                .await
+                .expect("accept process stream")
+                .expect("process stream was not delivered");
+            assert_eq!(incoming.service, Service::ProcessStream);
+            let result = DaemonServices::serve_process_stream(
+                WorkspaceService::new(),
+                ClientScope::new(
+                    "workspace-client-rejection",
+                    cmux_remote_protocol::SessionId([17; 16]),
+                ),
+                incoming.stream,
+                incoming.metadata,
+            )
+            .await;
+            drop(rpc_streams);
+            result
+        });
+
+        let client = WorkspaceClient::connect(client_multiplexer.clone())
+            .await
+            .expect("connect workspace client");
+        let error = client
+            .process_events(unknown, 0)
+            .await
+            .expect_err("unknown process stream should be rejected");
+        assert_eq!(error.code, "unknown-process");
+        assert_eq!(error.message, format!("unknown process {unknown}"));
+        server
+            .await
+            .expect("process-stream server panicked")
+            .expect("process-stream server returned an error after rejecting the open");
+
+        drop(client);
+        client_multiplexer.shutdown().await;
+        daemon_multiplexer.shutdown().await;
+    }
+
     #[tokio::test]
     async fn cancellation_rpc_codec_stays_inline_and_bounded() {
         let workspace = WorkspaceService::new();
