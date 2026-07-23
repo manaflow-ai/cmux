@@ -333,6 +333,29 @@ mod tests {
     }
 
     #[test]
+    fn enhanced_ctrl_shift_keeps_reported_layout_identity_in_kitty_forwarding() {
+        let event = EnhancedKeyEvent {
+            key_event: KeyEvent::new(
+                KeyCode::Char('\u{447}'),
+                KeyModifiers::CONTROL | KeyModifiers::SHIFT,
+            ),
+            shifted_key: Some('\u{427}'),
+            base_layout_key: Some(';'),
+            text: String::new(),
+        };
+        let input = key_input_from_enhanced(&event).unwrap();
+        let mut terminal = Terminal::new(80, 24, 0, Callbacks::default()).unwrap();
+        terminal.vt_write(b"\x1b[>29u");
+        let mut encoder = KeyEncoder::new().unwrap();
+        encoder.sync_from_terminal(&terminal);
+        let mut encoded = Vec::new();
+
+        encoder.encode(&input, &mut encoded).unwrap();
+
+        assert_eq!(encoded, b"\x1b[1095:1063:59;6u");
+    }
+
+    #[test]
     fn alt_shift_base_keys_preserve_shifted_text_for_legacy_terminals() {
         let encode = |code, shifted| {
             let event = EnhancedKeyEvent {

@@ -10677,6 +10677,52 @@ mod tests {
     }
 
     #[test]
+    fn option_generated_text_does_not_execute_a_prefixed_action() {
+        let mux = Mux::new("option-prefix-action", SurfaceOptions::default());
+        let mut app = test_app(Session::Local(mux));
+
+        app.handle_keyboard(KeyEvent::new(KeyCode::Char('b'), KeyModifiers::CONTROL).into())
+            .unwrap();
+        assert!(app.prefix_armed);
+        app.handle_keyboard(
+            EnhancedKeyEvent {
+                key_event: KeyEvent::new(KeyCode::Char('d'), KeyModifiers::ALT),
+                shifted_key: None,
+                base_layout_key: Some('d'),
+                text: "\u{2202}".to_string(),
+            }
+            .into(),
+        )
+        .unwrap();
+
+        assert!(!app.prefix_armed);
+        assert!(!app.quit);
+        assert!(app.pty_input.shutdown(Duration::from_secs(1)));
+    }
+
+    #[test]
+    fn option_generated_text_cannot_bypass_a_pending_mutation_as_detach() {
+        let mux = Mux::new("option-prefix-pending-detach", SurfaceOptions::default());
+        let mut app = test_app(Session::Local(mux));
+        app.prefix_armed = true;
+        app.session.pending_mutations.store(1, Ordering::Release);
+
+        app.handle(AppEvent::Input(Event::EnhancedKey(EnhancedKeyEvent {
+            key_event: KeyEvent::new(KeyCode::Char('d'), KeyModifiers::ALT),
+            shifted_key: None,
+            base_layout_key: Some('d'),
+            text: "\u{2202}".to_string(),
+        })))
+        .unwrap();
+
+        assert!(!app.quit);
+        assert!(app.prefix_armed);
+        assert_eq!(app.deferred_input.len(), 1);
+        app.session.pending_mutations.store(0, Ordering::Release);
+        assert!(app.pty_input.shutdown(Duration::from_secs(1)));
+    }
+
+    #[test]
     fn files_filter_inserts_complete_associated_text() {
         let temp = test_temp_dir("files-filter-associated-text");
         let mux = Mux::new("files-filter-associated-text-test", SurfaceOptions::default());
