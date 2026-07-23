@@ -313,11 +313,6 @@ func verifyAgentHookClockSamplesOnlyAfterLockAcquisition(
         }
     }
 
-    let baselineDate = Date(timeIntervalSince1970: 1_700_000_000)
-    try fileManager.setAttributes([.modificationDate: baselineDate], ofItemAtPath: clockDirectory.path)
-    let recordedBaseline = try clockDirectory.resourceValues(forKeys: [.contentModificationDateKey])
-        .contentModificationDate
-
     let process = Process()
     process.executableURL = URL(fileURLWithPath: "/bin/sh")
     process.arguments = ["-c", "\(clockShell) > \(shellQuoteForAgentHookClockTest(outputURL.path))"]
@@ -340,14 +335,9 @@ func verifyAgentHookClockSamplesOnlyAfterLockAcquisition(
     let clockReachedLock = waitForCondition(timeout: 3) {
         openProcessIDs(for: lockURL).contains { $0 != getpid() }
     }
-    #expect(clockReachedLock, "Agent hook clock never reached its shared lock")
-    let modificationDateWhileBlocked = try clockDirectory
-        .resourceValues(forKeys: [.contentModificationDateKey])
-        .contentModificationDate
-    #expect(
-        modificationDateWhileBlocked == recordedBaseline,
-        "Agent hook clock sampled filesystem time before acquiring its shared lock"
-    )
+    try #require(clockReachedLock, "Agent hook clock never reached its shared lock")
+    Thread.sleep(forTimeInterval: 0.05)
+    let unlockBoundary = Date().timeIntervalSince1970
 
     guard Darwin.lockf(lockFD, F_ULOCK, 0) == 0 else {
         throw NSError(domain: "cmux.tests.agent-hook-clock", code: Int(errno))
@@ -361,6 +351,10 @@ func verifyAgentHookClockSamplesOnlyAfterLockAcquisition(
         .trimmingCharacters(in: .whitespacesAndNewlines)
     let capturedTime = try #require(TimeInterval(rawValue))
     #expect(capturedTime.isFinite && capturedTime > 0, Comment(rawValue: rawValue))
+    #expect(
+        capturedTime >= unlockBoundary,
+        "Agent hook clock captured its timestamp before acquiring its shared lock"
+    )
 }
 
 private func agentHookCaptureClockShell(in commandBody: String) throws -> String {
