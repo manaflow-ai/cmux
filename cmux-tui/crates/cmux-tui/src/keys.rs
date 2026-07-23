@@ -62,6 +62,10 @@ impl KeyboardInput {
         self.associated_text.len()
     }
 
+    pub fn has_consumed_alt(&self) -> bool {
+        self.consumed_alt
+    }
+
     /// Active-layout logical identity first, then the PC-101 physical
     /// fallback. A reported shifted identity has already consumed Shift.
     pub fn shortcut_keys(&self) -> (KeyEvent, Option<KeyEvent>) {
@@ -295,12 +299,15 @@ fn key_input_from_parts(
             input.consumed_mods = input.consumed_mods | Mods::ALT;
             input.macos_option_as_alt = false;
         }
-    } else if let KeyCode::Char(unshifted) = event.code
-        && !input.mods.contains(Mods::CTRL)
-    {
-        input.utf8 = shifted_key.unwrap_or(unshifted).to_string();
-        if input.mods.contains(Mods::SHIFT) {
-            input.consumed_mods = input.consumed_mods | Mods::SHIFT;
+    } else if let KeyCode::Char(unshifted) = event.code {
+        let produced = shifted_key
+            .filter(|_| input.mods.contains(Mods::SHIFT))
+            .or_else(|| (!input.mods.contains(Mods::CTRL)).then_some(unshifted));
+        if let Some(produced) = produced {
+            input.utf8 = produced.to_string();
+            if input.mods.contains(Mods::SHIFT) {
+                input.consumed_mods = input.consumed_mods | Mods::SHIFT;
+            }
         }
     }
     Some(input)

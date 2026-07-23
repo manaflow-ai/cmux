@@ -5943,7 +5943,9 @@ impl App {
     }
 
     fn input_can_update_pending_mutation(&self, input: &TerminalInput) -> bool {
-        if let TerminalInput::Keyboard(input) = input {
+        if let TerminalInput::Keyboard(input) = input
+            && !input.has_consumed_alt()
+        {
             let (key, fallback) = input.shortcut_keys();
             if (binding_matches(&self.config.keys.prefix, &key, fallback.as_ref())
                 && !self.prefix_armed)
@@ -6789,7 +6791,9 @@ impl App {
             self.prefix_armed = false;
             return self.handle_prefixed(&input, binding_key, binding_fallback);
         }
-        if binding_matches(&self.config.keys.prefix, &binding_key, binding_fallback.as_ref()) {
+        if !input.has_consumed_alt()
+            && binding_matches(&self.config.keys.prefix, &binding_key, binding_fallback.as_ref())
+        {
             self.prefix_armed = true;
             return Ok(RenderAction::Draw);
         }
@@ -6814,8 +6818,12 @@ impl App {
                 return self.handle_builtin_sidebar_key(&key);
             }
         }
-        if let Some(action) =
-            modeless_action_for_binding(&self.config.keys, &binding_key, binding_fallback.as_ref())
+        if !input.has_consumed_alt()
+            && let Some(action) = modeless_action_for_binding(
+                &self.config.keys,
+                &binding_key,
+                binding_fallback.as_ref(),
+            )
         {
             if action == Action::ClearHistory && !self.active_surface_can_clear_history() {
                 self.selection = None;
@@ -7502,6 +7510,12 @@ impl App {
         binding_key: KeyEvent,
         binding_fallback: Option<KeyEvent>,
     ) -> anyhow::Result<RenderAction> {
+        if input.has_consumed_alt() {
+            if self.focus != FocusTarget::Pane {
+                self.focus = FocusTarget::Pane;
+            }
+            return Ok(RenderAction::Draw);
+        }
         // Prefix twice forwards the prefix chord literally.
         if binding_matches(&self.config.keys.prefix, &binding_key, binding_fallback.as_ref()) {
             if self.workspace_sidebar_focused() {
