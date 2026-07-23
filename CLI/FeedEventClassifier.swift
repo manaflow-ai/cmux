@@ -20,6 +20,7 @@ import Foundation
 struct FeedEventClassifier {
     static let agentStatusSignalField = "_cmux_agent_status_signal"
     static let agentStatusRevisionField = "_cmux_agent_status_revision"
+    static let agentPIDNamespaceField = "_cmux_agent_pid_namespace"
 
     /// Classifies a raw agent hook event into our wire `hook_event_name`
     /// plus an `isActionable` flag that drives whether the Feed bridge
@@ -69,6 +70,16 @@ struct FeedEventClassifier {
         event[agentStatusSignalField] = statusEvent.flatMap {
             agentStatusSignal(source: source, event: $0)
         }
+    }
+
+    /// Marks hook PIDs that belong to the remote side of a relay connection.
+    static func attachAgentPIDNamespace(
+        to event: inout [String: Any],
+        isRelayBacked: Bool
+    ) {
+        event[agentPIDNamespaceField] = isRelayBacked
+            ? AgentStatusPIDNamespace.remote.rawValue
+            : nil
     }
 
     /// Codex's cmux-owned wrapper maps only `PermissionRequest` to the

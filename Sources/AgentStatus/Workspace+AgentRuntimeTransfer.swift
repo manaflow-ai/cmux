@@ -7,11 +7,13 @@ extension Workspace {
         let pidKeys = agentPIDKeysByPanelId[panelId] ?? []
         var panelPIDs: [String: pid_t] = [:]
         var panelIdentities: [String: AgentPIDProcessIdentity] = [:]
+        var panelNamespaces: [String: AgentStatusPIDNamespace] = [:]
         var panelStatuses: [String: SidebarStatusEntry] = [:]
         for key in pidKeys {
             if let pid = agentPIDs[key] {
                 panelPIDs[key] = pid
                 panelIdentities[key] = agentPIDProcessIdentitiesByKey[key]
+                panelNamespaces[key] = agentPIDNamespacesByKey[key] ?? .local
             }
             let statusKey = agentStatusKey(forAgentPIDKey: key)
             panelStatuses[statusKey] = statusEntries[statusKey]
@@ -23,6 +25,7 @@ extension Workspace {
             agentPIDs: panelPIDs,
             agentPIDProcessIdentities: panelIdentities,
             agentPIDKeys: pidKeys,
+            agentPIDNamespaces: panelNamespaces,
             agentStatusEvidence: sidebarAgentRuntimeObservation.agentStatusLedger.evidenceForPanel(panelId),
             agentStatusResolutions: sidebarAgentRuntimeObservation.agentStatusLedger.resolutionsForPanel(panelId)
         )
@@ -58,7 +61,13 @@ extension Workspace {
         )
         var didAdoptAgentPID = false
         for (key, pid) in runtimeState.agentPIDs {
-            recordAgentPID(key: key, pid: pid, panelId: runtimeState.panelId, refreshPorts: false)
+            recordAgentPID(
+                key: key,
+                pid: pid,
+                panelId: runtimeState.panelId,
+                pidNamespace: runtimeState.agentPIDNamespaces[key] ?? .local,
+                refreshPorts: false
+            )
             if let recordedIdentity = runtimeState.agentPIDProcessIdentities[key] {
                 agentPIDProcessIdentitiesByKey[key] = recordedIdentity
             }

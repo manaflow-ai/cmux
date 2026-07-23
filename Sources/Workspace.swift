@@ -9090,7 +9090,6 @@ final class Workspace: Identifiable, ObservableObject {
         } else {
             surfaceResumeBindingsByPanelId.removeValue(forKey: detached.panelId)
         }
-        adoptDetachedAgentRuntimeState(detached.agentRuntime)
         if let markdownPanel = detached.panel as? MarkdownPanel,
            panelSubscriptions[markdownPanel.id] == nil {
             installMarkdownPanelSubscription(markdownPanel)
@@ -9135,6 +9134,7 @@ final class Workspace: Identifiable, ObservableObject {
                 )
             }
         }
+        adoptDetachedAgentRuntimeState(detached.agentRuntime)
         if let cleanupConfiguration = detached.remoteCleanupConfiguration {
             if didAdoptWorkspaceRemoteTracking {
                 transferredRemoteCleanupConfigurationsByPanelId.removeValue(forKey: detached.panelId)

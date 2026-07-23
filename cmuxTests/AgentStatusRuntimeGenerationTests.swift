@@ -157,12 +157,23 @@ struct AgentStatusRuntimeGenerationTests {
             receivedAt: now,
             extraFieldsJSON: #"{"_cmux_agent_status_signal":"needsInput"}"#
         )
+        let invalidNamespaceEvent = WorkstreamEvent(
+            sessionId: "codex-remote-session",
+            hookEventName: .permissionRequest,
+            source: "codex",
+            ppid: Int(remotePID),
+            receivedAt: now,
+            extraFieldsJSON: #"{"_cmux_agent_status_signal":"needsInput","_cmux_agent_pid_namespace":"elsewhere"}"#
+        )
 
         #expect(!workspace.clearStaleAgentPIDs(panelId: panelId, refreshPorts: false))
         #expect(workspace.agentStatusRuntimeIsCurrent(event: remoteEvent, panelId: panelId))
         #expect(!workspace.agentStatusRuntimeIsCurrent(event: localNamespaceEvent, panelId: panelId))
+        #expect(!workspace.agentStatusRuntimeIsCurrent(event: invalidNamespaceEvent, panelId: panelId))
+        #expect(AgentStatusHookEventSignal(event: invalidNamespaceEvent) == nil)
 
         let signal = try #require(AgentStatusHookEventSignal(event: remoteEvent))
+        #expect(signal.runtimePIDNamespace == .remote)
         workspace.noteAgentStatusHookSignal(signal, panelId: panelId)
         #expect(workspace.agentLifecycleStatesByPanelId[panelId]?["codex"] == .needsInput)
 
@@ -182,6 +193,14 @@ struct AgentStatusRuntimeGenerationTests {
         )
 
         #expect(!workspace.agentStatusRuntimeIsCurrent(event: remoteEvent, panelId: panelId))
+        #expect(workspace.agentStatusRuntimeIsCurrent(event: replacementEvent, panelId: panelId))
+
+        let detachedState = try #require(workspace.agentRuntimeState(forPanelId: panelId))
+        workspace.clearAllAgentPIDs(refreshPorts: false)
+        workspace.adoptDetachedAgentRuntimeState(detachedState)
+
+        #expect(workspace.agentPIDNamespacesByKey["codex.replacement-session"] == .remote)
+        #expect(!workspace.clearStaleAgentPIDs(panelId: panelId, refreshPorts: false))
         #expect(workspace.agentStatusRuntimeIsCurrent(event: replacementEvent, panelId: panelId))
     }
 

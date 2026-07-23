@@ -148,6 +148,22 @@ struct FeedEventClassificationTests {
         #expect(event[FeedEventClassifier.agentStatusSignalField] as? String == "needsInput")
     }
 
+    @Test func relayTelemetryCarriesRemotePIDNamespaceWhileLocalTelemetryOmitsIt() {
+        var remoteEvent: [String: Any] = [:]
+        var localEvent: [String: Any] = [
+            FeedEventClassifier.agentPIDNamespaceField: AgentStatusPIDNamespace.remote.rawValue
+        ]
+
+        FeedEventClassifier.attachAgentPIDNamespace(to: &remoteEvent, isRelayBacked: true)
+        FeedEventClassifier.attachAgentPIDNamespace(to: &localEvent, isRelayBacked: false)
+
+        #expect(
+            remoteEvent[FeedEventClassifier.agentPIDNamespaceField] as? String
+                == AgentStatusPIDNamespace.remote.rawValue
+        )
+        #expect(localEvent[FeedEventClassifier.agentPIDNamespaceField] == nil)
+    }
+
     @Test func codexLifecycleFeedEventsStayTelemetryAndPreserveNames() {
         for event in ["PostToolUse", "PreCompact", "PostCompact", "SubagentStart", "SubagentStop"] {
             let classification = classify("codex", event, tool: "shell")

@@ -6,12 +6,14 @@ import Foundation
 struct AgentStatusHookEventSignal: Equatable, Sendable {
     private static let statusSignalField = "_cmux_agent_status_signal"
     private static let statusRevisionField = "_cmux_agent_status_revision"
+    private static let pidNamespaceField = "_cmux_agent_pid_namespace"
 
     let statusKey: String
     let lifecycle: AgentHibernationLifecycleState
     let observedAt: Date
     let runtimePIDKey: String
     let runtimePID: Int
+    let runtimePIDNamespace: AgentStatusPIDNamespace
     let runtimeSessionID: String
     let revision: UInt64?
 
@@ -25,24 +27,43 @@ struct AgentStatusHookEventSignal: Equatable, Sendable {
         self.observedAt = event.receivedAt
         self.runtimePIDKey = runtime.pidKey
         self.runtimePID = runtime.pid
+        self.runtimePIDNamespace = runtime.pidNamespace
         self.runtimeSessionID = runtime.sessionID
         self.revision = payload.revision
     }
 
     static func runtimeBinding(
         event: WorkstreamEvent
-    ) -> (statusKey: String, pidKey: String, pid: Int, sessionID: String)? {
+    ) -> (
+        statusKey: String,
+        pidKey: String,
+        pid: Int,
+        pidNamespace: AgentStatusPIDNamespace,
+        sessionID: String
+    )? {
         let source = event.source.trimmingCharacters(in: .whitespacesAndNewlines).lowercased()
         let statusKey = FeedCoordinator.lifecycleStatusKey(forSource: source)
         guard AgentHibernationLifecycleStatusKeys.isAllowed(statusKey),
               let pid = event.ppid,
               pid > 0,
               pid_t(exactly: pid) != nil,
+              let pidNamespace = Self.pidNamespace(from: event.extraFieldsJSON),
               let sessionID = Self.sessionID(from: event.sessionId, source: source) else {
             return nil
         }
         let pidKey = "\(statusKey).\(sessionID)"
-        return (statusKey, pidKey, pid, sessionID)
+        return (statusKey, pidKey, pid, pidNamespace, sessionID)
+    }
+
+    private static func pidNamespace(from extraFieldsJSON: String?) -> AgentStatusPIDNamespace? {
+        guard let extraFieldsJSON else { return .local }
+        guard let data = extraFieldsJSON.data(using: .utf8),
+              let object = try? JSONSerialization.jsonObject(with: data) as? [String: Any] else {
+            return nil
+        }
+        guard let rawValue = object[pidNamespaceField] else { return .local }
+        guard let stringValue = rawValue as? String else { return nil }
+        return AgentStatusPIDNamespace(rawValue: stringValue)
     }
 
     private static func sessionID(from workstreamID: String, source: String) -> String? {

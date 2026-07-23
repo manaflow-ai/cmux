@@ -68,6 +68,7 @@ extension Workspace {
         let statusKey = FeedCoordinator.lifecycleStatusKey(forSource: kind.rawValue)
         let key = "\(statusKey).\(sessionId)"
         guard agentPIDKeysByPanelId[panelId]?.contains(key) == true,
+              (agentPIDNamespacesByKey[key] ?? .local) == .local,
               let pid = agentPIDs[key],
               pid > 0,
               let recordedIdentity = agentPIDProcessIdentitiesByKey[key],
@@ -141,18 +142,48 @@ extension Workspace {
     }
     @discardableResult
     func recordAgentPID(key: String, pid: pid_t, panelId: UUID?, refreshPorts: Bool = true) -> Bool {
+        let pidNamespace: AgentStatusPIDNamespace
+        if let panelId, isRemoteTerminalSurface(panelId) {
+            pidNamespace = .remote
+        } else {
+            pidNamespace = .local
+        }
+        return recordAgentPID(
+            key: key,
+            pid: pid,
+            panelId: panelId,
+            pidNamespace: pidNamespace,
+            refreshPorts: refreshPorts
+        )
+    }
+
+    @discardableResult
+    func recordAgentPID(
+        key: String,
+        pid: pid_t,
+        panelId: UUID?,
+        pidNamespace: AgentStatusPIDNamespace,
+        refreshPorts: Bool = true
+    ) -> Bool {
         let previous = (
             panelId: agentPIDPanelIdsByKey[key],
             pid: agentPIDs[key],
-            identity: agentPIDProcessIdentitiesByKey[key]
+            identity: agentPIDProcessIdentitiesByKey[key],
+            pidNamespace: agentPIDNamespacesByKey[key] ?? .local
         )
         var didClearOtherStructuredAgentRuntime = false
         if let panelId { didClearOtherStructuredAgentRuntime = clearOtherStructuredAgentRuntimes(onPanel: panelId, keeping: key) }
-        let processIdentity = Self.agentPIDProcessIdentity(pid: pid)
+        let processIdentity = pidNamespace == .local
+            ? Self.agentPIDProcessIdentity(pid: pid)
+            : nil
         agentPIDs[key] = pid
         agentPIDProcessIdentitiesByKey[key] = processIdentity
+        agentPIDNamespacesByKey[key] = pidNamespace
         if let panelId { recordAgentPIDOwnership(key: key, panelId: panelId) } else { removeAgentPIDOwnership(key: key) }
-        if previous.pid != pid || previous.panelId != panelId || previous.identity != processIdentity {
+        if previous.pid != pid ||
+            previous.panelId != panelId ||
+            previous.identity != processIdentity ||
+            previous.pidNamespace != pidNamespace {
             for changedPanelId in (previous.panelId == panelId ? [panelId] : [previous.panelId, panelId]).compactMap({ $0 }) {
                 AgentHibernationController.shared.recordAgentProcessChange(workspaceId: id, panelId: changedPanelId)
             }
@@ -205,6 +236,7 @@ extension Workspace {
     func clearAllAgentPIDs(refreshPorts: Bool = true) {
         agentPIDs.removeAll()
         agentPIDProcessIdentitiesByKey.removeAll()
+        agentPIDNamespacesByKey.removeAll()
         agentPIDPanelIdsByKey.removeAll()
         agentPIDKeysByPanelId.removeAll()
         sidebarAgentRuntimeObservation.agentStatusLedger.removeAll()
@@ -215,15 +247,6 @@ extension Workspace {
             recomputeListeningPorts()
             PortScanner.shared.unregisterAgentWorkspace(workspaceId: id)
         }
-    }
-
-    func isRecordedAgentPIDLive(key: String, pid: pid_t) -> Bool {
-        guard pid > 0,
-              let recordedIdentity = agentPIDProcessIdentitiesByKey[key],
-              let currentIdentity = Self.agentPIDProcessIdentity(pid: pid) else {
-            return false
-        }
-        return currentIdentity == recordedIdentity
     }
 
     static func agentPIDProcessIdentity(pid: pid_t) -> AgentPIDProcessIdentity? {
@@ -288,6 +311,9 @@ extension Workspace {
         if agentPIDProcessIdentitiesByKey.removeValue(forKey: key) != nil {
             didChange = true
         }
+        if agentPIDNamespacesByKey.removeValue(forKey: key) != nil {
+            didChange = true
+        }
         if ownedPanelId != nil {
             removeAgentPIDOwnership(key: key)
             didChange = true
@@ -336,7 +362,10 @@ extension Workspace {
         // Preserve the published snapshot until PortScanner reconciles the new
         // process tree; eagerly clearing here made every PID refresh flicker.
         let remainingAgentRoots = Set(agentPIDs.compactMap { key, pid -> AgentPortRootIdentity? in
-            guard pid > 0 else { return nil }
+            guard pid > 0,
+                  (agentPIDNamespacesByKey[key] ?? .local) == .local else {
+                return nil
+            }
             return AgentPortRootIdentity(
                 pid: Int(pid),
                 processIdentity: agentPIDProcessIdentitiesByKey[key]

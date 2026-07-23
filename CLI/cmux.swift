@@ -31964,6 +31964,10 @@ export default CMUXSessionRestore;
             "_source": source,
             "_ppid": agentPid,
         ]
+        FeedEventClassifier.attachAgentPIDNamespace(
+            to: &event,
+            isRelayBacked: client.isRelayBacked
+        )
         if let workspaceId = feedWorkspaceId(rawObject: parsedInput.object, fallback: workspaceId) {
             event["workspace_id"] = workspaceId
         }
@@ -34041,6 +34045,18 @@ export default CMUXSessionRestore;
             "_source": source,
             "_ppid": agentPid,
         ]
+        let pidNamespaceIsRemote: Bool
+        if let client {
+            pidNamespaceIsRemote = client.isRelayBacked
+        } else if let socketPath {
+            pidNamespaceIsRemote = SocketClient(path: socketPath).isRelayBacked
+        } else {
+            pidNamespaceIsRemote = false
+        }
+        FeedEventClassifier.attachAgentPIDNamespace(
+            to: &eventDict,
+            isRelayBacked: pidNamespaceIsRemote
+        )
         if let liveTarget {
             eventDict["workspace_id"] = liveTarget.workspaceId
             eventDict["surface_id"] = liveTarget.surfaceId

@@ -54,6 +54,7 @@ extension Workspace {
               agentStatusRuntimeIsCurrent(
                   pidKey: signal.runtimePIDKey,
                   pid: signal.runtimePID,
+                  pidNamespace: signal.runtimePIDNamespace,
                   panelId: targetPanelId
               ) else {
             return
@@ -76,6 +77,7 @@ extension Workspace {
         return agentStatusRuntimeIsCurrent(
             pidKey: runtime.pidKey,
             pid: runtime.pid,
+            pidNamespace: runtime.pidNamespace,
             panelId: panelId
         )
     }
@@ -261,9 +263,12 @@ extension Workspace {
     private func agentStatusRuntimeIsCurrent(
         pidKey: String,
         pid: Int,
+        pidNamespace: AgentStatusPIDNamespace? = nil,
         panelId: UUID
     ) -> Bool {
         guard let runtimePID = pid_t(exactly: pid) else { return false }
+        let recordedNamespace = agentPIDNamespacesByKey[pidKey] ?? .local
+        if let pidNamespace, pidNamespace != recordedNamespace { return false }
         return panels[panelId] != nil &&
             agentPIDKeysByPanelId[panelId]?.contains(pidKey) == true &&
             agentPIDs[pidKey] == runtimePID &&
@@ -286,6 +291,7 @@ extension Workspace {
         for pidKey in agentPIDKeysByPanelId[panelId] ?? [] {
             let statusKey = agentStatusKey(forAgentPIDKey: pidKey)
             guard AgentHibernationLifecycleStatusKeys.isAllowed(statusKey),
+                  (agentPIDNamespacesByKey[pidKey] ?? .local) == .local,
                   let pid = agentPIDs[pidKey],
                   pid > 0,
                   let identity = agentPIDProcessIdentitiesByKey[pidKey],
