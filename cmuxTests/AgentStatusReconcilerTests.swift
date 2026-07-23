@@ -99,6 +99,7 @@ struct AgentStatusReconcilerTests {
             lifecycle: lifecycle,
             lifecycleObservedAt: transitionAt,
             outputObservedAt: transitionAt.addingTimeInterval(activityDelay),
+            titleObservedAt: transitionAt.addingTimeInterval(activityDelay),
             foregroundAgentStatusKey: "claude_code",
             foregroundObservedAt: transitionAt.addingTimeInterval(activityDelay),
             shellActivity: .commandRunning
