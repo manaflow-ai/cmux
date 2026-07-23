@@ -194,6 +194,7 @@ type wsPTYSession struct {
 	ptyFileMu      sync.Mutex
 	closeTTYOnce   sync.Once
 	closePTYOnce   sync.Once
+	terminateOnce  sync.Once
 }
 
 type wsPTYHub struct {
@@ -1388,22 +1389,27 @@ func (session *wsPTYSession) terminateProcesses() {
 }
 
 func (session *wsPTYSession) terminateProcessesWithForegroundGroupLookup(lookup func(*os.File) int) {
-	foregroundGroup := 0
-	session.withPTYFileLocked(func(ptyFile *os.File) {
-		foregroundGroup = lookup(ptyFile)
+	// waitSessionProcess and the hub teardown paths can independently race to
+	// tear down the same PTY session. The process scan and signals must run once:
+	// after cmd.Wait returns, the leader PID can be reused by an unrelated process.
+	session.terminateOnce.Do(func() {
+		foregroundGroup := 0
+		session.withPTYFileLocked(func(ptyFile *os.File) {
+			foregroundGroup = lookup(ptyFile)
+		})
+		sessionLeader := 0
+		if session.cmd != nil && session.cmd.Process != nil {
+			sessionLeader = session.cmd.Process.Pid
+			terminatePTYSessionMembers(sessionLeader)
+		}
+		if foregroundGroup > 0 {
+			_ = syscall.Kill(-foregroundGroup, syscall.SIGKILL)
+		}
+		if sessionLeader > 0 {
+			_ = syscall.Kill(-sessionLeader, syscall.SIGKILL)
+			_ = session.cmd.Process.Kill()
+		}
 	})
-	sessionLeader := 0
-	if session.cmd != nil && session.cmd.Process != nil {
-		sessionLeader = session.cmd.Process.Pid
-		terminatePTYSessionMembers(sessionLeader)
-	}
-	if foregroundGroup > 0 {
-		_ = syscall.Kill(-foregroundGroup, syscall.SIGKILL)
-	}
-	if sessionLeader > 0 {
-		_ = syscall.Kill(-sessionLeader, syscall.SIGKILL)
-		_ = session.cmd.Process.Kill()
-	}
 }
 
 func terminatePTYSessionMembers(sessionID int) {
