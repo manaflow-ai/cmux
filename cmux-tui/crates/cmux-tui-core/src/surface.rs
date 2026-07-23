@@ -357,6 +357,9 @@ struct RenderHub {
     taps: Vec<std::sync::mpsc::Sender<RenderAttachFrame>>,
 }
 
+#[cfg(test)]
+type FrameProducerTestHook = Arc<Mutex<Option<Arc<dyn Fn() + Send + Sync>>>>;
+
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum SurfaceKind {
     Pty,
@@ -439,6 +442,8 @@ pub struct PtySurface {
     render: Mutex<RenderHub>,
     render_generation: AtomicU64,
     frame_requests: SyncSender<u64>,
+    #[cfg(test)]
+    frame_producer_before_upgrade: FrameProducerTestHook,
 }
 
 impl std::fmt::Debug for Surface {
@@ -523,6 +528,8 @@ impl Surface {
         mouse_encoders.sync_from_terminal(&term);
         let render_state = RenderState::new()?;
         let (frame_requests, frame_rx) = sync_channel(1);
+        #[cfg(test)]
+        let frame_producer_before_upgrade = Arc::new(Mutex::new(None));
         let surface = Arc::new(Surface::Pty(PtySurface {
             meta: SurfaceMeta { id, name: Mutex::new(None), selection: Mutex::new(None) },
             term: Mutex::new(term),
@@ -551,6 +558,8 @@ impl Surface {
             }),
             render_generation: AtomicU64::new(1),
             frame_requests,
+            #[cfg(test)]
+            frame_producer_before_upgrade,
         }));
 
         spawn_frame_producer(&surface, frame_rx)?;
@@ -663,6 +672,7 @@ impl Surface {
 
         let render_state = RenderState::new()?;
         let (frame_requests, _frame_rx) = sync_channel(1);
+        let frame_producer_before_upgrade = Arc::new(Mutex::new(None));
 
         Ok(Arc::new(Surface::Pty(PtySurface {
             meta: SurfaceMeta { id, name: Mutex::new(None), selection: Mutex::new(None) },
@@ -699,6 +709,7 @@ impl Surface {
             }),
             render_generation: AtomicU64::new(1),
             frame_requests,
+            frame_producer_before_upgrade,
         })))
     }
 
@@ -1452,6 +1463,12 @@ const RENDER_FRAME_CADENCE: Duration = Duration::from_millis(8);
 fn spawn_frame_producer(surface: &Arc<Surface>, requests: Receiver<u64>) -> anyhow::Result<()> {
     let weak = Arc::downgrade(surface);
     let id = surface.id;
+    #[cfg(test)]
+    let before_upgrade = surface
+        .as_pty()
+        .expect("frame producer got non-pty surface")
+        .frame_producer_before_upgrade
+        .clone();
     std::thread::Builder::new().name(format!("surface-{id}-frames")).spawn(move || {
         let mut last_frame = Instant::now() - RENDER_FRAME_CADENCE;
         while let Ok(mut requested) = requests.recv() {
@@ -1466,6 +1483,10 @@ fn spawn_frame_producer(surface: &Arc<Surface>, requests: Receiver<u64>) -> anyh
                     Err(RecvTimeoutError::Timeout) => break,
                     Err(RecvTimeoutError::Disconnected) => return,
                 }
+            }
+            #[cfg(test)]
+            if let Some(hook) = before_upgrade.lock().unwrap().clone() {
+                hook();
             }
             let Some(surface) = weak.upgrade() else { break };
             let Some(pty) = surface.as_pty() else { break };
@@ -1695,5 +1716,77 @@ mod tests {
         drop(render);
         assert!(pty.dirty.load(Ordering::Acquire));
         assert!(matches!(events.try_recv(), Ok(MuxEvent::SurfaceOutput(1))));
+    }
+
+    #[test]
+    fn pty_eof_publishes_final_render_frame_before_surface_removal() {
+        const FINAL_MARKER: &str = "CMUX_FINAL_RENDER_MARKER";
+
+        let mux = Mux::new("pty-final-render", SurfaceOptions::default());
+        let placement = mux
+            .run_command_surface(
+                vec![
+                    "/bin/sh".into(),
+                    "-c".into(),
+                    format!("IFS= read -r _; printf '{FINAL_MARKER}'"),
+                ],
+                None,
+                true,
+                None,
+                None,
+                Some((80, 24)),
+            )
+            .unwrap();
+        let surface = mux.surface(placement.surface).unwrap();
+        let attach = surface.attach_render_stream().unwrap();
+        let events = mux.subscribe();
+
+        let (entered_tx, entered_rx) = sync_channel(1);
+        let (release_tx, release_rx) = sync_channel(1);
+        let release_rx = Mutex::new(release_rx);
+        {
+            let pty = surface.as_pty().unwrap();
+            *pty.frame_producer_before_upgrade.lock().unwrap() = Some(Arc::new(move || {
+                let _ = entered_tx.try_send(());
+                let _ = release_rx.lock().unwrap().recv_timeout(Duration::from_secs(5));
+            }));
+        }
+
+        surface.write_bytes(b"go\n").unwrap();
+        drop(surface);
+        entered_rx
+            .recv_timeout(Duration::from_secs(2))
+            .expect("frame producer did not receive the final output request");
+
+        let deadline = Instant::now() + Duration::from_secs(2);
+        loop {
+            let remaining = deadline.saturating_duration_since(Instant::now());
+            match events.recv_timeout(remaining) {
+                Ok(MuxEvent::SurfaceExited(id)) if id == placement.surface => break,
+                Ok(_) => {}
+                Err(error) => panic!("surface did not exit before frame worker release: {error}"),
+            }
+        }
+        release_tx.send(()).unwrap();
+
+        let frame = attach
+            .stream
+            .recv_timeout(Duration::from_secs(2))
+            .expect("final render frame was dropped with the surface");
+        let RenderAttachFrame::Frame(frame) = frame else {
+            panic!("expected final render frame");
+        };
+        let rendered = frame
+            .frame
+            .styled_rows()
+            .iter()
+            .flat_map(|row| row.iter())
+            .map(|cell| cell.text.as_str())
+            .collect::<String>();
+        assert!(
+            rendered.contains(FINAL_MARKER),
+            "final render frame did not contain producer receipt: {rendered:?}"
+        );
+        mux.shutdown();
     }
 }
