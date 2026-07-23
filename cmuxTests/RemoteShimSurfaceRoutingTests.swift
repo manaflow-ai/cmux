@@ -136,4 +136,20 @@ struct RemoteShimSurfaceRoutingTests {
         #expect(ws.remotePTYSessionIDsByPanelId[panelId] == newSessionID)
         #expect(ws.activeRemoteTerminalSurfaceIds.contains(panelId))
     }
+
+    /// A respawn that receives the same session ID the pane already tracks is a
+    /// no-op: the session must not be torn down and then immediately re-registered
+    /// (which would kill a session that is being reattached after a reconnect).
+    @Test func respawnBookkeepingWithSameSessionIDIsNoOp() throws {
+        let ws = try makeRemoteWorkspaceWithTrackedPanel()
+        let panelId = try #require(ws.activeRemoteTerminalSurfaceIds.first)
+        let sessionID = "shim-same-\(ws.id.uuidString)-\(panelId.uuidString)-\(UUID().uuidString)"
+        ws.remotePTYSessionIDsByPanelId[panelId] = sessionID
+
+        let endedSessionID = ws.applyRemoteShimRespawnBookkeeping(panelId: panelId, sessionID: sessionID)
+
+        #expect(endedSessionID == nil)
+        #expect(ws.remotePTYSessionIDsByPanelId[panelId] == sessionID)
+        #expect(ws.activeRemoteTerminalSurfaceIds.contains(panelId))
+    }
 }
