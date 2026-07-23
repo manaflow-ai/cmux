@@ -138,6 +138,7 @@ struct ComputerUseUXTests {
                     surfaceID: olderSurfaceID,
                     rootProcessIdentities: [],
                     targetIdentity: nil,
+                    targetAppName: nil,
                     stateWriterIdentity: nil
                 ),
                 ComputerUseMenuBarRow(
@@ -148,6 +149,7 @@ struct ComputerUseUXTests {
                     surfaceID: newerSurfaceID,
                     rootProcessIdentities: [],
                     targetIdentity: nil,
+                    targetAppName: nil,
                     stateWriterIdentity: nil
                 ),
             ]
@@ -579,9 +581,25 @@ struct ComputerUseUXTests {
         #expect(paths.stateDirectoryURL.path.hasSuffix(
             "/Library/Application Support/cmux/computer-use/runtime/\(paths.scope)/state"
         ))
+        #expect(
+            paths.permissionDatabaseDirectoryURL.path
+                == "/Users/tester/Library/Application Support/com.apple.TCC"
+        )
         #expect(paths.installedHelperAppURL.path.hasSuffix(
             "/Library/Application Support/cmux/computer-use/helper/\(paths.scope)/cmux Computer Use.app"
         ))
+    }
+
+    @Test func onlyExactSurfaceDerivedDriverSessionsAreManaged() {
+        let surfaceID = UUID()
+        #expect(ComputerUseSessionScope.isManagedDriverSessionID(
+            ComputerUseSessionScope.driverSessionID(surfaceID: surfaceID)
+        ))
+        #expect(!ComputerUseSessionScope.isManagedDriverSessionID(
+            "cmux-\(surfaceID.uuidString)-mcp-1"
+        ))
+        #expect(!ComputerUseSessionScope.isManagedDriverSessionID("default"))
+        #expect(!ComputerUseSessionScope.isManagedDriverSessionID("cmux-not-a-uuid"))
     }
 
     @Test func helperTerminationRecoveryIgnoresIntentionalAndForeignExits() {

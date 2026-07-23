@@ -188,6 +188,24 @@ final class ComputerUseUXCoordinator {
                     logicalSessionID: logicalSessionID,
                     stateWriterIdentity: stateWriterIdentity
                 )
+            },
+            onStopComputerUse: {
+                driverSessionID,
+                logicalSessionID,
+                stateWriterIdentity in
+                guard watchTarget.canControlSession(
+                    driverSessionID: driverSessionID,
+                    logicalSessionID: logicalSessionID,
+                    stateWriterIdentity: stateWriterIdentity
+                ) else {
+                    return
+                }
+                Task { @MainActor [runtimeService = self.runtimeService] in
+                    _ = await runtimeService.endDriverSession(driverSessionID)
+                }
+            },
+            computerUseIcon: { [runtimeService = self.runtimeService] in
+                runtimeService.presentationIcon
             }
         )
 

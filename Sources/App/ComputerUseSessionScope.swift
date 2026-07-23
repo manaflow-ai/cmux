@@ -9,6 +9,11 @@ struct ComputerUseSessionScope: Sendable {
         "cmux-\(surfaceID.uuidString)"
     }
 
+    static func isManagedDriverSessionID(_ candidate: String) -> Bool {
+        guard candidate.hasPrefix("cmux-") else { return false }
+        return UUID(uuidString: String(candidate.dropFirst("cmux-".count))) != nil
+    }
+
     func matches(driverSessionID candidate: String?) -> Bool {
         guard let candidate else { return false }
         return candidate == driverSessionID

@@ -1,6 +1,6 @@
 import CoreGraphics
 
-/// Computes stable onboarding placement beside the System Settings window.
+/// Computes stable onboarding placement inside the System Settings window.
 struct ComputerUseOnboardingWindowPlacement: Sendable {
     let gap: CGFloat
     let screenInset: CGFloat
@@ -28,31 +28,12 @@ struct ComputerUseOnboardingWindowPlacement: Sendable {
 
     func frame(onboardingSize: CGSize, beside target: CGRect, in visibleFrame: CGRect) -> CGRect {
         let availableFrame = visibleFrame.insetBy(dx: screenInset, dy: screenInset)
-        let leftOriginX = target.minX - gap - onboardingSize.width
-        let rightOriginX = target.maxX + gap
-        let leftFits = leftOriginX >= availableFrame.minX
-        let rightFits = rightOriginX + onboardingSize.width <= availableFrame.maxX
-        let leftSpace = target.minX - availableFrame.minX
-        let rightSpace = availableFrame.maxX - target.maxX
-
-        let preferredOriginX: CGFloat
-        if leftFits, !rightFits {
-            preferredOriginX = leftOriginX
-        } else if rightFits, !leftFits {
-            preferredOriginX = rightOriginX
-        } else if leftSpace >= rightSpace {
-            preferredOriginX = leftOriginX
-        } else {
-            preferredOriginX = rightOriginX
-        }
-
+        let preferredOriginX = target.maxX - gap - onboardingSize.width
+        let preferredOriginY = target.minY + gap
         let maximumOriginX = max(availableFrame.minX, availableFrame.maxX - onboardingSize.width)
         let maximumOriginY = max(availableFrame.minY, availableFrame.maxY - onboardingSize.height)
         let originX = min(max(preferredOriginX, availableFrame.minX), maximumOriginX)
-        let originY = min(
-            max(target.maxY - onboardingSize.height, availableFrame.minY),
-            maximumOriginY
-        )
+        let originY = min(max(preferredOriginY, availableFrame.minY), maximumOriginY)
         return CGRect(origin: CGPoint(x: originX, y: originY), size: onboardingSize)
     }
 }

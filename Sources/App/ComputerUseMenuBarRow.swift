@@ -9,10 +9,12 @@ struct ComputerUseMenuBarRow: Equatable, Identifiable, Sendable {
     let surfaceID: UUID
     let rootProcessIdentities: Set<AgentPIDProcessIdentity>
     let targetIdentity: ComputerUseTargetIdentity?
+    let targetAppName: String?
     let stateWriterIdentity: AgentPIDProcessIdentity?
 
     func withTarget(
         identity: ComputerUseTargetIdentity?,
+        targetAppName: String?,
         stateWriterIdentity: AgentPIDProcessIdentity?
     ) -> ComputerUseMenuBarRow {
         ComputerUseMenuBarRow(
@@ -23,6 +25,7 @@ struct ComputerUseMenuBarRow: Equatable, Identifiable, Sendable {
             surfaceID: surfaceID,
             rootProcessIdentities: rootProcessIdentities,
             targetIdentity: identity,
+            targetAppName: targetAppName,
             stateWriterIdentity: stateWriterIdentity
         )
     }

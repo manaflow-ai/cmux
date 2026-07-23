@@ -16,6 +16,7 @@ struct ComputerUseRuntimePaths: Sendable {
     let daemonSocketURL: URL
     let authenticationTokenFileURL: URL
     let stateDirectoryURL: URL
+    let permissionDatabaseDirectoryURL: URL
     let installedHelperDirectoryURL: URL
     let installedHelperAppURL: URL
 
@@ -58,6 +59,11 @@ struct ComputerUseRuntimePaths: Sendable {
             .appendingPathComponent("runtime", isDirectory: true)
             .appendingPathComponent(scope, isDirectory: true)
             .appendingPathComponent("state", isDirectory: true)
+        permissionDatabaseDirectoryURL = homeDirectoryURL
+            .appendingPathComponent(
+                "Library/Application Support/com.apple.TCC",
+                isDirectory: true
+            )
         installedHelperDirectoryURL = computerUseDirectoryURL
             .appendingPathComponent("helper", isDirectory: true)
             .appendingPathComponent(scope, isDirectory: true)

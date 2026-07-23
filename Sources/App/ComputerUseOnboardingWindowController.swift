@@ -1,5 +1,15 @@
 import AppKit
+import Combine
 import SwiftUI
+
+@MainActor
+final class ComputerUseOnboardingPresentationState: ObservableObject {
+    @Published private(set) var returnToOverviewGeneration = 0
+
+    func requestReturnToOverview() {
+        returnToOverviewGeneration &+= 1
+    }
+}
 
 /// Presents a fresh nonmodal computer-use onboarding window for each run.
 @MainActor
@@ -19,8 +29,8 @@ final class ComputerUseOnboardingWindowController: NSObject, NSWindowDelegate {
     }
 
     static let seenDefaultsKey = "cmux.computerUse.onboarding.seen"
-    private static let expandedWindowSize = NSSize(width: 596, height: 435)
-    private static let permissionCompanionWindowSize = NSSize(width: 680, height: 250)
+    private static let expandedWindowSize = NSSize(width: 600, height: 440)
+    private static let permissionCompanionWindowSize = NSSize(width: 532, height: 110)
     private static let systemSettingsBundleIdentifier = "com.apple.systempreferences"
 
     private var window: ComputerUseOnboardingWindow?
@@ -28,7 +38,9 @@ final class ComputerUseOnboardingWindowController: NSObject, NSWindowDelegate {
     private let permissionWindowPlacement = ComputerUseOnboardingWindowPlacement()
     private var systemSettingsActivationTask: Task<Void, Never>?
     private var systemSettingsPlacementRetryTask: Task<Void, Never>?
+    private var systemSettingsTrackingTask: Task<Void, Never>?
     private var pendingPlacementRequestID: UUID?
+    private var presentationState: ComputerUseOnboardingPresentationState?
 
     init(runtimeService: ComputerUseRuntimeService) {
         self.runtimeService = runtimeService
@@ -68,8 +80,11 @@ final class ComputerUseOnboardingWindowController: NSObject, NSWindowDelegate {
     }
 
     func makeWindow(startingAt startingPoint: StartingPoint = .overview) -> ComputerUseOnboardingWindow {
+        let presentationState = ComputerUseOnboardingPresentationState()
+        self.presentationState = presentationState
         let rootView = ComputerUseOnboardingView(
             runtimeService: runtimeService,
+            presentationState: presentationState,
             initialStep: startingPoint.step,
             onSystemSettingsOpened: { [weak self] in
                 self?.showPermissionCompanion()
@@ -92,7 +107,7 @@ final class ComputerUseOnboardingWindowController: NSObject, NSWindowDelegate {
         window.contentView = ComputerUseOnboardingHostingView(rootView: rootView)
         configure(
             window,
-            windowSize: Self.expandedWindowSize,
+            frame: NSRect(origin: window.frame.origin, size: Self.expandedWindowSize),
             showsStandardButtons: true
         )
         window.center()
@@ -101,11 +116,6 @@ final class ComputerUseOnboardingWindowController: NSObject, NSWindowDelegate {
 
     private func showPermissionCompanion() {
         guard let window else { return }
-        configure(
-            window,
-            windowSize: Self.permissionCompanionWindowSize,
-            showsStandardButtons: false
-        )
         permissionSettingsWillOpen()
         window.orderFrontRegardless()
     }
@@ -130,6 +140,8 @@ final class ComputerUseOnboardingWindowController: NSObject, NSWindowDelegate {
         systemSettingsActivationTask = nil
         systemSettingsPlacementRetryTask?.cancel()
         systemSettingsPlacementRetryTask = nil
+        systemSettingsTrackingTask?.cancel()
+        systemSettingsTrackingTask = nil
         pendingPlacementRequestID = nil
     }
 
@@ -147,9 +159,25 @@ final class ComputerUseOnboardingWindowController: NSObject, NSWindowDelegate {
     private func permissionSettingsWillOpen() {
         systemSettingsPlacementRetryTask?.cancel()
         systemSettingsPlacementRetryTask = nil
-        pendingPlacementRequestID = UUID()
-        // This is provisional; activation retries against the post-request window frame.
-        _ = positionBesideSystemSettingsIfNeeded()
+        let requestID = UUID()
+        pendingPlacementRequestID = requestID
+        if positionInsideSystemSettingsIfNeeded(animate: true) {
+            pendingPlacementRequestID = nil
+            beginSystemSettingsTracking()
+            return
+        }
+        guard let window else { return }
+        let provisionalFrame = NSRect(
+            origin: window.frame.origin,
+            size: Self.permissionCompanionWindowSize
+        )
+        configure(
+            window,
+            frame: provisionalFrame,
+            showsStandardButtons: false,
+            animate: shouldAnimate(window)
+        )
+        beginSystemSettingsPlacementRetry(requestID: requestID)
     }
 
     private func systemSettingsDidActivate() {
@@ -157,6 +185,10 @@ final class ComputerUseOnboardingWindowController: NSObject, NSWindowDelegate {
         guard NSWorkspace.shared.frontmostApplication?.bundleIdentifier
             == Self.systemSettingsBundleIdentifier
         else { return }
+        beginSystemSettingsPlacementRetry(requestID: requestID)
+    }
+
+    private func beginSystemSettingsPlacementRetry(requestID: UUID) {
         guard systemSettingsPlacementRetryTask == nil else { return }
         systemSettingsPlacementRetryTask = Task { @MainActor [weak self] in
             guard let self else { return }
@@ -170,11 +202,10 @@ final class ComputerUseOnboardingWindowController: NSObject, NSWindowDelegate {
             let deadline = clock.now.advanced(by: .seconds(3))
             while !Task.isCancelled,
                   pendingPlacementRequestID == requestID,
-                  clock.now < deadline,
-                  NSWorkspace.shared.frontmostApplication?.bundleIdentifier
-                    == Self.systemSettingsBundleIdentifier
+                  clock.now < deadline
             {
-                if positionBesideSystemSettingsIfNeeded() {
+                if positionInsideSystemSettingsIfNeeded(animate: true) {
+                    beginSystemSettingsTracking()
                     return
                 }
                 do {
@@ -188,7 +219,7 @@ final class ComputerUseOnboardingWindowController: NSObject, NSWindowDelegate {
     }
 
     @discardableResult
-    private func positionBesideSystemSettingsIfNeeded() -> Bool {
+    private func positionInsideSystemSettingsIfNeeded(animate: Bool) -> Bool {
         guard let window, let systemSettingsFrame = systemSettingsWindowFrame() else { return false }
         let visibleFrames = NSScreen.screens.map(\.visibleFrame)
         guard let permissionDisplay = permissionWindowPlacement.visibleFrame(
@@ -197,12 +228,51 @@ final class ComputerUseOnboardingWindowController: NSObject, NSWindowDelegate {
         ) else { return false }
 
         let frame = permissionWindowPlacement.frame(
-            onboardingSize: window.frame.size,
+            onboardingSize: Self.permissionCompanionWindowSize,
             beside: systemSettingsFrame,
             in: permissionDisplay
         )
-        window.setFrame(frame, display: true, animate: false)
+        guard window.frame != frame else { return true }
+        configure(
+            window,
+            frame: frame,
+            showsStandardButtons: false,
+            animate: animate && shouldAnimate(window)
+        )
         return true
+    }
+
+    private func beginSystemSettingsTracking() {
+        systemSettingsTrackingTask?.cancel()
+        systemSettingsTrackingTask = Task { @MainActor [weak self] in
+            guard let self else { return }
+            let clock = ContinuousClock()
+            // Let AppKit finish the initial native frame interpolation before
+            // switching to cheap steady-state placement checks.
+            do {
+                try await clock.sleep(for: .milliseconds(400))
+            } catch {
+                return
+            }
+            var consecutiveMissingWindowChecks = 0
+            while !Task.isCancelled {
+                if positionInsideSystemSettingsIfNeeded(animate: false) {
+                    consecutiveMissingWindowChecks = 0
+                } else {
+                    consecutiveMissingWindowChecks += 1
+                    if consecutiveMissingWindowChecks >= 3 {
+                        presentationState?.requestReturnToOverview()
+                        showExpandedOnboarding()
+                        return
+                    }
+                }
+                do {
+                    try await clock.sleep(for: .milliseconds(150))
+                } catch {
+                    return
+                }
+            }
+        }
     }
 
     private func systemSettingsWindowFrame() -> CGRect? {
@@ -246,32 +316,53 @@ final class ComputerUseOnboardingWindowController: NSObject, NSWindowDelegate {
 
     private func showExpandedOnboarding() {
         guard let window else { return }
+        systemSettingsPlacementRetryTask?.cancel()
+        systemSettingsPlacementRetryTask = nil
+        systemSettingsTrackingTask?.cancel()
+        systemSettingsTrackingTask = nil
+        pendingPlacementRequestID = nil
+        let visibleFrame = window.screen?.visibleFrame
+            ?? NSScreen.main?.visibleFrame
+            ?? window.frame
+        let expandedFrame = NSRect(
+            x: visibleFrame.midX - Self.expandedWindowSize.width / 2,
+            y: visibleFrame.midY - Self.expandedWindowSize.height / 2,
+            width: Self.expandedWindowSize.width,
+            height: Self.expandedWindowSize.height
+        )
         configure(
             window,
-            windowSize: Self.expandedWindowSize,
-            showsStandardButtons: true
+            frame: expandedFrame,
+            showsStandardButtons: true,
+            animate: shouldAnimate(window)
         )
-        window.center()
         NSApp.activate(ignoringOtherApps: true)
         window.makeKeyAndOrderFront(nil)
     }
 
     private func configure(
         _ window: ComputerUseOnboardingWindow,
-        windowSize: NSSize,
-        showsStandardButtons: Bool
+        frame: NSRect,
+        showsStandardButtons: Bool,
+        animate: Bool = false
     ) {
-        window.minSize = windowSize
-        window.maxSize = windowSize
         window.setAppKitOwnedFrame(
-            NSRect(origin: window.frame.origin, size: windowSize),
-            display: window.isVisible
+            frame,
+            display: window.isVisible,
+            animate: animate
         )
+        window.minSize = frame.size
+        window.maxSize = frame.size
         for buttonType in [NSWindow.ButtonType.closeButton, .miniaturizeButton, .zoomButton] {
             let button = window.standardWindowButton(buttonType)
             button?.isHidden = !showsStandardButtons
             button?.isEnabled = showsStandardButtons && buttonType == .closeButton
         }
+    }
+
+    private func shouldAnimate(_ window: NSWindow) -> Bool {
+        window.isVisible
+            && !NSWorkspace.shared.accessibilityDisplayShouldReduceMotion
     }
 
 }

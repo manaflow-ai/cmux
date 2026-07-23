@@ -138,15 +138,11 @@ final class HostSettingsActions: SettingsHostActions {
     }
 
     func openComputerUseAccessibilitySettings() {
-        Task { @MainActor [computerUseRuntimeService] in
-            _ = await computerUseRuntimeService.openAccessibilitySettings()
-        }
+        runComputerUseOnboardingAction(.accessibility)
     }
 
     func openComputerUseScreenRecordingSettings() {
-        Task { @MainActor [computerUseRuntimeService] in
-            _ = await computerUseRuntimeService.openScreenRecordingSettings()
-        }
+        runComputerUseOnboardingAction(.screenRecording)
     }
 
     func setRunComputerUseOnboardingAction(

@@ -92,6 +92,18 @@ final class ComputerUseRuntimeService {
         cachedStatus.isKnown
     }
 
+    /// Emits coalesced filesystem changes from the user's TCC database.
+    ///
+    /// The event is only a refresh trigger; the helper remains the sole
+    /// authority for whether either permission is actually granted.
+    nonisolated func permissionStatusEvents() -> AsyncStream<Void> {
+        let directoryURL = paths.permissionDatabaseDirectoryURL
+        return Self.mergedFileSystemEvents(at: [
+            directoryURL,
+            directoryURL.appendingPathComponent("TCC.db"),
+        ], fallbackInterval: .milliseconds(500))
+    }
+
     /// Reconciles the helper daemon with the live `computerUse.enabled` setting.
     func setEnabled(_ newValue: Bool) async {
         guard acceptsNewLaunches, !Task.isCancelled else { return }
@@ -145,14 +157,6 @@ final class ComputerUseRuntimeService {
         }
     }
 
-    func requestAccessibility() async -> ComputerUsePermissionRequestOutcome {
-        await requestSystemPermission(named: "accessibility")
-    }
-
-    func requestScreenRecording() async -> ComputerUsePermissionRequestOutcome {
-        await requestSystemPermission(named: "screen_recording")
-    }
-
     func revealHelperInFinder() {
         Task { @MainActor [weak self] in
             guard let self, let url = await ensureStandaloneHelperInstalled() else { return }
@@ -172,47 +176,45 @@ final class ComputerUseRuntimeService {
         )
     }
 
+    /// Ends one exact cmux-managed driver session through the authenticated
+    /// helper that owns its state and cursor.
+    func endDriverSession(_ driverSessionID: String) async -> Bool {
+        guard ComputerUseSessionScope.isManagedDriverSessionID(driverSessionID)
+        else {
+            return false
+        }
+        return await serializeHelperLifecycle(cancelledResult: false) { [weak self] in
+            guard
+                let self,
+                self.desiredEnabled,
+                self.acceptsNewLaunches,
+                let expectedPeerIdentity = self.runningHelperProcessIdentity,
+                AgentPIDProcessIdentity(pid: expectedPeerIdentity.pid)
+                    == expectedPeerIdentity
+            else {
+                return false
+            }
+            guard let response = await Self.sendDaemonRequest(
+                [
+                    "method": "call",
+                    "name": "end_session",
+                    "args": ["session": driverSessionID],
+                ],
+                paths: self.paths,
+                transport: self.transport,
+                timeout: 3,
+                expectedPeerIdentity: expectedPeerIdentity
+            ) else {
+                return false
+            }
+            return response["ok"] as? Bool == true
+        }
+    }
+
     private func startIfNeeded() async {
         await serializeHelperLifecycle(cancelledResult: ()) { [weak self] in
             guard let self else { return }
             await self.startIfNeededWithinLifecycle()
-        }
-    }
-
-    /// Asks the independently attributed helper to raise one native TCC request.
-    ///
-    /// This host-only daemon method is separate from the MCP tool registry, so an
-    /// agent cannot bypass onboarding with `check_permissions { prompt: true }`.
-    private func requestSystemPermission(
-        named name: String
-    ) async -> ComputerUsePermissionRequestOutcome {
-        guard acceptsNewLaunches, !Task.isCancelled else { return .rejected }
-        return await serializeHelperLifecycle(
-            cancelledResult: ComputerUsePermissionRequestOutcome.unknown
-        ) { [weak self] in
-            guard let self else { return .rejected }
-            await self.startIfNeededWithinLifecycle()
-            guard self.acceptsNewLaunches, !Task.isCancelled else {
-                return .rejected
-            }
-            guard let response = await Self.sendDaemonRequest(
-                [
-                    "method": "request_system_permission",
-                    "name": name,
-                ],
-                paths: self.paths,
-                transport: self.transport,
-                timeout: 5
-            ) else {
-                // A side-effecting request can reach the helper even when its
-                // response times out. Treat transport ambiguity as pending so
-                // onboarding never opens Settings over a live native prompt.
-                return .unknown
-            }
-            guard let accepted = response["ok"] as? Bool else {
-                return .unknown
-            }
-            return accepted ? .accepted : .rejected
         }
     }
 
@@ -1089,7 +1091,7 @@ final class ComputerUseRuntimeService {
     }
 
     nonisolated private static func directoryEvents(at directoryURL: URL) -> AsyncStream<Void> {
-        AsyncStream { continuation in
+        AsyncStream(bufferingPolicy: .bufferingNewest(1)) { continuation in
             let descriptor = Darwin.open(directoryURL.path, O_EVTONLY)
             guard descriptor >= 0 else {
                 continuation.finish()
@@ -1098,7 +1100,7 @@ final class ComputerUseRuntimeService {
             // DispatchSource is the system's only event-driven directory watcher.
             let source = DispatchSource.makeFileSystemObjectSource(
                 fileDescriptor: descriptor,
-                eventMask: [.write, .delete, .rename],
+                eventMask: [.write, .extend, .attrib, .link, .delete, .rename],
                 queue: .global(qos: .userInitiated)
             )
             source.setEventHandler {
@@ -1112,6 +1114,47 @@ final class ComputerUseRuntimeService {
                 source.cancel()
             }
             source.resume()
+        }
+    }
+
+    nonisolated private static func mergedFileSystemEvents(
+        at urls: [URL],
+        fallbackInterval: Duration
+    ) -> AsyncStream<Void> {
+        AsyncStream(bufferingPolicy: .bufferingNewest(1)) { continuation in
+            let observationTask = Task.detached(priority: .utility) {
+                await withTaskGroup(of: Void.self) { group in
+                    for url in urls {
+                        group.addTask {
+                            for await _ in directoryEvents(at: url) {
+                                guard !Task.isCancelled else { return }
+                                continuation.yield()
+                            }
+                        }
+                    }
+                    group.addTask {
+                        let clock = ContinuousClock()
+                        while !Task.isCancelled {
+                            do {
+                                try await clock.sleep(for: fallbackInterval)
+                            } catch {
+                                return
+                            }
+                            guard !Task.isCancelled else { return }
+                            // Some macOS releases deny or coalesce filesystem
+                            // observation of the user's TCC database. Keep one
+                            // bounded passive status probe as a fallback so a
+                            // real toggle is still observed promptly.
+                            continuation.yield()
+                        }
+                    }
+                    await group.waitForAll()
+                }
+                continuation.finish()
+            }
+            continuation.onTermination = { _ in
+                observationTask.cancel()
+            }
         }
     }
 }

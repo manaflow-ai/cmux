@@ -220,6 +220,7 @@ final class ComputerUseMenuBarSnapshotStore: ObservableObject {
                 }
                 return row.withTarget(
                     identity: identity,
+                    targetAppName: state.targetApp,
                     stateWriterIdentity: state.writerProcessIdentity
                 )
             }
@@ -273,6 +274,7 @@ final class ComputerUseMenuBarSnapshotStore: ObservableObject {
                 surfaceID: pair.panelKey.panelId,
                 rootProcessIdentities: liveSession.rootProcessIdentities,
                 targetIdentity: nil,
+                targetAppName: nil,
                 stateWriterIdentity: nil
             )
         }

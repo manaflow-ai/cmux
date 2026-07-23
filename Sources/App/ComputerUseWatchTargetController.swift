@@ -334,6 +334,24 @@ final class ComputerUseWatchTargetController {
         logicalSessionID: String,
         stateWriterIdentity: AgentPIDProcessIdentity
     ) -> Bool {
+        guard canControlSession(
+            driverSessionID: driverSessionID,
+            logicalSessionID: logicalSessionID,
+            stateWriterIdentity: stateWriterIdentity
+        ) else {
+            return false
+        }
+        backgroundDriverSessionIDs.insert(driverSessionID)
+        return true
+    }
+
+    /// Revalidates a menu action against the exact current live agent process
+    /// tree before it can mutate the corresponding helper session.
+    func canControlSession(
+        driverSessionID: String,
+        logicalSessionID: String,
+        stateWriterIdentity: AgentPIDProcessIdentity
+    ) -> Bool {
         guard
             let liveSession = revalidatedLiveSession(
                 driverSessionID: driverSessionID,
@@ -346,7 +364,6 @@ final class ComputerUseWatchTargetController {
         else {
             return false
         }
-        backgroundDriverSessionIDs.insert(driverSessionID)
         return true
     }
 

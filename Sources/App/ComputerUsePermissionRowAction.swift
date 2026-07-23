@@ -2,16 +2,15 @@
 enum ComputerUsePermissionRowAction: Equatable, Sendable {
     case allow
     case checkStatus
-    case completeInSystemSettings
     case done
 
     static func resolve(
         granted: Bool,
         statusIsKnown: Bool,
-        nativeRequestAttempted: Bool
+        nativeRequestAttempted _: Bool
     ) -> Self {
-        guard statusIsKnown else { return .checkStatus }
+        guard statusIsKnown else { return granted ? .checkStatus : .allow }
         if granted { return .done }
-        return nativeRequestAttempted ? .completeInSystemSettings : .allow
+        return .allow
     }
 }

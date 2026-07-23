@@ -16,12 +16,16 @@ final class ComputerUseMenuBarController: NSObject, NSMenuDelegate {
         (ComputerUseTargetIdentity, String, String, AgentPIDProcessIdentity) -> Bool
     private let onViewComputerUse:
         (ComputerUseTargetIdentity, String, String, AgentPIDProcessIdentity) -> Bool
+    private let onStopComputerUse:
+        (String, String, AgentPIDProcessIdentity) -> Void
+    private let computerUseIcon: () -> NSImage?
     private var snapshotCancellable: AnyCancellable?
     private var currentSnapshot = ComputerUseMenuBarSnapshot.hidden
     private var hasRenderedSnapshot = false
     private var isMenuOpen = false
     private var backgroundActions: [ObjectIdentifier: () -> Void] = [:]
     private var viewActions: [ObjectIdentifier: () -> Void] = [:]
+    private var stopActions: [ObjectIdentifier: () -> Void] = [:]
 
     init(
         snapshotStore: ComputerUseMenuBarSnapshotStore,
@@ -31,29 +35,26 @@ final class ComputerUseMenuBarController: NSObject, NSMenuDelegate {
         canViewComputerUse:
             @escaping (ComputerUseTargetIdentity, String, String, AgentPIDProcessIdentity) -> Bool,
         onViewComputerUse:
-            @escaping (ComputerUseTargetIdentity, String, String, AgentPIDProcessIdentity) -> Bool
+            @escaping (ComputerUseTargetIdentity, String, String, AgentPIDProcessIdentity) -> Bool,
+        onStopComputerUse:
+            @escaping (String, String, AgentPIDProcessIdentity) -> Void,
+        computerUseIcon: @escaping () -> NSImage?
     ) {
         self.snapshotStore = snapshotStore
         self.isRunningInBackground = isRunningInBackground
         self.onContinueInBackground = onContinueInBackground
         self.canViewComputerUse = canViewComputerUse
         self.onViewComputerUse = onViewComputerUse
+        self.onStopComputerUse = onStopComputerUse
+        self.computerUseIcon = computerUseIcon
         statusItem = NSStatusBar.system.statusItem(withLength: NSStatusItem.variableLength)
         super.init()
 
         menu.autoenablesItems = false
         menu.delegate = self
         statusItem.menu = menu
-        if let button = statusItem.button {
-            let image = NSImage(
-                systemSymbolName: "cursorarrow.motionlines",
-                accessibilityDescription: String(localized: "computerUse.menu.title", defaultValue: "cmux Computer Use")
-            )
-            image?.isTemplate = true
-            button.image = image
-            button.imagePosition = .imageOnly
-            button.imageScaling = .scaleProportionallyDown
-        }
+        statusItem.button?.imagePosition = .imageOnly
+        statusItem.button?.imageScaling = .scaleProportionallyDown
         updateStatusItemAccessibility()
 
         snapshotCancellable = snapshotStore.$snapshot
@@ -88,6 +89,7 @@ final class ComputerUseMenuBarController: NSObject, NSMenuDelegate {
         currentSnapshot = snapshot
         hasRenderedSnapshot = true
         statusItem.isVisible = snapshot.shouldShowStatusItem
+        updateStatusItemImage()
         updateStatusItemAccessibility()
 
         // State files can update several times per second. The menu only needs
@@ -102,6 +104,7 @@ final class ComputerUseMenuBarController: NSObject, NSMenuDelegate {
         menu.removeAllItems()
         backgroundActions.removeAll(keepingCapacity: true)
         viewActions.removeAll(keepingCapacity: true)
+        stopActions.removeAll(keepingCapacity: true)
 
         guard let row = rows.first else {
             let item = NSMenuItem(
@@ -190,10 +193,88 @@ final class ComputerUseMenuBarController: NSObject, NSMenuDelegate {
             backgroundItem.isEnabled = false
         }
         menu.addItem(backgroundItem)
+
+        menu.addItem(NSMenuItem.separator())
+        let targetAppName = row.targetAppName
+            ?? String(localized: "computerUse.menu.unknownTarget", defaultValue: "App")
+        let stopTitle = String(
+            localized: "computerUse.menu.stopUsing",
+            defaultValue: "Stop Using \(targetAppName)"
+        )
+        let stopItem = NSMenuItem(
+            title: stopTitle,
+            action: #selector(stopComputerUseAction(_:)),
+            keyEquivalent: ""
+        )
+        stopItem.target = self
+        stopItem.image = NSImage(
+            systemSymbolName: "stop.circle",
+            accessibilityDescription: stopTitle
+        )
+        if let stateWriterIdentity = row.stateWriterIdentity {
+            stopActions[ObjectIdentifier(stopItem)] = { [onStopComputerUse] in
+                onStopComputerUse(
+                    driverSessionID,
+                    row.id,
+                    stateWriterIdentity
+                )
+            }
+        } else {
+            stopItem.isEnabled = false
+        }
+        menu.addItem(stopItem)
+    }
+
+    private func updateStatusItemImage() {
+        guard
+            let row = currentSnapshot.rows.first,
+            let identity = row.targetIdentity,
+            let pid = pid_t(exactly: identity.processIdentifier),
+            let application = NSRunningApplication(processIdentifier: pid),
+            identity.matches(application),
+            let targetIcon = application.icon,
+            let helperIcon = computerUseIcon()
+        else {
+            let image = NSImage(
+                systemSymbolName: "cursorarrow.motionlines",
+                accessibilityDescription: String(
+                    localized: "computerUse.menu.title",
+                    defaultValue: "cmux Computer Use"
+                )
+            )
+            image?.isTemplate = true
+            statusItem.button?.image = image
+            statusItem.length = NSStatusItem.variableLength
+            return
+        }
+
+        let image = NSImage(
+            size: NSSize(width: 42, height: 18),
+            flipped: false
+        ) { _ in
+            NSGraphicsContext.current?.imageInterpolation = .high
+            targetIcon.draw(
+                in: NSRect(x: 0, y: 0, width: 18, height: 18),
+                from: .zero,
+                operation: .sourceOver,
+                fraction: 1
+            )
+            helperIcon.draw(
+                in: NSRect(x: 24, y: 0, width: 18, height: 18),
+                from: .zero,
+                operation: .sourceOver,
+                fraction: 1
+            )
+            return true
+        }
+        image.isTemplate = false
+        statusItem.button?.image = image
+        statusItem.length = 54
     }
 
     private func updateStatusItemAccessibility() {
-        let activeSession = currentSnapshot.rows.first.map {
+        let activeRow = currentSnapshot.rows.first
+        let activeSession = activeRow.map {
             (
                 driverSessionID: ComputerUseSessionScope.driverSessionID(
                     surfaceID: $0.surfaceID
@@ -201,7 +282,7 @@ final class ComputerUseMenuBarController: NSObject, NSMenuDelegate {
                 logicalSessionID: $0.id
             )
         }
-        let label = activeSession.map {
+        let modeLabel = activeSession.map {
             isRunningInBackground(
                 $0.driverSessionID,
                 $0.logicalSessionID
@@ -212,6 +293,12 @@ final class ComputerUseMenuBarController: NSObject, NSMenuDelegate {
                 defaultValue: "cmux Computer Use — Running in Background"
             )
             : String(localized: "computerUse.menu.title", defaultValue: "cmux Computer Use")
+        let label = activeRow?.targetAppName.map { targetName in
+            String(
+                localized: "computerUse.menu.statusWithTarget",
+                defaultValue: "\(modeLabel) — \(targetName)"
+            )
+        } ?? modeLabel
         statusItem.button?.toolTip = label
         statusItem.button?.setAccessibilityLabel(label)
     }
@@ -224,5 +311,9 @@ final class ComputerUseMenuBarController: NSObject, NSMenuDelegate {
     @objc private func viewComputerUseAction(_ sender: NSMenuItem) {
         viewActions[ObjectIdentifier(sender)]?()
         updateStatusItemAccessibility()
+    }
+
+    @objc private func stopComputerUseAction(_ sender: NSMenuItem) {
+        stopActions[ObjectIdentifier(sender)]?()
     }
 }

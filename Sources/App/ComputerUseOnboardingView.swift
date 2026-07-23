@@ -3,14 +3,15 @@ import SwiftUI
 
 /// Two-card onboarding for the standalone local computer-use helper.
 ///
-/// Permissions belong to `cmux Computer Use`, which raises the native TCC
-/// requests itself. A file-URL drag companion remains available as a recovery
-/// path whenever a native request has not resulted in a completed grant.
+/// Permissions belong to `cmux Computer Use`. Each Allow action opens the
+/// matching System Settings pane and presents the installed helper as a
+/// Finder-compatible drag source.
 @MainActor
 struct ComputerUseOnboardingView: View {
     static let initialStep = ComputerUseOnboardingStep.overview
 
     let runtimeService: ComputerUseRuntimeService
+    @ObservedObject var presentationState: ComputerUseOnboardingPresentationState
     let initialStep: ComputerUseOnboardingStep
     let onSystemSettingsOpened: @MainActor () -> Void
     let onExpandedRequested: @MainActor () -> Void
@@ -27,16 +28,17 @@ struct ComputerUseOnboardingView: View {
     @State private var isPermissionCompanionVisible: Bool
     @State private var initialPermissionFlowStarted = false
     @State private var permissionSetupInFlight = false
-    @State private var nativePermissionRequestsAttempted: Set<ComputerUseOnboardingStep> = []
 
     init(
         runtimeService: ComputerUseRuntimeService,
+        presentationState: ComputerUseOnboardingPresentationState,
         initialStep: ComputerUseOnboardingStep = .overview,
         onSystemSettingsOpened: @escaping @MainActor () -> Void = {},
         onExpandedRequested: @escaping @MainActor () -> Void = {},
         onCompleted: @escaping @MainActor () -> Void = {}
     ) {
         self.runtimeService = runtimeService
+        self.presentationState = presentationState
         self.initialStep = initialStep
         self.onSystemSettingsOpened = onSystemSettingsOpened
         self.onExpandedRequested = onExpandedRequested
@@ -65,6 +67,20 @@ struct ComputerUseOnboardingView: View {
             guard permissionCheckArmed else { return }
             permissionCheckArmed = false
             refreshPermissions()
+        }
+        .onChange(of: presentationState.returnToOverviewGeneration) {
+            guard isPermissionCompanionVisible else { return }
+            isPermissionCompanionVisible = false
+            step = .overview
+            refreshPermissions()
+        }
+        .task(id: isPermissionCompanionVisible) {
+            guard isPermissionCompanionVisible else { return }
+            await refreshPermissionsNow()
+            for await _ in runtimeService.permissionStatusEvents() {
+                guard !Task.isCancelled, isPermissionCompanionVisible else { return }
+                await refreshPermissionsNow()
+            }
         }
     }
 
@@ -143,14 +159,14 @@ struct ComputerUseOnboardingView: View {
 
                 Spacer(minLength: 35)
             }
-            .padding(.horizontal, 38)
+            .padding(.horizontal, 40)
 
             ComputerUseWindowDragRegion()
                 .frame(maxWidth: .infinity)
                 .frame(height: 46)
                 .accessibilityHidden(true)
         }
-        .frame(width: 596, height: 435)
+        .frame(width: 600, height: 440)
     }
 
     private var helperHeroIcon: some View {
@@ -290,7 +306,7 @@ struct ComputerUseOnboardingView: View {
         let action = ComputerUsePermissionRowAction.resolve(
             granted: granted,
             statusIsKnown: permissionStatusIsKnown,
-            nativeRequestAttempted: nativePermissionRequestsAttempted.contains(permissionStep)
+            nativeRequestAttempted: false
         )
         if action == .done {
             HStack(spacing: 7) {
@@ -308,33 +324,15 @@ struct ComputerUseOnboardingView: View {
                         ProgressView()
                             .controlSize(.small)
                             .tint(.white)
-                    } else if action == .checkStatus {
-                        Text(String(
-                            localized: "computerUse.onboarding.checkAgain",
-                            defaultValue: "Check Again"
-                        ))
-                        .font(.system(size: 11, weight: .semibold))
-                    } else if action == .completeInSystemSettings {
-                        Text(String(
-                            localized: "computerUse.onboarding.completeInSystemSettings.short",
-                            defaultValue: "Complete in System Settings"
-                        ))
-                        .font(.system(size: 11, weight: .semibold))
                     } else {
                         Text(String(localized: "computerUse.onboarding.allow", defaultValue: "Allow"))
                             .font(.system(size: 14, weight: .medium))
                     }
                 }
-                .frame(
-                    width: action == .completeInSystemSettings ? 157
-                        : action == .checkStatus ? 92 : 57,
-                    height: 24
-                )
+                .frame(width: 57, height: 24)
                 .foregroundStyle(.white)
                 .background(
-                    action == .completeInSystemSettings || action == .checkStatus
-                        ? Color.white.opacity(0.12)
-                        : Color.accentColor,
+                    Color.accentColor,
                     in: Capsule()
                 )
             }
@@ -348,36 +346,34 @@ struct ComputerUseOnboardingView: View {
     }
 
     private var permissionCompanion: some View {
-        ZStack(alignment: .bottomLeading) {
-            VStack(spacing: 0) {
-                HStack(alignment: .center, spacing: 18) {
-                    Image(systemName: "arrow.up")
-                        .font(.system(size: 46, weight: .bold))
-                        .foregroundStyle(.tint)
-                        .accessibilityHidden(true)
-                    Text(permissionCompanionInstruction)
-                        .font(.system(size: 19, weight: .bold))
-                        .lineSpacing(2)
-                        .fixedSize(horizontal: false, vertical: true)
-                    Spacer(minLength: 0)
-                }
-                .frame(maxWidth: .infinity, alignment: .leading)
-                .padding(.horizontal, 34)
-                .padding(.top, 24)
-
-                helperDragTile
-                    .padding(.top, 20)
-
-                Spacer(minLength: 44)
+        ZStack(alignment: .topLeading) {
+            ZStack {
+                Image(systemName: "arrow.up")
+                    .font(.system(size: 34, weight: .black))
+                    .foregroundStyle(.white)
+                Image(systemName: "arrow.up")
+                    .font(.system(size: 28, weight: .black))
+                    .foregroundStyle(Color.accentColor)
             }
+            .frame(width: 32, height: 34)
+            .offset(x: 65, y: 5)
+            .accessibilityHidden(true)
+
+            Text(permissionCompanionInstruction)
+                .font(.system(size: 19, weight: .semibold))
+                .lineLimit(1)
+                .minimumScaleFactor(0.72)
+                .frame(width: 418, height: 34, alignment: .leading)
+                .offset(x: 103, y: 6)
 
             Button {
                 isPermissionCompanionVisible = false
                 onExpandedRequested()
+                refreshPermissions()
             } label: {
                 Image(systemName: "chevron.left")
-                    .font(.system(size: 11, weight: .semibold))
-                    .frame(width: 28, height: 28)
+                    .font(.system(size: 13, weight: .semibold))
+                    .frame(width: 29, height: 29)
                     .background(Color.white.opacity(0.09), in: Circle())
                     .overlay {
                         Circle().strokeBorder(Color.white.opacity(0.09), lineWidth: 1)
@@ -387,25 +383,27 @@ struct ComputerUseOnboardingView: View {
             .contentShape(Circle())
             .help(String(localized: "computerUse.onboarding.back", defaultValue: "Back"))
             .accessibilityLabel(String(localized: "computerUse.onboarding.back", defaultValue: "Back"))
-            .padding(.leading, 20)
-            .padding(.bottom, 17)
+            .offset(x: 18, y: 55)
+
+            helperDragTile
+                .offset(x: 62, y: 48)
         }
-        .frame(width: 680, height: 250)
+        .frame(width: 532, height: 110)
     }
 
     /// A file-URL drag source accepted by the macOS permission lists.
     private var helperDragTile: some View {
-        HStack(spacing: 13) {
+        HStack(spacing: 8) {
             Group {
                 if let helperIcon {
                     Image(nsImage: helperIcon)
                         .resizable()
                         .interpolation(.high)
-                        .frame(width: 46, height: 46)
+                        .frame(width: 26, height: 26)
                 } else {
                     Image(systemName: "app.dashed")
-                        .font(.system(size: 30))
-                        .frame(width: 46, height: 46)
+                        .font(.system(size: 19))
+                        .frame(width: 26, height: 26)
                 }
             }
             .accessibilityHidden(true)
@@ -414,15 +412,15 @@ struct ComputerUseOnboardingView: View {
                 .font(.system(size: 14, weight: .semibold))
                 .lineLimit(1)
         }
-        .padding(.horizontal, 13)
-        .frame(width: 282, height: 70, alignment: .leading)
-        .background(permissionCardBackground, in: RoundedRectangle(cornerRadius: 17, style: .continuous))
+        .padding(.horizontal, 8)
+        .frame(width: 459, height: 42, alignment: .leading)
+        .background(permissionCardBackground, in: RoundedRectangle(cornerRadius: 9, style: .continuous))
         .overlay {
-            RoundedRectangle(cornerRadius: 17, style: .continuous)
+            RoundedRectangle(cornerRadius: 9, style: .continuous)
                 .strokeBorder(Color.white.opacity(0.12), lineWidth: 1)
         }
-        .shadow(color: .black.opacity(0.2), radius: 4, y: 2)
-        .contentShape(RoundedRectangle(cornerRadius: 17, style: .continuous))
+        .shadow(color: .black.opacity(0.2), radius: 2, y: 1)
+        .contentShape(RoundedRectangle(cornerRadius: 9, style: .continuous))
         .overlay {
             ComputerUseAppDragSource(
                 helperAppURL: helperAppURL,
@@ -453,18 +451,23 @@ struct ComputerUseOnboardingView: View {
     }
 
     private func refreshPermissions() {
+        Task { @MainActor in
+            await refreshPermissionsNow()
+        }
+    }
+
+    private func refreshPermissionsNow() async {
         guard !refreshInFlight else { return }
         refreshInFlight = true
-        Task { @MainActor in
-            defer { refreshInFlight = false }
-            let status = await runtimeService.refreshHelperStatus()
-            refreshHelperPresentation()
-            applyPermissions(
-                statusIsKnown: runtimeService.permissionStatusIsKnown,
-                accessibilityGranted: status.accessibility,
-                screenRecordingGranted: status.screenRecording
-            )
-        }
+        defer { refreshInFlight = false }
+        let status = await runtimeService.refreshHelperStatus()
+        guard !Task.isCancelled else { return }
+        refreshHelperPresentation()
+        applyPermissions(
+            statusIsKnown: runtimeService.permissionStatusIsKnown,
+            accessibilityGranted: status.accessibility,
+            screenRecordingGranted: status.screenRecording
+        )
     }
 
     private func handleHelperDragEnded(operation: NSDragOperation) {
@@ -484,7 +487,6 @@ struct ComputerUseOnboardingView: View {
 
             guard initialStep != Self.initialStep, !initialPermissionFlowStarted else { return }
             initialPermissionFlowStarted = true
-            guard permissionStatusIsKnown else { return }
 
             if initialStep == .accessibility, !status.accessibility {
                 beginPermissionSetup(for: .accessibility)
@@ -502,67 +504,36 @@ struct ComputerUseOnboardingView: View {
             return
         }
 
-        let action = ComputerUsePermissionRowAction.resolve(
-            granted: permissionStep == .accessibility
-                ? accessibilityGranted
-                : screenRecordingGranted,
-            statusIsKnown: permissionStatusIsKnown,
-            nativeRequestAttempted: nativePermissionRequestsAttempted.contains(permissionStep)
-        )
-        if action == .completeInSystemSettings {
-            presentPermissionCompanion(for: permissionStep)
-            return
-        }
-        guard action == .allow || action == .checkStatus else { return }
+        let granted = permissionStep == .accessibility
+            ? accessibilityGranted
+            : screenRecordingGranted
+        guard !permissionStatusIsKnown || !granted else { return }
 
         step = permissionStep
         permissionSetupInFlight = true
         permissionCheckArmed = true
         Task { @MainActor in
             defer { permissionSetupInFlight = false }
-            let requestOutcome = if permissionStep == .accessibility {
-                await runtimeService.requestAccessibility()
-            } else {
-                await runtimeService.requestScreenRecording()
-            }
-            nativePermissionRequestsAttempted.insert(permissionStep)
-
-            switch requestOutcome {
-            case .accepted, .unknown:
-                // The daemon acknowledges before invoking TCC, so the response
-                // is not prompt completion, and a transport timeout does not
-                // prove that the side effect failed. Observe status for a
-                // real app-activation or explicit Check Again event and never
-                // open System Settings over a potentially live native prompt.
-                // The row becomes "Complete in System Settings" for an explicit
-                // recovery action if the native request does not complete.
-                return
-            case .rejected:
-                // An explicit daemon rejection is the only response that proves
-                // no native prompt is pending, so automatic recovery is safe.
-                presentPermissionCompanion(for: permissionStep)
-            }
+            _ = await runtimeService.ensureStandaloneHelperInstalled()
+            refreshHelperPresentation()
+            guard helperAppURL != nil else { return }
+            await presentPermissionCompanion(for: permissionStep)
         }
     }
 
-    private func presentPermissionCompanion(for permissionStep: ComputerUseOnboardingStep) {
+    private func presentPermissionCompanion(
+        for permissionStep: ComputerUseOnboardingStep
+    ) async {
         step = permissionStep
         permissionCheckArmed = true
-        isPermissionCompanionVisible = true
-        openPermissionSettings(for: permissionStep)
-    }
-
-    private func openPermissionSettings(for permissionStep: ComputerUseOnboardingStep) {
-        guard permissionStep == .accessibility || permissionStep == .screenRecording else { return }
-        permissionCheckArmed = true
-        onSystemSettingsOpened()
-        Task { @MainActor in
-            if permissionStep == .accessibility {
-                _ = await runtimeService.openAccessibilitySettings()
-            } else {
-                _ = await runtimeService.openScreenRecordingSettings()
-            }
+        if permissionStep == .accessibility {
+            _ = await runtimeService.openAccessibilitySettings()
+        } else {
+            _ = await runtimeService.openScreenRecordingSettings()
         }
+        guard !Task.isCancelled else { return }
+        isPermissionCompanionVisible = true
+        onSystemSettingsOpened()
     }
 
     private func refreshHelperPresentation() {

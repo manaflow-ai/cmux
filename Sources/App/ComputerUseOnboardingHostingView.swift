@@ -67,9 +67,13 @@ final class ComputerUseOnboardingWindow: NSWindow {
     }
 
     /// Applies one of the controller's fixed onboarding frames.
-    func setAppKitOwnedFrame(_ frameRect: NSRect, display flag: Bool) {
+    func setAppKitOwnedFrame(
+        _ frameRect: NSRect,
+        display flag: Bool,
+        animate: Bool = false
+    ) {
         appKitOwnedSize = frameRect.size
-        super.setFrame(frameRect, display: flag)
+        super.setFrame(frameRect, display: flag, animate: animate)
     }
 
     /// Origin-only moves remain available for centering and permission-window
