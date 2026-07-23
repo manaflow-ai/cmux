@@ -235,23 +235,11 @@ class PiCmuxCommandDispatcher {
   }
 
   private terminalResultSummary(result: unknown): unknown {
-    if (result === null || typeof result === "boolean" || typeof result === "number") return result;
-    if (typeof result === "string") {
-      return { kind: "text", length: result.length, preview: result.slice(0, 1024), truncated: result.length > 1024 };
-    }
-    try {
-      const serialized = JSON.stringify(result);
-      if (typeof serialized === "string") {
-        return {
-          kind: Array.isArray(result) ? "array" : typeof result,
-          length: serialized.length,
-          preview: serialized.slice(0, 1024),
-          truncated: serialized.length > 1024,
-        };
-      }
-    } catch (_) {
-      return { kind: typeof result, unavailable: true };
-    }
+    if (result === null) return { kind: "null" };
+    if (typeof result === "string") return { kind: "text", length: result.length };
+    if (typeof result === "boolean" || typeof result === "number") return { kind: typeof result };
+    if (Array.isArray(result)) return { kind: "array", count: result.length };
+    if (typeof result === "object") return { kind: "object", key_count: Object.keys(result).length };
     return { kind: typeof result };
   }
 
