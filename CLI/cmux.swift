@@ -24453,6 +24453,11 @@ struct CMUXCLI {
                 category: notifyCategory,
                 hasPendingAgentWork: notifyPending || (mappedSession?.activePromptDepth ?? 0) > 0
             )
+            let notificationLifecycle: AgentHibernationLifecycleState? = switch notificationStatus?.status {
+            case .idle?: .idle
+            case .needsInput?: .needsInput
+            case .error?, nil: nil
+            }
 
             if let claudePid {
                 try? registerClaudeRuntimePID(
@@ -24482,17 +24487,17 @@ struct CMUXCLI {
                     surfaceId: surfaceId,
                     cwd: parsedInput.cwd,
                     transcriptPath: parsedInput.transcriptPath,
-                    agentLifecycle: notificationStatus?.lifecycle,
+                    agentLifecycle: notificationLifecycle,
                     lastSubtitle: summary.subtitle,
                     lastBody: summary.body
                 )
             }
 
-            if let notificationStatus {
+            if let notificationStatus, let notificationLifecycle {
                 setAgentLifecycle(
                     client: client,
                     key: Self.claudeCodeStatusKey,
-                    lifecycle: notificationStatus.lifecycle,
+                    lifecycle: notificationLifecycle,
                     workspaceId: workspaceId,
                     surfaceId: surfaceId
                 )

@@ -123,11 +123,11 @@ struct AgentHookNotificationPolicyTests {
         #expect(AgentHookNotificationPolicy.claudeStatusProjection(
             category: .idleReminder,
             hasPendingAgentWork: false
-        )?.lifecycle == .idle)
+        )?.status == .idle)
         #expect(AgentHookNotificationPolicy.claudeStatusProjection(
             category: .needsPermission,
             hasPendingAgentWork: true
-        )?.lifecycle == .needsInput)
+        )?.status == .needsInput)
         #expect(AgentHookNotificationPolicy.claudeStatusProjection(
             category: .idleReminder,
             hasPendingAgentWork: true

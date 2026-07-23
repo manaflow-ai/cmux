@@ -195,11 +195,11 @@ enum AgentHookNotificationPolicy {
     static func claudeStatusProjection(
         category: AgentHookNotifyCategory,
         hasPendingAgentWork: Bool
-    ) -> (lifecycle: AgentHibernationLifecycleState, value: String, icon: String, color: String)? {
+    ) -> (status: AgentHookNotificationStatus, value: String, icon: String, color: String)? {
         switch category {
         case .needsPermission:
             return (
-                .needsInput,
+                status: .needsInput,
                 String(localized: "feed.status.needsInput", defaultValue: "Needs input"),
                 "bell.fill",
                 "#4C8DFF"
@@ -207,7 +207,7 @@ enum AgentHookNotificationPolicy {
         case .idleReminder, .turnComplete:
             guard !hasPendingAgentWork else { return nil }
             return (
-                .idle,
+                status: .idle,
                 String(localized: "agent.generic.notification.status.idle", defaultValue: "Idle"),
                 "pause.circle.fill",
                 "#8E8E93"
