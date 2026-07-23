@@ -62,12 +62,29 @@ struct ArtifactGitPrivacyTests {
         defer { ArtifactTestSupport.remove(root) }
         let repository = LocalArtifactRepository()
         _ = try await repository.snapshot(projectRoot: root)
+        let context = ArtifactCaptureContext(
+            projectRoot: root,
+            workspaceID: "workspace",
+            sessionID: "session"
+        )
+        let resolver = ArtifactPathResolver()
+        let artifactDirectory = resolver.contentDirectory(
+            paths: ArtifactStorePaths(projectRoot: root),
+            context: context,
+            kind: .artifacts
+        )
+        let artifactRelativePath = try #require(
+            resolver.relativePath(artifactDirectory, root: root)
+        )
+        let sessionRelativePath = try #require(
+            resolver.relativePath(artifactDirectory.deletingLastPathComponent(), root: root)
+        )
         try """
         !/.cmux/
-        !/.cmux/session-session/
-        !/.cmux/session-session/artifacts/
-        /.cmux/session-session/artifacts/**
-        !/.cmux/session-session/artifacts/*.json
+        !/\(sessionRelativePath)/
+        !/\(artifactRelativePath)/
+        /\(artifactRelativePath)/**
+        !/\(artifactRelativePath)/*.json
 
         """.write(
             to: root.appendingPathComponent(".gitignore"),
@@ -80,7 +97,7 @@ struct ArtifactGitPrivacyTests {
         ]) == 0)
         #expect(try runGit([
             "-C", root.path, "check-ignore", "--quiet", "--",
-            ".cmux/session-session/artifacts/secret.json",
+            "\(artifactRelativePath)/secret.json",
         ]) == 1)
         let source = try ArtifactTestSupport.write(
             "secret",
@@ -90,11 +107,7 @@ struct ArtifactGitPrivacyTests {
 
         let outcomes = await ArtifactCaptureService(store: repository).capture(
             candidates: [ArtifactCandidate(sourceURL: source, provenance: .created)],
-            context: ArtifactCaptureContext(
-                projectRoot: root,
-                workspaceID: "workspace",
-                sessionID: "session"
-            )
+            context: context
         )
 
         #expect(outcomes.first == .skipped(.gitPrivacyUnavailable))

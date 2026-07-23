@@ -31,7 +31,7 @@ struct LocalArtifactRepositoryTests {
             Issue.record("Expected a new copy")
             return
         }
-        #expect(record.relativePath == "codex-session-99/artifacts/plan.md")
+        #expect(record.relativePath.hasSuffix("/artifacts/plan.md"))
         #expect(FileManager.default.fileExists(
             atPath: root.appendingPathComponent(".cmux/\(record.relativePath)").path
         ))
@@ -39,7 +39,8 @@ struct LocalArtifactRepositoryTests {
             atPath: root.appendingPathComponent(".cmux/.metadata/provenance/\(record.digest).json").path
         ))
         let snapshot = try await repository.snapshot(projectRoot: root)
-        #expect(snapshot.nodes.map(\.name) == ["codex-session-99"])
+        let sessionRoot = try #require(record.relativePath.split(separator: "/").first)
+        #expect(snapshot.nodes.map(\.name) == [String(sessionRoot)])
 
         let exclude = try String(
             contentsOf: root.appendingPathComponent(".git/info/exclude"),

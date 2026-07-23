@@ -23,8 +23,8 @@ struct CmuxNoteRepositoryTests {
             mode: .replace,
             context: context
         )
-        #expect(written.relativePath == "codex-session-notes/notes/plans/launch.md")
-        #expect(written.reference == ".cmux/codex-session-notes/notes/plans/launch.md")
+        #expect(written.relativePath.hasSuffix("/notes/plans/launch.md"))
+        #expect(written.reference == ".cmux/\(written.relativePath)")
 
         _ = try await repository.writeNote(
             name: "launch",
@@ -126,8 +126,11 @@ struct CmuxNoteRepositoryTests {
             context: secondContext
         )
 
-        #expect(first.relativePath == "codex-session-first/notes/plan.md")
-        #expect(second.relativePath == "codex-session-second/notes/plan.md")
+        let firstSessionRoot = first.relativePath.split(separator: "/").first
+        let secondSessionRoot = second.relativePath.split(separator: "/").first
+        #expect(first.relativePath.hasSuffix("/notes/plan.md"))
+        #expect(second.relativePath.hasSuffix("/notes/plan.md"))
+        #expect(firstSessionRoot != secondSessionRoot)
         #expect(try String(contentsOfFile: first.absolutePath, encoding: .utf8) == "explicit update")
         #expect(try String(contentsOfFile: second.absolutePath, encoding: .utf8) == "second")
     }

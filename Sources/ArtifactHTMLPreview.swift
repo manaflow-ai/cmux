@@ -50,6 +50,10 @@ enum BrowserPanelContentMode {
         guard case .artifactHTMLPreview(let documentURL) = self else { return nil }
         return documentURL
     }
+
+    var allowsSessionPersistence: Bool {
+        artifactDocumentURL == nil
+    }
 }
 
 @MainActor
