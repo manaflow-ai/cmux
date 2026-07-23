@@ -549,15 +549,14 @@ impl ClientConnection {
                             last: error.to_string(),
                         });
                     }
-                    if let Some(source) = &self.reconnect_groups {
-                        if let Some(next) = resolve_reconnect_group(
+                    if let Some(source) = &self.reconnect_groups
+                        && let Some(next) = resolve_reconnect_group(
                             source.as_ref(),
                             self.config.reconnect.attempt_timeout,
                         )
                         .await
-                        {
-                            group = next;
-                        }
+                    {
+                        group = next;
                     }
                     tokio::time::sleep(jittered_delay(delay, self.config.reconnect.full_jitter))
                         .await;
