@@ -12786,6 +12786,17 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
         return true
     }
 
+    /// Titles identifying close-confirmation alerts. Static so the per-keystroke
+    /// shortcut monitor does not rebuild six localized strings on every key.
+    private static let closeConfirmationDialogTitles: [String] = [
+        String(localized: "dialog.closeWorkspace.title", defaultValue: "Close workspace?"),
+        String(localized: "dialog.closeWorkspaces.title", defaultValue: "Close workspaces?"),
+        String(localized: "dialog.closeTab.title", defaultValue: "Close tab?"),
+        String(localized: "dialog.closeOtherTabs.title", defaultValue: "Close other tabs?"),
+        String(localized: "dialog.closePane.title", defaultValue: "Close pane?"),
+        String(localized: "dialog.closeWindow.title", defaultValue: "Close window?"),
+    ]
+
     private func handleCustomShortcut(event: NSEvent) -> Bool {
         guard event.type == .keyDown else {
             clearConfiguredShortcutChordState()
@@ -12843,22 +12854,22 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
 
         // Don't steal shortcuts from close-confirmation alerts. Keep standard alert key
         // equivalents working and avoid surprising actions while the confirmation is up.
-        let closeConfirmationTitles = [
-            String(localized: "dialog.closeWorkspace.title", defaultValue: "Close workspace?"),
-            String(localized: "dialog.closeWorkspaces.title", defaultValue: "Close workspaces?"),
-            String(localized: "dialog.closeTab.title", defaultValue: "Close tab?"),
-            String(localized: "dialog.closeOtherTabs.title", defaultValue: "Close other tabs?"),
-            String(localized: "dialog.closePane.title", defaultValue: "Close pane?"),
-            String(localized: "dialog.closeWindow.title", defaultValue: "Close window?"),
-        ]
-        let closeConfirmationPanel = NSApp.windows
-            .compactMap { $0 as? NSPanel }
-            .first { panel in
-                guard panel.isVisible, let root = panel.contentView else { return false }
-                return closeConfirmationTitles.contains { title in
-                    findStaticText(in: root, equals: title)
+        // Scan only when an alert can actually receive this key (app-modal window, key
+        // panel, or a sheet on the routing key window): the title scan walks every
+        // visible panel's view hierarchy, which is per-keystroke cost otherwise.
+        let alertCouldReceiveKey = NSApp.modalWindow != nil
+            || NSApp.keyWindow is NSPanel
+            || shortcutRoutingKeyWindow?.attachedSheet != nil
+        let closeConfirmationPanel: NSPanel? = alertCouldReceiveKey
+            ? NSApp.windows
+                .compactMap { $0 as? NSPanel }
+                .first { panel in
+                    guard panel.isVisible, let root = panel.contentView else { return false }
+                    return Self.closeConfirmationDialogTitles.contains { title in
+                        findStaticText(in: root, equals: title)
+                    }
                 }
-            }
+            : nil
         if let closeConfirmationPanel {
             // Special-case: Cmd+D should confirm destructive close on alerts.
             // XCUITest key events often hit the app-level local monitor first, so forward the key
