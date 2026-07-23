@@ -49,7 +49,7 @@ extension CMUXCLI {
         fallbackWorkspaceId: String?,
         client: SocketClient
     ) throws -> Bool {
-        let target = try resolveStrictPiHookTarget(commandArgs: commandArgs, client: client)
+        let target = try resolvePiFeedClaim(commandArgs: commandArgs, client: client)
         let request = PiCompactedFeedEventExpander(
             agentPid: agentPid,
             workspaceId: target?.workspaceId ?? fallbackWorkspaceId,
@@ -64,6 +64,32 @@ extension CMUXCLI {
         )
         try validatePiFeedAcknowledgment(response, expectedItemCount: request.eventCount)
         return true
+    }
+
+    /// Preserves exact Pi Feed claims for authoritative acceptance by the app.
+    ///
+    /// UUID claims need no preliminary socket request. Legacy numeric and handle
+    /// references still resolve here because the Feed protocol carries UUIDs.
+    func resolvePiFeedClaim(
+        commandArgs: [String],
+        client: SocketClient
+    ) throws -> (workspaceId: String?, surfaceId: String)? {
+        let rawSurface = optionValue(commandArgs, name: "--surface")
+            ?? ProcessInfo.processInfo.environment["CMUX_SURFACE_ID"]
+        guard let rawSurface else { return nil }
+        let surface = rawSurface.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !surface.isEmpty else { return nil }
+
+        let rawWorkspace = optionValue(commandArgs, name: "--workspace")
+            ?? ProcessInfo.processInfo.environment["CMUX_WORKSPACE_ID"]
+        let workspace = rawWorkspace?.trimmingCharacters(in: .whitespacesAndNewlines)
+        if isUUID(surface), workspace == nil || workspace.map(isUUID) == true {
+            return (workspace, surface)
+        }
+
+        return try resolveStrictPiHookTarget(commandArgs: commandArgs, client: client).map {
+            ($0.workspaceId, $0.surfaceId)
+        }
     }
 
     /// Resolves and validates a Pi extension's explicit or inherited surface without pane fallback.
@@ -215,6 +241,18 @@ extension CMUXCLI {
         }
         guard let responseObject = decodedResponse as? [String: Any] else {
             throw piFeedAcknowledgmentError()
+        }
+        if responseObject["ok"] as? Bool == false,
+           let error = responseObject["error"] as? [String: Any],
+           error["code"] as? String == "not_found" {
+            throw CLIError(
+                message: error["message"] as? String ?? String(
+                    localized: "agent.deliveryTarget.error.notFound",
+                    defaultValue: "No live delivery target"
+                ),
+                exitCode: Self.piHookSurfaceUnavailableExitCode,
+                v2Code: "not_found"
+            )
         }
         guard responseObject["ok"] as? Bool == true,
               let result = responseObject["result"] as? [String: Any],

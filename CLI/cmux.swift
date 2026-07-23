@@ -33934,8 +33934,10 @@ export default CMUXSessionRestore;
         }
 
         if shouldAwaitTelemetryIngestion {
-            if let target = try resolveStrictPiHookTarget(commandArgs: commandArgs, client: activeClient) {
-                eventDict["workspace_id"] = target.workspaceId
+            if let target = try resolvePiFeedClaim(commandArgs: commandArgs, client: activeClient) {
+                if let workspaceId = target.workspaceId {
+                    eventDict["workspace_id"] = workspaceId
+                }
                 eventDict["surface_id"] = target.surfaceId
                 request["params"] = [
                     "event": eventDict,

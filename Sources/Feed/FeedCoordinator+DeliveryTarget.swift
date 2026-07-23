@@ -5,9 +5,9 @@ extension FeedCoordinator {
     /// Reconciles a surface-scoped Feed event with the app's live ownership map.
     ///
     /// This runs on the main actor immediately before store insertion, making
-    /// pane movement and Feed ownership one serialized decision. The CLI's
-    /// earlier resolution remains a useful fail-fast check, but it cannot be
-    /// authoritative after the socket round-trip.
+    /// pane movement and Feed ownership one serialized decision. Exact UUID
+    /// claims arrive without a redundant CLI preflight; legacy handles are
+    /// resolved before the Feed request because the wire event carries UUIDs.
     @MainActor
     func eventRehomedToLiveSurface(_ event: WorkstreamEvent) -> WorkstreamEvent? {
         eventsRehomedToLiveSurface([event])?.first
