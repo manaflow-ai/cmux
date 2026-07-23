@@ -214,7 +214,7 @@ struct CLICodexHookTimeoutRegressionTests {
         #expect(waitForFileLineCount(capturedAt, count: 2, timeout: 3))
 
         let fallbackLock = root.appendingPathComponent("cmux-codex-hook-time.lock", isDirectory: true)
-        let fallbackLockOwner = root.appendingPathComponent("cmux-codex-hook-time.lock.owner", isDirectory: false)
+        let fallbackLockOwner = fallbackLock.appendingPathComponent("owner", isDirectory: false)
         let mkdirAttemptCount = root.appendingPathComponent("mkdir-attempt-count.txt", isDirectory: false)
         let recoveryThresholdReached = root.appendingPathComponent("recovery-threshold-reached.txt", isDirectory: false)
         let fallbackSleep = toolBin.appendingPathComponent("sleep", isDirectory: false)
@@ -298,7 +298,22 @@ struct CLICodexHookTimeoutRegressionTests {
         #expect(waitForFile(lockPreserved, containing: "preserved", timeout: 1))
         #expect(waitForFileLineCount(capturedAt, count: 3, timeout: 3))
 
-        let fallbackLockStarted = root.appendingPathComponent("cmux-codex-hook-time.lock.started", isDirectory: false)
+        let fallbackLockStarted = fallbackLock.appendingPathComponent("started", isDirectory: false)
+        let successorPreserved = root.appendingPathComponent("successor-lock-preserved.txt", isDirectory: false)
+        let fallbackMV = toolBin.appendingPathComponent("mv", isDirectory: false)
+        try FileManager.default.removeItem(at: fallbackMV)
+        try makeCodexHookExecutableShellFile(at: fallbackMV, lines: [
+            "#!/bin/sh",
+            "if [ \"$1\" = \"$CMUX_TEST_FALLBACK_LOCK\" ]; then",
+            "  /bin/mv \"$@\" || exit $?",
+            "  /bin/mkdir \"$1\" || exit $?",
+            "  printf '%s\\n' \"$PPID\" >\"$1/owner\"",
+            "  printf '1893456000\\n' >\"$1/started\"",
+            "  ( /bin/sleep 0.05; if [ -d \"$1\" ]; then printf 'preserved\\n' >\"$CMUX_TEST_SUCCESSOR_PRESERVED\"; else printf 'removed\\n' >\"$CMUX_TEST_SUCCESSOR_PRESERVED\"; fi; /bin/rm -f \"$1/owner\" \"$1/started\"; /bin/rmdir \"$1\" 2>/dev/null || true ) &",
+            "  exit 0",
+            "fi",
+            "exec /bin/mv \"$@\"",
+        ])
         try FileManager.default.createDirectory(at: fallbackLock, withIntermediateDirectories: false)
         try "\(ProcessInfo.processInfo.processIdentifier)\n".write(
             to: fallbackLockOwner,
@@ -322,6 +337,7 @@ struct CLICodexHookTimeoutRegressionTests {
                 "CMUX_TEST_FALLBACK_LOCK": fallbackLock.path,
                 "CMUX_TEST_MKDIR_COUNT": mkdirAttemptCount.path,
                 "CMUX_TEST_LOCK_THRESHOLD": recoveryThresholdReached.path,
+                "CMUX_TEST_SUCCESSOR_PRESERVED": successorPreserved.path,
             ],
             standardInput: #"{"session_id":"codex-session","prompt":"stale reused owner timestamp"}"#,
             timeout: 4
@@ -330,6 +346,7 @@ struct CLICodexHookTimeoutRegressionTests {
         #expect(staleReusedOwnerRun.status == 0, Comment(rawValue: staleReusedOwnerRun.stderr))
         #expect(staleReusedOwnerRun.stdout == "{}\n")
         #expect(waitForFileLineCount(capturedAt, count: 4, timeout: 3))
+        #expect(waitForFile(successorPreserved, containing: "preserved", timeout: 1))
 
         let rawCapturedTimes = try String(contentsOf: capturedAt, encoding: .utf8)
             .split(whereSeparator: \.isNewline)
@@ -1249,6 +1266,7 @@ struct CLICodexHookTimeoutRegressionTests {
             ("cat", "/bin/cat"),
             ("mkdir", "/bin/mkdir"),
             ("mktemp", "/usr/bin/mktemp"),
+            ("mv", "/bin/mv"),
             ("nohup", "/usr/bin/nohup"),
             ("rmdir", "/bin/rmdir"),
             ("rm", "/bin/rm"),

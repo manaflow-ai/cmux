@@ -539,6 +539,48 @@ struct AgentHibernationTests {
 
     @MainActor
     @Test
+    func testLegacyIdleBookkeepingCannotOverwriteTimestampedRunningWatermark() throws {
+        let workspace = Workspace()
+        let panelId = try #require(workspace.focusedPanelId)
+        let runningEventTime: TimeInterval = 200
+        workspace.setAgentLifecycle(
+            key: "codex",
+            panelId: panelId,
+            lifecycle: .running,
+            agentEventTime: runningEventTime
+        )
+        workspace.statusEntries["codex"] = SidebarStatusEntry(
+            key: "codex",
+            value: "Running",
+            icon: "bolt.fill",
+            color: "#4C8DFF",
+            agentEventTime: runningEventTime
+        )
+        let observation = RestorableAgentSessionIndex.Entry(
+            snapshot: SessionRestorableAgentSnapshot(
+                kind: .codex,
+                sessionId: "legacy-idle-bookkeeping",
+                workingDirectory: "/tmp/repo",
+                launchCommand: nil
+            ),
+            lifecycle: .idle,
+            runtimeStatusEventTime: nil,
+            updatedAt: 300,
+            processLiveness: .unknown,
+            processIDs: [],
+            agentProcessIDs: [],
+            agentProcessIdentities: [:]
+        )
+
+        workspace.reconcileLiveIdleAgentStatus(panelId: panelId, observation: observation)
+
+        expectEqual(workspace.agentHibernationLifecycleState(panelId: panelId, fallback: nil), .running)
+        expectEqual(workspace.statusEntries["codex"]?.value, "Running")
+        expectEqual(workspace.statusEntries["codex"]?.agentEventTime, runningEventTime)
+    }
+
+    @MainActor
+    @Test
     func testUntimestampedLifecycleCallerCanUpdateAfterTimestampedHookState() throws {
         let workspace = Workspace()
         let panelId = try #require(workspace.focusedPanelId)

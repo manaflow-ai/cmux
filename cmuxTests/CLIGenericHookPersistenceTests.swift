@@ -712,6 +712,10 @@ extension CLINotifyProcessIntegrationRegressionTests {
         let workspaceId = "11111111-1111-1111-1111-111111111111"
         let surfaceId = "22222222-2222-2222-2222-222222222222"
         let sessionId = "hermes-session-end-123"
+        let sessionStartTime: TimeInterval = 1_893_456_100
+        let stopTime: TimeInterval = 1_893_456_200
+        let turnBoundaryTime: TimeInterval = 1_893_456_300
+        let staleRecreationTime: TimeInterval = 1_893_456_250
 
         try FileManager.default.createDirectory(at: root, withIntermediateDirectories: true)
         defer {
@@ -772,7 +776,7 @@ extension CLINotifyProcessIntegrationRegressionTests {
 
         let start = runHermesHook(
             "session-start",
-            input: #"{"session_id":"\#(sessionId)","cwd":"\#(root.path)","hook_event_name":"on_session_start"}"#
+            input: #"{"session_id":"\#(sessionId)","cwd":"\#(root.path)","hook_event_name":"on_session_start","timestamp":\#(sessionStartTime)}"#
         )
         XCTAssertFalse(start.timedOut, start.stderr)
         XCTAssertEqual(start.status, 0, start.stderr)
@@ -780,7 +784,7 @@ extension CLINotifyProcessIntegrationRegressionTests {
         // Finish a turn so a restorable record exists for the session.
         let stop = runHermesHook(
             "agent-response",
-            input: #"{"session_id":"\#(sessionId)","cwd":"\#(root.path)","hook_event_name":"post_llm_call","extra":{"user_message":"do the thing","assistant_response":"done","model":"gpt-4","platform":"cli"}}"#
+            input: #"{"session_id":"\#(sessionId)","cwd":"\#(root.path)","hook_event_name":"post_llm_call","timestamp":\#(stopTime),"extra":{"user_message":"do the thing","assistant_response":"done","model":"gpt-4","platform":"cli"}}"#
         )
         XCTAssertFalse(stop.timedOut, stop.stderr)
         XCTAssertEqual(stop.status, 0, stop.stderr)
@@ -792,16 +796,16 @@ extension CLINotifyProcessIntegrationRegressionTests {
 
         // The per-turn on_session_end hook. Hermes is a restorable agent, so this is a
         // turn boundary, not a true session teardown.
-        let sessionEndCommandStart = state.commands.count
+        let sessionEndCommandStart = state.snapshot().count
         let sessionEnd = runHermesHook(
             "session-end",
-            input: #"{"session_id":"\#(sessionId)","cwd":"\#(root.path)","hook_event_name":"on_session_end"}"#
+            input: #"{"session_id":"\#(sessionId)","cwd":"\#(root.path)","hook_event_name":"on_session_end","timestamp":\#(turnBoundaryTime)}"#
         )
         XCTAssertFalse(sessionEnd.timedOut, sessionEnd.stderr)
         XCTAssertEqual(sessionEnd.status, 0, sessionEnd.stderr)
         XCTAssertEqual(sessionEnd.stdout, "{}\n")
 
-        let sessionEndCommands = Array(state.commands.dropFirst(sessionEndCommandStart))
+        let sessionEndCommands = Array(state.snapshot().dropFirst(sessionEndCommandStart))
         XCTAssertTrue(
             sessionEndCommands.contains { $0.contains("feed.push") },
             "Expected Hermes session-end to emit feed telemetry, saw \(sessionEndCommands)"
@@ -814,16 +818,17 @@ extension CLINotifyProcessIntegrationRegressionTests {
             sessionEndCommands.contains { $0.contains("surface.resume.clear") },
             "Hermes on_session_end fires per turn and must not clear the surface resume binding, saw \(sessionEndCommands)"
         )
-        XCTAssertNotNil(
-            try storedHermesSessionIfPresent(),
-            "Hermes on_session_end fires per turn and must not consume the restore record, saw it removed from the store"
+        let turnBoundaryRecord = try XCTUnwrap(storedHermesSessionIfPresent())
+        XCTAssertEqual(
+            turnBoundaryRecord["runtimeStatusEventTime"] as? Double,
+            turnBoundaryTime,
+            "Every accepted timestamped turn boundary must advance detached-hook ordering authority"
         )
-
         // The genuine teardown hook (on_session_finalize) routes to the dedicated
         // session-finalize subcommand and must perform the destructive cleanup the
         // per-turn path suppresses: consume the record, clear the resume binding, and
         // clear the agent PID routing.
-        let finalizeCommandStart = state.commands.count
+        let finalizeCommandStart = state.snapshot().count
         let finalize = runHermesHook(
             "session-finalize",
             input: #"{"session_id":"\#(sessionId)","cwd":"\#(root.path)","hook_event_name":"on_session_finalize"}"#
@@ -832,7 +837,7 @@ extension CLINotifyProcessIntegrationRegressionTests {
         XCTAssertEqual(finalize.status, 0, finalize.stderr)
         XCTAssertEqual(finalize.stdout, "{}\n")
 
-        let finalizeCommands = Array(state.commands.dropFirst(finalizeCommandStart))
+        let finalizeCommands = Array(state.snapshot().dropFirst(finalizeCommandStart))
         XCTAssertTrue(
             finalizeCommands.contains { $0.hasPrefix("clear_agent_pid hermes-agent.") },
             "Hermes on_session_finalize is a true teardown and must clear agent PID routing, saw \(finalizeCommands)"
@@ -844,6 +849,28 @@ extension CLINotifyProcessIntegrationRegressionTests {
         XCTAssertNil(
             try storedHermesSessionIfPresent(),
             "Hermes on_session_finalize is a true teardown and must consume the restore record"
+        )
+
+        let staleRecreationCommandStart = state.snapshot().count
+        let staleRecreation = runHermesHook(
+            "session-start",
+            input: #"{"session_id":"\#(sessionId)","cwd":"\#(root.path)","hook_event_name":"on_session_start","timestamp":\#(staleRecreationTime)}"#
+        )
+        XCTAssertFalse(staleRecreation.timedOut, staleRecreation.stderr)
+        XCTAssertEqual(staleRecreation.status, 0, staleRecreation.stderr)
+        XCTAssertNil(
+            try storedHermesSessionIfPresent(),
+            "A consumed session's tombstone must reject an older detached hook instead of recreating the record"
+        )
+        let staleRecreationCommands = Array(state.snapshot().dropFirst(staleRecreationCommandStart))
+        XCTAssertFalse(
+            staleRecreationCommands.contains {
+                $0.hasPrefix("set_agent_pid hermes-agent.") ||
+                    $0.hasPrefix("set_agent_lifecycle hermes-agent ") ||
+                    $0.hasPrefix("set_status hermes-agent ") ||
+                    $0.contains(#""method":"surface.resume.set""#)
+            },
+            "A tombstone-rejected recreation must not publish visible mutations, saw \(staleRecreationCommands)"
         )
     }
 
@@ -985,6 +1012,172 @@ extension CLINotifyProcessIntegrationRegressionTests {
         XCTAssertNotNil(hooks["userPromptSubmit"])
         XCTAssertNotNil(hooks["postToolUse"])
         XCTAssertNotNil(hooks["stop"])
+    }
+
+    func testInstalledGenericHookVariantsCaptureInvocationTime() throws {
+        let cliPath = try bundledCLIPath()
+        let root = FileManager.default.temporaryDirectory
+            .appendingPathComponent("cmux-generic-hook-capture-time-\(UUID().uuidString)", isDirectory: true)
+        let toolBin = root.appendingPathComponent("tools", isDirectory: true)
+        let fakeCLI = root.appendingPathComponent("cmux-fake", isDirectory: false)
+        let fakeDate = root.appendingPathComponent("date-fake", isDirectory: false)
+        let capturedAt = root.appendingPathComponent("captured-at.txt", isDirectory: false)
+        try FileManager.default.createDirectory(at: toolBin, withIntermediateDirectories: true)
+        defer { try? FileManager.default.removeItem(at: root) }
+
+        try """
+        #!/bin/sh
+        printf '%s\n' "$CMUX_AGENT_HOOK_CAPTURED_AT" >> "$CMUX_TEST_CAPTURED_AT"
+        cat >/dev/null 2>/dev/null || true
+        printf '{}\n'
+        """.write(to: fakeCLI, atomically: true, encoding: .utf8)
+        try FileManager.default.setAttributes([.posixPermissions: 0o755], ofItemAtPath: fakeCLI.path)
+        try "#!/bin/sh\nprintf '1893456000\\n'\n".write(to: fakeDate, atomically: true, encoding: .utf8)
+        try FileManager.default.setAttributes([.posixPermissions: 0o755], ofItemAtPath: fakeDate.path)
+        for (name, target) in [
+            ("cat", "/bin/cat"),
+            ("grep", "/usr/bin/grep"),
+            ("mkdir", "/bin/mkdir"),
+            ("mv", "/bin/mv"),
+            ("printenv", "/usr/bin/printenv"),
+            ("rm", "/bin/rm"),
+            ("rmdir", "/bin/rmdir"),
+            ("sleep", "/bin/sleep"),
+        ] {
+            try FileManager.default.createSymbolicLink(
+                at: toolBin.appendingPathComponent(name, isDirectory: false),
+                withDestinationURL: URL(fileURLWithPath: target)
+            )
+        }
+
+        func install(_ agent: String, extraEnvironment: [String: String] = [:]) throws {
+            var environment = [
+                "HOME": root.path,
+                "PATH": "/usr/bin:/bin:/usr/sbin:/sbin",
+                "CMUX_BUNDLED_CLI_PATH": fakeCLI.path,
+                "CMUX_SOCKET_PATH": "/tmp/cmux-generic-hook-capture.sock",
+                "CMUX_CLI_SENTRY_DISABLED": "1",
+            ]
+            environment.merge(extraEnvironment, uniquingKeysWith: { _, new in new })
+            let result = runProcess(
+                executablePath: cliPath,
+                arguments: ["hooks", agent, "install", "--yes"],
+                environment: environment,
+                timeout: 5
+            )
+            XCTAssertFalse(result.timedOut, result.stderr)
+            XCTAssertEqual(result.status, 0, result.stderr)
+        }
+
+        try install("cursor")
+        let cursorJSON = try XCTUnwrap(
+            JSONSerialization.jsonObject(
+                with: Data(contentsOf: root.appendingPathComponent(".cursor/hooks.json"))
+            ) as? [String: Any]
+        )
+        let cursorHooks = try XCTUnwrap(cursorJSON["hooks"] as? [String: Any])
+        let cursorEntries = try XCTUnwrap(cursorHooks["beforeSubmitPrompt"] as? [[String: Any]])
+        let cursorCommand = try XCTUnwrap(cursorEntries.first?["command"] as? String)
+
+        try install("kiro")
+        let kiroJSON = try XCTUnwrap(
+            JSONSerialization.jsonObject(
+                with: Data(contentsOf: root.appendingPathComponent(".kiro/agents/cmux.json"))
+            ) as? [String: Any]
+        )
+        let kiroHooks = try XCTUnwrap(kiroJSON["hooks"] as? [String: Any])
+        let kiroEntries = try XCTUnwrap(kiroHooks["preToolUse"] as? [[String: Any]])
+        let kiroCommand = try XCTUnwrap(
+            kiroEntries.compactMap { $0["command"] as? String }
+                .first { $0.contains("hooks feed --source kiro") }
+        )
+
+        try install("grok")
+        let grokJSON = try XCTUnwrap(
+            JSONSerialization.jsonObject(
+                with: Data(contentsOf: root.appendingPathComponent(".grok/hooks/cmux-session.json"))
+            ) as? [String: Any]
+        )
+        let grokHooks = try XCTUnwrap(grokJSON["hooks"] as? [String: Any])
+        let grokStopGroups = try XCTUnwrap(grokHooks["Stop"] as? [[String: Any]])
+        let grokCommand = try XCTUnwrap(
+            grokStopGroups
+                .compactMap { $0["hooks"] as? [[String: Any]] }
+                .flatMap { $0 }
+                .compactMap { $0["command"] as? String }
+                .first { $0.contains("hooks grok stop") }
+        )
+
+        try install("agy")
+        let antigravityJSON = try XCTUnwrap(
+            JSONSerialization.jsonObject(
+                with: Data(contentsOf: root.appendingPathComponent(".gemini/config/hooks.json"))
+            ) as? [String: Any]
+        )
+        let antigravityGroup = try XCTUnwrap(antigravityJSON["cmux"] as? [String: Any])
+        let antigravityStops = try XCTUnwrap(antigravityGroup["Stop"] as? [[String: Any]])
+        let antigravityCommand = try XCTUnwrap(
+            antigravityStops.compactMap { $0["command"] as? String }
+                .first { $0.contains("hooks antigravity stop") }
+        )
+
+        for command in [cursorCommand, kiroCommand, grokCommand, antigravityCommand] {
+            let result = runProcess(
+                executablePath: "/bin/sh",
+                arguments: ["-c", command],
+                environment: [
+                    "HOME": root.path,
+                    "PATH": toolBin.path,
+                    "TMPDIR": root.path,
+                    "CMUX_AGENT_HOOK_DATE_BIN": fakeDate.path,
+                    "CMUX_BUNDLED_CLI_PATH": fakeCLI.path,
+                    "CMUX_SOCKET_PATH": "/tmp/cmux-generic-hook-capture.sock",
+                    "CMUX_SURFACE_ID": "surface-capture-time",
+                    "CMUX_TEST_CAPTURED_AT": capturedAt.path,
+                ],
+                standardInput: "{}",
+                timeout: 5
+            )
+            XCTAssertFalse(result.timedOut, result.stderr)
+            XCTAssertEqual(result.status, 0, result.stderr)
+        }
+
+        let rawTimes = try String(contentsOf: capturedAt, encoding: .utf8)
+            .split(whereSeparator: \.isNewline)
+            .map(String.init)
+        XCTAssertEqual(rawTimes.count, 4, rawTimes.joined(separator: ","))
+        let times = try rawTimes.map { try XCTUnwrap(Double($0), $0) }
+        XCTAssertTrue(rawTimes.allSatisfy { $0.hasPrefix("1893456000.") }, rawTimes.joined(separator: ","))
+        for (earlier, later) in zip(times, times.dropFirst()) {
+            XCTAssertLessThan(earlier, later, rawTimes.joined(separator: ","))
+        }
+    }
+
+    func testDetachedMockSocketServerShutdownJoinsWaitingAcceptThread() throws {
+        let socketPath = makeSocketPath("mock-server-shutdown")
+        let listenerFD = try bindUnixSocket(at: socketPath)
+        let state = MockSocketServerState()
+        defer {
+            Darwin.close(listenerFD)
+            unlink(socketPath)
+        }
+
+        let server = startDetachedMockServer(
+            listenerFD: listenerFD,
+            state: state,
+            connectionCount: 1
+        ) { _ in
+            "OK"
+        }
+        let startedAt = Date()
+        server.shutdown()
+
+        XCTAssertLessThan(
+            Date().timeIntervalSince(startedAt),
+            2,
+            "Shutting down a scoped mock server must unblock and join a waiting accept thread"
+        )
+        XCTAssertTrue(state.snapshot().isEmpty)
     }
 
     func testKiroFeedDenyUsesPreToolUseExitCodeTwo() throws {

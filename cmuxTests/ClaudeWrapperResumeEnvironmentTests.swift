@@ -171,7 +171,7 @@ import Testing
         let stopHooks = try #require(stopMatchers.first?["hooks"] as? [[String: Any]])
         let command = try #require(stopHooks.first?["command"] as? String)
 
-        for tool in ["mkdir", "rm", "rmdir", "sleep"] {
+        for tool in ["mkdir", "mv", "rm", "rmdir", "sleep"] {
             try fileManager.createSymbolicLink(
                 at: toolBin.appendingPathComponent(tool, isDirectory: false),
                 withDestinationURL: URL(fileURLWithPath: "/bin/\(tool)")
