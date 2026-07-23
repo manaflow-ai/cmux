@@ -2,7 +2,7 @@ import AppKit
 import CmuxSettings
 import SwiftUI
 
-/// Settings for local computer-use attachment, macOS permissions, menu-bar visibility, and onboarding.
+/// Settings for local computer-use attachment, macOS permissions, and menu-bar visibility.
 @MainActor
 public struct ComputerUseSection: View {
     @State private var enabled: JSONValueModel<Bool>
@@ -19,7 +19,7 @@ public struct ComputerUseSection: View {
     ///   - jsonStore: Store backing the two `computerUse.*` preferences.
     ///   - catalog: Catalog containing the computer-use JSON keys.
     ///   - errorLog: Central settings write-error log.
-    ///   - hostActions: Host bridge for macOS permission requests and onboarding.
+    ///   - hostActions: Host bridge for macOS permission requests.
     public init(
         jsonStore: JSONConfigStore,
         catalog: SettingCatalog,
@@ -83,18 +83,6 @@ public struct ComputerUseSection: View {
                         .labelsHidden()
                         .controlSize(.small)
                         .accessibilityIdentifier("SettingsComputerUseMenuBarToggle")
-                }
-                SettingsCardDivider()
-                SettingsCardRow(
-                    configurationReview: .settingsOnly,
-                    searchAnchorID: "setting:computerUse:onboarding",
-                    String(localized: "settings.computerUse.runOnboarding", defaultValue: "Run Onboarding Again"),
-                    subtitle: String(localized: "settings.computerUse.runOnboarding.subtitle", defaultValue: "Review how computer use works and check both macOS permissions.")
-                ) {
-                    Button(String(localized: "settings.computerUse.runOnboarding.button", defaultValue: "Run…")) {
-                        hostActions.runComputerUseOnboarding()
-                    }
-                    .controlSize(.small)
                 }
             }
         }

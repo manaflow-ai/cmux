@@ -163,7 +163,6 @@ struct SettingsRowAnchorResolutionTests {
         "setting:betaFeatures:remoteTmux",
         "setting:customSidebars:enabled",
         "setting:computerUse:permissions",
-        "setting:computerUse:onboarding",
         "setting:browser:history",
         "setting:browser:http-allowlist",
         "setting:workspaceColors:palette",

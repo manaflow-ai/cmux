@@ -128,9 +128,11 @@ final class ComputerUseUXCoordinator {
             }
         )
 
-        // The standalone helper owns the native branded cursor. Starting the
-        // host-side feed renderer here would draw a second cursor at the same
-        // time and can leave the previous target visible during the next glide.
+        // The standalone helper owns the native branded cursor and pins its
+        // normal-level overlay directly above the driven target window. That
+        // keeps foreground occluders above the cursor in background mode.
+        // Starting the host-side feed renderer here would draw a second,
+        // always-on-top cursor and break that window-relative ordering.
 
         // Bring the app the local driver is steering to the front (once per target)
         // so the user watches the automation instead of the cmux-hosted cursor

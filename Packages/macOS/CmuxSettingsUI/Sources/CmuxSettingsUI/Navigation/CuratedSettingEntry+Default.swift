@@ -288,13 +288,6 @@ extension Array where Element == CuratedSettingEntry {
                 paths: ["computerUse.showInMenuBar"],
                 synonyms: String(localized: "settings.search.alias.setting.computerUse.showInMenuBar", defaultValue: "computerUse.showInMenuBar menu bar menubar status item cursor agents")
             ),
-            .init(
-                section: .computerUse,
-                id: "onboarding",
-                title: String(localized: "settings.computerUse.runOnboarding", defaultValue: "Run Onboarding Again"),
-                synonyms: String(localized: "settings.search.alias.setting.computerUse.onboarding", defaultValue: "run onboarding again setup computer use permissions introduction")
-            ),
-
             // Browser
             .init(section: .browser, id: "enable-browser", title: "Enable cmux Browser", synonyms: "browser.disabled enable disable webview embedded browser tabs links"),
             .init(section: .browser, id: "search-engine", title: "Default Search Engine", synonyms: "browser.defaultSearchEngine omnibar address bar google duckduckgo bing kagi brave startpage perplexity exa yahoo ecosia qwant mojeek wikipedia github baidu yandex custom search provider engine name url template"),

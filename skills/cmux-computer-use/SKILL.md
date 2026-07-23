@@ -53,13 +53,13 @@ the main cmux app:
 - **Screen Recording** — screenshots / vision (`CGPreflightScreenCaptureAccess`).
 
 Onboarding appears on the first real Computer Use tool invocation, not on cmux
-or agent startup. Re-run it any time from **Settings → Computer Use → Run
-Onboarding Again**. Its two-card overview mirrors the native Codex Computer Use
-flow: each **Allow** action asks the standalone helper to raise the matching
-macOS prompt, then reads status from that helper over its Unix socket. A real
-helper-app drag source is retained only as a recovery path when macOS cannot
-raise the prompt normally. The main cmux process never calls a TCC API or
-executes the driver binary.
+or agent startup. Settings → Computer Use always shows the two authoritative
+permission states; choosing **Grant…** for an ungranted permission opens that
+same permission step and its draggable helper-app recovery path. Its two-card
+overview mirrors the native Codex Computer Use flow: each **Allow** action asks
+the standalone helper to raise the matching macOS prompt, then reads status
+from that helper over its Unix socket. The main cmux process never calls a TCC
+API or executes the driver binary.
 
 If actions fail with a permission error, grant Accessibility to cmux Computer
 Use. If screenshots come back blank, grant Screen Recording to cmux Computer
@@ -107,6 +107,12 @@ the most recently active live agent session and offers two presentation modes:
   automatically following new targets.
 - **Continue in Background** — keep automation running without fronting its
   target and reveal the exact workspace + surface running that agent.
+
+The helper pins its cursor window directly above the driven target window at
+the normal application window level. That keeps the cursor visible on the
+target while allowing any app the user places in front of that target to cover
+the cursor naturally; presentation mode never promotes it to an always-on-top
+layer.
 
 The active target and session ordering come from the driver's per-session state
 files under `~/Library/Application Support/cmux/computer-use/runtime/<scope>/state/`.

@@ -204,8 +204,6 @@ public protocol SettingsHostActions: AnyObject {
     /// Opens the Screen Recording pane in System Settings.
     func openComputerUseScreenRecordingSettings()
 
-    /// Presents the computer-use onboarding flow without changing its automatic-presentation gate.
-    func runComputerUseOnboarding()
 }
 
 public extension SettingsHostActions {
@@ -231,8 +229,6 @@ public extension SettingsHostActions {
     func requestComputerUseScreenRecording() {}
     func openComputerUseAccessibilitySettings() {}
     func openComputerUseScreenRecordingSettings() {}
-    func runComputerUseOnboarding() {}
-
     func openMobilePairingWindow() {}
 
     /// Default no-op preview action for hosts without a Sleepy Mode overlay.

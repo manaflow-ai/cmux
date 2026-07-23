@@ -145,10 +145,6 @@ final class HostSettingsActions: SettingsHostActions {
         }
     }
 
-    func runComputerUseOnboarding() {
-        runComputerUseOnboardingAction(.overview)
-    }
-
     func setRunComputerUseOnboardingAction(
         _ action: @escaping @MainActor (ComputerUseOnboardingWindowController.StartingPoint) -> Void
     ) {
