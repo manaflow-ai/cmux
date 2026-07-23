@@ -19,7 +19,8 @@ class PiCmuxCommandDispatcher {
   private static readonly surfaceUnavailableExitCode = 69;
   private static readonly maxPendingFeedCommands = 8;
   private static readonly maxCompactedTerminalSummaries = 64;
-  private static readonly maxFeedInputBytes = 128 * 1024;
+  // Leave headroom for the feed.push envelope under the relay's 16 KiB frame limit.
+  private static readonly maxFeedInputBytes = 12 * 1024;
   private static readonly feedDrainDeadlineMs = 2500;
   private controlQueue: Promise<void> = Promise.resolve();
   private pendingFeedCommands = new Map<string, PiFeedCommand>();
@@ -327,7 +328,7 @@ class PiCmuxCommandDispatcher {
         if (result.error instanceof Error && result.error.message.includes("timed out after")) {
           const sessionId = command.context.sessionId;
           if (sessionId) {
-            if (command.terminal) this.failedFeedSessions.add(sessionId);
+            if (this.hasTerminalFeedWork(sessionId)) this.failedFeedSessions.add(sessionId);
             this.discardFeedForSession(sessionId);
           }
         } else if (!result.ok && command.terminal && !result.surfaceUnavailable && !cancellation.cancelled) {
