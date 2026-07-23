@@ -4856,6 +4856,37 @@ def _self_test() -> int:
             "#expect(await clockEvents.next() == expected)\n",
         ),
         (
+            "Packages/CmuxClock/Tests/UnqualifiedCustomContinuousClockTests.swift",
+            "struct ContinuousClock {\n"
+            "    func sleep(until deadline: Deadline) async throws {}\n"
+            "}\n"
+            "let clock = ContinuousClock()\n"
+            "try await clock.sleep(until: deadline)\n"
+            "#expect(await clockEvents.next() == expected)\n",
+        ),
+        (
+            "Packages/CmuxClock/Tests/QualifiedCustomContinuousClockTests.swift",
+            "enum Support {\n"
+            "    struct ContinuousClock {\n"
+            "        func sleep(until deadline: Deadline) async throws {}\n"
+            "    }\n"
+            "}\n"
+            "try await Support.ContinuousClock().sleep(until: deadline)\n"
+            "#expect(await clockEvents.next() == expected)\n",
+        ),
+        (
+            "Packages/CmuxClock/Tests/AliasedCustomContinuousClockTests.swift",
+            "enum Support {\n"
+            "    struct ContinuousClock {\n"
+            "        func sleep(until deadline: Deadline) async throws {}\n"
+            "    }\n"
+            "}\n"
+            "typealias VirtualClock = Support.ContinuousClock\n"
+            "let clock = VirtualClock()\n"
+            "try await clock.sleep(until: deadline)\n"
+            "#expect(await clockEvents.next() == expected)\n",
+        ),
+        (
             "Packages/CmuxClock/Tests/ClosureDefaultVirtualClockParameterTests.swift",
             "func verifyVirtual(\n"
             "    clock: TestRelayClock,\n"
@@ -5817,6 +5848,22 @@ def _self_test() -> int:
                 "try await environment.timing.clock.sleep(until: deadline)\n"
                 "#expect(await events.next() == expected)\n"
             ),
+            "Packages/CmuxPrivateShadow/Tests/CmuxPrivateShadowTests/PrivateShadow.swift": (
+                "private struct SystemUpdateClock {\n"
+                "    let base = TestRelayClock()\n"
+                "    func sleep(until deadline: Deadline) async throws {\n"
+                "        try await base.sleep(until: deadline)\n"
+                "    }\n"
+                "}\n"
+                "let clock = SystemUpdateClock()\n"
+                "try await clock.sleep(until: deadline)\n"
+                "#expect(await events.next() == expected)\n"
+            ),
+            "Packages/CmuxPrivateShadow/Tests/CmuxPrivateShadowTests/RealClockTests.swift": (
+                "let clock = SystemUpdateClock()\n"
+                "try await clock.sleep(for: .milliseconds(300))\n"
+                "#expect(widget.isRendered)\n"
+            ),
         }
         for relative_path, source in fixture_sources.items():
             fixture_path = fixture_root / relative_path
@@ -5824,7 +5871,11 @@ def _self_test() -> int:
             fixture_path.write_text(source, encoding="utf-8")
 
         collection_findings = collect_findings(fixture_root, ("Packages",))
-        collection_rules = {finding.rule for finding in collection_findings}
+        collection_rules = {
+            finding.rule
+            for finding in collection_findings
+            if finding.path.endswith("/SplitFixture+Refresh.swift")
+        }
         if RULE_SLEEP_THEN_ASSERT not in collection_rules:
             failures.append(
                 "POSITIVE collected split-file project clock member: missing "
@@ -5935,6 +5986,31 @@ def _self_test() -> int:
             failures.append(
                 "NEGATIVE lexically nested virtual clock container: "
                 f"unexpected {sorted(lexical_virtual_rules)}"
+            )
+        private_cross_file_real_rules = {
+            finding.rule
+            for finding in collection_findings
+            if finding.path.endswith(
+                "CmuxPrivateShadowTests/RealClockTests.swift"
+            )
+        }
+        if RULE_SLEEP_THEN_ASSERT not in private_cross_file_real_rules:
+            failures.append(
+                "POSITIVE project clock outside file-private shadow: missing "
+                f"{RULE_SLEEP_THEN_ASSERT!r} "
+                f"(got {sorted(private_cross_file_real_rules)})"
+            )
+        private_shadow_rules = {
+            finding.rule
+            for finding in collection_findings
+            if finding.path.endswith(
+                "CmuxPrivateShadowTests/PrivateShadow.swift"
+            )
+        }
+        if private_shadow_rules:
+            failures.append(
+                "NEGATIVE file-private project clock shadow: unexpected "
+                f"{sorted(private_shadow_rules)}"
             )
 
     shadowed_project_clock_sources = [
