@@ -195,11 +195,11 @@ _SLEEP_CALL = re.compile(
     (?<![.\w])sleep\s*\(                  # unqualified POSIX sleep(...)
   | (?<![.\w])usleep\s*\(
   | (?<![.\w])nanosleep\s*\(
-  | \b(?:Darwin|Glibc)\.sleep\s*\(
+  | (?<![.\w])(?:Darwin|Glibc)\.(?:sleep|usleep|nanosleep)\s*\(
   | (?<![.\w])(?:Foundation\.)?Thread\.sleep\s*\(
   | (?<![.\w])Task(?:\s*<[^>\n]+>)?\s*\.sleep\s*\(
-  | \b(?:time|asyncio|trio|anyio|gevent)\.sleep\s*\(
-  | \bBun\.sleep\s*\(
+  | (?<![.\w])(?:time|asyncio|trio|anyio|gevent)\.sleep\s*\(
+  | (?<![.\w])Bun\.sleep\s*\(
   | (?<![.\w])setTimeout\s*\(
     """
 )
@@ -740,6 +740,16 @@ def _self_test() -> int:
             {RULE_SLEEP_THEN_ASSERT},
         ),
         (
+            "cmuxTests/darwin-usleep.swift",
+            "Darwin.usleep(1)\n#expect(finished)\n",
+            {RULE_SLEEP_THEN_ASSERT},
+        ),
+        (
+            "cmuxTests/glibc-nanosleep.swift",
+            "Glibc.nanosleep(nil, nil)\n#expect(finished)\n",
+            {RULE_SLEEP_THEN_ASSERT},
+        ),
+        (
             "tests/sh.sh",
             "sleep 1\ntest -f /tmp/out || exit 1\n",
             set(),  # shell `test -f` is not in our assertion vocabulary; ensure no false negative is required
@@ -768,6 +778,14 @@ def _self_test() -> int:
             "#expect(await completed)\n"
             "try await ContinuousClock().sleep(until: deadline)\n"
             "#expect(await completed)\n",
+        ),
+        # A known module name nested under another receiver is not a direct API.
+        (
+            "tests/nested-runtime.py",
+            "fixture.trio.sleep(0.1)\n"
+            "assert completed\n"
+            "fixture.time.sleep(0.1)\n"
+            "assert completed\n",
         ),
         # Known sleep API names inside strings or comments are fixture data.
         (
