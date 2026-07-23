@@ -14,6 +14,9 @@ struct CmuxConfigActionDefinition: Codable, Sendable, Hashable {
     /// Whether this action is offered in the new-workspace plus-button menu.
     /// Defaults to true for `workspace` actions and false otherwise.
     var newWorkspaceMenu: Bool?
+    /// Whether this action is offered in the terminal right-click context
+    /// menu. Defaults to false.
+    var terminalContextMenu: Bool?
 
     private enum CodingKeys: String, CodingKey {
         case type
@@ -36,6 +39,7 @@ struct CmuxConfigActionDefinition: Codable, Sendable, Hashable {
         case confirm
         case target
         case newWorkspaceMenu
+        case terminalContextMenu
     }
 
     init(
@@ -49,7 +53,8 @@ struct CmuxConfigActionDefinition: Codable, Sendable, Hashable {
         tooltip: String? = nil,
         confirm: Bool? = nil,
         terminalCommandTarget: CmuxConfigTerminalCommandTarget? = nil,
-        newWorkspaceMenu: Bool? = nil
+        newWorkspaceMenu: Bool? = nil,
+        terminalContextMenu: Bool? = nil
     ) {
         self.action = action
         self.title = title
@@ -62,6 +67,7 @@ struct CmuxConfigActionDefinition: Codable, Sendable, Hashable {
         self.confirm = confirm
         self.terminalCommandTarget = terminalCommandTarget
         self.newWorkspaceMenu = newWorkspaceMenu
+        self.terminalContextMenu = terminalContextMenu
     }
 
     init(from decoder: Decoder) throws {
@@ -80,6 +86,7 @@ struct CmuxConfigActionDefinition: Codable, Sendable, Hashable {
         confirm = try container.decodeIfPresent(Bool.self, forKey: .confirm)
         terminalCommandTarget = try container.decodeIfPresent(CmuxConfigTerminalCommandTarget.self, forKey: .target)
         newWorkspaceMenu = try container.decodeIfPresent(Bool.self, forKey: .newWorkspaceMenu)
+        terminalContextMenu = try container.decodeIfPresent(Bool.self, forKey: .terminalContextMenu)
 
         let inferredType: String?
         if let type {
@@ -162,6 +169,7 @@ struct CmuxConfigActionDefinition: Codable, Sendable, Hashable {
         try container.encodeIfPresent(confirm, forKey: .confirm)
         try container.encodeIfPresent(terminalCommandTarget, forKey: .target)
         try container.encodeIfPresent(newWorkspaceMenu, forKey: .newWorkspaceMenu)
+        try container.encodeIfPresent(terminalContextMenu, forKey: .terminalContextMenu)
         guard let action else { return }
         switch action {
         case .builtIn(let builtIn):

@@ -9,7 +9,7 @@ Use this skill for user-facing cmux customization. Keep the user's config intact
 
 ## What Can Be Customized
 
-- Custom actions: define reusable `actions` in `cmux.json`. Actions can appear in Cmd+Shift+P, surface tab bars, shortcuts, and the plus-button right-click menu.
+- Custom actions: define reusable `actions` in `cmux.json`. Actions can appear in Cmd+Shift+P, surface tab bars, shortcuts, the plus-button right-click menu, and — with `terminalContextMenu: true` — the terminal right-click context menu. While a TUI captures the mouse, shift+right-click still opens that menu (`terminal.shiftRightClickShowsMenu` setting, on by default).
 - New workspace button: set `ui.newWorkspace.action` to replace the normal plus-button click, and `ui.newWorkspace.contextMenu` to control right-click actions. `ui.newWorkspace.rightClick` is accepted as an alias, but new examples should use `contextMenu`.
 - Surface tab bar buttons: set `ui.surfaceTabBar.buttons` to replace the default tab bar buttons. Include built-in IDs such as `cmux.newTerminal`, `cmux.newBrowser`, `cmux.splitRight`, and `cmux.splitDown` only when they should stay visible.
 - Workflows and layouts: use `commands` with workspace definitions to open a worktree, multiple checkouts, local services, browser previews, or SSH sessions in a deliberate split layout.

@@ -3284,6 +3284,16 @@ class GhosttyNSView: NSView, NSUserInterfaceValidations {
     var desiredFocus: Bool = false
     var suppressingReparentFocus: Bool = false
     var tabId: UUID?
+    /// True while a shift+right-click that bypassed mouse capture is showing
+    /// the context menu; the matching release/drag must be swallowed so a
+    /// mouse-reporting TUI never sees a half click (press without release or
+    /// vice versa desyncs apps like tmux and Claude Code).
+    private var capturedRightClickMenuLatch = false
+    /// Setting gate for the shift+right-click capture bypass
+    /// (`terminal.shiftRightClickShowsMenu`, default on).
+    private var shiftRightClickShowsMenuWhileCaptured: Bool {
+        TerminalShiftRightClickMenuSettings.isEnabled()
+    }
     var selectionTranslationHostView: NSView?
     var onFocus: (() -> Void)?
     var onTriggerFlash: (() -> Void)?
@@ -6904,7 +6914,19 @@ class GhosttyNSView: NSView, NSUserInterfaceValidations {
     override func rightMouseDown(with event: NSEvent) {
         terminalSurface?.didReceiveExplicitInput()
         guard let surface = surface else { return }
+        capturedRightClickMenuLatch = false
         if !ghostty_surface_mouse_captured(surface) {
+            requestPointerFocusRecovery()
+            super.rightMouseDown(with: event)
+            return
+        }
+
+        if event.modifierFlags.contains(.shift), shiftRightClickShowsMenuWhileCaptured {
+            // Shift+right-click bypasses mouse capture and shows the cmux
+            // context menu, mirroring Ghostty core's shift bypass for mouse
+            // reports (`mouse-shift-capture` defaults to off). Latch the whole
+            // click so neither the press nor the release reaches the TUI.
+            capturedRightClickMenuLatch = true
             requestPointerFocusRecovery()
             super.rightMouseDown(with: event)
             return
@@ -6919,6 +6941,12 @@ class GhosttyNSView: NSView, NSUserInterfaceValidations {
 
     override func rightMouseUp(with event: NSEvent) {
         guard let surface = surface else { return }
+        if capturedRightClickMenuLatch {
+            // Second half of a latched shift+right-click; the press never
+            // reached the TUI, so the release must not either.
+            capturedRightClickMenuLatch = false
+            return
+        }
         if !ghostty_surface_mouse_captured(surface) {
             super.rightMouseUp(with: event)
             return
@@ -6965,12 +6993,18 @@ class GhosttyNSView: NSView, NSUserInterfaceValidations {
         sendsTerminalPointerEvent: Bool
     ) -> NSMenu? {
         guard let surface = surface else { return nil }
-        if sendsTerminalPointerEvent, ghostty_surface_mouse_captured(surface) {
+        let mouseCaptured = ghostty_surface_mouse_captured(surface)
+        if sendsTerminalPointerEvent, mouseCaptured, !capturedRightClickMenuLatch {
             return nil
         }
 
         window?.makeFirstResponder(self)
-        if sendsTerminalPointerEvent {
+        if sendsTerminalPointerEvent, !mouseCaptured {
+            // Keep the synthetic right-press for the pointer-driven,
+            // uncaptured path only: on the latched shift+right-click bypass
+            // path nothing may reach the core, or the TUI would see a
+            // position update / button report for a click cmux decided to
+            // handle locally.
             let point = convert(event.locationInWindow, from: nil)
             ghostty_surface_mouse_pos(surface, point.x, bounds.height - point.y, mouseModsFromEvent(event))
             _ = ghostty_surface_mouse_button(
@@ -7193,6 +7227,9 @@ class GhosttyNSView: NSView, NSUserInterfaceValidations {
     }
 
     override func rightMouseDragged(with event: NSEvent) {
+        // A latched shift+right-click never delivered its press to the TUI,
+        // so its drags must stay local too.
+        if capturedRightClickMenuLatch { return }
         // Forward right-button drags so mouse-reporting apps receive pointer
         // motion while the right button is held. Without this, tmux's
         // right-click context menu (press to open, drag to highlight, release

@@ -221,6 +221,57 @@ struct CmuxConfigWorkspaceActionTests {
         #expect(optedIn.wantsNewWorkspaceMenu)
     }
 
+    @Test func wantsTerminalContextMenuDefaults() throws {
+        // Opt-in only: every action type defaults to false.
+        let workspaceAction = try #require(CmuxResolvedConfigAction.fromDefinition(
+            id: "ws",
+            definition: CmuxConfigActionDefinition(
+                action: .workspace(CmuxWorkspaceDefinition(name: "W"), restart: nil)
+            ),
+            sourcePath: nil
+        ))
+        #expect(!workspaceAction.wantsTerminalContextMenu)
+
+        let commandAction = try #require(CmuxResolvedConfigAction.fromDefinition(
+            id: "cmd",
+            definition: CmuxConfigActionDefinition(action: .command("make")),
+            sourcePath: nil
+        ))
+        #expect(!commandAction.wantsTerminalContextMenu)
+
+        let optedIn = try #require(CmuxResolvedConfigAction.fromDefinition(
+            id: "cmd2",
+            definition: CmuxConfigActionDefinition(
+                action: .command("make"),
+                terminalContextMenu: true
+            ),
+            sourcePath: nil
+        ))
+        #expect(optedIn.wantsTerminalContextMenu)
+
+        let optedOut = try #require(CmuxResolvedConfigAction.fromDefinition(
+            id: "cmd3",
+            definition: CmuxConfigActionDefinition(
+                action: .command("make"),
+                terminalContextMenu: false
+            ),
+            sourcePath: nil
+        ))
+        #expect(!optedOut.wantsTerminalContextMenu)
+    }
+
+    @Test func terminalContextMenuFlagRoundTripsThroughJSON() throws {
+        let original = CmuxConfigActionDefinition(
+            action: .command("make"),
+            title: "Round Trip",
+            terminalContextMenu: true
+        )
+        let data = try JSONEncoder().encode(original)
+        let decoded = try JSONDecoder().decode(CmuxConfigActionDefinition.self, from: data)
+        #expect(decoded == original)
+        #expect(decoded.terminalContextMenu == true)
+    }
+
     // MARK: - Executor
 
     @Test func inlineWorkspaceSyntheticCommandCarriesConfirm() throws {
