@@ -796,6 +796,11 @@ struct GhostMainWindowContextLifecycleTests {
         #expect(workspace.isRetiredFromOwningTabManager)
         #expect(workspace.bonsplitController.allPaneIds.contains(paneId))
         let paneIdsAfterRetirement = workspace.bonsplitController.allPaneIds
+        let tabIdsByPaneAfterRetirement = Dictionary(
+            uniqueKeysWithValues: paneIdsAfterRetirement.map { paneId in
+                (paneId.id, workspace.bonsplitController.tabs(inPane: paneId).map(\.id))
+            }
+        )
 
         let latePanelId = createPanel(workspace, paneId)
         let message = Comment(rawValue: "\(operation) repopulated a retired workspace")
@@ -804,9 +809,11 @@ struct GhostMainWindowContextLifecycleTests {
         #expect(workspace.panels.isEmpty, message)
         #expect(workspace.bonsplitController.allPaneIds == paneIdsAfterRetirement, message)
         #expect(
-            workspace.bonsplitController.allPaneIds.allSatisfy {
-                workspace.bonsplitController.tabs(inPane: $0).isEmpty
-            },
+            Dictionary(
+                uniqueKeysWithValues: workspace.bonsplitController.allPaneIds.map { paneId in
+                    (paneId.id, workspace.bonsplitController.tabs(inPane: paneId).map(\.id))
+                }
+            ) == tabIdsByPaneAfterRetirement,
             message
         )
         #expect(manager.tabs.isEmpty, message)
