@@ -625,7 +625,7 @@ struct ComputerUseUXTests {
         store.stop()
     }
 
-    @Test func menuRefreshPolicyDebouncesAndSkipsFullyInactiveFeature() throws {
+    @Test func menuRefreshPolicyDebouncesOnlyWhenFeatureAndMenuAreVisible() throws {
         let policy = ComputerUseMenuBarRefreshPolicy(minimumEventReloadInterval: 0.2)
         let firstEvent = Date(timeIntervalSince1970: 1_900_000_000)
         let secondEvent = firstEvent.addingTimeInterval(0.05)
@@ -636,15 +636,25 @@ struct ComputerUseUXTests {
             featureEnabled: false,
             showInMenuBar: false
         ) == nil)
-        let firstDeadline = try #require(policy.reloadDeadline(
+        #expect(policy.reloadDeadline(
             forEventAt: firstEvent,
             featureEnabled: true,
             showInMenuBar: false
+        ) == nil)
+        #expect(policy.reloadDeadline(
+            forEventAt: firstEvent,
+            featureEnabled: false,
+            showInMenuBar: true
+        ) == nil)
+        let firstDeadline = try #require(policy.reloadDeadline(
+            forEventAt: firstEvent,
+            featureEnabled: true,
+            showInMenuBar: true
         ))
         let secondDeadline = try #require(policy.reloadDeadline(
             forEventAt: secondEvent,
             featureEnabled: true,
-            showInMenuBar: false
+            showInMenuBar: true
         ))
         #expect(firstDeadline == firstEvent.addingTimeInterval(0.2))
         #expect(secondDeadline > firstDeadline)
