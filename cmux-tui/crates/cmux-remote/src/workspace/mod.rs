@@ -847,6 +847,8 @@ fn computer_feature_name(feature: ComputerUseFeature) -> &'static str {
 
 #[cfg(test)]
 mod tests {
+    use std::collections::BTreeMap;
+
     use cmux_remote_protocol::{
         ByteString, FilePrecondition, ProcessEnvironment, ProcessIo, ProcessLifetime,
         ProcessSignal, RequestId,
@@ -1019,11 +1021,100 @@ mod tests {
         let WorkspaceResponse::Capabilities { capabilities } = response else { panic!() };
         assert!(capabilities.contains(&RemoteCapability::WorkspaceFilesV1));
         assert!(capabilities.contains(&RemoteCapability::ProcessPipesV1));
+        assert!(capabilities.contains(&RemoteCapability::ProcessCatalogV1));
+        assert!(capabilities.contains(&RemoteCapability::ProcessTerminalSnapshotV1));
         #[cfg(unix)]
         assert!(capabilities.contains(&RemoteCapability::ProcessPtyV1));
         #[cfg(not(unix))]
         assert!(!capabilities.contains(&RemoteCapability::ProcessPtyV1));
         assert!(capabilities.contains(&RemoteCapability::TcpRoutesV1));
+    }
+
+    #[cfg(unix)]
+    #[tokio::test]
+    async fn process_catalog_is_daemon_wide_and_retains_recent_exit_without_environment() {
+        let directory = tempdir().unwrap();
+        let service = WorkspaceService::new();
+        let first_scope = ClientScope::new("device-a", SessionId([1; 16]));
+        let second_scope = ClientScope::new("device-b", SessionId([2; 16]));
+        let opened = service
+            .handle_request_for(
+                &first_scope,
+                WorkspaceRequest::OpenWorkspace {
+                    root: directory.path().to_string_lossy().into_owned(),
+                },
+            )
+            .await
+            .unwrap();
+        let WorkspaceResponse::Workspace { id: workspace, root } = opened else { panic!() };
+        let secret = "catalog-must-not-expose-this-value";
+        let started = service
+            .handle_request_for(
+                &first_scope,
+                WorkspaceRequest::SpawnProcess {
+                    workspace: workspace.clone(),
+                    argv: vec![
+                        "/bin/sh".into(),
+                        "-c".into(),
+                        "sleep 30".into(),
+                        "display\nargument".into(),
+                    ],
+                    cwd: None,
+                    env: BTreeMap::from([("CMUX_CATALOG_SECRET".into(), secret.into())]),
+                    io: ProcessIo::Pipes { stdin: false },
+                    lifetime: ProcessLifetime::Detached,
+                    operation: None,
+                    timeout_ms: None,
+                    retained_output_bytes: None,
+                    environment: ProcessEnvironment::Inherit,
+                },
+            )
+            .await
+            .unwrap();
+        let WorkspaceResponse::ProcessStarted { process, pid, .. } = started else { panic!() };
+
+        let listed = service
+            .handle_request_for(&second_scope, WorkspaceRequest::ListProcesses)
+            .await
+            .unwrap();
+        let serialized = serde_json::to_string(&listed).unwrap();
+        assert!(!serialized.contains(secret));
+        let WorkspaceResponse::Processes { processes } = listed else { panic!() };
+        let descriptor = processes.iter().find(|descriptor| descriptor.process == process).unwrap();
+        assert_eq!(descriptor.workspace, workspace);
+        assert_eq!(descriptor.command_label, "sh");
+        assert_eq!(descriptor.cwd, root);
+        assert_eq!(descriptor.lifetime, ProcessLifetime::Detached);
+        assert_eq!(descriptor.pid, pid);
+        assert_eq!(descriptor.io, ProcessIoKind::Pipes);
+        assert_eq!(descriptor.pty_size, None);
+        assert_eq!(descriptor.state, ProcessState::Running);
+        assert!(descriptor.display_argv.iter().any(|arg| arg == "display\\nargument"));
+
+        service
+            .handle_request_for(
+                &second_scope,
+                WorkspaceRequest::SignalProcess { process, signal: ProcessSignal::Kill },
+            )
+            .await
+            .unwrap();
+        service
+            .handle_request_for(&second_scope, WorkspaceRequest::WaitProcess { process })
+            .await
+            .unwrap();
+        let listed = service
+            .handle_request_for(&second_scope, WorkspaceRequest::ListProcesses)
+            .await
+            .unwrap();
+        let WorkspaceResponse::Processes { processes } = listed else { panic!() };
+        assert!(matches!(
+            processes.iter().find(|descriptor| descriptor.process == process),
+            Some(ProcessDescriptor {
+                state: ProcessState::Exited { code: None, signal: Some(_) },
+                replay: ProcessReplayRange { exited: true, .. },
+                ..
+            })
+        ));
     }
 
     #[cfg(unix)]

@@ -2277,6 +2277,86 @@ mod tests {
         ));
     }
 
+    #[tokio::test]
+    async fn continuous_output_cannot_starve_the_absolute_drain_deadline() {
+        let (activity, activity_rx) = watch::channel(0_u64);
+        let running = Arc::new(AtomicBool::new(true));
+        let producer_running = running.clone();
+        let producer = std::thread::spawn(move || {
+            while producer_running.load(Ordering::Acquire) {
+                activity.send_modify(|generation| *generation = generation.wrapping_add(1));
+            }
+        });
+        let mut tasks = JoinSet::new();
+        tasks.spawn(std::future::pending::<Result<(), ProcessOutputTruncationReason>>());
+
+        let result = tokio::time::timeout(
+            std::time::Duration::from_millis(500),
+            drain_output_tasks(
+                tasks,
+                activity_rx,
+                std::time::Duration::from_secs(10),
+                std::time::Duration::from_millis(50),
+            ),
+        )
+        .await;
+        running.store(false, Ordering::Release);
+        producer.join().unwrap();
+
+        let reasons = result.expect("continuous activity starved the absolute output deadline");
+        assert!(matches!(
+            reasons.as_slice(),
+            [ProcessOutputTruncationReason::DrainTotalTimeout { .. }]
+        ));
+    }
+
+    #[test]
+    fn terminal_snapshot_is_an_exact_replay_boundary_and_resize_updates_the_model() {
+        let process = ProcessId::from_u128(0x77);
+        let events = ProcessEventLog::new(8);
+        events.enable_terminal(8, 2).unwrap();
+        events.publish_output(process, false, b"\x1b[1mready");
+
+        let snapshot = events.snapshot_terminal(process).unwrap();
+        assert_eq!(snapshot.process, process);
+        assert_eq!(snapshot.size, ProcessTerminalSize { cols: 8, rows: 2 });
+        assert_eq!(snapshot.through_sequence, 1);
+        assert_eq!(snapshot.rows[0].runs[0].text, "ready");
+        assert_ne!(snapshot.rows[0].runs[0].attrs & 1, 0);
+
+        events.resize_terminal(12, 3, || Ok(())).unwrap();
+        let resized = events.snapshot_terminal(process).unwrap();
+        assert_eq!(resized.size, ProcessTerminalSize { cols: 12, rows: 3 });
+        assert_eq!(resized.through_sequence, 1);
+
+        for _ in 0..16 {
+            events.publish_output(process, false, b"x");
+        }
+        let gap = match events.subscribe(snapshot.through_sequence, false) {
+            Ok(_) => panic!("an evicted snapshot cursor unexpectedly remained replayable"),
+            Err(error) => error,
+        };
+        assert_eq!(gap.code, "replay-unavailable");
+
+        let retry = events.snapshot_terminal(process).unwrap();
+        assert_eq!(retry.through_sequence, 17);
+        events.subscribe(retry.through_sequence, false).unwrap();
+    }
+
+    #[test]
+    fn pipes_and_oversized_terminals_do_not_produce_snapshots() {
+        let process = ProcessId::from_u128(0x78);
+        let pipes = ProcessEventLog::new(PROCESS_EVENT_BYTES);
+        assert_eq!(pipes.snapshot_terminal(process).unwrap_err().code, "not-a-pty");
+
+        let terminal = ProcessEventLog::new(PROCESS_EVENT_BYTES);
+        terminal.enable_terminal(512, 256).unwrap();
+        assert_eq!(
+            terminal.snapshot_terminal(process).unwrap_err().code,
+            "terminal-snapshot-too-large"
+        );
+    }
+
     #[cfg(unix)]
     #[tokio::test]
     async fn output_drain_waits_for_a_slow_inherited_pipe_tail() {

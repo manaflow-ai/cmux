@@ -381,8 +381,8 @@ mod tests {
     use super::*;
 
     #[test]
-    fn closed_remote_enums_use_protocol_three() {
-        assert_eq!(REMOTE_PROTOCOL_VERSION, 3);
+    fn closed_remote_enums_use_protocol_four() {
+        assert_eq!(REMOTE_PROTOCOL_VERSION, 4);
     }
 
     #[test]
