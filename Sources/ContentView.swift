@@ -8436,7 +8436,7 @@ struct ContentView: View {
                 panelContext.workspace.markPanelUnread(panelContext.panelId)
             }
         }
-        registerSurfaceNavigationCommandHandlers(&registry)
+        registerSurfaceNavigationCommandHandlers(&registry) { observedWindow ?? NSApp.keyWindow ?? NSApp.mainWindow }
         registry.register(commandId: "palette.openWorkspacePullRequests") {
             DispatchQueue.main.async {
                 if !openWorkspacePullRequestsInConfiguredBrowser() {

@@ -53,7 +53,8 @@ extension ContentView {
     }
 
     func registerSurfaceNavigationCommandHandlers(
-        _ registry: inout CommandPaletteHandlerRegistry
+        _ registry: inout CommandPaletteHandlerRegistry,
+        preferredWindow: @escaping () -> NSWindow?
     ) {
         registry.register(commandId: "palette.nextTabInPane") {
             tabManager.selectNextSurface()
@@ -66,7 +67,7 @@ extension ContentView {
                 if AppDelegate.shared?.performSurfacePaneMovement(
                     movement,
                     tabManager: tabManager,
-                    preferredWindow: observedWindow ?? NSApp.keyWindow ?? NSApp.mainWindow
+                    preferredWindow: preferredWindow()
                 ) != true {
                     NSSound.beep()
                 }
