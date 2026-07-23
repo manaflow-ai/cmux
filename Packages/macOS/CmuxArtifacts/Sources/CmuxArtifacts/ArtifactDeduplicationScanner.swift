@@ -82,6 +82,6 @@ struct ArtifactDeduplicationScanner {
             return false
         }
         return url.lastPathComponent.hasPrefix(".")
-            || ["artifacts.json", "cmux.json", "dock.json"].contains(url.lastPathComponent)
+            || ArtifactStorePaths.trackableControlFileNames.contains(url.lastPathComponent)
     }
 }

@@ -109,7 +109,7 @@ struct ArtifactTreeScanner {
             return false
         }
         return url.lastPathComponent.hasPrefix(".")
-            || ["artifacts.json", "cmux.json", "dock.json"].contains(url.lastPathComponent)
+            || ArtifactStorePaths.trackableControlFileNames.contains(url.lastPathComponent)
     }
 
     private func relativePath(_ url: URL, root: URL) -> String? {

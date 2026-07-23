@@ -9,7 +9,7 @@ struct ArtifactGitPrivacyTests {
     func rejectsNegatedArtifactIgnore() async throws {
         let root = try gitRepository()
         defer { ArtifactTestSupport.remove(root) }
-        try "!/.cmux/\n!/.cmux/**/artifacts/\n!/.cmux/**/artifacts/**\n".write(
+        try "!/.cmux/\n!/.cmux/**/\n!/.cmux/**/artifacts/**\n".write(
             to: root.appendingPathComponent(".gitignore"),
             atomically: true,
             encoding: .utf8

@@ -2,6 +2,8 @@ public import Foundation
 
 /// Deterministic paths inside one project's session-oriented `.cmux` filesystem.
 public struct ArtifactStorePaths: Equatable, Sendable {
+    static let trackableControlFileNames = ["artifacts.json", "cmux.json", "dock.json"]
+
     /// Normalized project root.
     public let projectRoot: URL
 

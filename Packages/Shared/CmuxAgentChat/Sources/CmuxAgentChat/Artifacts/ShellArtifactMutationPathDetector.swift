@@ -4,7 +4,8 @@ import Foundation
 struct ShellArtifactMutationPathDetector: Sendable {
     private enum Token: Equatable {
         case word(String)
-        case redirect
+        case outputRedirect
+        case readWriteRedirect
         case boundary
     }
 
@@ -38,9 +39,9 @@ struct ShellArtifactMutationPathDetector: Sendable {
 
         for index in tokens.indices {
             switch tokens[index] {
-            case .redirect:
+            case .outputRedirect:
                 append(nextWord(after: index, in: tokens))
-            case .word, .boundary:
+            case .word, .readWriteRedirect, .boundary:
                 break
             }
         }
@@ -139,15 +140,21 @@ struct ShellArtifactMutationPathDetector: Sendable {
                 index += 1
                 continue
             }
+            if character == "<", characters[safe: index + 1] == ">" {
+                flushWord()
+                tokens.append(.readWriteRedirect)
+                index += 2
+                continue
+            }
             if character == ">" {
                 flushWord()
-                tokens.append(.redirect)
+                tokens.append(.outputRedirect)
                 index += characters[safe: index + 1] == ">" ? 2 : 1
                 continue
             }
             if character == "&", characters[safe: index + 1] == ">" {
                 flushWord()
-                tokens.append(.redirect)
+                tokens.append(.outputRedirect)
                 index += 2
                 continue
             }
@@ -170,7 +177,8 @@ struct ShellArtifactMutationPathDetector: Sendable {
         for token in tokens[(index + 1)...] {
             switch token {
             case .word(let word): return word
-            case .redirect: continue
+            case .outputRedirect: continue
+            case .readWriteRedirect: return nil
             case .boundary: return nil
             }
         }

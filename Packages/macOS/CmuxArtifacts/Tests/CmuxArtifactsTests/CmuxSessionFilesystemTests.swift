@@ -260,17 +260,30 @@ struct CmuxSessionFilesystemTests {
         #expect(try ArtifactTestSupport.runGit(["init", "--quiet", root.path]) == 0)
 
         _ = try await LocalArtifactRepository().snapshot(projectRoot: root)
-
-        let exclude = try String(
-            contentsOf: root.appendingPathComponent(".git/info/exclude"),
-            encoding: .utf8
-        )
-        let lines = Set(exclude.split(separator: "\n").map(String.init))
-        #expect(lines.contains(".cmux/**/artifacts/"))
-        #expect(lines.contains(".cmux/**/notes/"))
-        #expect(lines.contains(".cmux/**/_session.json"))
-        #expect(lines.contains(".cmux/**/_workspace.json"))
-        #expect(lines.contains(".cmux/.metadata/"))
-        #expect(!lines.contains(".cmux/"))
+        let privatePaths = [
+            ".cmux/session/artifacts/image.png",
+            ".cmux/session/notes/plan.md",
+            ".cmux/session/_session.json",
+            ".cmux/session/_workspace.json",
+            ".cmux/.metadata/provenance/digest.json",
+            ".cmux/organized/final.txt",
+        ]
+        for path in privatePaths {
+            _ = try ArtifactTestSupport.write(
+                "private",
+                named: path,
+                under: root
+            )
+            #expect(try ArtifactTestSupport.runGit([
+                "-C", root.path, "check-ignore", "--quiet", "--", path,
+            ]) == 0)
+        }
+        for name in ArtifactStorePaths.trackableControlFileNames {
+            let path = ".cmux/\(name)"
+            _ = try ArtifactTestSupport.write("{}", named: path, under: root)
+            #expect(try ArtifactTestSupport.runGit([
+                "-C", root.path, "check-ignore", "--quiet", "--", path,
+            ]) == 1)
+        }
     }
 }
