@@ -259,6 +259,70 @@ struct RecoverableWindowlessMainWindowRoutingTests {
         #expect(!app.commitMainWindowClose(window))
     }
 
+    @Test("Finalized unowned manager cannot tombstone another manager's exact window")
+    func finalizedUnownedManagerCannotTombstoneAnotherManagersExactWindow() throws {
+        _ = NSApplication.shared
+        let previousAppDelegate = AppDelegate.shared
+        let app = AppDelegate()
+        defer {
+            TerminalController.shared.setActiveTabManager(nil)
+            AppDelegate.shared = previousAppDelegate
+        }
+
+        let windowId = UUID()
+        let window = NSWindow(
+            contentRect: NSRect(x: 0, y: 0, width: 500, height: 320),
+            styleMask: [.titled, .closable],
+            backing: .buffered,
+            defer: false
+        )
+        window.isReleasedWhenClosed = false
+        window.identifier = NSUserInterfaceItemIdentifier("cmux.main.\(windowId.uuidString)")
+        let owner = TabManager()
+        let ownerWorkspace = try #require(owner.selectedWorkspace)
+        let ownerPanel = try #require(ownerWorkspace.focusedTerminalPanel)
+        let finalizedIntruder = TabManager()
+        finalizedIntruder.finalizeAllWorkspacesForWindowClose()
+        defer {
+            app.unregisterMainWindowContextForTesting(windowId: windowId)
+            ownerWorkspace.teardownAllPanels()
+            ownerWorkspace.teardownRemoteConnection()
+            window.orderOut(nil)
+        }
+
+        app.registerMainWindow(
+            window,
+            windowId: windowId,
+            tabManager: owner,
+            sidebarState: SidebarState(),
+            sidebarSelectionState: SidebarSelectionState(),
+            fileExplorerState: FileExplorerState()
+        )
+        window.makeKeyAndOrderFront(nil)
+        #expect(app.tabManagerFor(windowId: windowId) === owner)
+        #expect(window.isVisible)
+        #expect(!app.hasCommittedMainWindowClose(window))
+
+        app.registerMainWindow(
+            window,
+            windowId: windowId,
+            tabManager: finalizedIntruder,
+            sidebarState: SidebarState(),
+            sidebarSelectionState: SidebarSelectionState(),
+            fileExplorerState: FileExplorerState()
+        )
+
+        #expect(app.tabManagerFor(windowId: windowId) === owner)
+        #expect(app.mainWindowContexts.values.contains {
+            $0.windowId == windowId && $0.tabManager === owner && $0.window === window
+        })
+        #expect(!owner.isFinalizedForWindowClose)
+        #expect(owner.tabs.count == 1)
+        #expect(GhosttyApp.terminalSurfaceRegistry.surface(id: ownerPanel.id) === ownerPanel.surface)
+        #expect(window.isVisible)
+        #expect(!app.hasCommittedMainWindowClose(window))
+    }
+
     @Test("Transient windowless routing preserves the recoverable workspace")
     func transientWindowlessRoutingPreservesRecoverableWorkspace() throws {
         _ = NSApplication.shared
@@ -285,6 +349,57 @@ struct RecoverableWindowlessMainWindowRoutingTests {
         #expect(app.tabManagerFor(windowId: windowId) === manager)
         #expect(app.recoverableMainWindowRoute(windowId: windowId)?.tabManager === manager)
         #expect(GhosttyApp.terminalSurfaceRegistry.surface(id: terminalPanel.id) === terminalPanel.surface)
+    }
+
+    @Test("Ordered-out recovery state is isolated from general window routing")
+    func orderedOutRecoveryStateIsIsolatedFromGeneralWindowRouting() throws {
+        _ = NSApplication.shared
+        let previousAppDelegate = AppDelegate.shared
+        let app = AppDelegate()
+        defer {
+            TerminalController.shared.setActiveTabManager(nil)
+            AppDelegate.shared = previousAppDelegate
+        }
+
+        let manager = TabManager()
+        let windowId = UUID()
+        let window = NSWindow(
+            contentRect: NSRect(x: 0, y: 0, width: 500, height: 320),
+            styleMask: [.titled, .closable],
+            backing: .buffered,
+            defer: false
+        )
+        window.isReleasedWhenClosed = false
+        window.identifier = NSUserInterfaceItemIdentifier("cmux.main.\(windowId.uuidString)")
+        let workspace = try #require(manager.selectedWorkspace)
+        let terminalPanel = try #require(workspace.focusedTerminalPanel)
+        defer {
+            app.unregisterMainWindowContextForTesting(windowId: windowId)
+            workspace.teardownAllPanels()
+            workspace.teardownRemoteConnection()
+            window.orderOut(nil)
+        }
+
+        app.registerMainWindow(
+            window,
+            windowId: windowId,
+            tabManager: manager,
+            sidebarState: SidebarState(),
+            sidebarSelectionState: SidebarSelectionState(),
+            fileExplorerState: FileExplorerState()
+        )
+        window.makeKeyAndOrderFront(nil)
+        let context = try #require(
+            app.mainWindowContexts.values.first { $0.windowId == windowId }
+        )
+        app.discardOrphanedMainWindowContext(context)
+        window.orderOut(nil)
+
+        #expect(!window.isVisible)
+        #expect(app.recoverableMainWindowRoute(windowId: windowId)?.tabManager === manager)
+        #expect(app.recoverableMainWindowRoute(windowId: windowId)?.window === window)
+        #expect(GhosttyApp.terminalSurfaceRegistry.surface(id: terminalPanel.id) === terminalPanel.surface)
+        #expect(app.tabManagerFor(windowId: windowId) == nil)
     }
 
     @Test("Stale duplicate cannot close a windowless recoverable owner")
