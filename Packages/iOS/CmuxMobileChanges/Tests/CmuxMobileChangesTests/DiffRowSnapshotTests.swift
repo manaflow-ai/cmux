@@ -175,6 +175,24 @@ import Testing
         #expect(resolvedExpander.expansionLineCount == 7)
     }
 
+    @Test func truncatedDocumentProjectsNoTrailingExpander() {
+        let document = gapFixtureDocument(truncated: true)
+        let rows = DiffRowSnapshot.rows(
+            for: document,
+            expansionState: DiffExpansionState(),
+            currentFileLines: (1...50).map { "line \($0)" },
+            fileKind: .modified
+        )
+        let placements = rows.compactMap { row -> DiffGap.Placement? in
+            guard case .expander(let snapshot) = row.content else { return nil }
+            return snapshot.gap.placement
+        }
+
+        #expect(placements.contains(.leading))
+        #expect(placements.contains(.inner))
+        #expect(!placements.contains(.trailing))
+    }
+
     @Test func unifiedButtonOnlyWhenOneTapRevealsTheWholeRun() {
         let gap = DiffGap(id: 1, placement: .inner, newLineRange: 1..<200, oldLineOffset: 0)
         let short = DiffExpanderSnapshot(gap: gap, hiddenNewLineRange: 1..<121)
@@ -214,13 +232,13 @@ import Testing
         })
     }
 
-    private func gapFixtureDocument() -> FileDiffDocument {
+    private func gapFixtureDocument(truncated: Bool = false) -> FileDiffDocument {
         FileDiffDocument(
             hunks: [
                 hunk(oldStart: 11, oldCount: 3, newStart: 11, newCount: 5),
                 hunk(oldStart: 31, oldCount: 2, newStart: 33, newCount: 1),
             ],
-            truncated: false,
+            truncated: truncated,
             isBinary: false
         )
     }

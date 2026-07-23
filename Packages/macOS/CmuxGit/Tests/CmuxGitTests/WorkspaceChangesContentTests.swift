@@ -128,4 +128,82 @@ import Testing
         #expect(second.offset == Int64(maximum))
         #expect(second.eof)
     }
+
+    @Test func oversizedBaseBlobIsRefusedBeforeMaterialization() async throws {
+        let root = FileManager.default.temporaryDirectory
+            .appendingPathComponent("cmux-oversized-base-\(UUID().uuidString)", isDirectory: true)
+        try FileManager.default.createDirectory(at: root, withIntermediateDirectories: true)
+        defer { try? FileManager.default.removeItem(at: root) }
+        let runner = FakeWorkspaceChangesGitRunner(results: [
+            ["rev-parse", "--show-toplevel"]: FakeWorkspaceChangesGitRunner.result("\(root.path)\n"),
+            ["symbolic-ref", "--quiet", "--short", "HEAD"]: FakeWorkspaceChangesGitRunner.result("main\n"),
+            ["symbolic-ref", "--quiet", "--short", "refs/remotes/origin/HEAD"]: FakeWorkspaceChangesGitRunner.result(exitCode: 1),
+            ["rev-parse", "--verify", "--quiet", "origin/main^{commit}"]: FakeWorkspaceChangesGitRunner.result(exitCode: 1),
+            ["rev-parse", "--verify", "--quiet", "origin/master^{commit}"]: FakeWorkspaceChangesGitRunner.result(exitCode: 1),
+            ["rev-parse", "--verify", "--quiet", "main^{commit}"]: FakeWorkspaceChangesGitRunner.result("abc\n"),
+            ["diff", "-M", "--name-status", "-z", "HEAD", "--"]: FakeWorkspaceChangesGitRunner.result("M\0large.bin\0"),
+            ["diff", "-M", "--numstat", "-z", "HEAD", "--"]: FakeWorkspaceChangesGitRunner.result("1\t1\tlarge.bin\0"),
+            ["ls-files", "--others", "--exclude-standard", "-z"]: FakeWorkspaceChangesGitRunner.result(),
+            ["cat-file", "-s", "HEAD:large.bin"]: FakeWorkspaceChangesGitRunner.result("5\n"),
+        ])
+        let cache = WorkspaceChangesBaseContentCache(
+            byteBudget: 4,
+            temporaryDirectory: root
+        )
+        let service = WorkspaceChangesService(runner: runner, baseContentCache: cache)
+
+        await #expect(throws: WorkspaceChangesServiceError.gitFailure) {
+            try await service.fileStat(
+                forDirectory: root.path,
+                path: "large.bin",
+                revision: .base
+            )
+        }
+    }
+
+    @Test func baseCacheRejectsOversizedEntriesAndEvictsLeastRecentlyUsed() async throws {
+        let root = FileManager.default.temporaryDirectory
+            .appendingPathComponent("cmux-base-cache-budget-\(UUID().uuidString)", isDirectory: true)
+        try FileManager.default.createDirectory(at: root, withIntermediateDirectories: true)
+        defer { try? FileManager.default.removeItem(at: root) }
+        let cache = WorkspaceChangesBaseContentCache(byteBudget: 4, temporaryDirectory: root)
+        let oversized = WorkspaceChangesBaseContentCache.Key(
+            repoRoot: "/repo",
+            baseRef: "HEAD",
+            path: "oversized"
+        )
+
+        await #expect(throws: WorkspaceChangesBaseContentCache.Error.entryExceedsByteBudget) {
+            try await cache.fileURL(for: oversized) { destination in
+                try Data("12345".utf8).write(to: destination)
+                return 5
+            }
+        }
+        let recovered = try await cache.fileURL(for: oversized) { destination in
+            try Data("x".utf8).write(to: destination)
+            return 1
+        }
+        #expect(try Data(contentsOf: recovered) == Data("x".utf8))
+
+        let second = WorkspaceChangesBaseContentCache.Key(
+            repoRoot: "/repo",
+            baseRef: "HEAD",
+            path: "second"
+        )
+        let third = WorkspaceChangesBaseContentCache.Key(
+            repoRoot: "/repo",
+            baseRef: "HEAD",
+            path: "third"
+        )
+        let secondURL = try await cache.fileURL(for: second) { destination in
+            try Data("22".utf8).write(to: destination)
+            return 2
+        }
+        _ = try await cache.fileURL(for: third) { destination in
+            try Data("333".utf8).write(to: destination)
+            return 3
+        }
+        #expect(!FileManager.default.fileExists(atPath: recovered.path))
+        #expect(!FileManager.default.fileExists(atPath: secondURL.path))
+    }
 }

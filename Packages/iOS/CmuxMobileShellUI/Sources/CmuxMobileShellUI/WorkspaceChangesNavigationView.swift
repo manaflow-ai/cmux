@@ -56,14 +56,18 @@ struct WorkspaceChangesNavigationView: View {
                 files: files,
                 state: listState,
                 actions: WorkspaceChangesListActions(
-                    onSelectFile: { path.append(.diff($0)) },
+                    onSelectFile: { index in
+                        guard files.indices.contains(index) else { return }
+                        path.append(.diff(files[index].path))
+                    },
                     onRefresh: listActions.onRefresh,
                     onRetry: listActions.onRetry
                 )
             )
             .navigationDestination(for: WorkspaceChangesNavigationRoute.self) { route in
                 switch route {
-                case .diff(let index):
+                case .diff(let filePath):
+                    if let index = files.firstIndex(where: { $0.path == filePath }) {
                     WorkspaceFileDiffPagerView(
                         files: files,
                         initialSelectedIndex: index,
@@ -94,6 +98,20 @@ struct WorkspaceChangesNavigationView: View {
                                     .disabled(inlineActionDescriptor.isRunning)
                                 }
                             }
+                        }
+                    }
+                    } else {
+                        // Fail closed: the file left the changed set (refresh
+                        // while pushed) rather than showing a neighbor's diff.
+                        ContentUnavailableView {
+                            Label(
+                                String(
+                                    localized: "workspace.changes.file_missing",
+                                    defaultValue: "File no longer changed",
+                                    bundle: .module
+                                ),
+                                systemImage: "doc.questionmark"
+                            )
                         }
                     }
                 }

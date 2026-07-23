@@ -199,8 +199,8 @@ public struct WorkspaceFileDiff: Sendable, Equatable {
     public let unifiedDiff: String
     /// Whether output was omitted at a hunk boundary by a size cap.
     public let truncated: Bool
-    /// Number of lines in the full, untruncated unified diff.
-    public let totalLineCount: Int
+    /// Number of lines in the full diff, or `nil` when bounded reading stopped early.
+    public let totalLineCount: Int?
 
     /// Creates a bounded file-diff value.
     ///
@@ -213,7 +213,7 @@ public struct WorkspaceFileDiff: Sendable, Equatable {
     ///   - deletions: The number of deleted lines.
     ///   - unifiedDiff: Raw, bounded unified-diff output.
     ///   - truncated: Whether a size cap omitted complete hunks.
-    ///   - totalLineCount: Number of lines in the full unified diff.
+    ///   - totalLineCount: Number of lines in the full diff, when known.
     public init(
         path: String,
         oldPath: String?,
@@ -223,7 +223,7 @@ public struct WorkspaceFileDiff: Sendable, Equatable {
         deletions: Int,
         unifiedDiff: String,
         truncated: Bool,
-        totalLineCount: Int
+        totalLineCount: Int?
     ) {
         self.path = path
         self.oldPath = oldPath

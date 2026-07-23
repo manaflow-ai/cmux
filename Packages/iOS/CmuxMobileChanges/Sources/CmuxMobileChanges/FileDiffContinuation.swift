@@ -9,26 +9,38 @@ public struct FileDiffContinuation: Sendable, Equatable {
     public let lineBudget: Int
     /// Number of raw diff lines present in the current document.
     public let shownLineCount: Int
+    /// Unclamped number of raw diff lines present in the current document.
+    public let loadedRawLineCount: Int
     /// Number of raw lines in the full diff, when reported by the host.
     public let totalLineCount: Int?
     /// Whether the host reports that the current response is truncated.
     public let isTruncated: Bool
+    /// Whether a larger request stopped increasing the transported window.
+    public let reachedTransportCeiling: Bool
 
     /// Creates continuation state for a loaded document.
     ///
     /// - Parameters:
     ///   - lineBudget: Line budget that produced `document`.
     ///   - document: Current parsed diff document.
-    public init(lineBudget: Int, document: FileDiffDocument) {
+    ///   - reachedTransportCeiling: Whether a larger request returned no more raw lines.
+    public init(
+        lineBudget: Int,
+        document: FileDiffDocument,
+        reachedTransportCeiling: Bool = false
+    ) {
         self.lineBudget = min(
             max(lineBudget, Self.defaultLineBudget),
             Self.maximumLineBudget
         )
         totalLineCount = document.totalLineCount.map { max(0, $0) }
         isTruncated = document.truncated
+        let loadedRawLineCount = max(0, document.loadedLineCount)
+        self.loadedRawLineCount = loadedRawLineCount
+        self.reachedTransportCeiling = reachedTransportCeiling
         shownLineCount = document.totalLineCount.map {
-            min(max(0, document.loadedLineCount), max(0, $0))
-        } ?? max(0, document.loadedLineCount)
+            min(loadedRawLineCount, max(0, $0))
+        } ?? loadedRawLineCount
     }
 
     /// Whether the continuation footer should remain visible.
@@ -38,7 +50,10 @@ public struct FileDiffContinuation: Sendable, Equatable {
 
     /// Whether the host supplied enough metadata to request a larger window.
     public var canShowMore: Bool {
-        isTruncated && totalLineCount != nil
+        isTruncated
+            && totalLineCount != nil
+            && !reachedTransportCeiling
+            && nextLineBudget > lineBudget
     }
 
     /// Four-times-larger request budget, saturated at the host response guard.
@@ -46,5 +61,18 @@ public struct FileDiffContinuation: Sendable, Equatable {
         let (grown, overflowed) = lineBudget.multipliedReportingOverflow(by: 4)
         guard !overflowed else { return Self.maximumLineBudget }
         return min(grown, Self.maximumLineBudget)
+    }
+
+    /// Detects a transport ceiling after a strictly larger request.
+    /// - Parameters:
+    ///   - document: Document returned by the larger request.
+    ///   - requestedLineBudget: Line budget used for that request.
+    /// - Returns: `true` when the raw transported window did not grow.
+    public func reachedTransportCeiling(
+        afterLoading document: FileDiffDocument,
+        requestedLineBudget: Int
+    ) -> Bool {
+        requestedLineBudget > lineBudget
+            && max(0, document.loadedLineCount) <= loadedRawLineCount
     }
 }

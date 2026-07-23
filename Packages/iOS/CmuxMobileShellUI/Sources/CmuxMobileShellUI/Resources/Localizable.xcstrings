@@ -603,6 +603,13 @@
         "ja" : { "stringUnit" : { "state" : "translated", "value" : "閉じる" } }
       }
     },
+    "workspace.changes.file_missing" : {
+      "extractionState" : "manual",
+      "localizations" : {
+        "en" : { "stringUnit" : { "state" : "translated", "value" : "File no longer changed" } },
+        "ja" : { "stringUnit" : { "state" : "translated", "value" : "このファイルは変更されていません" } }
+      }
+    },
     "workspace.changes.chip.accessibility" : {
       "extractionState" : "manual",
       "localizations" : {

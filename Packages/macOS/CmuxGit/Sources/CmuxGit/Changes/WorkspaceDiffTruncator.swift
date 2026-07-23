@@ -4,8 +4,9 @@ import Foundation
 struct WorkspaceDiffTruncator {
     static let defaultMaximumBytes = 400 * 1024
     static let defaultMaximumLines = 6_000
-    static let abuseGuardMaximumBytes = 64 * 1024 * 1024
+    static let responseMaximumBytes = 6 * 1024 * 1024
     static let abuseGuardMaximumLines = 1_000_000
+    static let readHeadroomBytes = 1 * 1024 * 1024
 
     let maximumBytes: Int
     let maximumLines: Int
@@ -31,9 +32,13 @@ struct WorkspaceDiffTruncator {
             clampedLines * Self.defaultMaximumBytes + Self.defaultMaximumLines - 1
         ) / Self.defaultMaximumLines
         self.init(
-            maximumBytes: min(scaledBytes, Self.abuseGuardMaximumBytes),
+            maximumBytes: min(scaledBytes, Self.responseMaximumBytes),
             maximumLines: clampedLines
         )
+    }
+
+    var maximumInputBytes: Int {
+        maximumBytes * 2 + Self.readHeadroomBytes
     }
 
     func truncate(_ diff: String) -> (text: String, truncated: Bool, totalLineCount: Int) {
@@ -108,10 +113,12 @@ struct WorkspaceDiffTruncator {
 
     private func cappedPrefix(of lines: [String]) -> (text: String, truncated: Bool) {
         var accepted: [String] = []
+        var bytes = 0
         for line in lines {
-            let candidate = accepted + [line]
-            guard fits(candidate) else { break }
-            accepted = candidate
+            let lineBytes = line.utf8.count + (accepted.isEmpty ? 0 : 1)
+            guard accepted.count < maximumLines, bytes + lineBytes <= maximumBytes else { break }
+            accepted.append(line)
+            bytes += lineBytes
         }
         return (accepted.joined(separator: "\n"), true)
     }

@@ -13,30 +13,18 @@ import Foundation
 /// let summary = await changes.summary(forDirectory: checkoutPath)
 /// ```
 public struct WorkspaceChangesService: Sendable {
-    private struct Scope: Sendable {
-        let repoRoot: String
-        let branch: String?
-        let baseRef: String?
-        let diffBase: String
-    }
-
-    private struct Snapshot: Sendable {
-        let scope: Scope
-        let files: [WorkspaceChangedFile]
-    }
-
-    private static let maximumFileCount = 500
-
     private let runner: any WorkspaceChangesGitRunning
+    private let snapshotLoader: WorkspaceChangesSnapshotLoader
     private let summaryCache: WorkspaceChangesSummaryCache
     private let authorizedPathCache: WorkspaceChangesAuthorizedPathCache
     private let baseContentCache: WorkspaceChangesBaseContentCache
-    private let parser = WorkspaceChangesParser()
     private let pathValidator = WorkspaceChangesPathValidator()
 
     /// Creates a production workspace-changes service.
     public init() {
-        runner = SystemWorkspaceChangesGitRunner()
+        let runner = SystemWorkspaceChangesGitRunner()
+        self.runner = runner
+        snapshotLoader = WorkspaceChangesSnapshotLoader(runner: runner)
         summaryCache = WorkspaceChangesSummaryCache()
         authorizedPathCache = WorkspaceChangesAuthorizedPathCache()
         baseContentCache = WorkspaceChangesBaseContentCache()
@@ -49,6 +37,7 @@ public struct WorkspaceChangesService: Sendable {
         baseContentCache: WorkspaceChangesBaseContentCache = WorkspaceChangesBaseContentCache()
     ) {
         self.runner = runner
+        snapshotLoader = WorkspaceChangesSnapshotLoader(runner: runner)
         self.summaryCache = summaryCache
         self.authorizedPathCache = authorizedPathCache
         self.baseContentCache = baseContentCache
@@ -63,13 +52,13 @@ public struct WorkspaceChangesService: Sendable {
     /// - Parameter directory: An absolute workspace directory to inspect.
     /// - Returns: Aggregate committed and working-tree changes.
     public nonisolated func summary(forDirectory directory: String) async -> WorkspaceChangesSummary {
-        guard let scope = resolveScope(forDirectory: directory) else {
+        guard let scope = snapshotLoader.resolveScope(forDirectory: directory) else {
             return .notARepository
         }
         if let cached = await summaryCache.summary(forRepoRoot: scope.repoRoot) {
             return cached
         }
-        guard let snapshot = loadSnapshot(scope: scope) else {
+        guard let snapshot = snapshotLoader.loadSnapshot(scope: scope) else {
             return .notARepository
         }
         let summary = WorkspaceChangesSummary(
@@ -77,9 +66,9 @@ public struct WorkspaceChangesService: Sendable {
             repoRoot: scope.repoRoot,
             branch: scope.branch,
             baseRef: scope.baseRef,
-            filesChanged: snapshot.files.count,
-            additions: snapshot.files.reduce(0) { $0 + $1.additions },
-            deletions: snapshot.files.reduce(0) { $0 + $1.deletions }
+            filesChanged: snapshot.totalFileCount,
+            additions: snapshot.additions,
+            deletions: snapshot.deletions
         )
         await summaryCache.store(summary, forRepoRoot: scope.repoRoot)
         return summary
@@ -87,15 +76,16 @@ public struct WorkspaceChangesService: Sendable {
 
     /// Reads path-sorted changes for the repository enclosing `directory`.
     ///
-    /// The returned file array is capped at 500 entries while totals describe
-    /// the full result. Git failures use the same not-a-repository sentinel as
-    /// directories outside a repository.
+    /// The returned file array is capped at 500 entries before untracked-file
+    /// inspection. The file count covers the full result; line totals include
+    /// all tracked files plus inspected untracked files. Git failures use the
+    /// same not-a-repository sentinel as directories outside a repository.
     ///
     /// - Parameter directory: An absolute workspace directory to inspect.
     /// - Returns: Changed-file metadata and aggregate totals.
     public nonisolated func changedFiles(forDirectory directory: String) async -> WorkspaceChangedFiles {
-        guard let scope = resolveScope(forDirectory: directory),
-              let snapshot = loadSnapshot(scope: scope) else {
+        guard let scope = snapshotLoader.resolveScope(forDirectory: directory),
+              let snapshot = snapshotLoader.loadSnapshot(scope: scope) else {
             return .notARepository
         }
         return changedFilesValue(from: snapshot)
@@ -107,7 +97,7 @@ public struct WorkspaceChangesService: Sendable {
     /// through symlinks are rejected before the path reaches Git. Output is
     /// capped at 400 KiB or 6,000 lines at a complete-hunk boundary by
     /// default. A requested line budget scales the byte budget proportionally,
-    /// up to the 1,000,000-line and 64 MiB response abuse guards.
+    /// up to the 1,000,000-line guard and 6 MiB response budget.
     ///
     /// - Parameters:
     ///   - directory: An absolute workspace directory to inspect.
@@ -121,11 +111,11 @@ public struct WorkspaceChangesService: Sendable {
         path: String,
         maxLines: Int? = nil
     ) async throws -> WorkspaceFileDiff {
-        guard let scope = resolveScope(forDirectory: directory) else {
+        guard let scope = snapshotLoader.resolveScope(forDirectory: directory) else {
             throw WorkspaceChangesServiceError.notARepository
         }
         let normalizedPath = try pathValidator.validatedPath(path, repoRoot: scope.repoRoot)
-        guard let snapshot = loadSnapshot(scope: scope) else {
+        guard let snapshot = snapshotLoader.loadSnapshot(scope: scope) else {
             throw WorkspaceChangesServiceError.gitFailure
         }
         guard let file = snapshot.files.first(where: { $0.path == normalizedPath }) else {
@@ -149,17 +139,20 @@ public struct WorkspaceChangesService: Sendable {
             arguments = ["diff", "-M", "--unified=3", scope.diffBase, "--", normalizedPath]
             acceptedExitCodes = [0]
         }
-        guard let result = run(arguments, repoRoot: scope.repoRoot),
-              acceptedExitCodes.contains(result.exitCode) else {
+        let truncator = WorkspaceDiffTruncator(requestedMaximumLines: maxLines)
+        guard let result = run(
+            arguments,
+            repoRoot: scope.repoRoot,
+            maximumOutputByteCount: truncator.maximumInputBytes
+        ), acceptedExitCodes.contains(result.exitCode) || result.standardOutputWasTruncated else {
             throw WorkspaceChangesServiceError.gitFailure
         }
-        let truncator = WorkspaceDiffTruncator(requestedMaximumLines: maxLines)
         let bounded = truncator.truncate(String(decoding: result.output, as: UTF8.self))
         return fileDiffValue(
             file: file,
             unifiedDiff: bounded.text,
-            truncated: bounded.truncated,
-            totalLineCount: bounded.totalLineCount
+            truncated: bounded.truncated || result.standardOutputWasTruncated,
+            totalLineCount: result.standardOutputWasTruncated ? nil : bounded.totalLineCount
         )
     }
 
@@ -244,7 +237,7 @@ public struct WorkspaceChangesService: Sendable {
         path: String,
         revision: WorkspaceChangesFileRevision
     ) async throws -> URL {
-        guard let scope = resolveScope(forDirectory: directory) else {
+        guard let scope = snapshotLoader.resolveScope(forDirectory: directory) else {
             throw WorkspaceChangesServiceError.notARepository
         }
         let normalizedPath = try pathValidator.validatedPath(path, repoRoot: scope.repoRoot)
@@ -267,27 +260,42 @@ public struct WorkspaceChangesService: Sendable {
                 path: normalizedPath
             )
             let runner = self.runner
+            let object = "\(authorization.diffBase):\(normalizedPath)"
+            let repoURL = URL(fileURLWithPath: authorization.repoRoot, isDirectory: true)
+            let sizeResult = try runner.run(
+                arguments: ["cat-file", "-s", object],
+                in: repoURL
+            )
+            let sizeText = String(decoding: sizeResult.output, as: UTF8.self)
+                .trimmingCharacters(in: .whitespacesAndNewlines)
+            guard sizeResult.exitCode == 0,
+                  let blobSize = Int64(sizeText),
+                  await baseContentCache.permitsEntry(size: blobSize) else {
+                throw WorkspaceChangesServiceError.gitFailure
+            }
             return try await baseContentCache.fileURL(for: key) { destination in
                 let result = try runner.run(
-                    arguments: ["show", "\(authorization.diffBase):\(normalizedPath)"],
-                    in: URL(fileURLWithPath: authorization.repoRoot, isDirectory: true)
+                    arguments: ["show", object],
+                    in: repoURL,
+                    writingOutputTo: destination,
+                    maximumOutputByteCount: blobSize
                 )
-                guard result.exitCode == 0 else {
+                guard result.exitCode == 0,
+                      !result.standardOutputWasTruncated else {
                     throw WorkspaceChangesServiceError.fileNotFound
                 }
-                try result.output.write(to: destination, options: .atomic)
-                return Int64(result.output.count)
+                return blobSize
             }
         }
     }
 
     private nonisolated func authorizationSnapshot(
-        scope: Scope
+        scope: WorkspaceChangesScope
     ) async throws -> WorkspaceChangesAuthorizedPathCache.Snapshot {
         if let cached = await authorizedPathCache.snapshot(forRepoRoot: scope.repoRoot) {
             return cached
         }
-        guard let snapshot = loadSnapshot(scope: scope) else {
+        guard let snapshot = snapshotLoader.loadSnapshot(scope: scope) else {
             throw WorkspaceChangesServiceError.gitFailure
         }
         let currentPaths = Set(snapshot.files.map(\.path))
@@ -307,111 +315,19 @@ public struct WorkspaceChangesService: Sendable {
         return authorization
     }
 
-    private nonisolated func resolveScope(forDirectory directory: String) -> Scope? {
-        let directoryURL = URL(fileURLWithPath: directory, isDirectory: true)
-        guard let rootResult = try? runner.run(
-            arguments: ["rev-parse", "--show-toplevel"],
-            in: directoryURL
-        ), rootResult.exitCode == 0 else { return nil }
-        let repoRoot = String(decoding: rootResult.output, as: UTF8.self)
-            .trimmingCharacters(in: .whitespacesAndNewlines)
-        guard !repoRoot.isEmpty else { return nil }
-
-        let branch = output(
-            arguments: ["symbolic-ref", "--quiet", "--short", "HEAD"],
-            repoRoot: repoRoot,
-            acceptedExitCodes: [0, 1]
-        )
-        let defaultRef = resolveDefaultBranch(repoRoot: repoRoot)
-        guard let branch,
-              let defaultRef,
-              branch != defaultRef,
-              defaultRef != "origin/\(branch)",
-              let mergeBase = output(
-                  arguments: ["merge-base", "HEAD", defaultRef],
-                  repoRoot: repoRoot,
-                  acceptedExitCodes: [0]
-              ) else {
-            return Scope(repoRoot: repoRoot, branch: branch, baseRef: nil, diffBase: "HEAD")
-        }
-        return Scope(repoRoot: repoRoot, branch: branch, baseRef: defaultRef, diffBase: mergeBase)
-    }
-
-    private nonisolated func resolveDefaultBranch(repoRoot: String) -> String? {
-        if let symbolic = output(
-            arguments: ["symbolic-ref", "--quiet", "--short", "refs/remotes/origin/HEAD"],
-            repoRoot: repoRoot,
-            acceptedExitCodes: [0, 1]
-        ) {
-            return symbolic
-        }
-        for candidate in ["origin/main", "origin/master", "main", "master"] {
-            guard let result = run(
-                ["rev-parse", "--verify", "--quiet", "\(candidate)^{commit}"],
-                repoRoot: repoRoot
-            ) else { return nil }
-            if result.exitCode == 0 { return candidate }
-        }
-        return nil
-    }
-
-    private nonisolated func loadSnapshot(scope: Scope) -> Snapshot? {
-        guard let statusResult = run(
-            ["diff", "-M", "--name-status", "-z", scope.diffBase, "--"],
-            repoRoot: scope.repoRoot
-        ), statusResult.exitCode == 0,
-        let numstatResult = run(
-            ["diff", "-M", "--numstat", "-z", scope.diffBase, "--"],
-            repoRoot: scope.repoRoot
-        ), numstatResult.exitCode == 0,
-        let untrackedResult = run(
-            ["ls-files", "--others", "--exclude-standard", "-z"],
-            repoRoot: scope.repoRoot
-        ), untrackedResult.exitCode == 0 else { return nil }
-
-        let statsByPath = Dictionary(
-            uniqueKeysWithValues: parser.numstatEntries(from: numstatResult.output).map { ($0.path, $0) }
-        )
-        var files = parser.nameStatusEntries(from: statusResult.output).map { entry in
-            let stat = statsByPath[entry.path]
-            return WorkspaceChangedFile(
-                path: entry.path,
-                oldPath: entry.oldPath,
-                status: entry.status,
-                additions: stat?.additions ?? 0,
-                deletions: stat?.deletions ?? 0,
-                isBinary: stat?.isBinary ?? false
-            )
-        }
-        for path in parser.untrackedPaths(from: untrackedResult.output) {
-            guard let result = run(
-                ["diff", "--numstat", "--no-index", "--", "/dev/null", path],
-                repoRoot: scope.repoRoot
-            ), result.exitCode == 0 || result.exitCode == 1,
-            let stat = parser.singleNumstatEntry(from: result.output, path: path) else { return nil }
-            files.append(WorkspaceChangedFile(
-                path: path,
-                oldPath: nil,
-                status: .untracked,
-                additions: stat.additions,
-                deletions: stat.deletions,
-                isBinary: stat.isBinary
-            ))
-        }
-        return Snapshot(scope: scope, files: files.sorted { $0.path < $1.path })
-    }
-
-    private nonisolated func changedFilesValue(from snapshot: Snapshot) -> WorkspaceChangedFiles {
+    private nonisolated func changedFilesValue(
+        from snapshot: WorkspaceChangesSnapshot
+    ) -> WorkspaceChangedFiles {
         WorkspaceChangedFiles(
             isRepository: true,
             repoRoot: snapshot.scope.repoRoot,
             branch: snapshot.scope.branch,
             baseRef: snapshot.scope.baseRef,
-            files: Array(snapshot.files.prefix(Self.maximumFileCount)),
-            filesChanged: snapshot.files.count,
-            additions: snapshot.files.reduce(0) { $0 + $1.additions },
-            deletions: snapshot.files.reduce(0) { $0 + $1.deletions },
-            truncated: snapshot.files.count > Self.maximumFileCount
+            files: snapshot.files,
+            filesChanged: snapshot.totalFileCount,
+            additions: snapshot.additions,
+            deletions: snapshot.deletions,
+            truncated: snapshot.totalFileCount > snapshot.files.count
         )
     }
 
@@ -419,7 +335,7 @@ public struct WorkspaceChangesService: Sendable {
         file: WorkspaceChangedFile,
         unifiedDiff: String,
         truncated: Bool,
-        totalLineCount: Int
+        totalLineCount: Int?
     ) -> WorkspaceFileDiff {
         WorkspaceFileDiff(
             path: file.path,
@@ -434,22 +350,15 @@ public struct WorkspaceChangesService: Sendable {
         )
     }
 
-    private nonisolated func output(
-        arguments: [String],
-        repoRoot: String,
-        acceptedExitCodes: Set<Int32>
-    ) -> String? {
-        guard let result = run(arguments, repoRoot: repoRoot),
-              acceptedExitCodes.contains(result.exitCode) else { return nil }
-        let trimmed = String(decoding: result.output, as: UTF8.self)
-            .trimmingCharacters(in: .whitespacesAndNewlines)
-        return trimmed.isEmpty ? nil : trimmed
-    }
-
     private nonisolated func run(
         _ arguments: [String],
-        repoRoot: String
+        repoRoot: String,
+        maximumOutputByteCount: Int
     ) -> WorkspaceChangesGitResult? {
-        try? runner.run(arguments: arguments, in: URL(fileURLWithPath: repoRoot, isDirectory: true))
+        try? runner.run(
+            arguments: arguments,
+            in: URL(fileURLWithPath: repoRoot, isDirectory: true),
+            maximumOutputByteCount: maximumOutputByteCount
+        )
     }
 }

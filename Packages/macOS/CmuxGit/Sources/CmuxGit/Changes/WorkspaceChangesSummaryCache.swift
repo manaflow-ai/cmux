@@ -20,8 +20,11 @@ actor WorkspaceChangesSummaryCache {
     }
 
     func summary(forRepoRoot repoRoot: String) async -> WorkspaceChangesSummary? {
-        guard let entry = entries[repoRoot] else { return nil }
+        // Take the clock reading first: the entry must be read AFTER the
+        // suspension point, or a fresher entry stored mid-await could be
+        // validated against (and evicted for) a stale pre-await copy.
         let now = await clock.now()
+        guard let entry = entries[repoRoot] else { return nil }
         guard now - entry.storedAt < ttl else {
             entries.removeValue(forKey: repoRoot)
             return nil

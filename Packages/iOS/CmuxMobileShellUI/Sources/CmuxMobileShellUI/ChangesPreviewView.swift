@@ -21,7 +21,7 @@ public struct ChangesPreviewView: View {
         let preference = DiffFontPreference(defaults: .standard)
         fontPreference = preference
         _fontSize = State(initialValue: preference.pointSize)
-        _navigationPath = State(initialValue: resolvedMode == "diff" ? [.diff(2)] : [])
+        _navigationPath = State(initialValue: resolvedMode == "diff" ? [.diff("Sources/SessionStore.swift")] : [])
     }
 
     public var body: some View {

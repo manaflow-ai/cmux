@@ -84,7 +84,8 @@ struct DiffRowSnapshot: Identifiable, Equatable {
                 ))
             }
         }
-        if let trailingGap = gapsByID[document.hunks.count] {
+        if !document.truncated,
+           let trailingGap = gapsByID[document.hunks.count] {
             append(
                 gap: trailingGap,
                 expansionState: expansionState,

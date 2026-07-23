@@ -139,7 +139,7 @@ extension TerminalController {
                 path: path,
                 maxLines: maxLines
             )
-            return .ok([
+            var payload: [String: Any] = [
                 "path": diff.path,
                 "old_path": v2OrNull(diff.oldPath),
                 "status": diff.status.rawValue,
@@ -148,8 +148,11 @@ extension TerminalController {
                 "deletions": diff.deletions,
                 "unified_diff": diff.unifiedDiff,
                 "truncated": diff.truncated,
-                "diff_total_lines": diff.totalLineCount,
-            ])
+            ]
+            if let totalLineCount = diff.totalLineCount {
+                payload["diff_total_lines"] = totalLineCount
+            }
+            return .ok(payload)
         } catch let error as WorkspaceChangesServiceError {
             return mobileWorkspaceChangesErrorResult(error, path: path)
         } catch {

@@ -144,4 +144,50 @@ import Testing
         #expect(completeContinuation.shownLineCount == completeContinuation.totalLineCount)
         #expect(!completeContinuation.shouldShowFooter)
     }
+
+    @Test func diffContinuationStopsAfterLargerBudgetFailsToGrowRawWindow() {
+        let initial = FileDiffDocument(
+            hunks: [],
+            truncated: true,
+            isBinary: false,
+            loadedLineCount: 70_000,
+            totalLineCount: 500_000
+        )
+        let sameWindow = FileDiffDocument(
+            hunks: [],
+            truncated: true,
+            isBinary: false,
+            loadedLineCount: 70_000,
+            totalLineCount: 500_000
+        )
+        let grownWindow = FileDiffDocument(
+            hunks: [],
+            truncated: true,
+            isBinary: false,
+            loadedLineCount: 70_001,
+            totalLineCount: 500_000
+        )
+        let continuation = FileDiffContinuation(lineBudget: 96_000, document: initial)
+
+        #expect(continuation.reachedTransportCeiling(
+            afterLoading: sameWindow,
+            requestedLineBudget: 384_000
+        ))
+        #expect(!continuation.reachedTransportCeiling(
+            afterLoading: sameWindow,
+            requestedLineBudget: 96_000
+        ))
+        #expect(!continuation.reachedTransportCeiling(
+            afterLoading: grownWindow,
+            requestedLineBudget: 384_000
+        ))
+
+        let exhausted = FileDiffContinuation(
+            lineBudget: 384_000,
+            document: sameWindow,
+            reachedTransportCeiling: true
+        )
+        #expect(exhausted.shouldShowFooter)
+        #expect(!exhausted.canShowMore)
+    }
 }

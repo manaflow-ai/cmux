@@ -2,6 +2,12 @@ import Foundation
 
 /// Materializes base-revision blobs once and serves them from an actor-owned LRU cache.
 actor WorkspaceChangesBaseContentCache {
+    enum Error: Swift.Error, Equatable {
+        case entryExceedsByteBudget
+    }
+
+    static let defaultByteBudget: Int64 = 256 * 1024 * 1024
+
     struct Key: Hashable, Sendable {
         let repoRoot: String
         let baseRef: String
@@ -23,7 +29,7 @@ actor WorkspaceChangesBaseContentCache {
     private var nextAccessOrdinal: UInt64 = 0
 
     init(
-        byteBudget: Int64 = 256 * 1024 * 1024,
+        byteBudget: Int64 = WorkspaceChangesBaseContentCache.defaultByteBudget,
         fileManager: FileManager = .default,
         temporaryDirectory: URL? = nil
     ) {
@@ -35,6 +41,10 @@ actor WorkspaceChangesBaseContentCache {
 
     deinit {
         try? fileManager.removeItem(at: directory)
+    }
+
+    func permitsEntry(size: Int64) -> Bool {
+        size >= 0 && size <= byteBudget
     }
 
     func fileURL(
@@ -63,6 +73,9 @@ actor WorkspaceChangesBaseContentCache {
         let destination = directory.appendingPathComponent(filename, isDirectory: false)
         do {
             let size = try materialize(destination)
+            guard permitsEntry(size: size) else {
+                throw Error.entryExceedsByteBudget
+            }
             nextAccessOrdinal &+= 1
             entries[key] = Entry(
                 fileURL: destination,
@@ -70,7 +83,7 @@ actor WorkspaceChangesBaseContentCache {
                 accessOrdinal: nextAccessOrdinal
             )
             totalBytes += size
-            evictIfNeeded(keeping: key)
+            evictIfNeeded()
             return destination
         } catch {
             try? fileManager.removeItem(at: destination)
@@ -78,10 +91,9 @@ actor WorkspaceChangesBaseContentCache {
         }
     }
 
-    private func evictIfNeeded(keeping retainedKey: Key) {
+    private func evictIfNeeded() {
         while totalBytes > byteBudget,
               let victim = entries
-                .filter({ $0.key != retainedKey })
                 .min(by: { $0.value.accessOrdinal < $1.value.accessOrdinal }) {
             entries[victim.key] = nil
             totalBytes -= victim.value.size

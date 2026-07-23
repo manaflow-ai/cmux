@@ -175,6 +175,70 @@ import Testing
         let bounded = WorkspaceDiffTruncator(requestedMaximumLines: Int.max)
 
         #expect(bounded.maximumLines == 1_000_000)
-        #expect(bounded.maximumBytes == 64 * 1024 * 1024)
+        #expect(bounded.maximumBytes == 6 * 1024 * 1024)
+        #expect(bounded.maximumInputBytes == 13 * 1024 * 1024)
+    }
+
+    @Test func boundedSystemRunnerStopsAtItsOutputLimit() throws {
+        let runner = SystemWorkspaceChangesGitRunner(
+            executableURL: URL(fileURLWithPath: "/bin/echo")
+        )
+
+        let result = try runner.run(
+            arguments: [String(repeating: "x", count: 4_096)],
+            in: FileManager.default.temporaryDirectory,
+            maximumOutputByteCount: 257
+        )
+
+        #expect(result.output.count == 257)
+        #expect(result.standardOutputWasTruncated)
+    }
+
+    @Test func untrackedInspectorCountsSmallTextWithoutGit() throws {
+        let root = FileManager.default.temporaryDirectory
+            .appendingPathComponent("cmux-untracked-inspector-\(UUID().uuidString)", isDirectory: true)
+        try FileManager.default.createDirectory(at: root, withIntermediateDirectories: true)
+        defer { try? FileManager.default.removeItem(at: root) }
+        try Data("one\ntwo\nthree\n".utf8).write(to: root.appendingPathComponent("new.txt"))
+
+        let file = try #require(WorkspaceUntrackedFileInspector().inspect(
+            path: "new.txt",
+            repoRoot: root.path
+        ))
+
+        #expect(file.additions == 3)
+        #expect(file.deletions == 0)
+        #expect(!file.isBinary)
+    }
+
+    @Test func fileCapPrecedesUntrackedInspectionAndPerFileGitWork() async throws {
+        let rootURL = FileManager.default.temporaryDirectory
+            .appendingPathComponent("cmux-capped-untracked-\(UUID().uuidString)", isDirectory: true)
+        try FileManager.default.createDirectory(at: rootURL, withIntermediateDirectories: true)
+        defer { try? FileManager.default.removeItem(at: rootURL) }
+        let paths = (0..<500).map { String(format: "File-%03d.swift", $0) }
+        let statuses = paths.map { "M\0\($0)\0" }.joined()
+        let numstat = paths.map { "1\t2\t\($0)\0" }.joined()
+        let runner = FakeWorkspaceChangesGitRunner(results: [
+            ["rev-parse", "--show-toplevel"]: FakeWorkspaceChangesGitRunner.result("\(rootURL.path)\n"),
+            ["symbolic-ref", "--quiet", "--short", "HEAD"]: FakeWorkspaceChangesGitRunner.result("main\n"),
+            ["symbolic-ref", "--quiet", "--short", "refs/remotes/origin/HEAD"]: FakeWorkspaceChangesGitRunner.result(exitCode: 1),
+            ["rev-parse", "--verify", "--quiet", "origin/main^{commit}"]: FakeWorkspaceChangesGitRunner.result(exitCode: 1),
+            ["rev-parse", "--verify", "--quiet", "origin/master^{commit}"]: FakeWorkspaceChangesGitRunner.result(exitCode: 1),
+            ["rev-parse", "--verify", "--quiet", "main^{commit}"]: FakeWorkspaceChangesGitRunner.result("abc\n"),
+            ["diff", "-M", "--name-status", "-z", "HEAD", "--"]: FakeWorkspaceChangesGitRunner.result(statuses),
+            ["diff", "-M", "--numstat", "-z", "HEAD", "--"]: FakeWorkspaceChangesGitRunner.result(numstat),
+            ["ls-files", "--others", "--exclude-standard", "-z"]: FakeWorkspaceChangesGitRunner.result("zzz-untracked.txt\0"),
+        ])
+
+        let files = await WorkspaceChangesService(runner: runner)
+            .changedFiles(forDirectory: rootURL.path)
+
+        // The injected runner rejects every unconfigured command, including
+        // the old per-file `git diff --no-index` fanout.
+        #expect(files.isRepository)
+        #expect(files.files.count == 500)
+        #expect(files.filesChanged == 501)
+        #expect(files.truncated)
     }
 }

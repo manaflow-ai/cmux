@@ -32,16 +32,18 @@ public struct MobileWorkspaceChangesSummariesResponse: Decodable, Sendable {
             case deletions
         }
 
-        /// Decodes one summary leniently so fields added by newer hosts cannot
-        /// make the surrounding batch unusable.
+        /// Decodes one summary with strict identity fields (a malformed entry
+        /// throws, and the lossy batch decode drops it) while keeping optional
+        /// and count fields lenient so fields added by newer hosts cannot make
+        /// the surrounding batch unusable.
         /// - Parameter decoder: The decoder for one summary object.
         public init(from decoder: any Decoder) throws {
             let container = try decoder.container(keyedBy: CodingKeys.self)
-            workspaceID = (try? container.decodeIfPresent(String.self, forKey: .workspaceID)) ?? ""
-            isRepository = (try? container.decodeIfPresent(Bool.self, forKey: .isRepository)) ?? false
-            repoRoot = (try? container.decodeIfPresent(String.self, forKey: .repoRoot)) ?? nil
-            branch = (try? container.decodeIfPresent(String.self, forKey: .branch)) ?? nil
-            baseRef = (try? container.decodeIfPresent(String.self, forKey: .baseRef)) ?? nil
+            workspaceID = try container.decode(String.self, forKey: .workspaceID)
+            isRepository = try container.decode(Bool.self, forKey: .isRepository)
+            repoRoot = try container.decodeIfPresent(String.self, forKey: .repoRoot)
+            branch = try container.decodeIfPresent(String.self, forKey: .branch)
+            baseRef = try container.decodeIfPresent(String.self, forKey: .baseRef)
             filesChanged = (try? container.decodeIfPresent(Int.self, forKey: .filesChanged)) ?? 0
             additions = (try? container.decodeIfPresent(Int.self, forKey: .additions)) ?? 0
             deletions = (try? container.decodeIfPresent(Int.self, forKey: .deletions)) ?? 0

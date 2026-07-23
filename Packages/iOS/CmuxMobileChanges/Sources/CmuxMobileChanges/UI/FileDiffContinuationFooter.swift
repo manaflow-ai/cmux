@@ -8,7 +8,8 @@ struct FileDiffContinuationFooter: View {
 
     var body: some View {
         VStack(spacing: 10) {
-            if let totalLineCount = continuation.totalLineCount {
+            if continuation.canShowMore,
+               let totalLineCount = continuation.totalLineCount {
                 Text(String(
                     format: String(
                         localized: "changes.diff.progress",

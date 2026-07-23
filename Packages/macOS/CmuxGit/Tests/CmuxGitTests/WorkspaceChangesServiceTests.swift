@@ -149,7 +149,7 @@ import Testing
         #expect(diff.truncated)
         #expect(diff.unifiedDiff.split(separator: "\n", omittingEmptySubsequences: false).count <= 6_000)
         #expect(diff.unifiedDiff.utf8.count <= 400 * 1024)
-        #expect(diff.totalLineCount > 6_000)
+        #expect(try #require(diff.totalLineCount) > 6_000)
     }
 
     @Test func fileDiffLargerLineBudgetExpandsOversizedHunkAndReportsTotal() async throws {
@@ -183,6 +183,27 @@ import Testing
                     omittingEmptySubsequences: false
                 ).count
         )
+    }
+
+    @Test func boundedDiffReadLeavesTotalLineCountUnknown() async throws {
+        let repo = try WorkspaceChangesGitRepositoryFixture()
+        let oldLine = String(repeating: "a", count: 80)
+        let newLine = String(repeating: "b", count: 80)
+        let baseline = (0..<20_000).map { "\(oldLine)-\($0)" }.joined(separator: "\n") + "\n"
+        let changed = (0..<20_000).map { "\(newLine)-\($0)" }.joined(separator: "\n") + "\n"
+        try repo.write("transport-ceiling.txt", baseline)
+        try repo.git(["add", "transport-ceiling.txt"])
+        try repo.commit("transport ceiling baseline")
+        try repo.write("transport-ceiling.txt", changed)
+
+        let diff = try await WorkspaceChangesService().fileDiff(
+            forDirectory: repo.root.path,
+            path: "transport-ceiling.txt"
+        )
+
+        #expect(diff.truncated)
+        #expect(diff.totalLineCount == nil)
+        #expect(diff.unifiedDiff.utf8.count <= 400 * 1024)
     }
 
     @Test func fallsBackToLocalMainWhenOriginHeadIsAbsent() async throws {

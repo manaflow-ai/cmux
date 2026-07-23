@@ -14,6 +14,31 @@ public struct UnifiedDiffParser: Sendable {
     /// Creates a unified-diff parser.
     public init() {}
 
+    /// Parses and emphasizes a diff on the generic executor.
+    ///
+    /// Calling this async worker from a main-actor UI flow suspends before the
+    /// synchronous parser work begins, keeping large diff parsing off the UI thread.
+    ///
+    /// - Parameters:
+    ///   - unifiedDiff: Raw Git unified-diff output.
+    ///   - truncated: Whether the host truncated the raw diff.
+    ///   - isBinary: Whether the file is binary.
+    ///   - totalLineCount: Number of lines in the full raw diff, when reported.
+    /// - Returns: A display-ready immutable document.
+    public nonisolated func parseOffMain(
+        _ unifiedDiff: String,
+        truncated: Bool = false,
+        isBinary: Bool = false,
+        totalLineCount: Int? = nil
+    ) async -> FileDiffDocument {
+        parse(
+            unifiedDiff,
+            truncated: truncated,
+            isBinary: isBinary,
+            totalLineCount: totalLineCount
+        )
+    }
+
     /// Parses a raw Git diff with or without file headers.
     /// - Parameters:
     ///   - unifiedDiff: Raw Git unified-diff output.

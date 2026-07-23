@@ -184,12 +184,13 @@ public struct WorkspaceChangesSheet: View {
             path: path,
             maxLines: maxLines
         )
-        let document = UnifiedDiffParser().parse(
+        let document = await UnifiedDiffParser().parseOffMain(
             response.unifiedDiff,
             truncated: response.truncated,
             isBinary: response.isBinary,
             totalLineCount: response.diffTotalLines
         )
+        try Task.checkCancellation()
         if maxLines == nil {
             cachedDocuments[path] = document
         }

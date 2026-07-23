@@ -152,4 +152,16 @@ import Testing
         #expect(hunk.lines[0].text == "old\r")
         #expect(hunk.lines[1].text == "new\r")
     }
+
+    @Test func asyncWorkerParsesAndAppliesIntraLineEmphasis() async throws {
+        let document = await parser.parseOffMain("""
+        @@ -1 +1 @@
+        -let value = oldName
+        +let value = newName
+        """)
+        let hunk = try #require(document.hunks.first)
+
+        #expect(!hunk.lines[0].emphasisRanges.isEmpty)
+        #expect(!hunk.lines[1].emphasisRanges.isEmpty)
+    }
 }
