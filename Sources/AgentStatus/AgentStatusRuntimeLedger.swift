@@ -42,9 +42,13 @@ final class AgentStatusRuntimeLedger {
                 return false
             }
             if let revision {
-                if let currentRevision = evidence.lifecycleRevision,
-                   currentRevision > revision {
-                    return false
+                if let currentRevision = evidence.lifecycleRevision {
+                    if currentRevision > revision { return false }
+                    if currentRevision == revision {
+                        guard evidence.lifecycle == lifecycle else { return false }
+                        evidenceByPanelId[panelId, default: [:]][statusKey] = evidence
+                        return true
+                    }
                 }
                 evidence.lifecycleRevision = revision
             } else if evidence.lifecycleRevision != nil {

@@ -1631,12 +1631,11 @@ final class TerminalNotificationStore: ObservableObject {
     }
 
     func remove(id: UUID) {
-        let discardedPolicyRequest = inFlightPolicyRequests.discard(notificationID: id)
+        _ = inFlightPolicyRequests.discard(notificationID: id)
         var updated = notifications
         let removed = updated.first(where: { $0.id == id })
         let originalCount = updated.count
         updated.removeAll { $0.id == id }
-        guard updated.count != originalCount || discardedPolicyRequest else { return }
         if updated.count != originalCount {
             notifications = updated
             notificationFeedHistory.markRead(ids: [id])

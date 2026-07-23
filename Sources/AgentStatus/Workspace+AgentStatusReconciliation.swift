@@ -28,7 +28,12 @@ extension Workspace {
             return true
         }
         if let runtimePIDKey, let runtimePID,
-           !agentStatusRuntimeIsCurrent(pidKey: runtimePIDKey, pid: runtimePID, panelId: targetPanelId) {
+           !agentStatusRuntimeIsCurrent(
+               pidKey: runtimePIDKey,
+               pid: runtimePID,
+               runtimeProcessIdentity: runtimeProcessIdentity,
+               panelId: targetPanelId
+           ) {
             return false
         }
         let observedAt = Date.now
@@ -59,6 +64,7 @@ extension Workspace {
                   pidKey: signal.runtimePIDKey,
                   pid: signal.runtimePID,
                   pidNamespace: signal.runtimePIDNamespace,
+                  runtimeProcessIdentity: signal.runtimeProcessIdentity,
                   panelId: targetPanelId
               ) else {
             return false
@@ -112,7 +118,12 @@ extension Workspace {
         let targetPanelId = panelId ?? focusedPanelId
         guard let targetPanelId, panels[targetPanelId] != nil else { return false }
         if let runtimePIDKey, let runtimePID,
-           !agentStatusRuntimeIsCurrent(pidKey: runtimePIDKey, pid: runtimePID, panelId: targetPanelId) {
+           !agentStatusRuntimeIsCurrent(
+               pidKey: runtimePIDKey,
+               pid: runtimePID,
+               runtimeProcessIdentity: runtimeProcessIdentity,
+               panelId: targetPanelId
+           ) {
             return false
         }
         let observedAt = Date.now
@@ -297,11 +308,17 @@ extension Workspace {
         pidKey: String,
         pid: Int,
         pidNamespace: AgentStatusPIDNamespace? = nil,
+        runtimeProcessIdentity: AgentPIDProcessIdentity? = nil,
         panelId: UUID
     ) -> Bool {
         guard let runtimePID = pid_t(exactly: pid) else { return false }
         let recordedNamespace = agentPIDNamespacesByKey[pidKey] ?? .local
         if let pidNamespace, pidNamespace != recordedNamespace { return false }
+        if recordedNamespace == .local,
+           let runtimeProcessIdentity,
+           agentPIDProcessIdentitiesByKey[pidKey] != runtimeProcessIdentity {
+            return false
+        }
         return panels[panelId] != nil &&
             agentPIDKeysByPanelId[panelId]?.contains(pidKey) == true &&
             agentPIDs[pidKey] == runtimePID &&
