@@ -230,11 +230,10 @@ await handlers.get("before_agent_start")({ prompt: "after feed backlog" }, ctx);
     return 0
 
 
-def check_feed_lifecycle(bun: str, root: Path, extension_path: Path) -> int:
-    cancellation_log = root / "cancellation-cmux.log"
-    cancellation_cmux = root / "cancellation-cmux"
+def make_feed_lifecycle_cmux(root: Path, name: str) -> Path:
+    cmux = root / name
     make_executable(
-        cancellation_cmux,
+        cmux,
         """#!/usr/bin/env python3
 import fcntl
 import os
@@ -275,6 +274,12 @@ if "hooks feed" in args and "PreToolUse" in args:
 print("{}")
 """,
     )
+    return cmux
+
+
+def check_feed_cancellation(bun: str, root: Path, extension_path: Path) -> int:
+    cancellation_log = root / "cancellation-cmux.log"
+    cancellation_cmux = make_feed_lifecycle_cmux(root, "cancellation-cmux")
     cancellation_source = """
 const extensionPath = process.env.CMUX_TEST_PI_EXTENSION_PATH;
 const mod = await import(extensionPath);
@@ -315,6 +320,11 @@ await new Promise((resolve) => setTimeout(resolve, 750));
         print(f"FAIL: queued feed work survived session shutdown: {cancellation_calls!r}")
         return 1
 
+    return 0
+
+
+def check_completion_order(bun: str, root: Path, extension_path: Path) -> int:
+    completion_cmux = make_feed_lifecycle_cmux(root, "completion-order-cmux")
     completion_log = root / "completion-order-cmux.log"
     completion_lock = root / "completion-order-cmux.lock"
     completion_source = """
@@ -361,7 +371,7 @@ await new Promise((resolve) => setTimeout(resolve, 250));
         bun=bun,
         root=root,
         extension_path=extension_path,
-        fake_cmux=cancellation_cmux,
+        fake_cmux=completion_cmux,
         source=completion_source,
         extra_env={
             "CMUX_TEST_PI_CANCELLATION_LOG": str(completion_log),
@@ -757,7 +767,8 @@ def run_checks(bun: str, root: Path, extension_path: Path) -> int:
     checks = (
         check_responsiveness,
         check_feed_backlog,
-        check_feed_lifecycle,
+        check_feed_cancellation,
+        check_completion_order,
         check_timeout_serialization,
         check_error_classification,
         check_unserializable_feed,
