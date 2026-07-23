@@ -174,16 +174,23 @@ class CmuxPerfRunner:
         bundle_id = f"com.cmuxterm.app.debug.{self.tag_id}"
         return app_support / f"session-{bundle_id}{suffix}.json"
 
-    def persisted_snapshot_fingerprint(self) -> dict[str, object]:
-        path = self._session_snapshot_path()
+    def persisted_snapshot_fingerprint(self, source: str = "primary") -> dict[str, object]:
+        suffix_by_source = {"primary": "", "previous": "-previous"}
+        if source not in suffix_by_source:
+            raise ValueError("persisted snapshot source must be primary or previous")
+        path = self._session_snapshot_path(suffix_by_source[source])
         if path.is_symlink() or not path.is_file():
-            raise PerfFailure("tagged persisted session snapshot is missing or invalid")
+            raise PerfFailure(
+                f"tagged persisted {source} session snapshot is missing or invalid"
+            )
         try:
             payload = path.read_bytes()
         except OSError as error:
-            raise PerfFailure("tagged persisted session snapshot is unreadable") from error
+            raise PerfFailure(
+                f"tagged persisted {source} session snapshot is unreadable"
+            ) from error
         if not payload:
-            raise PerfFailure("tagged persisted session snapshot is empty")
+            raise PerfFailure(f"tagged persisted {source} session snapshot is empty")
         return {
             "algorithm": "sha256",
             "digest": hashlib.sha256(payload).hexdigest(),

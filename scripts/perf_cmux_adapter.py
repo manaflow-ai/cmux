@@ -1150,7 +1150,7 @@ class CmuxRuntimeAdapter:
             self.config.scenario, self._snapshot_contract(payload)
         )
         fingerprint = _strict_persisted_fingerprint(
-            self._runner.persisted_snapshot_fingerprint()
+            self._runner.persisted_snapshot_fingerprint(source="primary")
         )
         self._captured_persisted_fingerprint = fingerprint
         captured = _plain(payload)
@@ -1278,9 +1278,10 @@ class CmuxRuntimeAdapter:
         elapsed = self._runner.launch("restore")
         self._launched = True
         persisted_after = _strict_persisted_fingerprint(
-            self._runner.persisted_snapshot_fingerprint()
+            self._runner.persisted_snapshot_fingerprint(source="previous")
         )
         self._details["snapshot"]["persisted_after"] = deepcopy(persisted_after)
+        self._details["snapshot"]["persisted_after_source"] = "startup_previous_backup"
         if persisted_after != self._captured_persisted_fingerprint:
             raise ValueError("persisted snapshot fingerprint changed across restore")
         self._reconcile_restored_workspace()
