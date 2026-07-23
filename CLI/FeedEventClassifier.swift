@@ -1,5 +1,14 @@
 import Foundation
 
+enum FeedDeliveryTargetProbeStrategy: Equatable, Sendable {
+    case process
+    case surface
+
+    init(pidNamespaceIsRemote: Bool) {
+        self = pidNamespaceIsRemote ? .surface : .process
+    }
+}
+
 /// Classifies a raw agent hook event into our wire `hook_event_name` plus an
 /// `isActionable` flag.
 ///

@@ -254,18 +254,23 @@ extension CMUXCLI {
         client: SocketClient,
         responseTimeout: TimeInterval = 2.0
     ) -> ClaudeHookDeliveryTarget? {
-        let result = pidNamespaceIsRemote
-            ? liveAgentSurfaceDeliveryTarget(
+        let result = switch FeedDeliveryTargetProbeStrategy(
+            pidNamespaceIsRemote: pidNamespaceIsRemote
+        ) {
+        case .surface:
+            liveAgentSurfaceDeliveryTarget(
                 surfaceId: claimedSurfaceId,
                 claimedWorkspaceId: claimedWorkspaceId,
                 client: client,
                 responseTimeout: responseTimeout
             )
-            : liveAgentPidDeliveryTarget(
+        case .process:
+            liveAgentPidDeliveryTarget(
                 pid: pid,
                 client: client,
                 responseTimeout: responseTimeout
             )
+        }
         guard case .resolved(let target) = result else {
             return nil
         }

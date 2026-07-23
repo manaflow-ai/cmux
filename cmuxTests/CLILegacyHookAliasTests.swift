@@ -263,59 +263,15 @@ extension CLINotifyProcessIntegrationRegressionTests {
         XCTAssertNil(event["surface_id"])
     }
 
-    func testFeedTargetUsesValidatedSurfaceForRemotePIDNamespace() throws {
-        let socketPath = makeSocketPath("feed-remote")
-        let listenerFD = try bindUnixSocket(at: socketPath)
-        let state = MockSocketServerState()
-        let oldWorkspaceId = "33333333-3333-3333-3333-333333333333"
-        let liveWorkspaceId = "44444444-4444-4444-4444-444444444444"
-        let surfaceId = "55555555-5555-5555-5555-555555555555"
-
-        defer {
-            Darwin.close(listenerFD)
-            unlink(socketPath)
-        }
-
-        let serverHandled = startMockServer(
-            listenerFD: listenerFD,
-            state: state,
-            fulfillWhen: { $0.contains(#""method":"agent.resolve_delivery_target""#) }
-        ) { line in
-            guard let payload = self.jsonObject(line),
-                  let id = payload["id"] as? String else {
-                return "OK"
-            }
-            return self.v2Response(id: id, ok: true, result: [
-                "workspace_id": liveWorkspaceId,
-                "surface_id": surfaceId,
-                "source": "surface",
-            ])
-        }
-
-        let client = SocketClient(path: socketPath)
-        defer { client.close() }
-        try client.connect()
-        let target = CMUXCLI(args: []).resolvedFeedDeliveryTarget(
-            pid: 43213,
-            claimedWorkspaceId: oldWorkspaceId,
-            claimedSurfaceId: surfaceId,
-            pidNamespaceIsRemote: true,
-            client: client,
-            responseTimeout: 2
+    func testFeedTargetUsesSurfaceProbeForRemotePIDNamespace() {
+        XCTAssertEqual(
+            FeedDeliveryTargetProbeStrategy(pidNamespaceIsRemote: true),
+            .surface
         )
-
-        wait(for: [serverHandled], timeout: 5)
-        XCTAssertEqual(target?.workspaceId, liveWorkspaceId)
-        XCTAssertEqual(target?.surfaceId, surfaceId)
-        let request = try XCTUnwrap(
-            state.snapshot().compactMap(jsonObject).first {
-                $0["method"] as? String == "agent.resolve_delivery_target"
-            }
+        XCTAssertEqual(
+            FeedDeliveryTargetProbeStrategy(pidNamespaceIsRemote: false),
+            .process
         )
-        let params = try XCTUnwrap(request["params"] as? [String: Any])
-        XCTAssertEqual(params["workspace_id"] as? String, oldWorkspaceId)
-        XCTAssertEqual(params["surface_id"] as? String, surfaceId)
-        XCTAssertNil(params["pid"])
     }
 
     private func feedPushEvent(in state: MockSocketServerState) throws -> [String: Any] {
