@@ -13030,17 +13030,19 @@ mod tests {
             modifiers: KeyModifiers::NONE,
         });
         app.session.pending_mutations.store(1, Ordering::Release);
-        app.handle(settled(super::SessionMutationOutcome::IdentityRefreshSucceeded {
-            tree,
-            authoritative_generation: 4,
-            routing_generation: 0,
-            refresh_sequence: 1,
-        }))
-        .unwrap();
+        let action = app
+            .handle(settled(super::SessionMutationOutcome::IdentityRefreshSucceeded {
+                tree,
+                authoritative_generation: 4,
+                routing_generation: 0,
+                refresh_sequence: 1,
+            }))
+            .unwrap();
 
         assert!(app.pending_session_completions.is_empty());
         assert_eq!(app.omnibar.as_ref().map(|state| state.surface), Some(surface));
         assert!(app.routing_refresh_pending);
+        assert_eq!(action, RenderAction::Draw);
     }
 
     #[test]
