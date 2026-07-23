@@ -4944,7 +4944,7 @@ impl App {
     fn complete_routing_after_stale_identity_result(&mut self) {
         if !self.session.has_pending_mutations()
             && !self.session.remote_tree_is_stale()
-            && !self.deferred_input.is_empty()
+            && (!self.deferred_input.is_empty() || self.pending_pointer_motion.is_some())
         {
             self.routing_refresh_pending = true;
         }
@@ -12913,6 +12913,13 @@ mod tests {
             result: Ok(tree.clone()),
         })
         .unwrap();
+        app.routing_refresh_pending = false;
+        app.pending_pointer_motion = Some(MouseEvent {
+            kind: MouseEventKind::Moved,
+            column: 14,
+            row: 6,
+            modifiers: KeyModifiers::NONE,
+        });
         app.session.pending_mutations.store(1, Ordering::Release);
         app.handle(settled(super::SessionMutationOutcome::IdentityRefreshSucceeded {
             tree,
@@ -12924,6 +12931,7 @@ mod tests {
 
         assert!(app.pending_session_completions.is_empty());
         assert_eq!(app.omnibar.as_ref().map(|state| state.surface), Some(surface));
+        assert!(app.routing_refresh_pending);
     }
 
     #[test]
