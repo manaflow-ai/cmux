@@ -27,6 +27,9 @@ struct SidebarTabItemSettingsSnapshot: Equatable {
     let notificationBadgePosition: SidebarIndicatorPosition
     let selectionColorHex: String?
     let notificationBadgeColorHex: String?
+    /// Keyword → color rules applied to workspaces without their own color.
+    /// Resolved once here so rows never touch `UserDefaults` while rendering.
+    let workspaceAutoColorRules: WorkspaceTabAutoColorRuleSet
     let visibleAuxiliaryDetails: SidebarWorkspaceAuxiliaryDetailVisibility
     let iMessageModeEnabled: Bool
     let workspaceTodoChecklistStyle: WorkspaceTodoChecklistStyle
@@ -89,6 +92,7 @@ struct SidebarTabItemSettingsSnapshot: Equatable {
         notificationBadgePosition = settings.value(for: sidebar.notificationBadgePosition)
         selectionColorHex = settings.value(for: workspaceColors.selectionColorHex).nilIfEmpty
         notificationBadgeColorHex = settings.value(for: workspaceColors.notificationBadgeColorHex).nilIfEmpty
+        workspaceAutoColorRules = WorkspaceTabAutoColorRules.ruleSet(defaults: defaults)
         iMessageModeEnabled = IMessageModeSettings.isEnabled(defaults: defaults)
         workspaceTodoChecklistStyle = settings.value(for: betaFeatures.workspaceTodosChecklistStyle)
     }

@@ -322,6 +322,13 @@ extension Array where Element == CuratedSettingEntry {
             .init(section: .workspaceColors, id: "selection", title: "Selection Highlight", synonyms: "workspaceColors.selectionColor selected workspace color highlight background active tab"),
             .init(section: .workspaceColors, id: "badge", title: "Notification Badge", synonyms: "workspaceColors.notificationBadgeColor unread notification badge color dot count"),
             .init(section: .workspaceColors, id: "palette", title: "Reset Palette", synonyms: "reset palette named colors restore built-in custom remove default"),
+            .init(
+                section: .workspaceColors,
+                id: "autoColorRules",
+                title: String(localized: "settings.workspaceColors.autoColorRules", defaultValue: "Automatic Colors by Keyword"),
+                detailText: String(localized: "settings.workspaceColors.autoColorRules.subtitle", defaultValue: "Workspaces whose title contains a keyword take that color. A color set on the workspace itself always wins."),
+                synonyms: String(localized: "settings.search.alias.setting.workspaceColors.autoColorRules", defaultValue: "workspaceColors.autoColorRules automatic auto color rule keyword title name match group project topic tint")
+            ),
 
             // cmux.json
             .init(section: .settingsJSON, id: "open-file", title: "User config file", synonyms: "open config file json jsonc config editor ~/.config cmux preferences"),

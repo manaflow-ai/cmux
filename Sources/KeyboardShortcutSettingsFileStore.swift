@@ -764,6 +764,27 @@ final class CmuxSettingsFileStore {
             ) else { return }
             snapshot.managedUserDefaults["sidebarNotificationBadgeColorHex"] = .nullableString(value)
         }
+        if section.keys.contains("autoColorRules") {
+            if let rawRules = section["autoColorRules"] as? [String: Any] {
+                var rules: [String: String] = [:]
+                for (rawKeyword, rawValue) in rawRules {
+                    guard let color = jsonString(rawValue) else {
+                        cmuxSettingsFileStoreLogger.warning("ignoring non-string workspace auto color rule '\(rawKeyword, privacy: .private(mask: .hash))' in \(sourcePath, privacy: .private(mask: .hash))")
+                        continue
+                    }
+                    rules[rawKeyword] = color
+                }
+                // Trims keywords and normalizes hexes; palette names stay as
+                // written so they keep tracking palette edits.
+                let normalizedRules = WorkspaceTabAutoColorRules.normalizedRuleMap(rules)
+                if normalizedRules.count != rules.count {
+                    cmuxSettingsFileStoreLogger.warning("ignoring \(rules.count - normalizedRules.count) empty workspace auto color rule(s) in \(sourcePath, privacy: .private(mask: .hash))")
+                }
+                snapshot.managedUserDefaults[WorkspaceTabAutoColorRules.rulesKey] = .stringDictionary(normalizedRules)
+            } else {
+                logInvalid("workspaceColors.autoColorRules", sourcePath: sourcePath)
+            }
+        }
         if section.keys.contains("colors") {
             guard let rawColors = section["colors"] as? [String: Any] else {
                 logInvalid("workspaceColors.colors", sourcePath: sourcePath)
