@@ -38,6 +38,16 @@ struct AgentHibernationTests {
 
     @MainActor
     @Test
+    func testSocketStatusRejectsOutOfRangeAgentEventTime() {
+        let response = TerminalController.shared.handleSocketLine(
+            "set_status codex Running --agent-event-time=1e300"
+        )
+
+        expectTrue(response.contains("must be between 2000-01-01 and 2100-01-01 UTC"))
+    }
+
+    @MainActor
+    @Test
     func testSocketLifecycleAcceptsRegisteredCustomAgentKey() throws {
         let root = FileManager.default.temporaryDirectory
             .appendingPathComponent("cmux-custom-lifecycle-\(UUID().uuidString)", isDirectory: true)
@@ -535,6 +545,59 @@ struct AgentHibernationTests {
         expectEqual(workspace.agentHibernationLifecycleState(panelId: panelId, fallback: nil), .running)
         expectEqual(workspace.statusEntries["codex"]?.value, "Running")
         expectEqual(workspace.statusEntries["codex"]?.agentEventTime, newerRunningEventTime)
+    }
+
+    @MainActor
+    @Test
+    func testLiveIdleReconciliationDoesNotOverwriteAnotherPanelsRunningStatus() throws {
+        let workspace = Workspace()
+        let idlePanelId = try #require(workspace.focusedPanelId)
+        let paneId = try #require(workspace.paneId(forPanelId: idlePanelId))
+        let runningPanelId = try #require(workspace.newTerminalSurface(inPane: paneId, focus: false)).id
+
+        workspace.setAgentLifecycle(
+            key: "codex",
+            panelId: idlePanelId,
+            lifecycle: .running,
+            agentEventTime: 100
+        )
+        workspace.setAgentLifecycle(
+            key: "codex",
+            panelId: runningPanelId,
+            lifecycle: .running,
+            agentEventTime: 300
+        )
+        workspace.statusEntries["codex"] = SidebarStatusEntry(
+            key: "codex",
+            value: "Running",
+            icon: "bolt.fill",
+            color: "#4C8DFF",
+            agentEventTime: 300,
+            agentOwnerPanelID: runningPanelId
+        )
+        let observation = RestorableAgentSessionIndex.Entry(
+            snapshot: SessionRestorableAgentSnapshot(
+                kind: .codex,
+                sessionId: "idle-panel-with-shared-running-status",
+                workingDirectory: "/tmp/repo",
+                launchCommand: nil
+            ),
+            lifecycle: .idle,
+            runtimeStatusEventTime: 200,
+            updatedAt: 200,
+            processLiveness: .unknown,
+            processIDs: [],
+            agentProcessIDs: [],
+            agentProcessIdentities: [:]
+        )
+
+        workspace.reconcileLiveIdleAgentStatus(panelId: idlePanelId, observation: observation)
+
+        expectEqual(workspace.agentHibernationLifecycleState(panelId: idlePanelId, fallback: nil), .idle)
+        expectEqual(workspace.agentHibernationLifecycleState(panelId: runningPanelId, fallback: nil), .running)
+        expectEqual(workspace.statusEntries["codex"]?.value, "Running")
+        expectEqual(workspace.statusEntries["codex"]?.agentEventTime, 300)
+        expectEqual(workspace.statusEntries["codex"]?.agentOwnerPanelID, runningPanelId)
     }
 
     @MainActor

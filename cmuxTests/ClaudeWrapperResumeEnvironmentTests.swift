@@ -178,7 +178,16 @@ import Testing
             )
         }
         let fakeDateURL = toolBin.appendingPathComponent("date", isDirectory: false)
-        try writeExecutable(fakeDateURL, "#!/bin/sh\nprintf '1893456000\\n'\n")
+        try writeExecutable(fakeDateURL, "#!/bin/sh\nprintf '1893455999\\n'\n")
+        try writeExecutable(
+            toolBin.appendingPathComponent("perl", isDirectory: false),
+            "#!/bin/sh\nprintf '1893456000.000000'\n"
+        )
+        try "1893456000 0\n".write(
+            to: sandbox.appendingPathComponent("cmux-agent-hook-time.state", isDirectory: false),
+            atomically: true,
+            encoding: .utf8
+        )
 
         let hook = Process()
         hook.executableURL = URL(fileURLWithPath: "/bin/sh")
@@ -200,6 +209,7 @@ import Testing
             .map(String.init)
         #expect(rawTimes.count == 4)
         let times = try rawTimes.map { try #require(Double($0)) }
+        #expect(rawTimes.allSatisfy { $0.hasPrefix("1893456000.") })
         for (earlier, later) in zip(times, times.dropFirst()) {
             #expect(earlier < later, Comment(rawValue: rawTimes.joined(separator: ",")))
         }

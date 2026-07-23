@@ -213,7 +213,18 @@ struct CLICodexHookTimeoutRegressionTests {
         #expect(secondRun.stdout == "{}\n")
         #expect(waitForFileLineCount(capturedAt, count: 2, timeout: 3))
 
-        let fallbackLock = root.appendingPathComponent("cmux-codex-hook-time.lock", isDirectory: true)
+        // A successful optional interpreter must not bypass the serialized
+        // clock, and a backward wall-clock step must not lower its output.
+        try makeCodexHookExecutableShellFile(at: toolBin.appendingPathComponent("perl"), lines: [
+            "#!/bin/sh",
+            "printf '1893456000.000000'",
+        ])
+        try makeCodexHookExecutableShellFile(at: fakeDate, lines: [
+            "#!/bin/sh",
+            "if [ \"$1\" = \"+%s\" ]; then printf '1893455999\\n'; else exec /bin/date \"$@\"; fi",
+        ])
+
+        let fallbackLock = root.appendingPathComponent("cmux-agent-hook-time.lock", isDirectory: true)
         let fallbackLockOwner = fallbackLock.appendingPathComponent("owner", isDirectory: false)
         let mkdirAttemptCount = root.appendingPathComponent("mkdir-attempt-count.txt", isDirectory: false)
         let recoveryThresholdReached = root.appendingPathComponent("recovery-threshold-reached.txt", isDirectory: false)

@@ -54,7 +54,7 @@ struct ControlCommandCoordinatorSidebarV1Tests {
             args: "codex Running --agent-event-time=not-a-time"
         )
 
-        #expect(response == "ERROR: Invalid agent event time 'not-a-time' - must be a positive finite number")
+        #expect(response == "ERROR: Invalid agent event time 'not-a-time' - must be between 2000-01-01 and 2100-01-01 UTC")
     }
 
     @Test func setAgentPIDRejectsMalformedAgentEventTimeBeforeMutation() {
@@ -66,6 +66,21 @@ struct ControlCommandCoordinatorSidebarV1Tests {
             args: "claude_code 42424 --agent-event-time=not-a-time"
         )
 
-        #expect(response == "ERROR: Invalid agent event time 'not-a-time' - must be a positive finite number")
+        #expect(response == "ERROR: Invalid agent event time 'not-a-time' - must be between 2000-01-01 and 2100-01-01 UTC")
+    }
+
+    @Test(arguments: ["1", "1e300", "4102444801"])
+    func setStatusRejectsOutOfRangeAgentEventTime(rawEventTime: String) {
+        let context = FakeSidebarV1ControlCommandContext()
+        let coordinator = ControlCommandCoordinator(context: context)
+
+        let response = coordinator.handleSidebarV1(
+            command: "set_status",
+            args: "codex Running --agent-event-time=\(rawEventTime)"
+        )
+
+        #expect(
+            response == "ERROR: Invalid agent event time '\(rawEventTime)' - must be between 2000-01-01 and 2100-01-01 UTC"
+        )
     }
 }

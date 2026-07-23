@@ -73,7 +73,7 @@ extension ControlSidebarContext {
     ) {}
 
     nonisolated func controlSidebarInvalidAgentEventTimeError(_ raw: String) -> String {
-        "ERROR: Invalid agent event time '\(raw)' - must be a positive finite number"
+        "ERROR: Invalid agent event time '\(raw)' - must be between 2000-01-01 and 2100-01-01 UTC"
     }
 
     nonisolated func controlSidebarParseAgentLifecycle(_ raw: String) -> String? { nil }
