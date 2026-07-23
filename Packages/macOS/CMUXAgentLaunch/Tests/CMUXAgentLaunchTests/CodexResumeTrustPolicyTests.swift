@@ -1,4 +1,5 @@
 import CMUXAgentLaunch
+import Darwin
 import Foundation
 import Testing
 
@@ -125,7 +126,11 @@ struct CodexResumeTrustPolicyTests {
         try fileManager.createSymbolicLink(at: alias, withDestinationURL: actual)
         defer { try? fileManager.removeItem(at: root) }
 
-        let canonical = actual.resolvingSymlinksInPath().standardizedFileURL.path
+        let canonical = actual.path.withCString { pointer -> String in
+            guard let resolved = Darwin.realpath(pointer, nil) else { return actual.path }
+            defer { free(resolved) }
+            return String(cString: resolved)
+        }
         #expect(
             policy.undecidedProjectOverride(
                 arguments: ["codex", "resume", "SID"],
@@ -135,6 +140,21 @@ struct CodexResumeTrustPolicyTests {
             ) == [
                 "-c",
                 #"projects={"\#(canonical)"={trust_level="untrusted"}}"#,
+            ]
+        )
+    }
+
+    @Test("macOS tmp alias resolves to the filesystem path Codex evaluates")
+    func macOSTemporaryDirectoryAliasUsesPrivatePath() {
+        #expect(
+            policy.undecidedProjectOverride(
+                arguments: ["codex", "resume", "SID"],
+                currentDirectory: "/tmp",
+                repositoryRoot: nil,
+                userConfigContents: nil
+            ) == [
+                "-c",
+                #"projects={"/private/tmp"={trust_level="untrusted"}}"#,
             ]
         )
     }

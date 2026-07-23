@@ -1,3 +1,4 @@
+import Darwin
 import Foundation
 
 /// Keeps unattended Codex resume non-interactive without granting project trust.
@@ -327,10 +328,11 @@ public struct CodexResumeTrustPolicy: Sendable, Equatable {
     }
 
     private func projectLookupPaths(_ path: String) -> [String] {
-        let canonical = URL(fileURLWithPath: path, isDirectory: true)
-            .resolvingSymlinksInPath()
-            .standardizedFileURL
-            .path
+        let canonical = path.withCString { pointer -> String in
+            guard let resolved = Darwin.realpath(pointer, nil) else { return path }
+            defer { free(resolved) }
+            return String(cString: resolved)
+        }
         return canonical == path ? [path] : [canonical, path]
     }
 
