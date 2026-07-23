@@ -57,7 +57,9 @@ final class GlobalSearchForegroundScopeUITests: XCTestCase {
             "Expected cmux to be backgrounded. state=\(app.state.rawValue)"
         )
 
-        postCommandOptionF()
+        XCTContext.runActivity(named: "Post Cmd-Option-F through the HID event tap") { _ in
+            postCommandOptionF()
+        }
 
         let finderSearchField = finder.searchFields.firstMatch
         XCTAssertTrue(
