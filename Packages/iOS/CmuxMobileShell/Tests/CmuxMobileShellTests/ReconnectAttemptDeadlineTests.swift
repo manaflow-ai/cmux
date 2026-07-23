@@ -13,18 +13,22 @@ import Testing
 @MainActor
 extension ReconnectRouteSelectionTests {
     @Test func deadlineRaceReturnsNilWhenOperationIgnoresCancellation() async {
+        let gate = ReconnectDeadlineTestGate()
         // The race must not structurally await the losing side: an operation
         // that never completes AND ignores cancellation (the wedged-FFI-dial
         // shape) must still let the deadline resolve the race.
         let outcome = await MobileShellComposite.raceAgainstDeadline(
             nanoseconds: 50_000_000
         ) {
-            await withCheckedContinuation { (_: CheckedContinuation<Int, Never>) in
-                // Parked forever; no cancellation handler on purpose.
-            }
+            await gate.wait()
+            return 1
         }
         #expect(outcome.value == nil)
         #expect(outcome.abandoned != nil, "the wedged operation is handed back for bounded tracking")
+        await gate.release()
+        if let abandoned = outcome.abandoned {
+            _ = await abandoned.value
+        }
     }
 
     @Test func deadlineRaceReturnsOperationValueWhenItWins() async {
@@ -96,6 +100,53 @@ extension ReconnectRouteSelectionTests {
         #expect(!store.isReconnectingStoredMac)
     }
 
+    @Test func lifecycleReconnectReturnsAtHardDeadlineWhenStoreRestoreHangs() async throws {
+        let router = LivenessHostRouter()
+        let box = TransportBox()
+        let factory = KindRecordingTransportFactory(router: router, box: box)
+        var runtime = LivenessTestRuntime(
+            transportFactory: factory,
+            now: Date.init,
+            supportedRouteKinds: [.iroh]
+        )
+        runtime.reconnectAttemptDeadlineNanoseconds = 100_000_000
+        let pairedStore = DelayedTeamPairedMacStore(
+            recordsByTeam: ["": []],
+            blockedTeams: [""]
+        )
+        let store = MobileShellComposite(
+            runtime: runtime,
+            isSignedIn: true,
+            pairedMacStore: pairedStore,
+            identityProvider: StaticIdentityProvider(userID: "user-1"),
+            reachability: AlwaysOnlineReachability(),
+            pairingHintDefaults: UserDefaults(
+                suiteName: "reconnect-lifecycle-deadline-\(UUID().uuidString)"
+            )!,
+            storedMacReconnectRestoringDeadlineSeconds: 5
+        )
+
+        let reconnect = Task {
+            await store.reconnectActiveMacIfAvailable(stackUserID: "user-1")
+        }
+        await pairedStore.waitUntilLoadStarted(teamID: nil)
+        let returned = await MobileShellComposite.raceAgainstDeadline(
+            nanoseconds: 1_000_000_000
+        ) {
+            await reconnect.value
+        }
+
+        #expect(returned.value == false, "lifecycle callers must return at the shared hard deadline")
+        #expect(store.didFinishStoredMacReconnectAttempt)
+        #expect(!store.isReconnectingStoredMac)
+
+        await pairedStore.release(teamID: nil)
+        _ = await reconnect.value
+        if let abandoned = returned.abandoned {
+            _ = await abandoned.value
+        }
+    }
+
     @Test func hungRedialSettlesAtDeadlineAndUnfreezesRecovery() async throws {
         let clock = TestClock()
         let router = LivenessHostRouter()
@@ -161,5 +212,27 @@ extension ReconnectRouteSelectionTests {
         }
         #expect(reconnected, "manual retry after a settled deadline must reconnect")
         #expect(factory.attemptedKinds().count > dialsBeforeManual)
+    }
+}
+
+private actor ReconnectDeadlineTestGate {
+    private var releaseContinuation: CheckedContinuation<Void, Never>?
+    private var isReleased = false
+
+    func wait() async {
+        guard !isReleased else { return }
+        await withCheckedContinuation { continuation in
+            if isReleased {
+                continuation.resume()
+            } else {
+                releaseContinuation = continuation
+            }
+        }
+    }
+
+    func release() {
+        isReleased = true
+        releaseContinuation?.resume()
+        releaseContinuation = nil
     }
 }
