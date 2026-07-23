@@ -943,6 +943,37 @@ struct ComputerUseUXTests {
         }
     }
 
+    @Test func menuRepositoryRejectsPathologicallyLargeStateDirectory() throws {
+        try withStateDirectory { directory in
+            let now = Date(timeIntervalSince1970: 2_000_000_000)
+            try writeState(
+                to: directory.appendingPathComponent("valid.json"),
+                pid: 10,
+                session: "session-a",
+                targetPID: 500,
+                lastActionAt: now
+            )
+            for index in 0 ..< 512 {
+                try Data("{}".utf8).write(
+                    to: directory.appendingPathComponent("junk-\(index).json")
+                )
+            }
+
+            let scan = ComputerUseStateRepository().scan(
+                directoryURL: directory,
+                sessions: [
+                    ComputerUseSessionScope(
+                        id: "row-a",
+                        driverSessionID: "session-a"
+                    ),
+                ],
+                now: now
+            )
+            #expect(scan.newestStateByScopeID.isEmpty)
+            #expect(!scan.hasRecentStateFiles)
+        }
+    }
+
     @Test func unavailablePermissionStatusIsNotReportedAsDenied() {
         #expect(!ComputerUsePermissionStatus.unknown.isKnown)
         #expect(!ComputerUsePermissionStatus.unknown.accessibility)
