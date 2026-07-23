@@ -1809,14 +1809,16 @@ mod tests {
             "an ordinary single-route reconnect must retain its configured deadline"
         );
 
-        let mut no_install_options =
-            reconnect_test_options(vec![test_route("ssh://no-install.example")]);
+        let mut no_install_options = reconnect_test_options(vec![
+            test_route("wss://selected.example/v1/link"),
+            test_route("ssh://no-install.example"),
+        ]);
         no_install_options.ssh_bootstrap.auto_install = false;
         let probe_timeout = no_install_options.ssh_bootstrap.attempt_timeout;
         let no_install = RuntimeReconnectGroups::new(no_install_options, 0);
         assert_eq!(
             no_install.resolution_timeout(Duration::from_millis(20)),
-            probe_timeout + Duration::from_millis(20),
+            probe_timeout + Duration::from_millis(40),
             "an unprepared no-install SSH route still needs time for remote-probe"
         );
     }
