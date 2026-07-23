@@ -47,9 +47,11 @@ final class cmuxUITests: XCTestCase {
     /// durable progress key to `welcome`; advancing to Connect writes the real
     /// `.connect` milestone. The default connection scene must describe
     /// same-account automatic discovery without presenting QR as the primary
-    /// path. The middle scene explains the shipped chronological notification
-    /// feed without depending on its current GUI. Relaunching after the simulated
-    /// search finishes must resume at Connect and expose QR as an explicit fallback.
+    /// path. The first two product scenes use production-app screenshots, with
+    /// the notification scene showing the shipped chronological feed. The
+    /// connection scene keeps its live connection-state illustration. Relaunching
+    /// after the simulated search finishes must resume at Connect and expose QR
+    /// as an explicit fallback.
     @MainActor
     func testOnboardingScenesNotificationFeedResumeAndScannerFallback() throws {
         let app = XCUIApplication()
@@ -122,6 +124,7 @@ final class cmuxUITests: XCTestCase {
         }
 
         capture("onboarding-01-agents")
+        XCTAssertTrue(element("MobileOnboardingScreenshot-workspaces").exists)
 
         let primaryButton = app.buttons["MobileOnboardingPrimaryButton"]
         XCTAssertTrue(primaryButton.waitForExistence(timeout: 4))
@@ -138,6 +141,7 @@ final class cmuxUITests: XCTestCase {
         XCTAssertTrue(notificationsBody.exists)
         XCTAssertTrue(app.buttons["MobileOnboardingBackButton"].exists)
         XCTAssertTrue(app.buttons["MobileOnboardingSkipButton"].exists)
+        XCTAssertTrue(element("MobileOnboardingScreenshot-notifications").exists)
         XCTAssertTrue(primaryButton.exists)
         assertStableChrome()
         capture("onboarding-02-notifications")
