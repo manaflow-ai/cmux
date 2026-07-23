@@ -171,14 +171,6 @@ def _assert_runtime_snapshot_rejected(scenario: Any, snapshot: dict[str, Any]) -
     raise AssertionError("validate_runtime_snapshot accepted an invalid snapshot")
 
 
-def _assert_restore_snapshot_rejected(
-    captured: dict[str, Any], restored: dict[str, Any]
-) -> None:
-    try:
-        perf_contract.validate_restored_snapshot(captured, restored)
-    except ValueError:
-        return
-    raise AssertionError("validate_restored_snapshot accepted a changed snapshot")
 
 
 def test_runtime_snapshot_accepts_live_scrollback_but_keeps_exact_topology() -> None:
@@ -206,18 +198,6 @@ def test_runtime_snapshot_rejects_invalid_live_scrollback_types_and_values() -> 
         _assert_runtime_snapshot_rejected(scenario, snapshot)
 
 
-def test_restored_snapshot_must_exactly_match_captured_live_shape() -> None:
-    captured = _expected_snapshot(EXPECTED_SCENARIOS["terminal-realistic"])
-    captured["shape"]["scrollback_chars"] = 2_345_678
-    restored = {
-        **captured,
-        "shape": dict(captured["shape"]),
-    }
-
-    assert perf_contract.validate_restored_snapshot(captured, restored) is None
-
-    restored["shape"]["scrollback_chars"] += 1
-    _assert_restore_snapshot_rejected(captured, restored)
 
 
 def test_scenario_matrix_has_exact_nine_ids_and_counts() -> None:

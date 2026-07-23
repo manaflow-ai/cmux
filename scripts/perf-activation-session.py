@@ -2,6 +2,7 @@
 from __future__ import annotations
 
 import argparse
+import hashlib
 import json
 import os
 import pathlib
@@ -168,11 +169,30 @@ class CmuxPerfRunner:
             ]
         )
 
-    def clean_persisted_state(self) -> None:
+    def _session_snapshot_path(self, suffix: str = "") -> pathlib.Path:
         app_support = pathlib.Path.home() / "Library/Application Support/cmux"
         bundle_id = f"com.cmuxterm.app.debug.{self.tag_id}"
+        return app_support / f"session-{bundle_id}{suffix}.json"
+
+    def persisted_snapshot_fingerprint(self) -> dict[str, object]:
+        path = self._session_snapshot_path()
+        if path.is_symlink() or not path.is_file():
+            raise PerfFailure("tagged persisted session snapshot is missing or invalid")
+        try:
+            payload = path.read_bytes()
+        except OSError as error:
+            raise PerfFailure("tagged persisted session snapshot is unreadable") from error
+        if not payload:
+            raise PerfFailure("tagged persisted session snapshot is empty")
+        return {
+            "algorithm": "sha256",
+            "digest": hashlib.sha256(payload).hexdigest(),
+            "byte_count": len(payload),
+        }
+
+    def clean_persisted_state(self) -> None:
         for suffix in ("", "-previous"):
-            (app_support / f"session-{bundle_id}{suffix}.json").unlink(missing_ok=True)
+            self._session_snapshot_path(suffix).unlink(missing_ok=True)
         self.socket_path.unlink(missing_ok=True)
         self.cmuxd_socket_path.unlink(missing_ok=True)
         self.debug_log_path.unlink(missing_ok=True)

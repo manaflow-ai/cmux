@@ -28,6 +28,7 @@ from urllib.parse import unquote, urlparse
 
 
 _SHA_RE = re.compile(r"[0-9a-fA-F]{40}\Z")
+_SHA256_RE = re.compile(r"[0-9a-f]{64}\Z")
 _MAX_TIMING_SECONDS = 300.0
 _PROCESS_GROUPS = ("parent_direct", "terminal", "webkit", "full_tree")
 _BROWSER_RECOVERY_RETRY = (
@@ -169,6 +170,29 @@ def _plain(value: Any) -> Any:
         return value
     raise ValueError(f"value is not JSON-friendly: {type(value).__name__}")
 
+
+def _strict_persisted_fingerprint(value: Any) -> dict[str, Any]:
+    if not isinstance(value, Mapping) or set(value) != {
+        "algorithm",
+        "digest",
+        "byte_count",
+    }:
+        raise ValueError("persisted snapshot fingerprint fields are invalid")
+    algorithm = value["algorithm"]
+    digest = value["digest"]
+    byte_count = value["byte_count"]
+    if algorithm != "sha256":
+        raise ValueError("persisted snapshot fingerprint algorithm must be sha256")
+    if not isinstance(digest, str) or _SHA256_RE.fullmatch(digest) is None:
+        raise ValueError("persisted snapshot fingerprint digest is invalid")
+    if type(byte_count) is not int or byte_count <= 0:
+        raise ValueError("persisted snapshot fingerprint byte count is invalid")
+    return {
+        "algorithm": algorithm,
+        "digest": digest,
+        "byte_count": byte_count,
+    }
+
 class _ProfileCollectionError(RuntimeError):
     def __init__(self, message: str, evidence: Mapping[str, Any]) -> None:
         super().__init__(message)
@@ -247,6 +271,7 @@ class CmuxRuntimeAdapter:
         self._pane_id: str | None = None
         self._terminal_actual_ids: dict[str, str] = {}
         self._browser_actual_ids: dict[str, str] = {}
+        self._captured_persisted_fingerprint: dict[str, Any] | None = None
         self._last_accounting: Any | None = None
         self._launched = False
         self._owned_browser_screenshot_paths: set[Path] = set()
@@ -1124,8 +1149,13 @@ class CmuxRuntimeAdapter:
         _contract.validate_runtime_snapshot(
             self.config.scenario, self._snapshot_contract(payload)
         )
+        fingerprint = _strict_persisted_fingerprint(
+            self._runner.persisted_snapshot_fingerprint()
+        )
+        self._captured_persisted_fingerprint = fingerprint
         captured = _plain(payload)
         self._details["snapshot"]["captured"] = captured
+        self._details["snapshot"]["persisted_before"] = deepcopy(fingerprint)
         return captured
 
     def _reconcile_restored_workspace(self) -> None:
@@ -1206,9 +1236,29 @@ class CmuxRuntimeAdapter:
         self._terminal_actual_ids = dict(
             zip(self._terminal_actual_ids, terminal_ids)
         )
-        self._browser_actual_ids = dict(
-            zip(self._browser_actual_ids, browser_ids)
-        )
+        planned_browser_by_url = {
+            item.url: item.surface_id for item in self._plan.browser_surfaces
+        }
+        if len(planned_browser_by_url) != len(self._plan.browser_surfaces):
+            raise ValueError("restored browser fixture URLs are not unique")
+        actual_browser_by_planned: dict[str, str] = {}
+        for actual_id in browser_ids:
+            self._wait_for_browser(actual_id)
+            url_payload = self._runner.rpc(
+                "browser.url.get",
+                {"workspace_id": restored_workspace_id, "surface_id": actual_id},
+                timeout=self.config.rpc_timeout_s,
+            )
+            planned_id = planned_browser_by_url.get(url_payload.get("url"))
+            if planned_id is None or planned_id in actual_browser_by_planned:
+                raise ValueError("restored browser identity does not match the fixture plan")
+            actual_browser_by_planned[planned_id] = actual_id
+        if set(actual_browser_by_planned) != set(self._browser_actual_ids):
+            raise ValueError("restored browser identities are incomplete")
+        self._browser_actual_ids = {
+            planned_id: actual_browser_by_planned[planned_id]
+            for planned_id in self._browser_actual_ids
+        }
         self._details["snapshot"]["restored_rebinding"] = {
             "previous_workspace_id": previous_workspace_id,
             "restored_workspace_id": restored_workspace_id,
@@ -1221,23 +1271,22 @@ class CmuxRuntimeAdapter:
     def restore(self, snapshot: Any) -> None:
         captured_contract = self._snapshot_contract(snapshot)
         _contract.validate_runtime_snapshot(self.config.scenario, captured_contract)
+        if self._captured_persisted_fingerprint is None:
+            raise RuntimeError("persisted snapshot fingerprint was not captured")
         self._runner.stop_app()
         self._launched = False
         elapsed = self._runner.launch("restore")
         self._launched = True
-        self._reconcile_restored_workspace()
-        restored = self._runner.rpc(
-            "debug.session_snapshot_benchmark",
-            {"include_scrollback": True, "persist": True},
-            timeout=self.config.rpc_timeout_s,
+        persisted_after = _strict_persisted_fingerprint(
+            self._runner.persisted_snapshot_fingerprint()
         )
-        restored_contract = self._snapshot_contract(restored)
-        _contract.validate_runtime_snapshot(self.config.scenario, restored_contract)
-        _contract.validate_restored_snapshot(captured_contract, restored_contract)
+        self._details["snapshot"]["persisted_after"] = deepcopy(persisted_after)
+        if persisted_after != self._captured_persisted_fingerprint:
+            raise ValueError("persisted snapshot fingerprint changed across restore")
+        self._reconcile_restored_workspace()
         identity = self.observe_fixture()
         self._details["snapshot"]["restored"] = {
             "launch_socket_ready_ms": elapsed,
-            "snapshot": _plain(restored),
             "identity": identity,
         }
 
