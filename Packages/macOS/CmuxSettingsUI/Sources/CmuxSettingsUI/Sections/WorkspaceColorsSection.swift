@@ -215,7 +215,7 @@ public struct WorkspaceColorsSection: View {
         stored: [String: String]
     ) -> [(keyword: String, value: String, hex: String?)] {
         let palette = effectivePaletteMap(stored: paletteModel.current)
-        return stored
+        let candidates = stored
             .compactMap { rawKeyword, value -> (keyword: String, folded: String, value: String, hex: String?)? in
                 let keyword = rawKeyword.trimmingCharacters(in: .whitespacesAndNewlines)
                 let folded = keyword.folding(
@@ -230,12 +230,37 @@ public struct WorkspaceColorsSection: View {
                     hex: resolvedRuleHex(value, palette: palette)
                 )
             }
+        return canonicalizedAutoColorRules(candidates)
             .sorted { lhs, rhs in
                 if lhs.folded.count != rhs.folded.count { return lhs.folded.count > rhs.folded.count }
                 if lhs.folded != rhs.folded { return lhs.folded < rhs.folded }
                 return lhs.keyword < rhs.keyword
             }
             .map { (keyword: $0.keyword, value: $0.value, hex: $0.hex) }
+    }
+
+    /// Mirrors `WorkspaceTabAutoColorRules.canonicalized` in the app target:
+    /// entries that trim to the same keyword are one rule, and duplicates that
+    /// disagree on the resolved color are dropped rather than arbitrated — the
+    /// app paints nothing in that case, so the card must not claim otherwise.
+    /// It is also what keeps `ForEach(rules, id: \.keyword)` free of duplicate
+    /// identities.
+    ///
+    /// A keyword whose entries all resolve to no color is kept, so a typo still
+    /// surfaces as an "unknown color" row instead of vanishing silently.
+    private func canonicalizedAutoColorRules(
+        _ candidates: [(keyword: String, folded: String, value: String, hex: String?)]
+    ) -> [(keyword: String, folded: String, value: String, hex: String?)] {
+        Dictionary(grouping: candidates, by: { $0.keyword })
+            .values
+            .compactMap { group in
+                let resolved = group.filter { $0.hex != nil }
+                guard let winner = resolved.min(by: { $0.value < $1.value }) else {
+                    return group.min(by: { $0.value < $1.value })
+                }
+                guard resolved.allSatisfy({ $0.hex == winner.hex }) else { return nil }
+                return winner
+            }
     }
 
     /// Resolves a rule value (palette name or `#RRGGBB`) to a hex, or `nil`

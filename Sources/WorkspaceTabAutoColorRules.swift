@@ -21,6 +21,11 @@ struct WorkspaceTabAutoColorRule: Equatable {
 /// derived instead of authored: the longest matching keyword wins (the most
 /// specific rule), ties broken alphabetically. That keeps resolution
 /// deterministic without asking users to reason about rule order.
+///
+/// `keyword` is unique across `rules` — entries that trim to the same keyword
+/// are collapsed or dropped before ordering, see
+/// ``WorkspaceTabAutoColorRules/canonicalized(_:)``. The settings card relies
+/// on that to key its rows.
 struct WorkspaceTabAutoColorRuleSet: Equatable {
     static let empty = WorkspaceTabAutoColorRuleSet(rules: [])
 
@@ -73,7 +78,7 @@ enum WorkspaceTabAutoColorRules {
     ) -> WorkspaceTabAutoColorRuleSet {
         guard !raw.isEmpty else { return .empty }
         let palette = WorkspaceTabColorSettings.resolvedPaletteMap(defaults: defaults)
-        let rules = raw
+        let candidates = raw
             .compactMap { rawKeyword, rawColor -> WorkspaceTabAutoColorRule? in
                 let keyword = rawKeyword.trimmingCharacters(in: .whitespacesAndNewlines)
                 let foldedKeyword = folded(keyword)
@@ -88,6 +93,7 @@ enum WorkspaceTabAutoColorRules {
                     colorHex: hex
                 )
             }
+        let rules = canonicalized(candidates)
             .sorted { lhs, rhs in
                 if lhs.foldedKeyword.count != rhs.foldedKeyword.count {
                     return lhs.foldedKeyword.count > rhs.foldedKeyword.count
@@ -100,6 +106,33 @@ enum WorkspaceTabAutoColorRules {
                 return lhs.keyword < rhs.keyword
             }
         return WorkspaceTabAutoColorRuleSet(rules: rules)
+    }
+
+    /// Reduces entries that trim to the same keyword down to at most one rule.
+    ///
+    /// The map is keyed by the keyword *as typed*, so `"deploy"` and
+    /// `" deploy "` are two entries that mean one keyword. Left alone they
+    /// produce two rules with an identical sort key, which ties the comparator
+    /// completely and hands the color to dictionary iteration order — and gives
+    /// the settings card two rows with the same `ForEach` identity.
+    ///
+    /// Duplicates that resolve to the same color collapse. Duplicates that
+    /// disagree are dropped entirely: there is no non-arbitrary winner, and
+    /// leaving a workspace uncolored is better than painting it a color the
+    /// user did not unambiguously ask for. A conflict on one keyword never
+    /// affects the others.
+    private static func canonicalized(
+        _ candidates: [WorkspaceTabAutoColorRule]
+    ) -> [WorkspaceTabAutoColorRule] {
+        Dictionary(grouping: candidates, by: \.keyword)
+            .values
+            .compactMap { group in
+                // `colorValue` picks the winner among agreeing duplicates so
+                // the survivor does not depend on iteration order either.
+                guard let winner = group.min(by: { $0.colorValue < $1.colorValue }) else { return nil }
+                guard group.allSatisfy({ $0.colorHex == winner.colorHex }) else { return nil }
+                return winner
+            }
     }
 
     /// Normalizes a raw `keyword: color` map for persistence: trims keywords,
