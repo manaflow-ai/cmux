@@ -1155,7 +1155,8 @@ fn commit_content_hash_write(
         MutationTestPoint::AfterContentHashExchange,
     );
     let staged_identity = RawEntryState::from_metadata(temporary_metadata);
-    if !published.same_object(&staged_identity) || !recovery.matches_snapshot(&pinned_identity) {
+    if !published.matches_snapshot(&staged_identity) || !recovery.matches_snapshot(&pinned_identity)
+    {
         rollback_exchange(target, temporary_name, &published, &recovery)?;
         return Err(RpcError::new("conflict", "file identity changed during commit"));
     }

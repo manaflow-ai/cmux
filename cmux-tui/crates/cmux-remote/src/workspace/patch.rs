@@ -421,7 +421,6 @@ async fn rollback(
 
 #[cfg(test)]
 mod tests {
-    #[cfg(unix)]
     use std::sync::Arc;
 
     use cmux_remote_protocol::WorkspaceId;
