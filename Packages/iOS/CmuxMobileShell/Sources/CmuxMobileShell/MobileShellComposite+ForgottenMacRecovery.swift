@@ -59,6 +59,7 @@ extension MobileShellComposite {
                 ifStillCurrent: { [weak self] in
                     guard let self else { return false }
                     return self.isSignedIn
+                        && self.secondaryAggregationScopeGeneration == scope.generation
                         && self.identityProvider?.currentUserID == scope.userID
                 }
             )
