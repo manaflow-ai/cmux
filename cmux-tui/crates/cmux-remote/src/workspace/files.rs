@@ -643,6 +643,12 @@ pub(crate) async fn write_bytes_locked(
     }
     #[cfg(not(unix))]
     {
+        if !matches!(precondition, FilePrecondition::Any) {
+            return Err(RpcError::new(
+                "unsupported-platform",
+                "guarded workspace writes require Unix descriptor-relative file operations",
+            ));
+        }
         write_bytes_locked_path(root, path, bytes, precondition, create_parents).await
     }
 }
@@ -759,6 +765,12 @@ pub(crate) async fn remove_file_precondition_locked(
     }
     #[cfg(not(unix))]
     {
+        if !matches!(precondition, FilePrecondition::Any) {
+            return Err(RpcError::new(
+                "unsupported-platform",
+                "guarded workspace removals require Unix descriptor-relative file operations",
+            ));
+        }
         remove_file_precondition_locked_path(root, path, precondition).await
     }
 }
@@ -800,10 +812,61 @@ async fn remove_file_precondition_locked_path(
 }
 
 #[cfg(unix)]
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+struct RawEntryState {
+    dev: u64,
+    ino: u64,
+    mode: u32,
+    size: u64,
+    modified: (i64, i64),
+    changed: (i64, i64),
+}
+
+#[cfg(unix)]
+impl RawEntryState {
+    fn from_metadata(metadata: &std::fs::Metadata) -> Self {
+        Self {
+            dev: metadata.dev(),
+            ino: metadata.ino(),
+            mode: metadata.mode(),
+            size: metadata.len(),
+            modified: (metadata.mtime(), metadata.mtime_nsec()),
+            changed: (metadata.ctime(), metadata.ctime_nsec()),
+        }
+    }
+
+    fn from_stat(status: &libc::stat) -> Self {
+        Self {
+            dev: status.st_dev as u64,
+            ino: status.st_ino as u64,
+            mode: status.st_mode as u32,
+            size: u64::try_from(status.st_size).unwrap_or(0),
+            modified: (status.st_mtime, status.st_mtime_nsec),
+            changed: (status.st_ctime, status.st_ctime_nsec),
+        }
+    }
+
+    fn is_regular(&self) -> bool {
+        self.mode & libc::S_IFMT as u32 == libc::S_IFREG as u32
+    }
+
+    fn is_symlink(&self) -> bool {
+        self.mode & libc::S_IFMT as u32 == libc::S_IFLNK as u32
+    }
+
+    fn same_object(&self, other: &Self) -> bool {
+        self.dev == other.dev
+            && self.ino == other.ino
+            && self.mode & libc::S_IFMT as u32 == other.mode & libc::S_IFMT as u32
+    }
+}
+
+#[cfg(unix)]
 struct PreparedUnixWrite {
     target: UnixWorkspaceTarget,
     precondition: FilePrecondition,
-    initial: Option<std::fs::Metadata>,
+    initial_mode: Option<u32>,
+    pinned: Option<File>,
 }
 
 #[cfg(unix)]
@@ -814,13 +877,11 @@ fn prepare_unix_write(
     create_parents: bool,
 ) -> Result<PreparedUnixWrite, RpcError> {
     let target = root.resolve_target(&path, create_parents)?;
-    let mut existing = open_regular_entry_if_present(&target, "stat-before-write")?;
-    let initial = existing
-        .as_ref()
-        .map(|file| {
-            file.metadata().map_err(|error| io_error("stat-before-write", target.display(), error))
-        })
-        .transpose()?;
+    let existing = stat_entry(&target, "stat-before-write")?;
+    if existing.as_ref().is_some_and(|entry| !entry.is_regular()) {
+        return Err(non_regular_entry_error(&target, existing.as_ref()));
+    }
+    let mut pinned = None;
     match &precondition {
         FilePrecondition::Any => {}
         FilePrecondition::Missing if existing.is_some() => {
@@ -829,26 +890,33 @@ fn prepare_unix_write(
         FilePrecondition::Missing => {}
         FilePrecondition::ContentHash(expected) => {
             validate_content_hash(expected)?;
-            let file = existing
-                .as_mut()
-                .ok_or_else(|| RpcError::new("conflict", "file does not exist"))?;
-            let (actual, _) = hash_file_sync(file, target.display(), MAX_HASH_BYTES)?;
+            if existing.is_none() {
+                return Err(RpcError::new("conflict", "file does not exist"));
+            }
+            let mut file = open_regular_entry(&target, "hash-before-write")?;
+            let (actual, _) = hash_file_sync(&mut file, target.display(), MAX_HASH_BYTES)?;
             if !actual.eq_ignore_ascii_case(expected) {
                 return Err(RpcError::new(
                     "conflict",
                     format!("content hash changed: expected {expected}, found {actual}"),
                 ));
             }
+            pinned = Some(file);
         }
     }
-    Ok(PreparedUnixWrite { target, precondition, initial })
+    Ok(PreparedUnixWrite {
+        target,
+        precondition,
+        initial_mode: existing.map(|entry| entry.mode & 0o7777),
+        pinned,
+    })
 }
 
 #[cfg(unix)]
 fn commit_unix_write(prepared: PreparedUnixWrite, bytes: &[u8]) -> Result<String, RpcError> {
     use std::io::Write as _;
 
-    let PreparedUnixWrite { target, precondition, initial } = prepared;
+    let PreparedUnixWrite { target, precondition, initial_mode, mut pinned } = prepared;
     target.verify_parent_identity()?;
     let (temporary_name, mut temporary) = create_temporary(&target, "write")?;
     let temporary_display = temporary_display(&target, &temporary_name);
@@ -859,9 +927,9 @@ fn commit_unix_write(prepared: PreparedUnixWrite, bytes: &[u8]) -> Result<String
         temporary
             .flush()
             .map_err(|error| io_error("flush-temporary", &temporary_display, error))?;
-        if let Some(metadata) = &initial {
+        if let Some(mode) = initial_mode {
             temporary
-                .set_permissions(std::fs::Permissions::from_mode(metadata.permissions().mode()))
+                .set_permissions(std::fs::Permissions::from_mode(mode))
                 .map_err(|error| io_error("set-permissions", &temporary_display, error))?;
         }
         temporary
@@ -876,39 +944,39 @@ fn commit_unix_write(prepared: PreparedUnixWrite, bytes: &[u8]) -> Result<String
     let temporary_metadata = match stage_result {
         Ok(metadata) => metadata,
         Err(error) => {
-            let _ = unlink_name(target.parent_fd(), &temporary_name);
-            return Err(error);
+            return Err(cleanup_unpublished_temporary(&target, &temporary_name, error));
         }
     };
     match &precondition {
         FilePrecondition::Missing => {
             if let Err(error) = link_name(target.parent_fd(), &temporary_name, target.name()) {
-                let _ = unlink_name(target.parent_fd(), &temporary_name);
-                return Err(if error.kind() == std::io::ErrorKind::AlreadyExists {
+                let error = if error.kind() == std::io::ErrorKind::AlreadyExists {
                     RpcError::new("conflict", "file appeared before commit")
                 } else {
                     io_error("create", target.display(), error)
-                });
+                };
+                return Err(cleanup_unpublished_temporary(&target, &temporary_name, error));
             }
             if let Err(error) = unlink_name(target.parent_fd(), &temporary_name) {
-                return Err(RpcError::new(
-                    "partial-write",
-                    format!("file was created but temporary link cleanup failed: {error}"),
+                return Err(partial_write_with_recovery(
+                    &target,
+                    &temporary_name,
+                    &format!("file was created but temporary link cleanup failed: {error}"),
                 ));
             }
         }
         FilePrecondition::Any => {
-            commit_any_write(&target, &temporary_name, &temporary_metadata)?;
+            commit_any_write(&target, &temporary_name)?;
         }
         FilePrecondition::ContentHash(expected) => {
-            let initial = initial.as_ref().ok_or_else(|| {
-                RpcError::new("internal", "content-hash write lost its initial metadata")
+            let pinned = pinned.as_mut().ok_or_else(|| {
+                RpcError::new("internal", "content-hash write lost its pinned target")
             })?;
             commit_content_hash_write(
                 &target,
                 &temporary_name,
                 &temporary_metadata,
-                initial,
+                pinned,
                 expected,
             )?;
         }
@@ -934,45 +1002,17 @@ fn cleanup_unpublished_temporary(
 }
 
 #[cfg(unix)]
-fn commit_any_write(
-    target: &UnixWorkspaceTarget,
-    temporary_name: &CStr,
-    temporary_metadata: &std::fs::Metadata,
-) -> Result<(), RpcError> {
-    match exchange_names(target.parent_fd(), temporary_name, target.name()) {
-        Ok(()) => {
-            let displaced = open_named_regular(
-                target.parent_fd(),
-                temporary_name,
-                &temporary_display(target, temporary_name),
-                "replace",
-            );
-            match displaced {
-                Ok(_) => unlink_name(target.parent_fd(), temporary_name)
-                    .map_err(|error| io_error("remove-replaced", target.display(), error)),
-                Err(error) => {
-                    rollback_exchange(target, temporary_name, temporary_metadata, None)?;
-                    Err(error)
-                }
-            }
-        }
-        Err(error) if error.kind() == std::io::ErrorKind::NotFound => {
-            if let Err(error) = link_name(target.parent_fd(), temporary_name, target.name()) {
-                let error = if error.kind() == std::io::ErrorKind::AlreadyExists {
-                    RpcError::new("conflict", "file changed repeatedly during commit")
-                } else {
-                    io_error("create", target.display(), error)
-                };
-                return Err(cleanup_unpublished_temporary(target, temporary_name, error));
-            }
-            unlink_name(target.parent_fd(), temporary_name)
-                .map_err(|error| io_error("remove-temporary", target.display(), error))
-        }
-        Err(error) => {
-            let error = exchange_error(target.display(), error);
-            Err(cleanup_unpublished_temporary(target, temporary_name, error))
-        }
+fn commit_any_write(target: &UnixWorkspaceTarget, temporary_name: &CStr) -> Result<(), RpcError> {
+    let existing = stat_entry(target, "stat-before-replace")?;
+    if existing.as_ref().is_some_and(|entry| !entry.is_regular()) {
+        let error = non_regular_entry_error(target, existing.as_ref());
+        return Err(cleanup_unpublished_temporary(target, temporary_name, error));
     }
+    if let Err(error) = rename_name(target.parent_fd(), temporary_name, target.name()) {
+        let error = io_error("replace", target.display(), error);
+        return Err(cleanup_unpublished_temporary(target, temporary_name, error));
+    }
+    Ok(())
 }
 
 #[cfg(unix)]
@@ -980,9 +1020,34 @@ fn commit_content_hash_write(
     target: &UnixWorkspaceTarget,
     temporary_name: &CStr,
     temporary_metadata: &std::fs::Metadata,
-    initial: &std::fs::Metadata,
+    pinned: &mut File,
     expected: &str,
 ) -> Result<(), RpcError> {
+    #[cfg(test)]
+    pause_at_mutation_test_barrier_blocking(
+        target.display(),
+        MutationTestPoint::BeforeContentHashValidation,
+    );
+    let (actual, pinned_metadata) = hash_file_sync(pinned, target.display(), MAX_HASH_BYTES)?;
+    if !actual.eq_ignore_ascii_case(expected) {
+        return Err(cleanup_unpublished_temporary(
+            target,
+            temporary_name,
+            RpcError::new(
+                "conflict",
+                format!("content hash changed before commit: expected {expected}, found {actual}"),
+            ),
+        ));
+    }
+    let pinned_identity = RawEntryState::from_metadata(&pinned_metadata);
+    let current = stat_entry(target, "stat-before-replace")?;
+    if current.as_ref().is_none_or(|entry| !entry.same_object(&pinned_identity)) {
+        return Err(cleanup_unpublished_temporary(
+            target,
+            temporary_name,
+            RpcError::new("conflict", "file identity changed before commit"),
+        ));
+    }
     #[cfg(test)]
     pause_at_mutation_test_barrier_blocking(
         target.display(),
@@ -996,94 +1061,72 @@ fn commit_content_hash_write(
         };
         return Err(cleanup_unpublished_temporary(target, temporary_name, error));
     }
+    let published = stat_entry(target, "stat-published")
+        .map_err(|error| partial_write_with_recovery(target, temporary_name, &error.message))?
+        .ok_or_else(|| {
+            partial_write_with_recovery(target, temporary_name, "published entry disappeared")
+        })?;
+    let recovery = stat_named(
+        target.parent_fd(),
+        temporary_name,
+        &temporary_display(target, temporary_name),
+        "stat-recovery",
+    )
+    .map_err(|error| partial_write_with_recovery(target, temporary_name, &error.message))?
+    .ok_or_else(|| {
+        partial_write_with_recovery(target, temporary_name, "recovery entry disappeared")
+    })?;
     #[cfg(test)]
     pause_at_mutation_test_barrier_blocking(
         target.display(),
         MutationTestPoint::AfterContentHashExchange,
     );
-    #[cfg(test)]
-    pause_at_mutation_test_barrier_blocking(
-        target.display(),
-        MutationTestPoint::BeforeContentHashValidation,
-    );
-
-    let displaced_display = temporary_display(target, temporary_name);
-    let validation = (|| {
-        let mut displaced = open_named_regular(
-            target.parent_fd(),
-            temporary_name,
-            &displaced_display,
-            "validate-replaced",
-        )?;
-        let (actual, displaced_metadata) =
-            hash_file_sync(&mut displaced, &displaced_display, MAX_HASH_BYTES)?;
-        if !same_file(initial, &displaced_metadata) || !actual.eq_ignore_ascii_case(expected) {
-            return Err(RpcError::new(
-                "conflict",
-                format!("file changed before commit: expected {expected}, found {actual}"),
-            ));
-        }
-        Ok(displaced_metadata)
-    })();
-    match validation {
-        Ok(_) => unlink_name(target.parent_fd(), temporary_name)
-            .map_err(|error| io_error("remove-replaced", target.display(), error)),
-        Err(error) => {
-            let displaced = entry_metadata_named(
-                target.parent_fd(),
-                temporary_name,
-                &displaced_display,
-                "stat-replaced",
-            )
-            .ok()
-            .flatten();
-            rollback_exchange(target, temporary_name, temporary_metadata, displaced.as_ref())?;
-            Err(error)
-        }
+    let staged_identity = RawEntryState::from_metadata(temporary_metadata);
+    if !published.same_object(&staged_identity) || !recovery.same_object(&pinned_identity) {
+        rollback_exchange(target, temporary_name, &published, &recovery)?;
+        return Err(RpcError::new("conflict", "file identity changed during commit"));
     }
+    unlink_name(target.parent_fd(), temporary_name).map_err(|error| {
+        partial_write_with_recovery(
+            target,
+            temporary_name,
+            &format!("replacement committed but recovery cleanup failed: {error}"),
+        )
+    })
 }
 
 #[cfg(unix)]
 fn rollback_exchange(
     target: &UnixWorkspaceTarget,
     temporary_name: &CStr,
-    new_metadata: &std::fs::Metadata,
-    displaced_metadata: Option<&std::fs::Metadata>,
+    published: &RawEntryState,
+    recovery: &RawEntryState,
 ) -> Result<(), RpcError> {
-    let current_target =
-        open_named_regular(target.parent_fd(), target.name(), target.display(), "rollback")?
-            .metadata()
-            .map_err(|error| io_error("rollback", target.display(), error))?;
-    if !same_file(new_metadata, &current_target) {
-        return Err(RpcError::new(
-            "partial-write",
-            "replacement validation failed and the target changed before restoration",
-        ));
-    }
-    if let Some(expected) = displaced_metadata {
-        let current_displaced = entry_metadata_named(
-            target.parent_fd(),
+    let current_target = stat_entry(target, "rollback")
+        .map_err(|error| partial_write_with_recovery(target, temporary_name, &error.message))?;
+    let current_recovery = stat_named(
+        target.parent_fd(),
+        temporary_name,
+        &temporary_display(target, temporary_name),
+        "rollback",
+    )
+    .map_err(|error| partial_write_with_recovery(target, temporary_name, &error.message))?;
+    if current_target.as_ref() != Some(published) || current_recovery.as_ref() != Some(recovery) {
+        return Err(partial_write_with_recovery(
+            target,
             temporary_name,
-            &temporary_display(target, temporary_name),
-            "rollback",
-        )?
-        .ok_or_else(|| {
-            RpcError::new(
-                "partial-write",
-                "replacement validation failed and the displaced file disappeared",
-            )
-        })?;
-        if !same_file(expected, &current_displaced) {
-            return Err(RpcError::new(
-                "partial-write",
-                "replacement validation failed and the displaced file changed before restoration",
-            ));
-        }
+            "replacement validation failed and an exchanged entry changed before restoration",
+        ));
     }
     exchange_names(target.parent_fd(), temporary_name, target.name())
         .map_err(|error| exchange_error(target.display(), error))?;
-    unlink_name(target.parent_fd(), temporary_name)
-        .map_err(|error| io_error("remove-temporary", target.display(), error))?;
+    unlink_name(target.parent_fd(), temporary_name).map_err(|error| {
+        partial_write_with_recovery(
+            target,
+            temporary_name,
+            &format!("original restored but staged-entry cleanup failed: {error}"),
+        )
+    })?;
     target.sync_parent()
 }
 
@@ -1091,7 +1134,7 @@ fn rollback_exchange(
 struct PreparedUnixRemove {
     target: UnixWorkspaceTarget,
     precondition: FilePrecondition,
-    initial: std::fs::Metadata,
+    pinned: Option<File>,
 }
 
 #[cfg(unix)]
@@ -1101,9 +1144,12 @@ fn prepare_unix_remove(
     precondition: FilePrecondition,
 ) -> Result<PreparedUnixRemove, RpcError> {
     let target = root.resolve_target(&path, false)?;
-    let mut existing = open_regular_entry(&target, "remove")?;
-    let initial =
-        existing.metadata().map_err(|error| io_error("remove", target.display(), error))?;
+    let existing = stat_entry(&target, "remove")?
+        .ok_or_else(|| RpcError::new("not-found", format!("file not found: {path}")))?;
+    if !existing.is_regular() {
+        return Err(non_regular_entry_error(&target, Some(&existing)));
+    }
+    let mut pinned = None;
     match &precondition {
         FilePrecondition::Any => {}
         FilePrecondition::Missing => {
@@ -1111,22 +1157,47 @@ fn prepare_unix_remove(
         }
         FilePrecondition::ContentHash(expected) => {
             validate_content_hash(expected)?;
-            let (actual, _) = hash_file_sync(&mut existing, target.display(), MAX_HASH_BYTES)?;
+            let mut file = open_regular_entry(&target, "hash-before-remove")?;
+            let (actual, _) = hash_file_sync(&mut file, target.display(), MAX_HASH_BYTES)?;
             if !actual.eq_ignore_ascii_case(expected) {
                 return Err(RpcError::new(
                     "conflict",
                     format!("content hash changed: expected {expected}, found {actual}"),
                 ));
             }
+            pinned = Some(file);
         }
     }
-    Ok(PreparedUnixRemove { target, precondition, initial })
+    Ok(PreparedUnixRemove { target, precondition, pinned })
 }
 
 #[cfg(unix)]
 fn commit_unix_remove(prepared: PreparedUnixRemove) -> Result<(), RpcError> {
-    let PreparedUnixRemove { target, precondition, initial } = prepared;
+    let PreparedUnixRemove { target, precondition, mut pinned } = prepared;
     target.verify_parent_identity()?;
+    if matches!(precondition, FilePrecondition::Any) {
+        unlink_name(target.parent_fd(), target.name())
+            .map_err(|error| io_error("remove", target.display(), error))?;
+        return target.sync_parent();
+    }
+    let FilePrecondition::ContentHash(expected) = &precondition else {
+        return Err(RpcError::new("conflict", "file exists"));
+    };
+    let pinned = pinned
+        .as_mut()
+        .ok_or_else(|| RpcError::new("internal", "content-hash removal lost its pinned target"))?;
+    let (actual, pinned_metadata) = hash_file_sync(pinned, target.display(), MAX_HASH_BYTES)?;
+    if !actual.eq_ignore_ascii_case(expected) {
+        return Err(RpcError::new(
+            "conflict",
+            format!("content hash changed before removal: expected {expected}, found {actual}"),
+        ));
+    }
+    let pinned_identity = RawEntryState::from_metadata(&pinned_metadata);
+    let current = stat_entry(&target, "stat-before-remove")?;
+    if current.as_ref().is_none_or(|entry| !entry.same_object(&pinned_identity)) {
+        return Err(RpcError::new("conflict", "file identity changed before removal"));
+    }
     let quarantine = unique_name(".cmux-remove")?;
     rename_noreplace(target.parent_fd(), target.name(), &quarantine).map_err(|error| {
         if error.kind() == std::io::ErrorKind::NotFound {
@@ -1136,50 +1207,112 @@ fn commit_unix_remove(prepared: PreparedUnixRemove) -> Result<(), RpcError> {
         }
     })?;
     let quarantine_display = temporary_display(&target, &quarantine);
-    let validation = (|| {
-        let mut displaced = open_named_regular(
-            target.parent_fd(),
-            &quarantine,
-            &quarantine_display,
-            "validate-remove",
-        )?;
-        let metadata = displaced
-            .metadata()
-            .map_err(|error| io_error("validate-remove", &quarantine_display, error))?;
-        if let FilePrecondition::ContentHash(expected) = &precondition {
-            let (actual, metadata_after) =
-                hash_file_sync(&mut displaced, &quarantine_display, MAX_HASH_BYTES)?;
-            if !same_file(&initial, &metadata_after) || !actual.eq_ignore_ascii_case(expected) {
-                return Err(RpcError::new(
-                    "conflict",
-                    format!("file changed before removal: expected {expected}, found {actual}"),
-                ));
-            }
+    let recovery =
+        stat_named(target.parent_fd(), &quarantine, &quarantine_display, "stat-remove-recovery")
+            .map_err(|error| partial_write_with_recovery(&target, &quarantine, &error.message))?
+            .ok_or_else(|| {
+                partial_write_with_recovery(
+                    &target,
+                    &quarantine,
+                    "remove recovery entry disappeared",
+                )
+            })?;
+    if !recovery.same_object(&pinned_identity) {
+        let current_target = stat_entry(&target, "restore-remove")
+            .map_err(|error| partial_write_with_recovery(&target, &quarantine, &error.message))?;
+        let current_recovery =
+            stat_named(target.parent_fd(), &quarantine, &quarantine_display, "restore-remove")
+                .map_err(|error| {
+                    partial_write_with_recovery(&target, &quarantine, &error.message)
+                })?;
+        if current_target.is_some() || current_recovery.as_ref() != Some(&recovery) {
+            return Err(partial_write_with_recovery(
+                &target,
+                &quarantine,
+                "remove recovery changed before restoration",
+            ));
         }
-        Ok(metadata)
-    })();
-    match validation {
-        Ok(_) => {
-            unlink_name(target.parent_fd(), &quarantine)
-                .map_err(|error| io_error("remove", target.display(), error))?;
-            target.sync_parent()
-        }
-        Err(error) => {
-            if let Err(restore_error) =
-                rename_noreplace(target.parent_fd(), &quarantine, target.name())
-            {
-                return Err(RpcError::new(
-                    "partial-write",
-                    format!(
-                        "remove validation failed ({}) and restoration failed: {}",
-                        error.message, restore_error
-                    ),
-                ));
-            }
-            target.sync_parent()?;
-            Err(error)
-        }
+        rename_noreplace(target.parent_fd(), &quarantine, target.name()).map_err(|error| {
+            partial_write_with_recovery(
+                &target,
+                &quarantine,
+                &format!("remove restoration failed: {error}"),
+            )
+        })?;
+        target.sync_parent()?;
+        return Err(RpcError::new("conflict", "file identity changed during removal"));
     }
+    unlink_name(target.parent_fd(), &quarantine).map_err(|error| {
+        partial_write_with_recovery(
+            &target,
+            &quarantine,
+            &format!("file removed but recovery cleanup failed: {error}"),
+        )
+    })?;
+    target.sync_parent()
+}
+
+#[cfg(unix)]
+fn stat_entry(
+    target: &UnixWorkspaceTarget,
+    operation: &str,
+) -> Result<Option<RawEntryState>, RpcError> {
+    stat_named(target.parent_fd(), target.name(), target.display(), operation)
+}
+
+#[cfg(unix)]
+fn stat_named(
+    parent: RawFd,
+    name: &CStr,
+    display: &Path,
+    operation: &str,
+) -> Result<Option<RawEntryState>, RpcError> {
+    let mut status = std::mem::MaybeUninit::<libc::stat>::uninit();
+    // SAFETY: `status` points to writable storage, `name` is NUL-terminated,
+    // and `fstatat` initializes `status` on success.
+    let result = unsafe {
+        libc::fstatat(parent, name.as_ptr(), status.as_mut_ptr(), libc::AT_SYMLINK_NOFOLLOW)
+    };
+    if result == 0 {
+        // SAFETY: successful `fstatat` initialized `status`.
+        return Ok(Some(RawEntryState::from_stat(unsafe { &status.assume_init() })));
+    }
+    let error = std::io::Error::last_os_error();
+    if error.kind() == std::io::ErrorKind::NotFound {
+        Ok(None)
+    } else {
+        Err(io_error(operation, display, error))
+    }
+}
+
+#[cfg(unix)]
+fn non_regular_entry_error(
+    target: &UnixWorkspaceTarget,
+    entry: Option<&RawEntryState>,
+) -> RpcError {
+    if entry.is_some_and(RawEntryState::is_symlink) {
+        RpcError::new(
+            "symlink-not-supported",
+            format!("refusing to mutate symlink: {}", target.display().display()),
+        )
+    } else {
+        RpcError::new("not-a-file", format!("not a regular file: {}", target.display().display()))
+    }
+}
+
+#[cfg(unix)]
+fn partial_write_with_recovery(
+    target: &UnixWorkspaceTarget,
+    recovery_name: &CStr,
+    reason: &str,
+) -> RpcError {
+    RpcError::new(
+        "partial-write",
+        format!(
+            "{reason}; recovery entry retained at {}",
+            temporary_display(target, recovery_name).display()
+        ),
+    )
 }
 
 #[cfg(unix)]
@@ -1423,12 +1556,31 @@ fn unlink_name(parent: RawFd, name: &CStr) -> Result<(), std::io::Error> {
     }
 }
 
+#[cfg(unix)]
+fn rename_name(parent: RawFd, source: &CStr, target: &CStr) -> Result<(), std::io::Error> {
+    // SAFETY: both names are NUL-terminated and relative to the live
+    // `parent` descriptor. `renameat` does not retain the pointers.
+    if unsafe { libc::renameat(parent, source.as_ptr(), parent, target.as_ptr()) } == 0 {
+        Ok(())
+    } else {
+        Err(std::io::Error::last_os_error())
+    }
+}
+
 #[cfg(any(target_os = "linux", target_os = "android"))]
 fn exchange_names(parent: RawFd, left: &CStr, right: &CStr) -> Result<(), std::io::Error> {
     // SAFETY: both names are NUL-terminated and relative to the live
-    // descriptor. `renameat2` does not retain the pointers.
+    // descriptor. The syscall does not retain the pointers. Calling it
+    // directly avoids a dependency on the glibc `renameat2` wrapper.
     if unsafe {
-        libc::renameat2(parent, left.as_ptr(), parent, right.as_ptr(), libc::RENAME_EXCHANGE)
+        libc::syscall(
+            libc::SYS_renameat2,
+            parent,
+            left.as_ptr(),
+            parent,
+            right.as_ptr(),
+            libc::RENAME_EXCHANGE,
+        )
     } == 0
     {
         Ok(())
@@ -1462,9 +1614,17 @@ fn exchange_names(_parent: RawFd, _left: &CStr, _right: &CStr) -> Result<(), std
 #[cfg(any(target_os = "linux", target_os = "android"))]
 fn rename_noreplace(parent: RawFd, source: &CStr, target: &CStr) -> Result<(), std::io::Error> {
     // SAFETY: both names are NUL-terminated and relative to the live
-    // descriptor. `renameat2` does not retain the pointers.
+    // descriptor. The syscall does not retain the pointers. Calling it
+    // directly avoids a dependency on the glibc `renameat2` wrapper.
     if unsafe {
-        libc::renameat2(parent, source.as_ptr(), parent, target.as_ptr(), libc::RENAME_NOREPLACE)
+        libc::syscall(
+            libc::SYS_renameat2,
+            parent,
+            source.as_ptr(),
+            parent,
+            target.as_ptr(),
+            libc::RENAME_NOREPLACE,
+        )
     } == 0
     {
         Ok(())
