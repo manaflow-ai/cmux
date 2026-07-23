@@ -7,7 +7,10 @@ public import Foundation
 /// timeouts so an unreachable daemon fails fast instead of stalling callers.
 public struct SubrouterHTTPClient: SubrouterClienting {
     /// The per-request timeout for reads; connection-refused fails sooner.
-    public static let defaultRequestTimeout: TimeInterval = 5
+    /// Generous because `/usage-status` fans out to provider APIs on the
+    /// daemon side — remote servers routinely need more than a few seconds
+    /// on a cold refresh, and a too-tight timeout reads as "unreachable".
+    public static let defaultRequestTimeout: TimeInterval = 20
 
     private let session: URLSession
     private let decoder: JSONDecoder

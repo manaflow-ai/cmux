@@ -36,7 +36,7 @@ public struct SubrouterActivityChartView: View {
                             .frame(width: 108, alignment: .leading)
                         GeometryReader { proxy in
                             Capsule()
-                                .fill(Color.accentColor.gradient)
+                                .fill(SubrouterPalette.logoGradient)
                                 .frame(width: max(3, proxy.size.width * CGFloat(row.sessionCount) / CGFloat(peak)))
                                 .frame(maxHeight: .infinity, alignment: .center)
                         }

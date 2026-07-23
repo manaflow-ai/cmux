@@ -44,10 +44,7 @@ public struct SubrouterSparklineView: View {
     }
 
     private var color: Color {
-        let latest = samples.last?.usedPercent ?? 0
-        if latest >= 90 { return .red }
-        if latest >= 70 { return .yellow }
-        return .green
+        SubrouterPalette.usageAccent(for: samples.last?.usedPercent ?? 0)
     }
 
     private func normalizedPoints(in size: CGSize) -> [CGPoint] {

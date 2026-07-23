@@ -45,6 +45,10 @@ public final class SubrouterStore {
 
     // MARK: Poll state (main-actor)
 
+    /// Consecutive refresh failures tolerated before an existing snapshot's
+    /// `daemonState` flips to unreachable. See `apply(_:)`.
+    public static let unreachableGraceFailures = 3
+
     @ObservationIgnored private var configurationStorage: SubrouterConfiguration
     @ObservationIgnored private(set) var visibleSurfaces: Set<SubrouterVisibleSurface> = []
     @ObservationIgnored private var pollTask: Task<Void, Never>?
@@ -236,7 +240,16 @@ public final class SubrouterStore {
             }
         case .failure(let description):
             consecutiveFailureCount += 1
-            snapshot.daemonState = .unreachable(consecutiveFailures: consecutiveFailureCount)
+            // One flaky poll must not slam an "unreachable" banner over a
+            // panel showing perfectly good data from seconds ago (remote
+            // servers fan out to provider APIs and can blow a timeout).
+            // With data on screen the state flips only after a few
+            // consecutive failures; with nothing to stand on it flips
+            // immediately so onboarding still fails fast.
+            if snapshot.usageStatuses.isEmpty
+                || consecutiveFailureCount >= Self.unreachableGraceFailures {
+                snapshot.daemonState = .unreachable(consecutiveFailures: consecutiveFailureCount)
+            }
             snapshot.lastErrorDescription = description
         }
     }

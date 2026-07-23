@@ -141,6 +141,41 @@ import Testing
         #expect(await clock.lastRecordedDuration == 20)
     }
 
+    @Test func transientFailuresWithDataKeepHealthyUntilGraceExhausted() async {
+        let client = FakeSubrouterClient()
+        await client.setUsageResult(.success([Self.usageRow()]))
+        let clock = ManualSubrouterPollClock()
+        let store = makeStore(client: client, clock: clock)
+
+        store.setSurfaceVisible(.agentsPanel, true)
+        await clock.waitForSleeper()
+        #expect(store.snapshot.daemonState == .healthy)
+
+        // With data on screen, failures below the grace threshold keep the
+        // healthy state (no scary banner) while recording the error.
+        await client.setUsageResult(.failure(.unreachable(description: "timed out")))
+        for failure in 1..<SubrouterStore.unreachableGraceFailures {
+            await clock.resumeNext()
+            await clock.waitForSleeper()
+            #expect(store.snapshot.daemonState == .healthy, "failure \(failure)")
+            #expect(store.snapshot.lastErrorDescription == "timed out")
+            #expect(!store.snapshot.usageStatuses.isEmpty)
+        }
+
+        // The grace-exhausting failure finally flips the state.
+        await clock.resumeNext()
+        await clock.waitForSleeper()
+        #expect(store.snapshot.daemonState
+            == .unreachable(consecutiveFailures: SubrouterStore.unreachableGraceFailures))
+
+        // Recovery goes straight back to healthy and clears the error.
+        await client.setUsageResult(.success([Self.usageRow()]))
+        await clock.resumeNext()
+        await clock.waitForSleeper()
+        #expect(store.snapshot.daemonState == .healthy)
+        #expect(store.snapshot.lastErrorDescription == nil)
+    }
+
     @Test func hidingAllSurfacesGoesFullyIdle() async {
         let client = FakeSubrouterClient()
         let clock = ManualSubrouterPollClock()

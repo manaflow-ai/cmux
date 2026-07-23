@@ -36,7 +36,7 @@ public struct SubrouterUsageBarView: View {
                     Capsule()
                         .fill(Color.primary.opacity(0.08))
                     Capsule()
-                        .fill(barColor.gradient)
+                        .fill(SubrouterPalette.usageFill(for: window.clampedUsedPercent))
                         .frame(width: max(3, proxy.size.width * window.clampedUsedPercent / 100))
                 }
             }
@@ -59,9 +59,7 @@ public struct SubrouterUsageBarView: View {
     }
 
     private var barColor: Color {
-        if window.clampedUsedPercent >= 90 { return .red }
-        if window.clampedUsedPercent >= 70 { return .yellow }
-        return .green
+        SubrouterPalette.usageAccent(for: window.clampedUsedPercent)
     }
 
     private var accessibilityText: String {

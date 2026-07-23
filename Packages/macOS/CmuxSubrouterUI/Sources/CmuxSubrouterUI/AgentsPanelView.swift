@@ -49,6 +49,10 @@ public struct AgentsPanelView: View {
                 SubrouterDaemonStatusView(
                     state: snapshot.daemonState,
                     lastErrorDescription: snapshot.lastErrorDescription,
+                    hasData: !snapshot.usageStatuses.isEmpty,
+                    isRemoteEndpoint: configuration.isRemoteEndpoint,
+                    serverName: configuration.serverName
+                        ?? configuration.endpoint.baseURL.host(),
                     onRetry: { store.refresh(reason: "retry") }
                 )
                 if configuration.isRemoteEndpoint {

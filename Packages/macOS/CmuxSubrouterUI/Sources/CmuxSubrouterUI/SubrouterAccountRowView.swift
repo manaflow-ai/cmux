@@ -117,7 +117,7 @@ public struct SubrouterAccountRowView: View {
         if account.isActive {
             Image(systemName: "checkmark")
                 .font(.system(size: 9, weight: .bold))
-                .foregroundStyle(.green)
+                .foregroundStyle(SubrouterPalette.accentGradient)
                 .accessibilityHidden(true)
         } else if isAuthExpired {
             Image(systemName: "exclamationmark.triangle.fill")
@@ -175,7 +175,7 @@ public struct SubrouterAccountRowView: View {
                 defaultValue: "\(Int(window.clampedUsedPercent.rounded()))%"
             ))
             .font(.system(size: 9, weight: .semibold).monospacedDigit())
-            .foregroundStyle(usageColor(for: window.clampedUsedPercent))
+            .foregroundStyle(SubrouterPalette.usageAccent(for: window.clampedUsedPercent))
         } else if account.errorDescription?.isEmpty == false && !isAuthExpired {
             Image(systemName: "exclamationmark.triangle")
                 .font(.system(size: 8))
@@ -292,18 +292,11 @@ public struct SubrouterAccountRowView: View {
             Capsule()
                 .fill(Color.primary.opacity(0.08))
             Capsule()
-                .fill(usageColor(for: window.clampedUsedPercent))
+                .fill(SubrouterPalette.usageFill(for: window.clampedUsedPercent))
                 .frame(width: max(2, 44 * window.clampedUsedPercent / 100))
         }
         .frame(width: 44, height: 4)
         .accessibilityHidden(true)
-    }
-
-    /// Severity thresholds match `SubrouterUsageBarView` and the `sr` CLI.
-    private func usageColor(for usedPercent: Double) -> Color {
-        if usedPercent >= 90 { return .red }
-        if usedPercent >= 70 { return .yellow }
-        return .green
     }
 
     private func chipColor(for assessment: SubrouterQuotaAssessment) -> Color {

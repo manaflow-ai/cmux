@@ -21,6 +21,10 @@ public struct SubrouterAccountSwitcherPopoverView: View {
             SubrouterDaemonStatusView(
                 state: snapshot.daemonState,
                 lastErrorDescription: snapshot.lastErrorDescription,
+                hasData: !snapshot.usageStatuses.isEmpty,
+                isRemoteEndpoint: store.configuration.isRemoteEndpoint,
+                serverName: store.configuration.serverName
+                    ?? store.configuration.endpoint.baseURL.host(),
                 onRetry: { store.refresh(reason: "retry") }
             )
             if let switchError = store.lastSwitchError {
