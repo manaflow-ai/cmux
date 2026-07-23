@@ -61,11 +61,12 @@ impl WorkspaceRoot {
         #[cfg(unix)]
         let unix = {
             let canonical = canonical.clone();
-            tokio::task::spawn_blocking(move || UnixWorkspaceRoot::open(canonical)).await.map_err(
-                |error| {
+            let expected = (metadata.dev(), metadata.ino());
+            tokio::task::spawn_blocking(move || UnixWorkspaceRoot::open(canonical, expected))
+                .await
+                .map_err(|error| {
                     RpcError::new("internal", format!("workspace root open task failed: {error}"))
-                },
-            )??
+                })??
         };
         Ok(Arc::new(Self {
             id,
@@ -200,7 +201,7 @@ pub(crate) struct UnixWorkspaceRoot {
 
 #[cfg(unix)]
 impl UnixWorkspaceRoot {
-    fn open(display: PathBuf) -> Result<Self, RpcError> {
+    fn open(display: PathBuf, expected: (u64, u64)) -> Result<Self, RpcError> {
         let name = path_cstring(&display)?;
         // SAFETY: `name` is a live NUL-terminated string and `open` does not
         // retain its pointer.
@@ -215,6 +216,14 @@ impl UnixWorkspaceRoot {
         }
         // SAFETY: `open` returned a new owned descriptor.
         let directory = unsafe { File::from_raw_fd(fd) };
+        let metadata =
+            directory.metadata().map_err(|error| io_error("open-workspace", &display, error))?;
+        if (metadata.dev(), metadata.ino()) != expected {
+            return Err(RpcError::new(
+                "conflict",
+                format!("workspace root changed while it was being opened: {}", display.display()),
+            ));
+        }
         Ok(Self { directory: Arc::new(directory), display })
     }
 
