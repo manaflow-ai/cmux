@@ -686,6 +686,37 @@ mod tests {
         seen: Mutex<Vec<AuthRequest>>,
     }
 
+    struct TerminalDrainLink {
+        inner: test_support::MemoryLink,
+    }
+
+    #[async_trait]
+    impl FrameLink for TerminalDrainLink {
+        fn description(&self) -> &str {
+            self.inner.description()
+        }
+
+        fn maximum_frame_bytes(&self) -> usize {
+            self.inner.maximum_frame_bytes()
+        }
+
+        fn terminal_control_drain_active(&self) -> bool {
+            true
+        }
+
+        async fn send(&self, frame: Bytes) -> Result<(), LinkError> {
+            self.inner.send(frame).await
+        }
+
+        async fn receive(&self) -> Result<Option<Bytes>, LinkError> {
+            self.inner.receive().await
+        }
+
+        async fn close(&self) -> Result<(), LinkError> {
+            self.inner.close().await
+        }
+    }
+
     #[async_trait]
     impl ServerAuthenticator for TestAuthenticator {
         async fn invitation_secret(&self, id: &str) -> Result<Option<[u8; 32]>, CryptoError> {
@@ -761,6 +792,36 @@ mod tests {
 
         client_secure.send(Bytes::from_static(b"secret input")).await.unwrap();
         assert_eq!(accepted.link.receive().await.unwrap().unwrap().as_ref(), b"secret input");
+    }
+
+    #[tokio::test]
+    async fn secure_link_delegates_terminal_control_drain_state() {
+        let daemon = StaticIdentity::generate().unwrap();
+        let client = StaticIdentity::generate().unwrap();
+        let auth = TestAuthenticator {
+            enrolled: client.public_key(),
+            invitation: None,
+            seen: Mutex::new(Vec::new()),
+        };
+        let (client_link, server_link) = test_support::pair(128 * 1024);
+        let client_config = client_config(client, &daemon, ClientAuthMode::Enrolled);
+
+        let (client_result, server_result) = tokio::join!(
+            initiate_secure_link(Box::new(TerminalDrainLink { inner: client_link }), client_config),
+            accept_secure_link(
+                Box::new(server_link),
+                &daemon,
+                &auth,
+                InboundAuthEvidence::Network(NetworkPeer::Tcp),
+            ),
+        );
+        let client_secure = client_result.unwrap();
+        server_result.unwrap();
+
+        assert!(
+            client_secure.terminal_control_drain_active(),
+            "secure wrapper hid its inner terminal Control drain"
+        );
     }
 
     #[tokio::test]
