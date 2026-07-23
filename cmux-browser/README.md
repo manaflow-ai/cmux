@@ -21,6 +21,26 @@ The public import is staged deliberately:
 The source snapshot is not release-ready until every item in
 [`IMPORT_PROVENANCE.md`](IMPORT_PROVENANCE.md) is resolved.
 
+### Current public slice
+
+The first source slice is the host-compilable browser-to-cmux-TUI protocol
+core:
+
+- `overlay/chrome/browser/cmux_term/cmux_tui_protocol.{h,cc}`
+- `overlay/chrome/browser/cmux_term/cmux_tui_protocol_test.cc`
+
+It covers protocol identity, durable-registry revision fencing, ordered
+workspace events, input backpressure, resize coalescing, replay palette
+filtering, and JSON-lines framing. Run it without Chromium:
+
+```sh
+./cmux-browser/scripts/run-host-tests.sh
+```
+
+The exact private source object and imported blob identities are recorded in
+[`SOURCE_SNAPSHOT.md`](SOURCE_SNAPSHOT.md). Later slices remain gated by
+[`IMPORT_PROVENANCE.md`](IMPORT_PROVENANCE.md).
+
 ## Planned layout
 
 - `overlay/` mirrors paths in the Chromium source tree.
