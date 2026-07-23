@@ -528,6 +528,93 @@ struct RecoverableWindowlessMainWindowRoutingTests {
         #expect(app.mainWindowContexts.values.contains { $0.windowId == windowId && $0.tabManager === owner })
     }
 
+    @Test("Browser-only windowless route reserves its ID against a foreign manager")
+    func browserOnlyWindowlessRouteReservesItsIdAgainstForeignManager() throws {
+        _ = NSApplication.shared
+        let previousAppDelegate = AppDelegate.shared
+        let app = AppDelegate()
+        defer {
+            TerminalController.shared.setActiveTabManager(nil)
+            AppDelegate.shared = previousAppDelegate
+        }
+
+        let owner = TabManager()
+        let ownerWorkspace = try #require(owner.selectedWorkspace)
+        let ownerTerminal = try #require(ownerWorkspace.focusedTerminalPanel)
+        let ownerPaneId = try #require(
+            ownerWorkspace.bonsplitController.focusedPaneId
+                ?? ownerWorkspace.bonsplitController.allPaneIds.first
+        )
+        let ownerBrowser = try #require(
+            ownerWorkspace.newBrowserSurface(
+                inPane: ownerPaneId,
+                url: URL(string: "https://example.com/browser-only-owner"),
+                focus: true,
+                creationPolicy: .restoration
+            )
+        )
+        #expect(ownerWorkspace.closePanel(ownerTerminal.id, force: true))
+        #expect(ownerWorkspace.panels[ownerBrowser.id] === ownerBrowser)
+        #expect(!ownerWorkspace.panels.values.contains { $0 is TerminalPanel })
+
+        let windowId = app.registerMainWindowContextForTesting(tabManager: owner)
+        let foreignManager = TabManager()
+        let foreignWorkspace = try #require(foreignManager.selectedWorkspace)
+        let foreignTerminal = try #require(foreignWorkspace.focusedTerminalPanel)
+        let foreignWindow = NSWindow(
+            contentRect: NSRect(x: 0, y: 0, width: 500, height: 320),
+            styleMask: [.titled, .closable],
+            backing: .buffered,
+            defer: false
+        )
+        foreignWindow.isReleasedWhenClosed = false
+        foreignWindow.identifier = NSUserInterfaceItemIdentifier("cmux.main.\(windowId.uuidString)")
+        defer {
+            app.unregisterMainWindowContextForTesting(windowId: windowId)
+            app.forgetRecoverableMainWindowRoute(windowId: windowId)
+            ownerWorkspace.teardownAllPanels()
+            ownerWorkspace.teardownRemoteConnection()
+            if !foreignManager.isFinalizedForWindowClose {
+                foreignManager.finalizeAllWorkspacesForWindowClose()
+            }
+            foreignWindow.orderOut(nil)
+        }
+
+        app.unregisterMainWindowContextForTesting(windowId: windowId)
+
+        #expect(app.recoverableMainWindowRoute(windowId: windowId)?.tabManager === owner)
+        #expect(app.availableWindowIdForNewMainWindow(preferredWindowId: windowId) == nil)
+        #expect(app.tabManagerFor(windowId: windowId) == nil)
+        #expect(!app.listMainWindowSummaries().contains { $0.windowId == windowId })
+        #expect(!app.focusMainWindow(windowId: windowId))
+        #expect(app.scriptableMainWindow(windowId: windowId) == nil)
+
+        foreignWindow.makeKeyAndOrderFront(nil)
+        app.registerMainWindow(
+            foreignWindow,
+            windowId: windowId,
+            tabManager: foreignManager,
+            sidebarState: SidebarState(),
+            sidebarSelectionState: SidebarSelectionState(),
+            fileExplorerState: FileExplorerState()
+        )
+
+        #expect(app.recoverableMainWindowRoute(windowId: windowId)?.tabManager === owner)
+        #expect(!app.mainWindowContexts.values.contains { $0.windowId == windowId })
+        #expect(app.tabManagerFor(windowId: windowId) == nil)
+        #expect(!app.listMainWindowSummaries().contains { $0.windowId == windowId })
+        #expect(!app.focusMainWindow(windowId: windowId))
+        #expect(app.scriptableMainWindow(windowId: windowId) == nil)
+        #expect(!owner.isFinalizedForWindowClose)
+        #expect(owner.tabs.map(\.id) == [ownerWorkspace.id])
+        #expect(ownerWorkspace.panels[ownerBrowser.id] === ownerBrowser)
+        #expect(foreignManager.isFinalizedForWindowClose)
+        #expect(foreignManager.tabs.isEmpty)
+        #expect(foreignWorkspace.isRetiredFromOwningTabManager)
+        #expect(GhosttyApp.terminalSurfaceRegistry.surface(id: foreignTerminal.id) == nil)
+        #expect(!foreignWindow.isVisible)
+    }
+
     @Test("Visible owner rejects a duplicate manager and retires its terminal graph")
     func visibleOwnerRejectsDuplicateManagerAndRetiresItsTerminalGraph() throws {
         _ = NSApplication.shared
@@ -690,6 +777,41 @@ struct RecoverableWindowlessMainWindowRoutingTests {
 @MainActor
 @Suite("Ghost main window context lifecycle", .serialized)
 struct GhostMainWindowContextLifecycleTests {
+    private func expectRetiredWorkspaceRejectsPanelCreation(
+        named operation: String,
+        _ createPanel: (Workspace, PaneID) -> UUID?
+    ) throws {
+        let manager = TabManager()
+        let workspace = try #require(manager.selectedWorkspace)
+        let paneId = try #require(
+            workspace.bonsplitController.focusedPaneId
+                ?? workspace.bonsplitController.allPaneIds.first
+        )
+        defer {
+            workspace.teardownAllPanels()
+            workspace.teardownRemoteConnection()
+        }
+
+        manager.finalizeAllWorkspacesForWindowClose()
+        #expect(workspace.isRetiredFromOwningTabManager)
+        #expect(workspace.bonsplitController.allPaneIds.contains(paneId))
+        let paneIdsAfterRetirement = workspace.bonsplitController.allPaneIds
+
+        let latePanelId = createPanel(workspace, paneId)
+        let message = Comment(rawValue: "\(operation) repopulated a retired workspace")
+
+        #expect(latePanelId == nil, message)
+        #expect(workspace.panels.isEmpty, message)
+        #expect(workspace.bonsplitController.allPaneIds == paneIdsAfterRetirement, message)
+        #expect(
+            workspace.bonsplitController.allPaneIds.allSatisfy {
+                workspace.bonsplitController.tabs(inPane: $0).isEmpty
+            },
+            message
+        )
+        #expect(manager.tabs.isEmpty, message)
+    }
+
     private func makeMainWindow(id: UUID) -> NSWindow {
         let window = NSWindow(
             contentRect: NSRect(x: 0, y: 0, width: 500, height: 320),
@@ -802,6 +924,80 @@ struct GhostMainWindowContextLifecycleTests {
         #expect(manager.tabs.isEmpty)
         #expect(GhosttyApp.terminalSurfaceRegistry.surface(id: terminalPanel.id) == nil)
         #expect(Set(GhosttyApp.terminalSurfaceRegistry.allSurfaces().map(\.id)) == registryIdsAfterFinalization)
+    }
+
+    @Test("Retired workspace rejects late non-terminal surface creation")
+    func retiredWorkspaceRejectsLateNonTerminalSurfaceCreation() throws {
+        try expectRetiredWorkspaceRejectsPanelCreation(named: "newBrowserSurface") { workspace, paneId in
+            workspace.newBrowserSurface(
+                inPane: paneId,
+                url: URL(string: "https://example.com/retired-workspace"),
+                focus: false,
+                creationPolicy: .restoration
+            )?.id
+        }
+        try expectRetiredWorkspaceRejectsPanelCreation(named: "newMarkdownSurface") { workspace, paneId in
+            workspace.newMarkdownSurface(
+                inPane: paneId,
+                filePath: "/tmp/cmux-retired-workspace.md",
+                focus: false
+            )?.id
+        }
+        try expectRetiredWorkspaceRejectsPanelCreation(named: "newProjectSurface") { workspace, paneId in
+            workspace.newProjectSurface(
+                inPane: paneId,
+                projectPath: "/tmp/cmux-retired-workspace.xcodeproj",
+                focus: false
+            )?.id
+        }
+        try expectRetiredWorkspaceRejectsPanelCreation(named: "newFilePreviewSurface") { workspace, paneId in
+            workspace.newFilePreviewSurface(
+                inPane: paneId,
+                filePath: "/tmp/cmux-retired-workspace.txt",
+                focus: false
+            )?.id
+        }
+        try expectRetiredWorkspaceRejectsPanelCreation(named: "newRightSidebarToolSurface") { workspace, paneId in
+            workspace.newRightSidebarToolSurface(
+                inPane: paneId,
+                mode: .files,
+                focus: false
+            )?.id
+        }
+        try expectRetiredWorkspaceRejectsPanelCreation(named: "newAgentSessionSurface") { workspace, paneId in
+            workspace.newAgentSessionSurface(
+                inPane: paneId,
+                rendererKind: .react,
+                focus: false
+            )?.id
+        }
+        try expectRetiredWorkspaceRejectsPanelCreation(named: "openFileSurfaces") { workspace, paneId in
+            workspace.openFileSurfaces(
+                inPane: paneId,
+                filePaths: [
+                    "/tmp/cmux-retired-workspace-open.md",
+                    "/tmp/cmux-retired-workspace-open.txt",
+                    "/tmp/cmux-retired-workspace-open.xcodeproj",
+                ],
+                focus: false
+            ).first?.id
+        }
+        try expectRetiredWorkspaceRejectsPanelCreation(named: "splitPaneWithMarkdown") { workspace, paneId in
+            workspace.splitPaneWithMarkdown(
+                targetPane: paneId,
+                orientation: .horizontal,
+                insertFirst: false,
+                filePath: "/tmp/cmux-retired-workspace-split.md"
+            )?.id
+        }
+        try expectRetiredWorkspaceRejectsPanelCreation(named: "splitPaneWithFilePreview") { workspace, paneId in
+            workspace.splitPaneWithFilePreview(
+                targetPane: paneId,
+                orientation: .horizontal,
+                insertFirst: false,
+                filePath: "/tmp/cmux-retired-workspace-split.txt"
+            )?.id
+        }
     }
 
     @Test("Ordered-out recoverable owner can commit its close")
