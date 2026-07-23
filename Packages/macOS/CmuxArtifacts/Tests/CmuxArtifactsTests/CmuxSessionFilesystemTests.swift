@@ -135,6 +135,86 @@ struct CmuxSessionFilesystemTests {
         #expect(second.record?.relativePath == "organized/renamed-session/artifacts/second.md")
     }
 
+    @Test("Similar pending session identifiers never share a capture directory")
+    func separatesPendingSessionIdentifiersWithTheSameReadablePrefix() async throws {
+        let root = try ArtifactTestSupport.temporaryDirectory()
+        defer { ArtifactTestSupport.remove(root) }
+        let repository = LocalArtifactRepository()
+        let firstSource = try ArtifactTestSupport.write("first", named: "outside/first.md", under: root)
+        let secondSource = try ArtifactTestSupport.write("second", named: "outside/second.md", under: root)
+
+        let first = try await repository.importFile(
+            sourceURL: firstSource,
+            context: ArtifactCaptureContext(
+                projectRoot: root,
+                sessionID: "pending-claude-a1111111-1111-1111-1111-111111111111",
+                agentName: "claude"
+            ),
+            provenance: .manual,
+            configuration: .defaultValue,
+            capturedAt: Date(timeIntervalSince1970: 1)
+        )
+        let second = try await repository.importFile(
+            sourceURL: secondSource,
+            context: ArtifactCaptureContext(
+                projectRoot: root,
+                sessionID: "pending-claude-a2222222-2222-2222-2222-222222222222",
+                agentName: "claude"
+            ),
+            provenance: .manual,
+            configuration: .defaultValue,
+            capturedAt: Date(timeIntervalSince1970: 2)
+        )
+
+        let firstRoot = try #require(first.record?.relativePath.split(separator: "/").first)
+        let secondRoot = try #require(second.record?.relativePath.split(separator: "/").first)
+        #expect(firstRoot != secondRoot)
+        let decoder = JSONDecoder()
+        decoder.dateDecodingStrategy = .iso8601
+        let firstMarker = try decoder.decode(
+            ArtifactSessionMarker.self,
+            from: Data(contentsOf: root.appendingPathComponent(".cmux/\(firstRoot)/_session.json"))
+        )
+        let secondMarker = try decoder.decode(
+            ArtifactSessionMarker.self,
+            from: Data(contentsOf: root.appendingPathComponent(".cmux/\(secondRoot)/_session.json"))
+        )
+        #expect(firstMarker.sessionID == "pending-claude-a1111111-1111-1111-1111-111111111111")
+        #expect(secondMarker.sessionID == "pending-claude-a2222222-2222-2222-2222-222222222222")
+    }
+
+    @Test("Capture fails closed when moved-session discovery exceeds its node budget")
+    func rejectsIncompleteMovedSessionDiscovery() async throws {
+        let root = try ArtifactTestSupport.temporaryDirectory()
+        defer { ArtifactTestSupport.remove(root) }
+        let paths = ArtifactStorePaths(projectRoot: root)
+        let movedRoot = paths.filesystemRoot.appendingPathComponent("organized/session", isDirectory: true)
+        try FileManager.default.createDirectory(at: movedRoot, withIntermediateDirectories: true)
+        try JSONEncoder().encode(
+            ArtifactSessionMarker(
+                sessionID: "session-beyond-budget",
+                agentName: "codex",
+                createdAt: Date(timeIntervalSince1970: 1)
+            )
+        ).write(to: movedRoot.appendingPathComponent(ArtifactPathResolver.sessionMarkerName))
+        let source = try ArtifactTestSupport.write("new", named: "outside/new.md", under: root)
+        let repository = LocalArtifactRepository(nodeBudget: 1)
+
+        await #expect(throws: ArtifactStoreError.scanIncomplete(paths.filesystemRoot.path)) {
+            try await repository.importFile(
+                sourceURL: source,
+                context: ArtifactCaptureContext(
+                    projectRoot: root,
+                    sessionID: "session-beyond-budget",
+                    agentName: "codex"
+                ),
+                provenance: .manual,
+                configuration: .defaultValue,
+                capturedAt: Date(timeIntervalSince1970: 2)
+            )
+        }
+    }
+
     @Test("Git excludes every session content kind without hiding project config")
     func installsSessionFilesystemGitExcludes() async throws {
         let root = try ArtifactTestSupport.temporaryDirectory()

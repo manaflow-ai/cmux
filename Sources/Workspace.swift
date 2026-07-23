@@ -6572,27 +6572,22 @@ final class Workspace: Identifiable, ObservableObject {
         }
     }
 
-    nonisolated private static func normalizedTerminalWorkingDirectory(_ workingDirectory: String?) -> String? {
-        let trimmed = workingDirectory?.trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
-        return trimmed.isEmpty ? nil : trimmed
-    }
-
     private func resolvedTerminalStartupWorkingDirectory(
         requestedWorkingDirectory: String?,
         sourcePanelId: UUID?
     ) -> String? {
-        if let requested = Self.normalizedTerminalWorkingDirectory(requestedWorkingDirectory) {
+        if let requested = TerminalWorkingDirectoryResolver.normalized(requestedWorkingDirectory) {
             return requested
         }
         if let sourcePanelId,
            let rescued = resumedAgentPaneWorkingDirectoryRescue(panelId: sourcePanelId) {
             return rescued
         }
-        return [
+        return TerminalWorkingDirectoryResolver.firstAvailable([
             sourcePanelId.flatMap { panelDirectories[$0] },
             sourcePanelId.flatMap { terminalPanel(for: $0)?.requestedWorkingDirectory },
             currentDirectory,
-        ].lazy.compactMap(Self.normalizedTerminalWorkingDirectory).first
+        ])
     }
 
     /// The foreground-process cwd read consulted by
@@ -6623,13 +6618,13 @@ final class Workspace: Identifiable, ObservableObject {
         // policy, whose resume command never cds) — the tracked cwd is
         // genuine, so there is nothing to rescue and the live foreground
         // process must not be consulted either.
-        guard let sessionDirectory = Self.normalizedTerminalWorkingDirectory(
+        guard let sessionDirectory = TerminalWorkingDirectoryResolver.normalized(
             restoredResumeSessionWorkingDirectoriesByPanelId[panelId]
         ) else { return nil }
-        let trackedDirectory = Self.normalizedTerminalWorkingDirectory(panelDirectories[panelId])
+        let trackedDirectory = TerminalWorkingDirectoryResolver.normalized(panelDirectories[panelId])
         if trackedDirectory == sessionDirectory { return nil }
         for candidate in [liveForegroundProcessWorkingDirectory(panelId: panelId), sessionDirectory] {
-            guard let candidate = Self.normalizedTerminalWorkingDirectory(candidate) else { continue }
+            guard let candidate = TerminalWorkingDirectoryResolver.normalized(candidate) else { continue }
             if candidate == trackedDirectory {
                 continue
             }
@@ -6661,17 +6656,7 @@ final class Workspace: Identifiable, ObservableObject {
     /// `proc_pidinfo(PROC_PIDVNODEPATHINFO)`, or nil when the process is gone
     /// or unreadable.
     nonisolated static func processCurrentWorkingDirectory(pid: pid_t) -> String? {
-        guard pid > 0 else { return nil }
-        var info = proc_vnodepathinfo()
-        let expectedSize = MemoryLayout<proc_vnodepathinfo>.size
-        let size = proc_pidinfo(pid, PROC_PIDVNODEPATHINFO, 0, &info, Int32(expectedSize))
-        guard size == expectedSize else { return nil }
-        let path = withUnsafeBytes(of: info.pvi_cdir.vip_path) { rawBuffer -> String in
-            let endIndex = rawBuffer.firstIndex(of: 0) ?? rawBuffer.endIndex
-            return String(decoding: rawBuffer[..<endIndex], as: UTF8.self)
-        }
-        let trimmed = path.trimmingCharacters(in: .whitespacesAndNewlines)
-        return trimmed.isEmpty ? nil : trimmed
+        TerminalWorkingDirectoryResolver.processCurrentWorkingDirectory(pid: pid)
     }
 
     /// The directory a new tab (`new-window`) should inherit in a remote-tmux

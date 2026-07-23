@@ -82,9 +82,9 @@ extension DockSplitStore {
         // foreground process is the local relay, not the remote shell.
         let liveTerminalDirectory: String?
         if preservedTransfer?.isRemoteTerminal != true,
-           let terminal = panel as? TerminalPanel,
-           let pid = terminal.surface.foregroundProcessID() {
-            liveTerminalDirectory = Workspace.processCurrentWorkingDirectory(pid: Int32(clamping: pid))
+           let terminal = panel as? TerminalPanel {
+            liveTerminalDirectory = terminalWorkingDirectoryResolver
+                .liveForegroundProcessWorkingDirectory(for: terminal)
         } else {
             liveTerminalDirectory = nil
         }
