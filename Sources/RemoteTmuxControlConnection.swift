@@ -289,6 +289,14 @@ final class RemoteTmuxControlConnection {
     /// unreachable". Reset at the start of each spawn.
     private var stderrBuffer = ""
     private var preControlOutputBuffer = ""
+    /// Set the first time the pre-control region looks like an unanswered prompt, and never unset for
+    /// this process.
+    ///
+    /// The region is capped at ``maxStderrBytes`` and drops its oldest bytes, so recomputing the answer
+    /// on demand meant a chatty transport could push the prompt out of the window and the observation
+    /// would silently become false — a login that was seen and then forgotten. Reset per spawn along
+    /// with the buffer it summarises.
+    private var sawUnansweredCredentialPrompt = false
     /// Whether the bytes before control mode are an unanswered credential prompt: a transport waiting
     /// for a passcode it has no terminal to ask on.
     /// The pre-control region as the classifier sees it, capped, for diagnostics only. Distinguishes
@@ -301,8 +309,19 @@ final class RemoteTmuxControlConnection {
 
     var isAwaitingCredentials: Bool {
         guard !enterReceived else { return false }
-        return RemoteTmuxSSHTransport.indicatesUnansweredCredentialPrompt(
-            preControlOutputBuffer + parser.unterminatedTail)
+        if sawUnansweredCredentialPrompt { return true }
+        // The tail is not in the buffer yet: a prompt is written without a newline, which is what makes
+        // it a prompt, so it lives only in the parser until one arrives.
+        return RemoteTmuxSSHTransport.indicatesUnansweredCredentialPrompt(parser.unterminatedTail)
+    }
+
+    /// Latches the observation while the bytes that carry it are still in the region.
+    private func noteCredentialPromptIfSeen() {
+        guard !enterReceived, !sawUnansweredCredentialPrompt else { return }
+        if RemoteTmuxSSHTransport.indicatesUnansweredCredentialPrompt(
+            preControlOutputBuffer + parser.unterminatedTail) {
+            sawUnansweredCredentialPrompt = true
+        }
     }
     /// Last client size applied via ``setClientSize(columns:rows:)``, re-applied
     /// after a reconnect so the resumed session keeps the mirror's grid instead of
@@ -577,6 +596,7 @@ final class RemoteTmuxControlConnection {
         attachBlockDrained = false
         stderrBuffer = ""
         preControlOutputBuffer = ""
+        sawUnansweredCredentialPrompt = false
         enterReceived = false
 
         // The remote command has to fit one canonical line, and this is the only place every
@@ -1467,6 +1487,7 @@ final class RemoteTmuxControlConnection {
             // be true wherever it was placed — measured, after three fixes that never fired.
             if connectionState == .reconnecting || connectionState == .connecting, !enterReceived {
                 preControlOutputBuffer += line + "\n"
+                noteCredentialPromptIfSeen()
                 if preControlOutputBuffer.utf8.count > Self.maxStderrBytes {
                     preControlOutputBuffer = String(
                         decoding: preControlOutputBuffer.utf8.suffix(Self.maxStderrBytes),
