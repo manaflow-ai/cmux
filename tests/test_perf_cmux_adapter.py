@@ -67,6 +67,10 @@ class FakeRunner:
         self.startup_workspace = "workspace:startup"
         self.workspace = "workspace:9"
         self.workspaces = [self.startup_workspace]
+        self.workspace_titles = {
+            self.startup_workspace: "startup",
+            self.workspace: "cmux-perf-mixed-test",
+        }
         self.pane = "pane:4"
         self.initial_terminal = "surface:initial"
         self.initial_terminal_id = self.initial_terminal
@@ -80,6 +84,42 @@ class FakeRunner:
         self.stopped = False
         self.render_stats_calls = 0
         self.screenshot_path: str | None = None
+        self.restore_count = 0
+        self.browser_wait_errors: list[BaseException] = []
+
+    def _restore_with_fresh_ids(self) -> None:
+        self.restore_count += 1
+        suffix = f"restored-{self.restore_count}"
+        old_workspace = self.workspace
+        old_surfaces = self.surfaces
+        old_browser_state = self.browser_state
+        old_terminal_markers = self.terminal_markers
+        mapping = {
+            item["surface_id"]: f"surface:{suffix}-{index}"
+            for index, item in enumerate(old_surfaces, start=1)
+        }
+        self.workspace = f"workspace:{suffix}"
+        self.pane = f"pane:{suffix}"
+        self.surfaces = [
+            {**item, "surface_id": mapping[item["surface_id"]]}
+            for item in old_surfaces
+        ]
+        self.browser_state = {
+            mapping[surface_id]: state
+            for surface_id, state in old_browser_state.items()
+            if surface_id in mapping
+        }
+        self.terminal_markers = {
+            mapping[surface_id]: marker
+            for surface_id, marker in old_terminal_markers.items()
+            if surface_id in mapping
+        }
+        if self.initial_terminal in mapping:
+            self.initial_terminal = mapping[self.initial_terminal]
+        self.workspace_titles[self.startup_workspace] = "startup"
+        self.workspace_titles.pop(old_workspace, None)
+        self.workspace_titles[self.workspace] = "cmux-perf-mixed-test"
+        self.workspaces = [self.startup_workspace, self.workspace]
 
     def check_paths(self) -> None:
         self.events.append("check_paths")
@@ -91,7 +131,7 @@ class FakeRunner:
         self.events.append(("launch", label))
         self.stopped = False
         if label == "restore":
-            self.workspaces = [self.startup_workspace, self.workspace]
+            self._restore_with_fresh_ids()
         return 12.5
 
     def stop_app(self) -> None:
@@ -109,11 +149,16 @@ class FakeRunner:
         if command_args[0] == "list-workspaces":
             return {
                 "workspaces": [
-                    {"workspace_id": workspace} for workspace in self.workspaces
+                    {
+                        "workspace_id": workspace,
+                        "title": self.workspace_titles.get(workspace, "unexpected"),
+                    }
+                    for workspace in self.workspaces
                 ]
             }
         if command_args[:2] == ["workspace", "create"]:
             self.workspaces.append(self.workspace)
+            self.workspace_titles[self.workspace] = "cmux-perf-mixed-test"
             return {"workspace_id": self.workspace}
         if command_args[0] == "list-panes":
             return {
@@ -163,6 +208,7 @@ class FakeRunner:
         if args[0] == "close-workspace":
             workspace = args[args.index("--workspace") + 1]
             self.workspaces = [item for item in self.workspaces if item != workspace]
+            self.workspace_titles.pop(workspace, None)
         if args[0] == "close-surface":
             surface = args[args.index("--surface") + 1]
             self.surfaces = [item for item in self.surfaces if item["surface_id"] != surface]
@@ -214,6 +260,8 @@ class FakeRunner:
                 raise AssertionError("missing fake top payload")
             return deepcopy(self.top_payloads.pop(0))
         if method == "browser.wait":
+            if self.browser_wait_errors:
+                raise self.browser_wait_errors.pop(0)
             return {"load_state": params["load_state"], "complete": True}
         if method == "browser.url.get":
             return {"url": self.browser_state[params["surface_id"]]["url"]}
@@ -442,6 +490,39 @@ def test_fixture_uses_one_workspace_and_pane_exact_local_identity_and_scrollback
     }
     json.dumps(adapter.raw_details)
 
+
+def test_browser_wait_retries_once_only_after_explicit_recovery(tmp_path: Path) -> None:
+    cfg = config(tmp_path)
+    runner = FakeRunner()
+    adapter = adapter_module.CmuxRuntimeAdapter(cfg, runner=runner, clock=FakeClock())
+    prepare_fixture(adapter, runner, cfg)
+    runner.browser_wait_errors.append(
+        RuntimeError(
+            "browser surface stopped responding and was recovered. Retry the command."
+        )
+    )
+
+    adapter.observe_fixture()
+
+    waits = [event for event in runner.events if event[:2] == ("rpc", "browser.wait")]
+    first_browser = next(iter(adapter._browser_actual_ids.values()))
+    assert [event[2]["surface_id"] for event in waits].count(first_browser) == 2
+    assert len(waits) == len(adapter._browser_actual_ids) + 1
+
+
+def test_browser_wait_does_not_retry_unrelated_failures(tmp_path: Path) -> None:
+    cfg = config(tmp_path)
+    runner = FakeRunner()
+    adapter = adapter_module.CmuxRuntimeAdapter(cfg, runner=runner, clock=FakeClock())
+    prepare_fixture(adapter, runner, cfg)
+    runner.browser_wait_errors.append(RuntimeError("browser fixture is invalid"))
+
+    with pytest.raises(RuntimeError, match="fixture is invalid"):
+        adapter.observe_fixture()
+
+    waits = [event for event in runner.events if event[:2] == ("rpc", "browser.wait")]
+    assert len(waits) == 1
+
 def test_fixture_rejects_nonunique_clean_startup_workspace(tmp_path: Path) -> None:
     cfg = config(tmp_path)
     runner = FakeRunner()
@@ -657,6 +738,10 @@ def test_snapshot_restore_relaunches_without_cleaning_and_strictly_verifies_shap
         },
     }
     runner.snapshot_payload = deepcopy(expected)
+    original_workspace = adapter._workspace_id
+    original_pane = adapter._pane_id
+    original_terminals = dict(adapter._terminal_actual_ids)
+    original_browsers = dict(adapter._browser_actual_ids)
 
     captured = adapter.snapshot()
     assert captured["elapsed_ms"] == 4.5
@@ -672,6 +757,13 @@ def test_snapshot_restore_relaunches_without_cleaning_and_strictly_verifies_shap
         and runner.startup_workspace in event[1]
         for event in restored_events
     )
+    assert adapter._workspace_id == runner.workspace != original_workspace
+    assert adapter._pane_id == runner.pane != original_pane
+    assert set(adapter._terminal_actual_ids.values()).isdisjoint(original_terminals.values())
+    assert set(adapter._browser_actual_ids.values()).isdisjoint(original_browsers.values())
+    assert [item["type"] for item in runner.surfaces] == [
+        "terminal", "terminal", "browser", "browser"
+    ]
     assert adapter.observe_fixture()["browsers"][0]["content_marker"] == plan.browser_surfaces[0].content_marker
     runner.snapshot_payload["shape"]["browsers"] = 1
     with pytest.raises(ValueError, match="snapshot"):
