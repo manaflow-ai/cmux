@@ -66,7 +66,7 @@ struct DeletedComputerRecoveryButton: View {
             let result = await recover()
             guard !Task.isCancelled else { return }
             switch result {
-            case .recovered, .alreadyInProgress:
+            case .recovered, .alreadyInProgress, .staleScope:
                 break
             case .notFound:
                 await reloadAfterFailure()

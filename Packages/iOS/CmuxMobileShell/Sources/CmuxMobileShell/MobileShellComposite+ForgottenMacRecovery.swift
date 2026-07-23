@@ -10,6 +10,8 @@ public enum MobileDeletedComputerRecoveryResult: Equatable, Sendable {
     case notFound
     /// A previous recovery attempt is still running, so this tap did not start another scan.
     case alreadyInProgress
+    /// The account or team changed while recovery was running.
+    case staleScope
 }
 
 @MainActor
@@ -38,14 +40,14 @@ extension MobileShellComposite {
         invalidateStoredMacReconnectAttempt()
 
         let discovered = await personalIrohDiscovery.discoverLiveMacs()
-        guard await isScopeCurrent(scope) else { return .notFound }
+        guard await isScopeCurrent(scope) else { return .staleScope }
         let candidates = forgottenIrohRecoveryCandidates(
             from: discovered,
             forgottenIDs: forgottenIDs
         )
 
         for mac in candidates {
-            guard await isScopeCurrent(scope) else { return .notFound }
+            guard await isScopeCurrent(scope) else { return .staleScope }
             guard await isForgottenMacDeviceID(
                 mac.deviceID,
                 instanceTag: mac.instanceTag,
@@ -60,6 +62,7 @@ extension MobileShellComposite {
                         && self.identityProvider?.currentUserID == scope.userID
                 }
             )
+            guard await isScopeCurrent(scope) else { return .staleScope }
             guard recovered else { continue }
             await loadPairedMacs()
             await loadRegistryDevices()

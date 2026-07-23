@@ -147,7 +147,10 @@ struct DisconnectedWorkspaceShellView: View {
     }
 
     var shouldAutoPresentAddDeviceAfterLoadingSavedMacs: Bool {
-        (store?.pairedMacs.isEmpty ?? true) && !showsDeletedComputerRecoveryAction
+        guard let store else { return false }
+        return store.pairedMacLoadState == .loaded
+            && store.pairedMacs.isEmpty
+            && !showsDeletedComputerRecoveryAction
     }
 
     @ViewBuilder
