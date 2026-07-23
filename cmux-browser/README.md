@@ -39,5 +39,10 @@ Third-party and derived files retain their original licenses. In particular,
 Chromium-derived material is BSD-3-Clause and Helium-derived material is
 GPL-3.0-only; neither is relicensed merely by being stored here.
 
+Manaflow may offer later versions of code for which it controls the copyright
+under different terms. That does not revoke the rights already granted for a
+published GPL version, and it does not extend to third-party code or outside
+contributions without the necessary relicensing rights.
+
 See [`IMPORT_PROVENANCE.md`](IMPORT_PROVENANCE.md) for the import boundary and
 the repository's `THIRD_PARTY_LICENSES.md` for shipped notices.

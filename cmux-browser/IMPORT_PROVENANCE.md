@@ -72,6 +72,9 @@ upstream sources.
 - [ ] A redacted full-history secret scan and a current-tree scan are clean,
   with false positives documented without publishing candidate secrets.
 - [ ] Every imported source file has a reviewed provenance/license mapping.
+- [ ] Manaflow has documented ownership or an explicit relicensing grant for
+  every first-party contribution, and a counsel-approved CLA workflow records
+  future contributor assent if later relicensing remains a product goal.
 - [ ] Private infrastructure defaults and links have been removed or moved to
   a private operations adapter.
 - [ ] The Chromium commit, DEPS state, GN arguments, cmux commit, Ghostty
