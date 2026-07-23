@@ -197,13 +197,10 @@ extension TerminalController {
         )
     }
 
-    nonisolated func v2FeedPushDecodeFailedMessage(_ error: Error) -> String {
-        String.localizedStringWithFormat(
-            String(
-                localized: "feed.push.error.decodeFailed",
-                defaultValue: "feed.push event failed to decode: %@"
-            ),
-            error.localizedDescription
+    nonisolated func v2FeedPushDecodeFailedMessage(_: Error) -> String {
+        String(
+            localized: "feed.push.error.decodeFailed",
+            defaultValue: "feed.push event failed to decode"
         )
     }
 }
