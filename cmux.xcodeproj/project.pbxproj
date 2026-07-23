@@ -15,6 +15,7 @@
 		A8587000000000000000004B /* AgentArtifactCaptureCheckpoint.swift in Sources */ = {isa = PBXBuildFile; fileRef = A8587000000000000000004A /* AgentArtifactCaptureCheckpoint.swift */; };
 		A85870000000000000000021 /* AgentArtifactCaptureCoordinator.swift in Sources */ = {isa = PBXBuildFile; fileRef = A85870000000000000000020 /* AgentArtifactCaptureCoordinator.swift */; };
 		A85870000000000000000049 /* AgentArtifactCaptureCoordinatorTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = A85870000000000000000048 /* AgentArtifactCaptureCoordinatorTests.swift */; };
+		A85870000000000000000063 /* AgentArtifactCaptureCoordinatorTestStore.swift in Sources */ = {isa = PBXBuildFile; fileRef = A85870000000000000000062 /* AgentArtifactCaptureCoordinatorTestStore.swift */; };
 		A85870000000000000000045 /* AgentArtifactCaptureSaveError.swift in Sources */ = {isa = PBXBuildFile; fileRef = A85870000000000000000044 /* AgentArtifactCaptureSaveError.swift */; };
 		A8587000000000000000002B /* AgentArtifactReferenceCursor.swift in Sources */ = {isa = PBXBuildFile; fileRef = A8587000000000000000002A /* AgentArtifactReferenceCursor.swift */; };
 		C7AF10000000000000000005 /* AgentChatArtifactGalleryBuilder.swift in Sources */ = {isa = PBXBuildFile; fileRef = C7AF10000000000000000006 /* AgentChatArtifactGalleryBuilder.swift */; };
@@ -2287,6 +2288,7 @@ C0DE71B10000000000000001 /* AppDelegate+AgentChatNotifications.swift in Sources 
 		A8587000000000000000004A /* AgentArtifactCaptureCheckpoint.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = "AgentArtifactCaptureCheckpoint.swift"; sourceTree = "<group>"; };
 		A85870000000000000000020 /* AgentArtifactCaptureCoordinator.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = "AgentArtifactCaptureCoordinator.swift"; sourceTree = "<group>"; };
 		A85870000000000000000048 /* AgentArtifactCaptureCoordinatorTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AgentArtifactCaptureCoordinatorTests.swift; sourceTree = "<group>"; };
+		A85870000000000000000062 /* AgentArtifactCaptureCoordinatorTestStore.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AgentArtifactCaptureCoordinatorTestStore.swift; sourceTree = "<group>"; };
 		A85870000000000000000044 /* AgentArtifactCaptureSaveError.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = "AgentArtifactCaptureSaveError.swift"; sourceTree = "<group>"; };
 		A8587000000000000000002A /* AgentArtifactReferenceCursor.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = "AgentArtifactReferenceCursor.swift"; sourceTree = "<group>"; };
 		C7AF10000000000000000006 /* AgentChatArtifactGalleryBuilder.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = "AgentChatArtifactGalleryBuilder.swift"; sourceTree = "<group>"; };
@@ -6139,6 +6141,7 @@ C0DE71B10000000000000002 /* AppDelegate+AgentChatNotifications.swift */ = {isa =
 				A85870000000000000000050 /* ArtifactCLITerminalSafetyTests.swift */,
 				A85870000000000000000060 /* NoteCLIIntegrationTests.swift */,
 				A85870000000000000000048 /* AgentArtifactCaptureCoordinatorTests.swift */,
+				A85870000000000000000062 /* AgentArtifactCaptureCoordinatorTestStore.swift */,
 				A8587000000000000000004E /* MobileChatArtifactAuthorizationSnapshotTests.swift */,
 				A8587000000000000000004C /* AgentChatArtifactIndexSafetyTests.swift */,
 				A85870000000000000000052 /* AgentArtifactAutomaticPathBoundTests.swift */,
@@ -8740,6 +8743,7 @@ C0DE71B10000000000000002 /* AppDelegate+AgentChatNotifications.swift */ = {isa =
 				A11CE0010000000000000001 /* AboutLicensesResourceTests.swift in Sources */,
 				A85870000000000000000053 /* AgentArtifactAutomaticPathBoundTests.swift in Sources */,
 				A85870000000000000000049 /* AgentArtifactCaptureCoordinatorTests.swift in Sources */,
+				A85870000000000000000063 /* AgentArtifactCaptureCoordinatorTestStore.swift in Sources */,
 				A8587000000000000000004D /* AgentChatArtifactIndexSafetyTests.swift in Sources */,
 				CDFE000000000000000000C1 /* AgentChatProseStreamerTests.swift in Sources */,
 				C7A51F000000000000000002 /* AgentChatSessionRegistryClaudeObservationTests.swift in Sources */,
