@@ -367,15 +367,19 @@ extension Workspace {
 
     private func applyAggregateAgentStatusProjection(statusKey: String, now: Date) {
         guard let resolution = aggregateAgentStatusResolution(statusKey: statusKey) else { return }
+        guard let projectedEntry = canonicalStatusEntry(
+            statusKey: statusKey,
+            lifecycle: resolution.lifecycle,
+            timestamp: now
+        ) else {
+            statusEntries.removeValue(forKey: statusKey)
+            return
+        }
         if let current = statusEntries[statusKey],
            statusEntry(current, represents: resolution.lifecycle) {
             return
         }
-        statusEntries[statusKey] = canonicalStatusEntry(
-            statusKey: statusKey,
-            lifecycle: resolution.lifecycle,
-            timestamp: now
-        )
+        statusEntries[statusKey] = projectedEntry
     }
 
     private func aggregateAgentStatusResolution(statusKey: String) -> AgentStatusResolution? {
@@ -410,7 +414,7 @@ extension Workspace {
         case .idle:
             return entry.icon == "pause.circle.fill"
         case .unknown:
-            return entry.icon == "questionmark.circle"
+            return false
         }
     }
 
@@ -418,7 +422,7 @@ extension Workspace {
         statusKey: String,
         lifecycle: AgentHibernationLifecycleState,
         timestamp: Date
-    ) -> SidebarStatusEntry {
+    ) -> SidebarStatusEntry? {
         switch lifecycle {
         case .running:
             return SidebarStatusEntry(
@@ -446,13 +450,7 @@ extension Workspace {
                 timestamp: timestamp
             )
         case .unknown:
-            return SidebarStatusEntry(
-                key: statusKey,
-                value: String(localized: "agent.generic.status.uncertain", defaultValue: "Status uncertain"),
-                icon: "questionmark.circle",
-                color: "#8E8E93",
-                timestamp: timestamp
-            )
+            return nil
         }
     }
 }

@@ -259,7 +259,7 @@ struct AgentStatusReconcilerTests {
 
         workspace.reconcileAgentStatuses(panelId: panelId, now: now)
 
-        #expect(workspace.statusEntries["codex"]?.icon == "questionmark.circle")
+        #expect(workspace.statusEntries["codex"] == nil)
         #expect(workspace.agentLifecycleStatesByPanelId[panelId]?["codex"] == .unknown)
     }
 
