@@ -1909,6 +1909,223 @@ struct FinalCloseRoutingRegressionTests {
 }
 
 @MainActor
+@Suite("Main window key observation ownership", .serialized)
+struct MainWindowKeyObservationOwnershipTests {
+    private func makeMainWindow(id: UUID) -> NonDestructiveCloseWindow {
+        let window = NonDestructiveCloseWindow(
+            contentRect: NSRect(x: 0, y: 0, width: 500, height: 320),
+            styleMask: [.titled, .closable],
+            backing: .buffered,
+            defer: false
+        )
+        window.identifier = NSUserInterfaceItemIdentifier("cmux.main.\(id.uuidString)")
+        return window
+    }
+
+    @Test("Observed same-ID duplicate cannot steal or close a live owner")
+    func observedSameIdDuplicateCannotStealOrCloseLiveOwner() throws {
+        _ = NSApplication.shared
+        let app = try #require(AppDelegate.shared)
+        let previousManager = app.tabManager
+        let previousSidebarState = app.sidebarState
+        let previousSidebarSelectionState = app.sidebarSelectionState
+        let previousFileExplorerState = app.fileExplorerState
+        let previousTerminalManager = TerminalController.shared.activeTabManagerForCallerNotification()
+
+        let windowId = UUID()
+        let ownerWindow = makeMainWindow(id: windowId)
+        let duplicateWindow = makeMainWindow(id: windowId)
+        let manager = TabManager()
+        let workspace = try #require(manager.selectedWorkspace)
+        let terminalPanel = try #require(workspace.focusedTerminalPanel)
+        defer {
+            app.unregisterMainWindowContextForTesting(windowId: windowId)
+            app.forgetRecoverableMainWindowRoute(windowId: windowId)
+            if !manager.isFinalizedForWindowClose {
+                manager.finalizeAllWorkspacesForWindowClose()
+            }
+            workspace.teardownAllPanels()
+            workspace.teardownRemoteConnection()
+            ownerWindow.orderOut(nil)
+            duplicateWindow.orderOut(nil)
+            app.tabManager = previousManager
+            app.sidebarState = previousSidebarState
+            app.sidebarSelectionState = previousSidebarSelectionState
+            app.fileExplorerState = previousFileExplorerState
+            TerminalController.shared.setActiveTabManager(previousTerminalManager)
+        }
+
+        app.registerMainWindow(
+            ownerWindow,
+            windowId: windowId,
+            tabManager: manager,
+            sidebarState: SidebarState(),
+            sidebarSelectionState: SidebarSelectionState(),
+            fileExplorerState: FileExplorerState()
+        )
+
+        // Posting through NotificationCenter exercises the observer installed
+        // by applicationDidFinishLaunching, including the production reindex path.
+        NotificationCenter.default.post(name: NSWindow.didBecomeKeyNotification, object: ownerWindow)
+        #expect(app.tabManager === manager)
+
+        NotificationCenter.default.post(name: NSWindow.didBecomeKeyNotification, object: duplicateWindow)
+        #expect(!app.commitMainWindowClose(duplicateWindow))
+
+        #expect(!manager.isFinalizedForWindowClose)
+        #expect(manager.tabs.map(\.id) == [workspace.id])
+        #expect(app.mainWindowContexts.values.contains {
+            $0.windowId == windowId && $0.tabManager === manager && $0.window === ownerWindow
+        })
+        #expect(app.tabManagerFor(windowId: windowId) === manager)
+        #expect(GhosttyApp.terminalSurfaceRegistry.surface(id: terminalPanel.id) === terminalPanel.surface)
+    }
+
+    @Test("Observed same-ID duplicate cannot steal a windowless owner before validated replacement")
+    func observedSameIdDuplicateCannotStealWindowlessOwnerBeforeValidatedReplacement() throws {
+        _ = NSApplication.shared
+        let app = try #require(AppDelegate.shared)
+        let previousManager = app.tabManager
+        let previousSidebarState = app.sidebarState
+        let previousSidebarSelectionState = app.sidebarSelectionState
+        let previousFileExplorerState = app.fileExplorerState
+        let previousTerminalManager = TerminalController.shared.activeTabManagerForCallerNotification()
+
+        let windowId = UUID()
+        let originalWindow = makeMainWindow(id: windowId)
+        let duplicateWindow = makeMainWindow(id: windowId)
+        let replacementWindow = makeMainWindow(id: windowId)
+        let manager = TabManager()
+        let workspace = try #require(manager.selectedWorkspace)
+        let terminalPanel = try #require(workspace.focusedTerminalPanel)
+        defer {
+            app.unregisterMainWindowContextForTesting(windowId: windowId)
+            app.forgetRecoverableMainWindowRoute(windowId: windowId)
+            if !manager.isFinalizedForWindowClose {
+                manager.finalizeAllWorkspacesForWindowClose()
+            }
+            workspace.teardownAllPanels()
+            workspace.teardownRemoteConnection()
+            originalWindow.orderOut(nil)
+            duplicateWindow.orderOut(nil)
+            replacementWindow.orderOut(nil)
+            app.tabManager = previousManager
+            app.sidebarState = previousSidebarState
+            app.sidebarSelectionState = previousSidebarSelectionState
+            app.fileExplorerState = previousFileExplorerState
+            TerminalController.shared.setActiveTabManager(previousTerminalManager)
+        }
+
+        app.registerMainWindow(
+            originalWindow,
+            windowId: windowId,
+            tabManager: manager,
+            sidebarState: SidebarState(),
+            sidebarSelectionState: SidebarSelectionState(),
+            fileExplorerState: FileExplorerState()
+        )
+        NotificationCenter.default.post(name: NSWindow.didBecomeKeyNotification, object: originalWindow)
+        #expect(app.tabManager === manager)
+
+        let context = try #require(
+            app.mainWindowContexts.values.first { $0.windowId == windowId }
+        )
+        context.window = nil
+        manager.window = nil
+        originalWindow.identifier = nil
+
+        NotificationCenter.default.post(name: NSWindow.didBecomeKeyNotification, object: duplicateWindow)
+        #expect(!app.commitMainWindowClose(duplicateWindow))
+        #expect(!manager.isFinalizedForWindowClose)
+        #expect(manager.tabs.map(\.id) == [workspace.id])
+        #expect(app.mainWindowContexts.values.contains {
+            $0 === context && $0.windowId == windowId && $0.tabManager === manager && $0.window == nil
+        })
+        #expect(GhosttyApp.terminalSurfaceRegistry.surface(id: terminalPanel.id) === terminalPanel.surface)
+
+        // Registration is the ownership-validation boundary. Once the same
+        // manager supplies the reserved ID, the replacement may be adopted.
+        app.registerMainWindow(
+            replacementWindow,
+            windowId: windowId,
+            tabManager: manager,
+            sidebarState: SidebarState(),
+            sidebarSelectionState: SidebarSelectionState(),
+            fileExplorerState: FileExplorerState()
+        )
+
+        #expect(app.mainWindowContexts[ObjectIdentifier(replacementWindow)] === context)
+        #expect(context.window === replacementWindow)
+        #expect(manager.window === replacementWindow)
+        #expect(!manager.isFinalizedForWindowClose)
+        #expect(GhosttyApp.terminalSurfaceRegistry.surface(id: terminalPanel.id) === terminalPanel.surface)
+    }
+
+    @Test("Observed same-ID duplicate cannot close a recoverable owner")
+    func observedSameIdDuplicateCannotCloseRecoverableOwner() throws {
+        _ = NSApplication.shared
+        let app = try #require(AppDelegate.shared)
+        let previousManager = app.tabManager
+        let previousSidebarState = app.sidebarState
+        let previousSidebarSelectionState = app.sidebarSelectionState
+        let previousFileExplorerState = app.fileExplorerState
+        let previousTerminalManager = TerminalController.shared.activeTabManagerForCallerNotification()
+
+        let windowId = UUID()
+        let ownerWindow = makeMainWindow(id: windowId)
+        let duplicateWindow = makeMainWindow(id: windowId)
+        let manager = TabManager()
+        let workspace = try #require(manager.selectedWorkspace)
+        let terminalPanel = try #require(workspace.focusedTerminalPanel)
+        defer {
+            app.unregisterMainWindowContextForTesting(windowId: windowId)
+            app.forgetRecoverableMainWindowRoute(windowId: windowId)
+            if !manager.isFinalizedForWindowClose {
+                manager.finalizeAllWorkspacesForWindowClose()
+            }
+            workspace.teardownAllPanels()
+            workspace.teardownRemoteConnection()
+            ownerWindow.orderOut(nil)
+            duplicateWindow.orderOut(nil)
+            app.tabManager = previousManager
+            app.sidebarState = previousSidebarState
+            app.sidebarSelectionState = previousSidebarSelectionState
+            app.fileExplorerState = previousFileExplorerState
+            TerminalController.shared.setActiveTabManager(previousTerminalManager)
+        }
+
+        app.registerMainWindow(
+            ownerWindow,
+            windowId: windowId,
+            tabManager: manager,
+            sidebarState: SidebarState(),
+            sidebarSelectionState: SidebarSelectionState(),
+            fileExplorerState: FileExplorerState()
+        )
+        NotificationCenter.default.post(name: NSWindow.didBecomeKeyNotification, object: ownerWindow)
+        #expect(app.tabManager === manager)
+
+        let context = try #require(
+            app.mainWindowContexts.values.first { $0.windowId == windowId }
+        )
+        app.discardOrphanedMainWindowContext(context)
+        let route = try #require(app.recoverableMainWindowRoute(windowId: windowId))
+        route.window = nil
+        manager.window = nil
+        ownerWindow.identifier = nil
+
+        NotificationCenter.default.post(name: NSWindow.didBecomeKeyNotification, object: duplicateWindow)
+        #expect(!app.commitMainWindowClose(duplicateWindow))
+
+        #expect(!manager.isFinalizedForWindowClose)
+        #expect(manager.tabs.map(\.id) == [workspace.id])
+        #expect(!app.mainWindowContexts.values.contains { $0.windowId == windowId })
+        #expect(app.recoverableMainWindowRoute(windowId: windowId)?.tabManager === manager)
+        #expect(GhosttyApp.terminalSurfaceRegistry.surface(id: terminalPanel.id) === terminalPanel.surface)
+    }
+}
+
+@MainActor
 @Suite("Workspace shared agent observer retirement", .serialized)
 struct WorkspaceSharedAgentObserverRetirementTests {
     @Test("Retirement rejects queued and future shared agent index publications")
