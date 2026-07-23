@@ -137,7 +137,12 @@ import Testing
             ] }
         ) != nil else { return }
         #expect(notifies == 1)
-        #expect(paneRect(in: connection.windowsByID[1]!.layout, id: 2)! == (61, 0, 59, 40))
+        if let layout = connection.windowsByID[1]?.layout,
+           let rect = paneRect(in: layout, id: 2) {
+            #expect(rect == (61, 0, 59, 40))
+        } else {
+            Issue.record("no rect for pane %2 in window @1")
+        }
         #expect(connection.paneHeaderLabels[0] == "0 \"left pane\"")
         #expect(connection.paneHeaderLabels[2] == "1 \"right\"")
         #expect(connection.windowTitleRowPlacements[1] == nil)
@@ -355,7 +360,12 @@ import Testing
             ] }
         ) != nil else { return }
         #expect(notifies == 1)
-        #expect(paneRect(in: connection.windowsByID[1]!.layout, id: 2)! == (61, 0, 59, 40))
+        if let layout = connection.windowsByID[1]?.layout,
+           let rect = paneRect(in: layout, id: 2) {
+            #expect(rect == (61, 0, 59, 40))
+        } else {
+            Issue.record("no rect for pane %2 in window @1")
+        }
         #expect(paneRectsFIFOCount(connection) == 1)
 
         guard replyToNextPaneRects(
@@ -367,7 +377,12 @@ import Testing
             ] }
         ) != nil else { return }
         #expect(notifies == 2)
-        #expect(paneRect(in: connection.windowsByID[1]!.layout, id: 2)! == (81, 0, 39, 40))
+        if let layout = connection.windowsByID[1]?.layout,
+           let rect = paneRect(in: layout, id: 2) {
+            #expect(rect == (81, 0, 39, 40))
+        } else {
+            Issue.record("no rect for pane %2 in window @1")
+        }
         #expect(connection.hasPendingLayout(windowId: 1) == false)
     }
 
@@ -403,12 +418,14 @@ import Testing
         ) != nil else { return }
         // The fetch's #{pane_active} seeds the initial active pane…
         #expect(connection.activePaneByWindow[1] == 2)
-        #expect(observed! == (1, 2))
+        #expect(observed?.0 == 1)
+        #expect(observed?.1 == 2)
 
         // …and live %window-pane-changed remains the authority afterwards.
         connection.handleMessageForTesting(.windowPaneChanged(windowId: 1, paneId: 0))
         #expect(connection.activePaneByWindow[1] == 0)
-        #expect(observed! == (1, 0))
+        #expect(observed?.0 == 1)
+        #expect(observed?.1 == 0)
     }
 
     @Test func mirrorAdoptsRemoteActivePaneAndCopiesLabelsOnReconcile() {
@@ -424,7 +441,10 @@ import Testing
             ] }
         ) != nil else { return }
 
-        let published = connection.windowsByID[1]!.layout
+        guard let published = connection.windowsByID[1]?.layout else {
+            Issue.record("window @1 published no layout")
+            return
+        }
         let mirror = RemoteTmuxWindowMirror(
             windowId: 1,
             panelId: UUID(),
@@ -611,7 +631,8 @@ import Testing
             ] }
         ) != nil else { return }
         #expect(connection.activePaneByWindow[1] == 2)
-        #expect(observed! == (1, 2))
+        #expect(observed?.0 == 1)
+        #expect(observed?.1 == 2)
     }
 
     @Test func rectsVerifiedPublishPrunesRemovedPaneDiagnosticState() {
@@ -690,7 +711,12 @@ import Testing
         ) != nil else { return }
         #expect(notifies == 1)
         #expect(connection.windowsByID[1]?.width == 100)
-        #expect(paneRect(in: connection.windowsByID[1]!.layout, id: 0)! == (0, 0, 90, 24))
+        if let layout = connection.windowsByID[1]?.layout,
+           let rect = paneRect(in: layout, id: 0) {
+            #expect(rect == (0, 0, 90, 24))
+        } else {
+            Issue.record("no rect for pane %0 in window @1")
+        }
         #expect(paneRectsFIFOCount(connection) == 1)
 
         // The owed follow-up lands with exact rects: quarantine drains.
@@ -700,7 +726,12 @@ import Testing
             lines: { _ in ["%0 0 0 100 24 1 off :zsh"] }
         ) != nil else { return }
         #expect(notifies == 2)
-        #expect(paneRect(in: connection.windowsByID[1]!.layout, id: 0)! == (0, 0, 100, 24))
+        if let layout = connection.windowsByID[1]?.layout,
+           let rect = paneRect(in: layout, id: 0) {
+            #expect(rect == (0, 0, 100, 24))
+        } else {
+            Issue.record("no rect for pane %0 in window @1")
+        }
         #expect(connection.hasPendingLayout(windowId: 1) == false)
         #expect(paneRectsFIFOCount(connection) == 0)
     }
