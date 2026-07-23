@@ -155,7 +155,7 @@ struct RemoteTmuxNewWorkspaceHostRoutingTests {
             // A view whose connection was never established: createWorkspaceReturningName
             // short-circuits to nil, so the multiplexed branch takes its failure path.
             controller.multiplexedViewsByHost[hostA.connectionHash] = RemoteTmuxViewConnection(
-                host: hostA, ownerId: "test-mux-failure", transport: controller.transport(for: hostA)
+                host: hostA, ownerId: "test-mux-failure"
             )
 
             #expect(controller.handleNewWorkspaceRequested(in: manager))
