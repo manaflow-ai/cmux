@@ -625,7 +625,6 @@ private enum TitlebarControlIconStyle {
     static let pressedOpacity = HeaderChromeIconStyle.pressedOpacity
     static let weight = HeaderChromeIconStyle.weight
     static let foregroundColor = HeaderChromeIconStyle.foregroundColor
-    static let sidebarGlyphStrokeWidth = HeaderChromeIconStyle.sidebarGlyphStrokeWidth
 
     static func iconFrameSize(for config: TitlebarControlsStyleConfig) -> CGFloat {
         HeaderChromeIconStyle.iconFrameSize(forIconSize: config.iconSize)
@@ -709,6 +708,7 @@ struct TitlebarControlButton<Content: View>: View {
     let accessibilityLabel: String
     let action: () -> Void
     var isEnabled = true
+    var isSelected = false
     var rightClickAction: ((NSView, NSEvent) -> Void)? = nil
     @ViewBuilder let content: () -> Content
 
@@ -717,7 +717,13 @@ struct TitlebarControlButton<Content: View>: View {
             content()
         }
         .disabled(!isEnabled)
-        .buttonStyle(TitlebarControlButtonStyle(config: config, foregroundColor: foregroundColor))
+        .buttonStyle(
+            TitlebarControlButtonStyle(
+                config: config,
+                foregroundColor: foregroundColor,
+                isSelected: isSelected
+            )
+        )
         .frame(width: config.buttonSize, height: config.buttonSize)
         .background(TitlebarChromeGeometryReporter(keyPrefix: accessibilityIdentifier.replacingOccurrences(of: ".", with: "_")))
         .contentShape(Rectangle())
@@ -757,82 +763,14 @@ func focusHistoryNavigationAvailability(preferredWindow: NSWindow?) -> FocusHist
 private struct TitlebarControlButtonStyle: ButtonStyle {
     let config: TitlebarControlsStyleConfig
     let foregroundColor: Color
+    let isSelected: Bool
 
     func makeBody(configuration: Configuration) -> some View {
         TitlebarControlButtonStyleBody(
             configuration: configuration,
             config: config,
-            foregroundColor: foregroundColor
-        )
-    }
-}
-
-private struct TitlebarControlButtonStyleBody: View {
-    let configuration: ButtonStyle.Configuration
-    let config: TitlebarControlsStyleConfig
-    let foregroundColor: Color
-    @State private var isHovering = false
-    @Environment(\.isEnabled) private var isEnabled
-
-    var body: some View {
-        configuration.label
-            .frame(width: config.buttonSize, height: config.buttonSize)
-            .foregroundStyle(foregroundColor.opacity(foregroundOpacity))
-            .background {
-                if backgroundOpacity > 0 {
-                    RoundedRectangle(cornerRadius: config.buttonCornerRadius, style: .continuous)
-                        .fill(foregroundColor.opacity(backgroundOpacity))
-                } else if config.buttonBackground {
-                    RoundedRectangle(cornerRadius: config.buttonCornerRadius, style: .continuous)
-                        .fill(Color(nsColor: .controlBackgroundColor).opacity(0.45))
-                }
-            }
-            .overlay {
-                if borderOpacity > 0 {
-                    RoundedRectangle(cornerRadius: config.buttonCornerRadius, style: .continuous)
-                        .stroke(foregroundColor.opacity(borderOpacity), lineWidth: 0.5)
-                }
-            }
-            .scaleEffect(titlebarControlPressedScale(isPressed: configuration.isPressed))
-            .animation(.easeOut(duration: 0.08), value: configuration.isPressed)
-            .animation(.easeInOut(duration: 0.12), value: isHovering)
-            .contentShape(Rectangle())
-            .onHover { hovering in
-                if titlebarControlsShouldTrackButtonHover(config: config) {
-                    isHovering = hovering
-                }
-            }
-    }
-
-    private var foregroundOpacity: Double {
-        titlebarControlForegroundOpacity(
-            isHovering: isHovering,
-            isPressed: configuration.isPressed,
-            isEnabled: isEnabled
-        )
-    }
-
-    private var backgroundOpacity: Double {
-        let baseOpacity = titlebarControlBackgroundOpacity(
-            config: config,
-            isHovering: isHovering,
-            isPressed: configuration.isPressed,
-            isEnabled: isEnabled
-        )
-        let activeHoverOpacity = titlebarControlActiveHoverBackgroundOpacity(
-            isHovering: isHovering,
-            isPressed: configuration.isPressed,
-            isEnabled: isEnabled
-        )
-        return max(baseOpacity, activeHoverOpacity)
-    }
-
-    private var borderOpacity: Double {
-        titlebarControlBorderOpacity(
-            config: config,
-            isHovering: isHovering,
-            isPressed: configuration.isPressed,
-            isEnabled: isEnabled
+            foregroundColor: foregroundColor,
+            isSelected: isSelected
         )
     }
 }
@@ -1243,7 +1181,7 @@ struct TitlebarControlsView: View {
         iconGeometryKeyPrefix: String? = nil
     ) -> some View {
         titlebarIconChrome(config: config, iconGeometryKeyPrefix: iconGeometryKeyPrefix) {
-            TitlebarSidebarGlyph(iconSize: config.iconSize)
+            TitlebarSidebarGlyph(edge: .leading, iconSize: config.iconSize)
         }
     }
 
@@ -1259,38 +1197,6 @@ struct TitlebarControlsView: View {
                 height: TitlebarControlIconStyle.iconFrameSize(for: config)
             )
             .background(TitlebarChromeGeometryReporter(keyPrefix: iconGeometryKeyPrefix ?? ""))
-    }
-}
-
-private struct TitlebarSidebarGlyph: View {
-    let iconSize: CGFloat
-
-    var body: some View {
-        TitlebarSidebarGlyphShape()
-            .stroke(
-                style: StrokeStyle(
-                    lineWidth: TitlebarControlIconStyle.sidebarGlyphStrokeWidth,
-                    lineCap: .round,
-                    lineJoin: .round
-                )
-            )
-            .frame(width: max(13, iconSize + 2), height: max(11, iconSize - 1))
-    }
-}
-
-private struct TitlebarSidebarGlyphShape: Shape {
-    func path(in rect: CGRect) -> Path {
-        var path = Path()
-        let insetRect = rect.insetBy(dx: 0.5, dy: 0.5)
-        path.addRoundedRect(
-            in: insetRect,
-            cornerSize: CGSize(width: 2, height: 2)
-        )
-
-        let dividerX = insetRect.minX + insetRect.width * 0.36
-        path.move(to: CGPoint(x: dividerX, y: insetRect.minY + 1.5))
-        path.addLine(to: CGPoint(x: dividerX, y: insetRect.maxY - 1.5))
-        return path
     }
 }
 

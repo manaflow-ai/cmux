@@ -2141,23 +2141,9 @@ struct ContentView: View {
             .frame(maxWidth: .infinity)
             .overlay(alignment: .topLeading) {
                 customTitlebar(appearance: appearance)
-                    // The workspace titlebar band spans the full window width and sits at
-                    // zIndex(100) over the content/sidebar layout. Its drag/double-click
-                    // surface (`WindowDragHandleView` + `.contentShape(Rectangle())`) must
-                    // not cover the right sidebar, whose mode bar (Files/Search/Feed/Vault)
-                    // lives inside the titlebar-height strip — otherwise the band wins the
-                    // hit-test and swallows every click/hover on those buttons (#5099).
-                    // Confine the interactive titlebar surface to the area left of the
-                    // right sidebar, matching the pre-#5017 "only over terminal content,
-                    // not the sidebar" intent. The left sidebar's titlebar controls live in
-                    // the AppKit titlebar accessory (above this band), so only the trailing
-                    // (right-sidebar) edge needs to be ceded here.
-                    //
-                    // `rightSidebarWidth` is already `rightSidebarVisible ? fileExplorerWidth : 0`,
-                    // so it collapses to 0 when the sidebar is hidden. The sidebar panel itself
-                    // snaps without animation (`.transaction { $0.animation = nil }`), so we match
-                    // that here — otherwise this inset could animate out of step with the panel on
-                    // toggle and momentarily expose (or re-cover) the mode bar mid-transition.
+                    // Keep the drag surface off the right-sidebar mode bar (#5099).
+                    // The width collapses when hidden, and the sidebar itself snaps,
+                    // so disable animation here to keep both hit regions in lockstep.
                     .padding(.trailing, rightSidebarWidth)
                     .animation(nil, value: rightSidebarWidth)
             }
@@ -2535,6 +2521,17 @@ struct ContentView: View {
                 WorkspaceTitlebarModeLayer {
                     workspaceTitlebarBand(appearance: appearance)
                         .zIndex(100)
+                }
+
+                if !rightSidebarVisible {
+                    RightSidebarTitlebarToggleButton(
+                        foregroundColor: Color(nsColor: titlebarControlForegroundNSColor(opacity: 1))
+                    ) {
+                        _ = AppDelegate.shared?.toggleRightSidebarInActiveMainWindow(preferredWindow: observedWindow)
+                    }
+                    .environment(\.colorScheme, appearance.chromeColorScheme)
+                    .frame(maxWidth: .infinity, alignment: .trailing)
+                    .zIndex(101)
                 }
             }
                 .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
