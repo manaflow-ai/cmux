@@ -519,6 +519,23 @@ struct ComputerUseUXTests {
         #expect(paths.scope != sibling.scope)
     }
 
+    @Test func taggedRuntimeKeepsSanitizationCollisionsIsolated() {
+        let slash = ComputerUseRuntimePaths(
+            homeDirectoryURL: URL(fileURLWithPath: "/Users/tester"),
+            environment: ["CMUX_TAG": "foo/bar"]
+        )
+        let questionMark = ComputerUseRuntimePaths(
+            homeDirectoryURL: URL(fileURLWithPath: "/Users/tester"),
+            environment: ["CMUX_TAG": "foo?bar"]
+        )
+
+        #expect(slash.scope != questionMark.scope)
+        #expect(slash.daemonSocketURL != questionMark.daemonSocketURL)
+        #expect(slash.installedHelperAppURL != questionMark.installedHelperAppURL)
+        #expect(slash.daemonSocketURL.path.utf8.count < 104)
+        #expect(questionMark.daemonSocketURL.path.utf8.count < 104)
+    }
+
     @Test func defaultRuntimeUsesDarwinPerUserTemporaryDirectory() {
         let paths = ComputerUseRuntimePaths(
             homeDirectoryURL: URL(fileURLWithPath: "/Users/tester"),
