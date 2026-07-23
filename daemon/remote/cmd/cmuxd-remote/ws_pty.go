@@ -107,6 +107,7 @@ const (
 	defaultPTYInputChunkBytes        = 16 * 1024
 	defaultWebSocketWriteTimeout     = 10 * time.Second
 	defaultWebSocketSessionIdleTTL   = 24 * time.Hour
+	standardExecutablePath           = "/usr/local/bin:/usr/bin:/bin:/usr/local/sbin:/usr/sbin:/sbin"
 )
 
 type wsPTYOutgoingFrame struct {
@@ -681,6 +682,7 @@ func defaultWebSocketPTYEnv(shellPath string) []string {
 		}
 	}
 
+	set("PATH", pathWithStandardExecutableDirectories(env["PATH"]))
 	set("TERM", "xterm-256color")
 	setIfMissing("COLORTERM", "truecolor")
 	setIfMissing("TERM_PROGRAM", "ghostty")
@@ -702,6 +704,22 @@ func defaultWebSocketPTYEnv(shellPath string) []string {
 		out = append(out, key+"="+env[key])
 	}
 	return out
+}
+
+func pathWithStandardExecutableDirectories(inheritedPath string) string {
+	entries := filepath.SplitList(inheritedPath)
+	present := make(map[string]struct{}, len(entries))
+	for _, entry := range entries {
+		present[entry] = struct{}{}
+	}
+	for _, standardDirectory := range filepath.SplitList(standardExecutablePath) {
+		if _, ok := present[standardDirectory]; ok {
+			continue
+		}
+		entries = append(entries, standardDirectory)
+		present[standardDirectory] = struct{}{}
+	}
+	return strings.Join(entries, string(os.PathListSeparator))
 }
 
 func envMapWithOrder(values []string) (map[string]string, []string) {
