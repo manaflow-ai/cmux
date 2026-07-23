@@ -5,6 +5,23 @@ import Testing
 @Suite("Artifact sidebar model")
 @MainActor
 struct ArtifactSidebarModelTests {
+    @Test("Model teardown is safe when its final reference is released off the main actor")
+    nonisolated func releasesOffMainActor() async {
+        await Task.detached {
+            let model = await MainActor.run {
+                ArtifactSidebarModel(
+                    store: SidebarArtifactStore(
+                        root: URL(fileURLWithPath: "/tmp/artifact-sidebar-release-test"),
+                        nodes: []
+                    ),
+                    captureService: SidebarCaptureSpy()
+                )
+            }
+
+            withExtendedLifetime(model) {}
+        }.value
+    }
+
     @Test("Binding projects an expanded immutable tree")
     func bindsExpandedTree() async throws {
         let root = try ArtifactTestSupport.temporaryDirectory()
