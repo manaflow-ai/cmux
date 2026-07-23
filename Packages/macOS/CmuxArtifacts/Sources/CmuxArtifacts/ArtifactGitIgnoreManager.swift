@@ -4,13 +4,9 @@ import Foundation
 /// Adds the local artifact store to Git's per-checkout exclude file.
 struct ArtifactGitIgnoreManager {
     let fileManager: FileManager
-    static let ignoreEntries = [
-        ".cmux/**/artifacts/",
-        ".cmux/**/notes/",
-        ".cmux/**/_session.json",
-        ".cmux/**/_workspace.json",
-        ".cmux/.metadata/",
-    ]
+    static var ignoreEntries: [String] {
+        [".cmux/**"] + ArtifactStorePaths.trackableControlFileNames.map { "!.cmux/\($0)" }
+    }
 
     func ensureIgnored(projectRoot: URL) throws {
         guard let repository = locateGitRepository(startingAt: projectRoot) else {
@@ -252,7 +248,10 @@ struct ArtifactGitIgnoreManager {
             return Self.ignoreEntries
         }
         let prefix = escapedGitPattern(relativePath) + "/"
-        return Self.ignoreEntries.map { prefix + $0 }
+        return Self.ignoreEntries.map { entry in
+            guard entry.hasPrefix("!") else { return prefix + entry }
+            return "!" + prefix + entry.dropFirst()
+        }
     }
 
     private func escapedGitPattern(_ path: String) -> String {

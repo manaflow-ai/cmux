@@ -258,24 +258,23 @@ struct ArtifactRepositorySafetyTests {
     func ignoresCanonicalProjectAlias() async throws {
         let root = try ArtifactTestSupport.temporaryDirectory()
         defer { ArtifactTestSupport.remove(root) }
-        try FileManager.default.createDirectory(
-            at: root.appendingPathComponent(".git", isDirectory: true),
-            withIntermediateDirectories: true
-        )
+        #expect(try runGit(["init", "--quiet", root.path]) == 0)
         let project = root.appendingPathComponent("nested/project", isDirectory: true)
         try FileManager.default.createDirectory(at: project, withIntermediateDirectories: true)
         let alias = root.appendingPathComponent("project-alias", isDirectory: true)
         try FileManager.default.createSymbolicLink(at: alias, withDestinationURL: project)
 
         _ = try await LocalArtifactRepository().snapshot(projectRoot: alias)
-
-        let exclude = try String(
-            contentsOf: root.appendingPathComponent(".git/info/exclude"),
-            encoding: .utf8
+        _ = try ArtifactTestSupport.write(
+            "private",
+            named: "organized/final.txt",
+            under: project.appendingPathComponent(".cmux")
         )
-        #expect(exclude == ArtifactGitIgnoreManager.ignoreEntries
-            .map { "nested/project/\($0)" }
-            .joined(separator: "\n") + "\n")
+
+        #expect(try runGit([
+            "-C", root.path, "check-ignore", "--quiet", "--",
+            "nested/project/.cmux/organized/final.txt",
+        ]) == 0)
     }
 
     @Test("Git excludes artifact stores in paths containing pattern metacharacters")

@@ -13,13 +13,10 @@ struct ArtifactGitPrivacyValidator: Sendable {
         ) else {
             return false
         }
-        let trackedContentPathspecs = [
-            ":(glob)\(relativeCmuxPath)/**/artifacts/**",
-            ":(glob)\(relativeCmuxPath)/**/notes/**",
-            ":(glob)\(relativeCmuxPath)/**/_session.json",
-            ":(glob)\(relativeCmuxPath)/**/_workspace.json",
-            ":(glob)\(relativeCmuxPath)/.metadata/**",
-        ]
+        let trackedContentPathspecs = [":(literal)\(relativeCmuxPath)"]
+            + ArtifactStorePaths.trackableControlFileNames.map {
+                ":(exclude,literal)\(relativeCmuxPath)/\($0)"
+            }
         guard let trackedResult = try? await commandRunner.run(
             arguments: [
                 "-C", worktreeRoot.path,

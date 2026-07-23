@@ -256,25 +256,21 @@ struct LocalArtifactRepositoryTests {
     func ignoresNestedProjectStore() async throws {
         let root = try ArtifactTestSupport.temporaryDirectory()
         defer { ArtifactTestSupport.remove(root) }
-        try FileManager.default.createDirectory(
-            at: root.appendingPathComponent(".git"),
-            withIntermediateDirectories: true
-        )
+        #expect(try runGit(["init", "--quiet", root.path]) == 0)
         let project = root.appendingPathComponent("nested/project")
-        try FileManager.default.createDirectory(
-            at: project.appendingPathComponent(".cmux"),
-            withIntermediateDirectories: true
+        let reorganized = try ArtifactTestSupport.write(
+            "private",
+            named: "organized/final.txt",
+            under: project.appendingPathComponent(".cmux")
         )
 
         _ = try await LocalArtifactRepository().snapshot(projectRoot: project)
 
-        let exclude = try String(
-            contentsOf: root.appendingPathComponent(".git/info/exclude"),
-            encoding: .utf8
-        )
-        #expect(exclude == ArtifactGitIgnoreManager.ignoreEntries
-            .map { "nested/project/\($0)" }
-            .joined(separator: "\n") + "\n")
+        #expect(try runGit([
+            "-C", root.path, "check-ignore", "--quiet", "--",
+            "nested/project/.cmux/organized/final.txt",
+        ]) == 0)
+        #expect(FileManager.default.fileExists(atPath: reorganized.path))
     }
 
     @Test("A linked worktree uses the common Git exclude file")
