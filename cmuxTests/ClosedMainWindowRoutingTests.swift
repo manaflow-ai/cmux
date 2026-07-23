@@ -1066,6 +1066,170 @@ struct RecoverableWindowlessMainWindowRoutingTests {
         #expect(app.tabManagerFor(windowId: reservedWindowId) === reservedOwner)
         #expect(GhosttyApp.terminalSurfaceRegistry.surface(id: reservedPanel.id) === reservedPanel.surface)
     }
+
+    @Test("Fresh window cannot alias a live owner's manager")
+    func freshWindowCannotAliasLiveOwnersManager() throws {
+        _ = NSApplication.shared
+        let previousAppDelegate = AppDelegate.shared
+        let app = AppDelegate()
+        defer {
+            TerminalController.shared.setActiveTabManager(nil)
+            AppDelegate.shared = previousAppDelegate
+        }
+
+        let ownerWindowId = UUID()
+        let ownerWindow = NonDestructiveCloseWindow(
+            contentRect: NSRect(x: 0, y: 0, width: 500, height: 320),
+            styleMask: [.titled, .closable],
+            backing: .buffered,
+            defer: false
+        )
+        ownerWindow.identifier = NSUserInterfaceItemIdentifier("cmux.main.\(ownerWindowId.uuidString)")
+
+        let aliasWindowId = UUID()
+        let aliasWindow = NonDestructiveCloseWindow(
+            contentRect: NSRect(x: 0, y: 0, width: 500, height: 320),
+            styleMask: [.titled, .closable],
+            backing: .buffered,
+            defer: false
+        )
+        aliasWindow.identifier = NSUserInterfaceItemIdentifier("cmux.main.\(aliasWindowId.uuidString)")
+
+        let manager = TabManager()
+        let workspace = try #require(manager.selectedWorkspace)
+        let terminalPanel = try #require(workspace.focusedTerminalPanel)
+        defer {
+            app.unregisterMainWindowContextForTesting(windowId: aliasWindowId)
+            app.unregisterMainWindowContextForTesting(windowId: ownerWindowId)
+            app.forgetRecoverableMainWindowRoute(windowId: aliasWindowId)
+            app.forgetRecoverableMainWindowRoute(windowId: ownerWindowId)
+            if !manager.isFinalizedForWindowClose {
+                manager.finalizeAllWorkspacesForWindowClose()
+            }
+            workspace.teardownAllPanels()
+            workspace.teardownRemoteConnection()
+            ownerWindow.orderOut(nil)
+            aliasWindow.orderOut(nil)
+        }
+
+        app.registerMainWindow(
+            ownerWindow,
+            windowId: ownerWindowId,
+            tabManager: manager,
+            sidebarState: SidebarState(),
+            sidebarSelectionState: SidebarSelectionState(),
+            fileExplorerState: FileExplorerState()
+        )
+        ownerWindow.makeKeyAndOrderFront(nil)
+        aliasWindow.makeKeyAndOrderFront(nil)
+
+        app.registerMainWindow(
+            aliasWindow,
+            windowId: aliasWindowId,
+            tabManager: manager,
+            sidebarState: SidebarState(),
+            sidebarSelectionState: SidebarSelectionState(),
+            fileExplorerState: FileExplorerState()
+        )
+
+        #expect(aliasWindow.closeCallCount == 1)
+        #expect(!aliasWindow.isVisible)
+        #expect(!app.commitMainWindowClose(aliasWindow))
+        #expect(!manager.isFinalizedForWindowClose)
+        #expect(manager.window === ownerWindow)
+        #expect(manager.tabs.map(\.id) == [workspace.id])
+        #expect(app.tabManagerFor(windowId: ownerWindowId) === manager)
+        #expect(app.tabManagerFor(windowId: aliasWindowId) == nil)
+        #expect(app.mainWindowContexts.values.filter { $0.tabManager === manager }.count == 1)
+        #expect(app.mainWindowContexts.values.contains {
+            $0.windowId == ownerWindowId && $0.tabManager === manager && $0.window === ownerWindow
+        })
+        #expect(GhosttyApp.terminalSurfaceRegistry.surface(id: terminalPanel.id) === terminalPanel.surface)
+    }
+
+    @Test("Fresh window cannot alias a windowless recoverable owner's manager")
+    func freshWindowCannotAliasWindowlessRecoverableOwnersManager() throws {
+        _ = NSApplication.shared
+        let previousAppDelegate = AppDelegate.shared
+        let app = AppDelegate()
+        defer {
+            TerminalController.shared.setActiveTabManager(nil)
+            AppDelegate.shared = previousAppDelegate
+        }
+
+        let ownerWindowId = UUID()
+        let ownerWindow = NonDestructiveCloseWindow(
+            contentRect: NSRect(x: 0, y: 0, width: 500, height: 320),
+            styleMask: [.titled, .closable],
+            backing: .buffered,
+            defer: false
+        )
+        ownerWindow.identifier = NSUserInterfaceItemIdentifier("cmux.main.\(ownerWindowId.uuidString)")
+
+        let aliasWindowId = UUID()
+        let aliasWindow = NonDestructiveCloseWindow(
+            contentRect: NSRect(x: 0, y: 0, width: 500, height: 320),
+            styleMask: [.titled, .closable],
+            backing: .buffered,
+            defer: false
+        )
+        aliasWindow.identifier = NSUserInterfaceItemIdentifier("cmux.main.\(aliasWindowId.uuidString)")
+
+        let manager = TabManager()
+        let workspace = try #require(manager.selectedWorkspace)
+        let terminalPanel = try #require(workspace.focusedTerminalPanel)
+        defer {
+            app.unregisterMainWindowContextForTesting(windowId: aliasWindowId)
+            app.unregisterMainWindowContextForTesting(windowId: ownerWindowId)
+            app.forgetRecoverableMainWindowRoute(windowId: aliasWindowId)
+            app.forgetRecoverableMainWindowRoute(windowId: ownerWindowId)
+            if !manager.isFinalizedForWindowClose {
+                manager.finalizeAllWorkspacesForWindowClose()
+            }
+            workspace.teardownAllPanels()
+            workspace.teardownRemoteConnection()
+            ownerWindow.orderOut(nil)
+            aliasWindow.orderOut(nil)
+        }
+
+        app.registerMainWindow(
+            ownerWindow,
+            windowId: ownerWindowId,
+            tabManager: manager,
+            sidebarState: SidebarState(),
+            sidebarSelectionState: SidebarSelectionState(),
+            fileExplorerState: FileExplorerState()
+        )
+        ownerWindow.makeKeyAndOrderFront(nil)
+        let ownerContext = try #require(
+            app.mainWindowContexts.values.first { $0.windowId == ownerWindowId }
+        )
+        app.discardOrphanedMainWindowContext(ownerContext)
+        let ownerRoute = try #require(app.recoverableMainWindowRoute(windowId: ownerWindowId))
+        ownerRoute.window = nil
+        ownerWindow.identifier = nil
+        ownerWindow.orderOut(nil)
+        aliasWindow.makeKeyAndOrderFront(nil)
+
+        app.registerMainWindow(
+            aliasWindow,
+            windowId: aliasWindowId,
+            tabManager: manager,
+            sidebarState: SidebarState(),
+            sidebarSelectionState: SidebarSelectionState(),
+            fileExplorerState: FileExplorerState()
+        )
+
+        #expect(aliasWindow.closeCallCount == 1)
+        #expect(!aliasWindow.isVisible)
+        #expect(!app.commitMainWindowClose(aliasWindow))
+        #expect(!manager.isFinalizedForWindowClose)
+        #expect(manager.tabs.map(\.id) == [workspace.id])
+        #expect(app.recoverableMainWindowRoute(windowId: ownerWindowId)?.tabManager === manager)
+        #expect(app.tabManagerFor(windowId: aliasWindowId) == nil)
+        #expect(!app.mainWindowContexts.values.contains { $0.tabManager === manager })
+        #expect(GhosttyApp.terminalSurfaceRegistry.surface(id: terminalPanel.id) === terminalPanel.surface)
+    }
 }
 
 @MainActor
