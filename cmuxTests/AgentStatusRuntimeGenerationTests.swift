@@ -41,6 +41,89 @@ struct AgentStatusRuntimeGenerationTests {
         #expect(AgentStatusHookEventSignal(event: event) == nil)
     }
 
+    @Test(arguments: [
+        #"{"_cmux_agent_status_signal":"needsInput","_cmux_agent_status_revision":true}"#,
+        #"{"_cmux_agent_status_signal":"needsInput","_cmux_agent_status_revision":1.5}"#,
+        #"{"_cmux_agent_status_signal":"needsInput","_cmux_agent_status_revision":-1}"#,
+        #"{"_cmux_agent_status_signal":"needsInput","_cmux_agent_status_revision":"not-a-revision"}"#,
+    ])
+    func malformedLifecycleRevisionRejectsStatusSignal(extraFieldsJSON: String) {
+        let event = WorkstreamEvent(
+            sessionId: "codex-current-session",
+            hookEventName: .permissionRequest,
+            source: "codex",
+            ppid: Int(getpid()),
+            extraFieldsJSON: extraFieldsJSON
+        )
+
+        #expect(AgentStatusHookEventSignal(event: event) == nil)
+    }
+
+    @Test @MainActor func unversionedLifecycleCannotOverwriteOrderedRuntimeGeneration() throws {
+        let panelID = UUID()
+        let runtimeKey = "codex.current-session"
+        let identity = AgentPIDProcessIdentity(
+            pid: getpid(),
+            startSeconds: 10,
+            startMicroseconds: 20
+        )
+        let ledger = AgentStatusRuntimeLedger()
+
+        #expect(ledger.recordLifecycle(
+            .running,
+            panelId: panelID,
+            statusKey: "codex",
+            observedAt: now,
+            runtimePIDKey: runtimeKey,
+            runtimeProcessIdentity: identity,
+            revision: 2
+        ))
+        #expect(!ledger.recordLifecycle(
+            .needsInput,
+            panelId: panelID,
+            statusKey: "codex",
+            observedAt: now.addingTimeInterval(1),
+            runtimePIDKey: runtimeKey,
+            runtimeProcessIdentity: identity
+        ))
+        #expect(ledger.evidenceForPanel(panelID)["codex"]?.lifecycle == .running)
+        #expect(ledger.evidenceForPanel(panelID)["codex"]?.lifecycleRevision == 2)
+    }
+
+    @Test @MainActor func newerExactRuntimeGenerationAcceptsUnversionedLifecycle() throws {
+        let panelID = UUID()
+        let runtimeKey = "codex.current-session"
+        let ledger = AgentStatusRuntimeLedger()
+
+        #expect(ledger.recordLifecycle(
+            .running,
+            panelId: panelID,
+            statusKey: "codex",
+            observedAt: now,
+            runtimePIDKey: runtimeKey,
+            runtimeProcessIdentity: AgentPIDProcessIdentity(
+                pid: getpid(),
+                startSeconds: 10,
+                startMicroseconds: 20
+            ),
+            revision: 8
+        ))
+        #expect(ledger.recordLifecycle(
+            .needsInput,
+            panelId: panelID,
+            statusKey: "codex",
+            observedAt: now.addingTimeInterval(1),
+            runtimePIDKey: runtimeKey,
+            runtimeProcessIdentity: AgentPIDProcessIdentity(
+                pid: getpid(),
+                startSeconds: 11,
+                startMicroseconds: 30
+            )
+        ))
+        #expect(ledger.evidenceForPanel(panelID)["codex"]?.lifecycle == .needsInput)
+        #expect(ledger.evidenceForPanel(panelID)["codex"]?.lifecycleRevision == nil)
+    }
+
     @Test @MainActor func samePIDClaudeReplacementRejectsOldSessionWithoutResumeBinding() throws {
         let workspace = Workspace()
         let panelId = try #require(workspace.focusedPanelId)

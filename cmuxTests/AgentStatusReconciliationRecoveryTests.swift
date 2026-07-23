@@ -24,6 +24,23 @@ struct AgentStatusReconciliationRecoveryTests {
         #expect(resolution == AgentStatusResolution(lifecycle: .unknown, confidence: .uncertain))
     }
 
+    @Test func outputActivitySurvivesUntilTheNextThirtySecondSweep() {
+        let observedAt = now.addingTimeInterval(-31)
+        let resolution = AgentStatusReconciler().resolve(
+            evidence: AgentStatusEvidence(
+                lifecycle: .unknown,
+                outputObservedAt: observedAt,
+                foregroundAgentStatusKey: "codex",
+                foregroundObservedAt: observedAt
+            ),
+            statusKey: "codex",
+            hasLiveRuntime: true,
+            now: now
+        )
+
+        #expect(resolution == AgentStatusResolution(lifecycle: .running, confidence: .inferred))
+    }
+
     @Test @MainActor func replacementRuntimeAcceptsRestartedLifecycleRevision() throws {
         let workspace = Workspace()
         let panelID = try #require(workspace.focusedPanelId)
