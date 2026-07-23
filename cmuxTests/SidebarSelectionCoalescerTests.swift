@@ -83,6 +83,8 @@ final class SidebarTestManualClock: Clock, @unchecked Sendable {
     private var cancelledSleeperIDs: Set<UUID> = []
     private var sleepWaiters: [SleepWaiter] = []
     private var idleWaiters: [CheckedContinuation<Void, Never>] = []
+    private var idleWaiterRegistrationCount = 0
+    private var idleWaiterRegistrationWaiters: [(count: Int, continuation: CheckedContinuation<Void, Never>)] = []
     private let beforeRegisteringSleeper: @Sendable () async -> Void
 
     init(beforeRegisteringSleeper: @escaping @Sendable () async -> Void = {}) {
@@ -202,6 +204,29 @@ final class SidebarTestManualClock: Clock, @unchecked Sendable {
                 continuation.resume()
             } else {
                 idleWaiters.append(continuation)
+                idleWaiterRegistrationCount += 1
+                var registrationWaiters: [CheckedContinuation<Void, Never>] = []
+                idleWaiterRegistrationWaiters.removeAll { waiter in
+                    if idleWaiterRegistrationCount >= waiter.count {
+                        registrationWaiters.append(waiter.continuation)
+                        return true
+                    }
+                    return false
+                }
+                lock.unlock()
+                for waiter in registrationWaiters { waiter.resume() }
+            }
+        }
+    }
+
+    func waitUntilIdleWaiterRegistered(_ count: Int = 1) async {
+        await withCheckedContinuation { continuation in
+            lock.lock()
+            if idleWaiterRegistrationCount >= count {
+                lock.unlock()
+                continuation.resume()
+            } else {
+                idleWaiterRegistrationWaiters.append((count, continuation))
                 lock.unlock()
             }
         }
@@ -330,7 +355,7 @@ struct SidebarSelectionCoalescerTests {
             await clock.waitUntilIdle()
             idleReturned = true
         }
-        await drain()
+        await clock.waitUntilIdleWaiterRegistered()
         #expect(!idleReturned)
 
         sleep.cancel()
@@ -365,7 +390,7 @@ struct SidebarSelectionCoalescerTests {
             await clock.waitUntilIdle()
             idleReturned = true
         }
-        await drain()
+        await clock.waitUntilIdleWaiterRegistered()
         #expect(!idleReturned)
 
         clock.advance(by: .milliseconds(100))
