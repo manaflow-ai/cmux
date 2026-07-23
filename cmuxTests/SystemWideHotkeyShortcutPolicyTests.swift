@@ -54,7 +54,11 @@ final class SystemWideHotkeyShortcutPolicyTests {
     }
 
     @Test func registrationPolicyContainsOnlyExplicitlySystemWideActions() {
-        #expect(SystemWideHotkeyController.systemWideActions == [.showHideAllWindows])
+        #expect(SystemWideHotkeySettings.action == .showHideAllWindows)
+        #expect(
+            KeyboardShortcutSettings.Action.allCases.filter(\.isSystemWideHotkey) ==
+                [.showHideAllWindows]
+        )
     }
 
     @Test func foregroundGlobalSearchDoesNotUseSystemWideReservationPolicy() {

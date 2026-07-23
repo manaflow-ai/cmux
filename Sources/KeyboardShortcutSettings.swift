@@ -1159,9 +1159,6 @@ final class SystemWideHotkeyController {
     static let shared = SystemWideHotkeyController()
     private static let hotKeySignature: OSType = 0x434D484B // "CMHK"
     private static let hotKeyID: UInt32 = 1
-    static var systemWideActions: [KeyboardShortcutSettings.Action] {
-        KeyboardShortcutSettings.Action.allCases.filter(\.isSystemWideHotkey)
-    }
     private static let action = SystemWideHotkeySettings.action
 
     private var hotKeyRef: EventHotKeyRef?
