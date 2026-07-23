@@ -91,17 +91,25 @@ extension CMUXCLI {
             }
         }
         let resolvedWorkspaceId: String?
-        do {
-            resolvedWorkspaceId = try resolveWorkspaceId(trimmedWorkspace, client: client)
-        } catch let error as CLIError where error.v2Code == "not_found" {
-            if trimmedWorkspace != nil {
-                throw CLIError(
-                    message: error.message,
-                    exitCode: Self.piHookSurfaceUnavailableExitCode,
-                    v2Code: error.v2Code
-                )
+        if let workspace = trimmedWorkspace, isUUID(workspace) {
+            // Exact workspace IDs are only preferred hints for exact surfaces;
+            // the global live-surface resolver below remains authoritative.
+            resolvedWorkspaceId = workspace
+        } else {
+            do {
+                resolvedWorkspaceId = try resolveWorkspaceId(trimmedWorkspace, client: client)
+            } catch let error as CLIError where error.v2Code == "not_found" {
+                if trimmedWorkspace != nil {
+                    // A supplied index/ref failed to resolve and cannot be
+                    // discarded without violating the caller's explicit scope.
+                    throw CLIError(
+                        message: error.message,
+                        exitCode: Self.piHookSurfaceUnavailableExitCode,
+                        v2Code: error.v2Code
+                    )
+                }
+                resolvedWorkspaceId = nil
             }
-            resolvedWorkspaceId = nil
         }
         if isUUID(surface) {
             var params: [String: Any] = ["surface_id": surface]
@@ -211,6 +219,11 @@ extension CMUXCLI {
             throw piFeedAcknowledgmentError()
         }
         if let expectedItemCount {
+            if expectedItemCount == 1,
+               let itemId = result["item_id"] as? String,
+               UUID(uuidString: itemId) != nil {
+                return
+            }
             guard expectedItemCount > 0,
                   let itemIds = result["item_ids"] as? [String],
                   itemIds.count == expectedItemCount,

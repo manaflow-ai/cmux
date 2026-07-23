@@ -5663,20 +5663,7 @@ class TerminalController {
             )
         }
 
-        CmuxEventBus.shared.publishWorkstreamEvent(event, phase: "received")
-        v2ApplyIMessageModeSideEffects(for: event)
-        Task { @MainActor in self.agentChatTranscriptService?.noteHookEvent(event) }
-
-        let result = FeedCoordinator.shared.ingestBlocking(
-            event: event,
-            waitTimeout: waitTimeout
-        )
-        CmuxEventBus.shared.publishWorkstreamEvent(
-            event,
-            phase: "completed",
-            result: FeedSocketEncoding.payload(for: result)
-        )
-        return .ok(FeedSocketEncoding.payload(for: result))
+        return v2IngestFeedEvent(event, waitTimeout: waitTimeout)
     }
 
     nonisolated func v2ApplyIMessageModeSideEffects(for event: WorkstreamEvent) {

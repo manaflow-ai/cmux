@@ -90,9 +90,12 @@ final class FeedCoordinator: @unchecked Sendable {
     }
 
     @MainActor
-    private func ingestOnMainActor(_ event: WorkstreamEvent) -> UUID? {
+    private func acceptOnMainActor(
+        _ event: WorkstreamEvent
+    ) -> (event: WorkstreamEvent, itemId: UUID)? {
         guard let revalidatedEvent = eventRehomedToLiveSurface(event) else { return nil }
-        return ingestRevalidatedOnMainActor(revalidatedEvent)
+        guard let itemId = ingestRevalidatedOnMainActor(revalidatedEvent) else { return nil }
+        return (revalidatedEvent, itemId)
     }
 
     @MainActor
@@ -106,7 +109,7 @@ final class FeedCoordinator: @unchecked Sendable {
 
     @MainActor
     func ingestAcknowledged(_ event: WorkstreamEvent) -> IngestBlockingResult {
-        .acknowledged(itemId: ingestOnMainActor(event))
+        .acknowledged(itemId: acceptOnMainActor(event)?.itemId)
     }
 
     /// Ingests a wire-frame event and, when `waitTimeout` > 0, blocks the
@@ -114,18 +117,21 @@ final class FeedCoordinator: @unchecked Sendable {
     /// timeout elapses.
     func ingestBlocking(
         event: WorkstreamEvent,
-        waitTimeout: TimeInterval
+        waitTimeout: TimeInterval,
+        onAccepted: @escaping @MainActor @Sendable (WorkstreamEvent) -> Void = { _ in }
     ) -> IngestBlockingResult {
         if waitTimeout <= 0 {
             Task { @MainActor in
-                _ = FeedCoordinator.shared.ingestOnMainActor(event)
+                guard let accepted = FeedCoordinator.shared.acceptOnMainActor(event) else { return }
+                onAccepted(accepted.event)
             }
             return .acknowledged(itemId: nil)
         }
         guard let requestId = event.requestId else {
             DispatchQueue.main.async {
                 MainActor.assumeIsolated {
-                    _ = FeedCoordinator.shared.ingestOnMainActor(event)
+                    guard let accepted = FeedCoordinator.shared.acceptOnMainActor(event) else { return }
+                    onAccepted(accepted.event)
                 }
             }
             return .acknowledged(itemId: nil)
@@ -144,13 +150,14 @@ final class FeedCoordinator: @unchecked Sendable {
         // kqueue watcher for the agent's PID. The watcher handler
         // caps the pending lifetime to the agent process lifetime
         // — no polling, no leaked cards when the agent is killed.
-        let itemIdSlot = UnsafeItemIdSlot()
         let resolvedAttentionTarget = Self.isBlockingDecisionEvent(event.hookEventName)
             ? Self.resolveAttentionTarget(event: event)
             : nil
-        DispatchQueue.main.sync {
+        let accepted: (event: WorkstreamEvent, itemId: UUID)? = DispatchQueue.main.sync {
             MainActor.assumeIsolated {
-                itemIdSlot.value = FeedCoordinator.shared.ingestOnMainActor(event)
+                guard let accepted = FeedCoordinator.shared.acceptOnMainActor(event) else {
+                    return nil
+                }
                 // Surface in-app attention (needs-input status + bell +
                 // workspace elevation) for the blocking decision. This fires
                 // regardless of app focus, unlike the desktop banner below,
@@ -163,24 +170,42 @@ final class FeedCoordinator: @unchecked Sendable {
                 // ingest `main.sync`, before the card can render and a reply
                 // can fire — so the overlay is cleared exactly once when the
                 // decision concludes (no race with `deliverReply`).
+                let liveWorkspaceId = accepted.event.workspaceId.flatMap {
+                    UUID(uuidString: $0.trimmingCharacters(in: .whitespacesAndNewlines))
+                }
+                let liveSurfaceId = accepted.event.surfaceId.flatMap {
+                    UUID(uuidString: $0.trimmingCharacters(in: .whitespacesAndNewlines))
+                }
+                let attentionTarget = liveWorkspaceId.map {
+                    (workspaceId: $0, surfaceId: liveSurfaceId)
+                } ?? resolvedAttentionTarget
                 if let target = FeedCoordinator.shared.surfaceBlockingDecisionAttention(
-                    event: event,
-                    resolved: resolvedAttentionTarget
+                    event: accepted.event,
+                    resolved: attentionTarget
                 ) {
                     FeedCoordinator.shared.waiterLock.lock()
                     FeedCoordinator.shared.waiters[requestId]?.attentionTarget = target
                     FeedCoordinator.shared.waiterLock.unlock()
                 }
+                onAccepted(accepted.event)
                 #if DEBUG
-                FeedCoordinatorTestHooks.afterBlockingEventIngested?(event, requestId)
+                FeedCoordinatorTestHooks.afterBlockingEventIngested?(accepted.event, requestId)
                 #endif
+                return accepted
             }
+        }
+
+        guard let accepted else {
+            waiterLock.lock()
+            waiters.removeValue(forKey: requestId)
+            waiterLock.unlock()
+            return .unavailable
         }
 
         // If this is a blocking actionable event and the app window isn't
         // focused, post a native notification banner with inline action
         // buttons so the user can respond without switching windows.
-        postNotificationIfStillAwaiting(event: event, requestId: requestId)
+        postNotificationIfStillAwaiting(event: accepted.event, requestId: requestId)
 
         let deadline: DispatchTime = .now() + waitTimeout
         let waitResult = semaphore.wait(timeout: deadline)
@@ -193,17 +218,17 @@ final class FeedCoordinator: @unchecked Sendable {
         case .success:
             if let decision = w?.decision {
                 // `deliverReply` concludes the attention overlay on resolve.
-                return .resolved(itemId: itemIdSlot.value, decision: decision)
+                return .resolved(itemId: accepted.itemId, decision: decision)
             }
             cancelNotification(requestId: requestId)
             concludeAttentionOnMain(w?.attentionTarget)
-            expireTimedOutItem(itemIdSlot.value)
-            return .timedOut(itemId: itemIdSlot.value)
+            expireTimedOutItem(accepted.itemId)
+            return .timedOut(itemId: accepted.itemId)
         case .timedOut:
             cancelNotification(requestId: requestId)
             concludeAttentionOnMain(w?.attentionTarget)
-            expireTimedOutItem(itemIdSlot.value)
-            return .timedOut(itemId: itemIdSlot.value)
+            expireTimedOutItem(accepted.itemId)
+            return .timedOut(itemId: accepted.itemId)
         }
     }
 
@@ -297,10 +322,11 @@ final class FeedCoordinator: @unchecked Sendable {
         }
     }
 
-    enum IngestBlockingResult {
+    enum IngestBlockingResult: Sendable {
         case acknowledged(itemId: UUID?)
         case resolved(itemId: UUID?, decision: WorkstreamDecision)
         case timedOut(itemId: UUID?)
+        case unavailable
     }
 }
 
@@ -544,12 +570,6 @@ private final class PendingWaiter: @unchecked Sendable {
     init(semaphore: DispatchSemaphore) {
         self.semaphore = semaphore
     }
-}
-
-/// Tiny box so the `DispatchQueue.main.sync` closure can mutate an
-/// `UUID?` without a capture warning.
-private final class UnsafeItemIdSlot: @unchecked Sendable {
-    var value: UUID?
 }
 
 private final class SnapshotSlot: @unchecked Sendable {
@@ -1130,6 +1150,8 @@ enum FeedSocketEncoding {
             var dict: [String: Any] = ["status": "timed_out"]
             if let itemId { dict["item_id"] = itemId.uuidString }
             return dict
+        case .unavailable:
+            return ["status": "unavailable"]
         }
     }
 

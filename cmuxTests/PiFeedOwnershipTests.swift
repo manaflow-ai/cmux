@@ -179,6 +179,7 @@ struct PiFeedOwnershipTests {
 
         let insertedEvents = PiFeedEventRecorder()
         let attentionEvents = PiFeedEventRecorder()
+        let acceptedEvents = PiFeedEventRecorder()
         let requestId = "pi-live-blocking-request"
         let store = WorkstreamStore(
             ringCapacity: 10,
@@ -209,7 +210,11 @@ struct PiFeedOwnershipTests {
             requestId: requestId
         )
         let result = await Task.detached {
-            FeedCoordinator.shared.ingestBlocking(event: event, waitTimeout: 1)
+            FeedCoordinator.shared.ingestBlocking(
+                event: event,
+                waitTimeout: 1,
+                onAccepted: { acceptedEvents.record($0) }
+            )
         }.value
 
         guard case .resolved(_, .permission(.once)) = result else {
@@ -220,6 +225,8 @@ struct PiFeedOwnershipTests {
         #expect(insertedEvents.events.first?.surfaceId == surfaceId.uuidString)
         #expect(attentionEvents.events.first?.workspaceId == liveWorkspace.id.uuidString)
         #expect(attentionEvents.events.first?.surfaceId == surfaceId.uuidString)
+        #expect(acceptedEvents.events.first?.workspaceId == liveWorkspace.id.uuidString)
+        #expect(acceptedEvents.events.first?.surfaceId == surfaceId.uuidString)
     }
 
     @MainActor
@@ -250,8 +257,9 @@ struct PiFeedOwnershipTests {
             FeedCoordinator.shared.ingestBlocking(event: event, waitTimeout: 0.01)
         }.value
 
-        if case .timedOut = result {
+        guard case .unavailable = result else {
             Issue.record("unavailable Feed targets must fail before entering the decision wait")
+            return
         }
         #expect(store.items.isEmpty)
     }
