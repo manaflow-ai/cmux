@@ -2923,9 +2923,10 @@ pub fn run(
 }
 
 fn enable_host_keyboard_protocol(stdout: &mut impl Write) -> std::io::Result<()> {
+    // Crossterm 0.29 consumes Shift when parsing alternate key codes, so use
+    // the base code plus modifier mask to preserve Ctrl+Shift combinations.
     stdout.execute(PushKeyboardEnhancementFlags(
-        KeyboardEnhancementFlags::DISAMBIGUATE_ESCAPE_CODES
-            | KeyboardEnhancementFlags::REPORT_ALTERNATE_KEYS,
+        KeyboardEnhancementFlags::DISAMBIGUATE_ESCAPE_CODES,
     ))?;
     Ok(())
 }
@@ -4451,6 +4452,15 @@ impl App {
         Some((id, self.session.surface(id)?))
     }
 
+    fn active_surface_can_clear_history(&self) -> bool {
+        self.active_surface_handle().is_some_and(|surface| {
+            surface.kind() == SurfaceKind::Pty
+                && surface
+                    .with_terminal(|terminal| terminal.active_screen() == Screen::Primary)
+                    .unwrap_or(false)
+        })
+    }
+
     fn missing_input_surface(&self, input: &Event) -> Option<SurfaceId> {
         let surface = match input {
             Event::Key(_) | Event::Paste(_) => self.active_surface()?,
@@ -4779,6 +4789,15 @@ impl App {
             }
         }
         if let Some(action) = self.config.keys.modeless_action_for(&key) {
+            if action == Action::ClearHistory && !self.active_surface_can_clear_history() {
+                self.selection = None;
+                self.forward_key(&key);
+                return Ok(if self.status_message.is_some() {
+                    RenderAction::Draw
+                } else {
+                    RenderAction::None
+                });
+            }
             return self.run_action(action);
         }
         // Typing replaces any selection highlight.
@@ -8025,7 +8044,7 @@ mod tests {
             for line in 0..24 {
                 term.vt_write(format!("history-{line}\r\n").as_bytes());
             }
-            term.vt_write(b"visible-content");
+            term.vt_write(b"\x1b]133;A\x07prompt> visible-content");
         });
         assert!(surface.with_terminal(|term| term.history_rows()).unwrap() > 0);
 
@@ -8048,7 +8067,7 @@ mod tests {
             assert_eq!(term.history_rows(), 0);
             let viewport = term.viewport_text().unwrap();
             assert!(!viewport.contains("history-"));
-            assert!(viewport.contains("visible-content"));
+            assert!(!viewport.contains("visible-content"));
         });
         mux.close_surface(surface.id);
     }
@@ -8058,15 +8077,30 @@ mod tests {
         let mux = Mux::new(
             "command-k-alternate-screen-test",
             SurfaceOptions {
-                command: Some(vec!["/bin/cat".to_string()]),
+                command: Some(vec![
+                    "/bin/sh".to_string(),
+                    "-c".to_string(),
+                    "stty raw -echo; printf ready; exec cat".to_string(),
+                ]),
                 cols: 20,
                 rows: 8,
                 ..Default::default()
             },
         );
         let surface = mux.new_workspace(Some("work".to_string()), Some((20, 8))).unwrap();
-        surface.with_terminal(|term| term.vt_write(b"\x1b[?1049h\x1b[>1u"));
         let attach = surface.attach_stream().unwrap();
+        let deadline = Instant::now() + Duration::from_secs(1);
+        let mut output = Vec::new();
+        while !output.windows(5).any(|window| window == b"ready") {
+            match attach.stream.recv_timeout(Duration::from_millis(20)) {
+                Ok(cmux_tui_core::AttachFrame::Output(bytes)) => output.extend_from_slice(&bytes),
+                Ok(cmux_tui_core::AttachFrame::Resized { .. })
+                | Ok(cmux_tui_core::AttachFrame::ColorsChanged(_)) => {}
+                Err(_) if Instant::now() < deadline => {}
+                Err(error) => panic!("alternate-screen helper did not become ready: {error}"),
+            }
+        }
+        surface.with_terminal(|term| term.vt_write(b"\x1b[?1049h\x1b[>1u"));
 
         let (mut app, _events) = test_app_with_events(Session::Local(mux.clone()));
         app.sidebar_visible = false;
@@ -8079,7 +8113,7 @@ mod tests {
 
         let expected = b"\x1b[107;9u";
         let deadline = Instant::now() + Duration::from_secs(1);
-        let mut output = Vec::new();
+        output.clear();
         while !output.windows(expected.len()).any(|window| window == expected) {
             match attach.stream.recv_timeout(Duration::from_millis(20)) {
                 Ok(cmux_tui_core::AttachFrame::Output(bytes)) => output.extend_from_slice(&bytes),

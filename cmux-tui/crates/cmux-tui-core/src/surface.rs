@@ -891,10 +891,10 @@ impl Surface {
     }
 
     /// Clear retained primary-screen output. A shell is asked to redraw only
-    /// when OSC 133 metadata identifies an active prompt; otherwise the current
-    /// row is preserved without sending bytes to the child. Attached byte
-    /// frontends receive the same VT erase sequence. Alternate-screen
-    /// applications are left untouched.
+    /// when OSC 133 metadata identifies an active prompt; otherwise only
+    /// scrollback is discarded so visible input remains untouched and no bytes
+    /// are sent to the child. Attached byte frontends receive the same VT erase
+    /// sequence. Alternate-screen applications are left untouched.
     pub fn clear_history(&self) -> anyhow::Result<()> {
         const CLEAR_PROMPT_HISTORY_AND_SCREEN: &[u8] = b"\x1b[2J\x1b[3J\x1b[H";
         const CLEAR_SCROLLBACK: &[u8] = b"\x1b[3J";
@@ -911,10 +911,6 @@ impl Surface {
             let redraw_prompt = term.cursor_is_at_prompt();
             let clear = if redraw_prompt {
                 CLEAR_PROMPT_HISTORY_AND_SCREEN.to_vec()
-            } else if let Some((_, cursor_y)) = term.cursor_position()
-                && cursor_y > 0
-            {
-                format!("\x1b[{cursor_y}S\x1b[{cursor_y}A\x1b[3J").into_bytes()
             } else {
                 CLEAR_SCROLLBACK.to_vec()
             };
@@ -1778,10 +1774,13 @@ mod tests {
             }
             term.vt_write(b"visible");
         });
+        let authoritative_before =
+            surface.with_terminal(|term| term.viewport_text().unwrap()).unwrap();
         let attach = surface.attach_stream().unwrap();
         let mut mirror =
             Terminal::new(attach.cols, attach.rows, 10_000, Callbacks::default()).unwrap();
         mirror.vt_write(&attach.replay);
+        let mirror_before = mirror.viewport_text().unwrap();
         while events.try_recv().is_ok() {}
 
         surface.clear_history().unwrap();
@@ -1794,14 +1793,10 @@ mod tests {
         mirror.vt_write(&bytes);
         surface.with_terminal(|term| {
             assert_eq!(term.history_rows(), 0);
-            let viewport = term.viewport_text().unwrap();
-            assert!(!viewport.contains("history-"));
-            assert!(viewport.contains("visible"));
+            assert_eq!(term.viewport_text().unwrap(), authoritative_before);
         });
         assert_eq!(mirror.history_rows(), 0);
-        let mirror_viewport = mirror.viewport_text().unwrap();
-        assert!(!mirror_viewport.contains("history-"));
-        assert!(mirror_viewport.contains("visible"));
+        assert_eq!(mirror.viewport_text().unwrap(), mirror_before);
         assert!(events.try_iter().any(|event| matches!(event, MuxEvent::SurfaceOutput(1))));
     }
 
@@ -1836,21 +1831,22 @@ mod tests {
             Surface::spawn_for_test(1, SurfaceOptions::default(), Arc::downgrade(&mux)).unwrap();
         let writer = CapturingWriter::default();
         *surface.as_pty().unwrap().writer.lock().unwrap() = Box::new(writer.clone());
-        surface.with_terminal(|term| {
-            for line in 0..40 {
-                term.vt_write(format!("history-{line}\r\n").as_bytes());
-            }
-            term.vt_write(b"foreground-input");
-            assert!(term.history_rows() > 0);
-        });
+        let before = surface
+            .with_terminal(|term| {
+                for line in 0..40 {
+                    term.vt_write(format!("history-{line}\r\n").as_bytes());
+                }
+                term.vt_write(b"foreground-input");
+                assert!(term.history_rows() > 0);
+                term.viewport_text().unwrap()
+            })
+            .unwrap();
 
         surface.clear_history().unwrap();
 
         surface.with_terminal(|term| {
             assert_eq!(term.history_rows(), 0);
-            let viewport = term.viewport_text().unwrap();
-            assert!(!viewport.contains("history-"));
-            assert!(viewport.contains("foreground-input"));
+            assert_eq!(term.viewport_text().unwrap(), before);
         });
         assert!(writer.0.lock().unwrap().is_empty());
     }

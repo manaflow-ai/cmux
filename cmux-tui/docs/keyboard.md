@@ -53,10 +53,12 @@ These defaults come from `Keys::default`.
 | `Ctrl-b [` | Scroll the active PTY viewport up 10 rows |
 | `Ctrl-b PageUp` | Scroll the active PTY viewport up 10 rows |
 | `Ctrl-b PageDown` | Scroll the active PTY viewport down 10 rows |
-| `Cmd-k` / `Super-k` | Clear prior PTY output while preserving the active prompt and edit buffer |
+| `Cmd-k` / `Super-k` | Clear retained PTY history; prompt-aware shells also clear visible prior output while preserving the edit buffer |
 | `Ctrl-b d` | Quit a local TUI or detach an attached TUI |
 
 Directional focus follows Zellij's pane memory: when several panes share the requested edge, cmux-tui returns to the pane focused most recently.
+
+On a primary screen with OSC 133 prompt metadata, `Cmd-k` clears visible prior output and asks the shell to redraw its prompt and edit buffer. Without prompt metadata, it clears retained scrollback while leaving visible rows untouched so wrapped input cannot be truncated. In alternate-screen applications, modeless `Cmd-k` is forwarded to the application.
 
 The screen bindings intentionally match tmux: `c` creates a screen, `n` and `p` switch screens, `&` closes a screen, `,` renames a screen, `z` zooms a pane, `o` cycles panes, `{` and `}` swap panes, and number keys select visible screens. Screens are numbered from 0, so `Ctrl-b 0` selects screen 0 and `Ctrl-b 1` selects screen 1.
 

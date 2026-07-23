@@ -329,29 +329,17 @@ fn cli_verbs_cover_command_output_errors_and_streams() {
     let type_pending =
         cli(&server, &["send", "--surface", &surface.to_string(), "--text", &pending]);
     assert_success(&type_pending);
-    wait_for_screen(&server, surface, &pending);
+    let screen_before_clear = wait_for_screen(&server, surface, &pending);
 
     let cleared = cli(&server, &["clear-history", "--surface", &surface.to_string()]);
     assert_success(&cleared);
     assert!(cleared.stdout.is_empty(), "clear-history should be quiet on success");
-    let deadline = Instant::now() + Duration::from_secs(5);
-    let mut cleared_screen = String::new();
-    while Instant::now() < deadline {
-        let output = cli(&server, &["read-screen", "--surface", &surface.to_string()]);
-        assert_success(&output);
-        cleared_screen = String::from_utf8(output.stdout).unwrap();
-        if cleared_screen.contains(&pending) && !cleared_screen.contains(&marker) {
-            break;
-        }
-        std::thread::sleep(Duration::from_millis(50));
-    }
-    assert!(
-        cleared_screen.contains(&pending),
-        "clear-history removed the active prompt buffer: {cleared_screen:?}"
-    );
-    assert!(
-        !cleared_screen.contains(&marker),
-        "clear-history retained prior output: {cleared_screen:?}"
+    let output = cli(&server, &["read-screen", "--surface", &surface.to_string()]);
+    assert_success(&output);
+    let cleared_screen = String::from_utf8(output.stdout).unwrap();
+    assert_eq!(
+        cleared_screen, screen_before_clear,
+        "clear-history must leave visible rows intact when the shell provides no prompt metadata"
     );
     let cleared_scrollback = cli(
         &server,
