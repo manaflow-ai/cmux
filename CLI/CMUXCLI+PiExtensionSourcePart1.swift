@@ -59,9 +59,70 @@ function objectValue(value: unknown, keys: string[]): unknown {
 
 function utf8Prefix(value: unknown, maximumBytes: number): string | undefined {
   if (typeof value !== "string") return undefined;
-  const bytes = Buffer.from(value, "utf8");
-  if (bytes.byteLength <= maximumBytes) return value;
+  const candidate = value.length > maximumBytes ? value.slice(0, maximumBytes) : value;
+  const bytes = Buffer.from(candidate, "utf8");
+  if (bytes.byteLength <= maximumBytes) return candidate;
   return bytes.subarray(0, maximumBytes).toString("utf8").replace(/\uFFFD+$/u, "");
+}
+
+interface PiFeedProjectionState {
+  remainingNodes: number;
+  seen: WeakSet<object>;
+}
+
+function projectPiFeedValue(value: unknown, state: PiFeedProjectionState, depth = 0, preserveText = true): unknown {
+  if (value === null || typeof value === "boolean") return value;
+  if (typeof value === "string") return preserveText ? utf8Prefix(value, 512) : piFeedValueSummary(value);
+  if (typeof value === "number") return Number.isFinite(value) ? value : piFeedValueSummary(value);
+  if (typeof value !== "object") return piFeedValueSummary(value);
+  if (depth >= 4 || state.remainingNodes <= 0) return piFeedValueSummary(value);
+  if (state.seen.has(value)) return { kind: "circular" };
+  state.remainingNodes -= 1;
+  state.seen.add(value);
+  try {
+    if (Array.isArray(value)) {
+      const out: unknown[] = [];
+      const retained = Math.min(value.length, 12);
+      for (let index = 0; index < retained; index += 1) {
+        try {
+          out.push(projectPiFeedValue(value[index], state, depth + 1, preserveText));
+        } catch (_) {
+          out.push({ kind: "unavailable" });
+        }
+      }
+      if (value.length > retained) out.push({ kind: "omitted", count: value.length - retained });
+      return out;
+    }
+    const out: Record<string, unknown> = {};
+    let scanned = 0;
+    try {
+      for (const key in value as Record<string, unknown>) {
+        if (scanned >= 12) {
+          out.cmux_truncated = true;
+          break;
+        }
+        scanned += 1;
+        if (!Object.prototype.hasOwnProperty.call(value, key)) continue;
+        const projectedKey = utf8Prefix(key, 128);
+        if (!projectedKey) continue;
+        try {
+          out[projectedKey] = projectPiFeedValue(
+            (value as Record<string, unknown>)[key],
+            state,
+            depth + 1,
+            preserveText,
+          );
+        } catch (_) {
+          out[projectedKey] = { kind: "unavailable" };
+        }
+      }
+    } catch (_) {
+      return piFeedValueSummary(value);
+    }
+    return out;
+  } finally {
+    state.seen.delete(value);
+  }
 }
 
 function boundedPiFeedInput(payload: Record<string, unknown>, maximumBytes: number): string {
@@ -102,19 +163,26 @@ function boundedPiFeedInput(payload: Record<string, unknown>, maximumBytes: numb
     safe.cmux_compacted_terminal_count = totalCount;
     safe.cmux_compacted_terminal_omitted_count = omittedCount;
     safe.cmux_compacted_terminal_events = [summary];
-  } else if (payload.tool_input && typeof payload.tool_input === "object") {
-    safe.tool_input = payload.tool_input;
+  } else if (firstString(payload.hook_event_name, payload.event) === "PostToolUse") {
+    safe.cmux_compacted_terminal_count = 1;
+    safe.cmux_compacted_terminal_omitted_count = 0;
+    safe.cmux_compacted_terminal_events = [piTerminalFeedSummary(payload)];
+  } else if (payload.tool_input !== undefined) {
+    safe.tool_input = piFeedValueSummary(payload.tool_input);
   }
 
   const compacted = JSON.stringify(safe);
   if (Buffer.byteLength(compacted, "utf8") <= maximumBytes) return compacted;
+  const fallbackEvent = utf8Prefix(payload.hook_event_name, 64) || "PostToolUse";
   return JSON.stringify({
     session_id: utf8Prefix(payload.session_id, 128),
-    hook_event_name: "PostToolUse",
-    event: "PostToolUse",
+    hook_event_name: fallbackEvent,
+    event: fallbackEvent,
     tool_call_id: "compacted-overflow",
     tool_name: "cmux_compacted_terminal_overflow",
-    tool_input: { omitted_terminal_count: Math.max(1, totalCount) },
+    tool_input: fallbackEvent === "PostToolUse"
+      ? { omitted_terminal_count: Math.max(1, totalCount) }
+      : piFeedValueSummary(payload.tool_input),
   });
 }
 
@@ -416,7 +484,7 @@ type SurfaceDispatchState = "unknown" | "available" | "unavailable";
 interface PiFeedCommand {
   readonly args: string[];
   readonly cwd: string;
-  readonly input: string;
+  readonly payload: Record<string, unknown>;
   readonly context: PiExtensionContextSnapshot;
   readonly terminal: boolean;
 }

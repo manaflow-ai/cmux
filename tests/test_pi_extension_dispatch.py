@@ -967,17 +967,19 @@ let resolveActive;
 dispatcher.execute = () => new Promise((resolve) => {
   resolveActive = resolve;
 });
+const startPayload = { session_id: context.sessionId, hook_event_name: "PreToolUse" };
 dispatcher.enqueueFeed("timeout-tool", {
   args: ["hooks", "feed", "--source", "pi", "--event", "PreToolUse"],
   cwd: "/tmp/pi-queued-completion-timeout",
-  input: JSON.stringify({ session_id: context.sessionId, hook_event_name: "PreToolUse" }),
+  payload: startPayload,
   context,
   terminal: false
 });
+const completionPayload = { session_id: context.sessionId, hook_event_name: "PostToolUse" };
 dispatcher.enqueueFeed("timeout-tool", {
   args: ["hooks", "feed", "--source", "pi", "--event", "PostToolUse"],
   cwd: "/tmp/pi-queued-completion-timeout",
-  input: JSON.stringify({ session_id: context.sessionId, hook_event_name: "PostToolUse" }),
+  payload: completionPayload,
   context,
   terminal: true
 });

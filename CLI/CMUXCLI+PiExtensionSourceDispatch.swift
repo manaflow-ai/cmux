@@ -1,5 +1,24 @@
 extension CMUXCLI {
     static let piExtensionSourceDispatch = #"""
+function piFeedValueSummary(value: unknown): Record<string, unknown> {
+  if (value === null) return { kind: "null" };
+  if (typeof value === "string") return { kind: "text", length: value.length };
+  if (typeof value === "boolean" || typeof value === "number") return { kind: typeof value };
+  if (Array.isArray(value)) return { kind: "array" };
+  return { kind: typeof value };
+}
+
+function piTerminalFeedSummary(payload: Record<string, unknown>): Record<string, unknown> {
+  const summary: Record<string, unknown> = {};
+  for (const key of ["session_id", "turn_id", "tool_call_id", "tool_name", "cwd"] as const) {
+    const value = payload[key];
+    if (typeof value === "string") summary[key] = value.slice(0, 2048);
+  }
+  if (typeof payload.is_error === "boolean") summary.is_error = payload.is_error;
+  if (payload.tool_result !== undefined) summary.tool_result = piFeedValueSummary(payload.tool_result);
+  return summary;
+}
+
 class PiCmuxCommandDispatcher {
   private static readonly surfaceUnavailableExitCode = 69;
   private static readonly maxPendingFeedCommands = 8;
@@ -37,7 +56,6 @@ class PiCmuxCommandDispatcher {
 
   enqueueFeed(key: string, command: PiFeedCommand): void {
     if (!this.canDispatch) return;
-    command = this.boundedFeedCommand(command);
     const sessionId = command.context.sessionId;
 
     const existing = this.pendingFeedCommands.get(key);
@@ -197,102 +215,34 @@ class PiCmuxCommandDispatcher {
     }
   }
 
-  private boundedFeedCommand(command: PiFeedCommand): PiFeedCommand {
-    if (Buffer.byteLength(command.input, "utf8") <= PiCmuxCommandDispatcher.maxFeedInputBytes) {
-      return command;
-    }
-    const payload = this.feedPayload(command);
-    if (command.terminal) {
-      const summary = this.terminalSummary(payload);
-      delete payload.tool_input;
-      delete payload.tool_result;
-      payload.cmux_compacted_terminal_count = 1;
-      payload.cmux_compacted_terminal_omitted_count = 0;
-      payload.cmux_compacted_terminal_events = [summary];
-    } else if (payload.tool_input !== undefined) {
-      payload.tool_input = this.terminalResultSummary(payload.tool_input);
-    }
-    for (const key of ["session_id", "cwd", "turn_id", "tool_call_id", "tool_name"] as const) {
-      if (typeof payload[key] === "string") payload[key] = payload[key].slice(0, 2048);
-    }
-    return { ...command, input: boundedPiFeedInput(payload, PiCmuxCommandDispatcher.maxFeedInputBytes) };
-  }
-
   private compactedTerminalCommand(existing: PiFeedCommand, incoming: PiFeedCommand): PiFeedCommand {
-    const existingPayload = this.feedPayload(existing);
-    const incomingPayload = this.feedPayload(incoming);
+    const existingPayload = { ...existing.payload };
+    const incomingPayload = incoming.payload;
     const existingSummaries = Array.isArray(existingPayload.cmux_compacted_terminal_events)
       ? existingPayload.cmux_compacted_terminal_events
-      : [this.terminalSummary(existingPayload)];
+      : [piTerminalFeedSummary(existingPayload)];
     const incomingSummaries = Array.isArray(incomingPayload.cmux_compacted_terminal_events)
       ? incomingPayload.cmux_compacted_terminal_events
-      : [this.terminalSummary(incomingPayload)];
+      : [piTerminalFeedSummary(incomingPayload)];
     const existingCount = this.compactedTerminalCount(existingPayload, existingSummaries.length);
     const incomingCount = this.compactedTerminalCount(incomingPayload, incomingSummaries.length);
     const combined = [...existingSummaries, ...incomingSummaries];
     const summaryLimit = PiCmuxCommandDispatcher.maxCompactedTerminalSummaries;
-    let summaries = combined.length <= summaryLimit
+    const summaries = combined.length <= summaryLimit
       ? combined
       : [...combined.slice(0, summaryLimit / 2), ...combined.slice(-summaryLimit / 2)];
     const totalCount = existingCount + incomingCount;
     delete existingPayload.tool_input;
     delete existingPayload.tool_result;
-    let input = "";
-    while (true) {
-      existingPayload.cmux_compacted_terminal_count = totalCount;
-      existingPayload.cmux_compacted_terminal_omitted_count = Math.max(0, totalCount - summaries.length);
-      existingPayload.cmux_compacted_terminal_events = summaries;
-      input = JSON.stringify(existingPayload);
-      if (Buffer.byteLength(input, "utf8") <= PiCmuxCommandDispatcher.maxFeedInputBytes || summaries.length <= 1) break;
-      const keptCount = Math.max(1, Math.floor(summaries.length / 2));
-      const leadingCount = Math.ceil(keptCount / 2);
-      const trailingCount = keptCount - leadingCount;
-      summaries = [
-        ...summaries.slice(0, leadingCount),
-        ...(trailingCount > 0 ? summaries.slice(-trailingCount) : []),
-      ];
-    }
-    return { ...existing, input: boundedPiFeedInput(existingPayload, PiCmuxCommandDispatcher.maxFeedInputBytes) };
+    existingPayload.cmux_compacted_terminal_count = totalCount;
+    existingPayload.cmux_compacted_terminal_omitted_count = Math.max(0, totalCount - summaries.length);
+    existingPayload.cmux_compacted_terminal_events = summaries;
+    return { ...existing, payload: existingPayload };
   }
 
   private compactedTerminalCount(payload: Record<string, unknown>, fallback: number): number {
     const count = payload.cmux_compacted_terminal_count;
     return typeof count === "number" && Number.isFinite(count) && count >= fallback ? count : fallback;
-  }
-
-  private feedPayload(command: PiFeedCommand): Record<string, unknown> {
-    try {
-      const payload: unknown = JSON.parse(command.input);
-      if (payload && typeof payload === "object" && !Array.isArray(payload)) {
-        return payload as Record<string, unknown>;
-      }
-    } catch (_) {}
-    return {
-      session_id: command.context.sessionId,
-      cwd: command.cwd,
-      hook_event_name: "PostToolUse",
-      event: "PostToolUse",
-    };
-  }
-
-  private terminalSummary(payload: Record<string, unknown>): Record<string, unknown> {
-    const summary: Record<string, unknown> = {};
-    for (const key of ["session_id", "turn_id", "tool_call_id", "tool_name", "cwd"] as const) {
-      const value = payload[key];
-      if (typeof value === "string") summary[key] = value.slice(0, 2048);
-    }
-    if (typeof payload.is_error === "boolean") summary.is_error = payload.is_error;
-    if (payload.tool_result !== undefined) summary.tool_result = this.terminalResultSummary(payload.tool_result);
-    return summary;
-  }
-
-  private terminalResultSummary(result: unknown): unknown {
-    if (result === null) return { kind: "null" };
-    if (typeof result === "string") return { kind: "text", length: result.length };
-    if (typeof result === "boolean" || typeof result === "number") return { kind: typeof result };
-    if (Array.isArray(result)) return { kind: "array", count: result.length };
-    if (typeof result === "object") return { kind: "object", key_count: Object.keys(result).length };
-    return { kind: typeof result };
   }
 
   private discardFeedForSession(sessionId: string): void {
@@ -322,7 +272,8 @@ class PiCmuxCommandDispatcher {
     if (!command) return;
     const cancellation: PiCommandCancellation = { cancelled: false };
     this.activeFeeds.set(sessionId, { cancellation, command });
-    void this.execute(command.args, command.cwd, command.input, command.context, cancellation)
+    const input = boundedPiFeedInput(command.payload, PiCmuxCommandDispatcher.maxFeedInputBytes);
+    void this.execute(command.args, command.cwd, input, command.context, cancellation)
       .then((result) => {
         if (result.error instanceof Error && result.error.message.includes("timed out after")) {
           const sessionId = command.context.sessionId;

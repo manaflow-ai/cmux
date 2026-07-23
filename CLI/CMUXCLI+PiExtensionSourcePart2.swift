@@ -264,7 +264,6 @@ function sendFeed(
   eventName: "PreToolUse" | "PostToolUse",
   context: PiExtensionContextSnapshot,
   event: unknown,
-  extra: HookExtra = {},
 ): void {
   if (process.env.CMUX_PI_HOOKS_DISABLED === "1") return;
   if (!dispatcher.canDispatch) return;
@@ -276,29 +275,32 @@ function sendFeed(
   const cwd = context.cwd;
   const toolCallId = firstString(objectValue(event, ["toolCallId", "tool_call_id", "id"]));
   const toolName = firstString(objectValue(event, ["toolName", "tool_name", "name"]));
+  const projectionState: PiFeedProjectionState = { remainingNodes: 48, seen: new WeakSet() };
   const payload: HookExtra = {
-    session_id: sessionId,
-    cwd,
+    session_id: utf8Prefix(sessionId, 256),
+    cwd: utf8Prefix(cwd, 2048),
     hook_event_name: eventName,
     event: eventName,
-    turn_id: currentTurnId(sessionStates, sessionId, event),
-    tool_call_id: toolCallId,
-    tool_name: toolName,
-    tool_input: objectValue(event, ["args", "input"]),
-    ...extra,
+    turn_id: utf8Prefix(currentTurnId(sessionStates, sessionId, event), 256),
   };
-  let input: string;
-  try {
-    const serialized = JSON.stringify(payload);
-    if (typeof serialized !== "string") return;
-    input = serialized;
-  } catch (_) {
-    return;
+  const boundedToolCallId = utf8Prefix(toolCallId, 256);
+  if (boundedToolCallId !== undefined) payload.tool_call_id = boundedToolCallId;
+  const boundedToolName = utf8Prefix(toolName, 256);
+  if (boundedToolName !== undefined) payload.tool_name = boundedToolName;
+  const toolInput = objectValue(event, ["args", "input"]);
+  if (toolInput !== undefined) payload.tool_input = projectPiFeedValue(toolInput, projectionState);
+  if (eventName === "PostToolUse") {
+    const toolResult = objectValue(event, ["result", "details", "content"]);
+    if (toolResult !== undefined) {
+      payload.tool_result = projectPiFeedValue(toolResult, projectionState, 0, false);
+    }
+    const isError = objectValue(event, ["isError", "is_error"]);
+    if (isError !== undefined) payload.is_error = projectPiFeedValue(isError, projectionState);
   }
   dispatcher.enqueueFeed(`${sessionId}:${toolCallId || toolName || "unknown"}`, {
     args: ["hooks", "feed", "--source", "pi", "--event", eventName, ...target],
     cwd,
-    input,
+    payload,
     context,
     terminal: eventName === "PostToolUse",
   });
@@ -361,10 +363,7 @@ export default function cmuxPiSessionExtension(pi: ExtensionAPI) {
 
   pi.on("tool_execution_end", async (event, ctx) => {
     const context = snapshotContext(ctx);
-    sendFeed(dispatcher, sessionStates, "PostToolUse", context, event, {
-      tool_result: objectValue(event, ["result", "details", "content"]),
-      is_error: objectValue(event, ["isError", "is_error"]),
-    });
+    sendFeed(dispatcher, sessionStates, "PostToolUse", context, event);
   });
 
   pi.on("agent_end", async (event, ctx) => {
