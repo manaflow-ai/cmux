@@ -1408,10 +1408,10 @@ mod tests {
         let interactive = client.open(Service::MuxControl, BTreeMap::new()).await.unwrap();
         let bulk_messages = MessageStream::with_lane(Arc::new(bulk), Lane::Bulk);
 
-        let mut partial_message = BytesMut::with_capacity(6 * KIB);
+        let mut partial_message = BytesMut::with_capacity(5 * KIB);
         partial_message.extend_from_slice(&0_u32.to_be_bytes());
         partial_message.extend_from_slice(&(7_u32 * KIB as u32).to_be_bytes());
-        partial_message.resize(6 * KIB, b'b');
+        partial_message.resize(5 * KIB, b'b');
         daemon_endpoint
             .send_frame(None, Lane::Bulk, bulk_id, partial_message.freeze(), FrameFlags::empty())
             .await
@@ -1420,7 +1420,7 @@ mod tests {
         assert!(bulk_messages.receive().await.unwrap().unwrap().is_empty());
         {
             let state = bulk_messages.read.lock().await;
-            assert_eq!(state.buffer.len(), 6 * KIB - size_of::<u32>());
+            assert_eq!(state.buffer.len(), 5 * KIB - size_of::<u32>());
             assert_eq!(state.budgets.len(), 1);
         }
 
