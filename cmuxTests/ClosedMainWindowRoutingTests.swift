@@ -1544,6 +1544,135 @@ struct GhostMainWindowContextLifecycleTests {
         #expect(GhosttyApp.terminalSurfaceRegistry.surface(id: terminalPanel.id) == nil)
     }
 
+    @Test("Mismatched context key cannot reject or finalize an unrelated registration")
+    func mismatchedContextKeyCannotRejectOrFinalizeUnrelatedRegistration() throws {
+        _ = NSApplication.shared
+        let previousAppDelegate = AppDelegate.shared
+        let app = AppDelegate()
+        defer {
+            TerminalController.shared.setActiveTabManager(nil)
+            AppDelegate.shared = previousAppDelegate
+        }
+
+        let ownerWindowId = UUID()
+        let candidateWindowId = UUID()
+        let ownerWindow = makeMainWindow(id: ownerWindowId)
+        let candidateWindow = makeMainWindow(id: candidateWindowId)
+        let ownerManager = TabManager()
+        let candidateManager = TabManager()
+        let ownerWorkspace = try #require(ownerManager.selectedWorkspace)
+        let candidateWorkspace = try #require(candidateManager.selectedWorkspace)
+        let ownerTerminal = try #require(ownerWorkspace.focusedTerminalPanel)
+        let candidateTerminal = try #require(candidateWorkspace.focusedTerminalPanel)
+        defer {
+            app.unregisterMainWindowContextForTesting(windowId: ownerWindowId)
+            app.unregisterMainWindowContextForTesting(windowId: candidateWindowId)
+            if !ownerManager.isFinalizedForWindowClose {
+                ownerManager.finalizeAllWorkspacesForWindowClose()
+            }
+            if !candidateManager.isFinalizedForWindowClose {
+                candidateManager.finalizeAllWorkspacesForWindowClose()
+            }
+            ownerWorkspace.teardownAllPanels()
+            ownerWorkspace.teardownRemoteConnection()
+            candidateWorkspace.teardownAllPanels()
+            candidateWorkspace.teardownRemoteConnection()
+            ownerWindow.orderOut(nil)
+            candidateWindow.orderOut(nil)
+        }
+
+        app.registerMainWindow(
+            ownerWindow,
+            windowId: ownerWindowId,
+            tabManager: ownerManager,
+            sidebarState: SidebarState(),
+            sidebarSelectionState: SidebarSelectionState(),
+            fileExplorerState: FileExplorerState()
+        )
+        let ownerContext = try #require(
+            app.mainWindowContexts.values.first { $0.windowId == ownerWindowId }
+        )
+
+        // Model a stale ObjectIdentifier entry (including address reuse): the
+        // candidate's key points at an unrelated context whose weak window is
+        // still the exact live owner window.
+        app.mainWindowContexts[ObjectIdentifier(candidateWindow)] = ownerContext
+
+        app.registerMainWindow(
+            candidateWindow,
+            windowId: candidateWindowId,
+            tabManager: candidateManager,
+            sidebarState: SidebarState(),
+            sidebarSelectionState: SidebarSelectionState(),
+            fileExplorerState: FileExplorerState()
+        )
+
+        let candidateContext = try #require(
+            app.mainWindowContexts.values.first { $0.windowId == candidateWindowId }
+        )
+        #expect(app.mainWindowContexts[ObjectIdentifier(ownerWindow)] === ownerContext)
+        #expect(ownerContext.window === ownerWindow)
+        #expect(ownerContext.tabManager === ownerManager)
+        #expect(app.mainWindowContexts[ObjectIdentifier(candidateWindow)] === candidateContext)
+        #expect(candidateContext.window === candidateWindow)
+        #expect(candidateContext.tabManager === candidateManager)
+        #expect(!ownerManager.isFinalizedForWindowClose)
+        #expect(!candidateManager.isFinalizedForWindowClose)
+        #expect(GhosttyApp.terminalSurfaceRegistry.surface(id: ownerTerminal.id) === ownerTerminal.surface)
+        #expect(GhosttyApp.terminalSurfaceRegistry.surface(id: candidateTerminal.id) === candidateTerminal.surface)
+    }
+
+    @Test("Mismatched context key cannot commit an unrelated live graph")
+    func mismatchedContextKeyCannotCommitUnrelatedLiveGraph() throws {
+        _ = NSApplication.shared
+        let previousAppDelegate = AppDelegate.shared
+        let app = AppDelegate()
+        defer {
+            TerminalController.shared.setActiveTabManager(nil)
+            AppDelegate.shared = previousAppDelegate
+        }
+
+        let ownerWindowId = UUID()
+        let unrelatedWindowId = UUID()
+        let ownerWindow = makeMainWindow(id: ownerWindowId)
+        let unrelatedWindow = makeMainWindow(id: unrelatedWindowId)
+        let ownerManager = TabManager()
+        let ownerWorkspace = try #require(ownerManager.selectedWorkspace)
+        let ownerTerminal = try #require(ownerWorkspace.focusedTerminalPanel)
+        defer {
+            app.unregisterMainWindowContextForTesting(windowId: ownerWindowId)
+            if !ownerManager.isFinalizedForWindowClose {
+                ownerManager.finalizeAllWorkspacesForWindowClose()
+            }
+            ownerWorkspace.teardownAllPanels()
+            ownerWorkspace.teardownRemoteConnection()
+            ownerWindow.orderOut(nil)
+            unrelatedWindow.orderOut(nil)
+        }
+
+        app.registerMainWindow(
+            ownerWindow,
+            windowId: ownerWindowId,
+            tabManager: ownerManager,
+            sidebarState: SidebarState(),
+            sidebarSelectionState: SidebarSelectionState(),
+            fileExplorerState: FileExplorerState()
+        )
+        let ownerContext = try #require(
+            app.mainWindowContexts.values.first { $0.windowId == ownerWindowId }
+        )
+
+        app.mainWindowContexts[ObjectIdentifier(unrelatedWindow)] = ownerContext
+
+        #expect(!app.commitMainWindowClose(unrelatedWindow))
+        #expect(app.mainWindowContexts[ObjectIdentifier(unrelatedWindow)] == nil)
+        #expect(app.mainWindowContexts[ObjectIdentifier(ownerWindow)] === ownerContext)
+        #expect(ownerContext.window === ownerWindow)
+        #expect(!ownerManager.isFinalizedForWindowClose)
+        #expect(ownerManager.tabs.contains { $0 === ownerWorkspace })
+        #expect(GhosttyApp.terminalSurfaceRegistry.surface(id: ownerTerminal.id) === ownerTerminal.surface)
+    }
+
     @Test("Ordered-out recoverable owner can commit its close")
     func orderedOutRecoverableOwnerCanCommitItsClose() throws {
         _ = NSApplication.shared
@@ -1767,9 +1896,8 @@ struct FinalCloseRoutingRegressionTests {
         ownerWindow.orderOut(nil)
         duplicateWindow.makeKeyAndOrderFront(nil)
 
-        // Read-only lookup may still discover an unowned AppKit duplicate by
-        // identifier. A close mutation must fail closed without an exact owner.
-        #expect(app.windowForMainWindowId(windowId) === duplicateWindow)
+        // An AppKit identifier is a lookup hint, never window authority.
+        #expect(app.windowForMainWindowId(windowId) == nil)
         #expect(!app.closeMainWindow(windowId: windowId, recordHistory: false))
         #expect(!manager.isFinalizedForWindowClose)
         #expect(manager.tabs.contains { $0 === workspace })
@@ -1824,7 +1952,7 @@ struct FinalCloseRoutingRegressionTests {
         duplicateWindow.makeKeyAndOrderFront(nil)
 
         #expect(app.recoverableMainWindowRoute(windowId: windowId)?.window === ownerWindow)
-        #expect(app.windowForMainWindowId(windowId) === duplicateWindow)
+        #expect(app.windowForMainWindowId(windowId) === ownerWindow)
         #expect(app.closeMainWindow(windowId: windowId, recordHistory: false))
         #expect(manager.isFinalizedForWindowClose)
         #expect(manager.tabs.isEmpty)
@@ -2034,6 +2162,10 @@ struct MainWindowKeyObservationOwnershipTests {
         manager.window = nil
         originalWindow.identifier = nil
 
+        duplicateWindow.makeKeyAndOrderFront(nil)
+        #expect(app.windowForMainWindowId(windowId) == nil)
+        #expect(app.scriptableMainWindow(windowId: windowId) == nil)
+        #expect(!app.focusMainWindow(windowId: windowId))
         NotificationCenter.default.post(name: NSWindow.didBecomeKeyNotification, object: duplicateWindow)
         #expect(!app.commitMainWindowClose(duplicateWindow))
         #expect(!manager.isFinalizedForWindowClose)
@@ -2057,6 +2189,7 @@ struct MainWindowKeyObservationOwnershipTests {
         #expect(app.mainWindowContexts[ObjectIdentifier(replacementWindow)] === context)
         #expect(context.window === replacementWindow)
         #expect(manager.window === replacementWindow)
+        #expect(app.windowForMainWindowId(windowId) === replacementWindow)
         #expect(!manager.isFinalizedForWindowClose)
         #expect(GhosttyApp.terminalSurfaceRegistry.surface(id: terminalPanel.id) === terminalPanel.surface)
     }
