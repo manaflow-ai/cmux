@@ -19,7 +19,11 @@ const MAX_OPEN_STREAMS: usize = 256;
 // lanes), so a resumed slow lane cannot outlive the closed-stream memory.
 const MAX_CLOSED_STREAM_TOMBSTONES: usize = 16 * 1024;
 const MAX_BUFFERED_STREAM_BYTES: usize = 32 * 1024 * 1024;
+const MAX_BUFFERED_NON_INTERACTIVE_BYTES: usize = 28 * 1024 * 1024;
+const MAX_BUFFERED_BULK_TUNNEL_BYTES: usize = 24 * 1024 * 1024;
 const MIN_BUFFERED_FRAME_ACCOUNTING_BYTES: usize = 1024;
+const _: () = assert!(MAX_BUFFERED_NON_INTERACTIVE_BYTES == MAX_BUFFERED_STREAM_BYTES * 7 / 8);
+const _: () = assert!(MAX_BUFFERED_BULK_TUNNEL_BYTES == MAX_BUFFERED_STREAM_BYTES * 3 / 4);
 const STREAM_LOCAL_FIN: u8 = 1 << 0;
 const STREAM_REMOTE_FIN: u8 = 1 << 1;
 const STREAM_RESET: u8 = 1 << 2;
@@ -240,7 +244,44 @@ struct ReaderLoop {
     generation: watch::Receiver<u64>,
     shutdown: watch::Receiver<bool>,
     role: EndpointRole,
-    incoming_budget: Arc<Semaphore>,
+    incoming_budget: IncomingBudget,
+}
+
+struct IncomingBudget {
+    total: Arc<Semaphore>,
+    non_interactive: Arc<Semaphore>,
+    bulk_tunnel: Arc<Semaphore>,
+}
+
+impl IncomingBudget {
+    fn new(total_bytes: usize) -> Self {
+        let non_interactive_bytes = total_bytes.saturating_sub(total_bytes.div_ceil(8));
+        let bulk_tunnel_bytes = total_bytes.saturating_sub(total_bytes.div_ceil(4));
+        Self {
+            total: Arc::new(Semaphore::new(total_bytes)),
+            non_interactive: Arc::new(Semaphore::new(non_interactive_bytes)),
+            bulk_tunnel: Arc::new(Semaphore::new(bulk_tunnel_bytes)),
+        }
+    }
+
+    fn try_acquire(&self, lane: Lane, bytes: u32) -> Option<StreamBudget> {
+        let total = self.total.clone().try_acquire_many_owned(bytes).ok()?;
+        let non_interactive = if lane == Lane::Interactive {
+            None
+        } else {
+            Some(self.non_interactive.clone().try_acquire_many_owned(bytes).ok()?)
+        };
+        let bulk_tunnel = if matches!(lane, Lane::Bulk | Lane::Tunnel) {
+            Some(self.bulk_tunnel.clone().try_acquire_many_owned(bytes).ok()?)
+        } else {
+            None
+        };
+        Some(StreamBudget {
+            _total: total,
+            _non_interactive: non_interactive,
+            _bulk_tunnel: bulk_tunnel,
+        })
+    }
 }
 
 impl ReaderTask {
@@ -284,7 +325,7 @@ impl ServiceMultiplexer {
         Self::new_with_incoming_budget(endpoint, role, MAX_BUFFERED_STREAM_BYTES)
     }
 
-    fn new_with_incoming_budget(
+    pub(crate) fn new_with_incoming_budget(
         endpoint: Arc<dyn SessionEndpoint>,
         role: EndpointRole,
         incoming_budget_bytes: usize,
@@ -294,7 +335,7 @@ impl ServiceMultiplexer {
         let cleanup = TerminalCleanup::new();
         let (accepted_tx, accepted) = mpsc::channel(128);
         let (fatal_tx, fatal) = watch::channel(None);
-        let incoming_budget = Arc::new(Semaphore::new(incoming_budget_bytes));
+        let incoming_budget = IncomingBudget::new(incoming_budget_bytes);
         let generation = endpoint.subscribe_generation();
         let (shutdown, shutdown_rx) = watch::channel(false);
         let handle = tokio::spawn(reader_loop(ReaderLoop {
@@ -794,17 +835,24 @@ impl Drop for ServiceStream {
 }
 
 #[derive(Debug)]
+pub(crate) struct StreamBudget {
+    _total: OwnedSemaphorePermit,
+    _non_interactive: Option<OwnedSemaphorePermit>,
+    _bulk_tunnel: Option<OwnedSemaphorePermit>,
+}
+
+#[derive(Debug)]
 pub struct StreamChunk {
     pub lane: Lane,
     pub sequence: u64,
     pub payload: Bytes,
     pub finished: bool,
     pub reset: bool,
-    budget: Option<OwnedSemaphorePermit>,
+    budget: Option<StreamBudget>,
 }
 
 impl StreamChunk {
-    pub(crate) fn take_budget(&mut self) -> Option<OwnedSemaphorePermit> {
+    pub(crate) fn take_budget(&mut self) -> Option<StreamBudget> {
         self.budget.take()
     }
 }
@@ -1053,9 +1101,9 @@ async fn reader_loop(reader: ReaderLoop) {
             .await;
             continue;
         };
-        let budget = match incoming_budget.clone().try_acquire_many_owned(accounted_bytes) {
-            Ok(permit) => permit,
-            Err(_) => {
+        let budget = match incoming_budget.try_acquire(frame.lane, accounted_bytes) {
+            Some(budget) => budget,
+            None => {
                 reset_registered_stream(
                     &streams,
                     &closed,

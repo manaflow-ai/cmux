@@ -9,12 +9,12 @@ use cmux_remote_protocol::{
     RpcResponse, Service, ServiceControl, WorkspaceRequest, WorkspaceResponse,
 };
 use tokio::io::{AsyncRead, AsyncReadExt, AsyncWrite, AsyncWriteExt};
-use tokio::sync::{Mutex, OwnedSemaphorePermit, Semaphore, mpsc, watch};
+use tokio::sync::{Mutex, Semaphore, mpsc, watch};
 use tokio::task::JoinSet;
 
 use crate::daemon::ServerConnection;
 use crate::service::{
-    EndpointRole, IncomingStream, ServiceError, ServiceMultiplexer, ServiceStream,
+    EndpointRole, IncomingStream, ServiceError, ServiceMultiplexer, ServiceStream, StreamBudget,
 };
 use crate::workspace::{ClientScope, WorkspaceService};
 
@@ -538,7 +538,7 @@ pub struct MessageStream {
 
 struct MessageReadState {
     buffer: BytesMut,
-    budgets: Vec<OwnedSemaphorePermit>,
+    budgets: Vec<StreamBudget>,
     finished: bool,
 }
 
@@ -1378,6 +1378,101 @@ mod tests {
                 daemon.shutdown().await;
             })
             .await;
+    }
+
+    #[tokio::test]
+    async fn partial_bulk_message_retains_composite_budget_reserves() {
+        const KIB: usize = 1024;
+
+        let (client_endpoint, daemon_endpoint) = endpoint_pair();
+        let client = ServiceMultiplexer::new_with_incoming_budget(
+            client_endpoint,
+            EndpointRole::Client,
+            8 * KIB,
+        );
+        let bulk = client.open(Service::MuxControl, BTreeMap::new()).await.unwrap();
+        let bulk_id = bulk.id();
+        let additional_bulk = client.open(Service::MuxControl, BTreeMap::new()).await.unwrap();
+        let control = client.open(Service::MuxControl, BTreeMap::new()).await.unwrap();
+        let interactive = client.open(Service::MuxControl, BTreeMap::new()).await.unwrap();
+        let bulk_messages = MessageStream::with_lane(Arc::new(bulk), Lane::Bulk);
+
+        let mut partial_message = BytesMut::with_capacity(6 * KIB);
+        partial_message.extend_from_slice(&0_u32.to_be_bytes());
+        partial_message.extend_from_slice(&(7_u32 * KIB as u32).to_be_bytes());
+        partial_message.resize(6 * KIB, b'b');
+        daemon_endpoint
+            .send_frame(None, Lane::Bulk, bulk_id, partial_message.freeze(), FrameFlags::empty())
+            .await
+            .unwrap();
+
+        assert!(bulk_messages.receive().await.unwrap().unwrap().is_empty());
+        {
+            let state = bulk_messages.read.lock().await;
+            assert_eq!(state.buffer.len(), 6 * KIB - size_of::<u32>());
+            assert_eq!(state.budgets.len(), 1);
+        }
+
+        daemon_endpoint
+            .send_frame(
+                None,
+                Lane::Bulk,
+                additional_bulk.id(),
+                Bytes::from_static(b"bulk-overflow"),
+                FrameFlags::empty(),
+            )
+            .await
+            .unwrap();
+        daemon_endpoint
+            .send_frame(
+                None,
+                Lane::Control,
+                control.id(),
+                Bytes::from_static(b"control-marker"),
+                FrameFlags::empty(),
+            )
+            .await
+            .unwrap();
+        daemon_endpoint
+            .send_frame(
+                None,
+                Lane::Interactive,
+                interactive.id(),
+                Bytes::from_static(b"interactive-marker"),
+                FrameFlags::empty(),
+            )
+            .await
+            .unwrap();
+
+        let interactive_result =
+            tokio::time::timeout(std::time::Duration::from_secs(1), interactive.receive())
+                .await
+                .expect("reader stalled before applying the retained priority reserves");
+        let additional_bulk_result = additional_bulk.receive().await;
+        let control_result = control.receive().await;
+        let additional_bulk_was_reset = matches!(
+            &additional_bulk_result,
+            Err(ServiceError::Reset(message)) if message.contains("byte budget")
+        );
+        let control_was_delivered = matches!(
+            &control_result,
+            Ok(Some(chunk))
+                if chunk.lane == Lane::Control
+                    && chunk.payload == b"control-marker".as_slice()
+        );
+        let interactive_was_delivered = matches!(
+            &interactive_result,
+            Ok(Some(chunk))
+                if chunk.lane == Lane::Interactive
+                    && chunk.payload == b"interactive-marker".as_slice()
+        );
+        assert!(
+            additional_bulk_was_reset && control_was_delivered && interactive_was_delivered,
+            "partial-message priority reserve violation: \
+             additional_bulk={additional_bulk_result:?}, control={control_result:?}, \
+             interactive={interactive_result:?}"
+        );
+        assert_eq!(bulk_messages.read.lock().await.budgets.len(), 1);
     }
 
     #[cfg(unix)]
