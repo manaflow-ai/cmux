@@ -28,7 +28,7 @@ extension FeedCoordinatorTests {
                 keys: [FeedIngressDeliveryKey(source: "pi", sessionId: "active")],
                 importance: .ordinary
             )
-        ) {
+        ) { _ in
             activeDeliveryStarted.signal()
             releaseActiveDelivery.wait()
         }
