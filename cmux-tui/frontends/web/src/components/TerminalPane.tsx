@@ -19,9 +19,9 @@ interface TerminalPaneProps {
   clients: ClientInfo[];
   screen: ScreenView | null;
   onRefreshClients(): void;
-  onSetClientSizing(client: Id, enabled: boolean): void;
-  onUseOnlyClientSizing(client: Id): void;
-  onUseAllClientSizing(): void;
+  onSetClientSizing(surface: Id, client: Id, enabled: boolean): void;
+  onUseOnlyClientSizing(surface: Id, client: Id): void;
+  onUseAllClientSizing(surface: Id): void;
   onDetachClient(client: Id): void;
   onSelectTab(pane: Id, index: number, surface: Id): void;
   onNewTab(pane: Id): void;

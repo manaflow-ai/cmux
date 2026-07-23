@@ -13,7 +13,7 @@ public final class E2e {
         try (CmuxClient client = CmuxClient.builder().socketPath(socket).build()) {
             IdentifyResult identify = client.identify();
             check("cmux-tui".equals(identify.app()), "unexpected app " + identify.app());
-            check(identify.protocol() >= 5 && identify.protocol() <= 9, "unsupported protocol " + identify.protocol());
+            check(identify.protocol() >= 5 && identify.protocol() <= 10, "unsupported protocol " + identify.protocol());
             SurfaceResult created = client.newWorkspace(NewWorkspaceRequest.builder().name(marker).cols(80).rows(24).build());
             client.send(created.surface(), "printf '" + marker + "\\n'\r");
             waitForMarker(client, created.surface(), marker);

@@ -1,6 +1,6 @@
 # cmux-tui Programmability Contract
 
-This directory is the source of truth for the cmux-tui control protocol, the generated `cmux-tui` command surface, plugin contracts, the separately versioned machine-provider boundary, and future generated language bindings. The implemented mux protocol described here is protocol version 9, as defined by `cmux-tui-core/src/server.rs`.
+This directory is the source of truth for the cmux-tui control protocol, the generated `cmux-tui` command surface, plugin contracts, the separately versioned machine-provider boundary, and future generated language bindings. The implemented mux protocol described here is protocol version 10, as defined by `cmux-tui-core/src/server.rs`.
 
 The spec is intentionally stricter than prose docs. Implemented commands and events describe the current server behavior exactly, including awkward result shapes and no-op cases. Proposed commands, events, transports, and config are marked `proposed` and are not part of the implemented protocol.
 
@@ -16,7 +16,9 @@ The spec version tracks the mux protocol version.
 
 Protocol v8 adds stable ids to canonical split nodes and exact split-ratio mutation while preserving the protocol-v5 `set-ratio` command. Protocol-v7 layout nodes do not carry `split`, so clients must negotiate v8 before requiring that field or sending `set-split-ratio`.
 
-Protocol v9 is the implemented baseline. It adds stack layout nodes and `new-pane`. Clients must negotiate v9 before decoding a stack node or sending `new-pane`. Proposed additions in this directory target the next minor protocol unless a later spec says otherwise.
+Protocol v9 adds stack layout nodes and `new-pane`. Clients must negotiate v9 before decoding a stack node or sending `new-pane`.
+
+Protocol v10 is the implemented baseline. It scopes client-sizing participation to one terminal surface, requires `surface` on `set-client-sizing`, and reports `size_participating` on each `list-clients.sizes` entry. Proposed additions in this directory target the next minor protocol unless a later spec says otherwise.
 
 Protocol v7 is additive for v6 clients: `attach-surface.mode` defaults to `"bytes"`, and `subscribe.tree_events` defaults to `"coarse"`, so absent v7 selectors retain exact v6 attach and tree-event behavior. A v7 server reports `identify.protocol == 7`; clients must require that value before selecting render mode or using other v7-only fields and commands.
 
@@ -48,6 +50,6 @@ The generator must preserve the wire command names, parameter names, result shap
 
 ## Implemented Inventory
 
-Protocol v9 implements the socket commands listed in `commands.md` and the event names listed in `events.md`. Events include subscribe events, attach-stream events, and the implemented `empty` and `detached` lifecycle events.
+Protocol v10 implements the socket commands listed in `commands.md` and the event names listed in `events.md`. Events include subscribe events, attach-stream events, and the implemented `empty` and `detached` lifecycle events.
 
-The client also implements `machine-provider-v0`, an in-process static Unix/SSH catalog, and `machine-provider-v1`, an authenticated dynamic-provider protocol over Unix sockets, direct child processes, or the built-in SSH connector. Both are versioned separately from protocol v9.
+The client also implements `machine-provider-v0`, an in-process static Unix/SSH catalog, and `machine-provider-v1`, an authenticated dynamic-provider protocol over Unix sockets, direct child processes, or the built-in SSH connector. Both are versioned separately from protocol v10.

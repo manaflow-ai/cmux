@@ -7,7 +7,7 @@
         {
           "type": "command",
           "request": { "id": 1, "cmd": "identify" },
-          "expect": { "id": 1, "ok": true, "data": { "app": "cmux-tui", "protocol": 9 } },
+          "expect": { "id": 1, "ok": true, "data": { "app": "cmux-tui", "protocol": 10 } },
           "match": "partial"
         }
       ]
@@ -18,7 +18,7 @@
         {
           "type": "command",
           "request": { "id": 1, "cmd": "ping" },
-          "expect": { "id": 1, "ok": true, "data": { "ok": true, "protocol": 9 } },
+          "expect": { "id": 1, "ok": true, "data": { "ok": true, "protocol": 10 } },
           "match": "partial"
         },
         {

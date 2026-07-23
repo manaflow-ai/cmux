@@ -82,8 +82,8 @@ const VERBS: &[VerbSpec] = &[
     },
     VerbSpec {
         name: "set-client-sizing",
-        help: "Include or exclude a client from shared terminal sizing.",
-        allowed: &["client", "enabled"],
+        help: "Include or exclude a client from one terminal's shared sizing.",
+        allowed: &["surface", "client", "enabled"],
         kind: socket(build_set_client_sizing, print_empty, false),
     },
     VerbSpec {
@@ -833,7 +833,11 @@ fn build_set_client_sizing(flags: &FlagMap) -> Result<Value, UsageError> {
         "false" => false,
         _ => return Err(UsageError("--enabled must be true or false".to_string())),
     };
-    Ok(json!({ "client": flags.required_u64("client")?, "enabled": enabled }))
+    Ok(json!({
+        "surface": flags.required_u64("surface")?,
+        "client": flags.required_u64("client")?,
+        "enabled": enabled,
+    }))
 }
 
 fn build_surface(flags: &FlagMap) -> Result<Value, UsageError> {
@@ -1374,12 +1378,16 @@ fn print_clients(data: &Value, out: &mut dyn Write) -> io::Result<()> {
                     .iter()
                     .map(|size| {
                         let surface = size.get("surface").and_then(Value::as_u64).unwrap_or(0);
+                        let participating =
+                            size.get("size_participating").and_then(Value::as_bool).unwrap_or(true);
                         match (
                             size.get("cols").and_then(Value::as_u64),
                             size.get("rows").and_then(Value::as_u64),
                         ) {
-                            (Some(cols), Some(rows)) => format!("{surface}:{cols}x{rows}"),
-                            _ => format!("{surface}:null"),
+                            (Some(cols), Some(rows)) => {
+                                format!("{surface}:{cols}x{rows}:sizing={participating}")
+                            }
+                            _ => format!("{surface}:null:sizing={participating}"),
                         }
                     })
                     .collect::<Vec<_>>()
@@ -1389,7 +1397,7 @@ fn print_clients(data: &Value, out: &mut dyn Write) -> io::Result<()> {
             .unwrap_or_else(|| "-".to_string());
         writeln!(
             out,
-            "{} {} {} {} connected={}s attached={} sizes={} self={} sizing={}",
+            "{} {} {} {} connected={}s attached={} sizes={} self={}",
             client.get("client").and_then(Value::as_u64).unwrap_or(0),
             client.get("transport").and_then(Value::as_str).unwrap_or(""),
             client.get("name").and_then(Value::as_str).unwrap_or("-"),
@@ -1398,7 +1406,6 @@ fn print_clients(data: &Value, out: &mut dyn Write) -> io::Result<()> {
             attached,
             sizes,
             client.get("self").and_then(Value::as_bool).unwrap_or(false),
-            client.get("size_participating").and_then(Value::as_bool).unwrap_or(true),
         )?;
     }
     Ok(())

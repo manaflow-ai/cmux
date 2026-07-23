@@ -21,6 +21,7 @@ const RESERVED_RELEASE_BYTES: usize = 64;
 const REMOTE_RELEASE_MAX_ATTEMPTS: u8 = 3;
 
 pub type PtyInputBytes = SmallVec<[u8; 64]>;
+type MutationCoalesceKey = (&'static str, u64, u64);
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum PtyInputKind {
@@ -54,7 +55,7 @@ pub struct PtyInputEvent {
     after_operation: Option<Box<dyn FnOnce() + Send>>,
     on_superseded: Option<Box<dyn FnOnce() + Send>>,
     label: &'static str,
-    coalesce_key: Option<(&'static str, u64)>,
+    coalesce_key: Option<MutationCoalesceKey>,
     remote: bool,
     reservation_id: Option<u64>,
     remote_release_attempts: u8,
@@ -98,7 +99,7 @@ impl PtyInputEvent {
     #[cfg(test)]
     fn mutation(
         label: &'static str,
-        coalesce_key: Option<(&'static str, u64)>,
+        coalesce_key: Option<MutationCoalesceKey>,
         remote: bool,
         operation: impl FnOnce() -> anyhow::Result<()> + Send + 'static,
     ) -> Self {
@@ -107,7 +108,7 @@ impl PtyInputEvent {
 
     fn mutation_with_superseded(
         label: &'static str,
-        coalesce_key: Option<(&'static str, u64)>,
+        coalesce_key: Option<MutationCoalesceKey>,
         remote: bool,
         on_superseded: Option<Box<dyn FnOnce() + Send>>,
         after_operation: Option<Box<dyn FnOnce() + Send>>,
@@ -376,7 +377,7 @@ impl PtyInputSender {
     pub fn enqueue_coalescing_mutation_with_settlement(
         &self,
         label: &'static str,
-        key: (&'static str, u64),
+        key: MutationCoalesceKey,
         remote: bool,
         on_superseded: impl FnOnce() + Send + 'static,
         after_operation: impl FnOnce() + Send + 'static,
@@ -395,7 +396,7 @@ impl PtyInputSender {
     fn enqueue_mutation_with_key(
         &self,
         label: &'static str,
-        key: Option<(&'static str, u64)>,
+        key: Option<MutationCoalesceKey>,
         remote: bool,
         on_superseded: Option<Box<dyn FnOnce() + Send>>,
         after_operation: Option<Box<dyn FnOnce() + Send>>,
@@ -936,9 +937,9 @@ mod tests {
         let mut queued_bytes = 0;
         let mut releases = ReleaseReservations::default();
         for item in [
-            PtyInputEvent::mutation("resize one", Some(("resize", 1)), false, || Ok(())),
-            PtyInputEvent::mutation("resize two", Some(("resize", 2)), false, || Ok(())),
-            PtyInputEvent::mutation("resize one latest", Some(("resize", 1)), false, || Ok(())),
+            PtyInputEvent::mutation("resize one", Some(("resize", 1, 0)), false, || Ok(())),
+            PtyInputEvent::mutation("resize two", Some(("resize", 2, 0)), false, || Ok(())),
+            PtyInputEvent::mutation("resize one latest", Some(("resize", 1, 0)), false, || Ok(())),
         ] {
             assert!(enqueue_bounded(&mut events, &mut queued_bytes, &mut releases, item, 8, 1024));
         }
@@ -959,11 +960,36 @@ mod tests {
             &mut events,
             &mut queued_bytes,
             &mut releases,
-            PtyInputEvent::mutation("resize after input", Some(("resize", 1)), false, || Ok(())),
+            PtyInputEvent::mutation("resize after input", Some(("resize", 1, 0)), false, || Ok(()),),
             8,
             1024,
         ));
         assert_eq!(events.len(), 4);
+    }
+
+    #[test]
+    fn coalescing_mutations_distinguish_both_subject_ids() {
+        let mut events = VecDeque::new();
+        let mut queued_bytes = 0;
+        let mut releases = ReleaseReservations::default();
+        for item in [
+            PtyInputEvent::mutation("surface 7 client 1", Some(("sizing", 7, 1)), false, || Ok(())),
+            PtyInputEvent::mutation("surface 7 client 2", Some(("sizing", 7, 2)), false, || Ok(())),
+            PtyInputEvent::mutation("surface 8 client 1", Some(("sizing", 8, 1)), false, || Ok(())),
+            PtyInputEvent::mutation(
+                "surface 7 client 1 latest",
+                Some(("sizing", 7, 1)),
+                false,
+                || Ok(()),
+            ),
+        ] {
+            assert!(enqueue_bounded(&mut events, &mut queued_bytes, &mut releases, item, 8, 1024));
+        }
+
+        assert_eq!(events.len(), 3);
+        assert_eq!(events[0].label, "surface 7 client 2");
+        assert_eq!(events[1].label, "surface 8 client 1");
+        assert_eq!(events[2].label, "surface 7 client 1 latest");
     }
 
     #[test]
@@ -979,7 +1005,7 @@ mod tests {
             &mut releases,
             PtyInputEvent::mutation_with_superseded(
                 "resize old",
-                Some(("resize", 1)),
+                Some(("resize", 1, 0)),
                 false,
                 Some(Box::new(move || {
                     replaced.store(true, std::sync::atomic::Ordering::Release);
@@ -994,7 +1020,7 @@ mod tests {
             &mut events,
             &mut queued_bytes,
             &mut releases,
-            PtyInputEvent::mutation("resize latest", Some(("resize", 1)), false, || Ok(())),
+            PtyInputEvent::mutation("resize latest", Some(("resize", 1, 0)), false, || Ok(())),
             8,
             1024,
         ));
@@ -1013,7 +1039,7 @@ mod tests {
         let replaced = superseded.clone();
         let mut previous = PtyInputEvent::mutation_with_superseded(
             "resize old",
-            Some(("resize", 1)),
+            Some(("resize", 1, 0)),
             false,
             Some(Box::new(move || {
                 replaced.store(true, std::sync::atomic::Ordering::Release);
@@ -1025,7 +1051,7 @@ mod tests {
         assert!(enqueue_bounded(&mut events, &mut queued_bytes, &mut releases, previous, 8, 1,));
 
         let mut too_large =
-            PtyInputEvent::mutation("resize latest", Some(("resize", 1)), false, || Ok(()));
+            PtyInputEvent::mutation("resize latest", Some(("resize", 1, 0)), false, || Ok(()));
         too_large.bytes = PtyInputBytes::from_slice(&[2, 3]);
         assert!(!enqueue_bounded(&mut events, &mut queued_bytes, &mut releases, too_large, 8, 1,));
 

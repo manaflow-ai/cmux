@@ -979,27 +979,27 @@ impl OrderedSession {
         self.client_refresh_generation.load(Ordering::Acquire)
     }
 
-    fn set_client_sizing(&self, client: u64, enabled: bool) {
+    fn set_client_sizing(&self, surface: SurfaceId, client: u64, enabled: bool) {
         self.enqueue_client_sizing_mutation(
             "set client sizing",
-            ("set client sizing", client),
-            move |session| session.set_client_sizing(client, enabled),
+            ("set client sizing", surface, client),
+            move |session| session.set_client_sizing(surface, client, enabled),
         );
     }
 
-    fn use_only_client_sizing(&self, client: u64) {
+    fn use_only_client_sizing(&self, surface: SurfaceId, client: u64) {
         self.enqueue_client_sizing_mutation(
             "use only client sizing",
-            ("use only client sizing", 0),
-            move |session| session.use_only_client_sizing(client),
+            ("use only client sizing", surface, 0),
+            move |session| session.use_only_client_sizing(surface, client),
         );
     }
 
-    fn use_all_client_sizing(&self) {
+    fn use_all_client_sizing(&self, surface: SurfaceId) {
         self.enqueue_client_sizing_mutation(
             "use all client sizing",
-            ("use all client sizing", 0),
-            |session| session.use_all_client_sizing(),
+            ("use all client sizing", surface, 0),
+            move |session| session.use_all_client_sizing(surface),
         );
     }
 
@@ -1081,7 +1081,7 @@ impl OrderedSession {
         let settlement = pending.clone();
         let enqueue_result = self.operations.enqueue_coalescing_mutation_with_settlement(
             "attach surface",
-            ("attach surface", id),
+            ("attach surface", id, 0),
             self.remote,
             move || superseded.supersede(),
             move || settlement.publish_deferred(),
@@ -1413,7 +1413,7 @@ impl OrderedSession {
         let settlement = pending.clone();
         self.operations.enqueue_coalescing_mutation_with_settlement(
             label,
-            key,
+            (key.0, key.1, 0),
             remote,
             move || superseded.supersede(),
             move || settlement.publish_deferred(),
@@ -1437,7 +1437,7 @@ impl OrderedSession {
     fn enqueue_client_sizing_mutation(
         &self,
         label: &'static str,
-        key: (&'static str, u64),
+        key: (&'static str, SurfaceId, u64),
         operation: impl FnOnce(Session) -> anyhow::Result<()> + Send + 'static,
     ) {
         let session = self.inner.clone();
@@ -1478,7 +1478,7 @@ impl OrderedSession {
         let settlement = pending.clone();
         let result = self.operations.enqueue_coalescing_mutation_with_settlement(
             "release hidden surface sizing",
-            ("surface size release", surface),
+            ("surface size release", surface, 0),
             self.remote,
             move || superseded.supersede(),
             move || settlement.publish_deferred(),
@@ -1517,7 +1517,7 @@ impl OrderedSession {
         let settlement = pending.clone();
         let enqueue_result = self.operations.enqueue_coalescing_mutation_with_settlement(
             "resize PTY surface",
-            ("surface resize", surface_id),
+            ("surface resize", surface_id, 0),
             self.remote,
             move || superseded.supersede(),
             move || settlement.publish_deferred(),
@@ -1665,7 +1665,7 @@ impl OrderedSession {
         let settlement = pending.clone();
         self.operations.enqueue_coalescing_mutation_with_settlement(
             "apply config",
-            ("apply config", 0),
+            ("apply config", 0, 0),
             self.remote,
             move || superseded.supersede(),
             move || settlement.publish_deferred(),
@@ -1724,7 +1724,7 @@ impl OrderedSession {
         } else {
             self.operations.enqueue_coalescing_mutation_with_settlement(
                 "sync sidebar plugin",
-                ("sidebar plugin", 0),
+                ("sidebar plugin", 0, 0),
                 self.remote,
                 move || superseded.supersede(),
                 move || settlement.publish_deferred(),
@@ -2193,9 +2193,9 @@ pub enum MenuAction {
     SplitDown(PaneId),
     CloseTab(PaneId),
     ClosePane(PaneId),
-    SetClientSizing { client: u64, enabled: bool },
-    UseClientSize(u64),
-    RestoreAllClientSizing,
+    SetClientSizing { surface: SurfaceId, client: u64, enabled: bool },
+    UseClientSize { surface: SurfaceId, client: u64 },
+    RestoreAllClientSizing(SurfaceId),
     DisconnectClient(u64),
     SelectProviderScope(usize),
     InvokeProviderAction(usize),
@@ -2240,8 +2240,8 @@ impl MenuAction {
             MenuAction::ClosePane(_) => "Close pane",
             MenuAction::SetClientSizing { enabled: true, .. } => "Use for sizing",
             MenuAction::SetClientSizing { enabled: false, .. } => "Exclude from sizing",
-            MenuAction::UseClientSize(_) => "Use only this client size",
-            MenuAction::RestoreAllClientSizing => "Use all client sizes",
+            MenuAction::UseClientSize { .. } => "Use only this client size",
+            MenuAction::RestoreAllClientSizing(_) => "Use all client sizes",
             MenuAction::DisconnectClient(_) => "Disconnect",
             MenuAction::SelectProviderScope(_) | MenuAction::InvokeProviderAction(_) => {
                 "Provider action"
@@ -2594,29 +2594,31 @@ fn client_menu_item(clients: &[ClientInfo], surface: SurfaceId) -> Option<MenuIt
                 .iter()
                 .any(|size| size.surface == surface && size.cols.is_some() && size.rows.is_some())
     }) {
-        items.push(MenuItem::Action(MenuAction::UseClientSize(current.client)));
+        items.push(MenuItem::Action(MenuAction::UseClientSize { surface, client: current.client }));
     }
-    items.extend([MenuItem::Action(MenuAction::RestoreAllClientSizing), MenuItem::Separator]);
+    items.extend([
+        MenuItem::Action(MenuAction::RestoreAllClientSizing(surface)),
+        MenuItem::Separator,
+    ]);
     for client in clients {
-        let reported_size = client
-            .sizes
-            .iter()
-            .find(|size| size.surface == surface)
-            .and_then(|size| size.cols.zip(size.rows));
+        let size_info = client.sizes.iter().find(|size| size.surface == surface);
+        let reported_size = size_info.and_then(|size| size.cols.zip(size.rows));
+        let size_participating = size_info.is_none_or(|size| size.size_participating);
         let identity = client.kind.as_deref().or(client.name.as_deref()).unwrap_or("client");
         let size = reported_size
             .map(|(cols, rows)| format!("{cols}×{rows}"))
             .unwrap_or_else(|| "no grid".to_string());
         let self_label = if client.is_self { " · this client" } else { "" };
-        let sizing_label = if client.size_participating { "" } else { " · excluded" };
+        let sizing_label = if size_participating { "" } else { " · excluded" };
         let label = format!("#{} {identity} · {size}{self_label}{sizing_label}", client.client);
         let mut actions = Vec::new();
         if reported_size.is_some() {
             actions.extend([
-                MenuItem::Action(MenuAction::UseClientSize(client.client)),
+                MenuItem::Action(MenuAction::UseClientSize { surface, client: client.client }),
                 MenuItem::Action(MenuAction::SetClientSizing {
+                    surface,
                     client: client.client,
-                    enabled: !client.size_participating,
+                    enabled: !size_participating,
                 }),
             ]);
         }
@@ -7772,14 +7774,14 @@ impl App {
                 }
             }
             MenuAction::ClosePane(id) => self.session.close_pane(id),
-            MenuAction::SetClientSizing { client, enabled } => {
-                self.session.set_client_sizing(client, enabled);
+            MenuAction::SetClientSizing { surface, client, enabled } => {
+                self.session.set_client_sizing(surface, client, enabled);
             }
-            MenuAction::UseClientSize(client) => {
-                self.session.use_only_client_sizing(client);
+            MenuAction::UseClientSize { surface, client } => {
+                self.session.use_only_client_sizing(surface, client);
             }
-            MenuAction::RestoreAllClientSizing => {
-                self.session.use_all_client_sizing();
+            MenuAction::RestoreAllClientSizing(surface) => {
+                self.session.use_all_client_sizing(surface);
             }
             MenuAction::DisconnectClient(client) => {
                 if self.clients.iter().any(|info| info.client == client && info.is_self) {
@@ -10752,14 +10754,14 @@ mod tests {
             5,
             vec![vec![MenuItem::Submenu {
                 label: "Clients".to_string(),
-                items: vec![MenuItem::Action(MenuAction::RestoreAllClientSizing)],
+                items: vec![MenuItem::Action(MenuAction::RestoreAllClientSizing(31))],
             }]],
         );
         assert!(menu.open_selected_submenu());
         menu.levels[1].rect = Rect { x: 10, y: 5, width: 20, height: 3 };
 
         assert_eq!(menu.hit_at(10, 5), None);
-        assert_eq!(menu.selected_action(), Some(MenuAction::RestoreAllClientSizing));
+        assert_eq!(menu.selected_action(), Some(MenuAction::RestoreAllClientSizing(31)));
     }
 
     #[test]
@@ -10773,7 +10775,6 @@ mod tests {
             attached: Vec::new(),
             sizes: Vec::new(),
             is_self: false,
-            size_participating: true,
         };
         let Some(MenuItem::Submenu { items, .. }) = client_menu_item(&[client], 31) else {
             panic!("expected connected clients submenu");
@@ -10793,9 +10794,13 @@ mod tests {
             kind: Some("tui".to_string()),
             connected_seconds: 1,
             attached: vec![31],
-            sizes: vec![ClientSizeInfo { surface: 31, cols: Some(80), rows: Some(24) }],
+            sizes: vec![ClientSizeInfo {
+                surface: 31,
+                cols: Some(80),
+                rows: Some(24),
+                size_participating: true,
+            }],
             is_self: true,
-            size_participating: true,
         };
         let Some(MenuItem::Submenu { items, .. }) = client_menu_item(&[current], 31) else {
             panic!("expected connected clients submenu");
@@ -10803,8 +10808,8 @@ mod tests {
         assert_eq!(
             &items[..2],
             &[
-                MenuItem::Action(MenuAction::UseClientSize(7)),
-                MenuItem::Action(MenuAction::RestoreAllClientSizing),
+                MenuItem::Action(MenuAction::UseClientSize { surface: 31, client: 7 }),
+                MenuItem::Action(MenuAction::RestoreAllClientSizing(31)),
             ]
         );
     }
@@ -10822,7 +10827,6 @@ mod tests {
             attached: vec![],
             sizes: vec![],
             is_self: true,
-            size_participating: true,
         }];
 
         assert!(app.activate_menu(MenuAction::DisconnectClient(7)).is_ok());
@@ -10845,7 +10849,6 @@ mod tests {
             attached: vec![],
             sizes: vec![],
             is_self: false,
-            size_participating: true,
         }];
 
         assert!(app.activate_menu(MenuAction::DisconnectClient(7)).is_ok());
@@ -10872,9 +10875,13 @@ mod tests {
             kind: Some("tui".to_string()),
             connected_seconds: 1,
             attached: vec![31],
-            sizes: vec![ClientSizeInfo { surface: 31, cols: Some(80), rows: Some(24) }],
+            sizes: vec![ClientSizeInfo {
+                surface: 31,
+                cols: Some(80),
+                rows: Some(24),
+                size_participating: true,
+            }],
             is_self: true,
-            size_participating: true,
         };
         let Some(MenuItem::Submenu { items, .. }) = client_menu_item(&[local], 31) else {
             panic!("expected connected clients submenu");
@@ -10942,8 +10949,13 @@ mod tests {
 
     #[test]
     fn context_menu_scrolls_selection_and_hit_testing_through_tall_client_lists() {
-        let mut menu =
-            ContextMenu::at(10, 5, vec![(1..=8).map(MenuAction::UseClientSize).collect()]);
+        let mut menu = ContextMenu::at(
+            10,
+            5,
+            vec![
+                ((1..=8).map(|client| MenuAction::UseClientSize { surface: 31, client }).collect()),
+            ],
+        );
 
         menu.fit_to_rows(3);
         assert_eq!(menu.levels[0].rect.height, 5);
@@ -10953,7 +10965,10 @@ mod tests {
             menu.select_next();
         }
 
-        assert_eq!(menu.selected_action(), Some(MenuAction::UseClientSize(5)));
+        assert_eq!(
+            menu.selected_action(),
+            Some(MenuAction::UseClientSize { surface: 31, client: 5 })
+        );
         assert_eq!(menu.levels[0].scroll_offset, 2);
         assert_eq!(menu.item_at(10, 5), Some(2));
         assert_eq!(menu.item_at(10, 7), Some(4));

@@ -545,26 +545,31 @@ struct LatestClientSize {
 }
 
 #[derive(Default)]
+struct SurfaceClientSizing {
+    excluded_clients: HashSet<u64>,
+    exclusive_client: Option<u64>,
+}
+
+#[derive(Default)]
 struct ClientSizingState {
     surfaces: ClientSurfaceSizes,
     report_order: HashMap<(SurfaceId, u64), u64>,
     next_report_order: u64,
-    excluded_clients: HashSet<u64>,
-    exclusive_client: Option<u64>,
+    policies: HashMap<SurfaceId, SurfaceClientSizing>,
 }
 
 impl ClientSizingState {
     fn rollback_token(
         &self,
         surface: SurfaceId,
-        attached_clients: &HashSet<u64>,
+        attached_clients: Option<&HashSet<u64>>,
     ) -> ClientSizingRollbackToken {
         let participating_surface_clients = self
             .surfaces
             .get(&surface)
             .into_iter()
             .flat_map(HashMap::keys)
-            .filter(|client| self.client_participates(**client))
+            .filter(|client| self.client_participates(surface, **client))
             .copied()
             .collect();
         ClientSizingRollbackToken {
@@ -577,24 +582,31 @@ impl ClientSizingState {
                 })
                 .collect(),
             participating_surface_clients,
-            uses_excluded_fallback: self.uses_excluded_fallback(attached_clients),
+            uses_excluded_fallback: self.uses_excluded_fallback(surface, attached_clients),
         }
     }
 
-    fn client_participates(&self, client: u64) -> bool {
-        self.exclusive_client.map_or_else(
-            || !self.excluded_clients.contains(&client),
+    fn client_participates(&self, surface: SurfaceId, client: u64) -> bool {
+        let Some(policy) = self.policies.get(&surface) else {
+            return true;
+        };
+        policy.exclusive_client.map_or_else(
+            || !policy.excluded_clients.contains(&client),
             |exclusive| exclusive == client,
         )
     }
 
-    fn uses_excluded_fallback(&self, attached_clients: &HashSet<u64>) -> bool {
-        let attached_participates =
-            attached_clients.iter().any(|client| self.client_participates(*client));
-        let reporter_participates = self
-            .surfaces
-            .values()
-            .any(|viewers| viewers.keys().any(|client| self.client_participates(*client)));
+    fn uses_excluded_fallback(
+        &self,
+        surface: SurfaceId,
+        attached_clients: Option<&HashSet<u64>>,
+    ) -> bool {
+        let attached_participates = attached_clients.is_some_and(|clients| {
+            clients.iter().any(|client| self.client_participates(surface, *client))
+        });
+        let reporter_participates = self.surfaces.get(&surface).is_some_and(|viewers| {
+            viewers.keys().any(|client| self.client_participates(surface, *client))
+        });
         !attached_participates && !reporter_participates
     }
 
@@ -602,7 +614,7 @@ impl ClientSizingState {
         self.surfaces
             .get(&surface)?
             .iter()
-            .filter(|(client, _)| use_excluded || self.client_participates(**client))
+            .filter(|(client, _)| use_excluded || self.client_participates(surface, **client))
             .map(|(_, size)| *size)
             .reduce(|smallest, size| (smallest.0.min(size.0), smallest.1.min(size.1)))
     }
@@ -610,11 +622,13 @@ impl ClientSizingState {
     fn effective_sizes(
         &self,
         surfaces: impl IntoIterator<Item = SurfaceId>,
-        use_excluded: bool,
+        attached_clients: &HashMap<SurfaceId, HashSet<u64>>,
     ) -> Vec<(SurfaceId, (u16, u16))> {
         let mut effective = surfaces
             .into_iter()
             .filter_map(|surface| {
+                let use_excluded =
+                    self.uses_excluded_fallback(surface, attached_clients.get(&surface));
                 self.effective_size(surface, use_excluded).map(|size| (surface, size))
             })
             .collect::<Vec<_>>();
@@ -622,17 +636,22 @@ impl ClientSizingState {
         effective
     }
 
-    fn latest_effective_size(&self, attached_clients: &HashSet<u64>) -> Option<(u16, u16)> {
-        let use_excluded = self.uses_excluded_fallback(attached_clients);
+    fn latest_effective_size(
+        &self,
+        attached_clients: &HashMap<SurfaceId, HashSet<u64>>,
+    ) -> Option<(u16, u16)> {
         let surface = self
             .report_order
             .iter()
             .filter(|((surface, client), _)| {
+                let use_excluded =
+                    self.uses_excluded_fallback(*surface, attached_clients.get(surface));
                 self.surfaces.get(surface).is_some_and(|viewers| viewers.contains_key(client))
-                    && (use_excluded || self.client_participates(*client))
+                    && (use_excluded || self.client_participates(*surface, *client))
             })
             .max_by_key(|(_, order)| *order)
             .map(|((surface, _), _)| *surface)?;
+        let use_excluded = self.uses_excluded_fallback(surface, attached_clients.get(&surface));
         self.effective_size(surface, use_excluded)
     }
 }
@@ -1325,7 +1344,7 @@ impl Mux {
     fn reconcile_latest_client_size(
         &self,
         sizing: &ClientSizingState,
-        attached_clients: &HashSet<u64>,
+        attached_clients: &HashMap<SurfaceId, HashSet<u64>>,
     ) {
         let mut latest = self.latest_client_size.lock().unwrap();
         if let Some(size) = sizing.latest_effective_size(attached_clients) {
@@ -1361,10 +1380,10 @@ impl Mux {
         // Serialize the report and its application. Otherwise an older
         // effective size can reach the PTY after a newer shared minimum.
         let mut sizing = self.client_sizing.lock().unwrap();
-        let attached_clients = self.control_clients.attached_client_ids();
+        let attached_clients = self.control_clients.attached_client_ids_by_surface();
         let result = self.resize_surface_for_client_locked(
             &mut sizing,
-            &attached_clients,
+            attached_clients.get(&id),
             id,
             client,
             requested,
@@ -1399,10 +1418,10 @@ impl Mux {
         // leases through this same sizing lock after dropping the registry lock.
         let mut sizing = self.client_sizing.lock().unwrap();
         let attached = self.control_clients.record_size(client, id, requested.0, requested.1)?;
-        let attached_clients = self.control_clients.attached_client_ids();
+        let attached_clients = self.control_clients.attached_client_ids_by_surface();
         let result = self.resize_surface_for_client_locked(
             &mut sizing,
-            &attached_clients,
+            attached_clients.get(&id),
             id,
             client,
             requested,
@@ -1429,15 +1448,20 @@ impl Mux {
     fn resize_surface_for_client_locked(
         &self,
         sizing: &mut ClientSizingState,
-        attached_clients: &HashSet<u64>,
+        attached_clients: Option<&HashSet<u64>>,
         id: SurfaceId,
         client: u64,
         requested: (u16, u16),
         completion: Option<SurfaceResizeCompletion>,
     ) -> anyhow::Result<AppliedClientSize> {
         let previous_geometry = self.surface(id).map(|surface| surface.size());
-        if sizing.exclusive_client.is_some_and(|exclusive| exclusive != client) {
-            sizing.excluded_clients.insert(client);
+        if sizing
+            .policies
+            .get(&id)
+            .and_then(|policy| policy.exclusive_client)
+            .is_some_and(|exclusive| exclusive != client)
+        {
+            sizing.policies.entry(id).or_default().excluded_clients.insert(client);
         }
         sizing.next_report_order = sizing.next_report_order.wrapping_add(1).max(1);
         let report_order = sizing.next_report_order;
@@ -1446,7 +1470,7 @@ impl Mux {
             let viewers = sizing.surfaces.entry(id).or_default();
             viewers.insert(client, requested)
         };
-        let use_excluded = sizing.uses_excluded_fallback(attached_clients);
+        let use_excluded = sizing.uses_excluded_fallback(id, attached_clients);
         let effective = sizing.effective_size(id, use_excluded);
         let Some(effective) = effective else {
             return Ok((
@@ -1542,8 +1566,8 @@ impl Mux {
                 sizing.report_order.remove(&(id, client));
             }
         }
-        let attached_clients = self.control_clients.attached_client_ids();
-        let use_excluded = sizing.uses_excluded_fallback(&attached_clients);
+        let attached_clients = self.control_clients.attached_client_ids_by_surface();
+        let use_excluded = sizing.uses_excluded_fallback(id, attached_clients.get(&id));
         let desired_geometry =
             sizing.effective_size(id, use_excluded).or(rollback.previous_geometry);
         let restore =
@@ -1564,7 +1588,7 @@ impl Mux {
                     Err(_) => SurfaceResizeRestore::Complete(false),
                 }
             });
-        let rollback_token = sizing.rollback_token(id, &attached_clients);
+        let rollback_token = sizing.rollback_token(id, attached_clients.get(&id));
         self.reconcile_latest_client_size(&sizing, &attached_clients);
         drop(sizing);
         drop(lifecycle);
@@ -1615,8 +1639,8 @@ impl Mux {
             return;
         }
         let mut sizing = self.client_sizing.lock().unwrap();
-        let attached_clients = self.control_clients.attached_client_ids();
-        if sizing.rollback_token(id, &attached_clients) != rollback_token {
+        let attached_clients = self.control_clients.attached_client_ids_by_surface();
+        if sizing.rollback_token(id, attached_clients.get(&id)) != rollback_token {
             return;
         }
         // The failed attach already changed the real surface geometry. If
@@ -1655,8 +1679,7 @@ impl Mux {
     pub fn remove_surface_size_client(&self, id: SurfaceId, client: u64) {
         // Removal participates in the same ordering as size reports.
         let mut sizing = self.client_sizing.lock().unwrap();
-        let attached_clients = self.control_clients.attached_client_ids();
-        let fallback_before = sizing.uses_excluded_fallback(&attached_clients);
+        let attached_clients = self.control_clients.attached_client_ids_by_surface();
         let removed = {
             let removed = sizing
                 .surfaces
@@ -1668,20 +1691,14 @@ impl Mux {
             removed
         };
         sizing.report_order.remove(&(id, client));
-        let fallback_after = sizing.uses_excluded_fallback(&attached_clients);
+        let fallback_after = sizing.uses_excluded_fallback(id, attached_clients.get(&id));
         // A final unreported attachment can be the only thing suppressing
-        // excluded-report fallback. Reconcile all reports even though that
-        // attachment had no lease of its own to remove.
+        // this terminal's excluded-report fallback even though it had no
+        // visibility lease of its own to remove.
         if !removed && !fallback_after {
             return;
         }
-        let fallback_changed = fallback_before != fallback_after;
-        let affected = if fallback_changed || fallback_after {
-            sizing.surfaces.keys().copied().collect::<Vec<_>>()
-        } else {
-            vec![id]
-        };
-        let effective = sizing.effective_sizes(affected, fallback_after);
+        let effective = sizing.effective_sizes([id], &attached_clients);
         #[cfg(test)]
         let before_apply = self.client_resize_before_apply.lock().unwrap().clone();
         #[cfg(test)]
@@ -1697,30 +1714,27 @@ impl Mux {
 
     pub fn remove_size_client(&self, client: u64) {
         let mut sizing = self.client_sizing.lock().unwrap();
-        let attached_clients = self.control_clients.attached_client_ids();
-        let fallback_before = sizing.uses_excluded_fallback(&attached_clients);
-        let mut affected = Vec::new();
-        for (surface, viewers) in &mut sizing.surfaces {
-            if viewers.remove(&client).is_some() {
-                affected.push(*surface);
-            }
+        let attached_clients = self.control_clients.attached_client_ids_by_surface();
+        for viewers in sizing.surfaces.values_mut() {
+            viewers.remove(&client);
         }
         sizing.surfaces.retain(|_, viewers| !viewers.is_empty());
         sizing.report_order.retain(|(_, reporter), _| *reporter != client);
-        let restored_exclusive = sizing.exclusive_client == Some(client);
-        if restored_exclusive {
-            sizing.exclusive_client = None;
-            sizing.excluded_clients.clear();
-        } else {
-            sizing.excluded_clients.remove(&client);
+        for policy in sizing.policies.values_mut() {
+            if policy.exclusive_client == Some(client) {
+                policy.exclusive_client = None;
+                policy.excluded_clients.clear();
+            } else {
+                policy.excluded_clients.remove(&client);
+            }
         }
-        let fallback_after = sizing.uses_excluded_fallback(&attached_clients);
-        if restored_exclusive || fallback_before != fallback_after || fallback_after {
-            affected.extend(sizing.surfaces.keys().copied());
-        }
-        affected.sort_unstable();
-        affected.dedup();
-        let effective = sizing.effective_sizes(affected, fallback_after);
+        sizing.policies.retain(|_, policy| {
+            policy.exclusive_client.is_some() || !policy.excluded_clients.is_empty()
+        });
+        // A disconnected client may have been an unreported attachment that
+        // suppressed fallback on any one terminal, so reconcile each terminal.
+        let affected = sizing.surfaces.keys().copied().collect::<Vec<_>>();
+        let effective = sizing.effective_sizes(affected, &attached_clients);
         for (surface, (cols, rows)) in effective {
             let _ = self.resize_surface(surface, cols, rows);
         }
@@ -1744,32 +1758,39 @@ impl Mux {
         }
     }
 
-    /// Include or exclude one live client's reported dimensions from the
+    /// Include or exclude one live client's dimensions from one terminal's
     /// tmux-style shared minimum. Validation, mutation, and disconnect cleanup
     /// share one lifecycle lock so a stale menu action cannot retain a dead ID.
-    pub fn set_client_size_participation(&self, client: u64, participating: bool) -> Option<bool> {
+    pub fn set_client_size_participation(
+        &self,
+        surface: SurfaceId,
+        client: u64,
+        participating: bool,
+    ) -> Option<bool> {
         let _lifecycle = self.lock_client_sizing_lifecycle();
         let mut sizing = self.client_sizing.lock().unwrap();
-        let known = self.control_clients.contains(client)
-            || sizing.surfaces.values().any(|viewers| viewers.contains_key(&client));
+        let attached_clients = self.control_clients.attached_client_ids_by_surface();
+        let known = attached_clients.get(&surface).is_some_and(|clients| clients.contains(&client))
+            || sizing.surfaces.get(&surface).is_some_and(|viewers| viewers.contains_key(&client));
         if !known {
             return None;
         }
-        let attached_clients = self.control_clients.attached_client_ids();
+        let policy = sizing.policies.entry(surface).or_default();
         let changed = if participating {
-            sizing.excluded_clients.remove(&client)
+            policy.excluded_clients.remove(&client)
         } else {
-            sizing.excluded_clients.insert(client)
+            policy.excluded_clients.insert(client)
         };
         if !changed {
             return Some(false);
         }
-        sizing.exclusive_client = None;
-        let affected = sizing.surfaces.keys().copied().collect::<Vec<_>>();
-        let use_excluded = sizing.uses_excluded_fallback(&attached_clients);
-        let effective = sizing.effective_sizes(affected, use_excluded);
-        for (surface, (cols, rows)) in &effective {
-            let _ = self.resize_surface(*surface, *cols, *rows);
+        policy.exclusive_client = None;
+        if policy.excluded_clients.is_empty() {
+            sizing.policies.remove(&surface);
+        }
+        let effective = sizing.effective_sizes([surface], &attached_clients);
+        for (affected_surface, (cols, rows)) in &effective {
+            let _ = self.resize_surface(*affected_surface, *cols, *rows);
         }
         self.reconcile_latest_client_size(&sizing, &attached_clients);
         drop(sizing);
@@ -1777,37 +1798,34 @@ impl Mux {
         Some(true)
     }
 
-    /// Atomically make one client the only sizing participant. This avoids
-    /// transient intermediate grids while a menu action updates many clients.
-    pub fn use_only_client_size(&self, target: u64) -> Option<bool> {
+    /// Atomically make one client the only sizing participant for one terminal.
+    pub fn use_only_client_size(&self, surface: SurfaceId, target: u64) -> Option<bool> {
         let _lifecycle = self.lock_client_sizing_lifecycle();
         let mut sizing = self.client_sizing.lock().unwrap();
-        let attached_clients = self.control_clients.attached_client_ids();
-        let mut known_clients = self.control_clients.client_ids();
-        for viewers in sizing.surfaces.values() {
-            known_clients.extend(viewers.keys().copied());
-        }
-        let target_is_connected = self.control_clients.contains(target);
-        let target_is_reporting =
-            sizing.surfaces.values().any(|viewers| viewers.contains_key(&target));
-        if !target_is_connected && !target_is_reporting {
+        let attached_clients = self.control_clients.attached_client_ids_by_surface();
+        let reporters = sizing.surfaces.get(&surface);
+        let target_is_reporting = reporters.is_some_and(|viewers| viewers.contains_key(&target));
+        if !target_is_reporting {
             return None;
+        }
+        let mut known_clients = attached_clients.get(&surface).cloned().unwrap_or_default();
+        if let Some(reporters) = reporters {
+            known_clients.extend(reporters.keys().copied());
         }
         let excluded = known_clients
             .iter()
             .copied()
             .filter(|client| *client != target)
             .collect::<HashSet<_>>();
-        if sizing.excluded_clients == excluded && sizing.exclusive_client == Some(target) {
+        let policy = sizing.policies.entry(surface).or_default();
+        if policy.excluded_clients == excluded && policy.exclusive_client == Some(target) {
             return Some(false);
         }
-        sizing.excluded_clients = excluded;
-        sizing.exclusive_client = Some(target);
-        let affected = sizing.surfaces.keys().copied().collect::<Vec<_>>();
-        let use_excluded = sizing.uses_excluded_fallback(&attached_clients);
-        let effective = sizing.effective_sizes(affected, use_excluded);
-        for (surface, (cols, rows)) in &effective {
-            let _ = self.resize_surface(*surface, *cols, *rows);
+        policy.excluded_clients = excluded;
+        policy.exclusive_client = Some(target);
+        let effective = sizing.effective_sizes([surface], &attached_clients);
+        for (affected_surface, (cols, rows)) in &effective {
+            let _ = self.resize_surface(*affected_surface, *cols, *rows);
         }
         self.reconcile_latest_client_size(&sizing, &attached_clients);
         drop(sizing);
@@ -1815,45 +1833,51 @@ impl Mux {
         Some(true)
     }
 
-    /// Atomically restore every connected or reporting client to sizing.
-    pub fn use_all_client_sizes(&self) -> bool {
+    /// Atomically restore every connected or reporting client for one terminal.
+    pub fn use_all_client_sizes(&self, surface: SurfaceId) -> Option<bool> {
         let _lifecycle = self.lock_client_sizing_lifecycle();
+        if self.surface(surface).is_none() {
+            return None;
+        }
         let mut sizing = self.client_sizing.lock().unwrap();
-        let attached_clients = self.control_clients.attached_client_ids();
-        if sizing.excluded_clients.is_empty() && sizing.exclusive_client.is_none() {
-            return false;
+        let attached_clients = self.control_clients.attached_client_ids_by_surface();
+        let Some(_) = sizing.policies.remove(&surface) else {
+            return Some(false);
+        };
+        let mut known_clients = attached_clients.get(&surface).cloned().unwrap_or_default();
+        if let Some(reporters) = sizing.surfaces.get(&surface) {
+            known_clients.extend(reporters.keys().copied());
         }
-        let mut known_clients = self.control_clients.client_ids();
-        for viewers in sizing.surfaces.values() {
-            known_clients.extend(viewers.keys().copied());
-        }
-        sizing.excluded_clients.clear();
-        sizing.exclusive_client = None;
-        let affected = sizing.surfaces.keys().copied().collect::<Vec<_>>();
-        let effective = sizing.effective_sizes(affected, false);
-        debug_assert!(!sizing.uses_excluded_fallback(&attached_clients) || effective.is_empty());
-        for (surface, (cols, rows)) in &effective {
-            let _ = self.resize_surface(*surface, *cols, *rows);
+        let effective = sizing.effective_sizes([surface], &attached_clients);
+        for (affected_surface, (cols, rows)) in &effective {
+            let _ = self.resize_surface(*affected_surface, *cols, *rows);
         }
         self.reconcile_latest_client_size(&sizing, &attached_clients);
         drop(sizing);
         self.emit_client_sizing_changes(known_clients);
-        true
+        Some(true)
     }
 
-    pub fn client_size_participates(&self, client: u64) -> bool {
-        self.client_sizing.lock().unwrap().client_participates(client)
+    pub fn client_size_participates(&self, surface: SurfaceId, client: u64) -> bool {
+        self.client_sizing.lock().unwrap().client_participates(surface, client)
     }
 
     pub fn control_clients_json(&self, requesting_client: u64) -> Value {
         let mut clients = self.control_clients.list_json(requesting_client);
+        let sizing = self.client_sizing.lock().unwrap();
         if let Some(clients) = clients.as_array_mut() {
             for info in clients {
                 let id = info.get("client").and_then(Value::as_u64).unwrap_or_default();
-                info["size_participating"] = serde_json::json!(self.client_size_participates(id));
+                if let Some(sizes) = info.get_mut("sizes").and_then(Value::as_array_mut) {
+                    for size in sizes {
+                        let surface =
+                            size.get("surface").and_then(Value::as_u64).unwrap_or_default();
+                        size["size_participating"] =
+                            serde_json::json!(sizing.client_participates(surface, id));
+                    }
+                }
             }
         }
-        let sizing = self.client_sizing.lock().unwrap();
         let local_sizes = sizing
             .surfaces
             .iter()
@@ -1863,6 +1887,7 @@ impl Mux {
                         "surface": surface,
                         "cols": cols,
                         "rows": rows,
+                        "size_participating": sizing.client_participates(*surface, 0),
                     })
                 })
             })
@@ -1881,7 +1906,6 @@ impl Mux {
                     "attached": local_sizes.iter().filter_map(|size| size.get("surface")).cloned().collect::<Vec<_>>(),
                     "sizes": local_sizes,
                     "self": requesting_client == 0,
-                    "size_participating": !sizing.excluded_clients.contains(&0),
                 }),
             );
         }
@@ -2060,7 +2084,8 @@ impl Mux {
         let mut sizing = self.client_sizing.lock().unwrap();
         sizing.surfaces.remove(&surface);
         sizing.report_order.retain(|(reported_surface, _), _| *reported_surface != surface);
-        let attached_clients = self.control_clients.attached_client_ids();
+        sizing.policies.remove(&surface);
+        let attached_clients = self.control_clients.attached_client_ids_by_surface();
         self.reconcile_latest_client_size(&sizing, &attached_clients);
     }
 
@@ -5160,17 +5185,17 @@ mod tests {
         mux.resize_surface_for_client(surface.id, 2, 80, 50).unwrap();
         assert_eq!(surface.size(), (80, 40));
 
-        assert_eq!(mux.set_client_size_participation(2, false), Some(true));
+        assert_eq!(mux.set_client_size_participation(surface.id, 2, false), Some(true));
         assert_eq!(surface.size(), (120, 40));
-        assert!(!mux.client_size_participates(2));
+        assert!(!mux.client_size_participates(surface.id, 2));
 
         mux.resize_surface_for_client(surface.id, 2, 60, 30).unwrap();
         assert_eq!(surface.size(), (120, 40));
         assert_eq!(mux.client_surface_size(surface.id, 2), Some((60, 30)));
 
-        assert_eq!(mux.set_client_size_participation(2, true), Some(true));
+        assert_eq!(mux.set_client_size_participation(surface.id, 2, true), Some(true));
         assert_eq!(surface.size(), (60, 30));
-        assert!(mux.client_size_participates(2));
+        assert!(mux.client_size_participates(surface.id, 2));
     }
 
     #[test]
@@ -5180,7 +5205,7 @@ mod tests {
         mux.resize_surface_for_client(surface.id, 7, 80, 24).unwrap();
         let events = mux.subscribe();
 
-        assert_eq!(mux.set_client_size_participation(7, false), Some(true));
+        assert_eq!(mux.set_client_size_participation(surface.id, 7, false), Some(true));
 
         assert!(matches!(
             events.recv_timeout(Duration::from_secs(1)),
@@ -5194,12 +5219,12 @@ mod tests {
         let surface = mux.new_workspace(None, None).unwrap();
         mux.resize_surface_for_client(surface.id, 1, 120, 40).unwrap();
         mux.resize_surface_for_client(surface.id, 2, 80, 24).unwrap();
-        assert_eq!(mux.use_only_client_size(1), Some(true));
+        assert_eq!(mux.use_only_client_size(surface.id, 1), Some(true));
 
-        assert_eq!(mux.set_client_size_participation(99, false), None);
+        assert_eq!(mux.set_client_size_participation(surface.id, 99, false), None);
 
-        assert!(mux.client_size_participates(1));
-        assert!(!mux.client_size_participates(2));
+        assert!(mux.client_size_participates(surface.id, 1));
+        assert!(!mux.client_size_participates(surface.id, 2));
     }
 
     #[test]
@@ -5211,9 +5236,9 @@ mod tests {
         mux.resize_surface_for_client(surface.id, 2, 80, 50).unwrap();
         assert_eq!(surface.size(), (80, 40));
 
-        assert_eq!(mux.set_client_size_participation(1, false), Some(true));
+        assert_eq!(mux.set_client_size_participation(surface.id, 1, false), Some(true));
         assert_eq!(surface.size(), (80, 50));
-        assert_eq!(mux.set_client_size_participation(2, false), Some(true));
+        assert_eq!(mux.set_client_size_participation(surface.id, 2, false), Some(true));
 
         // tmux's ignore-size flag is only effective while at least one
         // size-capable client is not ignored. If every viewer is ignored,
@@ -5222,36 +5247,36 @@ mod tests {
     }
 
     #[test]
-    fn excluding_last_participant_recalculates_other_visible_surfaces() {
+    fn excluded_client_fallback_is_independent_per_surface() {
         let mux = test_mux();
         let first = mux.new_workspace(None, None).unwrap();
         let second = mux.new_workspace(None, None).unwrap();
 
         mux.resize_surface_for_client(first.id, 1, 120, 40).unwrap();
         mux.resize_surface_for_client(second.id, 2, 80, 25).unwrap();
-        assert_eq!(mux.set_client_size_participation(2, false), Some(true));
+        assert_eq!(mux.set_client_size_participation(second.id, 2, false), Some(true));
 
-        // Keep the ignored client's report current without applying it while
-        // another size-capable client still participates elsewhere.
+        // Every viewer on this terminal is excluded, so this terminal alone
+        // falls back to its excluded reports.
         mux.resize_surface_for_client(second.id, 2, 60, 20).unwrap();
-        assert_eq!(second.size(), (80, 25));
+        assert_eq!(second.size(), (60, 20));
 
-        assert_eq!(mux.set_client_size_participation(1, false), Some(true));
+        assert_eq!(mux.set_client_size_participation(first.id, 1, false), Some(true));
         assert_eq!(first.size(), (120, 40));
         assert_eq!(second.size(), (60, 20));
     }
 
     #[test]
-    fn detaching_last_participant_recalculates_ignored_surfaces() {
+    fn detaching_client_does_not_change_another_surface_policy() {
         let mux = test_mux();
         let first = mux.new_workspace(None, None).unwrap();
         let second = mux.new_workspace(None, None).unwrap();
 
         mux.resize_surface_for_client(first.id, 1, 120, 40).unwrap();
         mux.resize_surface_for_client(second.id, 2, 80, 25).unwrap();
-        assert_eq!(mux.set_client_size_participation(2, false), Some(true));
+        assert_eq!(mux.set_client_size_participation(second.id, 2, false), Some(true));
         mux.resize_surface_for_client(second.id, 2, 60, 20).unwrap();
-        assert_eq!(second.size(), (80, 25));
+        assert_eq!(second.size(), (60, 20));
 
         mux.remove_size_client(1);
         assert_eq!(second.size(), (60, 20));
@@ -5266,16 +5291,16 @@ mod tests {
         mux.resize_surface_for_client(surface.id, 2, 80, 30).unwrap();
         mux.resize_surface_for_client(other.id, 2, 80, 30).unwrap();
 
-        assert_eq!(mux.use_only_client_size(1), Some(true));
+        assert_eq!(mux.use_only_client_size(surface.id, 1), Some(true));
         assert_eq!(surface.size(), (120, 40));
         mux.resize_surface_for_client(other.id, 2, 60, 20).unwrap();
-        assert_eq!(other.size(), (80, 30));
+        assert_eq!(other.size(), (60, 20));
         mux.remove_size_client(1);
 
         assert_eq!(surface.size(), (80, 30));
         assert_eq!(other.size(), (60, 20));
-        assert!(mux.client_size_participates(2));
-        assert_eq!(mux.use_only_client_size(99), None);
+        assert!(mux.client_size_participates(surface.id, 2));
+        assert_eq!(mux.use_only_client_size(surface.id, 99), None);
     }
 
     #[test]
@@ -5407,8 +5432,8 @@ mod tests {
         let surfaces =
             (0..3).map(|_| mux.new_workspace(None, Some((80, 24))).unwrap()).collect::<Vec<_>>();
         let mut reports = HashMap::<(SurfaceId, u64), (u16, u16)>::new();
-        let mut excluded = HashSet::<u64>::new();
-        let mut exclusive = None;
+        let mut excluded = HashMap::<SurfaceId, HashSet<u64>>::new();
+        let mut exclusive = HashMap::<SurfaceId, u64>::new();
         let mut expected =
             surfaces.iter().map(|surface| (surface.id, surface.size())).collect::<HashMap<_, _>>();
         let mut random = 0x5eed_u64;
@@ -5424,8 +5449,8 @@ mod tests {
                 0 | 1 => {
                     let size =
                         ((next(&mut random) % 180 + 1) as u16, (next(&mut random) % 70 + 1) as u16);
-                    if exclusive.is_some_and(|target| target != client) {
-                        excluded.insert(client);
+                    if exclusive.get(&surface).is_some_and(|target| *target != client) {
+                        excluded.entry(surface).or_default().insert(client);
                     }
                     reports.insert((surface, client), size);
                     mux.resize_surface_for_client(surface, client, size.0, size.1).unwrap();
@@ -5435,48 +5460,73 @@ mod tests {
                     mux.remove_surface_size_client(surface, client);
                 }
                 3 => {
-                    if reports.keys().any(|(_, reporter)| *reporter == client) {
-                        let participates = excluded.contains(&client);
+                    if reports.contains_key(&(surface, client)) {
+                        let surface_excluded = excluded.entry(surface).or_default();
+                        let participates = surface_excluded.contains(&client);
                         if participates {
-                            excluded.remove(&client);
+                            surface_excluded.remove(&client);
                         } else {
-                            excluded.insert(client);
+                            surface_excluded.insert(client);
                         }
-                        assert!(mux.set_client_size_participation(client, participates).is_some());
-                        exclusive = None;
+                        if surface_excluded.is_empty() {
+                            excluded.remove(&surface);
+                        }
+                        assert!(
+                            mux.set_client_size_participation(surface, client, participates)
+                                .is_some()
+                        );
+                        exclusive.remove(&surface);
                     }
                 }
                 _ => {
-                    let known = reports.keys().any(|(_, reporter)| *reporter == client);
+                    let known = reports.contains_key(&(surface, client));
                     if known && step % 2 == 0 {
-                        let known_clients =
-                            reports.keys().map(|(_, reporter)| *reporter).collect::<HashSet<_>>();
-                        excluded = known_clients
-                            .into_iter()
-                            .filter(|known_client| *known_client != client)
-                            .collect();
-                        exclusive = Some(client);
-                        assert!(mux.use_only_client_size(client).is_some());
+                        let known_clients = reports
+                            .keys()
+                            .filter_map(|(reported_surface, reporter)| {
+                                (*reported_surface == surface).then_some(*reporter)
+                            })
+                            .collect::<HashSet<_>>();
+                        excluded.insert(
+                            surface,
+                            known_clients
+                                .into_iter()
+                                .filter(|known_client| *known_client != client)
+                                .collect(),
+                        );
+                        exclusive.insert(surface, client);
+                        assert!(mux.use_only_client_size(surface, client).is_some());
                     } else {
                         reports.retain(|(_, reporter), _| *reporter != client);
-                        if exclusive == Some(client) {
-                            exclusive = None;
-                            excluded.clear();
-                        } else {
-                            excluded.remove(&client);
+                        for candidate in &surfaces {
+                            if exclusive.get(&candidate.id) == Some(&client) {
+                                exclusive.remove(&candidate.id);
+                                excluded.remove(&candidate.id);
+                            } else if let Some(surface_excluded) = excluded.get_mut(&candidate.id) {
+                                surface_excluded.remove(&client);
+                                if surface_excluded.is_empty() {
+                                    excluded.remove(&candidate.id);
+                                }
+                            }
                         }
                         mux.remove_size_client(client);
                     }
                 }
             }
 
-            let use_excluded = !reports.keys().any(|(_, reporter)| !excluded.contains(reporter));
             for candidate in &surfaces {
+                let surface_excluded = excluded.get(&candidate.id);
+                let use_excluded = !reports.keys().any(|(reported_surface, reporter)| {
+                    *reported_surface == candidate.id
+                        && !surface_excluded.is_some_and(|clients| clients.contains(reporter))
+                });
                 let effective = reports
                     .iter()
                     .filter(|((reported_surface, reporter), _)| {
                         *reported_surface == candidate.id
-                            && (use_excluded || !excluded.contains(reporter))
+                            && (use_excluded
+                                || !surface_excluded
+                                    .is_some_and(|clients| clients.contains(reporter)))
                     })
                     .map(|(_, size)| *size)
                     .reduce(|smallest, size| (smallest.0.min(size.0), smallest.1.min(size.1)));

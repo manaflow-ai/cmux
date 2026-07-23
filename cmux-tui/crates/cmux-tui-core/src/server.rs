@@ -59,7 +59,8 @@ pub const PROVIDER_MANAGED_WORKSPACE_GUARD_CAPABILITY: &str =
 const INITIAL_BROWSER_RESIZE_TIMEOUT: Duration = Duration::from_secs(10);
 pub const STABLE_SPLIT_IDS_PROTOCOL_VERSION: u32 = 8;
 pub const STACK_LAYOUT_PROTOCOL_VERSION: u32 = 9;
-pub const PROTOCOL_VERSION: u32 = STACK_LAYOUT_PROTOCOL_VERSION;
+pub const PER_SURFACE_CLIENT_SIZING_PROTOCOL_VERSION: u32 = 10;
+pub const PROTOCOL_VERSION: u32 = PER_SURFACE_CLIENT_SIZING_PROTOCOL_VERSION;
 
 /// Default socket path for a session.
 pub fn default_socket_path(session: &str) -> PathBuf {
@@ -86,6 +87,7 @@ enum Command {
     },
     ListClients,
     SetClientSizing {
+        surface: SurfaceId,
         #[serde(default)]
         client: Option<u64>,
         enabled: bool,
@@ -1348,10 +1350,6 @@ impl ClientRegistry {
         self.clients.lock().unwrap().contains_key(&client)
     }
 
-    pub(crate) fn client_ids(&self) -> HashSet<u64> {
-        self.clients.lock().unwrap().keys().copied().collect()
-    }
-
     pub(crate) fn client_info(&self, client: u64) -> Option<(Option<String>, Option<String>)> {
         self.clients
             .lock()
@@ -1360,6 +1358,7 @@ impl ClientRegistry {
             .map(|record| (record.name.clone(), record.kind.clone()))
     }
 
+    #[cfg(test)]
     pub(crate) fn attached_client_ids(&self) -> HashSet<u64> {
         self.clients
             .lock()
@@ -1367,6 +1366,19 @@ impl ClientRegistry {
             .iter()
             .filter_map(|(client, record)| (!record.attached.is_empty()).then_some(*client))
             .collect()
+    }
+
+    pub(crate) fn attached_client_ids_by_surface(&self) -> HashMap<SurfaceId, HashSet<u64>> {
+        let clients = self.clients.lock().unwrap();
+        let mut attached = HashMap::<SurfaceId, HashSet<u64>>::new();
+        for (client, record) in clients.iter() {
+            for (surface, attachment) in &record.attached {
+                if !attachment.streams.is_empty() || !attachment.pending_streams.is_empty() {
+                    attached.entry(*surface).or_default().insert(*client);
+                }
+            }
+        }
+        attached
     }
 }
 
@@ -2771,20 +2783,25 @@ fn handle_command(
             Ok(json!({}))
         }
         Command::ListClients => Ok(mux.control_clients_json(client)),
-        Command::SetClientSizing { client: target, enabled, exclusive } => {
+        Command::SetClientSizing { surface, client: target, enabled, exclusive } => {
             if exclusive && !enabled {
                 anyhow::bail!("exclusive client sizing must be enabled");
             }
             if let Some(target) = target {
                 if exclusive {
-                    mux.use_only_client_size(target)
-                        .ok_or_else(|| anyhow::anyhow!("unknown client {target}"))?;
+                    mux.use_only_client_size(surface, target).ok_or_else(|| {
+                        anyhow::anyhow!(
+                            "client {target} has no reported size for surface {surface}"
+                        )
+                    })?;
                 } else {
-                    mux.set_client_size_participation(target, enabled)
-                        .ok_or_else(|| anyhow::anyhow!("unknown client {target}"))?;
+                    mux.set_client_size_participation(surface, target, enabled).ok_or_else(
+                        || anyhow::anyhow!("client {target} is not attached to surface {surface}"),
+                    )?;
                 }
             } else if enabled {
-                mux.use_all_client_sizes();
+                mux.use_all_client_sizes(surface)
+                    .ok_or_else(|| anyhow::anyhow!("unknown surface {surface}"))?;
             } else {
                 anyhow::bail!("client is required when disabling sizing");
             }
@@ -4464,7 +4481,8 @@ mod tests {
         assert_eq!(data["protocol"].as_u64(), Some(PROTOCOL_VERSION as u64));
         assert_eq!(STABLE_SPLIT_IDS_PROTOCOL_VERSION, 8);
         assert_eq!(STACK_LAYOUT_PROTOCOL_VERSION, 9);
-        assert_eq!(PROTOCOL_VERSION, 9);
+        assert_eq!(PER_SURFACE_CLIENT_SIZING_PROTOCOL_VERSION, 10);
+        assert_eq!(PROTOCOL_VERSION, 10);
     }
 
     #[test]
@@ -4663,21 +4681,38 @@ mod tests {
     #[test]
     fn client_sizing_command_updates_list_clients() {
         let mux = test_mux();
+        let surface = mux.new_workspace(None, Some((80, 24))).unwrap();
         let writer = test_writer();
         let client = mux.control_clients.register(ClientTransport::Unix, writer.clone());
+        let stream = writer.start_stream(&json!({"event": "test"})).unwrap();
+        let stream_id = stream.id;
+        mux.control_clients.attach_surface(client, surface.id, stream).unwrap();
+        mux.control_clients.commit_surface(client, surface.id, stream_id, None).unwrap();
+        handle_command(
+            &mux,
+            client,
+            Command::ResizeSurface { surface: surface.id, cols: 80, rows: 24 },
+            &writer,
+        )
+        .unwrap();
 
         let listed = handle_command(&mux, client, Command::ListClients, &writer).unwrap();
-        assert_eq!(listed[0]["size_participating"], true);
+        assert_eq!(listed[0]["sizes"][0]["size_participating"], true);
 
         handle_command(
             &mux,
             client,
-            Command::SetClientSizing { client: Some(client), enabled: false, exclusive: false },
+            Command::SetClientSizing {
+                surface: surface.id,
+                client: Some(client),
+                enabled: false,
+                exclusive: false,
+            },
             &writer,
         )
         .unwrap();
         let listed = handle_command(&mux, client, Command::ListClients, &writer).unwrap();
-        assert_eq!(listed[0]["size_participating"], false);
+        assert_eq!(listed[0]["sizes"][0]["size_participating"], false);
     }
 
     #[test]
@@ -4706,24 +4741,34 @@ mod tests {
         handle_command(
             &mux,
             first,
-            Command::SetClientSizing { client: Some(first), enabled: true, exclusive: true },
+            Command::SetClientSizing {
+                surface: surface.id,
+                client: Some(first),
+                enabled: true,
+                exclusive: true,
+            },
             &first_writer,
         )
         .unwrap();
         assert_eq!(surface.size(), (120, 40));
-        assert!(mux.client_size_participates(first));
-        assert!(!mux.client_size_participates(second));
+        assert!(mux.client_size_participates(surface.id, first));
+        assert!(!mux.client_size_participates(surface.id, second));
 
         handle_command(
             &mux,
             first,
-            Command::SetClientSizing { client: None, enabled: true, exclusive: false },
+            Command::SetClientSizing {
+                surface: surface.id,
+                client: None,
+                enabled: true,
+                exclusive: false,
+            },
             &first_writer,
         )
         .unwrap();
         assert_eq!(surface.size(), (80, 30));
-        assert!(mux.client_size_participates(first));
-        assert!(mux.client_size_participates(second));
+        assert!(mux.client_size_participates(surface.id, first));
+        assert!(mux.client_size_participates(surface.id, second));
     }
 
     #[test]
@@ -4812,7 +4857,12 @@ mod tests {
         handle_command(
             &mux,
             reporter,
-            Command::SetClientSizing { client: Some(reporter), enabled: false, exclusive: false },
+            Command::SetClientSizing {
+                surface: surface.id,
+                client: Some(reporter),
+                enabled: false,
+                exclusive: false,
+            },
             &reporter_writer,
         )
         .unwrap();
@@ -4834,7 +4884,12 @@ mod tests {
         handle_command(
             &mux,
             blocker,
-            Command::SetClientSizing { client: Some(blocker), enabled: false, exclusive: false },
+            Command::SetClientSizing {
+                surface: surface.id,
+                client: Some(blocker),
+                enabled: false,
+                exclusive: false,
+            },
             &blocker_writer,
         )
         .unwrap();
@@ -4859,7 +4914,12 @@ mod tests {
         handle_command(
             &mux,
             reporter,
-            Command::SetClientSizing { client: Some(reporter), enabled: false, exclusive: false },
+            Command::SetClientSizing {
+                surface: surface.id,
+                client: Some(reporter),
+                enabled: false,
+                exclusive: false,
+            },
             &reporter_writer,
         )
         .unwrap();
@@ -4881,7 +4941,7 @@ mod tests {
     }
 
     #[test]
-    fn final_stream_detach_restores_excluded_reports_on_other_surfaces() {
+    fn final_stream_detach_does_not_recalculate_other_surface() {
         let mux = test_mux();
         let blocker_surface = mux.new_workspace(None, Some((100, 40))).unwrap();
         let reported_surface = mux.new_workspace(None, Some((100, 40))).unwrap();
@@ -4899,7 +4959,12 @@ mod tests {
         handle_command(
             &mux,
             reporter,
-            Command::SetClientSizing { client: Some(reporter), enabled: false, exclusive: false },
+            Command::SetClientSizing {
+                surface: reported_surface.id,
+                client: Some(reporter),
+                enabled: false,
+                exclusive: false,
+            },
             &reporter_writer,
         )
         .unwrap();
@@ -4918,7 +4983,7 @@ mod tests {
         );
         mux.remove_surface_size_client(blocker_surface.id, blocker);
 
-        assert_eq!(reported_surface.size(), (70, 20));
+        assert_eq!(reported_surface.size(), (100, 40));
     }
 
     #[test]
@@ -5056,7 +5121,7 @@ mod tests {
         let action_mux = mux.clone();
         let action = std::thread::spawn(move || {
             ready_tx.send(()).unwrap();
-            action_mux.set_client_size_participation(client, false)
+            action_mux.set_client_size_participation(surface.id, client, false)
         });
         ready_rx.recv_timeout(Duration::from_secs(1)).unwrap();
 
@@ -5147,7 +5212,12 @@ mod tests {
         handle_command(
             &mux,
             target,
-            Command::SetClientSizing { client: Some(target), enabled: true, exclusive: true },
+            Command::SetClientSizing {
+                surface: surface.id,
+                client: Some(target),
+                enabled: true,
+                exclusive: true,
+            },
             &target_writer,
         )
         .unwrap();
@@ -5155,7 +5225,9 @@ mod tests {
         let later_writer = test_writer();
         let later = mux.control_clients.register(ClientTransport::Unix, later_writer.clone());
         let later_stream = later_writer.start_stream(&json!({"event": "test"})).unwrap();
+        let later_stream_id = later_stream.id;
         mux.control_clients.attach_surface(later, surface.id, later_stream).unwrap();
+        mux.control_clients.commit_surface(later, surface.id, later_stream_id, None).unwrap();
         handle_command(
             &mux,
             later,
@@ -5165,10 +5237,11 @@ mod tests {
         .unwrap();
 
         assert_eq!(surface.size(), (120, 40));
-        assert!(!mux.client_size_participates(later));
+        assert!(!mux.client_size_participates(surface.id, later));
         let clients = mux.control_clients_json(target);
         assert_eq!(
-            clients.as_array().unwrap().iter().find(|client| client["client"] == later).unwrap()["size_participating"],
+            clients.as_array().unwrap().iter().find(|client| client["client"] == later).unwrap()["sizes"]
+                [0]["size_participating"],
             false
         );
     }
@@ -5190,7 +5263,12 @@ mod tests {
         handle_command(
             &mux,
             reporter,
-            Command::SetClientSizing { client: Some(reporter), enabled: false, exclusive: false },
+            Command::SetClientSizing {
+                surface: surface.id,
+                client: Some(reporter),
+                enabled: false,
+                exclusive: false,
+            },
             &reporter_writer,
         )
         .unwrap();

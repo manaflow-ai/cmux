@@ -435,14 +435,17 @@ export class CmuxClient {
   }
   listClients(): Promise<ListClientsResult> { return this.request("list-clients"); }
   detachClient(client: Id): Promise<EmptyResult> { return this.request("detach-client", { client }); }
-  setClientSizing(client: Id, enabled: boolean): Promise<EmptyResult> {
-    return this.request("set-client-sizing", { client, enabled });
+  async setClientSizing(surface: Id, client: Id, enabled: boolean): Promise<EmptyResult> {
+    await this.requireProtocol(10, "set-client-sizing");
+    return this.request("set-client-sizing", { surface, client, enabled });
   }
-  useOnlyClientSizing(client: Id): Promise<EmptyResult> {
-    return this.request("set-client-sizing", { client, enabled: true, exclusive: true });
+  async useOnlyClientSizing(surface: Id, client: Id): Promise<EmptyResult> {
+    await this.requireProtocol(10, "set-client-sizing");
+    return this.request("set-client-sizing", { surface, client, enabled: true, exclusive: true });
   }
-  useAllClientSizing(): Promise<EmptyResult> {
-    return this.request("set-client-sizing", { enabled: true });
+  async useAllClientSizing(surface: Id): Promise<EmptyResult> {
+    await this.requireProtocol(10, "set-client-sizing");
+    return this.request("set-client-sizing", { surface, enabled: true });
   }
   reloadConfig(): Promise<ReloadConfigResult> { return this.request("reload-config"); }
   setWindowTitle(title: string): Promise<EmptyResult> { return this.request("set-window-title", { title }); }

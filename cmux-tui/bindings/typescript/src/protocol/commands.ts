@@ -48,6 +48,8 @@ export interface ClientSize {
   surface: Id;
   cols: number | null;
   rows: number | null;
+  /** Protocol v10; older servers imply true. */
+  size_participating?: boolean;
 }
 export interface ClientInfo {
   client: Id;
@@ -58,13 +60,13 @@ export interface ClientInfo {
   attached: Id[];
   sizes: ClientSize[];
   self: boolean;
-  size_participating: boolean;
 }
 export type ListClientsResult = ClientInfo[];
 
 export interface DetachClientRequest extends CmuxRequestBase { cmd: "detach-client"; client: Id }
 export interface SetClientSizingRequest extends CmuxRequestBase {
   cmd: "set-client-sizing";
+  surface: Id;
   client?: Id;
   enabled: boolean;
   exclusive?: boolean;

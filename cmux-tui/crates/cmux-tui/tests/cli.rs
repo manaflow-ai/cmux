@@ -230,7 +230,7 @@ fn cli_verbs_cover_command_output_errors_and_streams() {
     assert_success(&ping_json);
     let ping: serde_json::Value = serde_json::from_slice(&ping_json.stdout).unwrap();
     assert_eq!(ping.get("ok").and_then(|v| v.as_bool()), Some(true));
-    assert_eq!(ping.get("protocol").and_then(|v| v.as_u64()), Some(9));
+    assert_eq!(ping.get("protocol").and_then(|v| v.as_u64()), Some(10));
 
     let client_info =
         cli(&server, &["set-client-info", "--name", "one-shot", "--kind", "cli-test"]);
@@ -248,6 +248,36 @@ fn cli_verbs_cover_command_output_errors_and_streams() {
     target_reader.read_line(&mut target_response).unwrap();
     assert_eq!(serde_json::from_str::<serde_json::Value>(&target_response).unwrap()["ok"], true);
 
+    let sizing_workspace = cli(&server, &["new-workspace", "--name", "cli-test"]);
+    assert_success(&sizing_workspace);
+    let sizing_surface =
+        String::from_utf8(sizing_workspace.stdout).unwrap().trim().parse::<u64>().unwrap();
+    writeln!(target_writer, r#"{{"id":2,"cmd":"attach-surface","surface":{sizing_surface}}}"#)
+        .unwrap();
+    loop {
+        target_response.clear();
+        target_reader.read_line(&mut target_response).unwrap();
+        let response = serde_json::from_str::<serde_json::Value>(&target_response).unwrap();
+        if response["id"] == 2 {
+            assert_eq!(response["ok"], true);
+            break;
+        }
+    }
+    writeln!(
+        target_writer,
+        r#"{{"id":3,"cmd":"resize-surface","surface":{sizing_surface},"cols":80,"rows":24}}"#
+    )
+    .unwrap();
+    loop {
+        target_response.clear();
+        target_reader.read_line(&mut target_response).unwrap();
+        let response = serde_json::from_str::<serde_json::Value>(&target_response).unwrap();
+        if response["id"] == 3 {
+            assert_eq!(response["ok"], true);
+            break;
+        }
+    }
+
     let clients = cli(&server, &["--json", "list-clients"]);
     assert_success(&clients);
     let clients_json: serde_json::Value = serde_json::from_slice(&clients.stdout).unwrap();
@@ -262,9 +292,18 @@ fn cli_verbs_cover_command_output_errors_and_streams() {
     let clients_human = cli(&server, &["list-clients"]);
     assert_success(&clients_human);
     assert!(String::from_utf8_lossy(&clients_human.stdout).contains("connected="));
+    assert!(String::from_utf8_lossy(&clients_human.stdout).contains(":sizing=true"));
     let excluded = cli(
         &server,
-        &["set-client-sizing", "--client", &target_id.to_string(), "--enabled", "false"],
+        &[
+            "set-client-sizing",
+            "--surface",
+            &sizing_surface.to_string(),
+            "--client",
+            &target_id.to_string(),
+            "--enabled",
+            "false",
+        ],
     );
     assert_success(&excluded);
     let clients = cli(&server, &["--json", "list-clients"]);
@@ -276,21 +315,28 @@ fn cli_verbs_cover_command_output_errors_and_streams() {
             .unwrap()
             .iter()
             .find(|client| client["client"] == target_id)
+            .unwrap()["sizes"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .find(|size| size["surface"] == sizing_surface)
             .unwrap()["size_participating"],
         false
     );
     let detached = cli(&server, &["detach-client", "--client", &target_id.to_string()]);
     assert_success(&detached);
-    target_response.clear();
-    assert_eq!(target_reader.read_line(&mut target_response).unwrap(), 0);
+    loop {
+        target_response.clear();
+        if target_reader.read_line(&mut target_response).unwrap() == 0 {
+            break;
+        }
+    }
 
     let title = cli(&server, &["set-window-title", "--title", "hello"]);
     assert_success(&title);
     assert!(title.stdout.is_empty(), "set-window-title should be quiet on success");
 
-    let workspace = cli(&server, &["new-workspace", "--name", "cli-test"]);
-    assert_success(&workspace);
-    let surface = String::from_utf8(workspace.stdout).unwrap().trim().parse::<u64>().unwrap();
+    let surface = sizing_surface;
     assert!(surface > 0, "new-workspace should print the new surface id");
     let tree = cli(&server, &["--json", "list-workspaces"]);
     assert_success(&tree);

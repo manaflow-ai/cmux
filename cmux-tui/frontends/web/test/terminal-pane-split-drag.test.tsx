@@ -503,9 +503,8 @@ describe("TerminalPane shared minimum size", () => {
         kind: "web",
         connected_seconds: 10,
         attached: [7],
-        sizes: [{ surface: 7, cols: 120, rows: 30 }],
+        sizes: [{ surface: 7, cols: 120, rows: 30, size_participating: true }],
         self: true,
-        size_participating: true,
       },
       {
         client: 2,
@@ -514,19 +513,25 @@ describe("TerminalPane shared minimum size", () => {
         kind: "tui",
         connected_seconds: 20,
         attached: [7],
-        sizes: [{ surface: 7, cols: 80, rows: 40 }],
+        sizes: [{ surface: 7, cols: 80, rows: 40, size_participating: true }],
         self: false,
-        size_participating: true,
       },
     ];
 
-    const { getByRole } = render(<TerminalPane {...props} screen={terminalScreenView()} />);
+    const { getAllByRole, getByRole } = render(
+      <TerminalPane {...props} screen={terminalScreenView()} />,
+    );
     const trigger = getByRole("button", { name: "2 clients · 80×30 min" });
+    fireEvent.click(trigger);
+    fireEvent.click(getAllByRole("menuitem", { name: "Use only this client size" })[0]);
+
+    expect(props.onUseOnlyClientSizing).toHaveBeenCalledWith(7, 1);
+
     fireEvent.click(trigger);
     fireEvent.click(getByRole("menuitem", { name: "Use all client sizes" }));
 
-    expect(props.onRefreshClients).toHaveBeenCalledOnce();
-    expect(props.onUseAllClientSizing).toHaveBeenCalledOnce();
+    expect(props.onRefreshClients).toHaveBeenCalledTimes(2);
+    expect(props.onUseAllClientSizing).toHaveBeenCalledWith(7);
   });
 
   it("uses the tmux fallback minimum when every attached viewer is excluded", () => {
@@ -539,9 +544,8 @@ describe("TerminalPane shared minimum size", () => {
         kind: "web",
         connected_seconds: 10,
         attached: [7],
-        sizes: [{ surface: 7, cols: 120, rows: 30 }],
+        sizes: [{ surface: 7, cols: 120, rows: 30, size_participating: false }],
         self: true,
-        size_participating: false,
       },
       {
         client: 2,
@@ -550,9 +554,8 @@ describe("TerminalPane shared minimum size", () => {
         kind: "tui",
         connected_seconds: 20,
         attached: [7],
-        sizes: [{ surface: 7, cols: 80, rows: 40 }],
+        sizes: [{ surface: 7, cols: 80, rows: 40, size_participating: false }],
         self: false,
-        size_participating: false,
       },
     ];
 
@@ -570,9 +573,8 @@ describe("TerminalPane shared minimum size", () => {
         kind: "web",
         connected_seconds: 10,
         attached: [7],
-        sizes: [{ surface: 7, cols: 120, rows: 30 }],
+        sizes: [{ surface: 7, cols: 120, rows: 30, size_participating: true }],
         self: true,
-        size_participating: true,
       },
       {
         client: 2,
@@ -581,9 +583,8 @@ describe("TerminalPane shared minimum size", () => {
         kind: "tui",
         connected_seconds: 20,
         attached: [8],
-        sizes: [{ surface: 8, cols: 80, rows: 40 }],
+        sizes: [{ surface: 8, cols: 80, rows: 40, size_participating: true }],
         self: false,
-        size_participating: true,
       },
     ];
 
@@ -602,9 +603,8 @@ describe("TerminalPane shared minimum size", () => {
         kind: "web",
         connected_seconds: 10,
         attached: [7],
-        sizes: [{ surface: 7, cols: 126, rows: 38 }],
+        sizes: [{ surface: 7, cols: 126, rows: 38, size_participating: true }],
         self: true,
-        size_participating: true,
       },
       {
         client: 2,
@@ -613,9 +613,8 @@ describe("TerminalPane shared minimum size", () => {
         kind: "tui",
         connected_seconds: 20,
         attached: [7],
-        sizes: [{ surface: 7, cols: 126, rows: 38 }],
+        sizes: [{ surface: 7, cols: 126, rows: 38, size_participating: true }],
         self: false,
-        size_participating: true,
       },
     ];
 
@@ -640,9 +639,8 @@ describe("TerminalPane shared minimum size", () => {
       kind: "web",
       connected_seconds: 10,
       attached: [7],
-      sizes: [{ surface: 7, cols: 126, rows: 38 }],
+      sizes: [{ surface: 7, cols: 126, rows: 38, size_participating: true }],
       self: false,
-      size_participating: true,
     }));
 
     const { queryByText } = render(<TerminalPane {...props} screen={terminalScreenView()} />);

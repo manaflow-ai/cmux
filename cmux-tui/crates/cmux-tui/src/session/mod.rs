@@ -76,6 +76,8 @@ pub struct ClientSizeInfo {
     pub surface: SurfaceId,
     pub cols: Option<u16>,
     pub rows: Option<u16>,
+    #[serde(default = "default_true")]
+    pub size_participating: bool,
 }
 
 #[derive(Debug, Clone, Deserialize, PartialEq, Eq)]
@@ -89,8 +91,6 @@ pub struct ClientInfo {
     pub sizes: Vec<ClientSizeInfo>,
     #[serde(rename = "self")]
     pub is_self: bool,
-    #[serde(default = "default_true")]
-    pub size_participating: bool,
 }
 
 fn default_true() -> bool {
@@ -142,15 +142,22 @@ impl Session {
         serde_json::from_value(value).map_err(Into::into)
     }
 
-    pub fn set_client_sizing(&self, client: u64, enabled: bool) -> anyhow::Result<()> {
+    pub fn set_client_sizing(
+        &self,
+        surface: SurfaceId,
+        client: u64,
+        enabled: bool,
+    ) -> anyhow::Result<()> {
         match self {
-            Session::Local(mux) => mux
-                .set_client_size_participation(client, enabled)
-                .map(|_| ())
-                .ok_or_else(|| anyhow::anyhow!("unknown client {client}")),
+            Session::Local(mux) => {
+                mux.set_client_size_participation(surface, client, enabled).map(|_| ()).ok_or_else(
+                    || anyhow::anyhow!("client {client} is not attached to terminal {surface}"),
+                )
+            }
             Session::Remote(remote) => remote
                 .request(json!({
                     "cmd": "set-client-sizing",
+                    "surface": surface,
                     "client": client,
                     "enabled": enabled,
                 }))
@@ -158,15 +165,17 @@ impl Session {
         }
     }
 
-    pub fn use_only_client_sizing(&self, client: u64) -> anyhow::Result<()> {
+    pub fn use_only_client_sizing(&self, surface: SurfaceId, client: u64) -> anyhow::Result<()> {
         match self {
-            Session::Local(mux) => mux
-                .use_only_client_size(client)
-                .map(|_| ())
-                .ok_or_else(|| anyhow::anyhow!("unknown client {client}")),
+            Session::Local(mux) => {
+                mux.use_only_client_size(surface, client).map(|_| ()).ok_or_else(|| {
+                    anyhow::anyhow!("client {client} has no reported size for terminal {surface}")
+                })
+            }
             Session::Remote(remote) => remote
                 .request(json!({
                     "cmd": "set-client-sizing",
+                    "surface": surface,
                     "client": client,
                     "enabled": true,
                     "exclusive": true,
@@ -175,15 +184,16 @@ impl Session {
         }
     }
 
-    pub fn use_all_client_sizing(&self) -> anyhow::Result<()> {
+    pub fn use_all_client_sizing(&self, surface: SurfaceId) -> anyhow::Result<()> {
         match self {
-            Session::Local(mux) => {
-                mux.use_all_client_sizes();
-                Ok(())
-            }
+            Session::Local(mux) => mux
+                .use_all_client_sizes(surface)
+                .map(|_| ())
+                .ok_or_else(|| anyhow::anyhow!("unknown terminal {surface}")),
             Session::Remote(remote) => remote
                 .request(json!({
                     "cmd": "set-client-sizing",
+                    "surface": surface,
                     "enabled": true,
                 }))
                 .map(|_| ()),

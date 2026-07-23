@@ -3,9 +3,9 @@ import type { ContextMenuItem } from "../components/ContextMenu";
 import { t } from "../i18n";
 
 export interface ClientSizingActions {
-  setParticipation(client: Id, enabled: boolean): void;
-  useOnly(client: Id): void;
-  useAll(): void;
+  setParticipation(surface: Id, client: Id, enabled: boolean): void;
+  useOnly(surface: Id, client: Id): void;
+  useAll(surface: Id): void;
   detach(client: Id): void;
 }
 
@@ -19,18 +19,27 @@ export interface PaneClientSummary {
 function surfaceSize(client: ClientInfo, surface: Id) {
   const size = client.sizes.find((candidate) => candidate.surface === surface);
   if (size?.cols === null || size?.rows === null || size === undefined) return null;
-  return { cols: size.cols, rows: size.rows };
+  return {
+    cols: size.cols,
+    rows: size.rows,
+    sizeParticipating: size.size_participating !== false,
+  };
 }
 
 export function paneClientSummary(clients: ClientInfo[], surface: Id | null): PaneClientSummary | null {
   if (surface === null) return null;
   const visible = clients.filter((client) => surfaceSize(client, surface) !== null);
   if (!visible.some((client) => client.self) || !visible.some((client) => !client.self)) return null;
-  const useExcluded = !clients.some(
-    (client) => client.size_participating && client.attached.length > 0,
+  const useExcluded = !visible.some(
+    (client) => surfaceSize(client, surface)?.sizeParticipating,
   );
-  const participants = visible.filter((client) => useExcluded || client.size_participating);
-  const sizes = participants.map((client) => surfaceSize(client, surface)!);
+  const participants = visible.filter(
+    (client) => useExcluded || surfaceSize(client, surface)?.sizeParticipating,
+  );
+  const sizes = participants.map((client) => {
+    const size = surfaceSize(client, surface)!;
+    return { cols: size.cols, rows: size.rows };
+  });
   if (sizes.length === 0) return null;
   const minimum = sizes.reduce((smallest, size) => ({
     cols: Math.min(smallest.cols, size.cols),
@@ -51,19 +60,32 @@ export function clientSizingMenuItems(
   const self = summary.clients.find((client) => client.self);
   const items: ContextMenuItem[] = [];
   if (self) {
-    items.push({ label: t("useOnlyThisClient"), onSelect: () => actions.useOnly(self.client) });
+    items.push({
+      label: t("useOnlyThisClient"),
+      onSelect: () => actions.useOnly(summary.surface, self.client),
+    });
   }
-  items.push({ label: t("useAllClientSizes"), onSelect: actions.useAll });
+  items.push({
+    label: t("useAllClientSizes"),
+    onSelect: () => actions.useAll(summary.surface),
+  });
   items.push({ label: "", separator: true });
   for (const client of summary.clients) {
     const size = surfaceSize(client, summary.surface);
     const name = client.name || client.kind || t("unnamed");
     const label = size ? `${name} · ${size.cols}×${size.rows}` : name;
     const children: ContextMenuItem[] = [
-      { label: t("useOnlyThisClient"), onSelect: () => actions.useOnly(client.client) },
       {
-        label: client.size_participating ? t("excludeFromSizing") : t("useForSizing"),
-        onSelect: () => actions.setParticipation(client.client, !client.size_participating),
+        label: t("useOnlyThisClient"),
+        onSelect: () => actions.useOnly(summary.surface, client.client),
+      },
+      {
+        label: size?.sizeParticipating ? t("excludeFromSizing") : t("useForSizing"),
+        onSelect: () => actions.setParticipation(
+          summary.surface,
+          client.client,
+          !size?.sizeParticipating,
+        ),
       },
     ];
     if (!client.self) {
