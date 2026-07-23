@@ -859,6 +859,13 @@ impl RawEntryState {
             && self.ino == other.ino
             && self.mode & libc::S_IFMT as u32 == other.mode & libc::S_IFMT as u32
     }
+
+    fn matches_snapshot(&self, other: &Self) -> bool {
+        self.same_object(other)
+            && self.mode == other.mode
+            && self.size == other.size
+            && self.modified == other.modified
+    }
 }
 
 #[cfg(unix)]
@@ -1041,7 +1048,7 @@ fn commit_content_hash_write(
     }
     let pinned_identity = RawEntryState::from_metadata(&pinned_metadata);
     let current = stat_entry(target, "stat-before-replace")?;
-    if current.as_ref().is_none_or(|entry| !entry.same_object(&pinned_identity)) {
+    if current.as_ref().is_none_or(|entry| !entry.matches_snapshot(&pinned_identity)) {
         return Err(cleanup_unpublished_temporary(
             target,
             temporary_name,
@@ -1082,7 +1089,7 @@ fn commit_content_hash_write(
         MutationTestPoint::AfterContentHashExchange,
     );
     let staged_identity = RawEntryState::from_metadata(temporary_metadata);
-    if !published.same_object(&staged_identity) || !recovery.same_object(&pinned_identity) {
+    if !published.same_object(&staged_identity) || !recovery.matches_snapshot(&pinned_identity) {
         rollback_exchange(target, temporary_name, &published, &recovery)?;
         return Err(RpcError::new("conflict", "file identity changed during commit"));
     }
@@ -1195,7 +1202,7 @@ fn commit_unix_remove(prepared: PreparedUnixRemove) -> Result<(), RpcError> {
     }
     let pinned_identity = RawEntryState::from_metadata(&pinned_metadata);
     let current = stat_entry(&target, "stat-before-remove")?;
-    if current.as_ref().is_none_or(|entry| !entry.same_object(&pinned_identity)) {
+    if current.as_ref().is_none_or(|entry| !entry.matches_snapshot(&pinned_identity)) {
         return Err(RpcError::new("conflict", "file identity changed before removal"));
     }
     let quarantine = unique_name(".cmux-remove")?;
@@ -1217,7 +1224,7 @@ fn commit_unix_remove(prepared: PreparedUnixRemove) -> Result<(), RpcError> {
                     "remove recovery entry disappeared",
                 )
             })?;
-    if !recovery.same_object(&pinned_identity) {
+    if !recovery.matches_snapshot(&pinned_identity) {
         let current_target = stat_entry(&target, "restore-remove")
             .map_err(|error| partial_write_with_recovery(&target, &quarantine, &error.message))?;
         let current_recovery =
