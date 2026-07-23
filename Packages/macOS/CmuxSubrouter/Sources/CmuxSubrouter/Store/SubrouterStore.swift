@@ -55,9 +55,14 @@ public final class SubrouterStore {
     @ObservationIgnored private var refreshTask: Task<Void, Never>?
     @ObservationIgnored private(set) var consecutiveFailureCount = 0
     @ObservationIgnored private let historyStorageURL: URL?
+    /// The one-shot off-main load of the persisted history; kept so deinit
+    /// cancels it and tests can await adoption deterministically.
+    @ObservationIgnored private(set) var historyLoadTask: Task<Void, Never>?
 
     /// Rolling usage samples per account window; the panel renders these as
-    /// sparklines. Persisted to ``historyStorageURL`` when provided.
+    /// sparklines. Persisted to ``historyStorageURL`` when provided; starts
+    /// empty and adopts the persisted file via an off-main load so the
+    /// main-actor `init` never touches disk.
     public private(set) var usageHistory: SubrouterUsageHistory
 
     /// Creates the store.
@@ -82,13 +87,33 @@ public final class SubrouterStore {
         self.clock = clock
         self.configurationStorage = configuration
         self.historyStorageURL = historyStorageURL
-        self.usageHistory = historyStorageURL.map(SubrouterUsageHistory.load(from:)) ?? SubrouterUsageHistory()
+        self.usageHistory = SubrouterUsageHistory()
         self.now = now
+        if let historyStorageURL {
+            // Read + decode off the main actor: init runs on main (app
+            // launch or first socket verb) and the persisted file can reach
+            // a few hundred KB at the retention caps.
+            historyLoadTask = Task.detached(priority: .utility) { [weak self] in
+                let loaded = SubrouterUsageHistory.load(from: historyStorageURL)
+                guard loaded != SubrouterUsageHistory() else { return }
+                await self?.adoptPersistedUsageHistory(loaded)
+            }
+        }
     }
 
     deinit {
         pollTask?.cancel()
         refreshTask?.cancel()
+        historyLoadTask?.cancel()
+    }
+
+    /// Adopts the history loaded from disk unless a refresh already recorded
+    /// samples in the meantime (first refresh needs a visible surface plus a
+    /// network round-trip, so in practice the load always lands first; if it
+    /// ever loses that race the fresher in-memory samples win).
+    private func adoptPersistedUsageHistory(_ loaded: SubrouterUsageHistory) {
+        guard usageHistory == SubrouterUsageHistory() else { return }
+        usageHistory = loaded
     }
 
     // MARK: Configuration
@@ -185,11 +210,15 @@ public final class SubrouterStore {
                 async let sessions = client.sessions(endpoint: endpoint)
                 outcome = try await .success(usage: usage, sessions: sessions)
             } catch let error as SubrouterClientError {
-                outcome = .failure(description: error.shortDescription)
+                outcome = await Self.failureOutcome(description: error.shortDescription, client: client, endpoint: endpoint)
             } catch {
                 // Unknown errors never carry raw dumps into user-facing
                 // state; the type name alone is safe and still diagnostic.
-                outcome = .failure(description: "unexpected error (\(type(of: error)))")
+                outcome = await Self.failureOutcome(
+                    description: "unexpected error (\(type(of: error)))",
+                    client: client,
+                    endpoint: endpoint
+                )
             }
             guard let self, !Task.isCancelled else { return }
             self.refreshTask = nil
@@ -219,7 +248,21 @@ public final class SubrouterStore {
 
     private enum RefreshOutcome {
         case success(usage: [SubrouterAccountUsageStatus], sessions: [SubrouterSessionAssignment])
-        case failure(description: String)
+        case failure(description: String, daemonReachable: Bool)
+    }
+
+    /// Shapes a refresh failure. The data endpoints can fail while the
+    /// daemon itself is fine — `/usage-status` fans out to provider APIs and
+    /// can blow a timeout on a remote server — so the cheap health endpoint
+    /// is the reachability authority: only its failure may render the
+    /// "daemon unreachable" card and install hint.
+    private static func failureOutcome(
+        description: String,
+        client: any SubrouterClienting,
+        endpoint: SubrouterEndpoint
+    ) async -> RefreshOutcome {
+        let reachable = (try? await client.health(endpoint: endpoint)) ?? false
+        return .failure(description: description, daemonReachable: reachable)
     }
 
     private func apply(_ outcome: RefreshOutcome) {
@@ -238,16 +281,22 @@ public final class SubrouterStore {
                 let history = usageHistory
                 Task.detached(priority: .utility) { history.save(to: historyStorageURL) }
             }
-        case .failure(let description):
+        case .failure(let description, let daemonReachable):
             consecutiveFailureCount += 1
-            // One flaky poll must not slam an "unreachable" banner over a
-            // panel showing perfectly good data from seconds ago (remote
-            // servers fan out to provider APIs and can blow a timeout).
-            // With data on screen the state flips only after a few
-            // consecutive failures; with nothing to stand on it flips
-            // immediately so onboarding still fails fast.
-            if snapshot.usageStatuses.isEmpty
+            if daemonReachable {
+                // The daemon answered its health probe: the data fetch
+                // failed (provider fan-out timeout, transient 5xx) but the
+                // daemon is up, so the unreachable card and install hint
+                // must not appear. Backoff still applies via the failure
+                // count so a struggling daemon is not hammered.
+                snapshot.daemonState = .healthy
+            } else if snapshot.usageStatuses.isEmpty
                 || consecutiveFailureCount >= Self.unreachableGraceFailures {
+                // One flaky poll must not slam an "unreachable" banner over
+                // a panel showing perfectly good data from seconds ago.
+                // With data on screen the state flips only after a few
+                // consecutive failures; with nothing to stand on it flips
+                // immediately so onboarding still fails fast.
                 snapshot.daemonState = .unreachable(consecutiveFailures: consecutiveFailureCount)
             }
             snapshot.lastErrorDescription = description

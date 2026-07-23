@@ -238,6 +238,13 @@ struct RightSidebarPanelView: View {
         .onChange(of: feedEnabled) { _, _ in refreshModeAvailabilityAndFocusIfNeeded() }
         .onChange(of: dockEnabled) { _, _ in refreshModeAvailabilityAndFocusIfNeeded() }
         .onChange(of: subrouterEnabled) { _, _ in refreshModeAvailabilityAndFocusIfNeeded() }
+        // The rollout flag also gates the Agents mode: when PostHog or the
+        // Internal Flags window flips it off while .agents is selected, the
+        // selection must move to an available mode, not sit on a hidden
+        // panel. Observable read: body already tracks it via availableModes.
+        .onChange(of: CmuxFeatureFlags.shared.isSubrouterUIEnabled) { _, _ in
+            refreshModeAvailabilityAndFocusIfNeeded()
+        }
     }
 
     private var modeBar: some View {

@@ -117,6 +117,43 @@ import Testing
         #expect(loaded == history)
         #expect(SubrouterUsageHistory.load(from: url.appendingPathExtension("missing")) == SubrouterUsageHistory())
     }
+
+    /// The store must not read the history file inside its main-actor init;
+    /// the persisted samples arrive via the off-main load task instead.
+    @MainActor
+    @Test func storeAdoptsPersistedHistoryOffMain() async throws {
+        var history = SubrouterUsageHistory()
+        _ = history.record(usageStatuses: [account(id: "a", used: 33)], now: Date(timeIntervalSince1970: 3_000_000))
+        let url = URL.temporaryDirectory
+            .appendingPathComponent("cmux-subrouter-history-test-\(UUID().uuidString)/history.json")
+        defer { try? FileManager.default.removeItem(at: url.deletingLastPathComponent()) }
+        history.save(to: url)
+
+        let store = SubrouterStore(
+            client: FakeSubrouterClient(),
+            switcher: FakeAccountSwitcher(),
+            clock: ManualSubrouterPollClock(),
+            historyStorageURL: url
+        )
+        #expect(store.usageHistory == SubrouterUsageHistory())
+        await store.historyLoadTask?.value
+        #expect(store.usageHistory == history)
+    }
+
+    /// A missing or empty history file leaves the store's history untouched.
+    @MainActor
+    @Test func storeKeepsEmptyHistoryWhenFileMissing() async throws {
+        let url = URL.temporaryDirectory
+            .appendingPathComponent("cmux-subrouter-history-test-\(UUID().uuidString)/missing.json")
+        let store = SubrouterStore(
+            client: FakeSubrouterClient(),
+            switcher: FakeAccountSwitcher(),
+            clock: ManualSubrouterPollClock(),
+            historyStorageURL: url
+        )
+        await store.historyLoadTask?.value
+        #expect(store.usageHistory == SubrouterUsageHistory())
+    }
 }
 
 @Suite struct SessionStatsTests {

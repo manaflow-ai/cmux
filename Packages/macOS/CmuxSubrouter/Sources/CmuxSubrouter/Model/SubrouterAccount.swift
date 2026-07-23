@@ -47,9 +47,20 @@ public struct SubrouterAccount: Sendable, Hashable, Codable, Identifiable {
 
     public init(from decoder: any Decoder) throws {
         let container = try decoder.container(keyedBy: CodingKeys.self)
-        self.id = try container.decodeIfPresent(String.self, forKey: .id) ?? ""
-        self.provider = try container.decodeIfPresent(SubrouterProvider.self, forKey: .provider)
-            ?? SubrouterProvider(rawValue: "")
+        // Identity is load-bearing (row identity, switch target): fail the
+        // decode closed rather than synthesize an empty shared id. Same
+        // rule as ``SubrouterAccountUsageStatus``.
+        let id = try container.decode(String.self, forKey: .id)
+        let provider = try container.decode(SubrouterProvider.self, forKey: .provider)
+        guard !id.isEmpty, !provider.rawValue.isEmpty else {
+            throw DecodingError.dataCorruptedError(
+                forKey: id.isEmpty ? .id : .provider,
+                in: container,
+                debugDescription: "account row is missing its account identity"
+            )
+        }
+        self.id = id
+        self.provider = provider
         self.authMode = try container.decodeIfPresent(SubrouterAuthMode.self, forKey: .authMode)
             ?? SubrouterAuthMode(rawValue: "")
         self.email = try container.decodeIfPresent(String.self, forKey: .email)

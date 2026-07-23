@@ -87,6 +87,29 @@ import Testing
         #expect(accounts[0].email == nil)
     }
 
+    @Test func rowsMissingAccountIdentityFailClosed() {
+        // Identity is the SwiftUI row id and the `sr switch` target: a row
+        // without it must fail the response closed, never synthesize an
+        // empty id several malformed rows would share.
+        let missingID = Data("""
+        [{"provider": "codex", "auth_mode": "oauth", "source": ""}]
+        """.utf8)
+        let emptyID = Data("""
+        [{"id": "", "provider": "codex", "auth_mode": "oauth", "source": ""}]
+        """.utf8)
+        let missingProvider = Data("""
+        [{"id": "dev@example.com", "auth_mode": "oauth", "source": ""}]
+        """.utf8)
+        for payload in [missingID, emptyID, missingProvider] {
+            #expect(throws: DecodingError.self) {
+                try makeDecoder().decode([SubrouterAccountUsageStatus].self, from: payload)
+            }
+            #expect(throws: DecodingError.self) {
+                try makeDecoder().decode([SubrouterAccount].self, from: payload)
+            }
+        }
+    }
+
     @Test func decodesUnknownProviderLosslessly() throws {
         let json = """
         [{"id": "x", "provider": "gemini", "auth_mode": "oauth", "source": ""}]

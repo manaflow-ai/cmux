@@ -49,6 +49,48 @@ import Testing
         #expect(store.lastSwitchError == nil)
     }
 
+    @Test func disablingMidSwitchSkipsDaemonFollowUp() async throws {
+        let client = FakeSubrouterClient()
+        let switcher = FakeAccountSwitcher()
+        let store = makeStore(client: client, switcher: switcher)
+        // Disable the integration while the (up to 30 s) sr call is in
+        // flight: the on-disk switch cannot be undone, but no reload or
+        // refresh may reach the daemon afterwards.
+        await switcher.setOnSwitch { @MainActor in
+            store.updateConfiguration(
+                SubrouterConfiguration(isEnabled: false, tuning: SubrouterPollTuning(jitterFraction: 0))
+            )
+        }
+
+        try await store.switchAccount(provider: .codex, accountID: "dev@example.com")
+
+        #expect(await switcher.invocations.count == 1)
+        #expect(await client.totalFetchCallCount == 0)
+        #expect(store.pendingSwitchAccountID == nil)
+    }
+
+    @Test func endpointChangeMidSwitchSkipsDaemonFollowUp() async throws {
+        let client = FakeSubrouterClient()
+        let switcher = FakeAccountSwitcher()
+        let store = makeStore(client: client, switcher: switcher)
+        // Repointing the endpoint mid-switch must not send the post-switch
+        // reload to a daemon the pre-switch guards never validated.
+        await switcher.setOnSwitch { @MainActor in
+            store.updateConfiguration(
+                SubrouterConfiguration(
+                    isEnabled: true,
+                    endpoint: SubrouterEndpoint(configurationString: "http://127.0.0.1:9999")!,
+                    tuning: SubrouterPollTuning(jitterFraction: 0)
+                )
+            )
+        }
+
+        try await store.switchAccount(provider: .codex, accountID: "dev@example.com")
+
+        #expect(await client.reloadCallCount == 0)
+        #expect(store.pendingSwitchAccountID == nil)
+    }
+
     @Test func switchWhileDisabledThrowsWithoutSideEffects() async {
         let client = FakeSubrouterClient()
         let switcher = FakeAccountSwitcher()
@@ -90,7 +132,9 @@ import Testing
     @Test func reloadFailureAfterSwitchBecomesWarningNotError() async throws {
         let client = FakeSubrouterClient()
         await client.setReloadResult(.failure(.unreachable(description: "daemon down")))
-        // The follow-up refresh also fails: daemon really is down.
+        // The follow-up refresh (and its health probe) also fails: the
+        // daemon really is down.
+        await client.setHealthResult(.failure(.unreachable(description: "daemon down")))
         await client.setUsageResult(.failure(.unreachable(description: "daemon down")))
         let switcher = FakeAccountSwitcher()
         let store = makeStore(client: client, switcher: switcher)

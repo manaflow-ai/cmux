@@ -18,6 +18,14 @@ actor FakeSubrouterClient: SubrouterClienting {
     private(set) var reloadCallCount = 0
     private(set) var lastEndpoint: SubrouterEndpoint?
 
+    func setHealthResult(_ result: Result<Bool, SubrouterClientError>) {
+        healthResult = result
+    }
+
+    func setAccountsResult(_ result: Result<[SubrouterAccount], SubrouterClientError>) {
+        accountsResult = result
+    }
+
     func setUsageResult(_ result: Result<[SubrouterAccountUsageStatus], SubrouterClientError>) {
         usageResult = result
     }

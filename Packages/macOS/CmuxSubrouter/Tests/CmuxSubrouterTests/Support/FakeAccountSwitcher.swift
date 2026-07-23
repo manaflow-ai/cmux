@@ -10,9 +10,16 @@ actor FakeAccountSwitcher: SubrouterAccountSwitching {
 
     var errorToThrow: SubrouterSwitchError?
     private(set) var invocations: [Invocation] = []
+    /// Runs while the fake "sr" call is in flight, so tests can mutate the
+    /// store mid-switch (e.g. disable the integration).
+    private var onSwitch: (@Sendable () async -> Void)?
 
     func setError(_ error: SubrouterSwitchError?) {
         errorToThrow = error
+    }
+
+    func setOnSwitch(_ callback: (@Sendable () async -> Void)?) {
+        onSwitch = callback
     }
 
     func switchAccount(
@@ -23,6 +30,9 @@ actor FakeAccountSwitcher: SubrouterAccountSwitching {
         invocations.append(
             Invocation(provider: provider, accountID: accountID, commandPath: commandPath)
         )
+        if let onSwitch {
+            await onSwitch()
+        }
         if let errorToThrow {
             throw errorToThrow
         }

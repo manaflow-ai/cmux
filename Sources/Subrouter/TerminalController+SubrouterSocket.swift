@@ -152,11 +152,28 @@ extension TerminalController {
     }
 
     private nonisolated static func subrouterReloadResult() async -> TerminalController.V2CallResult {
-        let store = await MainActor.run { SubrouterAppRuntime.shared.store }
+        let runtime = await MainActor.run { SubrouterAppRuntime.shared }
+        // Like every other subrouter verb, answer for sr's current registry
+        // selection: `sr server use` inside a cmux terminal never fires app
+        // activation, so the cached selection may be stale.
+        await runtime.refreshServerSelectionAndApply()
+        let store = await MainActor.run { runtime.store }
         let enabled = await MainActor.run { store.configuration.isEnabled }
         guard enabled else { return Self.subrouterDisabledError }
         do {
             let result = try await store.reloadDaemonAccounts()
+            guard result.ok else {
+                // The daemon answered but reported the reload failed:
+                // scripts must see an error (non-zero exit), not "ok".
+                return .err(
+                    code: "reload_failed",
+                    message: String(
+                        localized: "socket.subrouter.reloadFailed",
+                        defaultValue: "The subrouter daemon reported that the account reload failed."
+                    ),
+                    data: nil
+                )
+            }
             return .ok([
                 "ok": result.ok,
                 "accounts": result.accounts,

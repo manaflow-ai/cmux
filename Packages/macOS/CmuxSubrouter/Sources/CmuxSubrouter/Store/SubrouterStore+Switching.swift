@@ -29,6 +29,12 @@ extension SubrouterStore {
         lastSwitchError = nil
         defer { pendingSwitchAccountID = nil }
 
+        // The `sr` call below can take up to 30 seconds. Capture the
+        // endpoint it was validated against: if settings change mid-switch
+        // (integration disabled, endpoint repointed), the post-switch
+        // reload/refresh must not hit a daemon the guards above never saw.
+        let endpointAtSwitch = configuration.endpoint
+
         do {
             try await switcher.switchAccount(
                 provider: provider,
@@ -47,9 +53,17 @@ extension SubrouterStore {
             throw wrapped
         }
 
+        // Revalidate after the subprocess: the on-disk switch already
+        // landed (it cannot be undone), but no follow-up daemon traffic may
+        // run once the integration was disabled or the endpoint changed
+        // underneath the switch.
+        guard configuration.isEnabled, configuration.endpoint == endpointAtSwitch else {
+            return
+        }
+
         var reloadWarning: String?
         do {
-            let reload = try await client.reloadAccounts(endpoint: configuration.endpoint)
+            let reload = try await client.reloadAccounts(endpoint: endpointAtSwitch)
             if !reload.ok {
                 reloadWarning = "daemon reload reported failure"
             }

@@ -102,9 +102,21 @@ public struct SubrouterAccountUsageStatus: Sendable, Hashable, Codable, Identifi
 
     public init(from decoder: any Decoder) throws {
         let container = try decoder.container(keyedBy: CodingKeys.self)
-        self.id = try container.decodeIfPresent(String.self, forKey: .id) ?? ""
-        self.provider = try container.decodeIfPresent(SubrouterProvider.self, forKey: .provider)
-            ?? SubrouterProvider(rawValue: "")
+        // Identity is load-bearing: it is the SwiftUI row identity and the
+        // account id handed to `sr switch`. A row without it must fail the
+        // decode closed instead of synthesizing an empty id that several
+        // malformed rows would share (and that a switch could target).
+        let id = try container.decode(String.self, forKey: .id)
+        let provider = try container.decode(SubrouterProvider.self, forKey: .provider)
+        guard !id.isEmpty, !provider.rawValue.isEmpty else {
+            throw DecodingError.dataCorruptedError(
+                forKey: id.isEmpty ? .id : .provider,
+                in: container,
+                debugDescription: "usage-status row is missing its account identity"
+            )
+        }
+        self.id = id
+        self.provider = provider
         self.authMode = try container.decodeIfPresent(SubrouterAuthMode.self, forKey: .authMode)
             ?? SubrouterAuthMode(rawValue: "")
         self.email = try container.decodeIfPresent(String.self, forKey: .email)

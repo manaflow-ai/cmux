@@ -29,9 +29,11 @@ final class SubrouterAppRuntime {
     /// re-reading disk on every defaults write.
     private var serverSelection: SubrouterServerSelection.Server?
 
-    /// Discards stale async registry reads: only the newest refresh may
-    /// overwrite ``serverSelection``.
-    private var serverSelectionGeneration = 0
+    /// The in-flight registry refresh. Concurrent callers coalesce onto the
+    /// same read, so every awaiter of ``refreshServerSelectionAndApply()``
+    /// returns only after a selection has actually been applied — a
+    /// superseded caller must never proceed on the stale cache.
+    private var selectionRefreshTask: Task<Void, Never>?
 
     private init() {
         let historyURL = FileManager.default
@@ -48,6 +50,7 @@ final class SubrouterAppRuntime {
         for task in observationTasks {
             task.cancel()
         }
+        selectionRefreshTask?.cancel()
     }
 
     /// Called by the footer switcher button as it appears/disappears. The
@@ -105,14 +108,24 @@ final class SubrouterAppRuntime {
     /// verbs await this before serving so `cmux subrouter …` always answers
     /// for the registry's current server.
     func refreshServerSelectionAndApply() async {
-        serverSelectionGeneration += 1
-        let generation = serverSelectionGeneration
-        let selection = await Task.detached(priority: .utility) {
-            SubrouterIntegrationSettings.loadDefaultServerSelection()
-        }.value
-        guard serverSelectionGeneration == generation else { return }
-        serverSelection = selection
-        applyCurrentConfiguration()
+        // Single-flight: a second caller awaits the read already in
+        // progress instead of racing it, so no awaiter can return while
+        // nothing has been applied yet.
+        if let selectionRefreshTask {
+            await selectionRefreshTask.value
+            return
+        }
+        let task = Task { @MainActor [weak self] in
+            let selection = await Task.detached(priority: .utility) {
+                SubrouterIntegrationSettings.loadDefaultServerSelection()
+            }.value
+            guard let self else { return }
+            self.serverSelection = selection
+            self.applyCurrentConfiguration()
+            self.selectionRefreshTask = nil
+        }
+        selectionRefreshTask = task
+        await task.value
     }
 
     /// Fire-and-forget ``refreshServerSelectionAndApply()``.

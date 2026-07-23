@@ -93,6 +93,7 @@ import Testing
 
     @Test func failuresBackOffExponentiallyAndCap() async {
         let client = FakeSubrouterClient()
+        await client.setHealthResult(.failure(.unreachable(description: "connection refused")))
         await client.setUsageResult(.failure(.unreachable(description: "connection refused")))
         let clock = ManualSubrouterPollClock()
         let store = makeStore(client: client, clock: clock)
@@ -124,6 +125,7 @@ import Testing
 
     @Test func recoveryResetsBackoffToPanelCadence() async {
         let client = FakeSubrouterClient()
+        await client.setHealthResult(.failure(.unreachable(description: "refused")))
         await client.setUsageResult(.failure(.unreachable(description: "refused")))
         let clock = ManualSubrouterPollClock()
         let store = makeStore(client: client, clock: clock)
@@ -153,6 +155,7 @@ import Testing
 
         // With data on screen, failures below the grace threshold keep the
         // healthy state (no scary banner) while recording the error.
+        await client.setHealthResult(.failure(.unreachable(description: "timed out")))
         await client.setUsageResult(.failure(.unreachable(description: "timed out")))
         for failure in 1..<SubrouterStore.unreachableGraceFailures {
             await clock.resumeNext()
@@ -169,11 +172,39 @@ import Testing
             == .unreachable(consecutiveFailures: SubrouterStore.unreachableGraceFailures))
 
         // Recovery goes straight back to healthy and clears the error.
+        await client.setHealthResult(.success(true))
         await client.setUsageResult(.success([Self.usageRow()]))
         await clock.resumeNext()
         await clock.waitForSleeper()
         #expect(store.snapshot.daemonState == .healthy)
         #expect(store.snapshot.lastErrorDescription == nil)
+    }
+
+    @Test func dataFailureWithReachableDaemonNeverShowsUnreachable() async {
+        let client = FakeSubrouterClient()
+        // `/usage-status` fans out to provider APIs and can fail while the
+        // daemon itself is up; the health probe is the reachability
+        // authority, so even a cold first load must not show the
+        // unreachable card (and its install hint).
+        await client.setUsageResult(.failure(.unreachable(description: "timed out")))
+        let clock = ManualSubrouterPollClock()
+        let store = makeStore(client: client, clock: clock)
+
+        store.setSurfaceVisible(.agentsPanel, true)
+        await clock.waitForSleeper()
+        #expect(store.snapshot.daemonState == .healthy)
+        #expect(store.snapshot.lastErrorDescription == "timed out")
+        #expect(await client.healthCallCount == 1)
+        // Backoff still applies so a struggling daemon is not hammered.
+        #expect(await clock.lastRecordedDuration == 5)
+
+        // Repeated data failures with a reachable daemon stay healthy even
+        // past the unreachable grace threshold.
+        for _ in 0..<SubrouterStore.unreachableGraceFailures {
+            await clock.resumeNext()
+            await clock.waitForSleeper()
+        }
+        #expect(store.snapshot.daemonState == .healthy)
     }
 
     @Test func hidingAllSurfacesGoesFullyIdle() async {
