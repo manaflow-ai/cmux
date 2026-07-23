@@ -245,10 +245,18 @@ function sendFeed(
     tool_input: objectValue(event, ["args", "input"]),
     ...extra,
   };
+  let input: string;
+  try {
+    const serialized = JSON.stringify(payload);
+    if (typeof serialized !== "string") return;
+    input = serialized;
+  } catch (_) {
+    return;
+  }
   dispatcher.enqueueFeed(`${sessionId}:${toolCallId || toolName || "unknown"}`, {
     args: ["hooks", "feed", "--source", "pi", "--event", eventName],
     cwd,
-    input: JSON.stringify(payload),
+    input,
     context,
     terminal: eventName === "PostToolUse",
   });
