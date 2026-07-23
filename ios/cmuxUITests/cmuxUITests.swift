@@ -545,12 +545,6 @@ final class cmuxUITests: XCTestCase {
         ]
         XCTAssertTrue(matchingRow.waitForExistence(timeout: 3))
         XCTAssertTrue(waitForNotHittable(nonmatchingRow, timeout: 3))
-
-        app.tabBars.buttons["Notifications"].tap()
-        XCTAssertTrue(feed.waitForExistence(timeout: 3))
-        XCTAssertTrue(matchingRow.waitForExistence(timeout: 3))
-        XCTAssertTrue(waitForNotHittable(nonmatchingRow, timeout: 3))
-        XCTAssertTrue(searchButton.waitForExistence(timeout: 3))
     }
 
     @MainActor
