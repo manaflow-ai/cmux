@@ -407,6 +407,35 @@ final class FullScreenShortcutTests: XCTestCase {
     }
 }
 
+final class ToggleSplitZoomCommandPaletteVisibilityTests: XCTestCase {
+    func testVisibleWhenWorkspaceHasSplitsAndAnyPanelIsFocused() {
+        XCTAssertTrue(
+            shouldShowToggleSplitZoomCommandInPalette(
+                hasFocusedPanel: true,
+                workspaceHasSplits: true
+            )
+        )
+    }
+
+    func testHiddenWithoutSplits() {
+        XCTAssertFalse(
+            shouldShowToggleSplitZoomCommandInPalette(
+                hasFocusedPanel: true,
+                workspaceHasSplits: false
+            )
+        )
+    }
+
+    func testHiddenWithoutFocusedPanel() {
+        XCTAssertFalse(
+            shouldShowToggleSplitZoomCommandInPalette(
+                hasFocusedPanel: false,
+                workspaceHasSplits: true
+            )
+        )
+    }
+}
+
 
 @MainActor final class CommandPaletteKeyboardNavigationTests: XCTestCase {
     func testArrowKeysMoveSelectionWithoutModifiers() {
