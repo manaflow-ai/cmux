@@ -2,17 +2,12 @@ import AppKit
 
 @MainActor
 final class SidebarResizerCursorReleaseScheduler {
-    private let sleep: @MainActor (Duration) async throws -> Void
+    private let clock: any Clock<Duration>
     private var pendingTask: Task<Void, Never>?
     private var generation: UInt64 = 0
 
-    init(
-        sleep: @escaping @MainActor (Duration) async throws -> Void = { duration in
-            // This is the intended cancellable UI delay; injection keeps tests deterministic.
-            try await Task.sleep(for: duration)
-        }
-    ) {
-        self.sleep = sleep
+    init(clock: any Clock<Duration> = ContinuousClock()) {
+        self.clock = clock
     }
 
     func cancelPendingRelease() {
@@ -29,11 +24,11 @@ final class SidebarResizerCursorReleaseScheduler {
         cancelPendingRelease()
 
         let scheduledGeneration = generation
-        let sleep = self.sleep
-        pendingTask = Task { @MainActor [weak self] in
+        pendingTask = Task { @MainActor [weak self, clock] in
             if delay > .zero {
                 do {
-                    try await sleep(delay)
+                    // Genuine cursor-release delay; replacing or cancelling the request cancels this task.
+                    try await clock.sleep(for: delay)
                 } catch {
                     return
                 }
