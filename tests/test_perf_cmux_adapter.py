@@ -338,6 +338,7 @@ def config(tmp_path: Path, **overrides: Any) -> Any:
         "steady_duration_s": 1.0,
         "steady_interval_s": 0.5,
         "churn_duration_s": 1.0,
+        "churn_measurement_duration_s": 1.0,
         "churn_interval_s": 0.5,
         "profile_duration_s": 1.0,
     }
