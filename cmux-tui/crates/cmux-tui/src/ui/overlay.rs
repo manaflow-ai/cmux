@@ -119,7 +119,7 @@ pub fn draw_prompt(app: &mut App, frame: &mut Frame) {
         }
     }
     draw_border(buf, prompt.rect, border);
-    buf.set_stringn(x + 2, y + 2, prompt.label, (width - 4) as usize, title_style);
+    buf.set_stringn(x + 2, y + 2, prompt.label.as_str(), (width - 4) as usize, title_style);
 
     // Input row: visible slice around the cursor.
     let input_w = width.saturating_sub(4);

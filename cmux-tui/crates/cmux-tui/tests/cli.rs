@@ -6,6 +6,8 @@ use std::io::Read;
 use std::io::{BufRead, BufReader, Write};
 #[cfg(unix)]
 use std::os::fd::FromRawFd;
+#[cfg(unix)]
+use std::os::unix::fs::PermissionsExt;
 use std::path::PathBuf;
 use std::process::{Child, Command, Output, Stdio};
 use std::sync::mpsc;
@@ -79,7 +81,7 @@ impl PtyChild {
                 &mut slave,
                 std::ptr::null_mut(),
                 std::ptr::null_mut(),
-                &mut size,
+                &raw mut size,
             )
         };
         assert_eq!(opened, 0, "openpty failed: {}", std::io::Error::last_os_error());
@@ -113,6 +115,49 @@ impl Drop for PtyChild {
             let _ = output_drain.join();
         }
     }
+}
+
+#[cfg(unix)]
+#[test]
+fn startup_config_helper_inherits_no_provider_secrets() {
+    let dir = unique_temp_dir("provider-secret-config-helper");
+    fs::create_dir_all(&dir).unwrap();
+    let helper = dir.join("ghostty-secret-probe");
+    let capture = dir.join("inherited-env.txt");
+    fs::write(
+        &helper,
+        r#"#!/bin/sh
+{
+if [ "${CMUX_MACHINE_PROVIDER_TOKEN+x}" = x ]; then
+    echo token=present
+else
+    echo token=absent
+fi
+if [ "${CMUX_PROVIDER_WORKSPACE_AUTHORITY+x}" = x ]; then
+    echo authority=present
+else
+    echo authority=absent
+fi
+} > "$CMUX_TEST_SECRET_CAPTURE"
+"#,
+    )
+    .unwrap();
+    fs::set_permissions(&helper, fs::Permissions::from_mode(0o700)).unwrap();
+
+    let output = Command::new(bin())
+        .args(["--machine-provider", "/does/not/exist", "--headless"])
+        .env("GHOSTTY_BIN", &helper)
+        .env("CMUX_TEST_SECRET_CAPTURE", &capture)
+        .env("CMUX_MACHINE_PROVIDER_TOKEN", "edge-test-bearer")
+        .env("CMUX_PROVIDER_WORKSPACE_AUTHORITY", "provider-workspace-authority-test-00000001")
+        .env_remove("CMUX_TUI_SOCKET")
+        .output()
+        .unwrap();
+
+    assert!(!output.status.success(), "conflicting provider launch unexpectedly succeeded");
+    let inherited = fs::read_to_string(&capture).unwrap();
+    assert_eq!(inherited, "token=absent\nauthority=absent\n");
+    fs::remove_dir_all(dir).unwrap();
 }
 
 #[cfg(unix)]

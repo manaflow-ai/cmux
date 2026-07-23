@@ -73,6 +73,96 @@ cmux-tui plugin use --builtin
 cmux-tui plugin disable
 ```
 
+## Machines
+
+The machine rail is an optional first rail to the left of the existing sidebar. It is inactive when `machine_sidebar.enabled` is false and `machines` is empty. Setting `enabled` to true shows the current local session and the static connector actions even when no extra targets are configured. Any valid `machines` entry also activates the rail.
+
+| Key | Type | Default | Effect |
+| --- | --- | --- | --- |
+| `machine_sidebar.enabled` | boolean | `false` | Enables the machine rail without requiring a configured target |
+| `machine_sidebar.width` | integer | `22` | Initial machine-rail width, clamped to 10 through 60 on load |
+| `machine_sidebar.max_width` | integer | `0` | Maximum live drag width for the machine rail; `0` means no configured maximum |
+| `machines` | array | `[]` | Static Unix-socket and SSH connection targets |
+
+Every machine has a unique nonempty `id`, a nonempty display `name`, an optional `subtitle`, and one transport. The id `current` is reserved for the automatically inserted local session.
+
+| Machine key | Applies to | Type | Default | Effect |
+| --- | --- | --- | --- | --- |
+| `id` | all | string | required | Stable config identity; duplicate and empty ids are ignored |
+| `name` | all | string | required | Primary rail label |
+| `subtitle` | all | string | `""` | Secondary rail label |
+| `transport` | all | `"unix"` or `"ssh"` | required | Connector type |
+| `socket` | Unix | string | required | Absolute path to an existing cmux session socket |
+| `host` | SSH | string | required | SSH host name or address |
+| `user` | SSH | string | unset | SSH user, passed as `user@host` |
+| `port` | SSH | integer | unset | SSH port, passed with `-p` |
+| `identity_file` | SSH | string | unset | Local SSH identity path, passed with `-i` |
+| `session` | SSH | string | `"main"` | Remote cmux session passed to `relay --session` |
+| `binary` | SSH | string | `"cmux-tui"` | Remote executable path used for `binary relay`; this is one executable, not a shell command |
+
+```json
+{
+  "machine_sidebar": {
+    "enabled": true,
+    "width": 20,
+    "max_width": 36
+  },
+  "machines": [
+    {
+      "id": "local-agents",
+      "name": "Local agents",
+      "subtitle": "second session",
+      "transport": "unix",
+      "socket": "/tmp/cmux-tui-501/agents.sock"
+    },
+    {
+      "id": "buildbox",
+      "name": "Build box",
+      "subtitle": "us-central1",
+      "transport": "ssh",
+      "host": "buildbox.example.com",
+      "user": "dev",
+      "port": 22,
+      "identity_file": "/Users/me/.ssh/id_ed25519",
+      "session": "agents",
+      "binary": "/home/dev/.local/bin/cmux"
+    }
+  ]
+}
+```
+
+The SSH target invokes noninteractive `ssh -T` with strict host-key checking, disabled agent forwarding, and disabled port forwarding, then runs `binary relay --session session` remotely. It connects to an existing remote server and does not start one. See [Machines](machines.md) for rail behavior and a complete `npx cmux` remote setup.
+
+### Dynamic machine provider
+
+Dynamic provider startup is disabled by default. Persistent configuration currently covers the built-in cloud SSH transport:
+
+| Key | Type | Default | Effect |
+| --- | --- | --- | --- |
+| `machine_provider.cloud.enabled` | boolean | `false` | Starts the dynamic provider through SSH |
+| `machine_provider.cloud.host` | string | `"cmux.cloud"` | SSH host |
+| `machine_provider.cloud.user` | string or null | `null` | Optional SSH user |
+| `machine_provider.cloud.port` | integer or null | `null` | Optional nonzero SSH port |
+| `machine_provider.cloud.identity_file` | string or null | `null` | Optional local SSH identity path |
+
+```json
+{
+  "machine_provider": {
+    "cloud": {
+      "enabled": true,
+      "host": "cmux.cloud",
+      "user": "lawrence",
+      "port": 22,
+      "identity_file": "/Users/me/.ssh/id_ed25519"
+    }
+  }
+}
+```
+
+`--cloud-host`, `--cloud-user`, `--cloud-port`, and `--cloud-identity` override their matching config values and imply `--cloud`. A local Cloud client composes the static `machines` array with the provider catalog. Static entries and temporary `+ Connect machine` targets stay client-local and use local SSH credentials. Explicit `--machine-provider <socket>` or `--machine-provider-command <argv...> --` overrides an enabled cloud config; those provider-only modes reject a nonempty `machines` array. Every dynamic provider rejects another provider transport, `attach`, server socket/listener flags, `--headless`, and `--term`.
+
+The cloud connector runs `cmux provider control` and `cmux provider stream` remotely. These are provider service commands, not cmux-tui control-socket verbs. See [Machines](machines.md#dynamic-providers).
+
 ## Browser
 
 | Key | Type | Default | Effect |
@@ -196,6 +286,23 @@ Chord strings can be single characters or a key name with optional `ctrl`, `cont
     "compact_width": 10,
     "max_width": 40
   },
+  "machine_sidebar": {
+    "enabled": true,
+    "width": 20,
+    "max_width": 36
+  },
+  "machines": [
+    {
+      "id": "buildbox",
+      "name": "Build box",
+      "subtitle": "remote agents",
+      "transport": "ssh",
+      "host": "buildbox.example.com",
+      "user": "dev",
+      "session": "agents",
+      "binary": "/home/dev/.local/bin/cmux"
+    }
+  ],
   "browser": {
     "chrome_binary": "/Applications/Google Chrome.app/Contents/MacOS/Google Chrome",
     "mode": "headful",

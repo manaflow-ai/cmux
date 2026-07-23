@@ -69,9 +69,11 @@ The screen bindings intentionally match tmux: `c` creates a screen, `n` and `p` 
 
 ## Focused Sidebar
 
-When the built-in sidebar is focused, its header gains an accent background and its divider becomes a bold accent rail. `Tab` toggles files/workspaces without leaving sidebar focus. In the files view, Up/Down and Ctrl-J/Ctrl-K move the selection, Right descends into a directory, Enter descends or opens a file in a new `$EDITOR` tab, Left goes to the parent, `c` sends a safely quoted `cd` to the focused pane, `o` opens `.html` and `.md` files in a browser tab, `.` toggles dotfiles, `/` enters filter mode, and `~` follows the focused pane cwd again. Esc clears a nonempty filter before leaving filter mode.
+When the built-in sidebar is focused, its header gains an accent background and its divider becomes a bold accent rail. `Tab` toggles files/workspaces without leaving sidebar focus. In the files view, Up/Down and Ctrl-J/Ctrl-K move the selection, Right descends into a directory, Enter descends or opens a file in a new `$EDITOR` tab, and Left or `h` goes to the parent when the machine rail is absent. `c` sends a safely quoted `cd` to the focused pane, `o` opens `.html` and `.md` files in a browser tab, `.` toggles dotfiles, `/` enters filter mode, and `~` follows the focused pane cwd again. Esc clears a nonempty filter before leaving filter mode.
 
 In the workspaces view, Up/Down move the selection and Enter activates it. Any normal prefixed command leaves sidebar focus and runs through the usual action table; `prefix S` only returns focus to the pane. A configured sidebar plugin keeps its existing PTY forwarding behavior.
+
+When the optional machine rail is visible, `Ctrl-b S` still enters through the workspace rail. From the built-in workspace or files rail, Left or `h` moves focus to the machine rail. From the machine rail, Right or `l` returns to the workspace rail. Up/Down or `k`/`j` changes the selected machine, Enter connects to it, and Esc returns to the active pane. A mouse click can focus either rail directly. The machine rail swallows other unprefixed keys instead of forwarding them to a remote terminal.
 
 ## Modeless Alt Layer
 
