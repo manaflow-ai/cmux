@@ -6047,6 +6047,15 @@ class GhosttyNSView: NSView, NSUserInterfaceValidations {
             if scalar.value >= 0xF700 && scalar.value <= 0xF8FF {
                 return nil
             }
+
+            // When Option transforms Delete/Backspace into a printable
+            // Unicode character (e.g. Option+Delete → "∂"), suppress the text
+            // so Ghostty's key encoder handles Alt+Backspace instead.
+            if let unmodified = event.charactersIgnoringModifiers?.unicodeScalars.first,
+               unmodified.value == 0x7F,
+               scalar.value != unmodified.value {
+                return nil
+            }
         }
 
         return chars
