@@ -308,7 +308,13 @@ final class SidebarWorkspaceTableController: NSObject, NSTableViewDataSource, NS
         workspaceIds = nextWorkspaceIds
         let selectionTargetChanged = self.selectedScrollTargetWorkspaceId != selectedScrollTargetWorkspaceId
         self.selectedScrollTargetWorkspaceId = selectedScrollTargetWorkspaceId
-        if selectionTargetChanged || shouldScrollAfterWorkspaceChange {
+        // A drop in this window must not move the viewport: the pointer's
+        // release position IS the user's context. The selected-scroll policy
+        // cannot tell a local drag reorder from an external index change, so
+        // the drop arms a one-shot suppression consumed by this apply.
+        let suppressForLocalDrop = suppressSelectedScrollAfterLocalDrop
+        suppressSelectedScrollAfterLocalDrop = false
+        if !suppressForLocalDrop, selectionTargetChanged || shouldScrollAfterWorkspaceChange {
             scrollSelectedRowToVisibleIfNeeded()
         }
         synchronizeAppKitDropIndicator(actions: actions)
@@ -516,6 +522,11 @@ final class SidebarWorkspaceTableController: NSObject, NSTableViewDataSource, NS
     /// before the coalesced repaint).
     private var lastAcceptedReorderDropPlan: SidebarWorkspaceReorderDropPlan?
 
+    /// One-shot: the next apply comes from this window's own drop, so the
+    /// selected-workspace scroll policy must not yank the viewport away from
+    /// the release position.
+    private var suppressSelectedScrollAfterLocalDrop = false
+
     func tableView(
         _ tableView: NSTableView,
         validateDrop info: any NSDraggingInfo,
@@ -560,6 +571,9 @@ final class SidebarWorkspaceTableController: NSObject, NSTableViewDataSource, NS
             "source=\(commitSource) performed=\(performed ? 1 : 0)"
         )
 #endif
+        if performed {
+            suppressSelectedScrollAfterLocalDrop = true
+        }
         retireReorderIndicator()
         return performed
     }
