@@ -260,7 +260,21 @@ impl ReliableSession {
                 // A duplicate remains safe to suppress only after its
                 // acknowledgement is physically accepted. Otherwise surface
                 // the transport failure so the caller starts recovery.
-                self.send_ack(frame.lane).await?;
+                if let Err(error) = self.send_ack(frame.lane).await {
+                    let terminal_ack_failure = matches!(
+                        &error,
+                        SessionError::Link(_)
+                            | SessionError::LinkMessage(_)
+                            | SessionError::SchedulerClosed
+                    );
+                    if frame.lane != Lane::Control
+                        || !frame.flags.contains(FrameFlags::REPLAY)
+                        || !terminal_ack_failure
+                        || !self.link.terminal_control_drain_active()
+                    {
+                        return Err(error);
+                    }
+                }
                 continue;
             }
             // Sequence state is committed above. Once that happens, suppressing
