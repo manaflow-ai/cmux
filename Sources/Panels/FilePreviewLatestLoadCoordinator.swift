@@ -38,7 +38,6 @@ final class FilePreviewLatestLoadCoordinator<Output: Sendable> {
 
     func cancel() {
         activeTask?.cancel()
-        activeTask = nil
         let cancellation = state.cancel()
         cancellation.active?.request.finish()
         cancellation.pending?.request.finish()

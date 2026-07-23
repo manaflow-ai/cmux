@@ -35,7 +35,6 @@ struct FilePreviewLatestRequestState<Request: Sendable>: Sendable {
     mutating func cancel() -> (active: Submission?, pending: Submission?) {
         nextID &+= 1
         let cancellation = (active: active, pending: pending)
-        active = nil
         pending = nil
         return cancellation
     }

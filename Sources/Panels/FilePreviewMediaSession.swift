@@ -4,6 +4,13 @@ import Foundation
 
 @MainActor
 final class FilePreviewMediaSession {
+    private typealias PlaybackSnapshot = (
+        position: CMTime,
+        shouldResume: Bool,
+        playbackRate: Float,
+        selectionSourceItem: AVPlayerItem?
+    )
+
     private let viewSession = PanelOwnedNativeViewSession<AVPlayerView>(
         makeView: FilePreviewMediaSession.makeView,
         closeView: { view in
@@ -15,6 +22,7 @@ final class FilePreviewMediaSession {
     private var currentRevision: Int?
     private var player: AVPlayer?
     private var playbackRestoreTask: Task<Void, Never>?
+    private var pendingPlaybackSnapshot: PlaybackSnapshot?
 
     deinit {
         // AppKit teardown is performed explicitly by close() on the main actor.
@@ -62,6 +70,7 @@ final class FilePreviewMediaSession {
     func close() {
         playbackRestoreTask?.cancel()
         playbackRestoreTask = nil
+        pendingPlaybackSnapshot = nil
         player?.pause()
         viewSession.close()
         player = nil
@@ -106,6 +115,7 @@ final class FilePreviewMediaSession {
 
         playbackRestoreTask?.cancel()
         playbackRestoreTask = nil
+        pendingPlaybackSnapshot = nil
         player?.pause()
         currentURL = url
         currentRevision = revision
@@ -117,18 +127,29 @@ final class FilePreviewMediaSession {
     private func replaceCurrentItem(in player: AVPlayer, url: URL, revision: Int) {
         playbackRestoreTask?.cancel()
 
-        let previousItem = player.currentItem
-        let currentTime = player.currentTime()
-        let position = currentTime.isNumeric ? currentTime : .zero
-        let shouldResume = player.timeControlStatus != .paused || player.rate != 0
-        let playbackRate = player.rate == 0 ? player.defaultRate : player.rate
+        let snapshot: PlaybackSnapshot
+        if let pendingPlaybackSnapshot {
+            snapshot = pendingPlaybackSnapshot
+        } else {
+            let currentTime = player.currentTime()
+            snapshot = (
+                position: currentTime.isNumeric ? currentTime : .zero,
+                shouldResume: player.timeControlStatus != .paused || player.rate != 0,
+                playbackRate: player.rate == 0 ? player.defaultRate : player.rate,
+                selectionSourceItem: player.currentItem
+            )
+            pendingPlaybackSnapshot = snapshot
+        }
         let nextItem = AVPlayerItem(url: url)
 
         player.pause()
         player.replaceCurrentItem(with: nextItem)
         playbackRestoreTask = Task { [weak self, weak player] in
             guard let self, let player else { return }
-            if let previousItem {
+            defer {
+                finishPlaybackRestore(in: player, item: nextItem, revision: revision)
+            }
+            if let previousItem = snapshot.selectionSourceItem {
                 await restoreMediaSelections(
                     from: previousItem,
                     to: nextItem,
@@ -139,17 +160,28 @@ final class FilePreviewMediaSession {
             guard canRestorePlayback(in: player, item: nextItem, revision: revision) else { return }
 
             let finished = await player.seek(
-                to: position,
+                to: snapshot.position,
                 toleranceBefore: .zero,
                 toleranceAfter: .zero
             )
             guard finished,
                   canRestorePlayback(in: player, item: nextItem, revision: revision) else { return }
-            if shouldResume {
-                player.playImmediately(atRate: playbackRate)
+            if snapshot.shouldResume {
+                player.playImmediately(atRate: snapshot.playbackRate)
             }
-            playbackRestoreTask = nil
         }
+    }
+
+    private func finishPlaybackRestore(
+        in player: AVPlayer,
+        item: AVPlayerItem,
+        revision: Int
+    ) {
+        guard self.player === player,
+              player.currentItem === item,
+              currentRevision == revision else { return }
+        playbackRestoreTask = nil
+        pendingPlaybackSnapshot = nil
     }
 
     private func restoreMediaSelections(
