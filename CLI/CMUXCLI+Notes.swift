@@ -47,8 +47,8 @@ extension CMUXCLI {
                     payload["text"] = text
                     print(jsonString(payload))
                 } else {
-                    try FileHandle.standardOutput.write(
-                        contentsOf: Data(terminalText.sanitizeTextContent(text).utf8)
+                    cliWriteStdout(
+                        Data(terminalText.sanitizeTextContent(text).utf8)
                     )
                 }
 
