@@ -120,22 +120,22 @@ extension FeedCoordinatorTests {
         )
     }
 
-    @Test func lifecycleZeroWaitUsesReservedCapacityAfterOrdinarySaturation() async {
+    @Test func sessionCriticalZeroWaitUsesReservedCapacityAfterOrdinarySaturation() async {
         await MainActor.run {
             FeedCoordinator.shared.install(store: WorkstreamStore(ringCapacity: 100))
         }
         let firstDeliveryStarted = DispatchSemaphore(value: 0)
         let releaseFirstDelivery = DispatchSemaphore(value: 0)
         let ordinaryDeliveryFinished = DispatchSemaphore(value: 0)
-        let lifecycleDeliveryFinished = DispatchSemaphore(value: 0)
+        let sessionCriticalDeliveryFinished = DispatchSemaphore(value: 0)
         let ordinaryPendingCapacity = 24
         defer { releaseFirstDelivery.signal() }
 
         let firstEvent = WorkstreamEvent(
-            sessionId: "pi-lifecycle-reserve-active",
+            sessionId: "pi-session-critical-reserve-active",
             hookEventName: .postToolUse,
             source: "pi",
-            requestId: "pi-lifecycle-reserve-active-request"
+            requestId: "pi-session-critical-reserve-active-request"
         )
         guard case .acknowledged(itemId: nil) = FeedCoordinator.shared.ingestBlocking(
             event: firstEvent,
@@ -154,10 +154,10 @@ extension FeedCoordinatorTests {
         var rejectedOrdinaryCount = 0
         for index in 0..<32 {
             let event = WorkstreamEvent(
-                sessionId: "pi-lifecycle-reserve-ordinary-\(index)",
+                sessionId: "pi-session-critical-reserve-ordinary-\(index)",
                 hookEventName: .postToolUse,
                 source: "pi",
-                requestId: "pi-lifecycle-reserve-ordinary-request-\(index)"
+                requestId: "pi-session-critical-reserve-ordinary-request-\(index)"
             )
             switch FeedCoordinator.shared.ingestBlocking(
                 event: event,
@@ -175,19 +175,58 @@ extension FeedCoordinatorTests {
         #expect(admittedOrdinaryCount == ordinaryPendingCapacity)
         #expect(rejectedOrdinaryCount == 32 - ordinaryPendingCapacity)
 
-        let lifecycleEvent = WorkstreamEvent(
-            sessionId: "pi-lifecycle-reserve-terminal",
-            hookEventName: .stop,
-            source: "pi",
-            requestId: "pi-lifecycle-reserve-terminal-request"
-        )
-        let lifecycleResult = FeedCoordinator.shared.ingestBlocking(
-            event: lifecycleEvent,
-            waitTimeout: 0,
-            onAccepted: { _ in lifecycleDeliveryFinished.signal() }
-        )
-        guard case .acknowledged(itemId: nil) = lifecycleResult else {
-            Issue.record("terminal lifecycle Feed event did not use reserved capacity")
+        let ordinaryLifecycleTelemetryEventNames: [WorkstreamEvent.HookEventName] = [
+            .preCompact,
+            .postCompact,
+            .subagentStart,
+            .subagentStop,
+        ]
+        for eventName in ordinaryLifecycleTelemetryEventNames {
+            let event = WorkstreamEvent(
+                sessionId: "pi-session-critical-reserve-ordinary-\(eventName.rawValue)",
+                hookEventName: eventName,
+                source: "pi",
+                requestId: "pi-session-critical-reserve-ordinary-request-\(eventName.rawValue)"
+            )
+            let result = FeedCoordinator.shared.ingestBlocking(
+                event: event,
+                waitTimeout: 0
+            )
+            guard case .unavailable = result else {
+                Issue.record("\(eventName.rawValue) consumed session-critical reserve capacity")
+                continue
+            }
+        }
+
+        let sessionCriticalEventNames: [WorkstreamEvent.HookEventName] = [
+            .sessionStart,
+            .userPromptSubmit,
+            .stop,
+            .sessionEnd,
+            .permissionRequest,
+            .askUserQuestion,
+            .exitPlanMode,
+            .notification,
+        ]
+        var admittedSessionCriticalCount = 0
+        for eventName in sessionCriticalEventNames {
+            let event = WorkstreamEvent(
+                sessionId: "pi-session-critical-reserve-\(eventName.rawValue)",
+                hookEventName: eventName,
+                source: "pi",
+                requestId: "pi-session-critical-reserve-request-\(eventName.rawValue)"
+            )
+            guard case .acknowledged(itemId: nil) = FeedCoordinator.shared.ingestBlocking(
+                event: event,
+                waitTimeout: 0,
+                onAccepted: { _ in sessionCriticalDeliveryFinished.signal() }
+            ) else {
+                Issue.record("\(eventName.rawValue) did not use session-critical reserve capacity")
+                continue
+            }
+            admittedSessionCriticalCount += 1
+        }
+        guard admittedSessionCriticalCount == sessionCriticalEventNames.count else {
             releaseFirstDelivery.signal()
             for _ in 0..<admittedOrdinaryCount {
                 _ = ordinaryDeliveryFinished.wait(timeout: .now() + 2)
@@ -196,7 +235,9 @@ extension FeedCoordinatorTests {
         }
 
         releaseFirstDelivery.signal()
-        #expect(lifecycleDeliveryFinished.wait(timeout: .now() + 2) == .success)
+        for _ in sessionCriticalEventNames {
+            #expect(sessionCriticalDeliveryFinished.wait(timeout: .now() + 2) == .success)
+        }
         for _ in 0..<admittedOrdinaryCount {
             #expect(ordinaryDeliveryFinished.wait(timeout: .now() + 2) == .success)
         }
