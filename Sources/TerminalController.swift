@@ -13809,9 +13809,7 @@ class TerminalController {
             return .absent
         }
         guard let value = TimeInterval(normalized),
-              value.isFinite,
-              value >= 946_684_800,
-              value <= 4_102_444_800 else {
+              value.isPlausibleAgentEventTime else {
             return .invalid(normalized)
         }
         return .valid(value)

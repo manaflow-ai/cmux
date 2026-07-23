@@ -15,6 +15,23 @@ extension Workspace {
         /// an unrelated process" (same contract as `isRecordedAgentPIDLive`).
         let agentPIDProcessIdentities: [String: AgentPIDProcessIdentity]
         let agentPIDKeys: Set<String>
+        let agentLifecycleEventTimes: [String: TimeInterval]
+
+        init(
+            panelId: UUID,
+            statusEntries: [String: SidebarStatusEntry],
+            agentPIDs: [String: pid_t],
+            agentPIDProcessIdentities: [String: AgentPIDProcessIdentity],
+            agentPIDKeys: Set<String>,
+            agentLifecycleEventTimes: [String: TimeInterval] = [:]
+        ) {
+            self.panelId = panelId
+            self.statusEntries = statusEntries
+            self.agentPIDs = agentPIDs
+            self.agentPIDProcessIdentities = agentPIDProcessIdentities
+            self.agentPIDKeys = agentPIDKeys
+            self.agentLifecycleEventTimes = agentLifecycleEventTimes
+        }
     }
 
     struct DetachedSurfaceTransfer {

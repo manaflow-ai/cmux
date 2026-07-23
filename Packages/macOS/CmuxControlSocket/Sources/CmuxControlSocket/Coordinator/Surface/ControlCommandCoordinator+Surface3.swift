@@ -34,14 +34,15 @@ extension ControlCommandCoordinator {
         _ params: [String: JSONValue]
     ) -> (value: TimeInterval?, error: ControlCallResult?) {
         guard hasNonNull(params, "agent_event_time") else { return (nil, nil) }
-        guard let value = double(params, "agent_event_time"), value.isFinite, value > 0 else {
+        guard let value = double(params, "agent_event_time"),
+              value.isPlausibleControlAgentEventTime else {
             return (
                 nil,
                 .err(
                     code: "invalid_params",
                     message: String(
                         localized: "socket.surfaceResume.error.invalidAgentEventTime",
-                        defaultValue: "Missing or invalid agent_event_time"
+                        defaultValue: "Missing or invalid agent_event_time; expected Unix seconds between 2000-01-01 and 2100-01-01 UTC"
                     ),
                     data: nil
                 )

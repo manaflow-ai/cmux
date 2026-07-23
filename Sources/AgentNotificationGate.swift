@@ -17,6 +17,12 @@ enum AgentTurnCompleteMode: String {
     case never
 }
 
+extension TimeInterval {
+    var isPlausibleAgentEventTime: Bool {
+        isFinite && self >= 946_684_800 && self <= 4_102_444_800
+    }
+}
+
 /// Parsed agent notification metadata. Legacy two-field policy tags remain
 /// valid; cmux-owned hooks add canonical `k=<status-key>;t=<event-time>` fields
 /// so delivery can advance the shared per-pane ordering watermark.
@@ -47,8 +53,7 @@ struct AgentNotificationMeta {
             guard !statusKey.isEmpty,
                   statusKey.allSatisfy({ $0.isLetter || $0.isNumber || "._-".contains($0) }),
                   let eventTime = TimeInterval(fields[3].dropFirst(2)),
-                  eventTime.isFinite,
-                  eventTime > 0 else { return nil }
+                  eventTime.isPlausibleAgentEventTime else { return nil }
             self.agentStatusKey = statusKey
             self.agentEventTime = eventTime
         }

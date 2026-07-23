@@ -1281,6 +1281,7 @@ struct CLICodexHookTimeoutRegressionTests {
         try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
         for (name, target) in [
             ("cat", "/bin/cat"),
+            ("chmod", "/bin/chmod"),
             ("mkdir", "/bin/mkdir"),
             ("mktemp", "/usr/bin/mktemp"),
             ("mv", "/bin/mv"),

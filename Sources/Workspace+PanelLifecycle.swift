@@ -78,6 +78,8 @@ extension Workspace {
 
     func agentRuntimeState(forPanelId panelId: UUID) -> DetachedAgentRuntimeState? {
         let pidKeys = agentPIDKeysByPanelId[panelId] ?? []
+        let lifecycleEventTimes = (agentLifecycleEventTimesByPanelId[panelId] ?? [:])
+            .filter { !AgentHibernationLifecycleStatusKeys.isManualKey($0.key) }
 
         var agentPIDsForPanel: [String: pid_t] = [:]
         var agentPIDIdentitiesForPanel: [String: AgentPIDProcessIdentity] = [:]
@@ -92,13 +94,17 @@ extension Workspace {
                 statusEntriesForPanel[statusKey] = statusEntry
             }
         }
-        guard !statusEntriesForPanel.isEmpty || !agentPIDsForPanel.isEmpty || !pidKeys.isEmpty else { return nil }
+        guard !statusEntriesForPanel.isEmpty ||
+              !agentPIDsForPanel.isEmpty ||
+              !pidKeys.isEmpty ||
+              !lifecycleEventTimes.isEmpty else { return nil }
         return DetachedAgentRuntimeState(
             panelId: panelId,
             statusEntries: statusEntriesForPanel,
             agentPIDs: agentPIDsForPanel,
             agentPIDProcessIdentities: agentPIDIdentitiesForPanel,
-            agentPIDKeys: pidKeys
+            agentPIDKeys: pidKeys,
+            agentLifecycleEventTimes: lifecycleEventTimes
         )
     }
 
@@ -349,6 +355,13 @@ extension Workspace {
 
     func adoptDetachedAgentRuntimeState(_ runtimeState: DetachedAgentRuntimeState?) {
         guard let runtimeState else { return }
+        for (statusKey, eventTime) in runtimeState.agentLifecycleEventTimes {
+            let current = agentLifecycleEventTimesByPanelId[runtimeState.panelId]?[statusKey]
+            agentLifecycleEventTimesByPanelId[runtimeState.panelId, default: [:]][statusKey] = max(
+                current ?? eventTime,
+                eventTime
+            )
+        }
         for (statusKey, statusEntry) in runtimeState.statusEntries {
             statusEntries[statusKey] = statusEntry
         }
