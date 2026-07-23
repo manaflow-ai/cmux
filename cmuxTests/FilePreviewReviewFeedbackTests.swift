@@ -306,6 +306,10 @@ final class FilePreviewReviewFeedbackTests: XCTestCase {
         XCTAssertFalse(coordinator.focus(.textEditor))
 
         let window = NSWindow(contentRect: textView.bounds, styleMask: [], backing: .buffered, defer: false)
+        // AppKit releases a closed window unless the owner opts out, and callers close
+        // this window. Without this the close over-releases and kills the test host,
+        // losing this suite's verdict and its shard-mates' along with it.
+        window.isReleasedWhenClosed = false
         defer {
             window.contentView = nil
             window.close()
