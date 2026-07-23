@@ -332,6 +332,7 @@ export function makeAfterSignInHandler(dependencies: AfterSignInHandlerDependenc
     const nativeReturnTo = request.nextUrl.searchParams.get("native_app_return_to");
     if (
       refreshToken &&
+      accessToken &&
       accessCookie &&
       nativeReturnTo !== null
     ) {
@@ -352,7 +353,7 @@ export function makeAfterSignInHandler(dependencies: AfterSignInHandlerDependenc
       return NextResponse.redirect(new URL(afterAuth, request.url));
     }
 
-    if (refreshToken && accessCookie) {
+    if (refreshToken && accessToken && accessCookie) {
       const fallback = buildNativeHref(null, refreshToken, accessCookie);
       if (fallback) return nativeReturnResponse(fallback, localizedMessages, switchAccountHref(request));
     }

@@ -198,6 +198,17 @@ describe("after sign-in native handoff", () => {
     expect(response.headers.get("location")).toBe("https://cmux.test/");
   });
 
+  test("does not hand off when the access token is empty", async () => {
+    handoffCookie = "handoff-nonce";
+    rawAccessCookie = JSON.stringify(["refresh-token", ""]);
+    const nativeReturnTo = "cmux://auth-callback?cmux_auth_state=state-123";
+
+    const response = await GET(signInRequest(nativeReturnTo, "handoff-nonce"));
+
+    expect(response.status).toBe(307);
+    expect(response.headers.get("location")).toBe("https://cmux.test/");
+  });
+
   test("mints native handoff tokens for an existing anonymous purchaser session", async () => {
     rawRefreshCookie = "";
     rawAccessCookie = "";
