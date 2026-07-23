@@ -286,7 +286,7 @@ public actor LocalArtifactRepository: ArtifactStoring {
             allowedRoot: paths.filesystemRoot,
             maximumBytes: 256 * 1024
         ), let existing = try? decoder.decode(ArtifactSessionMarker.self, from: data),
-              existing.sessionID == value.sessionID else {
+              existing.identity == value.identity else {
             throw ArtifactStoreError.corruptProvenance(url.path)
         }
     }

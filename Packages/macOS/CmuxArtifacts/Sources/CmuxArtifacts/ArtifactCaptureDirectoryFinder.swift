@@ -12,13 +12,13 @@ struct ArtifactCaptureDirectoryFinder {
         pathResolver: ArtifactPathResolver,
         kind: CmuxSessionContentKind = .artifacts
     ) throws -> ArtifactCaptureDirectoryResolution {
-        let sessionID = normalized(context.sessionID)
-        if let sessionID,
+        let sessionIdentity = context.sessionIdentity
+        if sessionIdentity.sessionID != nil,
            let sessionRoot = try markerDirectories(
                paths: paths,
                markerName: ArtifactPathResolver.sessionMarkerName,
                pathResolver: pathResolver,
-               matches: { (marker: ArtifactSessionMarker) in marker.sessionID == sessionID }
+               matches: { (marker: ArtifactSessionMarker) in marker.identity == sessionIdentity }
            ).first {
             return ArtifactCaptureDirectoryResolution(
                 directory: sessionRoot.appendingPathComponent(kind.rawValue, isDirectory: true)
@@ -26,16 +26,15 @@ struct ArtifactCaptureDirectoryFinder {
         }
 
         let fallback = pathResolver.contentDirectory(paths: paths, context: context, kind: kind)
-        if let sessionID {
+        if sessionIdentity.sessionID != nil {
             try validateFallbackSessionMarker(
                 fallback: fallback,
-                sessionID: sessionID,
+                sessionIdentity: sessionIdentity,
                 paths: paths
             )
             return ArtifactCaptureDirectoryResolution(directory: fallback)
         }
-        guard sessionID == nil,
-              let workspaceID = normalized(context.workspaceID),
+        guard let workspaceID = normalized(context.workspaceID),
               let sessionRoot = try markerDirectories(
                   paths: paths,
                   markerName: ArtifactPathResolver.workspaceMarkerName,
@@ -51,7 +50,7 @@ struct ArtifactCaptureDirectoryFinder {
 
     private func validateFallbackSessionMarker(
         fallback: URL,
-        sessionID: String,
+        sessionIdentity: ArtifactSessionIdentity,
         paths: ArtifactStorePaths
     ) throws {
         let markerURL = fallback.deletingLastPathComponent()
@@ -63,7 +62,7 @@ struct ArtifactCaptureDirectoryFinder {
             allowedRoot: paths.filesystemRoot,
             maximumBytes: 256 * 1024
         ), let marker = try? decoder.decode(ArtifactSessionMarker.self, from: data),
-              marker.sessionID == sessionID else {
+              marker.identity == sessionIdentity else {
             throw ArtifactStoreError.corruptProvenance(markerURL.path)
         }
     }
