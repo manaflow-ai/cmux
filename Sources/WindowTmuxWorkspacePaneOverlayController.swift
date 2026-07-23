@@ -5,12 +5,16 @@ import SwiftUI
 private var tmuxWorkspacePaneWindowOverlayKey: UInt8 = 0
 private let tmuxWorkspacePaneOverlayContainerIdentifier = NSUserInterfaceItemIdentifier("cmux.tmuxWorkspacePane.overlay.container")
 
+final class TmuxWorkspacePaneOverlayHostingView: NSHostingView<TmuxWorkspacePaneOverlayView> {
+    override var safeAreaInsets: NSEdgeInsets { NSEdgeInsetsZero }
+}
+
 @MainActor
 final class WindowTmuxWorkspacePaneOverlayController: NSObject {
     private weak var window: NSWindow?
     private let containerView = PassthroughWindowOverlayContainerView(frame: .zero)
     private let model = TmuxWorkspacePaneOverlayModel()
-    private let hostingView: NSHostingView<TmuxWorkspacePaneOverlayView>
+    private let hostingView: TmuxWorkspacePaneOverlayHostingView
     private let chromeComposition = AppWindowChromeComposition()
     private var installConstraints: [NSLayoutConstraint] = []
     private weak var installedReferenceView: NSView?
@@ -33,7 +37,7 @@ final class WindowTmuxWorkspacePaneOverlayController: NSObject {
 
     init(window: NSWindow) {
         self.window = window
-        self.hostingView = NSHostingView(
+        self.hostingView = TmuxWorkspacePaneOverlayHostingView(
             rootView: TmuxWorkspacePaneOverlayView(
                 unreadRects: [],
                 flashRect: nil,
@@ -88,41 +92,8 @@ final class WindowTmuxWorkspacePaneOverlayController: NSObject {
         return true
     }
 
-    /// Converts rectangles from the installed reference view to the overlay drawing view.
-    func renderStateInOverlayCoordinates(
-        _ referenceState: TmuxWorkspacePaneOverlayRenderState
-    ) -> TmuxWorkspacePaneOverlayRenderState? {
-        guard ensureInstalled(),
-              let referenceView = installedReferenceView,
-              referenceView.window === hostingView.window else { return nil }
-
-        containerView.superview?.layoutSubtreeIfNeeded()
-        containerView.layoutSubtreeIfNeeded()
-
-        func convert(_ rect: CGRect) -> CGRect {
-            referenceView.convert(rect, to: hostingView)
-        }
-
-        return TmuxWorkspacePaneOverlayRenderState(
-            workspaceId: referenceState.workspaceId,
-            unreadRects: referenceState.unreadRects.map(convert),
-            flashRect: referenceState.flashRect.map(convert),
-            activePaneBorderRect: referenceState.activePaneBorderRect.map(convert),
-            activePaneBorderColorHex: referenceState.activePaneBorderColorHex,
-            flashToken: referenceState.flashToken,
-            flashReason: referenceState.flashReason
-        )
-    }
-
-    func update(state referenceState: TmuxWorkspacePaneOverlayRenderState?) {
-        let state: TmuxWorkspacePaneOverlayRenderState?
-        if let referenceState {
-            guard let renderState = renderStateInOverlayCoordinates(referenceState) else { return }
-            state = renderState
-        } else {
-            guard ensureInstalled() else { return }
-            state = nil
-        }
+    func update(state: TmuxWorkspacePaneOverlayRenderState?) {
+        guard ensureInstalled() else { return }
 
         if state == nil, lastRenderState == nil, containerView.isHidden {
             return

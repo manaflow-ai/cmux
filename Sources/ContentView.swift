@@ -1016,9 +1016,7 @@ struct ContentView: View {
             cachedSnapshot: workspace.tmuxLayoutSnapshot,
             liveSnapshot: workspace.bonsplitController.layoutSnapshot()
         )
-        let contentView = windowChrome.contentOverlayTargetResolver
-            .installationTarget(for: window)?
-            .reference
+        let contentView = window.contentView
 
         let unreadRects: [CGRect]
         if usesWorkspacePaneOverlay {
