@@ -29,6 +29,17 @@ struct DisconnectedWorkspaceShellRecoveryTests {
         #expect(!view.shouldAutoPresentAddDeviceAfterLoadingSavedMacs)
     }
 
+    @Test func emptyDisconnectedStateOffersAccountRecoveryWithoutDeletionMarker() async throws {
+        let store = try await shellStore(personalIrohDiscovery: EmptyAccountIrohDiscovery())
+        await store.loadPairedMacs()
+
+        let view = disconnectedView(store: store)
+
+        #expect(!store.hasRecoverableDeletedComputers)
+        #expect(view.showsDeletedComputerRecoveryAction)
+        #expect(!view.shouldAutoPresentAddDeviceAfterLoadingSavedMacs)
+    }
+
     @Test func emptyStateAutoPresentsAddComputerOnlyAfterSuccessfulLoad() async throws {
         let store = try await shellStore()
         var view = disconnectedView(store: store)
@@ -63,13 +74,15 @@ struct DisconnectedWorkspaceShellRecoveryTests {
     }
 
     private func shellStore(
-        pairedMacStore: any MobilePairedMacStoring = WorkspaceMacSelectionPairedMacStore([])
+        pairedMacStore: any MobilePairedMacStoring = WorkspaceMacSelectionPairedMacStore([]),
+        personalIrohDiscovery: (any MobileIrohMacDiscovering)? = nil
     ) async throws -> CMUXMobileShellStore {
         let suiteName = "DisconnectedWorkspaceShellRecoveryTests-\(UUID().uuidString)"
         let defaults = try #require(UserDefaults(suiteName: suiteName))
         return MobileShellComposite(
             isSignedIn: true,
             pairedMacStore: pairedMacStore,
+            personalIrohDiscovery: personalIrohDiscovery,
             clientIDRepository: MobileClientIDRepository(defaults: defaults),
             identityProvider: WorkspaceMacSelectionIdentityProvider(userID: "user-1"),
             teamIDProvider: { "team-a" },
@@ -77,6 +90,11 @@ struct DisconnectedWorkspaceShellRecoveryTests {
             multiMacAggregationDefaults: defaults
         )
     }
+}
+
+@MainActor
+private final class EmptyAccountIrohDiscovery: MobileIrohMacDiscovering {
+    func discoverLiveMacs() async -> [MobileDiscoveredIrohMac] { [] }
 }
 
 private enum FailingLoadPairedMacStoreError: Error {

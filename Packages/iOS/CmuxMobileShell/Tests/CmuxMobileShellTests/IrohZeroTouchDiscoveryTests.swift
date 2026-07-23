@@ -116,6 +116,27 @@ struct IrohZeroTouchDiscoveryTests {
     }
 
     @Test
+    func explicitAccountRecoveryDialsLiveMacWithoutForgottenMarker() async throws {
+        let fixture = try await makeFixture(
+            candidates: [try candidate(deviceID: "mac-a", endpointByte: "a")],
+            reportedDeviceID: "mac-a"
+        )
+        defer { fixture.cleanup() }
+
+        await fixture.shell.loadPairedMacs()
+        #expect(!fixture.shell.hasRecoverableDeletedComputers)
+        #expect(await fixture.shell.recoverForgottenIrohMacFromAccount() == .recovered)
+
+        #expect(fixture.shell.connectionState == .connected)
+        #expect(fixture.factory.attemptedRouteIDs() == ["iroh-mac-a"])
+        let rows = try await fixture.store.loadAll(stackUserID: "user-1", teamID: nil)
+        let saved = try #require(rows.first)
+        #expect(rows.count == 1)
+        #expect(saved.macDeviceID == "mac-a")
+        #expect(saved.instanceTag == "stable")
+    }
+
+    @Test
     func explicitAccountRecoveryAcceptsMixedRouteCandidateWhenIrohRouteExists() async throws {
         let mixedRouteCandidate = try candidate(
             deviceID: "mac-a",
