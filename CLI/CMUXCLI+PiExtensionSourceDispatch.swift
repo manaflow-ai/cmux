@@ -20,6 +20,8 @@ class PiCmuxCommandDispatcher {
   private static readonly maxPendingFeedCommands = 8;
   private controlQueue: Promise<void> = Promise.resolve();
   private pendingFeedCommands = new Map<string, PiFeedCommand>();
+  private priorityFeedCommands: PiFeedCommand[] = [];
+  private feedDrainWaiters = new Map<string, Array<() => void>>();
   private routableState: SurfaceDispatchState = "unknown";
   private explicitSurfaceUnavailable = false;
   private didWarnSurfaceUnavailable = false;
@@ -28,7 +30,6 @@ class PiCmuxCommandDispatcher {
     sessionId: string | null;
     cancellation: PiCommandCancellation;
     command: PiFeedCommand;
-    finished: Promise<void>;
   } | null = null;
 
   get canDispatch(): boolean {
@@ -54,71 +55,100 @@ class PiCmuxCommandDispatcher {
     if (existing) {
       // Once a completion is pending for a tool, never replace it with a late start event.
       if (existing.terminal && !command.terminal) return;
+      // Reinsert coalesced entries so Map order continues to reflect event arrival order.
+      this.pendingFeedCommands.delete(key);
       this.pendingFeedCommands.set(key, command);
     } else {
-      if (this.pendingFeedCommands.size >= PiCmuxCommandDispatcher.maxPendingFeedCommands) {
+      if (this.queuedFeedCount() >= PiCmuxCommandDispatcher.maxPendingFeedCommands) {
         if (!command.terminal) return;
-        this.evictFeedForCompletion();
+        if (!this.evictPendingStartForCompletion()) return;
       }
       this.pendingFeedCommands.set(key, command);
     }
     this.startNextFeed();
   }
 
-  async finishFeedForSession(sessionId: string): Promise<void> {
-    const terminals: PiFeedCommand[] = [];
+  finishFeedForSession(sessionId: string): Promise<void> {
     for (const [key, command] of this.pendingFeedCommands) {
       if (command.context.sessionId !== sessionId) continue;
       this.pendingFeedCommands.delete(key);
-      if (command.terminal) terminals.push(command);
+      if (command.terminal) this.priorityFeedCommands.push(command);
     }
     const active = this.activeFeed?.sessionId === sessionId ? this.activeFeed : null;
     if (active && !active.command.terminal) {
       active.cancellation.cancelled = true;
       active.cancellation.cancel?.();
     }
-    if (active) await active.finished;
-    await Promise.all(terminals.map((command) =>
-      this.execute(command.args, command.cwd, command.input, command.context)
-    ));
+    this.startNextFeed();
+    return this.waitForFeedDrain(sessionId);
   }
 
-  private evictFeedForCompletion(): void {
+  private queuedFeedCount(): number {
+    return this.priorityFeedCommands.length + this.pendingFeedCommands.size;
+  }
+
+  private waitForFeedDrain(sessionId: string): Promise<void> {
+    if (!this.hasFeedWork(sessionId)) return Promise.resolve();
+    return new Promise<void>((resolve) => {
+      const waiters = this.feedDrainWaiters.get(sessionId) || [];
+      waiters.push(resolve);
+      this.feedDrainWaiters.set(sessionId, waiters);
+    });
+  }
+
+  private hasFeedWork(sessionId: string): boolean {
+    if (this.activeFeed?.sessionId === sessionId) return true;
+    if (this.priorityFeedCommands.some((command) => command.context.sessionId === sessionId)) return true;
+    for (const command of this.pendingFeedCommands.values()) {
+      if (command.context.sessionId === sessionId) return true;
+    }
+    return false;
+  }
+
+  private resolveDrainedFeedSessions(): void {
+    for (const [sessionId, waiters] of this.feedDrainWaiters) {
+      if (this.hasFeedWork(sessionId)) continue;
+      this.feedDrainWaiters.delete(sessionId);
+      for (const resolve of waiters) resolve();
+    }
+  }
+
+  private evictPendingStartForCompletion(): boolean {
     for (const [key, command] of this.pendingFeedCommands) {
       if (!command.terminal) {
         this.pendingFeedCommands.delete(key);
-        return;
+        return true;
       }
     }
-    // The queue is all completions; retain the most recent bounded set.
-    const oldest = this.pendingFeedCommands.keys().next();
-    if (!oldest.done) this.pendingFeedCommands.delete(oldest.value);
+    return false;
   }
 
   private startNextFeed(): void {
     if (this.feedRunning) return;
     if (!this.canDispatch) {
       this.pendingFeedCommands.clear();
+      this.priorityFeedCommands = [];
+      this.resolveDrainedFeedSessions();
       return;
     }
-    const next = this.pendingFeedCommands.entries().next();
-    if (next.done) return;
-    const [key, command] = next.value;
-    this.pendingFeedCommands.delete(key);
+    let command = this.priorityFeedCommands.shift();
+    if (!command) {
+      const next = this.pendingFeedCommands.entries().next();
+      if (next.done) return;
+      const [key, pending] = next.value;
+      this.pendingFeedCommands.delete(key);
+      command = pending;
+    }
     this.feedRunning = true;
     const cancellation: PiCommandCancellation = { cancelled: false };
-    let finishActiveFeed: () => void = () => {};
-    const finished = new Promise<void>((resolve) => {
-      finishActiveFeed = resolve;
-    });
-    this.activeFeed = { sessionId: command.context.sessionId, cancellation, command, finished };
+    this.activeFeed = { sessionId: command.context.sessionId, cancellation, command };
     void this.execute(command.args, command.cwd, command.input, command.context, cancellation)
       .catch(() => {})
       .finally(() => {
         if (this.activeFeed?.cancellation === cancellation) this.activeFeed = null;
         this.feedRunning = false;
-        finishActiveFeed();
         this.startNextFeed();
+        this.resolveDrainedFeedSessions();
       });
   }
 
