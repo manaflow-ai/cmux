@@ -388,7 +388,7 @@ final class RemoteTmuxControlConnection {
     /// down anyway (seconds). DEBUG builds honor `CMUX_REMOTE_TMUX_DETACH_BACKSTOP_SECONDS`: a
     /// stream that cannot publish a topology also cannot confirm a detach, so every teardown in a
     /// failure case pays this wait in full.
-    static let deliberateDetachBackstopSeconds: TimeInterval = {
+    nonisolated static let deliberateDetachBackstopSeconds: TimeInterval = {
         #if DEBUG
         if let override = RemoteTmuxDebugTimers.detachBackstopSeconds { return override }
         #endif
