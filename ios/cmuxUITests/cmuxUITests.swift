@@ -25,6 +25,112 @@ final class cmuxUITests: XCTestCase {
     }
 
     @MainActor
+    func testSurfaceSwitcherPreviewMounts24By24StreamSelection() throws {
+        let app = launchSurfaceSwitcherPreviewApp()
+        defer { app.terminate() }
+
+        tap(app.buttons["MobileTerminalDropdown"], in: app)
+
+        XCTAssertTrue(app.otherElements["MobileSurfaceSwitcher"].waitForExistence(timeout: 4))
+        let searchField = app.textFields["MobileSurfaceSwitcherSearchField"]
+        XCTAssertTrue(searchField.waitForExistence(timeout: 3))
+        XCTAssertTrue(searchField.isHittable)
+        XCTAssertGreaterThanOrEqual(app.buttons["MobileSurfaceSwitcherCloseButton"].frame.height, 42)
+        let selectedStream = app.buttons["BrowserStreamMenuItem-browser-stream-24"]
+        XCTAssertTrue(selectedStream.waitForExistence(timeout: 3))
+        XCTAssertTrue(selectedStream.isSelected)
+        XCTAssertEqual(selectedStream.value as? String, "Selected")
+        XCTAssertGreaterThanOrEqual(selectedStream.frame.height, 57.5)
+        XCTAssertGreaterThanOrEqual(app.buttons["MobileNewTerminalMenuItem"].frame.height, 42)
+        XCTAssertGreaterThanOrEqual(app.buttons["MobileNewBrowserMenuItem"].frame.height, 42)
+
+        let attachment = XCTAttachment(screenshot: app.screenshot())
+        attachment.name = "surface-switcher-preview-24x24-stream-selected"
+        attachment.lifetime = .keepAlways
+        add(attachment)
+    }
+
+    @MainActor
+    func testSurfaceSwitcherReopensAtNewActiveSelection() throws {
+        let app = launchWorkspaceDetailDelayedTerminalPreviewApp(environment: [
+            "CMUX_UITEST_WORKSPACE_DETAIL_SURFACE_SWITCHER": "1",
+        ])
+        defer { app.terminate() }
+
+        let terminalDropdown = app.buttons["MobileTerminalDropdown"]
+        XCTAssertTrue(terminalDropdown.waitForExistence(timeout: 5))
+        tap(terminalDropdown, in: app)
+        let switcher = app.otherElements["MobileSurfaceSwitcher"]
+        XCTAssertTrue(switcher.waitForExistence(timeout: 3))
+        let firstPresentationID = try XCTUnwrap(switcher.value as? String)
+        XCTAssertFalse(firstPresentationID.isEmpty)
+        let list = app.scrollViews["MobileSurfaceSwitcherList"]
+        XCTAssertTrue(list.waitForExistence(timeout: 3))
+        let searchField = app.textFields["MobileSurfaceSwitcherSearchField"]
+        XCTAssertTrue(searchField.waitForExistence(timeout: 3))
+        tap(searchField, in: app)
+        searchField.typeText("Example")
+        let selectedStream = app.buttons["BrowserStreamMenuItem-browser-stream-8"]
+        XCTAssertTrue(selectedStream.waitForExistence(timeout: 3))
+        XCTAssertTrue(selectedStream.isHittable)
+        tap(selectedStream, in: app)
+        XCTAssertTrue(app.otherElements["MobileSurfaceSwitcher"].waitForNonExistence(timeout: 3))
+        let selectionDeadline = Date().addingTimeInterval(3)
+        while Date() < selectionDeadline, terminalDropdown.value as? String != "Example Domain" {
+            RunLoop.current.run(until: Date().addingTimeInterval(0.05))
+        }
+        XCTAssertEqual(terminalDropdown.value as? String, "Example Domain")
+        RunLoop.current.run(until: Date().addingTimeInterval(0.5))
+
+        tap(terminalDropdown, in: app)
+        let reopenedSearchField = app.textFields["MobileSurfaceSwitcherSearchField"]
+        XCTAssertTrue(reopenedSearchField.waitForExistence(timeout: 3))
+        XCTAssertEqual(reopenedSearchField.value as? String, "Search tabs")
+        let secondPresentationID = try XCTUnwrap(switcher.value as? String)
+        XCTAssertNotEqual(
+            firstPresentationID,
+            secondPresentationID,
+            "Each switcher presentation must own fresh search and scroll state"
+        )
+        let initialTerminal = app.buttons["MobileTerminalMenuItem-terminal-delayed"]
+        XCTAssertFalse(
+            initialTerminal.isHittable,
+            "A reopened switcher must replace its stale terminal scroll anchor"
+        )
+        XCTAssertTrue(selectedStream.waitForExistence(timeout: 3))
+        XCTAssertTrue(selectedStream.isSelected)
+        XCTAssertEqual(selectedStream.value as? String, "Selected")
+        XCTAssertTrue(selectedStream.isHittable, "A reopened switcher must reveal its active tab")
+        XCTAssertLessThanOrEqual(
+            selectedStream.frame.maxY,
+            app.buttons["MobileNewTerminalMenuItem"].frame.minY + 1,
+            "The active tab must appear above the switcher's fixed footer"
+        )
+    }
+
+    @MainActor
+    func testSurfaceSwitcherPreviewFailOnceRetryUpdatesOpenSheet() throws {
+        let app = launchSurfaceSwitcherPreviewApp(environment: [
+            "CMUX_UITEST_SURFACE_SWITCHER_BROWSER_STATE": "fail-once",
+            "CMUX_UITEST_SURFACE_SWITCHER_TERMINALS": "1",
+        ])
+        defer { app.terminate() }
+
+        tap(app.buttons["MobileTerminalDropdown"], in: app)
+
+        XCTAssertTrue(app.otherElements["BrowserStreamFailureState"].waitForExistence(timeout: 4))
+        tap(app.buttons["BrowserStreamRetryButton"], in: app)
+        XCTAssertTrue(app.otherElements["BrowserStreamLoadingState"].exists)
+        XCTAssertTrue(app.buttons["BrowserStreamMenuItem-browser-stream-24"].waitForExistence(timeout: 4))
+        XCTAssertTrue(app.otherElements["MobileSurfaceSwitcher"].exists)
+
+        let attachment = XCTAttachment(screenshot: app.screenshot())
+        attachment.name = "surface-switcher-preview-fail-once-retry-open-sheet"
+        attachment.lifetime = .keepAlways
+        add(attachment)
+    }
+
+    @MainActor
     func testStackAuthEntryUsesStableIdentifiers() throws {
         let app = launchApp(mockData: false, clearAuth: true)
 
@@ -1722,9 +1828,7 @@ final class cmuxUITests: XCTestCase {
     @MainActor
     func testWorkspaceDetailToolbarSurvivesCreateWorkspaceDelayedTerminalLifecycle() throws {
         let app = launchWorkspaceDetailCreateDelayedTerminalPreviewApp()
-        let initialTerminalDropdown = app.buttons["MobileTerminalDropdown"]
-        tap(initialTerminalDropdown, in: app)
-        tapMenuItem(app.buttons["MobileNewWorkspaceMenuItem"], in: app)
+        tap(app.buttons["MobileTerminalNewWorkspaceButton"], in: app)
 
         let backButton = app.buttons["MobileWorkspaceBackButton"]
         let titleMenu = workspaceTitleElement(in: app)
@@ -3223,6 +3327,20 @@ final class cmuxUITests: XCTestCase {
             "CMUX_UITEST_AGENT_CHAT_PREVIEW": "1",
         ])
         XCTAssertTrue(app.tables["ChatTranscriptTableView"].waitForExistence(timeout: 8))
+        return app
+    }
+
+    @MainActor
+    private func launchSurfaceSwitcherPreviewApp(environment: [String: String] = [:]) -> XCUIApplication {
+        var launchEnvironment = [
+            "CMUX_UITEST_SURFACE_SWITCHER_PREVIEW": "1",
+        ]
+        for (key, value) in environment {
+            launchEnvironment[key] = value
+        }
+        let app = launchApp(mockData: false, environment: launchEnvironment)
+        XCTAssertTrue(app.otherElements["SurfaceSwitcherPreviewRoot"].waitForExistence(timeout: 8))
+        XCTAssertTrue(app.buttons["MobileTerminalDropdown"].waitForExistence(timeout: 8))
         return app
     }
 

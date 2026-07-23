@@ -1,6 +1,7 @@
 import CmuxAgentChat
 import CmuxAgentChatUI
 import CmuxMobileBrowser
+import CmuxMobileBrowserStream
 import CmuxMobileDiagnostics
 import CmuxMobileShell
 import CmuxMobileShellModel
@@ -34,6 +35,7 @@ struct WorkspaceDetailView: View {
     let backButtonConfiguration: WorkspaceBackButtonConfiguration?
     let signOut: (() -> Void)?
     @Environment(BrowserSurfaceStore.self) var browserStore
+    @Environment(BrowserStreamStore.self) var browserStreamStore
     @Environment(MobileDisplaySettings.self) private var displaySettings
     @Environment(ToastCenter.self) private var toasts
     /// Drives the destructive close-workspace confirmation dialog.
@@ -75,12 +77,16 @@ struct WorkspaceDetailView: View {
     @State var terminalArtifactThumbnailCache = ChatArtifactThumbnailCache()
     @State var visibleArtifactCount = 0
     @State var artifactGalleryRefreshSignal = TerminalArtifactGalleryRefreshSignal.initial
+    @State var browserPanelRefreshState: SurfaceSwitcherBrowserRefreshState = .idle
     /// App lifecycle phase used to re-pull chat sessions on foreground.
     @Environment(\.scenePhase) var scenePhase
     #endif
     /// The active browser surface for this workspace, when a browser pane is open.
     var activeBrowser: BrowserSurfaceState? {
         browserStore.activeBrowser(for: workspace.id.rawValue)
+    }
+    var activeBrowserStream: BrowserStreamSurfaceState? {
+        browserStreamStore.activeState(in: workspace.rpcWorkspaceID.rawValue)
     }
     #if os(iOS)
     var terminalFilesChipEnabled: Bool {
@@ -93,7 +99,8 @@ struct WorkspaceDetailView: View {
         WorkspaceActiveSurface.derive(
             isChatMode: isChatMode,
             hasChosenChatSession: chosenChatSession != nil,
-            hasActiveBrowser: activeBrowser != nil
+            hasActiveBrowser: activeBrowser != nil,
+            hasActiveBrowserStream: activeBrowserStream != nil
         )
     }
     #endif
@@ -107,6 +114,7 @@ struct WorkspaceDetailView: View {
             .mobileTerminalNavigationChrome(theme: store.activeTerminalTheme)
             .toolbar { workspaceDetailToolbar }
             .task(id: chatRefreshKey) { await refreshChatSessions() }
+            .task(id: browserPanelRefreshKey) { await refreshBrowserPanelsForSwitcher() }
             .task(id: chatConversationWarmKey) { await runWarmChatConversation() }
             .onChange(of: selectedTerminalID) { _, _ in
                 visibleArtifactCount = 0
@@ -174,6 +182,9 @@ struct WorkspaceDetailView: View {
     }
 
     private var workspaceTitleToolbarMenu: some View {
+        let openTextSheet: (() -> Void)? = activeSurface == .terminal
+            ? { openTextSheetFromMenu() }
+            : nil
         let value = WorkspaceTitleMenuValue(
             contentWidth: contentWidth,
             hasBackButton: backButtonConfiguration != nil,
@@ -199,7 +210,10 @@ struct WorkspaceDetailView: View {
                     canCloseWorkspace: value.canCloseWorkspace,
                     presentRename: presentRenameFromMenu,
                     toggleReadState: toggleWorkspaceReadStateFromMenu,
-                    requestClose: requestCloseWorkspaceFromMenu
+                    requestClose: requestCloseWorkspaceFromMenu,
+                    openTextSheet: openTextSheet,
+                    copyDebugLogs: copyDebugLogsMenuAction,
+                    sendFeedback: openFeedbackComposerFromMenu
                 )
             },
             label: {
@@ -245,6 +259,8 @@ struct WorkspaceDetailView: View {
                 subtitle: tabName(for: session)
             )
         } else if let browser = activeBrowser {
+            return .browser(title: browser.title ?? workspace.name)
+        } else if let browser = activeBrowserStream {
             return .browser(title: browser.title ?? workspace.name)
         } else {
             return .standard(title: workspace.name, subtitle: selectedToolbarSubtitle)
@@ -463,21 +479,23 @@ struct WorkspaceDetailView: View {
                 snapshotRows: terminalPickerRows,
                 selectedID: store.selectedTerminalID,
                 canCreateWorkspace: canCreateWorkspace,
-                hasActiveBrowser: activeBrowser != nil,
-                isChatMode: isChatMode
+                isChatMode: isChatMode,
+                chatDestination: surfaceSwitcherChatDestination,
+                localBrowserDestination: surfaceSwitcherLocalBrowserDestination,
+                browserStreamRows: browserStreamStore.panels(in: workspace.rpcWorkspaceID.rawValue).map(BrowserStreamPickerRow.init),
+                supportsBrowserStream: store.supportsBrowserStream,
+                activeBrowserStreamPanelID: activeBrowserStream?.id,
+                browserRefreshState: browserPanelRefreshState
             ),
             actions: TerminalPickerMenuActions(
+                preparePresentation: dismissTerminalKeyboardForChrome,
                 selectTerminal: selectTerminalFromPicker,
-                createWorkspace: createWorkspaceFromToolbar,
                 createTerminal: createTerminalFromToolbar,
                 openBrowser: openBrowserFromToolbar,
-                openTextSheet: openTextSheetFromMenu,
-                copyDebugLogs: {
-                    #if DEBUG
-                    copyDebugLogsFromMenu()
-                    #endif
-                },
-                sendFeedback: openFeedbackComposerFromMenu
+                selectBrowserStream: selectBrowserStreamFromToolbar,
+                openChat: openChatFromSwitcher,
+                openLocalBrowser: openLocalBrowserFromSwitcher,
+                retryBrowserStreamRefresh: retryBrowserPanelsFromSwitcher
             ),
             terminalTheme: store.activeTerminalTheme
         )
@@ -488,6 +506,87 @@ struct WorkspaceDetailView: View {
     }
 
     #if canImport(UIKit)
+    private var browserPanelRefreshKey: String {
+        "\(workspace.rpcWorkspaceID.rawValue)#\(store.supportsBrowserStream)"
+    }
+
+    private var surfaceSwitcherChatDestination: SurfaceSwitcherDestination? {
+        guard let session = chosenChatSession else { return nil }
+        let trimmedTitle = session.title?.trimmingCharacters(in: .whitespacesAndNewlines)
+        let title = trimmedTitle?.isEmpty == false ? trimmedTitle! : session.agentKind.displayName
+        let subtitle = tabName(for: session) ?? switcherChatStateLabel(session.state)
+        return SurfaceSwitcherDestination(
+            kind: .chat(session.id),
+            title: title,
+            subtitle: subtitle,
+            systemImage: "bubble.left.and.bubble.right",
+            accessibilityIdentifier: "MobileAgentChatMenuItem-\(session.id)"
+        )
+    }
+
+    private var surfaceSwitcherLocalBrowserDestination: SurfaceSwitcherDestination? {
+        guard let browser = activeBrowser else { return nil }
+        let trimmedTitle = browser.title?.trimmingCharacters(in: .whitespacesAndNewlines)
+        let title = trimmedTitle?.isEmpty == false
+            ? trimmedTitle!
+            : L10n.string("mobile.surfaceSwitcher.localBrowser", defaultValue: "Phone Browser")
+        let subtitle: String
+        if let message = browser.lastErrorMessage?.trimmingCharacters(in: .whitespacesAndNewlines),
+           !message.isEmpty {
+            subtitle = message
+        } else if browser.isLoading {
+            subtitle = L10n.string("mobile.switchTab.status.loading", defaultValue: "Loading")
+        } else if let host = browser.currentURL?.host, !host.isEmpty {
+            subtitle = host
+        } else {
+            subtitle = L10n.string("mobile.switchTab.source.localBrowser", defaultValue: "Phone Browser")
+        }
+        return SurfaceSwitcherDestination(
+            kind: .localBrowser(browser.id.rawValue),
+            title: title,
+            subtitle: subtitle,
+            systemImage: "globe",
+            accessibilityIdentifier: "MobileLocalBrowserMenuItem-\(browser.id.rawValue)"
+        )
+    }
+
+    private var copyDebugLogsMenuAction: (() -> Void)? {
+        #if DEBUG
+        return copyDebugLogsFromMenu
+        #else
+        return nil
+        #endif
+    }
+
+    private func switcherChatStateLabel(_ state: ChatAgentState) -> String {
+        switch state {
+        case .working:
+            return L10n.string("mobile.switchTab.chat.working", defaultValue: "Agent working")
+        case .needsInput:
+            return L10n.string("mobile.switchTab.chat.needsInput", defaultValue: "Agent needs input")
+        case .idle:
+            return L10n.string("mobile.switchTab.chat.idle", defaultValue: "Agent Chat")
+        case .ended:
+            return L10n.string("mobile.switchTab.chat.ended", defaultValue: "Agent ended")
+        }
+    }
+
+    private func refreshBrowserPanelsForSwitcher() async {
+        if !store.supportsBrowserStream {
+            browserPanelRefreshState = .idle
+            _ = await store.refreshMobileBrowserPanels(workspaceID: workspace.rpcWorkspaceID.rawValue)
+            return
+        }
+        browserPanelRefreshState = .loading
+        let succeeded = await store.refreshMobileBrowserPanels(workspaceID: workspace.rpcWorkspaceID.rawValue)
+        guard !Task.isCancelled else { return }
+        browserPanelRefreshState = succeeded ? .idle : .failed
+    }
+
+    private func retryBrowserPanelsFromSwitcher() {
+        Task { await refreshBrowserPanelsForSwitcher() }
+    }
+
     #if DEBUG
     private func copyDebugLogsFromMenu() {
         // Include "what the user sees" (the visible terminal text) above the
@@ -657,7 +756,7 @@ struct WorkspaceDetailView: View {
 
     private func createWorkspaceFromToolbar() {
         guard canCreateWorkspace else { return }
-        dismissTerminalKeyboardForChrome()
+        prepareNonChatSurfaceTransition(closeLocalBrowser: false, stopBrowserStream: false)
         createWorkspace()
     }
 
@@ -698,33 +797,79 @@ struct WorkspaceDetailView: View {
     #endif
 
     private func createTerminalFromToolbar() {
-        dismissTerminalKeyboardForChrome()
+        prepareNonChatSurfaceTransition(closeLocalBrowser: true, stopBrowserStream: true)
         // Creating a terminal from the (shared) chrome must surface it. If a
         // browser pane is up, close it so `body` leaves the browser branch and
         // shows the new terminal instead of staying on the browser.
-        browserStore.closeBrowser(for: workspace.id.rawValue)
         createTerminal()
     }
 
     private func openBrowserFromToolbar() {
-        dismissTerminalKeyboardForChrome()
+        prepareNonChatSurfaceTransition(closeLocalBrowser: false, stopBrowserStream: true)
         // Opens (or reveals the existing) browser pane for this workspace. The
         // detail view flips to the browser because `activeBrowser` becomes
         // non-nil; the picker shows a check next to "New Browser" while it is up.
         browserStore.openBrowser(for: workspace.id.rawValue)
     }
 
-    private func selectTerminalFromPicker(_ terminalID: MobileTerminalPreview.ID) {
+    private func selectBrowserStreamFromToolbar(_ panelID: String) {
+        prepareNonChatSurfaceTransition(closeLocalBrowser: true, stopBrowserStream: false)
+        if let previous = activeBrowserStream, previous.id != panelID {
+            Task { await store.stopMobileBrowserStream(panelID: previous.id) }
+        }
+        _ = browserStreamStore.activate(panelID: panelID, in: workspace.rpcWorkspaceID.rawValue)
+        Task { await store.startMobileBrowserStream(panelID: panelID) }
+    }
+
+    private func prepareNonChatSurfaceTransition(
+        closeLocalBrowser: Bool,
+        stopBrowserStream: Bool
+    ) {
         dismissTerminalKeyboardForChrome()
+        isChatMode = false
+        pinnedChatSessionID = nil
+        if closeLocalBrowser {
+            browserStore.closeBrowser(for: workspace.id.rawValue)
+        }
+        if stopBrowserStream {
+            stopActiveBrowserStream()
+        }
+    }
+
+    private func prepareChatSurfaceTransition() {
+        dismissTerminalKeyboardForChrome()
+        browserStore.closeBrowser(for: workspace.id.rawValue)
+        stopActiveBrowserStream()
+    }
+
+    private func stopActiveBrowserStream() {
+        guard let stream = activeBrowserStream else { return }
+        browserStreamStore.deactivate(in: workspace.rpcWorkspaceID.rawValue)
+        Task { await store.stopMobileBrowserStream(panelID: stream.id) }
+    }
+
+    private func selectTerminalFromPicker(_ terminalID: MobileTerminalPreview.ID) {
+        prepareNonChatSurfaceTransition(closeLocalBrowser: true, stopBrowserStream: true)
         // Choosing a terminal returns from the browser pane (if up) to the
         // terminal. Closing the browser is enough to flip the detail view back.
-        browserStore.closeBrowser(for: workspace.id.rawValue)
         // Switching from the picker is chrome, not a typing intent, so the
         // newly-selected surface must not grab the keyboard on attach. The
         // store suppresses the target's autofocus (and is a no-op when it is
         // already selected). A push-notification deep link uses the plain
         // `selectTerminal` path instead and is allowed to autofocus.
         store.selectTerminalFromChrome(terminalID)
+    }
+
+    private func openChatFromSwitcher(_ sessionID: String) {
+        prepareChatSurfaceTransition()
+        pinnedChatSessionID = sessionID
+        withAnimation(.snappy(duration: 0.25)) {
+            isChatMode = true
+        }
+    }
+
+    private func openLocalBrowserFromSwitcher() {
+        prepareNonChatSurfaceTransition(closeLocalBrowser: false, stopBrowserStream: true)
     }
 
     func dismissTerminalKeyboardForChrome() {

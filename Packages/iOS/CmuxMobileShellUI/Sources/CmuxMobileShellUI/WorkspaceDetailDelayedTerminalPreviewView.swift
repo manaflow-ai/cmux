@@ -1,6 +1,7 @@
 import CMUXMobileCore
 import CmuxAgentChat
 import CmuxMobileBrowser
+import CmuxMobileBrowserStream
 import CmuxMobileShell
 import CmuxMobileShellModel
 import CmuxMobileSupport
@@ -21,6 +22,7 @@ struct WorkspaceDetailDelayedTerminalPreviewView: View {
         workspaces: initialWorkspaces
     )
     @State private var browserStore = BrowserSurfaceStore()
+    @State private var browserStreamStore = BrowserStreamStore()
     @State private var didStartFixture = false
     @State private var themeStage = "loading"
 
@@ -31,6 +33,7 @@ struct WorkspaceDetailDelayedTerminalPreviewView: View {
             showAddDevice: nil
         )
         .environment(browserStore)
+        .environment(browserStreamStore)
         .overlay(alignment: .topLeading) {
             if Self.showsThemeParitySequence {
                 Color.clear
@@ -59,13 +62,17 @@ struct WorkspaceDetailDelayedTerminalPreviewView: View {
             let workspace = MobileWorkspacePreview(
                 id: Self.workspaceID,
                 name: Self.workspaceTitle,
-                terminals: [
-                    MobileTerminalPreview(id: Self.terminalID, name: Self.terminalTitle),
-                ]
+                terminals: Self.delayedTerminals
             )
             store.replaceForegroundWorkspaceState([workspace])
             store.selectedWorkspaceID = Self.workspaceID
             store.selectedTerminalID = Self.terminalID
+            if Self.showsSurfaceSwitcherBrowserLifecycle {
+                browserStreamStore.replacePanels(
+                    in: Self.workspaceID.rawValue,
+                    with: Self.surfaceSwitcherBrowserDescriptors(isRefreshing: false)
+                )
+            }
             if Self.showsThemeParitySequence {
                 await runThemeParitySequence()
             }
@@ -86,6 +93,19 @@ struct WorkspaceDetailDelayedTerminalPreviewView: View {
                 )
             }
         }
+        .onChange(of: browserStreamStore.activeState(in: Self.workspaceID.rawValue)?.id) { _, panelID in
+            guard Self.showsSurfaceSwitcherBrowserLifecycle,
+                  panelID == Self.surfaceSwitcherSelectedBrowserID else { return }
+            Task { @MainActor in
+                try? await ContinuousClock().sleep(for: .milliseconds(250))
+                guard !Task.isCancelled,
+                      browserStreamStore.activeState(in: Self.workspaceID.rawValue)?.id == panelID else { return }
+                browserStreamStore.replacePanels(
+                    in: Self.workspaceID.rawValue,
+                    with: Self.surfaceSwitcherBrowserDescriptors(isRefreshing: true)
+                )
+            }
+        }
     }
 
     private static var usesLongTitle: Bool {
@@ -98,6 +118,63 @@ struct WorkspaceDetailDelayedTerminalPreviewView: View {
 
     private static var showsThemeParitySequence: Bool {
         ProcessInfo.processInfo.environment["CMUX_UITEST_THEME_PARITY_PREVIEW"] == "1"
+    }
+
+    private static var showsSurfaceSwitcherBrowserLifecycle: Bool {
+        ProcessInfo.processInfo.environment["CMUX_UITEST_WORKSPACE_DETAIL_SURFACE_SWITCHER"] == "1"
+    }
+
+    private static let surfaceSwitcherSelectedBrowserID = "browser-stream-8"
+
+    private static var delayedTerminals: [MobileTerminalPreview] {
+        guard showsSurfaceSwitcherBrowserLifecycle else {
+            return [MobileTerminalPreview(id: terminalID, name: terminalTitle)]
+        }
+        return [
+            MobileTerminalPreview(
+                id: terminalID,
+                name: "abdulazizalbahar@MacBook-Pro-2:~"
+            ),
+            MobileTerminalPreview(
+                id: "terminal-delayed-secondary",
+                name: "abdulazizalbahar@MacBook-Pro-2:~/Dev/Manaflow/cmuxterm-hq"
+            ),
+        ]
+    }
+
+    private static func surfaceSwitcherBrowserDescriptors(
+        isRefreshing: Bool
+    ) -> [MobileBrowserPanelDescriptor] {
+        (1...8).map { index in
+            MobileBrowserPanelDescriptor(
+                panelID: panelID(for: index),
+                workspaceID: Self.workspaceID.rawValue,
+                url: "https://browser-\(index).test/path",
+                title: surfaceSwitcherBrowserTitle(index: index),
+                pageWidth: 1280,
+                pageHeight: 900,
+                canGoBack: index > 1,
+                canGoForward: false,
+                isLoading: isRefreshing && panelID(for: index) == surfaceSwitcherSelectedBrowserID
+            )
+        }
+    }
+
+    private static func panelID(for index: Int) -> String {
+        "browser-stream-\(index)"
+    }
+
+    private static func surfaceSwitcherBrowserTitle(index: Int) -> String {
+        switch index {
+        case 1:
+            return "Ayuda:Introducción - Wikipedia, la enciclopedia libre"
+        case 2:
+            return "gen.xyz"
+        case 8:
+            return "Example Domain"
+        default:
+            return "Browser \(index)"
+        }
     }
 
     private func runThemeParitySequence() async {

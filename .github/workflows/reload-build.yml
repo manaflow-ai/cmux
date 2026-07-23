@@ -29,6 +29,7 @@ on:
         options:
           - macos
           - ios
+          - ios-simulator
       runner:
         description: >-
           macOS runner label to build on. Blacksmith (blacksmith-6vcpu-macos-26),
@@ -115,7 +116,7 @@ jobs:
       # source refs that predate the crate are a no-op (scripts come from
       # inputs.ref, not this workflow's ref). install-rust-ci.sh is idempotent.
       - name: Provision cmux-iroh FFI (iOS)
-        if: ${{ inputs.platform == 'ios' }}
+        if: ${{ inputs.platform == 'ios' || inputs.platform == 'ios-simulator' }}
         run: |
           set -euo pipefail
           if [ -f scripts/ensure-cmux-iroh.sh ]; then
@@ -177,6 +178,42 @@ jobs:
           [ -d "$archive" ] || { echo "archive not produced: $archive" >&2; exit 1; }
           mkdir -p artifact
           ( cd "$out" && ditto -c -k --keepParent "$(basename "$archive")" "$GITHUB_WORKSPACE/artifact/archive.zip" )
+
+      # --- iOS Simulator: build the unsigned sim .app for local simctl install ---
+      # Used when the caller's local xcodebuild is unavailable; the sim app has
+      # no signing requirement, so the downloaded bundle installs directly.
+      - name: Build iOS simulator app
+        if: ${{ inputs.platform == 'ios-simulator' }}
+        id: build_ios_sim
+        env:
+          BUILD_TAG: ${{ inputs.tag }}
+        run: |
+          set -euo pipefail
+          slug="$(printf '%s' "$BUILD_TAG" | tr '[:upper:]' '[:lower:]' | tr -c 'a-z0-9-' '-' | sed 's/-\{2,\}/-/g; s/^-//; s/-$//')"
+          bundle_id="dev.cmux.ios.$slug"
+          display_name="cmux DEV $BUILD_TAG"
+
+          ./scripts/ensure-ghosttykit.sh
+          dd="$RUNNER_TEMP/cmux-ios-sim-dd"
+          xcodebuild build \
+            -workspace ios/cmux.xcworkspace \
+            -scheme cmux-ios \
+            -configuration Debug \
+            -destination 'generic/platform=iOS Simulator' \
+            -derivedDataPath "$dd" \
+            ARCHS=arm64 \
+            PRODUCT_BUNDLE_IDENTIFIER="$bundle_id" \
+            PRODUCT_DISPLAY_NAME="$display_name" \
+            CMUX_GIT_SHA="$(git rev-parse --short HEAD)" \
+            CMUX_DEV_TAG="$BUILD_TAG" \
+            EXCLUDED_SOURCE_FILE_NAMES=Info.plist \
+            CODE_SIGNING_ALLOWED=NO \
+            CODE_SIGNING_REQUIRED=NO \
+            CODE_SIGN_IDENTITY=""
+          app_path="$(/bin/ls -d "$dd/Build/Products/Debug-iphonesimulator/"*.app | head -1)"
+          [ -n "$app_path" ] && [ -d "$app_path" ] || { echo "sim app not produced" >&2; exit 1; }
+          mkdir -p artifact
+          ( cd "$(dirname "$app_path")" && ditto -c -k --keepParent "$(basename "$app_path")" "$GITHUB_WORKSPACE/artifact/sim-app.zip" )
 
       - name: Write timings.json
         if: ${{ always() }}

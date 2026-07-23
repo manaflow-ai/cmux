@@ -1,12 +1,18 @@
 import CMUXMobileCore
 import CmuxMobileSupport
+import CmuxMobileTerminal
+import Foundation
 import SwiftUI
 
-/// Snapshot-isolated native menu for switching the active workspace surface.
+/// Snapshot-isolated switcher for terminals, chat, local browser, and streamed Mac browsers.
 struct TerminalPickerMenu: View, Equatable {
     let value: TerminalPickerMenuValue
     let actions: TerminalPickerMenuActions
     let terminalTheme: TerminalTheme
+    @Environment(\.horizontalSizeClass) private var horizontalSizeClass
+    @State private var isSwitcherPresented = false
+    @State private var switcherPresentationID = UUID()
+    @State private var compactDetent = PresentationDetent.fraction(0.72)
     #if DEBUG
     private let diagnostics = TerminalPickerMenuDiagnostics()
     #endif
@@ -16,101 +22,51 @@ struct TerminalPickerMenu: View, Equatable {
     }
 
     var body: some View {
-        Menu {
-            instrumentedMenuContent
+        Button {
+            #if DEBUG
+            diagnostics.recordContentBuilderEvaluation(rowCount: value.destinations.count)
+            #endif
+            actions.preparePresentation()
+            switcherPresentationID = UUID()
+            isSwitcherPresented = true
         } label: {
-            Label(
-                value.selectedName ?? L10n.string("mobile.terminal.select", defaultValue: "Terminal"),
-                systemImage: "rectangle.stack"
-            )
-            .labelStyle(.iconOnly)
+            Label(activeSurfaceName, systemImage: "rectangle.stack")
+                .labelStyle(.iconOnly)
         }
         .foregroundStyle(terminalTheme.terminalChromeForegroundColor)
-        .accessibilityLabel(L10n.string("mobile.terminal.picker.title", defaultValue: "Terminals"))
+        .accessibilityLabel(L10n.string("mobile.surfaceSwitcher.title", defaultValue: "Switch Tab"))
         .accessibilityIdentifier("MobileTerminalDropdown")
-        .accessibilityValue(value.selectedName ?? "")
+        .accessibilityValue(activeSurfaceName)
+        .popover(isPresented: $isSwitcherPresented, attachmentAnchor: .rect(.bounds), arrowEdge: .top) {
+            SurfaceSwitcherSheet(
+                presentationID: switcherPresentationID,
+                value: value,
+                actions: actions,
+                terminalTheme: terminalTheme,
+                dismiss: dismiss
+            )
+            .id(switcherPresentationID)
+            .frame(
+                width: horizontalSizeClass == .regular
+                    ? SurfaceSwitcherMetrics.regularPopoverWidth
+                    : nil
+            )
+            .frame(maxHeight: SurfaceSwitcherMetrics.regularPopoverMaxHeight)
+            .preferredColorScheme(terminalTheme.terminalColorScheme)
+            .presentationCompactAdaptation(.sheet)
+            .presentationDetents([.fraction(0.72), .large], selection: $compactDetent)
+            .presentationDragIndicator(.visible)
+            .presentationBackgroundInteraction(.disabled)
+        }
     }
 
-    @ViewBuilder
-    private var instrumentedMenuContent: some View {
-        #if DEBUG
-        let _ = diagnostics.recordContentBuilderEvaluation(rowCount: value.rows.count)
-        #endif
-        menuContent
+    private var activeSurfaceName: String {
+        value.activeDestination?.title
+            ?? value.selectedName
+            ?? L10n.string("mobile.terminal.select", defaultValue: "Terminal")
     }
 
-    @ViewBuilder
-    private var menuContent: some View {
-        Section(L10n.string("mobile.terminal.picker.title", defaultValue: "Terminals")) {
-            ForEach(value.rows) { terminal in
-                Button {
-                    actions.selectTerminal(terminal.id)
-                } label: {
-                    Label(
-                        terminal.name,
-                        systemImage: terminal.id == value.selectedID && !value.hasActiveBrowser
-                            ? "checkmark.circle.fill"
-                            : "terminal"
-                    )
-                }
-                .accessibilityIdentifier("MobileTerminalMenuItem-\(terminal.id.rawValue)")
-            }
-        }
-
-        Section {
-            Button(action: actions.createWorkspace) {
-                Label(
-                    L10n.string("mobile.workspace.new", defaultValue: "New Workspace"),
-                    systemImage: "plus.square.on.square"
-                )
-            }
-            .disabled(!value.canCreateWorkspace)
-            .accessibilityIdentifier("MobileNewWorkspaceMenuItem")
-
-            Button(action: actions.createTerminal) {
-                Label(L10n.string("mobile.terminal.new", defaultValue: "New Terminal"), systemImage: "plus")
-            }
-            .accessibilityIdentifier("MobileNewTerminalMenuItem")
-
-            Button(action: actions.openBrowser) {
-                Label(
-                    L10n.string("mobile.browser.new", defaultValue: "New Browser"),
-                    systemImage: value.hasActiveBrowser ? "checkmark.circle.fill" : "globe"
-                )
-            }
-            .accessibilityIdentifier("MobileNewBrowserMenuItem")
-        }
-
-        #if canImport(UIKit)
-        Section {
-            if !value.hasActiveBrowser && !value.isChatMode {
-                Button(action: actions.openTextSheet) {
-                    Label(
-                        L10n.string("mobile.terminal.viewAsText", defaultValue: "View as Text"),
-                        systemImage: "doc.plaintext"
-                    )
-                }
-                .accessibilityIdentifier("MobileViewAsTextMenuItem")
-            }
-
-            #if DEBUG
-            Button(action: actions.copyDebugLogs) {
-                Label(
-                    L10n.string("mobile.debug.copyLogs", defaultValue: "Copy Debug Logs"),
-                    systemImage: "doc.on.clipboard"
-                )
-            }
-            .accessibilityIdentifier("MobileCopyDebugLogsMenuItem")
-            #endif
-
-            Button(action: actions.sendFeedback) {
-                Label(
-                    L10n.string("mobile.feedback.send", defaultValue: "Send Feedback"),
-                    systemImage: "paperplane"
-                )
-            }
-            .accessibilityIdentifier("MobileSendFeedbackMenuItem")
-        }
-        #endif
+    private func dismiss() {
+        isSwitcherPresented = false
     }
 }

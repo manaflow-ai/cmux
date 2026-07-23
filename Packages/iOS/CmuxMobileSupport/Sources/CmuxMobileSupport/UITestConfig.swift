@@ -119,6 +119,25 @@ public struct UITestConfig {
         #endif
     }
 
+    /// Whether the mounted surface-switcher accessibility preview is enabled.
+    ///
+    /// When `CMUX_UITEST_SURFACE_SWITCHER_PREVIEW=1`, the root view renders a
+    /// `NavigationStack` toolbar hosting the real switcher trigger and sheet.
+    /// DEBUG-only.
+    public static var surfaceSwitcherPreviewEnabled: Bool {
+        surfaceSwitcherPreviewEnabled(from: ProcessInfo.processInfo.environment)
+    }
+
+    /// Returns whether an explicit environment enables the mounted
+    /// surface-switcher accessibility preview.
+    public static func surfaceSwitcherPreviewEnabled(from env: [String: String]) -> Bool {
+        #if DEBUG
+        return env["CMUX_UITEST_SURFACE_SWITCHER_PREVIEW"] == "1"
+        #else
+        return false
+        #endif
+    }
+
     /// Whether the workspace detail delayed-terminal lifecycle preview is enabled.
     ///
     /// When `CMUX_UITEST_WORKSPACE_DETAIL_DELAYED_TERMINAL=1`, the root view renders

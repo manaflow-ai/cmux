@@ -579,6 +579,23 @@ public final class MobileCoreRPCClient: MobileSyncing, Sendable {
             // token so legacy pairings cannot accidentally narrow the global
             // feed; Stack auth is still attached to every TCP request.
             return true
+        case "mobile.browser.list":
+            return !ticketCoverage.ticketCoversWorkspaceRequest(
+                ticket: ticket,
+                workspaceSelection: workspaceSelection.value
+            )
+        case "mobile.browser.stream.start", "mobile.browser.stream.stop",
+             "mobile.browser.viewport",
+             "mobile.browser.frame.ack",
+             "mobile.browser.dialog.respond",
+             "mobile.browser.input.pointer", "mobile.browser.input.scroll",
+             "mobile.browser.input.key", "mobile.browser.input.text",
+             "mobile.browser.navigate", "mobile.browser.back",
+             "mobile.browser.forward", "mobile.browser.reload":
+            // Browser panels do not carry a workspace selection on these verbs.
+            // A Mac-wide ticket covers them; a workspace-scoped ticket requires
+            // Stack fallback because panel_id alone cannot prove workspace scope.
+            return !ticket.workspaceID.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
         default:
             return true
         }
