@@ -132,6 +132,39 @@ struct CmuxNoteRepositoryTests {
         #expect(try String(contentsOfFile: second.absolutePath, encoding: .utf8) == "second")
     }
 
+    @Test("Note mutations require exact names instead of fuzzy matches")
+    func mutationsDoNotFuzzyMatch() async throws {
+        let root = try ArtifactTestSupport.temporaryDirectory()
+        defer { ArtifactTestSupport.remove(root) }
+        let repository = LocalArtifactRepository()
+        let context = ArtifactCaptureContext(
+            projectRoot: root,
+            sessionID: "session:exact",
+            agentName: "codex"
+        )
+        let plan = try await repository.writeNote(
+            name: "plan",
+            text: "original plan",
+            mode: .replace,
+            context: context
+        )
+
+        let shortName = try await repository.writeNote(
+            name: "p",
+            text: "short note",
+            mode: .replace,
+            context: context
+        )
+
+        #expect(plan.relativePath != shortName.relativePath)
+        #expect(try await repository.readNote(projectRoot: root, name: "plan") == "original plan")
+        #expect(try await repository.readNote(projectRoot: root, name: "p") == "short note")
+        await #expect(throws: CmuxNoteStoreError.noteNotFound("pla")) {
+            try await repository.deleteNote(projectRoot: root, name: "pla")
+        }
+        #expect(try await repository.listNotes(projectRoot: root).count == 2)
+    }
+
     @Test("Notes reject traversal and never follow symlinked note files")
     func rejectsUnsafePaths() async throws {
         let root = try ArtifactTestSupport.temporaryDirectory()

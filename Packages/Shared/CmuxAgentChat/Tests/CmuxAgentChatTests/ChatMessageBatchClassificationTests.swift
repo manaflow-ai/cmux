@@ -35,6 +35,24 @@ struct ChatMessageBatchClassificationTests {
         #expect([prose, tool].completedAssistantTurnTimestamp == nil)
     }
 
+    @Test("Thought-only and unsupported batches do not complete a turn")
+    func requiresFinalAgentProse() {
+        let thought = message(
+            role: .agent,
+            timestamp: 2,
+            kind: .thought(ChatThought(text: "thinking"))
+        )
+        let unsupported = message(
+            role: .agent,
+            timestamp: 3,
+            kind: .unsupported(ChatUnsupportedPayload(rawType: "future_reasoning"))
+        )
+
+        #expect([thought].completedAssistantTurnTimestamp == nil)
+        #expect([unsupported].completedAssistantTurnTimestamp == nil)
+        #expect([thought, unsupported].completedAssistantTurnTimestamp == nil)
+    }
+
     private func message(
         role: ChatRole,
         timestamp: TimeInterval,
