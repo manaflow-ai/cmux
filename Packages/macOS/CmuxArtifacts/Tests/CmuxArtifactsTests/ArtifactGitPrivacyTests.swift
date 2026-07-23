@@ -118,6 +118,67 @@ struct ArtifactGitPrivacyTests {
         #expect(files.isEmpty)
     }
 
+    @Test("Manual capture stops when an exact artifact destination is Git-visible")
+    func rejectsExposedManualDestination() async throws {
+        let root = try gitRepository()
+        defer { ArtifactTestSupport.remove(root) }
+        let repository = LocalArtifactRepository()
+        _ = try await repository.snapshot(projectRoot: root)
+        let context = ArtifactCaptureContext(
+            projectRoot: root,
+            sessionID: "session:manual-privacy",
+            agentName: "codex"
+        )
+        let resolver = ArtifactPathResolver()
+        let artifactDirectory = resolver.contentDirectory(
+            paths: ArtifactStorePaths(projectRoot: root),
+            context: context,
+            kind: .artifacts
+        )
+        let artifactRelativePath = try #require(
+            resolver.relativePath(artifactDirectory, root: root)
+        )
+        let sessionRelativePath = try #require(
+            resolver.relativePath(artifactDirectory.deletingLastPathComponent(), root: root)
+        )
+        let destinationRelativePath = "\(artifactRelativePath)/private.md"
+        try """
+        !/.cmux/
+        !/\(sessionRelativePath)/
+        !/\(artifactRelativePath)/
+        /\(artifactRelativePath)/**
+        !/\(artifactRelativePath)/*.md
+
+        """.write(
+            to: root.appendingPathComponent(".gitignore"),
+            atomically: true,
+            encoding: .utf8
+        )
+        #expect(try runGit([
+            "-C", root.path, "check-ignore", "--quiet", "--", destinationRelativePath,
+        ]) == 1)
+        let source = try ArtifactTestSupport.write(
+            "private",
+            named: "outside/private.md",
+            under: root
+        )
+
+        await #expect(throws: ArtifactStoreError.gitPrivacyUnavailable(
+            ArtifactStorePaths(projectRoot: root).filesystemRoot.path
+        )) {
+            _ = try await repository.importFile(
+                sourceURL: source,
+                context: context,
+                provenance: .manual,
+                configuration: .defaultValue,
+                capturedAt: Date(timeIntervalSince1970: 1)
+            )
+        }
+        #expect(!FileManager.default.fileExists(
+            atPath: root.appendingPathComponent(destinationRelativePath).path
+        ))
+    }
+
     @Test("Note writes stop when an exact Markdown destination is Git-visible")
     func rejectsExposedNoteDestination() async throws {
         let root = try gitRepository()
