@@ -384,15 +384,22 @@ private func writeGitIndexVersion2EntryFromStat(
 private func writeGitIndexVersion4(
     at repoURL: URL,
     trackedPath: String,
-    signatureByte: UInt8
+    signatureByte: UInt8,
+    objectIDBytes: [UInt8] = Array(repeating: 0, count: 20)
 ) throws {
-    try writeGitIndexVersion4(at: repoURL, trackedPaths: [trackedPath], signatureByte: signatureByte)
+    try writeGitIndexVersion4(
+        at: repoURL,
+        trackedPaths: [trackedPath],
+        signatureByte: signatureByte,
+        objectIDBytes: objectIDBytes
+    )
 }
 
 private func writeGitIndexVersion4(
     at repoURL: URL,
     trackedPaths: [String],
-    signatureByte: UInt8
+    signatureByte: UInt8,
+    objectIDBytes: [UInt8] = Array(repeating: 0, count: 20)
 ) throws {
     var data = Data()
     data.append(contentsOf: [0x44, 0x49, 0x52, 0x43])
@@ -417,7 +424,10 @@ private func writeGitIndexVersion4(
         appendBigEndianUInt32(gitIndexUInt32Field(statValue.st_uid), to: &data)
         appendBigEndianUInt32(gitIndexUInt32Field(statValue.st_gid), to: &data)
         appendBigEndianUInt32(gitIndexUInt32Field(statValue.st_size), to: &data)
-        data.append(Data(repeating: 0, count: 20))
+        data.append(contentsOf: objectIDBytes.prefix(20))
+        if objectIDBytes.count < 20 {
+            data.append(Data(repeating: 0, count: 20 - objectIDBytes.count))
+        }
 
         let pathBytes = Array(trackedPath.utf8)
         appendBigEndianUInt16(UInt16(min(pathBytes.count, 0x0fff)), to: &data)
@@ -820,10 +830,23 @@ final class WorkspacePullRequestSidebarTests: XCTestCase {
         XCTAssertTrue(workspace.panelPullRequests.isEmpty)
         XCTAssertEqual(workspace.sidebarPullRequestsInDisplayOrder(orderedPanelIds: [panelId]), [])
 
+        // A scoped `report_git_branch` resolves its workspace through AppDelegate's
+        // main-window contexts, not through the controller's active manager, so a
+        // manager only the controller knows about is invisible to it. Register a
+        // windowless context the way the other socket-routing tests do.
+        let previousSharedAppDelegate = AppDelegate.shared
+        let appDelegate = AppDelegate()
+        let registeredWindowId = appDelegate.registerMainWindowContextForTesting(tabManager: manager)
         TerminalController.shared.setActiveTabManager(manager)
         defer {
             TerminalController.shared.setActiveTabManager(nil)
+            appDelegate.unregisterMainWindowContextForTesting(windowId: registeredWindowId)
+            AppDelegate.shared = previousSharedAppDelegate
         }
+        XCTAssertNotNil(
+            AppDelegate.shared?.tabManagerFor(tabId: workspace.id),
+            "The scoped git-branch report can only reach a workspace AppDelegate can resolve."
+        )
         let response = TerminalController.shared.handleSocketLine(
             "report_pr 2722 https://github.com/manaflow-ai/cmux/pull/2722 --label=PR --state=open --branch=issue-2722-git-index-lock-poll --tab=\(workspace.id.uuidString) --panel=\(panelId.uuidString)"
         )
@@ -1141,7 +1164,17 @@ final class WorkspacePullRequestSidebarTests: XCTestCase {
             "The sidebar refresh path should parse Git index v4 entries as clean when file stats match."
         )
 
-        try writeGitIndexVersion4(at: repoURL, trackedPath: "tracked.txt", signatureByte: 0x22)
+        // Staging content rewrites the entry's object id, which is what the index
+        // content signature tracks. Bumping only the trailing checksum would
+        // describe a file git cannot produce (the trailer is the SHA-1 of the
+        // index content), and such a rewrite is deliberately rebaselined as clean
+        // by testCleanIndexSignatureRebaselinesWhenIndexRewriteKeepsTrackedContentClean.
+        try writeGitIndexVersion4(
+            at: repoURL,
+            trackedPath: "tracked.txt",
+            signatureByte: 0x22,
+            objectIDBytes: Array(repeating: UInt8(0x22), count: 20)
+        )
         manager.refreshTrackedWorkspaceGitMetadataForTesting()
 
         XCTAssertTrue(
@@ -1461,14 +1494,31 @@ final class WorkspacePullRequestSidebarTests: XCTestCase {
             "A valid empty index should establish a clean signature baseline."
         )
 
-        try writeEmptyGitIndex(at: repoURL, signatureByte: 0x22)
+        // An index rewrite out of an empty index adds an entry, which is what the
+        // content signature tracks. Re-writing zero entries with a different
+        // trailer would describe a file git cannot produce (the trailer is the
+        // SHA-1 of the index content) and is deliberately rebaselined as clean.
+        // The new entry's stat matches the worktree, so the stat scan stays clean
+        // and the dirty verdict has to come from the index content signature.
+        try "seed\n".write(
+            to: repoURL.appendingPathComponent("tracked.txt"),
+            atomically: true,
+            encoding: .utf8
+        )
+        try writeGitIndexVersion2EntryFromStat(
+            at: repoURL,
+            trackedPath: "tracked.txt",
+            indexMode: 0o100644,
+            signatureByte: 0x22,
+            objectIDBytes: Array(repeating: UInt8(0x22), count: 20)
+        )
         manager.refreshTrackedWorkspaceGitMetadataForTesting()
 
         XCTAssertTrue(
             waitForCondition {
                 workspace.panelGitBranches[panelId]?.isDirty == true
             },
-            "Empty-index signature changes should keep staged deletes visible as dirty."
+            "An index rewrite that stages an entry should show dirty even when the worktree matches the index."
         )
     }
 

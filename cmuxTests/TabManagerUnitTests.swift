@@ -67,6 +67,43 @@ private func waitForCondition(
     return true
 }
 
+/// Awaits `condition` by suspending instead of blocking the main actor.
+///
+/// An `async` test body runs as a main-actor job, i.e. inside a main-queue
+/// drain, and libdispatch does not re-enter that drain: a nested run loop spun
+/// from there runs no main-queue work. `waitForCondition` above therefore
+/// starves both its own poll hops and any product code that applies through
+/// `MainActor.run`, so in an `async` test it can only time out. Async tests
+/// must use this form; the budget is identical.
+@MainActor
+@discardableResult
+private func waitForConditionSuspending(
+    timeout: TimeInterval = 3.0,
+    pollInterval: TimeInterval = 0.05,
+    file: StaticString = #filePath,
+    line: UInt = #line,
+    _ condition: @MainActor () -> Bool
+) async -> Bool {
+    let deadline = Date().addingTimeInterval(timeout)
+    while true {
+        if condition() {
+            return true
+        }
+        guard Date() < deadline else {
+            XCTFail("Timed out waiting for condition", file: file, line: line)
+            return false
+        }
+        do {
+            try await Task.sleep(nanoseconds: UInt64(pollInterval * 1_000_000_000))
+        } catch {
+            // Cancellation, not a timeout. Swallowing it would spin the condition at
+            // full speed until the deadline instead of unwinding, and this helper's
+            // doc comment tells future async tests to copy it.
+            return condition()
+        }
+    }
+}
+
 private func restoreUserDefaultForTabManagerTests(_ value: Any?, key: String) {
     let defaults = UserDefaults.standard
     if let value {
@@ -1066,10 +1103,14 @@ final class TabManagerPullRequestProbeTests: XCTestCase {
         XCTAssertEqual(observedMaxActiveCallCount, 1)
 
         await reader.releaseAll()
+        // Suspending, not blocking: this test body is a main-actor job, so a
+        // blocking wait would starve the snapshot's `MainActor.run` apply hop and
+        // could only expire. See waitForConditionSuspending.
+        let didApplyToEveryPanel = await waitForConditionSuspending {
+            panelIds.allSatisfy { workspace.panelGitBranches[$0]?.branch == "main" }
+        }
         XCTAssertTrue(
-            waitForCondition {
-                panelIds.allSatisfy { workspace.panelGitBranches[$0]?.branch == "main" }
-            },
+            didApplyToEveryPanel,
             "One same-directory snapshot should update every queued panel."
         )
         let finalObservedCallCount = await reader.observedCallCount
