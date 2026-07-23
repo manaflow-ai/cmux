@@ -140,6 +140,42 @@ import Testing
         #expect(!translated.contains(.option))
     }
 
+    @Test func optionNUsesGhosttyTranslatedEventWhenAltIsEnabled() throws {
+        let view = GhosttyNSView(frame: .zero)
+        let original = try #require(NSEvent.keyEvent(
+            with: .keyDown,
+            location: .zero,
+            modifierFlags: [.option],
+            timestamp: 1,
+            windowNumber: 0,
+            context: nil,
+            characters: "",
+            charactersIgnoringModifiers: "n",
+            isARepeat: false,
+            keyCode: UInt16(kVK_ANSI_N)
+        ))
+        let translated = try #require(NSEvent.keyEvent(
+            with: .keyDown,
+            location: .zero,
+            modifierFlags: [],
+            timestamp: original.timestamp,
+            windowNumber: original.windowNumber,
+            context: nil,
+            characters: "n",
+            charactersIgnoringModifiers: "n",
+            isARepeat: false,
+            keyCode: original.keyCode
+        ))
+
+        let interpreted = view.textInputInterpretationEvent(
+            original: original,
+            translated: translated
+        )
+
+        #expect(!interpreted.modifierFlags.contains(.option))
+        #expect(interpreted.characters == "n")
+    }
+
     // MARK: Option composition per keyboard layout (issue #5993 acceptance)
 
     @Test func usLayoutOptionSemicolonComposesEllipsis() throws {
