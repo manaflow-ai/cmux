@@ -64,8 +64,7 @@ struct AgentStatusReconciler: Sendable {
             return unknownResolution()
 
         case .unknown?:
-            guard evidence.lifecycleObservedAt != nil else { return unknownResolution() }
-            return AgentStatusResolution(lifecycle: .idle, confidence: .inferred)
+            return unknownResolution()
 
         case nil:
             return unknownResolution()
