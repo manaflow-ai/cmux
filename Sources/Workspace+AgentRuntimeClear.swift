@@ -78,8 +78,8 @@ extension Workspace {
         }
         if enforceStructuredAgentReplacementOrdering,
            let replacementWatermark = (agentLifecycleEventTimesByPanelId[panelId] ?? [:])
-               .filter { key, _ in
-                   key != statusKey && AgentHibernationLifecycleStatusKeys.allowedStatusKeys.contains(key)
+               .filter { entry in
+                   entry.key != statusKey && AgentHibernationLifecycleStatusKeys.allowedStatusKeys.contains(entry.key)
                }
                .values
                .max() {
