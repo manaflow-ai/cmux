@@ -4,7 +4,7 @@ use std::sync::atomic::{AtomicU64, Ordering};
 use std::time::Duration;
 
 use cmux_remote_protocol::{
-    Lane, ProcessId, RequestId, RpcError, RpcEvent, RpcRequest, RpcResponse, Service,
+    Lane, OperationId, ProcessId, RequestId, RpcError, RpcEvent, RpcRequest, RpcResponse, Service,
     ServiceControl, WorkspaceRequest, WorkspaceResponse,
 };
 use tokio::sync::{Mutex, oneshot, watch};
@@ -23,6 +23,7 @@ pub struct WorkspaceClient {
     cancellation: WorkspaceRpcChannel,
     bulk: WorkspaceRpcChannel,
     next_request: AtomicU64,
+    next_process: AtomicU64,
 }
 
 struct WorkspaceRpcChannel {
@@ -65,6 +66,7 @@ impl WorkspaceClient {
             // A random start avoids collisions between independently
             // constructed clients sharing one authenticated session.
             next_request: AtomicU64::new(request_id_seed()),
+            next_process: AtomicU64::new(process_id_seed()),
         }))
     }
 
@@ -168,10 +170,67 @@ impl WorkspaceClient {
         process: ProcessId,
         after_sequence: u64,
     ) -> Result<ProcessEventStream, RpcError> {
+        self.process_events_inner(process, after_sequence, false).await
+    }
+
+    /// Reserve an output stream before spawning with a caller-generated
+    /// process handle. This removes the response-before-subscribe race for
+    /// commands that emit output immediately.
+    pub async fn spawn_process_with_events(
+        &self,
+        request: WorkspaceRequest,
+    ) -> Result<SpawnedProcess, RpcError> {
+        let process = match &request {
+            WorkspaceRequest::SpawnProcess { .. } => self.next_process_id()?,
+            WorkspaceRequest::SpawnProcessWithHandle { process, .. } => *process,
+            _ => {
+                return Err(RpcError::new(
+                    "invalid-argument",
+                    "spawn_process_with_events requires a spawn-process request",
+                ));
+            }
+        };
+        let request = attach_process_handle(request, process)?;
+        let events = self.process_events_inner(process, 0, true).await?;
+        let response = match self.request(request).await {
+            Ok(response) => response,
+            Err(error) => {
+                let _ = events.close().await;
+                return Err(error);
+            }
+        };
+        let WorkspaceResponse::ProcessStarted { process: started, pid, operation } = response
+        else {
+            let _ = events.close().await;
+            return Err(RpcError::new("protocol", "invalid spawn-process response"));
+        };
+        if started != process {
+            let _ = events.close().await;
+            return Err(RpcError::new(
+                "protocol",
+                format!(
+                    "spawn-process returned handle {} for requested handle {}",
+                    started.0, process.0
+                ),
+            ));
+        }
+        Ok(SpawnedProcess { process, pid, operation, events })
+    }
+
+    async fn process_events_inner(
+        &self,
+        process: ProcessId,
+        after_sequence: u64,
+        reserve: bool,
+    ) -> Result<ProcessEventStream, RpcError> {
         let metadata = BTreeMap::from([
             ("process".into(), process.0.to_string()),
             ("after".into(), after_sequence.to_string()),
         ]);
+        let mut metadata = metadata;
+        if reserve {
+            metadata.insert("reserve".into(), "true".into());
+        }
         let stream = self
             .multiplexer
             .open(Service::ProcessStream, metadata)
@@ -179,6 +238,13 @@ impl WorkspaceClient {
             .map_err(transport_error)?;
         await_opened(&stream, Lane::Bulk).await?;
         Ok(ProcessEventStream { messages: MessageStream::with_lane(Arc::new(stream), Lane::Bulk) })
+    }
+
+    fn next_process_id(&self) -> Result<ProcessId, RpcError> {
+        self.next_process
+            .fetch_update(Ordering::Relaxed, Ordering::Relaxed, |value| value.checked_add(1))
+            .map(ProcessId)
+            .map_err(|_| RpcError::new("resource-exhausted", "process handles exhausted"))
     }
 }
 
@@ -226,6 +292,17 @@ impl ProcessEventStream {
             .map(Some)
             .map_err(|error| RpcError::new("protocol", error.to_string()))
     }
+
+    pub async fn close(&self) -> Result<(), RpcError> {
+        self.messages.close().await.map_err(transport_error)
+    }
+}
+
+pub struct SpawnedProcess {
+    pub process: ProcessId,
+    pub pid: Option<u32>,
+    pub operation: Option<OperationId>,
+    pub events: ProcessEventStream,
 }
 
 async fn connect_rpc_channel(
@@ -315,6 +392,7 @@ fn rpc_traffic_class(request: &WorkspaceRequest) -> RpcTrafficClass {
         | WorkspaceRequest::ListWorkspaces
         | WorkspaceRequest::Stat { .. }
         | WorkspaceRequest::SpawnProcess { .. }
+        | WorkspaceRequest::SpawnProcessWithHandle { .. }
         | WorkspaceRequest::WaitProcess { .. }
         | WorkspaceRequest::FinishOperation { .. }
         | WorkspaceRequest::CloseWorkspace { .. }
@@ -358,10 +436,64 @@ fn transport_error(error: impl std::fmt::Display) -> RpcError {
     RpcError::new("transport", error.to_string())
 }
 
+fn attach_process_handle(
+    request: WorkspaceRequest,
+    process: ProcessId,
+) -> Result<WorkspaceRequest, RpcError> {
+    match request {
+        WorkspaceRequest::SpawnProcess {
+            workspace,
+            argv,
+            cwd,
+            env,
+            io,
+            lifetime,
+            operation,
+            timeout_ms,
+            retained_output_bytes,
+            environment,
+        } => Ok(WorkspaceRequest::SpawnProcessWithHandle {
+            process,
+            workspace,
+            argv,
+            cwd,
+            env,
+            io,
+            lifetime,
+            operation,
+            timeout_ms,
+            retained_output_bytes,
+            environment,
+            output_drain_idle_timeout_ms: None,
+            output_drain_total_timeout_ms: None,
+        }),
+        request @ WorkspaceRequest::SpawnProcessWithHandle { process: requested, .. }
+            if requested == process =>
+        {
+            Ok(request)
+        }
+        WorkspaceRequest::SpawnProcessWithHandle { .. } => Err(RpcError::new(
+            "invalid-argument",
+            "spawn-process handle changed while reserving its output stream",
+        )),
+        _ => Err(RpcError::new(
+            "invalid-argument",
+            "process handle can be attached only to a spawn-process request",
+        )),
+    }
+}
+
 fn request_id_seed() -> u64 {
     let bytes = uuid::Uuid::new_v4().into_bytes();
     u64::from_le_bytes(bytes[..8].try_into().expect("UUID contains eight request ID bytes"))
         & (u64::MAX >> 1)
+}
+
+fn process_id_seed() -> u64 {
+    let bytes = uuid::Uuid::new_v4().into_bytes();
+    (u64::from_le_bytes(bytes[8..].try_into().expect("UUID contains eight process ID bytes"))
+        | (1_u64 << 63))
+        & (u64::MAX - 1)
 }
 
 #[cfg(test)]

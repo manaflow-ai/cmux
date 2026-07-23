@@ -88,6 +88,7 @@ pub enum RemoteCapability {
     StructuredDiffV1,
     ProcessLifecycleV2,
     ProcessReplayV1,
+    ProcessHandlesV1,
     RequestControlV1,
     ComputerUseV1,
 }
@@ -229,6 +230,34 @@ pub enum WorkspaceRequest {
         retained_output_bytes: Option<u32>,
         #[serde(default, skip_serializing_if = "ProcessEnvironment::is_inherit")]
         environment: ProcessEnvironment,
+    },
+    /// Spawn with a caller-generated daemon-wide handle. Clients can reserve a
+    /// process stream for this handle before starting the command, so output
+    /// cannot race the spawn response.
+    SpawnProcessWithHandle {
+        process: ProcessId,
+        workspace: WorkspaceId,
+        argv: Vec<String>,
+        cwd: Option<String>,
+        env: BTreeMap<String, String>,
+        #[serde(default)]
+        io: ProcessIo,
+        lifetime: ProcessLifetime,
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        operation: Option<OperationId>,
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        timeout_ms: Option<u64>,
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        retained_output_bytes: Option<u32>,
+        #[serde(default, skip_serializing_if = "ProcessEnvironment::is_inherit")]
+        environment: ProcessEnvironment,
+        /// Maximum idle time after the direct child exits while inherited
+        /// stdout/stderr descriptors remain open.
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        output_drain_idle_timeout_ms: Option<u64>,
+        /// Absolute output-drain deadline after the direct child exits.
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        output_drain_total_timeout_ms: Option<u64>,
     },
     WriteProcess {
         process: ProcessId,
@@ -612,12 +641,49 @@ pub struct ProcessReplayRange {
     pub exited: bool,
 }
 
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(tag = "type", rename_all = "kebab-case")]
+pub enum ProcessOutputTruncationReason {
+    DrainIdleTimeout { idle_timeout_ms: u64 },
+    DrainTotalTimeout { total_timeout_ms: u64 },
+}
+
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(tag = "type", rename_all = "kebab-case")]
 pub enum ProcessEvent {
-    Stdout { process: ProcessId, sequence: u64, data: ByteString },
-    Stderr { process: ProcessId, sequence: u64, data: ByteString },
-    Exit { process: ProcessId, code: Option<i32>, signal: Option<i32> },
+    Stdout {
+        process: ProcessId,
+        sequence: u64,
+        data: ByteString,
+    },
+    Stderr {
+        process: ProcessId,
+        sequence: u64,
+        data: ByteString,
+    },
+    OutputTruncated {
+        process: ProcessId,
+        sequence: u64,
+        reason: ProcessOutputTruncationReason,
+    },
+    /// A stream control marker. `RpcEvent.sequence` is the latest sequence
+    /// known when the gap was detected and is not a newly produced event.
+    ReplayGap {
+        process: ProcessId,
+        requested_after: u64,
+        range: ProcessReplayRange,
+    },
+    Exit {
+        process: ProcessId,
+        code: Option<i32>,
+        signal: Option<i32>,
+    },
+}
+
+impl ProcessEvent {
+    pub fn is_terminal(&self) -> bool {
+        matches!(self, Self::ReplayGap { .. } | Self::Exit { .. })
+    }
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
@@ -819,6 +885,8 @@ mod tests {
             timeout_ms: None,
             retained_output_bytes: Some(1024),
             environment: ProcessEnvironment::Clean,
+            output_drain_idle_timeout_ms: Some(750),
+            output_drain_total_timeout_ms: Some(2_500),
         };
 
         let json = serde_json::to_value(request).unwrap();
@@ -826,6 +894,8 @@ mod tests {
         assert_eq!(json["process"], 0x5a17);
         assert_eq!(json["retained_output_bytes"], 1024);
         assert_eq!(json["environment"], "clean");
+        assert_eq!(json["output_drain_idle_timeout_ms"], 750);
+        assert_eq!(json["output_drain_total_timeout_ms"], 2_500);
     }
 
     #[test]

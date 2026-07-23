@@ -3,13 +3,13 @@ use std::collections::{BTreeMap, HashMap, VecDeque};
 use std::io::{Read, Write};
 #[cfg(unix)]
 use std::os::fd::{AsRawFd, FromRawFd, OwnedFd};
-use std::sync::atomic::{AtomicBool, AtomicU64, Ordering};
+use std::sync::atomic::{AtomicBool, AtomicU64, AtomicUsize, Ordering};
 use std::sync::{Arc, Mutex as StdMutex};
 
 use cmux_remote_protocol::{
     ByteString, OperationId, ProcessEnvironment, ProcessEvent, ProcessId, ProcessIo,
-    ProcessLifetime, ProcessReplayRange, ProcessSignal, PtyEofPolicy, RpcError, RpcErrorDetails,
-    RpcEvent, WorkspaceId, WorkspaceResponse,
+    ProcessLifetime, ProcessOutputTruncationReason, ProcessReplayRange, ProcessSignal,
+    PtyEofPolicy, RpcError, RpcErrorDetails, RpcEvent, WorkspaceId, WorkspaceResponse,
 };
 #[cfg(not(unix))]
 use portable_pty::ChildKiller;
@@ -22,6 +22,7 @@ use tokio::process::ChildStdin;
 #[cfg(unix)]
 use tokio::sync::oneshot;
 use tokio::sync::{Mutex, Notify, RwLock, Semaphore, broadcast, watch};
+use tokio::task::JoinSet;
 
 use super::ClientScope;
 use super::path::WorkspaceRoot;
@@ -35,9 +36,15 @@ const MAX_PROCESS_WRITE_BYTES: usize = 32 * 1024;
 const PROCESS_EVENT_CAPACITY: usize = 512;
 const PROCESS_EVENT_BYTES: usize = 4 * 1024 * 1024;
 const PROCESS_BROADCAST_CAPACITY: usize = 64;
+const MAX_PROCESS_RESERVATIONS: usize = 256;
 const MAX_REMEMBERED_WRITE_IDS: usize = 4_096;
 const PROCESS_READ_CHUNK: usize = 64 * 1024;
-const PROCESS_OUTPUT_DRAIN_TIMEOUT: std::time::Duration = std::time::Duration::from_millis(250);
+const DEFAULT_PROCESS_OUTPUT_DRAIN_IDLE_TIMEOUT: std::time::Duration =
+    std::time::Duration::from_secs(1);
+const DEFAULT_PROCESS_OUTPUT_DRAIN_TOTAL_TIMEOUT: std::time::Duration =
+    std::time::Duration::from_secs(2);
+const MIN_PROCESS_OUTPUT_DRAIN_TIMEOUT_MS: u64 = 100;
+const MAX_PROCESS_OUTPUT_DRAIN_TIMEOUT_MS: u64 = 60_000;
 const MAX_PTY_DIMENSION: u16 = 4_096;
 const MAX_PROCESS_ARGUMENTS: usize = 4_096;
 const MAX_PROCESS_ENVIRONMENT: usize = 4_096;
@@ -228,7 +235,7 @@ struct ProcessEventLogInner {
     next_sequence: AtomicU64,
     history: StdMutex<EventHistory>,
     live: broadcast::Sender<RpcEvent>,
-    retained_bytes_limit: usize,
+    retained_bytes_limit: AtomicUsize,
 }
 
 #[derive(Default)]
@@ -246,7 +253,7 @@ impl ProcessEventLog {
                 next_sequence: AtomicU64::new(1),
                 history: StdMutex::new(EventHistory::default()),
                 live,
-                retained_bytes_limit,
+                retained_bytes_limit: AtomicUsize::new(retained_bytes_limit),
             }),
         }
     }
@@ -270,6 +277,17 @@ impl ProcessEventLog {
         });
     }
 
+    fn publish_output_truncated(&self, process: ProcessId, reason: ProcessOutputTruncationReason) {
+        self.publish(|sequence| RpcEvent {
+            sequence,
+            event: ProcessEvent::OutputTruncated { process, sequence, reason },
+        });
+    }
+
+    fn set_retained_bytes_limit(&self, retained_bytes_limit: usize) {
+        self.inner.retained_bytes_limit.store(retained_bytes_limit, Ordering::Release);
+    }
+
     fn publish(&self, make_event: impl FnOnce(u64) -> RpcEvent) {
         let mut history =
             self.inner.history.lock().unwrap_or_else(std::sync::PoisonError::into_inner);
@@ -282,8 +300,9 @@ impl ProcessEventLog {
         history.exited |= matches!(event.event, ProcessEvent::Exit { .. });
         history.retained_bytes = history.retained_bytes.saturating_add(retained);
         history.events.push_back(event.clone());
+        let retained_bytes_limit = self.inner.retained_bytes_limit.load(Ordering::Acquire);
         while history.events.len() > PROCESS_EVENT_CAPACITY
-            || history.retained_bytes > self.inner.retained_bytes_limit
+            || history.retained_bytes > retained_bytes_limit
         {
             let Some(evicted) = history.events.pop_front() else { break };
             history.retained_bytes = history.retained_bytes.saturating_sub(event_size(&evicted));
@@ -404,22 +423,43 @@ pub struct ProcessSubscription {
     terminal: bool,
 }
 
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum ProcessSubscriptionError {
+    Closed,
+    ReplayGap { skipped: u64, requested_after: u64, range: ProcessReplayRange },
+}
+
+impl std::fmt::Display for ProcessSubscriptionError {
+    fn fmt(&self, formatter: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        match self {
+            Self::Closed => write!(formatter, "process event stream closed"),
+            Self::ReplayGap { requested_after, range, .. } => write!(
+                formatter,
+                "process replay after {requested_after} is outside retained range {:?}..={}",
+                range.first_available, range.last_produced
+            ),
+        }
+    }
+}
+
+impl std::error::Error for ProcessSubscriptionError {}
+
 impl ProcessSubscription {
-    pub async fn recv(&mut self) -> Result<RpcEvent, broadcast::error::RecvError> {
+    pub async fn recv(&mut self) -> Result<RpcEvent, ProcessSubscriptionError> {
         loop {
             if let Some(event) = self.replay.pop_front() {
                 self.last_delivered = event.sequence;
-                self.terminal |= matches!(event.event, ProcessEvent::Exit { .. });
+                self.terminal |= event.event.is_terminal();
                 return Ok(event);
             }
             if self.terminal {
-                return Err(broadcast::error::RecvError::Closed);
+                return Err(ProcessSubscriptionError::Closed);
             }
             match self.live.recv().await {
                 Ok(event) if event.sequence <= self.last_delivered => continue,
                 Ok(event) => {
                     self.last_delivered = event.sequence;
-                    self.terminal |= matches!(event.event, ProcessEvent::Exit { .. });
+                    self.terminal |= event.event.is_terminal();
                     return Ok(event);
                 }
                 Err(broadcast::error::RecvError::Lagged(skipped)) => {
@@ -430,8 +470,18 @@ impl ProcessSubscription {
                         .lock()
                         .unwrap_or_else(std::sync::PoisonError::into_inner);
                     let first = history.events.front().map(|event| event.sequence);
-                    if first.is_some_and(|first| self.last_delivered.saturating_add(1) < first) {
-                        return Err(broadcast::error::RecvError::Lagged(skipped));
+                    let next_sequence = self.inner_next_sequence();
+                    let range = replay_range(&history, next_sequence, history.exited);
+                    let replay_gap = first
+                        .map_or(self.last_delivered < range.last_produced, |first| {
+                            self.last_delivered.saturating_add(1) < first
+                        });
+                    if replay_gap {
+                        return Err(ProcessSubscriptionError::ReplayGap {
+                            skipped,
+                            requested_after: self.last_delivered,
+                            range,
+                        });
                     }
                     self.replay = history
                         .events
@@ -440,9 +490,15 @@ impl ProcessSubscription {
                         .cloned()
                         .collect();
                 }
-                Err(error) => return Err(error),
+                Err(broadcast::error::RecvError::Closed) => {
+                    return Err(ProcessSubscriptionError::Closed);
+                }
             }
         }
+    }
+
+    fn inner_next_sequence(&self) -> u64 {
+        self.events.inner.next_sequence.load(Ordering::Acquire)
     }
 }
 
@@ -470,6 +526,11 @@ struct ProcessRecord {
     target_exit_notify: Arc<Notify>,
     /// Set after bounded output drain and exit-event publication complete.
     finished: Arc<AtomicBool>,
+}
+
+struct ProcessReservation {
+    owner: ClientScope,
+    events: ProcessEventLog,
 }
 
 struct PendingProcessGuard {
@@ -541,6 +602,7 @@ impl std::fmt::Debug for ProcessRecord {
 }
 
 pub(super) struct ProcessSpawnOptions {
+    pub(super) requested_process: Option<ProcessId>,
     pub(super) owner: ClientScope,
     pub(super) argv: Vec<String>,
     pub(super) cwd: Option<String>,
@@ -551,12 +613,15 @@ pub(super) struct ProcessSpawnOptions {
     pub(super) timeout_ms: Option<u64>,
     pub(super) retained_output_bytes: Option<u32>,
     pub(super) environment: ProcessEnvironment,
+    pub(super) output_drain_idle_timeout_ms: Option<u64>,
+    pub(super) output_drain_total_timeout_ms: Option<u64>,
 }
 
 pub(crate) struct ProcessManager {
     next_id: AtomicU64,
     spawn_serial: Mutex<()>,
     processes: RwLock<HashMap<ProcessId, Arc<ProcessRecord>>>,
+    reservations: Mutex<HashMap<ProcessId, ProcessReservation>>,
     pty_slots: Arc<Semaphore>,
 }
 
@@ -566,6 +631,7 @@ impl Default for ProcessManager {
             next_id: AtomicU64::new(1),
             spawn_serial: Mutex::new(()),
             processes: RwLock::new(HashMap::new()),
+            reservations: Mutex::new(HashMap::new()),
             pty_slots: Arc::new(Semaphore::new(MAX_PTY_PROCESSES)),
         }
     }
@@ -578,6 +644,7 @@ impl ProcessManager {
         options: ProcessSpawnOptions,
     ) -> Result<WorkspaceResponse, RpcError> {
         let ProcessSpawnOptions {
+            requested_process,
             owner,
             argv,
             cwd,
@@ -588,6 +655,8 @@ impl ProcessManager {
             timeout_ms,
             retained_output_bytes,
             environment,
+            output_drain_idle_timeout_ms,
+            output_drain_total_timeout_ms,
         } = options;
         if argv.is_empty() || argv[0].is_empty() {
             return Err(RpcError::new("invalid-argument", "process argv cannot be empty"));
@@ -631,6 +700,11 @@ impl ProcessManager {
                 format!("process timeout must be between 1 and {MAX_PROCESS_TIMEOUT_MS} ms"),
             ));
         }
+        let (output_drain_idle_timeout, output_drain_total_timeout) =
+            validate_output_drain_timeouts(
+                output_drain_idle_timeout_ms,
+                output_drain_total_timeout_ms,
+            )?;
         let cwd = match cwd {
             Some(cwd) => root.resolve_existing(&cwd).await?,
             None => root.canonical_root().to_owned(),
@@ -643,7 +717,17 @@ impl ProcessManager {
         }
         let _spawn_guard = self.spawn_serial.lock().await;
         self.reserve_capacity().await?;
-        let id = ProcessId(self.next_id.fetch_add(1, Ordering::Relaxed));
+        let retained_output_bytes = retained_output_bytes
+            .map(|bytes| usize::try_from(bytes).unwrap_or(usize::MAX))
+            .unwrap_or(PROCESS_EVENT_BYTES);
+        if retained_output_bytes > PROCESS_EVENT_BYTES {
+            return Err(RpcError::new(
+                "resource-exhausted",
+                format!("retained process output exceeds {PROCESS_EVENT_BYTES} bytes"),
+            ));
+        }
+        let (id, events) =
+            self.claim_process_handle(requested_process, &owner, retained_output_bytes).await?;
         let operation = match (lifetime, operation) {
             (ProcessLifetime::Operation, Some(operation)) => Some(operation),
             (ProcessLifetime::Operation, None) => {
@@ -657,20 +741,12 @@ impl ProcessManager {
             }
             (_, None) => None,
         };
-        let retained_output_bytes = retained_output_bytes
-            .map(|bytes| usize::try_from(bytes).unwrap_or(usize::MAX))
-            .unwrap_or(PROCESS_EVENT_BYTES);
-        if retained_output_bytes > PROCESS_EVENT_BYTES {
-            return Err(RpcError::new(
-                "resource-exhausted",
-                format!("retained process output exceeds {PROCESS_EVENT_BYTES} bytes"),
-            ));
-        }
 
         match io {
             ProcessIo::Pipes { stdin } => {
                 self.spawn_pipes(
                     id,
+                    events,
                     owner,
                     root.id.clone(),
                     argv,
@@ -680,7 +756,8 @@ impl ProcessManager {
                     lifetime,
                     operation,
                     timeout_ms,
-                    retained_output_bytes,
+                    output_drain_idle_timeout,
+                    output_drain_total_timeout,
                     environment,
                 )
                 .await
@@ -688,6 +765,7 @@ impl ProcessManager {
             ProcessIo::Pty { cols, rows, term, eof } => {
                 self.spawn_pty(
                     id,
+                    events,
                     owner,
                     root.id.clone(),
                     argv,
@@ -700,7 +778,8 @@ impl ProcessManager {
                     lifetime,
                     operation,
                     timeout_ms,
-                    retained_output_bytes,
+                    output_drain_idle_timeout,
+                    output_drain_total_timeout,
                     environment,
                 )
                 .await
@@ -712,6 +791,7 @@ impl ProcessManager {
     async fn spawn_pipes(
         &self,
         id: ProcessId,
+        events: ProcessEventLog,
         owner: ClientScope,
         workspace: WorkspaceId,
         argv: Vec<String>,
@@ -721,7 +801,8 @@ impl ProcessManager {
         lifetime: ProcessLifetime,
         operation: Option<OperationId>,
         timeout_ms: Option<u64>,
-        retained_output_bytes: usize,
+        output_drain_idle_timeout: std::time::Duration,
+        output_drain_total_timeout: std::time::Duration,
         environment: ProcessEnvironment,
     ) -> Result<WorkspaceResponse, RpcError> {
         let mut command = tokio::process::Command::new(&argv[0]);
@@ -771,7 +852,6 @@ impl ProcessManager {
             .stderr
             .take()
             .ok_or_else(|| RpcError::new("internal", "process stderr was not piped"))?;
-        let events = ProcessEventLog::new(retained_output_bytes);
         let (exit_tx, exit_rx) = watch::channel(None);
         let response_operation = operation.clone();
         let record = Arc::new(ProcessRecord {
@@ -796,26 +876,25 @@ impl ProcessManager {
         });
         #[cfg(unix)]
         pending.update_target(pid, record.target_exited.clone());
-        let stdout_task = tokio::spawn(read_pipe(stdout, events.clone(), id, false));
-        let stderr_task = tokio::spawn(read_pipe(stderr, events.clone(), id, true));
+        let (output_activity, output_activity_rx) = watch::channel(0_u64);
+        let mut output_tasks = JoinSet::new();
+        output_tasks.spawn(read_pipe(stdout, events.clone(), id, false, output_activity.clone()));
+        output_tasks.spawn(read_pipe(stderr, events.clone(), id, true, output_activity.clone()));
+        drop(output_activity);
         self.processes.write().await.insert(id, record.clone());
         let waiter_record = record.clone();
         tokio::spawn(async move {
             let status = child.wait().await;
             mark_target_exited(&waiter_record);
-            let mut stdout_task = stdout_task;
-            let mut stderr_task = stderr_task;
-            if tokio::time::timeout(PROCESS_OUTPUT_DRAIN_TIMEOUT, async {
-                let _ = (&mut stdout_task).await;
-                let _ = (&mut stderr_task).await;
-            })
+            if let Some(reason) = drain_output_tasks(
+                output_tasks,
+                output_activity_rx,
+                output_drain_idle_timeout,
+                output_drain_total_timeout,
+            )
             .await
-            .is_err()
             {
-                stdout_task.abort();
-                stderr_task.abort();
-                let _ = stdout_task.await;
-                let _ = stderr_task.await;
+                events.publish_output_truncated(id, reason);
             }
             let outcome =
                 status.map(exit_outcome).unwrap_or(ExitOutcome { code: None, signal: None });
@@ -833,6 +912,7 @@ impl ProcessManager {
     async fn spawn_pty(
         &self,
         id: ProcessId,
+        events: ProcessEventLog,
         owner: ClientScope,
         workspace: WorkspaceId,
         argv: Vec<String>,
@@ -845,9 +925,12 @@ impl ProcessManager {
         lifetime: ProcessLifetime,
         operation: Option<OperationId>,
         timeout_ms: Option<u64>,
-        retained_output_bytes: usize,
+        output_drain_idle_timeout: std::time::Duration,
+        output_drain_total_timeout: std::time::Duration,
         environment: ProcessEnvironment,
     ) -> Result<WorkspaceResponse, RpcError> {
+        #[cfg(not(unix))]
+        let _ = (output_drain_idle_timeout, output_drain_total_timeout);
         validate_pty_size(cols, rows)?;
         let pty_slot = self.pty_slots.clone().try_acquire_owned().map_err(|_| {
             RpcError::new(
@@ -907,7 +990,6 @@ impl ProcessManager {
         #[cfg(not(unix))]
         let input_writer = InputWriter::Pty(writer);
         let master = Arc::new(StdMutex::new(Some(pair.master)));
-        let events = ProcessEventLog::new(retained_output_bytes);
         let (exit_tx, exit_rx) = watch::channel(None);
         let response_operation = operation.clone();
         let record = Arc::new(ProcessRecord {
@@ -934,7 +1016,10 @@ impl ProcessManager {
         pending.update_target(record_pid, record.target_exited.clone());
         #[cfg(unix)]
         {
-            let reader_task = tokio::spawn(read_pty(pty_io, events.clone(), id));
+            let (output_activity, output_activity_rx) = watch::channel(0_u64);
+            let mut output_tasks = JoinSet::new();
+            output_tasks.spawn(read_pty(pty_io, events.clone(), id, output_activity.clone()));
+            drop(output_activity);
             let (status_tx, status_rx) = oneshot::channel();
             let target_exited = record.target_exited.clone();
             let target_exit_notify = record.target_exit_notify.clone();
@@ -955,13 +1040,15 @@ impl ProcessManager {
             let waiter_record = record.clone();
             tokio::spawn(async move {
                 let status = status_rx.await.ok().and_then(Result::ok);
-                let mut reader_task = reader_task;
-                if tokio::time::timeout(PROCESS_OUTPUT_DRAIN_TIMEOUT, &mut reader_task)
-                    .await
-                    .is_err()
+                if let Some(reason) = drain_output_tasks(
+                    output_tasks,
+                    output_activity_rx,
+                    output_drain_idle_timeout,
+                    output_drain_total_timeout,
+                )
+                .await
                 {
-                    reader_task.abort();
-                    let _ = reader_task.await;
+                    events.publish_output_truncated(id, reason);
                 }
                 let outcome = status
                     .map(|status| ExitOutcome {
@@ -1228,6 +1315,62 @@ impl ProcessManager {
         record.events.subscribe(after_sequence, record.finished.load(Ordering::Acquire))
     }
 
+    pub(crate) async fn subscribe_or_reserve(
+        &self,
+        owner: &ClientScope,
+        process: ProcessId,
+        after_sequence: u64,
+        reserve: bool,
+    ) -> Result<ProcessSubscription, RpcError> {
+        if !reserve {
+            return self.subscribe(process, after_sequence).await;
+        }
+        if process.0 == 0 {
+            return Err(RpcError::new("invalid-process-id", "process handle must be non-zero"));
+        }
+        if after_sequence != 0 {
+            return Err(RpcError::new(
+                "invalid-replay-cursor",
+                "a pre-spawn process stream must start after sequence zero",
+            ));
+        }
+
+        let _spawn_guard = self.spawn_serial.lock().await;
+        if let Some(record) = self.processes.read().await.get(&process).cloned() {
+            return record
+                .events
+                .subscribe(after_sequence, record.finished.load(Ordering::Acquire));
+        }
+        let mut reservations = self.reservations.lock().await;
+        if let Some(reservation) = reservations.get(&process) {
+            if &reservation.owner != owner {
+                return Err(RpcError::new(
+                    "duplicate-process-id",
+                    format!("process handle {} is already reserved", process.0),
+                ));
+            }
+            return reservation.events.subscribe(after_sequence, false);
+        }
+        if reservations.len() >= MAX_PROCESS_RESERVATIONS {
+            return Err(RpcError::new(
+                "resource-exhausted",
+                format!("pending process reservation limit of {MAX_PROCESS_RESERVATIONS} reached"),
+            ));
+        }
+        let events = ProcessEventLog::new(PROCESS_EVENT_BYTES);
+        let subscription = events.subscribe(after_sequence, false)?;
+        reservations.insert(process, ProcessReservation { owner: owner.clone(), events });
+        Ok(subscription)
+    }
+
+    pub(crate) async fn release_reservation(&self, owner: &ClientScope, process: ProcessId) {
+        let _spawn_guard = self.spawn_serial.lock().await;
+        let mut reservations = self.reservations.lock().await;
+        if reservations.get(&process).is_some_and(|reservation| &reservation.owner == owner) {
+            reservations.remove(&process);
+        }
+    }
+
     pub(crate) async fn read_events(
         &self,
         process: ProcessId,
@@ -1293,6 +1436,7 @@ impl ProcessManager {
     }
 
     pub(crate) async fn close_client(&self, owner: &ClientScope) {
+        self.reservations.lock().await.retain(|_, reservation| &reservation.owner != owner);
         let records = self
             .processes
             .read()
@@ -1311,6 +1455,7 @@ impl ProcessManager {
     }
 
     pub(crate) async fn shutdown(&self) {
+        self.reservations.lock().await.clear();
         let records = self
             .processes
             .read()
@@ -1337,6 +1482,63 @@ impl ProcessManager {
         self.processes.read().await.get(&process).cloned().ok_or_else(|| {
             RpcError::new("unknown-process", format!("unknown process {}", process.0))
         })
+    }
+
+    async fn claim_process_handle(
+        &self,
+        requested_process: Option<ProcessId>,
+        owner: &ClientScope,
+        retained_output_bytes: usize,
+    ) -> Result<(ProcessId, ProcessEventLog), RpcError> {
+        let processes = self.processes.read().await;
+        let mut reservations = self.reservations.lock().await;
+        let process = match requested_process {
+            Some(ProcessId(0)) => {
+                return Err(RpcError::new(
+                    "invalid-process-id",
+                    "caller-supplied process handle must be non-zero",
+                ));
+            }
+            Some(process) => {
+                if processes.contains_key(&process) {
+                    return Err(RpcError::new(
+                        "duplicate-process-id",
+                        format!("process handle {} is already in use", process.0),
+                    ));
+                }
+                process
+            }
+            None => loop {
+                let value = self
+                    .next_id
+                    .fetch_update(Ordering::Relaxed, Ordering::Relaxed, |value| {
+                        value.checked_add(1)
+                    })
+                    .map_err(|_| {
+                        RpcError::new("resource-exhausted", "process identifiers exhausted")
+                    })?;
+                let candidate = ProcessId(value);
+                if candidate.0 != 0
+                    && !processes.contains_key(&candidate)
+                    && !reservations.contains_key(&candidate)
+                {
+                    break candidate;
+                }
+            },
+        };
+        let events = match reservations.remove(&process) {
+            Some(reservation) if &reservation.owner == owner => reservation.events,
+            Some(reservation) => {
+                reservations.insert(process, reservation);
+                return Err(RpcError::new(
+                    "duplicate-process-id",
+                    format!("process handle {} is reserved by another client", process.0),
+                ));
+            }
+            None => ProcessEventLog::new(retained_output_bytes),
+        };
+        events.set_retained_bytes_limit(retained_output_bytes);
+        Ok((process, events))
     }
 
     async fn reserve_capacity(&self) -> Result<(), RpcError> {
@@ -1398,25 +1600,114 @@ async fn read_pipe(
     events: ProcessEventLog,
     process: ProcessId,
     stderr: bool,
+    activity: watch::Sender<u64>,
 ) {
     let mut buffer = vec![0u8; PROCESS_READ_CHUNK];
     loop {
         match reader.read(&mut buffer).await {
             Ok(0) | Err(_) => break,
-            Ok(read) => events.publish_output(process, stderr, &buffer[..read]),
+            Ok(read) => {
+                events.publish_output(process, stderr, &buffer[..read]);
+                activity.send_modify(|generation| *generation = generation.wrapping_add(1));
+            }
         }
     }
 }
 
 #[cfg(unix)]
-async fn read_pty(pty: Arc<AsyncPty>, events: ProcessEventLog, process: ProcessId) {
+async fn read_pty(
+    pty: Arc<AsyncPty>,
+    events: ProcessEventLog,
+    process: ProcessId,
+    activity: watch::Sender<u64>,
+) {
     let mut buffer = vec![0u8; PROCESS_READ_CHUNK];
     loop {
         match pty.read(&mut buffer).await {
             Ok(0) | Err(_) => break,
-            Ok(read) => events.publish_output(process, false, &buffer[..read]),
+            Ok(read) => {
+                events.publish_output(process, false, &buffer[..read]);
+                activity.send_modify(|generation| *generation = generation.wrapping_add(1));
+            }
         }
     }
+}
+
+async fn drain_output_tasks(
+    mut tasks: JoinSet<()>,
+    mut activity: watch::Receiver<u64>,
+    idle_timeout: std::time::Duration,
+    total_timeout: std::time::Duration,
+) -> Option<ProcessOutputTruncationReason> {
+    let total_deadline = tokio::time::sleep(total_timeout);
+    tokio::pin!(total_deadline);
+    loop {
+        if tasks.is_empty() {
+            return None;
+        }
+        let idle_deadline = tokio::time::sleep(idle_timeout);
+        tokio::pin!(idle_deadline);
+        tokio::select! {
+            joined = tasks.join_next() => {
+                if joined.is_none() {
+                    return None;
+                }
+            }
+            changed = activity.changed() => {
+                if changed.is_err() {
+                    while tasks.join_next().await.is_some() {}
+                    return None;
+                }
+            }
+            _ = &mut idle_deadline => {
+                tasks.abort_all();
+                while tasks.join_next().await.is_some() {}
+                return Some(ProcessOutputTruncationReason::DrainIdleTimeout {
+                    idle_timeout_ms: duration_millis(idle_timeout),
+                });
+            }
+            _ = &mut total_deadline => {
+                tasks.abort_all();
+                while tasks.join_next().await.is_some() {}
+                return Some(ProcessOutputTruncationReason::DrainTotalTimeout {
+                    total_timeout_ms: duration_millis(total_timeout),
+                });
+            }
+        }
+    }
+}
+
+fn validate_output_drain_timeouts(
+    idle_timeout_ms: Option<u64>,
+    total_timeout_ms: Option<u64>,
+) -> Result<(std::time::Duration, std::time::Duration), RpcError> {
+    let idle_timeout = idle_timeout_ms
+        .map(std::time::Duration::from_millis)
+        .unwrap_or(DEFAULT_PROCESS_OUTPUT_DRAIN_IDLE_TIMEOUT);
+    let total_timeout = total_timeout_ms
+        .map(std::time::Duration::from_millis)
+        .unwrap_or(DEFAULT_PROCESS_OUTPUT_DRAIN_TOTAL_TIMEOUT);
+    let idle_timeout_ms = duration_millis(idle_timeout);
+    let total_timeout_ms = duration_millis(total_timeout);
+    if !(MIN_PROCESS_OUTPUT_DRAIN_TIMEOUT_MS..=MAX_PROCESS_OUTPUT_DRAIN_TIMEOUT_MS)
+        .contains(&idle_timeout_ms)
+        || !(MIN_PROCESS_OUTPUT_DRAIN_TIMEOUT_MS..=MAX_PROCESS_OUTPUT_DRAIN_TIMEOUT_MS)
+            .contains(&total_timeout_ms)
+        || idle_timeout > total_timeout
+    {
+        return Err(RpcError::new(
+            "invalid-argument",
+            format!(
+                "output drain timeouts must be between {MIN_PROCESS_OUTPUT_DRAIN_TIMEOUT_MS} and \
+                 {MAX_PROCESS_OUTPUT_DRAIN_TIMEOUT_MS} ms, with idle no greater than total"
+            ),
+        ));
+    }
+    Ok((idle_timeout, total_timeout))
+}
+
+fn duration_millis(duration: std::time::Duration) -> u64 {
+    u64::try_from(duration.as_millis()).unwrap_or(u64::MAX)
 }
 
 fn validate_environment(environment: &BTreeMap<String, String>) -> Result<(), RpcError> {
@@ -1538,7 +1829,9 @@ fn event_size(event: &RpcEvent) -> usize {
         ProcessEvent::Stdout { data, .. } | ProcessEvent::Stderr { data, .. } => {
             data.encoded().len()
         }
-        ProcessEvent::Exit { .. } => 0,
+        ProcessEvent::OutputTruncated { .. }
+        | ProcessEvent::ReplayGap { .. }
+        | ProcessEvent::Exit { .. } => 0,
     }
 }
 
@@ -1576,6 +1869,8 @@ mod tests {
             timeout_ms: None,
             retained_output_bytes: None,
             environment: ProcessEnvironment::Inherit,
+            output_drain_idle_timeout_ms: None,
+            output_drain_total_timeout_ms: None,
         }
     }
 
@@ -1696,6 +1991,7 @@ mod tests {
             match events.recv().await.unwrap().event {
                 ProcessEvent::Stdout { .. } => saw_stdout = true,
                 ProcessEvent::Stderr { .. } => saw_stderr = true,
+                ProcessEvent::OutputTruncated { .. } | ProcessEvent::ReplayGap { .. } => {}
                 ProcessEvent::Exit { .. } => break,
             }
         }
@@ -1738,7 +2034,9 @@ mod tests {
             match event.event {
                 ProcessEvent::Stdout { data, .. } => stdout.extend(data.decode().unwrap()),
                 ProcessEvent::Exit { .. } => break,
-                ProcessEvent::Stderr { .. } => {}
+                ProcessEvent::Stderr { .. }
+                | ProcessEvent::OutputTruncated { .. }
+                | ProcessEvent::ReplayGap { .. } => {}
             }
         }
         assert_eq!(stdout, b"once");
@@ -1760,7 +2058,7 @@ mod tests {
         // The caller's finished flag can lag exit publication briefly. The
         // event log records terminal state atomically with the Exit event.
         let mut subscription = log.subscribe(1, false).unwrap();
-        assert_eq!(subscription.recv().await, Err(broadcast::error::RecvError::Closed));
+        assert_eq!(subscription.recv().await, Err(ProcessSubscriptionError::Closed));
     }
 
     #[tokio::test]
@@ -1770,7 +2068,7 @@ mod tests {
         log.publish_exit(ProcessId(7), ExitOutcome { code: Some(0), signal: None });
 
         assert!(matches!(subscription.recv().await.unwrap().event, ProcessEvent::Exit { .. }));
-        assert_eq!(subscription.recv().await, Err(broadcast::error::RecvError::Closed));
+        assert_eq!(subscription.recv().await, Err(ProcessSubscriptionError::Closed));
     }
 
     #[test]
@@ -1973,6 +2271,7 @@ mod tests {
             spawn_manager
                 .spawn_pipes(
                     ProcessId(9_001),
+                    ProcessEventLog::new(PROCESS_EVENT_BYTES),
                     ClientScope::local(),
                     workspace,
                     vec![
@@ -1986,7 +2285,8 @@ mod tests {
                     ProcessLifetime::Workspace,
                     None,
                     None,
-                    PROCESS_EVENT_BYTES,
+                    DEFAULT_PROCESS_OUTPUT_DRAIN_IDLE_TIMEOUT,
+                    DEFAULT_PROCESS_OUTPUT_DRAIN_TOTAL_TIMEOUT,
                     ProcessEnvironment::Inherit,
                 )
                 .await
@@ -2017,6 +2317,7 @@ mod tests {
             spawn_manager
                 .spawn_pty(
                     ProcessId(9_002),
+                    ProcessEventLog::new(PROCESS_EVENT_BYTES),
                     ClientScope::local(),
                     workspace,
                     vec![
@@ -2033,7 +2334,8 @@ mod tests {
                     ProcessLifetime::Workspace,
                     None,
                     None,
-                    PROCESS_EVENT_BYTES,
+                    DEFAULT_PROCESS_OUTPUT_DRAIN_IDLE_TIMEOUT,
+                    DEFAULT_PROCESS_OUTPUT_DRAIN_TOTAL_TIMEOUT,
                     ProcessEnvironment::Inherit,
                 )
                 .await
@@ -2223,7 +2525,9 @@ mod tests {
             match event.event {
                 ProcessEvent::Stdout { data, .. } => output.extend(data.decode().unwrap()),
                 ProcessEvent::Exit { .. } => break,
-                ProcessEvent::Stderr { .. } => {}
+                ProcessEvent::Stderr { .. }
+                | ProcessEvent::OutputTruncated { .. }
+                | ProcessEvent::ReplayGap { .. } => {}
             }
         }
         assert!(String::from_utf8_lossy(&output).contains("40 100"));

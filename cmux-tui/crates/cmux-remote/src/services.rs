@@ -5,8 +5,9 @@ use std::sync::Arc;
 
 use bytes::{Buf, BufMut, Bytes, BytesMut};
 use cmux_remote_protocol::{
-    Lane, MUX_INPUT_V1_FEATURE, ProcessEvent, ProcessId, RouteId, RpcError, RpcRequest,
-    RpcResponse, Service, ServiceControl, WorkspaceRequest, WorkspaceResponse,
+    Lane, MUX_INPUT_V1_FEATURE, ProcessEvent, ProcessId, ProcessReplayRange, RouteId, RpcError,
+    RpcErrorDetails, RpcEvent, RpcRequest, RpcResponse, Service, ServiceControl, WorkspaceRequest,
+    WorkspaceResponse,
 };
 use tokio::io::{AsyncRead, AsyncReadExt, AsyncWrite, AsyncWriteExt};
 use tokio::sync::{Mutex, Semaphore, mpsc, watch};
@@ -16,7 +17,7 @@ use crate::daemon::ServerConnection;
 use crate::service::{
     EndpointRole, IncomingStream, ServiceError, ServiceMultiplexer, ServiceStream, StreamBudget,
 };
-use crate::workspace::{ClientScope, WorkspaceService};
+use crate::workspace::{ClientScope, ProcessSubscriptionError, WorkspaceService};
 
 const MAX_RPC_MESSAGE: usize = 16 * 1024 * 1024;
 const RPC_CODEC_OFFLOAD_BYTES: usize = 64 * 1024;
@@ -262,7 +263,8 @@ impl DaemonServices {
                 .await
             }
             Service::ProcessStream => {
-                Self::serve_process_stream(workspace, incoming.stream, incoming.metadata).await
+                Self::serve_process_stream(workspace, scope, incoming.stream, incoming.metadata)
+                    .await
             }
             Service::TcpTunnel => {
                 Self::serve_tcp_tunnel(workspace, incoming.stream, incoming.metadata).await
@@ -371,55 +373,83 @@ impl DaemonServices {
 
     async fn serve_process_stream(
         workspace: WorkspaceService,
+        scope: ClientScope,
         stream: ServiceStream,
         metadata: BTreeMap<String, String>,
     ) -> Result<(), ServicesError> {
-        let process = parse_u64(&metadata, "process")?;
+        let process = ProcessId(parse_u64(&metadata, "process")?);
         let after = metadata
             .get("after")
             .map(|value| value.parse::<u64>())
             .transpose()
             .map_err(|_| ServicesError::Metadata("after must be an unsigned integer".into()))?
             .unwrap_or(0);
-        let mut subscription = workspace
-            .subscribe_process(ProcessId(process), after)
-            .await
-            .map_err(|error| ServicesError::Remote(error.message))?;
+        let reserve = match metadata.get("reserve").map(String::as_str) {
+            None | Some("false") => false,
+            Some("true") => true,
+            Some(_) => {
+                return Err(ServicesError::Metadata("reserve must be true or false".into()));
+            }
+        };
+        let subscription =
+            workspace.subscribe_or_reserve_process(&scope, process, after, reserve).await;
         let stream = Arc::new(stream);
+        let mut subscription = match subscription {
+            Ok(subscription) => subscription,
+            Err(error) => {
+                let RpcError { message, details, .. } = error;
+                let Some(RpcErrorDetails::ProcessReplayGap { requested_after, range }) = details
+                else {
+                    return Err(ServicesError::Remote(message));
+                };
+                send_opened(&stream, Lane::Bulk).await?;
+                let messages = MessageStream::with_lane(stream, Lane::Bulk);
+                send_replay_gap(&messages, process, requested_after, range).await?;
+                messages.close().await?;
+                return Ok(());
+            }
+        };
         send_opened(&stream, Lane::Bulk).await?;
         let messages = MessageStream::with_lane(stream, Lane::Bulk);
-        loop {
+        let result = loop {
             tokio::select! {
                 event = subscription.recv() => match event {
                     Ok(event) => {
-                        let exited = matches!(&event.event, ProcessEvent::Exit { .. });
+                        let terminal = event.event.is_terminal();
                         messages.send(&serde_json::to_vec(&event)?).await?;
-                        if exited {
+                        if terminal {
                             messages.close().await?;
-                            break;
+                            break Ok(());
                         }
                     }
-                    Err(tokio::sync::broadcast::error::RecvError::Closed) => {
+                    Err(ProcessSubscriptionError::Closed) => {
                         messages.close().await?;
-                        break;
+                        break Ok(());
                     }
-                    Err(tokio::sync::broadcast::error::RecvError::Lagged(skipped)) => {
-                        return Err(ServicesError::Remote(format!(
-                            "process output exceeded retained replay after {skipped} events"
-                        )));
+                    Err(ProcessSubscriptionError::ReplayGap {
+                        requested_after,
+                        range,
+                        ..
+                    }) => {
+                        send_replay_gap(&messages, process, requested_after, range).await?;
+                        messages.close().await?;
+                        break Ok(());
                     }
                 },
                 closed = messages.receive() => match closed? {
-                    None => break,
+                    None => break Ok(()),
                     Some(_) => {
-                        return Err(ServicesError::Remote(
+                        break Err(ServicesError::Remote(
                             "process event streams are output-only".into(),
                         ));
                     }
                 }
             }
+        };
+        if reserve {
+            workspace.release_process_reservation(&scope, process).await;
         }
-        Ok(())
+        result
     }
 
     async fn serve_tcp_tunnel(
@@ -668,6 +698,19 @@ async fn send_opened(stream: &ServiceStream, lane: Lane) -> Result<(), ServicesE
         stream.send_on(lane, Bytes::from(payload)).await?;
     }
     Ok(())
+}
+
+async fn send_replay_gap(
+    messages: &MessageStream,
+    process: ProcessId,
+    requested_after: u64,
+    range: ProcessReplayRange,
+) -> Result<(), ServicesError> {
+    let event = RpcEvent {
+        sequence: range.last_produced,
+        event: ProcessEvent::ReplayGap { process, requested_after, range },
+    };
+    messages.send(&serde_json::to_vec(&event)?).await
 }
 
 async fn pump_stream<R, W>(
@@ -1424,7 +1467,7 @@ mod tests {
                     ProcessEvent::ReplayGap {
                         process: gap_process,
                         requested_after: 0,
-                        range: cmux_remote_protocol::ProcessReplayRange {
+                        range: ProcessReplayRange {
                             first_available: Some(first),
                             ..
                         },
@@ -1751,6 +1794,10 @@ mod tests {
         let incoming = daemon.accept().await.unwrap().unwrap();
         let handler = tokio::spawn(DaemonServices::serve_process_stream(
             workspace,
+            ClientScope::new(
+                "completed-process-stream-test",
+                cmux_remote_protocol::SessionId([11; 16]),
+            ),
             incoming.stream,
             incoming.metadata,
         ));

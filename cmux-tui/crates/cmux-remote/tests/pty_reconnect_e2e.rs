@@ -210,6 +210,15 @@ async fn wait_for_output(events: &ProcessEventStream, transcript: &mut Vec<u8>, 
                         "PTY exited before producing {expected:?}: code={code:?}, signal={signal:?}"
                     );
                 }
+                ProcessEvent::OutputTruncated { reason, .. } => {
+                    panic!("PTY output was truncated before producing {expected:?}: {reason:?}");
+                }
+                ProcessEvent::ReplayGap { requested_after, range, .. } => {
+                    panic!(
+                        "PTY replay after {requested_after} was unavailable before producing \
+                         {expected:?}: {range:?}"
+                    );
+                }
             }
         }
     })

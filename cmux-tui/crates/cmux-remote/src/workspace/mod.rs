@@ -24,8 +24,8 @@ use tokio::sync::{Notify, RwLock, watch};
 
 use blocking::WorkspaceBlockingPool;
 use path::WorkspaceRoot;
-pub use process::ProcessSubscription;
 use process::{ProcessManager, ProcessSpawnOptions};
+pub use process::{ProcessSubscription, ProcessSubscriptionError};
 use route::RouteManager;
 
 const MAX_WORKSPACES: usize = 256;
@@ -289,6 +289,7 @@ impl WorkspaceService {
                     RemoteCapability::StructuredDiffV1,
                     RemoteCapability::ProcessLifecycleV2,
                     RemoteCapability::ProcessReplayV1,
+                    RemoteCapability::ProcessHandlesV1,
                     RemoteCapability::RequestControlV1,
                 ];
                 #[cfg(unix)]
@@ -406,6 +407,7 @@ impl WorkspaceService {
                     .spawn(
                         root,
                         ProcessSpawnOptions {
+                            requested_process: None,
                             owner: scope.clone(),
                             argv,
                             cwd,
@@ -416,6 +418,46 @@ impl WorkspaceService {
                             timeout_ms,
                             retained_output_bytes,
                             environment,
+                            output_drain_idle_timeout_ms: None,
+                            output_drain_total_timeout_ms: None,
+                        },
+                    )
+                    .await
+            }
+            WorkspaceRequest::SpawnProcessWithHandle {
+                process,
+                workspace,
+                argv,
+                cwd,
+                env,
+                io,
+                lifetime,
+                operation,
+                timeout_ms,
+                retained_output_bytes,
+                environment,
+                output_drain_idle_timeout_ms,
+                output_drain_total_timeout_ms,
+            } => {
+                let root = self.workspace_for(scope, &workspace).await?;
+                self.inner
+                    .processes
+                    .spawn(
+                        root,
+                        ProcessSpawnOptions {
+                            requested_process: Some(process),
+                            owner: scope.clone(),
+                            argv,
+                            cwd,
+                            env,
+                            io,
+                            lifetime,
+                            operation,
+                            timeout_ms,
+                            retained_output_bytes,
+                            environment,
+                            output_drain_idle_timeout_ms,
+                            output_drain_total_timeout_ms,
                         },
                     )
                     .await
@@ -485,6 +527,24 @@ impl WorkspaceService {
         after_sequence: u64,
     ) -> Result<ProcessSubscription, RpcError> {
         self.inner.processes.subscribe(process, after_sequence).await
+    }
+
+    pub(crate) async fn subscribe_or_reserve_process(
+        &self,
+        scope: &ClientScope,
+        process: cmux_remote_protocol::ProcessId,
+        after_sequence: u64,
+        reserve: bool,
+    ) -> Result<ProcessSubscription, RpcError> {
+        self.inner.processes.subscribe_or_reserve(scope, process, after_sequence, reserve).await
+    }
+
+    pub(crate) async fn release_process_reservation(
+        &self,
+        scope: &ClientScope,
+        process: cmux_remote_protocol::ProcessId,
+    ) {
+        self.inner.processes.release_reservation(scope, process).await;
     }
 
     /// End an operation-scoped process after its caller's operation completes.
