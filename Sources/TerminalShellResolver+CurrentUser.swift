@@ -7,7 +7,9 @@ extension TerminalShellResolver {
         environment: [String: String] = ProcessInfo.processInfo.environment,
         shellsFileURL: URL = URL(fileURLWithPath: "/etc/shells")
     ) -> String? {
-        TerminalShellResolver(isExecutable: FileManager.default.isExecutableFile(atPath:))
+        TerminalShellResolver(isExecutable: { path in
+            FileManager.default.isExecutableFile(atPath: path)
+        })
             .resolve(
                 loginShell: currentUserDatabaseShell(),
                 environmentShell: environment["SHELL"],

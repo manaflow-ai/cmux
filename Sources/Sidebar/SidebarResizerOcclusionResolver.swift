@@ -2,8 +2,13 @@ import AppKit
 
 @MainActor
 final class SidebarResizerCursorReleaseScheduler {
+    private let clock: any Clock<Duration>
     private var pendingTask: Task<Void, Never>?
     private var generation: UInt64 = 0
+
+    init(clock: any Clock<Duration> = ContinuousClock()) {
+        self.clock = clock
+    }
 
     func cancelPendingRelease() {
         generation &+= 1
@@ -19,10 +24,11 @@ final class SidebarResizerCursorReleaseScheduler {
         cancelPendingRelease()
 
         let scheduledGeneration = generation
-        pendingTask = Task { @MainActor [weak self] in
+        pendingTask = Task { @MainActor [weak self, clock] in
             if delay > .zero {
                 do {
-                    try await Task.sleep(for: delay)
+                    // Genuine cursor-release delay; replacing or cancelling the request cancels this task.
+                    try await clock.sleep(for: delay)
                 } catch {
                     return
                 }
