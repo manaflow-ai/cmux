@@ -2862,6 +2862,13 @@ def test_pi_feed_rejects_unconfirmed_server_ack(cli_path: str, root: Path) -> No
             "Pi feed accepted an acknowledgment without authoritative insertion proof: "
             f"stdout={result.stdout!r} stderr={result.stderr!r}"
         )
+    combined_output = f"{result.stdout}\n{result.stderr}"
+    expected_error = "cmux did not receive acknowledgment for Pi feed ingestion"
+    if expected_error not in combined_output:
+        raise AssertionError(
+            "Pi feed failed without exercising authoritative item_id validation: "
+            f"stdout={result.stdout!r} stderr={result.stderr!r}"
+        )
 
 
 def test_pi_feed_rejects_connection_failure(cli_path: str, root: Path) -> None:
