@@ -1140,6 +1140,19 @@ mod tests {
         }
     }
 
+    struct RejectingReconnectRouteAttempt;
+
+    #[async_trait]
+    impl ReconnectRouteAttempt<String> for RejectingReconnectRouteAttempt {
+        async fn connect(
+            &self,
+            _index: usize,
+            _request: ConnectRequest,
+        ) -> Result<String, ProviderError> {
+            Err(ProviderError::Transport("fake provider is unreachable".into()))
+        }
+    }
+
     fn reconnect_test_options(routes: Vec<ResolvedRouteCandidate>) -> ClientRuntimeOptions {
         ClientRuntimeOptions {
             routes,
@@ -1262,10 +1275,59 @@ mod tests {
     }
 
     #[tokio::test]
+    async fn initial_route_failures_redact_ssh_and_relay_endpoint_secrets() {
+        let routes = vec![
+            ResolvedRouteCandidate {
+                endpoint: Url::parse("ssh://ssh-user:ssh-password-marker@ssh.example:2222")
+                    .unwrap(),
+                routing: BTreeMap::new(),
+            },
+            ResolvedRouteCandidate {
+                endpoint: Url::parse(
+                    "relay+wss://relay-user:relay-password-marker@relay.example/\
+                     capability-marker?ticket=query-marker#fragment-marker",
+                )
+                .unwrap(),
+                routing: BTreeMap::new(),
+            },
+        ];
+        let mut attempt = FakeInitialRouteAttempt {
+            fail_ssh_bootstrap: true,
+            fail_provider_index: Some(1),
+            events: Vec::new(),
+        };
+
+        let error = select_initial_route(
+            &routes,
+            SessionId([11; 16]),
+            LanePolicy::Single,
+            false,
+            &mut attempt,
+        )
+        .await
+        .unwrap_err()
+        .to_string();
+
+        for secret in [
+            "ssh-user",
+            "ssh-password-marker",
+            "relay-user",
+            "relay-password-marker",
+            "capability-marker",
+            "query-marker",
+            "fragment-marker",
+        ] {
+            assert!(!error.contains(secret), "route failure leaked {secret:?}: {error}");
+        }
+        assert!(error.contains("ssh://ssh.example:2222"), "{error}");
+        assert!(error.contains("relay+wss://relay.example"), "{error}");
+    }
+
+    #[tokio::test]
     async fn upgrade_bootstrap_failure_is_fatal_without_provider_fallback() {
         let routes = vec![
             ResolvedRouteCandidate {
-                endpoint: Url::parse("ssh://upgrade.example").unwrap(),
+                endpoint: Url::parse("ssh://upgrade-user@upgrade.example").unwrap(),
                 routing: BTreeMap::new(),
             },
             ResolvedRouteCandidate {
@@ -1290,10 +1352,12 @@ mod tests {
         .unwrap_err();
 
         assert!(error.to_string().contains("fake SSH is unreachable"));
+        assert!(!error.to_string().contains("upgrade-user"));
+        assert!(error.to_string().contains("ssh://upgrade.example"));
         assert_eq!(
             attempt.events,
             [FakeInitialRouteEvent::Bootstrap {
-                endpoint: "ssh://upgrade.example".into(),
+                endpoint: "ssh://upgrade-user@upgrade.example".into(),
                 upgrade: true,
             }]
         );
@@ -1303,7 +1367,7 @@ mod tests {
     async fn upgrade_provider_failure_is_fatal_without_route_fallback() {
         let routes = vec![
             ResolvedRouteCandidate {
-                endpoint: Url::parse("ssh://upgrade.example").unwrap(),
+                endpoint: Url::parse("ssh://upgrade-user@upgrade.example").unwrap(),
                 routing: BTreeMap::new(),
             },
             ResolvedRouteCandidate {
@@ -1328,15 +1392,17 @@ mod tests {
         .unwrap_err();
 
         assert!(error.to_string().contains("fake provider is unreachable"));
+        assert!(!error.to_string().contains("upgrade-user"));
+        assert!(error.to_string().contains("ssh://upgrade.example"));
         assert_eq!(
             attempt.events,
             [
                 FakeInitialRouteEvent::Bootstrap {
-                    endpoint: "ssh://upgrade.example".into(),
+                    endpoint: "ssh://upgrade-user@upgrade.example".into(),
                     upgrade: true,
                 },
                 FakeInitialRouteEvent::Provider(ConnectRequest {
-                    endpoint: Url::parse("ssh://upgrade.example").unwrap(),
+                    endpoint: Url::parse("ssh://upgrade-user@upgrade.example").unwrap(),
                     session: SessionId([8; 16]),
                     lane_policy: LanePolicy::Single,
                     routing: BTreeMap::new(),
@@ -1473,6 +1539,78 @@ mod tests {
                 )]),
             }]
         );
+    }
+
+    #[tokio::test]
+    async fn reconnect_failures_redact_endpoint_secrets() {
+        let routes = vec![
+            ResolvedRouteCandidate {
+                endpoint: Url::parse(
+                    "wss://ws-user:ws-password-marker@ws.example/\
+                     capability-marker?ticket=query-marker#fragment-marker",
+                )
+                .unwrap(),
+                routing: BTreeMap::new(),
+            },
+            ResolvedRouteCandidate {
+                endpoint: Url::parse(
+                    "relay+wss://relay-user:relay-password-marker@relay.example/\
+                     relay-capability?ticket=relay-query#relay-fragment",
+                )
+                .unwrap(),
+                routing: BTreeMap::new(),
+            },
+        ];
+
+        let error = select_reconnect_route(
+            &routes,
+            0,
+            SessionId([12; 16]),
+            LanePolicy::Single,
+            &RejectingReconnectRouteAttempt,
+        )
+        .await
+        .unwrap_err()
+        .to_string();
+
+        for secret in [
+            "ws-user",
+            "ws-password-marker",
+            "capability-marker",
+            "query-marker",
+            "fragment-marker",
+            "relay-user",
+            "relay-password-marker",
+            "relay-capability",
+            "relay-query",
+            "relay-fragment",
+        ] {
+            assert!(!error.contains(secret), "reconnect failure leaked {secret:?}: {error}");
+        }
+        assert!(error.contains("wss://ws.example/"), "{error}");
+        assert!(error.contains("relay+wss://relay.example"), "{error}");
+    }
+
+    #[tokio::test]
+    async fn reconnect_ssh_bootstrap_failure_redacts_dial_userinfo() {
+        let routes = vec![ResolvedRouteCandidate {
+            endpoint: Url::parse("ssh://ssh-user:ssh-password-marker@ssh.example:2222").unwrap(),
+            routing: BTreeMap::new(),
+        }];
+        let options = reconnect_test_options(routes.clone());
+        let prepared_ssh = [AtomicBool::new(false)];
+        let attempt =
+            RuntimeReconnectRouteAttempt { options: &options, prepared_ssh: &prepared_ssh };
+        let request = connect_request(&routes[0], options.session, options.lane_policy).unwrap();
+
+        let error = match attempt.connect(0, request).await {
+            Err(error) => error.to_string(),
+            Ok(_) => panic!("SSH reconnect unexpectedly succeeded"),
+        };
+
+        assert!(!error.contains("ssh-user"), "{error}");
+        assert!(!error.contains("ssh-password-marker"), "{error}");
+        assert!(error.contains("ssh://ssh.example:2222"), "{error}");
     }
 
     #[test]
