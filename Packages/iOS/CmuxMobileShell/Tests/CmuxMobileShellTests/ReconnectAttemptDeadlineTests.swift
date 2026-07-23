@@ -147,6 +147,28 @@ extension ReconnectRouteSelectionTests {
         }
     }
 
+    @Test func explicitRootRetryBypassesAutomaticIrohBackoff() async throws {
+        let router = LivenessHostRouter()
+        let box = TransportBox()
+        let factory = KindRecordingTransportFactory(router: router, box: box)
+        let runtime = LivenessTestRuntime(
+            transportFactory: factory,
+            now: Date.init,
+            supportedRouteKinds: [.iroh]
+        )
+        let store = try await makeReconnectStore(
+            routes: [try iroh()],
+            runtime: runtime
+        )
+        store.recordTransientAutomaticReconnectBackoff(accountID: "user-1")
+        #expect(store.automaticIrohReconnectIsBlocked(accountID: "user-1"))
+
+        #expect(await store.retryActiveMacReconnect(stackUserID: "user-1"))
+
+        #expect(store.connectionState == .connected)
+        #expect(factory.attemptedKinds() == [.iroh])
+    }
+
     @Test func hungRedialSettlesAtDeadlineAndUnfreezesRecovery() async throws {
         let clock = TestClock()
         let router = LivenessHostRouter()
@@ -157,8 +179,9 @@ extension ReconnectRouteSelectionTests {
             now: { clock.now },
             supportedRouteKinds: [.iroh]
         )
-        // Small enough that the test settles fast; the production default is 30s.
-        runtime.reconnectAttemptDeadlineNanoseconds = 150_000_000
+        // Keep the initial healthy dial stable under full-suite contention while
+        // remaining far below the production default of 30 seconds.
+        runtime.reconnectAttemptDeadlineNanoseconds = 1_000_000_000
         let store = try await makeReconnectStore(
             routes: [try iroh()],
             runtime: runtime

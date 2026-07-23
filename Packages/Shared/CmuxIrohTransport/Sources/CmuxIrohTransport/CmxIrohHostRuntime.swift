@@ -604,10 +604,4 @@ public actor CmxIrohHostRuntime {
         )
     }
 
-    static func isConnectivityFailure(_ error: any Error) -> Bool {
-        guard let brokerError = error as? CmxIrohTrustBrokerClientError else {
-            return false
-        }
-        return brokerError == .connectivity
-    }
 }
