@@ -3699,6 +3699,16 @@ class TabManager: ObservableObject {
         selectedWorkspace?.selectPreviousSurface()
     }
 
+    @discardableResult
+    func moveSelectedSurfaceToAdjacentPane(_ direction: NavigationDirection) -> Bool {
+        selectedWorkspace?.moveSelectedSurfaceToAdjacentPane(direction) == true
+    }
+
+    @discardableResult
+    func moveSelectedSurfaceToPane(offset: Int) -> Bool {
+        selectedWorkspace?.moveSelectedSurfaceToPane(offset: offset) == true
+    }
+
     /// Select a surface by index in the currently focused pane of the selected workspace
     func selectSurface(at index: Int) {
         selectedWorkspace?.selectSurface(at: index)
