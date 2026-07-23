@@ -1283,8 +1283,8 @@ struct FinalCloseRoutingRegressionTests {
         }
 
         let windowId = UUID()
-        let ownerWindow = makeMainWindow(id: windowId)
         let duplicateWindow = makeMainWindow(id: windowId)
+        let ownerWindow = makeMainWindow(id: windowId)
         let manager = TabManager()
         let workspace = try #require(manager.selectedWorkspace)
         let terminalPanel = try #require(workspace.focusedTerminalPanel)
@@ -1314,6 +1314,7 @@ struct FinalCloseRoutingRegressionTests {
         app.discardOrphanedMainWindowContext(context)
         let route = try #require(app.recoverableMainWindowRoute(windowId: windowId))
         route.window = nil
+        ownerWindow.identifier = nil
         ownerWindow.orderOut(nil)
         duplicateWindow.makeKeyAndOrderFront(nil)
 
@@ -1341,8 +1342,8 @@ struct FinalCloseRoutingRegressionTests {
         }
 
         let windowId = UUID()
-        let ownerWindow = makeMainWindow(id: windowId)
         let duplicateWindow = makeMainWindow(id: windowId)
+        let ownerWindow = makeMainWindow(id: windowId)
         let manager = TabManager()
         let workspace = try #require(manager.selectedWorkspace)
         let terminalPanel = try #require(workspace.focusedTerminalPanel)
