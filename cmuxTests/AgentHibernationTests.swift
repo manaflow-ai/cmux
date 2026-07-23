@@ -286,6 +286,46 @@ struct AgentHibernationTests {
         expectEqual(workspace.agentHibernationLifecycleState(panelId: secondPanelId, fallback: nil), .running)
     }
 
+    @MainActor
+    @Test
+    func testClearingAgentPIDPreservesSiblingPanelsPIDLessStatus() throws {
+        let workspace = Workspace()
+        let clearingPanelId = try #require(workspace.focusedPanelId)
+        let paneId = try #require(workspace.paneId(forPanelId: clearingPanelId))
+        let statusOwnerPanelId = try #require(workspace.newTerminalSurface(inPane: paneId, focus: false)).id
+
+        workspace.recordAgentPID(
+            key: "codex.clearing-session",
+            pid: 111,
+            panelId: clearingPanelId,
+            refreshPorts: false
+        )
+        workspace.setAgentLifecycle(
+            key: "codex",
+            panelId: statusOwnerPanelId,
+            lifecycle: .running,
+            agentEventTime: 1_893_456_200
+        )
+        workspace.statusEntries["codex"] = SidebarStatusEntry(
+            key: "codex",
+            value: "Running",
+            icon: "bolt.fill",
+            color: "#4C8DFF",
+            agentEventTime: 1_893_456_200,
+            agentOwnerPanelID: statusOwnerPanelId
+        )
+
+        expectTrue(workspace.clearAgentPID(
+            key: "codex.clearing-session",
+            panelId: clearingPanelId,
+            clearStatus: true,
+            refreshPorts: false
+        ))
+
+        expectEqual(workspace.statusEntries["codex"]?.value, "Running")
+        expectEqual(workspace.statusEntries["codex"]?.agentOwnerPanelID, statusOwnerPanelId)
+    }
+
     @Test
     func testSessionIndexLoadsAgentLifecycleFromHookStore() throws {
         let home = FileManager.default.temporaryDirectory

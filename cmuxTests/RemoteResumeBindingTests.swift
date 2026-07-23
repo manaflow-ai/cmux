@@ -406,6 +406,7 @@ struct RemoteResumeBindingTests {
 
         let workspace = try #require(manager.selectedWorkspace)
         let surfaceID = try #require(workspace.focusedPanelId)
+        let initialEventTime: TimeInterval = 1_893_456_200
         let setResult = try v2Result(request: [
             "id": "ordered-resume-set",
             "method": "surface.resume.set",
@@ -415,11 +416,11 @@ struct RemoteResumeBindingTests {
                 "command": "codex resume ordered-session",
                 "checkpoint_id": "ordered-session",
                 "source": "agent-hook",
-                "agent_event_time": 200.0,
+                "agent_event_time": initialEventTime,
             ],
         ])
         let setBinding = try #require(setResult["resume_binding"] as? [String: Any])
-        #expect(setBinding["updated_at"] as? Double == 200)
+        #expect(setBinding["updated_at"] as? Double == initialEventTime)
 
         let staleClear = try v2Result(request: [
             "id": "stale-resume-clear",
@@ -429,7 +430,7 @@ struct RemoteResumeBindingTests {
                 "surface_id": surfaceID.uuidString,
                 "checkpoint_id": "ordered-session",
                 "source": "agent-hook",
-                "agent_event_time": 100.0,
+                "agent_event_time": initialEventTime - 100,
             ],
         ])
         #expect(staleClear["cleared"] as? Bool == false)
@@ -443,7 +444,7 @@ struct RemoteResumeBindingTests {
                 "surface_id": surfaceID.uuidString,
                 "checkpoint_id": "ordered-session",
                 "source": "agent-hook",
-                "agent_event_time": 300.0,
+                "agent_event_time": initialEventTime + 100,
             ],
         ])
         #expect(orderedClear["cleared"] as? Bool == true)
@@ -458,7 +459,7 @@ struct RemoteResumeBindingTests {
                 "command": "codex resume stale-session",
                 "checkpoint_id": "stale-session",
                 "source": "agent-hook",
-                "agent_event_time": 250.0,
+                "agent_event_time": initialEventTime + 50,
             ],
         ])
         #expect(staleSet["resume_binding"] is NSNull)
@@ -514,6 +515,65 @@ struct RemoteResumeBindingTests {
             ],
         ])
         #expect(manualClear["cleared"] as? Bool == true)
+        #expect(workspace.surfaceResumeBinding(panelId: surfaceID) == nil)
+    }
+
+    @Test
+    func internalResumeBindingClearRejectsDelayedHookSet() throws {
+        _ = NSApplication.shared
+        let previousAppDelegate = AppDelegate.shared
+        let app = AppDelegate()
+        let windowID = UUID()
+        let window = makeMainWindow(id: windowID)
+        defer {
+            TerminalController.shared.setActiveTabManager(nil)
+            app.unregisterMainWindowContextForTesting(windowId: windowID)
+            AppDelegate.shared = previousAppDelegate
+            window.orderOut(nil)
+        }
+
+        let manager = TabManager(autoWelcomeIfNeeded: false)
+        app.registerMainWindow(
+            window,
+            windowId: windowID,
+            tabManager: manager,
+            sidebarState: SidebarState(),
+            sidebarSelectionState: SidebarSelectionState(),
+            fileExplorerState: FileExplorerState()
+        )
+        TerminalController.shared.setActiveTabManager(manager)
+
+        let workspace = try #require(manager.selectedWorkspace)
+        let surfaceID = try #require(workspace.focusedPanelId)
+        let originalEventTime = Date().timeIntervalSince1970 - 60
+        _ = try v2Result(request: [
+            "id": "internal-clear-initial-set",
+            "method": "surface.resume.set",
+            "params": [
+                "window_id": windowID.uuidString,
+                "surface_id": surfaceID.uuidString,
+                "command": "codex resume original-session",
+                "checkpoint_id": "original-session",
+                "source": "agent-hook",
+                "agent_event_time": originalEventTime,
+            ],
+        ])
+
+        #expect(workspace.clearSurfaceResumeBinding(panelId: surfaceID))
+        let delayedSet = try v2Result(request: [
+            "id": "delayed-hook-set-after-internal-clear",
+            "method": "surface.resume.set",
+            "params": [
+                "window_id": windowID.uuidString,
+                "surface_id": surfaceID.uuidString,
+                "command": "codex resume delayed-session",
+                "checkpoint_id": "delayed-session",
+                "source": "agent-hook",
+                "agent_event_time": originalEventTime + 1,
+            ],
+        ])
+
+        #expect(delayedSet["resume_binding"] is NSNull)
         #expect(workspace.surfaceResumeBinding(panelId: surfaceID) == nil)
     }
 
