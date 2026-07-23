@@ -73,6 +73,11 @@ class DeterminismCheckerCLITests(unittest.TestCase):
             "posix.swift": "sleep(1)\n#expect(finished)\n",
             "darwin.swift": "Darwin.sleep(1)\n#expect(finished)\n",
             "glibc.swift": "Glibc.sleep(1)\n#expect(finished)\n",
+            "darwin-usleep.swift": "Darwin.usleep(1)\n#expect(finished)\n",
+            "glibc-nanosleep.swift": (
+                "Glibc.nanosleep(nil, nil)\n"
+                "#expect(finished)\n"
+            ),
             "usleep.swift": "usleep(1)\n#expect(finished)\n",
             "nanosleep.swift": "nanosleep(nil, nil)\n#expect(finished)\n",
             "time.py": "time.sleep(0.01)\nassert finished\n",
@@ -116,6 +121,14 @@ class DeterminismCheckerCLITests(unittest.TestCase):
                 "virtual.py": (
                     "fake_clock.sleep(1)\n"
                     "assert completed\n"
+                    "fixture.trio.sleep(1)\n"
+                    "assert completed\n"
+                    "fixture.time.sleep(1)\n"
+                    "assert completed\n"
+                ),
+                "virtual.ts": (
+                    "await fixture.Bun.sleep(1)\n"
+                    "expect(completed).toBe(true)\n"
                 ),
             }
         )
