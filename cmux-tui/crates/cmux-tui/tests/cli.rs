@@ -189,6 +189,61 @@ fn plain_launch_attaches_to_existing_local_session() {
     panic!("plain launch never attached as a TUI client");
 }
 
+#[test]
+fn plain_launch_explains_how_to_replace_an_incompatible_local_server() {
+    let dir = unique_temp_dir("incompatible-server");
+    fs::create_dir_all(&dir).unwrap();
+    let socket = dir.join("mux.sock");
+    let listener = transport::listen(&socket).unwrap();
+    let server = std::thread::spawn(move || {
+        for connection in 0..2 {
+            let mut stream = listener.accept().unwrap();
+            if connection == 0 {
+                let mut request = String::new();
+                BufReader::new(stream.try_clone_box().unwrap()).read_line(&mut request).unwrap();
+                let request: serde_json::Value = serde_json::from_str(&request).unwrap();
+                let response = serde_json::json!({
+                    "id": request["id"],
+                    "ok": true,
+                    "data": {
+                        "app": "cmux-tui",
+                        "session": "test",
+                        "pid": 4242,
+                        "version": "0.0.0-stale",
+                        "protocol": 8,
+                    },
+                });
+                writeln!(stream, "{response}").unwrap();
+            }
+        }
+    });
+
+    let output = Command::new(bin())
+        .args(["--socket"])
+        .arg(&socket)
+        .env_remove("CMUX_TUI_SOCKET")
+        .output()
+        .unwrap();
+    server.join().unwrap();
+    let _ = fs::remove_file(&socket);
+    let _ = fs::remove_dir_all(&dir);
+
+    assert_eq!(output.status.code(), Some(1));
+    let stderr = String::from_utf8(output.stderr).unwrap();
+    assert!(stderr.contains("server: v0.0.0-stale protocol 8"), "{stderr}");
+    assert!(
+        stderr.contains(&format!(
+            "client: v{} protocol {}",
+            env!("CARGO_PKG_VERSION"),
+            cmux_tui_core::server::PROTOCOL_VERSION
+        )),
+        "{stderr}"
+    );
+    assert!(stderr.contains("Stopping exits pane processes."), "{stderr}");
+    assert!(stderr.contains("cmux-tui server stop"), "{stderr}");
+    assert!(!stderr.contains("already in use"), "{stderr}");
+}
+
 #[cfg(unix)]
 #[test]
 fn configured_websocket_server_does_not_attach_to_existing_session() {
