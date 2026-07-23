@@ -109,7 +109,7 @@ import Testing
         func controlStreamArgv(
             host: RemoteTmuxHost,
             sessionName: String,
-            createIfMissing: Bool
+            mode: RemoteTmuxControlAttachMode
         ) -> [String] {
             // `--command` runs one command and exits, and `exec` keeps a shell parent out of
             // the remote process tree. This stand-in keeps the resolver because it says nothing
@@ -117,7 +117,7 @@ import Testing
             // since et types the command into a login shell that both resolves PATH itself and
             // cannot read a line that long.
             let remote = RemoteTmuxHost.tmuxRemoteCommand(
-                arguments: ["-CC", createIfMissing ? "new-session" : "attach-session", "-t", sessionName]
+                arguments: mode.tmuxArguments(sessionName: sessionName)
             )
             var argv: [String] = []
             if let port { argv += ["--port", String(port)] }
@@ -133,16 +133,64 @@ import Testing
         var reconnectsInternally: Bool { true }
         /// A persistent-session transport is a terminal client, so it needs a tty.
         var requiresPseudoTerminal: Bool { true }
+        /// Keeping the remote session across a client death is the point of this transport.
+        var remoteHalfSurvivesLocalExit: Bool { true }
     }
 
     @Test func sshProfileProducesTodaysControlStreamArgv() {
         let host = RemoteTmuxHost(destination: "user@host")
         let profile = RemoteTmuxSSHTransportProfile()
         #expect(
-            profile.controlStreamArgv(host: host, sessionName: "work", createIfMissing: false)
-                == host.controlModeArguments(sessionName: "work", createIfMissing: false)
+            profile.controlStreamArgv(host: host, sessionName: "work", mode: .attach)
+                == host.controlModeArguments(sessionName: "work", mode: .attach)
         )
         #expect(profile.executablePath() == RemoteTmuxHost.defaultSSHExecutablePath())
+    }
+
+    /// The three attach shapes, spelled out as the tmux commands they become.
+    ///
+    /// `attach-session` needs the session to exist and `new-session -t` groups a new session with
+    /// an existing one's windows, so neither can open a session that may or may not be there.
+    /// `new-session -A -s` is the one that can, and the sized form is what the hidden view session
+    /// attaches with — that is what lets the view stream be the only connection cmux opens to a
+    /// host, instead of a one-shot creating the view first.
+    @Test func attachModesSpellOutTheirTmuxCommands() {
+        #expect(
+            RemoteTmuxControlAttachMode.attach.tmuxArguments(sessionName: "work")
+                == ["-CC", "attach-session", "-t", "work"]
+        )
+        #expect(
+            RemoteTmuxControlAttachMode.attachOrCreate.tmuxArguments(sessionName: "work")
+                == ["-CC", "new-session", "-A", "-s", "work"]
+        )
+        #expect(
+            RemoteTmuxControlAttachMode.attachOrCreateSized(columns: 120, rows: 40)
+                .tmuxArguments(sessionName: "cmux-view-abc")
+                == [
+                    "-CC", "new-session", "-A", "-s", "cmux-view-abc",
+                    "-x", "120", "-y", "40",
+                ]
+        )
+    }
+
+    /// Both transports carry the sized attach-or-create, so the view behaves the same over either.
+    @Test func bothProfilesCarryTheSizedAttachOrCreate() {
+        let mode = RemoteTmuxControlAttachMode.attachOrCreateSized(columns: 120, rows: 40)
+        let host = RemoteTmuxHost(destination: "user@host")
+        let sshCommand = RemoteTmuxSSHTransportProfile()
+            .controlStreamArgv(host: host, sessionName: "cmux-view-abc", mode: mode)
+            .last ?? ""
+        // ssh runs the PATH resolver first and quotes every token it passes on.
+        #expect(
+            sshCommand.hasSuffix(
+                "'-CC' 'new-session' '-A' '-s' 'cmux-view-abc' '-x' '120' '-y' '40'")
+        )
+
+        #expect(
+            RemoteTmuxETTransportProfile.controlStreamRemoteCommand(
+                sessionName: "cmux-view-abc", mode: mode
+            ) == "'tmux' '-CC' 'new-session' '-A' '-s' 'cmux-view-abc' '-x' '120' '-y' '40'"
+        )
     }
 
     @Test func sshProfileEndsOptionParsingBeforeTheDestination() {
@@ -168,7 +216,7 @@ import Testing
     @Test func aPersistentSessionTransportIsExpressible() {
         let host = RemoteTmuxHost(destination: "user@host")
         let profile = PersistentSessionProfile(binary: "/usr/local/bin/et", port: 2022)
-        let argv = profile.controlStreamArgv(host: host, sessionName: "work", createIfMissing: false)
+        let argv = profile.controlStreamArgv(host: host, sessionName: "work", mode: .attach)
 
         #expect(profile.executablePath() == "/usr/local/bin/et")
         #expect(profile.reconnectsInternally)
@@ -243,6 +291,121 @@ import Testing
 /// by running it.
 @Suite struct RemoteTmuxETTransportTests {
 
+    // MARK: - Brokered transport
+
+    /// A host reached through a wrapper produces a different argv SHAPE, not extra flags.
+    ///
+    /// Both rules here are measured against a real broker rather than inferred. The wrapper parses
+    /// its own flags up to the destination and forwards everything after it, so a client flag
+    /// placed ahead of the destination is rejected outright — `flag provided but not defined`,
+    /// exit 2, no connection. And the wrapper is the thing that resolved the route, so it already
+    /// knows the port and the helper path; passing cmux's would override what it just worked out.
+    @Test func brokeredArgvPutsBrokerFlagsFirstAndDropsEndpointFlags() {
+        let broker = RemoteTmuxTransportBroker(
+            executable: "/opt/site/bin/broker",
+            leadingArguments: ["-et", "-fallback"]
+        )
+        let host = RemoteTmuxHost(
+            destination: "somehost",
+            port: 2222,
+            identityFile: "/keys/id",
+            transport: .et,
+            transportPort: 2022,
+            transportBroker: broker
+        )
+        let profile = host.transport.profile(
+            port: host.transportPort,
+            terminalPath: host.transportTerminalPath,
+            broker: host.transportBroker
+        )
+        #expect(profile.executablePath() == "/opt/site/bin/broker")
+
+        let argv = profile.controlStreamArgv(host: host, sessionName: "work", mode: .attach)
+        #expect(argv.first == "-et")
+        #expect(argv[1] == "-fallback")
+
+        // The destination must precede everything the wrapper forwards.
+        let destinationIndex = argv.firstIndex(of: "somehost")
+        let commandIndex = argv.firstIndex(of: "-c")
+        #expect(destinationIndex != nil)
+        #expect(commandIndex != nil)
+        if let destinationIndex, let commandIndex {
+            #expect(destinationIndex < commandIndex)
+        }
+
+        // None of the endpoint flags may appear: the broker owns the endpoint.
+        #expect(!argv.contains("-p"))
+        #expect(!argv.contains("--terminal-path"))
+        #expect(!argv.contains("--ssh-option"))
+
+        // Plain `tmux`, because the command lands in a login shell that resolves PATH itself.
+        let remote = argv.last(where: { $0.hasPrefix("exec ") })
+        #expect(remote?.contains("'tmux'") == true)
+    }
+
+    /// Without a broker the ET argv keeps its endpoint flags, so the two shapes cannot be confused.
+    @Test func directEtArgvStillCarriesEndpointFlags() {
+        let host = RemoteTmuxHost(destination: "somehost", transport: .et, transportPort: 2022)
+        let argv = host.transport
+            .profile(port: host.transportPort, terminalPath: "/usr/local/bin/etterminal")
+            .controlStreamArgv(host: host, sessionName: "work", mode: .attach)
+        #expect(argv.contains("-p"))
+        #expect(argv.contains("2022"))
+        #expect(argv.contains("--terminal-path"))
+    }
+
+    /// ssh ignores a broker on purpose: ProxyCommand/ProxyJump already do this, configured where
+    /// the user's other host settings live, and a second mechanism could only disagree with it.
+    @Test func sshProfileIgnoresABroker() {
+        let broker = RemoteTmuxTransportBroker(executable: "/opt/site/bin/broker",
+                                               leadingArguments: ["-et"])
+        let host = RemoteTmuxHost(destination: "somehost", transport: .ssh, transportBroker: broker)
+        let profile = host.transport.profile(port: nil, terminalPath: nil, broker: broker)
+        #expect(profile.executablePath() != "/opt/site/bin/broker")
+        let argv = profile.controlStreamArgv(host: host, sessionName: "work", mode: .attach)
+        #expect(!argv.contains("-et"))
+    }
+
+    /// A broker describes how to REACH an endpoint, not which endpoint it is, so two hosts that
+    /// differ only by broker are one endpoint and must share one connection rather than compete.
+    @Test func brokerDoesNotChangeConnectionIdentity() {
+        let plain = RemoteTmuxHost(destination: "somehost", transport: .et, transportPort: 2022)
+        let brokered = RemoteTmuxHost(
+            destination: "somehost", transport: .et, transportPort: 2022,
+            transportBroker: RemoteTmuxTransportBroker(executable: "/opt/site/bin/broker")
+        )
+        #expect(plain.connectionHash == brokered.connectionHash)
+    }
+
+    /// Go's flag package wording for a rejected argv. Wrappers that front a transport are commonly
+    /// written in Go, and without this a mis-ordered argv reads as a transient problem, so cmux
+    /// would retry the identical rejected command forever. Measured against a real broker.
+    @Test(arguments: [
+        "flag provided but not defined: -p",
+        "FLAG PROVIDED BUT NOT DEFINED: -p\nusage: broker [-et] <HOSTNAME>",
+    ])
+    func classifiesGoFlagRejectionAsUnrecoverable(_ stderr: String) {
+        #expect(RemoteTmuxSSHTransport.indicatesUnrecoverableTransportFailure(stderr))
+    }
+
+    /// The remote command budget must sit strictly inside MAX_CANON, not equal it.
+    ///
+    /// Measured against real et on macOS: delivery stops between 953 and 1016 bytes, not at 1024.
+    /// et appends `; exit` and the shell's own line editing costs more, so roughly 70 bytes of the
+    /// line are already spent before cmux's command begins. A budget compared against the raw
+    /// MAX_CANON passes its own check and still gets truncated, and the symptom is an attach that
+    /// times out with nothing to explain it.
+    @Test func deliverableBudgetLeavesRoomForTheTransportsOwnSuffix() {
+        let profile = RemoteTmuxETTransportProfile.self
+        #expect(profile.deliverableCommandBytes < profile.maxCanonicalLineBytes)
+        // The measured floor was 953; the budget must fit under it.
+        #expect(profile.deliverableCommandBytes <= 953)
+        // And a session name at the limit must still produce a deliverable command.
+        let longest = String(repeating: "n", count: profile.maxSessionNameBytes())
+        let command = profile.controlStreamRemoteCommand(sessionName: longest, mode: .attach)
+        #expect(command.utf8.count <= profile.deliverableCommandBytes)
+    }
+
     /// Base64 of a captured `et` control stream: echoed command, prompt escapes, then tmux
     /// control mode.
     static let capturedETStreamBase64 = "ZXhlYyBlbnYgVE1VWF9UTVBESVI9L1VzZXJzL2VqYzMvTGlicmFyeS9DYWNoZXMvY211eC9yZW1vdGUtdG11eC1ldC9jbXV4LWV0aG9zdC90bXV4IHRtdXggLUNDIGF0dGFjaC1zZXNzaW9uIC10IGV0cHJvYmU7IGV4aXQNChtbMW0bWzdtJRtbMjdtG1sxbRtbMG0gICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgDSANG10yO2VqYzNAZWpjMy1tYWM6fgcbXTE7fgcNG1swbRtbMjdtG1syNG0bW0obWzAxOzMybeKenCAgG1szNm1+G1swMG0gG1tLG1s/MWgbPRtbPzIwMDRoZQhleGVjIGVudiBUTVVYX1RNUERJUj0vVXNlcnMvZWpjMy9MaWJyYXJ5L0NhY2hlcy9jbXV4L3JlbW90ZS10bXV4LWV0L2NtdXgtZXQgDRtbSxtbS2gNaG9zdC90bXV4IHRtdXggLUNDIGF0dGFjaC1zZXNzaW9uIC10IGV0cHJvYmU7IGV4aXQbW0ENDRtbMG0bWzI3bRtbMjRtG1tKG1swMTszMm3inpwgIBtbMzZtfhtbMDBtIGV4ZWMgZW52IFRNVVhfVE1QRElSPS9Vc2Vycy9lamMzL0xpYnJhcnkvQ2FjaGVzL2NtdXgvcmVtb3RlLXRtdXgtZXQvY211eC1ldGhvc3QvdG11eCB0bXV4IC1DQyBhdHRhY2gtc2Vzc2lvbiAtdCBldHByb2JlOyBleGl0G1tBG1s0NUQbWzRtG1szMm1lG1s0bRtbMzJteBtbNG0bWzMybWUbWzRtG1szMm1jG1syNG0bWzM5bSAbWzRtG1szMm1lG1s0bRtbMzJtbhtbNG0bWzMybXYbWzI0bRtbMzltG1sxM0MbWzRtLxtbNG1VG1s0bXMbWzRtZRtbNG1yG1s0bXMbWzRtLxtbNG1lG1s0bWobWzRtYxtbNG0zG1s0bS8bWzRtTBtbNG1pG1s0bWIbWzRtchtbNG1hG1s0bXIbWzRteRtbNG0vG1s0bUMbWzRtYRtbNG1jG1s0bWgbWzRtZRtbNG1zG1s0bS8bWzRtYxtbNG1tG1s0bXUbWzRteBtbNG0vG1s0bXIbWzRtZRtbNG1tG1s0bW8bWzRtdBtbNG1lG1s0bS0bWzRtdBtbNG1tG1s0bXUbWzRteBtbNG0tG1s0bWUbWzRtdBtbNG0vG1s0bWMbWzRtbRtbNG11G1s0bXgbWzRtLRtbNG1lG1s0bXQbWzRtaBtbNG1vG1s0bXMbWzRtdBtbNG0vG1s0bXQbWzRtbRtbNG11G1s0bXgbWzI0bSAbWzMybXQbWzMybW0bWzMybXUbWzMybXgbWzM5bRtbMzJDG1szMm1lG1szMm14G1szMm1pG1szMm10G1szOW0bWz8xbBs+G1s/MjAwNGwNDQobXTI7ZXhlYyBlbnYgIHRtdXggLUNDIGF0dGFjaC1zZXNzaW9uIC10IGV0cHJvYmU7IGV4aXQHG10xO2V4ZWMHG1AxMDAwcCViZWdpbiAxNzg0NjE2NjA0IDMwNSAwDQolZW5kIDE3ODQ2MTY2MDQgMzA1IDANCiVzZXNzaW9uLWNoYW5nZWQgJDAgZXRwcm9iZQ0K"
@@ -311,7 +474,7 @@ import Testing
     @Test func etArgvUsesEtserverPortAndRunsOneCommand() {
         let host = RemoteTmuxHost(destination: "user@127.0.0.1")
         let profile = RemoteTmuxETTransportProfile(port: 2039, executable: "/usr/local/bin/et")
-        let argv = profile.controlStreamArgv(host: host, sessionName: "work", createIfMissing: false)
+        let argv = profile.controlStreamArgv(host: host, sessionName: "work", mode: .attach)
 
         // The executable is supplied separately, exactly as for ssh — argv is arguments
         // only, or `et` would be passed twice.
@@ -346,7 +509,7 @@ import Testing
             let argv = RemoteTmuxETTransportProfile(port: 2039).controlStreamArgv(
                 host: RemoteTmuxHost(destination: "user@host"),
                 sessionName: session,
-                createIfMissing: false
+                mode: .attach
             )
             let command = try? #require(argv.first(where: { $0.hasPrefix("exec ") }))
             let byteCount = (command ?? "").utf8.count
@@ -366,7 +529,7 @@ import Testing
         let argv = RemoteTmuxETTransportProfile(port: 2039).controlStreamArgv(
             host: RemoteTmuxHost(destination: "user@host"),
             sessionName: "work 'session'; touch /tmp/cmux-et-injection",
-            createIfMissing: false
+            mode: .attach
         )
         let command = argv.first(where: { $0.hasPrefix("exec ") }) ?? ""
         // Quoted as data, so the shell cannot run the trailing command.
@@ -519,7 +682,7 @@ import Testing
         let unprobed = RemoteTmuxHost(destination: "user@host", transport: .et, transportPort: 2039)
         let defaulted = RemoteTmuxTransportKind.et
             .profile(port: 2039, terminalPath: unprobed.transportTerminalPath)
-            .controlStreamArgv(host: unprobed, sessionName: "work", createIfMissing: false)
+            .controlStreamArgv(host: unprobed, sessionName: "work", mode: .attach)
         #expect(
             consecutive(defaulted, "--terminal-path", RemoteTmuxETTransportProfile.defaultRemoteTerminalPath),
             "an unprobed host must still work, so it keeps the previous default"
@@ -531,7 +694,7 @@ import Testing
         )
         let resolved = RemoteTmuxTransportKind.et
             .profile(port: 2039, terminalPath: probed.transportTerminalPath)
-            .controlStreamArgv(host: probed, sessionName: "work", createIfMissing: false)
+            .controlStreamArgv(host: probed, sessionName: "work", mode: .attach)
         #expect(consecutive(resolved, "--terminal-path", "/opt/homebrew/bin/etterminal"))
     }
 
@@ -562,7 +725,7 @@ import Testing
             transport: .et, transportPort: 2039
         )
         let argv = RemoteTmuxTransportKind.et.profile(port: 2039).controlStreamArgv(
-            host: host, sessionName: "work", createIfMissing: false
+            host: host, sessionName: "work", mode: .attach
         )
         #expect(consecutive(argv, "--ssh-option", "Port=2222"))
         #expect(consecutive(argv, "--ssh-option", "IdentityFile=/keys/id"))
@@ -575,8 +738,21 @@ import Testing
     /// accepts names of ~1000 bytes, so this is reachable without abuse.
     @Test func anOverlongSessionNameIsRejectedForET() {
         let bound = RemoteTmuxETTransportProfile.maxSessionNameBytes()
-        #expect(bound > 900, "the bound should leave room for a realistic name, saw \(bound)")
-        #expect(bound < RemoteTmuxETTransportProfile.maxCanonicalLineBytes)
+        // The floor guards against the bound collapsing to something useless, which is what this
+        // assertion is for. It used to read `> 900`, pinned to a budget that spent the whole
+        // canonical line; the budget now reserves 96 bytes for et's appended `; exit` and the
+        // shell's line editing, because delivery was measured to stop between 1016 and 1080 bytes
+        // of total command line on a host whose MAX_CANON is 1024 — so spending all 1024 truncated.
+        // That legitimately moved the bound to 890.
+        //
+        // Deliberately not re-pinned to 889: an exact figure would fail again on the next honest
+        // adjustment while saying nothing extra. A real tmux session name is under 100 bytes, so
+        // anything past a few hundred proves the budget did not collapse, which is the only thing
+        // worth asserting here.
+        #expect(bound > 512, "the bound should leave room for a realistic name, saw \(bound)")
+        #expect(bound < RemoteTmuxETTransportProfile.deliverableCommandBytes)
+        #expect(RemoteTmuxETTransportProfile.deliverableCommandBytes
+            < RemoteTmuxETTransportProfile.maxCanonicalLineBytes)
 
         let atBound = String(repeating: "a", count: bound)
         let overBound = String(repeating: "a", count: bound + 1)
@@ -595,16 +771,65 @@ import Testing
     /// The command built for a name at the bound really does fit, so the bound is derived from the
     /// command rather than asserted next to it.
     @Test func theSessionNameBoundKeepsTheCommandWithinOneLine() {
-        for createIfMissing in [false, true] {
-            let bound = RemoteTmuxETTransportProfile.maxSessionNameBytes(createIfMissing: createIfMissing)
+        let modes: [RemoteTmuxControlAttachMode] = [
+            .attach, .attachOrCreate, .attachOrCreateSized(columns: 240, rows: 120),
+        ]
+        for mode in modes {
+            let bound = RemoteTmuxETTransportProfile.maxSessionNameBytes(mode: mode)
             let command = RemoteTmuxETTransportProfile.controlStreamRemoteCommand(
-                sessionName: String(repeating: "a", count: bound), createIfMissing: createIfMissing
+                sessionName: String(repeating: "a", count: bound), mode: mode
             )
             #expect(
                 command.utf8.count <= RemoteTmuxETTransportProfile.maxCanonicalLineBytes,
-                "createIfMissing=\(createIfMissing) produced \(command.utf8.count) bytes"
+                "\(mode) produced \(command.utf8.count) bytes"
             )
         }
+    }
+
+    /// The boundary must measure the command the request will really send.
+    ///
+    /// `remote.tmux.attach` with `create: true` spawns `new-session -A -s <name>`, which is longer
+    /// than `attach-session -t <name>`. Checking the attach shape for a create request let an
+    /// 890-byte name through the socket check and then `spawnProcess` computed 929 bytes against a
+    /// 928-byte budget and threw `launchFailed` — the over-long name was refused, just in the wrong
+    /// place and with the wrong error.
+    @Test func theSessionNameBoundFollowsTheModeTheRequestWillUse() {
+        #expect(RemoteTmuxControlAttachMode.forCreateIfMissing(false) == .attach)
+        #expect(RemoteTmuxControlAttachMode.forCreateIfMissing(true) == .attachOrCreate)
+
+        let attachBound = RemoteTmuxETTransportProfile.maxSessionNameBytes(mode: .attach)
+        let createBound = RemoteTmuxETTransportProfile.maxSessionNameBytes(mode: .attachOrCreate)
+        #expect(createBound < attachBound, "attach-or-create is the longer command")
+
+        // One name, two requests: the attach shape accepts it, the create shape refuses it.
+        let atAttachBound = String(repeating: "a", count: attachBound)
+        #expect(
+            TerminalController.remoteTmuxSessionName(
+                from: ["session": atAttachBound], transport: .et,
+                mode: .forCreateIfMissing(false)) != nil)
+        #expect(
+            TerminalController.remoteTmuxSessionName(
+                from: ["session": atAttachBound], transport: .et,
+                mode: .forCreateIfMissing(true)) == nil)
+
+        // And the longest name the create path does accept still produces a deliverable command,
+        // so the bound is pinned against the string that gets sent rather than against itself.
+        let atCreateBound = String(repeating: "a", count: createBound)
+        #expect(
+            TerminalController.remoteTmuxSessionName(
+                from: ["session": atCreateBound], transport: .et,
+                mode: .forCreateIfMissing(true)) != nil)
+        let sent = RemoteTmuxETTransportProfile.controlStreamRemoteCommand(
+            sessionName: atCreateBound, mode: .attachOrCreate)
+        #expect(sent.utf8.count <= RemoteTmuxETTransportProfile.deliverableCommandBytes)
+        #expect(
+            RemoteTmuxETTransportProfile().commandLengthOverrun(
+                sessionName: atCreateBound, mode: .attachOrCreate) == nil)
+        // One byte past the bound is refused, so the check is on the boundary rather than near it.
+        #expect(
+            TerminalController.remoteTmuxSessionName(
+                from: ["session": String(repeating: "a", count: createBound + 1)],
+                transport: .et, mode: .forCreateIfMissing(true)) == nil)
     }
 
     /// Two spellings of one endpoint must be one key, or the controller mirrors a host twice.
@@ -653,7 +878,7 @@ import Testing
             port: 2022, remoteTerminalPath: "/usr/local/bin/etterminal"
         )
         let argv = profile.controlStreamArgv(
-            host: RemoteTmuxHost(destination: "user@host"), sessionName: "s", createIfMissing: false
+            host: RemoteTmuxHost(destination: "user@host"), sessionName: "s", mode: .attach
         )
         #expect(consecutive(argv, "--terminal-path", "/usr/local/bin/etterminal"))
     }
@@ -723,7 +948,7 @@ import Testing
             destination: "user@host", port: 22, transport: .et, transportPort: 2039
         )
         let streamArgv = host.transport.profile(port: host.transportPort)
-            .controlStreamArgv(host: host, sessionName: "work", createIfMissing: false)
+            .controlStreamArgv(host: host, sessionName: "work", mode: .attach)
         #expect(consecutive(streamArgv, "-p", "2039"), "the control stream must use et's port")
 
         let oneShot = RemoteTmuxSSHTransportProfile().oneShotArgv(host: host, remoteCommand: "true")
@@ -732,7 +957,7 @@ import Testing
         // Unset means etserver's documented default, never ssh's 22.
         let defaulted = RemoteTmuxHost(destination: "user@host", transport: .et)
         let defaultArgv = defaulted.transport.profile(port: defaulted.transportPort)
-            .controlStreamArgv(host: defaulted, sessionName: "work", createIfMissing: false)
+            .controlStreamArgv(host: defaulted, sessionName: "work", mode: .attach)
         #expect(consecutive(defaultArgv, "-p", "2022"))
     }
 
