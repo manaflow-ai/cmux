@@ -4951,6 +4951,106 @@ extension SessionPersistenceTests {
         XCTAssertFalse(effectiveBinding.allowsAutomaticResume)
     }
 
+    func testSurfaceResumeApprovalValidRecordsCacheServesUnchangedFile() throws {
+        let storeURL = try makeSurfaceResumeApprovalStoreURL()
+        let secret = Data("approval-secret".utf8)
+        let binding = SurfaceResumeBindingSnapshot(
+            command: "tmux attach -t work",
+            cwd: "/tmp/project",
+            source: "cli"
+        )
+        let record = try XCTUnwrap(SurfaceResumeApprovalStore.approve(
+            binding: binding,
+            policy: .auto,
+            fileURL: storeURL,
+            signingSecret: secret
+        ))
+
+        let firstRead = SurfaceResumeApprovalStore.validRecords(fileURL: storeURL, signingSecret: secret)
+        XCTAssertEqual(firstRead.map(\.id), [record.id])
+
+        // Make the store file unreadable without changing its mtime or size.
+        // A cached read still serves the records; an implementation that
+        // re-reads the file on every call would come back empty here.
+        try FileManager.default.setAttributes([.posixPermissions: 0o000], ofItemAtPath: storeURL.path)
+        addTeardownBlock {
+            try? FileManager.default.setAttributes([.posixPermissions: 0o600], ofItemAtPath: storeURL.path)
+        }
+        let cachedRead = SurfaceResumeApprovalStore.validRecords(fileURL: storeURL, signingSecret: secret)
+        XCTAssertEqual(cachedRead.map(\.id), [record.id])
+    }
+
+    func testSurfaceResumeApprovalValidRecordsReloadsWhenFileChangesOnDisk() throws {
+        let storeURL = try makeSurfaceResumeApprovalStoreURL()
+        let secret = Data("approval-secret".utf8)
+        let binding = SurfaceResumeBindingSnapshot(
+            command: "tmux attach -t work",
+            cwd: "/tmp/project",
+            source: "cli"
+        )
+        let record = try XCTUnwrap(SurfaceResumeApprovalStore.approve(
+            binding: binding,
+            policy: .auto,
+            fileURL: storeURL,
+            signingSecret: secret
+        ))
+        XCTAssertEqual(
+            SurfaceResumeApprovalStore.validRecords(fileURL: storeURL, signingSecret: secret).map(\.id),
+            [record.id]
+        )
+
+        // Rewrite the file directly (bypassing the store, so no
+        // didChangeNotification fires): the mtime/size change must force a
+        // reload instead of serving the cached single-record read.
+        let now = Date().timeIntervalSince1970
+        let second = SurfaceResumeApprovalRecord(
+            id: UUID().uuidString.lowercased(),
+            name: nil,
+            commandPrefix: ["tmux", "new-session"],
+            cwd: nil,
+            environment: nil,
+            environmentKeys: [],
+            source: "cli",
+            policy: .manual,
+            createdAt: now,
+            updatedAt: now,
+            lastUsedAt: nil,
+            signature: nil
+        ).signed(secret: secret)
+        let encoder = JSONEncoder()
+        let data = try encoder.encode(SurfaceResumeApprovalStore.StoredFile(version: 1, records: [record, second]))
+        try data.write(to: storeURL, options: [.atomic])
+
+        let reloaded = SurfaceResumeApprovalStore.validRecords(fileURL: storeURL, signingSecret: secret)
+        XCTAssertEqual(Set(reloaded.map(\.id)), Set([record.id, second.id]))
+    }
+
+    func testSurfaceResumeApprovalValidRecordsInvalidatedByStoreWrite() throws {
+        let storeURL = try makeSurfaceResumeApprovalStoreURL()
+        let secret = Data("approval-secret".utf8)
+        let binding = SurfaceResumeBindingSnapshot(
+            command: "tmux attach -t work",
+            cwd: "/tmp/project",
+            source: "cli"
+        )
+        let record = try XCTUnwrap(SurfaceResumeApprovalStore.approve(
+            binding: binding,
+            policy: .auto,
+            fileURL: storeURL,
+            signingSecret: secret
+        ))
+        XCTAssertEqual(
+            SurfaceResumeApprovalStore.validRecords(fileURL: storeURL, signingSecret: secret).map(\.id),
+            [record.id]
+        )
+
+        XCTAssertTrue(SurfaceResumeApprovalStore.delete(recordId: record.id, fileURL: storeURL))
+        XCTAssertEqual(
+            SurfaceResumeApprovalStore.validRecords(fileURL: storeURL, signingSecret: secret).map(\.id),
+            []
+        )
+    }
+
     func testSurfaceResumeApprovalMissingRecordResetsStalePromptPolicy() throws {
         let binding = SurfaceResumeBindingSnapshot(
             command: "tmux attach -t work",
