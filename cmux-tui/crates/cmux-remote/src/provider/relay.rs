@@ -21,7 +21,8 @@ use tokio::process::Command;
 use tokio::sync::{Mutex, oneshot, watch};
 use tokio_tungstenite::tungstenite::Message;
 use tokio_tungstenite::tungstenite::client::IntoClientRequest;
-use tokio_tungstenite::{MaybeTlsStream, WebSocketStream, connect_async};
+use tokio_tungstenite::tungstenite::protocol::WebSocketConfig;
+use tokio_tungstenite::{MaybeTlsStream, WebSocketStream, connect_async_with_config};
 use url::Url;
 use zeroize::{Zeroize, Zeroizing};
 
@@ -36,6 +37,7 @@ use crate::provider::{
 type RelaySocket = WebSocketStream<MaybeTlsStream<TcpStream>>;
 
 const MAX_RELAY_CREDENTIAL_BYTES: usize = 4 * 1024;
+const MAX_RELAY_CONTROL_MESSAGE_BYTES: usize = 16 * 1024;
 const DEFAULT_CREDENTIAL_COMMAND_TIMEOUT: Duration = Duration::from_secs(10);
 
 type CredentialFuture = Pin<Box<dyn Future<Output = Result<String, ()>> + Send + 'static>>;
@@ -587,7 +589,8 @@ async fn join_circuit(
     timeout: Duration,
 ) -> Result<Box<dyn FrameLink>, ProviderError> {
     let circuit_endpoint = relay_circuit_url(endpoint, &circuit)?;
-    let mut socket = connect_relay_socket(&circuit_endpoint, Some(&ticket)).await?;
+    let mut socket =
+        connect_relay_socket(&circuit_endpoint, Some(&ticket), maximum_frame_bytes).await?;
     send_control(
         &mut socket,
         &RelayControl::Join {
@@ -850,7 +853,12 @@ async fn authenticate_daemon_control(
     let mut retried_authentication = false;
     loop {
         let credential = credentials.fetch().await?;
-        let mut socket = match connect_relay_socket_once(&config.endpoint, Some(&credential)).await
+        let mut socket = match connect_relay_socket_once(
+            &config.endpoint,
+            Some(&credential),
+            MAX_RELAY_CONTROL_MESSAGE_BYTES,
+        )
+        .await
         {
             Ok(socket) => socket,
             Err(RelaySocketConnectError::Authentication) if !retried_authentication => {
@@ -897,7 +905,13 @@ async fn connect_provider_control(
     let mut retried_authentication = false;
     loop {
         let credential = credentials.fetch().await?;
-        match connect_relay_socket_once(endpoint, Some(&credential)).await {
+        match connect_relay_socket_once(
+            endpoint,
+            Some(&credential),
+            MAX_RELAY_CONTROL_MESSAGE_BYTES,
+        )
+        .await
+        {
             Ok(socket) => return Ok(socket),
             Err(RelaySocketConnectError::Authentication) if !retried_authentication => {
                 retried_authentication = true;
@@ -926,10 +940,11 @@ impl RelaySocketConnectError {
 async fn connect_relay_socket(
     endpoint: &Url,
     authorization: Option<&str>,
+    maximum_message_bytes: usize,
 ) -> Result<RelaySocket, ProviderError> {
     let credential =
         authorization.map(|ticket| RelayCredential::parse(ticket.to_owned())).transpose()?;
-    connect_relay_socket_once(endpoint, credential.as_ref())
+    connect_relay_socket_once(endpoint, credential.as_ref(), maximum_message_bytes)
         .await
         .map_err(RelaySocketConnectError::into_provider_error)
 }
@@ -937,6 +952,7 @@ async fn connect_relay_socket(
 async fn connect_relay_socket_once(
     endpoint: &Url,
     authorization: Option<&RelayCredential>,
+    maximum_message_bytes: usize,
 ) -> Result<RelaySocket, RelaySocketConnectError> {
     let mut request = endpoint.as_str().into_client_request().map_err(|_| {
         RelaySocketConnectError::Provider(ProviderError::Transport(
@@ -947,7 +963,10 @@ async fn connect_relay_socket_once(
         let value = bearer_header(credential).map_err(RelaySocketConnectError::Provider)?;
         request.headers_mut().insert(AUTHORIZATION, value);
     }
-    match connect_async(request).await {
+    let config = WebSocketConfig::default()
+        .max_message_size(Some(maximum_message_bytes))
+        .max_frame_size(Some(maximum_message_bytes));
+    match connect_async_with_config(request, Some(config), true).await {
         Ok((socket, _)) => Ok(socket),
         Err(tokio_tungstenite::tungstenite::Error::Http(response))
             if matches!(response.status(), StatusCode::UNAUTHORIZED | StatusCode::FORBIDDEN) =>
@@ -1119,6 +1138,8 @@ mod tests {
     use tokio::sync::oneshot;
     use tokio_tungstenite::accept_hdr_async;
     use tokio_tungstenite::tungstenite::handshake::server::Request;
+    use tokio_tungstenite::tungstenite::protocol::frame::Frame;
+    use tokio_tungstenite::tungstenite::protocol::frame::coding::{Data, OpCode};
 
     use super::*;
 
@@ -1151,6 +1172,53 @@ mod tests {
         .unwrap();
         let authorization = authorization.lock().unwrap().take().unwrap();
         (socket, authorization)
+    }
+
+    #[tokio::test]
+    async fn relay_dial_bounds_fragmented_messages_and_disables_nagle() {
+        const MAXIMUM: usize = 8;
+
+        let listener = TcpListener::bind("127.0.0.1:0").await.unwrap();
+        let endpoint = Url::parse(&format!("ws://{}", listener.local_addr().unwrap())).unwrap();
+        let server = tokio::spawn(async move {
+            let (stream, _) = listener.accept().await.unwrap();
+            let mut socket = tokio_tungstenite::accept_async(stream).await.unwrap();
+            socket
+                .send(Message::Frame(Frame::message(
+                    Bytes::from_static(b"12345"),
+                    OpCode::Data(Data::Binary),
+                    false,
+                )))
+                .await
+                .unwrap();
+            socket
+                .send(Message::Frame(Frame::message(
+                    Bytes::from_static(b"67890"),
+                    OpCode::Data(Data::Continue),
+                    true,
+                )))
+                .await
+                .unwrap();
+        });
+
+        let mut socket = match connect_relay_socket_once(&endpoint, None, MAXIMUM).await {
+            Ok(socket) => socket,
+            Err(_) => panic!("bounded relay WebSocket dial failed"),
+        };
+        let MaybeTlsStream::Plain(stream) = socket.get_ref() else {
+            panic!("test relay did not use a plain TCP stream");
+        };
+        assert!(stream.nodelay().unwrap(), "relay dial left Nagle enabled");
+        let error = socket
+            .next()
+            .await
+            .expect("relay WebSocket closed before the oversize message")
+            .expect_err("relay WebSocket accepted an oversize fragmented message");
+        assert!(
+            error.to_string().contains("Message too long: 10 > 8"),
+            "relay limit was not enforced by the WebSocket codec: {error}"
+        );
+        server.await.unwrap();
     }
 
     #[tokio::test]
