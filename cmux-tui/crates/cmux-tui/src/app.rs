@@ -10539,7 +10539,58 @@ mod tests {
         enable_host_keyboard_protocol(&mut output).unwrap();
         disable_host_keyboard_protocol(&mut output).unwrap();
 
-        assert_eq!(output, b"\x1b[>21u\x1b[<1u");
+        assert_eq!(output, b"\x1b[>29u\x1b[<1u");
+    }
+
+    #[test]
+    fn enhanced_text_inserts_atomically_in_prompt_and_omnibar() {
+        let mux = Mux::new("enhanced-overlay-text-test", SurfaceOptions::default());
+        let mut app = test_app(Session::Local(mux));
+        let text = "\u{2211}\u{6f22}";
+        let enhanced = || {
+            Event::EnhancedKey(EnhancedKeyEvent {
+                key_event: KeyEvent::new(KeyCode::Char('w'), KeyModifiers::ALT),
+                shifted_key: None,
+                base_layout_key: Some('w'),
+                text: text.to_string(),
+            })
+        };
+        app.prompt = Some(super::Prompt::new("Rename", String::new(), PromptTarget::Workspace(1)));
+
+        app.handle(AppEvent::Input(enhanced())).unwrap();
+
+        assert_eq!(app.prompt.as_ref().unwrap().input.as_str(), text);
+        app.prompt = None;
+        app.omnibar = Some(super::OmnibarState {
+            pane: 1,
+            surface: 1,
+            input: crate::ui::input::TextInput::new("old".to_string()),
+            select_all: true,
+        });
+
+        app.handle(AppEvent::Input(enhanced())).unwrap();
+
+        let omnibar = app.omnibar.as_ref().unwrap();
+        assert_eq!(omnibar.input.as_str(), text);
+        assert!(!omnibar.select_all);
+    }
+
+    #[test]
+    fn shifted_layout_key_matches_reported_character_instead_of_us_pair() {
+        let enhanced = EnhancedKeyEvent {
+            key_event: KeyEvent::new(KeyCode::Char('&'), KeyModifiers::ALT | KeyModifiers::SHIFT),
+            shifted_key: Some('1'),
+            base_layout_key: Some('1'),
+            text: "1".to_string(),
+        };
+        let key = super::enhanced_ui_key(&enhanced);
+        let fallback = super::enhanced_base_binding_key(&enhanced);
+        let alt_one = crate::config::Chord { code: KeyCode::Char('1'), mods: KeyModifiers::ALT };
+        let alt_ampersand =
+            crate::config::Chord { code: KeyCode::Char('&'), mods: KeyModifiers::ALT };
+
+        assert!(super::binding_matches(&alt_one, &key, fallback.as_ref()));
+        assert!(!super::binding_matches(&alt_ampersand, &key, fallback.as_ref()));
     }
 
     #[test]
@@ -14048,6 +14099,27 @@ mod tests {
     }
 
     #[test]
+    fn oversized_enhanced_text_is_rejected_before_routing_or_text_insertion() {
+        let mux = Mux::new("oversized-enhanced-text-ingress-test", SurfaceOptions::default());
+        let mut app = test_app(Session::Local(mux));
+        let text = "x".repeat(super::MAX_DEFERRED_INPUT_BYTES + 1);
+
+        app.handle(AppEvent::Input(Event::EnhancedKey(EnhancedKeyEvent {
+            key_event: KeyEvent::new(KeyCode::Char('x'), KeyModifiers::NONE),
+            shifted_key: None,
+            base_layout_key: Some('x'),
+            text,
+        })))
+        .unwrap();
+
+        assert!(app.deferred_input.is_empty());
+        assert_eq!(
+            app.status_message.as_deref(),
+            Some("Keyboard text exceeds the 4 MiB PTY buffer limit")
+        );
+    }
+
+    #[test]
     fn deferred_paste_budget_counts_bracket_markers() {
         let mux = Mux::new("deferred-paste-budget-test", SurfaceOptions::default());
         let mut app = test_app(Session::Local(mux));
@@ -14056,6 +14128,31 @@ mod tests {
 
         app.handle(AppEvent::Input(Event::Paste(half.clone()))).unwrap();
         app.handle(AppEvent::Input(Event::Paste(half))).unwrap();
+
+        assert_eq!(app.deferred_input.len(), 1);
+        assert_eq!(
+            app.status_message.as_deref(),
+            Some("Input queue byte limit reached while a session change is pending")
+        );
+    }
+
+    #[test]
+    fn deferred_keyboard_budget_counts_associated_text() {
+        let mux = Mux::new("deferred-keyboard-budget-test", SurfaceOptions::default());
+        let mut app = test_app(Session::Local(mux));
+        app.session.pending_mutations.store(1, Ordering::Release);
+        let half = "x".repeat(super::MAX_DEFERRED_INPUT_BYTES / 2);
+        let input = |text| {
+            Event::EnhancedKey(EnhancedKeyEvent {
+                key_event: KeyEvent::new(KeyCode::Char('x'), KeyModifiers::NONE),
+                shifted_key: None,
+                base_layout_key: Some('x'),
+                text,
+            })
+        };
+
+        app.handle(AppEvent::Input(input(half.clone()))).unwrap();
+        app.handle(AppEvent::Input(input(half))).unwrap();
 
         assert_eq!(app.deferred_input.len(), 1);
         assert_eq!(

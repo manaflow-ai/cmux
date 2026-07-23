@@ -262,4 +262,39 @@ mod tests {
         assert_eq!(input.unshifted_codepoint, '&' as u32);
         assert_eq!(input.utf8, "&");
     }
+
+    #[test]
+    fn enhanced_function_key_preserves_associated_text() {
+        let event = EnhancedKeyEvent {
+            key_event: KeyEvent::new(KeyCode::Enter, KeyModifiers::NONE),
+            shifted_key: None,
+            base_layout_key: None,
+            text: "\u{6f22}".to_string(),
+        };
+
+        let input = key_input_from_enhanced(&event).unwrap();
+
+        assert_eq!(input.key, sys::GHOSTTY_KEY_ENTER);
+        assert_eq!(input.utf8, "\u{6f22}");
+    }
+
+    #[test]
+    fn option_generated_text_keeps_associated_text_in_kitty_mode() {
+        let event = EnhancedKeyEvent {
+            key_event: KeyEvent::new(KeyCode::Char('w'), KeyModifiers::ALT),
+            shifted_key: None,
+            base_layout_key: Some('w'),
+            text: "\u{2211}".to_string(),
+        };
+        let input = key_input_from_enhanced(&event).unwrap();
+        let mut terminal = Terminal::new(80, 24, 0, Callbacks::default()).unwrap();
+        terminal.vt_write(b"\x1b[>29u");
+        let mut encoder = KeyEncoder::new().unwrap();
+        encoder.sync_from_terminal(&terminal);
+        let mut encoded = Vec::new();
+
+        encoder.encode(&input, &mut encoded).unwrap();
+
+        assert_eq!(encoded, b"\x1b[119;3;8721u");
+    }
 }

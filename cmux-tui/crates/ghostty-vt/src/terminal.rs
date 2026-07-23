@@ -266,6 +266,14 @@ enum PromptTrackState {
 }
 
 impl PromptSemanticTracker {
+    #[cfg(test)]
+    fn buffered_osc_bytes(&self) -> usize {
+        match &self.state {
+            PromptTrackState::Osc(value) | PromptTrackState::OscEscape(value) => value.capacity(),
+            _ => 0,
+        }
+    }
+
     fn feed(&mut self, data: &[u8]) {
         for &byte in data {
             let state = std::mem::take(&mut self.state);
@@ -1803,11 +1811,24 @@ impl Drop for Terminal {
 
 #[cfg(test)]
 mod tests {
-    use super::{Callbacks, MouseModeScan, PaletteOsc, Screen, Terminal, vt_replay_row_window};
+    use super::{
+        Callbacks, MouseModeScan, PaletteOsc, PromptSemanticTracker, Screen, Terminal,
+        vt_replay_row_window,
+    };
 
     #[test]
     fn unrelated_osc_tracking_keeps_palette_state_out_of_line() {
         assert!(size_of::<PaletteOsc>() <= 16);
+    }
+
+    #[test]
+    fn prompt_semantic_tracking_does_not_buffer_unrelated_osc_payloads() {
+        let mut tracker = PromptSemanticTracker::default();
+
+        tracker.feed(b"\x1b]0;");
+        tracker.feed(&vec![b'x'; 4 * 1024]);
+
+        assert_eq!(tracker.buffered_osc_bytes(), 0);
     }
 
     #[test]
