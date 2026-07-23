@@ -82,6 +82,30 @@ struct SimulatorHIDFailureContainmentTests {
         #expect(transport.lastPointerEvent == nil)
     }
 
+    @Test("Two-event taps use an iPadOS-compatible hold duration")
+    @MainActor
+    func tapUsesNativeHoldDuration() async {
+        let sleeper = RecordingHIDSleeper()
+        var events: [SimulatorPointerEvent] = []
+        let transport = SimulatorHIDTransport(
+            frameworkLoader: SimulatorFrameworkLoader(environment: ["DEVELOPER_DIR": "/tmp"]),
+            sleeper: sleeper,
+            pointerSenderOverride: { event in
+                events.append(event)
+                return true
+            }
+        )
+        let point = SimulatorPoint(x: 0.6, y: 0.525)
+        let tap = [
+            SimulatorPointerEvent(phase: .began, primary: point),
+            SimulatorPointerEvent(phase: .ended, primary: point),
+        ]
+
+        #expect(await transport.sendGestureSequence(tap))
+        #expect(events == tap)
+        #expect(sleeper.durations == [.milliseconds(50)])
+    }
+
     @Test("App switcher sends one paced double-Home sequence")
     @MainActor
     func appSwitcherUsesDoubleHome() async {
