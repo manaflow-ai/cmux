@@ -449,6 +449,8 @@ class GhosttyApp {
     private var reloadConfigurationDepth = 0
     private(set) var usesHostLayerBackground = false
     private(set) var userGhosttyShellIntegrationMode: String = "detect"
+    private(set) var hasUserGhosttyCommand = false
+    private(set) var resolvedUserShell: String?
 
     static func retainTickNotifications() -> () -> Void {
         // The legacy release closure decremented on every call; a retention
@@ -808,6 +810,11 @@ class GhosttyApp {
             return
         }
 
+        resolvedUserShell = TerminalShellResolver.resolveCurrentUserShell()
+        if let resolvedUserShell {
+            setenv("SHELL", resolvedUserShell, 1)
+        }
+
         // Load config
         guard let primaryConfig = ghostty_config_new() else {
             #if DEBUG
@@ -967,6 +974,7 @@ class GhosttyApp {
             // If the user config is invalid, prefer a minimal fallback configuration so
             // cmux still launches with working terminals.
             ghostty_config_free(primaryConfig)
+            hasUserGhosttyCommand = false
 
             guard let fallbackConfig = ghostty_config_new() else {
                 #if DEBUG
@@ -1189,6 +1197,10 @@ class GhosttyApp {
         if appearanceSummary.shouldApplyDefaultAppearance, !appearanceSummary.hasExplicitTerminalColorDirective {
             loadCmuxDefaultAppearanceConfig(config, preferredColorScheme: preferredColorScheme)
         }
+        hasUserGhosttyCommand = GhosttyConfig.load(
+            preferredColorScheme: preferredColorScheme,
+            useCache: false
+        ).command != nil
     }
 
     func loadDefaultConfigFilesWithLegacyFallback(
@@ -1196,6 +1208,7 @@ class GhosttyApp {
         preferredColorScheme: GhosttyConfig.ColorSchemePreference = GhosttyConfig.currentColorSchemePreference(),
         conditionalThemeColorScheme: GhosttyConfig.ColorSchemePreference? = nil
     ) -> Bool {
+        hasUserGhosttyCommand = false
         // Surface-only reloads may use a terminal-derived scheme for background
         // handling, while Ghostty split-theme pairs follow app appearance.
         let themeColorScheme = conditionalThemeColorScheme ?? preferredColorScheme
@@ -2631,35 +2644,12 @@ class GhosttyApp {
         let callbackSurfaceId = callbackContext?.surfaceId
 
         if action.tag == GHOSTTY_ACTION_SHOW_CHILD_EXITED {
-            // Ghostty otherwise prints "Process exited. Press any key..."; cmux closes the panel.
-            guard let callbackRuntimeSurface = callbackContext?.terminalSurface else { return true }
-#if DEBUG
-            cmuxDebugLog(
-                "surface.action.showChildExited tab=\(callbackTabId?.uuidString.prefix(5) ?? "nil") " +
-                "surface=\(callbackSurfaceId?.uuidString.prefix(5) ?? "nil")"
+            return handleChildExitedAction(
+                runtimeSurface: callbackContext?.terminalSurface,
+                tabId: callbackTabId,
+                surfaceId: callbackSurfaceId,
+                message: action.action.child_exited
             )
-#endif
-#if DEBUG
-            TerminalChildExitProbe().write(
-                [
-                    "probeShowChildExitedTabId": callbackTabId?.uuidString ?? "",
-                    "probeShowChildExitedSurfaceId": callbackSurfaceId?.uuidString ?? "",
-                ],
-                increments: ["probeShowChildExitedCount": 1]
-            )
-#endif
-            // Avoid re-entrant close/deinit while Ghostty dispatches this callback.
-            DispatchQueue.main.async {
-                guard let app = AppDelegate.shared else { return }
-                guard GhosttyApp.terminalSurfaceRegistry.surface(id: callbackRuntimeSurface.id) === callbackRuntimeSurface else { return }
-                if let callbackSurfaceId, app.closeWindowDockRuntimeSurface(surfaceId: callbackSurfaceId, force: true) { return }
-                if let callbackTabId, let callbackSurfaceId,
-                   let manager = app.tabManagerFor(tabId: callbackTabId) ?? app.tabManager {
-                    manager.closePanelAfterChildExited(tabId: callbackTabId, surfaceId: callbackSurfaceId, runtimeSurface: callbackRuntimeSurface)
-                }
-            }
-            // Always report handled so Ghostty doesn't print the fallback prompt.
-            return true
         }
 
         guard let surfaceView = callbackContext?.surfaceView else { return false }
@@ -2759,8 +2749,10 @@ class GhosttyApp {
                 width: CGFloat(action.action.cell_size.width),
                 height: CGFloat(action.action.cell_size.height)
             )
+            let terminalSurface = surfaceView.terminalSurface
             DispatchQueue.main.async {
                 surfaceView.cellSize = cellSize
+                _ = terminalSurface?.fontSizeLineageSnapshot()
                 NotificationCenter.default.post(
                     name: .ghosttyDidUpdateCellSize,
                     object: surfaceView,

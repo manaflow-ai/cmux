@@ -47,7 +47,8 @@ public actor MobileDebugLogSink {
         fileURL: URL? = nil,
         fileHeader: String? = nil,
         maxFileBytes: Int = 5_000_000,
-        installCrashCapture: Bool = false
+        installCrashCapture: Bool = false,
+        startsFileLoggingEnabled: Bool = true
     ) {
         self.capacity = capacity
         self.now = now
@@ -57,7 +58,9 @@ public actor MobileDebugLogSink {
         self.maxFileBytes = maxFileBytes
         self.fileBytesWritten = 0
         self.crashCaptureInstalled = false
-        if let fileURL, let openedLogFile = Self.openLogFile(at: fileURL, header: fileHeader) {
+        if startsFileLoggingEnabled,
+           let fileURL,
+           let openedLogFile = Self.openLogFile(at: fileURL, header: fileHeader) {
             self.fileHandle = openedLogFile.fileHandle
             self.fileLoggingEnabled = true
             self.fileBytesWritten = openedLogFile.byteCount
@@ -214,6 +217,22 @@ public actor MobileDebugLogSink {
             )
         }
         #endif
+        return true
+    }
+
+    /// Turns durable file logging on or off at runtime.
+    ///
+    /// Enabling rotates any existing generation and opens a fresh file at the
+    /// sink's configured location; it reports `false` when the sink has no
+    /// file location or the file cannot be opened. Disabling closes the handle
+    /// and stops writes while the on-disk generations remain exportable.
+    @discardableResult
+    public func setFileLogging(enabled: Bool) -> Bool {
+        if enabled {
+            if fileLoggingEnabled { return true }
+            return rotateLogFile()
+        }
+        disableFileLogging()
         return true
     }
 
