@@ -77,3 +77,26 @@ ssh -T dev@buildbox /home/dev/.local/bin/cmux relay --session agents
 ```
 
 This command emits raw JSON-lines protocol traffic, not a second TUI. Normally the machine connector owns it.
+
+## Share a local machine through Cloud
+
+Start a persistent local session in one terminal or service supervisor:
+
+```bash
+npx cmux --headless --session agents
+```
+
+Start its outbound agent in another terminal:
+
+```bash
+ssh cmux.cloud
+npx cmux machine-agent --session agents
+```
+
+Use the interactive SSH command once to trust the host and confirm that an SSH agent or unencrypted key can authenticate. The long-lived agent uses `BatchMode=yes`, so restart fails and retries instead of hanging on a password, passphrase, or host-key prompt.
+
+The agent runs the exact remote command `cmux machine register`. The first successful registration prints a short one-time pairing code. In the TUI reached by `ssh cmux.cloud`, choose `+ Connect machine` and enter that code.
+
+The connection is outbound only. The agent opens no listener and changes no shell or SSH files. It multiplexes Cloud streams onto the selected local protocol-v9 session, reconnects with bounded backoff, and preserves active streams during a server-requested software generation migration.
+
+The stable random machine id and secret live in a private mode-0600 identity file under the cmux config directory. The containing directory is mode 0700. Pairing codes are never persisted. Use `--state`, `--cloud-user`, `--cloud-port`, or `--cloud-identity` when the defaults do not match the local setup. See [Machine Agent Contract](../spec/machine-agent.md) for bounds and migration rules.

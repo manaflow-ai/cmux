@@ -20,6 +20,14 @@ pub(crate) struct ForeignViewportMessages {
 }
 
 #[derive(Debug, PartialEq, Eq)]
+pub(crate) struct MachineAgentMessages {
+    pub pairing_code: &'static str,
+    pub registered: &'static str,
+    pub retrying: &'static str,
+    pub migration_failed: &'static str,
+}
+
+#[derive(Debug, PartialEq, Eq)]
 pub(crate) struct SidebarMessages {
     pub machines: &'static str,
     pub workspaces: &'static str,
@@ -132,6 +140,7 @@ const fn decimal_width(mut value: u16) -> usize {
 pub(crate) struct Catalog {
     pub pairing: PairingMessages,
     pub foreign_viewport: ForeignViewportMessages,
+    pub machine_agent: MachineAgentMessages,
     pub sidebar: SidebarMessages,
 }
 
@@ -144,6 +153,12 @@ static ENGLISH: Catalog = Catalog {
         approve: "[ Approve enter ]",
     },
     foreign_viewport: ForeignViewportMessages { terminal_grid: "terminal grid" },
+    machine_agent: MachineAgentMessages {
+        pairing_code: "Pairing code",
+        registered: "Sharing local cmux session",
+        retrying: "Cloud connection lost; retrying",
+        migration_failed: "Cloud upgrade handoff failed",
+    },
     sidebar: SidebarMessages {
         machines: "machines",
         workspaces: "workspaces",
@@ -224,6 +239,12 @@ static JAPANESE: Catalog = Catalog {
         approve: "[ 承認 enter ]",
     },
     foreign_viewport: ForeignViewportMessages { terminal_grid: "端末グリッド" },
+    machine_agent: MachineAgentMessages {
+        pairing_code: "ペアリングコード",
+        registered: "ローカル cmux セッションを共有中",
+        retrying: "クラウド接続が切断されました。再接続します",
+        migration_failed: "クラウド更新の引き継ぎに失敗しました",
+    },
     sidebar: SidebarMessages {
         machines: "マシン",
         workspaces: "ワークスペース",
@@ -323,6 +344,11 @@ mod tests {
         assert_eq!(
             catalog_for_locale("ja_JP.UTF-8").sidebar.machine_provider_disconnected,
             "マシンプロバイダーから切断されました。再接続しています"
+        );
+        assert_eq!(catalog_for_locale("en_US.UTF-8").machine_agent.pairing_code, "Pairing code");
+        assert_eq!(
+            catalog_for_locale("ja_JP.UTF-8").machine_agent.pairing_code,
+            "ペアリングコード"
         );
         assert_eq!(
             catalog_for_locale("en_US.UTF-8").sidebar.machine_action_failed,

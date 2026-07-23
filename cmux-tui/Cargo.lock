@@ -196,6 +196,7 @@ dependencies = [
  "anyhow",
  "base64",
  "cmux-tui-core",
+ "cmux-tui-machine-agent-protocol",
  "cmux-tui-machine-protocol",
  "crossterm",
  "getrandom 0.3.4",
@@ -237,6 +238,16 @@ dependencies = [
  "serde_json",
  "tungstenite",
  "uds_windows",
+ "zeroize",
+]
+
+[[package]]
+name = "cmux-tui-machine-agent-protocol"
+version = "0.1.0"
+dependencies = [
+ "base64",
+ "serde",
+ "serde_json",
  "zeroize",
 ]
 
