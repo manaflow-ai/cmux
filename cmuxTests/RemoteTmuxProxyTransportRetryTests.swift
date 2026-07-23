@@ -1162,8 +1162,20 @@ import Testing
             host: RemoteTmuxHost(destination: "somehost"), sessionName: "work"
         )
         let waiter = Task { await connection.waitUntilInitialTopology() }
-        // Give the waiter a chance to register before the answer arrives.
-        try? await Task.sleep(for: .milliseconds(50))
+        // Wait on the barrier's own registration, not the clock. A fixed sleep can resolve before the
+        // waiter arrives, and then the barrier answers from its already-resolved shortcut: the pending
+        // path this test exists for is skipped and the assertion below passes regardless. Bounded by a
+        // yield count so a waiter that never registers fails rather than hanging.
+        var handoffs = 0
+        while connection.initialTopologyWaiterCount == 0, handoffs < 10_000 {
+            await Task.yield()
+            handoffs += 1
+        }
+        #expect(connection.initialTopologyWaiterCount == 1, "the waiter has to be registered")
+        #expect(
+            connection.initialTopologyState == .pending,
+            "if readiness already resolved, this no longer tests a pending waiter"
+        )
         connection.resolveInitialTopology(ready: true)
         #expect(await waiter.value == true)
     }
