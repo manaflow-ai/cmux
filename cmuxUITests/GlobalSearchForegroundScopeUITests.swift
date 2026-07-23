@@ -4,7 +4,9 @@ final class GlobalSearchForegroundScopeUITests: XCTestCase {
     private var app: XCUIApplication!
 
     override func setUpWithError() throws {
-        continueAfterFailure = false
+        // Headless CI can launch cmux but fail XCTest's foreground activation handshake.
+        // Keep running long enough to exercise the background-only behavior under test.
+        continueAfterFailure = true
         app = XCUIApplication()
         app.launchArguments += ["-ApplePersistenceIgnoreState", "YES", "-NSQuitAlwaysKeepsWindows", "NO", "-menuBarOnly", "false"]
         app.launchEnvironment["CMUX_UI_TEST_MODE"] = "1"
@@ -14,6 +16,7 @@ final class GlobalSearchForegroundScopeUITests: XCTestCase {
         XCTExpectFailure("XCUITest cannot foreground cmux on headless CI runners", options: options) {
             app.launch()
         }
+        continueAfterFailure = false
 
         XCTAssertTrue(
             app.wait(for: .runningForeground, timeout: 1.0)
@@ -28,6 +31,8 @@ final class GlobalSearchForegroundScopeUITests: XCTestCase {
     }
 
     func testBackgroundGlobalSearchShortcutIsDeliveredToFinder() {
+        defer { attachScreenshot(named: "background-shortcut-delivered-to-finder") }
+
         let globalSearchField = app.textFields["GlobalSearchSearchField"].firstMatch
         XCTAssertFalse(globalSearchField.exists, "Global Search should start closed")
 
@@ -56,7 +61,6 @@ final class GlobalSearchForegroundScopeUITests: XCTestCase {
             "cmux must remain backgrounded after Finder receives Cmd-Option-F"
         )
         XCTAssertFalse(globalSearchField.exists, "Background Cmd-Option-F must not open cmux Global Search")
-        attachScreenshot(named: "background-shortcut-delivered-to-finder")
     }
 
     private func waitForAppToLeaveForeground(_ application: XCUIApplication, timeout: TimeInterval) -> Bool {
