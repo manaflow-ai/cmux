@@ -128,13 +128,17 @@ final class FeedCoordinator: @unchecked Sendable {
             return .acknowledged(itemId: nil)
         }
         guard let requestId = event.requestId else {
-            DispatchQueue.main.async {
+            let accepted = DispatchQueue.main.sync {
                 MainActor.assumeIsolated {
-                    guard let accepted = FeedCoordinator.shared.acceptOnMainActor(event) else { return }
+                    guard let accepted = FeedCoordinator.shared.acceptOnMainActor(event) else {
+                        return nil
+                    }
                     onAccepted(accepted.event)
+                    return accepted
                 }
             }
-            return .acknowledged(itemId: nil)
+            guard let accepted else { return .unavailable }
+            return .acknowledged(itemId: accepted.itemId)
         }
 
         let semaphore = DispatchSemaphore(value: 0)
