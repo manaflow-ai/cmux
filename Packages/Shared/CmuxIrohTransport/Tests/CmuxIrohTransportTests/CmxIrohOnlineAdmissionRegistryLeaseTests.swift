@@ -172,8 +172,8 @@ extension CmxIrohOnlineAdmissionRegistryTests {
             ).lease
         )
         let closeRecorder = OnlineAdmissionCloseRecorder()
-        await registry.monitor(lease, connection: fixture.connection()) {
-            await closeRecorder.close()
+        await registry.monitor(lease, connection: fixture.connection()) { reason in
+            await closeRecorder.close(reason: reason)
         }
         await clock.waitUntilSleeping()
 
@@ -194,6 +194,33 @@ extension CmxIrohOnlineAdmissionRegistryTests {
     }
 
     @Test
+    func relayFleetMismatchInvalidatesLeaseAsRevalidationFailure() async throws {
+        let fixture = try OnlineAdmissionFixture()
+        let clock = OnlineAdmissionManualClock(now: fixture.now)
+        let broker = OnlineAdmissionBroker(responses: [
+            .success(try fixture.discovery()),
+            .success(try fixture.discovery(relayFleet: [fixture.otherRelayURL])),
+        ])
+        let registry = fixture.registry(broker: broker, clock: clock)
+        let lease = try #require(
+            await registry.authorizePairGrant(
+                fixture.grant(),
+                authenticatedPeerID: fixture.initiator.endpointID
+            ).lease
+        )
+        let closeRecorder = OnlineAdmissionCloseRecorder()
+        await registry.monitor(lease, connection: fixture.connection()) { reason in
+            await closeRecorder.close(reason: reason)
+        }
+        await clock.waitUntilSleeping()
+
+        clock.advance(by: 30)
+        await closeRecorder.waitUntilClosed()
+
+        #expect(await closeRecorder.observedReasons() == [.revalidationFailed])
+    }
+
+    @Test
     func connectivityDoesNotCloseActiveLease() async throws {
         let fixture = try OnlineAdmissionFixture()
         let clock = OnlineAdmissionManualClock(now: fixture.now)
@@ -209,8 +236,8 @@ extension CmxIrohOnlineAdmissionRegistryTests {
             ).lease
         )
         let closeRecorder = OnlineAdmissionCloseRecorder()
-        await registry.monitor(lease, connection: fixture.connection()) {
-            await closeRecorder.close()
+        await registry.monitor(lease, connection: fixture.connection()) { reason in
+            await closeRecorder.close(reason: reason)
         }
         await clock.waitUntilSleeping()
 
@@ -240,8 +267,8 @@ extension CmxIrohOnlineAdmissionRegistryTests {
         )
         let closeRecorder = OnlineAdmissionCloseRecorder()
 
-        await registry.monitor(lease, connection: connection) {
-            await closeRecorder.close()
+        await registry.monitor(lease, connection: connection) { reason in
+            await closeRecorder.close(reason: reason)
             await connection.close(errorCode: 1, reason: "lease_invalidated")
         }
 
@@ -268,14 +295,15 @@ extension CmxIrohOnlineAdmissionRegistryTests {
             ).lease
         )
         let closeRecorder = OnlineAdmissionCloseRecorder()
-        await registry.monitor(lease, connection: fixture.connection()) {
-            await closeRecorder.close()
+        await registry.monitor(lease, connection: fixture.connection()) { reason in
+            await closeRecorder.close(reason: reason)
         }
 
         await registry.revoke(bindingID: fixture.initiator.bindingID)
         await closeRecorder.waitUntilClosed()
 
         #expect(await closeRecorder.count() == 1)
+        #expect(await closeRecorder.observedReasons() == [.denied])
         #expect(
             await registry.authorizePairGrant(
                 fixture.grant(),
@@ -287,9 +315,12 @@ extension CmxIrohOnlineAdmissionRegistryTests {
 
     @Test
     func grantExpiryClosesLeaseAndDeniesNewAdmission() async throws {
-        let fixture = try OnlineAdmissionFixture(grantLifetime: 20)
+        let fixture = try OnlineAdmissionFixture(grantLifetime: 31)
         let clock = OnlineAdmissionManualClock(now: fixture.now)
-        let broker = OnlineAdmissionBroker(responses: [.failure(.connectivity)])
+        let broker = OnlineAdmissionBroker(responses: [
+            .failure(.connectivity),
+            .failure(.connectivity),
+        ])
         let registry = fixture.registry(broker: broker, clock: clock)
         let lease = try #require(
             await registry.authorizePairGrant(
@@ -298,14 +329,18 @@ extension CmxIrohOnlineAdmissionRegistryTests {
             ).lease
         )
         let closeRecorder = OnlineAdmissionCloseRecorder()
-        await registry.monitor(lease, connection: fixture.connection()) {
-            await closeRecorder.close()
+        await registry.monitor(lease, connection: fixture.connection()) { reason in
+            await closeRecorder.close(reason: reason)
         }
         await clock.waitUntilSleeping()
 
-        clock.advance(by: 20)
+        clock.advance(by: 30)
+        await broker.waitForCallCount(2)
+        await clock.waitUntilSleeping()
+        clock.advance(by: 1)
         await closeRecorder.waitUntilClosed()
 
+        #expect(await closeRecorder.observedReasons() == [.leaseExpired])
         #expect(
             await registry.authorizePairGrant(
                 fixture.grant(),
