@@ -1221,6 +1221,16 @@ mod tests {
         .await;
     }
 
+    #[test]
+    fn escaped_rpc_errors_use_codec_offload() {
+        let response = RpcResponse {
+            id: cmux_remote_protocol::RequestId(72),
+            result: Err(RpcError::new("invalid-data", "\u{1}".repeat(RPC_CODEC_OFFLOAD_BYTES / 4))),
+        };
+
+        assert!(workspace_response_needs_codec(&response));
+    }
+
     #[tokio::test]
     async fn oversized_inline_error_response_returns_same_id_error() {
         assert_oversized_response_falls_back(
@@ -1261,10 +1271,9 @@ mod tests {
         let fallback: RpcResponse =
             serde_json::from_slice(&encoded).expect("decode bounded fallback response");
         assert_eq!(fallback.id, expected_id);
-        assert!(matches!(
-            fallback.result,
-            Err(RpcError { ref code, .. }) if code == "resource-exhausted"
-        ));
+        let error = fallback.result.expect_err("oversized response should return an RPC error");
+        assert_eq!(error.code, "resource-exhausted");
+        assert!(error.retryable, "the caller must be able to retry with a smaller page");
 
         let next = RpcResponse {
             id: cmux_remote_protocol::RequestId(expected_id.0 + 1),
@@ -1879,6 +1888,59 @@ mod tests {
              interactive={interactive_result:?}"
         );
         assert_eq!(bulk_messages.read.lock().await.budgets.len(), 1);
+    }
+
+    #[cfg(unix)]
+    #[tokio::test]
+    async fn canceled_reserved_process_streams_do_not_exhaust_the_same_session() {
+        const RESERVATION_LIMIT: u64 = 256;
+
+        let workspace = WorkspaceService::new();
+        let scope = ClientScope::new(
+            "canceled-process-stream-test",
+            cmux_remote_protocol::SessionId([12; 16]),
+        );
+        let (client_endpoint, daemon_endpoint) = endpoint_pair();
+        let client = ServiceMultiplexer::new(client_endpoint, EndpointRole::Client);
+        let daemon = ServiceMultiplexer::new(daemon_endpoint, EndpointRole::Daemon);
+
+        for index in 0..RESERVATION_LIMIT {
+            let process = ProcessId(0x8000_0000_0010_0000 + index);
+            let client_stream = client
+                .open(
+                    Service::ProcessStream,
+                    BTreeMap::from([
+                        ("process".into(), process.0.to_string()),
+                        ("after".into(), "0".into()),
+                        ("reserve".into(), "true".into()),
+                    ]),
+                )
+                .await
+                .unwrap();
+            let incoming = daemon.accept().await.unwrap().unwrap();
+            let handler = tokio::spawn(DaemonServices::serve_process_stream(
+                workspace.clone(),
+                scope.clone(),
+                incoming.stream,
+                incoming.metadata,
+            ));
+            let opened = client_stream.receive().await.unwrap().unwrap();
+            assert!(matches!(
+                serde_json::from_slice::<ServiceControl>(&opened.payload).unwrap(),
+                ServiceControl::Opened { service: Service::ProcessStream }
+            ));
+            handler.abort();
+            let _ = handler.await;
+            drop(client_stream);
+        }
+
+        let final_process = ProcessId(0x8000_0000_0020_0000);
+        match workspace.subscribe_or_reserve_process(&scope, final_process, 0, true).await {
+            Ok(_) => workspace.release_process_reservation(&scope, final_process).await,
+            Err(error) => panic!("canceled opens leaked reservation capacity: {error}"),
+        }
+        client.shutdown().await;
+        daemon.shutdown().await;
     }
 
     #[cfg(unix)]
