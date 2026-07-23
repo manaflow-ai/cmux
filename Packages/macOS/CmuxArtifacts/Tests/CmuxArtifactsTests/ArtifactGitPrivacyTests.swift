@@ -118,6 +118,102 @@ struct ArtifactGitPrivacyTests {
         #expect(files.isEmpty)
     }
 
+    @Test("Note writes stop when an exact Markdown destination is Git-visible")
+    func rejectsExposedNoteDestination() async throws {
+        let root = try gitRepository()
+        defer { ArtifactTestSupport.remove(root) }
+        let repository = LocalArtifactRepository()
+        _ = try await repository.snapshot(projectRoot: root)
+        let context = ArtifactCaptureContext(
+            projectRoot: root,
+            sessionID: "session:note-privacy",
+            agentName: "codex"
+        )
+        let resolver = ArtifactPathResolver()
+        let notesDirectory = resolver.contentDirectory(
+            paths: ArtifactStorePaths(projectRoot: root),
+            context: context,
+            kind: .notes
+        )
+        let notesRelativePath = try #require(
+            resolver.relativePath(notesDirectory, root: root)
+        )
+        let sessionRelativePath = try #require(
+            resolver.relativePath(notesDirectory.deletingLastPathComponent(), root: root)
+        )
+        let destinationRelativePath = "\(notesRelativePath)/plan.md"
+        try """
+        !/.cmux/
+        !/\(sessionRelativePath)/
+        !/\(notesRelativePath)/
+        /\(notesRelativePath)/**
+        !/\(notesRelativePath)/*.md
+
+        """.write(
+            to: root.appendingPathComponent(".gitignore"),
+            atomically: true,
+            encoding: .utf8
+        )
+        #expect(try runGit([
+            "-C", root.path, "check-ignore", "--quiet", "--", destinationRelativePath,
+        ]) == 1)
+
+        await #expect(throws: ArtifactStoreError.gitPrivacyUnavailable(
+            ArtifactStorePaths(projectRoot: root).filesystemRoot.path
+        )) {
+            _ = try await repository.writeNote(
+                name: "plan",
+                text: "private",
+                mode: .replace,
+                context: context
+            )
+        }
+        #expect(!FileManager.default.fileExists(
+            atPath: root.appendingPathComponent(destinationRelativePath).path
+        ))
+    }
+
+    @Test("Note writes never overwrite tracked local-store content")
+    func rejectsTrackedNoteDestination() async throws {
+        let root = try gitRepository()
+        defer { ArtifactTestSupport.remove(root) }
+        let repository = LocalArtifactRepository()
+        _ = try await repository.snapshot(projectRoot: root)
+        let context = ArtifactCaptureContext(
+            projectRoot: root,
+            sessionID: "session:tracked-note",
+            agentName: "codex"
+        )
+        let notesDirectory = ArtifactPathResolver().contentDirectory(
+            paths: ArtifactStorePaths(projectRoot: root),
+            context: context,
+            kind: .notes
+        )
+        let trackedNote = try ArtifactTestSupport.write(
+            "tracked original",
+            named: "plan.md",
+            under: notesDirectory
+        )
+        let relativePath = try #require(
+            ArtifactPathResolver().relativePath(trackedNote, root: root)
+        )
+        #expect(try runGit([
+            "-C", root.path, "add", "--force", relativePath,
+        ]) == 0)
+
+        await #expect(throws: ArtifactStoreError.gitPrivacyUnavailable(
+            ArtifactStorePaths(projectRoot: root).filesystemRoot.path
+        )) {
+            _ = try await repository.writeNote(
+                name: "plan",
+                text: "replacement",
+                mode: .replace,
+                context: context
+            )
+        }
+        #expect(try String(contentsOf: trackedNote, encoding: .utf8) == "tracked original")
+    }
+
     private func gitRepository() throws -> URL {
         let root = try ArtifactTestSupport.temporaryDirectory()
         #expect(try runGit(["init", "--quiet", root.path]) == 0)
