@@ -127,7 +127,17 @@ const nextConfig: NextConfig = {
         },
       ]),
     );
-    return [...(isDocsZone ? [] : baseNightlyMoves), ...agentRedirects];
+    return [
+      ...(isDocsZone ? [] : baseNightlyMoves),
+      ...agentRedirects,
+      // Agent-executable hang diagnosis skill; the canonical document is the
+      // static markdown file in public/.
+      {
+        source: "/hang-diagnosis",
+        destination: "/hang-diagnosis.md",
+        permanent: false,
+      },
+    ];
   },
   async headers() {
     if (docsChannel !== "nightly") return securityHeaderRules;

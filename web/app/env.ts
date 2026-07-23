@@ -156,6 +156,9 @@ export const env = createEnv({
     RESEND_API_KEY: z.string().min(1),
     CMUX_FEEDBACK_FROM_EMAIL: z.string().email(),
     CMUX_FEEDBACK_RATE_LIMIT_ID: z.string().min(1),
+    // Hang-report uploads (/api/hang-report). Optional: falls back to the
+    // feedback rate limit rule until a dedicated firewall rule exists.
+    CMUX_HANG_REPORT_RATE_LIMIT_ID: z.string().min(1).optional(),
     CMUX_CLIENT_CONFIG_RATE_LIMIT_ID: requireVercelNonPreviewValue("CMUX_CLIENT_CONFIG_RATE_LIMIT_ID"),
     CMUX_ANALYTICS_RATE_LIMIT_ID: requireVercelProductionValue("CMUX_ANALYTICS_RATE_LIMIT_ID"),
     STACK_SECRET_SERVER_KEY: z.string().min(1),
@@ -272,6 +275,7 @@ export const env = createEnv({
     RESEND_API_KEY: trimEnv(process.env.RESEND_API_KEY),
     CMUX_FEEDBACK_FROM_EMAIL: trimEnv(process.env.CMUX_FEEDBACK_FROM_EMAIL),
     CMUX_FEEDBACK_RATE_LIMIT_ID: trimEnv(process.env.CMUX_FEEDBACK_RATE_LIMIT_ID),
+    CMUX_HANG_REPORT_RATE_LIMIT_ID: trimEnv(process.env.CMUX_HANG_REPORT_RATE_LIMIT_ID),
     CMUX_CLIENT_CONFIG_RATE_LIMIT_ID: trimEnv(process.env.CMUX_CLIENT_CONFIG_RATE_LIMIT_ID),
     CMUX_ANALYTICS_RATE_LIMIT_ID: trimEnv(process.env.CMUX_ANALYTICS_RATE_LIMIT_ID),
     CMUX_APNS_KEY_P8: trimEnv(process.env.CMUX_APNS_KEY_P8),
