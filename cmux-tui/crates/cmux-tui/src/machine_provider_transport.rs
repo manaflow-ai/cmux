@@ -89,6 +89,8 @@ pub(crate) struct ProviderIoParts {
 trait ProviderIoCleanup: Send + Sync {
     fn close(&self);
 
+    fn add_diagnostic_redaction(&self, _secret: &str) {}
+
     fn diagnostic(&self) -> Option<String> {
         None
     }
@@ -107,6 +109,10 @@ impl ProviderIoGuard {
 
     pub(crate) fn close(&self) {
         self.cleanup.close();
+    }
+
+    pub(crate) fn add_diagnostic_redaction(&self, secret: &str) {
+        self.cleanup.add_diagnostic_redaction(secret);
     }
 
     pub(crate) fn diagnostic(&self) -> Option<String> {
@@ -439,6 +445,10 @@ impl ProviderIoCleanup for CompositeCleanup {
         self.process.close();
     }
 
+    fn add_diagnostic_redaction(&self, secret: &str) {
+        self.process.add_diagnostic_redaction(secret);
+    }
+
     fn diagnostic(&self) -> Option<String> {
         self.process.diagnostic()
     }
@@ -603,6 +613,10 @@ impl ProcessCleanup {
 impl ProviderIoCleanup for ProcessCleanup {
     fn close(&self) {
         self.terminate_and_reap();
+    }
+
+    fn add_diagnostic_redaction(&self, secret: &str) {
+        self.diagnostics.add_redaction(secret);
     }
 
     fn diagnostic(&self) -> Option<String> {

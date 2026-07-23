@@ -9,12 +9,12 @@ use zeroize::Zeroize;
 
 pub(crate) struct BoundedDiagnosticBuffer {
     max_bytes: usize,
-    redactions: Vec<Vec<u8>>,
     state: Mutex<DiagnosticState>,
 }
 
 #[derive(Default)]
 struct DiagnosticState {
+    redactions: Vec<Vec<u8>>,
     bytes: Vec<u8>,
     pending: Vec<u8>,
     truncated: bool,
@@ -34,7 +34,28 @@ impl BoundedDiagnosticBuffer {
         redactions.sort();
         redactions.dedup();
         redactions.sort_by_key(|secret| std::cmp::Reverse(secret.len()));
-        Self { max_bytes, redactions, state: Mutex::new(DiagnosticState::default()) }
+        Self {
+            max_bytes,
+            state: Mutex::new(DiagnosticState { redactions, ..DiagnosticState::default() }),
+        }
+    }
+
+    /// Adds a secret before it can cross into the observed process. Existing
+    /// diagnostics are intentionally left untouched, so callers must register
+    /// every per-request secret before writing it to the child.
+    pub(crate) fn add_redaction(&self, secret: &str) {
+        if secret.is_empty() {
+            return;
+        }
+        let Ok(mut state) = self.state.lock() else {
+            return;
+        };
+        let secret = secret.as_bytes();
+        if state.redactions.iter().any(|redaction| redaction == secret) {
+            return;
+        }
+        state.redactions.push(secret.to_vec());
+        state.redactions.sort_by_key(|secret| std::cmp::Reverse(secret.len()));
     }
 
     pub(crate) fn drain(&self, mut reader: impl Read) {
@@ -132,7 +153,7 @@ impl BoundedDiagnosticBuffer {
         }
         let mut combined = std::mem::take(&mut state.pending);
         combined.extend_from_slice(bytes);
-        let (redacted, pending) = redact_committed(&combined, &self.redactions);
+        let (redacted, pending) = redact_committed(&combined, &state.redactions);
         append_bounded(&mut state, &redacted, self.max_bytes);
         if !state.truncated {
             state.pending = pending;
@@ -143,7 +164,8 @@ impl BoundedDiagnosticBuffer {
         let Ok(mut state) = self.state.lock() else {
             return;
         };
-        let pending = redact(&std::mem::take(&mut state.pending), &self.redactions);
+        let pending = std::mem::take(&mut state.pending);
+        let pending = redact(&pending, &state.redactions);
         append_bounded(&mut state, &pending, self.max_bytes);
     }
 

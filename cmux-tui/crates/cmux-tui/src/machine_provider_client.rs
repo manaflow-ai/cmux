@@ -694,6 +694,10 @@ impl ProviderClient {
         let ProviderIoParts { reader, mut writer, guard } = self.inner.streams.open()?.into_parts();
         let deadline = guard.deadline(PROVIDER_REQUEST_TIMEOUT)?;
         let mut reader = BufReader::new(reader);
+        // The child learns this one-use credential only through the handshake.
+        // Register it before writing so echoed or traced input is never retained
+        // in diagnostics that can be surfaced after a failed handshake.
+        guard.add_diagnostic_redaction(ticket.expose());
         let handshake = TransportHandshake {
             protocol: Protocol,
             version: Version,
