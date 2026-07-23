@@ -4,7 +4,7 @@
 /// hunks so a single enormous hunk (for example a truncated multi-thousand
 /// line rewrite) never becomes one eagerly laid-out child, which froze
 /// scrolling on large diffs.
-struct DiffRowSnapshot: Identifiable, Equatable {
+struct DiffRowSnapshot: Identifiable, Sendable, Equatable {
     let id: String
     let content: DiffRowContent
     /// Whether this row is the header of a hunk after the first and should
@@ -19,6 +19,13 @@ struct DiffRowSnapshot: Identifiable, Equatable {
     var hunkCopyText: String {
         guard case .line(_, let copyText) = content else { return "" }
         return copyText
+    }
+
+    static func maximumLineNumber(in rows: [DiffRowSnapshot]) -> Int {
+        rows.reduce(0) { current, row in
+            guard case .line(let line, _) = row.content else { return current }
+            return max(current, max(line.oldNumber ?? 0, line.newNumber ?? 0))
+        }
     }
 
     static func rows(for document: FileDiffDocument) -> [DiffRowSnapshot] {

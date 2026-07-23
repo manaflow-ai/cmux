@@ -3,7 +3,7 @@ public import SwiftUI
 /// Swipe-paged diff viewer over an immutable changed-file snapshot.
 public struct WorkspaceFileDiffPagerView: View {
     private let files: [ChangedFileItem]
-    private let cachedDocuments: [String: FileDiffDocument]
+    private let cachedPresentations: [String: FileDiffPresentation]
     private let actions: WorkspaceFileDiffPagerActions
     @State private var selection: Int
     @State private var fontSize: Double
@@ -12,18 +12,18 @@ public struct WorkspaceFileDiffPagerView: View {
     /// - Parameters:
     ///   - files: Stable changed-file snapshot.
     ///   - initialSelectedIndex: File index opened from the list.
-    ///   - cachedDocuments: Parsed documents already held by the mount layer.
+    ///   - cachedPresentations: Parsed and projected diffs already held by the mount layer.
     ///   - initialFontSize: Persisted font size snapshot.
     ///   - actions: Loading, persistence, and clipboard closures.
     public init(
         files: [ChangedFileItem],
         initialSelectedIndex: Int,
-        cachedDocuments: [String: FileDiffDocument],
+        cachedPresentations: [String: FileDiffPresentation],
         initialFontSize: Double,
         actions: WorkspaceFileDiffPagerActions
     ) {
         self.files = files
-        self.cachedDocuments = cachedDocuments
+        self.cachedPresentations = cachedPresentations
         self.actions = actions
         let validIndex = files.isEmpty ? 0 : min(max(initialSelectedIndex, 0), files.count - 1)
         _selection = State(initialValue: validIndex)
@@ -78,7 +78,7 @@ public struct WorkspaceFileDiffPagerView: View {
                 FileDiffPageView(
                     fileIndex: index,
                     file: file,
-                    initialDocument: cachedDocuments[file.path],
+                    initialPresentation: cachedPresentations[file.path],
                     fontSize: fontSize,
                     onFontSizeChanged: fontSizeChanged,
                     onPersistFontSize: actions.onPersistFontSize,

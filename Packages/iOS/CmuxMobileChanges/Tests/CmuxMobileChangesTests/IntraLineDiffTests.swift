@@ -73,6 +73,25 @@ import Testing
         #expect(emphasizedText(result[1]) == ["🟡"])
     }
 
+    @Test func skipsEmphasisAboveUTF8ByteThreshold() {
+        let atThreshold = String(repeating: "é", count: 2_047) + "x"
+        let aboveThreshold = String(repeating: "é", count: 2_048)
+
+        let accepted = diff.applying(to: [
+            line(.removal, "\(atThreshold)a"),
+            line(.addition, "\(atThreshold)b"),
+        ])
+        let skipped = diff.applying(to: [
+            line(.removal, "\(aboveThreshold)a"),
+            line(.addition, "\(aboveThreshold)b"),
+        ])
+
+        #expect(emphasizedText(accepted[0]) == ["a"])
+        #expect(emphasizedText(accepted[1]) == ["b"])
+        #expect(skipped[0].emphasisRanges.isEmpty)
+        #expect(skipped[1].emphasisRanges.isEmpty)
+    }
+
     private func line(_ kind: DiffLineKind, _ text: String) -> DiffLine {
         DiffLine(kind: kind, text: text, oldNumber: nil, newNumber: nil)
     }

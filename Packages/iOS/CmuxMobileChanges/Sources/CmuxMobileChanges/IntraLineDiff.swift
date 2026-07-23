@@ -1,5 +1,7 @@
 /// Pure grapheme-safe intra-line emphasis for adjacent removal/addition runs.
 public struct IntraLineDiff: Sendable {
+    private static let maximumEmphasizedLineByteCount = 4_096
+
     /// Creates an intra-line diff calculator.
     public init() {}
 
@@ -44,6 +46,10 @@ public struct IntraLineDiff: Sendable {
         old: String,
         new: String
     ) -> (old: [Range<String.Index>], new: [Range<String.Index>]) {
+        guard old.utf8.count <= Self.maximumEmphasizedLineByteCount,
+              new.utf8.count <= Self.maximumEmphasizedLineByteCount else {
+            return ([], [])
+        }
         let oldCharacters = Array(old)
         let newCharacters = Array(new)
         let shorterCount = min(oldCharacters.count, newCharacters.count)

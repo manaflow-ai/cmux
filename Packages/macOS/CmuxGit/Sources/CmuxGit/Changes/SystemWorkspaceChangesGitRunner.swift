@@ -6,15 +6,18 @@ struct SystemWorkspaceChangesGitRunner: WorkspaceChangesGitRunning {
 
     private let executableURL: URL
     private let environment: [String: String]
+    private let boundedCommandWallTimeLimit: TimeInterval
 
     init(
         executableURL: URL = URL(fileURLWithPath: "/usr/bin/git"),
-        environment: [String: String] = ProcessInfo.processInfo.environment
+        environment: [String: String] = ProcessInfo.processInfo.environment,
+        boundedCommandWallTimeLimit: TimeInterval = 30
     ) {
         self.executableURL = executableURL
         var nonLockingEnvironment = environment
         nonLockingEnvironment["GIT_OPTIONAL_LOCKS"] = "0"
         self.environment = nonLockingEnvironment
+        self.boundedCommandWallTimeLimit = max(0, boundedCommandWallTimeLimit)
     }
 
     func run(arguments: [String], in directory: URL) throws -> WorkspaceChangesGitResult {
@@ -40,17 +43,27 @@ struct SystemWorkspaceChangesGitRunner: WorkspaceChangesGitRunning {
         try process.run()
 
         let outputHandle = outputPipe.fileHandleForReading
+        let deadlineTimer = deadlineTimer(for: process)
+        defer { deadlineTimer.cancel() }
         let limit = max(0, maximumOutputByteCount)
         var output = Data()
         output.reserveCapacity(min(limit, Self.readChunkByteCount))
         var wasTruncated = limit == 0
         while output.count < limit {
+            if Task.isCancelled {
+                wasTruncated = true
+                break
+            }
             let remaining = limit - output.count
             let chunk = try outputHandle.read(
                 upToCount: min(Self.readChunkByteCount, remaining)
             ) ?? Data()
             guard !chunk.isEmpty else { break }
             output.append(chunk)
+            if Task.isCancelled {
+                wasTruncated = true
+                break
+            }
             if output.count == limit {
                 wasTruncated = true
                 break
@@ -61,6 +74,7 @@ struct SystemWorkspaceChangesGitRunner: WorkspaceChangesGitRunning {
         }
         process.waitUntilExit()
         try? outputHandle.close()
+        wasTruncated = wasTruncated || process.terminationReason == .uncaughtSignal
         return WorkspaceChangesGitResult(
             output: output,
             exitCode: process.terminationStatus,
@@ -87,12 +101,22 @@ struct SystemWorkspaceChangesGitRunner: WorkspaceChangesGitRunning {
         try process.run()
 
         let outputHandle = outputPipe.fileHandleForReading
+        let deadlineTimer = deadlineTimer(for: process)
+        defer { deadlineTimer.cancel() }
         let limit = max(0, maximumOutputByteCount)
         var writtenByteCount: Int64 = 0
         var wasTruncated = false
         while true {
+            if Task.isCancelled {
+                wasTruncated = true
+                break
+            }
             let chunk = try outputHandle.read(upToCount: Self.readChunkByteCount) ?? Data()
             guard !chunk.isEmpty else { break }
+            if Task.isCancelled {
+                wasTruncated = true
+                break
+            }
             let remaining = limit - writtenByteCount
             guard remaining > 0 else {
                 wasTruncated = true
@@ -111,6 +135,7 @@ struct SystemWorkspaceChangesGitRunner: WorkspaceChangesGitRunning {
         }
         process.waitUntilExit()
         try? outputHandle.close()
+        wasTruncated = wasTruncated || process.terminationReason == .uncaughtSignal
         return WorkspaceChangesGitResult(
             output: Data(),
             exitCode: process.terminationStatus,
@@ -125,5 +150,18 @@ struct SystemWorkspaceChangesGitRunner: WorkspaceChangesGitRunning {
         process.currentDirectoryURL = directory
         process.environment = environment
         return process
+    }
+
+    private func deadlineTimer(for process: Process) -> any DispatchSourceTimer {
+        // A one-shot source is required because a synchronous pipe read needs an out-of-band deadline.
+        let timer = DispatchSource.makeTimerSource(queue: .global(qos: .utility))
+        timer.schedule(deadline: .now() + boundedCommandWallTimeLimit)
+        timer.setEventHandler {
+            if process.isRunning {
+                process.terminate()
+            }
+        }
+        timer.resume()
+        return timer
     }
 }

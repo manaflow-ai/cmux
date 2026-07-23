@@ -130,7 +130,7 @@ public struct WorkspaceChangedFiles: Sendable, Equatable {
     public let additions: Int
     /// The number of deleted lines before the file-list cap.
     public let deletions: Int
-    /// Whether files were omitted by the 500-file cap.
+    /// Whether files were omitted by the list cap or a bounded snapshot command.
     public let truncated: Bool
 
     /// Creates a changed-file listing.
@@ -144,7 +144,7 @@ public struct WorkspaceChangedFiles: Sendable, Equatable {
     ///   - filesChanged: The uncapped number of changed files.
     ///   - additions: The uncapped number of added lines.
     ///   - deletions: The uncapped number of deleted lines.
-    ///   - truncated: Whether the file-list cap omitted entries.
+    ///   - truncated: Whether a list or snapshot-command cap omitted entries.
     public init(
         isRepository: Bool,
         repoRoot: String?,

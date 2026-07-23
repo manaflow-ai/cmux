@@ -2,8 +2,8 @@
 public struct FileDiffContinuation: Sendable, Equatable {
     /// Default line budget used by legacy and initial requests.
     public static let defaultLineBudget = 6_000
-    /// Largest line budget accepted by the host response guard.
-    public static let maximumLineBudget = 1_000_000
+    /// Largest line budget the mobile client requests over the bounded transport.
+    public static let maximumLineBudget = 96_000
 
     /// Line budget that produced the current document.
     public let lineBudget: Int
@@ -56,7 +56,7 @@ public struct FileDiffContinuation: Sendable, Equatable {
             && nextLineBudget > lineBudget
     }
 
-    /// Four-times-larger request budget, saturated at the host response guard.
+    /// Four-times-larger request budget, saturated at the mobile transport ceiling.
     public var nextLineBudget: Int {
         let (grown, overflowed) = lineBudget.multipliedReportingOverflow(by: 4)
         guard !overflowed else { return Self.maximumLineBudget }

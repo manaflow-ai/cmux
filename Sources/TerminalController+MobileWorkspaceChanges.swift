@@ -1,17 +1,14 @@
 import CmuxGit
+import CmuxMobileRPC
 import Foundation
-
 // MARK: - Mobile workspace changes
 
 extension TerminalController {
     /// Returns cached change totals for 1...64 explicit workspaces.
     ///
-    /// `workspace_ids` is validated at the mobile RPC trust boundary and never
-    /// falls back to the Mac's current selection. Workspace lookup and effective
-    /// directory reads stay on the main actor because `Workspace` is UI-owned;
-    /// each `WorkspaceChangesService` call is `nonisolated async`, so every Git
-    /// subprocess runs away from the main actor. One workspace's failure is
-    /// intentionally converted to `is_repo:false` instead of failing the batch.
+    /// IDs never fall back to the current selection. UI-owned workspace lookup
+    /// stays on the main actor, while Git service calls run off-main. Remote
+    /// provenance and per-workspace failures become `is_repo:false`.
     @MainActor
     func v2MobileWorkspaceChangesSummary(params: [String: Any]) async -> V2CallResult {
         guard let rawIDs = params["workspace_ids"] as? [String],
@@ -38,14 +35,17 @@ extension TerminalController {
         }
 
         let requests = workspaceIDs.map { workspaceID in
-            (workspaceID, mobileWorkspaceChangesDirectory(workspaceID: workspaceID))
+            (
+                workspaceID,
+                mobileWorkspaceChangesDirectoryResolution(workspaceID: workspaceID)
+            )
         }
         var summariesByDirectory: [String: WorkspaceChangesSummary] = [:]
         var payloads: [[String: Any]] = []
         payloads.reserveCapacity(requests.count)
 
-        for (workspaceID, directory) in requests {
-            guard let directory else {
+        for (workspaceID, resolution) in requests {
+            guard case .local(let directory) = resolution else {
                 payloads.append(mobileWorkspaceNotARepositoryPayload(workspaceID: workspaceID))
                 continue
             }
@@ -67,19 +67,16 @@ extension TerminalController {
 
     /// Returns the changed-file snapshot for one explicit workspace.
     ///
-    /// The workspace UUID is resolved through the same multi-window routing as
-    /// `mobile.workspace.list`; no selected-workspace fallback crosses this
-    /// trust boundary. Only the effective directory is copied on the main actor,
-    /// then Git and parsing run on the service's global concurrent executor.
+    /// Explicit multi-window routing never falls back to a selected workspace.
+    /// Only a local effective directory may cross into the off-main Git service.
     @MainActor
     func v2MobileWorkspaceChangesFiles(params: [String: Any]) async -> V2CallResult {
         guard let workspaceID = explicitMobileWorkspaceChangesID(params: params) else {
             return .err(code: "invalid_params", message: Self.mobileWorkspaceChangesInvalidWorkspaceID, data: nil)
         }
-        guard let directory = mobileWorkspaceChangesDirectory(workspaceID: workspaceID) else {
-            return .err(code: "not_found", message: Self.mobileWorkspaceChangesUnavailable, data: [
-                "workspace_id": workspaceID.uuidString,
-            ])
+        let resolution = mobileWorkspaceChangesDirectoryResolution(workspaceID: workspaceID)
+        guard case .local(let directory) = resolution else {
+            return mobileWorkspaceChangesDirectoryErrorResult(resolution, workspaceID: workspaceID)
         }
         let changed = await MobileHostService.shared.workspaceChangesService
             .changedFiles(forDirectory: directory)
@@ -104,11 +101,8 @@ extension TerminalController {
 
     /// Returns a bounded unified diff for one explicit workspace path.
     ///
-    /// Both the workspace UUID and repository-relative path arrive from the
-    /// network. Workspace resolution is explicit and main-actor-bound; the
-    /// package service independently rejects absolute paths, lexical escapes,
-    /// and symlink escapes before passing the path to Git. Diff generation and
-    /// truncation execute off the main actor.
+    /// Explicit workspace resolution rejects remote provenance before the
+    /// package independently validates the network-supplied relative path.
     @MainActor
     func v2MobileWorkspaceChangesFileDiff(params: [String: Any]) async -> V2CallResult {
         guard let workspaceID = explicitMobileWorkspaceChangesID(params: params) else {
@@ -124,10 +118,9 @@ extension TerminalController {
                 data: nil
             )
         }
-        guard let directory = mobileWorkspaceChangesDirectory(workspaceID: workspaceID) else {
-            return .err(code: "not_found", message: Self.mobileWorkspaceChangesUnavailable, data: [
-                "workspace_id": workspaceID.uuidString,
-            ])
+        let resolution = mobileWorkspaceChangesDirectoryResolution(workspaceID: workspaceID)
+        guard case .local(let directory) = resolution else {
+            return mobileWorkspaceChangesDirectoryErrorResult(resolution, workspaceID: workspaceID)
         }
         let maxLines = v2Int(params, "max_lines").map {
             min(max($0, 6_000), 1_000_000)
@@ -162,11 +155,8 @@ extension TerminalController {
 
     /// Returns artifact-compatible metadata for one changed file revision.
     ///
-    /// `workspace_id`, `path`, and `revision` arrive across the mobile trust
-    /// boundary. Workspace lookup is explicit; `WorkspaceChangesService` then
-    /// requires the normalized path to remain contained by the repository and
-    /// to belong to the current changed-file authorization snapshot. Rename old
-    /// paths are accepted only for the base revision.
+    /// Remote provenance is rejected before repository containment and
+    /// current-change authorization validate the network-supplied path.
     @MainActor
     func v2MobileWorkspaceChangesFileStat(params: [String: Any]) async -> V2CallResult {
         guard let context = mobileWorkspaceChangesContentContext(params: params) else {
@@ -176,10 +166,9 @@ extension TerminalController {
                 data: nil
             )
         }
-        guard let directory = mobileWorkspaceChangesDirectory(workspaceID: context.workspaceID) else {
-            return .err(code: "not_found", message: Self.mobileWorkspaceChangesUnavailable, data: [
-                "workspace_id": context.workspaceID.uuidString,
-            ])
+        let resolution = mobileWorkspaceChangesDirectoryResolution(workspaceID: context.workspaceID)
+        guard case .local(let directory) = resolution else {
+            return mobileWorkspaceChangesDirectoryErrorResult(resolution, workspaceID: context.workspaceID)
         }
         do {
             let stat = try await MobileHostService.shared.workspaceChangesService.fileStat(
@@ -197,10 +186,8 @@ extension TerminalController {
 
     /// Returns one bounded byte chunk for one changed file revision.
     ///
-    /// The same repository-containment and current-change authorization gates
-    /// as `file_stat` run before any bytes are read. The package service clamps
-    /// each response to the shared 3 MiB artifact chunk policy and reports the
-    /// uncapped total size and exact EOF state.
+    /// The same provenance, containment, authorization, and 3 MiB chunk gates
+    /// as `file_stat` run before any bytes are read.
     @MainActor
     func v2MobileWorkspaceChangesFileFetch(params: [String: Any]) async -> V2CallResult {
         guard let context = mobileWorkspaceChangesContentContext(params: params) else {
@@ -210,10 +197,9 @@ extension TerminalController {
                 data: nil
             )
         }
-        guard let directory = mobileWorkspaceChangesDirectory(workspaceID: context.workspaceID) else {
-            return .err(code: "not_found", message: Self.mobileWorkspaceChangesUnavailable, data: [
-                "workspace_id": context.workspaceID.uuidString,
-            ])
+        let resolution = mobileWorkspaceChangesDirectoryResolution(workspaceID: context.workspaceID)
+        guard case .local(let directory) = resolution else {
+            return mobileWorkspaceChangesDirectoryErrorResult(resolution, workspaceID: context.workspaceID)
         }
         let offset = max(0, Int64(v2Int(params, "offset") ?? 0))
         let length = v2Int(params, "length") ?? 0
@@ -240,13 +226,32 @@ extension TerminalController {
     }
 
     @MainActor
-    private func mobileWorkspaceChangesDirectory(workspaceID: UUID) -> String? {
+    private func mobileWorkspaceChangesDirectoryResolution(
+        workspaceID: UUID
+    ) -> MobileWorkspaceChangesDirectoryResolution {
         let routingParams: [String: Any] = ["workspace_id": workspaceID.uuidString]
         guard let tabManager = v2ResolveTabManager(params: routingParams),
               let workspace = v2ResolveWorkspace(params: routingParams, tabManager: tabManager) else {
-            return nil
+            return .unavailable
         }
-        return workspace.presentedCurrentDirectory
+        return MobileWorkspaceChangesDirectoryPolicy().resolve(
+            presentedDirectory: workspace.presentedCurrentDirectory,
+            usesRemoteDirectoryProvenance: workspace.usesRemoteDirectoryProvenance
+        )
+    }
+
+    private func mobileWorkspaceChangesDirectoryErrorResult(
+        _ resolution: MobileWorkspaceChangesDirectoryResolution,
+        workspaceID: UUID
+    ) -> V2CallResult {
+        let isRemote = resolution == .remote
+        return .err(
+            code: isRemote ? "not_a_repo" : "not_found",
+            message: isRemote
+                ? Self.mobileWorkspaceChangesNotARepository
+                : Self.mobileWorkspaceChangesUnavailable,
+            data: ["workspace_id": workspaceID.uuidString]
+        )
     }
 
     private func mobileWorkspaceChangesSummaryPayload(

@@ -18,7 +18,7 @@ public struct WorkspaceChangesSheet: View {
     @State private var totals = ChangesTotals(filesChanged: 0, additions: 0, deletions: 0)
     @State private var files: [ChangedFileItem] = []
     @State private var listState: WorkspaceChangesListState = .loading
-    @State private var cachedDocuments: [String: FileDiffDocument] = [:]
+    @State private var cachedPresentations: [String: FileDiffPresentation] = [:]
     @State private var fontSize: Double
     @State private var navigationPath: [WorkspaceChangesNavigationRoute] = []
     @State private var inlineActionHost = ChatArtifactInlineActionHost()
@@ -49,7 +49,7 @@ public struct WorkspaceChangesSheet: View {
             totals: totals,
             files: files,
             listState: listState,
-            cachedDocuments: cachedDocuments,
+            cachedPresentations: cachedPresentations,
             fontSize: fontSize,
             listActions: listActions,
             pagerActions: pagerActions,
@@ -71,7 +71,7 @@ public struct WorkspaceChangesSheet: View {
     }
 
     private var pagerActions: WorkspaceFileDiffPagerActions {
-        let loadDocument: @MainActor @Sendable (String, Bool, Int?) async throws -> FileDiffDocument = {
+        let loadDocument: @MainActor @Sendable (String, Bool, Int?) async throws -> FileDiffPresentation = {
             path,
             forceRefresh,
             maxLines in
@@ -132,7 +132,7 @@ public struct WorkspaceChangesSheet: View {
 
     @MainActor
     private func loadChangedFiles(invalidateCache: Bool) async {
-        if invalidateCache { cachedDocuments = [:] }
+        if invalidateCache { cachedPresentations = [:] }
         listState = .loading
         do {
             let response = try await store.fetchChangedFiles(workspaceID: workspaceID)
@@ -173,10 +173,10 @@ public struct WorkspaceChangesSheet: View {
         path: String,
         forceRefresh: Bool,
         maxLines: Int?
-    ) async throws -> FileDiffDocument {
+    ) async throws -> FileDiffPresentation {
         if maxLines == nil,
            !forceRefresh,
-           let cached = cachedDocuments[path] {
+           let cached = cachedPresentations[path] {
             return cached
         }
         let response = try await store.fetchFileDiff(
@@ -184,17 +184,19 @@ public struct WorkspaceChangesSheet: View {
             path: path,
             maxLines: maxLines
         )
-        let document = await UnifiedDiffParser().parseOffMain(
+        let presentation = await UnifiedDiffParser().parsePresentationOffMain(
             response.unifiedDiff,
             truncated: response.truncated,
             isBinary: response.isBinary,
-            totalLineCount: response.diffTotalLines
+            totalLineCount: response.diffTotalLines,
+            fileKind: response.status.fileChangeKind,
+            fontSize: fontSize
         )
         try Task.checkCancellation()
         if maxLines == nil {
-            cachedDocuments[path] = document
+            cachedPresentations[path] = presentation
         }
-        return document
+        return presentation
     }
 }
 #endif

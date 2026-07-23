@@ -1,5 +1,5 @@
 /// The mutually exclusive content rendered by one flat diff row.
-enum DiffRowContent: Equatable {
+enum DiffRowContent: Sendable, Equatable {
     case line(DiffLine, hunkCopyText: String)
     case expander(DiffExpanderSnapshot)
 }

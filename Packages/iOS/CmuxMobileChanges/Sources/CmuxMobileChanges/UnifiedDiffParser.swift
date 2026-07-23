@@ -39,6 +39,39 @@ public struct UnifiedDiffParser: Sendable {
         )
     }
 
+    /// Parses a diff and builds its initial row and gutter projection on one worker.
+    ///
+    /// - Parameters:
+    ///   - unifiedDiff: Raw Git unified-diff output.
+    ///   - truncated: Whether the host truncated the raw diff.
+    ///   - isBinary: Whether the file is binary.
+    ///   - totalLineCount: Number of lines in the full raw diff, when reported.
+    ///   - fileKind: Change kind controlling hidden-context expansion.
+    ///   - fontSize: Monospaced diff font size used to measure the gutter.
+    /// - Returns: A parsed document and display projection ready for publication.
+    public nonisolated func parsePresentationOffMain(
+        _ unifiedDiff: String,
+        truncated: Bool = false,
+        isBinary: Bool = false,
+        totalLineCount: Int? = nil,
+        fileKind: FileChangeKind,
+        fontSize: Double
+    ) async -> FileDiffPresentation {
+        let document = parse(
+            unifiedDiff,
+            truncated: truncated,
+            isBinary: isBinary,
+            totalLineCount: totalLineCount
+        )
+        return FileDiffPresentation.make(
+            document: document,
+            expansionState: DiffExpansionState(),
+            currentFileLines: nil,
+            fileKind: fileKind,
+            fontSize: fontSize
+        )
+    }
+
     /// Parses a raw Git diff with or without file headers.
     /// - Parameters:
     ///   - unifiedDiff: Raw Git unified-diff output.

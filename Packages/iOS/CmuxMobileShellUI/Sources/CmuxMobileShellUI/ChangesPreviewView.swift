@@ -9,7 +9,7 @@ public struct ChangesPreviewView: View {
     private let fixture = ChangesPreviewFixture()
     private let mode: String
     private let fontPreference: DiffFontPreference
-    @State private var cachedDocuments: [String: FileDiffDocument] = [:]
+    @State private var cachedPresentations: [String: FileDiffPresentation] = [:]
     @State private var fontSize: Double
     @State private var stateVariant: ChangesPreviewStateVariant = .loading
     @State private var navigationPath: [WorkspaceChangesNavigationRoute] = []
@@ -54,7 +54,7 @@ public struct ChangesPreviewView: View {
                 totals: displayedTotals,
                 files: displayedFiles,
                 listState: displayedState,
-                cachedDocuments: cachedDocuments,
+                cachedPresentations: cachedPresentations,
                 fontSize: fontSize,
                 listActions: listActions,
                 pagerActions: pagerActions,
@@ -86,25 +86,31 @@ public struct ChangesPreviewView: View {
             onRefresh: {
                 // An intentional bounded fixture delay keeps refresh/loading visible for pixel review.
                 try? await ContinuousClock().sleep(for: .milliseconds(150))
-                cachedDocuments = [:]
+                cachedPresentations = [:]
             },
             onRetry: { stateVariant = .loading }
         )
     }
 
     private var pagerActions: WorkspaceFileDiffPagerActions {
-        let loadDocument: @MainActor @Sendable (String, Bool, Int?) async throws -> FileDiffDocument = {
+        let loadDocument: @MainActor @Sendable (String, Bool, Int?) async throws -> FileDiffPresentation = {
             path,
             forceRefresh,
             _ in
-            if !forceRefresh, let cached = cachedDocuments[path] { return cached }
+            if !forceRefresh, let cached = cachedPresentations[path] { return cached }
             // An intentional bounded fixture delay makes the real skeleton observable.
             try await ContinuousClock().sleep(for: .milliseconds(150))
             guard let document = fixture.documents[path] else {
                 throw ChangesPreviewError.missingDocument
             }
-            cachedDocuments[path] = document
-            return document
+            let fileKind = fixture.files.first(where: { $0.path == path })?.kind ?? .unknown
+            let presentation = await FileDiffPresentation.prepareOffMain(
+                document: document,
+                fileKind: fileKind,
+                fontSize: fontSize
+            )
+            cachedPresentations[path] = presentation
+            return presentation
         }
         let loadCurrentLines: @MainActor @Sendable (String) async throws -> [String] = { _ in
             (1...80).map { "preview line \($0)" }

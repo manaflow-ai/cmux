@@ -91,7 +91,7 @@ import Testing
         #expect(policy.allowsRevisionSelection == allowsRevisionSelection)
     }
 
-    @Test func diffContinuationGrowsByFourAndSaturatesAtHostGuard() {
+    @Test func diffContinuationGrowsByFourAndSaturatesAtClientTransportCeiling() {
         let document = FileDiffDocument(
             hunks: [],
             truncated: true,
@@ -102,8 +102,9 @@ import Testing
 
         #expect(FileDiffContinuation(lineBudget: 6_000, document: document).nextLineBudget == 24_000)
         #expect(FileDiffContinuation(lineBudget: 24_000, document: document).nextLineBudget == 96_000)
-        #expect(FileDiffContinuation(lineBudget: 384_000, document: document).nextLineBudget == 1_000_000)
-        #expect(FileDiffContinuation(lineBudget: 1_000_000, document: document).nextLineBudget == 1_000_000)
+        #expect(FileDiffContinuation(lineBudget: 384_000, document: document).lineBudget == 96_000)
+        #expect(FileDiffContinuation(lineBudget: 384_000, document: document).nextLineBudget == 96_000)
+        #expect(FileDiffContinuation(lineBudget: Int.max, document: document).nextLineBudget == 96_000)
     }
 
     @Test func diffContinuationProvidesProgressAndLegacyFooterInputs() {

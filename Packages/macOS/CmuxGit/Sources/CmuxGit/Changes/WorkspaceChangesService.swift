@@ -327,7 +327,7 @@ public struct WorkspaceChangesService: Sendable {
             filesChanged: snapshot.totalFileCount,
             additions: snapshot.additions,
             deletions: snapshot.deletions,
-            truncated: snapshot.totalFileCount > snapshot.files.count
+            truncated: snapshot.truncated || snapshot.totalFileCount > snapshot.files.count
         )
     }
 

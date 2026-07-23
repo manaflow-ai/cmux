@@ -9,7 +9,7 @@ struct WorkspaceChangesNavigationView: View {
     let totals: ChangesTotals
     let files: [ChangedFileItem]
     let listState: WorkspaceChangesListState
-    let cachedDocuments: [String: FileDiffDocument]
+    let cachedPresentations: [String: FileDiffPresentation]
     let fontSize: Double
     let listActions: WorkspaceChangesListActions
     let pagerActions: WorkspaceFileDiffPagerActions
@@ -24,7 +24,7 @@ struct WorkspaceChangesNavigationView: View {
         totals: ChangesTotals,
         files: [ChangedFileItem],
         listState: WorkspaceChangesListState,
-        cachedDocuments: [String: FileDiffDocument],
+        cachedPresentations: [String: FileDiffPresentation],
         fontSize: Double,
         listActions: WorkspaceChangesListActions,
         pagerActions: WorkspaceFileDiffPagerActions,
@@ -37,7 +37,7 @@ struct WorkspaceChangesNavigationView: View {
         self.totals = totals
         self.files = files
         self.listState = listState
-        self.cachedDocuments = cachedDocuments
+        self.cachedPresentations = cachedPresentations
         self.fontSize = fontSize
         self.listActions = listActions
         self.pagerActions = pagerActions
@@ -71,7 +71,7 @@ struct WorkspaceChangesNavigationView: View {
                     WorkspaceFileDiffPagerView(
                         files: files,
                         initialSelectedIndex: index,
-                        cachedDocuments: cachedDocuments,
+                        cachedPresentations: cachedPresentations,
                         initialFontSize: fontSize,
                         actions: pagerActions
                     )

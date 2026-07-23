@@ -3,6 +3,7 @@ import Foundation
 /// Resolves Git scope and produces capped changed-file snapshots.
 struct WorkspaceChangesSnapshotLoader: Sendable {
     static let maximumFileCount = 500
+    static let maximumSnapshotCommandOutputByteCount = 32 * 1024 * 1024
 
     private let runner: any WorkspaceChangesGitRunning
     private let parser = WorkspaceChangesParser()
@@ -55,16 +56,19 @@ struct WorkspaceChangesSnapshotLoader: Sendable {
     func loadSnapshot(scope: WorkspaceChangesScope) -> WorkspaceChangesSnapshot? {
         guard let statusResult = run(
             ["diff", "-M", "--name-status", "-z", scope.diffBase, "--"],
-            repoRoot: scope.repoRoot
-        ), statusResult.exitCode == 0,
+            repoRoot: scope.repoRoot,
+            maximumOutputByteCount: Self.maximumSnapshotCommandOutputByteCount
+        ), succeededOrTruncated(statusResult),
         let numstatResult = run(
             ["diff", "-M", "--numstat", "-z", scope.diffBase, "--"],
-            repoRoot: scope.repoRoot
-        ), numstatResult.exitCode == 0,
+            repoRoot: scope.repoRoot,
+            maximumOutputByteCount: Self.maximumSnapshotCommandOutputByteCount
+        ), succeededOrTruncated(numstatResult),
         let untrackedResult = run(
             ["ls-files", "--others", "--exclude-standard", "-z"],
-            repoRoot: scope.repoRoot
-        ), untrackedResult.exitCode == 0 else { return nil }
+            repoRoot: scope.repoRoot,
+            maximumOutputByteCount: Self.maximumSnapshotCommandOutputByteCount
+        ), succeededOrTruncated(untrackedResult) else { return nil }
 
         let statsByPath = Dictionary(
             uniqueKeysWithValues: parser.numstatEntries(from: numstatResult.output).map { ($0.path, $0) }
@@ -83,12 +87,22 @@ struct WorkspaceChangesSnapshotLoader: Sendable {
         let trackedByPath = Dictionary(uniqueKeysWithValues: trackedFiles.map { ($0.path, $0) })
         let allPaths = Set(trackedByPath.keys).union(parser.untrackedPaths(from: untrackedResult.output))
         let cappedPaths = allPaths.sorted().prefix(Self.maximumFileCount)
+        let cappedUntrackedPaths = cappedPaths.filter { trackedByPath[$0] == nil }
+        guard let inspectedUntrackedFiles = untrackedInspector.inspect(
+            paths: Array(cappedUntrackedPaths),
+            repoRoot: scope.repoRoot
+        ) else {
+            return nil
+        }
+        let untrackedByPath = Dictionary(
+            uniqueKeysWithValues: inspectedUntrackedFiles.map { ($0.path, $0) }
+        )
         var files: [WorkspaceChangedFile] = []
         files.reserveCapacity(cappedPaths.count)
         for path in cappedPaths {
             if let tracked = trackedByPath[path] {
                 files.append(tracked)
-            } else if let untracked = untrackedInspector.inspect(path: path, repoRoot: scope.repoRoot) {
+            } else if let untracked = untrackedByPath[path] {
                 files.append(untracked)
             } else {
                 return nil
@@ -102,7 +116,10 @@ struct WorkspaceChangesSnapshotLoader: Sendable {
             totalFileCount: allPaths.count,
             additions: trackedFiles.reduce(0) { $0 + $1.additions }
                 + untrackedFiles.reduce(0) { $0 + $1.additions },
-            deletions: trackedFiles.reduce(0) { $0 + $1.deletions }
+            deletions: trackedFiles.reduce(0) { $0 + $1.deletions },
+            truncated: statusResult.standardOutputWasTruncated
+                || numstatResult.standardOutputWasTruncated
+                || untrackedResult.standardOutputWasTruncated
         )
     }
 
@@ -141,5 +158,21 @@ struct WorkspaceChangesSnapshotLoader: Sendable {
             arguments: arguments,
             in: URL(fileURLWithPath: repoRoot, isDirectory: true)
         )
+    }
+
+    private func run(
+        _ arguments: [String],
+        repoRoot: String,
+        maximumOutputByteCount: Int
+    ) -> WorkspaceChangesGitResult? {
+        try? runner.run(
+            arguments: arguments,
+            in: URL(fileURLWithPath: repoRoot, isDirectory: true),
+            maximumOutputByteCount: maximumOutputByteCount
+        )
+    }
+
+    private func succeededOrTruncated(_ result: WorkspaceChangesGitResult) -> Bool {
+        result.exitCode == 0 || result.standardOutputWasTruncated
     }
 }
