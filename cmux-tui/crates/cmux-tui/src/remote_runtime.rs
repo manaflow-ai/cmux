@@ -1285,6 +1285,50 @@ mod tests {
         }
     }
 
+    #[derive(Default)]
+    struct AuthRecordingReconnectRouteAttempt {
+        auth: std::sync::Mutex<Vec<AuthKind>>,
+    }
+
+    #[async_trait]
+    impl ReconnectRouteAttempt<String> for AuthRecordingReconnectRouteAttempt {
+        async fn connect(
+            &self,
+            _index: usize,
+            request: ConnectRequest,
+            auth: AuthKind,
+        ) -> Result<String, ProviderError> {
+            self.auth.lock().unwrap().push(auth);
+            Ok(request.endpoint.to_string())
+        }
+    }
+
+    #[tokio::test]
+    async fn invitation_reconnect_dials_with_enrolled_auth() {
+        let routes = vec![resolved_test_route(
+            "wss://network.example/v1/link",
+            SupportedClientAuthModes::DeviceOnly,
+        )];
+        let invitation = ClientAuthMode::Invitation {
+            id: "invitation".into(),
+            secret: zeroize::Zeroizing::new([17; 32]),
+        };
+        let attempt = AuthRecordingReconnectRouteAttempt::default();
+
+        select_reconnect_route(
+            &routes,
+            0,
+            SessionId([16; 16]),
+            LanePolicy::Single,
+            followup_auth_kind(&invitation),
+            &attempt,
+        )
+        .await
+        .unwrap();
+
+        assert_eq!(attempt.auth.into_inner().unwrap(), [AuthKind::Enrolled]);
+    }
+
     #[test]
     fn route_auth_capability_is_derived_from_the_local_provider_registry() {
         let providers = test_providers(SshProviderConfig::default());
