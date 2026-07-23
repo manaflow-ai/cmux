@@ -1592,6 +1592,7 @@
               "quit",
               "toggleSidebar",
               "newTab",
+              "newLocalWorkspace",
               "newBrowserWorkspace",
               "openFolder",
               "reopenPreviousSession",

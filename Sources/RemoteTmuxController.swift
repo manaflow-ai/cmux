@@ -1,3 +1,4 @@
+import AppKit
 import Foundation
 import CmuxSettings
 import OSLog
@@ -287,12 +288,15 @@ final class RemoteTmuxController {
 
     /// Mirrors a single tmux session into a new workspace in `tabManager` (idempotent).
     /// `sessionId` seeds discovery's stable id for de-dup before the stream reports it.
+    /// `select` selects the new workspace on creation (a user-initiated New
+    /// Workspace); bulk attach keeps the default so discovery never steals focus.
     @discardableResult
     func mirrorSession(
         host: RemoteTmuxHost,
         sessionName: String,
         sessionId: Int? = nil,
-        into tabManager: TabManager
+        into tabManager: TabManager,
+        select: Bool = false
     ) throws -> Bool {
         let key = Self.connectionKey(host: host, sessionName: sessionName)
         guard sessionMirrors[key] == nil else { return false }
@@ -300,6 +304,8 @@ final class RemoteTmuxController {
         // failed connection doesn't leave an orphaned empty mirror workspace in
         // the sidebar.
         let connection = try attach(host: host, sessionName: sessionName)
+        // Always create unselected: selection fires visibility/sizing observers,
+        // which must see a fully wired mirror, not a half-initialized workspace.
         let workspace = tabManager.addWorkspace(
             title: sessionName,
             select: false,
@@ -324,10 +330,120 @@ final class RemoteTmuxController {
             onControlPaneRemoved: TerminalController.remoteTmuxControlPaneRemovalHandler(),
             onControlSurfaceRemoved: TerminalController.remoteTmuxControlSurfaceRemovalHandler()
         )
+        if select {
+            tabManager.selectWorkspace(workspace)
+        }
         return true
     }
 
     // MARK: - Create / destroy propagation (P5)
+
+    /// The live-mirror host for `activeTabId`, or nil (create locally). See
+    /// ``newSessionHost(activeTabId:entries:)`` for the truth table.
+    private func newSessionHost(activeTabId: UUID?) -> RemoteTmuxHost? {
+        Self.newSessionHost(
+            activeTabId: activeTabId,
+            entries: sessionMirrors.values.map { (host: $0.host, workspaceId: $0.mirroredWorkspaceId) }
+        )
+    }
+
+    /// Whether a New Workspace request in `manager` would spawn a REMOTE tmux
+    /// session rather than a local workspace. Non-mutating twin of
+    /// ``handleNewWorkspaceRequested(in:)`` — the "New Local Workspace" menu
+    /// item's visibility reads it, so the item appears exactly when plain New
+    /// Workspace would go remote.
+    func wouldNewWorkspaceSpawnRemote(in manager: TabManager) -> Bool {
+        newSessionHost(activeTabId: manager.selectedTab?.id) != nil
+    }
+
+    /// New Workspace requested in `manager`: when its ACTIVE workspace is a live
+    /// session mirror, create a new detached tmux session on that mirror's host and
+    /// mirror it into the same manager, returning `true` (the caller suppresses
+    /// local creation). `false` — active workspace isn't a mirror — means the
+    /// caller creates a plain local workspace.
+    ///
+    /// The host comes from the active workspace's own mirror (see
+    /// ``newSessionHost(activeTabId:entries:)``), never from window-level state:
+    /// a window routinely holds mirrors from several hosts plus local workspaces,
+    /// and each must route by what the user is actually sitting on.
+    func handleNewWorkspaceRequested(in manager: TabManager) -> Bool {
+        guard let activeTabId = manager.selectedTab?.id,
+              let host = newSessionHost(activeTabId: activeTabId) else {
+            return false
+        }
+        newSessionRoutingTask = Task { @MainActor in
+            do {
+                // Create a detached session and read back its (auto-assigned)
+                // name, then attach to it like any discovered session.
+                let result = try await self.transport(for: host).runTmux(
+                    ["new-session", "-d", "-P", "-F", "#{session_name}"]
+                )
+                // Revalidate across the ssh round trip: the manager must still be
+                // a REGISTERED main-window context. `windowId(for:)` would also
+                // answer for a closed window's recoverable route and resurrect a
+                // dead manager, so it is deliberately not used here. On a closed
+                // window, skip — the detached session is picked up on the next
+                // attach.
+                guard AppDelegate.shared?.mainWindowContexts.values
+                    .contains(where: { $0.tabManager === manager }) == true else { return }
+                let name = result.stdout.trimmingCharacters(in: .whitespacesAndNewlines)
+                guard result.succeeded, !name.isEmpty else {
+                    self.reportNewSessionFailure(host, result.stderr, manager)
+                    return
+                }
+                // The user may have moved on to another tab while the round trip
+                // ran (mirror, but don't steal selection).
+                let select = manager.selectedTab?.id == activeTabId
+                // false = an attach for this exact host+name raced us and already
+                // mirrored it (into whichever manager it targeted); nothing to add.
+                _ = try self.mirrorSession(host: host, sessionName: name, into: manager, select: select)
+            } catch {
+                #if DEBUG
+                cmuxDebugLog("remote-tmux: new-session on active mirror's host failed: \(error)")
+                #endif
+                guard AppDelegate.shared?.mainWindowContexts.values
+                    .contains(where: { $0.tabManager === manager }) == true else { return }
+                self.reportNewSessionFailure(host, error.localizedDescription, manager)
+            }
+        }
+        return true
+    }
+
+    /// The in-flight routed New Workspace request, if any. Tests await it so the
+    /// ssh round trip and mirror creation finish inside the test body.
+    private(set) var newSessionRoutingTask: Task<Void, Never>?
+
+    /// How a failed routed New Workspace reaches the user (host, failure detail,
+    /// requesting manager). Local creation stays suppressed either way — a mirror
+    /// workspace's Cmd+N must not quietly fall back to a local workspace — so the
+    /// failure has to be visible. Settable so tests can capture it instead of
+    /// presenting an alert.
+    lazy var reportNewSessionFailure: (RemoteTmuxHost, String, TabManager) -> Void = {
+        [weak self] host, detail, manager in
+        self?.presentNewSessionFailureAlert(host: host, detail: detail, manager: manager)
+    }
+
+    private func presentNewSessionFailureAlert(host: RemoteTmuxHost, detail: String, manager: TabManager) {
+        let alert = NSAlert()
+        alert.alertStyle = .warning
+        alert.messageText = String(
+            localized: "dialog.remoteTmux.newSessionFailed.title",
+            defaultValue: "Couldn't Create a tmux Session on \(host.destination)"
+        )
+        let trimmedDetail = detail.trimmingCharacters(in: .whitespacesAndNewlines)
+        alert.informativeText = trimmedDetail.isEmpty
+            ? String(
+                localized: "dialog.remoteTmux.newSessionFailed.message",
+                defaultValue: "tmux new-session failed on the remote host. No workspace was created."
+            )
+            : trimmedDetail
+        alert.addButton(withTitle: String(localized: "common.ok", defaultValue: "OK"))
+        if let window = manager.window ?? NSApp.keyWindow ?? NSApp.mainWindow {
+            alert.beginSheetModal(for: window, completionHandler: nil)
+        } else {
+            alert.runModal()
+        }
+    }
 
     /// A mirrored workspace was renamed → `rename-session` on the remote so the
     /// tmux session name tracks the cmux workspace title.
