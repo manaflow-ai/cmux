@@ -122,7 +122,7 @@ extension CMUXCLI {
 
     static func codexFireAndForgetAgentHookShellCommand(_ command: String, for def: AgentHookDef) -> String {
         let routedArguments = command.hasPrefix("cmux ") ? String(command.dropFirst("cmux ".count)) : command
-        let captureTime = agentHookCaptureTimeShell(lockStem: "cmux-codex-hook-time")
+        let captureTime = agentHookCaptureTimeShell(lockStem: "cmux-agent-hook-time")
         let runner = "payload=\"$1\"; shift; \"$@\" <\"$payload\" >/dev/null 2>&1 & child=\"$!\"; ( sleep 30; kill \"$child\" 2>/dev/null || true ) & watchdog=\"$!\"; wait \"$child\" 2>/dev/null || true; kill \"$watchdog\" 2>/dev/null || true; rm -f \"$payload\""
         return [
             "cmux_cli=\"${CMUX_BUNDLED_CLI_PATH:-}\"",

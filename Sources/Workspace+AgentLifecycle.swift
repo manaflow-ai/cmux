@@ -59,7 +59,10 @@ extension Workspace {
         guard setAgentLifecycle(key: statusKey, panelId: panelId, lifecycle: .idle, agentEventTime: eventTime) else {
             return
         }
-        guard let current = statusEntries[statusKey] else { return }
+        guard let current = statusEntries[statusKey],
+              current.agentOwnerPanelID == nil || current.agentOwnerPanelID == panelId else {
+            return
+        }
         _ = upsertSidebarStatusEntry(
             key: statusKey,
             value: String(localized: "agent.generic.notification.status.idle", defaultValue: "Idle"),

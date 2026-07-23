@@ -116,7 +116,10 @@ extension ControlCommandCoordinator {
         guard let normalized = sidebarNormalizedOptionValue(raw) else {
             return .absent
         }
-        guard let value = TimeInterval(normalized), value.isFinite, value > 0 else {
+        guard let value = TimeInterval(normalized),
+              value.isFinite,
+              value >= 946_684_800,
+              value <= 4_102_444_800 else {
             return .invalid(normalized)
         }
         return .valid(value)
@@ -127,9 +130,9 @@ extension ControlCommandCoordinator {
         context: (any ControlCommandContext)?
     ) -> String {
         // Standalone package callers have no app localization bundle; preserve
-        // the legacy English wire reply only for that non-production fallback.
+        // a stable English wire reply only for that non-production fallback.
         context?.controlSidebarInvalidAgentEventTimeError(raw)
-            ?? "ERROR: Invalid agent event time '\(raw)' - must be a positive finite number"
+            ?? "ERROR: Invalid agent event time '\(raw)' - must be between 2000-01-01 and 2100-01-01 UTC"
     }
 
     /// The shared `clear_status`/`clear_meta` body (parse + bus enqueue; zero

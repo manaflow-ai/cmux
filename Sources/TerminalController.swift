@@ -13808,7 +13808,10 @@ class TerminalController {
         guard let normalized = normalizedOptionValue(raw) else {
             return .absent
         }
-        guard let value = TimeInterval(normalized), value.isFinite, value > 0 else {
+        guard let value = TimeInterval(normalized),
+              value.isFinite,
+              value >= 946_684_800,
+              value <= 4_102_444_800 else {
             return .invalid(normalized)
         }
         return .valid(value)
@@ -13817,7 +13820,7 @@ class TerminalController {
     nonisolated func invalidAgentEventTimeError(_ raw: String) -> String {
         let format = String(
             localized: "socket.agentEventTime.error.invalid",
-            defaultValue: "ERROR: Invalid agent event time '%@' - must be a positive finite number"
+            defaultValue: "ERROR: Invalid agent event time '%@' - must be between 2000-01-01 and 2100-01-01 UTC"
         )
         return String(format: format, locale: Locale.current, raw)
     }
