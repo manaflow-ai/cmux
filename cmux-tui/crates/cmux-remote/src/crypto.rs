@@ -293,6 +293,10 @@ impl FrameLink for SecureLink {
         self.maximum_plaintext
     }
 
+    fn terminal_control_drain_active(&self) -> bool {
+        self.inner.terminal_control_drain_active()
+    }
+
     async fn send(&self, frame: Bytes) -> Result<(), LinkError> {
         if frame.len() > self.maximum_plaintext {
             return Err(LinkError::FrameTooLarge {
