@@ -35,14 +35,16 @@ class PiCmuxCommandDispatcher {
   private feedDrainWaiters = new Map<string, Array<() => void>>();
   private feedSessionQueue: Array<string | null> = [];
   private scheduledFeedSessions = new Set<string | null>();
-  private surfaceState: SurfaceDispatchState = "unknown";
-  private didWarnSurfaceUnavailable = false;
+  private unavailableSessions = new Set<string>();
   private activeFeeds = new Map<string | null, {
     cancellation: PiCommandCancellation;
     command: PiFeedCommand;
   }>();
-  get canDispatch(): boolean {
-    return this.surfaceState !== "unavailable";
+  canDispatch(sessionId: string | null): boolean {
+    return !sessionId || !this.unavailableSessions.has(sessionId);
+  }
+  releaseSession(sessionId: string): void {
+    this.unavailableSessions.delete(sessionId);
   }
 
   run(
@@ -56,8 +58,11 @@ class PiCmuxCommandDispatcher {
     return scheduled;
   }
   enqueueFeed(key: string, command: PiFeedCommand): void {
-    if (!this.canDispatch) return;
     const sessionId = command.context.sessionId;
+    if (!this.canDispatch(sessionId)) {
+      if (command.terminal) command.onFailure?.();
+      return;
+    }
     const existing = this.pendingFeedCommands.get(key);
     if (existing) {
       // Once a completion is pending for a tool, never replace it with a late start event.
@@ -183,10 +188,6 @@ class PiCmuxCommandDispatcher {
     for (const resolve of waiters) resolve();
   }
 
-  private resolveAllDrainedFeedSessions(): void {
-    for (const sessionId of this.feedDrainWaiters.keys()) this.resolveDrainedFeedSession(sessionId);
-  }
-
   private evictPendingStartForCompletion(sessionId: string | null): boolean {
     for (const key of this.pendingFeedKeysBySession.get(sessionId) || []) {
       if (!this.pendingFeedCommands.get(key)?.terminal) {
@@ -285,6 +286,11 @@ class PiCmuxCommandDispatcher {
     this.resolveDrainedFeedSession(sessionId);
   }
   private scheduleFeed(sessionId: string | null): void {
+    if (sessionId && !this.canDispatch(sessionId)) {
+      this.failTerminalFeedForSession(sessionId);
+      this.discardFeedForSession(sessionId);
+      return;
+    }
     if (!this.activeFeeds.has(sessionId) && this.queuedFeedCount(sessionId) > 0 &&
         !this.scheduledFeedSessions.has(sessionId)) {
       this.scheduledFeedSessions.add(sessionId);
@@ -294,15 +300,6 @@ class PiCmuxCommandDispatcher {
   }
 
   private startScheduledFeeds(): void {
-    if (!this.canDispatch) {
-      this.pendingFeedCommands.clear();
-      this.pendingFeedKeysBySession.clear();
-      this.priorityFeedCommands.clear();
-      this.feedSessionQueue = [];
-      this.scheduledFeedSessions.clear();
-      this.resolveAllDrainedFeedSessions();
-      return;
-    }
     while (this.activeFeeds.size < PiCmuxCommandDispatcher.maxActiveFeedCommands) {
       const sessionId = this.feedSessionQueue.shift();
       if (sessionId === undefined) return;
@@ -321,7 +318,13 @@ class PiCmuxCommandDispatcher {
         if (result.ok && command.context.sessionId) {
           rememberSurfaceTarget(this, command.context.sessionId, result);
         }
-        if (result.error instanceof Error && result.error.message.includes("timed out after")) {
+        if (result.surfaceUnavailable) {
+          const sessionId = command.context.sessionId;
+          if (sessionId) {
+            this.failTerminalFeedForSession(sessionId);
+            this.discardFeedForSession(sessionId);
+          }
+        } else if (result.error instanceof Error && result.error.message.includes("timed out after")) {
           const sessionId = command.context.sessionId;
           if (sessionId) {
             this.failTerminalFeedForSession(sessionId);
@@ -347,15 +350,16 @@ class PiCmuxCommandDispatcher {
     context: PiExtensionContextSnapshot,
     cancellation?: PiCommandCancellation,
   ): Promise<CommandResult> {
-    if (this.surfaceState === "unavailable") {
+    const sessionId = context.sessionId;
+    if (!this.canDispatch(sessionId)) {
       return this.surfaceUnavailableResult();
     }
 
     const result = await this.spawnCmux(args, cwd, input, cancellation);
     if (this.isSurfaceResolutionFailure(result)) {
-      this.surfaceState = "unavailable";
-      if (!this.didWarnSurfaceUnavailable) {
-        this.didWarnSurfaceUnavailable = true;
+      const shouldWarn = !sessionId || !this.unavailableSessions.has(sessionId);
+      if (sessionId) this.unavailableSessions.add(sessionId);
+      if (shouldWarn) {
         warn(context, "cmux hook command failed", {
           status: result.status,
           stderr_available: result.stderr.trim().length > 0,
@@ -365,9 +369,6 @@ class PiCmuxCommandDispatcher {
         });
       }
       return { ...result, surfaceUnavailable: true };
-    }
-    if (result.ok && this.surfaceState === "unknown") {
-      this.surfaceState = "available";
     }
     return result;
   }

@@ -480,8 +480,6 @@ function cmuxExecutable(): string {
   return process.env.CMUX_PI_CMUX_BIN || "cmux";
 }
 
-type SurfaceDispatchState = "unknown" | "available" | "unavailable";
-
 interface PiFeedCommand {
   readonly args: string[];
   readonly cwd: string;

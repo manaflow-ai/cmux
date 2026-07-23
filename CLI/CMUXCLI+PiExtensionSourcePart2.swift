@@ -81,6 +81,7 @@ function releaseSessionRuntime(
   sessionStates: Map<string, SessionState>,
   sessionId: string,
 ): void {
+  dispatcher.releaseSession(sessionId);
   sessionStates.delete(sessionId);
   surfaceTargetsFor(dispatcher).delete(sessionId);
 }
@@ -266,9 +267,9 @@ function sendFeed(
   event: unknown,
 ): void {
   if (process.env.CMUX_PI_HOOKS_DISABLED === "1") return;
-  if (!dispatcher.canDispatch) return;
   const sessionId = context.sessionId;
   if (!sessionId) return;
+  if (!dispatcher.canDispatch(sessionId)) return;
   const target = surfaceTargetArgs(dispatcher, sessionId);
   if (!target) return;
   const state = stateFor(sessionStates, sessionId);

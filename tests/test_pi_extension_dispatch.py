@@ -1704,7 +1704,7 @@ process.env.CMUX_WORKSPACE_ID = "00000000-0000-0000-0000-000000009673";
 process.env.CMUX_SURFACE_ID = "00000000-0000-0000-0000-000000009672";
 await handlers.get("before_agent_start")({ prompt: "new target" }, ctx);
 
-const probeDispatcher = {};
+const probeDispatcher = { releaseSession() {} };
 const probeStates = new Map([["probe-session", { stopped: true }]]);
 mod.surfaceTargetsFor(probeDispatcher).set("probe-session", ["--surface", "old"]);
 mod.releaseSessionRuntime(probeDispatcher, probeStates, "probe-session");

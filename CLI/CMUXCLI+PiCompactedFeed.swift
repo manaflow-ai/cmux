@@ -85,7 +85,7 @@ extension CMUXCLI {
 
         let rawWorkspace = optionValue(commandArgs, name: "--workspace")
             ?? ProcessInfo.processInfo.environment["CMUX_WORKSPACE_ID"]
-        let workspace = rawWorkspace?.trimmingCharacters(in: .whitespacesAndNewlines)
+        let workspace = normalizedHandleValue(rawWorkspace)
         if isUUID(surface), workspace == nil || workspace.map(isUUID) == true {
             return (workspace, surface)
         }
@@ -114,7 +114,7 @@ extension CMUXCLI {
         }
         let rawWorkspace = optionValue(commandArgs, name: "--workspace")
             ?? ProcessInfo.processInfo.environment["CMUX_WORKSPACE_ID"]
-        let trimmedWorkspace = rawWorkspace?.trimmingCharacters(in: .whitespacesAndNewlines)
+        let trimmedWorkspace = normalizedHandleValue(rawWorkspace)
         if let workspace = trimmedWorkspace {
             guard isUUID(workspace)
                 || Int(workspace) != nil
