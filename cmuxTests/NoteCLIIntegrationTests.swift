@@ -133,6 +133,10 @@ struct NoteCLIIntegrationTests {
         let cases: [(environment: [String: String], sessionID: String, agentName: String)] = [
             (["CODEX_THREAD_ID": "codex-thread"], "codex-thread", "codex"),
             (["CODEX_SESSION_ID": "codex-session"], "codex-session", "codex"),
+            ([
+                "CODEX_THREAD_ID": "codex-consistent",
+                "CODEX_SESSION_ID": "codex-consistent",
+            ], "codex-consistent", "codex"),
             (["CLAUDE_CODE_SESSION_ID": "claude-session"], "claude-session", "claude"),
             (["OPENCODE_SESSION_ID": "opencode-session"], "opencode-session", "opencode"),
         ]
@@ -181,29 +185,45 @@ struct NoteCLIIntegrationTests {
     @Test("Conflicting native agent identities never select an inherited parent session")
     func conflictingNativeAgentIdentitiesFailClosed() throws {
         let fileManager = FileManager.default
-        let projectRoot = fileManager.temporaryDirectory
+        let testRoot = fileManager.temporaryDirectory
             .appendingPathComponent("cmux-note-ambiguous-session-\(UUID().uuidString)", isDirectory: true)
-        try fileManager.createDirectory(at: projectRoot, withIntermediateDirectories: true)
-        defer { try? fileManager.removeItem(at: projectRoot) }
+        try fileManager.createDirectory(at: testRoot, withIntermediateDirectories: true)
+        defer { try? fileManager.removeItem(at: testRoot) }
         let cliPath = try BundledCLITestSupport.bundledCLIPath(
             for: BundledCLILinkageTests.self
         )
-
-        let result = try runCLI(
-            cliPath,
+        let conflictingEnvironments: [[String: String]] = [
             [
-                "note", "write", "plan", "--text", "private",
-                "--project", projectRoot.path,
-            ],
-            environment: [
                 "CMUX_AGENT_LAUNCH_KIND": "codex",
                 "CODEX_THREAD_ID": "inherited-parent-codex",
                 "CLAUDE_CODE_SESSION_ID": "current-child-claude",
-            ]
-        )
+            ],
+            [
+                "CMUX_AGENT_LAUNCH_KIND": "codex",
+                "CODEX_THREAD_ID": "inherited-parent-codex",
+                "CODEX_SESSION_ID": "current-child-codex",
+            ],
+            [
+                "CMUX_AGENT_LAUNCH_KIND": "codex",
+                "CLAUDE_CODE_SESSION_ID": "current-child-claude",
+            ],
+        ]
 
-        #expect(result.status == 2)
-        #expect(!fileManager.fileExists(atPath: projectRoot.appendingPathComponent(".cmux").path))
+        for (index, environment) in conflictingEnvironments.enumerated() {
+            let projectRoot = testRoot.appendingPathComponent("case-\(index)", isDirectory: true)
+            try fileManager.createDirectory(at: projectRoot, withIntermediateDirectories: true)
+            let result = try runCLI(
+                cliPath,
+                [
+                    "note", "write", "plan", "--text", "private",
+                    "--project", projectRoot.path,
+                ],
+                environment: environment
+            )
+
+            #expect(result.status == 2)
+            #expect(!fileManager.fileExists(atPath: projectRoot.appendingPathComponent(".cmux").path))
+        }
     }
 
     private func runCLI(
