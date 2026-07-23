@@ -21,7 +21,10 @@ struct ArtifactGitIgnoreSafetyTests {
         await #expect(
             throws: ArtifactStoreError.gitPrivacyUnavailable(gitDirectory.path)
         ) {
-            _ = try await LocalArtifactRepository().snapshot(projectRoot: project)
+            let repository = LocalArtifactRepository()
+            try await repository.prepareForMutation(
+                paths: ArtifactStorePaths(projectRoot: project)
+            )
         }
 
         #expect(!FileManager.default.fileExists(
@@ -48,7 +51,10 @@ struct ArtifactGitIgnoreSafetyTests {
         )
 
         await #expect(throws: (any Error).self) {
-            _ = try await LocalArtifactRepository().snapshot(projectRoot: root)
+            let repository = LocalArtifactRepository()
+            try await repository.prepareForMutation(
+                paths: ArtifactStorePaths(projectRoot: root)
+            )
         }
 
         #expect(try String(contentsOf: outsideExclude, encoding: .utf8) == "preserve\n")
@@ -73,7 +79,10 @@ struct ArtifactGitIgnoreSafetyTests {
         )
 
         await #expect(throws: (any Error).self) {
-            _ = try await LocalArtifactRepository().snapshot(projectRoot: root)
+            let repository = LocalArtifactRepository()
+            try await repository.prepareForMutation(
+                paths: ArtifactStorePaths(projectRoot: root)
+            )
         }
 
         #expect(try String(contentsOf: outsideExclude, encoding: .utf8) == "preserve\n")

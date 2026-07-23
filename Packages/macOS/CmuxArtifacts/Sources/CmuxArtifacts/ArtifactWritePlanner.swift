@@ -13,6 +13,40 @@ struct ArtifactWritePlanner {
         context: ArtifactCaptureContext,
         paths: ArtifactStorePaths
     ) throws -> ArtifactWritePlan {
+        try plan(
+            prepared: prepared,
+            existingByDigest: existingByDigest,
+            context: context,
+            paths: paths,
+            allowsIncompleteDiscoveryFallback: false
+        )
+    }
+
+    /// Plans potential writes without deduplication for pre-lease Git authorization.
+    ///
+    /// If bounded marker discovery is incomplete, this plan authorizes only the
+    /// deterministic fallback. The authoritative plan must still be its subset.
+    func conservativePlan(
+        prepared: [PreparedArtifactImport],
+        context: ArtifactCaptureContext,
+        paths: ArtifactStorePaths
+    ) throws -> ArtifactWritePlan {
+        try plan(
+            prepared: prepared,
+            existingByDigest: [:],
+            context: context,
+            paths: paths,
+            allowsIncompleteDiscoveryFallback: true
+        )
+    }
+
+    private func plan(
+        prepared: [PreparedArtifactImport],
+        existingByDigest: [String: URL],
+        context: ArtifactCaptureContext,
+        paths: ArtifactStorePaths,
+        allowsIncompleteDiscoveryFallback: Bool
+    ) throws -> ArtifactWritePlan {
         let resolver = ArtifactPathResolver()
         let recorder = ArtifactProvenanceRecorder(
             fileManager: fileManager,
@@ -32,11 +66,12 @@ struct ArtifactWritePlanner {
                 continue
             }
             if captureResolution == nil {
-                captureResolution = try ArtifactCaptureDirectoryFinder(
-                    fileManager: fileManager,
-                    decoder: decoder,
-                    nodeBudget: nodeBudget
-                ).resolve(paths: paths, context: context, pathResolver: resolver)
+                captureResolution = try resolveCaptureDirectory(
+                    paths: paths,
+                    context: context,
+                    pathResolver: resolver,
+                    allowsIncompleteDiscoveryFallback: allowsIncompleteDiscoveryFallback
+                )
             }
             guard let captureResolution else { continue }
             let destination = resolver.uniqueDestination(
@@ -60,6 +95,29 @@ struct ArtifactWritePlanner {
             copyDestinationBySnapshotPath: copyDestinationBySnapshotPath,
             captureResolution: captureResolution
         )
+    }
+
+    private func resolveCaptureDirectory(
+        paths: ArtifactStorePaths,
+        context: ArtifactCaptureContext,
+        pathResolver: ArtifactPathResolver,
+        allowsIncompleteDiscoveryFallback: Bool
+    ) throws -> ArtifactCaptureDirectoryResolution {
+        do {
+            return try ArtifactCaptureDirectoryFinder(
+                fileManager: fileManager,
+                decoder: decoder,
+                nodeBudget: nodeBudget
+            ).resolve(paths: paths, context: context, pathResolver: pathResolver)
+        } catch ArtifactStoreError.scanIncomplete where allowsIncompleteDiscoveryFallback {
+            return ArtifactCaptureDirectoryResolution(
+                directory: pathResolver.contentDirectory(
+                    paths: paths,
+                    context: context,
+                    kind: .artifacts
+                )
+            )
+        }
     }
 
     private func missingMarkerURLs(

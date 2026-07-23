@@ -88,11 +88,10 @@ extension CMUXCLI {
 
     private func canonicalProjectFilesAgentName(_ value: String?) -> String? {
         guard let value else { return nil }
-        switch value.lowercased() {
-        case "codexteams", "codex-teams": return "codex"
-        case "claudeteams", "claude-teams": return "claude"
-        default: return value.lowercased()
-        }
+        let normalized = value.lowercased()
+        return CmuxTaskManagerCodingAgentDefinition.builtIns.first {
+            $0.launchKinds.contains(normalized)
+        }?.id ?? normalized
     }
 
     private func ambiguousProjectFilesAgentIdentityError() -> CLIError {

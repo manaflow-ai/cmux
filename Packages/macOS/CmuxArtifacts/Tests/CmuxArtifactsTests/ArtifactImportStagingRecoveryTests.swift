@@ -6,7 +6,7 @@ import Testing
 
 @Suite("Artifact import staging recovery")
 struct ArtifactImportStagingRecoveryTests {
-    @Test("Preparation reclaims an unlocked batch without deleting an active batch")
+    @Test("Reads preserve staging while preparation reclaims only unlocked batches")
     func reclaimsOrphanWhilePreservingActiveBatch() async throws {
         let root = try ArtifactTestSupport.temporaryDirectory()
         defer { ArtifactTestSupport.remove(root) }
@@ -33,7 +33,15 @@ struct ArtifactImportStagingRecoveryTests {
         }
         #expect(flock(activeDescriptor, LOCK_EX | LOCK_NB) == 0)
 
-        _ = try await LocalArtifactRepository().snapshot(projectRoot: root)
+        let repository = LocalArtifactRepository()
+        _ = try await repository.snapshot(projectRoot: root)
+
+        #expect(FileManager.default.fileExists(atPath: orphan.path))
+        #expect(FileManager.default.fileExists(atPath: active.path))
+
+        try await repository.prepareForMutation(
+            paths: ArtifactStorePaths(projectRoot: root)
+        )
 
         #expect(!FileManager.default.fileExists(atPath: orphan.path))
         #expect(FileManager.default.fileExists(atPath: active.path))

@@ -85,15 +85,16 @@ struct ArtifactGitBatchingTests {
             sessionID: "session"
         )
 
-        let conservative = try planner.plan(
+        let conservative = try planner.conservativePlan(
             prepared: [prepared],
-            existingByDigest: [:],
             context: context,
             paths: paths
         )
         let refined = try planner.plan(
             prepared: [prepared],
-            existingByDigest: ["digest": paths.filesystemRoot.appendingPathComponent("moved.md")],
+            existingByDigest: [
+                "digest": paths.filesystemRoot.appendingPathComponent("moved.md"),
+            ],
             context: context,
             paths: paths
         )

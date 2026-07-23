@@ -12,7 +12,7 @@ extension LocalArtifactRepository {
         guard !candidates.isEmpty else { return [] }
         let paths = ArtifactStorePaths(projectRoot: context.projectRoot)
         do {
-            try prepare(paths: paths)
+            try prepareForMutation(paths: paths)
         } catch let error as ArtifactStoreError {
             return candidates.map { _ in .rejected(error) }
         } catch {
@@ -122,27 +122,25 @@ extension LocalArtifactRepository {
         }
         let authorizedWritePlan: ArtifactWritePlan
         do {
-            let preflightIndex = try buildDeduplicationIndex(
+            authorizedWritePlan = try makeConservativeWritePlan(
                 prepared: orderedPrepared.map(\.value),
-                paths: paths,
-                configuration: configuration
-            )
-            authorizedWritePlan = try makeWritePlan(
-                prepared: orderedPrepared.map(\.value),
-                existingByDigest: preflightIndex,
                 context: context,
                 paths: paths
             )
-            guard await privacyValidator.permits(destinations: authorizedWritePlan.destinations) else {
+            guard await privacyValidator.permits(
+                destinations: authorizedWritePlan.destinations
+            ) else {
                 for (index, _) in orderedPrepared {
-                    attempts[index] = .rejected(.gitPrivacyUnavailable(paths.filesystemRoot.path))
+                    attempts[index] = .rejected(
+                        .gitPrivacyUnavailable(paths.filesystemRoot.path)
+                    )
                 }
                 return finalizedAttempts(attempts, candidates: candidates)
             }
         } catch {
             let rejection = (error as? ArtifactStoreError)
                 ?? ArtifactStoreError.pathOutsideStore(paths.filesystemRoot.path)
-            for index in preparedByIndex.keys {
+            for (index, _) in orderedPrepared {
                 attempts[index] = .rejected(rejection)
             }
             return finalizedAttempts(attempts, candidates: candidates)
@@ -180,19 +178,19 @@ extension LocalArtifactRepository {
         }
         let writePlan: ArtifactWritePlan
         do {
-            let refreshedPlan = try makeWritePlan(
+            let refinedWritePlan = try makeWritePlan(
                 prepared: orderedPrepared.map(\.value),
                 existingByDigest: existingByDigest,
                 context: context,
                 paths: paths
             )
-            guard authorizedWritePlan.authorizes(refreshedPlan) else {
+            guard authorizedWritePlan.authorizes(refinedWritePlan) else {
                 for (index, _) in orderedPrepared {
                     attempts[index] = .rejected(.storeBusy(paths.filesystemRoot.path))
                 }
                 return finalizedAttempts(attempts, candidates: candidates)
             }
-            writePlan = refreshedPlan
+            writePlan = refinedWritePlan
         } catch {
             let rejection = (error as? ArtifactStoreError)
                 ?? ArtifactStoreError.pathOutsideStore(paths.filesystemRoot.path)
@@ -258,6 +256,23 @@ extension LocalArtifactRepository {
         ).plan(
             prepared: prepared,
             existingByDigest: existingByDigest,
+            context: context,
+            paths: paths
+        )
+    }
+
+    private func makeConservativeWritePlan(
+        prepared: [PreparedArtifactImport],
+        context: ArtifactCaptureContext,
+        paths: ArtifactStorePaths
+    ) throws -> ArtifactWritePlan {
+        try ArtifactWritePlanner(
+            fileManager: fileManager,
+            encoder: encoder,
+            decoder: decoder,
+            nodeBudget: nodeBudget
+        ).conservativePlan(
+            prepared: prepared,
             context: context,
             paths: paths
         )

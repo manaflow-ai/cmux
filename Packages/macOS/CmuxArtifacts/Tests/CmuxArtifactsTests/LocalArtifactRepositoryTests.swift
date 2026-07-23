@@ -284,7 +284,8 @@ struct LocalArtifactRepositoryTests {
             under: project.appendingPathComponent(".cmux")
         )
 
-        _ = try await LocalArtifactRepository().snapshot(projectRoot: project)
+        let repository = LocalArtifactRepository()
+        try await repository.prepareForMutation(paths: ArtifactStorePaths(projectRoot: project))
 
         #expect(try runGit([
             "-C", root.path, "check-ignore", "--quiet", "--",
@@ -318,7 +319,8 @@ struct LocalArtifactRepositoryTests {
             encoding: .utf8
         )
 
-        _ = try await LocalArtifactRepository().snapshot(projectRoot: worktree)
+        let repository = LocalArtifactRepository()
+        try await repository.prepareForMutation(paths: ArtifactStorePaths(projectRoot: worktree))
 
         let exclude = try String(
             contentsOf: commonGitDirectory.appendingPathComponent("info/exclude"),

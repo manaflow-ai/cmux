@@ -93,10 +93,10 @@ public actor LocalArtifactRepository: ArtifactStoring {
         return configuration.normalized
     }
 
-    /// Scans the live ordinary-file tree, creating the store on first use.
+    /// Scans the live ordinary-file tree without creating or repairing the store.
     public func snapshot(projectRoot: URL) throws -> ArtifactSnapshot {
         let paths = ArtifactStorePaths(projectRoot: projectRoot)
-        try prepare(paths: paths)
+        try validateStoreForReading(paths: paths)
         return try completeSnapshot(paths: paths)
     }
 
@@ -145,7 +145,7 @@ public actor LocalArtifactRepository: ArtifactStoring {
             ? String(trimmedName.dropFirst(".cmux/".count))
             : trimmedName
         let paths = ArtifactStorePaths(projectRoot: projectRoot)
-        try prepare(paths: paths)
+        try validateStoreForReading(paths: paths)
         if let exact = try ArtifactExactPathResolver().fileNode(
             relativePath: name,
             paths: paths
@@ -179,20 +179,56 @@ public actor LocalArtifactRepository: ArtifactStoring {
     public func changes(projectRoot: URL) -> AsyncStream<Void> {
         let paths = ArtifactStorePaths(projectRoot: projectRoot)
         do {
-            try prepare(paths: paths)
+            try validateStoreForReading(paths: paths)
         } catch {
             return AsyncStream { $0.finish() }
         }
-        guard let watcher = RecursivePathWatcher(paths: [paths.filesystemRoot.path]) else {
+        let filesystemRoot = paths.filesystemRoot
+        let awaitsFilesystemRoot = (try? filesystemRoot.checkResourceIsReachable()) != true
+        let initialWatchPath = awaitsFilesystemRoot
+            ? paths.projectRoot.path
+            : filesystemRoot.path
+        guard let initialWatcher = RecursivePathWatcher(paths: [initialWatchPath]) else {
             return AsyncStream { $0.finish() }
         }
         return AsyncStream(bufferingPolicy: .bufferingNewest(1)) { continuation in
             let task = Task {
-                for await _ in watcher.events {
-                    guard !Task.isCancelled else { break }
-                    continuation.yield(())
+                var storeWatcher: RecursivePathWatcher?
+                if awaitsFilesystemRoot {
+                    if (try? filesystemRoot.checkResourceIsReachable()) == true {
+                        storeWatcher = RecursivePathWatcher(paths: [filesystemRoot.path])
+                        if storeWatcher != nil {
+                            continuation.yield(())
+                        }
+                    }
+                    if storeWatcher == nil {
+                        for await _ in initialWatcher.events {
+                            guard !Task.isCancelled else { break }
+                            guard (try? filesystemRoot.checkResourceIsReachable()) == true else {
+                                continue
+                            }
+                            guard let watcher = RecursivePathWatcher(
+                                paths: [filesystemRoot.path]
+                            ) else {
+                                continue
+                            }
+                            storeWatcher = watcher
+                            continuation.yield(())
+                            break
+                        }
+                    }
+                    await initialWatcher.stop()
+                } else {
+                    storeWatcher = initialWatcher
                 }
-                await watcher.stop()
+
+                if !Task.isCancelled, let storeWatcher {
+                    for await _ in storeWatcher.events {
+                        guard !Task.isCancelled else { break }
+                        continuation.yield(())
+                    }
+                    await storeWatcher.stop()
+                }
                 continuation.finish()
             }
             continuation.onTermination = { _ in task.cancel() }
@@ -215,7 +251,17 @@ public actor LocalArtifactRepository: ArtifactStoring {
         return snapshot
     }
 
-    func prepare(paths: ArtifactStorePaths) throws {
+    func validateStoreForReading(paths: ArtifactStorePaths) throws {
+        guard fileManager.fileExists(atPath: paths.filesystemRoot.path) else { return }
+        let values = try paths.filesystemRoot.resourceValues(
+            forKeys: [.isDirectoryKey, .isSymbolicLinkKey]
+        )
+        guard values.isDirectory == true, values.isSymbolicLink != true else {
+            throw ArtifactStoreError.pathOutsideStore(paths.filesystemRoot.path)
+        }
+    }
+
+    func prepareForMutation(paths: ArtifactStorePaths) throws {
         try rejectSymbolicLink(at: paths.filesystemRoot)
         try fileManager.createDirectory(at: paths.filesystemRoot, withIntermediateDirectories: true)
         try rejectSymbolicLink(at: paths.filesystemRoot)

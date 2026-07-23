@@ -264,7 +264,8 @@ struct ArtifactRepositorySafetyTests {
         let alias = root.appendingPathComponent("project-alias", isDirectory: true)
         try FileManager.default.createSymbolicLink(at: alias, withDestinationURL: project)
 
-        _ = try await LocalArtifactRepository().snapshot(projectRoot: alias)
+        let repository = LocalArtifactRepository()
+        try await repository.prepareForMutation(paths: ArtifactStorePaths(projectRoot: alias))
         _ = try ArtifactTestSupport.write(
             "private",
             named: "organized/final.txt",
@@ -284,7 +285,8 @@ struct ArtifactRepositorySafetyTests {
         try runGit(["init", "--quiet", root.path])
         let project = root.appendingPathComponent("nested[1]/project?", isDirectory: true)
         try FileManager.default.createDirectory(at: project, withIntermediateDirectories: true)
-        _ = try await LocalArtifactRepository().snapshot(projectRoot: project)
+        let repository = LocalArtifactRepository()
+        try await repository.prepareForMutation(paths: ArtifactStorePaths(projectRoot: project))
         let artifact = try ArtifactTestSupport.write(
             "private",
             named: "plan.md",
@@ -308,7 +310,8 @@ struct ArtifactRepositorySafetyTests {
         try existing.write(to: exclude)
 
         await #expect(throws: (any Error).self) {
-            _ = try await LocalArtifactRepository().snapshot(projectRoot: root)
+            let repository = LocalArtifactRepository()
+            try await repository.prepareForMutation(paths: ArtifactStorePaths(projectRoot: root))
         }
         #expect(try Data(contentsOf: exclude) == existing)
     }
@@ -431,7 +434,8 @@ struct ArtifactRepositorySafetyTests {
                 root.appendingPathComponent(".git").path
             )
         ) {
-            _ = try await LocalArtifactRepository().snapshot(projectRoot: root)
+            let repository = LocalArtifactRepository()
+            try await repository.prepareForMutation(paths: ArtifactStorePaths(projectRoot: root))
         }
 
         #expect(!FileManager.default.fileExists(

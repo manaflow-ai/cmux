@@ -23,7 +23,10 @@ struct ArtifactGitExcludeConcurrencyTests {
         defer { Darwin.close(descriptor) }
         #expect(flock(descriptor, LOCK_EX | LOCK_NB) == 0)
 
-        _ = try await LocalArtifactRepository().snapshot(projectRoot: root)
+        let repository = LocalArtifactRepository()
+        try await repository.prepareForMutation(
+            paths: ArtifactStorePaths(projectRoot: root)
+        )
 
         let exclude = try String(
             contentsOf: info.appendingPathComponent("exclude"),
