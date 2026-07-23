@@ -38,13 +38,13 @@ extension Workspace {
         panelId: UUID,
         observation: RestorableAgentSessionIndex.Entry
     ) {
+        let eventTime = observation.runtimeStatusEventTime ?? observation.updatedAt
         guard observation.lifecycle == .idle,
-              Date().timeIntervalSince1970 - observation.updatedAt >= Self.agentRunningStatusReconciliationDelay,
+              Date().timeIntervalSince1970 - eventTime >= Self.agentRunningStatusReconciliationDelay,
               let statusKey = agentLifecycleStatusKey(for: observation.snapshot.kind),
               agentLifecycleStatesByPanelId[panelId]?[statusKey] == .running else {
             return
         }
-        let eventTime = observation.updatedAt
         guard setAgentLifecycle(key: statusKey, panelId: panelId, lifecycle: .idle, agentEventTime: eventTime) else {
             return
         }

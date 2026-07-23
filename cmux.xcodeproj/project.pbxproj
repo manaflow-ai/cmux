@@ -1252,6 +1252,7 @@ C0DE71B10000000000000001 /* AppDelegate+AgentChatNotifications.swift in Sources 
 		C0DEA771000000000000000B /* ProBadgeStyle.swift in Sources */ = {isa = PBXBuildFile; fileRef = C0DEA771000000000000000C /* ProBadgeStyle.swift */; };
 		F0ACC0DE000000000000000D /* ProcessDetectedResumeIndexes.swift in Sources */ = {isa = PBXBuildFile; fileRef = F0ACC0DE000000000000000E /* ProcessDetectedResumeIndexes.swift */; };
 		C47110010000000000000001 /* ProcessPipeReadCrashRegressionTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = C47110010000000000000002 /* ProcessPipeReadCrashRegressionTests.swift */; };
+		861300020000000000000001 /* ProcessTestFileCapture.swift in Sources */ = {isa = PBXBuildFile; fileRef = 861300010000000000000001 /* ProcessTestFileCapture.swift */; };
 		D75280010000000000000001 /* ProfilingSignposts.swift in Sources */ = {isa = PBXBuildFile; fileRef = D75280010000000000000002 /* ProfilingSignposts.swift */; };
 		A5C0DE0000000000000000BA /* ProjectBuildSettingsTabView.swift in Sources */ = {isa = PBXBuildFile; fileRef = A5C0DE0000000000000000B9 /* ProjectBuildSettingsTabView.swift */; };
 		A5C0DE0000000000000000B6 /* ProjectFilesTabView.swift in Sources */ = {isa = PBXBuildFile; fileRef = A5C0DE0000000000000000B5 /* ProjectFilesTabView.swift */; };
@@ -3421,6 +3422,7 @@ C0DE71B10000000000000002 /* AppDelegate+AgentChatNotifications.swift */ = {isa =
 		C0DEA771000000000000000C /* ProBadgeStyle.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ProBadgeStyle.swift; sourceTree = "<group>"; };
 		F0ACC0DE000000000000000E /* ProcessDetectedResumeIndexes.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ProcessDetectedResumeIndexes.swift; sourceTree = "<group>"; };
 		C47110010000000000000002 /* ProcessPipeReadCrashRegressionTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ProcessPipeReadCrashRegressionTests.swift; sourceTree = "<group>"; };
+		861300010000000000000001 /* ProcessTestFileCapture.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ProcessTestFileCapture.swift; sourceTree = "<group>"; };
 		D75280010000000000000002 /* ProfilingSignposts.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ProfilingSignposts.swift; sourceTree = "<group>"; };
 		A5C0DE0000000000000000B9 /* ProjectBuildSettingsTabView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Panels/ProjectBuildSettingsTabView.swift; sourceTree = "<group>"; };
 		A5C0DE0000000000000000B5 /* ProjectFilesTabView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Panels/ProjectFilesTabView.swift; sourceTree = "<group>"; };
@@ -6549,6 +6551,7 @@ C0DE71B10000000000000002 /* AppDelegate+AgentChatNotifications.swift */ = {isa =
 				C0F16B000000000000000002 /* CLIRemoteShellStartupPerformanceTests.swift */,
 				A5D41331A1B2C3D4E5F60718 /* CLIMockSocketServerSupport.swift */,
 				A5D41206A1B2C3D4E5F60718 /* CLINotifyProcessTestSupport.swift */,
+				861300010000000000000001 /* ProcessTestFileCapture.swift */,
 				8CB1737C956A80E5F98E9DC5 /* CLISSHPTYAttachProbeReplyRegressionTests.swift */,
 				C73660020000000000000002 /* CLISSHPTYAttachSessionLostRespawnTests.swift */,
 				C77070000000000000000005 /* CLISSHPTYAttachTransientBridgeFailureExitCodeTests.swift */,
@@ -8950,6 +8953,7 @@ C0DE71B10000000000000002 /* AppDelegate+AgentChatNotifications.swift */ = {isa =
 				B8E9500A0000000000000001 /* PostHogAnalyticsPropertiesTests.swift in Sources */,
 				DE71CE00000000000000000A /* PresenceHeartbeatClientTests.swift in Sources */,
 				C47110010000000000000001 /* ProcessPipeReadCrashRegressionTests.swift in Sources */,
+				861300020000000000000001 /* ProcessTestFileCapture.swift in Sources */,
 				A64610020000000000000001 /* QuitConfirmationAlertPresenterTests.swift in Sources */,
 				A6D1F0400000000000000002 /* ReleasingWindowControllerTests.swift in Sources */,
 				791100030000000000000001 /* RemoteDisconnectLifecycleTests.swift in Sources */,

@@ -22,6 +22,7 @@ struct AgentResumeLivenessTests {
         RestorableAgentSessionIndex.Entry(
             snapshot: SessionRestorableAgentSnapshot(kind: kind, sessionId: sessionId),
             lifecycle: nil,
+            runtimeStatusEventTime: nil,
             updatedAt: 0,
             processLiveness: processIDs.isEmpty ? .exited : .running,
             processIDs: processIDs,

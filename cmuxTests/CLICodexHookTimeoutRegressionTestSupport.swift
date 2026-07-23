@@ -210,15 +210,17 @@ func runCodexHookProcess(
     timeout: TimeInterval
 ) -> CodexHookProcessRunResult {
     let process = Process()
-    let stdoutPipe = Pipe()
-    let stderrPipe = Pipe()
-    let stdinPipe = standardInput == nil ? nil : Pipe()
+    let capture: ProcessTestFileCapture
+    do {
+        capture = try ProcessTestFileCapture(standardInput: standardInput)
+    } catch {
+        return CodexHookProcessRunResult(status: -1, stdout: "", stderr: String(describing: error), timedOut: false)
+    }
+    defer { capture.cleanup() }
     process.executableURL = URL(fileURLWithPath: executablePath)
     process.arguments = arguments
     process.environment = environment
-    process.standardInput = stdinPipe ?? FileHandle.nullDevice
-    process.standardOutput = stdoutPipe
-    process.standardError = stderrPipe
+    capture.attach(to: process)
 
     let exitSignal = DispatchSemaphore(value: 0)
     process.terminationHandler = { _ in
@@ -227,13 +229,11 @@ func runCodexHookProcess(
 
     do {
         try process.run()
+        capture.closeParentHandles()
     } catch {
         process.terminationHandler = nil
+        capture.closeParentHandles()
         return CodexHookProcessRunResult(status: -1, stdout: "", stderr: String(describing: error), timedOut: false)
-    }
-    if let standardInput, let stdinPipe {
-        stdinPipe.fileHandleForWriting.write(Data(standardInput.utf8))
-        try? stdinPipe.fileHandleForWriting.close()
     }
 
     let timedOut = exitSignal.wait(timeout: .now() + timeout) == .timedOut
@@ -246,12 +246,10 @@ func runCodexHookProcess(
     }
     process.terminationHandler = nil
 
-    let stdoutData = stdoutPipe.fileHandleForReading.readDataToEndOfFile()
-    let stderrData = stderrPipe.fileHandleForReading.readDataToEndOfFile()
     return CodexHookProcessRunResult(
-        status: process.terminationStatus,
-        stdout: String(data: stdoutData, encoding: .utf8) ?? "",
-        stderr: String(data: stderrData, encoding: .utf8) ?? "",
+        status: process.isRunning ? SIGKILL : process.terminationStatus,
+        stdout: capture.standardOutput(),
+        stderr: capture.standardError(),
         timedOut: timedOut
     )
 }

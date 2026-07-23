@@ -460,7 +460,7 @@ final class ClaudeHookSessionStore {
                agentLifecycle != nil || updateRuntimeStatus {
                 return (staleTerminalTurn: true, nested: false)
             }
-            update(
+            guard update(
                 &record,
                 workspaceId: workspaceId,
                 surfaceId: surfaceId,
@@ -478,7 +478,9 @@ final class ClaudeHookSessionStore {
                 updateRuntimeStatus: updateRuntimeStatus,
                 runtimeStatusEventTime: runtimeStatusEventTime,
                 now: now
-            )
+            ) else {
+                return (staleTerminalTurn: true, nested: false)
+            }
             appendAutoNameMessages(autoNameMessages, to: &record)
             if let normalizedTurnId {
                 markPromptTurnActive(normalizedTurnId, on: &record)
@@ -566,9 +568,12 @@ final class ClaudeHookSessionStore {
                 surfaceId: surfaceId,
                 now: now
             )
+            if runtimeEventIsStale(record: record, eventTime: runtimeStatusEventTime) {
+                return true
+            }
             let depthBeforeStop = max(0, record.activePromptDepth ?? 0)
             let depthAfterStop = max(0, depthBeforeStop - 1)
-            update(
+            guard update(
                 &record,
                 workspaceId: workspaceId,
                 surfaceId: surfaceId,
@@ -587,7 +592,9 @@ final class ClaudeHookSessionStore {
                 runtimeStatusEventTime: runtimeStatusEventTime,
                 hadPendingBackgroundWorkAtStop: hadPendingBackgroundWorkAtStop,
                 now: now
-            )
+            ) else {
+                return true
+            }
             appendAutoNameMessages(autoNameMessages, to: &record)
             let normalizedTurnId = normalizeOptional(turnId)
             if let normalizedTurnId {
@@ -736,7 +743,7 @@ final class ClaudeHookSessionStore {
                 startedAt: now,
                 updatedAt: now
             )
-            update(
+            guard update(
                 &record,
                 workspaceId: workspaceId,
                 surfaceId: surfaceId,
@@ -755,7 +762,9 @@ final class ClaudeHookSessionStore {
                 runtimeStatusEventTime: runtimeStatusEventTime,
                 hadPendingBackgroundWorkAtStop: hadPendingBackgroundWorkAtStop,
                 now: now
-            )
+            ) else {
+                return
+            }
             state.sessions[normalized] = record
             if markActive {
                 let activeRecord = ClaudeHookActiveSessionRecord(
@@ -802,8 +811,11 @@ final class ClaudeHookSessionStore {
             if codexSessionStartIsStale(record, incomingPID: pid) {
                 return false
             }
+            if runtimeEventIsStale(record: record, eventTime: runtimeStatusEventTime) {
+                return false
+            }
             clearCodexSessionStartTurnState(on: &record)
-            update(
+            guard update(
                 &record,
                 workspaceId: workspaceId,
                 surfaceId: surfaceId,
@@ -821,7 +833,9 @@ final class ClaudeHookSessionStore {
                 updateRuntimeStatus: updateRuntimeStatus,
                 runtimeStatusEventTime: runtimeStatusEventTime,
                 now: now
-            )
+            ) else {
+                return false
+            }
             state.sessions[normalized] = record
             return true
         }
@@ -857,7 +871,7 @@ final class ClaudeHookSessionStore {
             if runtimeEventIsStale(record: record, eventTime: runtimeStatusEventTime) {
                 return false
             }
-            update(
+            guard update(
                 &record,
                 workspaceId: workspaceId,
                 surfaceId: surfaceId,
@@ -875,7 +889,9 @@ final class ClaudeHookSessionStore {
                 updateRuntimeStatus: true,
                 runtimeStatusEventTime: runtimeStatusEventTime,
                 now: now
-            )
+            ) else {
+                return false
+            }
             state.sessions[normalized] = record
             return true
         }
@@ -930,7 +946,7 @@ final class ClaudeHookSessionStore {
                 surfaceId: surfaceId,
                 now: now
             )
-            update(
+            guard update(
                 &record,
                 workspaceId: workspaceId,
                 surfaceId: surfaceId,
@@ -948,7 +964,9 @@ final class ClaudeHookSessionStore {
                 updateRuntimeStatus: runtimeStatus != nil,
                 runtimeStatusEventTime: runtimeStatusEventTime,
                 now: now
-            )
+            ) else {
+                return
+            }
             record.lastSubtitle = nil
             record.lastBody = nil
             record.lastNotificationStatus = nil
@@ -1159,6 +1177,7 @@ final class ClaudeHookSessionStore {
         return String(value[..<index]) + "…"
     }
 
+    @discardableResult
     private func update(
         _ record: inout ClaudeHookSessionRecord,
         workspaceId: String,
@@ -1178,7 +1197,12 @@ final class ClaudeHookSessionStore {
         runtimeStatusEventTime: TimeInterval? = nil,
         hadPendingBackgroundWorkAtStop: Bool? = nil,
         now: TimeInterval
-    ) {
+    ) -> Bool {
+        let hasRuntimeMutation = agentLifecycle != nil || updateRuntimeStatus
+        let hasOrderedEvent = hasRuntimeMutation || runtimeStatusEventTime != nil
+        if hasOrderedEvent, runtimeEventIsStale(record: record, eventTime: runtimeStatusEventTime) {
+            return false
+        }
         record.workspaceId = workspaceId
         if !surfaceId.isEmpty {
             record.surfaceId = surfaceId
@@ -1220,10 +1244,7 @@ final class ClaudeHookSessionStore {
             // record.isRestorable=true from a transcript-backed event.
             record.isRestorable = isRestorable || record.isRestorable == true
         }
-        let hasRuntimeMutation = agentLifecycle != nil || updateRuntimeStatus
-        let shouldApplyRuntimeMutation = !hasRuntimeMutation ||
-            !runtimeEventIsStale(record: record, eventTime: runtimeStatusEventTime)
-        if shouldApplyRuntimeMutation, let agentLifecycle {
+        if let agentLifecycle {
             record.agentLifecycle = agentLifecycle
         }
         if let subtitle = normalizeOptional(lastSubtitle) {
@@ -1235,10 +1256,10 @@ final class ClaudeHookSessionStore {
         if updateLastNotificationStatus {
             record.lastNotificationStatus = lastNotificationStatus
         }
-        if shouldApplyRuntimeMutation, updateRuntimeStatus {
+        if updateRuntimeStatus {
             record.runtimeStatus = runtimeStatus
         }
-        if shouldApplyRuntimeMutation, hasRuntimeMutation {
+        if hasRuntimeMutation {
             if let runtimeStatusEventTime {
                 record.runtimeStatusEventTime = runtimeStatusEventTime
             }
@@ -1247,6 +1268,7 @@ final class ClaudeHookSessionStore {
             record.hadPendingBackgroundWorkAtStop = hadPendingBackgroundWorkAtStop
         }
         record.updatedAt = now
+        return true
     }
 
     private func processStartIdentity(pid: Int) -> (seconds: Int64, microseconds: Int64)? {

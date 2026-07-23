@@ -192,15 +192,17 @@ enum ClaudeHookLiveDeliveryHarness {
         standardInput: String
     ) -> ProcessRunResult {
         let process = Process()
-        let stdoutPipe = Pipe()
-        let stderrPipe = Pipe()
-        let stdinPipe = Pipe()
+        let capture: ProcessTestFileCapture
+        do {
+            capture = try ProcessTestFileCapture(standardInput: standardInput)
+        } catch {
+            return ProcessRunResult(status: -1, stdout: "", stderr: String(describing: error), timedOut: false)
+        }
+        defer { capture.cleanup() }
         process.executableURL = URL(fileURLWithPath: context.cliPath)
         process.arguments = arguments
         process.environment = environment
-        process.standardInput = stdinPipe
-        process.standardOutput = stdoutPipe
-        process.standardError = stderrPipe
+        capture.attach(to: process)
 
         let exitSignal = DispatchSemaphore(value: 0)
         process.terminationHandler = { _ in
@@ -209,12 +211,12 @@ enum ClaudeHookLiveDeliveryHarness {
 
         do {
             try process.run()
+            capture.closeParentHandles()
         } catch {
             process.terminationHandler = nil
+            capture.closeParentHandles()
             return ProcessRunResult(status: -1, stdout: "", stderr: String(describing: error), timedOut: false)
         }
-        stdinPipe.fileHandleForWriting.write(Data(standardInput.utf8))
-        try? stdinPipe.fileHandleForWriting.close()
 
         let timedOut = exitSignal.wait(timeout: .now() + 10) == .timedOut
         if timedOut {
@@ -226,12 +228,10 @@ enum ClaudeHookLiveDeliveryHarness {
         }
         process.terminationHandler = nil
 
-        let stdout = String(data: stdoutPipe.fileHandleForReading.readDataToEndOfFile(), encoding: .utf8) ?? ""
-        let stderr = String(data: stderrPipe.fileHandleForReading.readDataToEndOfFile(), encoding: .utf8) ?? ""
         return ProcessRunResult(
             status: process.isRunning ? SIGKILL : process.terminationStatus,
-            stdout: stdout,
-            stderr: stderr,
+            stdout: capture.standardOutput(),
+            stderr: capture.standardError(),
             timedOut: timedOut
         )
     }
