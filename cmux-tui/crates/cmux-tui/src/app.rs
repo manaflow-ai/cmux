@@ -10654,6 +10654,45 @@ mod tests {
     }
 
     #[test]
+    fn option_generated_text_does_not_match_alt_modeless_bindings() {
+        let input = crate::keys::KeyboardInput::from(EnhancedKeyEvent {
+            key_event: KeyEvent::new(KeyCode::Char('j'), KeyModifiers::ALT),
+            shifted_key: None,
+            base_layout_key: Some('j'),
+            text: "\u{2206}".to_string(),
+        });
+        let (key, fallback) = input.shortcut_keys();
+
+        assert_eq!(
+            super::modeless_action_for_binding(&Config::default().keys, &key, fallback.as_ref()),
+            None
+        );
+    }
+
+    #[test]
+    fn files_filter_inserts_complete_associated_text() {
+        let temp = test_temp_dir("files-filter-associated-text");
+        let mux = Mux::new("files-filter-associated-text-test", SurfaceOptions::default());
+        let mut app = test_app(Session::Local(mux));
+        app.sidebar_files = FileBrowser::new(temp.clone());
+        app.sidebar_view = SidebarView::Files;
+        app.focus = FocusTarget::WorkspaceRail;
+        app.sidebar_files
+            .handle_key(&KeyEvent::new(KeyCode::Char('/'), KeyModifiers::NONE));
+
+        app.handle(AppEvent::Input(Event::EnhancedKey(EnhancedKeyEvent {
+            key_event: KeyEvent::new(KeyCode::Char('w'), KeyModifiers::ALT),
+            shifted_key: None,
+            base_layout_key: Some('w'),
+            text: "\u{2211}\u{6f22}".to_string(),
+        })))
+        .unwrap();
+
+        assert_eq!(app.sidebar_files.query(), "\u{2211}\u{6f22}");
+        std::fs::remove_dir_all(temp).unwrap();
+    }
+
+    #[test]
     fn browser_inserts_complete_associated_text_atomically() {
         let mux = Mux::new("browser-associated-text-test", SurfaceOptions::default());
         let mut app = test_app(Session::Local(mux));

@@ -1741,6 +1741,37 @@ mod tests {
     }
 
     #[test]
+    fn clear_history_help_uses_the_selected_locale() {
+        let clear_history = verb_by_name("clear-history").expect("clear-history verb registered");
+        let help_for_locale = |locale: &str| {
+            let _ = crate::localization::catalog_for_locale(locale);
+            clear_history.help
+        };
+
+        assert_eq!(
+            help_for_locale("ja_JP.UTF-8"),
+            "アクティブなプロンプトを保持したまま PTY 履歴を消去します。"
+        );
+    }
+
+    #[test]
+    fn clear_history_capability_error_uses_the_selected_locale() {
+        let request = json!({"id": 1, "cmd": "clear-history", "surface": 9});
+        let required_for_locale = |locale: &str| {
+            let _ = crate::localization::catalog_for_locale(locale);
+            required_capability(&request)
+        };
+
+        assert_eq!(
+            required_for_locale("ja_JP.UTF-8"),
+            Some((
+                CLEAR_HISTORY_CAPABILITY,
+                "このサーバーでは clear-history を使用できません。cmux-tui サーバーを再起動してください",
+            ))
+        );
+    }
+
+    #[test]
     fn plugin_verb_is_registered_as_local_with_help() {
         let plugin = verb_by_name("plugin").expect("plugin verb registered");
         assert!(matches!(plugin.kind, VerbKind::Local(_)));
