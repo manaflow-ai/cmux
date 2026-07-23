@@ -2188,6 +2188,7 @@ pub enum MenuAction {
     RenameTab(PaneId),
     CopyTabId(PaneId),
     CopyPaneId(PaneId),
+    SendPrefix(PaneId),
     NewPaneSmart(PaneId),
     NewTab(PaneId),
     NewBrowserTab(PaneId),
@@ -2223,7 +2224,9 @@ impl MenuAction {
                 localization::catalog().sidebar.rename_workspace
             }
             MenuAction::CopyWorkspaceId(_) => "Copy workspace id",
-            MenuAction::CloseWorkspace(_) => "Close workspace",
+            MenuAction::CloseWorkspace(_) => {
+                localization::catalog().action_label(Action::CloseWorkspace)
+            }
             MenuAction::DeleteManagedWorkspace(_) => {
                 localization::catalog().sidebar.delete_workspace
             }
@@ -2250,6 +2253,7 @@ impl MenuAction {
             MenuAction::RenameTab(_) => localization::catalog().action_label(Action::RenameTab),
             MenuAction::CopyTabId(_) => "Copy tab id",
             MenuAction::CopyPaneId(_) => "Copy pane id",
+            MenuAction::SendPrefix(_) => localization::catalog().action_label(Action::SendPrefix),
             MenuAction::NewPaneSmart(_) => {
                 localization::catalog().action_label(Action::NewPaneSmart)
             }
@@ -2286,6 +2290,7 @@ impl MenuAction {
 fn keyboard_action_for_menu(action: MenuAction) -> Option<Action> {
     match action {
         MenuAction::RenameWorkspace(_) => Some(Action::RenameWorkspace),
+        MenuAction::CloseWorkspace(_) => Some(Action::CloseWorkspace),
         MenuAction::RenameScreen(_) => Some(Action::RenameScreen),
         MenuAction::CloseScreen(_) => Some(Action::CloseScreen),
         MenuAction::BrowserBack(_) => Some(Action::BrowserBack),
@@ -2293,6 +2298,7 @@ fn keyboard_action_for_menu(action: MenuAction) -> Option<Action> {
         MenuAction::BrowserReload(_) => Some(Action::BrowserReload),
         MenuAction::BrowserEditUrl(_) => Some(Action::BrowserEditUrl),
         MenuAction::RenameTab(_) => Some(Action::RenameTab),
+        MenuAction::SendPrefix(_) => Some(Action::SendPrefix),
         MenuAction::NewPaneSmart(_) => Some(Action::NewPaneSmart),
         MenuAction::NewTab(_) => Some(Action::NewTab),
         MenuAction::NewBrowserTab(_) => Some(Action::NewBrowserTab),
@@ -2650,6 +2656,8 @@ fn pane_context_menu_groups(
             browser_actions.push(MenuAction::BrowserActivate(pane));
         }
     }
+    let terminal_actions =
+        (!is_browser).then_some(vec![MenuAction::SendPrefix(pane)]).unwrap_or_default();
     vec![
         vec![MenuAction::RenameTab(pane), MenuAction::CloseTab(pane)],
         vec![
@@ -2658,6 +2666,7 @@ fn pane_context_menu_groups(
             MenuAction::NewBrowserTab(pane),
         ],
         browser_actions,
+        terminal_actions,
         vec![
             MenuAction::SplitRight(pane),
             MenuAction::SplitDown(pane),
@@ -2766,6 +2775,10 @@ pub struct ShortcutHelp {
     pub rect: Rect,
     pub scroll_offset: usize,
     pub visible_rows: usize,
+    pub close_button: Rect,
+    pub scrollbar_track: Rect,
+    pub scrollbar_thumb: Rect,
+    scrollbar_drag: Option<(u16, usize)>,
 }
 
 impl ShortcutHelp {
@@ -2776,6 +2789,54 @@ impl ShortcutHelp {
     fn scroll_by(&mut self, delta: isize, total_rows: usize) {
         self.scroll_offset =
             self.scroll_offset.saturating_add_signed(delta).min(self.max_scroll(total_rows));
+    }
+
+    pub(crate) fn scrollbar_geometry(&self, total_rows: usize) -> (u16, u16) {
+        let track_height = self.scrollbar_track.height.max(1);
+        let thumb_height = if total_rows == 0 {
+            track_height
+        } else {
+            ((self.visible_rows * track_height as usize).div_ceil(total_rows))
+                .clamp(1, track_height as usize) as u16
+        };
+        let max_scroll = self.max_scroll(total_rows);
+        let travel = track_height.saturating_sub(thumb_height);
+        let thumb_y = if max_scroll == 0 {
+            0
+        } else {
+            ((self.scroll_offset * travel as usize + max_scroll / 2) / max_scroll) as u16
+        };
+        (thumb_y, thumb_height)
+    }
+
+    fn start_scrollbar_drag(&mut self, y: u16, total_rows: usize) {
+        if self.scrollbar_track.height == 0 {
+            return;
+        }
+        let relative = y
+            .saturating_sub(self.scrollbar_track.y)
+            .min(self.scrollbar_track.height.saturating_sub(1));
+        let (thumb_y, thumb_height) = self.scrollbar_geometry(total_rows);
+        if relative < thumb_y || relative >= thumb_y.saturating_add(thumb_height) {
+            let travel = self.scrollbar_track.height.saturating_sub(thumb_height);
+            let centered = relative.saturating_sub(thumb_height / 2).min(travel);
+            let max_scroll = self.max_scroll(total_rows);
+            self.scroll_offset = if travel == 0 {
+                0
+            } else {
+                (centered as usize * max_scroll + travel as usize / 2) / travel as usize
+            };
+        }
+        self.scrollbar_drag = Some((y, self.scroll_offset));
+    }
+
+    fn drag_scrollbar(&mut self, y: u16, total_rows: usize) {
+        let Some((anchor_y, anchor_offset)) = self.scrollbar_drag else { return };
+        let (_, thumb_height) = self.scrollbar_geometry(total_rows);
+        let travel = self.scrollbar_track.height.saturating_sub(thumb_height).max(1) as i128;
+        let max_scroll = self.max_scroll(total_rows) as i128;
+        let delta = (y as i128 - anchor_y as i128) * max_scroll / travel;
+        self.scroll_offset = (anchor_offset as i128 + delta).clamp(0, max_scroll) as usize;
     }
 }
 
@@ -7402,6 +7463,22 @@ impl App {
         match mouse.kind {
             MouseEventKind::ScrollUp => help.scroll_by(-1, total_rows),
             MouseEventKind::ScrollDown => help.scroll_by(1, total_rows),
+            MouseEventKind::Down(MouseButton::Left)
+                if help.close_button.contains(mouse.column, mouse.row) =>
+            {
+                self.shortcut_help = None;
+            }
+            MouseEventKind::Down(MouseButton::Left)
+                if help.scrollbar_track.contains(mouse.column, mouse.row) =>
+            {
+                help.start_scrollbar_drag(mouse.row, total_rows);
+            }
+            MouseEventKind::Drag(MouseButton::Left) => {
+                help.drag_scrollbar(mouse.row, total_rows);
+            }
+            MouseEventKind::Up(MouseButton::Left) => {
+                help.scrollbar_drag = None;
+            }
             MouseEventKind::Down(MouseButton::Left | MouseButton::Right)
                 if !help.rect.contains(mouse.column, mouse.row) =>
             {
@@ -7532,15 +7609,6 @@ impl App {
     }
 
     fn handle_prefixed(&mut self, key: KeyEvent) -> anyhow::Result<RenderAction> {
-        // Prefix twice forwards the prefix chord literally.
-        if self.config.keys.prefix.matches(&key) {
-            if self.workspace_sidebar_focused() {
-                self.forward_sidebar_key(&key);
-            } else {
-                self.forward_key(&key);
-            }
-            return Ok(RenderAction::Draw);
-        }
         let Some(action) = self.config.keys.action_for(&key) else {
             if self.focus != FocusTarget::Pane {
                 self.focus = FocusTarget::Pane;
@@ -7566,6 +7634,11 @@ impl App {
     /// Execute one bound action. Shared by the (configurable) prefix keys
     /// and any future command surface.
     fn run_action(&mut self, action: Action) -> anyhow::Result<RenderAction> {
+        if action == Action::SendPrefix && self.workspace_sidebar_focused() {
+            let prefix = self.config.keys.prefix;
+            self.forward_sidebar_key(&KeyEvent::new(prefix.code, prefix.mods));
+            return Ok(RenderAction::Draw);
+        }
         let pane = self.active_pane();
         self.run_action_for_pane(action, pane)
     }
@@ -7581,6 +7654,10 @@ impl App {
             return Ok(RenderAction::None);
         }
         match action {
+            Action::SendPrefix => {
+                let prefix = self.config.keys.prefix;
+                self.forward_key_to_pane(&KeyEvent::new(prefix.code, prefix.mods), pane);
+            }
             Action::NewTab => {
                 self.new_terminal_tab(pane)?;
             }
@@ -7632,8 +7709,15 @@ impl App {
                 }
             }
             Action::NewScreen => self.new_screen()?,
+            Action::PrevWorkspace => self.select_workspace_for_client(None, Some(-1)),
             Action::NextWorkspace => self.select_workspace_for_client(None, Some(1)),
             Action::NewWorkspace => self.new_workspace()?,
+            Action::CloseWorkspace => {
+                if let Some(workspace) = self.tree.active_workspace().map(|workspace| workspace.id)
+                {
+                    self.request_delete_workspace(workspace);
+                }
+            }
             Action::ToggleSidebar => {
                 self.sidebar_visible = !self.sidebar_visible;
                 if !self.sidebar_visible {
@@ -7905,6 +7989,10 @@ impl App {
                 self.run_action_for_pane(Action::NewPaneSmart, Some(pane))?;
                 return Ok(());
             }
+            MenuAction::SendPrefix(pane) => {
+                self.run_action_for_pane(Action::SendPrefix, Some(pane))?;
+                return Ok(());
+            }
             MenuAction::ToggleSidebar { .. } => {
                 self.run_action(Action::ToggleSidebar)?;
                 return Ok(());
@@ -8011,7 +8099,9 @@ impl App {
                     self.copy_short_id(short_id);
                 }
             }
-            MenuAction::NewPaneSmart(_) => unreachable!("shared menu actions return above"),
+            MenuAction::NewPaneSmart(_) | MenuAction::SendPrefix(_) => {
+                unreachable!("shared menu actions return above")
+            }
             MenuAction::NewTab(id) => {
                 self.new_terminal_tab(Some(id))?;
             }
@@ -8208,8 +8298,38 @@ impl App {
             self.forward_browser_key(key);
             return;
         }
-        let Some(input) = keys::key_input_from(key) else { return };
         let Some((surface_id, surface)) = self.active_surface_with_handle() else { return };
+        self.forward_pty_key_to_surface(key, surface_id, surface);
+    }
+
+    fn forward_key_to_pane(&mut self, key: &KeyEvent, pane: Option<PaneId>) {
+        if pane == self.active_pane() {
+            self.forward_key(key);
+            return;
+        }
+        if !self.session_available() {
+            self.status_message =
+                Some(localization::catalog().sidebar.no_active_session.to_string());
+            return;
+        }
+        let Some(surface_id) =
+            pane.and_then(|pane| self.tree.pane(pane)).and_then(|pane| pane.active_surface())
+        else {
+            return;
+        };
+        let Some(surface) = self.session.surface(surface_id) else { return };
+        if surface.kind() == SurfaceKind::Pty {
+            self.forward_pty_key_to_surface(key, surface_id, surface);
+        }
+    }
+
+    fn forward_pty_key_to_surface(
+        &mut self,
+        key: &KeyEvent,
+        surface_id: SurfaceId,
+        surface: SurfaceHandle,
+    ) {
+        let Some(input) = keys::key_input_from(key) else { return };
         self.encode_buf.clear();
         let _ = surface.scroll_to_bottom();
         let Some(encoded) = surface.with_terminal(|term| {
@@ -10494,7 +10614,8 @@ fn browser_only_action(action: Action) -> bool {
 fn action_prepares_pty_release(action: Action) -> bool {
     !matches!(
         action,
-        Action::RenameTab
+        Action::SendPrefix
+            | Action::RenameTab
             | Action::RenameScreen
             | Action::RenameWorkspace
             | Action::NewWorkspace
@@ -10673,6 +10794,8 @@ mod tests {
                 MenuItem::Action(MenuAction::NewTab(pane)),
                 MenuItem::Action(MenuAction::NewBrowserTab(pane)),
                 MenuItem::Separator,
+                MenuItem::Action(MenuAction::SendPrefix(pane)),
+                MenuItem::Separator,
                 MenuItem::Action(MenuAction::SplitRight(pane)),
                 MenuItem::Action(MenuAction::SplitDown(pane)),
                 MenuItem::Action(MenuAction::ClosePane(pane)),
@@ -10706,6 +10829,7 @@ mod tests {
             items.iter().find(|item| item.action() == Some(target)).and_then(MenuItem::shortcut)
         };
         assert_eq!(shortcut(MenuAction::NewPaneSmart(2)), Some("Alt-n"));
+        assert_eq!(shortcut(MenuAction::SendPrefix(2)), Some("Ctrl-b Ctrl-b"));
         assert_eq!(
             shortcut(MenuAction::TogglePaneZoom { pane: 2, zoomed: false }),
             Some("Ctrl-b z")
@@ -10731,6 +10855,21 @@ mod tests {
         assert_eq!(shortcut(MenuAction::FocusSidebar), Some("Ctrl-b S"));
         assert_eq!(shortcut(MenuAction::ShowShortcuts), Some("Ctrl-b ?"));
         assert!(!items.iter().any(|item| item.label() == Some("Show files in sidebar")));
+
+        let workspace = app.tree.active_workspace().unwrap().id;
+        app.hits.push((
+            Rect { x: 2, y: 3, width: 10, height: 2 },
+            super::Hit::Workspace { index: 0, id: workspace },
+        ));
+        app.open_context_menu(3, 3);
+        let items = &app.menu.as_ref().unwrap().levels[0].items;
+        assert_eq!(
+            items
+                .iter()
+                .find(|item| item.action() == Some(MenuAction::CloseWorkspace(workspace)))
+                .and_then(MenuItem::shortcut),
+            Some("Ctrl-b D")
+        );
 
         let screen = app.tree.active_screen().unwrap().id;
         app.hits.push((
@@ -10787,6 +10926,26 @@ mod tests {
     }
 
     #[test]
+    fn doubled_prefix_runs_the_shared_send_prefix_action() {
+        let (mux, _) = test_mux("send-prefix-test", None);
+        let mut app = test_app(Session::Local(mux.clone()));
+        app.replace_tree(app.session.tree());
+        let prefix = KeyEvent::new(KeyCode::Char('b'), KeyModifiers::CONTROL);
+
+        app.handle_key(prefix).unwrap();
+        assert!(app.prefix_armed);
+        app.handle_key(prefix).unwrap();
+
+        assert!(!app.prefix_armed);
+        assert_eq!(app.encode_buf, b"\x02");
+
+        let surfaces = mux.with_state(|state| state.surfaces.keys().copied().collect::<Vec<_>>());
+        for surface in surfaces {
+            mux.close_surface(surface);
+        }
+    }
+
+    #[test]
     fn prefix_bar_and_shortcut_modal_use_the_resolved_action_catalog() {
         let (mux, _) = test_mux("shortcut-help-test", None);
         let mut app = test_app(Session::Local(mux.clone()));
@@ -10798,10 +10957,21 @@ mod tests {
         assert!(app.prefix_armed);
         let mut terminal = Terminal::new(TestBackend::new(180, 30)).unwrap();
         terminal.draw(|frame| crate::ui::draw(&mut app, frame)).unwrap();
-        let bottom = buffer_text(terminal.backend().buffer()).lines().last().unwrap().to_string();
-        assert!(bottom.contains("Ctrl-b"), "{bottom}");
-        assert!(bottom.contains("? Keyboard shortcuts"), "{bottom}");
-        assert!(bottom.contains("z Maximize or restore pane"), "{bottom}");
+        let rendered = buffer_text(terminal.backend().buffer());
+        let mut lines = rendered.lines().rev();
+        let status = lines.next().unwrap();
+        let guide = lines.next().unwrap();
+        assert!(status.contains("screens"), "{status}");
+        assert!(guide.contains("Ctrl-b"), "{guide}");
+        assert!(guide.contains("Send prefix"), "{guide}");
+        assert!(guide.contains("?  Keyboard shortcuts"), "{guide}");
+        assert!(guide.contains("x  Close pane"), "{guide}");
+        let prefix_x = guide.find("Ctrl-b").unwrap() as u16;
+        let prefix_label_x = guide.find("Send prefix").unwrap() as u16;
+        let prefix_cell = &terminal.backend().buffer()[(prefix_x, 28)];
+        let prefix_label_cell = &terminal.backend().buffer()[(prefix_label_x, 28)];
+        assert_eq!(prefix_cell.bg, prefix_label_cell.bg);
+        assert_eq!(prefix_cell.fg, app.config.theme.border_active);
 
         app.handle_key(KeyEvent::new(KeyCode::Char('?'), KeyModifiers::SHIFT)).unwrap();
         assert!(app.shortcut_help.is_some());
@@ -10810,9 +10980,63 @@ mod tests {
         assert!(rendered.contains("Keyboard shortcuts"), "{rendered}");
         assert!(rendered.contains("New pane"), "{rendered}");
         assert!(rendered.contains("Alt-n"), "{rendered}");
+        let (shortcut_y, shortcut_x) = rendered
+            .lines()
+            .enumerate()
+            .find_map(|(y, line)| line.find("Alt-n").map(|x| (y as u16, x as u16)))
+            .unwrap();
+        let shortcut_label_x =
+            rendered.lines().nth(shortcut_y as usize).unwrap().find("New pane").unwrap() as u16;
+        let shortcut_cell = &terminal.backend().buffer()[(shortcut_x, shortcut_y)];
+        let shortcut_label_cell = &terminal.backend().buffer()[(shortcut_label_x, shortcut_y)];
+        assert_eq!(shortcut_cell.bg, shortcut_label_cell.bg);
+        assert_eq!(shortcut_cell.fg, app.chrome.prompt_button_accent_fg);
+        let help = app.shortcut_help.as_ref().unwrap();
+        assert!(help.scrollbar_track.height > 0);
+        assert!(help.scrollbar_thumb.height > 0);
+        assert_eq!(
+            terminal.backend().buffer()[(help.scrollbar_thumb.x, help.scrollbar_thumb.y)].symbol(),
+            "█"
+        );
+        let track = help.scrollbar_track;
+        app.handle_mouse(MouseEvent {
+            kind: MouseEventKind::Down(MouseButton::Left),
+            column: track.x,
+            row: track.y + track.height - 1,
+            modifiers: KeyModifiers::NONE,
+        })
+        .unwrap();
+        let jumped = app.shortcut_help.as_ref().unwrap().scroll_offset;
+        assert!(jumped > 0);
+        app.handle_mouse(MouseEvent {
+            kind: MouseEventKind::Drag(MouseButton::Left),
+            column: track.x,
+            row: track.y,
+            modifiers: KeyModifiers::NONE,
+        })
+        .unwrap();
+        assert!(app.shortcut_help.as_ref().unwrap().scroll_offset < jumped);
+        app.handle_mouse(MouseEvent {
+            kind: MouseEventKind::Up(MouseButton::Left),
+            column: track.x,
+            row: track.y,
+            modifiers: KeyModifiers::NONE,
+        })
+        .unwrap();
 
         app.handle_key(KeyEvent::new(KeyCode::End, KeyModifiers::NONE)).unwrap();
         assert!(app.shortcut_help.as_ref().unwrap().scroll_offset > 0);
+        let close = app.shortcut_help.as_ref().unwrap().close_button;
+        app.handle_mouse(MouseEvent {
+            kind: MouseEventKind::Down(MouseButton::Left),
+            column: close.x + 1,
+            row: close.y,
+            modifiers: KeyModifiers::NONE,
+        })
+        .unwrap();
+        assert!(app.shortcut_help.is_none());
+
+        app.run_action(Action::ShowShortcuts).unwrap();
         app.handle_key(KeyEvent::new(KeyCode::Esc, KeyModifiers::NONE)).unwrap();
         assert!(app.shortcut_help.is_none());
 

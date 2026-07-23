@@ -277,7 +277,9 @@ KEYS (prefix: Ctrl-b)
   ,  rename screen     $    rename workspace   c    new screen
   n/p  next/prev screen
   h/j/k/l or arrows    move focus              d    quit (attach: detach)
-  w  next workspace    W    new workspace       z    maximize/restore pane
+  (/)  prev/next workspace   W  new workspace   D  close workspace
+  w    next workspace alias  Alt-{ / Alt-}  prev/next workspace
+  z  maximize/restore pane
   s  show/hide sidebar m    compact/full sidebar
   e  toggle sidebar view                       S    focus sidebar
   ?  keyboard shortcuts
@@ -287,12 +289,13 @@ KEYS (prefix: Ctrl-b)
 MOUSE
   Mouse-aware PTYs receive clicks, motion, and wheel events. Hold Shift
   to select text or open the cmux pane menu. Right-click a pane for
-  rename, new pane/tab, split/close, and maximize; menus show configured
-  keyboard shortcuts. Right-click anywhere in the sidebar for sidebar
+  rename, new pane/tab, send prefix, split/close, and maximize; menus
+  show configured keyboard shortcuts. Right-click anywhere in the sidebar for sidebar
   controls. Right-click a workspace row or status-bar screen for its
   local rename/close actions. Click
   tab-bar entries to switch tabs (+ for a new tab), and status-bar
-  screen entries to switch screens (+ for a new screen).
+  screen entries to switch screens (+ for a new screen). The shortcut
+  modal supports wheel, scrollbar track/thumb, and × close controls.
 
 CLI VERBS
   identify, ping, set-client-info, list-clients, detach-client, set-client-sizing,

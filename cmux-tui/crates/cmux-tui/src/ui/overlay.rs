@@ -300,10 +300,10 @@ pub fn draw_shortcut_help(app: &mut App, frame: &mut Frame) {
         .collect::<Vec<_>>();
     let desired_width = rows
         .iter()
-        .map(|(label, shortcuts)| label.width() + shortcuts.width() + 7)
+        .map(|(label, shortcuts)| label.width() + shortcuts.width() + 9)
         .max()
         .unwrap_or(44)
-        .max(catalog.shortcuts.title.width() + 4);
+        .max(catalog.shortcuts.title.width() + 8);
     let width = (desired_width as u16).min(76).min(screen.width.saturating_sub(2)).max(24);
     let height = (rows.len() as u16 + 4).min(screen.height.saturating_sub(2)).max(7);
     let x = (screen.width - width) / 2;
@@ -318,8 +318,29 @@ pub fn draw_shortcut_help(app: &mut App, frame: &mut Frame) {
     let Some(help) = app.shortcut_help.as_mut() else { return };
     help.rect = rect;
     help.visible_rows = visible_rows;
+    help.close_button = Rect { x: x + width - 5, y: y + 1, width: 3, height: 1 };
     help.scroll_offset = help.scroll_offset.min(rows.len().saturating_sub(visible_rows));
+    let has_scrollbar = rows.len() > visible_rows;
+    help.scrollbar_track = if has_scrollbar {
+        Rect { x: x + width - 2, y: y + 2, width: 1, height: visible_rows as u16 }
+    } else {
+        Rect::default()
+    };
+    let (thumb_y, thumb_height) = help.scrollbar_geometry(rows.len());
+    help.scrollbar_thumb = if has_scrollbar {
+        Rect {
+            x: help.scrollbar_track.x,
+            y: help.scrollbar_track.y + thumb_y,
+            width: 1,
+            height: thumb_height,
+        }
+    } else {
+        Rect::default()
+    };
     let scroll_offset = help.scroll_offset;
+    let scrollbar_track = help.scrollbar_track;
+    let scrollbar_thumb = help.scrollbar_thumb;
+    let close_button = help.close_button;
 
     let buf = frame.buffer_mut();
     for dy in 0..height {
@@ -328,17 +349,38 @@ pub fn draw_shortcut_help(app: &mut App, frame: &mut Frame) {
         }
     }
     draw_border(buf, rect, border);
-    buf.set_stringn(x + 2, y + 1, catalog.shortcuts.title, width.saturating_sub(4) as usize, title);
+    buf.set_stringn(x + 2, y + 1, catalog.shortcuts.title, width.saturating_sub(8) as usize, title);
+    buf.set_stringn(close_button.x, close_button.y, " × ", 3, shortcut_style);
 
-    let inner_width = width.saturating_sub(4);
+    let inner_width = width.saturating_sub(if has_scrollbar { 5 } else { 4 });
     for (line, (label, shortcuts)) in rows.iter().skip(scroll_offset).take(visible_rows).enumerate()
     {
         let row_y = y + 2 + line as u16;
+        let shortcuts = format!(" {shortcuts} ");
         let shortcut_width = (shortcuts.width() as u16).min(inner_width / 2);
         let shortcut_x = x + width.saturating_sub(shortcut_width + 2);
+        let shortcut_x = if has_scrollbar {
+            shortcut_x.min(scrollbar_track.x.saturating_sub(shortcut_width + 1))
+        } else {
+            shortcut_x
+        };
         let label_width = shortcut_x.saturating_sub(x + 3);
         buf.set_stringn(x + 2, row_y, label, label_width as usize, base);
-        buf.set_stringn(shortcut_x, row_y, shortcuts, shortcut_width as usize, shortcut_style);
+        buf.set_stringn(shortcut_x, row_y, &shortcuts, shortcut_width as usize, shortcut_style);
+    }
+    if has_scrollbar {
+        for row_y in scrollbar_track.y..scrollbar_track.y + scrollbar_track.height {
+            set_cell(buf, scrollbar_track.x, row_y, "│", base.fg(chrome.prompt_border));
+        }
+        for row_y in scrollbar_thumb.y..scrollbar_thumb.y + scrollbar_thumb.height {
+            set_cell(
+                buf,
+                scrollbar_thumb.x,
+                row_y,
+                "█",
+                base.fg(chrome.prompt_button_accent_fg).add_modifier(Modifier::BOLD),
+            );
+        }
     }
 
     let footer = if rows.len() > visible_rows {

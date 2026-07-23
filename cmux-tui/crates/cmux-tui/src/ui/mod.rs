@@ -71,11 +71,6 @@ fn draw_status_bar(app: &mut App, frame: &mut Frame) {
     for x in bar_x..area.width {
         frame.buffer_mut()[(x, status_y)].set_symbol(" ").set_style(base);
     }
-    if app.prefix_armed {
-        draw_prefix_help_bar(app, frame, bar_x, status_y);
-        return;
-    }
-
     let active_style = Style::default()
         .bg(chrome.status_active_bg)
         .fg(chrome.status_active_fg)
@@ -92,7 +87,12 @@ fn draw_status_bar(app: &mut App, frame: &mut Frame) {
         (start, width)
     };
 
-    let Some(ws) = app.tree.active_workspace().cloned() else { return };
+    let Some(ws) = app.tree.active_workspace().cloned() else {
+        if app.prefix_armed {
+            draw_prefix_help_bar(app, frame, bar_x, status_y.saturating_sub(1));
+        }
+        return;
+    };
     put(frame, &mut x, " screens ", base.fg(chrome.status_dim_fg));
     for (i, screen) in ws.screens.iter().enumerate() {
         let active = i == ws.active_screen;
@@ -111,8 +111,8 @@ fn draw_status_bar(app: &mut App, frame: &mut Frame) {
     }
     app.hits.extend(hits);
 
-    // Session label / status message, right-aligned (the prefix indicator
-    // replaces it).
+    // Session label / status message, right-aligned. Prefix help renders
+    // over the pane border above this row.
     let label = app
         .status_message
         .as_ref()
@@ -132,6 +132,9 @@ fn draw_status_bar(app: &mut App, frame: &mut Frame) {
             },
         );
     }
+    if app.prefix_armed {
+        draw_prefix_help_bar(app, frame, bar_x, status_y.saturating_sub(1));
+    }
 }
 
 fn draw_prefix_help_bar(app: &App, frame: &mut Frame, bar_x: u16, y: u16) {
@@ -141,6 +144,7 @@ fn draw_prefix_help_bar(app: &App, frame: &mut Frame, bar_x: u16, y: u16) {
         .bg(chrome.status_active_bg)
         .fg(chrome.status_active_fg)
         .add_modifier(Modifier::BOLD);
+    let keycap = base.fg(app.config.theme.border_active).add_modifier(Modifier::BOLD);
     for x in bar_x..area.width {
         frame.buffer_mut()[(x, y)].set_symbol(" ").set_style(base);
     }
@@ -155,36 +159,46 @@ fn draw_prefix_help_bar(app: &App, frame: &mut Frame, bar_x: u16, y: u16) {
         .unwrap_or_default();
     let prefix_width = prefix.width() as u16;
     if prefix_width > 0 && x.saturating_add(prefix_width) <= area.width {
+        frame.buffer_mut().set_stringn(x, y, &prefix, prefix_width as usize, keycap);
+        x += prefix_width;
+    }
+    if x < area.width {
         frame.buffer_mut().set_stringn(
             x,
             y,
-            &prefix,
-            prefix_width as usize,
+            " › ",
+            area.width.saturating_sub(x).min(3) as usize,
             base.fg(app.config.theme.border_active),
         );
-        x += prefix_width;
+        x = x.saturating_add(3);
     }
 
     let actions = [
+        Action::SendPrefix,
         Action::ShowShortcuts,
-        Action::NewTab,
-        Action::SplitRight,
-        Action::SplitDown,
-        Action::ZoomPane,
-        Action::ToggleSidebar,
-        Action::ToggleSidebarCompact,
         Action::ClosePane,
+        Action::CloseTab,
+        Action::PrevWorkspace,
+        Action::NextWorkspace,
+        Action::NewWorkspace,
+        Action::CloseWorkspace,
+        Action::ZoomPane,
+        Action::FocusSidebar,
         Action::Detach,
     ];
     for action in actions {
         let Some(key) = app.config.keys.prefixed_key_label(action) else { continue };
-        let hint = format!(" {key} {} ", catalog().action_label(action));
-        let width = hint.width() as u16;
-        if x.saturating_add(width) > area.width {
+        let key = format!(" {key} ");
+        let label = format!(" {} ", catalog().action_label(action));
+        let key_width = key.width() as u16;
+        let label_width = label.width() as u16;
+        if x.saturating_add(key_width).saturating_add(label_width) > area.width {
             break;
         }
-        frame.buffer_mut().set_stringn(x, y, &hint, width as usize, base);
-        x += width;
+        frame.buffer_mut().set_stringn(x, y, &key, key_width as usize, keycap);
+        x += key_width;
+        frame.buffer_mut().set_stringn(x, y, &label, label_width as usize, base);
+        x += label_width;
     }
 }
 

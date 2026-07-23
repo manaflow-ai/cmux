@@ -204,6 +204,7 @@ WebSocket clients pair through a six-digit browser/TUI comparison by default. We
 | --- | --- | --- | --- |
 | `keys.prefix` | chord string | `"ctrl+b"` | Prefix chord |
 | `keys.alt_shortcuts` | boolean | `true` | Enables default modeless Alt bindings when true |
+| `keys.send-prefix` | chord string or array or `"none"` | current prefix chord | Send the configured prefix to the active surface |
 | `keys.new-tab` | chord string or array or `"none"` | `["t","alt+t"]` | New PTY tab |
 | `keys.new_browser_tab` | chord string or array or `"none"` | `"B"` | Browser URL prompt |
 | `keys.new-pane-smart` | chord string or array or `"none"` | `"alt+n"` | New pane using the default automatic layout |
@@ -223,8 +224,10 @@ WebSocket clients pair through a six-digit browser/TUI comparison by default. We
 | `keys.next-screen` | chord string or array or `"none"` | `["n","alt+]"]` | Next screen |
 | `keys.select-screen-0` through `keys.select-screen-9` | chord string or array or `"none"` | `"0"` through `"9"` | Select visible screen 0 through 9 |
 | `keys.new-screen` | chord string or array or `"none"` | `"c"` | New screen |
-| `keys.next-workspace` | chord string or array or `"none"` | `"w"` | Next workspace |
+| `keys.prev-workspace` | chord string or array or `"none"` | `["(","alt+{"]` | Previous workspace |
+| `keys.next-workspace` | chord string or array or `"none"` | `["w",")","alt+}"]` | Next workspace |
 | `keys.new-workspace` | chord string or array or `"none"` | `"W"` | New workspace |
+| `keys.close-workspace` | chord string or array or `"none"` | `"D"` | Close active workspace |
 | `keys.toggle-sidebar` | chord string or array or `"none"` | `"s"` | Toggle sidebar |
 | `keys.toggle-sidebar-compact` | chord string or array or `"none"` | `"m"` | Toggle compact/full sidebar width and show the sidebar |
 | `keys.toggle-sidebar-view` | chord string or array or `"none"` | `"e"` | Toggle the built-in files/workspaces view; a plugin still takes precedence |
@@ -248,7 +251,7 @@ WebSocket clients pair through a six-digit browser/TUI comparison by default. We
 | `keys.show-shortcuts` | chord string or array or `"none"` | `"?"` | Open the resolved keyboard shortcut modal |
 | `keys.detach` | chord string or array or `"none"` | `"d"` | Quit local TUI or detach attached TUI |
 
-Each action override replaces all default chords for that action. Values may be a string, an array of strings, or `"none"`. Non-string array entries are ignored. Set `keys.alt_shortcuts` to `false` to remove default Alt chords before applying user overrides; explicitly configured Alt chords still work.
+Each action override replaces all default chords for that action. Values may be a string, an array of strings, or `"none"`. Non-string array entries are ignored. Changing `keys.prefix` also moves the default `send-prefix` chord so pressing the configured prefix twice continues to pass it through. An explicit `keys.send-prefix` override takes precedence. Set `keys.alt_shortcuts` to `false` to remove default Alt chords before applying user overrides; explicitly configured Alt chords still work.
 
 `Ctrl-b x` now follows tmux and closes the active pane. `Ctrl-b X` closes the active tab. Existing users can restore the old cmux behavior with `"close-tab": "x"` and `"close-pane": "X"`.
 

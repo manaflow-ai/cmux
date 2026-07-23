@@ -6,7 +6,7 @@
 
 Unknown prefixed keys are swallowed. Unprefixed non-Alt keys go to the active surface. Alt chords that are bound in the key table are modeless commands by default.
 
-Pressing the prefix replaces the bottom status bar with the active prefix commands and their resolved suffix keys. `Ctrl-b ?` opens a scrollable shortcut modal built from the same resolved action catalog. Use Up/Down, PageUp/PageDown, Home, or End to scroll, then Esc or `?` to close it.
+Pressing the prefix overlays the panes' bottom border for one keypress, leaving the clickable screen status bar visible. Each resolved suffix uses a distinct accent font color without changing the bar background. `Ctrl-b ?` opens a shortcut modal built from the same action catalog, with shortcut keys in the same accent font color. Use Up/Down, PageUp/PageDown, Home, End, the mouse wheel, or the visible scrollbar to scroll. Click the scrollbar track to jump, drag its thumb, then use Esc, `?`, or the visible `×` button to close the modal.
 
 ## Default Bindings
 
@@ -14,6 +14,7 @@ These defaults come from `Keys::default`.
 
 | Binding | Action |
 | --- | --- |
+| `Ctrl-b Ctrl-b` | Send a literal `Ctrl-b` to the active surface |
 | `Ctrl-b t` | New PTY tab in the active pane |
 | `Alt-t` | New PTY tab in the active pane |
 | `Ctrl-b B` | Open the browser-tab URL prompt |
@@ -37,8 +38,12 @@ These defaults come from `Keys::default`.
 | `Ctrl-b o` | Focus the next pane in the current screen |
 | `Ctrl-b {` | Swap the active pane with the previous pane |
 | `Ctrl-b }` | Swap the active pane with the next pane |
-| `Ctrl-b w` | Next workspace |
+| `Ctrl-b (` | Previous workspace |
+| `Alt-{` | Previous workspace |
+| `Ctrl-b w` or `Ctrl-b )` | Next workspace |
+| `Alt-}` | Next workspace |
 | `Ctrl-b W` | New workspace |
+| `Ctrl-b D` | Close the active workspace |
 | `Ctrl-b s` | Show or hide the sidebar |
 | `Ctrl-b m` | Toggle the sidebar between compact and full width; shows it when hidden |
 | `Ctrl-b e` | Toggle the built-in sidebar between files and workspaces |
@@ -63,6 +68,8 @@ Directional focus follows Zellij's pane memory: when several panes share the req
 
 The screen bindings intentionally match tmux: `c` creates a screen, `n` and `p` switch screens, `&` closes a screen, `,` renames a screen, `z` zooms a pane, `o` cycles panes, `{` and `}` swap panes, and number keys select visible screens. Screens are numbered from 0, so `Ctrl-b 0` selects screen 0 and `Ctrl-b 1` selects screen 1.
 
+Workspace navigation follows tmux's outer session lane: `(` and `)` move backward and forward. `w` remains a next-workspace alias for compatibility, while the sidebar provides the visible mouse and keyboard picker. `Alt-{` and `Alt-}` mirror the modeless screen lane on `Alt-[` and `Alt-]`. `W` creates a workspace and `D` closes it.
+
 `Ctrl-b x` now follows tmux and closes the active pane. `Ctrl-b X` closes the active tab. Restore the old cmux behavior with `"close-tab": "x"` and `"close-pane": "X"` in `cmux-tui.json`.
 
 `Ctrl-b ]` is unbound because cmux has no paste-buffer concept. `Ctrl-b q` is unbound because there is no pane-number quick-jump overlay yet.
@@ -77,7 +84,7 @@ When the optional machine rail is visible, `Ctrl-b S` still enters through the w
 
 ## Modeless Alt Layer
 
-Any configured Alt chord is active without the prefix. Default modeless commands are `Alt-t`, `Alt-n`, `Alt-[`, `Alt-]`, `Alt-h/j/k/l`, Alt arrows, `Alt-=`, and `Alt--`. `Alt-n` follows Zellij's default auto-layout sequence: one full-height left pane and up to four right-side rows, balanced columns of four through twelve panes, then one full-height left pane beside a right-side stack with the focused stack pane expanded.
+Any configured Alt chord is active without the prefix. Default modeless commands are `Alt-t`, `Alt-n`, `Alt-[`, `Alt-]`, `Alt-{`, `Alt-}`, `Alt-h/j/k/l`, Alt arrows, `Alt-=`, and `Alt--`. `Alt-n` follows Zellij's default auto-layout sequence: one full-height left pane and up to four right-side rows, balanced columns of four through twelve panes, then one full-height left pane beside a right-side stack with the focused stack pane expanded.
 
 Set `keys.alt_shortcuts` to `false` to remove the default Alt bindings. This kill switch only removes defaults; Alt chords explicitly configured in `cmux-tui.json` still work.
 
@@ -118,6 +125,7 @@ Each action accepts a string, an array of strings, or `"none"`. Setting an actio
 Supported action keys are:
 
 ```text
+send-prefix
 new-tab
 new_browser_tab
 new-pane-smart
@@ -154,8 +162,10 @@ select-screen-7
 select-screen-8
 select-screen-9
 new-screen
+prev-workspace
 next-workspace
 new-workspace
+close-workspace
 toggle-sidebar
 toggle-sidebar-compact
 toggle-sidebar-view

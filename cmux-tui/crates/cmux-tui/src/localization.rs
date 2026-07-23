@@ -185,7 +185,7 @@ static ENGLISH: Catalog = Catalog {
     },
     shortcuts: ShortcutMessages {
         title: "Keyboard shortcuts",
-        footer: "↑/↓ scroll · Esc or ? close",
+        footer: "↑/↓ or wheel scroll · Esc, ?, or × close",
     },
     sidebar: SidebarMessages {
         machines: "machines",
@@ -279,7 +279,7 @@ static JAPANESE: Catalog = Catalog {
     },
     shortcuts: ShortcutMessages {
         title: "キーボードショートカット",
-        footer: "↑/↓ スクロール · Esc または ? で閉じる",
+        footer: "↑/↓ またはホイールでスクロール · Esc、?、× で閉じる",
     },
     sidebar: SidebarMessages {
         machines: "マシン",

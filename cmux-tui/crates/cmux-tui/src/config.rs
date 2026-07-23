@@ -95,7 +95,8 @@
 //! `close-pane`, `rename-tab` (alias: `rename-pane`), `rename-screen`,
 //! `rename-workspace`, `close-screen`, `prev-screen`, `next-screen`,
 //! `select-screen-0` through `select-screen-9`, `new-screen`,
-//! `next-workspace`, `new-workspace`, `toggle-sidebar`, `toggle-sidebar-compact`,
+//! `prev-workspace`, `next-workspace`, `new-workspace`, `close-workspace`,
+//! `send-prefix`, `toggle-sidebar`, `toggle-sidebar-compact`,
 //! `toggle-sidebar-view`, `focus-sidebar`,
 //! `focus-left`, `focus-right`, `focus-up`, `focus-down`, `focus-next-pane`,
 //! `swap-pane-prev`, `swap-pane-next`, `zoom-pane`, `resize-grow`,
@@ -813,6 +814,7 @@ impl Default for Browser {
 /// Every prefix-key action, so bindings are configurable end to end.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
 pub enum Action {
+    SendPrefix,
     NewTab,
     NewBrowserTab,
     NewPaneSmart,
@@ -831,8 +833,10 @@ pub enum Action {
     NextScreen,
     SelectScreen(u8),
     NewScreen,
+    PrevWorkspace,
     NextWorkspace,
     NewWorkspace,
+    CloseWorkspace,
     ToggleSidebar,
     ToggleSidebarCompact,
     ToggleSidebarView,
@@ -882,6 +886,12 @@ macro_rules! action_definition {
 /// and ordering from this list instead of maintaining parallel registries.
 pub fn action_definitions() -> &'static [ActionDefinition] {
     static DEFINITIONS: &[ActionDefinition] = &[
+        action_definition!(
+            Action::SendPrefix,
+            "send-prefix",
+            "Send prefix",
+            "プレフィックスを送信"
+        ),
         action_definition!(Action::NewTab, "new-tab", "New tab", "新しいタブ"),
         action_definition!(
             Action::NewBrowserTab,
@@ -989,6 +999,12 @@ pub fn action_definitions() -> &'static [ActionDefinition] {
         ),
         action_definition!(Action::NewScreen, "new-screen", "New screen", "新しいスクリーン"),
         action_definition!(
+            Action::PrevWorkspace,
+            "prev-workspace",
+            "Previous workspace",
+            "前のワークスペース"
+        ),
+        action_definition!(
             Action::NextWorkspace,
             "next-workspace",
             "Next workspace",
@@ -999,6 +1015,12 @@ pub fn action_definitions() -> &'static [ActionDefinition] {
             "new-workspace",
             "New workspace",
             "新しいワークスペース"
+        ),
+        action_definition!(
+            Action::CloseWorkspace,
+            "close-workspace",
+            "Close workspace",
+            "ワークスペースを閉じる"
         ),
         action_definition!(
             Action::ToggleSidebar,
@@ -1183,9 +1205,11 @@ impl Default for Keys {
     fn default() -> Self {
         let bind = |code, action| (Chord { code, mods: KeyModifiers::NONE }, action);
         let alt = |code, action| (Chord { code, mods: KeyModifiers::ALT }, action);
+        let prefix = Chord { code: KeyCode::Char('b'), mods: KeyModifiers::CONTROL };
         Keys {
-            prefix: Chord { code: KeyCode::Char('b'), mods: KeyModifiers::CONTROL },
+            prefix,
             bindings: vec![
+                (prefix, Action::SendPrefix),
                 bind(KeyCode::Char('t'), Action::NewTab),
                 alt(KeyCode::Char('t'), Action::NewTab),
                 bind(KeyCode::Char('B'), Action::NewBrowserTab),
@@ -1214,8 +1238,13 @@ impl Default for Keys {
                 bind(KeyCode::Char('9'), Action::SelectScreen(9)),
                 bind(KeyCode::Char('0'), Action::SelectScreen(0)),
                 bind(KeyCode::Char('c'), Action::NewScreen),
+                bind(KeyCode::Char('('), Action::PrevWorkspace),
+                alt(KeyCode::Char('{'), Action::PrevWorkspace),
                 bind(KeyCode::Char('w'), Action::NextWorkspace),
+                bind(KeyCode::Char(')'), Action::NextWorkspace),
+                alt(KeyCode::Char('}'), Action::NextWorkspace),
                 bind(KeyCode::Char('W'), Action::NewWorkspace),
+                bind(KeyCode::Char('D'), Action::CloseWorkspace),
                 bind(KeyCode::Char('s'), Action::ToggleSidebar),
                 bind(KeyCode::Char('m'), Action::ToggleSidebarCompact),
                 bind(KeyCode::Char('e'), Action::ToggleSidebarView),
@@ -1285,7 +1314,8 @@ impl Keys {
             .filter(|(_, bound)| *bound == action)
             .filter_map(|(chord, _)| {
                 let chord_label = chord.display_label()?;
-                if chord.mods.contains(KeyModifiers::ALT) {
+                let is_prefix_passthrough = action == Action::SendPrefix && *chord == self.prefix;
+                if chord.mods.contains(KeyModifiers::ALT) && !is_prefix_passthrough {
                     Some(chord_label)
                 } else {
                     Some(format!("{} {chord_label}", self.prefix.display_label()?))
@@ -1299,7 +1329,11 @@ impl Keys {
     pub fn prefixed_key_label(&self, action: Action) -> Option<String> {
         self.bindings
             .iter()
-            .find(|(chord, bound)| *bound == action && !chord.mods.contains(KeyModifiers::ALT))
+            .find(|(chord, bound)| {
+                *bound == action
+                    && (!chord.mods.contains(KeyModifiers::ALT)
+                        || (action == Action::SendPrefix && *chord == self.prefix))
+            })
             .and_then(|(chord, _)| chord.display_label())
     }
 
@@ -1321,20 +1355,28 @@ impl Keys {
         if raw.get("alt_shortcuts").and_then(Value::as_bool) == Some(false) {
             self.bindings.retain(|(chord, _)| !chord.mods.contains(KeyModifiers::ALT));
         }
-        for (name, value) in raw {
-            if name == "alt_shortcuts" {
-                continue;
-            }
-            if name == "prefix" {
-                let Some(value) = value.as_str() else {
-                    eprintln!("cmux-tui: ignoring non-string prefix binding {value:?}");
-                    continue;
-                };
-                let Some(chord) = parse_chord(value) else {
-                    eprintln!("cmux-tui: ignoring unparseable key binding prefix = {value:?}");
-                    continue;
-                };
+        if let Some(value) = raw.get("prefix") {
+            if let Some(value) = value.as_str()
+                && let Some(chord) = parse_chord(value)
+            {
+                let previous_prefix = self.prefix;
                 self.prefix = chord;
+                if !raw.contains_key(Action::SendPrefix.definition().config_key)
+                    && let Some((send_prefix, _)) =
+                        self.bindings.iter_mut().find(|(binding, action)| {
+                            *action == Action::SendPrefix && *binding == previous_prefix
+                        })
+                {
+                    *send_prefix = chord;
+                }
+            } else if value.as_str().is_some() {
+                eprintln!("cmux-tui: ignoring unparseable key binding prefix = {value:?}");
+            } else {
+                eprintln!("cmux-tui: ignoring non-string prefix binding {value:?}");
+            }
+        }
+        for (name, value) in raw {
+            if name == "alt_shortcuts" || name == "prefix" {
                 continue;
             }
             // The numbered families accept both spellings: select-screen-N /
@@ -2745,10 +2787,13 @@ mod tests {
                 "duplicate default chord: {left:?}"
             );
         }
-        assert!(
-            !keys.bindings.iter().any(|(chord, _)| chord == &keys.prefix),
-            "default binding shadows prefix passthrough: {:?}",
-            keys.prefix
+        assert_eq!(
+            keys.bindings
+                .iter()
+                .filter(|(chord, action)| chord == &keys.prefix && *action == Action::SendPrefix)
+                .count(),
+            1,
+            "the prefix chord must resolve only to the send-prefix action"
         );
         for c in ['b', 'f', 'd', '.'] {
             assert_eq!(
@@ -2787,6 +2832,41 @@ mod tests {
     }
 
     #[test]
+    fn workspace_defaults_cover_previous_next_create_and_close() {
+        let keys = Keys::default();
+        assert_eq!(
+            keys.action_for(&KeyEvent::new(KeyCode::Char('('), KeyModifiers::SHIFT)),
+            Some(Action::PrevWorkspace)
+        );
+        assert_eq!(
+            keys.action_for(&KeyEvent::new(KeyCode::Char(')'), KeyModifiers::SHIFT)),
+            Some(Action::NextWorkspace)
+        );
+        assert_eq!(
+            keys.modeless_action_for(&KeyEvent::new(
+                KeyCode::Char('{'),
+                KeyModifiers::ALT | KeyModifiers::SHIFT,
+            )),
+            Some(Action::PrevWorkspace)
+        );
+        assert_eq!(
+            keys.modeless_action_for(&KeyEvent::new(
+                KeyCode::Char('}'),
+                KeyModifiers::ALT | KeyModifiers::SHIFT,
+            )),
+            Some(Action::NextWorkspace)
+        );
+        assert_eq!(
+            keys.action_for(&KeyEvent::new(KeyCode::Char('W'), KeyModifiers::SHIFT)),
+            Some(Action::NewWorkspace)
+        );
+        assert_eq!(
+            keys.action_for(&KeyEvent::new(KeyCode::Char('D'), KeyModifiers::SHIFT)),
+            Some(Action::CloseWorkspace)
+        );
+    }
+
+    #[test]
     fn new_action_names_parse_from_config_overrides() {
         let cases = [
             ("zoom-pane", Action::ZoomPane),
@@ -2797,6 +2877,9 @@ mod tests {
             ("toggle-sidebar-compact", Action::ToggleSidebarCompact),
             ("toggle-sidebar-view", Action::ToggleSidebarView),
             ("show-shortcuts", Action::ShowShortcuts),
+            ("send-prefix", Action::SendPrefix),
+            ("prev-workspace", Action::PrevWorkspace),
+            ("close-workspace", Action::CloseWorkspace),
         ];
         for (name, action) in cases {
             let mut keys = Keys::default();
@@ -2860,6 +2943,7 @@ mod tests {
     #[test]
     fn shortcut_labels_follow_resolved_bindings_and_prefix() {
         let mut keys = Keys::default();
+        assert_eq!(keys.shortcut_label(Action::SendPrefix).as_deref(), Some("Ctrl-b Ctrl-b"));
         assert_eq!(keys.shortcut_label(Action::ZoomPane).as_deref(), Some("Ctrl-b z"));
         assert_eq!(keys.shortcut_label(Action::NewPaneSmart).as_deref(), Some("Alt-n"));
         assert_eq!(keys.prefixed_key_label(Action::ShowShortcuts).as_deref(), Some("?"));
@@ -2874,6 +2958,7 @@ mod tests {
         raw.insert("toggle-sidebar".to_string(), Value::String("none".to_string()));
         keys.apply(&raw);
 
+        assert_eq!(keys.shortcut_label(Action::SendPrefix).as_deref(), Some("Ctrl-a Ctrl-a"));
         assert_eq!(keys.shortcut_label(Action::ZoomPane).as_deref(), Some("Ctrl-a f"));
         assert_eq!(keys.shortcut_label(Action::ToggleSidebar), None);
         assert!(

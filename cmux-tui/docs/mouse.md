@@ -34,11 +34,11 @@ Drag a rail border to resize that rail for the current TUI session. Dragging the
 
 ## Context Menus
 
-Right-click a pane for rename tab, close tab, new pane, new tab, new browser tab, browser actions when applicable, split right, split down, close pane, maximize/restore, and ID copying. New pane runs the same smart-layout action as `Alt-n`. Pane and status-bar menus do not contain sidebar actions. When an inner PTY app enables mouse tracking, right-click is forwarded to the app; hold Shift while right-clicking to open the cmux menu.
+Right-click a pane for rename tab, close tab, new pane, new tab, new browser tab, send prefix, browser actions when applicable, split right, split down, close pane, maximize/restore, and ID copying. Send prefix runs the same action as pressing `Ctrl-b Ctrl-b`, giving mouse users a nested-multiplexer path. New pane runs the same smart-layout action as `Alt-n`. Pane and status-bar menus do not contain sidebar actions. When an inner PTY app enables mouse tracking, right-click is forwarded to the app; hold Shift while right-clicking to open the cmux menu.
 
 Right-click anywhere inside the sidebar, including its header, empty space, file rows, workspace rows, and divider, for show/hide, compact/full, and focus actions. Workspace rows also include their rename, close, and copy-ID actions. Switching between files and workspaces remains a keyboard action (`Ctrl-b e` by default) and is not in the context menu. Right-click a status-bar screen for only its screen actions.
 
-Each context menu includes Keyboard shortcuts, which opens the same modal as `Ctrl-b ?`. Every menu action with a configured key shows the resolved shortcut on the right. Remapped prefix and action keys appear immediately, and unbound actions omit the shortcut.
+Each context menu includes Keyboard shortcuts, which opens the same modal as `Ctrl-b ?`. The modal has a visible close button and scrollbar with wheel, track-click, and thumb-drag control. Every menu action with a configured key shows the resolved shortcut on the right. Remapped prefix and action keys appear immediately, and unbound actions omit the shortcut.
 
 Menus draw bordered overlays. Divider rows collapse as needed to keep every action visible when the flat menu would fit. Up and Down move the selected row, Enter activates it, and Esc closes the menu. A right press, drag to a row, and release activates that row. A plain right-click opens the menu and leaves it open.
 
