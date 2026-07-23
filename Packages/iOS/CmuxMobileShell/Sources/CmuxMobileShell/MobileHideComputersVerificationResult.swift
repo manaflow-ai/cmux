@@ -19,6 +19,10 @@ public struct MobileHideComputersVerificationResult: Codable, Equatable, Sendabl
     public var refreshPreservedHalfList: Bool
     /// Whether hiding all Macs removed every workspace and computer row.
     public var allHidden: Bool
+    /// Whether the saved-Mac hint remained set after every visible Mac was hidden.
+    public var allHiddenKnownPairedMac: Bool
+    /// Whether the all-hidden workspace list presented as a healthy normal-empty list.
+    public var allHiddenNormalEmpty: Bool
     /// Whether pull-to-refresh preserved the empty post-hide list.
     public var refreshPreservedEmptyList: Bool
     /// Ordered checkpoints captured during the verifier run.
