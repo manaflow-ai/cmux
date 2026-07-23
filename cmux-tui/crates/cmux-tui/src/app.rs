@@ -1247,6 +1247,21 @@ impl OrderedSession {
         );
     }
 
+    fn enqueue_coalescing_surface_operation(
+        &self,
+        label: &'static str,
+        surface: SurfaceId,
+        operation: impl FnOnce(Session) -> anyhow::Result<()> + Send + 'static,
+    ) {
+        let session = self.inner.clone();
+        self.operations.enqueue_coalescing_surface_operation(
+            label,
+            surface,
+            self.remote,
+            move || operation(session),
+        );
+    }
+
     fn enqueue_client_sizing_mutation(
         &self,
         label: &'static str,
@@ -1687,7 +1702,11 @@ impl OrderedSession {
     }
 
     pub fn clear_history(&self, surface: SurfaceId) {
-        self.enqueue("clear terminal history", move |session| session.clear_history(surface));
+        self.enqueue_coalescing_surface_operation(
+            "clear terminal history",
+            surface,
+            move |session| session.clear_history(surface),
+        );
     }
 
     pub fn close_pane(&self, pane: PaneId) {
@@ -8010,17 +8029,20 @@ mod tests {
         });
         assert!(surface.with_terminal(|term| term.history_rows()).unwrap() > 0);
 
-        let (mut app, events) = test_app_with_events(Session::Local(mux.clone()));
+        let (mut app, _events) = test_app_with_events(Session::Local(mux.clone()));
         app.sidebar_visible = false;
         app.replace_tree(app.session.tree());
         let action =
             app.handle_key(KeyEvent::new(KeyCode::Char('k'), KeyModifiers::SUPER)).unwrap();
         assert_eq!(action, RenderAction::None);
         assert!(!app.session.has_pending_mutations());
-        while app.session.has_pending_mutations() {
-            let event = events.recv_timeout(Duration::from_secs(1)).unwrap();
-            app.handle(event).unwrap();
-        }
+        app.handle(AppEvent::Input(Event::Key(KeyEvent::new(
+            KeyCode::Char('x'),
+            KeyModifiers::NONE,
+        ))))
+        .unwrap();
+        assert!(app.deferred_input.is_empty());
+        assert!(app.pty_input.shutdown(Duration::from_secs(1)));
 
         surface.with_terminal(|term| {
             assert_eq!(term.history_rows(), 0);

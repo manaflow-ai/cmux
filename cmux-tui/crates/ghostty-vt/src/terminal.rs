@@ -1063,6 +1063,57 @@ impl Terminal {
         }
     }
 
+    /// Whether OSC 133 metadata identifies the cursor row as an active shell
+    /// prompt. Terminals without shell integration conservatively return
+    /// false, so callers never send prompt-redraw input to an unknown child.
+    pub fn cursor_is_at_prompt(&self) -> bool {
+        if self.active_screen() == Screen::Alternate {
+            return false;
+        }
+        let Some((x, y)) = self.cursor_position() else {
+            return false;
+        };
+        let Some(grid_ref) = self.grid_ref(sys::GHOSTTY_POINT_TAG_ACTIVE, x, u64::from(y)) else {
+            return false;
+        };
+
+        let mut row = sys::GhosttyRow::default();
+        if check(unsafe { sys::ghostty_grid_ref_row(&grid_ref, &mut row) }).is_err() {
+            return false;
+        }
+        let mut row_semantic = sys::GHOSTTY_ROW_SEMANTIC_NONE;
+        if check(unsafe {
+            sys::ghostty_row_get(
+                row,
+                sys::GHOSTTY_ROW_DATA_SEMANTIC_PROMPT,
+                (&mut row_semantic as *mut sys::GhosttyRowSemanticPrompt).cast(),
+            )
+        })
+        .is_ok()
+            && row_semantic != sys::GHOSTTY_ROW_SEMANTIC_NONE
+        {
+            return true;
+        }
+
+        let mut cell = sys::GhosttyCell::default();
+        if check(unsafe { sys::ghostty_grid_ref_cell(&grid_ref, &mut cell) }).is_err() {
+            return false;
+        }
+        let mut cell_semantic = sys::GHOSTTY_CELL_SEMANTIC_OUTPUT;
+        check(unsafe {
+            sys::ghostty_cell_get(
+                cell,
+                sys::GHOSTTY_CELL_DATA_SEMANTIC_CONTENT,
+                (&mut cell_semantic as *mut sys::GhosttyCellSemanticContent).cast(),
+            )
+        })
+        .is_ok()
+            && matches!(
+                cell_semantic,
+                sys::GHOSTTY_CELL_SEMANTIC_INPUT | sys::GHOSTTY_CELL_SEMANTIC_PROMPT
+            )
+    }
+
     /// Whether any mouse tracking mode is enabled by the application.
     pub fn mouse_tracking(&self) -> bool {
         self.get::<bool>(sys::GHOSTTY_TERMINAL_DATA_MOUSE_TRACKING).unwrap_or(false)
@@ -1546,7 +1597,7 @@ impl Drop for Terminal {
 
 #[cfg(test)]
 mod tests {
-    use super::{Callbacks, MouseModeScan, PaletteOsc, Terminal, vt_replay_row_window};
+    use super::{Callbacks, MouseModeScan, PaletteOsc, Screen, Terminal, vt_replay_row_window};
 
     #[test]
     fn unrelated_osc_tracking_keeps_palette_state_out_of_line() {
@@ -1572,6 +1623,20 @@ mod tests {
         let second = Terminal::new(80, 24, 0, Callbacks::default()).unwrap();
 
         assert_ne!(first.instance_id(), second.instance_id());
+    }
+
+    #[test]
+    fn cursor_prompt_detection_requires_primary_screen_semantic_metadata() {
+        let mut terminal = Terminal::new(80, 24, 0, Callbacks::default()).unwrap();
+        terminal.vt_write(b"ordinary output");
+        assert!(!terminal.cursor_is_at_prompt());
+
+        terminal.vt_write(b"\r\n\x1b]133;A\x07prompt> \x1b]133;B\x07pending");
+        assert!(terminal.cursor_is_at_prompt());
+
+        terminal.vt_write(b"\x1b[?1049h");
+        assert_eq!(terminal.active_screen(), Screen::Alternate);
+        assert!(!terminal.cursor_is_at_prompt());
     }
 
     #[test]

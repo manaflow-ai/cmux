@@ -55,6 +55,7 @@ pub struct PtyInputEvent {
     on_superseded: Option<Box<dyn FnOnce() + Send>>,
     label: &'static str,
     coalesce_key: Option<(&'static str, u64)>,
+    failure_surface_id: Option<SurfaceId>,
     remote: bool,
     reservation_id: Option<u64>,
     remote_release_attempts: u8,
@@ -78,6 +79,7 @@ impl PtyInputEvent {
             on_superseded: None,
             label: "PTY input",
             coalesce_key: None,
+            failure_surface_id: None,
             remote,
             reservation_id: None,
             remote_release_attempts: 0,
@@ -105,9 +107,30 @@ impl PtyInputEvent {
         Self::mutation_with_superseded(label, coalesce_key, remote, None, None, operation)
     }
 
+    #[cfg(test)]
     fn mutation_with_superseded(
         label: &'static str,
         coalesce_key: Option<(&'static str, u64)>,
+        remote: bool,
+        on_superseded: Option<Box<dyn FnOnce() + Send>>,
+        after_operation: Option<Box<dyn FnOnce() + Send>>,
+        operation: impl FnOnce() -> anyhow::Result<()> + Send + 'static,
+    ) -> Self {
+        Self::mutation_for_surface(
+            label,
+            coalesce_key,
+            None,
+            remote,
+            on_superseded,
+            after_operation,
+            operation,
+        )
+    }
+
+    fn mutation_for_surface(
+        label: &'static str,
+        coalesce_key: Option<(&'static str, u64)>,
+        failure_surface_id: Option<SurfaceId>,
         remote: bool,
         on_superseded: Option<Box<dyn FnOnce() + Send>>,
         after_operation: Option<Box<dyn FnOnce() + Send>>,
@@ -123,6 +146,7 @@ impl PtyInputEvent {
             on_superseded,
             label,
             coalesce_key,
+            failure_surface_id,
             remote,
             reservation_id: None,
             remote_release_attempts: 0,
@@ -353,7 +377,7 @@ impl PtyInputSender {
         remote: bool,
         operation: impl FnOnce() -> anyhow::Result<()> + Send + 'static,
     ) {
-        let _ = self.enqueue_mutation_with_key(label, None, remote, None, None, operation);
+        let _ = self.enqueue_mutation_with_key(label, None, None, remote, None, None, operation);
     }
 
     pub fn enqueue_session_mutation_with_settlement(
@@ -365,6 +389,7 @@ impl PtyInputSender {
     ) {
         let _ = self.enqueue_mutation_with_key(
             label,
+            None,
             None,
             remote,
             None,
@@ -385,9 +410,28 @@ impl PtyInputSender {
         self.enqueue_mutation_with_key(
             label,
             Some(key),
+            None,
             remote,
             Some(Box::new(on_superseded)),
             Some(Box::new(after_operation)),
+            operation,
+        )
+    }
+
+    pub fn enqueue_coalescing_surface_operation(
+        &self,
+        label: &'static str,
+        surface_id: SurfaceId,
+        remote: bool,
+        operation: impl FnOnce() -> anyhow::Result<()> + Send + 'static,
+    ) -> PtyInputEnqueueResult {
+        self.enqueue_mutation_with_key(
+            label,
+            Some((label, surface_id)),
+            Some(surface_id),
+            remote,
+            None,
+            None,
             operation,
         )
     }
@@ -396,14 +440,16 @@ impl PtyInputSender {
         &self,
         label: &'static str,
         key: Option<(&'static str, u64)>,
+        failure_surface_id: Option<SurfaceId>,
         remote: bool,
         on_superseded: Option<Box<dyn FnOnce() + Send>>,
         after_operation: Option<Box<dyn FnOnce() + Send>>,
         operation: impl FnOnce() -> anyhow::Result<()> + Send + 'static,
     ) -> PtyInputEnqueueResult {
-        let result = self.enqueue(PtyInputEvent::mutation_with_superseded(
+        let result = self.enqueue(PtyInputEvent::mutation_for_surface(
             label,
             key,
+            failure_surface_id,
             remote,
             on_superseded,
             after_operation,
@@ -411,7 +457,7 @@ impl PtyInputSender {
         ));
         if result != PtyInputEnqueueResult::Accepted {
             (self.on_failure)(PtyOperationFailure {
-                surface_id: None,
+                surface_id: failure_surface_id,
                 kind: None,
                 reservation_id: None,
                 label,
@@ -607,7 +653,7 @@ fn worker(queue: Arc<SharedQueue>, on_failure: Arc<dyn Fn(PtyOperationFailure) +
             event
         };
         let kind = (event.kind != PtyInputKind::Mutation).then_some(event.kind);
-        let surface_id = kind.map(|_| event.surface_id);
+        let surface_id = kind.map(|_| event.surface_id).or(event.failure_surface_id);
         let remote = event.remote;
         let reservation_id = event.reservation_id;
         if remote && event.kind == PtyInputKind::Release {
@@ -632,9 +678,13 @@ fn worker(queue: Arc<SharedQueue>, on_failure: Arc<dyn Fn(PtyOperationFailure) +
         // have delivered a complete command. A response timeout or rejection
         // can follow a PTY write that already executed. Local PTY errors can
         // likewise occur while flushing after bytes were written.
-        let known_not_delivered =
-            remote_transport_failed || (!remote && event.surface.kind() == SurfaceKind::Browser);
-        let suppress_mutation_timeout = remote_timed_out && event.kind == PtyInputKind::Mutation;
+        let known_not_delivered = remote_transport_failed
+            || (event.kind != PtyInputKind::Mutation
+                && !remote
+                && event.surface.kind() == SurfaceKind::Browser);
+        let suppress_mutation_timeout = remote_timed_out
+            && event.kind == PtyInputKind::Mutation
+            && event.failure_surface_id.is_none();
         let ambiguous_release = remote_timed_out && event.kind == PtyInputKind::Release;
         let retry_ambiguous_release =
             ambiguous_release && event.remote_release_attempts < REMOTE_RELEASE_MAX_ATTEMPTS;
@@ -675,18 +725,23 @@ fn worker(queue: Arc<SharedQueue>, on_failure: Arc<dyn Fn(PtyOperationFailure) +
             // A failed socket write means every queued remote request shares
             // the same dead transport, so cancel the backlog immediately.
             state.remote_failed = true;
-            canceled.extend(state.events.drain(..).map(|event| PtyOperationFailure {
-                surface_id: (event.kind != PtyInputKind::Mutation).then_some(event.surface_id),
-                kind: (event.kind != PtyInputKind::Mutation).then_some(event.kind),
-                reservation_id: event.reservation_id,
-                label: event.label,
-                error: if exhausted_ambiguous_release {
-                    "canceled after mouse release recovery timed out; detach and reconnect".into()
-                } else {
-                    "canceled after the remote transport failed".into()
-                },
-                lane_failed: true,
-                delivery: PtyOperationDelivery::KnownNotDelivered,
+            canceled.extend(state.events.drain(..).map(|event| {
+                PtyOperationFailure {
+                    surface_id: (event.kind != PtyInputKind::Mutation)
+                        .then_some(event.surface_id)
+                        .or(event.failure_surface_id),
+                    kind: (event.kind != PtyInputKind::Mutation).then_some(event.kind),
+                    reservation_id: event.reservation_id,
+                    label: event.label,
+                    error: if exhausted_ambiguous_release {
+                        "canceled after mouse release recovery timed out; detach and reconnect"
+                            .into()
+                    } else {
+                        "canceled after the remote transport failed".into()
+                    },
+                    lane_failed: true,
+                    delivery: PtyOperationDelivery::KnownNotDelivered,
+                }
             }));
             state.queued_bytes = 0;
             state.release_reservations.clear();
@@ -751,7 +806,9 @@ fn prune_to_recovery_releases(
             state.release_reservations.outstanding.remove(&reservation_id);
         }
         canceled.push(PtyOperationFailure {
-            surface_id: (event.kind != PtyInputKind::Mutation).then_some(event.surface_id),
+            surface_id: (event.kind != PtyInputKind::Mutation)
+                .then_some(event.surface_id)
+                .or(event.failure_surface_id),
             kind: (event.kind != PtyInputKind::Mutation).then_some(event.kind),
             reservation_id: event.reservation_id,
             label: event.label,
@@ -928,6 +985,31 @@ mod tests {
         assert_eq!(events[0].bytes.as_slice(), &[1]);
         assert_eq!(events[1].kind, PtyInputKind::Mutation);
         assert_eq!(events[2].bytes.as_slice(), &[2]);
+    }
+
+    #[test]
+    fn surface_operation_failure_keeps_its_surface_identity() {
+        let (failure_tx, failure_rx) = std::sync::mpsc::channel();
+        let dispatcher = PtyInputDispatcher::spawn(move |failure| {
+            failure_tx.send(failure).unwrap();
+        })
+        .unwrap();
+
+        assert_eq!(
+            dispatcher.sender().enqueue_coalescing_surface_operation(
+                "clear terminal history",
+                42,
+                false,
+                || Err(anyhow::anyhow!("clear failed")),
+            ),
+            PtyInputEnqueueResult::Accepted
+        );
+
+        let failure = failure_rx.recv_timeout(Duration::from_secs(1)).unwrap();
+        assert_eq!(failure.surface_id, Some(42));
+        assert_eq!(failure.kind, None);
+        assert_eq!(failure.label, "clear terminal history");
+        assert_eq!(failure.delivery, PtyOperationDelivery::Ambiguous);
     }
 
     #[test]

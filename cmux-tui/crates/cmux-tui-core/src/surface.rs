@@ -890,32 +890,45 @@ impl Surface {
         Ok(())
     }
 
-    /// Clear retained primary-screen output, then ask the child to redraw its
-    /// current prompt and edit buffer. Attached byte frontends receive the same
-    /// VT erase sequence. Alternate-screen applications are left untouched.
+    /// Clear retained primary-screen output. A shell is asked to redraw only
+    /// when OSC 133 metadata identifies an active prompt; otherwise the current
+    /// row is preserved without sending bytes to the child. Attached byte
+    /// frontends receive the same VT erase sequence. Alternate-screen
+    /// applications are left untouched.
     pub fn clear_history(&self) -> anyhow::Result<()> {
-        const CLEAR_HISTORY_AND_SCREEN: &[u8] = b"\x1b[2J\x1b[3J\x1b[H";
+        const CLEAR_PROMPT_HISTORY_AND_SCREEN: &[u8] = b"\x1b[2J\x1b[3J\x1b[H";
+        const CLEAR_SCROLLBACK: &[u8] = b"\x1b[3J";
         const REDRAW_PROMPT: &[u8] = b"\x0c";
 
         let Some(pty) = self.as_pty() else {
             anyhow::bail!("browser surface does not have a VT terminal");
         };
-        let scroll_changed = {
+        let (scroll_changed, redraw_prompt) = {
             let mut term = pty.term.lock().unwrap();
             if term.active_screen() == Screen::Alternate {
                 return Ok(());
             }
+            let redraw_prompt = term.cursor_is_at_prompt();
+            let clear = if redraw_prompt {
+                CLEAR_PROMPT_HISTORY_AND_SCREEN.to_vec()
+            } else if let Some((_, cursor_y)) = term.cursor_position()
+                && cursor_y > 0
+            {
+                format!("\x1b[{cursor_y}S\x1b[{cursor_y}A\x1b[3J").into_bytes()
+            } else {
+                CLEAR_SCROLLBACK.to_vec()
+            };
             let before = terminal_scroll_position(&term);
-            term.vt_write(CLEAR_HISTORY_AND_SCREEN);
+            term.vt_write(&clear);
             pty.mouse_encoders.lock().unwrap().sync_from_terminal(&term);
-            pty.broadcast_attach_output(CLEAR_HISTORY_AND_SCREEN);
+            pty.broadcast_attach_output(&clear);
             let after = terminal_scroll_position(&term);
             if before != after {
                 broadcast_render_scroll_locked(pty, after);
             }
             let generation = pty.render_generation.fetch_add(1, Ordering::AcqRel) + 1;
             let _ = pty.build_frame_locked(&mut term, generation, false);
-            (before != after).then_some(after)
+            ((before != after).then_some(after), redraw_prompt)
         };
         if let Some((offset, at_bottom)) = scroll_changed
             && let Some(mux) = pty.mux.upgrade()
@@ -923,7 +936,7 @@ impl Surface {
             mux.emit(MuxEvent::ScrollChanged { surface: self.id, offset, at_bottom });
         }
         pty.mark_output_dirty();
-        self.write_bytes(REDRAW_PROMPT).map_err(Into::into)
+        if redraw_prompt { self.write_bytes(REDRAW_PROMPT).map_err(Into::into) } else { Ok(()) }
     }
 
     pub fn set_default_colors(&self, colors: DefaultColors) {
@@ -1781,10 +1794,14 @@ mod tests {
         mirror.vt_write(&bytes);
         surface.with_terminal(|term| {
             assert_eq!(term.history_rows(), 0);
-            assert!(term.viewport_text().unwrap().trim().is_empty());
+            let viewport = term.viewport_text().unwrap();
+            assert!(!viewport.contains("history-"));
+            assert!(viewport.contains("visible"));
         });
         assert_eq!(mirror.history_rows(), 0);
-        assert!(mirror.viewport_text().unwrap().trim().is_empty());
+        let mirror_viewport = mirror.viewport_text().unwrap();
+        assert!(!mirror_viewport.contains("history-"));
+        assert!(mirror_viewport.contains("visible"));
         assert!(events.try_iter().any(|event| matches!(event, MuxEvent::SurfaceOutput(1))));
     }
 
