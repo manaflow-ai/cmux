@@ -496,7 +496,7 @@ import CmuxGit
         #expect(pullRequestProbing.clearedTrackingWorkspaceIds == [workspaceId])
     }
 
-    @Test func resetAllWorkspaceGitProbeTrackingClearsEveryLedgerOnce() {
+    @Test func resetAllWorkspaceGitProbeTrackingClearsTrackedDirectoryAndSignaturesOnce() {
         let host = RecordingSidebarGitHost()
         let (workspaceId, panelId) = host.addWorkspace(panelDirectory: "/tmp/repo")
         let pullRequestProbing = RecordingPullRequestProbing()
