@@ -277,7 +277,7 @@ extension CMUXCLI {
     }
 
     private func openArtifact(_ node: ArtifactNode) throws {
-        openProjectFile(
+        try openProjectFile(
             path: node.absolutePath,
             failureMessage: String(
                 format: String(
