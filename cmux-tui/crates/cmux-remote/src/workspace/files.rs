@@ -29,6 +29,103 @@ const MAX_SEARCH_GLOBS: usize = 256;
 const MAX_SEARCH_ARGUMENT_BYTES: usize = 1024 * 1024;
 const MAX_SEARCH_RESPONSE_BYTES: usize = 8 * 1024 * 1024;
 
+#[cfg(test)]
+#[derive(Clone, Copy, Debug, Eq, Hash, PartialEq)]
+pub(crate) enum MutationTestPoint {
+    AfterPrecondition,
+}
+
+#[cfg(test)]
+#[derive(Clone, Debug, Eq, Hash, PartialEq)]
+struct MutationTestKey {
+    root: PathBuf,
+    path: String,
+    point: MutationTestPoint,
+}
+
+#[cfg(test)]
+#[derive(Debug)]
+struct MutationTestHook {
+    reached: tokio::sync::Notify,
+    resume: tokio::sync::Notify,
+}
+
+#[cfg(test)]
+fn mutation_test_hooks() -> &'static std::sync::Mutex<
+    std::collections::HashMap<MutationTestKey, std::sync::Arc<MutationTestHook>>,
+> {
+    static HOOKS: std::sync::OnceLock<
+        std::sync::Mutex<
+            std::collections::HashMap<MutationTestKey, std::sync::Arc<MutationTestHook>>,
+        >,
+    > = std::sync::OnceLock::new();
+    HOOKS.get_or_init(|| std::sync::Mutex::new(std::collections::HashMap::new()))
+}
+
+#[cfg(test)]
+pub(crate) struct MutationTestBarrier {
+    key: MutationTestKey,
+    hook: std::sync::Arc<MutationTestHook>,
+}
+
+#[cfg(test)]
+impl MutationTestBarrier {
+    pub(crate) async fn wait_until_reached(&self) {
+        self.hook.reached.notified().await;
+    }
+
+    pub(crate) fn resume(&self) {
+        self.hook.resume.notify_one();
+    }
+}
+
+#[cfg(test)]
+impl Drop for MutationTestBarrier {
+    fn drop(&mut self) {
+        let mut hooks = mutation_test_hooks().lock().unwrap_or_else(|error| error.into_inner());
+        if hooks.get(&self.key).is_some_and(|hook| std::sync::Arc::ptr_eq(hook, &self.hook)) {
+            hooks.remove(&self.key);
+        }
+        self.hook.resume.notify_waiters();
+    }
+}
+
+#[cfg(test)]
+pub(crate) fn install_mutation_test_barrier(
+    root: &WorkspaceRoot,
+    path: &str,
+    point: MutationTestPoint,
+) -> MutationTestBarrier {
+    let key =
+        MutationTestKey { root: root.canonical_root().to_owned(), path: path.to_owned(), point };
+    let hook = std::sync::Arc::new(MutationTestHook {
+        reached: tokio::sync::Notify::new(),
+        resume: tokio::sync::Notify::new(),
+    });
+    let previous = mutation_test_hooks()
+        .lock()
+        .unwrap_or_else(|error| error.into_inner())
+        .insert(key.clone(), std::sync::Arc::clone(&hook));
+    assert!(previous.is_none(), "mutation test barrier already installed for {path}");
+    MutationTestBarrier { key, hook }
+}
+
+#[cfg(test)]
+async fn pause_at_mutation_test_barrier(
+    root: &WorkspaceRoot,
+    path: &str,
+    point: MutationTestPoint,
+) {
+    let key =
+        MutationTestKey { root: root.canonical_root().to_owned(), path: path.to_owned(), point };
+    let hook =
+        mutation_test_hooks().lock().unwrap_or_else(|error| error.into_inner()).get(&key).cloned();
+    if let Some(hook) = hook {
+        hook.reached.notify_one();
+        hook.resume.notified().await;
+    }
+}
+
 pub(crate) async fn stat(
     root: &WorkspaceRoot,
     path: &str,
@@ -517,6 +614,8 @@ pub(crate) async fn write_bytes_locked(
             }
         }
     }
+    #[cfg(test)]
+    pause_at_mutation_test_barrier(root, path, MutationTestPoint::AfterPrecondition).await;
 
     let parent = target
         .parent()
@@ -899,6 +998,77 @@ mod tests {
             tokio::fs::read(root.canonical_root().join("src/value.txt")).await.unwrap(),
             b"two"
         );
+    }
+
+    #[cfg(unix)]
+    #[tokio::test]
+    async fn atomic_write_does_not_follow_a_parent_swapped_to_a_symlink() {
+        use std::os::unix::fs::symlink;
+
+        let (_directory, root) = root().await;
+        let outside = tempdir().unwrap();
+        let parent = root.canonical_root().join("parent");
+        tokio::fs::create_dir(&parent).await.unwrap();
+        let barrier = install_mutation_test_barrier(
+            &root,
+            "parent/value.txt",
+            MutationTestPoint::AfterPrecondition,
+        );
+        let writer = {
+            let root = Arc::clone(&root);
+            tokio::spawn(async move {
+                write_file(
+                    &root,
+                    "parent/value.txt",
+                    &ByteString::from_bytes(b"cmux"),
+                    &FilePrecondition::Missing,
+                    false,
+                )
+                .await
+            })
+        };
+
+        barrier.wait_until_reached().await;
+        tokio::fs::rename(&parent, root.canonical_root().join("original-parent")).await.unwrap();
+        symlink(outside.path(), &parent).unwrap();
+        barrier.resume();
+
+        let error = writer.await.unwrap().unwrap_err();
+        assert!(
+            matches!(error.code.as_str(), "conflict" | "io-error" | "not-a-directory"),
+            "unexpected error: {error:?}"
+        );
+        assert!(!outside.path().join("value.txt").exists());
+    }
+
+    #[tokio::test]
+    async fn content_hash_write_rejects_a_target_rewrite_before_commit() {
+        let (_directory, root) = root().await;
+        let target = root.canonical_root().join("value.txt");
+        tokio::fs::write(&target, b"expected").await.unwrap();
+        let barrier =
+            install_mutation_test_barrier(&root, "value.txt", MutationTestPoint::AfterPrecondition);
+        let writer = {
+            let root = Arc::clone(&root);
+            tokio::spawn(async move {
+                write_file(
+                    &root,
+                    "value.txt",
+                    &ByteString::from_bytes(b"cmux"),
+                    &FilePrecondition::ContentHash(hash_bytes(b"expected")),
+                    false,
+                )
+                .await
+            })
+        };
+
+        barrier.wait_until_reached().await;
+        tokio::fs::write(&target, b"external-change").await.unwrap();
+        barrier.resume();
+
+        let error = writer.await.unwrap().unwrap_err();
+        assert_eq!(error.code, "conflict");
+        assert_eq!(tokio::fs::read(&target).await.unwrap(), b"external-change");
     }
 
     #[tokio::test]

@@ -426,6 +426,7 @@ mod tests {
     use cmux_remote_protocol::WorkspaceId;
     use tempfile::tempdir;
 
+    use super::super::files::{MutationTestPoint, install_mutation_test_barrier};
     use super::*;
 
     async fn root() -> (tempfile::TempDir, Arc<WorkspaceRoot>) {
@@ -496,6 +497,28 @@ mod tests {
             tokio::fs::read(root.canonical_root().join("hello.txt")).await.unwrap(),
             b"hello\n"
         );
+    }
+
+    #[tokio::test]
+    async fn patch_rejects_a_target_rewrite_between_snapshot_and_commit() {
+        let (_directory, root) = root().await;
+        let target = root.canonical_root().join("hello.txt");
+        tokio::fs::write(&target, b"hello\n").await.unwrap();
+        let patch = "--- a/hello.txt\n+++ b/hello.txt\n@@ -1 +1 @@\n-hello\n+world\n";
+        let barrier =
+            install_mutation_test_barrier(&root, "hello.txt", MutationTestPoint::AfterPrecondition);
+        let patcher = {
+            let root = Arc::clone(&root);
+            tokio::spawn(async move { apply_patch(&root, patch, false, &BTreeMap::new()).await })
+        };
+
+        barrier.wait_until_reached().await;
+        tokio::fs::write(&target, b"external-change\n").await.unwrap();
+        barrier.resume();
+
+        let error = patcher.await.unwrap().unwrap_err();
+        assert_eq!(error.code, "conflict");
+        assert_eq!(tokio::fs::read(&target).await.unwrap(), b"external-change\n");
     }
 
     #[tokio::test]
