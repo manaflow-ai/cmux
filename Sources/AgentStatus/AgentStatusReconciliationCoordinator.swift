@@ -68,9 +68,9 @@ final class AgentStatusReconciliationCoordinator {
                 panelIds.formUnion(probe.panelIds)
             }
         }
+        lastSweepStartedAt = sweepInstant
         guard !panelIds.isEmpty else { return nil }
 
-        lastSweepStartedAt = sweepInstant
         let detector = detector
         let foregroundIdentitySnapshot = foregroundProcessIdentities
         let rootStatusKeySnapshot = rootStatusKeysByPanelId

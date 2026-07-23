@@ -154,7 +154,11 @@ extension TerminalController: ControlSidebarContext {
         key: String,
         lifecycleRawValue: String,
         panelID: UUID?,
-        onlyIfNeedsInput: Bool
+        onlyIfNeedsInput: Bool,
+        runtimePIDKey: String? = nil,
+        runtimePID: Int32? = nil,
+        revision: UInt64? = nil,
+        clearNotificationsIfResumed: Bool = false
     ) {
         guard let lifecycle = AgentHibernationLifecycleState(rawValue: lifecycleRawValue) else {
             // Unreachable: the coordinator only forwards a value this app produced.
@@ -162,9 +166,29 @@ extension TerminalController: ControlSidebarContext {
         }
         controlSidebarSchedulePanelOwnedMutation(target: target, panelID: panelID) { _, tab in
             if onlyIfNeedsInput, lifecycle == .running {
-                tab.resumeAgentLifecycleIfNeedsInput(key: key, panelId: panelID)
+                let didResume = tab.resumeAgentLifecycleIfNeedsInput(
+                    key: key,
+                    panelId: panelID,
+                    runtimePIDKey: runtimePIDKey,
+                    runtimePID: runtimePID.map(Int.init),
+                    revision: revision
+                )
+                if didResume, clearNotificationsIfResumed, let panelID {
+                    TerminalNotificationStore.shared.clearNotifications(
+                        forTabId: tab.id,
+                        surfaceId: panelID,
+                        discardQueuedNotifications: false
+                    )
+                }
             } else if !onlyIfNeedsInput {
-                tab.setAgentLifecycle(key: key, panelId: panelID, lifecycle: lifecycle)
+                tab.setAgentLifecycle(
+                    key: key,
+                    panelId: panelID,
+                    lifecycle: lifecycle,
+                    runtimePIDKey: runtimePIDKey,
+                    runtimePID: runtimePID.map(Int.init),
+                    revision: revision
+                )
             }
         }
     }

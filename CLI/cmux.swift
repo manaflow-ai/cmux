@@ -53,6 +53,7 @@ struct ClaudeHookParsedInput {
     let rawFallback: String?
     let sessionId: String?
     let turnId: String?
+    let requestId: String?
     let cwd: String?
     let transcriptPath: String?
 }
@@ -154,6 +155,8 @@ struct ClaudeHookSessionRecord: Codable {
     var activePromptTurnIds: [String]?
     var lastPromptTurnId: String?
     var terminalPromptTurnIds: [String]?
+    /// Ordered Codex approval phase for this exact session/process generation.
+    var codexPermissionState: CodexPermissionState? = nil
     var startedAt: TimeInterval
     var updatedAt: TimeInterval
     // Auto-naming engine state (all optional so stores written before the
@@ -861,6 +864,9 @@ final class ClaudeHookSessionStore {
                 updateRuntimeStatus: true,
                 now: now
             )
+            if !onlyIfNeedsInput {
+                record.codexPermissionState = nil
+            }
             state.sessions[normalized] = record
             return true
         }
@@ -939,7 +945,7 @@ final class ClaudeHookSessionStore {
         }
     }
 
-    private func makeSessionRecord(
+    func makeSessionRecord(
         state: ClaudeHookSessionStoreFile,
         sessionId: String,
         workspaceId: String,
@@ -972,7 +978,7 @@ final class ClaudeHookSessionStore {
         )
     }
 
-    private func activePromptTurnStack(from record: ClaudeHookSessionRecord) -> [String] {
+    func activePromptTurnStack(from record: ClaudeHookSessionRecord) -> [String] {
         if let activePromptTurnIds = record.activePromptTurnIds {
             let normalized = activePromptTurnIds.compactMap { normalizeOptional($0) }
             if !normalized.isEmpty {
@@ -1003,7 +1009,7 @@ final class ClaudeHookSessionStore {
         record.terminalPromptTurnIds?.compactMap { normalizeOptional($0) } ?? []
     }
 
-    private func terminalPromptTurnSet(from record: ClaudeHookSessionRecord) -> Set<String> {
+    func terminalPromptTurnSet(from record: ClaudeHookSessionRecord) -> Set<String> {
         Set(terminalPromptTurnStack(from: record))
     }
 
@@ -1030,6 +1036,7 @@ final class ClaudeHookSessionStore {
         record.activePromptTurnId = nil
         record.activePromptTurnIds = nil
         record.lastPromptTurnId = nil
+        record.codexPermissionState = nil
     }
 
     private func markPromptTurnActive(_ turnId: String, on record: inout ClaudeHookSessionRecord) {
@@ -1100,7 +1107,7 @@ final class ClaudeHookSessionStore {
         return String(value[..<index]) + "…"
     }
 
-    private func update(
+    func update(
         _ record: inout ClaudeHookSessionRecord,
         workspaceId: String,
         surfaceId: String,
@@ -1181,7 +1188,7 @@ final class ClaudeHookSessionStore {
         record.updatedAt = now
     }
 
-    private func processStartIdentity(pid: Int) -> (seconds: Int64, microseconds: Int64)? {
+    func processStartIdentity(pid: Int) -> (seconds: Int64, microseconds: Int64)? {
         guard pid > 0, pid <= Int(Int32.max) else { return nil }
         var info = proc_bsdinfo()
         let expectedSize = MemoryLayout<proc_bsdinfo>.stride
@@ -1510,7 +1517,7 @@ final class ClaudeHookSessionStore {
         return nil
     }
 
-    private func withLockedState<T>(_ body: (inout ClaudeHookSessionStoreFile) throws -> T) throws -> T {
+    func withLockedState<T>(_ body: (inout ClaudeHookSessionStoreFile) throws -> T) throws -> T {
         let lockPath = statePath + ".lock"
         let fd = open(lockPath, O_CREAT | O_RDWR, mode_t(S_IRUSR | S_IWUSR))
         if fd < 0 {
@@ -1607,11 +1614,11 @@ final class ClaudeHookSessionStore {
         }
     }
 
-    private func normalizeSessionId(_ value: String) -> String {
+    func normalizeSessionId(_ value: String) -> String {
         value.trimmingCharacters(in: .whitespacesAndNewlines)
     }
 
-    private func normalizeOptional(_ value: String?) -> String? {
+    func normalizeOptional(_ value: String?) -> String? {
         guard let value = value?.trimmingCharacters(in: .whitespacesAndNewlines), !value.isEmpty else {
             return nil
         }
@@ -24925,16 +24932,26 @@ struct CMUXCLI {
         lifecycle: AgentHibernationLifecycleState,
         workspaceId: String,
         surfaceId: String?,
-        onlyIfNeedsInput: Bool = false
+        onlyIfNeedsInput: Bool = false,
+        runtimePIDKey: String? = nil,
+        runtimePID: Int? = nil,
+        revision: UInt64? = nil,
+        clearNotificationsIfResumed: Bool = false
     ) {
         guard Self.allowedAgentLifecycleStatusKeys.contains(key) else {
             cliWriteStderr("Warning: unsupported agent lifecycle key\n")
             return
         }
         do {
-            let conditionalOption = onlyIfNeedsInput ? " --if-needs-input" : ""
+            var orderedOptions = onlyIfNeedsInput ? " --if-needs-input" : ""
+            if let runtimePIDKey, let runtimePID, let revision {
+                orderedOptions += " --runtime-key=\(runtimePIDKey) --runtime-pid=\(runtimePID) --status-revision=\(revision)"
+            }
+            if clearNotificationsIfResumed {
+                orderedOptions += " --clear-notifications-if-resumed"
+            }
             _ = try sendV1Command(
-                "set_agent_lifecycle \(key) \(lifecycle.rawValue) --tab=\(workspaceId)\(socketPanelOption(surfaceId))\(conditionalOption)",
+                "set_agent_lifecycle \(key) \(lifecycle.rawValue) --tab=\(workspaceId)\(socketPanelOption(surfaceId))\(orderedOptions)",
                 client: client
             )
         } catch {
@@ -30265,6 +30282,8 @@ export default CMUXSessionRestore;
 #endif
         let pidKey = "\(def.statusKey).\(sessionId.isEmpty ? "default" : sessionId)"
         var didSendFeedTelemetry = false
+        var agentStatusFeedRevision: UInt64?
+        var suppressAgentStatusFeedSignal = false
         // Destructive session teardown shared by a genuine (non-turn-boundary)
         // `session-end` and the dedicated `session-finalize` action: consume the
         // restore record, clear the surface resume binding, and clear PID routing.
@@ -30352,7 +30371,9 @@ export default CMUXSessionRestore;
                 parsedInput: input,
                 workspaceId: workspaceId ?? workspaceArg(),
                 surfaceId: surfaceId,
-                socketPassword: socketPassword
+                socketPassword: socketPassword,
+                agentStatusRevision: agentStatusFeedRevision,
+                includeAgentStatusSignal: !suppressAgentStatusFeedSignal
             )
         }
         func shouldSuppressGenericFeedTelemetry() -> Bool {
@@ -30996,38 +31017,42 @@ export default CMUXSessionRestore;
             let workspaceId = target.workspaceId
             let surfaceId = target.surfaceId
             sendAgentFeedTelemetryUnlessSuppressed(workspaceId: workspaceId, surfaceId: surfaceId)
-            let pid = mapped?.pid ?? inferredPID
+            let pid = inferredPID ?? mapped?.pid
             guard !shouldSuppressNestedAgentVisibleMutations(currentAgentPID: pid, env: env) else {
                 telemetry.breadcrumb("\(def.name)-hook.tool-activity.nested-suppressed")
                 break
             }
-            if !sessionId.isEmpty {
-                guard (try? store.codexPromptTurnIsTerminal(
+            guard !sessionId.isEmpty else { break }
+            guard (try? store.codexPromptTurnIsTerminal(
                     sessionId: sessionId,
                     turnId: input.turnId
                 )) != true else {
-                    telemetry.breadcrumb("\(def.name)-hook.tool-activity.stale")
-                    break
-                }
-                _ = try? store.upsertCodexPromptRunningIfFresh(
-                    sessionId: sessionId,
-                    workspaceId: workspaceId,
-                    surfaceId: surfaceId,
-                    cwd: hookCwd ?? mapped?.cwd,
-                    transcriptPath: input.transcriptPath ?? mapped?.transcriptPath,
-                    turnId: input.turnId,
-                    pid: pid,
-                    launchCommand: mapped?.launchCommand,
-                    onlyIfNeedsInput: true
-                )
+                telemetry.breadcrumb("\(def.name)-hook.tool-activity.stale")
+                break
             }
+            let transition = try? store.recordCodexPermissionResumed(
+                sessionId: sessionId,
+                workspaceId: workspaceId,
+                surfaceId: surfaceId,
+                cwd: hookCwd ?? mapped?.cwd,
+                transcriptPath: input.transcriptPath ?? mapped?.transcriptPath,
+                turnId: input.turnId,
+                requestId: input.requestId,
+                pid: pid,
+                launchCommand: mapped?.launchCommand
+            )
+            guard transition?.effect == .resolveNeedsInput else { break }
             setAgentLifecycle(
                 client: client,
                 key: def.statusKey,
                 lifecycle: .running,
                 workspaceId: workspaceId,
                 surfaceId: surfaceId,
-                onlyIfNeedsInput: true
+                onlyIfNeedsInput: true,
+                runtimePIDKey: pidKey,
+                runtimePID: transition?.state.runtime.pid,
+                revision: transition?.state.revision,
+                clearNotificationsIfResumed: true
             )
 
         case .stop:
@@ -31580,8 +31605,9 @@ export default CMUXSessionRestore;
                 return
             }
 
+            var codexPermissionTransition: CodexPermissionTransition?
             if !sessionId.isEmpty {
-                let pid = mapped?.pid ?? inferredPID
+                let pid = inferredPID ?? mapped?.pid
                 let launchCommand = agentLaunchCommandFromEnvironment(
                     env,
                     fallbackPID: pid,
@@ -31592,7 +31618,29 @@ export default CMUXSessionRestore;
                 let storedRuntimeStatus: AgentHookRuntimeStatus? = suppressPendingWaitingState ? .running : runtimeStatus(for: summary.status)
                 // These agents use completion notifications as turn boundaries;
                 // keep the route but close nested prompt depth.
-                if (def.name == "grok" || def.name == "antigravity"),
+                if def.name == "codex", summary.status == .needsInput, !suppressPendingWaitingState {
+                    codexPermissionTransition = try? store.recordCodexPermissionNeedsInput(
+                        sessionId: sessionId,
+                        workspaceId: workspaceId,
+                        surfaceId: surfaceId,
+                        cwd: notificationCwd,
+                        transcriptPath: input.transcriptPath ?? mapped?.transcriptPath,
+                        turnId: input.turnId,
+                        requestId: input.requestId,
+                        pid: pid,
+                        launchCommand: launchCommand,
+                        lastSubtitle: summary.subtitle,
+                        lastBody: summary.body,
+                        updateNotification: true
+                    )
+                    suppressAgentStatusFeedSignal = true
+                    guard codexPermissionTransition?.accepted == true else {
+                        sendAgentFeedTelemetryUnlessSuppressed(workspaceId: workspaceId, surfaceId: surfaceId)
+                        print("{}")
+                        return
+                    }
+                    agentStatusFeedRevision = codexPermissionTransition?.state.revision
+                } else if (def.name == "grok" || def.name == "antigravity"),
                    summary.status == .idle || summary.status == .error {
                     _ = try? store.recordPromptStop(
                         sessionId: sessionId,
@@ -31634,6 +31682,45 @@ export default CMUXSessionRestore;
                         updateRuntimeStatus: summary.status != nil
                     )
                 }
+            }
+
+            func repairIfCodexPermissionWasResolved() -> Bool {
+                guard let accepted = codexPermissionTransition else { return false }
+                if (try? store.codexPermissionNeedsInputIsCurrent(
+                    sessionId: sessionId,
+                    turnId: input.turnId,
+                    requestId: input.requestId,
+                    pid: accepted.state.runtime.pid
+                )) == true {
+                    return false
+                }
+                suppressAgentStatusFeedSignal = true
+                guard let latest = try? store.lookup(sessionId: sessionId),
+                      let latestPermission = latest.codexPermissionState,
+                      latestPermission.phase == .resumed,
+                      latestPermission.runtime.matches(accepted.state.runtime) else {
+                    return true
+                }
+                try? store.clearNotificationEmission(sessionId: sessionId)
+                setAgentLifecycle(
+                    client: client,
+                    key: def.statusKey,
+                    lifecycle: .running,
+                    workspaceId: workspaceId,
+                    surfaceId: surfaceId,
+                    onlyIfNeedsInput: true,
+                    runtimePIDKey: pidKey,
+                    runtimePID: latestPermission.runtime.pid,
+                    revision: latestPermission.revision,
+                    clearNotificationsIfResumed: true
+                )
+                return true
+            }
+
+            if repairIfCodexPermissionWasResolved() {
+                sendAgentFeedTelemetryUnlessSuppressed(workspaceId: workspaceId, surfaceId: surfaceId)
+                print("{}")
+                return
             }
 
             let notificationFingerprint = notificationDedupeFingerprint(
@@ -31693,6 +31780,12 @@ export default CMUXSessionRestore;
 #endif
             }
 
+            if repairIfCodexPermissionWasResolved() {
+                sendAgentFeedTelemetryUnlessSuppressed(workspaceId: workspaceId, surfaceId: surfaceId)
+                print("{}")
+                return
+            }
+
             switch summary.status {
             case .needsInput? where suppressPendingWaitingState:
                 // Suppressed pending waiting cue: leave the Running pill and
@@ -31704,7 +31797,10 @@ export default CMUXSessionRestore;
                     key: def.statusKey,
                     lifecycle: .needsInput,
                     workspaceId: workspaceId,
-                    surfaceId: surfaceId
+                    surfaceId: surfaceId,
+                    runtimePIDKey: codexPermissionTransition == nil ? nil : pidKey,
+                    runtimePID: codexPermissionTransition?.state.runtime.pid,
+                    revision: codexPermissionTransition?.state.revision
                 )
                 let statusValue = String.localizedStringWithFormat(
                     String(localized: "agent.generic.notification.status.needsInput", defaultValue: "%@ needs input"),
@@ -31743,6 +31839,11 @@ export default CMUXSessionRestore;
                 setIdleStatusUnlessAnotherSessionIsRunning(workspaceId: workspaceId, surfaceId: surfaceId)
             case nil:
                 break
+            }
+            if repairIfCodexPermissionWasResolved() {
+                sendAgentFeedTelemetryUnlessSuppressed(workspaceId: workspaceId, surfaceId: surfaceId)
+                print("{}")
+                return
             }
             sendAgentFeedTelemetryUnlessSuppressed(workspaceId: workspaceId, surfaceId: surfaceId)
 
@@ -31823,7 +31924,9 @@ export default CMUXSessionRestore;
         parsedInput: ClaudeHookParsedInput,
         workspaceId: String? = nil,
         surfaceId: String? = nil,
-        socketPassword: String? = nil
+        socketPassword: String? = nil,
+        agentStatusRevision: UInt64? = nil,
+        includeAgentStatusSignal: Bool = true
     ) {
         let hookEventName = Self.feedEventName(forClaudeSubcommand: subcommand)
         guard !hookEventName.isEmpty else { return }
@@ -31879,12 +31982,19 @@ export default CMUXSessionRestore;
             in: fallbackObject,
             keys: ["hook_event_name", "hookEventName", "event", "event_name"]
         )
-        FeedEventClassifier.attachAgentStatusSignal(
-            to: &event,
-            source: source,
-            rawEvent: rawHookEvent,
-            hookSubcommand: subcommand
-        )
+        if includeAgentStatusSignal {
+            FeedEventClassifier.attachAgentStatusSignal(
+                to: &event,
+                source: source,
+                rawEvent: rawHookEvent,
+                hookSubcommand: subcommand
+            )
+            if let agentStatusRevision {
+                event[FeedEventClassifier.agentStatusRevisionField] = agentStatusRevision
+            }
+        }
+        if let turnId = parsedInput.turnId { event["turn_id"] = turnId }
+        if let requestId = parsedInput.requestId { event["request_id"] = requestId }
         event["_opencode_request_id"] = "\(source)-\(sessionId)-\(hookEventName)-\(Int(Date().timeIntervalSince1970 * 1000))"
 
         let frame: [String: Any] = [
@@ -33960,13 +34070,113 @@ export default CMUXSessionRestore;
             hookEventName: hookEventName,
             promptText: promptText
         )
-        FeedEventClassifier.attachAgentStatusSignal(
-            to: &eventDict,
-            source: source,
-            rawEvent: rawEvent
-        )
+        let turnId = firstString(in: stdinObj, keys: ["turn_id", "turnId"])
+        let permissionRequestId = firstString(
+            in: stdinObj,
+            keys: [
+                "request_id", "requestId", "tool_use_id", "toolUseID", "toolUseId",
+                "tool_call_id", "toolCallId", "call_id", "callId",
+            ]
+        ) ?? toolCall.flatMap {
+            firstString(in: $0, keys: ["id", "request_id", "requestId", "call_id", "callId"])
+        }
+        var agentStatusRevision: UInt64?
+        var shouldAttachAgentStatusSignal = agentStatusSignal != nil
+        if source == "codex", agentStatusSignal != nil {
+            if let liveTarget {
+                let store = ClaudeHookSessionStore(
+                    processEnv: env.merging(
+                        ["CMUX_CLAUDE_HOOK_STATE_PATH": agentHookStatePath(sessionStoreSuffix: "codex", env: env)],
+                        uniquingKeysWith: { _, new in new }
+                    )
+                )
+                let transition = try? store.recordCodexPermissionNeedsInput(
+                    sessionId: sessionId,
+                    workspaceId: liveTarget.workspaceId,
+                    surfaceId: liveTarget.surfaceId,
+                    cwd: eventDict["cwd"] as? String,
+                    transcriptPath: firstString(in: stdinObj, keys: ["transcript_path", "transcriptPath"]),
+                    turnId: turnId,
+                    requestId: permissionRequestId,
+                    pid: agentPid
+                )
+                shouldAttachAgentStatusSignal = transition?.accepted == true
+                agentStatusRevision = shouldAttachAgentStatusSignal ? transition?.state.revision : nil
+            } else {
+                shouldAttachAgentStatusSignal = false
+            }
+        }
+        if source == "codex",
+           agentStatusSignal == nil,
+           hookEventName == "PreToolUse" || hookEventName == "PostToolUse" {
+            let store = ClaudeHookSessionStore(
+                processEnv: env.merging(
+                    ["CMUX_CLAUDE_HOOK_STATE_PATH": agentHookStatePath(sessionStoreSuffix: "codex", env: env)],
+                    uniquingKeysWith: { _, new in new }
+                )
+            )
+            if let mapped = try? store.lookup(sessionId: sessionId),
+               let transition = try? store.recordCodexPermissionResumed(
+                   sessionId: sessionId,
+                   workspaceId: mapped.workspaceId,
+                   surfaceId: mapped.surfaceId,
+                   cwd: eventDict["cwd"] as? String ?? mapped.cwd,
+                   transcriptPath: firstString(in: stdinObj, keys: ["transcript_path", "transcriptPath"])
+                       ?? mapped.transcriptPath,
+                   turnId: turnId,
+                   requestId: permissionRequestId,
+                   pid: agentPid,
+                   launchCommand: mapped.launchCommand
+               ),
+               transition.effect == .resolveNeedsInput {
+                eventDict["workspace_id"] = mapped.workspaceId
+                eventDict["surface_id"] = mapped.surfaceId
+                eventDict[FeedEventClassifier.agentStatusSignalField] = "running"
+                eventDict[FeedEventClassifier.agentStatusRevisionField] = transition.state.revision
+                func publishResolution(using lifecycleClient: SocketClient) {
+                    setAgentLifecycle(
+                        client: lifecycleClient,
+                        key: "codex",
+                        lifecycle: .running,
+                        workspaceId: mapped.workspaceId,
+                        surfaceId: mapped.surfaceId,
+                        onlyIfNeedsInput: true,
+                        runtimePIDKey: "codex.\(sessionId)",
+                        runtimePID: transition.state.runtime.pid,
+                        revision: transition.state.revision,
+                        clearNotificationsIfResumed: true
+                    )
+                }
+                if let client {
+                    publishResolution(using: client)
+                } else if let socketPath {
+                    let lifecycleClient = SocketClient(path: socketPath)
+                    defer { lifecycleClient.close() }
+                    if (try? lifecycleClient.connect()) != nil,
+                       (try? authenticateClientIfNeeded(
+                           lifecycleClient,
+                           explicitPassword: socketPassword,
+                           socketPath: socketPath
+                       )) != nil {
+                        publishResolution(using: lifecycleClient)
+                    }
+                }
+            }
+        }
+        if shouldAttachAgentStatusSignal {
+            FeedEventClassifier.attachAgentStatusSignal(
+                to: &eventDict,
+                source: source,
+                rawEvent: rawEvent
+            )
+            if let agentStatusRevision {
+                eventDict[FeedEventClassifier.agentStatusRevisionField] = agentStatusRevision
+            }
+        }
+        if let turnId { eventDict["turn_id"] = turnId }
+        if let permissionRequestId { eventDict["request_id"] = permissionRequestId }
         let requestId = stdinObj["_opencode_request_id"] as? String
-            ?? firstString(in: stdinObj, keys: ["request_id", "tool_use_id", "toolUseID"])
+            ?? permissionRequestId
             ?? "\(source)-\(sessionId)-\(rawEvent)-\(toolName)-\(Int(Date().timeIntervalSince1970 * 1000))"
         eventDict["_opencode_request_id"] = requestId
 

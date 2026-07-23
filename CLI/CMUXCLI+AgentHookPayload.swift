@@ -17,6 +17,7 @@ extension CMUXCLI {
                 rawFallback: fallback,
                 sessionId: nil,
                 turnId: nil,
+                requestId: nil,
                 cwd: nil,
                 transcriptPath: nil
             )
@@ -24,6 +25,15 @@ extension CMUXCLI {
 
         let sessionId = extractClaudeHookSessionId(from: object)
         let turnId = firstString(in: object, keys: ["turn_id", "turnId"])
+        let requestId = firstString(
+            in: object,
+            keys: [
+                "request_id", "requestId", "tool_use_id", "toolUseID", "toolUseId",
+                "tool_call_id", "toolCallId", "call_id", "callId",
+            ]
+        ) ?? (object["toolCall"] as? [String: Any]).flatMap {
+            firstString(in: $0, keys: ["id", "request_id", "requestId", "call_id", "callId"])
+        }
         let cwd = extractClaudeHookCWD(from: object)
         let transcriptPath = extractHookTranscriptPath(from: object)
         let compactObject = compactClaudeHookObject(object)
@@ -33,6 +43,7 @@ extension CMUXCLI {
             rawFallback: nil,
             sessionId: sessionId,
             turnId: turnId,
+            requestId: requestId,
             cwd: cwd,
             transcriptPath: transcriptPath
         )
@@ -42,7 +53,7 @@ extension CMUXCLI {
         var compact: [String: Any] = [:]
 
         for key in [
-            "tool_name", "toolName", "turn_id", "turnId", "conversation_id", "conversationId", "transcript_path", "transcriptPath",
+            "tool_name", "toolName", "turn_id", "turnId", "request_id", "requestId", "tool_use_id", "toolUseID", "toolUseId", "tool_call_id", "toolCallId", "call_id", "callId", "conversation_id", "conversationId", "transcript_path", "transcriptPath",
             "last_assistant_message", "lastAssistantMessage", "assistantPreamble", "assistant_preamble", "assistant_response", "assistantResponse",
             "event", "event_name", "hook_event_name", "hookEventName", "type", "kind", "notification_type", "matcher", "reason", "source", "terminationReason",
             "title", "summary", "message", "body", "text", "prompt", "error", "codex_error_info", "codexErrorInfo",

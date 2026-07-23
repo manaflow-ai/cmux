@@ -16,6 +16,33 @@ struct ControlCommandCoordinatorSidebarV1Tests {
         #expect(response?.contains("[--if-needs-input]") == true)
     }
 
+    @Test func orderedLifecycleRequiresACompleteRuntimeGeneration() {
+        let coordinator = ControlCommandCoordinator(context: FakeSidebarV1ControlCommandContext())
+
+        let incomplete = coordinator.handleSidebarV1(
+            command: "set_agent_lifecycle",
+            args: "codex running --tab=workspace-1 --runtime-key=codex.session --status-revision=2"
+        )
+        let complete = coordinator.handleSidebarV1(
+            command: "set_agent_lifecycle",
+            args: "codex running --tab=workspace-1 --runtime-key=codex.session --runtime-pid=4242 --status-revision=2"
+        )
+
+        #expect(incomplete?.contains("--runtime-key=<key> --runtime-pid=<pid> --status-revision=<n>") == true)
+        #expect(complete == "OK")
+    }
+
+    @Test func notificationCleanupRequiresAConditionalResume() {
+        let coordinator = ControlCommandCoordinator(context: FakeSidebarV1ControlCommandContext())
+
+        let response = coordinator.handleSidebarV1(
+            command: "set_agent_lifecycle",
+            args: "codex running --tab=workspace-1 --clear-notifications-if-resumed"
+        )
+
+        #expect(response?.contains("Invalid agent lifecycle 'running'") == true)
+    }
+
     @Test func workspaceLoadingFailureReasonReturnsErrorLine() {
         let context = FakeSidebarV1ControlCommandContext()
         context.workspaceLoadingResult = ControlSidebarWorkspaceLoadingState(

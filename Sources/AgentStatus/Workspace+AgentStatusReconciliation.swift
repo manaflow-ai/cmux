@@ -8,26 +8,41 @@ extension Workspace {
         sidebarAgentRuntimeObservation.agentStatusLedger
     }
 
+    @discardableResult
     func setAgentLifecycle(
         key: String,
         panelId: UUID?,
-        lifecycle: AgentHibernationLifecycleState
-    ) {
+        lifecycle: AgentHibernationLifecycleState,
+        runtimePIDKey: String? = nil,
+        runtimePID: Int? = nil,
+        revision: UInt64? = nil
+    ) -> Bool {
         let targetPanelId = panelId ?? focusedPanelId
-        guard let targetPanelId, panels[targetPanelId] != nil else { return }
-        agentLifecycleStatesByPanelId[targetPanelId, default: [:]][key] = lifecycle
-        if !AgentHibernationLifecycleStatusKeys.isManualKey(key) {
-            recordAgentLifecycleChange(panelId: targetPanelId)
+        guard let targetPanelId, panels[targetPanelId] != nil else { return false }
+        guard AgentHibernationLifecycleStatusKeys.isAllowed(key) else {
+            agentLifecycleStatesByPanelId[targetPanelId, default: [:]][key] = lifecycle
+            if !AgentHibernationLifecycleStatusKeys.isManualKey(key) {
+                recordAgentLifecycleChange(panelId: targetPanelId)
+            }
+            return true
         }
-        guard AgentHibernationLifecycleStatusKeys.isAllowed(key) else { return }
+        if let runtimePIDKey, let runtimePID,
+           !agentStatusRuntimeIsCurrent(pidKey: runtimePIDKey, pid: runtimePID, panelId: targetPanelId) {
+            return false
+        }
         let observedAt = Date.now
-        agentStatusLedger.recordLifecycle(
+        guard agentStatusLedger.recordLifecycle(
             lifecycle,
             panelId: targetPanelId,
             statusKey: key,
-            observedAt: observedAt
-        )
+            observedAt: observedAt,
+            runtimePIDKey: runtimePIDKey,
+            revision: revision
+        ) else { return false }
+        agentLifecycleStatesByPanelId[targetPanelId, default: [:]][key] = lifecycle
+        recordAgentLifecycleChange(panelId: targetPanelId)
         reconcileAgentStatuses(panelId: targetPanelId, now: observedAt)
+        return true
     }
 
     func noteAgentStatusHookSignal(
@@ -47,7 +62,9 @@ extension Workspace {
             signal.lifecycle,
             panelId: targetPanelId,
             statusKey: signal.statusKey,
-            observedAt: signal.observedAt
+            observedAt: signal.observedAt,
+            runtimePIDKey: signal.runtimePIDKey,
+            revision: signal.revision
         ) else { return }
         reconcileAgentStatuses(panelId: targetPanelId, now: signal.observedAt)
     }
@@ -74,13 +91,39 @@ extension Workspace {
         return agentStatusRuntimeIsCurrent(event: event, panelId: panelId)
     }
 
-    func resumeAgentLifecycleIfNeedsInput(key: String, panelId: UUID?) {
+    @discardableResult
+    func resumeAgentLifecycleIfNeedsInput(
+        key: String,
+        panelId: UUID?,
+        runtimePIDKey: String? = nil,
+        runtimePID: Int? = nil,
+        revision: UInt64? = nil
+    ) -> Bool {
         let targetPanelId = panelId ?? focusedPanelId
-        guard let targetPanelId,
-              agentLifecycleStatesByPanelId[targetPanelId]?[key] == .needsInput else {
-            return
+        guard let targetPanelId, panels[targetPanelId] != nil else { return false }
+        if let runtimePIDKey, let runtimePID,
+           !agentStatusRuntimeIsCurrent(pidKey: runtimePIDKey, pid: runtimePID, panelId: targetPanelId) {
+            return false
         }
-        setAgentLifecycle(key: key, panelId: targetPanelId, lifecycle: .running)
+        let observedAt = Date.now
+        guard agentStatusLedger.recordLifecycle(
+            .running,
+            panelId: targetPanelId,
+            statusKey: key,
+            observedAt: observedAt,
+            runtimePIDKey: runtimePIDKey,
+            revision: revision
+        ) else { return false }
+        guard agentLifecycleStatesByPanelId[targetPanelId]?[key] == .needsInput else {
+            // The ordered Running observation is still a tombstone. Recording
+            // it prevents a delayed lower-revision permission event from
+            // changing the visible state after this hook returns.
+            return true
+        }
+        agentLifecycleStatesByPanelId[targetPanelId, default: [:]][key] = .running
+        recordAgentLifecycleChange(panelId: targetPanelId)
+        reconcileAgentStatuses(panelId: targetPanelId, now: observedAt)
+        return true
     }
 
     func noteAgentStatusOutputActivity(panelId: UUID, observedAt: Date) {

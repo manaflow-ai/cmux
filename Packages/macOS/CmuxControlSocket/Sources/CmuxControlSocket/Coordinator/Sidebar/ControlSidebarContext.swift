@@ -91,7 +91,11 @@ public protocol ControlSidebarContext: AnyObject {
         key: String,
         lifecycleRawValue: String,
         panelID: UUID?,
-        onlyIfNeedsInput: Bool
+        onlyIfNeedsInput: Bool,
+        runtimePIDKey: String?,
+        runtimePID: Int32?,
+        revision: UInt64?,
+        clearNotificationsIfResumed: Bool
     )
 
     /// Workspace-scoped manual loading toggle for `workspace_loading`. `on`

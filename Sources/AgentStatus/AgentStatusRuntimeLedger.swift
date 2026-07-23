@@ -24,9 +24,23 @@ final class AgentStatusRuntimeLedger {
         _ lifecycle: AgentHibernationLifecycleState,
         panelId: UUID,
         statusKey: String,
-        observedAt: Date
+        observedAt: Date,
+        runtimePIDKey: String? = nil,
+        revision: UInt64? = nil
     ) -> Bool {
         var evidence = evidenceByPanelId[panelId]?[statusKey] ?? AgentStatusEvidence()
+        if let runtimePIDKey, let revision {
+            if evidence.lifecycleRuntimePIDKey == runtimePIDKey,
+               let currentRevision = evidence.lifecycleRevision,
+               currentRevision > revision {
+                return false
+            }
+            if evidence.lifecycleRuntimePIDKey != runtimePIDKey {
+                evidence.lifecycleRuntimePIDKey = runtimePIDKey
+                evidence.lifecycleRevision = nil
+            }
+            evidence.lifecycleRevision = revision
+        }
         if let current = evidence.lifecycleObservedAt, current > observedAt { return false }
         evidence.lifecycle = lifecycle
         evidence.lifecycleObservedAt = observedAt
