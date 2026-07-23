@@ -252,7 +252,7 @@ struct ShellIntegrationSendTransportTests {
     }
 
     /// End-to-end contract for `_cmux_send`: sourcing the bundled integration
-    /// in a fresh zsh and sending one payload must deliver that payload to a
+    /// in a fresh shell and sending one payload must deliver that payload to a
     /// unix-socket listener even when a PATH-first `nc` without unix-socket
     /// support (GNU netcat's shape) shadows the system client. This transport
     /// carries the whole hook channel (report_tty, ports_kick,
@@ -272,8 +272,56 @@ struct ShellIntegrationSendTransportTests {
         if: NSUserName() != "runner",
         "subprocess unix-socket delivery is flaky on CI app-host runners; run locally or on a fleet Mac"
     ))
-    func sendDeliversPayloadDespiteShadowedPathNC() throws {
-        let result = try Self.deliverViaIntegration(shimmed: true)
+    func sendDeliversPayloadDespiteShadowedPathNC_zsh() throws {
+        let result = try Self.deliverViaIntegration(
+            shell: "/bin/zsh",
+            shellArgs: ["-f", "-c"],
+            integrationName: "cmux-zsh-integration.zsh",
+            probe: { path in
+                """
+                source '\(path)'
+                print -r -- "diag: usrbin_nc_executable=$([[ -x /usr/bin/nc ]] && echo 1 || echo 0)"
+                print -r -- "diag: path_nc=$(whence -p nc 2>/dev/null)"
+                _cmux_send 'transport probe'
+                print -r -- "diag: send_rc=$?"
+                """
+            },
+            shimmed: true
+        )
+        #expect(
+            result.delivered == "transport probe",
+            "The pinned system client must deliver even with a broken PATH-first nc. exit=\(result.exitStatus) log:\n\(result.diagnostics.suffix(1200))"
+        )
+    }
+
+    /// Same contract for the bash integration. `cmux-bash-integration.bash`
+    /// preferred `ncat --send-only` from a detached child, which half-closes
+    /// and exits before the server's cmuxOnly peer-ancestry check completes, so
+    /// every hook was dropped silently on macOS (report_pwd never landed, panes
+    /// restored to `~`). Preferring `/usr/bin/nc -w 1 -U` — which waits for the
+    /// server to close, keeping the peer alive through the ancestry check —
+    /// must deliver even when a broken PATH-first `nc` shadows the system
+    /// client. This is the bash counterpart of the zsh fix in #7789.
+    @Test(.enabled(
+        if: NSUserName() != "runner",
+        "subprocess unix-socket delivery is flaky on CI app-host runners; run locally or on a fleet Mac"
+    ))
+    func sendDeliversPayloadDespiteShadowedPathNC_bash() throws {
+        let result = try Self.deliverViaIntegration(
+            shell: "/bin/bash",
+            shellArgs: ["--norc", "--noprofile", "-c"],
+            integrationName: "cmux-bash-integration.bash",
+            probe: { path in
+                """
+                source '\(path)'
+                printf 'diag: usrbin_nc_executable=%s\\n' "$([[ -x /usr/bin/nc ]] && echo 1 || echo 0)"
+                printf 'diag: path_nc=%s\\n' "$(command -v nc 2>/dev/null)"
+                _cmux_send 'transport probe'
+                printf 'diag: send_rc=%s\\n' "$?"
+                """
+            },
+            shimmed: true
+        )
         #expect(
             result.delivered == "transport probe",
             "The pinned system client must deliver even with a broken PATH-first nc. exit=\(result.exitStatus) log:\n\(result.diagnostics.suffix(1200))"
@@ -286,12 +334,18 @@ struct ShellIntegrationSendTransportTests {
         let exitStatus: Int32
     }
 
-    private static func deliverViaIntegration(shimmed: Bool) throws -> DeliveryResult {
+    private static func deliverViaIntegration(
+        shell: String,
+        shellArgs: [String],
+        integrationName: String,
+        probe: (String) -> String,
+        shimmed: Bool
+    ) throws -> DeliveryResult {
         let script = try #require(
             RemoteInteractiveShellBootstrapBuilder.bundledShellIntegrationScript(
-                named: "cmux-zsh-integration.zsh"
+                named: integrationName
             ),
-            "cmux-zsh-integration.zsh must ship in the app bundle"
+            "\(integrationName) must ship in the app bundle"
         )
         // Deliberately short root: unix socket paths must fit
         // sockaddr_un.sun_path (104 bytes on Darwin), and the default
@@ -300,7 +354,7 @@ struct ShellIntegrationSendTransportTests {
             .appendingPathComponent("cmux-st-\(UUID().uuidString.prefix(8))", isDirectory: true)
         try FileManager.default.createDirectory(at: dir, withIntermediateDirectories: true)
         defer { try? FileManager.default.removeItem(at: dir) }
-        let scriptFile = dir.appendingPathComponent("integration.zsh")
+        let scriptFile = dir.appendingPathComponent(integrationName)
         try script.write(to: scriptFile, atomically: true, encoding: .utf8)
         let socketPath = dir.appendingPathComponent("t.sock").path
 
@@ -327,22 +381,13 @@ struct ShellIntegrationSendTransportTests {
         defer { try? logHandle.close() }
 
         let process = Process()
-        process.executableURL = URL(fileURLWithPath: "/bin/zsh")
+        process.executableURL = URL(fileURLWithPath: shell)
         process.environment = [
             "CMUX_SOCKET_PATH": socketPath,
             "PATH": path,
             "HOME": dir.path,
         ]
-        process.arguments = [
-            "-f", "-c",
-            """
-            source '\(scriptFile.path)'
-            print -r -- "diag: usrbin_nc_executable=$([[ -x /usr/bin/nc ]] && echo 1 || echo 0)"
-            print -r -- "diag: path_nc=$(whence -p nc 2>/dev/null)"
-            _cmux_send 'transport probe'
-            print -r -- "diag: send_rc=$?"
-            """,
-        ]
+        process.arguments = shellArgs + [probe(scriptFile.path)]
         process.standardOutput = logHandle
         process.standardError = logHandle
         try process.run()
