@@ -612,6 +612,7 @@ struct ComputerUseUXTests {
         let policy = ComputerUseMenuBarRefreshPolicy(minimumEventReloadInterval: 0.2)
         let firstEvent = Date(timeIntervalSince1970: 1_900_000_000)
         let secondEvent = firstEvent.addingTimeInterval(0.05)
+        let lastAction = firstEvent.addingTimeInterval(-30)
 
         #expect(policy.reloadDeadline(
             forEventAt: firstEvent,
@@ -630,6 +631,10 @@ struct ComputerUseUXTests {
         ))
         #expect(firstDeadline == firstEvent.addingTimeInterval(0.2))
         #expect(secondDeadline > firstDeadline)
+        #expect(policy.stateExpirationDeadline(
+            lastActionAt: lastAction,
+            recentActivityInterval: 3_600
+        ) == lastAction.addingTimeInterval(3_600.2))
     }
 
     @Test func computerUseSchemaDeclaresPersistedKeys() throws {
