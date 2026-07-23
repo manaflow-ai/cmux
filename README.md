@@ -399,6 +399,12 @@ We want to hear it. Open an [issue](https://github.com/manaflow-ai/cmux/issues) 
  </picture>
 </a>
 
+## Sponsors
+
+Thanks to [Blacksmith](https://blacksmith.sh) for sponsoring our CI. cmux's GitHub Actions run on Blacksmith's runners.
+
+<a href="https://blacksmith.sh"><img src="./docs/assets/blacksmith-logo.svg" alt="Blacksmith" width="334" /></a>
+
 ## Contributing
 
 Ways to get involved:
