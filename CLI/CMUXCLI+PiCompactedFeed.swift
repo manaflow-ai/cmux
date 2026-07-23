@@ -49,7 +49,7 @@ extension CMUXCLI {
         fallbackWorkspaceId: String?,
         client: SocketClient
     ) throws -> Bool {
-        let target = try resolveExplicitPiHookTarget(commandArgs: commandArgs, client: client)
+        let target = try resolveStrictPiHookTarget(commandArgs: commandArgs, client: client)
         let request = PiCompactedFeedEventExpander(
             agentPid: agentPid,
             workspaceId: target?.workspaceId ?? fallbackWorkspaceId,
@@ -66,12 +66,16 @@ extension CMUXCLI {
         return true
     }
 
-    /// Resolves a Pi extension's explicit surface without falling back to another pane.
-    func resolveExplicitPiHookTarget(
+    /// Resolves and validates a Pi extension's explicit or inherited surface without pane fallback.
+    func resolveStrictPiHookTarget(
         commandArgs: [String],
         client: SocketClient
     ) throws -> (workspaceId: String, surfaceId: String)? {
-        guard let rawSurface = optionValue(commandArgs, name: "--surface") else { return nil }
+        let rawSurface = optionValue(commandArgs, name: "--surface")
+            ?? ProcessInfo.processInfo.environment["CMUX_SURFACE_ID"]
+        guard let rawSurface, !rawSurface.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty else {
+            return nil
+        }
         let surface = rawSurface.trimmingCharacters(in: .whitespacesAndNewlines)
         guard isUUID(surface)
             || Int(surface) != nil

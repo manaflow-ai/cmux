@@ -30134,7 +30134,7 @@ export default CMUXSessionRestore;
         let directWorkspaceArg = hookWsFlag ?? normalizedHookValue(env["CMUX_WORKSPACE_ID"])
         let explicitSurfaceFlag = optionValue(hookArgs, name: "--surface")
         let strictPiTarget = def.name == "pi"
-            ? try resolveExplicitPiHookTarget(commandArgs: hookArgs, client: client)
+            ? try resolveStrictPiHookTarget(commandArgs: hookArgs, client: client)
             : nil
         let directSurfaceArg = explicitSurfaceFlag
             ?? (hookWsFlag == nil ? normalizedHookValue(env["CMUX_SURFACE_ID"]) : nil)
@@ -33934,7 +33934,7 @@ export default CMUXSessionRestore;
         }
 
         if shouldAwaitTelemetryIngestion {
-            if let target = try resolveExplicitPiHookTarget(commandArgs: commandArgs, client: activeClient) {
+            if let target = try resolveStrictPiHookTarget(commandArgs: commandArgs, client: activeClient) {
                 eventDict["workspace_id"] = target.workspaceId
                 eventDict["surface_id"] = target.surfaceId
                 request["params"] = [
