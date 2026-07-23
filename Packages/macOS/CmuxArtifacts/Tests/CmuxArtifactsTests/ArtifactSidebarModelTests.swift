@@ -83,6 +83,7 @@ struct ArtifactSidebarModelTests {
         let store = SidebarArtifactStore(root: root, nodes: [first])
         let model = ArtifactSidebarModel(store: store, captureService: SidebarCaptureSpy())
         await model.bind(workspace: workspace(root: root))
+        #expect(await store.waitUntilWatching())
         let firstRows = model.rows
 
         await store.replaceNodes([second], notify: true)

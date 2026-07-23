@@ -12,7 +12,8 @@ struct ArtifactSidebarRowView: View {
             ArtifactSidebarThumbnailView(
                 fileURL: snapshot.fileURL,
                 kind: snapshot.fileKind,
-                isDirectory: snapshot.isDirectory
+                isDirectory: snapshot.isDirectory,
+                modifiedAt: snapshot.modifiedAt
             )
             VStack(alignment: .leading, spacing: 1) {
                 Text(snapshot.name)
