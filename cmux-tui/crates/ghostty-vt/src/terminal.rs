@@ -1349,8 +1349,11 @@ impl Terminal {
     /// back to a terminal reset so callers can still attach and receive live
     /// output instead of entering a permanent overflow loop.
     pub fn vt_replay_bounded(&mut self, max_bytes: usize) -> Result<Vec<u8>> {
-        let graphics =
-            kitty_replay_bounded(&self.kitty_graphics_snapshot()?, max_bytes.saturating_div(2));
+        let graphics = kitty_replay_bounded(
+            &self.kitty_graphics_snapshot()?,
+            max_bytes.saturating_div(2),
+            self.cell_pixel_size(),
+        );
         let text_budget = max_bytes.saturating_sub(graphics.len());
         let mut replay = self.vt_replay_text_bounded(text_budget)?;
         replay.extend_from_slice(&graphics);
@@ -1437,7 +1440,10 @@ impl Terminal {
         if let Some(suffix) = suffix {
             replay.extend_from_slice(&suffix);
         }
-        replay.extend_from_slice(&kitty_replay(&self.kitty_graphics_snapshot()?));
+        replay.extend_from_slice(&kitty_replay(
+            &self.kitty_graphics_snapshot()?,
+            self.cell_pixel_size(),
+        ));
         Ok(replay)
     }
 
@@ -1492,6 +1498,14 @@ impl Terminal {
             },
             selection: selection.map_or(ptr::null(), |value| value),
         }
+    }
+
+    fn cell_pixel_size(&self) -> (u32, u32) {
+        let cols = u32::from(self.cols().max(1));
+        let rows = u32::from(self.rows().max(1));
+        let width = self.get::<u32>(sys::GHOSTTY_TERMINAL_DATA_WIDTH_PX).unwrap_or(cols);
+        let height = self.get::<u32>(sys::GHOSTTY_TERMINAL_DATA_HEIGHT_PX).unwrap_or(rows);
+        ((width / cols).max(1), (height / rows).max(1))
     }
 
     fn grid_ref(&self, tag: sys::GhosttyPointTag, x: u16, y: u64) -> Option<sys::GhosttyGridRef> {
@@ -1600,11 +1614,15 @@ fn minimal_vt_replay(max_bytes: usize) -> Vec<u8> {
     if max_bytes >= RESET.len() { RESET.to_vec() } else { Vec::new() }
 }
 
-fn kitty_replay(snapshot: &KittyGraphicsSnapshot) -> Vec<u8> {
-    kitty_replay_bounded(snapshot, usize::MAX)
+fn kitty_replay(snapshot: &KittyGraphicsSnapshot, cell_pixels: (u32, u32)) -> Vec<u8> {
+    kitty_replay_bounded(snapshot, usize::MAX, cell_pixels)
 }
 
-fn kitty_replay_bounded(snapshot: &KittyGraphicsSnapshot, max_bytes: usize) -> Vec<u8> {
+fn kitty_replay_bounded(
+    snapshot: &KittyGraphicsSnapshot,
+    max_bytes: usize,
+    cell_pixels: (u32, u32),
+) -> Vec<u8> {
     let mut replay = Vec::new();
     for image in &snapshot.images {
         let placements = snapshot
@@ -1634,7 +1652,7 @@ fn kitty_replay_bounded(snapshot: &KittyGraphicsSnapshot, max_bytes: usize) -> V
             bundle.extend_from_slice(b"\x1b\\");
         }
         for placement in placements {
-            if let Some(command) = kitty_replay_placement(placement) {
+            if let Some(command) = kitty_replay_placement(placement, cell_pixels) {
                 bundle.extend_from_slice(&command);
             }
         }
@@ -1646,28 +1664,111 @@ fn kitty_replay_bounded(snapshot: &KittyGraphicsSnapshot, max_bytes: usize) -> V
     replay
 }
 
-fn kitty_replay_placement(placement: &kitty::KittyPlacement) -> Option<Vec<u8>> {
-    let clip_cols = u32::try_from(placement.viewport_col.saturating_neg()).unwrap_or(0);
-    let clip_rows = u32::try_from(placement.viewport_row.saturating_neg()).unwrap_or(0);
-    if clip_cols >= placement.grid_cols || clip_rows >= placement.grid_rows {
+fn kitty_replay_placement(
+    placement: &kitty::KittyPlacement,
+    cell_pixels: (u32, u32),
+) -> Option<Vec<u8>> {
+    if placement.pixel_width == 0
+        || placement.pixel_height == 0
+        || placement.source_width == 0
+        || placement.source_height == 0
+    {
         return None;
     }
-    let cols = placement.grid_cols - clip_cols;
-    let rows = placement.grid_rows - clip_rows;
-    let source_dx = proportional_clip(placement.source_width, clip_cols, placement.grid_cols);
-    let source_dy = proportional_clip(placement.source_height, clip_rows, placement.grid_rows);
-    let source_x = placement.source_x.saturating_add(source_dx);
-    let source_y = placement.source_y.saturating_add(source_dy);
-    let source_width = placement.source_width.saturating_sub(source_dx);
-    let source_height = placement.source_height.saturating_sub(source_dy);
-    let col = u32::try_from(placement.viewport_col.max(0)).ok()?.saturating_add(1);
-    let row = u32::try_from(placement.viewport_row.max(0)).ok()?.saturating_add(1);
-    let x_offset = if clip_cols == 0 { placement.x_offset } else { 0 };
-    let y_offset = if clip_rows == 0 { placement.y_offset } else { 0 };
-    let clipped = clip_cols > 0 || clip_rows > 0;
-    let columns =
-        if clipped { Some(cols) } else { (placement.columns > 0).then_some(placement.columns) };
-    let rows = if clipped { Some(rows) } else { (placement.rows > 0).then_some(placement.rows) };
+
+    let cell_width = cell_pixels.0.max(1);
+    let cell_height = cell_pixels.1.max(1);
+    let image_left =
+        i64::from(placement.viewport_col) * i64::from(cell_width) + i64::from(placement.x_offset);
+    let image_top =
+        i64::from(placement.viewport_row) * i64::from(cell_height) + i64::from(placement.y_offset);
+    let image_right = image_left.saturating_add(i64::from(placement.pixel_width));
+    let image_bottom = image_top.saturating_add(i64::from(placement.pixel_height));
+    let visible_left = image_left.max(0);
+    let visible_top = image_top.max(0);
+    let mut visible_width = image_right.saturating_sub(visible_left);
+    let mut visible_height = image_bottom.saturating_sub(visible_top);
+    if visible_width <= 0 || visible_height <= 0 {
+        return None;
+    }
+    if placement.columns > 0 {
+        visible_width -= visible_width % i64::from(cell_width);
+    }
+    if placement.rows > 0 {
+        visible_height -= visible_height % i64::from(cell_height);
+    }
+    if visible_width <= 0 || visible_height <= 0 {
+        return None;
+    }
+
+    let source_left = replay_proportional_boundary(
+        placement.source_width,
+        u32::try_from(visible_left.saturating_sub(image_left)).ok()?,
+        placement.pixel_width,
+    );
+    let source_right = replay_proportional_boundary(
+        placement.source_width,
+        u32::try_from(visible_left.saturating_add(visible_width).saturating_sub(image_left))
+            .ok()?,
+        placement.pixel_width,
+    );
+    let source_top = replay_proportional_boundary(
+        placement.source_height,
+        u32::try_from(visible_top.saturating_sub(image_top)).ok()?,
+        placement.pixel_height,
+    );
+    let source_bottom = replay_proportional_boundary(
+        placement.source_height,
+        u32::try_from(visible_top.saturating_add(visible_height).saturating_sub(image_top)).ok()?,
+        placement.pixel_height,
+    );
+    let source_x = placement.source_x.saturating_add(source_left);
+    let source_y = placement.source_y.saturating_add(source_top);
+    let mut source_width = source_right.saturating_sub(source_left);
+    let mut source_height = source_bottom.saturating_sub(source_top);
+    if source_width == 0 || source_height == 0 {
+        return None;
+    }
+
+    let columns = if placement.columns > 0 {
+        Some(u32::try_from(visible_width).ok()?.checked_div(cell_width)?)
+    } else {
+        None
+    };
+    let rows = if placement.rows > 0 {
+        Some(u32::try_from(visible_height).ok()?.checked_div(cell_height)?)
+    } else {
+        None
+    };
+    if columns.is_some_and(|columns| columns == 0) || rows.is_some_and(|rows| rows == 0) {
+        return None;
+    }
+    if columns.is_some() && rows.is_none() {
+        source_height = replay_fit_inferred_source_dimension(
+            columns?.saturating_mul(cell_width),
+            source_width,
+            source_height,
+            u32::try_from(visible_height).ok()?,
+        );
+    } else if columns.is_none() && rows.is_some() {
+        source_width = replay_fit_inferred_source_dimension(
+            rows?.saturating_mul(cell_height),
+            source_height,
+            source_width,
+            u32::try_from(visible_width).ok()?,
+        );
+    } else if columns.is_none() && rows.is_none() {
+        source_width = source_width.min(u32::try_from(visible_width).ok()?);
+        source_height = source_height.min(u32::try_from(visible_height).ok()?);
+    }
+    if source_width == 0 || source_height == 0 {
+        return None;
+    }
+
+    let col = u32::try_from(visible_left).ok()?.checked_div(cell_width)?.saturating_add(1);
+    let row = u32::try_from(visible_top).ok()?.checked_div(cell_height)?.saturating_add(1);
+    let x_offset = u32::try_from(visible_left).ok()? % cell_width;
+    let y_offset = u32::try_from(visible_top).ok()? % cell_height;
     let mut command = format!(
         "\x1b7\x1b[{row};{col}H\x1b_Ga=p,i={},p={},x={source_x},y={source_y},w={source_width},h={source_height},X={x_offset},Y={y_offset}",
         placement.image_id, placement.placement_id
@@ -1682,12 +1783,51 @@ fn kitty_replay_placement(placement: &kitty::KittyPlacement) -> Option<Vec<u8>> 
     Some(command.into_bytes())
 }
 
-fn proportional_clip(total_pixels: u32, clipped_cells: u32, total_cells: u32) -> u32 {
-    if total_cells == 0 {
+fn replay_proportional_boundary(
+    source_pixels: u32,
+    output_pixels: u32,
+    rendered_pixels: u32,
+) -> u32 {
+    if rendered_pixels == 0 {
         return 0;
     }
-    u32::try_from(u64::from(total_pixels) * u64::from(clipped_cells) / u64::from(total_cells))
-        .unwrap_or(total_pixels)
+    u32::try_from(
+        u128::from(source_pixels) * u128::from(output_pixels) / u128::from(rendered_pixels),
+    )
+    .unwrap_or(source_pixels)
+    .min(source_pixels)
+}
+
+fn replay_rounded_ratio(value: u32, numerator: u32, denominator: u32) -> Option<u32> {
+    if denominator == 0 {
+        return None;
+    }
+    u32::try_from(
+        (u128::from(value) * u128::from(numerator) + u128::from(denominator) / 2)
+            / u128::from(denominator),
+    )
+    .ok()
+}
+
+fn replay_fit_inferred_source_dimension(
+    explicit_pixels: u32,
+    fixed_source: u32,
+    inferred_source: u32,
+    maximum_pixels: u32,
+) -> u32 {
+    let mut low = 0;
+    let mut high = inferred_source;
+    while low < high {
+        let candidate = low + (high - low).div_ceil(2);
+        if replay_rounded_ratio(explicit_pixels, candidate, fixed_source)
+            .is_some_and(|pixels| pixels <= maximum_pixels)
+        {
+            low = candidate;
+        } else {
+            high = candidate - 1;
+        }
+    }
+    low
 }
 
 fn vt_replay_row_window(total_rows: u64, screen_rows: u64, cols: u16, max_bytes: usize) -> u64 {
@@ -1754,7 +1894,7 @@ mod tests {
     }
 
     fn replay_placement_command(placement: &KittyPlacement) -> String {
-        String::from_utf8(kitty_replay_placement(placement).unwrap()).unwrap()
+        String::from_utf8(kitty_replay_placement(placement, (10, 20)).unwrap()).unwrap()
     }
 
     #[test]
