@@ -19,6 +19,7 @@ from test_codex_feed_hooks import (
     test_pi_feed_rejects_unconfirmed_server_ack,
     test_pi_feed_uses_resolved_explicit_workspace,
     test_pi_hook_rehomes_restored_surface_alias,
+    test_pi_post_tool_use_uses_projected_result,
 )
 
 
@@ -129,6 +130,7 @@ def main() -> int:
         root = Path(td)
         try:
             test_expander_preserves_newest_retained_summary(root)
+            test_pi_post_tool_use_uses_projected_result(cli_path, root)
             test_pi_compacted_post_tool_use_sends_one_ordered_batch(cli_path, root)
             test_pi_compacted_feed_sends_bounded_acknowledged_batch(cli_path, root)
             test_pi_compacted_feed_rejects_failed_server_ack(cli_path, root)

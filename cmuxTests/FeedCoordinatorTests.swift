@@ -744,6 +744,58 @@ struct FeedCoordinatorTests {
         #expect(!callbackWasOnMain)
     }
 
+    @Test func acknowledgedBatchCannotOvertakeEarlierZeroWaitDelivery() async {
+        await MainActor.run {
+            FeedCoordinator.shared.install(store: WorkstreamStore(ringCapacity: 10))
+        }
+        let deliveries = AttentionSurfaceRecorder()
+        let firstDeliveryStarted = DispatchSemaphore(value: 0)
+        let releaseFirstDelivery = DispatchSemaphore(value: 0)
+        defer { releaseFirstDelivery.signal() }
+
+        let firstEvent = WorkstreamEvent(
+            sessionId: "pi-ingress-order-first",
+            hookEventName: .postToolUse,
+            source: "pi",
+            requestId: "pi-ingress-order-first-request"
+        )
+        let firstResult = FeedCoordinator.shared.ingestBlocking(
+            event: firstEvent,
+            waitTimeout: 0,
+            onAccepted: { event in
+                firstDeliveryStarted.signal()
+                _ = releaseFirstDelivery.wait(timeout: .now() + 2)
+                deliveries.record(event)
+            }
+        )
+        guard case .acknowledged(itemId: nil) = firstResult else {
+            Issue.record("zero-wait Feed ingress must acknowledge before delivery")
+            return
+        }
+        #expect(firstDeliveryStarted.wait(timeout: .now() + 1) == .success)
+
+        let secondEvent = WorkstreamEvent(
+            sessionId: "pi-ingress-order-second",
+            hookEventName: .postToolUse,
+            source: "pi",
+            requestId: "pi-ingress-order-second-request"
+        )
+        let secondDeliveryFinished = DispatchSemaphore(value: 0)
+        DispatchQueue.global(qos: .userInitiated).async {
+            _ = TerminalController.shared.v2IngestAcknowledgedFeedEvents([secondEvent])
+            deliveries.record(secondEvent)
+            secondDeliveryFinished.signal()
+        }
+
+        #expect(
+            secondDeliveryFinished.wait(timeout: .now() + 0.2) == .timedOut,
+            "acknowledged Feed ingress must remain behind earlier zero-wait delivery"
+        )
+        releaseFirstDelivery.signal()
+        #expect(secondDeliveryFinished.wait(timeout: .now() + 2) == .success)
+        #expect(deliveries.events.map(\.sessionId) == [firstEvent.sessionId, secondEvent.sessionId])
+    }
+
     private static func resetFeedCoordinatorTestHooks() {
         let reset: @Sendable () -> Void = {
             MainActor.assumeIsolated {

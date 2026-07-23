@@ -587,9 +587,20 @@ def run_feed_hook_optional_frame(
     source: str = "codex",
 ) -> tuple[dict, dict | None]:
     env = os.environ.copy()
+    for key in ("CMUX_SOCKET", "CMUX_SOCKET_CAPABILITY", "CMUX_SOCKET_PATH", "CMUX_SOCKET_PASSWORD"):
+        env.pop(key, None)
     env["CMUX_SURFACE_ID"] = FAKE_SURFACE_ID
     env["CMUX_WORKSPACE_ID"] = FAKE_WORKSPACE_ID
-    with FakeCmuxSocket(socket_path, decision) as fake:
+    surface_delivery_target = (
+        (FAKE_WORKSPACE_ID, FAKE_SURFACE_ID)
+        if source == "pi"
+        else None
+    )
+    with FakeCmuxSocket(
+        socket_path,
+        decision,
+        surface_delivery_target=surface_delivery_target,
+    ) as fake:
         result = subprocess.run(
             [
                 cli_path,
@@ -614,7 +625,8 @@ def run_feed_hook_optional_frame(
                 f"hooks feed failed exit={result.returncode}\nstdout={result.stdout}\nstderr={result.stderr}"
             )
         stdout = json.loads(result.stdout.strip() or "{}")
-        return stdout, fake.frames[0] if fake.frames else None
+        feed_frame = next((frame for frame in fake.frames if frame.get("method") == "feed.push"), None)
+        return stdout, feed_frame
 
 
 def run_feed_hook(
@@ -2448,6 +2460,42 @@ def test_non_codex_post_tool_use_keeps_request_input(cli_path: str, root: Path) 
         raise AssertionError(f"non-Codex request input should not be sanitized: {event!r}")
 
 
+def test_pi_post_tool_use_uses_projected_result(cli_path: str, root: Path) -> None:
+    projected_result = {
+        "kind": "object",
+        "key_count": 3,
+        "truncated": True,
+    }
+    payload = {
+        "session_id": "pi-projected-result-session",
+        "hook_event_name": "PostToolUse",
+        "tool_call_id": "pi-projected-result-tool",
+        "tool_name": "bash",
+        "tool_input": {
+            "command": "printf secret-request-input",
+        },
+        "tool_result": projected_result,
+        "is_error": True,
+    }
+
+    stdout, frame = run_feed_hook(
+        cli_path,
+        root / "cmux-pi-projected-result.sock",
+        payload,
+        None,
+        source="pi",
+    )
+    if stdout != {}:
+        raise AssertionError(f"Pi PostToolUse telemetry should not emit a decision: {stdout!r}")
+    event = frame["params"]["event"]
+    if event.get("tool_input") != projected_result:
+        raise AssertionError(f"Pi PostToolUse dropped its projected tool result: {event!r}")
+    if event["tool_input"].get("_cmux_sanitized") is True:
+        raise AssertionError(f"Pi projected result was sanitized a second time: {event!r}")
+    if event.get("is_error") is not True:
+        raise AssertionError(f"Pi PostToolUse dropped its failure status: {event!r}")
+
+
 def test_pi_compacted_post_tool_use_sends_one_ordered_batch(cli_path: str, root: Path) -> None:
     socket_path = root / "cmux-pi-compacted-posttool.sock"
     payload = {
@@ -3612,6 +3660,7 @@ def main() -> int:
             test_codex_post_tool_use_keeps_cwd_from_tool_input(cli_path, root)
             test_codex_post_tool_use_without_response_keeps_request_input(cli_path, root)
             test_non_codex_post_tool_use_keeps_request_input(cli_path, root)
+            test_pi_post_tool_use_uses_projected_result(cli_path, root)
             test_pi_compacted_post_tool_use_sends_one_ordered_batch(cli_path, root)
             test_pi_compacted_feed_sends_bounded_acknowledged_batch(cli_path, root)
             test_pi_compacted_feed_rejects_failed_server_ack(cli_path, root)
