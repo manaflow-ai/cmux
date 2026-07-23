@@ -1,13 +1,26 @@
 use std::collections::{HashSet, VecDeque};
 use std::path::{Path, PathBuf};
 
+#[cfg(unix)]
+use std::ffi::{CStr, CString};
+#[cfg(unix)]
+use std::fs::File;
+#[cfg(unix)]
+use std::os::fd::{FromRawFd, RawFd};
+#[cfg(unix)]
+use std::os::unix::fs::{MetadataExt as _, PermissionsExt as _};
+
 use cmux_remote_protocol::{
     ByteString, DirectoryEntry, FileKind, FilePrecondition, FileStat, PageCursor, RpcError,
     SearchMatch, WorkspaceResponse,
 };
 use sha2::{Digest, Sha256};
-use tokio::io::{AsyncReadExt, AsyncSeekExt, AsyncWriteExt};
+#[cfg(not(unix))]
+use tokio::io::AsyncWriteExt;
+use tokio::io::{AsyncReadExt, AsyncSeekExt};
 
+#[cfg(unix)]
+use super::path::{UnixWorkspaceRoot, UnixWorkspaceTarget};
 use super::path::{
     WorkspaceRoot, io_error, join_protocol_path, normalize_protocol_path, validate_relative,
 };
@@ -553,8 +566,25 @@ pub(crate) async fn read_full_file(
     maximum: usize,
 ) -> Result<Vec<u8>, RpcError> {
     validate_relative(path)?;
-    let resolved = root.resolve_existing(path).await?;
-    read_path_bounded(&resolved, maximum).await
+    #[cfg(unix)]
+    {
+        let root = root.unix_root();
+        let path = path.to_owned();
+        return tokio::task::spawn_blocking(move || {
+            let target = root.resolve_target(&path, false)?;
+            let mut file = open_regular_entry(&target, "read")?;
+            let bytes = read_file_bounded_sync(&mut file, target.display(), maximum)?;
+            target.verify_parent_identity()?;
+            Ok(bytes)
+        })
+        .await
+        .map_err(blocking_task_error)?;
+    }
+    #[cfg(not(unix))]
+    {
+        let resolved = root.resolve_existing(path).await?;
+        read_path_bounded(&resolved, maximum).await
+    }
 }
 
 pub(crate) async fn write_bytes_locked(
@@ -570,6 +600,37 @@ pub(crate) async fn write_bytes_locked(
             format!("write exceeds {MAX_WRITE_BYTES} bytes"),
         ));
     }
+    #[cfg(unix)]
+    {
+        let root_handle = root.unix_root();
+        let prepared_path = path.to_owned();
+        let prepared_precondition = precondition.clone();
+        let prepared = tokio::task::spawn_blocking(move || {
+            prepare_unix_write(root_handle, prepared_path, prepared_precondition, create_parents)
+        })
+        .await
+        .map_err(blocking_task_error)??;
+        #[cfg(test)]
+        pause_at_mutation_test_barrier(root, path, MutationTestPoint::AfterPrecondition).await;
+        let bytes = bytes.to_vec();
+        return tokio::task::spawn_blocking(move || commit_unix_write(prepared, &bytes))
+            .await
+            .map_err(blocking_task_error)?;
+    }
+    #[cfg(not(unix))]
+    {
+        write_bytes_locked_path(root, path, bytes, precondition, create_parents).await
+    }
+}
+
+#[cfg(not(unix))]
+async fn write_bytes_locked_path(
+    root: &WorkspaceRoot,
+    path: &str,
+    bytes: &[u8],
+    precondition: &FilePrecondition,
+    create_parents: bool,
+) -> Result<String, RpcError> {
     let target = root.resolve_write_target(path, create_parents).await?;
     let existing = match tokio::fs::symlink_metadata(&target).await {
         Ok(metadata) => Some(metadata),
@@ -656,6 +717,34 @@ pub(crate) async fn remove_file_precondition_locked(
     path: &str,
     precondition: &FilePrecondition,
 ) -> Result<(), RpcError> {
+    #[cfg(unix)]
+    {
+        let root_handle = root.unix_root();
+        let prepared_path = path.to_owned();
+        let prepared_precondition = precondition.clone();
+        let prepared = tokio::task::spawn_blocking(move || {
+            prepare_unix_remove(root_handle, prepared_path, prepared_precondition)
+        })
+        .await
+        .map_err(blocking_task_error)??;
+        #[cfg(test)]
+        pause_at_mutation_test_barrier(root, path, MutationTestPoint::AfterPrecondition).await;
+        return tokio::task::spawn_blocking(move || commit_unix_remove(prepared))
+            .await
+            .map_err(blocking_task_error)?;
+    }
+    #[cfg(not(unix))]
+    {
+        remove_file_precondition_locked_path(root, path, precondition).await
+    }
+}
+
+#[cfg(not(unix))]
+async fn remove_file_precondition_locked_path(
+    root: &WorkspaceRoot,
+    path: &str,
+    precondition: &FilePrecondition,
+) -> Result<(), RpcError> {
     let target = root.resolve_entry(path).await?;
     let metadata = tokio::fs::symlink_metadata(&target)
         .await
@@ -684,6 +773,729 @@ pub(crate) async fn remove_file_precondition_locked(
         sync_parent(parent).await?;
     }
     Ok(())
+}
+
+#[cfg(unix)]
+struct PreparedUnixWrite {
+    target: UnixWorkspaceTarget,
+    precondition: FilePrecondition,
+    initial: Option<std::fs::Metadata>,
+}
+
+#[cfg(unix)]
+fn prepare_unix_write(
+    root: UnixWorkspaceRoot,
+    path: String,
+    precondition: FilePrecondition,
+    create_parents: bool,
+) -> Result<PreparedUnixWrite, RpcError> {
+    let target = root.resolve_target(&path, create_parents)?;
+    let mut existing = open_regular_entry_if_present(&target, "stat-before-write")?;
+    let initial = existing
+        .as_ref()
+        .map(|file| {
+            file.metadata().map_err(|error| io_error("stat-before-write", target.display(), error))
+        })
+        .transpose()?;
+    match &precondition {
+        FilePrecondition::Any => {}
+        FilePrecondition::Missing if existing.is_some() => {
+            return Err(RpcError::new("conflict", "file already exists"));
+        }
+        FilePrecondition::Missing => {}
+        FilePrecondition::ContentHash(expected) => {
+            validate_content_hash(expected)?;
+            let file = existing
+                .as_mut()
+                .ok_or_else(|| RpcError::new("conflict", "file does not exist"))?;
+            let (actual, _) = hash_file_sync(file, target.display(), MAX_HASH_BYTES)?;
+            if !actual.eq_ignore_ascii_case(expected) {
+                return Err(RpcError::new(
+                    "conflict",
+                    format!("content hash changed: expected {expected}, found {actual}"),
+                ));
+            }
+        }
+    }
+    Ok(PreparedUnixWrite { target, precondition, initial })
+}
+
+#[cfg(unix)]
+fn commit_unix_write(prepared: PreparedUnixWrite, bytes: &[u8]) -> Result<String, RpcError> {
+    use std::io::Write as _;
+
+    let PreparedUnixWrite { target, precondition, initial } = prepared;
+    target.verify_parent_identity()?;
+    let (temporary_name, mut temporary) = create_temporary(&target, "write")?;
+    let temporary_display = temporary_display(&target, &temporary_name);
+    let stage_result = (|| {
+        temporary
+            .write_all(bytes)
+            .map_err(|error| io_error("write-temporary", &temporary_display, error))?;
+        temporary
+            .flush()
+            .map_err(|error| io_error("flush-temporary", &temporary_display, error))?;
+        if let Some(metadata) = &initial {
+            temporary
+                .set_permissions(std::fs::Permissions::from_mode(metadata.permissions().mode()))
+                .map_err(|error| io_error("set-permissions", &temporary_display, error))?;
+        }
+        temporary
+            .sync_all()
+            .map_err(|error| io_error("sync-temporary", &temporary_display, error))?;
+        let temporary_metadata = temporary
+            .metadata()
+            .map_err(|error| io_error("stat-temporary", &temporary_display, error))?;
+        target.verify_parent_identity()?;
+        Ok(temporary_metadata)
+    })();
+    let temporary_metadata = match stage_result {
+        Ok(metadata) => metadata,
+        Err(error) => {
+            let _ = unlink_name(target.parent_fd(), &temporary_name);
+            return Err(error);
+        }
+    };
+    match &precondition {
+        FilePrecondition::Missing => {
+            if let Err(error) = link_name(target.parent_fd(), &temporary_name, target.name()) {
+                let _ = unlink_name(target.parent_fd(), &temporary_name);
+                return Err(if error.kind() == std::io::ErrorKind::AlreadyExists {
+                    RpcError::new("conflict", "file appeared before commit")
+                } else {
+                    io_error("create", target.display(), error)
+                });
+            }
+            if let Err(error) = unlink_name(target.parent_fd(), &temporary_name) {
+                return Err(RpcError::new(
+                    "partial-write",
+                    format!("file was created but temporary link cleanup failed: {error}"),
+                ));
+            }
+        }
+        FilePrecondition::Any => {
+            commit_any_write(&target, &temporary_name, &temporary_metadata)?;
+        }
+        FilePrecondition::ContentHash(expected) => {
+            let initial = initial.as_ref().ok_or_else(|| {
+                RpcError::new("internal", "content-hash write lost its initial metadata")
+            })?;
+            commit_content_hash_write(
+                &target,
+                &temporary_name,
+                &temporary_metadata,
+                initial,
+                expected,
+            )?;
+        }
+    }
+    target.sync_parent()?;
+    Ok(hash_bytes(bytes))
+}
+
+#[cfg(unix)]
+fn cleanup_unpublished_temporary(
+    target: &UnixWorkspaceTarget,
+    temporary_name: &CStr,
+    error: RpcError,
+) -> RpcError {
+    match unlink_name(target.parent_fd(), temporary_name) {
+        Ok(()) => error,
+        Err(cleanup) if cleanup.kind() == std::io::ErrorKind::NotFound => error,
+        Err(cleanup) => RpcError::new(
+            "partial-write",
+            format!("{}; temporary cleanup also failed: {}", error.message, cleanup),
+        ),
+    }
+}
+
+#[cfg(unix)]
+fn commit_any_write(
+    target: &UnixWorkspaceTarget,
+    temporary_name: &CStr,
+    temporary_metadata: &std::fs::Metadata,
+) -> Result<(), RpcError> {
+    match exchange_names(target.parent_fd(), temporary_name, target.name()) {
+        Ok(()) => {
+            let displaced = open_named_regular(
+                target.parent_fd(),
+                temporary_name,
+                &temporary_display(target, temporary_name),
+                "replace",
+            );
+            match displaced {
+                Ok(_) => unlink_name(target.parent_fd(), temporary_name)
+                    .map_err(|error| io_error("remove-replaced", target.display(), error)),
+                Err(error) => {
+                    rollback_exchange(target, temporary_name, temporary_metadata, None)?;
+                    Err(error)
+                }
+            }
+        }
+        Err(error) if error.kind() == std::io::ErrorKind::NotFound => {
+            if let Err(error) = link_name(target.parent_fd(), temporary_name, target.name()) {
+                let error = if error.kind() == std::io::ErrorKind::AlreadyExists {
+                    RpcError::new("conflict", "file changed repeatedly during commit")
+                } else {
+                    io_error("create", target.display(), error)
+                };
+                return Err(cleanup_unpublished_temporary(target, temporary_name, error));
+            }
+            unlink_name(target.parent_fd(), temporary_name)
+                .map_err(|error| io_error("remove-temporary", target.display(), error))
+        }
+        Err(error) => {
+            let error = exchange_error(target.display(), error);
+            Err(cleanup_unpublished_temporary(target, temporary_name, error))
+        }
+    }
+}
+
+#[cfg(unix)]
+fn commit_content_hash_write(
+    target: &UnixWorkspaceTarget,
+    temporary_name: &CStr,
+    temporary_metadata: &std::fs::Metadata,
+    initial: &std::fs::Metadata,
+    expected: &str,
+) -> Result<(), RpcError> {
+    if let Err(error) = exchange_names(target.parent_fd(), temporary_name, target.name()) {
+        let error = if error.kind() == std::io::ErrorKind::NotFound {
+            RpcError::new("conflict", "file disappeared before commit")
+        } else {
+            exchange_error(target.display(), error)
+        };
+        return Err(cleanup_unpublished_temporary(target, temporary_name, error));
+    }
+
+    let displaced_display = temporary_display(target, temporary_name);
+    let validation = (|| {
+        let mut displaced = open_named_regular(
+            target.parent_fd(),
+            temporary_name,
+            &displaced_display,
+            "validate-replaced",
+        )?;
+        let (actual, displaced_metadata) =
+            hash_file_sync(&mut displaced, &displaced_display, MAX_HASH_BYTES)?;
+        if !metadata_stable(initial, &displaced_metadata) || !actual.eq_ignore_ascii_case(expected)
+        {
+            return Err(RpcError::new(
+                "conflict",
+                format!("file changed before commit: expected {expected}, found {actual}"),
+            ));
+        }
+        Ok(displaced_metadata)
+    })();
+    match validation {
+        Ok(_) => unlink_name(target.parent_fd(), temporary_name)
+            .map_err(|error| io_error("remove-replaced", target.display(), error)),
+        Err(error) => {
+            let displaced = entry_metadata_named(
+                target.parent_fd(),
+                temporary_name,
+                &displaced_display,
+                "stat-replaced",
+            )
+            .ok()
+            .flatten();
+            rollback_exchange(target, temporary_name, temporary_metadata, displaced.as_ref())?;
+            Err(error)
+        }
+    }
+}
+
+#[cfg(unix)]
+fn rollback_exchange(
+    target: &UnixWorkspaceTarget,
+    temporary_name: &CStr,
+    new_metadata: &std::fs::Metadata,
+    displaced_metadata: Option<&std::fs::Metadata>,
+) -> Result<(), RpcError> {
+    let current_target =
+        open_named_regular(target.parent_fd(), target.name(), target.display(), "rollback")?
+            .metadata()
+            .map_err(|error| io_error("rollback", target.display(), error))?;
+    if !same_file(new_metadata, &current_target) {
+        return Err(RpcError::new(
+            "partial-write",
+            "replacement validation failed and the target changed before restoration",
+        ));
+    }
+    if let Some(expected) = displaced_metadata {
+        let current_displaced = entry_metadata_named(
+            target.parent_fd(),
+            temporary_name,
+            &temporary_display(target, temporary_name),
+            "rollback",
+        )?
+        .ok_or_else(|| {
+            RpcError::new(
+                "partial-write",
+                "replacement validation failed and the displaced file disappeared",
+            )
+        })?;
+        if !same_file(expected, &current_displaced) {
+            return Err(RpcError::new(
+                "partial-write",
+                "replacement validation failed and the displaced file changed before restoration",
+            ));
+        }
+    }
+    exchange_names(target.parent_fd(), temporary_name, target.name())
+        .map_err(|error| exchange_error(target.display(), error))?;
+    unlink_name(target.parent_fd(), temporary_name)
+        .map_err(|error| io_error("remove-temporary", target.display(), error))?;
+    target.sync_parent()
+}
+
+#[cfg(unix)]
+struct PreparedUnixRemove {
+    target: UnixWorkspaceTarget,
+    precondition: FilePrecondition,
+    initial: std::fs::Metadata,
+}
+
+#[cfg(unix)]
+fn prepare_unix_remove(
+    root: UnixWorkspaceRoot,
+    path: String,
+    precondition: FilePrecondition,
+) -> Result<PreparedUnixRemove, RpcError> {
+    let target = root.resolve_target(&path, false)?;
+    let mut existing = open_regular_entry(&target, "remove")?;
+    let initial =
+        existing.metadata().map_err(|error| io_error("remove", target.display(), error))?;
+    match &precondition {
+        FilePrecondition::Any => {}
+        FilePrecondition::Missing => {
+            return Err(RpcError::new("conflict", "file exists"));
+        }
+        FilePrecondition::ContentHash(expected) => {
+            validate_content_hash(expected)?;
+            let (actual, _) = hash_file_sync(&mut existing, target.display(), MAX_HASH_BYTES)?;
+            if !actual.eq_ignore_ascii_case(expected) {
+                return Err(RpcError::new(
+                    "conflict",
+                    format!("content hash changed: expected {expected}, found {actual}"),
+                ));
+            }
+        }
+    }
+    Ok(PreparedUnixRemove { target, precondition, initial })
+}
+
+#[cfg(unix)]
+fn commit_unix_remove(prepared: PreparedUnixRemove) -> Result<(), RpcError> {
+    let PreparedUnixRemove { target, precondition, initial } = prepared;
+    target.verify_parent_identity()?;
+    let quarantine = unique_name(".cmux-remove")?;
+    rename_noreplace(target.parent_fd(), target.name(), &quarantine).map_err(|error| {
+        if error.kind() == std::io::ErrorKind::NotFound {
+            RpcError::new("conflict", "file disappeared before commit")
+        } else {
+            rename_noreplace_error(target.display(), error)
+        }
+    })?;
+    let quarantine_display = temporary_display(&target, &quarantine);
+    let validation = (|| {
+        let mut displaced = open_named_regular(
+            target.parent_fd(),
+            &quarantine,
+            &quarantine_display,
+            "validate-remove",
+        )?;
+        let metadata = displaced
+            .metadata()
+            .map_err(|error| io_error("validate-remove", &quarantine_display, error))?;
+        if let FilePrecondition::ContentHash(expected) = &precondition {
+            let (actual, metadata_after) =
+                hash_file_sync(&mut displaced, &quarantine_display, MAX_HASH_BYTES)?;
+            if !metadata_stable(&initial, &metadata_after) || !actual.eq_ignore_ascii_case(expected)
+            {
+                return Err(RpcError::new(
+                    "conflict",
+                    format!("file changed before removal: expected {expected}, found {actual}"),
+                ));
+            }
+        }
+        Ok(metadata)
+    })();
+    match validation {
+        Ok(_) => {
+            unlink_name(target.parent_fd(), &quarantine)
+                .map_err(|error| io_error("remove", target.display(), error))?;
+            target.sync_parent()
+        }
+        Err(error) => {
+            if let Err(restore_error) =
+                rename_noreplace(target.parent_fd(), &quarantine, target.name())
+            {
+                return Err(RpcError::new(
+                    "partial-write",
+                    format!(
+                        "remove validation failed ({}) and restoration failed: {}",
+                        error.message, restore_error
+                    ),
+                ));
+            }
+            target.sync_parent()?;
+            Err(error)
+        }
+    }
+}
+
+#[cfg(unix)]
+fn open_regular_entry(target: &UnixWorkspaceTarget, operation: &str) -> Result<File, RpcError> {
+    open_regular_entry_if_present(target, operation)?.ok_or_else(|| {
+        RpcError::new("not-found", format!("file not found: {}", target.display().display()))
+    })
+}
+
+#[cfg(unix)]
+fn open_regular_entry_if_present(
+    target: &UnixWorkspaceTarget,
+    operation: &str,
+) -> Result<Option<File>, RpcError> {
+    let Some(metadata) =
+        entry_metadata_named(target.parent_fd(), target.name(), target.display(), operation)?
+    else {
+        return Ok(None);
+    };
+    if metadata.file_type().is_symlink() {
+        return Err(RpcError::new(
+            "symlink-not-supported",
+            format!("refusing to mutate symlink: {}", target.display().display()),
+        ));
+    }
+    if !metadata.is_file() {
+        return Err(RpcError::new(
+            "not-a-file",
+            format!("not a regular file: {}", target.display().display()),
+        ));
+    }
+    open_named_regular(target.parent_fd(), target.name(), target.display(), operation).map(Some)
+}
+
+#[cfg(unix)]
+fn open_named_regular(
+    parent: RawFd,
+    name: &CStr,
+    display: &Path,
+    operation: &str,
+) -> Result<File, RpcError> {
+    // SAFETY: `parent` is a live directory descriptor, `name` is
+    // NUL-terminated, and `openat` does not retain either.
+    let fd = unsafe {
+        libc::openat(
+            parent,
+            name.as_ptr(),
+            libc::O_RDONLY | libc::O_CLOEXEC | libc::O_NOFOLLOW | libc::O_NONBLOCK,
+        )
+    };
+    if fd < 0 {
+        let error = std::io::Error::last_os_error();
+        if error.raw_os_error() == Some(libc::ELOOP) {
+            return Err(RpcError::new(
+                "symlink-not-supported",
+                format!("refusing to mutate symlink: {}", display.display()),
+            ));
+        }
+        return Err(io_error(operation, display, error));
+    }
+    // SAFETY: `openat` returned a new owned descriptor.
+    let file = unsafe { File::from_raw_fd(fd) };
+    let metadata = file.metadata().map_err(|error| io_error(operation, display, error))?;
+    if !metadata.is_file() {
+        return Err(RpcError::new(
+            "not-a-file",
+            format!("not a regular file: {}", display.display()),
+        ));
+    }
+    Ok(file)
+}
+
+#[cfg(unix)]
+fn entry_metadata_named(
+    parent: RawFd,
+    name: &CStr,
+    display: &Path,
+    operation: &str,
+) -> Result<Option<std::fs::Metadata>, RpcError> {
+    // `fstatat` cannot construct `std::fs::Metadata`, so open the entry after
+    // checking its no-follow type. The second no-follow open closes the race.
+    let mut status = std::mem::MaybeUninit::<libc::stat>::uninit();
+    // SAFETY: `status` points to writable storage, `name` is NUL-terminated,
+    // and `fstatat` initializes `status` on success.
+    let result = unsafe {
+        libc::fstatat(parent, name.as_ptr(), status.as_mut_ptr(), libc::AT_SYMLINK_NOFOLLOW)
+    };
+    if result != 0 {
+        let error = std::io::Error::last_os_error();
+        if error.kind() == std::io::ErrorKind::NotFound {
+            return Ok(None);
+        }
+        return Err(io_error(operation, display, error));
+    }
+    // SAFETY: successful `fstatat` initialized `status`.
+    let status = unsafe { status.assume_init() };
+    let file_type = status.st_mode & libc::S_IFMT;
+    if file_type == libc::S_IFLNK {
+        return Err(RpcError::new(
+            "symlink-not-supported",
+            format!("refusing to mutate symlink: {}", display.display()),
+        ));
+    }
+    if file_type != libc::S_IFREG {
+        return Err(RpcError::new(
+            "not-a-file",
+            format!("not a regular file: {}", display.display()),
+        ));
+    }
+    let file = open_named_regular(parent, name, display, operation)?;
+    file.metadata().map(Some).map_err(|error| io_error(operation, display, error))
+}
+
+#[cfg(unix)]
+fn create_temporary(
+    target: &UnixWorkspaceTarget,
+    prefix: &str,
+) -> Result<(CString, File), RpcError> {
+    for _ in 0..16 {
+        let name = unique_name(&format!(".cmux-{prefix}"))?;
+        // SAFETY: `target` owns the directory descriptor, `name` is
+        // NUL-terminated, and `openat` does not retain either.
+        let fd = unsafe {
+            libc::openat(
+                target.parent_fd(),
+                name.as_ptr(),
+                libc::O_WRONLY | libc::O_CREAT | libc::O_EXCL | libc::O_CLOEXEC | libc::O_NOFOLLOW,
+                0o666,
+            )
+        };
+        if fd >= 0 {
+            // SAFETY: `openat` returned a new owned descriptor.
+            return Ok((name, unsafe { File::from_raw_fd(fd) }));
+        }
+        let error = std::io::Error::last_os_error();
+        if error.kind() != std::io::ErrorKind::AlreadyExists {
+            return Err(io_error("create-temporary", target.parent_display(), error));
+        }
+    }
+    Err(RpcError::new("resource-exhausted", "could not allocate a unique workspace temporary file"))
+}
+
+#[cfg(unix)]
+fn unique_name(prefix: &str) -> Result<CString, RpcError> {
+    CString::new(format!("{prefix}-{}", uuid::Uuid::new_v4()))
+        .map_err(|_| RpcError::new("internal", "temporary file name contains a NUL byte"))
+}
+
+#[cfg(unix)]
+fn temporary_display(target: &UnixWorkspaceTarget, name: &CStr) -> PathBuf {
+    target.parent_display().join(name.to_string_lossy().as_ref())
+}
+
+#[cfg(unix)]
+fn read_file_bounded_sync(
+    file: &mut File,
+    display: &Path,
+    maximum: usize,
+) -> Result<Vec<u8>, RpcError> {
+    use std::io::{Read as _, Seek as _};
+
+    let metadata = file.metadata().map_err(|error| io_error("read", display, error))?;
+    if metadata.len() > maximum as u64 {
+        return Err(RpcError::new("resource-exhausted", format!("file exceeds {maximum} bytes")));
+    }
+    file.seek(std::io::SeekFrom::Start(0)).map_err(|error| io_error("read", display, error))?;
+    let capacity = usize::try_from(metadata.len()).unwrap_or(maximum).min(maximum);
+    let mut bytes = Vec::with_capacity(capacity);
+    (&mut *file)
+        .take((maximum as u64).saturating_add(1))
+        .read_to_end(&mut bytes)
+        .map_err(|error| io_error("read", display, error))?;
+    if bytes.len() > maximum {
+        return Err(RpcError::new("resource-exhausted", format!("file exceeds {maximum} bytes")));
+    }
+    let metadata_after = file.metadata().map_err(|error| io_error("read", display, error))?;
+    if !metadata_stable(&metadata, &metadata_after)
+        || u64::try_from(bytes.len()).unwrap_or(u64::MAX) != metadata.len()
+    {
+        return Err(RpcError::new("file-changed", "file changed while it was being read"));
+    }
+    Ok(bytes)
+}
+
+#[cfg(unix)]
+fn hash_file_sync(
+    file: &mut File,
+    display: &Path,
+    maximum: u64,
+) -> Result<(String, std::fs::Metadata), RpcError> {
+    use std::io::{Read as _, Seek as _};
+
+    let metadata = file.metadata().map_err(|error| io_error("hash", display, error))?;
+    if metadata.len() > maximum {
+        return Err(RpcError::new(
+            "resource-exhausted",
+            format!("file exceeds the {maximum}-byte integrity limit"),
+        ));
+    }
+    file.seek(std::io::SeekFrom::Start(0)).map_err(|error| io_error("hash", display, error))?;
+    let mut remaining = metadata.len();
+    let mut buffer = vec![0u8; 64 * 1024];
+    let mut digest = Sha256::new();
+    while remaining > 0 {
+        let requested = usize::try_from(remaining.min(buffer.len() as u64)).unwrap_or(buffer.len());
+        let read = file
+            .read(&mut buffer[..requested])
+            .map_err(|error| io_error("hash", display, error))?;
+        if read == 0 {
+            return Err(RpcError::new("file-changed", "file changed while it was being hashed"));
+        }
+        digest.update(&buffer[..read]);
+        remaining = remaining.saturating_sub(read as u64);
+    }
+    let metadata_after = file.metadata().map_err(|error| io_error("hash", display, error))?;
+    if !metadata_stable(&metadata, &metadata_after) {
+        return Err(RpcError::new("file-changed", "file changed while it was being hashed"));
+    }
+    Ok((hex_digest(&digest.finalize()), metadata_after))
+}
+
+#[cfg(unix)]
+fn link_name(parent: RawFd, source: &CStr, target: &CStr) -> Result<(), std::io::Error> {
+    // SAFETY: both names are NUL-terminated and relative to the live
+    // `parent` descriptor. `linkat` does not retain the pointers.
+    if unsafe { libc::linkat(parent, source.as_ptr(), parent, target.as_ptr(), 0) } == 0 {
+        Ok(())
+    } else {
+        Err(std::io::Error::last_os_error())
+    }
+}
+
+#[cfg(unix)]
+fn unlink_name(parent: RawFd, name: &CStr) -> Result<(), std::io::Error> {
+    // SAFETY: `name` is NUL-terminated and relative to the live `parent`
+    // descriptor. `unlinkat` does not retain the pointer.
+    if unsafe { libc::unlinkat(parent, name.as_ptr(), 0) } == 0 {
+        Ok(())
+    } else {
+        Err(std::io::Error::last_os_error())
+    }
+}
+
+#[cfg(any(target_os = "linux", target_os = "android"))]
+fn exchange_names(parent: RawFd, left: &CStr, right: &CStr) -> Result<(), std::io::Error> {
+    // SAFETY: both names are NUL-terminated and relative to the live
+    // descriptor. `renameat2` does not retain the pointers.
+    if unsafe {
+        libc::renameat2(parent, left.as_ptr(), parent, right.as_ptr(), libc::RENAME_EXCHANGE)
+    } == 0
+    {
+        Ok(())
+    } else {
+        Err(std::io::Error::last_os_error())
+    }
+}
+
+#[cfg(target_vendor = "apple")]
+fn exchange_names(parent: RawFd, left: &CStr, right: &CStr) -> Result<(), std::io::Error> {
+    // SAFETY: both names are NUL-terminated and relative to the live
+    // descriptor. `renameatx_np` does not retain the pointers.
+    if unsafe {
+        libc::renameatx_np(parent, left.as_ptr(), parent, right.as_ptr(), libc::RENAME_SWAP)
+    } == 0
+    {
+        Ok(())
+    } else {
+        Err(std::io::Error::last_os_error())
+    }
+}
+
+#[cfg(all(unix, not(any(target_os = "linux", target_os = "android", target_vendor = "apple"))))]
+fn exchange_names(_parent: RawFd, _left: &CStr, _right: &CStr) -> Result<(), std::io::Error> {
+    Err(std::io::Error::new(
+        std::io::ErrorKind::Unsupported,
+        "atomic file exchange is unavailable on this platform",
+    ))
+}
+
+#[cfg(any(target_os = "linux", target_os = "android"))]
+fn rename_noreplace(parent: RawFd, source: &CStr, target: &CStr) -> Result<(), std::io::Error> {
+    // SAFETY: both names are NUL-terminated and relative to the live
+    // descriptor. `renameat2` does not retain the pointers.
+    if unsafe {
+        libc::renameat2(parent, source.as_ptr(), parent, target.as_ptr(), libc::RENAME_NOREPLACE)
+    } == 0
+    {
+        Ok(())
+    } else {
+        Err(std::io::Error::last_os_error())
+    }
+}
+
+#[cfg(target_vendor = "apple")]
+fn rename_noreplace(parent: RawFd, source: &CStr, target: &CStr) -> Result<(), std::io::Error> {
+    // SAFETY: both names are NUL-terminated and relative to the live
+    // descriptor. `renameatx_np` does not retain the pointers.
+    if unsafe {
+        libc::renameatx_np(parent, source.as_ptr(), parent, target.as_ptr(), libc::RENAME_EXCL)
+    } == 0
+    {
+        Ok(())
+    } else {
+        Err(std::io::Error::last_os_error())
+    }
+}
+
+#[cfg(all(unix, not(any(target_os = "linux", target_os = "android", target_vendor = "apple"))))]
+fn rename_noreplace(_parent: RawFd, _source: &CStr, _target: &CStr) -> Result<(), std::io::Error> {
+    Err(std::io::Error::new(
+        std::io::ErrorKind::Unsupported,
+        "atomic no-replace rename is unavailable on this platform",
+    ))
+}
+
+#[cfg(unix)]
+fn exchange_error(path: &Path, error: std::io::Error) -> RpcError {
+    let unsupported = matches!(
+        error.raw_os_error(),
+        Some(code) if code == libc::ENOTSUP || code == libc::EINVAL
+    );
+    if error.kind() == std::io::ErrorKind::Unsupported || unsupported {
+        return RpcError::new(
+            "unsupported-filesystem",
+            format!("filesystem does not support atomic file exchange: {}", path.display()),
+        );
+    }
+    io_error("replace", path, error)
+}
+
+#[cfg(unix)]
+fn rename_noreplace_error(path: &Path, error: std::io::Error) -> RpcError {
+    let unsupported = matches!(
+        error.raw_os_error(),
+        Some(code) if code == libc::ENOTSUP || code == libc::EINVAL
+    );
+    if error.kind() == std::io::ErrorKind::Unsupported || unsupported {
+        return RpcError::new(
+            "unsupported-filesystem",
+            format!("filesystem does not support atomic guarded removal: {}", path.display()),
+        );
+    }
+    io_error("remove", path, error)
+}
+
+#[cfg(unix)]
+fn same_file(left: &std::fs::Metadata, right: &std::fs::Metadata) -> bool {
+    left.dev() == right.dev() && left.ino() == right.ino()
+}
+
+#[cfg(unix)]
+fn blocking_task_error(error: tokio::task::JoinError) -> RpcError {
+    RpcError::new("internal", format!("workspace file task failed: {error}"))
 }
 
 pub(crate) async fn hash_path(path: &Path, maximum: u64) -> Result<String, RpcError> {
@@ -820,26 +1632,9 @@ fn is_executable(_metadata: &std::fs::Metadata) -> bool {
     false
 }
 
-#[cfg(unix)]
-async fn sync_parent(parent: &Path) -> Result<(), RpcError> {
-    let parent = parent.to_owned();
-    tokio::task::spawn_blocking(move || {
-        std::fs::File::open(&parent)
-            .and_then(|directory| directory.sync_all())
-            .map_err(|error| io_error("sync-directory", &parent, error))
-    })
-    .await
-    .map_err(|error| RpcError::new("internal", format!("directory sync task failed: {error}")))?
-}
-
 #[cfg(not(unix))]
 async fn sync_parent(_parent: &Path) -> Result<(), RpcError> {
     Ok(())
-}
-
-#[cfg(unix)]
-async fn replace_file(temporary: &Path, target: &Path) -> Result<(), RpcError> {
-    tokio::fs::rename(temporary, target).await.map_err(|error| io_error("replace", target, error))
 }
 
 #[cfg(windows)]
