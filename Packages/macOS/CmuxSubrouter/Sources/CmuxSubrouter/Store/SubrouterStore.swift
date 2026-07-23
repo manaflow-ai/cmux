@@ -43,11 +43,25 @@ public final class SubrouterStore {
     @ObservationIgnored let clock: any SubrouterPollClock
     @ObservationIgnored let now: @Sendable () -> Date
 
+    /// Re-resolves configuration inputs that live outside the store — sr's
+    /// server registry — immediately before a switch, so the remote-server
+    /// guard never evaluates a cache that predates an `sr server use` run
+    /// inside a cmux terminal. Set once by the app runtime; awaited at the
+    /// top of ``switchAccount(provider:accountID:)`` on every entrypoint
+    /// (panel, footer popover, socket).
+    @ObservationIgnored public var configurationPreflight: (@Sendable () async -> Void)?
+
     // MARK: Poll state (main-actor)
 
     /// Consecutive refresh failures tolerated before an existing snapshot's
     /// `daemonState` flips to unreachable. See `apply(_:)`.
     public static let unreachableGraceFailures = 3
+
+    /// Cap on session assignments retained per snapshot. The daemon's
+    /// sessions endpoint carries routing history that can grow for the
+    /// life of a daemon; without a bound every poll would inflate snapshot
+    /// memory and the per-render aggregation work downstream.
+    public nonisolated static let maxRetainedSessions = 512
 
     @ObservationIgnored private var configurationStorage: SubrouterConfiguration
     @ObservationIgnored private(set) var visibleSurfaces: Set<SubrouterVisibleSurface> = []
@@ -293,7 +307,7 @@ public final class SubrouterStore {
             snapshot = SubrouterSnapshot(
                 daemonState: .healthy,
                 usageStatuses: usage,
-                sessions: sessions,
+                sessions: Self.boundedSessions(sessions),
                 lastUpdatedAt: now(),
                 lastErrorDescription: nil
             )
@@ -328,6 +342,22 @@ public final class SubrouterStore {
             }
             snapshot.lastErrorDescription = description
         }
+    }
+
+    /// Keeps the ``maxRetainedSessions`` most recently updated assignments,
+    /// preserving the daemon's ordering for the kept subset.
+    nonisolated static func boundedSessions(
+        _ sessions: [SubrouterSessionAssignment]
+    ) -> [SubrouterSessionAssignment] {
+        guard sessions.count > maxRetainedSessions else { return sessions }
+        let cutoff = sessions.map(\.updatedAt).sorted(by: >)[maxRetainedSessions - 1]
+        var kept: [SubrouterSessionAssignment] = []
+        kept.reserveCapacity(maxRetainedSessions)
+        for session in sessions where session.updatedAt >= cutoff {
+            kept.append(session)
+            if kept.count == maxRetainedSessions { break }
+        }
+        return kept
     }
 
     /// Records freshly fetched usage into the rolling history and persists

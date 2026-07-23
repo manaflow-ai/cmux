@@ -180,6 +180,27 @@ import Testing
         #expect(store.snapshot.lastErrorDescription == nil)
     }
 
+    @Test func sessionsAreCappedToMostRecentlyUpdated() {
+        let base = Date(timeIntervalSince1970: 6_000_000)
+        let sessions = (0..<(SubrouterStore.maxRetainedSessions + 40)).map { index in
+            SubrouterSessionAssignment(
+                agentType: "codex",
+                sessionID: "s\(index)",
+                accountID: "a",
+                userEmail: nil,
+                createdAt: base,
+                updatedAt: base.addingTimeInterval(Double(index))
+            )
+        }
+        let bounded = SubrouterStore.boundedSessions(sessions.shuffled())
+        #expect(bounded.count == SubrouterStore.maxRetainedSessions)
+        // The oldest 40 fell off; everything kept is newer than them.
+        let keptIDs = Set(bounded.map(\.sessionID))
+        for index in 0..<40 {
+            #expect(!keptIDs.contains("s\(index)"))
+        }
+    }
+
     @Test func sessionsFailureKeepsFreshUsage() async {
         let client = FakeSubrouterClient()
         await client.setUsageResult(.success([Self.usageRow()]))

@@ -49,6 +49,12 @@ final class SubrouterAppRuntime {
         store = SubrouterStore(historyStorageURL: historyURL)
         applyServerRegistryState(SubrouterIntegrationSettings.loadServerRegistryState())
         applyCurrentConfiguration()
+        // Every switch entrypoint (panel, footer popover, socket) re-reads
+        // sr's registry through the store's preflight so the remote-server
+        // guard never trusts a cache from before an `sr server use` run.
+        store.configurationPreflight = { [weak self] in
+            await self?.refreshServerSelectionAndApply()
+        }
         startObservers()
     }
 

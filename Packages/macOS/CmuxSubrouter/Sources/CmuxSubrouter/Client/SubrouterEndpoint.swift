@@ -34,7 +34,12 @@ public struct SubrouterEndpoint: Sendable, Hashable {
         guard let url = URL(string: candidate),
               let scheme = url.scheme?.lowercased(),
               scheme == "http" || scheme == "https",
-              url.host() != nil else {
+              url.host() != nil,
+              // The integration is token-free and the endpoint string is
+              // echoed by `subrouter.status` and CLI JSON output; embedded
+              // user:password credentials must never ride along.
+              url.user() == nil,
+              url.password() == nil else {
             return nil
         }
         self.baseURL = url

@@ -14,6 +14,12 @@ extension SubrouterStore {
     ///   - accountID: The daemon account id (Codex email / Claude profile).
     /// - Throws: ``SubrouterSwitchError`` when the switch itself fails.
     public func switchAccount(provider: SubrouterProvider, accountID: String) async throws {
+        // Refresh externally owned configuration (sr's server registry)
+        // first: the remote-server and enabled guards below must evaluate
+        // the registry's current selection, not a stale cache.
+        if let configurationPreflight {
+            await configurationPreflight()
+        }
         guard configuration.isEnabled else {
             throw SubrouterSwitchError.integrationDisabled
         }

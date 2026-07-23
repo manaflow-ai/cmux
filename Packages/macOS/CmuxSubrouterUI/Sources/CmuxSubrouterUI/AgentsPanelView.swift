@@ -129,8 +129,12 @@ public struct AgentsPanelView: View {
         guard !configuration.isRemoteEndpoint else {
             return SubrouterAccountRowActions()
         }
+        // Matches the popover's filter: a row whose auth check failed is a
+        // sign-in candidate, not a switch target — activating it would
+        // replace working credentials with an expired account.
         let canSwitch = !account.isActive
             && account.provider.supportsSwitching
+            && (!account.authChecked || account.authValid)
             && store.pendingSwitch == nil
         return SubrouterAccountRowActions(
             onSwitch: canSwitch ? { switchAccount(account) } : nil,

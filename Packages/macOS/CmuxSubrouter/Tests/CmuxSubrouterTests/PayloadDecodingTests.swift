@@ -164,6 +164,10 @@ import Testing
                 == "http://localhost:9999"
         )
         #expect(SubrouterEndpoint(configurationString: "ftp://bad") == nil)
+        // Token-free contract: the endpoint string is echoed by status and
+        // CLI JSON output, so embedded credentials are rejected outright.
+        #expect(SubrouterEndpoint(configurationString: "http://user:secret@127.0.0.1:31415") == nil)
+        #expect(SubrouterEndpoint(configurationString: "https://user@remote.example.com") == nil)
         let standard = SubrouterEndpoint.standard
         #expect(
             standard.url(forPath: "/_subrouter/health").absoluteString

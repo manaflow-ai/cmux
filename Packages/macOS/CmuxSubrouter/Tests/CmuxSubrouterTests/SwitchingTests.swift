@@ -49,6 +49,31 @@ import Testing
         #expect(store.lastSwitchError == nil)
     }
 
+    @Test func preflightRefreshGuardsAgainstStaleRegistry() async {
+        let client = FakeSubrouterClient()
+        let switcher = FakeAccountSwitcher()
+        let store = makeStore(client: client, switcher: switcher)
+        // Simulates `sr server use <remote>` landing after the store's
+        // cached configuration was composed: the preflight re-applies the
+        // registry, and the remote guard must reject the local switch
+        // before sr runs.
+        store.configurationPreflight = { @MainActor in
+            store.updateConfiguration(
+                SubrouterConfiguration(
+                    isEnabled: true,
+                    endpoint: SubrouterEndpoint(configurationString: "http://cmux-mac-mini:31415")!,
+                    serverName: "cmux-mac-mini",
+                    tuning: SubrouterPollTuning(jitterFraction: 0)
+                )
+            )
+        }
+
+        await #expect(throws: SubrouterSwitchError.remoteServerManagesSelection(serverName: "cmux-mac-mini")) {
+            try await store.switchAccount(provider: .codex, accountID: "dev@example.com")
+        }
+        #expect(await switcher.invocations.isEmpty)
+    }
+
     @Test func disablingMidSwitchSkipsDaemonFollowUp() async throws {
         let client = FakeSubrouterClient()
         let switcher = FakeAccountSwitcher()
