@@ -14,6 +14,7 @@ final class FilePreviewMediaSession {
     private var currentURL: URL?
     private var currentRevision: Int?
     private var player: AVPlayer?
+    private var playbackRestoreTask: Task<Void, Never>?
 
     deinit {
         // AppKit teardown is performed explicitly by close() on the main actor.
@@ -59,6 +60,8 @@ final class FilePreviewMediaSession {
     }
 
     func close() {
+        playbackRestoreTask?.cancel()
+        playbackRestoreTask = nil
         player?.pause()
         viewSession.close()
         player = nil
@@ -94,11 +97,109 @@ final class FilePreviewMediaSession {
 
     private func updatePlayer(in playerView: AVPlayerView, url: URL, revision: Int) {
         guard currentURL != url || currentRevision != revision else { return }
+        if currentURL == url, let player {
+            currentRevision = revision
+            playerView.player = player
+            replaceCurrentItem(in: player, url: url, revision: revision)
+            return
+        }
+
+        playbackRestoreTask?.cancel()
+        playbackRestoreTask = nil
         player?.pause()
         currentURL = url
         currentRevision = revision
         let player = AVPlayer(url: url)
         self.player = player
         playerView.player = player
+    }
+
+    private func replaceCurrentItem(in player: AVPlayer, url: URL, revision: Int) {
+        playbackRestoreTask?.cancel()
+
+        let previousItem = player.currentItem
+        let currentTime = player.currentTime()
+        let position = currentTime.isNumeric ? currentTime : .zero
+        let shouldResume = player.timeControlStatus != .paused || player.rate != 0
+        let playbackRate = player.rate == 0 ? player.defaultRate : player.rate
+        let nextItem = AVPlayerItem(url: url)
+
+        player.pause()
+        player.replaceCurrentItem(with: nextItem)
+        playbackRestoreTask = Task { [weak self, weak player] in
+            guard let self, let player else { return }
+            if let previousItem {
+                await restoreMediaSelections(
+                    from: previousItem,
+                    to: nextItem,
+                    in: player,
+                    revision: revision
+                )
+            }
+            guard canRestorePlayback(in: player, item: nextItem, revision: revision) else { return }
+
+            let finished = await player.seek(
+                to: position,
+                toleranceBefore: .zero,
+                toleranceAfter: .zero
+            )
+            guard finished,
+                  canRestorePlayback(in: player, item: nextItem, revision: revision) else { return }
+            if shouldResume {
+                player.playImmediately(atRate: playbackRate)
+            }
+            playbackRestoreTask = nil
+        }
+    }
+
+    private func restoreMediaSelections(
+        from previousItem: AVPlayerItem,
+        to nextItem: AVPlayerItem,
+        in player: AVPlayer,
+        revision: Int
+    ) async {
+        let characteristics: [AVMediaCharacteristic]
+        do {
+            characteristics = try await previousItem.asset.load(
+                .availableMediaCharacteristicsWithMediaSelectionOptions
+            )
+        } catch {
+            return
+        }
+        guard canRestorePlayback(in: player, item: nextItem, revision: revision) else { return }
+
+        for characteristic in characteristics {
+            do {
+                guard let previousGroup = try await previousItem.asset.loadMediaSelectionGroup(
+                    for: characteristic
+                ) else { continue }
+                guard canRestorePlayback(in: player, item: nextItem, revision: revision) else { return }
+                guard let selectedOption = previousItem.currentMediaSelection.selectedMediaOption(
+                    in: previousGroup
+                ) else { continue }
+
+                guard let nextGroup = try await nextItem.asset.loadMediaSelectionGroup(
+                    for: characteristic
+                ) else { continue }
+                guard canRestorePlayback(in: player, item: nextItem, revision: revision) else { return }
+                let nextOption = nextGroup.mediaSelectionOption(
+                    withPropertyList: selectedOption.propertyList()
+                )
+                nextItem.select(nextOption, in: nextGroup)
+            } catch {
+                continue
+            }
+        }
+    }
+
+    private func canRestorePlayback(
+        in player: AVPlayer,
+        item: AVPlayerItem,
+        revision: Int
+    ) -> Bool {
+        !Task.isCancelled &&
+            self.player === player &&
+            player.currentItem === item &&
+            currentRevision == revision
     }
 }

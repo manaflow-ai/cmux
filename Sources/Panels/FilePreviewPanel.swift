@@ -2328,6 +2328,7 @@ private final class FilePreviewPDFThumbnailItemView: NSView {
 }
 
 final class FilePreviewPDFContainerView: NSView, NSSplitViewDelegate, NSOutlineViewDataSource, NSOutlineViewDelegate {
+    private let visiblePageResolver = FilePreviewPDFVisiblePageResolver()
     private enum Metrics {
         static let defaultSidebarWidth = FilePreviewPDFSizing.defaultSidebarWidth
         static let minimumSidebarWidth = FilePreviewPDFSizing.minimumSidebarWidth
@@ -2983,11 +2984,11 @@ final class FilePreviewPDFContainerView: NSView, NSSplitViewDelegate, NSOutlineV
     }
 
     private func selectedVisiblePDFPage() -> PDFPage? {
-        FilePreviewPDFVisiblePageResolver.selectedVisiblePage(in: pdfView, scrollView: pdfScrollView())
+        visiblePageResolver.selectedVisiblePage(in: pdfView, scrollView: pdfScrollView())
     }
 
     private func topVisiblePDFPage() -> PDFPage? {
-        FilePreviewPDFVisiblePageResolver.topVisiblePage(in: pdfView, scrollView: pdfScrollView())
+        visiblePageResolver.topVisiblePage(in: pdfView, scrollView: pdfScrollView())
     }
 
     private func updateSidebarVisibility() {
@@ -3455,7 +3456,7 @@ final class FilePreviewPDFContainerView: NSView, NSSplitViewDelegate, NSOutlineV
     }
 
     private func debugSnapshot(_ snapshot: FilePreviewPDFViewportSnapshot?) -> String {
-        snapshot?.debugSummary(document: pdfView.document) ?? "nil"
+        snapshot == nil ? "nil" : "captured"
     }
 
     private func debugAnchor(_ anchor: FilePreviewPDFViewportAnchor) -> String {
@@ -3633,6 +3634,7 @@ private struct FilePreviewImageChromeView: View {
 }
 
 final class FilePreviewImageContainerView: NSView {
+    private let viewport = FilePreviewViewport()
     private let scrollView = FilePreviewImageScrollView()
     private let documentView = FilePreviewImageDocumentView()
     private let chromeHost = FilePreviewPDFChromeHostingView(rootView: AnyView(EmptyView()))
@@ -3769,11 +3771,11 @@ final class FilePreviewImageContainerView: NSView {
         let clipBounds = scrollView.contentView.bounds
         let documentBounds = documentView.bounds
         pendingReloadAnchorRatio = CGPoint(
-            x: FilePreviewViewport.normalizedAnchorRatio(
+            x: viewport.normalizedAnchorRatio(
                 clipBounds.midX - documentBounds.minX,
                 length: documentBounds.width
             ),
-            y: FilePreviewViewport.normalizedAnchorRatio(
+            y: viewport.normalizedAnchorRatio(
                 clipBounds.midY - documentBounds.minY,
                 length: documentBounds.height
             )
@@ -3793,7 +3795,7 @@ final class FilePreviewImageContainerView: NSView {
             y: documentBounds.minY + (documentBounds.height * anchorRatio.y)
         )
         let anchorOffset = CGPoint(x: clipView.bounds.width * 0.5, y: clipView.bounds.height * 0.5)
-        let nextOrigin = FilePreviewViewport.clampedClipOrigin(
+        let nextOrigin = viewport.clampedClipOrigin(
             documentPoint: documentPoint,
             anchorOffsetInClip: anchorOffset,
             documentBounds: documentBounds,
@@ -3974,11 +3976,11 @@ final class FilePreviewImageContainerView: NSView {
         let oldImageFrame = documentView.imageView.frame
         let anchorInDocument = documentView.convert(anchorInClip, from: scrollView.contentView)
         let anchorRatio = CGPoint(
-            x: FilePreviewViewport.normalizedAnchorRatio(
+            x: viewport.normalizedAnchorRatio(
                 anchorInDocument.x - oldImageFrame.minX,
                 length: oldImageFrame.width
             ),
-            y: FilePreviewViewport.normalizedAnchorRatio(
+            y: viewport.normalizedAnchorRatio(
                 anchorInDocument.y - oldImageFrame.minY,
                 length: oldImageFrame.height
             )

@@ -20,21 +20,22 @@ struct FilePreviewLatestRequestState<Request: Sendable>: Sendable {
         return (start: nil, superseded: superseded)
     }
 
-    mutating func complete(id: Int) -> (shouldDeliver: Bool, next: Submission?) {
+    mutating func complete(id: Int) -> (matchedActive: Bool, shouldDeliver: Bool, next: Submission?) {
         guard active?.id == id else {
-            return (shouldDeliver: false, next: nil)
+            return (matchedActive: false, shouldDeliver: false, next: nil)
         }
         let shouldDeliver = pending == nil && id == nextID
         active = nil
         let next = pending
         pending = nil
         active = next
-        return (shouldDeliver: shouldDeliver, next: next)
+        return (matchedActive: true, shouldDeliver: shouldDeliver, next: next)
     }
 
     mutating func cancel() -> (active: Submission?, pending: Submission?) {
         nextID &+= 1
         let cancellation = (active: active, pending: pending)
+        active = nil
         pending = nil
         return cancellation
     }

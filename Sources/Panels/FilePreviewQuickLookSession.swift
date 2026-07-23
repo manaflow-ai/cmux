@@ -94,7 +94,7 @@ final class FilePreviewQuickLookSession {
         if let container = view as? FilePreviewQuickLookContainerView,
            let previewView = container.livePreviewView() {
             panel.attachPreviewFocus(root: container, primaryResponder: previewView, intent: .quickLook)
-            previewView.previewItem = previewItem(
+            updatePreviewItem(
                 for: panel.fileURL,
                 title: panel.displayTitle,
                 revision: revision
@@ -107,13 +107,32 @@ final class FilePreviewQuickLookSession {
         )
     }
 
-    private func previewItem(for url: URL, title: String, revision: Int) -> FilePreviewQLItem {
-        if let item, item.url == url, item.title == title, itemRevision == revision {
-            return item
+    private func updatePreviewItem(for url: URL, title: String, revision: Int) {
+        if item == nil || item?.url != url || item?.title != title {
+            let nextItem = FilePreviewQLItem(url: url, title: title)
+            item = nextItem
+            itemRevision = revision
+            for previewView in livePreviewViews() {
+                previewView.previewItem = nextItem
+            }
+            return
         }
-        let next = FilePreviewQLItem(url: url, title: title)
-        item = next
+
+        guard let item else { return }
+        let previewViews = livePreviewViews()
+        for previewView in previewViews where previewView.previewItem !== item {
+            previewView.previewItem = item
+        }
+        guard itemRevision != revision else { return }
+        for previewView in previewViews {
+            previewView.refreshPreviewItem()
+        }
         itemRevision = revision
-        return next
+    }
+
+    private func livePreviewViews() -> [QLPreviewView] {
+        liveViews.allObjects.compactMap {
+            ($0 as? FilePreviewQuickLookContainerView)?.livePreviewView()
+        }
     }
 }

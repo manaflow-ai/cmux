@@ -1,8 +1,9 @@
 import AppKit
 import PDFKit
 
-enum FilePreviewPDFVisiblePageResolver {
-    static func topVisiblePage(in pdfView: PDFView, scrollView: NSScrollView?) -> PDFPage? {
+@MainActor
+struct FilePreviewPDFVisiblePageResolver {
+    func topVisiblePage(in pdfView: PDFView, scrollView: NSScrollView?) -> PDFPage? {
         guard let scrollView else { return pdfView.currentPage }
         let clipView = scrollView.contentView
         let clipBounds = clipView.bounds
@@ -31,7 +32,7 @@ enum FilePreviewPDFVisiblePageResolver {
             ?? pdfView.currentPage
     }
 
-    static func selectedVisiblePage(in pdfView: PDFView, scrollView: NSScrollView?) -> PDFPage? {
+    func selectedVisiblePage(in pdfView: PDFView, scrollView: NSScrollView?) -> PDFPage? {
         guard let scrollView else { return pdfView.currentPage }
         guard let document = pdfView.document, document.pageCount > 0 else { return pdfView.currentPage }
 
@@ -57,7 +58,7 @@ enum FilePreviewPDFVisiblePageResolver {
         return topVisiblePage(in: pdfView, scrollView: scrollView)
     }
 
-    static func verticalDocumentEdgePageIndex(
+    func verticalDocumentEdgePageIndex(
         pageCount: Int,
         clipBounds: CGRect,
         documentBounds: CGRect,
@@ -89,7 +90,7 @@ enum FilePreviewPDFVisiblePageResolver {
         return nil
     }
 
-    private static func dominantVisiblePage(
+    private func dominantVisiblePage(
         in pdfView: PDFView,
         clipView: NSClipView,
         clipBounds: CGRect
@@ -122,7 +123,7 @@ enum FilePreviewPDFVisiblePageResolver {
         return dominantPageIndex.flatMap { document.page(at: $0) }
     }
 
-    private static func centerWeightedScore(for yRatio: CGFloat) -> Int {
+    private func centerWeightedScore(for yRatio: CGFloat) -> Int {
         switch abs(yRatio - 0.5) {
         case 0..<0.01:
             4

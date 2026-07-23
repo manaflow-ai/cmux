@@ -38,6 +38,7 @@ final class FilePreviewLatestLoadCoordinator<Output: Sendable> {
 
     func cancel() {
         activeTask?.cancel()
+        activeTask = nil
         let cancellation = state.cancel()
         cancellation.active?.request.finish()
         cancellation.pending?.request.finish()
@@ -58,8 +59,10 @@ final class FilePreviewLatestLoadCoordinator<Output: Sendable> {
         _ submission: FilePreviewLatestRequestState<Request>.Submission,
         output: Output
     ) async {
-        activeTask = nil
         let transition = state.complete(id: submission.id)
+        if transition.matchedActive {
+            activeTask = nil
+        }
         if transition.shouldDeliver {
             await submission.request.completion(output)
         }

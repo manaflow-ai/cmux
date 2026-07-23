@@ -1,6 +1,7 @@
 import AppKit
 import PDFKit
 
+@MainActor
 struct FilePreviewPDFViewportSnapshot {
     private let page: PDFPage?
     private let pagePoint: CGPoint?
@@ -16,6 +17,7 @@ struct FilePreviewPDFViewportSnapshot {
     ) -> FilePreviewPDFViewportSnapshot? {
         guard let scrollView,
               let documentView = scrollView.documentView else { return nil }
+        let viewport = FilePreviewViewport()
 
         let clipView = scrollView.contentView
         let clipBounds = clipView.bounds
@@ -37,11 +39,11 @@ struct FilePreviewPDFViewportSnapshot {
         let documentBounds = documentView.bounds
         let anchorInDocument = documentView.convert(anchorInClip, from: clipView)
         let anchorRatio = CGPoint(
-            x: FilePreviewViewport.normalizedAnchorRatio(
+            x: viewport.normalizedAnchorRatio(
                 anchorInDocument.x - documentBounds.minX,
                 length: documentBounds.width
             ),
-            y: FilePreviewViewport.normalizedAnchorRatio(
+            y: viewport.normalizedAnchorRatio(
                 anchorInDocument.y - documentBounds.minY,
                 length: documentBounds.height
             )
@@ -59,11 +61,11 @@ struct FilePreviewPDFViewportSnapshot {
             guard let pagePoint else { return nil }
             let bounds = page.bounds(for: .cropBox)
             return CGPoint(
-                x: FilePreviewViewport.normalizedAnchorRatio(
+                x: viewport.normalizedAnchorRatio(
                     pagePoint.x - bounds.minX,
                     length: bounds.width
                 ),
-                y: FilePreviewViewport.normalizedAnchorRatio(
+                y: viewport.normalizedAnchorRatio(
                     pagePoint.y - bounds.minY,
                     length: bounds.height
                 )
@@ -83,6 +85,7 @@ struct FilePreviewPDFViewportSnapshot {
     func restore(in pdfView: PDFView, scrollView: NSScrollView?) {
         guard let scrollView,
               let documentView = scrollView.documentView else { return }
+        let viewport = FilePreviewViewport()
 
         pdfView.layoutDocumentView()
         pdfView.layoutSubtreeIfNeeded()
@@ -96,7 +99,7 @@ struct FilePreviewPDFViewportSnapshot {
             x: documentBounds.minX + (documentBounds.width * documentAnchorRatio.x),
             y: documentBounds.minY + (documentBounds.height * documentAnchorRatio.y)
         )
-        let nextOrigin = FilePreviewViewport.clampedClipOrigin(
+        let nextOrigin = viewport.clampedClipOrigin(
             documentPoint: targetDocumentPoint,
             anchorOffsetInClip: anchorOffsetInClip,
             documentBounds: documentBounds,
@@ -138,29 +141,4 @@ struct FilePreviewPDFViewportSnapshot {
         return pointInDocument
     }
 
-    #if DEBUG
-    func debugSummary(document: PDFDocument?) -> String {
-        let pageDescription: String
-        if let page, let document {
-            let pageIndex = document.index(for: page)
-            pageDescription = pageIndex >= 0 ? "\(pageIndex + 1)/\(document.pageCount)" : "unknown"
-        } else {
-            pageDescription = "nil"
-        }
-        return "page=\(pageDescription) " +
-            "pagePoint=\(Self.debugPoint(pagePoint)) " +
-            "ratio=\(Self.debugPoint(documentAnchorRatio)) " +
-            "offset=\(Self.debugPoint(anchorOffsetInClip))"
-    }
-
-    private static func debugPoint(_ point: CGPoint?) -> String {
-        guard let point else { return "nil" }
-        return "(\(debugNumber(point.x)),\(debugNumber(point.y)))"
-    }
-
-    private static func debugNumber(_ value: CGFloat) -> String {
-        guard value.isFinite else { return "nan" }
-        return String(format: "%.1f", Double(value))
-    }
-    #endif
 }

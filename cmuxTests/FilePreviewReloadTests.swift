@@ -307,7 +307,7 @@ struct FilePreviewReloadTests {
         #expect(latestCompletion.next == nil)
     }
 
-    @Test("Canceling preview load state drops pending work and suppresses active delivery")
+    @Test("Canceling preview load state releases the active slot and rejects stale completion")
     func latestPreviewLoadStateCancelsPendingRequests() throws {
         var state = FilePreviewLatestRequestState<String>()
         let active = try #require(state.submit("active").start)
@@ -316,10 +316,17 @@ struct FilePreviewReloadTests {
         let cancellation = state.cancel()
         #expect(cancellation.active?.request == "active")
         #expect(cancellation.pending?.request == "pending")
-        let completion = state.complete(id: active.id)
+        let replacement = try #require(state.submit("replacement").start)
+        let staleCompletion = state.complete(id: active.id)
 
-        #expect(!completion.shouldDeliver)
-        #expect(completion.next == nil)
+        #expect(!staleCompletion.matchedActive)
+        #expect(!staleCompletion.shouldDeliver)
+        #expect(staleCompletion.next == nil)
+
+        let replacementCompletion = state.complete(id: replacement.id)
+        #expect(replacementCompletion.matchedActive)
+        #expect(replacementCompletion.shouldDeliver)
+        #expect(replacementCompletion.next == nil)
     }
 
     private func waitForPDFDocumentReplacement(

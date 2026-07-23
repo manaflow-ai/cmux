@@ -1,12 +1,12 @@
 import AppKit
 
-enum FilePreviewViewport {
-    static func normalizedAnchorRatio(_ value: CGFloat, length: CGFloat) -> CGFloat {
+struct FilePreviewViewport {
+    func normalizedAnchorRatio(_ value: CGFloat, length: CGFloat) -> CGFloat {
         guard length > 1 else { return 0.5 }
         return min(max(value / length, 0), 1)
     }
 
-    static func clampedClipOrigin(
+    func clampedClipOrigin(
         documentPoint: CGPoint,
         anchorOffsetInClip: CGPoint,
         documentBounds: CGRect,
@@ -28,7 +28,7 @@ enum FilePreviewViewport {
         )
     }
 
-    private static func clampedAxisOrigin(
+    private func clampedAxisOrigin(
         rawOrigin: CGFloat,
         documentMin: CGFloat,
         documentLength: CGFloat,
