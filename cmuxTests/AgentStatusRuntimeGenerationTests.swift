@@ -129,6 +129,62 @@ struct AgentStatusRuntimeGenerationTests {
         #expect(workspace.agentLifecycleStatesByPanelId[panelId]?["claude_code"] == .running)
     }
 
+    @Test @MainActor func relayedRuntimeUsesSurfaceSessionIdentityInsteadOfLocalPIDNamespace() throws {
+        let workspace = Workspace()
+        let panelId = try #require(workspace.focusedPanelId)
+        let remotePID: pid_t = 987_654
+        defer { workspace.clearAllAgentPIDs(refreshPorts: false) }
+        workspace.trackRemoteTerminalSurface(panelId)
+        workspace.recordAgentPID(
+            key: "codex.remote-session",
+            pid: remotePID,
+            panelId: panelId,
+            refreshPorts: false
+        )
+        let remoteEvent = WorkstreamEvent(
+            sessionId: "codex-remote-session",
+            hookEventName: .permissionRequest,
+            source: "codex",
+            ppid: Int(remotePID),
+            receivedAt: now,
+            extraFieldsJSON: #"{"_cmux_agent_status_signal":"needsInput","_cmux_agent_pid_namespace":"remote"}"#
+        )
+        let localNamespaceEvent = WorkstreamEvent(
+            sessionId: "codex-remote-session",
+            hookEventName: .permissionRequest,
+            source: "codex",
+            ppid: Int(remotePID),
+            receivedAt: now,
+            extraFieldsJSON: #"{"_cmux_agent_status_signal":"needsInput"}"#
+        )
+
+        #expect(!workspace.clearStaleAgentPIDs(panelId: panelId, refreshPorts: false))
+        #expect(workspace.agentStatusRuntimeIsCurrent(event: remoteEvent, panelId: panelId))
+        #expect(!workspace.agentStatusRuntimeIsCurrent(event: localNamespaceEvent, panelId: panelId))
+
+        let signal = try #require(AgentStatusHookEventSignal(event: remoteEvent))
+        workspace.noteAgentStatusHookSignal(signal, panelId: panelId)
+        #expect(workspace.agentLifecycleStatesByPanelId[panelId]?["codex"] == .needsInput)
+
+        workspace.recordAgentPID(
+            key: "codex.replacement-session",
+            pid: remotePID,
+            panelId: panelId,
+            refreshPorts: false
+        )
+        let replacementEvent = WorkstreamEvent(
+            sessionId: "codex-replacement-session",
+            hookEventName: .permissionRequest,
+            source: "codex",
+            ppid: Int(remotePID),
+            receivedAt: now,
+            extraFieldsJSON: #"{"_cmux_agent_status_signal":"needsInput","_cmux_agent_pid_namespace":"remote"}"#
+        )
+
+        #expect(!workspace.agentStatusRuntimeIsCurrent(event: remoteEvent, panelId: panelId))
+        #expect(workspace.agentStatusRuntimeIsCurrent(event: replacementEvent, panelId: panelId))
+    }
+
     @Test func needsInputRemainsConfidentForLiveRuntimeUntilCounterSignal() {
         let evidence = AgentStatusEvidence(
             lifecycle: .needsInput,
