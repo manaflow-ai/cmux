@@ -88,7 +88,7 @@ extension LocalArtifactRepository: NoteStoring {
                }) {
                 existing = exact
             } else {
-                existing = try resolver.resolve(notes: candidateNotes, rawName: name)
+                existing = try resolver.resolveExact(notes: candidateNotes, rawName: name)
             }
         } catch CmuxNoteStoreError.noteNotFound {
             existing = nil
@@ -174,8 +174,9 @@ extension LocalArtifactRepository: NoteStoring {
         try prepare(paths: paths)
         let lease = try ArtifactStoreMutationLease.acquire(directory: paths.filesystemRoot)
         defer { lease.finish() }
-        let note = try CmuxProjectNoteResolver().resolve(
-            snapshot: completeSnapshot(paths: paths),
+        let resolver = CmuxProjectNoteResolver()
+        let note = try resolver.resolveExact(
+            notes: resolver.notes(snapshot: completeSnapshot(paths: paths)),
             rawName: name
         )
         guard Darwin.unlink(note.absolutePath) == 0 else {
