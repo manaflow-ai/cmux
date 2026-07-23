@@ -10680,8 +10680,12 @@ class TerminalController {
         let semaphore = DispatchSemaphore(value: 0)
         nonisolated(unsafe) var export = ""
         Task {
-            let log = await MainActor.run { MobileHostIrohRuntime.shared.diagnosticLog }
-            let report = await log.snapshot()
+            // Reads the nonisolated static ring directly: no main-actor hop, so
+            // the verb keeps working when the main thread is wedged (the case
+            // connection diagnostics exist for). The wait blocks only on the
+            // log's own drain actor, and the execution policy keeps this
+            // command off the main thread, so the wait cannot self-deadlock.
+            let report = await MobileHostIrohRuntime.hostDiagnosticLog.snapshot()
             export = String(decoding: report.compactExport(), as: UTF8.self)
             semaphore.signal()
         }
