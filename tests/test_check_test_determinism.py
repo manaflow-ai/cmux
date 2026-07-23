@@ -96,8 +96,22 @@ class DeterminismCheckerCLITests(unittest.TestCase):
                 'actual="$(sleep 1)"\n'
                 'assert "$actual" "$expected"\n'
             ),
+            "shell-backtick.sh": (
+                "actual=`sleep 1`\n"
+                'assert "$actual" "$expected"\n'
+            ),
+            "shell-quoted-backtick.sh": (
+                'actual="before `sleep 1` after"\n'
+                'assert "$actual" "$expected"\n'
+            ),
             "template-interpolation.ts": (
                 "const actual = `${await Bun.sleep(1)}`\n"
+                "expect(actual).toBeTruthy()\n"
+            ),
+            "template-multiline-interpolation.ts": (
+                "const actual = `${\n"
+                "  await Bun.sleep(1)\n"
+                "}`\n"
                 "expect(actual).toBeTruthy()\n"
             ),
         }
@@ -106,8 +120,13 @@ class DeterminismCheckerCLITests(unittest.TestCase):
 
         self.assertEqual(result.returncode, 1, result.stdout + result.stderr)
         for relative_path in fixtures:
+            line = (
+                2
+                if relative_path == "template-multiline-interpolation.ts"
+                else 1
+            )
             self.assertIn(
-                f"fixtures/{relative_path}:1: sleep-then-assert:",
+                f"fixtures/{relative_path}:{line}: sleep-then-assert:",
                 result.stdout,
             )
 
@@ -184,6 +203,11 @@ class DeterminismCheckerCLITests(unittest.TestCase):
                     "await pause(0.01)\n"
                     "assert finished\n"
                 ),
+                "import-list.py": (
+                    "import os, time as clock_time\n"
+                    "clock_time.sleep(0.01)\n"
+                    "assert finished\n"
+                ),
             }
         )
 
@@ -192,7 +216,12 @@ class DeterminismCheckerCLITests(unittest.TestCase):
             1,
             positive.stdout + positive.stderr,
         )
-        for relative_path in ("time-alias.py", "from-time.py", "from-asyncio.py"):
+        for relative_path in (
+            "time-alias.py",
+            "from-time.py",
+            "from-asyncio.py",
+            "import-list.py",
+        ):
             self.assertIn(
                 f"fixtures/{relative_path}:2: sleep-then-assert:",
                 positive.stdout,
@@ -232,6 +261,16 @@ class DeterminismCheckerCLITests(unittest.TestCase):
                 "class-shadow.py": (
                     "class time: pass\n"
                     "time.sleep(0.01)\n"
+                    "assert finished\n"
+                ),
+                "unrelated-import-shadow.py": (
+                    "import fake_clock as time\n"
+                    "time.sleep(0.01)\n"
+                    "assert finished\n"
+                ),
+                "unrelated-from-import-shadow.py": (
+                    "from fake_clock import clock as asyncio\n"
+                    "await asyncio.sleep(0.01)\n"
                     "assert finished\n"
                 ),
             }
@@ -277,6 +316,8 @@ class DeterminismCheckerCLITests(unittest.TestCase):
                     'assert "$actual" "$expected"\n'
                     'escaped="\\$(sleep 1)"\n'
                     'assert "$escaped" "$expected"\n'
+                    'escaped_backtick="\\`sleep 1\\`"\n'
+                    'assert "$escaped_backtick" "$expected"\n'
                 ),
             }
         )
