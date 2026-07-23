@@ -66,13 +66,24 @@ extension CMUXCLI {
             args.append("-c")
             args.append(toml)
         }
-        args.append(contentsOf: codexResumeTrustOverride())
-        // NUL-TERMINATE each arg (trailing NUL after the last too) so a bash
+        emitNulSeparatedArguments(args)
+    }
+
+    /// Emit the invocation-only project trust override that must follow a
+    /// `codex resume` subcommand. Codex accepts hook configuration as global
+    /// arguments before `resume`, but resume project trust is parsed from the
+    /// subcommand's argument scope and is ignored when prepended.
+    func emitCodexWrapperResumeArgs() {
+        emitNulSeparatedArguments(codexResumeTrustOverride())
+    }
+
+    private func emitNulSeparatedArguments(_ arguments: [String]) {
+        // NUL-terminate each arg (trailing NUL after the last too) so a bash
         // `while IFS= read -r -d '' arg` loop captures every element including
-        // the final one — a separator-only stream drops the unterminated last
+        // the final one. A separator-only stream drops the unterminated last
         // arg at EOF.
         var out = Data()
-        for arg in args {
+        for arg in arguments {
             out.append(Data(arg.utf8))
             out.append(0)
         }

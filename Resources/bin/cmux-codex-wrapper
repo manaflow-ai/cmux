@@ -315,9 +315,10 @@ if [[ -n "$cmux_codex_resume_sid" \
     disown 2>/dev/null || true
 fi
 
-# Build the per-invocation [hooks] injection. The cmux CLI emits the exact arg
-# list (NUL-separated) that enables hooks and injects cmux's FIRE-AND-FORGET hook
-# command for each event. Fire-and-forget is critical: codex runs hooks
+# Build the per-invocation [hooks] injection. The cmux CLI emits the exact
+# prefix arg list (NUL-separated) that enables hooks and injects cmux's
+# FIRE-AND-FORGET hook command for each event. Fire-and-forget is critical:
+# codex runs hooks
 # synchronously and BLOCKS until they return, so a synchronous `cmux hooks codex
 # <sub>` made every launch hang ~35s on "Running SessionStart hook". The emitted
 # command captures codex's stdin payload to a temp file, nohup-backgrounds the
@@ -330,6 +331,7 @@ fi
 # fall back to plain passthrough so installing the wrapper can never break codex.
 CMUX_INJECT_CLI="$CMUX_CODEX_HOOK_CMUX_BIN"
 cmux_codex_injected_args=()
+cmux_codex_resume_args=()
 cmux_codex_read_inject_args() {
     [[ -n "$CMUX_INJECT_CLI" && -x "$CMUX_INJECT_CLI" ]] || return 1
     local arg
@@ -350,8 +352,36 @@ cmux_codex_read_inject_args() {
     return 0
 }
 
+# Codex parses project trust in the `resume` subcommand's argument scope. The
+# same `-c projects=...` override is ignored if it is prepended with the global
+# hook configuration, so fetch it separately and append it after the captured
+# resume argv. An explicit persisted or command-line trust decision emits
+# nothing and remains authoritative. Any helper failure likewise leaves the
+# suffix empty, allowing Codex's own trust picker to fail closed.
+cmux_codex_read_resume_args() {
+    [[ -n "$CMUX_INJECT_CLI" && -x "$CMUX_INJECT_CLI" ]] || return 1
+    local arg
+    if [[ -n "${CMUX_SOCKET_PATH:-}" ]]; then
+        while IFS= read -r -d '' arg; do
+            cmux_codex_resume_args+=("$arg")
+        done < <("$CMUX_INJECT_CLI" --socket "$CMUX_SOCKET_PATH" hooks codex inject-resume-args 2>/dev/null)
+    else
+        while IFS= read -r -d '' arg; do
+            cmux_codex_resume_args+=("$arg")
+        done < <("$CMUX_INJECT_CLI" hooks codex inject-resume-args 2>/dev/null)
+    fi
+    (( ${#cmux_codex_resume_args[@]} > 0 )) || return 1
+    return 0
+}
+
 if cmux_codex_read_inject_args; then
-    exec "$REAL_CODEX" "${cmux_codex_injected_args[@]}" "$@"
+    if [[ -n "$cmux_codex_resume_sid" ]]; then
+        cmux_codex_read_resume_args || cmux_codex_resume_args=()
+    fi
+    exec "$REAL_CODEX" \
+        "${cmux_codex_injected_args[@]}" \
+        "$@" \
+        "${cmux_codex_resume_args[@]}"
 fi
 
 # Emit failed or returned nothing: never break codex, just pass through.

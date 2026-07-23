@@ -34532,6 +34532,12 @@ export default CMUXSessionRestore;
                 // fire-and-forget hooks for one invocation. No socket required.
                 try emitCodexWrapperInjectArgs()
                 return true
+            case "inject-resume-args" where def.name == "codex":
+                // Hidden: emit the NUL-separated trust override that the
+                // wrapper appends after `codex resume` arguments. Codex ignores
+                // this project decision when it is placed before the subcommand.
+                emitCodexWrapperResumeArgs()
+                return true
             case "install":
                 try installHooksForAgent(def, arguments: actionArgs)
                 return true
