@@ -1,4 +1,5 @@
 import CMUXMobileCore
+import Dispatch
 import Foundation
 
 @MainActor
@@ -178,13 +179,40 @@ final class MobileBrowserStreamSession {
     ) async -> Bool {
         do {
             let pageSize = panel.webView.bounds.size
+            // Continuous JPEG frames drive motion (scroll, drag, animation). The
+            // offscreen render host window lives off all screens at alpha ~0, where
+            // macOS throttles the screen-update cycle, so `afterScreenUpdates: true`
+            // blocks each snapshot on that throttled cycle and caps capture to a few
+            // fps. `false` captures the currently committed render (which already
+            // reflects the new scroll offset) without that wait, and the dirty loop
+            // re-fires to stay current. The lossless PNG settle frame is rare and
+            // correctness-critical, so it keeps the synchronized path.
+            let waitForScreenUpdate = (format == .png)
+            #if DEBUG
+            let captureStart = DispatchTime.now()
+            #endif
             let image = try await BrowserScreenshotWebViewSnapshotter.captureVisibleViewport(
                 from: panel.webView,
-                afterScreenUpdates: true
+                afterScreenUpdates: waitForScreenUpdate
             )
             guard !isStopped, !Task.isCancelled else { return false }
             panel.updateMobileBrowserStreamMirror(image)
+            #if DEBUG
+            let encodeStart = DispatchTime.now()
+            #endif
             let encoded = try frameEncoder.encode(image, format: format)
+            #if DEBUG
+            let encodeEnd = DispatchTime.now()
+            let captureMs = Double(encodeStart.uptimeNanoseconds &- captureStart.uptimeNanoseconds) / 1_000_000
+            let encodeMs = Double(encodeEnd.uptimeNanoseconds &- encodeStart.uptimeNanoseconds) / 1_000_000
+            cmuxDebugLog(
+                "browser.frame.capture fmt=\(format) wait=\(waitForScreenUpdate) "
+                    + "capMs=\(String(format: "%.1f", captureMs)) "
+                    + "encMs=\(String(format: "%.1f", encodeMs)) "
+                    + "bytes=\(encoded.data.count) px=\(encoded.pixelWidth)x\(encoded.pixelHeight) "
+                    + "unacked=\(pacing.unackedSequences.count)"
+            )
+            #endif
             guard let sequence = pacing.recordEmission(
                 format: format,
                 observedDirtyGeneration: dirtyGeneration,
