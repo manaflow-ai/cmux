@@ -128,7 +128,7 @@ import Testing
 
     @Test func controlModeArgumentsAreNonInteractive() {
         let host = RemoteTmuxHost(destination: "user@host")
-        let args = host.controlModeArguments(sessionName: "work", createIfMissing: false)
+        let args = host.controlModeArguments(sessionName: "work", mode: .attach)
         #expect(consecutive(args, "-o", "BatchMode=yes"))
         #expect(!args.contains("BatchMode=no"))
     }
@@ -153,7 +153,7 @@ import Testing
         )
 
         let host = RemoteTmuxHost(destination: "user@example.test")
-        let args = host.controlModeArguments(sessionName: "work session", createIfMissing: false)
+        let args = host.controlModeArguments(sessionName: "work session", mode: .attach)
         let dashDash = try #require(args.firstIndex(of: "--"))
         let command = args[dashDash + 2]
         let result = try runShell(
@@ -170,7 +170,7 @@ import Testing
 
     @Test func controlModeArgumentsUseRemoteTmuxResolverAfterDestinationGuard() throws {
         let host = RemoteTmuxHost(destination: "-oProxyCommand=evil")
-        let args = host.controlModeArguments(sessionName: "work session", createIfMissing: false)
+        let args = host.controlModeArguments(sessionName: "work session", mode: .attach)
         let dashDash = try #require(args.firstIndex(of: "--"))
         #expect(args[dashDash + 1] == "-oProxyCommand=evil")
         let remoteCommand = args[dashDash + 2]

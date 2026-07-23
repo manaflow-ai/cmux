@@ -452,7 +452,7 @@ final class RemoteTmuxControlConnection {
         let transportArgv = transportProfile.controlStreamArgv(
             host: host,
             sessionName: sessionName,
-            createIfMissing: createIfMissing
+            mode: .forCreateIfMissing(createIfMissing)
         )
         if transportProfile.requiresPseudoTerminal {
             // A terminal client will not talk over pipes: measured against et 6.2.11, it
