@@ -391,6 +391,26 @@ mod tests {
     }
 
     #[test]
+    fn raw_build_rejects_the_same_version_from_a_different_source_revision() {
+        let mut config = SshBootstrapConfig::defaults("host");
+        config.package_version = "0.1.0".into();
+        config.package_installable = false;
+        let bootstrapper = SshBootstrapper::new(config).unwrap();
+        let installed = serde_json::from_value::<RemoteProbe>(serde_json::json!({
+            "app": "cmux-tui",
+            "version": "0.1.0",
+            "distribution_version": "0.1.0",
+            "build_identity": "different-source-revision",
+            "remote_protocol": REMOTE_PROTOCOL_VERSION,
+            "os": "linux",
+            "arch": "x86_64",
+        }))
+        .unwrap();
+
+        assert!(!bootstrapper.compatible(&installed));
+    }
+
+    #[test]
     fn npm_bootstrap_requires_a_matching_published_package_stamp() {
         let mut config = SshBootstrapConfig::defaults("host");
         config.package_version = "0.9.4".into();
