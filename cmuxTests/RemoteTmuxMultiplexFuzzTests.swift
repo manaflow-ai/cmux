@@ -46,6 +46,86 @@ struct RemoteTmuxMultiplexFuzzTests {
         0x1, 0x2A, 0xBEEF, 0xC0FFEE, 0xDEAD10CC, 0xFAB1E5, 0x7209, 0x424242,
     ]
 
+
+    /// Every observer on the bundle must have a stated disposition in the channel.
+    ///
+    /// This is the construction, not a case. Twice in one merge a member was added to
+    /// ``RemoteTmuxSessionObservers`` and the channel silently did nothing with it: `onPaneSeed` was
+    /// absent from the bundle entirely, so authoritative pane snapshots reached nobody, and
+    /// `onReconnectReady` was declared and forwarded by nobody, so a multiplexed mirror never
+    /// re-applied its size after a reconnect. Both were invisible — a dropped closure raises nothing.
+    ///
+    /// The table below is the decision record. A member that exists without an entry fails here, so a
+    /// member arriving from `main` cannot merge until someone decides what the channel does with it.
+    @Test func theChannelTakesAPositionOnEveryObserver() {
+        enum Disposition {
+            /// Delivered only for panes this session owns.
+            case scopedByPane
+            /// Delivered only for windows this session owns.
+            case scopedByWindow
+            /// Host-global by nature: every session on the host gets it.
+            case fannedToEverySession
+            /// Deliberately not forwarded, with the reason stated at the channel.
+            case ownedElsewhere(String)
+        }
+
+        let decided: [String: Disposition] = [
+            "onPaneOutput": .scopedByPane,
+            "onPaneSeed": .scopedByPane,
+            "onPaneCwd": .scopedByPane,
+            "onPaneReflow": .scopedByPane,
+            "onActivePaneChanged": .scopedByWindow,
+            "onTopologyChanged": .fannedToEverySession,
+            "onReconnectReady": .fannedToEverySession,
+            "onConnectionStateChanged": .fannedToEverySession,
+            "onSessionChanged": .ownedElsewhere(
+                "the shared stream's %session-changed describes the hidden view session; per-session "
+                    + "rename is driven by the coordinator"),
+            "onExit": .ownedElsewhere(
+                "%exit is host-stream death; the coordinator tears down every session, and fanning it "
+                    + "per channel would double-tear-down"),
+            "onAuthRequired": .ownedElsewhere(
+                "the host's login is offered once by the view coordinator; fanning it would open one "
+                    + "login tab per session for a single parked stream"),
+        ]
+
+        let members = Mirror(reflecting: RemoteTmuxSessionObservers()).children
+            .compactMap(\.label)
+        #expect(!members.isEmpty, "reflection must see the bundle's members")
+        let undecided = Set(members).subtracting(decided.keys)
+        #expect(
+            undecided.isEmpty,
+            "no stated disposition for \(undecided.sorted()) — add each to the table and make the channel forward, scope, or deliberately drop it"
+        )
+        let stale = Set(decided.keys).subtracting(members)
+        #expect(stale.isEmpty, "the table names observers that no longer exist: \(stale.sorted())")
+
+        // A deliberate drop has to carry its reason at the drop site, so the next reader sees why.
+        let channelSource = try? String(
+            contentsOf: URL(fileURLWithPath: #filePath)
+                .deletingLastPathComponent()
+                .deletingLastPathComponent()
+                .appendingPathComponent("Sources/RemoteTmuxSessionChannel.swift"),
+            encoding: .utf8
+        )
+        if let channelSource {
+            for (name, disposition) in decided {
+                switch disposition {
+                case .ownedElsewhere:
+                    #expect(
+                        channelSource.contains(name),
+                        "\(name) is deliberately not forwarded, so the channel must name it"
+                    )
+                case .scopedByPane, .scopedByWindow, .fannedToEverySession:
+                    #expect(
+                        channelSource.contains("o.\(name)?"),
+                        "\(name) must be forwarded by the channel's fan-out"
+                    )
+                }
+            }
+        }
+    }
+
     @Test(arguments: seeds)
     func multiplexerSurvivesSeededSessionChurn(seed: UInt64) throws {
         let harness = try MultiplexFuzzHarness(seed: seed)
@@ -432,7 +512,7 @@ private final class MultiplexFuzzHarness {
     func runStep(_ index: Int) throws {
         step = index
         guard let host = pick(hosts.filter { !$0.hostStopped }) else { return }
-        switch draw(20) {
+        switch draw(23) {
         case 0, 1: addSession(on: host)
         case 2: reuseRemovedName(on: host)
         case 3: removeSession(on: host)
@@ -451,6 +531,9 @@ private final class MultiplexFuzzHarness {
         case 16: try injectPendingSelect(on: host, shouldSelect: true)
         case 17: try injectPendingSelect(on: host, shouldSelect: false)
         case 18: walkAcrossSessions(on: host)
+        case 19: reconnectSharedStream(on: host)
+        case 20: deliverPaneSeed(on: host)
+        case 21: try endViewWhileAwaitingCredentials(on: host)
         default: try claimNewWorkspace(on: host)
         }
         // Apply EVERY live host, not just the mutated one: id publication is
@@ -459,6 +542,140 @@ private final class MultiplexFuzzHarness {
         // its own cadence regardless of which host changed.
         for liveHost in hosts where !liveHost.hostStopped { apply(liveHost) }
         try assertInvariants()
+    }
+
+
+    // MARK: - lifecycle operations
+    //
+    // The topology operations above never touch the shared stream's state, never deliver a seed and
+    // never end a view mid-attach. Every remote-tmux defect found on 2026-07-23 lived in exactly those
+    // three gaps, and this suite was green throughout. Each operation below carries the invariant that
+    // would have failed.
+
+    /// Takes the shared stream down and back up.
+    ///
+    /// A reconnect re-attaches one stream for every session on the host, and each session's mirror has
+    /// to re-apply its size afterwards. `onReconnectReady` was declared on the observer bundle and
+    /// forwarded by nobody, so a multiplexed mirror silently never re-applied it — windows came back
+    /// the wrong size after a wake and nothing pointed at the fan-out.
+    private func reconnectSharedStream(on host: FuzzHostModel) {
+        let channels = liveChannels(on: host)
+        guard !channels.isEmpty else { return }
+        var readyPerChannel: [ObjectIdentifier: Int] = [:]
+        var tokens: [(RemoteTmuxSessionChannel, UUID)] = []
+        for channel in channels {
+            let id = ObjectIdentifier(channel)
+            readyPerChannel[id] = 0
+            let token = channel.addObserver(RemoteTmuxSessionObservers(
+                onReconnectReady: { readyPerChannel[id, default: 0] += 1 }
+            ))
+            tokens.append((channel, token))
+        }
+        defer { for (channel, token) in tokens { channel.removeObserver(token) } }
+
+        host.shared.observers.notifyStateChanged(.reconnecting)
+        host.shared.observers.notifyStateChanged(.connected)
+        host.shared.observers.notifyReconnectReady()
+
+        for channel in channels {
+            #expect(
+                readyPerChannel[ObjectIdentifier(channel)] == 1,
+                "\(ctx): a reconnect must reach every session on the host, once"
+            )
+        }
+    }
+
+    /// Delivers an authoritative pane snapshot on the shared stream.
+    ///
+    /// A seed is per-pane and carries that pane's whole screen, so it must reach the session that owns
+    /// the pane and no other — deliver it to a sibling and that session repaints from the wrong pane.
+    /// `onPaneSeed` was absent from the observer bundle entirely, so seeds reached nobody.
+    private func deliverPaneSeed(on host: FuzzHostModel) {
+        let channels = liveChannels(on: host)
+        guard let target = pick(channels) else { return }
+        // `activePaneByWindow` is on the session-source protocol and already scoped to this session,
+        // so it names a pane the channel owns without reaching into its private set.
+        guard let paneId = target.activePaneByWindow.values.sorted().first else { return }
+
+        var seenBy: [ObjectIdentifier: [Int]] = [:]
+        var tokens: [(RemoteTmuxSessionChannel, UUID)] = []
+        for channel in channels {
+            let id = ObjectIdentifier(channel)
+            seenBy[id] = []
+            let token = channel.addObserver(RemoteTmuxSessionObservers(
+                onPaneSeed: { pane, _ in seenBy[id, default: []].append(pane) }
+            ))
+            tokens.append((channel, token))
+        }
+        defer { for (channel, token) in tokens { channel.removeObserver(token) } }
+
+        host.shared.observers.emitPaneSeed(paneId, RemoteTmuxPaneSeed(
+            kind: .fullHistory,
+            discardedOutput: [],
+            snapshot: Data("fuzz-seed".utf8),
+            catchUpOutput: [],
+            state: Data()
+        ))
+
+        #expect(
+            seenBy[ObjectIdentifier(target)] == [paneId],
+            "\(ctx): the owning session must receive its pane's seed"
+        )
+        for channel in channels where channel !== target {
+            #expect(
+                seenBy[ObjectIdentifier(channel)]?.isEmpty == true,
+                "\(ctx): another session's seed would repaint this one from the wrong pane"
+            )
+        }
+    }
+
+    /// Ends a view while it is parked on a credential prompt.
+    ///
+    /// By the time an attach gives up, the connection is gone AND the view's own teardown has removed it
+    /// from the host map, so a reason held by either is unreachable. Latching on the connection, then on
+    /// the view, were the same bug relocated; the verdict has to outlive both.
+    ///
+    /// Deliberately on a throwaway host rather than one of the model's: tearing down a tracked host
+    /// would make this operation argue with the shared tab-count invariant about which workspaces
+    /// survive a teardown, which is a different property and already covered by the teardown operations
+    /// above.
+    private func endViewWhileAwaitingCredentials(on host: FuzzHostModel) throws {
+        let scratch = RemoteTmuxHost(destination: "user@fuzz-authscratch-\(step)")
+        let key = scratch.connectionHash
+        RemoteTmuxController.hostsAwaitingCredentials.remove(key)
+        controller.multiplexedViewsByHost[key] = RemoteTmuxViewConnection(
+            host: scratch, ownerId: "fuzz-authscratch")
+
+        controller.noteAwaitingCredentials(host: scratch)
+        _ = controller.stopMultiplexedHost(host: scratch)
+
+        #expect(
+            controller.multiplexedViewsByHost[key] == nil,
+            "\(ctx): the teardown discards the view, which is the whole problem"
+        )
+        #expect(
+            controller.multiplexedMirrorFailure(host: scratch, view: nil)
+                == .authenticationRequired(scratch.destination),
+            "\(ctx): the reason must survive the connection and the view that observed it"
+        )
+
+        // And it must be retired once the host authenticates, or the fix becomes the bug it replaced.
+        controller.noteMirrorConnected(host: scratch)
+        #expect(
+            controller.multiplexedMirrorFailure(host: scratch, view: nil)
+                != .authenticationRequired(scratch.destination),
+            "\(ctx): a host that connected is no longer waiting for a login"
+        )
+        RemoteTmuxController.hostsAwaitingCredentials.remove(key)
+    }
+
+    /// Every channel this host currently has a live mirror for.
+    private func liveChannels(on host: FuzzHostModel) -> [RemoteTmuxSessionChannel] {
+        leakProbes.compactMap { probe in
+            guard let channel = probe.channel, let mirror = probe.mirror else { return nil }
+            guard mirror.host.connectionHash == host.host.connectionHash else { return nil }
+            return channel
+        }
     }
 
     // MARK: - Random draws
