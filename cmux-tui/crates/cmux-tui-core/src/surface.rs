@@ -1548,6 +1548,20 @@ fn terminal_scroll_position(term: &Terminal) -> (u64, bool) {
 mod tests {
     use super::*;
 
+    #[derive(Clone, Default)]
+    struct CapturingWriter(Arc<Mutex<Vec<u8>>>);
+
+    impl Write for CapturingWriter {
+        fn write(&mut self, bytes: &[u8]) -> std::io::Result<usize> {
+            self.0.lock().unwrap().extend_from_slice(bytes);
+            Ok(bytes.len())
+        }
+
+        fn flush(&mut self) -> std::io::Result<()> {
+            Ok(())
+        }
+    }
+
     #[test]
     fn attach_colors_preserve_same_valued_authored_palette_override() {
         let color = Rgb { r: 0x44, g: 0x55, b: 0x66 };
@@ -1779,6 +1793,8 @@ mod tests {
         let mux = Mux::new_for_test("clear-prompt-history", SurfaceOptions::default());
         let surface =
             Surface::spawn_for_test(1, SurfaceOptions::default(), Arc::downgrade(&mux)).unwrap();
+        let writer = CapturingWriter::default();
+        *surface.as_pty().unwrap().writer.lock().unwrap() = Box::new(writer.clone());
         surface.with_terminal(|term| {
             for line in 0..40 {
                 term.vt_write(format!("history-{line}\r\n").as_bytes());
@@ -1793,6 +1809,33 @@ mod tests {
             assert_eq!(term.history_rows(), 0);
             assert!(term.viewport_text().unwrap().trim().is_empty());
         });
+        assert_eq!(&*writer.0.lock().unwrap(), b"\x0c");
+    }
+
+    #[test]
+    fn clear_history_preserves_the_current_non_prompt_row_without_child_input() {
+        let mux = Mux::new_for_test("clear-non-prompt-history", SurfaceOptions::default());
+        let surface =
+            Surface::spawn_for_test(1, SurfaceOptions::default(), Arc::downgrade(&mux)).unwrap();
+        let writer = CapturingWriter::default();
+        *surface.as_pty().unwrap().writer.lock().unwrap() = Box::new(writer.clone());
+        surface.with_terminal(|term| {
+            for line in 0..40 {
+                term.vt_write(format!("history-{line}\r\n").as_bytes());
+            }
+            term.vt_write(b"foreground-input");
+            assert!(term.history_rows() > 0);
+        });
+
+        surface.clear_history().unwrap();
+
+        surface.with_terminal(|term| {
+            assert_eq!(term.history_rows(), 0);
+            let viewport = term.viewport_text().unwrap();
+            assert!(!viewport.contains("history-"));
+            assert!(viewport.contains("foreground-input"));
+        });
+        assert!(writer.0.lock().unwrap().is_empty());
     }
 
     #[test]

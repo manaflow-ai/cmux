@@ -8000,7 +8000,7 @@ mod tests {
     }
 
     #[test]
-    fn command_k_clears_prior_output_before_the_child_redraws() {
+    fn command_k_clears_prior_output_without_a_session_mutation() {
         let (mux, surface) = test_mux("command-k-clear-history-test", None);
         surface.with_terminal(|term| {
             for line in 0..24 {
@@ -8016,6 +8016,7 @@ mod tests {
         let action =
             app.handle_key(KeyEvent::new(KeyCode::Char('k'), KeyModifiers::SUPER)).unwrap();
         assert_eq!(action, RenderAction::None);
+        assert!(!app.session.has_pending_mutations());
         while app.session.has_pending_mutations() {
             let event = events.recv_timeout(Duration::from_secs(1)).unwrap();
             app.handle(event).unwrap();
@@ -8025,7 +8026,7 @@ mod tests {
             assert_eq!(term.history_rows(), 0);
             let viewport = term.viewport_text().unwrap();
             assert!(!viewport.contains("history-"));
-            assert!(!viewport.contains("visible-content"));
+            assert!(viewport.contains("visible-content"));
         });
         mux.close_surface(surface.id);
     }
