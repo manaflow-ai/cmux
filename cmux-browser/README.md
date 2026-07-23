@@ -33,11 +33,22 @@ The source snapshot is not release-ready until every item in
 
 ## License
 
-Manaflow-owned Browser code follows cmux's root
-GPL-3.0-or-later/commercial dual-license policy unless a file says otherwise.
+This import does not change cmux's root license. Browser code for which
+Manaflow controls the necessary rights is available under
+GPL-3.0-or-later. Manaflow may separately offer commercial terms only for
+those rights-controlled portions. This is not a blanket dual-license claim
+over the Browser binary or every file in this directory.
+
 Third-party and derived files retain their original licenses. In particular,
-Chromium-derived material is BSD-3-Clause and Helium-derived material is
-GPL-3.0-only; neither is relicensed merely by being stored here.
+Chromium-derived material is BSD-3-Clause, Helium-derived material and uBlock
+Origin are GPL-3.0-only, and Ghostty and Bonsplit are MIT;
+none is relicensed merely by being stored or distributed with the Browser.
+
+AGPL is not the default for the desktop Browser. Its additional protection is
+aimed at modified software offered for remote network use, while GPL already
+requires source for distributed desktop forks. A future hosted service may use
+AGPL as a separately reviewed component decision, but changing this directory
+to AGPL would require a distinct policy and legal review.
 
 Manaflow may offer later versions of code for which it controls the copyright
 under different terms. That does not revoke the rights already granted for a

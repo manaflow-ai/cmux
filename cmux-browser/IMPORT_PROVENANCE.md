@@ -37,7 +37,7 @@ Every imported source path must be classified before public distribution.
 
 | Class | Required treatment |
 | --- | --- |
-| Manaflow-authored | cmux GPL-3.0-or-later/commercial policy and Manaflow copyright |
+| Manaflow rights-controlled | GPL-3.0-or-later; separately offered commercial terms only when Manaflow controls the necessary rights |
 | Chromium-derived | Preserve BSD-3-Clause copyright, license, source revision, and modification notice |
 | Helium-derived | Preserve GPL-3.0-only copyright, exact source revision, and modification notice; exclude from commercial-license claims |
 | Mixed provenance | Preserve every applicable notice and document the copied regions; do not replace the obligations with an `OR` expression |
@@ -47,6 +47,41 @@ A root license never overrides a more specific file-level or third-party
 license. The initial private tree's generic Chromium headers are not accepted
 as classification evidence; each file must be reviewed against its history and
 upstream sources.
+
+"Rights-controlled" is intentionally narrower than "authored." Git authorship
+alone does not establish employment assignment, contractor assignment,
+employer authorization, patent rights, or an effective relicensing grant.
+
+## License policy decision
+
+The desktop Browser follows cmux's existing GPL-3.0-or-later policy for
+Manaflow rights-controlled code. The import does not switch cmux or this
+directory to AGPL. GPL already covers distribution of modified desktop forks;
+AGPL's additional source requirement is material when a modified program is
+offered for remote interaction over a network. If cmux later ships a hosted
+service for which that distinction matters, license it as a separately
+reviewed component rather than changing the desktop product incidentally.
+
+Manaflow can release later versions of rights-controlled code under different
+terms, but an already published GPL or AGPL grant remains available for that
+published version. Third-party rights and outside contributions do not become
+relicensable merely because Manaflow maintains the repository.
+
+## Release composition
+
+The public GPL release and any future commercial release have different
+composition gates.
+
+| Component | Public GPL release | Future commercial release |
+| --- | --- | --- |
+| Manaflow rights-controlled Browser code | GPL-3.0-or-later with complete corresponding source | Eligible only after chain-of-title and contributor-grant review |
+| Chromium-derived code | Preserve BSD-3-Clause notices and generated Chromium credits | Permissive terms may allow use; retain every notice and condition |
+| Ghostty and Bonsplit | Preserve MIT notices plus every transitive dependency obligation | Permissive portions may allow use; audit the exact linked/resource closure |
+| Helium-derived code | Preserve GPL-3.0-only terms, provenance, and source | Exclude, replace independently, or obtain separate permission |
+| uBlock Origin | Preserve GPL-3.0-only terms and provide exact corresponding source | Not covered by Manaflow's commercial offer; exclude or use only in a counsel-reviewed aggregation that preserves its GPL rights |
+| cmux TUI | Preserve its GPL terms and corresponding source | Exclude from commercial claims unless all necessary rights exist; a process boundary is not by itself a legal conclusion |
+| Static LGPL components | Preserve notices/source and provide the required relinking route | Remove, link appropriately, or provide the exact relinking materials and permissions required by the license |
+| Fonts, themes, and other resources | Ship only resources with per-item redistribution provenance | Same requirement; an application license cannot cure a missing asset license |
 
 ## Dependency obligations
 
@@ -64,7 +99,7 @@ upstream sources.
   split-layout and animation behavior, even though cmux already ships Bonsplit
   elsewhere in the monorepo.
 - **uBlock Origin:** pin the extension payload digest and upstream source tag,
-  preserve GPLv3 notices, and distribute the corresponding source or a valid
+  preserve GPL-3.0-only notices, and distribute the corresponding source or a valid
   source offer with the binary.
 
 ## Required gates
@@ -75,8 +110,14 @@ upstream sources.
   with false positives documented without publishing candidate secrets.
 - [ ] Every imported source file has a reviewed provenance/license mapping.
 - [ ] Manaflow has documented ownership or an explicit relicensing grant for
-  every first-party contribution, and a counsel-approved CLA workflow records
-  future contributor assent if later relicensing remains a product goal.
+  every rights-controlled contribution.
+- [ ] A counsel-approved, versioned ICLA/CCLA workflow records durable,
+  affirmative assent for future Browser contributions, including copyright and
+  patent grants, contributor representations, employer authority, and
+  re-consent when the agreement changes.
+- [ ] `cmux-browser/**` is protected by required CODEOWNER review, a required
+  contributor-agreement status check, and branch rules that cannot be bypassed
+  by an ordinary merge.
 - [ ] Private infrastructure defaults and links have been removed or moved to
   a private operations adapter.
 - [ ] The Chromium commit, DEPS state, GN arguments, cmux commit, Ghostty

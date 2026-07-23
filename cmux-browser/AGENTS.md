@@ -21,8 +21,9 @@ builder configuration here.
 Every imported or new source file must have a recorded provenance and license.
 Do not apply the repository's default license over third-party material.
 
-- Manaflow-authored files use the repository's GPL-3.0-or-later/commercial
-  policy unless a narrower file-level notice says otherwise.
+- Manaflow rights-controlled files use GPL-3.0-or-later. Commercial terms may
+  be offered separately only for portions whose necessary rights Manaflow
+  controls; authorship alone is not proof of that control.
 - Chromium-derived files retain Chromium's BSD-3-Clause notice.
 - Helium-derived files retain GPL-3.0-only provenance and the exact source
   revision. Helium-derived code is not available under Manaflow's commercial
@@ -33,6 +34,10 @@ Do not apply the repository's default license over third-party material.
 When changing a shipped dependency, update its exact revision or digest,
 source URL, license text, and source-offer record in the same change. A build
 must fail closed if any shipped file has no license mapping.
+
+Do not add a nested copy of the root `LICENSE` that could be read as licensing
+third-party or mixed-origin files commercially. Use per-file notices, exact
+provenance, and a generated release composition manifest.
 
 ## Validation
 
