@@ -8,6 +8,13 @@ extension AgentChatTranscriptService {
         artifactCaptureCoordinator != nil && isAutomaticArtifactCaptureEnabled()
     }
 
+    /// Starts eager observation with the strongest resolution its active consumer requires.
+    func ensureTailerForEagerObservation(for record: AgentChatSessionRecord) {
+        let hasSubscribers = hasEventSubscribers()
+        guard hasSubscribers || observesTranscriptsForAutomaticArtifactCapture else { return }
+        ensureTailer(for: record, usesBoundedResolution: !hasSubscribers)
+    }
+
     /// Reconciles transcript ownership after the Artifacts beta setting changes.
     func reconcileAutomaticArtifactCaptureAvailability() {
         let isEnabled = artifactCaptureCoordinator != nil && isAutomaticArtifactCaptureEnabled()
