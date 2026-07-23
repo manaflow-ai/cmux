@@ -253,6 +253,29 @@ struct ClaudeHookSessionStoreFile: Codable {
 }
 
 final class ClaudeHookSessionStore {
+    enum PromptStopResult {
+        case accepted(nested: Bool)
+        case stale
+
+        var accepted: Bool {
+            switch self {
+            case .accepted:
+                true
+            case .stale:
+                false
+            }
+        }
+
+        var suppressesVisibleMutations: Bool {
+            switch self {
+            case let .accepted(nested):
+                nested
+            case .stale:
+                true
+            }
+        }
+    }
+
     private static let defaultStatePath = "~/.cmuxterm/claude-hook-sessions.json"
     private static let maxStateAgeSeconds: TimeInterval = 60 * 60 * 24 * 7
     private static let maxRememberedTerminalPromptTurnIds = 32
@@ -568,9 +591,9 @@ final class ClaudeHookSessionStore {
         runtimeStatusEventTime: TimeInterval? = nil,
         hadPendingBackgroundWorkAtStop: Bool? = nil,
         autoNameMessages: [AutoNamingTranscriptMessage] = []
-    ) throws -> Bool {
+    ) throws -> PromptStopResult {
         let normalized = normalizeSessionId(sessionId)
-        guard !normalized.isEmpty else { return false }
+        guard !normalized.isEmpty else { return .stale }
         return try withLockedState { state in
             let now = Date().timeIntervalSince1970
             var record = makeSessionRecord(
@@ -581,7 +604,7 @@ final class ClaudeHookSessionStore {
                 now: now
             )
             if runtimeEventIsStale(record: record, eventTime: runtimeStatusEventTime) {
-                return true
+                return .stale
             }
             let depthBeforeStop = max(0, record.activePromptDepth ?? 0)
             let depthAfterStop = max(0, depthBeforeStop - 1)
@@ -605,7 +628,7 @@ final class ClaudeHookSessionStore {
                 hadPendingBackgroundWorkAtStop: hadPendingBackgroundWorkAtStop,
                 now: now
             ) else {
-                return true
+                return .stale
             }
             appendAutoNameMessages(autoNameMessages, to: &record)
             let normalizedTurnId = normalizeOptional(turnId)
@@ -639,7 +662,7 @@ final class ClaudeHookSessionStore {
                         )
                         markPromptTurnTerminal(normalizedTurnId, on: &record)
                         state.sessions[normalized] = record
-                        return nested
+                        return .accepted(nested: nested)
                     }
                     if let staleIndex = turnStack.lastIndex(of: normalizedTurnId) {
                         turnStack.remove(at: staleIndex)
@@ -658,16 +681,16 @@ final class ClaudeHookSessionStore {
                         markPromptTurnTerminal(normalizedTurnId, on: &record)
                     }
                     state.sessions[normalized] = record
-                    return true
+                    return .accepted(nested: true)
                 }
                 if totalDepthBeforeStop == 0, terminalPromptTurnSet(from: record).contains(normalizedTurnId) {
                     state.sessions[normalized] = record
-                    return true
+                    return .accepted(nested: true)
                 }
                 markPromptTurnTerminal(normalizedTurnId, on: &record)
                 if totalDepthBeforeStop == 0 {
                     state.sessions[normalized] = record
-                    return false
+                    return .accepted(nested: false)
                 }
                 let depthAfterTurnStop = max(0, totalDepthBeforeStop - 1)
                 if depthAfterTurnStop == 0 {
@@ -678,7 +701,7 @@ final class ClaudeHookSessionStore {
                 record.activePromptTurnId = nil
                 record.activePromptTurnIds = nil
                 state.sessions[normalized] = record
-                return totalDepthBeforeStop > 1
+                return .accepted(nested: totalDepthBeforeStop > 1)
             }
             if depthAfterStop == 0 {
                 record.activePromptDepth = nil
@@ -701,7 +724,7 @@ final class ClaudeHookSessionStore {
                 }
             }
             state.sessions[normalized] = record
-            return depthBeforeStop > 1
+            return .accepted(nested: depthBeforeStop > 1)
         }
     }
 
@@ -31326,9 +31349,9 @@ export default CMUXSessionRestore;
             } else {
                 terminalActivePromptTurnIdsForStop = []
             }
-            let nestedPromptStop: Bool
+            let promptStopResult: ClaudeHookSessionStore.PromptStopResult?
             if !sessionId.isEmpty, !staleIdleStopHasNewerRunningSession {
-                nestedPromptStop = (try? store.recordPromptStop(
+                promptStopResult = try? store.recordPromptStop(
                     sessionId: sessionId,
                     workspaceId: workspaceId,
                     surfaceId: surfaceId,
@@ -31349,13 +31372,13 @@ export default CMUXSessionRestore;
                         client: client,
                         workspaceId: workspaceId
                     )
-                )) ?? false
+                )
             } else {
-                nestedPromptStop = false
+                promptStopResult = nil
             }
             let suppressVisibleMutations = shouldSuppressNestedAgentVisibleMutations(
                 currentAgentPID: pid,
-                nestedPromptEvent: nestedPromptStop,
+                nestedPromptEvent: promptStopResult?.suppressesVisibleMutations ?? false,
                 transcriptSubagentSession: codexSubagentSignals.isSubagentSession,
                 env: env
             ) || staleIdleStopHasNewerRunningSession
@@ -31791,7 +31814,7 @@ export default CMUXSessionRestore;
                 // keep the route but close nested prompt depth.
                 if (def.name == "grok" || def.name == "antigravity"),
                    summary.status == .idle || summary.status == .error {
-                    _ = try? store.recordPromptStop(
+                    let promptStopResult = try? store.recordPromptStop(
                         sessionId: sessionId,
                         workspaceId: workspaceId,
                         surfaceId: surfaceId,
@@ -31814,6 +31837,12 @@ export default CMUXSessionRestore;
                             workspaceId: workspaceId
                         )
                     )
+                    guard promptStopResult?.accepted == true else {
+                        telemetry.breadcrumb("\(def.name)-hook.notification.stale-event")
+                        didSendFeedTelemetry = true
+                        print("{}")
+                        return
+                    }
                 } else {
                     let acceptedNotification = (try? store.upsert(
                         sessionId: sessionId,
