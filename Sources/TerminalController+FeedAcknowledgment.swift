@@ -2,62 +2,101 @@ import CMUXAgentLaunch
 import Foundation
 
 extension TerminalController {
-    /// Reconciles, publishes, and inserts acknowledged Feed events atomically.
+    /// Reconciles and inserts one authoritative batch, then publishes it off the main-actor hop.
     nonisolated func v2IngestAcknowledgedFeedEvents(
         _ events: [WorkstreamEvent]
     ) -> V2CallResult {
-        v2MainSync {
+        let ingestion = v2MainSync { () -> (events: [WorkstreamEvent]?, itemIds: [UUID]) in
             guard let authoritativeEvents = FeedCoordinator.shared.eventsRehomedToLiveSurface(events)
             else {
-                return .err(
-                    code: "not_found",
-                    message: String(
-                        localized: "agent.deliveryTarget.error.notFound",
-                        defaultValue: "No live delivery target"
-                    ),
-                    data: nil
-                )
+                return (nil, [])
             }
 
-            var itemIds: [String] = []
+            var itemIds: [UUID] = []
             itemIds.reserveCapacity(authoritativeEvents.count)
             for event in authoritativeEvents {
-                CmuxEventBus.shared.publishWorkstreamEvent(event, phase: "received")
                 v2ApplyIMessageModeSideEffects(for: event)
-                agentChatTranscriptService?.noteHookEvent(event)
-
-                let itemId = FeedCoordinator.shared.ingestRevalidatedOnMainActor(event)
-                let result = FeedCoordinator.IngestBlockingResult.acknowledged(itemId: itemId)
-                CmuxEventBus.shared.publishWorkstreamEvent(
-                    event,
-                    phase: "completed",
-                    result: FeedSocketEncoding.payload(for: result)
-                )
-                if let itemId {
-                    itemIds.append(itemId.uuidString)
+                guard let itemId = FeedCoordinator.shared.ingestRevalidatedOnMainActor(event) else {
+                    continue
                 }
+                itemIds.append(itemId)
             }
+            if itemIds.count == authoritativeEvents.count {
+                v2NoteCoalescedFeedTranscriptEvents(authoritativeEvents)
+            }
+            return (authoritativeEvents, itemIds)
+        }
 
-            guard itemIds.count == authoritativeEvents.count else {
-                return .err(
-                    code: "unavailable",
-                    message: String(
-                        localized: "agent.deliveryTarget.error.unavailable",
-                        defaultValue: "Delivery target resolution is unavailable; retry after cmux finishes starting."
-                    ),
-                    data: nil
-                )
-            }
-            if itemIds.count == 1, let itemId = itemIds.first {
-                return .ok([
-                    "status": "acknowledged",
-                    "item_id": itemId,
-                ])
-            }
+        guard let authoritativeEvents = ingestion.events else {
+            return .err(
+                code: "not_found",
+                message: String(
+                    localized: "agent.deliveryTarget.error.notFound",
+                    defaultValue: "No live delivery target"
+                ),
+                data: nil
+            )
+        }
+        guard ingestion.itemIds.count == authoritativeEvents.count else {
+            return .err(
+                code: "unavailable",
+                message: String(
+                    localized: "agent.deliveryTarget.error.unavailable",
+                    defaultValue: "Delivery target resolution is unavailable; retry after cmux finishes starting."
+                ),
+                data: nil
+            )
+        }
+
+        for (event, itemId) in zip(authoritativeEvents, ingestion.itemIds) {
+            CmuxEventBus.shared.publishWorkstreamEvent(event, phase: "received")
+            let result = FeedCoordinator.IngestBlockingResult.acknowledged(itemId: itemId)
+            CmuxEventBus.shared.publishWorkstreamEvent(
+                event,
+                phase: "completed",
+                result: FeedSocketEncoding.payload(for: result)
+            )
+        }
+
+        let itemIds = ingestion.itemIds.map(\.uuidString)
+        if itemIds.count == 1, let itemId = itemIds.first {
             return .ok([
                 "status": "acknowledged",
-                "item_ids": itemIds,
+                "item_id": itemId,
             ])
+        }
+        return .ok([
+            "status": "acknowledged",
+            "item_ids": itemIds,
+        ])
+    }
+
+    @MainActor
+    private func v2NoteCoalescedFeedTranscriptEvents(_ events: [WorkstreamEvent]) {
+        guard let agentChatTranscriptService else { return }
+
+        var pendingPiPostToolEvent: WorkstreamEvent?
+        for event in events {
+            if event.source == "pi", event.hookEventName == .postToolUse {
+                if pendingPiPostToolEvent?.sessionId == event.sessionId {
+                    pendingPiPostToolEvent = event
+                    continue
+                }
+                if let pendingPiPostToolEvent {
+                    agentChatTranscriptService.noteHookEvent(pendingPiPostToolEvent)
+                }
+                pendingPiPostToolEvent = event
+                continue
+            }
+
+            if let pending = pendingPiPostToolEvent {
+                agentChatTranscriptService.noteHookEvent(pending)
+                pendingPiPostToolEvent = nil
+            }
+            agentChatTranscriptService.noteHookEvent(event)
+        }
+        if let pendingPiPostToolEvent {
+            agentChatTranscriptService.noteHookEvent(pendingPiPostToolEvent)
         }
     }
 
