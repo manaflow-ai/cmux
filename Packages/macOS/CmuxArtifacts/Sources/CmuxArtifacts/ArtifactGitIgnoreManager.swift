@@ -4,6 +4,8 @@ import Foundation
 /// Adds the local artifact store to Git's per-checkout exclude file.
 struct ArtifactGitIgnoreManager {
     let fileManager: FileManager
+    private static let maximumExcludeBytes: Int64 = 1024 * 1024
+    private static let maximumGitMetadataBytes: Int64 = 256 * 1024
     static var ignoreEntries: [String] {
         [".cmux/**"] + ArtifactStorePaths.trackableControlFileNames.map { "!.cmux/\($0)" }
     }
@@ -21,28 +23,31 @@ struct ArtifactGitIgnoreManager {
         )
         let infoDirectory = repository.commonGitDirectory.appendingPathComponent("info", isDirectory: true)
         let excludeURL = infoDirectory.appendingPathComponent("exclude", isDirectory: false)
-        let leaseURL = infoDirectory.appendingPathComponent("cmux-artifacts.lock", isDirectory: false)
-        try ensureTrustedDirectory(infoDirectory)
-        try rejectUntrustedFileEntry(leaseURL)
-        let lease = try ArtifactGitExcludeLease(url: leaseURL)
-        defer { lease.release() }
         try ensureTrustedDirectory(infoDirectory)
         try rejectUntrustedFileEntry(excludeURL)
         let existing: String
         if fileManager.fileExists(atPath: excludeURL.path) {
-            existing = try String(contentsOf: excludeURL, encoding: .utf8)
+            guard let contents = readRegularFile(
+                excludeURL,
+                allowedRoot: repository.commonGitDirectory,
+                maximumBytes: Self.maximumExcludeBytes
+            ) else {
+                throw ArtifactStoreError.gitPrivacyUnavailable(excludeURL.path)
+            }
+            existing = contents
         } else {
             existing = ""
         }
         let lines = existing.split(separator: "\n", omittingEmptySubsequences: false).map(String.init)
         let missingEntries = ignoreEntries.filter { !lines.contains($0) }
         guard !missingEntries.isEmpty else { return }
-        var updated = existing
-        if !updated.isEmpty, !updated.hasSuffix("\n") { updated += "\n" }
-        updated += missingEntries.joined(separator: "\n") + "\n"
         try ensureTrustedDirectory(infoDirectory)
         try rejectUntrustedFileEntry(excludeURL)
-        try updated.write(to: excludeURL, atomically: true, encoding: .utf8)
+        try append(
+            entries: ignoreEntries,
+            to: excludeURL,
+            allowedRoot: repository.commonGitDirectory
+        )
     }
 
     /// Resolves the repository context for a fail-closed import validator.
@@ -92,7 +97,7 @@ struct ArtifactGitIgnoreManager {
             )
         }
         guard entryType == S_IFREG,
-              let contents = readRegularFile(dotGit),
+              let contents = readRegularFile(dotGit, allowedRoot: worktreeRoot),
               contents.lowercased().hasPrefix("gitdir:") else { return nil }
         let rawPath = contents.dropFirst("gitdir:".count).trimmingCharacters(in: .whitespacesAndNewlines)
         let url = URL(fileURLWithPath: rawPath, relativeTo: worktreeRoot).standardizedFileURL
@@ -122,7 +127,7 @@ struct ArtifactGitIgnoreManager {
         dotGit: URL
     ) -> URL? {
         let backLink = gitDirectory.appendingPathComponent("gitdir", isDirectory: false)
-        guard let backLinkPath = readRegularFile(backLink)?
+        guard let backLinkPath = readRegularFile(backLink, allowedRoot: gitDirectory)?
             .trimmingCharacters(in: .whitespacesAndNewlines),
               !backLinkPath.isEmpty else {
             return nil
@@ -134,7 +139,10 @@ struct ArtifactGitIgnoreManager {
         guard resolvedBackLink.path == dotGit.standardizedFileURL.path else { return nil }
 
         let commonDirectoryFile = gitDirectory.appendingPathComponent("commondir", isDirectory: false)
-        guard let rawPath = readRegularFile(commonDirectoryFile)?
+        guard let rawPath = readRegularFile(
+            commonDirectoryFile,
+            allowedRoot: gitDirectory
+        )?
             .trimmingCharacters(in: .whitespacesAndNewlines),
               !rawPath.isEmpty else {
             return nil
@@ -174,7 +182,10 @@ struct ArtifactGitIgnoreManager {
             return false
         }
         let config = gitDirectory.appendingPathComponent("config", isDirectory: false)
-        guard let configuredWorktree = submoduleWorktree(config: config, gitDirectory: gitDirectory) else {
+        guard let configuredWorktree = submoduleWorktree(
+            config: config,
+            gitDirectory: gitDirectory
+        ) else {
             return false
         }
         return configuredWorktree.path == worktreeRoot.standardizedFileURL.path
@@ -196,7 +207,7 @@ struct ArtifactGitIgnoreManager {
     }
 
     private func submoduleWorktree(config: URL, gitDirectory: URL) -> URL? {
-        guard let contents = readRegularFile(config) else { return nil }
+        guard let contents = readRegularFile(config, allowedRoot: gitDirectory) else { return nil }
         var isCoreSection = false
         for rawLine in contents.split(separator: "\n", omittingEmptySubsequences: false) {
             let line = rawLine.trimmingCharacters(in: .whitespacesAndNewlines)
@@ -222,9 +233,71 @@ struct ArtifactGitIgnoreManager {
         return nil
     }
 
-    private func readRegularFile(_ url: URL) -> String? {
-        guard (try? filesystemEntryType(url)) == S_IFREG else { return nil }
-        return try? String(contentsOf: url, encoding: .utf8)
+    private func readRegularFile(
+        _ url: URL,
+        allowedRoot: URL,
+        maximumBytes: Int64 = Self.maximumGitMetadataBytes
+    ) -> String? {
+        guard let data = try? ArtifactBoundedFileReader().data(
+            url: url,
+            allowedRoot: allowedRoot,
+            maximumBytes: maximumBytes
+        ) else {
+            return nil
+        }
+        return String(data: data, encoding: .utf8)
+    }
+
+    private func append(entries: [String], to url: URL, allowedRoot: URL) throws {
+        let descriptor = Darwin.open(
+            url.path,
+            O_WRONLY | O_APPEND | O_CREAT | O_CLOEXEC | O_NOFOLLOW,
+            S_IRUSR | S_IWUSR
+        )
+        guard descriptor >= 0 else {
+            throw ArtifactStoreError.gitPrivacyUnavailable(url.path)
+        }
+        defer { Darwin.close(descriptor) }
+
+        var status = stat()
+        guard fstat(descriptor, &status) == 0,
+              (status.st_mode & S_IFMT) == S_IFREG,
+              status.st_size >= 0 else {
+            throw ArtifactStoreError.gitPrivacyUnavailable(url.path)
+        }
+        let separator = status.st_size == 0 ? "" : "\n"
+        let data = Data((separator + entries.joined(separator: "\n") + "\n").utf8)
+        guard fstat(descriptor, &status) == 0,
+              (status.st_mode & S_IFMT) == S_IFREG,
+              status.st_size >= 0,
+              status.st_size <= Self.maximumExcludeBytes - Int64(data.count) else {
+            throw ArtifactStoreError.gitPrivacyUnavailable(url.path)
+        }
+        var descriptorInfo = vnode_fdinfowithpath()
+        let pathResult = proc_pidfdinfo(
+            Darwin.getpid(),
+            descriptor,
+            PROC_PIDFDVNODEPATHINFO,
+            &descriptorInfo,
+            Int32(MemoryLayout<vnode_fdinfowithpath>.size)
+        )
+        let descriptorPath = withUnsafeBytes(of: &descriptorInfo.pvip.vip_path) { rawBuffer in
+            guard let baseAddress = rawBuffer.baseAddress else { return "" }
+            return String(cString: baseAddress.assumingMemoryBound(to: CChar.self))
+        }
+        guard pathResult > 0,
+              ArtifactPathResolver().relativePath(
+                URL(fileURLWithPath: descriptorPath),
+                root: allowedRoot
+              ) != nil else {
+            throw ArtifactStoreError.pathOutsideStore(url.path)
+        }
+        let written = data.withUnsafeBytes { bytes in
+            Darwin.write(descriptor, bytes.baseAddress, bytes.count)
+        }
+        guard written == data.count else {
+            throw ArtifactStoreError.gitPrivacyUnavailable(url.path)
+        }
     }
 
     private func filesystemEntryExists(_ url: URL) -> Bool {

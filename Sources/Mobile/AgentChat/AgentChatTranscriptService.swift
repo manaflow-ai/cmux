@@ -185,7 +185,7 @@ final class AgentChatTranscriptService {
         // ended session (its transcript can no longer grow; recreating the
         // tailer here would undo the ended-state eviction).
         if record.state != .ended,
-           MobileHostService.hasEventSubscribers(topic: Self.eventTopic) {
+           hasEventSubscribers() || observesTranscriptsForAutomaticArtifactCapture {
             ensureTailer(for: record)
         }
         // Drive the live prose-streaming preview off the turn lifecycle: a
@@ -430,7 +430,7 @@ final class AgentChatTranscriptService {
             emit(frame: ChatSessionEventFrame(sessionID: sessionID, event: .updated(batch.updated)))
         }
         if let completedAt = batch.appended.completedAssistantTurnTimestamp {
-            registry.noteAssistantTurnCompleted(sessionID: sessionID, at: completedAt)
+            noteAssistantTurnCompleted(sessionID: sessionID, at: completedAt)
         }
     }
 
@@ -458,10 +458,11 @@ final class AgentChatTranscriptService {
                 Task { await tailer.stop() }
             }
         }
-        guard hasEventSubscribers() else { return }
-        if transcriptBecameAvailable, record.state != .ended {
+        if transcriptBecameAvailable, record.state != .ended,
+           hasEventSubscribers() || observesTranscriptsForAutomaticArtifactCapture {
             ensureTailer(for: record)
         }
+        guard hasEventSubscribers() else { return }
         if record.state == .ended, !endedRecordIsListable {
             emit(frame: ChatSessionEventFrame(sessionID: record.sessionID, event: .sessionRemoved(version: record.version)))
             return

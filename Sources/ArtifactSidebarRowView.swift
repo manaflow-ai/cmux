@@ -13,7 +13,7 @@ struct ArtifactSidebarRowView: View {
                 fileURL: snapshot.fileURL,
                 kind: snapshot.fileKind,
                 isDirectory: snapshot.isDirectory,
-                modifiedAt: snapshot.modifiedAt
+                revision: snapshot.fileRevision
             )
             VStack(alignment: .leading, spacing: 1) {
                 Text(snapshot.name)

@@ -16,15 +16,20 @@ struct ArtifactExactPathResolver {
         guard !components.isEmpty,
               components.allSatisfy({ !$0.isEmpty && $0 != "." && $0 != ".." }),
               components.joined(separator: "/") == relativePath,
-              components.first != ".cmux",
-              components.last != ArtifactPathResolver.workspaceMarkerName,
-              components.last != ArtifactPathResolver.sessionMarkerName else {
+              components.first != ".cmux" else {
             return nil
         }
 
+        let visibilityPolicy = ArtifactStoreVisibilityPolicy()
         var current = paths.filesystemRoot
         for (index, component) in components.enumerated() {
             current.appendPathComponent(component, isDirectory: index < components.count - 1)
+            guard !visibilityPolicy.isManagedEntry(
+                current,
+                filesystemRoot: paths.filesystemRoot
+            ) else {
+                return nil
+            }
             guard let entryType = try filesystemEntryType(current) else { return nil }
             guard entryType != S_IFLNK else {
                 throw ArtifactStoreError.pathOutsideStore(current.path)

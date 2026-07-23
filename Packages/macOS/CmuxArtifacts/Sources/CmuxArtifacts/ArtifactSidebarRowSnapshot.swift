@@ -18,8 +18,8 @@ public struct ArtifactSidebarRowSnapshot: Identifiable, Equatable, Sendable {
     public let isExpanded: Bool
     /// Preview classification for file rows.
     public let fileKind: ArtifactFileKind?
-    /// Filesystem modification time used to refresh same-path thumbnails.
-    public let modifiedAt: Date?
+    /// File identity and modification time used to invalidate previews.
+    public let fileRevision: ArtifactSidebarFileRevision?
     /// Whether a content-search match contributed to this result.
     public let matchedContent: Bool
     /// Bounded content-search excerpt, when available.
@@ -36,7 +36,7 @@ public struct ArtifactSidebarRowSnapshot: Identifiable, Equatable, Sendable {
     ///   - isDirectory: Whether the row is a directory.
     ///   - isExpanded: Whether the directory is expanded.
     ///   - fileKind: Preview classification for a file.
-    ///   - modifiedAt: Filesystem modification time used for preview invalidation.
+    ///   - fileRevision: File identity and modification time used for preview invalidation.
     ///   - matchedContent: Whether file contents matched a search.
     ///   - snippet: Bounded single-line content excerpt.
     public init(
@@ -48,7 +48,7 @@ public struct ArtifactSidebarRowSnapshot: Identifiable, Equatable, Sendable {
         isDirectory: Bool,
         isExpanded: Bool,
         fileKind: ArtifactFileKind?,
-        modifiedAt: Date? = nil,
+        fileRevision: ArtifactSidebarFileRevision? = nil,
         matchedContent: Bool = false,
         snippet: String? = nil
     ) {
@@ -60,7 +60,7 @@ public struct ArtifactSidebarRowSnapshot: Identifiable, Equatable, Sendable {
         self.isDirectory = isDirectory
         self.isExpanded = isExpanded
         self.fileKind = fileKind
-        self.modifiedAt = modifiedAt
+        self.fileRevision = fileRevision
         self.matchedContent = matchedContent
         self.snippet = snippet
     }

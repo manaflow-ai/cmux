@@ -329,6 +329,30 @@ struct ArtifactGitPrivacyTests {
         #expect(outcomes.first == .skipped(.gitPrivacyUnavailable))
     }
 
+    @Test("Git exclude repairs append one complete canonical block and then stay idempotent")
+    func appendsCanonicalIgnoreBlockOnce() async throws {
+        let root = try gitRepository()
+        defer { ArtifactTestSupport.remove(root) }
+        let exclude = root.appendingPathComponent(".git/info/exclude")
+        try "!.cmux/artifacts.json\n".write(
+            to: exclude,
+            atomically: true,
+            encoding: .utf8
+        )
+        let repository = LocalArtifactRepository()
+
+        _ = try await repository.snapshot(projectRoot: root)
+        let repaired = try String(contentsOf: exclude, encoding: .utf8)
+        let repairedLines = repaired.split(separator: "\n").map(String.init)
+        #expect(
+            Array(repairedLines.suffix(ArtifactGitIgnoreManager.ignoreEntries.count))
+                == ArtifactGitIgnoreManager.ignoreEntries
+        )
+
+        _ = try await repository.snapshot(projectRoot: root)
+        #expect(try String(contentsOf: exclude, encoding: .utf8) == repaired)
+    }
+
     @Test("Oversized Git excludes fail closed before sidebar preparation")
     func rejectsOversizedGitExclude() async throws {
         let root = try gitRepository()
