@@ -85,10 +85,19 @@ pub(crate) async fn diff(
     }
     if !normalized.is_empty() {
         arguments.push("--".into());
-        arguments.extend(normalized);
+        arguments.extend(normalized.iter().cloned());
     }
     let references = arguments.iter().map(String::as_str).collect::<Vec<_>>();
-    let unified = run_git(root.canonical_root(), &references, MAX_GIT_DIFF_SOURCE_BYTES).await?;
+    let (unified, path_metadata) =
+        if matches!(format, DiffFormat::Structured | DiffFormat::StructuredV1) {
+            let (unified, metadata) = tokio::try_join!(
+                run_git(root.canonical_root(), &references, MAX_GIT_DIFF_SOURCE_BYTES),
+                read_diff_path_metadata(root.canonical_root(), &normalized, staged),
+            )?;
+            (unified, Some(metadata))
+        } else {
+            (run_git(root.canonical_root(), &references, MAX_GIT_DIFF_SOURCE_BYTES).await?, None)
+        };
     let start = parse_diff_cursor(cursor, &scope)?;
     let sections = split_diff_sections(&unified);
     if start > sections.len() {
@@ -132,7 +141,27 @@ pub(crate) async fn diff(
         DiffFormat::Structured | DiffFormat::StructuredV1 => {
             let text = std::str::from_utf8(&page)
                 .map_err(|_| RpcError::new("invalid-text", "git diff is not UTF-8"))?;
-            let structured = parse_structured_diff(text);
+            let path_metadata = path_metadata.ok_or_else(|| {
+                RpcError::new("internal", "structured diff path metadata was not collected")
+            })?;
+            let metadata = parse_diff_path_metadata_page(&path_metadata, start, index)?;
+            if metadata.total_files != sections.len() {
+                return Err(RpcError::new(
+                    "git-parse-error",
+                    "git path metadata does not match the diff sections",
+                ));
+            }
+            let mut structured = parse_structured_diff(text);
+            if metadata.paths.len() != structured.files.len() {
+                return Err(RpcError::new(
+                    "git-parse-error",
+                    "git path metadata does not match the structured diff files",
+                ));
+            }
+            for (file, paths) in structured.files.iter_mut().zip(metadata.paths) {
+                file.old_path = paths.old_path;
+                file.new_path = paths.new_path;
+            }
             if format == DiffFormat::StructuredV1 {
                 return Ok(WorkspaceResponse::StructuredDiff { diff: structured, next_cursor });
             }
@@ -208,6 +237,29 @@ async fn run_git(
         .map_err(|_| RpcError::new("deadline-exceeded", "git command timed out"))?
 }
 
+async fn read_diff_path_metadata(
+    root: &Path,
+    paths: &[String],
+    staged: bool,
+) -> Result<Vec<u8>, RpcError> {
+    let mut arguments = vec![
+        "diff".to_string(),
+        "--name-status".to_string(),
+        "-z".to_string(),
+        "--no-ext-diff".to_string(),
+        "--no-textconv".to_string(),
+    ];
+    if staged {
+        arguments.push("--cached".into());
+    }
+    if !paths.is_empty() {
+        arguments.push("--".into());
+        arguments.extend(paths.iter().cloned());
+    }
+    let references = arguments.iter().map(String::as_str).collect::<Vec<_>>();
+    run_git(root, &references, MAX_GIT_DIFF_SOURCE_BYTES).await
+}
+
 async fn read_bounded(
     reader: &mut (impl tokio::io::AsyncRead + Unpin),
     maximum: usize,
@@ -226,6 +278,84 @@ async fn read_bounded(
         ));
     }
     Ok(bytes)
+}
+
+struct DiffPathPair {
+    old_path: Option<String>,
+    new_path: Option<String>,
+}
+
+struct DiffPathMetadataPage {
+    total_files: usize,
+    paths: Vec<DiffPathPair>,
+}
+
+fn parse_diff_path_metadata_page(
+    output: &[u8],
+    start: usize,
+    end: usize,
+) -> Result<DiffPathMetadataPage, RpcError> {
+    if start > end {
+        return Err(RpcError::new("internal", "invalid Git path metadata page bounds"));
+    }
+    let mut offset = 0usize;
+    let mut total_files = 0usize;
+    let mut paths = Vec::new();
+    while offset < output.len() {
+        let status = take_nul_field(output, &mut offset)?;
+        let kind = status[0];
+        if !matches!(kind, b'A' | b'B' | b'C' | b'D' | b'M' | b'R' | b'T' | b'U' | b'X')
+            || !status[1..].iter().all(u8::is_ascii_digit)
+        {
+            return Err(RpcError::new("git-parse-error", "malformed Git name-status entry"));
+        }
+        let first = take_nul_field(output, &mut offset)?;
+        let second = if matches!(kind, b'C' | b'R') {
+            Some(take_nul_field(output, &mut offset)?)
+        } else {
+            None
+        };
+        if (start..end).contains(&total_files) {
+            let first = diff_metadata_path(first)?;
+            let pair = match kind {
+                b'A' => DiffPathPair { old_path: None, new_path: Some(first) },
+                b'D' => DiffPathPair { old_path: Some(first), new_path: None },
+                b'C' | b'R' => {
+                    let second = second.ok_or_else(|| {
+                        RpcError::new("git-parse-error", "rename is missing its destination")
+                    })?;
+                    DiffPathPair {
+                        old_path: Some(first),
+                        new_path: Some(diff_metadata_path(second)?),
+                    }
+                }
+                _ => DiffPathPair { old_path: Some(first.clone()), new_path: Some(first) },
+            };
+            paths.push(pair);
+        }
+        total_files += 1;
+    }
+    Ok(DiffPathMetadataPage { total_files, paths })
+}
+
+fn take_nul_field<'a>(output: &'a [u8], offset: &mut usize) -> Result<&'a [u8], RpcError> {
+    let remaining = &output[*offset..];
+    let end = remaining
+        .iter()
+        .position(|byte| *byte == 0)
+        .ok_or_else(|| RpcError::new("git-parse-error", "unterminated Git name-status entry"))?;
+    let field = &remaining[..end];
+    if field.is_empty() {
+        return Err(RpcError::new("git-parse-error", "empty Git name-status field"));
+    }
+    *offset += end + 1;
+    Ok(field)
+}
+
+fn diff_metadata_path(path: &[u8]) -> Result<String, RpcError> {
+    std::str::from_utf8(path)
+        .map(str::to_string)
+        .map_err(|_| RpcError::new("invalid-path", "git path is not UTF-8"))
 }
 
 fn parse_status(output: &[u8]) -> Result<(Option<String>, Vec<GitChange>), RpcError> {
@@ -665,6 +795,25 @@ mod tests {
         assert_eq!(branch.as_deref(), Some("main"));
         assert_eq!(changes[0].path, "new.txt");
         assert_eq!(changes[0].original_path.as_deref(), Some("old.txt"));
+    }
+
+    #[test]
+    fn parses_nul_delimited_diff_path_page() {
+        let input = concat!(
+            "M\0skip.txt\0",
+            "A\0tab\tname.txt\0",
+            "R100\0old b/path.txt\0new\"path.txt\0",
+            "D\0gone.txt\0",
+        );
+        let parsed = parse_diff_path_metadata_page(input.as_bytes(), 1, 4).unwrap();
+        assert_eq!(parsed.total_files, 4);
+        assert_eq!(parsed.paths.len(), 3);
+        assert_eq!(parsed.paths[0].old_path, None);
+        assert_eq!(parsed.paths[0].new_path.as_deref(), Some("tab\tname.txt"));
+        assert_eq!(parsed.paths[1].old_path.as_deref(), Some("old b/path.txt"));
+        assert_eq!(parsed.paths[1].new_path.as_deref(), Some("new\"path.txt"));
+        assert_eq!(parsed.paths[2].old_path.as_deref(), Some("gone.txt"));
+        assert_eq!(parsed.paths[2].new_path, None);
     }
 
     #[test]
