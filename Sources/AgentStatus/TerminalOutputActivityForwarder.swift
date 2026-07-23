@@ -16,7 +16,13 @@ final class TerminalOutputActivityForwarder {
         workspaceID: UUID,
         surfaceID: UUID,
         isEnabled: AtomicBooleanGate,
-        handler: @escaping Handler = TerminalOutputActivityForwarder.forward
+        handler: @escaping Handler = { workspaceID, surfaceID, observedAt in
+            TerminalOutputActivityForwarder.forward(
+                workspaceID: workspaceID,
+                surfaceID: surfaceID,
+                observedAt: observedAt
+            )
+        }
     ) {
         let (stream, continuation) = AsyncStream.makeStream(
             of: Date.self,
