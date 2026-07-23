@@ -16318,9 +16318,10 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
             notifyMainWindowContextsDidChange()
         }
         closingTabManager.window = nil
-        if let window {
-            mainWindowControllers.removeAll(where: { $0.window === window })
-        }
+        // The controller's windowWillClose callback owns releasing the retained
+        // AppKit/SwiftUI graph and then removes itself from this array. A
+        // WindowCloseObserver can arrive first, so removing the controller here
+        // would race and skip that release transaction.
         windowConfigFrames.removeValue(forKey: windowId)
         publishCmuxWindowLifecycle(name: "window.closed", windowId: windowId, origin: "appkit_close")
         commandPaletteWindowStore.removeWindow(windowId)

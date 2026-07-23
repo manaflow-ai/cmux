@@ -18,7 +18,7 @@ public import GhosttyKit
 /// the legacy call contract exactly; only the route-retire notification hops
 /// to the main actor, as it always did.
 public final class TerminalSurfaceRegistry: TerminalSurfaceRegistering, Sendable {
-    private static let deadRegistrationSweepInterval = 64
+    private static let deadRegistrationSweepBudget = 8
 
     // Synchronous `deinit` retirement cannot await an actor hop, so the
     // registry keeps its short, non-suspending mutations behind one lock.
@@ -31,7 +31,7 @@ public final class TerminalSurfaceRegistry: TerminalSurfaceRegistering, Sendable
     nonisolated(unsafe) private var registeredObjectIdsBySurfaceId: [
         UUID: Set<ObjectIdentifier>
     ] = [:]
-    nonisolated(unsafe) private var registrationsSinceDeadSweep = 0
+    nonisolated(unsafe) private var nextDeadRegistrationSweepObjectId: ObjectIdentifier?
     nonisolated(unsafe) private var nextRegistrationSequence: UInt64 = 0
     nonisolated(unsafe) private var runtimeSurfaceOwners: [UInt: UUID] = [:]
     // SAFETY: every read and write is guarded by `lock`.
@@ -74,9 +74,6 @@ public final class TerminalSurfaceRegistry: TerminalSurfaceRegistering, Sendable
             generation &+= 1
             removedDeadRegistration = true
         }
-        removedDeadRegistration =
-            pruneDeadRegistrationsLocked(for: surface.id) || removedDeadRegistration
-
         nextRegistrationSequence &+= 1
         let registration = TerminalSurfaceWeakRegistration(
             surface: surface,
@@ -84,14 +81,12 @@ public final class TerminalSurfaceRegistry: TerminalSurfaceRegistering, Sendable
         )
         registrationsByObjectId[objectId] = registration
         registeredObjectIdsBySurfaceId[surface.id, default: []].insert(objectId)
+        insertIntoDeadRegistrationSweepLocked(registration)
         generation &+= 1
 
-        registrationsSinceDeadSweep += 1
-        if registrationsSinceDeadSweep >= Self.deadRegistrationSweepInterval {
-            registrationsSinceDeadSweep = 0
-            removedDeadRegistration =
-                pruneAllDeadRegistrationsLocked() || removedDeadRegistration
-        }
+        removedDeadRegistration = pruneDeadRegistrationsLocked(
+            limit: Self.deadRegistrationSweepBudget
+        ) || removedDeadRegistration
         let shouldScheduleRouteRetireSweep =
             removedDeadRegistration && claimRouteRetireSweepLocked()
         lock.unlock()
@@ -122,10 +117,48 @@ public final class TerminalSurfaceRegistry: TerminalSurfaceRegistering, Sendable
     private func removeRegistrationLocked(
         _ registration: TerminalSurfaceWeakRegistration
     ) {
+        removeFromDeadRegistrationSweepLocked(registration)
         registrationsByObjectId.removeValue(forKey: registration.objectId)
         registeredObjectIdsBySurfaceId[registration.surfaceId]?.remove(registration.objectId)
         if registeredObjectIdsBySurfaceId[registration.surfaceId]?.isEmpty == true {
             registeredObjectIdsBySurfaceId.removeValue(forKey: registration.surfaceId)
+        }
+    }
+
+    /// Adds a registration to the circular dead-entry sweep list.
+    private func insertIntoDeadRegistrationSweepLocked(
+        _ registration: TerminalSurfaceWeakRegistration
+    ) {
+        guard let cursorId = nextDeadRegistrationSweepObjectId,
+              let cursor = registrationsByObjectId[cursorId],
+              let tail = registrationsByObjectId[cursor.previousSweepObjectId] else {
+            registration.previousSweepObjectId = registration.objectId
+            registration.nextSweepObjectId = registration.objectId
+            nextDeadRegistrationSweepObjectId = registration.objectId
+            return
+        }
+
+        registration.previousSweepObjectId = tail.objectId
+        registration.nextSweepObjectId = cursor.objectId
+        tail.nextSweepObjectId = registration.objectId
+        cursor.previousSweepObjectId = registration.objectId
+    }
+
+    /// Removes a registration from the circular dead-entry sweep list.
+    private func removeFromDeadRegistrationSweepLocked(
+        _ registration: TerminalSurfaceWeakRegistration
+    ) {
+        let previousId = registration.previousSweepObjectId
+        let nextId = registration.nextSweepObjectId
+        if nextId == registration.objectId {
+            nextDeadRegistrationSweepObjectId = nil
+            return
+        }
+
+        registrationsByObjectId[previousId]?.nextSweepObjectId = nextId
+        registrationsByObjectId[nextId]?.previousSweepObjectId = previousId
+        if nextDeadRegistrationSweepObjectId == registration.objectId {
+            nextDeadRegistrationSweepObjectId = nextId
         }
     }
 
@@ -157,14 +190,25 @@ public final class TerminalSurfaceRegistry: TerminalSurfaceRegistering, Sendable
     /// grow the identity ledger without bound.
     @discardableResult
     private func pruneAllDeadRegistrationsLocked() -> Bool {
+        pruneDeadRegistrationsLocked(limit: registrationsByObjectId.count)
+    }
+
+    /// Inspects at most `limit` registrations, rotating the cursor so repeated
+    /// calls eventually visit every live or abandoned registration.
+    @discardableResult
+    private func pruneDeadRegistrationsLocked(limit: Int) -> Bool {
+        var remaining = min(limit, registrationsByObjectId.count)
         var removed = false
-        let deadRegistrations = registrationsByObjectId.values.filter {
-            $0.surface == nil
-        }
-        for registration in deadRegistrations {
-            removeRegistrationLocked(registration)
-            generation &+= 1
-            removed = true
+        while remaining > 0,
+              let objectId = nextDeadRegistrationSweepObjectId,
+              let registration = registrationsByObjectId[objectId] {
+            nextDeadRegistrationSweepObjectId = registration.nextSweepObjectId
+            if registration.surface == nil {
+                removeRegistrationLocked(registration)
+                generation &+= 1
+                removed = true
+            }
+            remaining -= 1
         }
         return removed
     }
