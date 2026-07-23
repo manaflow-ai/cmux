@@ -1730,7 +1730,9 @@ final class ClaudeHookSessionStore {
             let retained = state.sessionTombstones
                 .sorted { $0.value.updatedAt > $1.value.updatedAt }
                 .prefix(Self.maxSessionTombstones)
-            state.sessionTombstones = Dictionary(uniqueKeysWithValues: retained)
+            state.sessionTombstones = Dictionary(
+                uniqueKeysWithValues: retained.map { ($0.key, $0.value) }
+            )
         }
     }
 
