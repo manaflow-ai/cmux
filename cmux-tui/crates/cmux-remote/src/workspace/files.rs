@@ -1066,9 +1066,10 @@ fn cleanup_unpublished_temporary(
     match unlink_unpublished_name(target, temporary_name) {
         Ok(()) => error,
         Err(cleanup) if cleanup.kind() == std::io::ErrorKind::NotFound => error,
-        Err(cleanup) => RpcError::new(
-            "partial-write",
-            format!("{}; temporary cleanup also failed: {}", error.message, cleanup),
+        Err(cleanup) => partial_write_with_recovery(
+            target,
+            temporary_name,
+            &format!("{}; temporary cleanup also failed: {}", error.message, cleanup),
         ),
     }
 }
@@ -1190,8 +1191,13 @@ fn rollback_exchange(
             "replacement validation failed and an exchanged entry changed before restoration",
         ));
     }
-    exchange_rollback(target, temporary_name)
-        .map_err(|error| exchange_error(target.display(), error))?;
+    exchange_rollback(target, temporary_name).map_err(|error| {
+        partial_write_with_recovery(
+            target,
+            temporary_name,
+            &format!("restoring exchanged entries failed: {error}"),
+        )
+    })?;
     unlink_published_name(target, temporary_name).map_err(|error| {
         partial_write_with_recovery(
             target,
@@ -1660,18 +1666,48 @@ fn unlink_published_name(target: &UnixWorkspaceTarget, name: &CStr) -> Result<()
 fn sync_committed_parent(target: &UnixWorkspaceTarget) -> Result<(), RpcError> {
     #[cfg(test)]
     if mutation_test_fault(target.display(), MutationTestFault::CommitSync) {
-        return Err(RpcError::new("io-error", "injected committed parent sync failure"));
+        return Err(RpcError::new(
+            "committed-not-durable",
+            format!(
+                "workspace mutation committed but directory sync failed at {}: injected failure",
+                target.parent_display().display()
+            ),
+        ));
     }
-    target.sync_parent()
+    target.sync_parent().map_err(|error| {
+        RpcError::new(
+            "committed-not-durable",
+            format!(
+                "workspace mutation committed but directory sync failed at {}: {}",
+                target.parent_display().display(),
+                error.message
+            ),
+        )
+    })
 }
 
 #[cfg(unix)]
 fn sync_rollback_parent(target: &UnixWorkspaceTarget) -> Result<(), RpcError> {
     #[cfg(test)]
     if mutation_test_fault(target.display(), MutationTestFault::RollbackSync) {
-        return Err(RpcError::new("io-error", "injected rollback parent sync failure"));
+        return Err(RpcError::new(
+            "rollback-not-durable",
+            format!(
+                "workspace mutation was restored but directory sync failed at {}: injected failure",
+                target.parent_display().display()
+            ),
+        ));
     }
-    target.sync_parent()
+    target.sync_parent().map_err(|error| {
+        RpcError::new(
+            "rollback-not-durable",
+            format!(
+                "workspace mutation was restored but directory sync failed at {}: {}",
+                target.parent_display().display(),
+                error.message
+            ),
+        )
+    })
 }
 
 #[cfg(unix)]
@@ -2573,6 +2609,24 @@ mod tests {
         assert!(error.message.contains(&recovery.display().to_string()));
         assert_eq!(tokio::fs::read(&target).await.unwrap(), b"new");
         assert_eq!(tokio::fs::read(&recovery).await.unwrap(), b"old");
+
+        drop(cleanup);
+        tokio::fs::remove_file(recovery).await.unwrap();
+
+        let cleanup =
+            install_mutation_test_fault(&root, "value.txt", MutationTestFault::PublishedCleanup);
+        let error = remove_file_precondition_locked(
+            &root,
+            "value.txt",
+            &FilePrecondition::ContentHash(hash_bytes(b"new")),
+        )
+        .await
+        .unwrap_err();
+        let recovery = recovery_entry(&root, ".cmux-remove-");
+        assert_eq!(error.code, "partial-write");
+        assert!(error.message.contains(&recovery.display().to_string()));
+        assert!(!target.exists());
+        assert_eq!(tokio::fs::read(&recovery).await.unwrap(), b"new");
 
         drop(cleanup);
         tokio::fs::remove_file(recovery).await.unwrap();

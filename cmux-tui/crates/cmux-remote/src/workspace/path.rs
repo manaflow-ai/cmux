@@ -23,6 +23,12 @@ const MAX_PROTOCOL_PATH_COMPONENTS: usize = 1_024;
 #[cfg(unix)]
 const MAX_SYMLINK_EXPANSIONS: usize = 40;
 
+#[cfg(unix)]
+enum SymlinkExpansion {
+    Relative(VecDeque<OsString>),
+    PinnedAbsolute { directory: File, resolved: Vec<OsString> },
+}
+
 /// One daemon-owned workspace root.
 ///
 /// Paths sent over the protocol are always interpreted relative to `canonical`.
@@ -319,14 +325,23 @@ impl UnixWorkspaceRoot {
                             ),
                         ));
                     }
-                    let mut expanded = self.expand_symlink(&resolved, &target)?;
-                    expanded.extend(pending);
-                    pending = expanded;
-                    resolved.clear();
-                    current = self
-                        .directory
-                        .try_clone()
-                        .map_err(|error| io_error("open-workspace", &self.display, error))?;
+                    match self.expand_symlink(&resolved, &target)? {
+                        SymlinkExpansion::Relative(mut expanded) => {
+                            expanded.extend(pending);
+                            pending = expanded;
+                            resolved.clear();
+                            current = self.directory.try_clone().map_err(|error| {
+                                io_error("open-workspace", &self.display, error)
+                            })?;
+                        }
+                        SymlinkExpansion::PinnedAbsolute {
+                            directory,
+                            resolved: absolute_resolved,
+                        } => {
+                            current = directory;
+                            resolved = absolute_resolved;
+                        }
+                    }
                 }
                 Err(error) => return Err(directory_component_error(&display, error)),
             }
@@ -338,11 +353,12 @@ impl UnixWorkspaceRoot {
         &self,
         base: &[OsString],
         target: &std::ffi::OsStr,
-    ) -> Result<VecDeque<OsString>, RpcError> {
+    ) -> Result<SymlinkExpansion, RpcError> {
         let target = Path::new(target);
-        let mut expanded = if target.is_absolute() {
-            let normalized = normalize_absolute(target)?;
-            let relative = normalized.strip_prefix(&self.display).map_err(|_| {
+        if target.is_absolute() {
+            let canonical = std::fs::canonicalize(target)
+                .map_err(|error| io_error("resolve-symlink", target, error))?;
+            let relative = canonical.strip_prefix(&self.display).map_err(|_| {
                 RpcError::new(
                     "path-outside-workspace",
                     format!(
@@ -351,42 +367,63 @@ impl UnixWorkspaceRoot {
                     ),
                 )
             })?;
-            relative
+            let resolved = relative
                 .components()
                 .filter_map(|component| match component {
                     Component::Normal(name) => Some(name.to_owned()),
                     _ => None,
                 })
-                .collect::<Vec<_>>()
-        } else {
-            base.to_vec()
-        };
-        if !target.is_absolute() {
-            for component in target.components() {
-                match component {
-                    Component::Normal(name) => expanded.push(name.to_owned()),
-                    Component::CurDir => {}
-                    Component::ParentDir => {
-                        if expanded.pop().is_none() {
-                            return Err(RpcError::new(
-                                "path-outside-workspace",
-                                "workspace mutation symlink escapes the workspace",
-                            ));
-                        }
-                    }
-                    Component::RootDir | Component::Prefix(_) => {
+                .collect::<Vec<_>>();
+            if resolved.len() > MAX_PROTOCOL_PATH_COMPONENTS {
+                return Err(invalid_path("resolved path has too many components"));
+            }
+            // Reopen the canonical route from the pinned workspace descriptor.
+            // This accepts alias spellings while preventing pathname races from
+            // redirecting the mutation outside the workspace.
+            let directory = self.open_canonical_directory(&resolved)?;
+            return Ok(SymlinkExpansion::PinnedAbsolute { directory, resolved });
+        }
+
+        let mut expanded = base.to_vec();
+        for component in target.components() {
+            match component {
+                Component::Normal(name) => expanded.push(name.to_owned()),
+                Component::CurDir => {}
+                Component::ParentDir => {
+                    if expanded.pop().is_none() {
                         return Err(RpcError::new(
                             "path-outside-workspace",
                             "workspace mutation symlink escapes the workspace",
                         ));
                     }
                 }
+                Component::RootDir | Component::Prefix(_) => {
+                    return Err(RpcError::new(
+                        "path-outside-workspace",
+                        "workspace mutation symlink escapes the workspace",
+                    ));
+                }
             }
         }
         if expanded.len() > MAX_PROTOCOL_PATH_COMPONENTS {
             return Err(invalid_path("resolved path has too many components"));
         }
-        Ok(expanded.into())
+        Ok(SymlinkExpansion::Relative(expanded.into()))
+    }
+
+    fn open_canonical_directory(&self, components: &[OsString]) -> Result<File, RpcError> {
+        let mut current = self
+            .directory
+            .try_clone()
+            .map_err(|error| io_error("open-workspace", &self.display, error))?;
+        let mut display = self.display.clone();
+        for component in components {
+            let name = component_cstring(component)?;
+            display.push(component);
+            current = open_directory_at(current.as_raw_fd(), &name)
+                .map_err(|error| directory_component_error(&display, error))?;
+        }
+        Ok(current)
     }
 }
 
@@ -518,28 +555,6 @@ fn read_link_at(parent: RawFd, name: &CStr) -> Result<OsString, std::io::Error> 
         }
         capacity = capacity.saturating_mul(2).min(MAX_PROTOCOL_PATH_BYTES);
     }
-}
-
-#[cfg(unix)]
-fn normalize_absolute(path: &Path) -> Result<PathBuf, RpcError> {
-    let mut normalized = PathBuf::new();
-    for component in path.components() {
-        match component {
-            Component::Prefix(prefix) => normalized.push(prefix.as_os_str()),
-            Component::RootDir => normalized.push(component.as_os_str()),
-            Component::CurDir => {}
-            Component::Normal(name) => normalized.push(name),
-            Component::ParentDir => {
-                if !normalized.pop() {
-                    return Err(RpcError::new(
-                        "path-outside-workspace",
-                        "absolute symlink target escapes its filesystem root",
-                    ));
-                }
-            }
-        }
-    }
-    Ok(normalized)
 }
 
 #[cfg(unix)]
