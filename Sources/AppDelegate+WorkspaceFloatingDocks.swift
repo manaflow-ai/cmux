@@ -180,58 +180,20 @@ extension AppDelegate {
     }
 
     @discardableResult
-    func setWorkspaceFloatingDockPresented(
+    func focusWorkspaceFloatingDock(
         _ dock: WorkspaceFloatingDock,
         in workspace: Workspace,
-        tabManager: TabManager,
-        presented: Bool,
-        focus: Bool
+        tabManager: TabManager
     ) -> Bool {
         guard workspace.floatingDocks.contains(where: { $0 === dock }) else { return false }
-        if presented, !dock.isPresented,
-           let context = mainWindowContexts.values.first(where: { $0.tabManager === tabManager }) {
-            context.workspaceFloatingDockPresenter?.prepareRestoreAnimation(for: dock.id)
-        }
-        dock.isPresented = presented
-        if focus, presented, tabManager.selectedTabId != workspace.id {
+        if tabManager.selectedTabId != workspace.id {
             tabManager.selectWorkspace(workspace)
         }
         refreshWorkspaceFloatingDocks(
             for: tabManager,
-            focusDockId: focus && presented ? dock.id : nil
+            focusDockId: dock.id
         )
         return true
-    }
-
-    func minimizePreferredWorkspaceFloatingDock(in tabManager: TabManager) -> Bool {
-        guard let workspace = tabManager.selectedWorkspace,
-              let dock = preferredWorkspaceFloatingDock(in: tabManager),
-              dock.isPresented else { return false }
-        return setWorkspaceFloatingDockPresented(
-            dock,
-            in: workspace,
-            tabManager: tabManager,
-            presented: false,
-            focus: false
-        )
-    }
-
-    @discardableResult
-    func restoreWorkspaceFloatingDocks(in tabManager: TabManager) -> Int? {
-        guard let workspace = tabManager.selectedWorkspace else { return nil }
-        let minimized = workspace.floatingDocks.filter { !$0.isPresented }
-        guard !minimized.isEmpty else { return 0 }
-        if let context = mainWindowContexts.values.first(where: { $0.tabManager === tabManager }) {
-            minimized.forEach {
-                context.workspaceFloatingDockPresenter?.prepareRestoreAnimation(for: $0.id)
-            }
-        }
-        minimized.forEach { $0.isPresented = true }
-        refreshWorkspaceFloatingDocks(
-            for: tabManager,
-            focusDockId: minimized.last?.id
-        )
-        return minimized.count
     }
 
     func customizeWorkspaceFloatingDockColor(in tabManager: TabManager) -> Bool {

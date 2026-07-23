@@ -51,7 +51,6 @@ public enum ControlWorkspaceFloatingDockAction: Sendable, Equatable {
         relativeToSelector: String?,
         focus: Bool
     )
-    case setPresented(selector: String, presented: Bool, focus: Bool)
     case focus(selector: String)
     case close(selector: String)
     case closeAll

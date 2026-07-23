@@ -378,12 +378,10 @@ extension TerminalController {
     func focusAndRevealContainerDock(for dock: DockSplitStore, fallback tabManager: TabManager) -> TabManager {
         guard let app = AppDelegate.shared else { return tabManager }
         if let floating = app.workspaceFloatingDock(owning: dock) {
-            _ = app.setWorkspaceFloatingDockPresented(
+            _ = app.focusWorkspaceFloatingDock(
                 floating.dock,
                 in: floating.workspace,
-                tabManager: floating.tabManager,
-                presented: true,
-                focus: true
+                tabManager: floating.tabManager
             )
             return floating.tabManager
         }

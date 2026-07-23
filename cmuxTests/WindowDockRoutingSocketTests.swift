@@ -127,7 +127,6 @@ struct WindowDockRoutingSocketTests {
                 workspaceId: workspace.id,
                 title: "Autosaving note",
                 frame: CGRect(x: 0, y: 0, width: 520, height: 380),
-                isPresented: false,
                 noteFilePath: noteURL.path,
                 initialContent: .note,
                 baseDirectoryProvider: { nil },
@@ -367,7 +366,6 @@ struct WindowDockRoutingSocketTests {
                 workspaceId: workspace.id,
                 title: "Writable note",
                 frame: CGRect(x: 0, y: 0, width: 520, height: 380),
-                isPresented: false,
                 noteFilePath: noteURL.path,
                 initialContent: nil,
                 baseDirectoryProvider: { nil },
@@ -398,7 +396,6 @@ struct WindowDockRoutingSocketTests {
                 workspaceId: workspace.id,
                 title: "Blocked note",
                 frame: CGRect(x: 0, y: 0, width: 520, height: 380),
-                isPresented: false,
                 noteFilePath: blocker.appendingPathComponent("note.md").path,
                 initialContent: nil,
                 baseDirectoryProvider: { nil },
@@ -432,7 +429,6 @@ struct WindowDockRoutingSocketTests {
                 workspaceId: workspace.id,
                 title: "Persisted note",
                 frame: CGRect(x: 0, y: 0, width: 520, height: 380),
-                isPresented: false,
                 noteFilePath: noteURL.path,
                 initialContent: .note,
                 baseDirectoryProvider: { nil },
@@ -471,7 +467,6 @@ struct WindowDockRoutingSocketTests {
                 workspaceId: workspace.id,
                 title: "Unreadable note",
                 frame: CGRect(x: 0, y: 0, width: 520, height: 380),
-                isPresented: false,
                 noteFilePath: noteURL.path,
                 initialContent: .note,
                 baseDirectoryProvider: { nil },
@@ -530,7 +525,6 @@ struct WindowDockRoutingSocketTests {
                 workspaceId: sourceWorkspace.id,
                 title: "Cross-window note",
                 frame: CGRect(x: 0, y: 0, width: 520, height: 380),
-                isPresented: false,
                 noteFilePath: noteURL.path,
                 initialContent: nil,
                 baseDirectoryProvider: { nil },
@@ -574,7 +568,6 @@ struct WindowDockRoutingSocketTests {
                 workspaceId: workspace.id,
                 title: "Restoring note",
                 frame: CGRect(x: 0, y: 0, width: 520, height: 380),
-                isPresented: false,
                 noteFilePath: noteURL.path,
                 initialContent: .note,
                 baseDirectoryProvider: { nil },
@@ -734,7 +727,6 @@ struct WindowDockRoutingSocketTests {
                 workspaceId: workspace.id,
                 title: "Unsaved note",
                 frame: CGRect(x: 0, y: 0, width: 520, height: 380),
-                isPresented: false,
                 noteFilePath: blocker.appendingPathComponent("note.md").path,
                 initialContent: .note,
                 baseDirectoryProvider: { nil },
@@ -782,7 +774,6 @@ struct WindowDockRoutingSocketTests {
                 workspaceId: workspace.id,
                 title: "Movable note",
                 frame: CGRect(x: 0, y: 0, width: 520, height: 380),
-                isPresented: false,
                 noteFilePath: root.appendingPathComponent("note.md").path,
                 initialContent: .note,
                 baseDirectoryProvider: { nil },
@@ -816,7 +807,6 @@ struct WindowDockRoutingSocketTests {
                 workspaceId: workspace.id,
                 title: "Reporting terminal",
                 frame: CGRect(x: 0, y: 0, width: 520, height: 380),
-                isPresented: false,
                 noteFilePath: FileManager.default.temporaryDirectory
                     .appendingPathComponent("cmux-report-note-\(UUID().uuidString).md").path,
                 initialContent: nil,
@@ -887,7 +877,6 @@ struct WindowDockRoutingSocketTests {
                 workspaceId: workspace.id,
                 title: "Fingerprint",
                 frame: CGRect(x: 0, y: 0, width: 520, height: 380),
-                isPresented: true,
                 noteFilePath: FileManager.default.temporaryDirectory
                     .appendingPathComponent("cmux-fingerprint-note-\(UUID().uuidString).md").path,
                 initialContent: nil,
@@ -902,10 +891,6 @@ struct WindowDockRoutingSocketTests {
             let moved = manager.sessionAutosaveFingerprint()
             #expect(moved != created)
 
-            dock.isPresented = false
-            let minimized = manager.sessionAutosaveFingerprint()
-            #expect(minimized != moved)
-
             let pane = try #require(dock.store.bonsplitController.allPaneIds.first)
             let notePath = FileManager.default.temporaryDirectory
                 .appendingPathComponent("cmux-fingerprint-extra-\(UUID().uuidString).md").path
@@ -915,7 +900,7 @@ struct WindowDockRoutingSocketTests {
                 noteFilePath: notePath,
                 focus: false
             ))
-            #expect(manager.sessionAutosaveFingerprint() != minimized)
+            #expect(manager.sessionAutosaveFingerprint() != moved)
         }
     }
 
@@ -950,7 +935,6 @@ struct WindowDockRoutingSocketTests {
                 workspaceId: workspace.id,
                 title: "Palette target",
                 frame: CGRect(x: 0, y: 0, width: 520, height: 380),
-                isPresented: false,
                 noteFilePath: FileManager.default.temporaryDirectory
                     .appendingPathComponent("cmux-palette-note-\(UUID().uuidString).md").path,
                 initialContent: nil,

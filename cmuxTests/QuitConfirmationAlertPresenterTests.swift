@@ -117,7 +117,6 @@ struct QuitConfirmationAlertPresenterTests {
             workspaceId: UUID(),
             title: "Lifecycle note",
             frame: CGRect(x: 0, y: 0, width: 520, height: 380),
-            isPresented: false,
             noteFilePath: noteURL.path,
             initialContent: .note,
             baseDirectoryProvider: { nil },

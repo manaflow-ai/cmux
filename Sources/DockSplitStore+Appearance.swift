@@ -15,13 +15,16 @@ extension DockSplitStore {
         bonsplitController.configuration.appearance = appearance
     }
 
-    static func makeConfiguration() -> BonsplitConfiguration {
+    static func makeConfiguration(
+        manualTabReorderFallbackEnabled: Bool = false
+    ) -> BonsplitConfiguration {
         let config = GhosttyConfig.load()
         return BonsplitConfiguration(
             allowSplits: true,
             allowCloseTabs: !CloseTabWarningStore(defaults: .standard).hidesTabCloseButton,
             allowCloseLastPane: false,
             allowTabReordering: true,
+            manualTabReorderFallbackEnabled: manualTabReorderFallbackEnabled,
             allowCrossPaneTabMove: true,
             autoCloseEmptyPanes: true,
             contentViewLifecycle: .keepAllAlive,

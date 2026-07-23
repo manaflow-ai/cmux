@@ -336,7 +336,6 @@ struct DockControlDefinitionDecodingTests {
             workspaceId: workspace.id,
             title: "Floating terminal",
             frame: CGRect(x: 0, y: 0, width: 520, height: 380),
-            isPresented: false,
             noteFilePath: FileManager.default.temporaryDirectory
                 .appendingPathComponent("cmux-floating-close-\(UUID().uuidString).md").path,
             initialContent: .terminal,

@@ -9,7 +9,6 @@ struct SessionFloatingDockSnapshot: Codable, Sendable {
     var y: Double
     var width: Double
     var height: Double
-    var isPresented: Bool
     /// Per-window glass tint. Absent snapshots derive the Raycast-style tint from the Ghostty theme.
     var backgroundTintHex: String? = nil
     /// Exact managed-note path. This can retain the source path when a

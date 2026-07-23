@@ -18,7 +18,7 @@ extension CMUXCLI {
         guard let subcommand = optionArgs.first?.lowercased() else {
             throw CLIError(message: floatingDockCLIString(
                 "cli.workspace.float.error.subcommandRequired",
-                defaultValue: "workspace float requires a subcommand. Try: list, create, show, hide, minimize, restore, focus, close, close-all, frame, color, note, surface, pane"
+                defaultValue: "workspace float requires a subcommand. Try: list, create, focus, close, close-all, frame, color, note, surface, pane"
             ))
         }
         let target = try workspaceFloatingDockTarget(
@@ -46,21 +46,10 @@ extension CMUXCLI {
             try addFloatingDockFrameParams(from: rem4, to: &params, required: false)
             let payload = try client.sendV2(method: "workspace.float.create", params: params)
             printFloatingDockMutation(payload, jsonOutput: jsonOutput, idFormat: idFormat)
-        case "show", "hide", "minimize", "restore", "focus", "close":
-            let (selector, remaining) = try floatingDockSelector(from: args)
+        case "focus", "close":
+            let (selector, _) = try floatingDockSelector(from: args)
             params["float"] = selector
-            let method: String
-            switch subcommand {
-            case "minimize":
-                method = "workspace.float.hide"
-            case "restore":
-                params["focus"] = hasFlag(remaining, name: "--focus")
-                method = "workspace.float.show"
-            default:
-                if subcommand == "show" { params["focus"] = hasFlag(remaining, name: "--focus") }
-                method = "workspace.float.\(subcommand)"
-            }
-            let payload = try client.sendV2(method: method, params: params)
+            let payload = try client.sendV2(method: "workspace.float.\(subcommand)", params: params)
             printFloatingDockMutation(payload, jsonOutput: jsonOutput, idFormat: idFormat)
         case "close-all", "close_all":
             let payload = try client.sendV2(method: "workspace.float.close_all", params: params)
@@ -366,8 +355,7 @@ extension CMUXCLI {
       create [--type terminal|browser|notes] [--title <title>] [--url <URL>]
              [--color #RRGGBB] [--relative-to <float>]
              [--x N --y N --width N --height N] [--focus]
-      show <float> [--focus] | restore <float> [--focus]
-      hide <float> | minimize <float> | focus <float> | close <float> | close-all
+      focus <float> | close <float> | close-all
       frame <float> --x N --y N --width N --height N
       color get <float> | color set <float> --color #RRGGBB | color reset <float>
       note get <float> | note set <float> <text>

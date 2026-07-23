@@ -42,7 +42,6 @@ final class SessionPersistenceTests: XCTestCase {
         let dock = try XCTUnwrap(workspace.createFloatingDock(
             title: "Scratch",
             frame: CGRect(x: 72, y: 96, width: 640, height: 420),
-            isPresented: false,
             initialContent: .note,
             backgroundTintHex: "#272822"
         ))
@@ -87,7 +86,6 @@ final class SessionPersistenceTests: XCTestCase {
         let restoredDock = try XCTUnwrap(restored.floatingDocks.first)
         XCTAssertEqual(restoredDock.title, "Scratch")
         XCTAssertEqual(restoredDock.frame, CGRect(x: 72, y: 96, width: 640, height: 420))
-        XCTAssertFalse(restoredDock.isPresented)
         XCTAssertEqual(restoredDock.backgroundTintHex, "#272822")
         XCTAssertEqual(restoredDock.screenFrame, screenFrame)
         XCTAssertEqual(restoredDock.displaySnapshot, displaySnapshot)
@@ -229,7 +227,6 @@ final class SessionPersistenceTests: XCTestCase {
             workspaceId: workspace.id,
             title: "Unsaved note",
             frame: CGRect(x: 0, y: 0, width: 520, height: 380),
-            isPresented: false,
             noteFilePath: blocker.appendingPathComponent("note.md").path,
             initialContent: .note,
             baseDirectoryProvider: { nil },
@@ -315,7 +312,6 @@ final class SessionPersistenceTests: XCTestCase {
             workspaceId: UUID(),
             title: "Restore target",
             frame: CGRect(x: 0, y: 0, width: 520, height: 380),
-            isPresented: false,
             noteFilePath: dockNoteURL.path,
             initialContent: nil,
             baseDirectoryProvider: { nil },
@@ -386,7 +382,6 @@ final class SessionPersistenceTests: XCTestCase {
         defer { workspace.teardownAllPanels() }
         let dock = try XCTUnwrap(workspace.createFloatingDock(
             title: "Moved note",
-            isPresented: false,
             initialContent: .note
         ))
         defer { try? FileManager.default.removeItem(atPath: dock.noteFilePath) }
@@ -486,7 +481,6 @@ final class SessionPersistenceTests: XCTestCase {
             workspaceId: UUID(),
             title: "Oversized note",
             frame: CGRect(x: 0, y: 0, width: 520, height: 380),
-            isPresented: false,
             noteFilePath: noteURL.path,
             initialContent: nil,
             baseDirectoryProvider: { nil },
@@ -509,7 +503,6 @@ final class SessionPersistenceTests: XCTestCase {
                 y: Double(index),
                 width: 520,
                 height: 380,
-                isPresented: false,
                 content: SessionFloatingDockContentSnapshot(
                     layout: .pane(SessionPaneLayoutSnapshot(
                         panelIds: panelIds,
@@ -695,7 +688,6 @@ final class SessionPersistenceTests: XCTestCase {
             workspaceId: UUID(),
             title: "Concurrent note",
             frame: CGRect(x: 0, y: 0, width: 520, height: 380),
-            isPresented: false,
             noteFilePath: noteURL.path,
             initialContent: nil,
             baseDirectoryProvider: { nil },
@@ -804,7 +796,6 @@ final class SessionPersistenceTests: XCTestCase {
             workspaceId: UUID(),
             title: "First owner",
             frame: CGRect(x: 0, y: 0, width: 520, height: 380),
-            isPresented: false,
             noteFilePath: noteURL.path,
             initialContent: .note,
             baseDirectoryProvider: { nil },
@@ -819,7 +810,6 @@ final class SessionPersistenceTests: XCTestCase {
             workspaceId: UUID(),
             title: "Replacement owner",
             frame: CGRect(x: 0, y: 0, width: 520, height: 380),
-            isPresented: false,
             noteFilePath: noteURL.path,
             initialContent: nil,
             baseDirectoryProvider: { nil },

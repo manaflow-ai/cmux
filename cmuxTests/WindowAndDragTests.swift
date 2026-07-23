@@ -942,6 +942,17 @@ final class WindowDragHandleHitTests: XCTestCase {
         )
     }
 
+    func testDragHandleOriginFollowsScreenSpaceMouseDelta() {
+        XCTAssertEqual(
+            windowDragHandleMovedOrigin(
+                initialWindowOrigin: NSPoint(x: 40, y: 80),
+                initialMouseLocation: NSPoint(x: 100, y: 240),
+                currentMouseLocation: NSPoint(x: 225, y: 180)
+            ),
+            NSPoint(x: 165, y: 20)
+        )
+    }
+
     func testDragHandleYieldsWhenSiblingClaimsPoint() {
         let container = NSView(frame: NSRect(x: 0, y: 0, width: 220, height: 36))
         let dragHandle = NSView(frame: container.bounds)
@@ -3081,19 +3092,20 @@ final class FilePreviewPanelTextSavingTests: XCTestCase {
             workspaceId: UUID(),
             title: "Custom Chrome",
             frame: CGRect(x: 40, y: 40, width: 520, height: 380),
-            isPresented: true,
             noteFilePath: url.path,
             baseDirectoryProvider: { nil },
             remoteBrowserSettingsProvider: { .local }
         )
         defer { dock.close() }
+        XCTAssertTrue(
+            dock.store.bonsplitController.configuration.manualTabReorderFallbackEnabled,
+            "Floating Docks must opt into Bonsplit's host-scoped reorder fallback"
+        )
 
-        var minimizedDockId: UUID?
         let controller = WorkspaceFloatingDockWindowController(
             dock: dock,
             parentWindow: parent,
             onCloseRequest: { _ in },
-            onMinimizeRequest: { minimizedDockId = $0 },
             onCreateRequest: {}
         )
         defer { controller.teardown() }
@@ -3111,8 +3123,9 @@ final class FilePreviewPanelTextSavingTests: XCTestCase {
         XCTAssertTrue(panel.standardWindowButton(.closeButton)?.isEnabled == true)
         XCTAssertTrue(panel.standardWindowButton(.miniaturizeButton)?.isEnabled == false)
         XCTAssertTrue(panel.standardWindowButton(.zoomButton)?.isEnabled == false)
-        XCTAssertNil(minimizedDockId)
         XCTAssertFalse(panel.isMiniaturized)
+        XCTAssertTrue(panel.canBecomeKey)
+        XCTAssertTrue(panel.canBecomeMain)
         XCTAssertFalse(panel.isOpaque)
         XCTAssertTrue(panel.hasShadow)
         XCTAssertTrue(panel.usesWorkspaceFloatingDockGlassBackdrop)
@@ -3221,7 +3234,7 @@ final class FilePreviewPanelTextSavingTests: XCTestCase {
         XCTAssertEqual(glassBackground?.alphaValue ?? 0, 0.42, accuracy: 0.001)
     }
 
-    func testWorkspaceFloatingDockUsesSharedDragHandleAlignedChromeAndWholeRootMinimizeAnimation() throws {
+    func testWorkspaceFloatingDockUsesSharedDragHandleAndAlignedChrome() throws {
         _ = NSApplication.shared
         let url = try temporaryTextFile(contents: "", encoding: .utf8)
         defer { try? FileManager.default.removeItem(at: url) }
@@ -3237,7 +3250,6 @@ final class FilePreviewPanelTextSavingTests: XCTestCase {
             workspaceId: UUID(),
             title: "Floating Window",
             frame: CGRect(x: 40, y: 40, width: 520, height: 380),
-            isPresented: true,
             noteFilePath: url.path,
             baseDirectoryProvider: { nil },
             remoteBrowserSettingsProvider: { .local }
@@ -3248,7 +3260,6 @@ final class FilePreviewPanelTextSavingTests: XCTestCase {
             dock: dock,
             parentWindow: parent,
             onCloseRequest: { _ in },
-            onMinimizeRequest: { _ in },
             onCreateRequest: {}
         )
         defer { controller.teardown() }
@@ -3268,17 +3279,6 @@ final class FilePreviewPanelTextSavingTests: XCTestCase {
         let desiredTrafficLightMidY = titlebarContainer.bounds.maxY
             - WindowChromeMetrics.bonsplitTabBarHeight / 2
         XCTAssertEqual(closeButton.frame.midY, desiredTrafficLightMidY, accuracy: 0.5)
-
-        let frameBeforeMinimize = panel.frame
-        panel.standardWindowButton(.miniaturizeButton)?.performClick(nil)
-        if !NSWorkspace.shared.accessibilityDisplayShouldReduceMotion {
-            XCTAssertEqual(panel.frame, frameBeforeMinimize)
-            XCTAssertNotNil(
-                panel.contentView?.superview?.layer?.animation(
-                    forKey: "cmux.workspaceFloatingDock.presentation"
-                )
-            )
-        }
     }
 
     func testWorkspaceFloatingDockRaycastBackdropTracksGhosttyThemeAndStaysStable() throws {
@@ -3338,93 +3338,6 @@ final class FilePreviewPanelTextSavingTests: XCTestCase {
         XCTAssertEqual(window.miniaturizeInvocationCount, 0)
     }
 
-    func testWorkspaceFloatingDockMinimizeDestinationDefaultsAndOptions() throws {
-        let suiteName = "WorkspaceFloatingDockMinimizeDestinationTests"
-        let defaults = try XCTUnwrap(UserDefaults(suiteName: suiteName))
-        defaults.removePersistentDomain(forName: suiteName)
-        defer { defaults.removePersistentDomain(forName: suiteName) }
-
-        XCTAssertEqual(WorkspaceFloatingDockMinimizeDestination.allCases.count, 5)
-        XCTAssertEqual(
-            WorkspaceFloatingDockMinimizeDebugSettings.currentDestination(defaults: defaults),
-            .bottomRightPill
-        )
-
-        defaults.set(
-            WorkspaceFloatingDockMinimizeDestination.leftRail.rawValue,
-            forKey: WorkspaceFloatingDockMinimizeDebugSettings.destinationKey
-        )
-        XCTAssertEqual(
-            WorkspaceFloatingDockMinimizeDebugSettings.currentDestination(defaults: defaults),
-            .leftRail
-        )
-    }
-
-    func testWorkspaceFloatingDockMinimizedShelfLayoutAnchorsToWorkspaceWindow() throws {
-        let parent = CGRect(x: 100, y: 100, width: 1_000, height: 700)
-
-        XCTAssertEqual(
-            try XCTUnwrap(WorkspaceFloatingDockMinimizedShelfLayout.frame(
-                parentFrame: parent,
-                itemCount: 2,
-                destination: .bottomRightPill
-            )),
-            CGRect(x: 992, y: 124, width: 84, height: 50)
-        )
-        XCTAssertEqual(
-            try XCTUnwrap(WorkspaceFloatingDockMinimizedShelfLayout.frame(
-                parentFrame: parent,
-                itemCount: 2,
-                destination: .bottomShelf
-            )),
-            CGRect(x: 426, y: 124, width: 348, height: 48)
-        )
-        XCTAssertEqual(
-            try XCTUnwrap(WorkspaceFloatingDockMinimizedShelfLayout.frame(
-                parentFrame: parent,
-                itemCount: 2,
-                destination: .topTray
-            )),
-            CGRect(x: 426, y: 700, width: 348, height: 48)
-        )
-        XCTAssertEqual(
-            try XCTUnwrap(WorkspaceFloatingDockMinimizedShelfLayout.frame(
-                parentFrame: parent,
-                itemCount: 2,
-                destination: .leftRail
-            )),
-            CGRect(x: 120, y: 404, width: 196, height: 92)
-        )
-        XCTAssertNil(WorkspaceFloatingDockMinimizedShelfLayout.frame(
-            parentFrame: parent,
-            itemCount: 2,
-            destination: .paletteOnly
-        ))
-        XCTAssertEqual(
-            WorkspaceFloatingDockMinimizedShelfLayout.animationTargetFrame(
-                parentFrame: parent,
-                itemCount: 2,
-                destination: .bottomRightPill
-            ),
-            CGRect(x: 1_033, y: 131, width: 36, height: 36)
-        )
-    }
-
-    func testWorkspaceFloatingDockCloseMotionUsesAWholeRootTransformWithoutWindowRelayout() {
-        let windowFrame = CGRect(x: 900, y: 420, width: 520, height: 380)
-        let pillFrame = CGRect(x: 1_640, y: 80, width: 36, height: 36)
-        let transform = WorkspaceFloatingDockPresentationAnimation.closingTransform(
-            windowFrame: windowFrame,
-            toward: pillFrame
-        )
-
-        XCTAssertEqual(transform.m11, 0.9, accuracy: 0.001)
-        XCTAssertEqual(transform.m22, 0.9, accuracy: 0.001)
-        XCTAssertEqual(hypot(transform.m41, transform.m42), 30, accuracy: 0.001)
-        XCTAssertGreaterThan(transform.m41, 0)
-        XCTAssertLessThan(transform.m42, 0)
-    }
-
     func testWorkspaceFloatingDockSeedsNativeNoteSurface() throws {
         let url = try temporaryTextFile(contents: "", encoding: .utf8)
         defer { try? FileManager.default.removeItem(at: url) }
@@ -3434,7 +3347,6 @@ final class FilePreviewPanelTextSavingTests: XCTestCase {
             workspaceId: UUID(),
             title: "Notes",
             frame: CGRect(x: 20, y: 20, width: 500, height: 360),
-            isPresented: true,
             noteFilePath: url.path,
             baseDirectoryProvider: { nil },
             remoteBrowserSettingsProvider: { .local }
@@ -3467,7 +3379,6 @@ final class FilePreviewPanelTextSavingTests: XCTestCase {
             workspaceId: UUID(),
             title: "Terminal",
             frame: CGRect(x: 20, y: 20, width: 500, height: 360),
-            isPresented: true,
             noteFilePath: noteURL.path,
             initialContent: .terminal,
             baseDirectoryProvider: { nil },

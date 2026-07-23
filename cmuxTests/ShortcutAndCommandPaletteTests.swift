@@ -813,7 +813,6 @@ final class CommandPaletteRestoreFocusStateMachineTests: XCTestCase {
             workspaceId: UUID(),
             title: "Floating focus",
             frame: CGRect(x: 0, y: 0, width: 520, height: 380),
-            isPresented: false,
             noteFilePath: FileManager.default.temporaryDirectory
                 .appendingPathComponent("cmux-floating-focus-\(UUID().uuidString).md").path,
             initialContent: .terminal,

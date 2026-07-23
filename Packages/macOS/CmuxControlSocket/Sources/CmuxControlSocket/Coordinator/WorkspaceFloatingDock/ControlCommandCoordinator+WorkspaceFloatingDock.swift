@@ -24,13 +24,6 @@ extension ControlCommandCoordinator {
                 relativeToSelector: optionalTrimmedRawString(request.params, "relative_to"),
                 focus: bool(request.params, "focus") ?? false
             )
-        case "workspace.float.show", "workspace.float.hide":
-            guard let selector = floatingDockSelector(request.params) else { return missingFloatingDock() }
-            action = .setPresented(
-                selector: selector,
-                presented: request.method == "workspace.float.show",
-                focus: bool(request.params, "focus") ?? false
-            )
         case "workspace.float.focus":
             guard let selector = floatingDockSelector(request.params) else { return missingFloatingDock() }
             action = .focus(selector: selector)

@@ -5,17 +5,12 @@ import AppKit
 final class WorkspaceFloatingDockPresenter {
     private weak var parentWindow: NSWindow?
     private weak var tabManager: TabManager?
-    private let minimizedShelfController: WorkspaceFloatingDockMinimizedShelfController
     private var controllers: [UUID: WorkspaceFloatingDockWindowController] = [:]
-    private var pendingRestoreAnimationFrames: [UUID: CGRect] = [:]
     private var lastActiveDockId: UUID?
 
     init(parentWindow: NSWindow, tabManager: TabManager) {
         self.parentWindow = parentWindow
         self.tabManager = tabManager
-        self.minimizedShelfController = WorkspaceFloatingDockMinimizedShelfController(
-            parentWindow: parentWindow
-        )
     }
 
     func refresh(
@@ -25,7 +20,7 @@ final class WorkspaceFloatingDockPresenter {
     ) {
         guard let parentWindow, let tabManager else { return }
         let selectedWorkspace = tabManager.selectedWorkspace
-        let activeDocks = selectedWorkspace?.floatingDocks.filter(\.isPresented) ?? []
+        let activeDocks = selectedWorkspace?.floatingDocks ?? []
         let liveIds = Set(activeDocks.map(\.id))
         let staleIds = controllers.keys.filter { !liveIds.contains($0) }
         for id in staleIds {
@@ -50,19 +45,6 @@ final class WorkspaceFloatingDockPresenter {
                                 tabManager: tabManager
                             )
                         },
-                        onMinimizeRequest: { [weak self, weak workspace] dockId in
-                            guard let self,
-                                  let tabManager = self.tabManager,
-                                  let workspace,
-                                  let dock = workspace.floatingDock(id: dockId) else { return }
-                            _ = AppDelegate.shared?.setWorkspaceFloatingDockPresented(
-                                dock,
-                                in: workspace,
-                                tabManager: tabManager,
-                                presented: false,
-                                focus: false
-                            )
-                        },
                         onCreateRequest: { [weak self] in
                             guard let tabManager = self?.tabManager else { return }
                             _ = AppDelegate.shared?.createWorkspaceFloatingDock(
@@ -85,44 +67,14 @@ final class WorkspaceFloatingDockPresenter {
                         controller.cascade(relativeTo: sourceWindow)
                     }
                 }
-                controller.show(
-                    focus: focusDockId == dock.id,
-                    animatedFrom: pendingRestoreAnimationFrames.removeValue(forKey: dock.id)
-                )
+                controller.show(focus: focusDockId == dock.id)
             }
-        }
-
-        let minimizedItems = selectedWorkspace?.floatingDocks
-            .filter { !$0.isPresented }
-            .map { WorkspaceFloatingDockMinimizedShelfItem(id: $0.id, title: $0.title) } ?? []
-        minimizedShelfController.update(
-            items: minimizedItems,
-            destination: WorkspaceFloatingDockMinimizeDebugSettings.currentDestination()
-        ) { [weak self, weak selectedWorkspace] dockId in
-            guard let self,
-                  let tabManager = self.tabManager,
-                  let workspace = selectedWorkspace,
-                  let dock = workspace.floatingDock(id: dockId) else { return }
-            _ = AppDelegate.shared?.setWorkspaceFloatingDockPresented(
-                dock,
-                in: workspace,
-                tabManager: tabManager,
-                presented: true,
-                focus: true
-            )
         }
     }
 
     func teardown() {
         controllers.values.forEach { $0.teardown() }
         controllers.removeAll()
-        minimizedShelfController.teardown()
-        pendingRestoreAnimationFrames.removeAll()
-    }
-
-    func prepareRestoreAnimation(for dockId: UUID) {
-        guard let sourceFrame = minimizedShelfController.animationSourceFrame() else { return }
-        pendingRestoreAnimationFrames[dockId] = sourceFrame
     }
 
     func beginScreenConfigurationChange() {

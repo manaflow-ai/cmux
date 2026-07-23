@@ -274,29 +274,12 @@ extension TerminalController: ControlWorkspaceFloatingDockContext {
                 return .operationFailed("Failed to create floating Dock")
             }
             return .resolved(floatingDockMutationPayload(dock: dock, workspace: workspace, tabManager: tabManager))
-        case .setPresented(let selector, let presented, let focus):
-            guard let dock = workspace.floatingDock(selector: selector) else { return .floatingDockNotFound }
-            guard AppDelegate.shared?.setWorkspaceFloatingDockPresented(
-                dock,
-                in: workspace,
-                tabManager: tabManager,
-                presented: presented,
-                focus: focus
-            ) == true else {
-                return .operationFailed(String(
-                    localized: "floatingDock.error.presentation",
-                    defaultValue: "Failed to update floating window visibility"
-                ))
-            }
-            return .resolved(floatingDockMutationPayload(dock: dock, workspace: workspace, tabManager: tabManager))
         case .focus(let selector):
             guard let dock = workspace.floatingDock(selector: selector) else { return .floatingDockNotFound }
-            guard AppDelegate.shared?.setWorkspaceFloatingDockPresented(
+            guard AppDelegate.shared?.focusWorkspaceFloatingDock(
                 dock,
                 in: workspace,
-                tabManager: tabManager,
-                presented: true,
-                focus: true
+                tabManager: tabManager
             ) == true else {
                 return .operationFailed(String(
                     localized: "floatingDock.error.presentation",
@@ -519,8 +502,7 @@ extension TerminalController: ControlWorkspaceFloatingDockContext {
             "id": .string(dock.id.uuidString),
             "ref": .string("float:\(index + 1)"),
             "title": .string(dock.title),
-            "presented": .bool(dock.isPresented),
-            "visible": .bool(dock.isPresented && tabManager.selectedTabId == workspace.id),
+            "visible": .bool(tabManager.selectedTabId == workspace.id),
             "focused": .bool(dock.ownsInputFocus),
             "close_status": closeStatus,
             "close_error": closeFailure.map(JSONValue.string) ?? .null,

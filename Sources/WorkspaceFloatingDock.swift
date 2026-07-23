@@ -275,9 +275,6 @@ final class WorkspaceFloatingDock: Identifiable {
     var frame: CGRect {
         didSet { if frame != oldValue { sessionMetadataRevision &+= 1 } }
     }
-    var isPresented: Bool {
-        didSet { if isPresented != oldValue { sessionMetadataRevision &+= 1 } }
-    }
     var backgroundTintHex: String? {
         didSet { if backgroundTintHex != oldValue { sessionMetadataRevision &+= 1 } }
     }
@@ -308,7 +305,6 @@ final class WorkspaceFloatingDock: Identifiable {
         workspaceId: UUID,
         title: String,
         frame: CGRect,
-        isPresented: Bool,
         noteFilePath: String,
         backgroundTintHex: String? = nil,
         initialContent: DockSurfaceKind? = .note,
@@ -326,7 +322,6 @@ final class WorkspaceFloatingDock: Identifiable {
         self.workspaceId = workspaceId
         self.title = title
         self.frame = frame
-        self.isPresented = isPresented
         self.backgroundTintHex = backgroundTintHex
         self.screenFrame = screenFrame
         self.displaySnapshot = displaySnapshot
@@ -341,6 +336,7 @@ final class WorkspaceFloatingDock: Identifiable {
             workspaceId: workspaceId,
             scope: .workspace,
             loadsConfiguration: false,
+            manualTabReorderFallbackEnabled: true,
             baseDirectoryProvider: baseDirectoryProvider,
             remoteBrowserSettingsProvider: remoteBrowserSettingsProvider,
             surfaceCreationAllowedProvider: surfaceCreationAllowedProvider,

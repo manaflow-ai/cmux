@@ -123,7 +123,6 @@ struct WindowDockLifecycleTests {
             workspaceId: workspace.id,
             title: "Unsaved note",
             frame: CGRect(x: 0, y: 0, width: 520, height: 380),
-            isPresented: false,
             noteFilePath: blocker.appendingPathComponent("note.md").path,
             initialContent: .note,
             baseDirectoryProvider: { nil },

@@ -142,6 +142,7 @@ final class DockSplitStore: BonsplitDelegate {
         workspaceId: UUID,
         scope: DockScope = .workspace,
         loadsConfiguration: Bool = true,
+        manualTabReorderFallbackEnabled: Bool = false,
         baseDirectoryProvider: @escaping () -> String?,
         remoteBrowserSettingsProvider: @escaping () -> DockRemoteBrowserSettings = { .local },
         browserAvailabilityProvider: @escaping () -> Bool = { BrowserAvailabilitySettings.isEnabled() },
@@ -167,7 +168,9 @@ final class DockSplitStore: BonsplitDelegate {
         self.terminalRestoreTransferProvider = terminalRestoreTransferProvider
         self.noteTextSaver = noteTextSaver
         self.noteTextSaveSequenceProvider = noteTextSaveSequenceProvider
-        self.bonsplitController = BonsplitController(configuration: Self.makeConfiguration())
+        self.bonsplitController = BonsplitController(configuration: Self.makeConfiguration(
+            manualTabReorderFallbackEnabled: manualTabReorderFallbackEnabled
+        ))
         self.sourceLabel = String(localized: "dock.source.title", defaultValue: "Dock")
         self.bonsplitController.delegate = self
         self.bonsplitController.onTabCloseRequest = { [weak self] tabId, _, source in

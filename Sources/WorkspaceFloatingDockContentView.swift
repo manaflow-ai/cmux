@@ -9,7 +9,7 @@ struct WorkspaceFloatingDockContentView: View {
     var body: some View {
         DockPanelView(
             store: dock.store,
-            isSidebarVisible: dock.isPresented,
+            isSidebarVisible: true,
             mode: .dock,
             rootDirectory: nil,
             windowAppearance: AppWindowChromeComposition().appearanceSnapshotFromUserDefaults(),
