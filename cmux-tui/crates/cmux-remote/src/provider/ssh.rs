@@ -255,11 +255,11 @@ mod tests {
     use super::*;
 
     #[test]
-    fn destination_preserves_user_and_port_in_description() {
+    fn destination_preserves_user_for_dial_but_description_redacts_it() {
         let endpoint = url::Url::parse("ssh://alice@example.com:2222").unwrap();
         let (destination, description) = ssh_destination(&endpoint).unwrap();
         assert_eq!(destination, "alice@example.com");
-        assert_eq!(description, "ssh://alice@example.com:2222");
+        assert_eq!(description, "ssh://example.com:2222");
     }
 
     #[test]

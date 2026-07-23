@@ -306,3 +306,52 @@ impl LinkGroup for WebSocketLinkGroup {
         Ok(())
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use std::collections::BTreeMap;
+
+    use cmux_remote_protocol::{LanePolicy, SessionId};
+
+    use super::*;
+
+    #[tokio::test]
+    async fn provider_description_redacts_websocket_endpoint_secrets() {
+        let endpoint = Url::parse(
+            "wss://alice:password@example.test/capability?ticket=bearer-secret#fragment",
+        )
+        .unwrap();
+        let group = DirectWebSocketProvider::new(65_535)
+            .connect(ConnectRequest {
+                endpoint,
+                session: SessionId::ZERO,
+                lane_policy: LanePolicy::Single,
+                routing: BTreeMap::new(),
+            })
+            .await
+            .unwrap();
+
+        assert_eq!(group.description(), "wss://example.test/");
+    }
+
+    #[tokio::test]
+    async fn connected_link_description_redacts_websocket_capabilities() {
+        let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
+        let address = listener.local_addr().unwrap();
+        let server = tokio::spawn(async move {
+            let (stream, _) = listener.accept().await.unwrap();
+            let mut socket = tokio_tungstenite::accept_async(stream).await.unwrap();
+            let _ = socket.next().await;
+        });
+        let endpoint = Url::parse(&format!(
+            "ws://{address}/capability-path?ticket=query-secret#fragment"
+        ))
+        .unwrap();
+
+        let link = connect_websocket(&endpoint, 65_535).await.unwrap();
+
+        assert_eq!(link.description(), sanitized_route(&endpoint));
+        link.close().await.unwrap();
+        server.await.unwrap();
+    }
+}

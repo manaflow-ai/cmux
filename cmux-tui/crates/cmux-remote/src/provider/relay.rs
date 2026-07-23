@@ -1190,6 +1190,43 @@ mod tests {
         assert!(server.await.unwrap());
     }
 
+    #[tokio::test]
+    async fn provider_description_redacts_relay_capabilities_and_slot() {
+        let listener = TcpListener::bind("127.0.0.1:0").await.unwrap();
+        let address = listener.local_addr().unwrap();
+        let server = tokio::spawn(async move {
+            let (stream, _) = listener.accept().await.unwrap();
+            let (mut socket, authorization) = accept_with_authorization(stream).await;
+            assert_eq!(authorization, "Bearer provider-ticket");
+            let _ = socket.next().await;
+        });
+        let endpoint = Url::parse(&format!(
+            "relay+ws://{address}/capability-path?ticket=query-secret#fragment"
+        ))
+        .unwrap();
+        let provider = RelayProvider::new(RelayClientConfig {
+            slot: "secret-slot".into(),
+            ticket: "provider-ticket".into(),
+            maximum_frame_bytes: 65_535,
+            control_timeout: Duration::from_secs(1),
+        })
+        .unwrap();
+
+        let group = provider
+            .connect(ConnectRequest {
+                endpoint: endpoint.clone(),
+                session: SessionId::ZERO,
+                lane_policy: LanePolicy::Single,
+                routing: BTreeMap::new(),
+            })
+            .await
+            .unwrap();
+
+        assert_eq!(group.description(), sanitized_route(&endpoint));
+        group.close().await.unwrap();
+        server.await.unwrap();
+    }
+
     #[test]
     fn durable_object_urls_route_before_websocket_upgrade() {
         let base = Url::parse("relay+do://relay.example/").unwrap();

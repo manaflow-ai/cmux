@@ -263,8 +263,12 @@ mod tests {
                 "wss://user:secret@example.test/v1/link?ticket=secret#fragment",
                 "wss://example.test/",
             ),
+            ("ssh://alice@example.test:2222", "ssh://example.test:2222"),
             ("relay+do://worker.example/?ticket=secret", "relay+do://worker.example"),
-            ("relay+https://relay.example/path#secret", "relay+https://relay.example"),
+            (
+                "relay+https://user:secret@relay.example/path?ticket=secret#fragment",
+                "relay+https://relay.example",
+            ),
         ] {
             assert_eq!(sanitized_route(&Url::parse(route).unwrap()), expected);
         }
