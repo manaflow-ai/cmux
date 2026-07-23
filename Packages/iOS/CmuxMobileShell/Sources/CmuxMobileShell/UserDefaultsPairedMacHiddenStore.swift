@@ -1,35 +1,37 @@
 public import Foundation
 
-/// UserDefaults-backed forgotten-Mac store for production.
-public actor UserDefaultsPairedMacForgottenStore: PairedMacForgottenStoring {
+/// UserDefaults-backed hidden-Mac store for production.
+public actor UserDefaultsPairedMacHiddenStore: PairedMacHiddenStoring {
     private let defaults: UserDefaults
     private let key: String
 
-    /// Create a durable forgotten-Mac store.
+    /// Create a durable hidden-Mac store.
     public init(
         defaults: UserDefaults = .standard,
+        // Deliberately retained so Macs deleted by older clients migrate into Hidden Computers.
         key: String = "cmux.mobile.pairedMacs.forgotten.v1"
     ) {
         self.defaults = defaults
         self.key = key
     }
 
-    /// Create a durable forgotten-Mac store in a named UserDefaults suite.
+    /// Create a durable hidden-Mac store in a named UserDefaults suite.
     public init(
         suiteName: String,
+        // Deliberately retained so Macs deleted by older clients migrate into Hidden Computers.
         key: String = "cmux.mobile.pairedMacs.forgotten.v1"
     ) {
         self.defaults = UserDefaults(suiteName: suiteName) ?? .standard
         self.key = key
     }
 
-    /// Load forgotten Mac device ids for one account/team scope.
+    /// Load hidden Mac pairing ids for one account/team scope.
     public func load(scope: String) async -> Set<String> {
         let all = defaults.dictionary(forKey: key) as? [String: [String]] ?? [:]
         return Set(all[scope] ?? [])
     }
 
-    /// Replace forgotten Mac device ids for one account/team scope.
+    /// Replace hidden Mac pairing ids for one account/team scope.
     public func save(_ ids: Set<String>, scope: String) async {
         var all = defaults.dictionary(forKey: key) as? [String: [String]] ?? [:]
         if ids.isEmpty {
@@ -40,7 +42,7 @@ public actor UserDefaultsPairedMacForgottenStore: PairedMacForgottenStoring {
         defaults.set(all, forKey: key)
     }
 
-    /// Clear every remembered forgotten id.
+    /// Clear every remembered hidden id.
     public func removeAll() async {
         defaults.removeObject(forKey: key)
     }

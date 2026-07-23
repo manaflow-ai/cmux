@@ -9,20 +9,20 @@ import Testing
 
 @MainActor
 @Suite
-struct DisconnectedWorkspaceShellRecoveryTests {
-    @Test func emptyDisconnectedStateOffersDeletedComputerRecovery() async throws {
+struct DisconnectedWorkspaceShellHiddenComputersTests {
+    @Test func emptyDisconnectedStateShowsHiddenComputers() async throws {
         let store = try await shellStore()
-        store.hasRecoverableDeletedComputers = true
+        store.hasHiddenComputers = true
 
         let view = disconnectedView(store: store)
 
-        #expect(view.showsDeletedComputerRecoveryAction)
+        #expect(view.showsHiddenComputers)
     }
 
-    @Test func recoverableDeletedComputerSuppressesAutomaticAddComputerSheet() async throws {
+    @Test func hiddenComputerSuppressesAutomaticAddComputerSheet() async throws {
         let store = try await shellStore()
         await store.loadPairedMacs()
-        store.hasRecoverableDeletedComputers = true
+        store.hasHiddenComputers = true
 
         let view = disconnectedView(store: store)
 
@@ -42,13 +42,13 @@ struct DisconnectedWorkspaceShellRecoveryTests {
 
     @Test func failedPairedMacLoadDoesNotAutoPresentAddComputer() async throws {
         let store = try await shellStore(pairedMacStore: FailingLoadPairedMacStore())
-        store.hasRecoverableDeletedComputers = true
+        store.hasHiddenComputers = true
 
         await store.loadPairedMacs()
         let view = disconnectedView(store: store)
 
         #expect(store.pairedMacLoadState == .failed)
-        #expect(!view.showsDeletedComputerRecoveryAction)
+        #expect(!view.showsHiddenComputers)
         #expect(!view.shouldAutoPresentAddDeviceAfterLoadingSavedMacs)
     }
 
@@ -65,7 +65,7 @@ struct DisconnectedWorkspaceShellRecoveryTests {
     private func shellStore(
         pairedMacStore: any MobilePairedMacStoring = WorkspaceMacSelectionPairedMacStore([])
     ) async throws -> CMUXMobileShellStore {
-        let suiteName = "DisconnectedWorkspaceShellRecoveryTests-\(UUID().uuidString)"
+        let suiteName = "DisconnectedWorkspaceShellHiddenComputersTests-\(UUID().uuidString)"
         let defaults = try #require(UserDefaults(suiteName: suiteName))
         return MobileShellComposite(
             isSignedIn: true,
