@@ -102,12 +102,31 @@ private struct DockSplitContentView: View {
         BonsplitView(controller: store.bonsplitController) { tab, paneId in
             dockContent(tab: tab, paneId: paneId)
         } emptyPane: { paneId in
-            DockEmptyPaneView(
-                onNewTerminal: { _ = store.newSurface(kind: .terminal, inPane: paneId, focus: true) },
-                onNewBrowser: { _ = store.newSurface(kind: .browser, inPane: paneId, focus: true) }
-            )
-            .onTapGesture { store.bonsplitController.focusPane(paneId) }
+            emptyPaneView(paneId: paneId)
         }
+    }
+
+    /// Empty-pane create/click affordances. Both the `BonsplitView` `emptyPane:`
+    /// builder and the panel-less `dockContent` fallback render this one view so
+    /// the Dock focus-intent wiring (#7522) can never drift between the two paths.
+    private func emptyPaneView(paneId: PaneID) -> some View {
+        DockEmptyPaneView(
+            onNewTerminal: {
+                _ = store.newSurfaceFromDockAffordance(
+                    kind: .terminal,
+                    inPane: paneId,
+                    window: NSApp.keyWindow ?? NSApp.mainWindow
+                )
+            },
+            onNewBrowser: {
+                _ = store.newSurfaceFromDockAffordance(
+                    kind: .browser,
+                    inPane: paneId,
+                    window: NSApp.keyWindow ?? NSApp.mainWindow
+                )
+            }
+        )
+        .onTapGesture { store.focusPaneFromDockClick(paneId, window: NSApp.keyWindow ?? NSApp.mainWindow) }
     }
 
     @ViewBuilder
@@ -137,8 +156,7 @@ private struct DockSplitContentView: View {
                     return store.panelIsSelectedInVisibleDockPane(panel.id)
                 },
                 onFocus: {
-                    store.bonsplitController.focusPane(paneId)
-                    store.noteKeyboardFocusIntent(window: NSApp.keyWindow ?? NSApp.mainWindow)
+                    store.focusPaneFromDockClick(paneId, window: NSApp.keyWindow ?? NSApp.mainWindow)
                 },
                 onRequestPanelFocus: {
                     store.noteKeyboardFocusIntent(window: NSApp.keyWindow ?? NSApp.mainWindow)
@@ -148,13 +166,9 @@ private struct DockSplitContentView: View {
                 onAutoResumeAgentHibernation: {},
                 onTriggerFlash: {}
             )
-            .onTapGesture { store.bonsplitController.focusPane(paneId) }
+            .onTapGesture { store.focusPaneFromDockClick(paneId, window: NSApp.keyWindow ?? NSApp.mainWindow) }
         } else {
-            DockEmptyPaneView(
-                onNewTerminal: { _ = store.newSurface(kind: .terminal, inPane: paneId, focus: true) },
-                onNewBrowser: { _ = store.newSurface(kind: .browser, inPane: paneId, focus: true) }
-            )
-            .onTapGesture { store.bonsplitController.focusPane(paneId) }
+            emptyPaneView(paneId: paneId)
         }
     }
 }

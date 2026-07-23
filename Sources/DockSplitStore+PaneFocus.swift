@@ -61,7 +61,43 @@ extension DockSplitStore {
     }
 
     func noteKeyboardFocusIntent(window: NSWindow?) {
-        AppDelegate.shared?.noteRightSidebarKeyboardFocusIntent(mode: .dock, in: window)
+        guard let appDelegate = AppDelegate.shared else { return }
+        // Bind the note to this store's owning window context first: per-window
+        // docks satisfy `workspaceId == windowId` (`AppDelegate+WindowDock.swift`),
+        // and the Dock UI renders inside its owner, so the owner is the window
+        // the user interacted with regardless of transient key/main-window state
+        // (during a cross-window drag the SOURCE window can still be key; see
+        // the matching owner resolution in `AppDelegate+DockSurfaceMove.swift`).
+        // Workspace-scoped docks have no owning window; for them honor the
+        // caller-resolved window, as the pre-#7522 note did. Never fall back to
+        // ambient key/main/first-context state: noting a context that does not
+        // own the interaction would route the next creation shortcut into a
+        // Dock the user never touched. No owner and no window drops the note.
+        let coordinator = appDelegate.mainWindowContexts.values
+            .first(where: { $0.windowId == workspaceId })?
+            .keyboardFocusCoordinator
+            ?? appDelegate.keyboardFocusCoordinator(for: window)
+        coordinator?.noteRightSidebarInteraction(mode: .dock)
+    }
+
+    /// Creates a Dock surface from a clicked Dock affordance.
+    ///
+    /// A click on an empty-pane button is explicit Dock interaction, matching the
+    /// Dock intent note from `GhosttyTerminalView.mouseDown` for issue #7522.
+    /// Plain `newSurface` stays intent-neutral for socket-created Dock surfaces.
+    @discardableResult
+    func newSurfaceFromDockAffordance(kind: DockSurfaceKind, inPane paneId: PaneID, window: NSWindow?) -> UUID? {
+        noteKeyboardFocusIntent(window: window)
+        return newSurface(kind: kind, inPane: paneId, focus: true)
+    }
+
+    /// Focuses a Dock pane from a clicked Dock affordance.
+    ///
+    /// A pane-background click is explicit Dock interaction, matching the Dock
+    /// intent note from `GhosttyTerminalView.mouseDown` for issue #7522.
+    func focusPaneFromDockClick(_ paneId: PaneID, window: NSWindow?) {
+        noteKeyboardFocusIntent(window: window)
+        bonsplitController.focusPane(paneId)
     }
 
     func browserPanel(owning responder: NSResponder?, in window: NSWindow?) -> BrowserPanel? {
