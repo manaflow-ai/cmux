@@ -1,6 +1,39 @@
 import Foundation
 
 extension AgentChatSessionRegistry {
+    func preferredCodexSessionIDBySurfaceID(
+        onlySurfaceIDs: Set<UUID>?
+    ) -> [String: String] {
+        let requestedSurfaceIDs = onlySurfaceIDs.map { Set($0.map(\.uuidString)) }
+        return codexHookBindingBySurfaceID.reduce(into: [:]) { result, element in
+            guard requestedSurfaceIDs?.contains(element.key) ?? true else { return }
+            result[element.key] = element.value.sessionID
+        }
+    }
+
+    func rememberCodexHookBinding(
+        sessionID: String,
+        surfaceID: String,
+        updatedAt: Date
+    ) {
+        if let current = codexHookBindingBySurfaceID[surfaceID] {
+            guard updatedAt > current.updatedAt
+                || (updatedAt == current.updatedAt && sessionID > current.sessionID) else {
+                return
+            }
+        }
+        codexHookBindingBySurfaceID[surfaceID] = (sessionID, updatedAt)
+        if codexHookBindingBySurfaceID.count > Self.codexHookBindingCapacity,
+           let oldest = codexHookBindingBySurfaceID.min(by: { left, right in
+               if left.value.updatedAt != right.value.updatedAt {
+                   return left.value.updatedAt < right.value.updatedAt
+               }
+               return left.key < right.key
+           }) {
+            codexHookBindingBySurfaceID.removeValue(forKey: oldest.key)
+        }
+    }
+
     /// libproc: the `~/.codex/sessions/**/rollout-*.jsonl` paths the process
     /// holds open (codex keeps its rollouts open for writing).
     nonisolated static func openCodexRolloutPaths(pid: Int) -> [String] {
@@ -35,19 +68,4 @@ extension AgentChatSessionRegistry {
         return paths
     }
 
-    /// Most recent known Codex session binding for each requested terminal surface.
-    nonisolated static func preferredCodexSessionIDBySurfaceID(
-        from records: [AgentChatSessionRecord],
-        onlySurfaceIDs: Set<UUID>?
-    ) -> [String: String] {
-        let requestedSurfaceIDs = onlySurfaceIDs.map { Set($0.map(\.uuidString)) }
-        var result: [String: String] = [:]
-        for record in records where record.agentKind == .codex {
-            guard let surfaceID = record.surfaceID,
-                  requestedSurfaceIDs?.contains(surfaceID) ?? true,
-                  result[surfaceID] == nil else { continue }
-            result[surfaceID] = record.sessionID
-        }
-        return result
-    }
 }
