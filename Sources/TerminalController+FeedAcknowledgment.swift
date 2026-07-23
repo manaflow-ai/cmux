@@ -6,8 +6,22 @@ extension TerminalController {
     nonisolated func v2IngestAcknowledgedFeedEvents(
         _ events: [WorkstreamEvent]
     ) -> V2CallResult {
-        let ingestion = FeedCoordinator.shared.performAcceptedEventDelivery(for: events) {
+        guard !events.isEmpty else {
+            return .err(
+                code: "invalid_params",
+                message: v2FeedPushRequiresEventMessage(),
+                data: nil
+            )
+        }
+        // Return an unavailable response before the Pi CLI's four-second socket deadline.
+        let deliveryTimeout: TimeInterval = 3
+        let deliveryDeadline: ContinuousClock.Instant = .now + .seconds(deliveryTimeout)
+        let ingestion = FeedCoordinator.shared.performAcceptedEventDelivery(
+            for: events,
+            timeout: deliveryTimeout
+        ) {
             let ingestion = self.v2MainSync { () -> FeedBatchIngestion in
+                guard ContinuousClock.now < deliveryDeadline else { return .unavailable }
                 guard FeedCoordinator.shared.store != nil else { return .unavailable }
                 let authoritativeEvents: [WorkstreamEvent]
                 switch FeedCoordinator.shared.resolveDeliveryTarget(for: events) {
@@ -49,6 +63,7 @@ extension TerminalController {
             }
             return ingestion
         }
+        guard let ingestion else { return v2FeedTargetUnavailable() }
 
         let authoritativeEvents: [WorkstreamEvent]
         let authoritativeItemIds: [UUID]

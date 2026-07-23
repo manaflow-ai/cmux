@@ -9,6 +9,46 @@ import CMUXAgentLaunch
 #endif
 
 extension FeedCoordinatorTests {
+    @Test func synchronousDeliveryTimeoutReleasesCallerWhileDeliveryIsRunning() {
+        let lane = FeedIngressDeliveryLane()
+        let deliveryStarted = DispatchSemaphore(value: 0)
+        let releaseDelivery = DispatchSemaphore(value: 0)
+        let deliveryFinished = DispatchSemaphore(value: 0)
+        let callerTimedOut = DispatchSemaphore(value: 0)
+        let callerReturned = DispatchSemaphore(value: 0)
+        defer { releaseDelivery.signal() }
+
+        let metadata = FeedIngressDeliveryMetadata(
+            keys: [
+                FeedIngressDeliveryKey(
+                    source: "pi",
+                    sessionId: "pi-bounded-synchronous-delivery"
+                )
+            ],
+            importance: .acknowledged
+        )
+        DispatchQueue.global(qos: .userInitiated).async {
+            let result = lane.perform(metadata: metadata, timeout: 0.05) {
+                deliveryStarted.signal()
+                releaseDelivery.wait()
+                deliveryFinished.signal()
+                return true
+            }
+            if result == nil {
+                callerTimedOut.signal()
+            }
+            callerReturned.signal()
+        }
+
+        #expect(deliveryStarted.wait(timeout: .now() + 1) == .success)
+        #expect(callerReturned.wait(timeout: .now() + 1) == .success)
+        #expect(callerTimedOut.wait(timeout: .now()) == .success)
+        #expect(deliveryFinished.wait(timeout: .now()) == .timedOut)
+
+        releaseDelivery.signal()
+        #expect(deliveryFinished.wait(timeout: .now() + 1) == .success)
+    }
+
     @Test func zeroWaitBacklogIsBoundedFIFOAndYieldsToAcknowledgedIngress() async {
         await MainActor.run {
             FeedCoordinator.shared.install(store: WorkstreamStore(ringCapacity: 100))

@@ -10,6 +10,18 @@ import Testing
 @Suite("Pi Feed decode error privacy")
 struct PiFeedDecodeErrorPrivacyTests {
     @Test
+    func emptyAcknowledgedBatchFailsBeforeDelivery() {
+        let result = TerminalController.shared.v2IngestAcknowledgedFeedEvents([])
+        guard case .err(let code, let message, _) = result else {
+            Issue.record("empty acknowledged Feed batch did not fail")
+            return
+        }
+
+        #expect(code == "invalid_params")
+        #expect(message == "feed.push requires an `event` object")
+    }
+
+    @Test
     func malformedEventReturnsStableErrorWithoutDecoderDetails() throws {
         let request: [String: Any] = [
             "id": "pi-feed-decode-privacy",

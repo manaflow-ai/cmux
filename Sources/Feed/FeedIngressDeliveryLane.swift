@@ -16,6 +16,7 @@ final class FeedIngressDeliveryLane: @unchecked Sendable {
     private static let maximumPendingZeroWaitDeliveries = 32
     private static let maximumPendingOrdinaryZeroWaitDeliveries = 24
     private static let maximumPriorityBurst = 8
+    private static let sessionCriticalOverflowTimeout: TimeInterval = 3
 
     private let executionQueue = DispatchQueue(
         label: "cmux.feed.ingressDelivery",
@@ -34,20 +35,21 @@ final class FeedIngressDeliveryLane: @unchecked Sendable {
     /// Runs acknowledged or actionable ingress after its earlier same-key deliveries.
     func perform<Result: Sendable>(
         metadata: FeedIngressDeliveryMetadata,
+        timeout: TimeInterval,
         _ delivery: @escaping @Sendable () -> Result
-    ) -> Result {
+    ) -> Result? {
         let result = FeedIngressSynchronousResult<Result>()
         let shouldScheduleDrain = append(
             PendingDelivery(
                 metadata: metadata,
                 isZeroWait: false,
                 execute: {
-                    result.resolve(delivery())
+                    result.resolve(with: delivery)
                 }
             )
         )
         scheduleDrainIfNeeded(shouldScheduleDrain)
-        return result.wait()
+        return result.wait(timeout: timeout)
     }
 
     /// Admits a typed zero-wait delivery when its bounded capacity class has room.
@@ -61,8 +63,11 @@ final class FeedIngressDeliveryLane: @unchecked Sendable {
             guard metadata.importance == .sessionCritical else { return false }
             // Previously acknowledged zero-wait work cannot be evicted. Critical lifecycle
             // ingress backpressures outside the lock until the ordered lane can deliver it.
-            perform(metadata: metadata, delivery)
-            return true
+            return perform(
+                metadata: metadata,
+                timeout: Self.sessionCriticalOverflowTimeout,
+                delivery
+            ) != nil
         }
         if metadata.importance == .ordinary {
             guard pendingOrdinaryZeroWaitCount < Self.maximumPendingOrdinaryZeroWaitDeliveries else {

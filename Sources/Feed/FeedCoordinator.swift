@@ -129,13 +129,16 @@ final class FeedCoordinator: @unchecked Sendable {
     /// Runs synchronous acknowledged ingress on the same ordered lane as zero-wait telemetry.
     func performAcceptedEventDelivery<Result: Sendable>(
         for events: [WorkstreamEvent],
+        timeout: TimeInterval,
         _ delivery: @escaping @Sendable () -> Result
-    ) -> Result {
+    ) -> Result? {
+        guard !events.isEmpty else { return nil }
         feedIngressDeliveryLane.perform(
             metadata: Self.ingressMetadata(
                 for: events,
                 importance: .acknowledged
             ),
+            timeout: timeout,
             delivery
         )
     }
@@ -159,10 +162,17 @@ final class FeedCoordinator: @unchecked Sendable {
             }
             return .acknowledged(itemId: nil)
         }
+        let deliveryDeadline: ContinuousClock.Instant = .now + .seconds(waitTimeout)
         guard let requestId = event.requestId else {
-            let acceptance = performAcceptedEventDelivery(for: [event]) {
+            let acceptance = performAcceptedEventDelivery(
+                for: [event],
+                timeout: waitTimeout
+            ) {
                 let acceptance = DispatchQueue.main.sync {
                     MainActor.assumeIsolated {
+                        guard ContinuousClock.now < deliveryDeadline else {
+                            return FeedEventAcceptance.unavailable
+                        }
                         let acceptance = FeedCoordinator.shared.acceptOnMainActor(event)
                         if case .accepted(let event, _) = acceptance {
                             onAcceptedOnMainActor(event)
@@ -175,6 +185,7 @@ final class FeedCoordinator: @unchecked Sendable {
                 }
                 return acceptance
             }
+            guard let acceptance else { return .unavailable }
             switch acceptance {
             case .accepted(_, let itemId):
                 return .acknowledged(itemId: itemId)
@@ -188,7 +199,10 @@ final class FeedCoordinator: @unchecked Sendable {
         let semaphore = DispatchSemaphore(value: 0)
         let waiter = PendingWaiter(semaphore: semaphore)
 
-        let acceptance = performAcceptedEventDelivery(for: [event]) {
+        let acceptance = performAcceptedEventDelivery(
+            for: [event],
+            timeout: waitTimeout
+        ) {
             // Register inside the ingress lane before the store sees the event,
             // so a fast reply cannot slip through or a later event overtake it.
             FeedCoordinator.shared.waiterLock.lock()
@@ -202,6 +216,9 @@ final class FeedCoordinator: @unchecked Sendable {
                 : nil
             let acceptance = DispatchQueue.main.sync {
                 MainActor.assumeIsolated {
+                    guard ContinuousClock.now < deliveryDeadline else {
+                        return FeedEventAcceptance.unavailable
+                    }
                     let acceptance = FeedCoordinator.shared.acceptOnMainActor(event)
                     guard case .accepted(let acceptedEvent, let itemId) = acceptance else {
                         return acceptance
@@ -246,6 +263,14 @@ final class FeedCoordinator: @unchecked Sendable {
                 onAccepted(event)
             }
             return acceptance
+        }
+        guard let acceptance else {
+            waiterLock.lock()
+            let attentionTarget = waiters.removeValue(forKey: requestId)?.attentionTarget
+            waiterLock.unlock()
+            concludeAttentionOnMain(attentionTarget)
+            cancelNotification(requestId: requestId)
+            return .unavailable
         }
 
         let accepted: (event: WorkstreamEvent, itemId: UUID)
