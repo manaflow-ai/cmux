@@ -918,6 +918,7 @@ impl Surface {
         {
             mux.emit(MuxEvent::ScrollChanged { surface: self.id, offset, at_bottom });
         }
+        pty.mark_output_dirty();
         self.write_bytes(REDRAW_PROMPT).map_err(Into::into)
     }
 
@@ -1402,6 +1403,14 @@ impl PtySurface {
         }
     }
 
+    fn mark_output_dirty(&self) {
+        if !self.dirty.swap(true, Ordering::AcqRel)
+            && let Some(mux) = self.mux.upgrade()
+        {
+            mux.emit(MuxEvent::SurfaceOutput(self.meta.id));
+        }
+    }
+
     /// Build and fan out one immutable frame while the caller holds `term`.
     fn build_frame_locked(
         &self,
@@ -1433,11 +1442,8 @@ impl PtySurface {
             }
         };
 
-        if producer_driven
-            && !self.dirty.swap(true, Ordering::AcqRel)
-            && let Some(mux) = self.mux.upgrade()
-        {
-            mux.emit(MuxEvent::SurfaceOutput(self.meta.id));
+        if producer_driven {
+            self.mark_output_dirty();
         }
         Ok(built)
     }
@@ -1745,6 +1751,7 @@ mod tests {
         let mut mirror =
             Terminal::new(attach.cols, attach.rows, 10_000, Callbacks::default()).unwrap();
         mirror.vt_write(&attach.replay);
+        while events.try_recv().is_ok() {}
 
         surface.clear_history().unwrap();
 
@@ -1760,6 +1767,6 @@ mod tests {
         });
         assert_eq!(mirror.history_rows(), 0);
         assert!(mirror.viewport_text().unwrap().trim().is_empty());
-        assert!(matches!(events.try_recv(), Ok(MuxEvent::SurfaceOutput(1))));
+        assert!(events.try_iter().any(|event| matches!(event, MuxEvent::SurfaceOutput(1))));
     }
 }

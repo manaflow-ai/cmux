@@ -15,7 +15,7 @@ use base64::Engine;
 use cmux_tui_core::{
     BrowserFrame, BrowserSource, BrowserStatus, DefaultColors, MuxEvent, MuxEventBroadcaster,
     MuxEventReceiver, NotificationEvent, NotificationLevel, PairingChallenge, Rgb, SurfaceId,
-    SurfaceKind, platform::transport,
+    SurfaceKind, platform::transport, server::CLEAR_HISTORY_CAPABILITY,
 };
 use ghostty_vt::{Callbacks, MouseEncoders, MouseInput, RenderState, Terminal};
 use serde_json::{Value, json};
@@ -42,6 +42,29 @@ fn validate_remote_identity(ident: &Value) -> anyhow::Result<()> {
         );
     }
     Ok(())
+}
+
+fn identity_capabilities(ident: &Value) -> HashSet<String> {
+    ident
+        .get("capabilities")
+        .and_then(Value::as_array)
+        .into_iter()
+        .flatten()
+        .filter_map(Value::as_str)
+        .map(str::to_string)
+        .collect()
+}
+
+fn require_capability(
+    capabilities: &HashSet<String>,
+    capability: &str,
+    operation: &str,
+) -> anyhow::Result<()> {
+    if capabilities.contains(capability) {
+        Ok(())
+    } else {
+        anyhow::bail!("remote server does not support {operation}; restart the cmux-tui server")
+    }
 }
 
 pub(crate) type RemoteResizeReservation = (SurfaceId, (u16, u16), Option<u64>);
@@ -397,6 +420,7 @@ pub struct RemoteSession {
     subscribers: MuxEventBroadcaster,
     frame_logs: Mutex<HashMap<SurfaceId, Vec<String>>>,
     surface_overflow_recovery: Mutex<HashMap<SurfaceId, SurfaceOverflowRecovery>>,
+    capabilities: Mutex<HashSet<String>>,
 }
 
 impl RemoteSession {
@@ -430,6 +454,7 @@ impl RemoteSession {
             subscribers: MuxEventBroadcaster::default(),
             frame_logs: Mutex::new(HashMap::new()),
             surface_overflow_recovery: Mutex::new(HashMap::new()),
+            capabilities: Mutex::new(HashSet::new()),
         });
 
         let reader_session = Arc::downgrade(&session);
@@ -450,6 +475,7 @@ impl RemoteSession {
         // Identify (validates the endpoint) and subscribe to events.
         let ident = session.request(json!({"cmd": "identify"}))?;
         validate_remote_identity(&ident)?;
+        *session.capabilities.lock().unwrap() = identity_capabilities(&ident);
         let mut client_info = json!({"cmd": "set-client-info", "kind": "tui"});
         if let Some(hostname) = local_hostname() {
             client_info["name"] = json!(hostname);
@@ -887,6 +913,15 @@ impl RemoteSession {
         self.request(json!({"cmd": "send", "surface": surface, "bytes": encoded})).map(|_| ())
     }
 
+    pub fn clear_history(&self, surface: SurfaceId) -> anyhow::Result<()> {
+        require_capability(
+            &self.capabilities.lock().unwrap(),
+            CLEAR_HISTORY_CAPABILITY,
+            "clear-history",
+        )?;
+        self.request(json!({"cmd": "clear-history", "surface": surface})).map(|_| ())
+    }
+
     pub fn begin_shutdown(&self) {
         self.shutdown.store(true, Ordering::Release);
         let pending = std::mem::take(&mut *self.pending.lock().unwrap());
@@ -1269,6 +1304,24 @@ mod tests {
     }
 
     #[test]
+    fn clear_history_requires_its_additive_capability() {
+        let without = identity_capabilities(&json!({
+            "capabilities": ["attach-initial-size", "workspace-registry-v1"]
+        }));
+        let error =
+            require_capability(&without, CLEAR_HISTORY_CAPABILITY, "clear-history").unwrap_err();
+        assert_eq!(
+            error.to_string(),
+            "remote server does not support clear-history; restart the cmux-tui server"
+        );
+
+        let with = identity_capabilities(&json!({
+            "capabilities": ["clear-history-v1"]
+        }));
+        require_capability(&with, CLEAR_HISTORY_CAPABILITY, "clear-history").unwrap();
+    }
+
+    #[test]
     fn protocol_9_identity_is_accepted() {
         validate_remote_identity(&json!({"app": "cmux-tui", "protocol": 9})).unwrap();
     }
@@ -1290,6 +1343,7 @@ mod tests {
             subscribers: MuxEventBroadcaster::default(),
             frame_logs: Mutex::new(HashMap::new()),
             surface_overflow_recovery: Mutex::new(HashMap::new()),
+            capabilities: Mutex::new(HashSet::new()),
         })
     }
 

@@ -2905,7 +2905,8 @@ pub fn run(
 
 fn enable_host_keyboard_protocol(stdout: &mut impl Write) -> std::io::Result<()> {
     stdout.execute(PushKeyboardEnhancementFlags(
-        KeyboardEnhancementFlags::DISAMBIGUATE_ESCAPE_CODES,
+        KeyboardEnhancementFlags::DISAMBIGUATE_ESCAPE_CODES
+            | KeyboardEnhancementFlags::REPORT_ALTERNATE_KEYS,
     ))?;
     Ok(())
 }
@@ -5156,11 +5157,14 @@ impl App {
             Action::ScrollUp => self.scroll_active(-10),
             Action::ScrollDown => self.scroll_active(10),
             Action::ClearHistory => {
-                if let Some(surface) = self.active_surface() {
+                if let Some(surface) = self.active_surface()
+                    && self.tree.surface_kind(surface) == SurfaceKind::Pty
+                {
                     self.session.clear_history(surface);
                     self.render_states.remove(&surface);
                     self.selection = None;
                 }
+                return Ok(RenderAction::None);
             }
             Action::BrowserBack => {
                 self.enqueue_active_browser_command(BrowserInputKind::Back);

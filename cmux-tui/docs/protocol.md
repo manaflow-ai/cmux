@@ -14,7 +14,7 @@ $TMPDIR/cmux-tui-<uid>/<session>.sock
 
 ```json
 {"id":1,"cmd":"identify"}
-{"id":1,"ok":true,"data":{"app":"cmux-tui","version":"...","protocol":9,"capabilities":["attach-initial-size","workspace-registry-v1"],"session":"main","pid":12345}}
+{"id":1,"ok":true,"data":{"app":"cmux-tui","version":"...","protocol":9,"capabilities":["attach-initial-size","workspace-registry-v1","clear-history-v1"],"session":"main","pid":12345}}
 ```
 
 Responses have this shape:
@@ -77,6 +77,8 @@ subscribe
 attach-surface
 scroll-surface
 ```
+
+Clients must require the `clear-history-v1` capability before sending `clear-history` to a protocol-v9 server.
 
 `move-tab` moves a surface to a target pane and insertion index. It supports same-pane reorder and cross-pane moves.
 

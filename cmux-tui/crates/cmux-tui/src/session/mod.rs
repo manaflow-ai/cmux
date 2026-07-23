@@ -746,9 +746,7 @@ impl Session {
                 .surface(surface)
                 .ok_or_else(|| anyhow::anyhow!("unknown surface {surface}"))?
                 .clear_history(),
-            Session::Remote(remote) => {
-                remote.request(json!({"cmd": "clear-history", "surface": surface})).map(|_| ())
-            }
+            Session::Remote(remote) => remote.clear_history(surface),
         }
     }
 

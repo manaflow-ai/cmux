@@ -53,6 +53,7 @@ use crate::{
 
 const ATTACH_INITIAL_SIZE_CAPABILITY: &str = "attach-initial-size";
 const WORKSPACE_REGISTRY_CAPABILITY: &str = "workspace-registry-v1";
+pub const CLEAR_HISTORY_CAPABILITY: &str = "clear-history-v1";
 const INITIAL_BROWSER_RESIZE_TIMEOUT: Duration = Duration::from_secs(10);
 pub const STABLE_SPLIT_IDS_PROTOCOL_VERSION: u32 = 8;
 pub const STACK_LAYOUT_PROTOCOL_VERSION: u32 = 9;
@@ -2694,7 +2695,11 @@ fn handle_command(
             "build_commit": stamped_build_commit(),
             "ghostty_commit": stamped_ghostty_commit(),
             "protocol": PROTOCOL_VERSION,
-            "capabilities": [ATTACH_INITIAL_SIZE_CAPABILITY, WORKSPACE_REGISTRY_CAPABILITY],
+            "capabilities": [
+                ATTACH_INITIAL_SIZE_CAPABILITY,
+                WORKSPACE_REGISTRY_CAPABILITY,
+                CLEAR_HISTORY_CAPABILITY,
+            ],
             "session": mux.session,
             "pid": std::process::id(),
         })),

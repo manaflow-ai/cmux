@@ -3,7 +3,7 @@ use std::io::{self, BufRead, BufReader, Read, Write};
 use std::path::PathBuf;
 use std::time::{Duration, Instant};
 
-use cmux_tui_core::platform::transport;
+use cmux_tui_core::{platform::transport, server::CLEAR_HISTORY_CAPABILITY};
 use serde_json::{Value, json};
 
 const REQUEST_ID: u64 = 1;
@@ -587,13 +587,11 @@ fn run_command(args: CliArgs) -> i32 {
         let _ = stream.set_read_timeout(Some(Duration::from_secs(10)));
     }
     let mut reader = BufReader::new(stream);
-    if request.get("cmd").and_then(Value::as_str) == Some("attach-surface")
-        && request.get("cols").is_some()
-    {
-        match server_supports_capability(&mut reader, ATTACH_INITIAL_SIZE_CAPABILITY) {
+    if let Some((capability, unsupported_message)) = required_capability(&request) {
+        match server_supports_capability(&mut reader, capability) {
             Ok(true) => {}
             Ok(false) => {
-                eprintln!("initial attach sizing is not supported by this server");
+                eprintln!("{unsupported_message}");
                 return 1;
             }
             Err(err) => {
@@ -610,6 +608,20 @@ fn run_command(args: CliArgs) -> i32 {
         run_stream(reader)
     } else {
         run_one_response(&mut reader, args.global.json, print)
+    }
+}
+
+fn required_capability(request: &Value) -> Option<(&'static str, &'static str)> {
+    match request.get("cmd").and_then(Value::as_str) {
+        Some("attach-surface") if request.get("cols").is_some() => Some((
+            ATTACH_INITIAL_SIZE_CAPABILITY,
+            "initial attach sizing is not supported by this server",
+        )),
+        Some("clear-history") => Some((
+            CLEAR_HISTORY_CAPABILITY,
+            "clear-history is not supported by this server; restart the cmux-tui server",
+        )),
+        _ => None,
     }
 }
 
@@ -1704,6 +1716,21 @@ mod tests {
             server_supports_capability(&mut reader, ATTACH_INITIAL_SIZE_CAPABILITY),
             Ok(true)
         );
+    }
+
+    #[test]
+    fn clear_history_requires_its_additive_capability() {
+        let request = json!({"id": 1, "cmd": "clear-history", "surface": 9});
+        assert_eq!(
+            required_capability(&request),
+            Some((
+                CLEAR_HISTORY_CAPABILITY,
+                "clear-history is not supported by this server; restart the cmux-tui server",
+            ))
+        );
+
+        let read = json!({"id": 1, "cmd": "read-screen", "surface": 9});
+        assert_eq!(required_capability(&read), None);
     }
 
     #[test]

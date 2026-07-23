@@ -715,17 +715,20 @@ pub struct Chord {
 
 impl Chord {
     pub fn matches(&self, key: &KeyEvent) -> bool {
+        const TRACKED: KeyModifiers = KeyModifiers::CONTROL
+            .union(KeyModifiers::ALT)
+            .union(KeyModifiers::SHIFT)
+            .union(KeyModifiers::SUPER)
+            .union(KeyModifiers::HYPER)
+            .union(KeyModifiers::META);
         // Shift is implied by uppercase/symbol chars; compare it only
         // for non-char codes.
-        let mods_match = if matches!(self.code, KeyCode::Char(_)) {
-            key.modifiers.contains(self.mods & !KeyModifiers::SHIFT)
+        let tracked = if matches!(self.code, KeyCode::Char(_)) {
+            TRACKED & !KeyModifiers::SHIFT
         } else {
-            const TRACKED: KeyModifiers = KeyModifiers::CONTROL
-                .union(KeyModifiers::ALT)
-                .union(KeyModifiers::SHIFT)
-                .union(KeyModifiers::SUPER);
-            key.modifiers & TRACKED == self.mods & TRACKED
+            TRACKED
         };
+        let mods_match = key.modifiers & tracked == self.mods & tracked;
         self.code == key.code && mods_match
     }
 }
@@ -2215,14 +2218,8 @@ mod tests {
         let keys = Keys::default();
         let action = |code, modifiers| keys.modeless_action_for(&KeyEvent::new(code, modifiers));
         assert_eq!(action(KeyCode::Char('k'), KeyModifiers::SUPER), Some(Action::ClearHistory));
-        assert_eq!(
-            action(KeyCode::Char('k'), KeyModifiers::SUPER | KeyModifiers::CONTROL),
-            None
-        );
-        assert_eq!(
-            action(KeyCode::Char('k'), KeyModifiers::SUPER | KeyModifiers::ALT),
-            None
-        );
+        assert_eq!(action(KeyCode::Char('k'), KeyModifiers::SUPER | KeyModifiers::CONTROL), None);
+        assert_eq!(action(KeyCode::Char('k'), KeyModifiers::SUPER | KeyModifiers::ALT), None);
         assert_eq!(action(KeyCode::Char('t'), KeyModifiers::SUPER), None);
         assert_eq!(action(KeyCode::Char('w'), KeyModifiers::SUPER), None);
         assert_eq!(action(KeyCode::Char('d'), KeyModifiers::SUPER), None);
