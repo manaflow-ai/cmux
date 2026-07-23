@@ -820,16 +820,7 @@ class CmuxRuntimeAdapter:
     def _browser_churn(self, planned_id: str, actual_id: str, cycles: int) -> dict[str, Any]:
         latencies: list[dict[str, Any]] = []
         evidence: list[dict[str, Any]] = []
-        surface_latency, surface_payload = self._timed_rpc(
-            "browser_surface_focus",
-            planned_id,
-            "surface.focus",
-            {"workspace_id": self._workspace_id, "surface_id": actual_id},
-        )
-        latencies.append(surface_latency)
-        evidence.append({"label": "browser_surface_focus", "payload": surface_payload})
         methods = (
-            ("browser_focus", "browser.focus_webview"),
             ("browser_reload", "browser.reload"),
             ("browser_snapshot", "browser.snapshot"),
         )
@@ -859,7 +850,7 @@ class CmuxRuntimeAdapter:
         }
         screenshot_evidence["png_base64_length"] = len(encoded_png)
         return {
-            "operations": cycles * len(methods) + 2,
+            "operations": cycles * len(methods) + 1,
             "latencies": latencies,
             "render_observations": 1,
             "owned_screenshot_path": screenshot.get("path"),
@@ -873,10 +864,42 @@ class CmuxRuntimeAdapter:
     def _browser_churn_batch(
         self, cycles: int
     ) -> list[tuple[str, dict[str, Any]]]:
-        return [
-            (planned, self._browser_churn(planned, actual, cycles))
-            for planned, actual in self._browser_actual_ids.items()
-        ]
+        activations: dict[str, tuple[list[dict[str, Any]], list[dict[str, Any]]]] = {}
+        for planned, actual in self._browser_actual_ids.items():
+            activation_latencies: list[dict[str, Any]] = []
+            activation_evidence: list[dict[str, Any]] = []
+            for label, method in (
+                ("browser_surface_focus", "surface.focus"),
+                ("browser_focus", "browser.focus_webview"),
+            ):
+                latency, payload = self._timed_rpc(
+                    label,
+                    planned,
+                    method,
+                    {"workspace_id": self._workspace_id, "surface_id": actual},
+                )
+                activation_latencies.append(latency)
+                activation_evidence.append({"label": label, "payload": payload})
+            activations[planned] = (activation_latencies, activation_evidence)
+
+        results_by_planned: dict[str, dict[str, Any]] = {}
+        with ThreadPoolExecutor(max_workers=max(1, len(self._browser_actual_ids))) as pool:
+            futures = {
+                pool.submit(self._browser_churn, planned, actual, cycles): planned
+                for planned, actual in self._browser_actual_ids.items()
+            }
+            for future in as_completed(futures):
+                results_by_planned[futures[future]] = future.result()
+
+        results: list[tuple[str, dict[str, Any]]] = []
+        for planned in self._browser_actual_ids:
+            result = results_by_planned[planned]
+            activation_latencies, activation_evidence = activations[planned]
+            result["operations"] += len(activation_evidence)
+            result["latencies"] = activation_latencies + result["latencies"]
+            result["evidence"]["activation"] = activation_evidence
+            results.append((planned, result))
+        return results
 
     def _temporary_browser_cycle(self) -> dict[str, Any] | None:
         if not self._browser_actual_ids or self._plan is None:
@@ -953,7 +976,7 @@ class CmuxRuntimeAdapter:
                     "terminal_ansi_lines": len(self._terminal_actual_ids)
                     * self._terminal_ansi_line_target(),
                     "browser_churn_rpc_operations": len(self._browser_actual_ids)
-                    * (browser_cycles * 3 + 2),
+                    * (browser_cycles * 2 + 3),
                     "temporary_browser_open_close_operations": 2
                     if self._browser_actual_ids
                     else 0,

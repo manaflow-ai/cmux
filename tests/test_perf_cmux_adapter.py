@@ -58,6 +58,7 @@ class FakeClock:
     def sleep(self, duration: float) -> None:
         self.sleeps.append(duration)
         self.now += duration
+        time.sleep(0.001)
 
 
 class FakeRunner:
