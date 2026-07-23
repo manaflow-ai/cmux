@@ -258,6 +258,28 @@ struct ComputerUseUXTests {
         #expect(!first.styleMask.contains(.resizable))
     }
 
+    @Test @MainActor func onboardingContentCannotOutgrowItsAppKitWindow() throws {
+        let controller = ComputerUseOnboardingWindowController(
+            runtimeService: ComputerUseRuntimeService()
+        )
+        let window = controller.makeWindow()
+        defer { window.close() }
+        let contentView = try #require(window.contentView)
+        let expectedSize = CGSize(width: 596, height: 435)
+
+        // The live failure grew this fixed-size onboarding host to 883 points
+        // tall, then AppKit terminated cmux after its recursive constraint-pass
+        // limit was exceeded. Content must remain subordinate to the window.
+        contentView.setFrameSize(NSSize(width: 596, height: 883))
+        #expect(contentView.frame.size == expectedSize)
+
+        window.displayIfNeeded()
+        contentView.layoutSubtreeIfNeeded()
+
+        #expect(window.frame.size == expectedSize)
+        #expect(contentView.frame.size == expectedSize)
+    }
+
     @Test func permissionRowsOfferManualSettingsRecoveryAfterNativeAttempt() {
         #expect(ComputerUsePermissionRowAction.resolve(
             granted: false,
