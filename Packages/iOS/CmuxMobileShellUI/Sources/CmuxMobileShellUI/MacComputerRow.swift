@@ -23,16 +23,9 @@ struct MacComputerRow: View {
     }
 
     let computer: MacComputerSnapshot
-    /// Request confirmation before removing this computer. When `nil`, the
-    /// destructive affordances are hidden.
-    var requestRemove: ((String) -> Void)? = nil
-    /// Whether this row's destructive remove action is awaiting confirmation.
-    /// The binding is owned by the list so recycled rows do not own presentation
-    /// state, but the presenter stays attached to the swiped row.
-    var isConfirmingRemove: Binding<Bool> = .constant(false)
-    /// Performs the confirmed removal. Separate from ``requestRemove`` so a
-    /// full-swipe can request confirmation without directly removing the row.
-    var confirmRemove: ((String) -> Void)? = nil
+    /// Hides this computer on the current iPhone. When `nil`, hide affordances
+    /// are omitted.
+    var hide: ((String) -> Void)? = nil
     var style: Style = .computers
     /// Reconnect action for `.reconnect` rows; tapping the row calls this with
     /// the device id instead of navigating.
@@ -44,32 +37,12 @@ struct MacComputerRow: View {
 
     var body: some View {
         rowContainer
-        .contextMenu { removeMenuButton }
+        .contextMenu { hideMenuButton }
         .swipeActions(edge: .trailing, allowsFullSwipe: true) {
-            removeSwipeButton
+            hideSwipeButton
         }
         .accessibilityElement(children: .combine)
         .accessibilityIdentifier("MobileComputerRow-\(computer.id)")
-        .confirmationDialog(
-            removeTitle,
-            isPresented: isConfirmingRemove,
-            titleVisibility: .visible
-        ) {
-            if let confirmRemove {
-                Button(
-                    L10n.string("mobile.computers.remove", defaultValue: "Remove"),
-                    role: .destructive
-                ) {
-                    confirmRemove(computer.id)
-                }
-                .accessibilityIdentifier("MobileComputerRemoveConfirm-\(computer.id)")
-            }
-            Button(L10n.string("mobile.common.cancel", defaultValue: "Cancel"), role: .cancel) {
-                isConfirmingRemove.wrappedValue = false
-            }
-        } message: {
-            Text(removeMessage)
-        }
     }
 
     @ViewBuilder
@@ -132,54 +105,33 @@ struct MacComputerRow: View {
     }
 
     @ViewBuilder
-    private var removeSwipeButton: some View {
-        if let requestRemove {
+    private var hideSwipeButton: some View {
+        if let hide {
             Button {
-                requestRemove(computer.id)
+                hide(computer.id)
             } label: {
                 Label(
-                    L10n.string("mobile.computers.remove", defaultValue: "Remove"),
-                    systemImage: "trash"
+                    L10n.string("mobile.computers.hide", defaultValue: "Hide"),
+                    systemImage: "eye.slash"
                 )
             }
-            .tint(.red)
-            .accessibilityIdentifier("MobileComputerRemoveSwipeButton-\(computer.id)")
+            .accessibilityIdentifier("MobileComputerHideSwipeButton-\(computer.id)")
         }
     }
 
     @ViewBuilder
-    private var removeMenuButton: some View {
-        if let requestRemove {
-            Button(role: .destructive) {
-                requestRemove(computer.id)
+    private var hideMenuButton: some View {
+        if let hide {
+            Button {
+                hide(computer.id)
             } label: {
                 Label(
-                    L10n.string("mobile.computers.remove", defaultValue: "Remove"),
-                    systemImage: "trash"
+                    L10n.string("mobile.computers.hide", defaultValue: "Hide"),
+                    systemImage: "eye.slash"
                 )
             }
-            .accessibilityIdentifier("MobileComputerRemoveMenuButton-\(computer.id)")
+            .accessibilityIdentifier("MobileComputerHideMenuButton-\(computer.id)")
         }
-    }
-
-    private var removeTitle: String {
-        String(
-            format: L10n.string("mobile.computers.removeTitleFormat", defaultValue: "Remove %@?"),
-            computer.title
-        )
-    }
-
-    private var removeMessage: String {
-        guard computer.aliasIDs.count > 1 else {
-            return L10n.string(
-                "mobile.computers.removeMessage",
-                defaultValue: "This computer and its workspaces stop appearing here. To recover it later, open cmux on that Mac, sign in to this same account, then tap Recover Deleted Computer."
-            )
-        }
-        return L10n.string(
-            "mobile.computers.removeMessageRepresentativeFormat",
-            defaultValue: "This removes this computer and its matching paired records. Its workspaces stop appearing here. To recover it later, open cmux on that Mac, sign in to this same account, then tap Recover Deleted Computer."
-        )
     }
 
     /// The connection dot: green only when the PHONE is actually connected to this
