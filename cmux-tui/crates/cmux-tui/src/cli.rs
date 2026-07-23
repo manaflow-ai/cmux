@@ -149,7 +149,7 @@ const VERBS: &[VerbSpec] = &[
     VerbSpec {
         name: "run",
         help: "Run a command in a new or existing pane.",
-        allowed: &["pane", "new-workspace", "cwd", "name", "command"],
+        allowed: &["pane", "new-workspace", "key", "cwd", "name", "command"],
         kind: socket(build_run, print_surface, false),
     },
     VerbSpec {
@@ -921,8 +921,15 @@ fn build_run(flags: &FlagMap) -> Result<Value, UsageError> {
     flags.insert_optional_u64(&mut value, "pane")?;
     flags.insert_optional_string(&mut value, "cwd");
     flags.insert_optional_string(&mut value, "name");
-    if flags.optional("new-workspace").is_some() {
+    let new_workspace = flags.optional("new-workspace").is_some();
+    if new_workspace {
         value["new_workspace"] = json!(true);
+    }
+    if let Some(key) = flags.optional("key") {
+        if !new_workspace {
+            return Err(UsageError("--key requires --new-workspace".to_string()));
+        }
+        value["key"] = json!(key);
     }
     match (flags.optional("command"), flags.positionals.is_empty()) {
         (Some(command), true) => value["command"] = json!(command),
@@ -1713,6 +1720,31 @@ mod tests {
     #[test]
     fn registered_verbs_have_help_text() {
         assert!(VERBS.iter().all(|verb| !verb.help.is_empty()));
+    }
+
+    #[test]
+    fn run_workspace_key_requires_atomic_workspace_creation() {
+        let flags = FlagMap {
+            values: BTreeMap::from([
+                ("new-workspace".to_string(), "true".to_string()),
+                ("key".to_string(), "workspace-019c".to_string()),
+            ]),
+            positionals: vec!["/bin/zsh".to_string(), "-l".to_string()],
+        };
+        assert_eq!(
+            build_run(&flags).unwrap(),
+            json!({
+                "new_workspace": true,
+                "key": "workspace-019c",
+                "argv": ["/bin/zsh", "-l"],
+            })
+        );
+
+        let flags = FlagMap {
+            values: BTreeMap::from([("key".to_string(), "workspace-019c".to_string())]),
+            positionals: vec!["/bin/zsh".to_string()],
+        };
+        assert_eq!(build_run(&flags).unwrap_err().0, "--key requires --new-workspace");
     }
 
     #[test]
