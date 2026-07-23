@@ -10,9 +10,9 @@ struct RendererRealizationPlannerInput: Sendable {
 
 /// Pure policy for which offscreen terminal surfaces should release their GPU
 /// renderer. Keeps the `maxWarmRenderers` most-recently-visible realized
-/// surfaces warm (so switching among a working set stays instant), and releases
-/// the rest only when they are offscreen and have been idle past `idleSeconds`.
-/// A currently-visible surface is never selected.
+/// surfaces warm while they are under the idle threshold, and immediately
+/// releases hidden realized surfaces outside that warm set so the cap remains a
+/// hard high-water mark. A currently-visible surface is never selected.
 enum RendererRealizationPlanner {
     static func selectedSurfaceIds(
         inputs: [RendererRealizationPlannerInput],
@@ -45,8 +45,11 @@ enum RendererRealizationPlanner {
         let warmCap = max(1, settings.maxWarmRenderers)
         var selected: Set<UUID> = []
         for (index, input) in ranked.enumerated() {
-            if index < warmCap { continue }          // keep the most-recent N warm
             if input.isVisible { continue }          // never release a visible surface
+            if index >= warmCap {
+                selected.insert(input.surfaceId)
+                continue
+            }
             guard now - input.lastVisibleAt >= settings.idleSeconds else { continue }
             selected.insert(input.surfaceId)
         }
