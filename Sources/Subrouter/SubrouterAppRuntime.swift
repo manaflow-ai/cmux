@@ -29,6 +29,12 @@ final class SubrouterAppRuntime {
     /// re-reading disk on every defaults write.
     private var serverSelection: SubrouterServerSelection.Server?
 
+    /// Whether the last registry read found an existing but unreadable or
+    /// undecodable `servers.json`. While set, the last valid selection is
+    /// kept; with no last valid selection the configuration fails closed
+    /// instead of assuming loopback.
+    private var serverRegistryIsUnreadable = false
+
     /// The in-flight registry refresh. Concurrent callers coalesce onto the
     /// same read, so every awaiter of ``refreshServerSelectionAndApply()``
     /// returns only after a selection has actually been applied — a
@@ -41,7 +47,7 @@ final class SubrouterAppRuntime {
             .first?
             .appendingPathComponent("cmux/subrouter-usage-history.json")
         store = SubrouterStore(historyStorageURL: historyURL)
-        serverSelection = SubrouterIntegrationSettings.loadDefaultServerSelection()
+        applyServerRegistryState(SubrouterIntegrationSettings.loadServerRegistryState())
         applyCurrentConfiguration()
         startObservers()
     }
@@ -98,8 +104,24 @@ final class SubrouterAppRuntime {
 
     private func applyCurrentConfiguration() {
         store.updateConfiguration(
-            SubrouterIntegrationSettings.currentConfiguration(serverSelection: serverSelection)
+            SubrouterIntegrationSettings.currentConfiguration(
+                serverSelection: serverSelection,
+                serverRegistryIsUnreadable: serverRegistryIsUnreadable
+            )
         )
+    }
+
+    /// Folds one registry read into the cached selection. An unreadable
+    /// registry keeps the last valid selection (it may hide a remote
+    /// server) rather than silently reverting to the loopback daemon.
+    private func applyServerRegistryState(_ state: SubrouterIntegrationSettings.ServerRegistryState) {
+        switch state {
+        case .selection(let server):
+            serverSelection = server
+            serverRegistryIsUnreadable = false
+        case .unreadable:
+            serverRegistryIsUnreadable = true
+        }
     }
 
     /// Re-reads the `sr` server registry off the main actor, then reapplies
@@ -116,11 +138,11 @@ final class SubrouterAppRuntime {
             return
         }
         let task = Task { @MainActor [weak self] in
-            let selection = await Task.detached(priority: .utility) {
-                SubrouterIntegrationSettings.loadDefaultServerSelection()
+            let state = await Task.detached(priority: .utility) {
+                SubrouterIntegrationSettings.loadServerRegistryState()
             }.value
             guard let self else { return }
-            self.serverSelection = selection
+            self.applyServerRegistryState(state)
             self.applyCurrentConfiguration()
             self.selectionRefreshTask = nil
         }

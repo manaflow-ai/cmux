@@ -50,14 +50,15 @@ enum SubrouterIntegrationSettings {
     /// daemon that is actually routing this machine's agents: an explicit
     /// `subrouter.endpoint` setting wins; otherwise `serverSelection` (the
     /// `sr server` default from `~/.subrouter/codex/servers.json`, loaded
-    /// off-main by the caller via ``loadDefaultServerSelection()``);
+    /// off-main by the caller via ``loadServerRegistryState()``);
     /// otherwise the local loopback daemon. An empty command path means
     /// resolve `sr` from `PATH`. Taking the selection as a parameter keeps
     /// this callable from hot notification paths (`UserDefaults` did-change
     /// fires on every defaults write) without any main-thread disk I/O.
     nonisolated static func currentConfiguration(
         defaults: UserDefaults = .standard,
-        serverSelection: SubrouterServerSelection.Server?
+        serverSelection: SubrouterServerSelection.Server?,
+        serverRegistryIsUnreadable: Bool = false
     ) -> SubrouterConfiguration {
         let endpointSetting = (defaults.string(forKey: endpointKey) ?? "")
             .trimmingCharacters(in: .whitespacesAndNewlines)
@@ -73,24 +74,51 @@ enum SubrouterIntegrationSettings {
             endpoint = server.endpoint
             serverName = server.name
         }
+        // Fail closed when the registry exists but cannot be read and
+        // nothing else pins the endpoint: an unreadable registry may hide
+        // a remote selection, so loopback must not be assumed.
+        let registryBlocksConfiguration = serverRegistryIsUnreadable
+            && explicitEndpoint == nil
+            && serverSelection == nil
         let commandPath = (defaults.string(forKey: commandPathKey) ?? "")
             .trimmingCharacters(in: .whitespacesAndNewlines)
         return SubrouterConfiguration(
-            isEnabled: isEnabled(defaults: defaults) && !endpointSettingIsInvalid,
+            isEnabled: isEnabled(defaults: defaults)
+                && !endpointSettingIsInvalid
+                && !registryBlocksConfiguration,
             endpoint: endpoint ?? .standard,
             serverName: serverName,
             commandPath: commandPath.isEmpty ? nil : commandPath
         )
     }
 
-    /// Reads the `sr` server registry's default entry, or `nil` when the
-    /// registry is missing, unreadable, or targets the local daemon.
-    /// Synchronous disk I/O: call off the main actor and cache the result
-    /// (see ``SubrouterAppRuntime``).
-    nonisolated static func loadDefaultServerSelection() -> SubrouterServerSelection.Server? {
+    /// The outcome of reading `sr`'s server registry.
+    ///
+    /// `nil` inside ``selection(_:)`` means the local daemon is genuinely
+    /// selected (no registry yet, or the default entry targets the local
+    /// daemon). ``unreadable`` is kept distinct: an existing registry that
+    /// cannot be read or decoded must never be mistaken for an intentional
+    /// local selection, or configuration would fall back to loopback and a
+    /// `subrouter.switch` could pass the local-switch guard against the
+    /// wrong daemon.
+    enum ServerRegistryState: Sendable {
+        case selection(SubrouterServerSelection.Server?)
+        case unreadable
+    }
+
+    /// Reads the `sr` server registry's default entry. Synchronous disk
+    /// I/O: call off the main actor and cache the result (see
+    /// ``SubrouterAppRuntime``).
+    nonisolated static func loadServerRegistryState() -> ServerRegistryState {
         let registry = FileManager.default.homeDirectoryForCurrentUser
             .appendingPathComponent(".subrouter/codex/servers.json")
-        guard let data = try? Data(contentsOf: registry) else { return nil }
-        return SubrouterServerSelection(serversJSON: data)?.defaultServer
+        guard FileManager.default.fileExists(atPath: registry.path) else {
+            return .selection(nil)
+        }
+        guard let data = try? Data(contentsOf: registry),
+              let parsed = SubrouterServerSelection(serversJSON: data) else {
+            return .unreadable
+        }
+        return .selection(parsed.defaultServer)
     }
 }

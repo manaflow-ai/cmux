@@ -58,6 +58,10 @@ public final class SubrouterStore {
     /// The one-shot off-main load of the persisted history; kept so deinit
     /// cancels it and tests can await adoption deterministically.
     @ObservationIgnored private(set) var historyLoadTask: Task<Void, Never>?
+    /// The tail of the serialized history-save chain: each save awaits the
+    /// previous one so an older snapshot can never atomically replace a
+    /// newer one on disk.
+    @ObservationIgnored private var historySaveTask: Task<Void, Never>?
 
     /// Rolling usage samples per account window; the panel renders these as
     /// sparklines. Persisted to ``historyStorageURL`` when provided; starts
@@ -105,6 +109,7 @@ public final class SubrouterStore {
         pollTask?.cancel()
         refreshTask?.cancel()
         historyLoadTask?.cancel()
+        historySaveTask?.cancel()
     }
 
     /// Adopts the history loaded from disk. Merges under any samples a
@@ -326,12 +331,18 @@ public final class SubrouterStore {
     }
 
     /// Records freshly fetched usage into the rolling history and persists
-    /// it off-main when anything changed.
+    /// it off-main when anything changed. Saves chain on the previous one
+    /// so writes land in order — overlapping detached saves could commit
+    /// an older snapshot last.
     private func recordUsageHistory(_ usage: [SubrouterAccountUsageStatus]) {
         guard usageHistory.record(usageStatuses: usage, now: now()),
               let historyStorageURL else { return }
         let history = usageHistory
-        Task.detached(priority: .utility) { history.save(to: historyStorageURL) }
+        let previousSave = historySaveTask
+        historySaveTask = Task.detached(priority: .utility) {
+            await previousSave?.value
+            history.save(to: historyStorageURL)
+        }
     }
 
     // MARK: Poll timer
