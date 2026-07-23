@@ -729,6 +729,22 @@ mod tests {
         .into()
     }
 
+    fn session_close_frame(sequence: u64) -> Bytes {
+        WireFrame {
+            session: SessionId::ZERO,
+            generation: 1,
+            lane: Lane::Control,
+            flags: FrameFlags::RELIABLE.union(FrameFlags::SESSION_CLOSE),
+            sequence,
+            acknowledgement: 0,
+            stream: 0,
+            payload: Vec::new(),
+        }
+        .encode()
+        .unwrap()
+        .into()
+    }
+
     async fn wait_for_receive_calls(calls: &Semaphore, count: u32) {
         let permit = tokio::time::timeout(Duration::from_secs(1), calls.acquire_many(count))
             .await
@@ -764,6 +780,78 @@ mod tests {
         interactive_peer.close().await.unwrap();
         let result = tokio::time::timeout(Duration::from_secs(1), mux.receive()).await.unwrap();
         assert!(matches!(result, Err(LinkError::Closed)));
+    }
+
+    #[tokio::test]
+    async fn admitted_session_close_precedes_eof_despite_unrelated_saturated_bulk() {
+        const BUFFERED_FRAMES: u32 = 1_025;
+        const FRAME_BYTES: usize = 8 * 1_024;
+        const WIRE_HEADER_BYTES: usize = 60;
+
+        let (control, control_handle) = controlled_receive_link("control", 65_535);
+        let (bulk, bulk_handle) = controlled_receive_link("bulk", FRAME_BYTES);
+        let bulk_frame = encoded_frame(Lane::Bulk, FRAME_BYTES - WIRE_HEADER_BYTES);
+        for _ in 0..BUFFERED_FRAMES {
+            bulk_handle.incoming.send(bulk_frame.clone()).unwrap();
+        }
+        let mux = LaneMuxLink::new(
+            "isolated-physical",
+            vec![
+                LinkRoute { lanes: vec![Lane::Control], link: Arc::new(control) },
+                LinkRoute {
+                    lanes: vec![Lane::Interactive, Lane::Bulk, Lane::Tunnel],
+                    link: Arc::new(bulk),
+                },
+            ],
+        )
+        .unwrap();
+        wait_for_receive_calls(&bulk_handle.receive_calls, BUFFERED_FRAMES).await;
+
+        let ControlledReceiveHandle { incoming, receive_calls } = control_handle;
+        incoming.send(session_close_frame(1)).unwrap();
+        drop(incoming);
+        wait_for_receive_calls(&receive_calls, 2).await;
+        tokio::task::yield_now().await;
+
+        let close = tokio::time::timeout(Duration::from_secs(1), mux.receive())
+            .await
+            .expect("admitted SESSION_CLOSE remained blocked")
+            .expect("EOF overtook admitted SESSION_CLOSE")
+            .expect("aggregate ended before admitted SESSION_CLOSE");
+        let close = WireFrame::decode(&close).unwrap();
+        assert!(close.flags.contains(FrameFlags::SESSION_CLOSE));
+
+        let terminal = tokio::time::timeout(Duration::from_secs(1), mux.receive())
+            .await
+            .expect("physical EOF remained blocked behind unrelated Bulk");
+        assert!(matches!(terminal, Err(LinkError::Closed)));
+        let repeated = tokio::time::timeout(Duration::from_secs(1), mux.receive())
+            .await
+            .expect("terminal EOF was not sticky");
+        assert!(matches!(repeated, Err(LinkError::Closed)));
+    }
+
+    #[tokio::test]
+    async fn physical_eof_waits_for_admitted_frames_across_its_lanes() {
+        let (physical, handle) = controlled_receive_link("shared", 65_535);
+        let mux = LaneMuxLink::new(
+            "single-physical",
+            vec![LinkRoute { lanes: Lane::ALL.to_vec(), link: Arc::new(physical) }],
+        )
+        .unwrap();
+
+        let ControlledReceiveHandle { incoming, receive_calls } = handle;
+        incoming.send(sequenced_frame(Lane::Bulk, 1)).unwrap();
+        incoming.send(session_close_frame(2)).unwrap();
+        drop(incoming);
+        wait_for_receive_calls(&receive_calls, 3).await;
+        tokio::task::yield_now().await;
+
+        let close = mux.receive().await.unwrap().unwrap();
+        assert!(WireFrame::decode(&close).unwrap().flags.contains(FrameFlags::SESSION_CLOSE));
+        let bulk = mux.receive().await.unwrap().unwrap();
+        assert_eq!(WireFrame::decode(&bulk).unwrap().lane, Lane::Bulk);
+        assert!(matches!(mux.receive().await, Err(LinkError::Closed)));
     }
 
     #[tokio::test]
