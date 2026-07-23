@@ -4564,6 +4564,18 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
             finalizeRejectedMainWindowRegistrationIfUnowned(tabManager)
             return
         }
+        if let windowIdOwner = mainWindowContexts.values.first(where: { $0.windowId == windowId }),
+           windowIdOwner.tabManager !== tabManager {
+#if DEBUG
+            cmuxDebugLog(
+                "mainWindow.register.windowIdOwnerMismatch windowId=\(String(windowId.uuidString.prefix(8)))"
+            )
+#endif
+            finalizeRejectedMainWindowRegistrationIfUnowned(tabManager)
+            window.orderOut(nil)
+            window.close()
+            return
+        }
         guard !tabManager.isFinalizedForWindowClose else {
             mainWindowVisibilityController.commitClose(window)
             window.orderOut(nil)
