@@ -1,0 +1,16 @@
+{
+  "app" : "Calculator",
+  "appWindows" : 0,
+  "frontmostApp" : "loginwindow",
+  "guiReady" : false,
+  "loginWindowOverlayWindows" : 0,
+  "loginWindowWindows" : 0,
+  "openOutput" : "",
+  "openRC" : 0,
+  "setupAssistantRunning" : false,
+  "setupAssistantWindows" : 0,
+  "status" : "app_window_missing",
+  "windows" : [
+
+  ]
+}

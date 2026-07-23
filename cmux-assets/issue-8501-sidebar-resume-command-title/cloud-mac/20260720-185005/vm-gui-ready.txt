@@ -1,0 +1,11 @@
+gui_ready=failed
+gui_status=app_window_missing
+gui_app=Calculator
+open_rc=0
+setup_assistant_running=false
+setup_assistant_windows=0
+loginwindow_windows=0
+loginwindow_overlay_windows=0
+app_windows=0
+frontmost_app=loginwindow
+gui_ready=failed
