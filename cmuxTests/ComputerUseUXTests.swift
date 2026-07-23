@@ -420,6 +420,7 @@ struct ComputerUseUXTests {
         #expect(configuration.environment["CUA_DRIVER_RS_PERMISSIONS_GATE"] == "0")
         #expect(configuration.environment["CUA_DRIVER_RS_TELEMETRY_ENABLED"] == "false")
         #expect(configuration.environment["CUA_DRIVER_RS_UPDATE_CHECK"] == "false")
+        #expect(configuration.environment["CUA_DRIVER_RS_RESPONSIBILITY_DISCLAIMED"] == "1")
         #expect(configuration.environment["CUA_DRIVER_SOCKET_AUTH_TOKEN"] == "test-auth-token")
     }
 
