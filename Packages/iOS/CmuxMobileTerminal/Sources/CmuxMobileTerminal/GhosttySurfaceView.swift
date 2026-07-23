@@ -1752,10 +1752,7 @@ public final class GhosttySurfaceView: UIView, TerminalSurfaceHosting {
     /// user baseline that capacity reports and the auto-fit derive from, then
     /// drives the shared apply path.
     private func applyUserFontSize(_ target: Float32) {
-        userBaseFontSize = min(
-            max(target, MobileTerminalFontPreference.minimumSize),
-            MobileTerminalFontPreference.maximumSize
-        )
+        userBaseFontSize = MobileTerminalFontPreference(clamping: target).size
         applyAbsoluteFontSize(target)
     }
 
@@ -1764,10 +1761,7 @@ public final class GhosttySurfaceView: UIView, TerminalSurfaceHosting {
     /// the user baseline — the stretch-to-fill auto-fit funnels through here.
     func applyAbsoluteFontSize(_ target: Float32) {
         guard surface != nil else { return }
-        let clamped = min(
-            max(target, MobileTerminalFontPreference.minimumSize),
-            MobileTerminalFontPreference.maximumSize
-        )
+        let clamped = MobileTerminalFontPreference(clamping: target).size
         pendingFontSize = clamped
         MobileDebugLog.anchormux("zoom.absolute target=\(target) clamped=\(clamped) live=\(liveFontSize)")
         scheduleDisplayLinkWork()
