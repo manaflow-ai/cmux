@@ -83,4 +83,48 @@ extension KeyboardShortcutSettings {
         return String(localized: "settings.shortcuts.managedByFile", defaultValue: "Managed in cmux.json")
     }
 
+    /// The bonsplit surface tab bar renders its Cmd/Ctrl-hold shortcut hint
+    /// (`⌘1`, `⌃2`, …) by reading the surface-number shortcut straight from
+    /// `UserDefaults.standard` under `selectSurfaceByNumber.defaultsKey` (see
+    /// `TabControlShortcutSettings` in vendor/bonsplit). That raw read bypasses
+    /// cmux's canonical resolution in ``shortcutIfBound(for:)`` — a `cmux.json`
+    /// override or the in-app Settings recorder both persist to the settings
+    /// file, not to that UserDefaults key — so after the user rebinds the
+    /// surface shortcut (e.g. from `⌥` to `⌘`) the tab-bar hint keeps showing
+    /// the stale modifier while the actual keystroke already uses the new one.
+    ///
+    /// Mirror the fully-resolved shortcut into that key so the hint always
+    /// matches the shortcut cmux actually dispatches. Writing the resolved value
+    /// is a no-op for the pure-UserDefaults path (it already holds it) and, for
+    /// the file-managed path, leaves ``shortcutIfBound(for:)`` unchanged because
+    /// the settings-file override still wins at a higher priority.
+    ///
+    /// bonsplit is a standalone SwiftPM package that cmux depends on (its
+    /// `Package.swift` has no dependencies), so it cannot call
+    /// ``shortcutIfBound(for:)`` directly — a proper root fix would have to add a
+    /// resolved-shortcut input to the bonsplit tab controller and is out of scope
+    /// here. Until then this mirror is the seam, and its invariant
+    /// ("mirrored key == resolved shortcut") holds because every path that
+    /// changes the resolved surface shortcut posts
+    /// ``KeyboardShortcutSettings/didChangeNotification``: `setShortcut`,
+    /// `reset*`, the `settingsFileStore` replacement (its `didSet`), and
+    /// `KeyboardShortcutSettingsFileStore.reload()` (on-disk edits). The sole
+    /// caller re-runs this from that notification (plus once at launch), so a new
+    /// change path only needs to keep firing that notification — which it must
+    /// already do for the rest of the shortcut system to react.
+    ///
+    /// Always reads/writes `UserDefaults.standard` because the value it mirrors —
+    /// ``shortcut(for:)`` — and the key bonsplit reads are both bound to
+    /// `.standard`; a suite parameter here would be dead surface that cannot
+    /// actually isolate either side.
+    static func syncSurfaceNumberShortcutMirrorForTabBarHint() {
+        let action = Action.selectSurfaceByNumber
+        let resolved = shortcut(for: action)
+        guard let data = try? JSONEncoder().encode(resolved) else { return }
+        let defaults = UserDefaults.standard
+        if defaults.data(forKey: action.defaultsKey) != data {
+            defaults.set(data, forKey: action.defaultsKey)
+        }
+    }
+
 }

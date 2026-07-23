@@ -12500,6 +12500,9 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
 
     private func installShortcutDefaultsObserver() {
         guard shortcutDefaultsObserver == nil else { return }
+        // Seed the bonsplit tab-bar hint mirror with the resolved surface-number
+        // shortcut before any tab bar renders, then keep it in sync on change.
+        KeyboardShortcutSettings.syncSurfaceNumberShortcutMirrorForTabBarHint()
         shortcutDefaultsObserver = NotificationCenter.default.addObserver(
             forName: KeyboardShortcutSettings.didChangeNotification,
             object: nil,
@@ -12521,6 +12524,10 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
         clearConfiguredShortcutChordState()
         scheduleReloadConfigurationMenuItemRefresh()
         scheduleSplitButtonTooltipRefreshAcrossWorkspaces()
+        // Keep the bonsplit surface tab-bar shortcut hint in step with the
+        // resolved surface-number shortcut (cmux.json / Settings recorder both
+        // persist outside the UserDefaults key the tab bar reads).
+        KeyboardShortcutSettings.syncSurfaceNumberShortcutMirrorForTabBarHint()
     }
 
     private func currentConfiguredShortcutChordActions() -> [KeyboardShortcutSettings.Action] {
