@@ -46,6 +46,12 @@ final class FeedCoordinator: @unchecked Sendable {
         label: "cmux.feed.pidWatcher", qos: .utility
     )
 
+    /// Serial execution is an event-delivery lane, not coordinator-state synchronization.
+    /// It bounds zero-wait acceptance/publication to one worker and preserves event order.
+    private let acceptedEventDeliveryQueue = DispatchQueue(
+        label: "cmux.feed.acceptedEventDelivery", qos: .userInitiated
+    )
+
     /// In-flight blocking decisions whose needs-input overlay is currently lit,
     /// keyed by ``AttentionTarget``. Each state keeps the workspace object that
     /// was mutated when surfacing attention, so cleanup does not depend on
@@ -141,13 +147,15 @@ final class FeedCoordinator: @unchecked Sendable {
     func ingestBlocking(
         event: WorkstreamEvent,
         waitTimeout: TimeInterval,
-        onAccepted: @escaping @MainActor @Sendable (WorkstreamEvent) -> Void = { _ in }
+        onAcceptedOnMainActor: @escaping @MainActor @Sendable (WorkstreamEvent) -> Void = { _ in },
+        onAccepted: @escaping @Sendable (WorkstreamEvent) -> Void = { _ in }
     ) -> IngestBlockingResult {
         if waitTimeout <= 0 {
-            Task { @MainActor in
-                guard case .accepted(let event, _) = FeedCoordinator.shared.acceptOnMainActor(event) else { return }
-                onAccepted(event)
-            }
+            enqueueZeroWaitAcceptance(
+                event,
+                onAcceptedOnMainActor: onAcceptedOnMainActor,
+                onAccepted: onAccepted
+            )
             return .acknowledged(itemId: nil)
         }
         guard let requestId = event.requestId else {
@@ -155,13 +163,14 @@ final class FeedCoordinator: @unchecked Sendable {
                 MainActor.assumeIsolated {
                     let acceptance = FeedCoordinator.shared.acceptOnMainActor(event)
                     if case .accepted(let event, _) = acceptance {
-                        onAccepted(event)
+                        onAcceptedOnMainActor(event)
                     }
                     return acceptance
                 }
             }
             switch acceptance {
-            case .accepted(_, let itemId):
+            case .accepted(let event, let itemId):
+                onAccepted(event)
                 return .acknowledged(itemId: itemId)
             case .notFound:
                 return .notFound
@@ -221,7 +230,7 @@ final class FeedCoordinator: @unchecked Sendable {
                     FeedCoordinator.shared.waiters[requestId]?.attentionTarget = target
                     FeedCoordinator.shared.waiterLock.unlock()
                 }
-                onAccepted(acceptedEvent)
+                onAcceptedOnMainActor(acceptedEvent)
                 #if DEBUG
                 FeedCoordinatorTestHooks.afterBlockingEventIngested?(acceptedEvent, requestId)
                 #endif
@@ -244,6 +253,7 @@ final class FeedCoordinator: @unchecked Sendable {
             waiterLock.unlock()
             return .unavailable
         }
+        onAccepted(accepted.event)
 
         // If this is a blocking actionable event and the app window isn't
         // focused, post a native notification banner with inline action
@@ -272,6 +282,27 @@ final class FeedCoordinator: @unchecked Sendable {
             concludeAttentionOnMain(w?.attentionTarget)
             expireTimedOutItem(accepted.itemId)
             return .timedOut(itemId: accepted.itemId)
+        }
+    }
+
+    private func enqueueZeroWaitAcceptance(
+        _ event: WorkstreamEvent,
+        onAcceptedOnMainActor: @escaping @MainActor @Sendable (WorkstreamEvent) -> Void,
+        onAccepted: @escaping @Sendable (WorkstreamEvent) -> Void
+    ) {
+        acceptedEventDeliveryQueue.async {
+            let acceptedEvent = DispatchQueue.main.sync {
+                MainActor.assumeIsolated {
+                    guard case .accepted(let event, _) = FeedCoordinator.shared.acceptOnMainActor(event) else {
+                        return nil
+                    }
+                    onAcceptedOnMainActor(event)
+                    return event
+                }
+            }
+            if let acceptedEvent {
+                onAccepted(acceptedEvent)
+            }
         }
     }
 

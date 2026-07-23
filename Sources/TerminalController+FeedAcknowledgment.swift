@@ -113,11 +113,13 @@ extension TerminalController {
         let result = FeedCoordinator.shared.ingestBlocking(
             event: event,
             waitTimeout: waitTimeout,
-            onAccepted: { authoritativeEvent in
+            onAcceptedOnMainActor: { authoritativeEvent in
                 acceptedEvent?.value = authoritativeEvent
-                CmuxEventBus.shared.publishWorkstreamEvent(authoritativeEvent, phase: "received")
                 self.v2ApplyIMessageModeSideEffects(for: authoritativeEvent)
                 self.agentChatTranscriptService?.noteHookEvent(authoritativeEvent)
+            },
+            onAccepted: { authoritativeEvent in
+                CmuxEventBus.shared.publishWorkstreamEvent(authoritativeEvent, phase: "received")
                 if !waitsForDecision {
                     let acknowledgment = FeedCoordinator.IngestBlockingResult.acknowledged(itemId: nil)
                     CmuxEventBus.shared.publishWorkstreamEvent(
