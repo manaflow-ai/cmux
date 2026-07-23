@@ -64,6 +64,32 @@ struct ArtifactSidebarModelTests {
         #expect(await waitUntil { model.rows.map(\.relativePath) == ["appeared.md"] })
     }
 
+    @Test("Same-path file changes update the immutable thumbnail revision")
+    func fileChangesUpdateThumbnailRevision() async throws {
+        let root = try ArtifactTestSupport.temporaryDirectory()
+        defer { ArtifactTestSupport.remove(root) }
+        let first = ArtifactTestSupport.artifactNode(
+            root: root,
+            relativePath: "preview.png",
+            kind: .image,
+            modifiedAt: Date(timeIntervalSince1970: 1)
+        )
+        let second = ArtifactTestSupport.artifactNode(
+            root: root,
+            relativePath: "preview.png",
+            kind: .image,
+            modifiedAt: Date(timeIntervalSince1970: 2)
+        )
+        let store = SidebarArtifactStore(root: root, nodes: [first])
+        let model = ArtifactSidebarModel(store: store, captureService: SidebarCaptureSpy())
+        await model.bind(workspace: workspace(root: root))
+        let firstRows = model.rows
+
+        await store.replaceNodes([second], notify: true)
+
+        #expect(await waitUntil { model.rows != firstRows })
+    }
+
     @Test("Manual add uses injected capture service and workspace context")
     func addsThroughCaptureService() async throws {
         let root = try ArtifactTestSupport.temporaryDirectory()
