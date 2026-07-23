@@ -239,7 +239,9 @@ final class CmuxFeatureFlags {
                 self?.applyLoadedFlags()
             }
         }
-        PostHogSDK.shared.reloadFeatureFlags()
+        // PostHogAnalytics reloads after installing its build-channel
+        // evaluation context. Starting a request here would race that setup
+        // during launch and could cache a result for the wrong channel.
     }
 
     func effectiveValue(for definition: CmuxFeatureFlagDefinition) -> Bool {
