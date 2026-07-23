@@ -645,7 +645,7 @@ Example:
 | status | implemented |
 | since | protocol 9 |
 
-Clears the current screen and retained scrollback for a live PTY surface without sending input to the child process. The authoritative server terminal and attached frontend mirrors receive the same VT erase sequence.
+Clears prior output for a live PTY surface, then sends form-feed to the child so it can redraw the active prompt and edit buffer. The authoritative server terminal and attached frontend mirrors receive the same VT erase sequence.
 
 Params:
 

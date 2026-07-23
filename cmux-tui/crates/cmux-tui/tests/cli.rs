@@ -353,6 +353,15 @@ fn cli_verbs_cover_command_output_errors_and_streams() {
         !cleared_screen.contains(&marker),
         "clear-history retained prior output: {cleared_screen:?}"
     );
+    let cleared_scrollback = cli(
+        &server,
+        &["read-scrollback", "--surface", &surface.to_string(), "--start", "0", "--count", "200"],
+    );
+    assert_success(&cleared_scrollback);
+    assert!(
+        !String::from_utf8_lossy(&cleared_scrollback.stdout).contains(&marker),
+        "clear-history retained prior output in scrollback"
+    );
 
     let notify = cli(&server, &["notify", "--title", "Build", "--body", "ok"]);
     assert_success(&notify);

@@ -53,7 +53,7 @@ These defaults come from `Keys::default`.
 | `Ctrl-b [` | Scroll the active PTY viewport up 10 rows |
 | `Ctrl-b PageUp` | Scroll the active PTY viewport up 10 rows |
 | `Ctrl-b PageDown` | Scroll the active PTY viewport down 10 rows |
-| `Cmd-k` / `Super-k` | Clear the active PTY screen and scrollback |
+| `Cmd-k` / `Super-k` | Clear prior PTY output while preserving the active prompt and edit buffer |
 | `Ctrl-b d` | Quit a local TUI or detach an attached TUI |
 
 Directional focus follows Zellij's pane memory: when several panes share the requested edge, cmux-tui returns to the pane focused most recently.
@@ -80,7 +80,7 @@ Zellij's modal `ctrl+p`, `ctrl+t`, `ctrl+s`, `ctrl+n`, and `ctrl+o` modes are a 
 
 ## Modeless Command/Super Layer
 
-`Cmd-k` / `Super-k` clears the active PTY screen and scrollback. cmux-tui enables the Kitty keyboard protocol so compatible hosts report the Command/Super modifier. Host-owned shortcuts such as `Cmd-t`, `Cmd-w`, and `Cmd-d` remain unbound because terminals consume them before a nested TUI can receive them. Their working cmux-tui equivalents are `Alt-t`, `Ctrl-b X`, and `Ctrl-b %`.
+`Cmd-k` / `Super-k` clears prior PTY output, then asks the child to redraw its active prompt and edit buffer. cmux-tui enables the Kitty keyboard protocol so compatible hosts report the Command/Super modifier. Host-owned shortcuts such as `Cmd-t`, `Cmd-w`, and `Cmd-d` remain unbound because terminals consume them before a nested TUI can receive them. Their working cmux-tui equivalents are `Alt-t`, `Ctrl-b X`, and `Ctrl-b %`.
 
 Set `keys.super_shortcuts` to `false` to remove the default Command/Super bindings. Explicit `cmd+...`, `command+...`, and `super+...` bindings still work.
 

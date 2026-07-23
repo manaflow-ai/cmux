@@ -889,11 +889,12 @@ impl Surface {
         Ok(())
     }
 
-    /// Clear the active screen and retained scrollback without sending bytes
-    /// to the child process. Attached byte frontends receive the same VT
+    /// Clear retained output, then ask the child to redraw its current prompt
+    /// and edit buffer. Attached byte frontends receive the same VT erase
     /// sequence so every mirror stays authoritative and reconnects stay clear.
     pub fn clear_history(&self) -> anyhow::Result<()> {
-        const CLEAR_SCREEN_AND_HISTORY: &[u8] = b"\x1b[2J\x1b[3J\x1b[H";
+        const CLEAR_HISTORY_AND_SCREEN: &[u8] = b"\x1b[3J\x1b[2J\x1b[H";
+        const REDRAW_PROMPT: &[u8] = b"\x0c";
 
         let Some(pty) = self.as_pty() else {
             anyhow::bail!("browser surface does not have a VT terminal");
@@ -901,9 +902,9 @@ impl Surface {
         let scroll_changed = {
             let mut term = pty.term.lock().unwrap();
             let before = terminal_scroll_position(&term);
-            term.vt_write(CLEAR_SCREEN_AND_HISTORY);
+            term.vt_write(CLEAR_HISTORY_AND_SCREEN);
             pty.mouse_encoders.lock().unwrap().sync_from_terminal(&term);
-            pty.broadcast_attach_output(CLEAR_SCREEN_AND_HISTORY);
+            pty.broadcast_attach_output(CLEAR_HISTORY_AND_SCREEN);
             let after = terminal_scroll_position(&term);
             if before != after {
                 broadcast_render_scroll_locked(pty, after);
@@ -917,7 +918,7 @@ impl Surface {
         {
             mux.emit(MuxEvent::ScrollChanged { surface: self.id, offset, at_bottom });
         }
-        Ok(())
+        self.write_bytes(REDRAW_PROMPT).map_err(Into::into)
     }
 
     pub fn set_default_colors(&self, colors: DefaultColors) {

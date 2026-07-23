@@ -7996,7 +7996,7 @@ mod tests {
     }
 
     #[test]
-    fn command_k_clears_the_active_pty_screen_and_scrollback() {
+    fn command_k_clears_prior_output_before_the_child_redraws() {
         let (mux, surface) = test_mux("command-k-clear-history-test", None);
         surface.with_terminal(|term| {
             for line in 0..24 {
@@ -8017,7 +8017,9 @@ mod tests {
 
         surface.with_terminal(|term| {
             assert_eq!(term.history_rows(), 0);
-            assert!(term.viewport_text().unwrap().trim().is_empty());
+            let viewport = term.viewport_text().unwrap();
+            assert!(!viewport.contains("history-"));
+            assert!(!viewport.contains("visible-content"));
         });
         mux.close_surface(surface.id);
     }

@@ -136,7 +136,7 @@ const VERBS: &[VerbSpec] = &[
     },
     VerbSpec {
         name: "clear-history",
-        help: "Clear a PTY surface's screen and scrollback.",
+        help: "Clear PTY history while preserving its active prompt.",
         allowed: &["surface"],
         kind: socket(build_surface, print_empty, false),
     },

@@ -150,7 +150,7 @@ WebSocket clients pair through a six-digit browser/TUI comparison by default. We
 | `keys.resize-shrink` | chord string or array or `"none"` | `"alt+-"` | Shrink the focused split |
 | `keys.scroll-up` | chord string or array or `"none"` | `["[","pageup"]` | Scroll active PTY up 10 rows |
 | `keys.scroll-down` | chord string or array or `"none"` | `"pagedown"` | Scroll active PTY down 10 rows |
-| `keys.clear-history` | chord string or array or `"none"` | `"cmd+k"` | Clear the active PTY screen and scrollback |
+| `keys.clear-history` | chord string or array or `"none"` | `"cmd+k"` | Clear prior PTY output while preserving the active prompt |
 | `keys.browser-back` | chord string or array or `"none"` | `"<"` | Browser back |
 | `keys.browser-forward` | chord string or array or `"none"` | `">"` | Browser forward |
 | `keys.browser-reload` | chord string or array or `"none"` | `"r"` | Browser reload |
