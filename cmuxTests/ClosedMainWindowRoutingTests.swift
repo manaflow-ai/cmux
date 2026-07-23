@@ -1000,6 +1000,33 @@ struct GhostMainWindowContextLifecycleTests {
         }
     }
 
+    @Test("Retired workspace rejects direct split and mirror surface creation")
+    func retiredWorkspaceRejectsDirectSplitAndMirrorSurfaceCreation() throws {
+        try expectRetiredWorkspaceRejectsPanelCreation(named: "splitPaneWithNewTerminal") { workspace, paneId in
+            workspace.splitPaneWithNewTerminal(
+                targetPane: paneId,
+                orientation: .horizontal,
+                insertFirst: false,
+                workingDirectory: nil,
+                initialInput: nil
+            )?.id
+        }
+        try expectRetiredWorkspaceRejectsPanelCreation(named: "addRemoteTmuxDisplayPane") { workspace, _ in
+            workspace.addRemoteTmuxDisplayPane(
+                remotePaneId: 42,
+                focus: false,
+                onInput: { _ in }
+            )?.id
+        }
+        try expectRetiredWorkspaceRejectsPanelCreation(named: "bonsplitController.splitPane") { workspace, paneId in
+            workspace.bonsplitController.splitPane(
+                paneId,
+                orientation: .horizontal,
+                withTab: nil
+            )?.id
+        }
+    }
+
     @Test("Ordered-out recoverable owner can commit its close")
     func orderedOutRecoverableOwnerCanCommitItsClose() throws {
         _ = NSApplication.shared
