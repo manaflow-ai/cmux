@@ -3003,6 +3003,16 @@ def test_pi_hook_rehomes_moved_explicit_surface(cli_path: str, root: Path) -> No
     ]
     if not resolver_frames:
         raise AssertionError(f"Pi hook did not resolve the moved surface's live owner: {fake.frames!r}")
+    surface_list_frames = [
+        frame
+        for frame in fake.frames
+        if frame.get("method") == "surface.list"
+    ]
+    if surface_list_frames:
+        raise AssertionError(
+            "exact Pi surface UUID resolution enumerated a workspace-wide surface snapshot: "
+            f"{surface_list_frames!r}"
+        )
     try:
         hook_result = json.loads(result.stdout)
     except json.JSONDecodeError as exc:
@@ -3036,6 +3046,7 @@ def test_pi_feed_uses_resolved_explicit_workspace(cli_path: str, root: Path) -> 
         surfaces_by_workspace={
             explicit_workspace_id: [{"id": FAKE_SURFACE_ID}],
         },
+        surface_delivery_target=(explicit_workspace_id, FAKE_SURFACE_ID),
     ) as fake:
         result = subprocess.run(
             [
@@ -3073,6 +3084,12 @@ def test_pi_feed_uses_resolved_explicit_workspace(cli_path: str, root: Path) -> 
     if workspace_id != explicit_workspace_id:
         raise AssertionError(
             "Pi feed serialized its ambient workspace instead of its validated explicit target: "
+            f"{feed_frames[0]!r}"
+        )
+    surface_id = feed_frames[0]["params"]["event"].get("surface_id")
+    if surface_id != FAKE_SURFACE_ID:
+        raise AssertionError(
+            "Pi feed dropped its validated explicit surface target: "
             f"{feed_frames[0]!r}"
         )
 

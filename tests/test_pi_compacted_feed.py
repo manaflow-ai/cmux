@@ -142,7 +142,8 @@ let summaries: [[String: Any]] = (0..<64).map {{ index in
 }}
 let requestLines = PiCompactedFeedEventExpander(
     agentPid: 42,
-    workspaceId: "11111111-1111-1111-1111-111111111111"
+    workspaceId: "11111111-1111-1111-1111-111111111111",
+    surfaceId: "22222222-2222-2222-2222-222222222222"
 ).requestLines(from: [
     "session_id": "pi-expander-session",
     "cmux_compacted_terminal_omitted_count": 1,
@@ -160,10 +161,21 @@ guard requestLines.count == 64 else {{
 guard toolCallIds.contains("tool-63") else {{
     fatalError("overflow marker displaced the newest retained terminal event: \\(toolCallIds)")
 }}
+let requestEvents = try requestLines.map {{ line -> [String: Any] in
+    let object = try JSONSerialization.jsonObject(with: Data(line.utf8)) as? [String: Any]
+    let params = object?["params"] as? [String: Any]
+    return params?["event"] as? [String: Any] ?? [:]
+}}
+guard requestEvents.allSatisfy({{
+    $0["surface_id"] as? String == "22222222-2222-2222-2222-222222222222"
+}}) else {{
+    fatalError("compacted Feed expansion dropped its resolved surface: \\(requestEvents)")
+}}
 
 let relayRequestLines = PiCompactedFeedEventExpander(
     agentPid: 42,
     workspaceId: "11111111-1111-1111-1111-111111111111",
+    surfaceId: "22222222-2222-2222-2222-222222222222",
     maximumRequestCount: 2
 ).requestLines(from: [
     "session_id": "pi-expander-session",
