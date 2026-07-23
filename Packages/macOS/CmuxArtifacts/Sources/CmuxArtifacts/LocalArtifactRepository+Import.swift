@@ -58,7 +58,7 @@ extension LocalArtifactRepository {
             resolution = nil
             destinationDirectory = captureDirectory
         } else {
-            let resolved = ArtifactCaptureDirectoryFinder(
+            let resolved = try ArtifactCaptureDirectoryFinder(
                 fileManager: fileManager,
                 decoder: decoder,
                 nodeBudget: nodeBudget

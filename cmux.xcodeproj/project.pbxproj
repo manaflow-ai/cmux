@@ -210,6 +210,7 @@ C0DE71B10000000000000001 /* AppDelegate+AgentChatNotifications.swift in Sources 
 		A5001A00A1B2C3D4E5F60718 /* AppWindowChromeComposition.swift in Sources */ = {isa = PBXBuildFile; fileRef = A5001A01A1B2C3D4E5F60718 /* AppWindowChromeComposition.swift */; };
 		A85870000000000000000047 /* ArtifactCLIArguments.swift in Sources */ = {isa = PBXBuildFile; fileRef = A85870000000000000000046 /* ArtifactCLIArguments.swift */; };
 		A85870000000000000000051 /* ArtifactCLITerminalSafetyTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = A85870000000000000000050 /* ArtifactCLITerminalSafetyTests.swift */; };
+		A85870000000000000000067 /* ArtifactHTMLPreview.swift in Sources */ = {isa = PBXBuildFile; fileRef = A85870000000000000000066 /* ArtifactHTMLPreview.swift */; };
 		A85870000000000000000065 /* ArtifactHTMLPreviewSecurityTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = A85870000000000000000064 /* ArtifactHTMLPreviewSecurityTests.swift */; };
 		A85870000000000000000031 /* ArtifactSidebarPanelView.swift in Sources */ = {isa = PBXBuildFile; fileRef = A85870000000000000000030 /* ArtifactSidebarPanelView.swift */; };
 		A85870000000000000000033 /* ArtifactSidebarRowActions.swift in Sources */ = {isa = PBXBuildFile; fileRef = A85870000000000000000032 /* ArtifactSidebarRowActions.swift */; };
@@ -2487,6 +2488,7 @@ C0DE71B10000000000000002 /* AppDelegate+AgentChatNotifications.swift */ = {isa =
 		A5001A01A1B2C3D4E5F60718 /* AppWindowChromeComposition.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Windowing/AppWindowChromeComposition.swift; sourceTree = "<group>"; };
 		A85870000000000000000046 /* ArtifactCLIArguments.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ArtifactCLIArguments.swift; sourceTree = "<group>"; };
 		A85870000000000000000050 /* ArtifactCLITerminalSafetyTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ArtifactCLITerminalSafetyTests.swift; sourceTree = "<group>"; };
+		A85870000000000000000066 /* ArtifactHTMLPreview.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ArtifactHTMLPreview.swift; sourceTree = "<group>"; };
 		A85870000000000000000064 /* ArtifactHTMLPreviewSecurityTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ArtifactHTMLPreviewSecurityTests.swift; sourceTree = "<group>"; };
 		A85870000000000000000030 /* ArtifactSidebarPanelView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ArtifactSidebarPanelView.swift; sourceTree = "<group>"; };
 		A85870000000000000000032 /* ArtifactSidebarRowActions.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ArtifactSidebarRowActions.swift; sourceTree = "<group>"; };
@@ -5911,6 +5913,7 @@ C0DE71B10000000000000002 /* AppDelegate+AgentChatNotifications.swift */ = {isa =
 				A5001641 /* RemoteRelayZshBootstrap.swift */,
 				C0DE43000000000000000002 /* CmuxAgentChatConfig.swift */,
 				A85870000000000000000030 /* ArtifactSidebarPanelView.swift */,
+				A85870000000000000000066 /* ArtifactHTMLPreview.swift */,
 				A8587000000000000000003C /* AppDelegate+Artifacts.swift */,
 				A8587000000000000000003E /* ContentView+Artifacts.swift */,
 				A85870000000000000000032 /* ArtifactSidebarRowActions.swift */,
@@ -7356,6 +7359,7 @@ C0DE71B10000000000000002 /* AppDelegate+AgentChatNotifications.swift */ = {isa =
 				A5001621 /* AppleScriptSupport.swift in Sources */,
 				A5001A02A1B2C3D4E5F60718 /* AppWindowBackdropControllerDependencies.swift in Sources */,
 				A5001A00A1B2C3D4E5F60718 /* AppWindowChromeComposition.swift in Sources */,
+				A85870000000000000000067 /* ArtifactHTMLPreview.swift in Sources */,
 				A85870000000000000000031 /* ArtifactSidebarPanelView.swift in Sources */,
 				A85870000000000000000033 /* ArtifactSidebarRowActions.swift in Sources */,
 				A85870000000000000000035 /* ArtifactSidebarRowView.swift in Sources */,

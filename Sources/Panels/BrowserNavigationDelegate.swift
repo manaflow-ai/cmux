@@ -27,6 +27,7 @@ import WebKit
     var terminalPolicyCancellationReporter: ((WKNavigationAction, WKWebView) -> () -> Void)?
     var didRenderPDFDocument: ((URL, Bool) -> Void)?
     var didClearPDFDocument: (() -> Void)?
+    var artifactHTMLPreviewPolicy: ArtifactHTMLPreviewNavigationPolicy?
     /// Direct reference to the download delegate - must be set synchronously in didBecome callbacks.
     var downloadDelegate: WKDownloadDelegate?
     /// Last attempted navigation URL, used to preserve the omnibar URL after provisional failures.
@@ -250,6 +251,14 @@ import WebKit
         decidePolicyFor navigationAction: WKNavigationAction,
         decisionHandler: @escaping (WKNavigationActionPolicy) -> Void
     ) {
+        if let artifactHTMLPreviewPolicy,
+           !artifactHTMLPreviewPolicy.allowsNavigation(
+               to: navigationAction.request.url,
+               targetIsMainFrame: navigationAction.targetFrame?.isMainFrame
+           ) {
+            decisionHandler(.cancel)
+            return
+        }
         if let url = navigationAction.request.url,
            url.scheme == "cmux-browser-action",
            url.host == "bypass-ssl" {

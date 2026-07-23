@@ -12,7 +12,7 @@ struct ArtifactAutomaticWritePlanner {
         existingByDigest: [String: URL],
         context: ArtifactCaptureContext,
         paths: ArtifactStorePaths
-    ) -> ArtifactAutomaticWritePlan {
+    ) throws -> ArtifactAutomaticWritePlan {
         let resolver = ArtifactPathResolver()
         let recorder = ArtifactProvenanceRecorder(
             fileManager: fileManager,
@@ -32,7 +32,7 @@ struct ArtifactAutomaticWritePlanner {
                 continue
             }
             if captureResolution == nil {
-                captureResolution = ArtifactCaptureDirectoryFinder(
+                captureResolution = try ArtifactCaptureDirectoryFinder(
                     fileManager: fileManager,
                     decoder: decoder,
                     nodeBudget: nodeBudget

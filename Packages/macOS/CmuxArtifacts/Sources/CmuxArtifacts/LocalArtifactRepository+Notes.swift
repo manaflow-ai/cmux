@@ -50,7 +50,7 @@ extension LocalArtifactRepository: NoteStoring {
         let resolver = CmuxProjectNoteResolver()
         let snapshot = try completeSnapshot(paths: paths)
         let pathResolver = ArtifactPathResolver()
-        let resolution = ArtifactCaptureDirectoryFinder(
+        let resolution = try ArtifactCaptureDirectoryFinder(
             fileManager: fileManager,
             decoder: decoder,
             nodeBudget: nodeBudget

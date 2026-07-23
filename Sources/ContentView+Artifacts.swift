@@ -22,14 +22,19 @@ extension ContentView {
         sidebarSelectionState.selection = .tabs
         switch artifact.fileKind {
         case .html:
-            _ = workspace.newBrowserSurface(
-                inPane: paneId,
-                url: artifact.fileURL,
-                focus: true,
-                creationPolicy: .artifactPreview,
-                omnibarVisible: false,
-                bypassRemoteProxy: true
-            )
+            do {
+                let document = try ArtifactHTMLPreviewDocument(sourceURL: artifact.fileURL)
+                _ = workspace.newBrowserSurface(
+                    inPane: paneId,
+                    url: document.url,
+                    focus: true,
+                    creationPolicy: .artifactPreview,
+                    omnibarVisible: false,
+                    bypassRemoteProxy: true
+                )
+            } catch {
+                NSSound.beep()
+            }
         case .patch:
             if AppDelegate.shared?.openArtifactPatch(artifact.fileURL, for: tabManager) != true {
                 NSSound.beep()

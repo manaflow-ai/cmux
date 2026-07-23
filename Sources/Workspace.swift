@@ -2103,6 +2103,11 @@ final class Workspace: Identifiable, ObservableObject {
         var preloadsInitialNavigationInBackground: Bool {
             self == .automationPreload
         }
+
+        func contentMode(initialURL: URL?) -> BrowserPanelContentMode {
+            guard self == .artifactPreview, let initialURL else { return .standard }
+            return .artifactHTMLPreview(documentURL: initialURL)
+        }
     }
 
     static let terminalScrollBarHiddenDidChangeNotification = Notification.Name(
@@ -7799,7 +7804,8 @@ final class Workspace: Identifiable, ObservableObject {
             proxyEndpoint: remoteProxyEndpoint,
             bypassRemoteProxy: bypassRemoteProxy,
             isRemoteWorkspace: isRemoteWorkspace,
-            remoteWebsiteDataStoreIdentifier: isRemoteWorkspace && !bypassRemoteProxy ? id : nil
+            remoteWebsiteDataStoreIdentifier: isRemoteWorkspace && !bypassRemoteProxy ? id : nil,
+            contentMode: creationPolicy.contentMode(initialURL: url)
         )
         configureBrowserPanel(browserPanel)
         panels[browserPanel.id] = browserPanel
@@ -7908,7 +7914,8 @@ final class Workspace: Identifiable, ObservableObject {
             proxyEndpoint: remoteProxyEndpoint,
             bypassRemoteProxy: bypassRemoteProxy,
             isRemoteWorkspace: isRemoteWorkspace,
-            remoteWebsiteDataStoreIdentifier: isRemoteWorkspace && !bypassRemoteProxy ? id : nil
+            remoteWebsiteDataStoreIdentifier: isRemoteWorkspace && !bypassRemoteProxy ? id : nil,
+            contentMode: creationPolicy.contentMode(initialURL: url)
         )
         configureBrowserPanel(browserPanel)
         panels[browserPanel.id] = browserPanel
