@@ -126,6 +126,27 @@ public struct SubrouterUsageHistory: Sendable, Equatable, Codable {
         return changed
     }
 
+    /// Merges an older (persisted) history underneath this one: for each
+    /// series, samples recorded before this history's first live sample are
+    /// prepended, then the per-series cap re-applies. Lets a startup disk
+    /// load land after the first refresh without discarding the persisted
+    /// week of sparkline history.
+    /// - Parameter olderHistory: The persisted history loaded from disk.
+    public mutating func merge(olderHistory: SubrouterUsageHistory) {
+        for (key, olderSamples) in olderHistory.seriesByKey {
+            guard let current = seriesByKey[key], let firstCurrent = current.first else {
+                seriesByKey[key] = olderSamples
+                continue
+            }
+            var merged = olderSamples.filter { $0.recordedAt < firstCurrent.recordedAt }
+            merged.append(contentsOf: current)
+            if merged.count > Self.maximumSamplesPerSeries {
+                merged.removeFirst(merged.count - Self.maximumSamplesPerSeries)
+            }
+            seriesByKey[key] = merged
+        }
+    }
+
     /// Loads a persisted history, or an empty one for missing/undecodable
     /// data.
     public static func load(from url: URL) -> SubrouterUsageHistory {

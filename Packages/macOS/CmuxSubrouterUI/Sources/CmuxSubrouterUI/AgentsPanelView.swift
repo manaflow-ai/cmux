@@ -66,7 +66,7 @@ public struct AgentsPanelView: View {
                         provider: provider,
                         accounts: snapshot.accounts(for: provider),
                         usageHistory: store.usageHistory,
-                        pendingSwitchAccountID: store.pendingSwitchAccountID,
+                        pendingSwitch: store.pendingSwitch,
                         actionsForAccount: { account in
                             rowActions(account: account, configuration: configuration)
                         },
@@ -131,7 +131,7 @@ public struct AgentsPanelView: View {
         }
         let canSwitch = !account.isActive
             && account.provider.supportsSwitching
-            && store.pendingSwitchAccountID == nil
+            && store.pendingSwitch == nil
         return SubrouterAccountRowActions(
             onSwitch: canSwitch ? { switchAccount(account) } : nil,
             onSignIn: terminalAction(.signIn(account: account)),

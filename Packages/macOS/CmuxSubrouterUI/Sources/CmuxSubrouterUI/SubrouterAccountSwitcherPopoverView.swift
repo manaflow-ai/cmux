@@ -64,7 +64,8 @@ public struct SubrouterAccountSwitcherPopoverView: View {
             ForEach(usable) { account in
                 SubrouterPopoverAccountRow(
                     account: account,
-                    isSwitchPending: store.pendingSwitchAccountID == account.id,
+                    isSwitchPending: store.pendingSwitch
+                        == SubrouterPendingSwitch(provider: account.provider, accountID: account.id),
                     onSwitch: switchAction(for: account)
                 )
             }
@@ -83,7 +84,7 @@ public struct SubrouterAccountSwitcherPopoverView: View {
         guard !store.configuration.isRemoteEndpoint,
               !account.isActive,
               account.provider.supportsSwitching,
-              store.pendingSwitchAccountID == nil else {
+              store.pendingSwitch == nil else {
             return nil
         }
         let store = store

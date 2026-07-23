@@ -29,9 +29,9 @@ public final class SubrouterStore {
 
     /// The current projection of daemon state, accounts, and sessions.
     public internal(set) var snapshot: SubrouterSnapshot = .empty
-    /// The account id of an in-flight switch, or `nil`. Drives per-row
-    /// progress UI; cleared when the switch settles.
-    public internal(set) var pendingSwitchAccountID: String?
+    /// The provider-scoped identity of an in-flight switch, or `nil`.
+    /// Drives per-row progress UI; cleared when the switch settles.
+    public internal(set) var pendingSwitch: SubrouterPendingSwitch?
     /// The most recent switch failure, or `nil`. Cleared when a new switch
     /// starts.
     public internal(set) var lastSwitchError: SubrouterSwitchError?
@@ -107,13 +107,11 @@ public final class SubrouterStore {
         historyLoadTask?.cancel()
     }
 
-    /// Adopts the history loaded from disk unless a refresh already recorded
-    /// samples in the meantime (first refresh needs a visible surface plus a
-    /// network round-trip, so in practice the load always lands first; if it
-    /// ever loses that race the fresher in-memory samples win).
+    /// Adopts the history loaded from disk. Merges under any samples a
+    /// refresh recorded while the load was in flight, so losing that race
+    /// never discards the persisted week of sparkline history.
     private func adoptPersistedUsageHistory(_ loaded: SubrouterUsageHistory) {
-        guard usageHistory == SubrouterUsageHistory() else { return }
-        usageHistory = loaded
+        usageHistory.merge(olderHistory: loaded)
     }
 
     // MARK: Configuration
@@ -204,18 +202,25 @@ public final class SubrouterStore {
         let endpoint = configurationStorage.endpoint
         let client = client
         refreshTask = Task { @MainActor [weak self] in
-            var outcome: RefreshOutcome
-            do {
-                async let usage = client.usageStatuses(endpoint: endpoint)
-                async let sessions = client.sessions(endpoint: endpoint)
-                outcome = try await .success(usage: usage, sessions: sessions)
-            } catch let error as SubrouterClientError {
-                outcome = await Self.failureOutcome(description: error.shortDescription, client: client, endpoint: endpoint)
-            } catch {
-                // Unknown errors never carry raw dumps into user-facing
-                // state; the type name alone is safe and still diagnostic.
+            async let usageFetch = client.usageStatuses(endpoint: endpoint)
+            async let sessionsFetch = client.sessions(endpoint: endpoint)
+            let usageResult: Result<[SubrouterAccountUsageStatus], any Error>
+            do { usageResult = .success(try await usageFetch) } catch { usageResult = .failure(error) }
+            let sessionsResult: Result<[SubrouterSessionAssignment], any Error>
+            do { sessionsResult = .success(try await sessionsFetch) } catch { sessionsResult = .failure(error) }
+
+            let outcome: RefreshOutcome
+            switch (usageResult, sessionsResult) {
+            case (.success(let usage), .success(let sessions)):
+                outcome = .success(usage: usage, sessions: sessions)
+            case (.success(let usage), .failure(let error)):
+                // Sessions are ancillary: a sessions timeout or bad row
+                // must not discard freshly fetched account usage. The
+                // usage response also proves the daemon is reachable.
+                outcome = .partial(usage: usage, sessionsErrorDescription: Self.shortDescription(for: error))
+            case (.failure(let error), _):
                 outcome = await Self.failureOutcome(
-                    description: "unexpected error (\(type(of: error)))",
+                    description: Self.shortDescription(for: error),
                     client: client,
                     endpoint: endpoint
                 )
@@ -248,7 +253,18 @@ public final class SubrouterStore {
 
     private enum RefreshOutcome {
         case success(usage: [SubrouterAccountUsageStatus], sessions: [SubrouterSessionAssignment])
+        case partial(usage: [SubrouterAccountUsageStatus], sessionsErrorDescription: String)
         case failure(description: String, daemonReachable: Bool)
+    }
+
+    /// A user-safe description for a refresh error. Unknown errors never
+    /// carry raw dumps into user-facing state; the type name alone is safe
+    /// and still diagnostic.
+    private static func shortDescription(for error: any Error) -> String {
+        if let clientError = error as? SubrouterClientError {
+            return clientError.shortDescription
+        }
+        return "unexpected error (\(type(of: error)))"
     }
 
     /// Shapes a refresh failure. The data endpoints can fail while the
@@ -276,11 +292,17 @@ public final class SubrouterStore {
                 lastUpdatedAt: now(),
                 lastErrorDescription: nil
             )
-            if usageHistory.record(usageStatuses: usage, now: now()),
-               let historyStorageURL {
-                let history = usageHistory
-                Task.detached(priority: .utility) { history.save(to: historyStorageURL) }
-            }
+            recordUsageHistory(usage)
+        case .partial(let usage, let sessionsErrorDescription):
+            consecutiveFailureCount = 0
+            snapshot = SubrouterSnapshot(
+                daemonState: .healthy,
+                usageStatuses: usage,
+                sessions: snapshot.sessions,
+                lastUpdatedAt: now(),
+                lastErrorDescription: sessionsErrorDescription
+            )
+            recordUsageHistory(usage)
         case .failure(let description, let daemonReachable):
             consecutiveFailureCount += 1
             if daemonReachable {
@@ -301,6 +323,15 @@ public final class SubrouterStore {
             }
             snapshot.lastErrorDescription = description
         }
+    }
+
+    /// Records freshly fetched usage into the rolling history and persists
+    /// it off-main when anything changed.
+    private func recordUsageHistory(_ usage: [SubrouterAccountUsageStatus]) {
+        guard usageHistory.record(usageStatuses: usage, now: now()),
+              let historyStorageURL else { return }
+        let history = usageHistory
+        Task.detached(priority: .utility) { history.save(to: historyStorageURL) }
     }
 
     // MARK: Poll timer

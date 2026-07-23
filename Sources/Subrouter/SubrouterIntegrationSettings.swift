@@ -59,9 +59,14 @@ enum SubrouterIntegrationSettings {
         defaults: UserDefaults = .standard,
         serverSelection: SubrouterServerSelection.Server?
     ) -> SubrouterConfiguration {
-        let explicitEndpoint = SubrouterEndpoint(
-            configurationString: defaults.string(forKey: endpointKey) ?? ""
-        )
+        let endpointSetting = (defaults.string(forKey: endpointKey) ?? "")
+            .trimmingCharacters(in: .whitespacesAndNewlines)
+        let explicitEndpoint = SubrouterEndpoint(configurationString: endpointSetting)
+        // Fail closed on a malformed explicit endpoint: a typo in an
+        // intended remote address must never silently fall back to the
+        // registry or the loopback daemon, where a local `sr switch` would
+        // mutate credentials the user meant to manage remotely.
+        let endpointSettingIsInvalid = !endpointSetting.isEmpty && explicitEndpoint == nil
         var serverName: String?
         var endpoint = explicitEndpoint
         if endpoint == nil, let server = serverSelection {
@@ -71,7 +76,7 @@ enum SubrouterIntegrationSettings {
         let commandPath = (defaults.string(forKey: commandPathKey) ?? "")
             .trimmingCharacters(in: .whitespacesAndNewlines)
         return SubrouterConfiguration(
-            isEnabled: isEnabled(defaults: defaults),
+            isEnabled: isEnabled(defaults: defaults) && !endpointSettingIsInvalid,
             endpoint: endpoint ?? .standard,
             serverName: serverName,
             commandPath: commandPath.isEmpty ? nil : commandPath

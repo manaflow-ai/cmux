@@ -45,7 +45,7 @@ import Testing
         #expect(await client.reloadCallCount == 1)
         #expect(await client.usageCallCount == 1)
         #expect(store.snapshot.activeAccount(for: .codex)?.id == "other@example.com")
-        #expect(store.pendingSwitchAccountID == nil)
+        #expect(store.pendingSwitch == nil)
         #expect(store.lastSwitchError == nil)
     }
 
@@ -66,7 +66,7 @@ import Testing
 
         #expect(await switcher.invocations.count == 1)
         #expect(await client.totalFetchCallCount == 0)
-        #expect(store.pendingSwitchAccountID == nil)
+        #expect(store.pendingSwitch == nil)
     }
 
     @Test func endpointChangeMidSwitchSkipsDaemonFollowUp() async throws {
@@ -88,7 +88,7 @@ import Testing
         try await store.switchAccount(provider: .codex, accountID: "dev@example.com")
 
         #expect(await client.reloadCallCount == 0)
-        #expect(store.pendingSwitchAccountID == nil)
+        #expect(store.pendingSwitch == nil)
     }
 
     @Test func switchWhileDisabledThrowsWithoutSideEffects() async {
@@ -113,7 +113,7 @@ import Testing
             try await store.switchAccount(provider: .codex, accountID: "x")
         }
         #expect(store.lastSwitchError == .commandFailed(description: "no account found matching \"x\""))
-        #expect(store.pendingSwitchAccountID == nil)
+        #expect(store.pendingSwitch == nil)
         #expect(await client.reloadCallCount == 0)
     }
 

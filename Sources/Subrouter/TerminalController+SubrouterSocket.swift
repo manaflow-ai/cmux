@@ -103,12 +103,21 @@ extension TerminalController {
         let configuration = await MainActor.run { store.configuration }
         guard configuration.isEnabled else { return Self.subrouterDisabledError }
         let snapshot = await store.performFreshRefresh(reason: "socket")
-        if requiresHealthyDaemon, !snapshot.daemonState.isHealthy {
-            return .err(
-                code: "daemon_unreachable",
-                message: snapshot.lastErrorDescription ?? "The subrouter daemon is unreachable.",
-                data: nil
-            )
+        if requiresHealthyDaemon {
+            if !snapshot.daemonState.isHealthy {
+                return .err(
+                    code: "daemon_unreachable",
+                    message: snapshot.lastErrorDescription ?? "The subrouter daemon is unreachable.",
+                    data: nil
+                )
+            }
+            // The daemon can answer its health probe while the requested
+            // data fetch fails; the snapshot then retains previous data
+            // and records the error. Data verbs must not report stale or
+            // partial data as ok, so scripts see a non-zero exit instead.
+            if let refreshError = snapshot.lastErrorDescription {
+                return .err(code: "refresh_failed", message: refreshError, data: nil)
+            }
         }
         return .ok(payload(snapshot, configuration))
     }

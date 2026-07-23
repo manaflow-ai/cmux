@@ -180,6 +180,28 @@ import Testing
         #expect(store.snapshot.lastErrorDescription == nil)
     }
 
+    @Test func sessionsFailureKeepsFreshUsage() async {
+        let client = FakeSubrouterClient()
+        await client.setUsageResult(.success([Self.usageRow()]))
+        await client.setSessionsResult(.failure(.httpStatus(code: 500, description: "")))
+        let clock = ManualSubrouterPollClock()
+        let store = makeStore(client: client, clock: clock)
+
+        store.setSurfaceVisible(.agentsPanel, true)
+        await clock.waitForSleeper()
+
+        // Sessions are ancillary: their failure must not discard freshly
+        // fetched usage or flip the daemon state.
+        #expect(store.snapshot.daemonState == .healthy)
+        #expect(store.snapshot.usageStatuses.count == 1)
+        #expect(store.snapshot.lastUpdatedAt != nil)
+        #expect(store.snapshot.lastErrorDescription == "HTTP 500")
+        // The usage response already proves reachability: no health probe,
+        // no failure backoff.
+        #expect(await client.healthCallCount == 0)
+        #expect(await clock.lastRecordedDuration == 20)
+    }
+
     @Test func dataFailureWithReachableDaemonNeverShowsUnreachable() async {
         let client = FakeSubrouterClient()
         // `/usage-status` fans out to provider APIs and can fail while the

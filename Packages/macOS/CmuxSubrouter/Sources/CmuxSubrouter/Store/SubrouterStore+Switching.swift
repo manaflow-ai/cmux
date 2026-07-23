@@ -22,12 +22,12 @@ extension SubrouterStore {
                 serverName: configuration.serverName ?? configuration.endpoint.baseURL.host() ?? "remote"
             )
         }
-        guard pendingSwitchAccountID == nil else {
+        guard pendingSwitch == nil else {
             throw SubrouterSwitchError.switchAlreadyInFlight
         }
-        pendingSwitchAccountID = accountID
+        pendingSwitch = SubrouterPendingSwitch(provider: provider, accountID: accountID)
         lastSwitchError = nil
-        defer { pendingSwitchAccountID = nil }
+        defer { pendingSwitch = nil }
 
         // The `sr` call below can take up to 30 seconds. Capture the
         // endpoint it was validated against: if settings change mid-switch

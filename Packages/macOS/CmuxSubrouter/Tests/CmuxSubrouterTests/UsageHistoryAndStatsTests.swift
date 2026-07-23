@@ -118,6 +118,23 @@ import Testing
         #expect(SubrouterUsageHistory.load(from: url.appendingPathExtension("missing")) == SubrouterUsageHistory())
     }
 
+    @Test func mergeOlderPreservesPersistedSamplesUnderLiveOnes() {
+        var older = SubrouterUsageHistory()
+        let base = Date(timeIntervalSince1970: 5_000_000)
+        _ = older.record(usageStatuses: [account(id: "a", used: 10)], now: base)
+        _ = older.record(usageStatuses: [account(id: "a", used: 20)], now: base.addingTimeInterval(700))
+
+        var live = SubrouterUsageHistory()
+        _ = live.record(usageStatuses: [account(id: "a", used: 30)], now: base.addingTimeInterval(1400))
+        _ = live.record(usageStatuses: [account(id: "b", used: 5)], now: base.addingTimeInterval(1400))
+
+        // A startup refresh recording before the disk load lands must not
+        // discard the persisted history: old samples slot in underneath.
+        live.merge(olderHistory: older)
+        #expect(live.samples(provider: .codex, accountID: "a", windowName: "5h").map(\.usedPercent) == [10, 20, 30])
+        #expect(live.samples(provider: .codex, accountID: "b", windowName: "5h").map(\.usedPercent) == [5])
+    }
+
     /// The store must not read the history file inside its main-actor init;
     /// the persisted samples arrive via the off-main load task instead.
     @MainActor

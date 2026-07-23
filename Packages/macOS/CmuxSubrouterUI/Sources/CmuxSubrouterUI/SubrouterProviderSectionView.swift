@@ -8,7 +8,7 @@ public struct SubrouterProviderSectionView: View {
     private let provider: SubrouterProvider
     private let accounts: [SubrouterAccountUsageStatus]
     private let usageHistory: SubrouterUsageHistory
-    private let pendingSwitchAccountID: String?
+    private let pendingSwitch: SubrouterPendingSwitch?
     /// Builds the action bundle for one account; the panel owns the
     /// store/terminal wiring so this section stays snapshot-only.
     private let actionsForAccount: (SubrouterAccountUsageStatus) -> SubrouterAccountRowActions
@@ -24,21 +24,21 @@ public struct SubrouterProviderSectionView: View {
     /// - Parameters:
     ///   - provider: The provider being rendered.
     ///   - accounts: The provider's account snapshots, in daemon order.
-    ///   - pendingSwitchAccountID: The account id of an in-flight switch.
+    ///   - pendingSwitch: The provider-scoped identity of an in-flight switch.
     ///   - actionsForAccount: Action-bundle factory for each account row.
     ///   - onAddAccount: The add-account action, or `nil` when unavailable.
     public init(
         provider: SubrouterProvider,
         accounts: [SubrouterAccountUsageStatus],
         usageHistory: SubrouterUsageHistory = SubrouterUsageHistory(),
-        pendingSwitchAccountID: String?,
+        pendingSwitch: SubrouterPendingSwitch?,
         actionsForAccount: @escaping (SubrouterAccountUsageStatus) -> SubrouterAccountRowActions,
         onAddAccount: (() -> Void)?
     ) {
         self.provider = provider
         self.accounts = accounts
         self.usageHistory = usageHistory
-        self.pendingSwitchAccountID = pendingSwitchAccountID
+        self.pendingSwitch = pendingSwitch
         self.actionsForAccount = actionsForAccount
         self.onAddAccount = onAddAccount
     }
@@ -76,7 +76,8 @@ public struct SubrouterProviderSectionView: View {
                 SubrouterAccountRowView(
                     account: account,
                     usageHistory: usageHistory,
-                    isSwitchPending: pendingSwitchAccountID == account.id,
+                    isSwitchPending: pendingSwitch
+                        == SubrouterPendingSwitch(provider: account.provider, accountID: account.id),
                     actions: actionsForAccount(account),
                     switchNote: provider.switchSideEffectNote
                 )
@@ -103,7 +104,8 @@ public struct SubrouterProviderSectionView: View {
                         SubrouterAccountRowView(
                             account: account,
                             usageHistory: usageHistory,
-                            isSwitchPending: pendingSwitchAccountID == account.id,
+                            isSwitchPending: pendingSwitch
+                        == SubrouterPendingSwitch(provider: account.provider, accountID: account.id),
                             actions: actionsForAccount(account),
                             switchNote: provider.switchSideEffectNote
                         )

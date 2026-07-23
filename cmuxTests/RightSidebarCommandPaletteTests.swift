@@ -14,6 +14,10 @@ final class RightSidebarCommandPaletteTests: XCTestCase {
             let defaults = UserDefaults.standard
             defaults.removeObject(forKey: RightSidebarBetaFeatureSettings.feedEnabledKey)
             defaults.removeObject(forKey: RightSidebarBetaFeatureSettings.dockEnabledKey)
+            // Pin the subrouter opt-out: the Agents mode is additionally
+            // gated by the DEBUG-on rollout flag, so without this the
+            // expected default mode set differs between configurations.
+            defaults.set(false, forKey: SubrouterIntegrationSettings.enabledKey)
             let contributions = ContentView.commandPaletteRightSidebarModeCommandContributions()
             let contributionsByID = Dictionary(uniqueKeysWithValues: contributions.map { ($0.commandId, $0) })
             let context = CommandPaletteContextSnapshot()
@@ -40,6 +44,7 @@ final class RightSidebarCommandPaletteTests: XCTestCase {
             XCTAssertEqual(contributions.count, 3)
             XCTAssertNil(contributionsByID[ContentView.commandPaletteRightSidebarModeCommandID(.feed)])
             XCTAssertNil(contributionsByID[ContentView.commandPaletteRightSidebarModeCommandID(.dock)])
+            XCTAssertNil(contributionsByID[ContentView.commandPaletteRightSidebarModeCommandID(.agents)])
         }
     }
 
@@ -75,9 +80,11 @@ final class RightSidebarCommandPaletteTests: XCTestCase {
         let defaults = UserDefaults.standard
         let previousFeed = defaults.object(forKey: RightSidebarBetaFeatureSettings.feedEnabledKey)
         let previousDock = defaults.object(forKey: RightSidebarBetaFeatureSettings.dockEnabledKey)
+        let previousSubrouter = defaults.object(forKey: SubrouterIntegrationSettings.enabledKey)
         defer {
             restore(previousFeed, forKey: RightSidebarBetaFeatureSettings.feedEnabledKey)
             restore(previousDock, forKey: RightSidebarBetaFeatureSettings.dockEnabledKey)
+            restore(previousSubrouter, forKey: SubrouterIntegrationSettings.enabledKey)
         }
         try body()
     }
