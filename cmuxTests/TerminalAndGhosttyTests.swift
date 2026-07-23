@@ -3618,6 +3618,33 @@ final class WindowTerminalHostViewTests: XCTestCase {
         return hostedView
     }
 
+    func testTerminalPaneDropTargetLookupRequiresActiveDropContext() {
+        let frame = NSRect(x: 0, y: 0, width: 240, height: 160)
+        let hostedView = makeHostedTerminalView(frame: frame)
+        hostedView.layoutSubtreeIfNeeded()
+        hostedView.layout()
+        let dropPoint = NSPoint(x: frame.midX, y: frame.midY)
+
+        hostedView.setPaneDropContext(TerminalPaneDropContext(
+            workspaceId: UUID(),
+            panelId: UUID(),
+            paneId: PaneID(id: UUID())
+        ))
+        XCTAssertNotNil(
+            hostedView.paneDropTargetForDrop(at: dropPoint),
+            "Active terminal pane drop targets should remain discoverable for pane drop routing"
+        )
+
+        hostedView.setPaneDropContext(nil)
+
+        let target = hostedView.paneDropTargetForDrop(at: dropPoint)
+
+        XCTAssertNil(
+            target,
+            "Inactive terminal pane drop targets must not shadow terminal file-path drop insertion"
+        )
+    }
+
     private func assertHitFallsInsideHostedTerminal(
         _ hitView: NSView?,
         hostedView: GhosttySurfaceScrollView,
