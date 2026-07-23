@@ -64,7 +64,7 @@ struct WorkspaceRow: View {
 
                 if let description = workspace.displayDescription {
                     Text(description)
-                        .font(.subheadline.weight(.medium))
+                        .font(.subheadline)
                         .foregroundStyle(.primary)
                         .lineLimit(2, reservesSpace: true)
                         .accessibilityIdentifier("MobileWorkspaceDescription-\(workspace.id.rawValue)")
