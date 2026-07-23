@@ -67,6 +67,7 @@ describe("Iroh route boundary", () => {
 
   test("fails open when the configured rate-limit rule no longer exists", async () => {
     let brokerCalled = false;
+    let firewallCalled = false;
     const dependencies = {
       verify: async () => USER,
       broker: broker({
@@ -77,7 +78,10 @@ describe("Iroh route boundary", () => {
       }),
       firewall: {
         id: "iroh-test-rule",
-        check: async () => ({ rateLimited: false, error: "not-found" as const }),
+        check: async () => {
+          firewallCalled = true;
+          return { rateLimited: false, error: "not-found" as const };
+        },
       },
     };
 
@@ -89,6 +93,9 @@ describe("Iroh route boundary", () => {
 
     expect(response.status).toBe(200);
     expect(await response.json()).toEqual({ bindings: [] });
+    // Prove the not-found path specifically: the firewall must have run and
+    // returned not-found, and the handler must have failed open to the broker.
+    expect(firewallCalled).toBe(true);
     expect(brokerCalled).toBe(true);
   });
 
