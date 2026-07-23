@@ -1,5 +1,4 @@
 import AppKit
-import CmuxAppKitSupportUI
 import SwiftUI
 import Testing
 
@@ -12,79 +11,63 @@ import Testing
 @Suite("content view pane overlay geometry")
 struct ContentViewWindowResizeTests {
     @Test @MainActor
-    func windowOverlayUsesItsFlippedReferenceViewForPaneCoordinates() throws {
+    func windowOverlayConvertsCompleteStateIntoDrawingCoordinates() throws {
         _ = NSApplication.shared
 
-        let rootView = NSView(frame: NSRect(x: 0, y: 0, width: 1_000, height: 800))
+        let contentView = NSHostingView(rootView: Color.clear)
+        contentView.frame = NSRect(x: 0, y: 0, width: 1_000, height: 800)
         let window = NSWindow(
-            contentRect: rootView.bounds,
+            contentRect: contentView.bounds,
             styleMask: [.titled, .closable, .resizable],
             backing: .buffered,
             defer: false
         )
         window.isReleasedWhenClosed = false
-        window.contentView = rootView
+        window.contentView = contentView
         defer { window.close() }
 
-        let overlayReferenceView = NSHostingView(rootView: Color.clear)
-        overlayReferenceView.frame = rootView.bounds
-        rootView.addSubview(overlayReferenceView)
-        #expect(!rootView.isFlipped)
-        #expect(overlayReferenceView.isFlipped)
+        let referenceBoundsOffset = CGPoint(x: 12, y: 20)
+        contentView.bounds.origin = referenceBoundsOffset
+        #expect(contentView.isFlipped)
 
         let paneView = NSView(frame: NSRect(x: 100, y: 500, width: 600, height: 220))
-        overlayReferenceView.addSubview(paneView)
+        contentView.addSubview(paneView)
 
-        let glassEffect = PaneOverlayGlassEffectStub()
-        glassEffect.installationTarget = WindowContentOverlayInstallationTarget(
-            container: rootView,
-            reference: overlayReferenceView
-        )
-        let resolver = WindowContentOverlayTargetResolver(glassEffect: glassEffect)
-        let coordinateSpace = try #require(
-            ContentView.tmuxWorkspacePaneWindowOverlayReferenceView(
+        let controller = try #require(
+            WindowTmuxWorkspacePaneOverlayController.controller(
                 for: window,
-                resolver: resolver
+                createIfNeeded: true
             )
         )
 
-        #expect(coordinateSpace === overlayReferenceView)
-        #expect(
-            ContentView.tmuxWorkspacePaneExactRect(for: paneView, in: coordinateSpace)
-                == paneView.frame
+        let referenceRect = ContentView.tmuxWorkspacePaneExactRect(
+            for: paneView,
+            in: contentView
         )
-    }
-}
+        let sourceRect = try #require(referenceRect)
+        let sourceState = TmuxWorkspacePaneOverlayRenderState(
+            workspaceId: UUID(),
+            unreadRects: [sourceRect],
+            flashRect: sourceRect,
+            activePaneBorderRect: sourceRect,
+            activePaneBorderColorHex: "#3A7F77",
+            flashToken: 1,
+            flashReason: .debug
+        )
+        let renderState = try #require(
+            controller.renderStateInOverlayCoordinates(sourceState)
+        )
+        let expectedDrawingRect = sourceRect.offsetBy(
+            dx: -referenceBoundsOffset.x,
+            dy: -referenceBoundsOffset.y
+        )
 
-@MainActor
-private final class PaneOverlayGlassEffectStub: WindowGlassEffectManaging {
-    var backgroundViewIdentifier = NSUserInterfaceItemIdentifier("test.paneOverlay.background")
-    var isAvailable = true
-    var installationTarget: WindowContentOverlayInstallationTarget?
-
-    func apply(
-        to window: NSWindow,
-        tintColor: NSColor?,
-        style: WindowGlassEffectStyle?
-    ) -> Bool {
-        false
-    }
-
-    func updateTint(to window: NSWindow, color: NSColor?) {}
-
-    func remove(from window: NSWindow) -> Bool {
-        false
-    }
-
-    func foregroundContainer(for window: NSWindow) -> NSView? {
-        installationTarget?.container
-    }
-
-    func originalContentView(for window: NSWindow) -> NSView? {
-        installationTarget?.reference
-    }
-
-    func portalInstallationTarget(for window: NSWindow) -> WindowContentOverlayInstallationTarget? {
-        installationTarget
+        #expect(referenceRect == paneView.frame)
+        #expect(renderState.unreadRects == [expectedDrawingRect])
+        #expect(renderState.flashRect == expectedDrawingRect)
+        #expect(renderState.activePaneBorderRect == expectedDrawingRect)
+        #expect(renderState.activePaneBorderColorHex == sourceState.activePaneBorderColorHex)
+        #expect(renderState.flashToken == sourceState.flashToken)
+        #expect(renderState.flashReason == sourceState.flashReason)
     }
 }
