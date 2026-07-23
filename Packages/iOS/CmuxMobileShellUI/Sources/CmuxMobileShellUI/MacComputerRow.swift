@@ -173,12 +173,12 @@ struct MacComputerRow: View {
         guard computer.aliasIDs.count > 1 else {
             return L10n.string(
                 "mobile.computers.removeMessage",
-                defaultValue: "This computer and its workspaces stop appearing here. Pair it again to add it back."
+                defaultValue: "This computer and its workspaces stop appearing here. To recover it later, open cmux on that Mac, sign in to this same account, then tap Recover Deleted Computer."
             )
         }
         return L10n.string(
             "mobile.computers.removeMessageRepresentativeFormat",
-            defaultValue: "This removes this computer and its matching paired records. Its workspaces stop appearing here. Pair it again to add it back."
+            defaultValue: "This removes this computer and its matching paired records. Its workspaces stop appearing here. To recover it later, open cmux on that Mac, sign in to this same account, then tap Recover Deleted Computer."
         )
     }
 

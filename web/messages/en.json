@@ -2839,6 +2839,29 @@
       }
     }
   },
+  "cloudBillingReturn": {
+    "eyebrow": "cmux Cloud",
+    "returnTitle": "Continue in your terminal",
+    "returnBody": "Return to the terminal where you ran ssh cmux.cloud to continue.",
+    "statuses": {
+      "checkoutSuccess": {
+        "title": "Checkout complete",
+        "body": "Your subscription is confirmed. New limits may take a moment to appear."
+      },
+      "checkoutCanceled": {
+        "title": "Checkout canceled",
+        "body": "Checkout closed without changing your plan."
+      },
+      "portalReturn": {
+        "title": "Back from the billing portal",
+        "body": "Changes made in the billing portal may take a moment to appear."
+      },
+      "default": {
+        "title": "Billing complete",
+        "body": "Your billing flow is complete."
+      }
+    }
+  },
   "landing": {
     "bestTerminal": {
       "metaTitle": "The best terminal for Mac in 2026 — cmux",

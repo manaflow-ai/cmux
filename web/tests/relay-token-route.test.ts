@@ -307,22 +307,42 @@ describe("POST /api/relay/token", () => {
     expect(invalid.status).toBe(400);
   });
 
-  test("rate limits by authenticated account and fails closed", async () => {
+  test("rate limits per account and endpoint and fails closed", async () => {
     let key: string | undefined;
+    let checks = 0;
     const limited = await handleRelayTokenRequest(
       request({ endpointId: ENDPOINT_ID }),
       deps({
         isVercel: () => true,
         rateLimitRuleId: () => "relay-token",
         checkRateLimit: async (_id, options) => {
+          checks += 1;
           key = options.rateLimitKey;
           return { rateLimited: true };
         },
       }),
     );
     expect(limited.status).toBe(429);
-    expect(key).toBe("account-a");
+    // Partitioned per device: a storming endpoint starves only itself, never
+    // the account's other phones, simulators, or tagged builds.
+    expect(key).toBe(`account-a:${ENDPOINT_ID.toLowerCase()}`);
     expect(limited.headers.get("retry-after")).toBe("600");
+
+    // Malformed requests are rejected before the limiter and never consume
+    // the per-device budget.
+    const invalid = await handleRelayTokenRequest(
+      request({ endpointId: "not-an-endpoint" }),
+      deps({
+        isVercel: () => true,
+        rateLimitRuleId: () => "relay-token",
+        checkRateLimit: async () => {
+          checks += 1;
+          return { rateLimited: true };
+        },
+      }),
+    );
+    expect(invalid.status).toBe(400);
+    expect(checks).toBe(1);
 
     const unavailable = await handleRelayTokenRequest(
       request({ endpointId: ENDPOINT_ID }),

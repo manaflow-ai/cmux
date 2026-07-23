@@ -65,7 +65,15 @@ export type JsonObjectResult =
   | { readonly ok: false; readonly error: "invalid_json" | "request_too_large" };
 
 const DEV_TAGGED_BUNDLE_ID = /^dev\.cmux\.ios\.[a-z0-9](?:[a-z0-9-]{0,61}[a-z0-9])?$/;
-const PROD_BUNDLE_IDS = new Set(["com.cmux.app", "com.cmuxterm.app", "dev.cmux.app.beta"]);
+// Every TestFlight lane (beta AND internal) uses the production APNs
+// environment; the internal lane's bundle id is set in
+// .github/workflows/ios-testflight.yml (IOS_BETA_BUNDLE_ID).
+const PROD_BUNDLE_IDS = new Set([
+  "com.cmux.app",
+  "com.cmuxterm.app",
+  "dev.cmux.app.beta",
+  "dev.cmux.app.internal",
+]);
 
 function stringValue(value: unknown): string {
   return typeof value === "string" ? value.trim() : "";

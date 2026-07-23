@@ -41,6 +41,10 @@ public protocol CmxIrohSettingsControlling: AnyObject {
 
     /// Erases the in-memory connection timeline and rotates its report session.
     func clearIrohDiagnosticReport() async
+
+    /// The archived report from the previous process launch, if one exists.
+    /// Exports include it so a drop that preceded a relaunch stays diagnosable.
+    func irohPreviousLaunchDiagnosticReport() async -> DiagnosticReport?
 }
 
 public extension CmxIrohSettingsControlling {
@@ -54,6 +58,10 @@ public extension CmxIrohSettingsControlling {
 
     func irohDiagnosticReport() async -> DiagnosticReport {
         .empty
+    }
+
+    func irohPreviousLaunchDiagnosticReport() async -> DiagnosticReport? {
+        nil
     }
 
     func exportIrohDiagnosticReport() async -> Data {

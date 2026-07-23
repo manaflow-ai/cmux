@@ -1,4 +1,27 @@
 {
+  "cloudBillingReturn": {
+    "eyebrow": "cmux Cloud",
+    "returnTitle": "Terminalde devam edin",
+    "returnBody": "Devam etmek için ssh cmux.cloud komutunu çalıştırdığınız terminale dönün.",
+    "statuses": {
+      "checkoutSuccess": {
+        "title": "Ödeme tamamlandı",
+        "body": "Aboneliğiniz onaylandı. Yeni sınırların görünmesi biraz zaman alabilir."
+      },
+      "checkoutCanceled": {
+        "title": "Ödeme iptal edildi",
+        "body": "Ödeme, planınız değiştirilmeden kapatıldı."
+      },
+      "portalReturn": {
+        "title": "Faturalandırma portalından döndünüz",
+        "body": "Faturalandırma portalındaki değişikliklerin görünmesi biraz zaman alabilir."
+      },
+      "default": {
+        "title": "Faturalandırma tamamlandı",
+        "body": "Faturalandırma işleminiz tamamlandı."
+      }
+    }
+  },
   "meta": {
     "title": "cmux — Çoklu görev için tasarlanmış terminal",
     "description": "Ghostty üzerine kurulu ücretsiz ve açık kaynaklı yerel macOS terminali. Claude Code, Codex, OpenCode, Gemini CLI, Kiro, Aider ve herhangi bir CLI aracıyla çalışır. Dikey sekmeler, bildirim halkaları, bölünmüş paneller ve bir soket API.",

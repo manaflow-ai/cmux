@@ -145376,6 +145376,57 @@
         }
       }
     },
+    "settings.app.focusHistoryIncludesPanesAndTabs": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Include Panes and Tabs in Focus History"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "フォーカス履歴にペインとタブを含める"
+          }
+        }
+      }
+    },
+    "settings.app.focusHistoryIncludesPanesAndTabs.subtitleOff": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Back and forward navigate between workspaces only."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "戻る／進むではワークスペース間のみを移動します。"
+          }
+        }
+      }
+    },
+    "settings.app.focusHistoryIncludesPanesAndTabs.subtitleOn": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Back and forward navigate focus changes between panes, tabs, and workspaces."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "戻る／進むではペイン、タブ、ワークスペース間のフォーカス移動をたどります。"
+          }
+        }
+      }
+    },
     "settings.app.paneFirstClickFocus": {
       "extractionState": "manual",
       "localizations": {
