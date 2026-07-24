@@ -39,7 +39,7 @@ public struct ShortcutStroke: Sendable, Equatable, Hashable, Codable {
     /// physical-key representation when a recording-time key code is present.
     public func canonicalized() -> ShortcutStroke {
         ShortcutStroke(
-            key: ShortcutKeyCanonicalizer.storedKey(key, keyCode: keyCode),
+            key: canonicalShortcutKey(key, keyCode: keyCode),
             command: command,
             shift: shift,
             option: option,

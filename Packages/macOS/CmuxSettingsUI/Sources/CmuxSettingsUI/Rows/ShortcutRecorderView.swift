@@ -369,7 +369,7 @@ public final class RecorderHostButton: NSButton {
             return
         }
 
-        guard let key = ShortcutKeyCanonicalizer.recordedKey(
+        guard let key = recordedShortcutKey(
             keyCode: event.keyCode,
             charactersIgnoringModifiers: event.charactersIgnoringModifiers
         ) else { return }

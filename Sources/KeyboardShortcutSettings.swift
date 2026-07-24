@@ -1681,6 +1681,10 @@ struct ShortcutStroke: Equatable, Hashable {
         let flags = Self.normalizedModifierFlags(from: modifierFlags)
         guard flags == self.modifierFlags else { return false }
 
+        if let recordedKeyCode = self.keyCode {
+            return keyCode == recordedKeyCode
+        }
+
         let shortcutKey = key.lowercased()
         if Self.usesDirectKeyCodeMatching(shortcutKey) {
             guard let expectedKeyCode = self.keyCode ?? Self.keyCodeForShortcutKey(shortcutKey) else {
@@ -1783,7 +1787,7 @@ struct ShortcutStroke: Equatable, Hashable {
         keyCode: UInt16,
         charactersIgnoringModifiers: String?
     ) -> String? {
-        ShortcutKeyCanonicalizer.recordedKey(
+        recordedShortcutKey(
             keyCode: keyCode,
             charactersIgnoringModifiers: charactersIgnoringModifiers
         )
