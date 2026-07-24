@@ -11,6 +11,30 @@ final class FilePreviewMediaSession {
         selectionSourceItem: AVPlayerItem?
     )
 
+    private struct PlaybackTransportState {
+        let position: CMTime
+        let rate: Float
+        let defaultRate: Float
+        let timeControlStatus: AVPlayer.TimeControlStatus
+
+        init(player: AVPlayer) {
+            position = player.currentTime()
+            rate = player.rate
+            defaultRate = player.defaultRate
+            timeControlStatus = player.timeControlStatus
+        }
+
+        func matches(_ player: AVPlayer, includingPosition: Bool) -> Bool {
+            if includingPosition,
+               CMTimeCompare(position, player.currentTime()) != 0 {
+                return false
+            }
+            return rate == player.rate &&
+                defaultRate == player.defaultRate &&
+                timeControlStatus == player.timeControlStatus
+        }
+    }
+
     private let viewSession = PanelOwnedNativeViewSession<AVPlayerView>(
         makeView: FilePreviewMediaSession.makeView,
         closeView: { view in
@@ -68,8 +92,7 @@ final class FilePreviewMediaSession {
     }
 
     func close() {
-        playbackRestoreTask?.cancel()
-        playbackRestoreTask = nil
+        cancelPlaybackRestore(in: player?.currentItem)
         pendingPlaybackSnapshot = nil
         player?.pause()
         viewSession.close()
@@ -113,8 +136,7 @@ final class FilePreviewMediaSession {
             return
         }
 
-        playbackRestoreTask?.cancel()
-        playbackRestoreTask = nil
+        cancelPlaybackRestore(in: player?.currentItem)
         pendingPlaybackSnapshot = nil
         player?.pause()
         currentURL = url
@@ -125,7 +147,7 @@ final class FilePreviewMediaSession {
     }
 
     private func replaceCurrentItem(in player: AVPlayer, url: URL, revision: Int) {
-        playbackRestoreTask?.cancel()
+        cancelPlaybackRestore(in: player.currentItem)
 
         let snapshot: PlaybackSnapshot
         if let pendingPlaybackSnapshot {
@@ -144,20 +166,36 @@ final class FilePreviewMediaSession {
 
         player.pause()
         player.replaceCurrentItem(with: nextItem)
-        playbackRestoreTask = Task { [weak self, weak player] in
-            guard let self, let player else { return }
+        let transportState = PlaybackTransportState(player: player)
+        let canContinue: @MainActor () -> Bool = { [weak self, weak player, weak nextItem] in
+            guard let self, let player, let nextItem else { return false }
+            return self.canRestorePlayback(
+                in: player,
+                item: nextItem,
+                revision: revision
+            )
+        }
+        playbackRestoreTask = Task { [weak self, weak player, weak nextItem] in
             defer {
-                finishPlaybackRestore(in: player, item: nextItem, revision: revision)
+                if let player, let nextItem {
+                    self?.finishPlaybackRestore(
+                        in: player,
+                        item: nextItem,
+                        revision: revision
+                    )
+                }
             }
-            if let previousItem = snapshot.selectionSourceItem {
-                await restoreMediaSelections(
+            if let previousItem = snapshot.selectionSourceItem,
+               let nextItem {
+                await Self.restoreMediaSelections(
                     from: previousItem,
                     to: nextItem,
-                    in: player,
-                    revision: revision
+                    canContinue: canContinue
                 )
             }
-            guard canRestorePlayback(in: player, item: nextItem, revision: revision) else { return }
+            guard canContinue(),
+                  let player,
+                  transportState.matches(player, includingPosition: true) else { return }
 
             let finished = await player.seek(
                 to: snapshot.position,
@@ -165,11 +203,18 @@ final class FilePreviewMediaSession {
                 toleranceAfter: .zero
             )
             guard finished,
-                  canRestorePlayback(in: player, item: nextItem, revision: revision) else { return }
+                  canContinue(),
+                  transportState.matches(player, includingPosition: false) else { return }
             if snapshot.shouldResume {
                 player.playImmediately(atRate: snapshot.playbackRate)
             }
         }
+    }
+
+    private func cancelPlaybackRestore(in item: AVPlayerItem?) {
+        playbackRestoreTask?.cancel()
+        playbackRestoreTask = nil
+        item?.cancelPendingSeeks()
     }
 
     private func finishPlaybackRestore(
@@ -184,11 +229,10 @@ final class FilePreviewMediaSession {
         pendingPlaybackSnapshot = nil
     }
 
-    private func restoreMediaSelections(
+    private static func restoreMediaSelections(
         from previousItem: AVPlayerItem,
         to nextItem: AVPlayerItem,
-        in player: AVPlayer,
-        revision: Int
+        canContinue: @MainActor () -> Bool
     ) async {
         let characteristics: [AVMediaCharacteristic]
         do {
@@ -198,14 +242,14 @@ final class FilePreviewMediaSession {
         } catch {
             return
         }
-        guard canRestorePlayback(in: player, item: nextItem, revision: revision) else { return }
+        guard canContinue() else { return }
 
         for characteristic in characteristics {
             do {
                 guard let previousGroup = try await previousItem.asset.loadMediaSelectionGroup(
                     for: characteristic
                 ) else { continue }
-                guard canRestorePlayback(in: player, item: nextItem, revision: revision) else { return }
+                guard canContinue() else { return }
                 guard let selectedOption = previousItem.currentMediaSelection.selectedMediaOption(
                     in: previousGroup
                 ) else { continue }
@@ -213,7 +257,7 @@ final class FilePreviewMediaSession {
                 guard let nextGroup = try await nextItem.asset.loadMediaSelectionGroup(
                     for: characteristic
                 ) else { continue }
-                guard canRestorePlayback(in: player, item: nextItem, revision: revision) else { return }
+                guard canContinue() else { return }
                 guard let nextOption = nextGroup.mediaSelectionOption(
                     withPropertyList: selectedOption.propertyList()
                 ) else { continue }
