@@ -1,9 +1,14 @@
+import CmuxMobileShell
 import CmuxMobileShellModel
 import CmuxMobileSupport
 import SwiftUI
 
 struct WorkspaceNavigationRow: View {
     let workspace: MobileWorkspacePreview
+    /// Immutable changes summary projected by ``WorkspaceListView`` above `List`.
+    var changesChip: MobileWorkspaceChangesChip? = nil
+    /// Opens the immutable changes snapshot's workspace without selecting this row.
+    var onOpenChanges: (@MainActor () -> Void)? = nil
     let connectionStatus: MobileMacConnectionStatus
     let isSelected: Bool
     let navigationStyle: WorkspaceNavigationStyle
@@ -63,10 +68,10 @@ struct WorkspaceNavigationRow: View {
                 .accessibilityIdentifier("MobileWorkspaceDeleteSwipeButton-\(workspace.id.rawValue)")
             }
         }
-        .accessibilityElement(children: .combine)
+        .accessibilityElement(children: onOpenChanges == nil ? .combine : .contain)
         .accessibilityAddTraits(.isButton)
         .accessibilityIdentifier("MobileWorkspaceRow-\(workspace.id.rawValue)")
-        .accessibilityLabel(workspace.name)
+        .accessibilityLabel(rowAccessibilityLabel)
         .accessibilityValue(workspace.accessibilitySummary(connectionStatus: connectionStatus))
         .accessibilityActions {
             if customizeWorkspace != nil {
@@ -138,13 +143,34 @@ struct WorkspaceNavigationRow: View {
     }
 
     private var rowLabel: some View {
+        // The chip renders inside WorkspaceRow so the UIKit table pipeline
+        // (which hosts WorkspaceRow directly) shows the same signifier.
         WorkspaceRow(
             workspace: workspace,
             connectionStatus: connectionStatus,
             isSelected: navigationStyle == .sidebar && isSelected,
+            changesChip: changesChip,
+            onOpenChanges: onOpenChanges,
             wrapWorkspaceTitles: wrapWorkspaceTitles,
             previewLineLimit: previewLineLimit,
             unreadIndicatorLeftShift: unreadIndicatorLeftShift
+        )
+    }
+
+    private var rowAccessibilityLabel: String {
+        // An interactive chip is exposed as its own accessibility button, so
+        // the row must not repeat the same changes summary.
+        guard onOpenChanges == nil else { return workspace.name }
+        guard let changesChip, changesChip.filesChanged > 0 else { return workspace.name }
+        return String(
+            format: String(
+                localized: "workspace.changes.chip.row_accessibility",
+                defaultValue: "%1$@, %2$lld additions, %3$lld deletions",
+                bundle: .module
+            ),
+            workspace.name,
+            changesChip.additions,
+            changesChip.deletions
         )
     }
 
