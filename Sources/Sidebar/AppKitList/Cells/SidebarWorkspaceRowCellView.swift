@@ -61,6 +61,7 @@ final class SidebarWorkspaceRowTableCellView: NSTableCellView {
 
     private var model: SidebarWorkspaceRowModel?
     private var actions: SidebarAppKitRowActions?
+    var stagePostUpdateActions: (([@MainActor () -> Void]) -> Void)?
     private var isPointerHovering = false
     private var contextMenuVisible = false
     private var contextMenuDidOpen: (() -> Void)?
@@ -258,7 +259,7 @@ final class SidebarWorkspaceRowTableCellView: NSTableCellView {
             if statusPopoverPresenter.isShown {
                 statusPopoverPresenter.close()
             }
-            suspendPresentation(commitEdits: true)
+            stagePostUpdateActions?(detachPresentation(commitEdits: true))
         }
     }
 

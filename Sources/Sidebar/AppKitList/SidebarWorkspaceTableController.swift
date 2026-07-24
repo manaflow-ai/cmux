@@ -1166,6 +1166,9 @@ final class SidebarWorkspaceTableController: NSObject, NSTableViewDataSource, NS
     private func configure(workspaceCell cell: SidebarWorkspaceRowTableCellView, at row: Int) {
         let configuration = rows[row]
         guard let model = configuration.appKitWorkspaceRowModel else { return }
+        cell.stagePostUpdateActions = { [weak self] actions in
+            self?.mutationScheduler.stagePostUpdateActions(actions)
+        }
         guard let actions = configuration.appKitWorkspaceRowActions else {
             cell.configurePresentation(model: model)
             return

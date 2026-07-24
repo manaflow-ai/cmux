@@ -859,6 +859,7 @@ struct ContentView: View {
     @State private var sidebarLayout = SidebarLayoutModel(
         width: CGFloat(SessionPersistencePolicy.defaultSidebarWidth)
     )
+    @State private var sidebarFocusBoundary = SidebarFocusBoundaryReference()
     private var sidebarWidth: CGFloat {
         get { sidebarLayout.width }
         nonmutating set { sidebarLayout.width = newValue }
@@ -1713,6 +1714,7 @@ struct ContentView: View {
         }
         .modifier(SidebarWidthFrameModifier(layout: sidebarLayout))
         .frame(maxHeight: .infinity, alignment: .topLeading)
+        .background(SidebarPointerEventHost { sidebarFocusBoundary.attach($0) })
     }
 
     /// Native titlebar inset reported by AppKit. Standard mode follows cmux's visual chrome;
@@ -2591,7 +2593,7 @@ struct ContentView: View {
               !isCommandPalettePresented,
               let window = observedWindow,
               let responder = window.firstResponder,
-              Self.appKitSidebarContainer(owning: responder) != nil else {
+              sidebarFocusBoundary.contains(responder, in: window) else {
             return
         }
 
@@ -2610,25 +2612,6 @@ struct ContentView: View {
             in: window
         )
         workspace.focusPanel(panelId, focusIntent: panel.preferredFocusIntentForActivation())
-    }
-
-    private static func appKitSidebarContainer(
-        owning responder: NSResponder
-    ) -> SidebarWorkspaceTableContainerView? {
-        var view: NSView?
-        if let editor = responder as? NSTextView,
-           let delegateView = editor.delegate as? NSView {
-            view = delegateView
-        } else {
-            view = responder as? NSView
-        }
-        while let current = view {
-            if let container = current as? SidebarWorkspaceTableContainerView {
-                return container
-            }
-            view = current.superview
-        }
-        return nil
     }
 
     var body: some View {
@@ -2663,6 +2646,11 @@ struct ContentView: View {
         )
 
         view = AnyView(view.onAppear {
+            sidebarState.installVisibilityWillChangeHandler(ownerId: windowId) { isVisible in
+                if !isVisible {
+                    restoreMainPanelFocusAfterAppKitSidebarHiddenIfNeeded()
+                }
+            }
             selectedWorkspaceDirectoryObserver.wire(tabManager: tabManager)
             tabManager.applyWindowBackgroundForSelectedTab()
             reconcileMountedWorkspaceIds()
@@ -3256,9 +3244,6 @@ struct ContentView: View {
         })
 
         view = AnyView(view.onChange(of: sidebarState.isVisible) { _, isVisible in
-            if !isVisible {
-                restoreMainPanelFocusAfterAppKitSidebarHiddenIfNeeded()
-            }
             setMinimalModeSidebarTitlebarControlsAvailable(isVisible, in: observedWindow)
             if let observedWindow {
                 AppDelegate.shared?.applyWindowDecorations(to: observedWindow)
@@ -3317,6 +3302,7 @@ struct ContentView: View {
         })
 
         view = AnyView(view.onDisappear {
+            sidebarState.removeVisibilityWillChangeHandler(ownerId: windowId)
             if isResizerDragging {
                 TerminalWindowPortalRegistry.endInteractiveGeometryResize(owner: tabManager)
                 isResizerDragging = false
