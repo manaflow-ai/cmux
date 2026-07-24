@@ -160,21 +160,66 @@ extension CMUXCLI {
             return nil
         }
 
-        let result = CLIProcessRunner.runJSONLinesProcess(
-            executablePath: executablePath,
-            arguments: appServerConfigurationArguments + ["app-server", "--stdio"],
-            stdinText: request,
-            responseID: 2,
-            currentDirectoryPath: currentDirectory,
-            timeout: 5
-        )
-        guard result.status == 0, !result.timedOut else {
-            return nil
+        func readProjectDecisions(
+            configurationArguments: [String]
+        ) -> Set<String>? {
+            let result = CLIProcessRunner.runJSONLinesProcess(
+                executablePath: executablePath,
+                arguments: configurationArguments + ["app-server", "--stdio"],
+                stdinText: request,
+                responseID: 2,
+                currentDirectoryPath: currentDirectory,
+                timeout: 5
+            )
+            guard result.status == 0, !result.timedOut else {
+                return nil
+            }
+            return policy.effectiveProjectDecisionPaths(
+                appServerOutput: result.stdout,
+                responseID: 2
+            )
         }
-        return policy.effectiveProjectDecisionPaths(
-            appServerOutput: result.stdout,
-            responseID: 2
+
+        // config/read does not need a live model catalog. Loading Codex's own
+        // version-compatible cache as a fixed catalog keeps an unrelated model
+        // refresh or credential command from delaying every restored session.
+        // A missing/invalid cache or managed requirement can reject this
+        // session override, so retry the original effective configuration.
+        if let modelCatalogPath = codexModelsCachePath(environment: environment) {
+            let isolatedConfigurationArguments = appServerConfigurationArguments + [
+                "-c",
+                "model_catalog_json=\(modelCatalogPath)",
+            ]
+            if let decisions = readProjectDecisions(
+                configurationArguments: isolatedConfigurationArguments
+            ) {
+                return decisions
+            }
+        }
+        return readProjectDecisions(
+            configurationArguments: appServerConfigurationArguments
         )
+    }
+
+    private func codexModelsCachePath(
+        environment: [String: String]
+    ) -> String? {
+        let codexHome: URL
+        if let configuredHome = normalizedHookValue(environment["CODEX_HOME"]) {
+            guard configuredHome.hasPrefix("/") else { return nil }
+            codexHome = URL(
+                fileURLWithPath: configuredHome,
+                isDirectory: true
+            )
+        } else {
+            codexHome = FileManager.default.homeDirectoryForCurrentUser
+                .appendingPathComponent(".codex", isDirectory: true)
+        }
+        let path = codexHome
+            .appendingPathComponent("models_cache.json", isDirectory: false)
+            .standardizedFileURL
+            .path
+        return FileManager.default.isReadableFile(atPath: path) ? path : nil
     }
 
     private func codexConfigReadRequest(currentDirectory: String) -> String? {
