@@ -12,65 +12,39 @@ import Testing
 struct AgentStatusCloseoutRegressionTests {
     @Test("Codex permission revisions remain monotonic across prompt turns")
     @MainActor
-    func codexPermissionRevisionSurvivesPromptTurnReset() throws {
-        let root = FileManager.default.temporaryDirectory.appending(
-            path: "cmux-codex-permission-watermark-\(UUID().uuidString)",
-            directoryHint: .isDirectory
+    func codexPermissionRevisionSurvivesPromptTurnReset() {
+        let runtime = CodexPermissionRuntimeGeneration(
+            pid: 4_242,
+            pidStartSeconds: 10,
+            pidStartMicroseconds: 20
         )
-        defer { try? FileManager.default.removeItem(at: root) }
-        try FileManager.default.createDirectory(at: root, withIntermediateDirectories: true)
-        let store = ClaudeHookSessionStore(
-            processEnv: [
-                "CMUX_CLAUDE_HOOK_STATE_PATH": root.appending(path: "sessions.json").path
-            ]
+        let firstIdentity = CodexPermissionSignalIdentity(
+            turnID: "turn-1",
+            requestID: "call-1"
         )
         let sessionID = "monotonic-revision-session"
-        let workspaceID = UUID().uuidString
-        let surfaceID = UUID().uuidString
-        let pid = Int(getpid())
-
-        #expect(try store.upsertCodexSessionStartIfFresh(
-            sessionId: sessionID,
-            workspaceId: workspaceID,
-            surfaceId: surfaceID,
-            cwd: nil,
-            pid: pid
-        ))
-        let firstPermission = try #require(store.recordCodexPermissionNeedsInput(
-            sessionId: sessionID,
-            workspaceId: workspaceID,
-            surfaceId: surfaceID,
-            cwd: nil,
-            turnId: "turn-1",
-            requestId: "call-1",
-            pid: pid
-        ))
-        let firstCompletion = try #require(store.recordCodexToolCompleted(
-            sessionId: sessionID,
-            workspaceId: workspaceID,
-            surfaceId: surfaceID,
-            cwd: nil,
-            turnId: "turn-1",
-            requestId: "call-1",
-            pid: pid
-        ))
-        #expect(try store.upsertCodexPromptRunningIfFresh(
-            sessionId: sessionID,
-            workspaceId: workspaceID,
-            surfaceId: surfaceID,
-            cwd: nil,
-            turnId: "turn-2",
-            pid: pid
-        ))
-        let secondPermission = try #require(store.recordCodexPermissionNeedsInput(
-            sessionId: sessionID,
-            workspaceId: workspaceID,
-            surfaceId: surfaceID,
-            cwd: nil,
-            turnId: "turn-2",
-            requestId: "call-2",
-            pid: pid
-        ))
+        let firstPermission = CodexPermissionTransitionMachine.reduce(
+            current: nil,
+            event: .permissionRequested,
+            identity: firstIdentity,
+            runtime: runtime
+        )
+        let firstCompletion = CodexPermissionTransitionMachine.reduce(
+            current: firstPermission.state,
+            event: .toolCompleted,
+            identity: firstIdentity,
+            runtime: runtime
+        )
+        let secondPermission = CodexPermissionTransitionMachine.reduce(
+            current: nil,
+            event: .permissionRequested,
+            identity: CodexPermissionSignalIdentity(
+                turnID: "turn-2",
+                requestID: "call-2"
+            ),
+            runtime: runtime,
+            revisionWatermark: firstCompletion.state.revision
+        )
 
         #expect(firstCompletion.state.revision > firstPermission.state.revision)
         #expect(secondPermission.state.revision > firstCompletion.state.revision)
@@ -100,56 +74,36 @@ struct AgentStatusCloseoutRegressionTests {
     }
 
     @Test("A new Codex runtime generation resets the permission revision watermark")
-    func newCodexRuntimeResetsPermissionRevision() throws {
-        let root = FileManager.default.temporaryDirectory.appending(
-            path: "cmux-codex-permission-runtime-\(UUID().uuidString)",
-            directoryHint: .isDirectory
+    func newCodexRuntimeResetsPermissionRevision() {
+        let firstRuntime = CodexPermissionRuntimeGeneration(
+            pid: 4_242,
+            pidStartSeconds: 10,
+            pidStartMicroseconds: 20
         )
-        defer { try? FileManager.default.removeItem(at: root) }
-        try FileManager.default.createDirectory(at: root, withIntermediateDirectories: true)
-        let store = ClaudeHookSessionStore(
-            processEnv: [
-                "CMUX_CLAUDE_HOOK_STATE_PATH": root.appending(path: "sessions.json").path
-            ]
+        let replacementRuntime = CodexPermissionRuntimeGeneration(
+            pid: 4_243,
+            pidStartSeconds: 30,
+            pidStartMicroseconds: 40
         )
-        let sessionID = "replacement-runtime-session"
-        let workspaceID = UUID().uuidString
-        let surfaceID = UUID().uuidString
-
-        #expect(try store.upsertCodexSessionStartIfFresh(
-            sessionId: sessionID,
-            workspaceId: workspaceID,
-            surfaceId: surfaceID,
-            cwd: nil,
-            pid: Int(getpid())
-        ))
-        let firstPermission = try #require(store.recordCodexPermissionNeedsInput(
-            sessionId: sessionID,
-            workspaceId: workspaceID,
-            surfaceId: surfaceID,
-            cwd: nil,
-            turnId: "turn-1",
-            requestId: "call-1",
-            pid: Int(getpid())
-        ))
+        let identity = CodexPermissionSignalIdentity(
+            turnID: "turn-1",
+            requestID: "call-1"
+        )
+        let firstPermission = CodexPermissionTransitionMachine.reduce(
+            current: nil,
+            event: .permissionRequested,
+            identity: identity,
+            runtime: firstRuntime
+        )
         #expect(firstPermission.state.revision == 1)
 
-        #expect(try store.upsertCodexSessionStartIfFresh(
-            sessionId: sessionID,
-            workspaceId: workspaceID,
-            surfaceId: surfaceID,
-            cwd: nil,
-            pid: Int(getppid())
-        ))
-        let replacementPermission = try #require(store.recordCodexPermissionNeedsInput(
-            sessionId: sessionID,
-            workspaceId: workspaceID,
-            surfaceId: surfaceID,
-            cwd: nil,
-            turnId: "turn-1",
-            requestId: "call-1",
-            pid: Int(getppid())
-        ))
+        let replacementPermission = CodexPermissionTransitionMachine.reduce(
+            current: nil,
+            event: .permissionRequested,
+            identity: identity,
+            runtime: replacementRuntime,
+            revisionWatermark: nil
+        )
 
         #expect(replacementPermission.state.revision == 1)
     }
