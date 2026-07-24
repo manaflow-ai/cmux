@@ -58,6 +58,13 @@ final class GlobalSearchForegroundScopeUITests: XCTestCase {
 
         let probe = XCUIApplication(bundleIdentifier: Self.shortcutProbeBundleIdentifier)
         XCTAssertTrue(
+            waitForAppToRun(probe, timeout: 10.0),
+            "Expected shortcut probe to launch. state=\(probe.state.rawValue)"
+        )
+        if probe.state != .runningForeground {
+            probe.activate()
+        }
+        XCTAssertTrue(
             probe.wait(for: .runningForeground, timeout: 10.0),
             "Expected shortcut probe to be foreground. state=\(probe.state.rawValue)"
         )
@@ -90,6 +97,18 @@ final class GlobalSearchForegroundScopeUITests: XCTestCase {
             "cmux must remain backgrounded after the foreground app receives Cmd-Option-F"
         )
         XCTAssertFalse(globalSearchField.exists, "Background Cmd-Option-F must not open cmux Global Search")
+    }
+
+    private func waitForAppToRun(_ application: XCUIApplication, timeout: TimeInterval) -> Bool {
+        waitForPredicate(
+            NSPredicate(
+                format: "state == %d OR state == %d",
+                XCUIApplication.State.runningBackground.rawValue,
+                XCUIApplication.State.runningForeground.rawValue
+            ),
+            object: application,
+            timeout: timeout
+        )
     }
 
     private func waitForAppToLeaveForeground(_ application: XCUIApplication, timeout: TimeInterval) -> Bool {
