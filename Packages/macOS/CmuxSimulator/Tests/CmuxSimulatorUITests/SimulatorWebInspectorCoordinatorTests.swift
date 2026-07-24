@@ -28,6 +28,33 @@ struct SimulatorWebInspectorCoordinatorTests {
             .setWebInspectorHighlight(enabled: false),
             .releaseWebInspector,
         ])
+        #expect(!coordinator.webInspectorIsHighlighted)
+    }
+
+    @Test("Failed unhighlight and release preserve highlight state for retry")
+    func compoundCleanupFailurePreservesHighlight() async {
+        let client = SimulatorPaneClientSpy(
+            devices: [],
+            failsWebInspectorHighlight: true,
+            failsWebInspectorRelease: true
+        )
+        let coordinator = SimulatorPaneCoordinator(client: client)
+        coordinator.webInspectorIsHighlighted = true
+
+        do {
+            _ = try await coordinator.releaseWebInspectorResult()
+            Issue.record("Expected the Inspector release error")
+        } catch let failure as SimulatorFailure {
+            #expect(failure.code == "fixture_release_failed")
+        } catch {
+            Issue.record("Unexpected error: \(error)")
+        }
+
+        #expect(await client.actions() == [
+            .setWebInspectorHighlight(enabled: false),
+            .releaseWebInspector,
+        ])
+        #expect(coordinator.webInspectorIsHighlighted)
     }
 
     @Test("Target closure releases the session and clears bounded responses")

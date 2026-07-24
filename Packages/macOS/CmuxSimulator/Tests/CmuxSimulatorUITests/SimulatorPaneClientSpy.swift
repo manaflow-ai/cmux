@@ -13,6 +13,7 @@ actor SimulatorPaneClientSpy: SimulatorPaneClient {
     private let failsApplicationInstall: Bool
     private let failsCameraDisable: Bool
     private let failsWebInspectorHighlight: Bool
+    private let failsWebInspectorRelease: Bool
     private let cancelsControlActionBeforeReturning: Bool
     private let eventStream: SimulatorWorkerEventStream
     private let eventContinuation: SimulatorWorkerEventStream.Continuation
@@ -38,6 +39,7 @@ actor SimulatorPaneClientSpy: SimulatorPaneClient {
         failsApplicationInstall: Bool = false,
         failsCameraDisable: Bool = false,
         failsWebInspectorHighlight: Bool = false,
+        failsWebInspectorRelease: Bool = false,
         cancelsControlActionBeforeReturning: Bool = false
     ) {
         self.devicesValue = devices
@@ -49,6 +51,7 @@ actor SimulatorPaneClientSpy: SimulatorPaneClient {
         self.failsApplicationInstall = failsApplicationInstall
         self.failsCameraDisable = failsCameraDisable
         self.failsWebInspectorHighlight = failsWebInspectorHighlight
+        self.failsWebInspectorRelease = failsWebInspectorRelease
         self.cancelsControlActionBeforeReturning = cancelsControlActionBeforeReturning
         let source = SimulatorWorkerEventStreamSource(
             maximumBufferedBytes: 1_024 * 1_024,
@@ -136,6 +139,13 @@ actor SimulatorPaneClientSpy: SimulatorPaneClient {
             throw SimulatorFailure(
                 code: "fixture_highlight_failed",
                 message: "The target rejected highlight cleanup.",
+                isRecoverable: true
+            )
+        }
+        if case .releaseWebInspector = action, failsWebInspectorRelease {
+            throw SimulatorFailure(
+                code: "fixture_release_failed",
+                message: "The target rejected Inspector release.",
                 isRecoverable: true
             )
         }
