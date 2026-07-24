@@ -52,6 +52,21 @@ pub struct BrowserResizeFailure {
     pub error: String,
 }
 
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum BrowserKey {
+    Character(char),
+    Named(&'static str),
+}
+
+impl BrowserKey {
+    fn as_str(self, character_buffer: &mut [u8; 4]) -> &str {
+        match self {
+            Self::Character(character) => character.encode_utf8(character_buffer),
+            Self::Named(name) => name,
+        }
+    }
+}
+
 pub enum BrowserInputKind {
     Mouse {
         event_type: &'static str,
@@ -67,11 +82,11 @@ pub enum BrowserInputKind {
     },
     Key {
         event_type: &'static str,
-        key: String,
-        code: String,
+        key: BrowserKey,
+        code: &'static str,
         windows_virtual_key_code: u32,
         modifiers: u32,
-        text: Option<String>,
+        text: Option<&'static str>,
     },
     InsertText(String),
     Resize {
@@ -470,16 +485,19 @@ fn dispatch(event: &BrowserInputEvent) -> anyhow::Result<bool> {
             windows_virtual_key_code,
             modifiers,
             text,
-        } => surface
-            .browser_key_event(
-                event_type,
-                key,
-                code,
-                *windows_virtual_key_code,
-                *modifiers,
-                text.as_deref(),
-            )
-            .map(|()| true),
+        } => {
+            let mut character_buffer = [0; 4];
+            surface
+                .browser_key_event(
+                    event_type,
+                    (*key).as_str(&mut character_buffer),
+                    code,
+                    *windows_virtual_key_code,
+                    *modifiers,
+                    *text,
+                )
+                .map(|()| true)
+        }
         BrowserInputKind::InsertText(text) => surface.browser_insert_text(text).map(|()| true),
         BrowserInputKind::Resize { cols, rows, reassert, .. } => {
             if *reassert {

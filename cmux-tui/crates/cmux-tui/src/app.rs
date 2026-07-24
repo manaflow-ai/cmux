@@ -39,7 +39,7 @@ use ratatui::Terminal as RatatuiTerminal;
 use ratatui::backend::CrosstermBackend;
 
 use crate::browser_input::{
-    BrowserInputDispatcher, BrowserInputEvent, BrowserInputKind, BrowserResizeFailure,
+    BrowserInputDispatcher, BrowserInputEvent, BrowserInputKind, BrowserKey, BrowserResizeFailure,
 };
 use crate::config::{Action, ChromeTheme, Config, ScrollbarPosition, SidebarView};
 use crate::keys;
@@ -86,9 +86,20 @@ enum TerminalInput {
 
 impl From<Event> for TerminalInput {
     fn from(event: Event) -> Self {
+        Self::from_event(event, None)
+    }
+}
+
+impl TerminalInput {
+    fn from_event(event: Event, macos_option_as_alt: Option<bool>) -> Self {
         match event {
             Event::Key(key) => Self::Keyboard(key.into()),
-            Event::EnhancedKey(key) => Self::Keyboard(key.into()),
+            Event::EnhancedKey(key) => Self::Keyboard(keys::KeyboardInput::from_enhanced(
+                key,
+                // Unset and side-specific policies are ambiguous because Kitty
+                // omits modifier-side and consumption metadata. Preserve Alt.
+                macos_option_as_alt.unwrap_or(true),
+            )),
             Event::Mouse(mouse) => Self::Mouse(mouse),
             Event::Paste(text) => Self::Paste(text),
             Event::FocusGained => Self::FocusGained,
@@ -96,9 +107,7 @@ impl From<Event> for TerminalInput {
             Event::Resize(_, _) => Self::Resize,
         }
     }
-}
 
-impl TerminalInput {
     fn is_routable(&self) -> bool {
         matches!(self, Self::Keyboard(_) | Self::Mouse(_) | Self::Paste(_))
     }
@@ -5630,7 +5639,10 @@ impl App {
             event => event,
         };
         if let AppEvent::Input(input) = event {
-            return self.handle_terminal_input(input.into());
+            return self.handle_terminal_input(TerminalInput::from_event(
+                input,
+                self.config.macos_option_as_alt,
+            ));
         }
         match &event {
             AppEvent::Mux(MuxEvent::SurfaceExited(_) | MuxEvent::LayoutChanged(_)) => {
@@ -6978,7 +6990,7 @@ impl App {
         let (binding_key, binding_fallback) = input.shortcut_keys();
         if self.prefix_armed {
             self.prefix_armed = false;
-            return self.handle_prefixed(&input, binding_key, binding_fallback);
+            return self.handle_prefixed(input, binding_key, binding_fallback);
         }
         if !input.has_consumed_alt()
             && binding_matches(&self.config.keys.prefix, &binding_key, binding_fallback.as_ref())
@@ -6991,7 +7003,7 @@ impl App {
         }
         if self.workspace_sidebar_focused() {
             if self.config.sidebar.plugin.is_some() {
-                self.forward_sidebar_key(&input);
+                self.forward_sidebar_key(input);
                 return Ok(if self.status_message.is_some() {
                     RenderAction::Draw
                 } else {
@@ -7015,13 +7027,13 @@ impl App {
             )
         {
             if action == Action::ClearHistory {
-                return Ok(self.run_clear_history_shortcut(&input));
+                return Ok(self.run_clear_history_shortcut(input));
             }
             return self.run_action(action);
         }
         // Typing replaces any selection highlight.
         self.selection = None;
-        self.forward_key(&input);
+        self.forward_key(input);
         Ok(if self.status_message.is_some() { RenderAction::Draw } else { RenderAction::None })
     }
 
@@ -7687,7 +7699,7 @@ impl App {
 
     fn handle_prefixed(
         &mut self,
-        input: &keys::KeyboardInput,
+        input: keys::KeyboardInput,
         binding_key: KeyEvent,
         binding_fallback: Option<KeyEvent>,
     ) -> anyhow::Result<RenderAction> {
@@ -8314,7 +8326,7 @@ impl App {
         self.sidebar_plugin_surface.and_then(|surface| self.session.surface(surface))
     }
 
-    fn run_clear_history_shortcut(&mut self, input: &keys::KeyboardInput) -> RenderAction {
+    fn run_clear_history_shortcut(&mut self, input: keys::KeyboardInput) -> RenderAction {
         let Some(surface_id) = self.active_surface() else {
             return RenderAction::None;
         };
@@ -8327,7 +8339,7 @@ impl App {
                 RenderAction::None
             };
         }
-        let Some(key_input) = input.terminal_input() else {
+        let Some(key_input) = input.into_terminal_input() else {
             return RenderAction::None;
         };
         let Some(surface) = self.session.surface(surface_id) else {
@@ -8340,7 +8352,7 @@ impl App {
         if self.status_message.is_some() { RenderAction::Draw } else { RenderAction::None }
     }
 
-    fn forward_key(&mut self, input: &keys::KeyboardInput) {
+    fn forward_key(&mut self, input: keys::KeyboardInput) {
         if !self.session_available() {
             self.status_message =
                 Some(localization::catalog().sidebar.no_active_session.to_string());
@@ -8353,7 +8365,9 @@ impl App {
             self.forward_browser_key(input);
             return;
         }
-        let Some(input) = input.terminal_input() else { return };
+        let Some(input) = input.into_terminal_input() else {
+            return;
+        };
         let Some((surface_id, surface)) = self.active_surface_with_handle() else { return };
         self.encode_buf.clear();
         let _ = surface.scroll_to_bottom();
@@ -8368,8 +8382,10 @@ impl App {
         }
     }
 
-    fn forward_sidebar_key(&mut self, input: &keys::KeyboardInput) {
-        let Some(input) = input.terminal_input() else { return };
+    fn forward_sidebar_key(&mut self, input: keys::KeyboardInput) {
+        let Some(input) = input.into_terminal_input() else {
+            return;
+        };
         let Some(surface_id) = self.sidebar_plugin_surface else { return };
         let Some(surface) = self.sidebar_surface_handle() else { return };
         self.encode_buf.clear();
@@ -8385,7 +8401,7 @@ impl App {
         }
     }
 
-    fn forward_browser_key(&mut self, input: &keys::KeyboardInput) {
+    fn forward_browser_key(&mut self, input: keys::KeyboardInput) {
         let key = input.ui_key();
         if matches!(key.code, KeyCode::Char('l') | KeyCode::Char('L'))
             && key.modifiers.contains(KeyModifiers::CONTROL)
@@ -8403,14 +8419,14 @@ impl App {
         &mut self,
         surface_id: SurfaceId,
         surface: SurfaceHandle,
-        input: &keys::KeyboardInput,
+        mut input: keys::KeyboardInput,
     ) {
         let key = input.ui_key();
-        if let Some(text) = input.text_for_direct_input() {
+        if let Some(text) = input.take_text_for_direct_input() {
             let _ = self.browser_input.enqueue(BrowserInputEvent {
                 surface_id,
                 surface,
-                kind: BrowserInputKind::InsertText(text.to_string()),
+                kind: BrowserInputKind::InsertText(text),
             });
             return;
         }
@@ -8437,8 +8453,8 @@ impl App {
             surface: surface.clone(),
             kind: BrowserInputKind::Key {
                 event_type: "keyDown",
-                key: key_name.clone(),
-                code: code.clone(),
+                key: key_name,
+                code,
                 windows_virtual_key_code: vk,
                 modifiers,
                 text,
@@ -10802,27 +10818,27 @@ fn rects_intersect(a: Rect, b: Rect) -> bool {
 fn browser_key_mapping(
     code: KeyCode,
     base_layout_key: Option<char>,
-) -> Option<(String, String, u32, Option<String>)> {
+) -> Option<(BrowserKey, &'static str, u32, Option<&'static str>)> {
     match code {
         KeyCode::Char(character) => {
             let physical =
                 base_layout_key.unwrap_or_else(|| browser_unshifted_character(character));
             let (code, vk) = browser_character_code(physical);
-            Some((character.to_string(), code, vk, None))
+            Some((BrowserKey::Character(character), code, vk, None))
         }
-        KeyCode::Enter => Some(("Enter".into(), "Enter".into(), 13, Some("\r".into()))),
-        KeyCode::Backspace => Some(("Backspace".into(), "Backspace".into(), 8, None)),
-        KeyCode::Tab | KeyCode::BackTab => Some(("Tab".into(), "Tab".into(), 9, None)),
-        KeyCode::Esc => Some(("Escape".into(), "Escape".into(), 27, None)),
-        KeyCode::Left => Some(("ArrowLeft".into(), "ArrowLeft".into(), 37, None)),
-        KeyCode::Up => Some(("ArrowUp".into(), "ArrowUp".into(), 38, None)),
-        KeyCode::Right => Some(("ArrowRight".into(), "ArrowRight".into(), 39, None)),
-        KeyCode::Down => Some(("ArrowDown".into(), "ArrowDown".into(), 40, None)),
-        KeyCode::Home => Some(("Home".into(), "Home".into(), 36, None)),
-        KeyCode::End => Some(("End".into(), "End".into(), 35, None)),
-        KeyCode::PageUp => Some(("PageUp".into(), "PageUp".into(), 33, None)),
-        KeyCode::PageDown => Some(("PageDown".into(), "PageDown".into(), 34, None)),
-        KeyCode::Delete => Some(("Delete".into(), "Delete".into(), 46, None)),
+        KeyCode::Enter => Some((BrowserKey::Named("Enter"), "Enter", 13, Some("\r"))),
+        KeyCode::Backspace => Some((BrowserKey::Named("Backspace"), "Backspace", 8, None)),
+        KeyCode::Tab | KeyCode::BackTab => Some((BrowserKey::Named("Tab"), "Tab", 9, None)),
+        KeyCode::Esc => Some((BrowserKey::Named("Escape"), "Escape", 27, None)),
+        KeyCode::Left => Some((BrowserKey::Named("ArrowLeft"), "ArrowLeft", 37, None)),
+        KeyCode::Up => Some((BrowserKey::Named("ArrowUp"), "ArrowUp", 38, None)),
+        KeyCode::Right => Some((BrowserKey::Named("ArrowRight"), "ArrowRight", 39, None)),
+        KeyCode::Down => Some((BrowserKey::Named("ArrowDown"), "ArrowDown", 40, None)),
+        KeyCode::Home => Some((BrowserKey::Named("Home"), "Home", 36, None)),
+        KeyCode::End => Some((BrowserKey::Named("End"), "End", 35, None)),
+        KeyCode::PageUp => Some((BrowserKey::Named("PageUp"), "PageUp", 33, None)),
+        KeyCode::PageDown => Some((BrowserKey::Named("PageDown"), "PageDown", 34, None)),
+        KeyCode::Delete => Some((BrowserKey::Named("Delete"), "Delete", 46, None)),
         _ => None,
     }
 }
@@ -10855,26 +10871,37 @@ fn browser_unshifted_character(character: char) -> char {
     }
 }
 
-fn browser_character_code(character: char) -> (String, u32) {
+const BROWSER_LETTER_CODES: [&str; 26] = [
+    "KeyA", "KeyB", "KeyC", "KeyD", "KeyE", "KeyF", "KeyG", "KeyH", "KeyI", "KeyJ", "KeyK", "KeyL",
+    "KeyM", "KeyN", "KeyO", "KeyP", "KeyQ", "KeyR", "KeyS", "KeyT", "KeyU", "KeyV", "KeyW", "KeyX",
+    "KeyY", "KeyZ",
+];
+
+const BROWSER_DIGIT_CODES: [&str; 10] = [
+    "Digit0", "Digit1", "Digit2", "Digit3", "Digit4", "Digit5", "Digit6", "Digit7", "Digit8",
+    "Digit9",
+];
+
+fn browser_character_code(character: char) -> (&'static str, u32) {
     match character {
         'a'..='z' | 'A'..='Z' => {
             let upper = character.to_ascii_uppercase();
-            (format!("Key{upper}"), upper as u32)
+            (BROWSER_LETTER_CODES[(upper as u8 - b'A') as usize], upper as u32)
         }
-        '0'..='9' => (format!("Digit{character}"), character as u32),
-        ' ' => ("Space".into(), 32),
-        ';' => ("Semicolon".into(), 186),
-        '=' => ("Equal".into(), 187),
-        ',' => ("Comma".into(), 188),
-        '-' => ("Minus".into(), 189),
-        '.' => ("Period".into(), 190),
-        '/' => ("Slash".into(), 191),
-        '`' => ("Backquote".into(), 192),
-        '[' => ("BracketLeft".into(), 219),
-        '\\' => ("Backslash".into(), 220),
-        ']' => ("BracketRight".into(), 221),
-        '\'' => ("Quote".into(), 222),
-        _ => (String::new(), 0),
+        '0'..='9' => (BROWSER_DIGIT_CODES[(character as u8 - b'0') as usize], character as u32),
+        ' ' => ("Space", 32),
+        ';' => ("Semicolon", 186),
+        '=' => ("Equal", 187),
+        ',' => ("Comma", 188),
+        '-' => ("Minus", 189),
+        '.' => ("Period", 190),
+        '/' => ("Slash", 191),
+        '`' => ("Backquote", 192),
+        '[' => ("BracketLeft", 219),
+        '\\' => ("Backslash", 220),
+        ']' => ("BracketRight", 221),
+        '\'' => ("Quote", 222),
+        _ => ("", 0),
     }
 }
 
@@ -10984,6 +11011,7 @@ mod tests {
     fn enhanced_text_inserts_atomically_in_prompt_and_omnibar() {
         let mux = Mux::new("enhanced-overlay-text-test", SurfaceOptions::default());
         let mut app = test_app(Session::Local(mux));
+        app.config.macos_option_as_alt = Some(false);
         let text = "\u{2211}\u{6f22}";
         let enhanced = || {
             Event::EnhancedKey(EnhancedKeyEvent {
@@ -11066,13 +11094,16 @@ mod tests {
     }
 
     #[test]
-    fn option_generated_text_does_not_match_alt_modeless_bindings() {
-        let input = crate::keys::KeyboardInput::from(EnhancedKeyEvent {
-            key_event: KeyEvent::new(KeyCode::Char('j'), KeyModifiers::ALT),
-            shifted_key: None,
-            base_layout_key: Some('j'),
-            text: "\u{2206}".to_string(),
-        });
+    fn explicit_option_text_does_not_match_alt_modeless_bindings() {
+        let input = crate::keys::KeyboardInput::from_enhanced(
+            EnhancedKeyEvent {
+                key_event: KeyEvent::new(KeyCode::Char('j'), KeyModifiers::ALT),
+                shifted_key: None,
+                base_layout_key: Some('j'),
+                text: "\u{2206}".to_string(),
+            },
+            false,
+        );
         let (key, fallback) = input.shortcut_keys();
 
         assert_eq!(
@@ -11148,6 +11179,7 @@ mod tests {
         let temp = test_temp_dir("files-filter-associated-text");
         let mux = Mux::new("files-filter-associated-text-test", SurfaceOptions::default());
         let mut app = test_app(Session::Local(mux));
+        app.config.macos_option_as_alt = Some(false);
         app.sidebar_files = FileBrowser::new(temp.clone());
         app.sidebar_view = SidebarView::Files;
         app.focus = FocusTarget::WorkspaceRail;
@@ -11193,14 +11225,17 @@ mod tests {
         let mut app = test_app(Session::Local(mux));
         let (dispatcher, blocked) = BrowserInputDispatcher::blocked(1);
         app.browser_input = dispatcher;
-        let input = crate::keys::KeyboardInput::from(EnhancedKeyEvent {
-            key_event: KeyEvent::new(KeyCode::Char('w'), KeyModifiers::ALT),
-            shifted_key: None,
-            base_layout_key: Some('w'),
-            text: "\u{2211}\u{6f22}".to_string(),
-        });
+        let input = crate::keys::KeyboardInput::from_enhanced(
+            EnhancedKeyEvent {
+                key_event: KeyEvent::new(KeyCode::Char('w'), KeyModifiers::ALT),
+                shifted_key: None,
+                base_layout_key: Some('w'),
+                text: "\u{2211}\u{6f22}".to_string(),
+            },
+            false,
+        );
 
-        app.forward_browser_key_to(7, SurfaceHandle::RemoteBrowserUnsupported, &input);
+        app.forward_browser_key_to(7, SurfaceHandle::RemoteBrowserUnsupported, input);
 
         let event = blocked.recv_timeout(Duration::from_secs(1));
         assert!(matches!(
@@ -11222,25 +11257,26 @@ mod tests {
             text: "j".to_string(),
         });
 
-        app.forward_browser_key_to(7, SurfaceHandle::RemoteBrowserUnsupported, &input);
+        app.forward_browser_key_to(7, SurfaceHandle::RemoteBrowserUnsupported, input);
 
         let event = blocked.recv_timeout(Duration::from_secs(1));
         assert!(matches!(
             event.kind,
             BrowserInputKind::Key {
                 event_type: "keyDown",
-                ref key,
-                ref code,
+                key: crate::browser_input::BrowserKey::Character('j'),
+                code: "KeyJ",
                 windows_virtual_key_code: 74,
                 modifiers: 1,
                 text: None,
-            } if key == "j" && code == "KeyJ"
+            }
         ));
     }
 
     #[test]
     fn browser_mapping_keeps_character_keys_and_codes_compact() {
-        let (key, code, vk, text) = super::browser_key_mapping(KeyCode::Char('j'), Some('j')).unwrap();
+        let (key, code, vk, text) =
+            super::browser_key_mapping(KeyCode::Char('j'), Some('j')).unwrap();
 
         assert_eq!(key, crate::browser_input::BrowserKey::Character('j'));
         assert_eq!(code, "KeyJ");
@@ -11261,19 +11297,19 @@ mod tests {
             text: "j".to_string(),
         });
 
-        app.forward_browser_key_to(7, SurfaceHandle::RemoteBrowserUnsupported, &input);
+        app.forward_browser_key_to(7, SurfaceHandle::RemoteBrowserUnsupported, input);
 
         let event = blocked.recv_timeout(Duration::from_secs(1));
         assert!(matches!(
             event.kind,
             BrowserInputKind::Key {
                 event_type: "keyDown",
-                ref key,
-                ref code,
+                key: crate::browser_input::BrowserKey::Character('j'),
+                code: "KeyJ",
                 windows_virtual_key_code: 74,
                 modifiers: 4,
                 text: None,
-            } if key == "j" && code == "KeyJ"
+            }
         ));
     }
 

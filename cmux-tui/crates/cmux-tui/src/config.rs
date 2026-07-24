@@ -1231,6 +1231,9 @@ pub struct Config {
     pub theme: Theme,
     pub theme_overrides: ThemeOverrides,
     pub terminal_defaults: DefaultColors,
+    /// Explicit Ghostty `macos-option-as-alt` policy. `None` includes unset,
+    /// invalid, and side-specific values that Kitty cannot disambiguate.
+    pub macos_option_as_alt: Option<bool>,
     pub cursor_style: Option<CursorShape>,
     pub cursor_blink: Option<bool>,
     pub chrome: ChromeMode,
@@ -1281,7 +1284,9 @@ pub fn load() -> Config {
     let mut config = Config::default();
 
     let defaults = ghostty_defaults();
-    config.terminal_defaults = defaults;
+    config.terminal_defaults = defaults.colors;
+    config.macos_option_as_alt = defaults.macos_option_as_alt;
+    let defaults = defaults.colors;
     if let Some(bg) = defaults.selection_bg {
         config.theme.selection_bg = Color::Rgb(bg.r, bg.g, bg.b);
         config.theme_overrides.selection = true;
@@ -1668,18 +1673,28 @@ fn parse_color(s: &str) -> Option<Color> {
     s.parse::<u8>().ok().map(Color::Indexed)
 }
 
+#[derive(Default)]
+struct GhosttyDefaults {
+    colors: DefaultColors,
+    macos_option_as_alt: Option<bool>,
+}
+
 /// The user's relevant Ghostty settings with non-optional application defaults
 /// resolved for values that the low-level terminal otherwise leaves unset.
-fn ghostty_defaults() -> DefaultColors {
-    let parsed = resolved_ghostty_defaults()
+fn ghostty_defaults() -> GhosttyDefaults {
+    let mut parsed = resolved_ghostty_defaults()
         .or_else(|| {
             let text = platform::ghostty_config_paths()
                 .iter()
                 .find_map(|path| std::fs::read_to_string(path).ok())?;
-            Some(parse_ghostty_defaults(&text))
+            Some(GhosttyDefaults {
+                colors: parse_ghostty_defaults(&text),
+                macos_option_as_alt: parse_ghostty_macos_option_as_alt(&text),
+            })
         })
         .unwrap_or_default();
-    resolve_ghostty_application_defaults(parsed)
+    parsed.colors = resolve_ghostty_application_defaults(parsed.colors);
+    parsed
 }
 
 fn resolve_ghostty_application_defaults(mut defaults: DefaultColors) -> DefaultColors {
@@ -1694,21 +1709,24 @@ fn resolve_ghostty_application_defaults(mut defaults: DefaultColors) -> DefaultC
 /// Ask Ghostty to resolve its configuration so cmux-tui inherits precisely the
 /// same theme-loading behavior as the graphical terminal. A failed or slow
 /// invocation is deliberately ignored; startup then uses the file fallback.
-fn resolved_ghostty_defaults() -> Option<DefaultColors> {
+fn resolved_ghostty_defaults() -> Option<GhosttyDefaults> {
     resolved_ghostty_defaults_from(&platform::ghostty_installations())
 }
 
 fn resolved_ghostty_defaults_from(
     installations: &[platform::GhosttyInstallation],
-) -> Option<DefaultColors> {
+) -> Option<GhosttyDefaults> {
     installations.iter().find_map(|installation| {
         let text = run_ghostty_show_config(installation)?;
-        let defaults = parse_resolved_ghostty_defaults(&text);
+        let defaults = GhosttyDefaults {
+            colors: parse_resolved_ghostty_defaults(&text),
+            macos_option_as_alt: parse_ghostty_macos_option_as_alt(&text),
+        };
         // `+show-config` serializes Ghostty's effective application defaults,
         // including both colors. An executable that exits successfully but
         // emits no resolved config (for example a packaging stub) is not a
         // usable resolver and must not suppress later pinned candidates.
-        (defaults.fg.is_some() && defaults.bg.is_some()).then_some(defaults)
+        (defaults.colors.fg.is_some() && defaults.colors.bg.is_some()).then_some(defaults)
     })
 }
 
@@ -1787,6 +1805,30 @@ fn parse_resolved_ghostty_defaults(text: &str) -> DefaultColors {
         apply_ghostty_default(&mut defaults, key.trim(), value.trim());
     }
     defaults
+}
+
+fn parse_ghostty_macos_option_as_alt(text: &str) -> Option<bool> {
+    let mut policy = None;
+    for line in text.lines() {
+        let line = line.trim();
+        let Some((key, value)) = line.split_once('=') else {
+            continue;
+        };
+        if key.trim() != "macos-option-as-alt" {
+            continue;
+        }
+        let value = value.trim();
+        let value =
+            value.strip_prefix('"').and_then(|value| value.strip_suffix('"')).unwrap_or(value);
+        policy = match value {
+            "true" => Some(true),
+            "false" => Some(false),
+            // Kitty does not report which Option key produced a non-modifier
+            // event, so side-specific and invalid values remain ambiguous.
+            _ => None,
+        };
+    }
+    policy
 }
 
 fn apply_ghostty_default(defaults: &mut DefaultColors, key: &str, value: &str) {
@@ -2065,7 +2107,8 @@ mod tests {
         std::fs::write(&broken, "#!/bin/sh\nexit 0\n").unwrap();
         std::fs::write(
             &working,
-            "#!/bin/sh\nprintf 'background = #272822\\nforeground = #fdfff1\\n'\n",
+            "#!/bin/sh\n\
+             printf 'background = #272822\\nforeground = #fdfff1\\nmacos-option-as-alt = false\\n'\n",
         )
         .unwrap();
         std::fs::set_permissions(&broken, std::fs::Permissions::from_mode(0o700)).unwrap();
@@ -2076,8 +2119,9 @@ mod tests {
             platform::GhosttyInstallation { binary: working, resources_dir: None },
         ])
         .unwrap();
-        assert_eq!(defaults.bg, Some(Rgb { r: 0x27, g: 0x28, b: 0x22 }));
-        assert_eq!(defaults.fg, Some(Rgb { r: 0xfd, g: 0xff, b: 0xf1 }));
+        assert_eq!(defaults.colors.bg, Some(Rgb { r: 0x27, g: 0x28, b: 0x22 }));
+        assert_eq!(defaults.colors.fg, Some(Rgb { r: 0xfd, g: 0xff, b: 0xf1 }));
+        assert_eq!(defaults.macos_option_as_alt, Some(false));
         let _ = std::fs::remove_dir_all(root);
     }
 

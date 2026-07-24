@@ -41,8 +41,19 @@ impl From<KeyEvent> for KeyboardInput {
 
 impl From<EnhancedKeyEvent> for KeyboardInput {
     fn from(event: EnhancedKeyEvent) -> Self {
-        let consumed_alt =
-            option_generated_text(&event.key_event, event.shifted_key, event.text.as_str());
+        Self::from_enhanced(event, true)
+    }
+}
+
+impl KeyboardInput {
+    pub fn from_enhanced(event: EnhancedKeyEvent, macos_option_as_alt: bool) -> Self {
+        // Kitty reports pressed modifiers and generated text, but no
+        // consumed-modifier mask. Only the host's explicit Option policy can
+        // tell us that printable text consumed Alt. Ambiguous or side-specific
+        // policies fail closed to preserving Alt shortcuts.
+        let consumed_alt = !macos_option_as_alt
+            && event.key_event.modifiers.contains(KeyModifiers::ALT)
+            && !event.text.is_empty();
         Self {
             key_event: event.key_event,
             shifted_key: event.shifted_key,
@@ -52,9 +63,7 @@ impl From<EnhancedKeyEvent> for KeyboardInput {
             enhanced: true,
         }
     }
-}
 
-impl KeyboardInput {
     pub fn ui_key(&self) -> KeyEvent {
         let mut key = self.key_event;
         if key.modifiers.contains(KeyModifiers::SHIFT)
@@ -75,6 +84,11 @@ impl KeyboardInput {
         }
         (modifiers.is_empty() && !self.associated_text.is_empty())
             .then_some(self.associated_text.as_str())
+    }
+
+    pub fn take_text_for_direct_input(&mut self) -> Option<String> {
+        self.text_for_direct_input()?;
+        Some(std::mem::take(&mut self.associated_text))
     }
 
     pub fn base_layout_key(&self) -> Option<char> {
@@ -115,13 +129,13 @@ impl KeyboardInput {
         (logical, fallback)
     }
 
-    pub fn terminal_input(&self) -> Option<KeyInput> {
+    pub fn into_terminal_input(self) -> Option<KeyInput> {
         if self.enhanced {
             key_input_from_parts(
                 &self.key_event,
                 self.shifted_key,
                 self.base_layout_key,
-                &self.associated_text,
+                self.associated_text,
                 self.consumed_alt,
             )
         } else {
@@ -282,6 +296,10 @@ fn keypad_physical_key(code: KeyCode) -> Option<sys::GhosttyKey> {
 /// Convert a crossterm key event into an encoder input. Returns `None`
 /// for events that produce no terminal bytes (releases, media keys, ...).
 pub fn key_input_from(event: &KeyEvent) -> Option<KeyInput> {
+    key_input_from_event(event, true)
+}
+
+fn key_input_from_event(event: &KeyEvent, include_character_text: bool) -> Option<KeyInput> {
     let action = match event.kind {
         KeyEventKind::Press => KeyAction::Press,
         KeyEventKind::Repeat => KeyAction::Repeat,
@@ -301,7 +319,7 @@ pub fn key_input_from(event: &KeyEvent) -> Option<KeyInput> {
             input.unshifted_codepoint = unshifted as u32;
             // The encoder derives Ctrl-modified bytes from key+mods; text
             // is only the layout-produced character.
-            if !mods.contains(Mods::CTRL) {
+            if include_character_text && !mods.contains(Mods::CTRL) {
                 input.utf8 = c.to_string();
                 if mods.contains(Mods::SHIFT) {
                     input.consumed_mods = Mods::SHIFT;
@@ -344,23 +362,17 @@ pub fn key_input_from(event: &KeyEvent) -> Option<KeyInput> {
 /// guessing the keyboard layout from US punctuation pairs.
 #[cfg(test)]
 pub fn key_input_from_enhanced(event: &EnhancedKeyEvent) -> Option<KeyInput> {
-    key_input_from_parts(
-        &event.key_event,
-        event.shifted_key,
-        event.base_layout_key,
-        &event.text,
-        option_generated_text(&event.key_event, event.shifted_key, &event.text),
-    )
+    KeyboardInput::from_enhanced(event.clone(), true).into_terminal_input()
 }
 
 fn key_input_from_parts(
     event: &KeyEvent,
     shifted_key: Option<char>,
     base_layout_key: Option<char>,
-    associated_text: &str,
+    associated_text: String,
     consumed_alt: bool,
 ) -> Option<KeyInput> {
-    let mut input = key_input_from(event)?;
+    let mut input = key_input_from_event(event, false)?;
 
     if let KeyCode::Char(unshifted) = event.code {
         if !event.state.contains(KeyEventState::KEYPAD)
@@ -372,7 +384,7 @@ fn key_input_from_parts(
     }
 
     if !associated_text.is_empty() {
-        input.utf8 = associated_text.to_string();
+        input.utf8 = associated_text;
         if input.mods.contains(Mods::SHIFT) {
             input.consumed_mods = input.consumed_mods | Mods::SHIFT;
         }
@@ -392,32 +404,6 @@ fn key_input_from_parts(
         }
     }
     Some(input)
-}
-
-fn option_generated_text(
-    event: &KeyEvent,
-    shifted_key: Option<char>,
-    associated_text: &str,
-) -> bool {
-    // Kitty reports pressed modifiers and generated text, but no consumed-modifier
-    // mask. Preserve Alt when the text matches the reported layout identity,
-    // since real Alt/meta chords may include that associated text.
-    if associated_text.is_empty() || !event.modifiers.contains(KeyModifiers::ALT) {
-        return false;
-    }
-    let KeyCode::Char(unshifted) = event.code else {
-        return false;
-    };
-    let expected = if event.modifiers.contains(KeyModifiers::SHIFT) {
-        let Some(shifted) = shifted_key else {
-            return false;
-        };
-        shifted
-    } else {
-        unshifted
-    };
-    let mut produced = associated_text.chars();
-    produced.next() != Some(expected) || produced.next().is_some()
 }
 
 #[cfg(test)]
@@ -598,7 +584,7 @@ mod tests {
             base_layout_key: Some('w'),
             text: "\u{2211}".to_string(),
         };
-        let input = key_input_from_enhanced(&event).unwrap();
+        let input = KeyboardInput::from_enhanced(event, false).into_terminal_input().unwrap();
         let mut terminal = Terminal::new(80, 24, 0, Callbacks::default()).unwrap();
         terminal.vt_write(b"\x1b[>29u");
         let mut encoder = KeyEncoder::new().unwrap();
@@ -665,7 +651,7 @@ mod tests {
             base_layout_key: Some('2'),
             text: "\u{20ac}".to_string(),
         };
-        let input = key_input_from_enhanced(&event).unwrap();
+        let input = KeyboardInput::from_enhanced(event, false).into_terminal_input().unwrap();
         let terminal = Terminal::new(80, 24, 0, Callbacks::default()).unwrap();
         let mut encoder = KeyEncoder::new().unwrap();
         encoder.sync_from_terminal(&terminal);
