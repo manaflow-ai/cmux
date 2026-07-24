@@ -1779,6 +1779,53 @@ struct ComputerUseUXTests {
         #expect(ComputerUseCursorColorParsing.normalizedHex("not-a-color") == nil)
     }
 
+    @Test @MainActor func decorativeCursorOverlayStaysOutOfAccessibilityTree() async throws {
+        let directory = FileManager.default.temporaryDirectory
+            .appendingPathComponent(
+                "cmux-computer-use-cursor-accessibility-\(UUID().uuidString)",
+                isDirectory: true
+            )
+        try FileManager.default.createDirectory(
+            at: directory,
+            withIntermediateDirectories: true
+        )
+        defer { try? FileManager.default.removeItem(at: directory) }
+
+        try writeCursorState(
+            to: directory.appendingPathComponent("42.cursor.json"),
+            driverPID: 42,
+            visible: true,
+            x: 100,
+            y: 100,
+            updatedAt: Date()
+        )
+
+        let controller = ComputerUseCursorOverlayController(
+            stateDirectoryURL: directory,
+            featureEnabled: { true },
+            pollInterval: 60,
+            glideDuration: 0
+        )
+        controller.start()
+        defer { controller.stop() }
+
+        let deadline = ContinuousClock.now + .seconds(2)
+        var cursorPanel: NSPanel?
+        while cursorPanel == nil, ContinuousClock.now < deadline {
+            cursorPanel = NSApp.windows
+                .compactMap { $0 as? NSPanel }
+                .first { $0.contentView is AgentCursorPointerView }
+            if cursorPanel == nil {
+                try await ContinuousClock().sleep(for: .milliseconds(10))
+            }
+        }
+
+        let panel = try #require(cursorPanel)
+        let pointerView = try #require(panel.contentView as? AgentCursorPointerView)
+        #expect(!panel.isAccessibilityElement())
+        #expect(!pointerView.isAccessibilityElement())
+    }
+
     private func writeCursorState(
         to url: URL,
         driverPID: Int,
