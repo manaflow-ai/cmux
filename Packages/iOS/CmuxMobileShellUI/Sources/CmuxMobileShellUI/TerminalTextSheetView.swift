@@ -1,4 +1,5 @@
 #if os(iOS)
+import CMUXMobileCore
 import CmuxMobileShell
 import CmuxMobileSupport
 import CmuxMobileTerminal
@@ -133,7 +134,7 @@ struct TerminalTextSheetView: View {
             // The app-wide copy toast confirms (and supplies the haptic).
             toasts.present(.copied())
         } else {
-            UINotificationFeedbackGenerator().notificationOccurred(.success)
+            MobileHapticFeedback().notification(.success)
             didCopy = true
         }
     }

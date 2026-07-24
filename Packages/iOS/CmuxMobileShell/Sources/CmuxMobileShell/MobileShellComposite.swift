@@ -87,6 +87,7 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
     static let terminalReplayCapability = "terminal.replay.v1"
     static let maxTerminalReplayBarrierDroppedOutputBeforeFailOpen: UInt64 = 256
     static let workspaceActionsCapability = "workspace.actions.v1"
+    static let workspaceMetadataCapability = "workspace.metadata.v1"
     static let workspaceReadStateCapability = "workspace.read_state.v1"
     static let workspaceCloseCapability = "workspace.close.v1"
     static let workspaceMoveCapability = "workspace.move.v1"
@@ -806,6 +807,15 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
     /// event-driven ``workspaceListRefreshTask`` cancel/restart can never truncate
     /// the spinner the pull is awaiting. Rapid pulls coalesce onto this single task.
     private var pullToRefreshTask: Task<Void, Never>?
+    /// Foreground post-mutation list refreshes, coalesced separately from
+    /// pull-to-refresh so batched row actions do not fan out legacy list RPCs.
+    private var foregroundWorkspaceMutationRefreshTask: Task<Void, Never>?
+    /// Set when a later foreground mutation lands while the post-mutation
+    /// refresh is already in flight. The runner drains one trailing refresh so
+    /// the latest mutation is reconciled even if the first fetch captured the
+    /// pre-mutation state.
+    private var foregroundWorkspaceMutationRefreshPending = false
+    private var foregroundWorkspaceMutationRefreshGeneration = UUID()
     @ObservationIgnored var notificationFeedSnapshotsByMac: [String: NotificationFeedMacSnapshot] = [:]
     @ObservationIgnored var notificationFeedKnownRevisionsByMac: [String: Int] = [:]
     @ObservationIgnored var notificationFeedSuccessfulMacIDs: Set<String> = []
@@ -1083,6 +1093,9 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
         self.createTerminalTask = nil
         self.workspaceListRefreshTask = nil
         self.pullToRefreshTask = nil
+        self.foregroundWorkspaceMutationRefreshTask = nil
+        self.foregroundWorkspaceMutationRefreshPending = false
+        self.foregroundWorkspaceMutationRefreshGeneration = UUID()
         self.createWorkspaceTaskID = nil
         self.createTerminalTaskID = nil
         self.connectionGeneration = UUID()
@@ -1154,6 +1167,9 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
         createTerminalTask?.cancel()
         workspaceListRefreshTask?.cancel()
         pullToRefreshTask?.cancel()
+        foregroundWorkspaceMutationRefreshTask?.cancel()
+        foregroundWorkspaceMutationRefreshPending = false
+        foregroundWorkspaceMutationRefreshGeneration = UUID()
         notificationFeedOpenTask?.cancel()
         teamScopeReconnectTask?.cancel()
         cancelAllTerminalReplayTasks()
@@ -1271,7 +1287,6 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
         // Likewise drop the registry-backed device tree so a shared device never
         // shows the previous user's team devices after sign-out.
         registryDevices = []
-        hiddenRegistryDisplayNamesByDeviceID = [:]
         // Reset the in-memory restoring flags; hasKnownPairedMac stays driven by
         // the hide path. On a real account switch the next reconnect's no-mac
         // branch clears the hint. Bump the reconnect generation so any in-flight
@@ -1386,7 +1401,6 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
         hiddenComputers = []
         hasHiddenComputers = false
         registryDevices = []
-        hiddenRegistryDisplayNamesByDeviceID = [:]
         teamScopeReconnectTask?.cancel()
         teamScopeReconnectTask = Task { @MainActor [weak self] in
             guard let self,
@@ -2155,14 +2169,10 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
     public private(set) var pairedMacAliasIDsByRepresentativeID: [String: [String]] = [:]
     /// Cached device-local hidden ids keyed by signed-in account/team scope.
     @ObservationIgnored var hiddenMacDeviceIDsByScope: [String: Set<String>] = [:]
-    /// Hidden entries for the current account/team, including legacy markers without rows.
+    /// Row-backed hidden entries for the current account/team.
     public internal(set) var hiddenComputers: [MobileHiddenComputer] = []
-    /// Best registry name seen for hidden legacy device ids.
-    @ObservationIgnored var hiddenRegistryDisplayNamesByDeviceID: [String: String] = [:]
     /// True when the current account/team scope has at least one hidden computer.
     public internal(set) var hasHiddenComputers = false
-    /// True while a legacy hidden-computer recovery is scanning and reconnecting.
-    public internal(set) var isRecoveringHiddenComputer = false
 
     var pairedMacsForIdentityMatching: [MobilePairedMac] {
         storedPairedMacs.isEmpty ? pairedMacs : storedPairedMacs
@@ -2262,18 +2272,6 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
         let hiddenIDs = await hiddenMacDeviceIDs(scope: scope)
         guard await isScopeCurrent(scope) else { return }
         let compatible = compatibleRegistryDevices(loaded)
-        for device in compatible where hiddenIDs.contains(device.deviceId)
-            || hiddenIDs.contains(where: {
-                MobilePairedMac.pairingIdentity(from: $0).macDeviceID == device.deviceId
-            }) {
-            if let displayName = device.displayName, !displayName.isEmpty {
-                hiddenRegistryDisplayNamesByDeviceID[device.deviceId] = displayName
-            }
-        }
-        updateHiddenComputers(
-            loadedMacs: storedPairedMacsIncludingHidden,
-            hiddenIDs: hiddenIDs
-        )
         registryDevices = compatible
             .filter { device in
                 !hiddenIDs.contains(device.deviceId)
@@ -2441,8 +2439,16 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
         guard await isScopeCurrent(scope) else {
             return
         }
-        let visibleLoaded = await visibleStoredPairedMacs(from: loaded, scope: scope)
-        let hiddenIDs = await hiddenMacDeviceIDs(scope: scope)
+        let storedHiddenIDs = await hiddenMacDeviceIDs(scope: scope)
+        let hiddenIDs = await migrateLegacyHiddenMacMarkers(
+            loadedMacs: loaded,
+            hiddenIDs: storedHiddenIDs,
+            scope: scope
+        )
+        let visibleLoaded = visibleStoredPairedMacs(
+            from: loaded,
+            hiddenIDs: hiddenIDs
+        )
         guard await isScopeCurrent(scope) else {
             return
         }
@@ -2481,7 +2487,10 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
     /// To avoid stranding the user, the store's active row is only updated on a
     /// successful connect, and on failure the previously-active Mac (still the
     /// active row) is reconnected. A no-op when already connected to that Mac.
-    /// - Parameter macDeviceID: The stored Mac to switch to.
+    /// - Parameters:
+    ///   - macDeviceID: The stored physical Mac to switch to.
+    ///   - instanceTag: Exact saved app instance to switch to, or `nil` for
+    ///     legacy device-level routing.
     /// - Returns: `true` if the foreground connection now targets that Mac (or
     ///   already did), `false` if the switch could not connect — so callers like
     ///   `openWorkspace` can avoid selecting a workspace whose Mac is not live.
@@ -3968,15 +3977,58 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
     }
 
     /// Re-sync the authoritative workspace list for the Mac a mutation actually hit:
-    /// the foreground's coalesced refresh, or the owning secondary's coalesced
-    /// re-fetch (so a pin/close on a secondary row snaps to the Mac's real state).
+    /// the foreground Mac's own list, or the owning secondary's coalesced re-fetch
+    /// (so a pin/close on a secondary row snaps to the Mac's real state).
+    public func refreshAfterWorkspaceMutation(id: MobileWorkspacePreview.ID) async {
+        await refreshAfterWorkspaceMutation(workspaceMutationTarget(for: id))
+    }
+
     func refreshAfterWorkspaceMutation(_ target: WorkspaceMutationTarget) async {
         if target.isForeground {
-            await refreshWorkspaces()
+            await refreshForegroundWorkspaceListAfterMutation()
         } else if let macID = target.macDeviceID, let sub = secondaryMacSubscriptions[macID] {
             scheduleSecondaryRefresh(
                 macID: macID, client: sub.client, displayName: workspacesByMac[macID]?.displayName)
         }
+    }
+
+    private func refreshForegroundWorkspaceListAfterMutation() async {
+        guard connectionState == .connected, remoteClient != nil else { return }
+        if let inFlight = foregroundWorkspaceMutationRefreshTask {
+            foregroundWorkspaceMutationRefreshPending = true
+            await inFlight.value
+            return
+        }
+        let refreshGeneration = UUID()
+        let refreshConnectionGeneration = connectionGeneration
+        foregroundWorkspaceMutationRefreshGeneration = refreshGeneration
+        let task = Task { @MainActor [weak self] in
+            guard let self else { return }
+            @MainActor func finishIfCurrent() {
+                guard self.foregroundWorkspaceMutationRefreshGeneration == refreshGeneration else { return }
+                self.foregroundWorkspaceMutationRefreshPending = false
+                self.foregroundWorkspaceMutationRefreshTask = nil
+            }
+            repeat {
+                guard self.foregroundWorkspaceMutationRefreshGeneration == refreshGeneration else { return }
+                guard self.connectionGeneration == refreshConnectionGeneration,
+                      !Task.isCancelled else {
+                    finishIfCurrent()
+                    return
+                }
+                self.foregroundWorkspaceMutationRefreshPending = false
+                await self.reloadWorkspaceListFromMac()
+                guard self.foregroundWorkspaceMutationRefreshGeneration == refreshGeneration else { return }
+                guard self.connectionGeneration == refreshConnectionGeneration,
+                      !Task.isCancelled else {
+                    finishIfCurrent()
+                    return
+                }
+            } while self.foregroundWorkspaceMutationRefreshPending
+            finishIfCurrent()
+        }
+        foregroundWorkspaceMutationRefreshTask = task
+        await task.value
     }
 
     /// Fire the server-side `mobile.events.subscribe` enable for a secondary
@@ -5809,6 +5861,10 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
         workspaceListRefreshTask = nil
         pullToRefreshTask?.cancel()
         pullToRefreshTask = nil
+        foregroundWorkspaceMutationRefreshTask?.cancel()
+        foregroundWorkspaceMutationRefreshTask = nil
+        foregroundWorkspaceMutationRefreshPending = false
+        foregroundWorkspaceMutationRefreshGeneration = UUID()
         cancelAllTerminalReplayTasks()
     }
 

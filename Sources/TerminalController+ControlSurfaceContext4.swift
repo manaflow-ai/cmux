@@ -338,7 +338,6 @@ extension TerminalController {
             cleared: true
         ))
     }
-
     // MARK: - token parsers
 
     nonisolated func controlSurfaceParseShellActivityState(_ rawState: String) -> String? {
@@ -440,6 +439,12 @@ extension TerminalController {
             )
             if shouldPublish {
                 DispatchQueue.main.async {
+                    if let dock = DockSplitStore.liveStores.first(where: {
+                        $0.containsPanel(requestedSurfaceID)
+                    }) {
+                        dock.updatePanelShellActivityState(panelId: requestedSurfaceID, state: state)
+                        return
+                    }
                     guard let tabManager = AppDelegate.shared?.tabManagerFor(tabId: workspaceID) else { return }
                     tabManager.updateSurfaceShellActivity(
                         tabId: workspaceID,
