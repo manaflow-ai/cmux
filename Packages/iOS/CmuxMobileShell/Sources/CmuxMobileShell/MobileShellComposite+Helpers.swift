@@ -29,6 +29,8 @@ extension MobileShellComposite {
     ) -> MobileWorkspaceActionCapabilities {
         MobileWorkspaceActionCapabilities(
             supportsWorkspaceActions: supportedHostCapabilities.contains("workspace.actions.v1"),
+            supportsWorkspaceMetadata: supportedHostCapabilities.contains("workspace.actions.v1")
+                && supportedHostCapabilities.contains(Self.workspaceMetadataCapability),
             supportsReadStateActions: supportedHostCapabilities.contains("workspace.read_state.v1"),
             supportsCloseActions: supportedHostCapabilities.contains("workspace.close.v1"),
             supportsMoveActions: supportedHostCapabilities.contains("workspace.move.v1") && allowsMacScopedMutations,

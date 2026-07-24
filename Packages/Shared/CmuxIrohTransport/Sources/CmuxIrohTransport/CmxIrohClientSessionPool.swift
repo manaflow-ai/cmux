@@ -9,6 +9,16 @@ actor CmxIrohClientSessionPool {
         let deviceID: String
     }
 
+    private struct PeerKey: Hashable, Sendable {
+        let identity: CmxIrohPeerIdentity
+        let deviceID: String
+
+        init(_ key: SessionKey) {
+            identity = key.identity
+            deviceID = key.deviceID
+        }
+    }
+
     private struct PendingConnection: Sendable {
         let id: UUID
         let task: Task<CmxIrohClientSession, any Error>
@@ -39,26 +49,39 @@ actor CmxIrohClientSessionPool {
     private let contextProvider: any CmxIrohClientContextProvider
     private let protocolConfiguration: CmxIrohProtocolConfiguration
     private let diagnosticLog: DiagnosticLog?
+    private let clock: any CmxIrohRelayClock
     private var lifecycleRevision: UInt64 = 0
     private var nextDiagnosticSessionID = 0
     private var runtimeGeneration: UInt64?
     private var sessions: [SessionKey: PooledSession] = [:]
     private var sessionOrder: [SessionKey] = []
     private var connectionTasks: [SessionKey: PendingConnection] = [:]
+    private var retiredDialDrains: [PeerKey: [UUID: Task<Void, Never>]] = [:]
+    private var retiredDialWaiters: [
+        PeerKey: [UUID: CheckedContinuation<Void, Never>]
+    ] = [:]
     private var controlOwners: [SessionKey: ControlOwner] = [:]
     private var controlWaiters: [SessionKey: [ControlWaiter]] = [:]
     private var selectedPathContinuations: [UUID: AsyncStream<Void>.Continuation] = [:]
+
+    /// Upper bound on how long a new dial defers to a cancelled predecessor that
+    /// ignores cancellation. Past the bound the new dial proceeds (accepting the
+    /// old overlap behavior) so one wedged iroh dial cannot become a permanent
+    /// connect outage for that Mac.
+    static var retiredDialSettleWaitLimitSeconds: TimeInterval { 10 }
 
     init(
         supervisor: CmxIrohEndpointSupervisor,
         contextProvider: any CmxIrohClientContextProvider,
         protocolConfiguration: CmxIrohProtocolConfiguration = .cmuxMobileV1,
-        diagnosticLog: DiagnosticLog? = nil
+        diagnosticLog: DiagnosticLog? = nil,
+        clock: any CmxIrohRelayClock = CmxIrohSystemRelayClock()
     ) {
         self.supervisor = supervisor
         self.contextProvider = contextProvider
         self.protocolConfiguration = protocolConfiguration
         self.diagnosticLog = diagnosticLog
+        self.clock = clock
     }
 
     func activate(runtimeGeneration: UInt64) async {
@@ -77,75 +100,100 @@ actor CmxIrohClientSessionPool {
         preservesControlOwnerOnClosed: Bool = false
     ) async throws -> CmxIrohClientSession {
         let key = try sessionKey(for: request)
-        while let pooled = sessions[key] {
-            let isClosed = await pooled.session.isClosed()
-            guard sessions[key]?.id == pooled.id else { continue }
-            if !isClosed {
-                return pooled.session
-            }
-            await invalidateSession(
-                for: key,
-                matching: pooled.id,
-                releasesControlOwner: !preservesControlOwnerOnClosed,
-                reason: .closedSessionEvicted,
-                failure: .connectionClosed
-            )
-        }
-
-        let revision = lifecycleRevision
-        let pending: PendingConnection
-        if let existing = connectionTasks[key] {
-            pending = existing
-        } else {
-            let supervisor = supervisor
-            let contextProvider = contextProvider
-            let protocolConfiguration = protocolConfiguration
-            let task = Task {
-                let endpoint = try await supervisor.activeEndpoint()
-                let context = try await contextProvider.context(for: request)
-                let session = try CmxIrohClientSession(
-                    endpoint: endpoint,
-                    targetIdentity: key.identity,
-                    dialPlan: context.dialPlan,
-                    credential: context.credential,
-                    privateFallbackAuthorization: context.privateFallbackAuthorization,
-                    privateFallbackValidator: contextProvider,
-                    privateFallbackContextProvider: {
-                        try await contextProvider.contextWithPrivateFallback(
-                            for: request,
-                            basedOn: context
-                        )
-                    },
-                    protocolConfiguration: protocolConfiguration
-                )
-                do {
-                    try await session.connect()
-                    try Task.checkCancellation()
-                    return session
-                } catch {
-                    await session.close()
-                    throw error
+        var corpseRetriesRemaining = 1
+        redial: while true {
+            while let pooled = sessions[key] {
+                let isClosed = await pooled.session.isClosed()
+                guard sessions[key]?.id == pooled.id else { continue }
+                if !isClosed {
+                    return pooled.session
                 }
+                await invalidateSession(
+                    for: key,
+                    matching: pooled.id,
+                    releasesControlOwner: !preservesControlOwnerOnClosed,
+                    reason: .closedSessionEvicted,
+                    failure: .connectionClosed
+                )
             }
-            pending = PendingConnection(id: UUID(), task: task)
-            connectionTasks[key] = pending
-        }
 
-        do {
-            let connected = try await pending.task.value
-            guard lifecycleRevision == revision else {
-                await connected.close()
-                throw CancellationError()
+            let revision = lifecycleRevision
+            let pending: PendingConnection
+            if let existing = connectionTasks[key] {
+                pending = existing
+            } else {
+                let peer = PeerKey(key)
+                let supervisor = supervisor
+                let contextProvider = contextProvider
+                let protocolConfiguration = protocolConfiguration
+                let task = Task { [weak self] in
+                    // Serialize behind cancelled predecessor dials so a corpse
+                    // admission can never race this dial's admission host-side.
+                    await self?.waitForRetiredDials(peer: peer)
+                    try Task.checkCancellation()
+                    let endpoint = try await supervisor.activeEndpoint()
+                    let context = try await contextProvider.context(for: request)
+                    let session = try CmxIrohClientSession(
+                        endpoint: endpoint,
+                        targetIdentity: key.identity,
+                        dialPlan: context.dialPlan,
+                        credential: context.credential,
+                        privateFallbackAuthorization: context.privateFallbackAuthorization,
+                        privateFallbackValidator: contextProvider,
+                        privateFallbackContextProvider: {
+                            try await contextProvider.contextWithPrivateFallback(
+                                for: request,
+                                basedOn: context
+                            )
+                        },
+                        protocolConfiguration: protocolConfiguration
+                    )
+                    do {
+                        try await session.connect()
+                        try Task.checkCancellation()
+                        return session
+                    } catch {
+                        await session.close()
+                        throw error
+                    }
+                }
+                pending = PendingConnection(id: UUID(), task: task)
+                connectionTasks[key] = pending
             }
-            if connectionTasks[key]?.id == pending.id {
-                connectionTasks[key] = nil
+
+            let connected: CmxIrohClientSession
+            do {
+                connected = try await pending.task.value
+                guard lifecycleRevision == revision else {
+                    await connected.close()
+                    throw CancellationError()
+                }
+                if connectionTasks[key]?.id == pending.id {
+                    connectionTasks[key] = nil
+                }
+            } catch {
+                if connectionTasks[key]?.id == pending.id {
+                    connectionTasks[key] = nil
+                }
+                throw error
             }
+
             if let installed = sessions[key] {
                 if installed.session !== connected {
                     await connected.close()
                 }
-                return installed.session
+                continue redial
             }
+
+            if await connected.isClosed() {
+                await connected.close()
+                guard corpseRetriesRemaining > 0 else {
+                    throw CmxIrohClientSessionError.alreadyClosed
+                }
+                corpseRetriesRemaining -= 1
+                continue redial
+            }
+
             let sessionID = UUID()
             let diagnosticID = makeDiagnosticSessionID()
             let closureTask = Task { [weak self] in
@@ -180,11 +228,6 @@ actor CmxIrohClientSessionPool {
             )
             publishSelectedPathChange()
             return connected
-        } catch {
-            if connectionTasks[key]?.id == pending.id {
-                connectionTasks[key] = nil
-            }
-            throw error
         }
     }
 
@@ -283,9 +326,9 @@ actor CmxIrohClientSessionPool {
 
     private func invalidateAll(reason: DiagnosticSessionLifecycleKind) async {
         lifecycleRevision &+= 1
-        let tasks = connectionTasks.values.map(\.task)
-        connectionTasks.removeAll(keepingCapacity: false)
-        for task in tasks { task.cancel() }
+        for key in Array(connectionTasks.keys) {
+            retirePendingConnection(for: key)
+        }
         let closing = sessions
         let closingOwners = controlOwners
         sessions.removeAll(keepingCapacity: false)
@@ -381,8 +424,7 @@ actor CmxIrohClientSessionPool {
         if let expectedID, sessions[key]?.id != expectedID { return }
         let currentOwner = controlOwners[key]
         let owner = releasesControlOwner ? currentOwner : nil
-        connectionTasks[key]?.task.cancel()
-        connectionTasks[key] = nil
+        retirePendingConnection(for: key)
         let pooled = sessions.removeValue(forKey: key)
         sessionOrder.removeAll { $0 == key }
         pooled?.closureTask.cancel()
@@ -400,6 +442,102 @@ actor CmxIrohClientSessionPool {
             releaseControlOwner(for: key, ownerID: owner.id)
         }
         publishSelectedPathChange()
+    }
+
+    /// Cancels the pending dial for `key` and tracks it until it fully resolves.
+    /// iroh's connect does not observe Swift cancellation, so a cancelled dial can
+    /// still complete QUIC admission on the host seconds later; the host then
+    /// closes the newer live connection for the same device. Draining retired
+    /// dials before the next dial starts keeps at most one admission in flight
+    /// per peer.
+    private func retirePendingConnection(for key: SessionKey) {
+        guard let pending = connectionTasks.removeValue(forKey: key) else { return }
+        pending.task.cancel()
+        let peer = PeerKey(key)
+        let drainID = UUID()
+        retiredDialDrains[peer, default: [:]][drainID] = Task { [weak self] in
+            // The dial task closes its own session on failure or observed
+            // cancellation; a session returned here won the post-cancellation
+            // race and must be settled (closed unless it was installed).
+            let orphan = try? await pending.task.value
+            if let self {
+                await self.settleRetiredDial(
+                    peer: peer,
+                    drainID: drainID,
+                    orphan: orphan
+                )
+            } else if let orphan {
+                await orphan.close()
+            }
+        }
+    }
+
+    private func settleRetiredDial(
+        peer: PeerKey,
+        drainID: UUID,
+        orphan: CmxIrohClientSession?
+    ) async {
+        if let orphan, !sessions.values.contains(where: { $0.session === orphan }) {
+            await orphan.close()
+        }
+        retiredDialDrains[peer]?[drainID] = nil
+        if retiredDialDrains[peer]?.isEmpty == true {
+            retiredDialDrains[peer] = nil
+        }
+        guard retiredDialDrains[peer] == nil,
+              let waiters = retiredDialWaiters.removeValue(forKey: peer) else {
+            return
+        }
+        for continuation in waiters.values {
+            continuation.resume()
+        }
+    }
+
+    /// Defers a fresh dial while cancelled predecessor dials for the same peer
+    /// are still resolving. Single-shot: waits for the drains present on entry,
+    /// bounded by `retiredDialSettleWaitLimitSeconds` via the injected clock, and
+    /// returns early if the waiting dial task itself is cancelled.
+    private func waitForRetiredDials(peer: PeerKey) async {
+        guard retiredDialDrains[peer]?.isEmpty == false else { return }
+        let waiterID = UUID()
+        let clock = clock
+        let deadline = clock.now()
+            .addingTimeInterval(Self.retiredDialSettleWaitLimitSeconds)
+        // This injected-clock sleep is the bounded deadline that prevents a
+        // permanently wedged retired dial from blocking all future connections.
+        let timeout = Task { [weak self] in
+            try? await clock.sleep(until: deadline)
+            guard !Task.isCancelled else { return }
+            await self?.resumeRetiredDialWaiter(peer: peer, waiterID: waiterID)
+        }
+        defer { timeout.cancel() }
+        await withTaskCancellationHandler {
+            await withCheckedContinuation { continuation in
+                if retiredDialDrains[peer]?.isEmpty ?? true {
+                    continuation.resume()
+                } else {
+                    retiredDialWaiters[peer, default: [:]][waiterID] = continuation
+                }
+            }
+        } onCancel: {
+            Task { [weak self] in
+                await self?.resumeRetiredDialWaiter(
+                    peer: peer,
+                    waiterID: waiterID
+                )
+            }
+        }
+    }
+
+    private func resumeRetiredDialWaiter(peer: PeerKey, waiterID: UUID) {
+        guard let continuation = retiredDialWaiters[peer]?
+            .removeValue(forKey: waiterID) else {
+            return
+        }
+        if retiredDialWaiters[peer]?.isEmpty == true {
+            retiredDialWaiters[peer] = nil
+        }
+        continuation.resume()
     }
 
     private func invalidateSession(
