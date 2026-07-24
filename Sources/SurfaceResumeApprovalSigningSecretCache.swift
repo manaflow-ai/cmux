@@ -334,6 +334,53 @@ extension SurfaceResumeApprovalStore {
         }
     }
 
+    /// Resolves approval inputs for a proposal without gating trusted sources on the signing secret.
+    static func approvalProposalContext(
+        for binding: SurfaceResumeBindingSnapshot,
+        fileURL: URL = defaultURL(),
+        fileManager: FileManager = .default,
+        signingSecret: Data? = nil
+    ) -> SurfaceResumeApprovalLookup<(
+        effectiveBinding: SurfaceResumeBindingSnapshot,
+        existingRecord: SurfaceResumeApprovalRecord?
+    )> {
+        approvalProposalContext(
+            for: binding,
+            fileURL: fileURL,
+            fileManager: fileManager,
+            signingSecretResolution: signingSecretResolution(
+                explicit: signingSecret,
+                fileManager: fileManager
+            )
+        )
+    }
+
+    static func approvalProposalContext(
+        for binding: SurfaceResumeBindingSnapshot,
+        fileURL: URL = defaultURL(),
+        fileManager: FileManager = .default,
+        signingSecretResolution: SurfaceResumeApprovalSigningSecretResolution
+    ) -> SurfaceResumeApprovalLookup<(
+        effectiveBinding: SurfaceResumeBindingSnapshot,
+        existingRecord: SurfaceResumeApprovalRecord?
+    )> {
+        if let trustedBinding = trustedBinding(from: binding) {
+            return .resolved((trustedBinding, nil))
+        }
+
+        switch matchingRecord(
+            for: binding,
+            fileURL: fileURL,
+            fileManager: fileManager,
+            signingSecretResolution: signingSecretResolution
+        ) {
+        case .pendingSigningSecret:
+            return .pendingSigningSecret
+        case let .resolved(record):
+            return .resolved((bindingByApplying(record: record, to: binding), record))
+        }
+    }
+
     static func isValid(_ record: SurfaceResumeApprovalRecord, signingSecret: Data) -> Bool {
         record.hasValidSignature(secret: signingSecret)
     }

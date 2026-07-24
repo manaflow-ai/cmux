@@ -74,6 +74,29 @@ import Testing
         #expect(effectiveBinding.approvalRecordId == nil)
     }
 
+    @Test func trustedResumeProposalsDoNotWaitForSigningSecretResolution() {
+        for source in ["agent-hook", "process-detected"] {
+            let binding = SurfaceResumeBindingSnapshot(
+                command: "codex resume trusted-session",
+                cwd: "/tmp/project",
+                source: source,
+                autoResume: true
+            )
+
+            let result = SurfaceResumeApprovalStore.approvalProposalContext(
+                for: binding,
+                signingSecretResolution: .pending
+            )
+            guard case let .resolved(context) = result else {
+                Issue.record("\(source) must not depend on the signing secret")
+                continue
+            }
+            #expect(context.effectiveBinding.allowsAutomaticResume)
+            #expect(context.effectiveBinding.approvalPolicy == .auto)
+            #expect(context.existingRecord == nil)
+        }
+    }
+
     @Test func hangWatchdogCapturesOncePerStarvationEpisode() {
         var state = MainThreadHangWatchdogState(stallThreshold: 8)
         state.recordHeartbeat(at: 100)

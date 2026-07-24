@@ -92,20 +92,21 @@ extension TerminalController {
     private func surfaceResumeBindingWithApproval(
         _ binding: SurfaceResumeBindingSnapshot
     ) -> SurfaceResumeBindingSnapshot? {
-        guard case let .resolved(existingRecord) = SurfaceResumeApprovalStore.matchingRecord(for: binding),
-              case let .resolved(resolvedBinding) = SurfaceResumeApprovalStore.applyingStoredApproval(to: binding) else {
+        guard case let .resolved(context) = SurfaceResumeApprovalStore.approvalProposalContext(
+            for: binding
+        ) else {
             return nil
         }
-        var effectiveBinding = resolvedBinding
+        var effectiveBinding = context.effectiveBinding
         if let promptlessCLIManualBinding = SurfaceResumeApprovalStore.applyingPromptlessCLIManualApprovalIfNeeded(
             to: binding,
-            existingRecord: existingRecord
+            existingRecord: context.existingRecord
         ) {
             return promptlessCLIManualBinding
         }
         guard SurfaceResumeApprovalStore.shouldPromptForProposal(
             binding: binding,
-            existingRecord: existingRecord,
+            existingRecord: context.existingRecord,
             isMainThread: Thread.isMainThread,
             isRunningTests: ProcessInfo.processInfo.environment["XCTestConfigurationFilePath"] != nil
         ) else {
