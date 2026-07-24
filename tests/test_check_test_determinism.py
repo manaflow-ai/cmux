@@ -87,6 +87,14 @@ class DeterminismCheckerCLITests(unittest.TestCase):
                 "await new Promise(resolve => setTimeout(resolve, 1))\n"
                 "expect(finished).toBe(true)\n"
             ),
+            "window-timeout.ts": (
+                "await new Promise(resolve => window.setTimeout(resolve, 1))\n"
+                "expect(finished).toBe(true)\n"
+            ),
+            "global-this-timeout.ts": (
+                "await new Promise(resolve => globalThis.setTimeout(resolve, 1))\n"
+                "expect(finished).toBe(true)\n"
+            ),
             "shell.sh": 'sleep 1\nassert "$actual" "$expected"\n',
             "shell-shebang.sh": (
                 "#!/bin/sh\n"
@@ -234,6 +242,21 @@ class DeterminismCheckerCLITests(unittest.TestCase):
                     "pause(0.01)\n"
                     "assert finished\n"
                 ),
+                "from-trio.py": (
+                    "from trio import sleep as pause\n"
+                    "await pause(0.01)\n"
+                    "assert finished\n"
+                ),
+                "from-anyio.py": (
+                    "from anyio import sleep as pause\n"
+                    "await pause(0.01)\n"
+                    "assert finished\n"
+                ),
+                "from-gevent.py": (
+                    "from gevent import sleep as pause\n"
+                    "pause(0.01)\n"
+                    "assert finished\n"
+                ),
             }
         )
 
@@ -248,6 +271,9 @@ class DeterminismCheckerCLITests(unittest.TestCase):
             "from-asyncio.py",
             "import-list.py",
             "parenthesized-from-time.py",
+            "from-trio.py",
+            "from-anyio.py",
+            "from-gevent.py",
         ):
             line = 4 if relative_path == "parenthesized-from-time.py" else 2
             self.assertIn(
@@ -340,6 +366,57 @@ class DeterminismCheckerCLITests(unittest.TestCase):
             "test-determinism: 0 active finding(s)",
             negative.stdout,
         )
+
+    def test_python_local_shadows_do_not_leak_to_later_scopes(self) -> None:
+        fixtures = {
+            "function-shadow.py": (
+                "def helper(time):\n"
+                "    time.sleep(0.01)\n"
+                "    assert helper_finished\n"
+                "time.sleep(0.01)\n"
+                "assert finished\n"
+            ),
+            "lambda-shadow.py": (
+                "run(lambda time: time.sleep(0.01))\n"
+                "time.sleep(0.01)\n"
+                "assert finished\n"
+            ),
+            "local-import-shadow.py": (
+                "def helper():\n"
+                "    import fake_clock as time\n"
+                "    time.sleep(0.01)\n"
+                "    assert helper_finished\n"
+                "time.sleep(0.01)\n"
+                "assert finished\n"
+            ),
+            "local-trusted-import.py": (
+                "def helper():\n"
+                "    from trio import sleep as pause\n"
+                "    await pause(0.01)\n"
+                "    assert finished\n"
+            ),
+        }
+
+        result = self.run_checker(fixtures)
+
+        self.assertEqual(result.returncode, 1, result.stdout + result.stderr)
+        expected_lines = {
+            "function-shadow.py": 4,
+            "lambda-shadow.py": 2,
+            "local-import-shadow.py": 5,
+            "local-trusted-import.py": 3,
+        }
+        findings = [
+            line
+            for line in result.stdout.splitlines()
+            if "sleep-then-assert:" in line
+        ]
+        self.assertEqual(len(findings), len(fixtures), result.stdout)
+        for relative_path, line in expected_lines.items():
+            self.assertIn(
+                f"fixtures/{relative_path}:{line}: sleep-then-assert:",
+                result.stdout,
+            )
 
     def test_sleep_text_inside_strings_and_comments_remains_silent(self) -> None:
         result = self.run_checker(
