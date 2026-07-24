@@ -13,10 +13,12 @@ When we change the fork, update this document and the parent submodule SHA.
 ## Current fork changes
 
 The submodule pinned by this branch is
-`994fee1b053820dc6a93658901024289372a6a5c`, the current
+`d3265f4c5ea9985de34e488319e7fb2d0b2693c8`, the current
 `manaflow-ai/ghostty` `main`. The complete renderer scheduling hardening landed
 through https://github.com/manaflow-ai/ghostty/pull/136 after the initial
-bounded-turn fix in https://github.com/manaflow-ai/ghostty/pull/135. The
+bounded-turn fix in https://github.com/manaflow-ai/ghostty/pull/135. Reliable
+external redraw delivery and surface lifetime retention landed through
+https://github.com/manaflow-ai/ghostty/pull/139. The
 cumulative external frontend integration landed through
 https://github.com/manaflow-ai/ghostty/pull/128, and the earlier stacked PRs
 https://github.com/manaflow-ai/ghostty/pull/127,
@@ -32,7 +34,7 @@ renderer mailbox drain turn so continuous producers cannot starve lifecycle
 processing or rendering.
 
 Its universal ReleaseFast GhosttyKit archive is published at
-https://github.com/manaflow-ai/ghostty/releases/tag/xcframework-994fee1b053820dc6a93658901024289372a6a5c-crashsubdir-cmux-crash-v1
+https://github.com/manaflow-ai/ghostty/releases/tag/xcframework-d3265f4c5ea9985de34e488319e7fb2d0b2693c8-crashsubdir-cmux-crash-v1
 and its SHA-256 is pinned in `scripts/ghosttykit-checksums.txt`.
 
 ### Bounded renderer mailbox turns and continuation recovery
@@ -63,6 +65,34 @@ and its SHA-256 is pinned in `scripts/ghosttykit-checksums.txt`.
     for lifecycle state and rendering, normal-path post-render re-wakes, and
     external-path continuation consumption. Do not replace the snapshot drain
     with an unbounded producer-refillable drain-until-empty loop.
+
+### External redraw delivery and surface lifetime
+
+- Commits:
+  - `d1efafd78` (fix: retain rejected external redraw requests)
+  - `62e1de720` (fix: ticket external redraw deliveries)
+  - `741b11662` (fix: bind redraw tickets to surface lifetimes)
+  - `cf1dee45d` (fix: retain surfaces through app action dispatch)
+  - `d3265f4c5` (merge the reviewed redraw-delivery follow-up)
+- Files:
+  - `src/App.zig`
+  - `src/Surface.zig`
+  - `src/apprt/embedded.zig`
+  - `src/apprt/gtk/Surface.zig`
+  - `src/renderer/Thread.zig`
+- Summary:
+  - Assigns one generation-scoped redraw ticket to each external surface so a
+    rejected app-mailbox enqueue has one retained retry owner.
+  - Distinguishes queued work from enqueue failure, retries only after mailbox
+    capacity returns, and rejects stale acknowledgments or allocator-address
+    reuse from an older surface lifetime.
+  - Retains the surface allocation while the host render action is dispatched,
+    allowing reentrant teardown to unregister immediately while deferring final
+    destruction until the callback returns.
+  - Conflict note: external redraw changes must preserve per-surface ticket
+    ownership, generation checks, enqueue-failure retry ownership, and the app
+    action lifetime lease. A raw surface pointer is not a sufficient delivery
+    identity across asynchronous dispatch.
 
 ### Nonblocking renderer lifecycle state
 
