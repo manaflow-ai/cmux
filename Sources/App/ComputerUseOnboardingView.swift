@@ -15,7 +15,6 @@ struct ComputerUseOnboardingView: View {
     let initialStep: ComputerUseOnboardingStep
     let onSystemSettingsOpened: @MainActor () -> Void
     let onExpandedRequested: @MainActor () -> Void
-    let onCompleted: @MainActor () -> Void
 
     @State private var step: ComputerUseOnboardingStep
     @State private var accessibilityGranted = false
@@ -34,15 +33,13 @@ struct ComputerUseOnboardingView: View {
         presentationState: ComputerUseOnboardingPresentationState,
         initialStep: ComputerUseOnboardingStep = .overview,
         onSystemSettingsOpened: @escaping @MainActor () -> Void = {},
-        onExpandedRequested: @escaping @MainActor () -> Void = {},
-        onCompleted: @escaping @MainActor () -> Void = {}
+        onExpandedRequested: @escaping @MainActor () -> Void = {}
     ) {
         self.runtimeService = runtimeService
         self.presentationState = presentationState
         self.initialStep = initialStep
         self.onSystemSettingsOpened = onSystemSettingsOpened
         self.onExpandedRequested = onExpandedRequested
-        self.onCompleted = onCompleted
         _step = State(initialValue: initialStep)
         _helperIcon = State(initialValue: runtimeService.presentationIcon)
         _isPermissionCompanionVisible = State(initialValue: false)
@@ -58,8 +55,12 @@ struct ComputerUseOnboardingView: View {
         }
         .frame(maxWidth: .infinity, maxHeight: .infinity)
         .ignoresSafeArea()
-        .background(onboardingBackground)
-        .preferredColorScheme(.dark)
+        .background {
+            if !isPermissionCompanionVisible {
+                onboardingBackground
+            }
+        }
+        .preferredColorScheme(isPermissionCompanionVisible ? nil : .dark)
         .onAppear {
             prepareHelperForOnboarding()
         }
@@ -126,20 +127,16 @@ struct ComputerUseOnboardingView: View {
     /// The reference-style overview shown before entering a macOS permission pane.
     private var expandedOnboarding: some View {
         ZStack(alignment: .top) {
-            onboardingBackground
-
             VStack(spacing: 0) {
                 helperHeroIcon
-                    .padding(.top, 55)
-                    .offset(x: -1)
+                    .padding(.top, 52)
 
                 Text(String(
                     localized: "computerUse.onboarding.hero.title",
                     defaultValue: "Enable cmux Computer Use"
                 ))
                 .font(.system(size: 26, weight: .bold))
-                .padding(.top, 19)
-                .offset(y: -4)
+                .padding(.top, 15)
 
                 Text(String(
                     localized: "computerUse.onboarding.hero.detail",
@@ -150,14 +147,12 @@ struct ComputerUseOnboardingView: View {
                 .multilineTextAlignment(.center)
                 .lineSpacing(2)
                 .fixedSize(horizontal: false, vertical: true)
-                .padding(.top, 15)
-                .offset(y: -5)
+                .padding(.top, 11)
 
                 permissionOverview
-                    .padding(.top, 12)
-                    .offset(y: 1.5)
+                    .padding(.top, 16)
 
-                Spacer(minLength: 35)
+                Spacer(minLength: 30)
             }
             .padding(.horizontal, 40)
 
@@ -346,49 +341,66 @@ struct ComputerUseOnboardingView: View {
     }
 
     private var permissionCompanion: some View {
-        ZStack(alignment: .topLeading) {
-            ZStack {
+        VStack(alignment: .leading, spacing: 10) {
+            HStack(spacing: 8) {
                 Image(systemName: "arrow.up")
-                    .font(.system(size: 34, weight: .black))
-                    .foregroundStyle(.white)
-                Image(systemName: "arrow.up")
-                    .font(.system(size: 28, weight: .black))
+                    .font(.system(size: 15, weight: .bold))
                     .foregroundStyle(Color.accentColor)
+                    .frame(width: 16, height: 18)
+                    .accessibilityHidden(true)
+
+                Text(permissionCompanionInstruction)
+                    .font(.system(size: 12, weight: .medium))
+                    .foregroundStyle(.primary)
+                    .lineLimit(1)
+                    .minimumScaleFactor(0.82)
+
+                Spacer(minLength: 0)
             }
-            .frame(width: 32, height: 34)
-            .offset(x: 65, y: 5)
-            .accessibilityHidden(true)
 
-            Text(permissionCompanionInstruction)
-                .font(.system(size: 19, weight: .semibold))
-                .lineLimit(1)
-                .minimumScaleFactor(0.72)
-                .frame(width: 418, height: 34, alignment: .leading)
-                .offset(x: 103, y: 6)
+            HStack(spacing: 8) {
+                Button {
+                    isPermissionCompanionVisible = false
+                    onExpandedRequested()
+                    refreshPermissions()
+                } label: {
+                    Image(systemName: "chevron.left")
+                        .font(.system(size: 12, weight: .semibold))
+                        .frame(width: 30, height: 40)
+                        .contentShape(Rectangle())
+                }
+                .buttonStyle(.plain)
+                .foregroundStyle(.secondary)
+                .background(
+                    Color(nsColor: .controlBackgroundColor),
+                    in: RoundedRectangle(cornerRadius: 8, style: .continuous)
+                )
+                .overlay {
+                    RoundedRectangle(cornerRadius: 8, style: .continuous)
+                        .strokeBorder(
+                            Color(nsColor: .separatorColor).opacity(0.45),
+                            lineWidth: 0.5
+                        )
+                }
+                .help(String(localized: "computerUse.onboarding.back", defaultValue: "Back"))
+                .accessibilityLabel(
+                    String(localized: "computerUse.onboarding.back", defaultValue: "Back")
+                )
 
-            Button {
-                isPermissionCompanionVisible = false
-                onExpandedRequested()
-                refreshPermissions()
-            } label: {
-                Image(systemName: "chevron.left")
-                    .font(.system(size: 13, weight: .semibold))
-                    .frame(width: 29, height: 29)
-                    .background(Color.white.opacity(0.09), in: Circle())
-                    .overlay {
-                        Circle().strokeBorder(Color.white.opacity(0.09), lineWidth: 1)
-                    }
+                helperDragTile
             }
-            .buttonStyle(.plain)
-            .contentShape(Circle())
-            .help(String(localized: "computerUse.onboarding.back", defaultValue: "Back"))
-            .accessibilityLabel(String(localized: "computerUse.onboarding.back", defaultValue: "Back"))
-            .offset(x: 18, y: 55)
-
-            helperDragTile
-                .offset(x: 62, y: 48)
         }
-        .frame(width: 532, height: 110)
+        .padding(.horizontal, 12)
+        .padding(.vertical, 11)
+        .frame(width: 472, height: 112)
+        .background(.regularMaterial, in: RoundedRectangle(cornerRadius: 14, style: .continuous))
+        .overlay {
+            RoundedRectangle(cornerRadius: 14, style: .continuous)
+                .strokeBorder(
+                    Color(nsColor: .separatorColor).opacity(0.5),
+                    lineWidth: 0.5
+                )
+        }
     }
 
     /// A file-URL drag source accepted by the macOS permission lists.
@@ -399,28 +411,36 @@ struct ComputerUseOnboardingView: View {
                     Image(nsImage: helperIcon)
                         .resizable()
                         .interpolation(.high)
-                        .frame(width: 26, height: 26)
+                        .frame(width: 24, height: 24)
                 } else {
                     Image(systemName: "app.dashed")
-                        .font(.system(size: 19))
-                        .frame(width: 26, height: 26)
+                        .font(.system(size: 18))
+                        .frame(width: 24, height: 24)
                 }
             }
             .accessibilityHidden(true)
 
             Text(runtimeService.applicationName)
-                .font(.system(size: 14, weight: .semibold))
+                .font(.system(size: 13, weight: .medium))
+                .foregroundStyle(.primary)
                 .lineLimit(1)
+
+            Spacer(minLength: 8)
         }
-        .padding(.horizontal, 8)
-        .frame(width: 459, height: 42, alignment: .leading)
-        .background(permissionCardBackground, in: RoundedRectangle(cornerRadius: 9, style: .continuous))
+        .padding(.horizontal, 9)
+        .frame(maxWidth: .infinity, minHeight: 40, maxHeight: 40, alignment: .leading)
+        .background(
+            Color(nsColor: .controlBackgroundColor),
+            in: RoundedRectangle(cornerRadius: 8, style: .continuous)
+        )
         .overlay {
-            RoundedRectangle(cornerRadius: 9, style: .continuous)
-                .strokeBorder(Color.white.opacity(0.12), lineWidth: 1)
+            RoundedRectangle(cornerRadius: 8, style: .continuous)
+                .strokeBorder(
+                    Color(nsColor: .separatorColor).opacity(0.45),
+                    lineWidth: 0.5
+                )
         }
-        .shadow(color: .black.opacity(0.2), radius: 2, y: 1)
-        .contentShape(RoundedRectangle(cornerRadius: 9, style: .continuous))
+        .contentShape(RoundedRectangle(cornerRadius: 8, style: .continuous))
         .overlay {
             ComputerUseAppDragSource(
                 helperAppURL: helperAppURL,
@@ -552,8 +572,11 @@ struct ComputerUseOnboardingView: View {
         screenRecordingGranted = newScreenRecordingGranted
 
         if statusIsKnown, newAccessibilityGranted, newScreenRecordingGranted {
-            isPermissionCompanionVisible = false
-            onCompleted()
+            step = .overview
+            if isPermissionCompanionVisible {
+                isPermissionCompanionVisible = false
+                onExpandedRequested()
+            }
             return
         }
 

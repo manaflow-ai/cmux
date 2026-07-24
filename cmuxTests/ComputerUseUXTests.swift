@@ -444,7 +444,7 @@ struct ComputerUseUXTests {
 
     @Test @MainActor func onboardingContentCannotOutgrowItsAppKitWindow() async {
         let expandedSize = CGSize(width: 600, height: 440)
-        let companionSize = CGSize(width: 532, height: 110)
+        let companionSize = CGSize(width: 472, height: 112)
         let oversizedContent = Color.clear.frame(width: 680, height: 883)
         let window = ComputerUseOnboardingWindow(
             contentRect: NSRect(origin: .zero, size: expandedSize),
@@ -490,7 +490,7 @@ struct ComputerUseUXTests {
     }
 
     @Test @MainActor func permissionCompanionUsesItsEntireFixedFrameForContent() {
-        let companionSize = CGSize(width: 532, height: 110)
+        let companionSize = CGSize(width: 472, height: 112)
         let controller = ComputerUseOnboardingWindowController(
             runtimeService: ComputerUseRuntimeService()
         )
@@ -548,7 +548,7 @@ struct ComputerUseUXTests {
         ))
 
         let onboarding = placement.frame(
-            onboardingSize: CGSize(width: 532, height: 110),
+            onboardingSize: CGSize(width: 472, height: 112),
             beside: systemSettings,
             in: permissionDisplay
         )
@@ -1916,11 +1916,19 @@ struct ComputerUseUXTests {
     ) throws {
         let process = Process()
         process.executableURL = URL(fileURLWithPath: path)
-        var environment = ProcessInfo.processInfo.environment
-        environment["CMUX_TEST_LOG"] = logURL.path
-        environment["CMUX_COMPUTER_USE_MCP_DISABLED"] = inheritedDisabled
-        environment[TerminalSurface.computerUseAppEnabledEnvironmentKey] = appEnabledAtSpawn
-        process.environment = environment
+        let inherited = ProcessInfo.processInfo.environment
+        // A generated agent shim needs ordinary shell context, not Xcode's
+        // XCTest/DYLD injection environment. Passing the complete test-host
+        // environment to `/usr/bin/env bash` can attach the child to the
+        // running test session and terminate the app-host runner mid-suite.
+        process.environment = [
+            "HOME": inherited["HOME"] ?? FileManager.default.homeDirectoryForCurrentUser.path,
+            "PATH": inherited["PATH"] ?? "/usr/bin:/bin:/usr/sbin:/sbin",
+            "TMPDIR": inherited["TMPDIR"] ?? FileManager.default.temporaryDirectory.path,
+            "CMUX_TEST_LOG": logURL.path,
+            "CMUX_COMPUTER_USE_MCP_DISABLED": inheritedDisabled,
+            TerminalSurface.computerUseAppEnabledEnvironmentKey: appEnabledAtSpawn,
+        ]
         try process.run()
         process.waitUntilExit()
         #expect(process.terminationStatus == 0)

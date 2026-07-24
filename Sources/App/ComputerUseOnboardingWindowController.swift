@@ -30,7 +30,7 @@ final class ComputerUseOnboardingWindowController: NSObject, NSWindowDelegate {
 
     static let seenDefaultsKey = "cmux.computerUse.onboarding.seen"
     private static let expandedWindowSize = NSSize(width: 600, height: 440)
-    private static let permissionCompanionWindowSize = NSSize(width: 532, height: 110)
+    private static let permissionCompanionWindowSize = NSSize(width: 472, height: 112)
     private static let expandedWindowStyleMask: NSWindow.StyleMask = [
         .titled,
         .closable,
@@ -53,13 +53,14 @@ final class ComputerUseOnboardingWindowController: NSObject, NSWindowDelegate {
     }
 
     static func shouldPresentAutomatically(
-        seen _: Bool,
+        seen: Bool,
         featureEnabled: Bool,
         permissionStatusIsKnown: Bool,
         accessibilityGranted: Bool,
         screenRecordingGranted: Bool
     ) -> Bool {
-        featureEnabled
+        !seen
+            && featureEnabled
             && (
                 !permissionStatusIsKnown
                     || !(accessibilityGranted && screenRecordingGranted)
@@ -93,8 +94,7 @@ final class ComputerUseOnboardingWindowController: NSObject, NSWindowDelegate {
             onSystemSettingsOpened: { [weak self] in
                 self?.showPermissionCompanion()
             },
-            onExpandedRequested: { [weak self] in self?.showExpandedOnboarding() },
-            onCompleted: { [weak self] in self?.dismiss() }
+            onExpandedRequested: { [weak self] in self?.showExpandedOnboarding() }
         )
         let window = ComputerUseOnboardingWindow(
             contentRect: NSRect(origin: .zero, size: Self.expandedWindowSize),
@@ -351,6 +351,11 @@ final class ComputerUseOnboardingWindowController: NSObject, NSWindowDelegate {
     ) {
         window.styleMask = [.borderless]
         window.hasShadow = true
+        window.isOpaque = false
+        window.backgroundColor = .clear
+        window.contentView?.wantsLayer = true
+        window.contentView?.layer?.cornerRadius = 14
+        window.contentView?.layer?.masksToBounds = true
         configure(
             window,
             frame: frame,
@@ -368,6 +373,11 @@ final class ComputerUseOnboardingWindowController: NSObject, NSWindowDelegate {
         window.titleVisibility = .hidden
         window.titlebarAppearsTransparent = true
         window.hasShadow = true
+        window.isOpaque = true
+        window.backgroundColor = .windowBackgroundColor
+        window.contentView?.wantsLayer = true
+        window.contentView?.layer?.cornerRadius = 0
+        window.contentView?.layer?.masksToBounds = false
         configure(
             window,
             frame: frame,
