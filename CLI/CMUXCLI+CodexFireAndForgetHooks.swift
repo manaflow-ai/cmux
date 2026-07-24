@@ -203,7 +203,8 @@ extension CMUXCLI {
         return CodexResumeTrustProbeCache(
             directory: codexResumeTrustProbeCacheDirectory(
                 environment: environment
-            )
+            ),
+            fileManager: .default
         ).resolve(
             keyComponents: cacheKeyComponents
         ) {

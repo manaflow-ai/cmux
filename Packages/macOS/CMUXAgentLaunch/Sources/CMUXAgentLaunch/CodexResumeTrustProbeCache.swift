@@ -21,10 +21,19 @@ public struct CodexResumeTrustProbeCache: Sendable {
     private static let lockRetryMicroseconds: useconds_t = 10_000
 
     private let directory: URL
+    // SAFETY: FileManager's filesystem methods are thread-safe, and this value
+    // is immutable after construction. Cross-process mutation is serialized by
+    // the kernel file lock rather than mutable FileManager state.
+    private nonisolated(unsafe) let fileManager: FileManager
 
     /// Creates a cache rooted in a cmux-owned state directory.
-    public init(directory: URL) {
+    ///
+    /// - Parameters:
+    ///   - directory: The cmux-owned directory for lock and handoff files.
+    ///   - fileManager: The filesystem dependency used for cache operations.
+    public init(directory: URL, fileManager: FileManager) {
         self.directory = directory
+        self.fileManager = fileManager
     }
 
     /// Returns coalesced or freshly probed project decision paths.
@@ -85,7 +94,7 @@ public struct CodexResumeTrustProbeCache: Sendable {
             }
         }
 
-        try? FileManager.default.removeItem(at: cacheURL)
+        try? fileManager.removeItem(at: cacheURL)
         let result = probe()
         prune(now: Date())
         write(result, key: key, to: cacheURL)
@@ -94,11 +103,11 @@ public struct CodexResumeTrustProbeCache: Sendable {
 
     private func prepareDirectory() -> Bool {
         do {
-            try FileManager.default.createDirectory(
+            try fileManager.createDirectory(
                 at: directory,
                 withIntermediateDirectories: true
             )
-            try FileManager.default.setAttributes(
+            try fileManager.setAttributes(
                 [.posixPermissions: 0o700],
                 ofItemAtPath: directory.path
             )
@@ -120,7 +129,6 @@ public struct CodexResumeTrustProbeCache: Sendable {
         key: String,
         now: Date
     ) -> (found: Bool, value: Set<String>?) {
-        let fileManager = FileManager.default
         guard let attributes = try? fileManager.attributesOfItem(
             atPath: url.path
         ),
@@ -169,17 +177,16 @@ public struct CodexResumeTrustProbeCache: Sendable {
         }
         do {
             try data.write(to: url, options: .atomic)
-            try FileManager.default.setAttributes(
+            try fileManager.setAttributes(
                 [.posixPermissions: 0o600],
                 ofItemAtPath: url.path
             )
         } catch {
-            try? FileManager.default.removeItem(at: url)
+            try? fileManager.removeItem(at: url)
         }
     }
 
     private func prune(now: Date) {
-        let fileManager = FileManager.default
         let urls = ((try? fileManager.contentsOfDirectory(
             at: directory,
             includingPropertiesForKeys: nil,

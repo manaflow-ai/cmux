@@ -11,7 +11,10 @@ struct CodexResumeTrustProbeCacheTests {
     func doesNotCacheSuccessfulProbesAcrossInvocations() {
         let directory = temporaryDirectory()
         defer { try? FileManager.default.removeItem(at: directory) }
-        let cache = CodexResumeTrustProbeCache(directory: directory)
+        let cache = CodexResumeTrustProbeCache(
+            directory: directory,
+            fileManager: .default
+        )
         var probeCount = 0
 
         let first = cache.resolve(keyComponents: ["codex", "one"]) {
@@ -32,7 +35,10 @@ struct CodexResumeTrustProbeCacheTests {
     func doesNotCacheFailedProbesAcrossInvocations() {
         let directory = temporaryDirectory()
         defer { try? FileManager.default.removeItem(at: directory) }
-        let cache = CodexResumeTrustProbeCache(directory: directory)
+        let cache = CodexResumeTrustProbeCache(
+            directory: directory,
+            fileManager: .default
+        )
         var probeCount = 0
 
         let first: Set<String>? = cache.resolve(keyComponents: ["failure"]) {
@@ -86,7 +92,10 @@ struct CodexResumeTrustProbeCacheTests {
 
         var probeCount = 0
         let startedAt = Date()
-        let result = CodexResumeTrustProbeCache(directory: directory).resolve(
+        let result = CodexResumeTrustProbeCache(
+            directory: directory,
+            fileManager: .default
+        ).resolve(
             keyComponents: keyComponents
         ) {
             probeCount += 1
