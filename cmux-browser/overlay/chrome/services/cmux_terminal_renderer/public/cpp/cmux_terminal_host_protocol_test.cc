@@ -552,11 +552,11 @@ void TestMalformedFrames() {
   Check(DecodeError(bad) == Error::kInvalidVersion,
         "zero header version is rejected");
   bad = encoded;
-  bad[4] = 2;
+  bad[4] = 3;
   cmux::TerminalHostFrameDecoder future_version;
   std::vector<cmux::TerminalHostFrame> frames;
   Check(future_version.Push(Bytes(bad), &frames) == Error::kNone &&
-            frames.size() == 1 && frames[0].version == 2,
+            frames.size() == 1 && frames[0].version == 3,
         "nonzero frame versions remain parseable before hello negotiation");
   bad = encoded;
   bad[6] = 0xe7;
@@ -755,12 +755,19 @@ void TestSnapshotPayload() {
             Error::kMalformedPayload,
         "snapshot rejects truncated replay");
 
-  std::vector<uint8_t> oversized_blob = {
-      80, 0, 24, 0, 0, 0, 0, 0, 1, 0x00, 0x80, 0x00,
-  };
+  std::vector<uint8_t> oversized_blob(12);
+  oversized_blob[0] = 80;
+  oversized_blob[2] = 24;
+  const uint32_t oversized_replay =
+      static_cast<uint32_t>(cmux::kTerminalHostMaxSnapshotReplay + 1);
+  for (size_t index = 0; index < sizeof(oversized_replay); ++index) {
+    oversized_blob[8 + index] =
+        static_cast<uint8_t>(oversized_replay >> (index * 8));
+  }
   Check(cmux::DecodeTerminalHostSnapshot(Bytes(oversized_blob), &decoded) ==
             Error::kMalformedPayload,
-        "snapshot rejects replay length above 8 MiB before allocation");
+        "snapshot rejects replay length above the exact Rust bound before "
+        "allocation");
 
   cmux::TerminalHostSnapshot invalid_utf8;
   invalid_utf8.command = {std::string("\xc0\x80", 2)};

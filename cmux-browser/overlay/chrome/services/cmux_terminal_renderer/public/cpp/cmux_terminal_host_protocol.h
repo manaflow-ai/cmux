@@ -17,12 +17,13 @@ namespace cmux {
 inline constexpr std::array<uint8_t, 4> kTerminalHostMagic = {'C', 'M', 'T',
                                                               'H'};
 inline constexpr size_t kTerminalHostHeaderLength = 32;
-inline constexpr uint16_t kTerminalHostProtocolVersion = 1;
+inline constexpr uint16_t kTerminalHostProtocolVersion = 2;
 inline constexpr uint32_t kTerminalHostFlagColorsFollow = 1u << 0;
 inline constexpr uint32_t kTerminalHostFlagViewerSizeAcks = 1u << 1;
 inline constexpr uint32_t kTerminalHostResizeAckCanonicalChanged = 1u << 0;
 inline constexpr size_t kTerminalHostMaxFramePayload = 16 * 1024 * 1024;
-inline constexpr size_t kTerminalHostMaxSnapshotReplay = 8 * 1024 * 1024;
+inline constexpr size_t kTerminalHostMaxSnapshotReplay = 15'692'630;
+inline constexpr size_t kTerminalHostMaxKittyImageAliases = 4'096;
 inline constexpr size_t kTerminalHostMaxString = 256 * 1024;
 inline constexpr size_t kTerminalHostMaxCommandArguments = 256;
 inline constexpr uint16_t kTerminalHostColorsVersionV1 = 1;
@@ -269,6 +270,15 @@ const char* TerminalHostRendererGrantErrorMessage(
     TerminalHostRendererGrantError error);
 std::string EncodeTerminalHostId(const TerminalHostId& id);
 
+struct TerminalHostKittyImageAlias {
+  uint32_t image_id = 0;
+  uint32_t image_number = 0;
+
+  bool operator==(const TerminalHostKittyImageAlias& other) const {
+    return image_id == other.image_id && image_number == other.image_number;
+  }
+};
+
 struct TerminalHostSnapshot {
   TerminalHostSnapshot();
   TerminalHostSnapshot(const TerminalHostSnapshot&);
@@ -283,6 +293,7 @@ struct TerminalHostSnapshot {
   std::vector<uint8_t> replay;
   std::optional<std::string> cwd;
   std::vector<std::string> command;
+  std::vector<TerminalHostKittyImageAlias> kitty_image_aliases;
 
   bool operator==(const TerminalHostSnapshot& other) const;
 };
@@ -305,6 +316,7 @@ struct TerminalHostResize {
   uint16_t cols = 80;
   uint16_t rows = 24;
   std::vector<uint8_t> replay;
+  std::vector<TerminalHostKittyImageAlias> kitty_image_aliases;
 
   bool operator==(const TerminalHostResize& other) const;
 };

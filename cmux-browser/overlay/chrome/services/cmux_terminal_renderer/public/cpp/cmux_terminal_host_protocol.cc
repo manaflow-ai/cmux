@@ -6,6 +6,7 @@
 #include <algorithm>
 #include <iterator>
 #include <limits>
+#include <unordered_set>
 #include <utility>
 
 namespace cmux {
@@ -266,6 +267,61 @@ class PayloadReader {
   const std::string_view payload_;
   size_t offset_ = 0;
 };
+
+TerminalHostProtocolError ValidateKittyImageAliases(
+    const std::vector<TerminalHostKittyImageAlias>& aliases) {
+  if (aliases.size() > kTerminalHostMaxKittyImageAliases) {
+    return TerminalHostProtocolError::kPayloadTooLarge;
+  }
+  std::unordered_set<uint32_t> image_ids;
+  std::unordered_set<uint32_t> image_numbers;
+  image_ids.reserve(aliases.size());
+  image_numbers.reserve(aliases.size());
+  for (const TerminalHostKittyImageAlias& alias : aliases) {
+    if (alias.image_id == 0 || alias.image_number == 0 ||
+        !image_ids.insert(alias.image_id).second ||
+        !image_numbers.insert(alias.image_number).second) {
+      return TerminalHostProtocolError::kMalformedPayload;
+    }
+  }
+  return TerminalHostProtocolError::kNone;
+}
+
+void AppendKittyImageAliases(
+    std::vector<uint8_t>* output,
+    const std::vector<TerminalHostKittyImageAlias>& aliases) {
+  AppendU16(output, static_cast<uint16_t>(aliases.size()));
+  for (const TerminalHostKittyImageAlias& alias : aliases) {
+    AppendU32(output, alias.image_id);
+    AppendU32(output, alias.image_number);
+  }
+}
+
+TerminalHostProtocolError ReadKittyImageAliases(
+    PayloadReader* reader,
+    std::vector<TerminalHostKittyImageAlias>* aliases) {
+  uint16_t count = 0;
+  if (!reader || !aliases || !reader->U16(&count) ||
+      count > kTerminalHostMaxKittyImageAliases) {
+    return TerminalHostProtocolError::kMalformedPayload;
+  }
+  std::vector<TerminalHostKittyImageAlias> decoded;
+  decoded.reserve(count);
+  for (size_t index = 0; index < count; ++index) {
+    TerminalHostKittyImageAlias alias;
+    if (!reader->U32(&alias.image_id) ||
+        !reader->U32(&alias.image_number)) {
+      return TerminalHostProtocolError::kMalformedPayload;
+    }
+    decoded.push_back(alias);
+  }
+  if (ValidateKittyImageAliases(decoded) !=
+      TerminalHostProtocolError::kNone) {
+    return TerminalHostProtocolError::kMalformedPayload;
+  }
+  *aliases = std::move(decoded);
+  return TerminalHostProtocolError::kNone;
+}
 
 bool AppendBytes(std::vector<uint8_t>* output,
                  std::string_view bytes,
@@ -866,7 +922,9 @@ TerminalHostSnapshot::~TerminalHostSnapshot() = default;
 
 bool TerminalHostSnapshot::operator==(const TerminalHostSnapshot& other) const {
   return cols == other.cols && rows == other.rows && pid == other.pid &&
-         replay == other.replay && cwd == other.cwd && command == other.command;
+         replay == other.replay && cwd == other.cwd &&
+         command == other.command &&
+         kitty_image_aliases == other.kitty_image_aliases;
 }
 
 TerminalHostProtocolError EncodeTerminalHostSnapshot(
@@ -878,6 +936,11 @@ TerminalHostProtocolError EncodeTerminalHostSnapshot(
   if (snapshot.replay.size() > kTerminalHostMaxSnapshotReplay ||
       snapshot.command.size() > kTerminalHostMaxCommandArguments) {
     return TerminalHostProtocolError::kPayloadTooLarge;
+  }
+  const TerminalHostProtocolError aliases_error =
+      ValidateKittyImageAliases(snapshot.kitty_image_aliases);
+  if (aliases_error != TerminalHostProtocolError::kNone) {
+    return aliases_error;
   }
   std::vector<uint8_t> encoded;
   AppendU16(&encoded, snapshot.cols);
@@ -897,6 +960,10 @@ TerminalHostProtocolError EncodeTerminalHostSnapshot(
       return TerminalHostProtocolError::kMalformedPayload;
     }
   }
+  AppendKittyImageAliases(&encoded, snapshot.kitty_image_aliases);
+  if (encoded.size() > kTerminalHostMaxFramePayload) {
+    return TerminalHostProtocolError::kPayloadTooLarge;
+  }
   *payload = std::move(encoded);
   return TerminalHostProtocolError::kNone;
 }
@@ -906,6 +973,9 @@ TerminalHostProtocolError DecodeTerminalHostSnapshot(
     TerminalHostSnapshot* snapshot) {
   if (!snapshot) {
     return TerminalHostProtocolError::kInvalidArgument;
+  }
+  if (payload.size() > kTerminalHostMaxFramePayload) {
+    return TerminalHostProtocolError::kPayloadTooLarge;
   }
   PayloadReader reader(payload);
   TerminalHostSnapshot decoded;
@@ -938,7 +1008,9 @@ TerminalHostProtocolError DecodeTerminalHostSnapshot(
     }
     decoded.command.push_back(std::move(argument));
   }
-  if (!reader.finished()) {
+  if (ReadKittyImageAliases(&reader, &decoded.kitty_image_aliases) !=
+          TerminalHostProtocolError::kNone ||
+      !reader.finished()) {
     return TerminalHostProtocolError::kMalformedPayload;
   }
   *snapshot = std::move(decoded);
@@ -955,7 +1027,9 @@ TerminalHostResize& TerminalHostResize::operator=(TerminalHostResize&&) =
 TerminalHostResize::~TerminalHostResize() = default;
 
 bool TerminalHostResize::operator==(const TerminalHostResize& other) const {
-  return cols == other.cols && rows == other.rows && replay == other.replay;
+  return cols == other.cols && rows == other.rows &&
+         replay == other.replay &&
+         kitty_image_aliases == other.kitty_image_aliases;
 }
 
 TerminalHostProtocolError EncodeTerminalHostResize(
@@ -967,12 +1041,22 @@ TerminalHostProtocolError EncodeTerminalHostResize(
   if (resize.replay.size() > kTerminalHostMaxSnapshotReplay) {
     return TerminalHostProtocolError::kPayloadTooLarge;
   }
+  const TerminalHostProtocolError aliases_error =
+      ValidateKittyImageAliases(resize.kitty_image_aliases);
+  if (aliases_error != TerminalHostProtocolError::kNone) {
+    return aliases_error;
+  }
   std::vector<uint8_t> encoded;
-  encoded.reserve(8 + resize.replay.size());
+  encoded.reserve(10 + resize.replay.size() +
+                  resize.kitty_image_aliases.size() * 8);
   AppendU16(&encoded, resize.cols);
   AppendU16(&encoded, resize.rows);
   AppendU32(&encoded, static_cast<uint32_t>(resize.replay.size()));
   encoded.insert(encoded.end(), resize.replay.begin(), resize.replay.end());
+  AppendKittyImageAliases(&encoded, resize.kitty_image_aliases);
+  if (encoded.size() > kTerminalHostMaxFramePayload) {
+    return TerminalHostProtocolError::kPayloadTooLarge;
+  }
   *payload = std::move(encoded);
   return TerminalHostProtocolError::kNone;
 }
@@ -982,17 +1066,24 @@ TerminalHostProtocolError DecodeTerminalHostResize(std::string_view payload,
   if (!resize) {
     return TerminalHostProtocolError::kInvalidArgument;
   }
+  if (payload.size() > kTerminalHostMaxFramePayload) {
+    return TerminalHostProtocolError::kPayloadTooLarge;
+  }
   PayloadReader reader(payload);
   TerminalHostResize decoded;
   std::string_view replay;
   if (!reader.U16(&decoded.cols) || !reader.U16(&decoded.rows) ||
-      !reader.Bytes(kTerminalHostMaxSnapshotReplay, &replay) ||
+      !reader.Bytes(kTerminalHostMaxSnapshotReplay, &replay)) {
+    return TerminalHostProtocolError::kMalformedPayload;
+  }
+  decoded.replay.assign(replay.begin(), replay.end());
+  if (ReadKittyImageAliases(&reader, &decoded.kitty_image_aliases) !=
+          TerminalHostProtocolError::kNone ||
       !reader.finished()) {
     return TerminalHostProtocolError::kMalformedPayload;
   }
   decoded.cols = std::max<uint16_t>(decoded.cols, 1);
   decoded.rows = std::max<uint16_t>(decoded.rows, 1);
-  decoded.replay.assign(replay.begin(), replay.end());
   *resize = std::move(decoded);
   return TerminalHostProtocolError::kNone;
 }
