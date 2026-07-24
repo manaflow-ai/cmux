@@ -336,6 +336,56 @@ struct DockShortcutRoutingTests {
             }
         }
     }
+
+    @Test("Simulator tool editors retain panel focus without routing Simulator shortcuts")
+    @MainActor
+    func simulatorToolEditorRetainsPanelFocus() async throws {
+        try await AppContextSerialGate.withExclusiveAppContext {
+            try Self.withHarness { harness in
+                let flags = CmuxFeatureFlags.shared
+                let simulatorFlag = CmuxFeatureFlags.allFlags[5]
+                let previousOverride = flags.overrideValue(for: simulatorFlag)
+                flags.setOverride(true, for: simulatorFlag)
+                defer { flags.setOverride(previousOverride, for: simulatorFlag) }
+
+                let panel = try harness.dock.seedSimulatorPanel(inPane: harness.rootPane)
+                defer { panel.close() }
+                let ownershipView = NSView(frame: harness.window.contentView?.bounds ?? .zero)
+                let textField = NSTextField(
+                    frame: NSRect(x: 20, y: 20, width: 240, height: 24)
+                )
+                ownershipView.addSubview(textField)
+                harness.window.contentView = ownershipView
+                panel.setFocusOwnershipView(ownershipView)
+                defer { panel.clearFocusOwnershipView(ownershipView) }
+                #expect(harness.window.makeFirstResponder(textField))
+                let firstResponder = try #require(harness.window.firstResponder)
+                #expect(shortcutResponderAcceptsTextEditing(firstResponder))
+
+                let shortcut = Self.customShortcut(key: "y")
+                KeyboardShortcutSettings.setShortcut(shortcut, for: .simulatorHome)
+                let event = try #require(Self.event(shortcut, in: harness))
+                let focus = harness.appDelegate.shortcutEventFocusContext(event)
+                var canvasContext = focus.shortcutContext
+                canvasContext.setBool(
+                    ShortcutContextKnownKey.workspaceCanvasLayout.rawValue,
+                    true
+                )
+
+                #expect(focus.simulatorFocused)
+                #expect(focus.shortcutContext.bool(
+                    ShortcutContextKnownKey.simulatorFocus.rawValue
+                ))
+                #expect(!focus.shortcutContext.bool(
+                    ShortcutContextKnownKey.terminalFocus.rawValue
+                ))
+                #expect(!KeyboardShortcutSettings.effectiveWhenClause(
+                    for: .canvasZoomReset
+                ).evaluate(canvasContext))
+                #expect(!harness.appDelegate.debugHandleCustomShortcut(event: event))
+            }
+        }
+    }
 }
 
 private extension DockShortcutRoutingTests {
@@ -418,21 +468,7 @@ private extension DockShortcutRoutingTests {
 
     @MainActor
     static func dispatch(_ shortcut: AppStoredShortcut, in harness: Harness) -> Bool {
-        guard !shortcut.isUnbound,
-              !shortcut.hasChord,
-              let keyCode = shortcut.firstStroke.resolvedKeyCode(),
-              let event = NSEvent.keyEvent(
-                  with: .keyDown,
-                  location: .zero,
-                  modifierFlags: shortcut.modifierFlags,
-                  timestamp: ProcessInfo.processInfo.systemUptime,
-                  windowNumber: harness.window.windowNumber,
-                  context: nil,
-                  characters: shortcut.menuItemKeyEquivalent ?? shortcut.key,
-                  charactersIgnoringModifiers: shortcut.menuItemKeyEquivalent ?? shortcut.key,
-                  isARepeat: false,
-                  keyCode: keyCode
-              ) else {
+        guard let event = event(shortcut, in: harness) else {
             return false
         }
 #if DEBUG
@@ -440,6 +476,29 @@ private extension DockShortcutRoutingTests {
 #else
         return false
 #endif
+    }
+
+    static func event(
+        _ shortcut: AppStoredShortcut,
+        in harness: Harness
+    ) -> NSEvent? {
+        guard !shortcut.isUnbound,
+              !shortcut.hasChord,
+              let keyCode = shortcut.firstStroke.resolvedKeyCode() else {
+            return nil
+        }
+        return NSEvent.keyEvent(
+            with: .keyDown,
+            location: .zero,
+            modifierFlags: shortcut.modifierFlags,
+            timestamp: ProcessInfo.processInfo.systemUptime,
+            windowNumber: harness.window.windowNumber,
+            context: nil,
+            characters: shortcut.menuItemKeyEquivalent ?? shortcut.key,
+            charactersIgnoringModifiers: shortcut.menuItemKeyEquivalent ?? shortcut.key,
+            isARepeat: false,
+            keyCode: keyCode
+        )
     }
 
     static func customShortcut(key: String) -> AppStoredShortcut {
