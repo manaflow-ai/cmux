@@ -209,6 +209,24 @@ fn replay_keeps_an_unplaced_image_for_a_post_attach_placement() {
 }
 
 #[test]
+fn replay_keeps_a_number_only_image_for_a_post_attach_number_placement() {
+    let mut source = terminal();
+    source.vt_write(&kitty("a=t,t=d,f=24,I=77,s=1,v=1,q=2", "/wAA"));
+
+    let replay = source.vt_replay().unwrap();
+    let mut mirror = terminal();
+    mirror.vt_write(&replay);
+
+    let place = kitty("a=p,I=77,p=8,c=1,r=1,q=2", "");
+    source.vt_write(&place);
+    mirror.vt_write(&place);
+    assert_eq!(source.kitty_graphics_snapshot().unwrap().placements.len(), 1);
+    let mirrored = mirror.kitty_graphics_snapshot().unwrap();
+    assert_eq!(mirrored.placements.len(), 1);
+    assert_eq!(mirrored.placements[0].placement_id, 8);
+}
+
+#[test]
 fn storage_limit_bounds_retained_pixel_data() {
     let mut terminal = terminal();
     terminal.set_kitty_image_storage_limit(8).unwrap();
