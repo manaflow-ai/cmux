@@ -56,15 +56,16 @@ struct TerminalArtifactChipCountState: Sendable {
     private var inFlight: Request?
     private var trailing: Pending?
     private var consecutiveRearmCount = 0
-    /// Last successful session total, held across transient scan failures so
+    /// Last successful gallery total (or positive legacy session total), held
+    /// across transient scan failures so
     /// the chip does not regress to the viewport-only count (which oscillates
     /// while output streams) whenever one RPC drops.
-    private var lastSessionTotal: Int?
+    private var lastAuthoritativeTotal: Int?
     /// Session the held total belongs to. A terminal can bind a new agent
     /// session without remounting the coordinator, and its first count-only
     /// responses can carry the new session's ID with no total yet — the held
     /// total from the previous session must be invalidated then, not shown.
-    private var lastSessionTotalSessionID: String?
+    private var lastAuthoritativeSessionID: String?
 
     static let maxConsecutiveRearms = 3
 
@@ -73,8 +74,8 @@ struct TerminalArtifactChipCountState: Sendable {
         inFlight = nil
         trailing = nil
         consecutiveRearmCount = 0
-        lastSessionTotal = nil
-        lastSessionTotalSessionID = nil
+        lastAuthoritativeTotal = nil
+        lastAuthoritativeSessionID = nil
     }
 
     mutating func trigger(
@@ -101,17 +102,18 @@ struct TerminalArtifactChipCountState: Sendable {
     }
 
     /// The count the chip should show for a fresh local scan: the last known
-    /// session total wins while the session has artifacts, the viewport-only
-    /// count otherwise.
+    /// authoritative total wins when one exists, the viewport-only count
+    /// otherwise.
     private func displayCount(forLocalCount localCount: Int) -> Int {
-        if let lastSessionTotal, lastSessionTotal > 0 {
-            return lastSessionTotal
+        if let lastAuthoritativeTotal {
+            return lastAuthoritativeTotal
         }
         return localCount
     }
 
     mutating func complete(
         _ request: Request,
+        galleryRowTotal: Int? = nil,
         sessionTotal: Int?,
         sessionID: String? = nil,
         scanSucceeded: Bool = true,
@@ -123,20 +125,21 @@ struct TerminalArtifactChipCountState: Sendable {
             return .stale
         }
         inFlight = nil
-        if let sessionID, sessionID != lastSessionTotalSessionID {
+        if let sessionID, sessionID != lastAuthoritativeSessionID {
             // Session identity is generation-independent: any response naming
             // a different session proves the binding changed, even when its
             // count is stale for the current viewport (during streaming most
             // responses are). Invalidate the old session's total here; totals
             // themselves are cached only from accepted responses below.
-            lastSessionTotal = nil
-            lastSessionTotalSessionID = sessionID
-        } else if scanSucceeded, sessionID == nil, lastSessionTotalSessionID != nil {
+            lastAuthoritativeTotal = nil
+            lastAuthoritativeSessionID = sessionID
+        } else if scanSucceeded, sessionID == nil, lastAuthoritativeSessionID != nil {
             // A SUCCESSFUL response with no session means the binding is gone
             // (e.g. the session moved to another surface) — unlike a transport
             // failure, which proves nothing and holds. Clear the stale total.
-            lastSessionTotal = nil
-            lastSessionTotalSessionID = nil
+            lastAuthoritativeTotal = nil
+            lastAuthoritativeSessionID = nil
+        }
         }
 
         let outcome: CompletionOutcome
@@ -145,9 +148,14 @@ struct TerminalArtifactChipCountState: Sendable {
             // response's total may be stale for the superseded surface state
             // and must not seed provisional reports. The re-armed request
             // re-fetches under the current generation.
-            if let sessionTotal {
-                lastSessionTotal = sessionTotal
-                lastSessionTotalSessionID = sessionID ?? lastSessionTotalSessionID
+            if let galleryRowTotal {
+                lastAuthoritativeTotal = galleryRowTotal
+                lastAuthoritativeSessionID = sessionID ?? lastAuthoritativeSessionID
+            } else if let sessionTotal {
+                // Preserve the old-Mac behavior exactly: positive Session
+                // totals win, while zero falls back to the local viewport count.
+                lastAuthoritativeTotal = sessionTotal > 0 ? sessionTotal : nil
+                lastAuthoritativeSessionID = sessionID ?? lastAuthoritativeSessionID
             }
             outcome = .reported(Report(
                 count: displayCount(forLocalCount: request.localCount),

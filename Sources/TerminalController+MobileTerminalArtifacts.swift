@@ -51,19 +51,32 @@ extension TerminalController {
         let visibleOnly = v2Bool(params, "visible_only") ?? false
         let countOnly = v2Bool(params, "count_only") ?? false
         let includeDirectories = v2Bool(params, "include_directories") ?? false
+        let includeMissing = v2Bool(params, "include_missing") ?? true
+        let requestsGalleryRowTotal = params.keys.contains("include_missing")
         let resolution = await mobileTerminalArtifactContext(
             params: params,
             requiresPath: false,
             includeScrollback: !visibleOnly,
-            includeTerminalText: !countOnly
+            includeTerminalText: !countOnly || visibleOnly
         )
         guard case .success(let context) = resolution else {
             return resolution.failureResult
         }
         if countOnly {
             guard let sessionID = context.sessionID else {
+                guard visibleOnly, requestsGalleryRowTotal else {
+                    return TerminalArtifactWire.result(
+                        TerminalArtifactScanResponse(artifacts: [])
+                    )
+                }
+                let scanned = await Task.detached(priority: .utility) {
+                    context.scan(includeDirectories: includeDirectories)
+                }.value
                 return TerminalArtifactWire.result(
-                    TerminalArtifactScanResponse(artifacts: [])
+                    TerminalArtifactScanResponse(
+                        artifacts: [],
+                        galleryRowTotal: scanned.artifacts.count
+                    )
                 )
             }
             do {
@@ -72,9 +85,22 @@ extension TerminalController {
                         TerminalArtifactScanResponse(artifacts: [], sessionID: sessionID)
                     )
                 }
+                let galleryRowTotal: Int?
+                if requestsGalleryRowTotal {
+                    galleryRowTotal = await mobileChatArtifactGalleryRowTotal(
+                        sessionID: indexedSession.sessionID,
+                        generation: indexedSession.snapshot.generation,
+                        artifacts: indexedSession.snapshot.artifacts,
+                        includeDirectories: includeDirectories,
+                        includeMissing: includeMissing
+                    )
+                } else {
+                    galleryRowTotal = nil
+                }
                 let response = TerminalArtifactScanResponse.sessionCount(
                     sessionID: indexedSession.sessionID,
-                    sessionArtifacts: indexedSession.snapshot.artifacts
+                    sessionArtifacts: indexedSession.snapshot.artifacts,
+                    galleryRowTotal: galleryRowTotal
                 )
                 return TerminalArtifactWire.result(response)
             } catch {

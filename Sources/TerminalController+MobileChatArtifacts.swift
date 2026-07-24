@@ -5,6 +5,7 @@ import Foundation
 private enum TerminalControllerChatArtifactIndexProvider {
     static let shared = AgentChatArtifactIndex()
     static let ordering = ChatArtifactGalleryOrderingCache()
+    static let rowCounts = ChatArtifactGalleryRowCountCache(maximumAge: 2)
 }
 
 extension TerminalController {
@@ -84,6 +85,47 @@ extension TerminalController {
             workingDirectory: record.workingDirectory
         )
         return (record.sessionID, snapshot)
+    }
+
+    /// Returns the stat-filtered count for the gallery's default landing view.
+    func mobileChatArtifactGalleryRowTotal(
+        sessionID: String,
+        generation: String,
+        artifacts: [ChatArtifactIndexedReference],
+        includeDirectories: Bool,
+        includeMissing: Bool
+    ) async -> Int {
+        if let cached = await TerminalControllerChatArtifactIndexProvider.rowCounts.total(
+            sessionID: sessionID,
+            generation: generation,
+            includeDirectories: includeDirectories,
+            includeMissing: includeMissing,
+            now: Date()
+        ) {
+            return cached
+        }
+        let orderedItems = await TerminalControllerChatArtifactIndexProvider.ordering.ordered(
+            artifacts,
+            indexID: sessionID,
+            generation: generation
+        )
+        let total = await Task.detached(priority: .utility) {
+            ChatArtifactGalleryRowEligibility().defaultRowCount(
+                artifacts,
+                orderedItems: orderedItems,
+                includeDirectories: includeDirectories,
+                includeMissing: includeMissing
+            )
+        }.value
+        await TerminalControllerChatArtifactIndexProvider.rowCounts.store(
+            total,
+            sessionID: sessionID,
+            generation: generation,
+            includeDirectories: includeDirectories,
+            includeMissing: includeMissing,
+            now: Date()
+        )
+        return total
     }
 
     func v2MobileChatArtifactStat(params: [String: Any]) async -> V2CallResult {
