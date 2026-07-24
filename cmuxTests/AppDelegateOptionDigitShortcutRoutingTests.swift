@@ -224,6 +224,13 @@ struct AppDelegateOptionDigitShortcutRoutingTests {
             )
             #expect(textView.hasMarkedText())
 
+            let whenURL = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString)
+            defer { try? FileManager.default.removeItem(at: whenURL) }
+            try #"{"shortcuts":{"when":{"switchRightSidebarToFiles":"true"}}}"#
+                .write(to: whenURL, atomically: true, encoding: .utf8)
+            KeyboardShortcutSettings.settingsFileStore = KeyboardShortcutSettingsFileStore(
+                primaryPath: whenURL.path, fallbackPath: nil, additionalFallbackPaths: [], startWatching: false
+            )
             let reboundBack = StoredShortcut(
                 key: "y",
                 command: false,
