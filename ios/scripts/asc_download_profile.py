@@ -60,7 +60,8 @@ def _sign_es256(signing_input: bytes, key_path: str) -> bytes:
         stderr=subprocess.PIPE,
     )
     if proc.returncode != 0:
-        raise RuntimeError("openssl signing failed")
+        detail = proc.stderr.decode(errors="replace").strip()
+        raise RuntimeError(f"openssl signing failed: {detail or 'no stderr output'}")
     return _der_ecdsa_to_raw(proc.stdout)
 
 
@@ -80,8 +81,10 @@ def _token() -> str:
     elif os.environ.get("ASC_API_KEY_P8_BASE64"):
         fd, tmp = tempfile.mkstemp(suffix=".p8")
         try:
-            os.write(fd, base64.b64decode(os.environ["ASC_API_KEY_P8_BASE64"]))
-            os.close(fd)
+            try:
+                os.write(fd, base64.b64decode(os.environ["ASC_API_KEY_P8_BASE64"]))
+            finally:
+                os.close(fd)
             signature = _sign_es256(signing_input, tmp)
         finally:
             os.unlink(tmp)
