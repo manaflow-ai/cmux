@@ -1,12 +1,15 @@
 import AppKit
 import CmuxSidebar
+import CmuxWorkspaces
 import Testing
 @testable import cmux_DEV
 
 @Suite
 @MainActor
 struct SidebarWorkspaceRowSuspensionTests {
-    private static func makeSnapshot() -> SidebarWorkspaceSnapshotBuilder.Snapshot {
+    private static func makeSnapshot(
+        manualTaskStatus: WorkspaceTaskStatus? = nil
+    ) -> SidebarWorkspaceSnapshotBuilder.Snapshot {
         SidebarWorkspaceSnapshotBuilder.Snapshot(
             presentationKey: SidebarWorkspaceSnapshotFactory.presentationKey(
                 settings: SidebarTabItemSettingsSnapshot(defaults: UserDefaults(suiteName: UUID().uuidString)!),
@@ -36,9 +39,14 @@ struct SidebarWorkspaceRowSuspensionTests {
             listeningPorts: [],
             finderDirectoryPath: nil,
             mediaActivity: BrowserMediaActivity(),
-            taskStatus: nil,
-            todoStatusMenuModel: nil,
-            hasManualTaskStatus: false,
+            taskStatus: manualTaskStatus,
+            todoStatusMenuModel: manualTaskStatus.map {
+                SidebarWorkspaceCompactStatusMenuModel(
+                    inferred: $0,
+                    activeOverride: $0
+                )
+            },
+            hasManualTaskStatus: manualTaskStatus != nil,
             checklistItems: [],
             checklistCompletedCount: 0,
             checklistTotalCount: 0,
@@ -47,7 +55,8 @@ struct SidebarWorkspaceRowSuspensionTests {
     }
 
     private static func makeModel(
-        checklistAddFieldActivationToken: Int = 0
+        checklistAddFieldActivationToken: Int = 0,
+        manualTaskStatus: WorkspaceTaskStatus? = nil
     ) -> SidebarWorkspaceRowModel {
         let settings = SidebarTabItemSettingsSnapshot(
             defaults: UserDefaults(suiteName: UUID().uuidString)!
@@ -55,7 +64,7 @@ struct SidebarWorkspaceRowSuspensionTests {
         return SidebarWorkspaceRowModel(
             workspaceId: UUID(),
             index: 0,
-            snapshot: makeSnapshot(),
+            snapshot: makeSnapshot(manualTaskStatus: manualTaskStatus),
             settings: settings,
             isActive: false,
             isMultiSelected: false,
@@ -78,7 +87,7 @@ struct SidebarWorkspaceRowSuspensionTests {
             checklistAddFieldActivationToken: checklistAddFieldActivationToken,
             isChecklistPopoverPresented: false,
             editingChecklistItemId: nil,
-            todoControlsEnabled: checklistAddFieldActivationToken > 0,
+            todoControlsEnabled: checklistAddFieldActivationToken > 0 || manualTaskStatus != nil,
             isMetadataExpanded: false,
             isMarkdownExpanded: false
         )
@@ -204,6 +213,53 @@ struct SidebarWorkspaceRowSuspensionTests {
             contextMenuDidClose: {}
         )
         #expect(applies == 1)
+    }
+
+    @Test
+    func suspensionClosesVisibleStatusPopover() throws {
+        let application = NSApplication.shared
+        let model = Self.makeModel(manualTaskStatus: .working)
+        let cell = SidebarWorkspaceRowTableCellView(
+            frame: NSRect(x: 0, y: 0, width: 320, height: 80)
+        )
+        let window = NSWindow(
+            contentRect: NSRect(x: 0, y: 0, width: 320, height: 80),
+            styleMask: [.borderless],
+            backing: .buffered,
+            defer: false
+        )
+        window.contentView = cell
+        window.orderFront(nil)
+        defer {
+            window.contentView = nil
+            window.close()
+        }
+        cell.configure(
+            model: model,
+            actions: Self.makeActions(model: model),
+            isPointerHovering: false,
+            contextMenuDidOpen: {},
+            contextMenuDidClose: {}
+        )
+        _ = cell.layoutContent(model: model, width: cell.bounds.width, apply: true)
+        window.contentView?.layoutSubtreeIfNeeded()
+        let glyph = try #require(
+            Self.descendants(of: cell)
+                .compactMap { $0 as? SidebarRowTaskStatusGlyphButton }
+                .first { !$0.isHidden }
+        )
+        let existingWindowIds = Set(application.windows.map(ObjectIdentifier.init))
+
+        #expect(glyph.accessibilityPerformPress())
+        let popoverWindow = try #require(
+            application.windows.first {
+                !existingWindowIds.contains(ObjectIdentifier($0)) && $0.isVisible
+            }
+        )
+
+        cell.suspendPresentation()
+
+        #expect(!popoverWindow.isVisible)
     }
 
     @Test
