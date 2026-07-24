@@ -15489,6 +15489,55 @@ mod tests {
     }
 
     #[test]
+    fn stale_replacement_settlement_preserves_newer_reconnect_action() {
+        for (case, committed) in [
+            ("committed", Ok(true)),
+            ("rejected", Ok(false)),
+            ("failed", Err("stale failure".into())),
+        ] {
+            let mux = Mux::new(format!("stale-replacement-{case}"), SurfaceOptions::default());
+            let mut app = test_app(Session::Local(mux));
+            app.machine_ui = Some(provider_machine_ui());
+            app.machine_action_in_flight = true;
+            app.machine_action_request = Some(MachineRequest::ReconnectProvider);
+            app.machine_provider_reconnect_attempts = 3;
+            let retry_at = Instant::now() + Duration::from_secs(10);
+            app.machine_provider_reconnect_retry_at = Some(retry_at);
+            app.pending_machine_replacement =
+                Some(pending_machine_replacement(&app, 2, &format!("newer-replacement-{case}")));
+
+            let action = app.apply_machine_controller_completion(
+                super::MachineControllerCompletion::ReplacementSettled {
+                    action_id: 1,
+                    committed,
+                    updates: None,
+                },
+            );
+
+            assert_eq!(action, RenderAction::Draw);
+            assert_eq!(
+                app.pending_machine_replacement.as_ref().map(|pending| pending.action_id),
+                Some(2)
+            );
+            assert!(app.machine_action_in_flight);
+            assert_eq!(app.machine_action_request, Some(MachineRequest::ReconnectProvider));
+            assert_eq!(app.machine_provider_reconnect_attempts, 3);
+            assert_eq!(app.machine_provider_reconnect_retry_at, Some(retry_at));
+            assert_eq!(
+                app.status_message.as_deref(),
+                Some(
+                    format!(
+                        "{}: {}",
+                        localization::catalog().sidebar.machine_action_failed,
+                        localization::catalog().sidebar.machine_replacement_stale
+                    )
+                    .as_str()
+                )
+            );
+        }
+    }
+
+    #[test]
     fn rejected_provider_workspace_mirror_commit_surfaces_the_session_error() {
         let mux = Mux::new("managed-workspace-rejected-mirror-test", SurfaceOptions::default());
         let placement = mux
@@ -16364,6 +16413,43 @@ mod tests {
             default_colors: cmux_tui_core::DefaultColors::default(),
             generation: 2,
             pty_input: dispatcher.sender(),
+        }
+    }
+
+    fn pending_machine_replacement(
+        app: &App,
+        action_id: u64,
+        label: &str,
+    ) -> super::PendingMachineReplacement {
+        let mux = Mux::new(label, SurfaceOptions::default());
+        let dispatcher = PtyInputDispatcher::spawn(|_| {}).unwrap();
+        let generation = app.session_generation.wrapping_add(1).max(1);
+        let (session, event_worker, mux_titles, mux_recovery_generation) = prepare_ordered_session(
+            Session::Local(mux),
+            dispatcher.sender(),
+            app.app_events.clone(),
+            generation,
+        )
+        .unwrap();
+        let tree = session.tree();
+        super::PendingMachineReplacement {
+            action_id,
+            action: super::PreparedMachineAction {
+                ui: provider_machine_ui(),
+                session_mutation: None,
+                session_label: None,
+                session: super::PreparedMachineSession {
+                    session,
+                    event_worker,
+                    generation,
+                    mux_titles,
+                    mux_recovery_generation,
+                    tree,
+                    label: label.into(),
+                    session_available: true,
+                    color_error: None,
+                },
+            },
         }
     }
 
