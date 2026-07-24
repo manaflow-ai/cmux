@@ -155,6 +155,12 @@ def test_automatic_lane_stays_on_cmux_internal_identity() -> None:
     assert upload.count(f"IOS_BETA_DISPLAY_NAME: {display_name_choice}") == 2
     assert f"UPLOAD_BUNDLE_ID: {bundle_choice}" in upload
     assert f"if: {DEMO_VARIANT_GUARD}" in upload
+    assert (
+        'echo "- audience: internal TestFlight group '
+        '(${IOS_BETA_DISPLAY_NAME}) on the ${UPLOAD_BUNDLE_ID} app; '
+        'no beta review needed"'
+        in upload
+    )
     assert f"ASSIGN_BUNDLE_ID: {bundle_choice}" in assignment
     assert f"CMUX_TESTFLIGHT_INTERNAL_GROUP_ID: {group_choice}" in assignment
 
