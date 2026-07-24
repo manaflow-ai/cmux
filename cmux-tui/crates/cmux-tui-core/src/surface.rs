@@ -2368,6 +2368,17 @@ mod tests {
     }
 
     #[test]
+    fn prompt_submission_detector_fails_closed_for_custom_control_bindings() {
+        assert!(input_may_submit_prompt(b"\x0f"), "Ctrl-O may be rebound to accept-line");
+        assert!(
+            input_may_submit_prompt(b"\x1b[A"),
+            "escape sequences may be rebound to accept-line"
+        );
+        assert!(!input_may_submit_prompt(b"printable text"));
+        assert!(!input_may_submit_prompt(b"\x1b[200~\x0f\x1b[A\x1b[201~"));
+    }
+
+    #[test]
     fn clear_history_serializes_prompt_check_with_concurrent_input() {
         let mux = Mux::new_for_test("clear-concurrent-enter", SurfaceOptions::default());
         let surface =
@@ -2463,6 +2474,71 @@ mod tests {
             &*written.lock().unwrap(),
             b"\r",
             "an in-write prompt redraw is not proof that Enter reached the child"
+        );
+    }
+
+    #[test]
+    fn clear_history_rejects_prompt_redraw_after_input_delivery_without_execution() {
+        let mux = Mux::new_for_test("clear-post-submit-prompt-redraw", SurfaceOptions::default());
+        let surface =
+            Surface::spawn_for_test(1, SurfaceOptions::default(), Arc::downgrade(&mux)).unwrap();
+        let writer = CapturingWriter::default();
+        *surface.as_pty().unwrap().writer.lock().unwrap() = Box::new(writer.clone());
+        let before = surface
+            .with_terminal(|term| {
+                for line in 0..40 {
+                    term.vt_write(format!("history-{line}\r\n").as_bytes());
+                }
+                term.vt_write(b"\x1b]133;A\x07prompt> \x1b]133;B\x07sleep 1");
+                term.viewport_text().unwrap()
+            })
+            .unwrap();
+
+        surface.write_bytes(b"\r").unwrap();
+        surface.with_terminal(|term| {
+            term.vt_write(b"\r\x1b]133;A\x07prompt> \x1b]133;B\x07");
+        });
+        surface.clear_history().unwrap();
+
+        surface.with_terminal(|term| {
+            assert_eq!(term.history_rows(), 0);
+            assert_eq!(term.viewport_text().unwrap(), before);
+        });
+        assert_eq!(
+            &*writer.0.lock().unwrap(),
+            b"\r",
+            "a prompt redraw without OSC 133 C must not release Ctrl-L"
+        );
+    }
+
+    #[test]
+    fn clear_history_guards_custom_control_submission_bindings() {
+        let mux = Mux::new_for_test("clear-custom-submit", SurfaceOptions::default());
+        let surface =
+            Surface::spawn_for_test(1, SurfaceOptions::default(), Arc::downgrade(&mux)).unwrap();
+        let writer = CapturingWriter::default();
+        *surface.as_pty().unwrap().writer.lock().unwrap() = Box::new(writer.clone());
+        let before = surface
+            .with_terminal(|term| {
+                for line in 0..40 {
+                    term.vt_write(format!("history-{line}\r\n").as_bytes());
+                }
+                term.vt_write(b"\x1b]133;A\x07prompt> \x1b]133;B\x07custom binding");
+                term.viewport_text().unwrap()
+            })
+            .unwrap();
+
+        surface.write_bytes(b"\x0f").unwrap();
+        surface.clear_history().unwrap();
+
+        surface.with_terminal(|term| {
+            assert_eq!(term.history_rows(), 0);
+            assert_eq!(term.viewport_text().unwrap(), before);
+        });
+        assert_eq!(
+            &*writer.0.lock().unwrap(),
+            b"\x0f",
+            "Ctrl-L must wait because Ctrl-O may submit the prompt"
         );
     }
 
