@@ -232,6 +232,7 @@ _PYTHON_WALRUS_TARGET = re.compile(
 _JS_SLEEP_CALL = re.compile(
     r"""(?x)
     (?<![.\w])Bun\.sleep\s*\(
+  | (?<![.\w])(?:global|globalThis|self|window)\.setTimeout\s*\(
   | (?<![.\w])setTimeout\s*\(
     """
 )
@@ -540,7 +541,7 @@ def _python_import_bindings(
             else imported
         )
         bindings.add(alias)
-        if module in ("time", "asyncio") and imported == "sleep":
+        if module in _PYTHON_SLEEP_MODULES and imported == "sleep":
             function_aliases.add(alias)
     return bindings, module_aliases, function_aliases, wildcard_import
 
@@ -576,23 +577,10 @@ def _python_shadowed_names(line: str, candidates: set[str]) -> set[str]:
         )
         shadowed.update(target_names & candidates)
 
-    class_definition = _PYTHON_CLASS.search(line)
-    if class_definition and class_definition.group("name") in candidates:
-        shadowed.add(class_definition.group("name"))
-
     if not line.lstrip().startswith(("import ", "from ")):
         shadowed.update(
             match.group("name")
             for match in _PYTHON_AS_TARGET.finditer(line)
-            if match.group("name") in candidates
-        )
-
-    for lambda_parameters in _PYTHON_LAMBDA_PARAMETERS.finditer(line):
-        shadowed.update(
-            match.group("name")
-            for match in _PYTHON_PARAMETER.finditer(
-                lambda_parameters.group("parameters")
-            )
             if match.group("name") in candidates
         )
 
@@ -601,6 +589,21 @@ def _python_shadowed_names(line: str, candidates: set[str]) -> set[str]:
         deleted = set(re.findall(r"\b[A-Za-z_]\w*\b", deletion.group("names")))
         shadowed.update(deleted & candidates)
     return shadowed
+
+
+def _python_lambda_shadowed_names(
+    line: str,
+    candidates: set[str],
+) -> set[str]:
+    """Return sleep names shadowed only inside a lambda expression."""
+    return {
+        match.group("name")
+        for lambda_parameters in _PYTHON_LAMBDA_PARAMETERS.finditer(line)
+        for match in _PYTHON_PARAMETER.finditer(
+            lambda_parameters.group("parameters")
+        )
+        if match.group("name") in candidates
+    }
 
 
 def _python_real_sleep_lines(masked_lines: list[str]) -> set[int]:
@@ -612,8 +615,32 @@ def _python_real_sleep_lines(masked_lines: list[str]) -> set[int]:
     pending_parameter_depth = 0
     pending_import: Optional[str] = None
     pending_import_depth = 0
+    scope_stack: list[tuple[int, set[str], set[str], bool]] = []
 
     for idx, line in enumerate(masked_lines):
+        line_indent = len(line) - len(line.lstrip())
+        if line.strip() and pending_parameters is None:
+            while scope_stack:
+                (
+                    header_indent,
+                    restore_modules,
+                    restore_functions,
+                    body_started,
+                ) = scope_stack[-1]
+                if not body_started and line_indent > header_indent:
+                    scope_stack[-1] = (
+                        header_indent,
+                        restore_modules,
+                        restore_functions,
+                        True,
+                    )
+                    break
+                if body_started and line_indent > header_indent:
+                    break
+                active_modules = restore_modules
+                active_functions = restore_functions
+                scope_stack.pop()
+
         candidates = active_modules | active_functions
         import_statement: Optional[str] = None
         in_import_header = False
@@ -658,10 +685,25 @@ def _python_real_sleep_lines(masked_lines: list[str]) -> set[int]:
             shadowed.update(candidates)
 
         function = _PYTHON_FUNCTION_START.search(line)
+        class_definition = _PYTHON_CLASS.search(line)
         in_function_header = function is not None or pending_parameters is not None
+        if function or class_definition:
+            defined_name = (
+                function.group("name")
+                if function is not None
+                else class_definition.group("name")
+            )
+            active_modules.discard(defined_name)
+            active_functions.discard(defined_name)
+            scope_stack.append(
+                (
+                    line_indent,
+                    active_modules.copy(),
+                    active_functions.copy(),
+                    False,
+                )
+            )
         if function:
-            if function.group("name") in candidates:
-                shadowed.add(function.group("name"))
             pending_parameters = function.group("parameters")
             pending_parameter_depth = (
                 1
@@ -683,24 +725,25 @@ def _python_real_sleep_lines(masked_lines: list[str]) -> set[int]:
         active_modules.difference_update(shadowed)
         active_functions.difference_update(shadowed)
 
-        # Only module-scope imports establish aliases. Propagating an alias out
-        # of a nested scope would create a false positive elsewhere in the file.
-        if (
-            import_statement is not None
-            and import_statement == import_statement.lstrip()
-        ):
+        # Imports establish aliases in the current lexical scope. Scope
+        # snapshots restore the parent bindings when a function/class suite
+        # ends, so local aliases cannot leak into later tests.
+        if import_statement is not None:
             active_modules.update(module_aliases)
             active_functions.update(function_aliases)
 
-        if in_function_header or in_import_header:
+        if in_function_header or in_import_header or class_definition:
             continue
 
+        lambda_shadowed = _python_lambda_shadowed_names(line, candidates)
+        line_modules = active_modules - lambda_shadowed
+        line_functions = active_functions - lambda_shadowed
         qualified_sleep = any(
-            match.group("name") in active_modules
+            match.group("name") in line_modules
             for match in _PYTHON_QUALIFIED_SLEEP.finditer(line)
         )
         bare_sleep = any(
-            match.group("name") in active_functions
+            match.group("name") in line_functions
             for match in _PYTHON_BARE_CALL.finditer(line)
         )
         if qualified_sleep or bare_sleep:
