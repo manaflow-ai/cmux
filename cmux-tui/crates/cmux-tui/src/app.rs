@@ -15739,6 +15739,24 @@ mod tests {
     }
 
     #[test]
+    fn personal_scope_row_does_not_repeat_the_same_label() {
+        let mux = Mux::new("provider-personal-scope-style-test", SurfaceOptions::default());
+        let mut app = test_app(Session::Local(mux));
+        let mut ui = provider_controls_ui();
+        let mut provider = ui.provider.clone().unwrap();
+        provider.selected_scope_id = "personal".into();
+        ui.set_provider_presentation(provider);
+        app.machine_ui = Some(ui);
+        app.sync_layout((100, 16));
+        let mut terminal = Terminal::new(TestBackend::new(100, 16)).unwrap();
+        terminal.draw(|frame| crate::ui::draw(&mut app, frame)).unwrap();
+
+        let text = buffer_text(terminal.backend().buffer());
+        assert!(text.contains(" Personal ▾"), "{text}");
+        assert!(!text.contains("personal · Personal"), "{text}");
+    }
+
+    #[test]
     fn provider_snapshot_update_invalidates_stale_menu_and_prompt() {
         let mux = Mux::new("provider-overlay-invalidation-test", SurfaceOptions::default());
         let mut app = test_app(Session::Local(mux));
