@@ -678,14 +678,14 @@ enum KeyboardShortcutSettings {
                 return .rejected(.reservedBySystem)
             }
 
-            if let conflictingAction = KeyboardShortcutSettings.conflictingAction(
-                for: shortcut,
-                excluding: self
-            ) {
+            let resolved = resolvedRecordedShortcutIgnoringConflicts(shortcut)
+            guard case .accepted = resolved else { return resolved }
+
+            if let conflictingAction = KeyboardShortcutSettings.conflictingAction(for: shortcut, excluding: self) {
                 return .rejected(.conflictsWithAction(conflictingAction))
             }
 
-            return resolvedRecordedShortcutIgnoringConflicts(shortcut)
+            return resolved
         }
 
         func normalizedSettingsFileShortcut(_ shortcut: StoredShortcut) -> StoredShortcut? {
