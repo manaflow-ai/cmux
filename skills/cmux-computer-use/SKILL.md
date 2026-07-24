@@ -68,14 +68,27 @@ open. Retry the tool call after onboarding reports both grants.
 
 ## Using the tools (agent-facing)
 
-Perceive, then act, then verify:
+cmux already owns the MCP connection's session identity. Do **not** call
+`start_session` / `end_session`, and do not pass a custom `session` argument.
+The proxy binds every call to the originating cmux surface so the menu-bar
+item, cursor, recording cleanup, and background/focus controls stay attached
+to the right agent.
+
+Perceive, act in logical groups, then verify:
 
 1. `get_window_state` (pid + window_id) returns the accessibility tree **and** a
    screenshot. Ground on both. Prefer element addressing.
 2. Act by element: `click` with `element_token` (or `element_index` + pid +
    window_id) is the robust path. Pixel addressing (`x`,`y`) is the fallback.
-3. Verify by re-snapshotting and reading the element `value` / screenshot — do
-   not assume an action landed (clicks are never driver-verified).
+3. For a stable, already-snapshotted control set, issue the deterministic
+   actions as one logical group without inserting a fresh snapshot after every
+   individual click. Re-snapshot immediately after navigation, layout changes,
+   modal presentation, or any action that can invalidate the target controls.
+4. Verify the completed group by re-snapshotting and reading the element
+   `value` / screenshot — do not assume actions landed (clicks are never
+   driver-verified). Prefer one direct `type_text` / keyboard sequence for
+   deterministic text or calculator input unless the user specifically asks
+   to see literal pointer clicks.
 
 Notes:
 - `list_apps` / `launch_app` / `list_windows` to find targets;
