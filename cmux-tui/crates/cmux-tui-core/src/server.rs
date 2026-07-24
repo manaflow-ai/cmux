@@ -1087,19 +1087,25 @@ struct ClientRecord {
     writer: MessageWriter,
 }
 
+#[derive(Default)]
+struct ClientRegistryState {
+    clients: BTreeMap<u64, ClientRecord>,
+    attached_by_surface: HashMap<SurfaceId, HashSet<u64>>,
+}
+
 pub(crate) struct ClientRegistry {
     next_id: AtomicU64,
-    clients: Mutex<BTreeMap<u64, ClientRecord>>,
+    state: Mutex<ClientRegistryState>,
 }
 
 impl ClientRegistry {
     pub(crate) fn new() -> Self {
-        Self { next_id: AtomicU64::new(1), clients: Mutex::new(BTreeMap::new()) }
+        Self { next_id: AtomicU64::new(1), state: Mutex::new(ClientRegistryState::default()) }
     }
 
     fn register(&self, transport: ClientTransport, writer: MessageWriter) -> u64 {
         let client = self.next_id.fetch_add(1, Ordering::Relaxed);
-        self.clients.lock().unwrap().insert(
+        self.state.lock().unwrap().clients.insert(
             client,
             ClientRecord {
                 transport,
@@ -1115,9 +1121,10 @@ impl ClientRegistry {
     }
 
     fn is_unix(&self, client: u64) -> bool {
-        self.clients
+        self.state
             .lock()
             .unwrap()
+            .clients
             .get(&client)
             .is_some_and(|record| matches!(record.transport, ClientTransport::Unix))
     }
@@ -1128,9 +1135,11 @@ impl ClientRegistry {
         name: Option<String>,
         kind: Option<String>,
     ) -> anyhow::Result<(Option<String>, Option<String>)> {
-        let mut clients = self.clients.lock().unwrap();
-        let record =
-            clients.get_mut(&client).ok_or_else(|| anyhow::anyhow!("unknown client {client}"))?;
+        let mut state = self.state.lock().unwrap();
+        let record = state
+            .clients
+            .get_mut(&client)
+            .ok_or_else(|| anyhow::anyhow!("unknown client {client}"))?;
         if let Some(name) = name {
             record.name = Some(clamp_client_label(name));
         }
@@ -1141,9 +1150,10 @@ impl ClientRegistry {
     }
 
     pub(crate) fn list_json(&self, requesting_client: u64) -> Value {
-        let clients = self.clients.lock().unwrap();
+        let state = self.state.lock().unwrap();
         json!(
-            clients
+            state
+                .clients
                 .iter()
                 .map(|(client, record)| {
                     json!({
@@ -1185,10 +1195,13 @@ impl ClientRegistry {
         surface: SurfaceId,
         stream: OutboundStream,
     ) -> anyhow::Result<()> {
-        let mut clients = self.clients.lock().unwrap();
-        let record =
-            clients.get_mut(&client).ok_or_else(|| anyhow::anyhow!("unknown client {client}"))?;
+        let mut state = self.state.lock().unwrap();
+        let record = state
+            .clients
+            .get_mut(&client)
+            .ok_or_else(|| anyhow::anyhow!("unknown client {client}"))?;
         record.attached.entry(surface).or_default().pending_streams.insert(stream.id, stream);
+        state.attached_by_surface.entry(surface).or_default().insert(client);
         Ok(())
     }
 
@@ -1199,9 +1212,11 @@ impl ClientRegistry {
         stream: u64,
         rollback: Option<crate::mux::ClientSizeRollback>,
     ) -> anyhow::Result<()> {
-        let mut clients = self.clients.lock().unwrap();
-        let record =
-            clients.get_mut(&client).ok_or_else(|| anyhow::anyhow!("unknown client {client}"))?;
+        let mut state = self.state.lock().unwrap();
+        let record = state
+            .clients
+            .get_mut(&client)
+            .ok_or_else(|| anyhow::anyhow!("unknown client {client}"))?;
         let attached = record
             .attached
             .get_mut(&surface)
@@ -1218,9 +1233,11 @@ impl ClientRegistry {
     }
 
     fn announce_attached(&self, client: u64) -> anyhow::Result<Option<ClientAnnouncement>> {
-        let mut clients = self.clients.lock().unwrap();
-        let record =
-            clients.get_mut(&client).ok_or_else(|| anyhow::anyhow!("unknown client {client}"))?;
+        let mut state = self.state.lock().unwrap();
+        let record = state
+            .clients
+            .get_mut(&client)
+            .ok_or_else(|| anyhow::anyhow!("unknown client {client}"))?;
         if record.announced_attached {
             return Ok(None);
         }
@@ -1233,8 +1250,8 @@ impl ClientRegistry {
     }
 
     fn detach_surface(&self, client: u64, surface: SurfaceId, stream: u64) -> DetachedSurface {
-        let mut clients = self.clients.lock().unwrap();
-        let Some(record) = clients.get_mut(&client) else {
+        let mut state = self.state.lock().unwrap();
+        let Some(record) = state.clients.get_mut(&client) else {
             return DetachedSurface { final_stream: false, rollback: None };
         };
         let Some(attached) = record.attached.get_mut(&surface) else {
@@ -1254,6 +1271,12 @@ impl ClientRegistry {
         }
         if attached.streams.is_empty() && attached.pending_streams.is_empty() {
             record.attached.remove(&surface);
+            if let Some(clients) = state.attached_by_surface.get_mut(&surface) {
+                clients.remove(&client);
+                if clients.is_empty() {
+                    state.attached_by_surface.remove(&surface);
+                }
+            }
             return DetachedSurface { final_stream: true, rollback };
         }
         let rollback = rollback.filter(|rollback| {
@@ -1269,9 +1292,11 @@ impl ClientRegistry {
         cols: u16,
         rows: u16,
     ) -> anyhow::Result<Option<ClientSizeUpdate>> {
-        let mut clients = self.clients.lock().unwrap();
-        let record =
-            clients.get_mut(&client).ok_or_else(|| anyhow::anyhow!("unknown client {client}"))?;
+        let mut state = self.state.lock().unwrap();
+        let record = state
+            .clients
+            .get_mut(&client)
+            .ok_or_else(|| anyhow::anyhow!("unknown client {client}"))?;
         let Some(attached) = record.attached.get_mut(&surface) else { return Ok(None) };
         let previous = attached.size;
         let changed = previous != Some((cols, rows));
@@ -1284,9 +1309,10 @@ impl ClientRegistry {
 
     pub(crate) fn set_report_order(&self, client: u64, surface: SurfaceId, report_order: u64) {
         if let Some(attached) = self
-            .clients
+            .state
             .lock()
             .unwrap()
+            .clients
             .get_mut(&client)
             .and_then(|record| record.attached.get_mut(&surface))
         {
@@ -1296,9 +1322,10 @@ impl ClientRegistry {
 
     pub(crate) fn restore_size(&self, client: u64, surface: SurfaceId, size: Option<(u16, u16)>) {
         if let Some(attached) = self
-            .clients
+            .state
             .lock()
             .unwrap()
+            .clients
             .get_mut(&client)
             .and_then(|record| record.attached.get_mut(&surface))
         {
@@ -1318,9 +1345,10 @@ impl ClientRegistry {
     ) {
         self.restore_size(client, surface, size);
         if let Some(attached) = self
-            .clients
+            .state
             .lock()
             .unwrap()
+            .clients
             .get_mut(&client)
             .and_then(|record| record.attached.get_mut(&surface))
         {
@@ -1333,8 +1361,8 @@ impl ClientRegistry {
         client: u64,
         surface: SurfaceId,
     ) -> Option<(bool, Option<String>, Option<String>)> {
-        let mut clients = self.clients.lock().unwrap();
-        let record = clients.get_mut(&client)?;
+        let mut state = self.state.lock().unwrap();
+        let record = state.clients.get_mut(&client)?;
         let attached = record.attached.get_mut(&surface)?;
         let changed = attached.size.take().is_some();
         attached.committed_size = None;
@@ -1343,61 +1371,50 @@ impl ClientRegistry {
     }
 
     fn remove(&self, client: u64) -> Option<ClientRecord> {
-        self.clients.lock().unwrap().remove(&client)
+        let mut state = self.state.lock().unwrap();
+        let record = state.clients.remove(&client)?;
+        for surface in record.attached.keys() {
+            if let Some(clients) = state.attached_by_surface.get_mut(surface) {
+                clients.remove(&client);
+                if clients.is_empty() {
+                    state.attached_by_surface.remove(surface);
+                }
+            }
+        }
+        Some(record)
     }
 
     pub(crate) fn contains(&self, client: u64) -> bool {
-        self.clients.lock().unwrap().contains_key(&client)
+        self.state.lock().unwrap().clients.contains_key(&client)
     }
 
     pub(crate) fn client_info(&self, client: u64) -> Option<(Option<String>, Option<String>)> {
-        self.clients
+        self.state
             .lock()
             .unwrap()
+            .clients
             .get(&client)
             .map(|record| (record.name.clone(), record.kind.clone()))
     }
 
     #[cfg(test)]
     pub(crate) fn attached_client_ids(&self) -> HashSet<u64> {
-        self.clients
+        self.state
             .lock()
             .unwrap()
+            .clients
             .iter()
             .filter_map(|(client, record)| (!record.attached.is_empty()).then_some(*client))
             .collect()
     }
 
     pub(crate) fn attached_client_ids_by_surface(&self) -> HashMap<SurfaceId, HashSet<u64>> {
-        let clients = self.clients.lock().unwrap();
-        let mut attached = HashMap::<SurfaceId, HashSet<u64>>::new();
-        for (client, record) in clients.iter() {
-            for (surface, attachment) in &record.attached {
-                if !attachment.streams.is_empty() || !attachment.pending_streams.is_empty() {
-                    attached.entry(*surface).or_default().insert(*client);
-                }
-            }
-        }
-        attached
+        self.state.lock().unwrap().attached_by_surface.clone()
     }
 
-    /// Query one surface for the resize hot path. The server bounds live
-    /// connections, so this avoids walking each client's retained surfaces.
+    /// Query one surface without walking every client's retained attachments.
     pub(crate) fn attached_client_ids_for_surface(&self, surface: SurfaceId) -> HashSet<u64> {
-        self.clients
-            .lock()
-            .unwrap()
-            .iter()
-            .filter_map(|(client, record)| {
-                record
-                    .attached
-                    .get(&surface)
-                    .is_some_and(|attachment| {
-                        !attachment.streams.is_empty() || !attachment.pending_streams.is_empty()
-                    })
-                    .then_some(*client)
-            })
-            .collect()
+        self.state.lock().unwrap().attached_by_surface.get(&surface).cloned().unwrap_or_default()
     }
 }
 
@@ -2653,7 +2670,6 @@ fn mark_client_attached(
             resize_completion,
         });
     }
-    mux.reconcile_client_sizing_attachment_change();
     Ok(MarkedClientAttach {
         size_rollback: None,
         client_changed: None,
