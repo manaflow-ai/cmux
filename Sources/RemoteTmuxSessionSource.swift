@@ -10,7 +10,10 @@ import Foundation
 struct RemoteTmuxSessionObservers {
     var onPaneOutput: ((_ paneId: Int, _ data: Data) -> Void)?
     /// An authoritative pane snapshot and the live output ordered after it. Delivered separately from
-    /// `onPaneOutput` because the consumer has to hold it until its surface grid can accept it.
+    /// `onPaneOutput` because the consumer has to hold it until its surface grid can accept it. A
+    /// consumer that never receives this renders only the live stream, so a pane it mounted
+    /// mid-session — or re-mounted after a reconnect — stays blank until something happens to
+    /// redraw it.
     var onPaneSeed: ((_ paneId: Int, _ seed: RemoteTmuxPaneSeed) -> Void)?
     var onPaneCwd: ((_ paneId: Int, _ path: String) -> Void)?
     var onPaneReflow: ((_ paneId: Int, _ noReflow: Bool) -> Void)?
@@ -70,6 +73,11 @@ protocol RemoteTmuxSessionSource: AnyObject {
     /// Live transport state (host-global under a shared connection).
     var connectionState: RemoteTmuxConnectionState { get }
     /// Notes a diagnostic event against this session.
+    ///
+    /// This appends to the transport's diagnostic ring, the buffer `remote.tmux.state` reads back.
+    /// Consumer-side events belong in the same ordered buffer as the transport's own, because
+    /// reading a seed failure means following one pane across the boundary between them, and a
+    /// separate consumer log would lose the interleaving that shows which side gave up first.
     ///
     /// The ring behind it is host-global when one stream carries several sessions, so an
     /// implementation that shares a stream scopes the text to its own session — otherwise two
