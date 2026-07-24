@@ -115,6 +115,14 @@ private final class NativeSSHCleanupRecorder {
 }
 
 final class WorkspaceRemoteConnectionTests: XCTestCase {
+    /// A control path in the resolved form the broker will claim lifecycle ownership of:
+    /// the cmux prefix followed by 40 hex digits, which is what `ssh -G` expands `%C` into
+    /// before a configuration reaches the app. `NativeSSHControlMasterKey` refuses to own a
+    /// path still containing `%`, so a fixture carrying a raw `%C` template never gets a
+    /// lease and can never produce a cleanup request.
+    private static let resolvedControlPath =
+        "/tmp/cmux-ssh-\(getuid())-0123456789abcdef0123456789abcdef01234567"
+
     private struct ProcessRunResult {
         let status: Int32, stdout: String, stderr: String
         let timedOut: Bool
@@ -1036,7 +1044,7 @@ final class WorkspaceRemoteConnectionTests: XCTestCase {
     }
 
     @MainActor
-    func testForegroundSSHAuthReadyBeforeRemoteConfigureStartsDeferredConnect() {
+    func testForegroundSSHAuthReadyBeforeRemoteConfigureStartsDeferredConnect() async {
         let workspace = Workspace()
         let config = WorkspaceRemoteConfiguration(
             destination: "cmux-macmini",
@@ -1069,12 +1077,16 @@ final class WorkspaceRemoteConnectionTests: XCTestCase {
             "ControlPath=\(resolvedControlPath)"
         )
         XCTAssertEqual(workspace.remoteConnectionState, .connecting)
+        // configureRemoteConnection enqueues the session transition as a serialized main-actor
+        // Task; the controller id is assigned when that transition starts the controller, which
+        // is one hop later. Await the transition rather than reading the id straight after.
+        await workspace.remoteSessionTransitionTask?.value
         XCTAssertNotNil(workspace.activeRemoteSessionControllerID)
         workspace.disconnectRemoteConnection(clearConfiguration: true)
     }
 
     @MainActor
-    func testForegroundSSHAuthReadyReconnectsConfiguredConnectingRemoteWorkspace() {
+    func testForegroundSSHAuthReadyReconnectsConfiguredConnectingRemoteWorkspace() async {
         let workspace = Workspace()
         let config = WorkspaceRemoteConfiguration(
             destination: "cmux-macmini",
@@ -1094,6 +1106,10 @@ final class WorkspaceRemoteConnectionTests: XCTestCase {
         XCTAssertNil(workspace.activeRemoteSessionControllerID)
         workspace.notifyRemoteForegroundAuthenticationReady(token: "token-a")
         XCTAssertEqual(workspace.remoteConnectionState, .connecting)
+        // The XCTAssertNil above is the point of this test — no controller starts until
+        // authentication lands — so the wait belongs here, after the notification, not after
+        // configureRemoteConnection.
+        await workspace.remoteSessionTransitionTask?.value
         XCTAssertNotNil(workspace.activeRemoteSessionControllerID)
         workspace.disconnectRemoteConnection(clearConfiguration: true)
     }
@@ -1180,7 +1196,7 @@ final class WorkspaceRemoteConnectionTests: XCTestCase {
             sshOptions: [
                 "ControlMaster=auto",
                 "ControlPersist=600",
-                "ControlPath=/tmp/cmux-ssh-\(getuid())-%C",
+                "ControlPath=\(Self.resolvedControlPath)",
                 "StrictHostKeyChecking=accept-new",
             ],
             localProxyPort: nil,
@@ -1211,7 +1227,7 @@ final class WorkspaceRemoteConnectionTests: XCTestCase {
                 "-o", "ControlMaster=no",
                 "-p", "2222",
                 "-i", "/Users/test/.ssh/id_ed25519",
-                "-o", "ControlPath=/tmp/cmux-ssh-\(getuid())-%C",
+                "-o", "ControlPath=\(Self.resolvedControlPath)",
                 "-o", "StrictHostKeyChecking=accept-new",
                 "-O", "exit",
                 "cmux-macmini",
@@ -1230,7 +1246,7 @@ final class WorkspaceRemoteConnectionTests: XCTestCase {
             sshOptions: [
                 "ControlMaster=auto",
                 "ControlPersist=600",
-                "ControlPath=/tmp/cmux-ssh-\(getuid())-%C",
+                "ControlPath=\(Self.resolvedControlPath)",
             ],
             localProxyPort: nil,
             relayPort: 64035,
@@ -1257,7 +1273,7 @@ final class WorkspaceRemoteConnectionTests: XCTestCase {
                 "-o", "ControlMaster=no",
                 "-p", "2222",
                 "-i", "/Users/test/.ssh/id_ed25519",
-                "-o", "ControlPath=/tmp/cmux-ssh-\(getuid())-%C",
+                "-o", "ControlPath=\(Self.resolvedControlPath)",
                 "-O", "exit",
                 "cmux-macmini",
             ]
@@ -1275,7 +1291,7 @@ final class WorkspaceRemoteConnectionTests: XCTestCase {
             sshOptions: [
                 "ControlMaster=auto",
                 "ControlPersist=600",
-                "ControlPath=/tmp/cmux-ssh-\(getuid())-%C",
+                "ControlPath=\(Self.resolvedControlPath)",
                 "StrictHostKeyChecking=accept-new",
             ],
             localProxyPort: nil,
@@ -1327,7 +1343,7 @@ final class WorkspaceRemoteConnectionTests: XCTestCase {
             sshOptions: [
                 "ControlMaster=auto",
                 "ControlPersist=600",
-                "ControlPath=/tmp/cmux-ssh-\(getuid())-%C",
+                "ControlPath=\(Self.resolvedControlPath)",
             ],
             localProxyPort: nil,
             relayPort: 64014,
@@ -1356,7 +1372,7 @@ final class WorkspaceRemoteConnectionTests: XCTestCase {
             [
                 "-o", "BatchMode=yes",
                 "-o", "ControlMaster=no",
-                "-o", "ControlPath=/tmp/cmux-ssh-\(getuid())-%C",
+                "-o", "ControlPath=\(Self.resolvedControlPath)",
                 "-O", "exit",
                 "cmux-macmini",
             ]
@@ -1411,7 +1427,7 @@ final class WorkspaceRemoteConnectionTests: XCTestCase {
             sshOptions: [
                 "ControlMaster=auto",
                 "ControlPersist=600",
-                "ControlPath=/tmp/cmux-ssh-\(getuid())-%C",
+                "ControlPath=\(Self.resolvedControlPath)",
                 "StrictHostKeyChecking=accept-new",
             ],
             localProxyPort: nil,
@@ -1441,12 +1457,50 @@ final class WorkspaceRemoteConnectionTests: XCTestCase {
                 "-o", "ControlMaster=no",
                 "-p", "2222",
                 "-i", "/Users/test/.ssh/id_ed25519",
-                "-o", "ControlPath=/tmp/cmux-ssh-\(getuid())-%C",
+                "-o", "ControlPath=\(Self.resolvedControlPath)",
                 "-o", "StrictHostKeyChecking=accept-new",
                 "-O", "exit",
                 "cmux-macmini",
             ]
         )
+    }
+
+    @MainActor
+    func testClosingRemoteWorkspaceWithUnresolvedControlTemplateRequestsNoCleanup() throws {
+        // The counterpart to the test above. An unresolved `%C` template is deliberately left
+        // unowned, because cmux cannot know which socket it will expand to, so closing the
+        // workspace must not try to tear a master down. Legacy unresolved masters are retired by
+        // ControlPersist instead. Without this, every cleanup fixture could quietly regress to a
+        // template and the suite would still pass, having stopped testing cleanup at all.
+        let cleanup = NativeSSHCleanupRecorder()
+        let manager = TabManager(nativeSSHConnectionBroker: cleanup.broker)
+        let remoteWorkspace = manager.addWorkspace()
+        let config = WorkspaceRemoteConfiguration(
+            destination: "cmux-macmini",
+            port: 2222,
+            identityFile: "/Users/test/.ssh/id_ed25519",
+            sshOptions: [
+                "ControlMaster=auto",
+                "ControlPersist=600",
+                "ControlPath=/tmp/cmux-ssh-\(getuid())-%C",
+                "StrictHostKeyChecking=accept-new",
+            ],
+            localProxyPort: nil,
+            relayPort: 64019,
+            relayID: String(repeating: "a", count: 16),
+            relayToken: String(repeating: "b", count: 64),
+            localSocketPath: "/tmp/cmux-debug-test.sock",
+            terminalStartupCommand: "ssh cmux-macmini"
+        )
+        let cleanupRequested = expectation(description: "control master cleanup requested")
+        cleanupRequested.isInverted = true
+        cleanup.onRequest = { cleanupRequested.fulfill() }
+
+        remoteWorkspace.configureRemoteConnection(config, autoConnect: false)
+        manager.closeWorkspace(remoteWorkspace)
+
+        wait(for: [cleanupRequested], timeout: 1.0)
+        XCTAssertTrue(cleanup.arguments.isEmpty, "expected no cleanup for an unresolved control template, got \(cleanup.arguments)")
     }
 
     @MainActor
@@ -1460,7 +1514,7 @@ final class WorkspaceRemoteConnectionTests: XCTestCase {
             sshOptions: [
                 "ControlMaster=auto",
                 "ControlPersist=600",
-                "ControlPath=/tmp/cmux-ssh-\(getuid())-%C",
+                "ControlPath=\(Self.resolvedControlPath)",
             ],
             localProxyPort: nil,
             relayPort: 64016,
@@ -1675,7 +1729,7 @@ final class WorkspaceRemoteConnectionTests: XCTestCase {
             sshOptions: [
                 "ControlMaster=auto",
                 "ControlPersist=600",
-                "ControlPath=/tmp/cmux-ssh-\(getuid())-%C",
+                "ControlPath=\(Self.resolvedControlPath)",
             ],
             localProxyPort: nil,
             relayPort: 64017,
@@ -1727,7 +1781,7 @@ final class WorkspaceRemoteConnectionTests: XCTestCase {
             sshOptions: [
                 "ControlMaster=auto",
                 "ControlPersist=600",
-                "ControlPath=/tmp/cmux-ssh-\(getuid())-%C",
+                "ControlPath=\(Self.resolvedControlPath)",
             ],
             localProxyPort: nil,
             relayPort: 64018,
@@ -1779,7 +1833,7 @@ final class WorkspaceRemoteConnectionTests: XCTestCase {
             sshOptions: [
                 "ControlMaster=auto",
                 "ControlPersist=600",
-                "ControlPath=/tmp/cmux-ssh-\(getuid())-%C",
+                "ControlPath=\(Self.resolvedControlPath)",
             ],
             localProxyPort: nil,
             relayPort: 64019,
@@ -1829,7 +1883,7 @@ final class WorkspaceRemoteConnectionTests: XCTestCase {
             sshOptions: [
                 "ControlMaster=auto",
                 "ControlPersist=600",
-                "ControlPath=/tmp/cmux-ssh-\(getuid())-%C",
+                "ControlPath=\(Self.resolvedControlPath)",
             ],
             localProxyPort: nil,
             relayPort: 64013,
@@ -1867,7 +1921,7 @@ final class WorkspaceRemoteConnectionTests: XCTestCase {
             sshOptions: [
                 "ControlMaster=auto",
                 "ControlPersist=600",
-                "ControlPath=/tmp/cmux-ssh-\(getuid())-%C",
+                "ControlPath=\(Self.resolvedControlPath)",
             ],
             localProxyPort: nil,
             relayPort: 64020,
@@ -1942,7 +1996,12 @@ final class WorkspaceRemoteConnectionTests: XCTestCase {
             }
         }
 
-        let scpInvoked = DispatchSemaphore(value: 0)
+        // An XCTestExpectation, not a semaphore: these tests are @MainActor, and
+        // configureRemoteConnection enqueues its session transition as a main-actor Task.
+        // Blocking the main actor here would stop that Task from ever being scheduled,
+        // so the work being waited on could never happen. wait(for:) pumps the run loop.
+        let scpInvoked = expectation(description: "daemon upload invoked")
+        scpInvoked.assertForOverFulfill = false
         let lock = NSLock()
         var scpDestination: String?
         let remoteProcessScript: RemoteProcessScript = { executable, arguments, _, _ in
@@ -1969,7 +2028,7 @@ final class WorkspaceRemoteConnectionTests: XCTestCase {
                 lock.lock()
                 scpDestination = arguments.last
                 lock.unlock()
-                scpInvoked.signal()
+                scpInvoked.fulfill()
                 return (status: 1, stdout: "", stderr: "intentional stop after upload destination capture")
             }
             XCTFail("unexpected executable \(executable)")
@@ -1995,7 +2054,7 @@ final class WorkspaceRemoteConnectionTests: XCTestCase {
 
         workspace.configureRemoteConnection(config, autoConnect: true)
 
-        XCTAssertEqual(scpInvoked.wait(timeout: .now() + 2), .success)
+        wait(for: [scpInvoked], timeout: 2.0)
         lock.lock()
         let capturedDestination = scpDestination
         lock.unlock()
@@ -2029,7 +2088,10 @@ final class WorkspaceRemoteConnectionTests: XCTestCase {
             }
         }
 
-        let scpInvoked = DispatchSemaphore(value: 0)
+        // Expectation rather than a semaphore, for the reason above: blocking the main
+        // actor would starve the session transition this test is waiting on.
+        let scpInvoked = expectation(description: "daemon upload invoked")
+        scpInvoked.assertForOverFulfill = false
         let lock = NSLock()
         var scpDestination: String?
         let remoteProcessScript: RemoteProcessScript = { executable, arguments, _, _ in
@@ -2064,7 +2126,7 @@ final class WorkspaceRemoteConnectionTests: XCTestCase {
                 lock.lock()
                 scpDestination = arguments.last
                 lock.unlock()
-                scpInvoked.signal()
+                scpInvoked.fulfill()
                 return (status: 1, stdout: "", stderr: "intentional stop after capability reinstall")
             }
             if executableName == "go" {
@@ -2104,7 +2166,7 @@ final class WorkspaceRemoteConnectionTests: XCTestCase {
 
         workspace.configureRemoteConnection(config, autoConnect: true)
 
-        XCTAssertEqual(scpInvoked.wait(timeout: .now() + 2), .success)
+        wait(for: [scpInvoked], timeout: 2.0)
         lock.lock()
         let capturedDestination = scpDestination
         lock.unlock()
