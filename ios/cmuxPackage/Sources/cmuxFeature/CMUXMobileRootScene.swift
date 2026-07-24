@@ -288,7 +288,7 @@ public struct CMUXMobileRootScene: View {
         rootContent
             // App-wide toast layer: every root host gets the presentation
             // window and the ToastCenter environment.
-            .toastHost(toastCenter)
+            .toastHost(toastCenter, haptics: displaySettings.haptics)
             .environment(auth.coordinator)
             .analytics(analytics)
             .tailscaleStatusMonitor(tailscaleStatusMonitor)
@@ -353,7 +353,7 @@ public struct CMUXMobileRootScene: View {
             buildCompatibilityPolicy: buildCompatibilityPolicy
         )
         let deviceRegistry = makeDeviceRegistry(pairedMacStore: backedUpPairedMacStore)
-        let forgottenMacStore = UserDefaultsPairedMacForgottenStore()
+        let hiddenMacStore = UserDefaultsPairedMacHiddenStore()
         let feedbackEmailSubmitter = MobileFeedbackEmailClient(apiBaseURL: auth.config.apiBaseURL)
         let feedbackStampProvider: @MainActor () -> MobileFeedbackStamp = {
             MobileFeedbackStamp.current()
@@ -369,7 +369,7 @@ public struct CMUXMobileRootScene: View {
             identityProvider: identityProvider,
             teamIDProvider: { await coordinator.resolvedTeamID },
             reachability: reachability,
-            forgottenMacStore: forgottenMacStore,
+            hiddenMacStore: hiddenMacStore,
             analytics: analytics,
             diagnosticLog: diagnosticLog,
             feedbackEmailSubmitter: feedbackEmailSubmitter,
