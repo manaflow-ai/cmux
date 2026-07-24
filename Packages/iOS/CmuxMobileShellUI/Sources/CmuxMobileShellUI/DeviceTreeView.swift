@@ -9,7 +9,7 @@ import SwiftUI
 /// The Computers screen: the Macs signed in to the user's account, each shown
 /// with its name, live/last-seen status, and workspace count. The main workspace
 /// list owns the Mac picker; this screen manages the saved computer set and lets
-/// users inspect or remove one. The data is the durable-object–backed device
+/// users inspect or hide one. The data is the durable-object–backed device
 /// registry (with a paired-Mac fallback) plus live presence.
 ///
 /// Snapshot boundary (see AGENTS.md): every row below the `List` takes an
@@ -25,17 +25,10 @@ struct DeviceTreeView: View {
     var showAddDevice: (() -> Void)?
     @Environment(\.dismiss) private var dismiss
 
-    /// The computer whose destructive remove action is awaiting confirmation.
-    /// Stored at list scope so reusable rows do not own transient presentation
-    /// state while `List` is recycling swipe-action rows.
-    @State private var computerPendingRemovalID: String?
-
     /// The user's computers as immutable snapshots, sourced from the paired-Mac
     /// backup (`pairedMacs`) — this feature's source of truth, the same set that
-    /// feeds the workspace aggregation, and the one ``CMUXMobileShellStore/forgetMac``
-    /// actually removes. (Building from `deviceTreeDevices`, which prefers the team
-    /// registry, would make Remove ineffective: a registry-backed row reappears on
-    /// the next registry load.) Each is enriched with presence, live status, and how
+    /// feeds the workspace aggregation, and the one ``CMUXMobileShellStore/hideMac``
+    /// filters locally. Each is enriched with presence, live status, and how
     /// many aggregated workspaces it contributes. Built by the shared
     /// ``MacComputerSnapshot/snapshots(from:)`` so the disconnected reconnect
     /// list shows exactly the same computer set.
@@ -53,9 +46,7 @@ struct DeviceTreeView: View {
                         ForEach(computers) { computer in
                             MacComputerRow(
                                 computer: computer,
-                                requestRemove: requestComputerRemoval,
-                                isConfirmingRemove: removalConfirmationBinding(for: computer.id),
-                                confirmRemove: { _ in confirmComputerRemoval() }
+                                hide: { _ in hideComputer(computer) }
                             )
                         }
                         if showAddDevice != nil {
@@ -68,8 +59,8 @@ struct DeviceTreeView: View {
                         ))
                     }
                 }
-                if store.hasRecoverableDeletedComputers {
-                    deletedComputerRecoverySection
+                if store.hasHiddenComputers {
+                    hiddenComputersSection
                 }
             }
             .listStyle(.insetGrouped)
@@ -142,18 +133,23 @@ struct DeviceTreeView: View {
     }
 
     @ViewBuilder
-    private var deletedComputerRecoverySection: some View {
-        Section {
-            DeletedComputerRecoveryButton(
-                isRecovering: store.isRecoveringDeletedComputer,
-                recover: { await store.recoverForgottenIrohMacFromAccount() },
-                reloadAfterFailure: {
-                    await reload()
-                }
-            )
-        } footer: {
-            DeletedComputerRecoveryFooter()
-        }
+    private var hiddenComputersSection: some View {
+        HiddenComputersSection(
+            computers: store.hiddenComputers,
+            isRecoveringLegacyComputer: store.isRecoveringHiddenComputer,
+            unhide: { computer in
+                await store.unhideMacDeviceID(
+                    computer.macDeviceID,
+                    instanceTag: computer.instanceTag
+                )
+            },
+            recoverLegacyComputer: { computer in
+                await store.recoverHiddenIrohMacFromAccount(
+                    macDeviceID: computer.macDeviceID,
+                    instanceTag: computer.instanceTag
+                )
+            }
+        )
     }
 
     @ViewBuilder
@@ -167,34 +163,9 @@ struct DeviceTreeView: View {
         }
     }
 
-    private func requestComputerRemoval(_ pairingID: String) {
-        computerPendingRemovalID = pairingID
-    }
-
-    private func removalConfirmationBinding(for deviceID: String) -> Binding<Bool> {
-        Binding(
-            get: { computerPendingRemovalID == deviceID },
-            set: { isPresented in
-                if isPresented {
-                    computerPendingRemovalID = deviceID
-                } else if computerPendingRemovalID == deviceID {
-                    computerPendingRemovalID = nil
-                }
-            }
-        )
-    }
-
-    private func confirmComputerRemoval() {
-        guard let pairingID = computerPendingRemovalID,
-              let computer = computers.first(where: { $0.id == pairingID }) else {
-            return
-        }
-        computerPendingRemovalID = nil
+    private func hideComputer(_ computer: MacComputerSnapshot) {
         Task {
-            await store.forgetMac(
-                macDeviceID: computer.deviceId,
-                instanceTag: computer.instanceTag
-            )
+            await store.hideMac(macDeviceID: computer.deviceId)
             await reload()
         }
     }
