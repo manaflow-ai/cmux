@@ -17,8 +17,8 @@ use std::time::{Duration, Instant};
 
 use base64::Engine;
 use cmux_tui_core::{
-    BrowserSource, BrowserStatus, Direction, MuxEvent, PairingChallenge, PaneId, Rect, SplitDir,
-    SplitEdge, SplitId, SurfaceId, SurfaceKind, WorkspaceId, exact_split_for_pane_edge,
+    BrowserSource, BrowserStatus, Direction, MuxEvent, Node, PairingChallenge, PaneId, Rect,
+    SplitDir, SplitEdge, SplitId, SurfaceId, SurfaceKind, WorkspaceId, exact_split_for_pane_edge,
     layout_screen, split_sides, zellij_default_pane_layout,
 };
 use crossterm::ExecutableCommand;
@@ -2140,8 +2140,8 @@ pub enum PaneEdge {
 /// One pane's screen real estate for the current frame. Every pane draws
 /// a border box in its rect; the top border row doubles as the tab bar
 /// and the scrollbar is either inside the box or on the right border.
-/// `content` is the terminal area inside the box. Rects too small for a
-/// box get `bar: None` and content = rect.
+/// `content` is the terminal area inside the box. A short rect reserves
+/// its first row for the tab bar and hides terminal content.
 #[derive(Debug, Clone, Copy)]
 pub struct PaneArea {
     pub pane: PaneId,
@@ -3038,6 +3038,7 @@ fn preserve_client_view(previous: &TreeView, next: &mut TreeView) {
 
 const MIN_RAIL_WIDTH: u16 = 10;
 const MIN_CONTENT_WIDTH: u16 = 40;
+const MIN_TABBED_PANE_HEIGHT: u16 = 3;
 
 fn clamp_rail_width(desired: u16, configured_max: u16, available: u16) -> Option<u16> {
     let configured_max = if configured_max > 0 { configured_max } else { u16::MAX };
@@ -3130,6 +3131,113 @@ fn browser_content_size_for_rect(rect: Rect, scrollbar: ScrollbarPosition) -> Op
     (content.width > 0 && content.height > 0).then_some((content.width, content.height))
 }
 
+#[derive(Clone, Copy)]
+struct SubtreeMinimumHeight {
+    full: u16,
+    bar_only: u16,
+}
+
+fn minimum_tabbed_height(node: &Node) -> SubtreeMinimumHeight {
+    match node {
+        Node::Leaf(_) => SubtreeMinimumHeight { full: MIN_TABBED_PANE_HEIGHT, bar_only: 1 },
+        Node::Split { dir: SplitDir::Right, a, b, .. } => {
+            let first = minimum_tabbed_height(a);
+            let second = minimum_tabbed_height(b);
+            SubtreeMinimumHeight {
+                full: first.full.max(second.full),
+                bar_only: first.bar_only.max(second.bar_only),
+            }
+        }
+        Node::Split { dir: SplitDir::Down, ratio, a, b, .. } => {
+            let first = minimum_tabbed_height(a);
+            let second = minimum_tabbed_height(b);
+            SubtreeMinimumHeight {
+                full: minimum_split_height(*ratio, first.full, second.full),
+                bar_only: minimum_split_height(*ratio, first.bar_only, second.bar_only),
+            }
+        }
+        Node::Stack { panes, .. } => {
+            let collapsed_headers =
+                u16::try_from(panes.len().saturating_sub(1)).unwrap_or(u16::MAX);
+            SubtreeMinimumHeight {
+                full: MIN_TABBED_PANE_HEIGHT.saturating_add(collapsed_headers),
+                bar_only: 1u16.saturating_add(collapsed_headers),
+            }
+        }
+    }
+}
+
+fn minimum_split_height(ratio: f32, first_minimum: u16, second_minimum: u16) -> u16 {
+    let fits = |height| {
+        let (first, second) =
+            split_sides(Rect { width: 1, height, ..Rect::default() }, SplitDir::Down, ratio);
+        first.height >= first_minimum && second.height >= second_minimum
+    };
+    if !fits(u16::MAX) {
+        return u16::MAX;
+    }
+
+    let mut low = first_minimum.saturating_add(second_minimum).max(2);
+    let mut high = u16::MAX;
+    while low < high {
+        let middle = low + (high - low) / 2;
+        if fits(middle) {
+            high = middle;
+        } else {
+            low = middle + 1;
+        }
+    }
+    low
+}
+
+fn vertical_split_minimum_heights(
+    node: &Node,
+    target: SplitId,
+) -> Option<(SubtreeMinimumHeight, SubtreeMinimumHeight)> {
+    match node {
+        Node::Leaf(_) | Node::Stack { .. } => None,
+        Node::Split { id, dir, a, b, .. } if *id == target => {
+            (*dir == SplitDir::Down).then(|| (minimum_tabbed_height(a), minimum_tabbed_height(b)))
+        }
+        Node::Split { a, b, .. } => vertical_split_minimum_heights(a, target)
+            .or_else(|| vertical_split_minimum_heights(b, target)),
+    }
+}
+
+fn clamp_ratio_to_minimum_heights(
+    height: u16,
+    requested: f32,
+    first_minimum: u16,
+    second_minimum: u16,
+) -> Option<f32> {
+    let minimum = (f32::from(first_minimum) / f32::from(height)).max(0.05);
+    let maximum = (f32::from(height.saturating_sub(second_minimum)) / f32::from(height)).min(0.95);
+    (minimum <= maximum).then(|| requested.clamp(minimum, maximum))
+}
+
+fn clamp_split_ratio_for_tab_bars(root: &Node, split: SplitId, height: u16, requested: f32) -> f32 {
+    let requested = requested.clamp(0.05, 0.95);
+    let Some((first_minimum, second_minimum)) = vertical_split_minimum_heights(root, split) else {
+        return requested;
+    };
+    if height == 0 {
+        return requested;
+    }
+
+    if let Some(clamped) =
+        clamp_ratio_to_minimum_heights(height, requested, first_minimum.full, second_minimum.full)
+    {
+        return clamped;
+    }
+    clamp_ratio_to_minimum_heights(
+        height,
+        requested,
+        first_minimum.bar_only,
+        second_minimum.bar_only,
+    )
+    .unwrap_or(requested)
+}
+
 fn pane_parts_for_rect(
     rect: Rect,
     scrollbar: ScrollbarPosition,
@@ -3154,6 +3262,12 @@ fn pane_parts_for_rect(
                 height: rect.height - 2,
             },
             Some(Rect { x: track_x, y: rect.y + 1, width: 1, height: rect.height - 2 }),
+        )
+    } else if rect.width > 2 && rect.height > 0 {
+        (
+            Some(Rect { height: 1, ..rect }),
+            Rect { y: rect.y.saturating_add(1), height: 0, ..rect },
+            None,
         )
     } else {
         (None, rect, None)
@@ -5113,7 +5227,7 @@ impl App {
             .active_screen()
             .map(|screen| {
                 if let Some(pane) = screen.zoomed_pane {
-                    layout_screen(&cmux_tui_core::Node::Leaf(pane), area, Some(pane))
+                    layout_screen(&Node::Leaf(pane), area, Some(pane))
                 } else {
                     layout_screen(&screen.layout, area, Some(screen.active_pane))
                 }
@@ -9777,8 +9891,14 @@ impl App {
                 1.0,
             ),
         };
+        let ratio = clamp_split_ratio_for_tab_bars(
+            &screen.layout,
+            target.split,
+            target.area.height,
+            current + delta * sign,
+        );
         if self.prepare_pty_input_before_mutation() {
-            self.session.set_split_ratio(target.split, (current + delta * sign).clamp(0.05, 0.95));
+            self.session.set_split_ratio(target.split, ratio);
         }
     }
 
@@ -9808,7 +9928,13 @@ impl App {
         if extent == 0 {
             return;
         }
-        let ratio = (coord.saturating_sub(start) as f32 / extent as f32).clamp(0.05, 0.95);
+        let requested = coord.saturating_sub(start) as f32 / extent as f32;
+        let ratio = clamp_split_ratio_for_tab_bars(
+            &screen.layout,
+            target.split,
+            target.area.height,
+            requested,
+        );
         if self.prepare_pty_input_before_mutation() {
             self.session.set_split_ratio_deferred(target.split, ratio);
         }
@@ -10303,16 +10429,16 @@ mod tests {
     use super::{
         App, AppEvent, BACKGROUND_REFRESH_RETRIES, ContextMenu, DeferredInput, Drag, FocusTarget,
         ForwardMuxOutcome, MachineActionWorker, MenuAction, MenuItem, MuxTitleIngress,
-        OrderedSession, PaneArea, PaneFocusHistory, PendingSessionMutation,
+        OrderedSession, PaneArea, PaneEdge, PaneFocusHistory, PendingSessionMutation,
         PendingSessionMutationState, PromptTarget, PtyFailureIngress, PtyMousePressResult,
         RailKind, RenderAction, Selection, SessionCompletion, SessionCompletionAction,
         SessionEventSender, SidebarLayout, SidebarPluginSyncClaim, SidebarPluginSyncState,
         SurfaceResizeDecision, SurfaceResizeOwnership, WorkspaceRailSelection,
-        browser_content_size_for_rect, browser_hover_forward_allowed, client_menu_item,
-        forward_mux_event, forward_mux_events, pane_context_menu_groups, pane_parts_for_rect,
-        prepare_ordered_session, preserve_client_view, rail_drag_width,
-        record_surface_resize_dispatch_result, sidebar_plugin_status_settles_passive_claim,
-        start_ordered_session,
+        browser_content_size_for_rect, browser_hover_forward_allowed,
+        clamp_split_ratio_for_tab_bars, client_menu_item, forward_mux_event, forward_mux_events,
+        pane_context_menu_groups, pane_parts_for_rect, prepare_ordered_session,
+        preserve_client_view, rail_drag_width, record_surface_resize_dispatch_result,
+        sidebar_plugin_status_settles_passive_claim, start_ordered_session,
     };
     use std::collections::{BTreeMap, HashMap, HashSet, VecDeque};
     use std::path::PathBuf;
@@ -10639,6 +10765,113 @@ mod tests {
         for surface in surfaces {
             mux.close_surface(surface);
         }
+    }
+
+    #[test]
+    fn vertical_split_drag_keeps_nested_pane_tab_bars_visible() {
+        let mux = Mux::new("nested-pane-minimum-height-test", SurfaceOptions::default());
+        mux.new_workspace(None, Some((80, 18))).unwrap();
+        let first = Session::Local(mux.clone()).tree().active_screen().unwrap().active_pane;
+        mux.split(first, SplitDir::Down, Some((80, 9))).unwrap();
+        assert!(mux.focus_pane(first));
+        mux.split(first, SplitDir::Down, Some((80, 5))).unwrap();
+        let nested_bottom = Session::Local(mux.clone()).tree().active_screen().unwrap().active_pane;
+
+        let (mut app, events) = test_app_with_events(Session::Local(mux.clone()));
+        app.sidebar_visible = false;
+        app.replace_tree(app.session.tree());
+        app.sync_layout((80, 19));
+        while app.session.has_pending_mutations() {
+            app.handle(events.recv_timeout(Duration::from_secs(1)).unwrap()).unwrap();
+        }
+
+        for y in [0, 17] {
+            app.resize_split(nested_bottom, PaneEdge::Bottom, 0, y);
+            app.session.settle_split_ratio();
+            while app.session.has_pending_mutations() {
+                app.handle(events.recv_timeout(Duration::from_secs(1)).unwrap()).unwrap();
+            }
+            app.sync_layout((80, 19));
+
+            assert_eq!(app.pane_areas.len(), 3);
+            assert!(
+                app.pane_areas.iter().all(|area| area.rect.height >= 3 && area.bar.is_some()),
+                "every pane must retain its tab bar after dragging to y={y}: {:?}",
+                app.pane_areas
+                    .iter()
+                    .map(|area| (area.pane, area.rect, area.bar))
+                    .collect::<Vec<_>>()
+            );
+
+            while app.session.has_pending_mutations() {
+                app.handle(events.recv_timeout(Duration::from_secs(1)).unwrap()).unwrap();
+            }
+        }
+
+        let surfaces = mux.with_state(|state| state.surfaces.keys().copied().collect::<Vec<_>>());
+        for surface in surfaces {
+            mux.close_surface(surface);
+        }
+    }
+
+    #[test]
+    fn ancestor_split_minimum_accounts_for_descendant_ratios() {
+        let root = Node::Split {
+            id: 1,
+            dir: SplitDir::Down,
+            ratio: 0.5,
+            a: Box::new(Node::Split {
+                id: 2,
+                dir: SplitDir::Down,
+                ratio: 0.05,
+                a: Box::new(Node::Leaf(1)),
+                b: Box::new(Node::Leaf(2)),
+            }),
+            b: Box::new(Node::Leaf(3)),
+        };
+        let clamped = clamp_split_ratio_for_tab_bars(&root, 1, 100, 0.05);
+        let mut resized = root;
+        let Node::Split { ratio, .. } = &mut resized else {
+            unreachable!();
+        };
+        *ratio = clamped;
+
+        let layout = layout_screen(&resized, Rect { x: 0, y: 0, width: 80, height: 100 }, Some(1));
+        assert!(
+            layout.panes.iter().all(|(_, rect)| rect.height >= 3),
+            "nested ratios must preserve every pane minimum: {:?}",
+            layout.panes
+        );
+    }
+
+    #[test]
+    fn infeasible_full_minimum_falls_back_to_bar_only_minimums() {
+        let root = Node::Split {
+            id: 1,
+            dir: SplitDir::Down,
+            ratio: 0.5,
+            a: Box::new(Node::Split {
+                id: 2,
+                dir: SplitDir::Down,
+                ratio: 0.5,
+                a: Box::new(Node::Leaf(1)),
+                b: Box::new(Node::Leaf(2)),
+            }),
+            b: Box::new(Node::Leaf(3)),
+        };
+        let clamped = clamp_split_ratio_for_tab_bars(&root, 1, 8, 0.05);
+        let mut resized = root;
+        let Node::Split { ratio, .. } = &mut resized else {
+            unreachable!();
+        };
+        *ratio = clamped;
+
+        let layout = layout_screen(&resized, Rect { x: 0, y: 0, width: 80, height: 8 }, Some(1));
+        assert!(
+            layout.panes.iter().all(|(_, rect)| rect.height >= 1),
+            "bar-only fallback must keep every pane visible: {:?}",
+            layout.panes
+        );
     }
 
     #[test]
@@ -10976,6 +11209,32 @@ mod tests {
             pane_parts_for_rect(rect, ScrollbarPosition::Border, true);
         assert_eq!(omnibar, None);
         assert_eq!(content, Rect { x: 1, y: 1, width: 18, height: 1 });
+    }
+
+    #[test]
+    fn tiny_pane_reserves_its_first_row_for_the_tab_bar() {
+        for height in [1, 2] {
+            let rect = Rect { x: 4, y: 5, width: 20, height };
+            let (bar, omnibar, content, track) =
+                pane_parts_for_rect(rect, ScrollbarPosition::Border, false);
+
+            assert_eq!(bar, Some(Rect { height: 1, ..rect }));
+            assert_eq!(omnibar, None);
+            assert_eq!(content.height, 0);
+            assert_eq!(track, None);
+        }
+    }
+
+    #[test]
+    fn narrow_tall_pane_keeps_unboxed_terminal_content() {
+        let rect = Rect { x: 4, y: 5, width: 2, height: 20 };
+        let (bar, omnibar, content, track) =
+            pane_parts_for_rect(rect, ScrollbarPosition::Border, false);
+
+        assert_eq!(bar, None);
+        assert_eq!(omnibar, None);
+        assert_eq!(content, rect);
+        assert_eq!(track, None);
     }
 
     #[test]
@@ -13438,10 +13697,8 @@ mod tests {
             Ok(())
         });
         started_rx.recv_timeout(Duration::from_secs(1)).unwrap();
-        app.drag = Some(Drag::ResizeSplit {
-            horizontal: Some((1, super::PaneEdge::Right)),
-            vertical: None,
-        });
+        app.drag =
+            Some(Drag::ResizeSplit { horizontal: Some((1, PaneEdge::Right)), vertical: None });
 
         app.handle(AppEvent::Input(Event::Mouse(MouseEvent {
             kind: MouseEventKind::Drag(MouseButton::Left),
