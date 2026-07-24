@@ -701,6 +701,9 @@ impl ClientSizingState {
     }
 }
 
+#[cfg(test)]
+type CellPixelBeforePublishHook = Arc<dyn Fn((u16, u16)) + Send + Sync>;
+
 /// The multiplexer. Shared by frontends and the control socket server.
 pub struct Mux {
     /// Serializes durable workspace commits and their in-memory/event
@@ -737,7 +740,10 @@ pub struct Mux {
     #[cfg(test)]
     terminal_create_after_workspace_reservation: Mutex<Option<Arc<dyn Fn() + Send + Sync>>>,
     browser_runtime: Mutex<Option<Arc<BrowserRuntime>>>,
+    cell_pixel_lifecycle: Mutex<()>,
     cell_pixels: Mutex<(u16, u16)>,
+    #[cfg(test)]
+    cell_pixel_before_publish: Mutex<Option<CellPixelBeforePublishHook>>,
     default_colors: Mutex<DefaultColors>,
     sidebar_plugin: Mutex<SidebarPluginRuntime>,
     agent_records: Mutex<HashMap<SurfaceId, AgentRecord>>,
@@ -962,7 +968,10 @@ impl Mux {
             #[cfg(test)]
             terminal_create_after_workspace_reservation: Mutex::new(None),
             browser_runtime: Mutex::new(None),
+            cell_pixel_lifecycle: Mutex::new(()),
             cell_pixels: Mutex::new((8, 16)),
+            #[cfg(test)]
+            cell_pixel_before_publish: Mutex::new(None),
             default_colors: Mutex::new(DefaultColors::default()),
             sidebar_plugin: Mutex::new(SidebarPluginRuntime::default()),
             agent_records: Mutex::new(HashMap::new()),
@@ -2215,6 +2224,7 @@ impl Mux {
         workspace_key: Option<&str>,
         reservation: Option<TerminalReservationRequest>,
     ) -> anyhow::Result<Arc<Surface>> {
+        let _cell_pixel_lifecycle = self.cell_pixel_lifecycle.lock().unwrap();
         let id = self.next_id();
         let mut opts = self.surface_options.lock().unwrap().clone();
         if cwd.is_some() {
@@ -2396,6 +2406,7 @@ impl Mux {
         options: &SidebarPluginOptions,
         size: (u16, u16),
     ) -> anyhow::Result<Arc<Surface>> {
+        let _cell_pixel_lifecycle = self.cell_pixel_lifecycle.lock().unwrap();
         if options.command.is_empty() {
             anyhow::bail!("sidebar plugin command is empty");
         }
@@ -2424,6 +2435,7 @@ impl Mux {
         size: Option<(u16, u16)>,
         pending_workspace: Option<WorkspaceId>,
     ) -> Arc<Surface> {
+        let _cell_pixel_lifecycle = self.cell_pixel_lifecycle.lock().unwrap();
         let id = self.next_id();
         if let Some(workspace) = pending_workspace {
             self.pending_workspace_surfaces.lock().unwrap().insert(id, workspace);
@@ -3668,17 +3680,18 @@ impl Mux {
         self.set_cell_pixel_size_reporting(width_px, height_px, Arc::new(|_, _, _| {}))
     }
 
+    pub(crate) fn cell_pixel_size(&self) -> (u16, u16) {
+        *self.cell_pixels.lock().unwrap()
+    }
+
     pub fn set_cell_pixel_size_reporting(
         &self,
         width_px: u16,
         height_px: u16,
         report: SurfaceResizeReporter,
     ) -> CellPixelUpdate {
+        let _cell_pixel_lifecycle = self.cell_pixel_lifecycle.lock().unwrap();
         let next = (width_px.max(1), height_px.max(1));
-        // This is the desired global metric used for new browser surfaces.
-        // Existing surfaces still check their settled geometry on every call,
-        // so a rejected queue submission can be retried with the same value.
-        *self.cell_pixels.lock().unwrap() = next;
         let surfaces = self.state.lock().unwrap().surfaces.values().cloned().collect::<Vec<_>>();
         let mut update = CellPixelUpdate::default();
         for surface in surfaces {
@@ -3696,6 +3709,17 @@ impl Mux {
                     .failures
                     .push(CellPixelUpdateFailure { surface: id, error: error.to_string() }),
             }
+        }
+        #[cfg(test)]
+        if let Some(hook) = self.cell_pixel_before_publish.lock().unwrap().clone() {
+            hook(self.cell_pixel_size());
+        }
+        // Keep the creation default at the last fully converged value. A
+        // caller may retry the same measurement; surfaces that already
+        // committed treat it as a no-op while failed or uncertain hosted
+        // owners reconcile through a fresh acknowledgement.
+        if update.failures.is_empty() {
+            *self.cell_pixels.lock().unwrap() = next;
         }
         update
     }
@@ -4912,6 +4936,7 @@ impl Mux {
         url: String,
         runtime: Arc<BrowserRuntime>,
     ) -> bool {
+        let _cell_pixel_lifecycle = self.cell_pixel_lifecycle.lock().unwrap();
         let (pane_id, size) = {
             let state = self.state.lock().unwrap();
             let Some(pane_id) = state.pane_of(opener_surface) else {
@@ -7951,6 +7976,56 @@ mod tests {
         let unique =
             unique_terminal_match(terminal_id, identities.into_iter().take(1)).unwrap().unwrap();
         assert_eq!(unique.0, 10);
+    }
+
+    #[test]
+    fn cell_pixel_metric_publishes_only_after_existing_surface_fanout() {
+        let mux = test_mux();
+        let surface = mux.new_workspace(None, Some((80, 24))).unwrap();
+        let observed_at_publish = Arc::new(Mutex::new(Vec::new()));
+        *mux.cell_pixel_before_publish.lock().unwrap() = Some(Arc::new({
+            let observed_at_publish = observed_at_publish.clone();
+            move |metric| observed_at_publish.lock().unwrap().push(metric)
+        }));
+
+        let update = mux.set_cell_pixel_size(9, 18);
+
+        assert_eq!(*observed_at_publish.lock().unwrap(), vec![(8, 16)]);
+        assert_eq!(mux.cell_pixel_size(), (9, 18));
+        assert_eq!(surface.test_cell_pixel_size(), (9, 18));
+        assert_eq!(update.resizes, vec![(surface.id, (80, 24), 0)]);
+        assert!(update.failures.is_empty());
+    }
+
+    #[test]
+    fn cell_pixel_fanout_retries_the_same_metric_before_publishing_it() {
+        let mux = test_mux();
+        let surface = mux.new_workspace(None, Some((80, 24))).unwrap();
+        surface.fail_next_test_master_resize();
+
+        let update = mux.set_cell_pixel_size(9, 18);
+
+        assert!(update.resizes.is_empty());
+        assert_eq!(update.failures.len(), 1);
+        assert_eq!(update.failures[0].surface, surface.id);
+        assert!(update.failures[0].error.contains("injected PTY master resize failure"));
+        assert_eq!(
+            mux.cell_pixel_size(),
+            (8, 16),
+            "new surfaces must keep the last fully converged metric"
+        );
+        assert_eq!(surface.test_cell_pixel_size(), (8, 16));
+        let master = surface.test_master_size();
+        assert_eq!(
+            (master.cols, master.rows, master.pixel_width, master.pixel_height),
+            (80, 24, 640, 384)
+        );
+
+        let retried = mux.set_cell_pixel_size(9, 18);
+        assert!(retried.failures.is_empty());
+        assert_eq!(retried.resizes, vec![(surface.id, (80, 24), 0)]);
+        assert_eq!(mux.cell_pixel_size(), (9, 18));
+        assert_eq!(surface.test_cell_pixel_size(), (9, 18));
     }
 
     #[test]

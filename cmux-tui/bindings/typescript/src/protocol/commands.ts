@@ -9,6 +9,7 @@ import type {
   Id,
   IdRef,
   Json,
+  KittyImageAlias,
   NotificationLevel,
   PaneDirection,
   SplitDirection,
@@ -173,7 +174,13 @@ export interface SidebarPluginResult {
 }
 
 export interface VtStateRequest extends CmuxRequestBase { cmd: "vt-state"; surface: Id }
-export interface VtStateResult { cols: number; rows: number; data: Base64 }
+export interface VtStateResult {
+  cols: number;
+  rows: number;
+  data: Base64;
+  /** Protocol v9 aliases needed to resolve Kitty image-number references in `data`. */
+  kitty_image_aliases?: KittyImageAlias[];
+}
 
 export interface ResolveTerminalRequest extends CmuxRequestBase {
   cmd: "resolve-terminal";

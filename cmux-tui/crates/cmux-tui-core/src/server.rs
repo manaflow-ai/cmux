@@ -25,7 +25,7 @@ use std::mem::{offset_of, size_of};
 use std::net::{Shutdown, SocketAddr, TcpListener, TcpStream};
 use std::path::{Path, PathBuf};
 use std::sync::atomic::{AtomicBool, AtomicU64, Ordering};
-use std::sync::{Arc, Condvar, Mutex};
+use std::sync::{Arc, Condvar, Mutex, Weak};
 use std::thread::JoinHandle;
 use std::time::{Duration, Instant};
 
@@ -686,12 +686,124 @@ const WEBSOCKET_HANDSHAKE_TIMEOUT: Duration = Duration::from_secs(5);
 const WEBSOCKET_HANDSHAKE_TIMEOUT: Duration = Duration::from_millis(100);
 const MAX_SERVER_CONNECTIONS: usize = 64;
 const WEBSOCKET_AUTH_MAX_BYTES: usize = 4 * 1024;
-const WEBSOCKET_MESSAGE_MAX_BYTES: usize = 4 * 1024 * 1024;
+const WEBSOCKET_INBOUND_MESSAGE_MAX_BYTES: usize = 4 * 1024 * 1024;
+// One outbound render budget chain:
+// 10,000,000 decoded image bytes -> 13,333,336 base64 bytes.
+// 16,384 maximal placement objects -> 7,258,113 JSON bytes.
+// Their 20,591,449-byte subtotal fits a 32 MiB attach message with
+// 12,962,983 bytes left for image metadata, rows, and the JSON wrapper.
+// Keep the TypeScript SDK and web decoder constants in sync.
+const RENDER_GRAPHIC_MAX_DECODED_BYTES: usize = 10_000_000;
+const RENDER_GRAPHIC_MAX_ENCODED_BYTES: usize = RENDER_GRAPHIC_MAX_DECODED_BYTES.div_ceil(3) * 4;
+const RENDER_GRAPHIC_MAX_PLACEMENTS: usize = 16_384;
+const RENDER_GRAPHIC_MAX_PLACEMENT_JSON_BYTES: usize = 442;
+const RENDER_GRAPHIC_MAX_PLACEMENT_ARRAY_BYTES: usize = 2
+    + RENDER_GRAPHIC_MAX_PLACEMENTS * RENDER_GRAPHIC_MAX_PLACEMENT_JSON_BYTES
+    + (RENDER_GRAPHIC_MAX_PLACEMENTS - 1);
+const RENDER_ATTACH_MAX_BYTES: usize = 32 * 1024 * 1024;
+// Share expensive image encoding across render clients without retaining an
+// unbounded second copy of terminal pixel state process-wide.
+const RENDER_GRAPHIC_BASE64_CACHE_MAX_BYTES: usize = RENDER_GRAPHIC_MAX_ENCODED_BYTES * 2;
+const RENDER_GRAPHIC_BASE64_CACHE_MAX_ENTRIES: usize = 4_096;
+// A server-to-client frame with a 64-bit payload length adds a 10-byte header.
+const WEBSOCKET_OUTBOUND_BUFFER_MAX_BYTES: usize = RENDER_ATTACH_MAX_BYTES + 10;
+const _: () = assert!(
+    RENDER_GRAPHIC_MAX_ENCODED_BYTES + RENDER_GRAPHIC_MAX_PLACEMENT_ARRAY_BYTES
+        < RENDER_ATTACH_MAX_BYTES
+);
 const OUTBOUND_CAPACITY: usize = 256;
 const OUTBOUND_CONTROL_RESERVE: usize = 256;
-const OUTBOUND_BYTE_CAPACITY: usize = 16 * 1024 * 1024;
+const OUTBOUND_BYTE_CAPACITY: usize = RENDER_ATTACH_MAX_BYTES;
 const OUTBOUND_CONTROL_BYTE_RESERVE: usize = 16 * 1024 * 1024;
 const CLIENT_DETACH_WRITE_TIMEOUT: Duration = Duration::from_millis(100);
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
+struct RenderGraphicCacheKey {
+    data_ptr: usize,
+    data_len: usize,
+}
+
+struct RenderGraphicCacheEntry {
+    source: Weak<[u8]>,
+    encoded: Arc<str>,
+}
+
+struct RenderGraphicBase64Cache {
+    entries: HashMap<RenderGraphicCacheKey, RenderGraphicCacheEntry>,
+    insertion_order: VecDeque<RenderGraphicCacheKey>,
+    retained_bytes: usize,
+    max_bytes: usize,
+    max_entries: usize,
+}
+
+impl RenderGraphicBase64Cache {
+    fn new(max_bytes: usize, max_entries: usize) -> Self {
+        Self {
+            entries: HashMap::new(),
+            insertion_order: VecDeque::new(),
+            retained_bytes: 0,
+            max_bytes,
+            max_entries,
+        }
+    }
+
+    fn encode(&mut self, data: &Arc<[u8]>) -> Arc<str> {
+        let key = RenderGraphicCacheKey { data_ptr: data.as_ptr() as usize, data_len: data.len() };
+        if let Some(entry) = self.entries.get(&key)
+            && entry.source.upgrade().is_some_and(|source| Arc::ptr_eq(&source, data))
+        {
+            return entry.encoded.clone();
+        }
+        if let Some(stale) = self.entries.remove(&key) {
+            self.retained_bytes = self.retained_bytes.saturating_sub(stale.encoded.len());
+            self.insertion_order.retain(|candidate| *candidate != key);
+        }
+
+        // Serialize while holding the cache lock. Competing render clients
+        // wait for this one bounded encode instead of allocating duplicates.
+        let encoded: Arc<str> =
+            Arc::from(base64::engine::general_purpose::STANDARD.encode(data.as_ref()));
+        if encoded.len() > self.max_bytes || self.max_entries == 0 {
+            return encoded;
+        }
+        while self.entries.len() >= self.max_entries
+            || encoded.len() > self.max_bytes.saturating_sub(self.retained_bytes)
+        {
+            let Some(oldest) = self.insertion_order.pop_front() else {
+                break;
+            };
+            if let Some(evicted) = self.entries.remove(&oldest) {
+                self.retained_bytes = self.retained_bytes.saturating_sub(evicted.encoded.len());
+            }
+        }
+        self.retained_bytes += encoded.len();
+        self.insertion_order.push_back(key);
+        self.entries.insert(
+            key,
+            RenderGraphicCacheEntry { source: Arc::downgrade(data), encoded: encoded.clone() },
+        );
+        encoded
+    }
+}
+
+struct RenderService {
+    graphic_base64: Mutex<RenderGraphicBase64Cache>,
+}
+
+impl RenderService {
+    fn new() -> Self {
+        Self {
+            graphic_base64: Mutex::new(RenderGraphicBase64Cache::new(
+                RENDER_GRAPHIC_BASE64_CACHE_MAX_BYTES,
+                RENDER_GRAPHIC_BASE64_CACHE_MAX_ENTRIES,
+            )),
+        }
+    }
+
+    fn encode_graphic(&self, data: &Arc<[u8]>) -> Arc<str> {
+        self.graphic_base64.lock().unwrap().encode(data)
+    }
+}
 
 #[derive(Clone)]
 struct OutboundStream {
@@ -738,14 +850,24 @@ struct MessageWriter {
     sink: Arc<dyn MessageSink>,
     open: Arc<AtomicBool>,
     next_stream_id: Arc<AtomicU64>,
+    render_service: Arc<RenderService>,
 }
 
 impl MessageWriter {
+    #[cfg(test)]
     fn new(sink: impl MessageSink + 'static) -> Self {
+        Self::new_with_render_service(sink, Arc::new(RenderService::new()))
+    }
+
+    fn new_with_render_service(
+        sink: impl MessageSink + 'static,
+        render_service: Arc<RenderService>,
+    ) -> Self {
         Self {
             sink: Arc::new(sink),
             open: Arc::new(AtomicBool::new(true)),
             next_stream_id: Arc::new(AtomicU64::new(1)),
+            render_service,
         }
     }
 
@@ -1538,15 +1660,17 @@ pub fn serve(mux: Arc<Mux>, path: Option<PathBuf>) -> anyhow::Result<PathBuf> {
     let listener = transport::listen(&path)?;
     platform::restrict_file(&path)?;
     let active_connections = Arc::new(AtomicU64::new(0));
+    let render_service = Arc::new(RenderService::new());
 
     std::thread::Builder::new().name("mux-server".into()).spawn(move || {
         loop {
             let Ok(stream) = listener.accept() else { continue };
             let Some(permit) = claim_connection(&active_connections) else { continue };
             let mux = mux.clone();
+            let render_service = render_service.clone();
             let _ = std::thread::Builder::new().name("mux-conn".into()).spawn(move || {
                 let _permit = permit;
-                handle_connection(mux, stream);
+                handle_connection(mux, stream, render_service);
             });
         }
     })?;
@@ -1612,6 +1736,7 @@ pub fn serve_websocket(
     let active_connections = Arc::new(AtomicU64::new(0));
     let thread_shutdown = shutdown.clone();
     let thread_connections = connections.clone();
+    let render_service = Arc::new(RenderService::new());
     let thread = std::thread::Builder::new().name("mux-ws-server".into()).spawn(move || {
         while !thread_shutdown.load(Ordering::Acquire) {
             let (stream, peer) = match listener.accept() {
@@ -1639,13 +1764,20 @@ pub fn serve_websocket(
             }
             let mux = mux.clone();
             let token = token.clone();
+            let render_service = render_service.clone();
             let connections = thread_connections.clone();
             let cleanup_connections = thread_connections.clone();
             if std::thread::Builder::new()
                 .name("mux-ws-conn".into())
                 .spawn(move || {
                     let _permit = permit;
-                    handle_websocket_connection(mux, stream, peer, token.as_deref());
+                    handle_websocket_connection(
+                        mux,
+                        stream,
+                        peer,
+                        token.as_deref(),
+                        render_service,
+                    );
                     connections.lock().unwrap().remove(&id);
                 })
                 .is_err()
@@ -1672,17 +1804,21 @@ fn sanitize_window_title(title: &str) -> String {
         .collect()
 }
 
-fn handle_connection(mux: Arc<Mux>, stream: Box<dyn transport::Stream>) {
+fn handle_connection(
+    mux: Arc<Mux>,
+    stream: Box<dyn transport::Stream>,
+    render_service: Arc<RenderService>,
+) {
     let Ok(mut write_half) = stream.try_clone_box() else { return };
     let Ok(control) = write_half.try_clone_box() else { return };
     if write_half.set_write_timeout(Some(STREAM_WRITE_TIMEOUT)).is_err() {
         return;
     }
     let outbound = Arc::new(BoundedOutbound::default());
-    let writer = MessageWriter::new(QueuedSink {
-        outbound: outbound.clone(),
-        control: Some(SinkControl::Unix(control)),
-    });
+    let writer = MessageWriter::new_with_render_service(
+        QueuedSink { outbound: outbound.clone(), control: Some(SinkControl::Unix(control)) },
+        render_service,
+    );
     let writer_outbound = outbound;
     let Ok(writer_thread) =
         std::thread::Builder::new().name("mux-line-out".into()).spawn(move || {
@@ -1724,6 +1860,7 @@ fn handle_websocket_connection(
     stream: TcpStream,
     peer: SocketAddr,
     token: Option<&str>,
+    render_service: Arc<RenderService>,
 ) {
     let stream = SynchronizedTcpStream::new(stream);
     if stream.set_read_timeout(Some(WEBSOCKET_HANDSHAKE_TIMEOUT)).is_err()
@@ -1734,7 +1871,7 @@ fn handle_websocket_connection(
     let auth_config = WebSocketConfig::default()
         .read_buffer_size(4 * 1024)
         .write_buffer_size(4 * 1024)
-        .max_write_buffer_size(WEBSOCKET_MESSAGE_MAX_BYTES)
+        .max_write_buffer_size(WEBSOCKET_INBOUND_MESSAGE_MAX_BYTES)
         .max_message_size(Some(WEBSOCKET_AUTH_MAX_BYTES))
         .max_frame_size(Some(WEBSOCKET_AUTH_MAX_BYTES));
     let Ok(mut websocket) = accept_with_config(stream, Some(auth_config)) else { return };
@@ -1746,8 +1883,8 @@ fn handle_websocket_connection(
         return;
     }
     websocket.set_config(|config| {
-        config.max_message_size = Some(WEBSOCKET_MESSAGE_MAX_BYTES);
-        config.max_frame_size = Some(WEBSOCKET_MESSAGE_MAX_BYTES);
+        config.max_message_size = Some(WEBSOCKET_INBOUND_MESSAGE_MAX_BYTES);
+        config.max_frame_size = Some(WEBSOCKET_INBOUND_MESSAGE_MAX_BYTES);
     });
     let _ = websocket.get_mut().set_read_timeout(None);
     let _ = websocket.get_mut().set_write_timeout(Some(STREAM_WRITE_TIMEOUT));
@@ -1756,14 +1893,18 @@ fn handle_websocket_connection(
     let Ok(control) = writer_stream.try_clone_raw() else { return };
     let _ = writer_stream.set_write_timeout(Some(STREAM_WRITE_TIMEOUT));
     let outbound = Arc::new(BoundedOutbound::default());
-    let writer = MessageWriter::new(QueuedSink {
-        outbound: outbound.clone(),
-        control: Some(SinkControl::WebSocket(control)),
-    });
+    let writer = MessageWriter::new_with_render_service(
+        QueuedSink { outbound: outbound.clone(), control: Some(SinkControl::WebSocket(control)) },
+        render_service,
+    );
     let writer_outbound = outbound;
     let Ok(writer_thread) =
         std::thread::Builder::new().name("mux-ws-out".into()).spawn(move || {
-            let mut websocket = WebSocket::from_raw_socket(writer_stream, Role::Server, None);
+            let outbound_config = WebSocketConfig::default()
+                .write_buffer_size(0)
+                .max_write_buffer_size(WEBSOCKET_OUTBOUND_BUFFER_MAX_BYTES);
+            let mut websocket =
+                WebSocket::from_raw_socket(writer_stream, Role::Server, Some(outbound_config));
             while let Some(text) = writer_outbound.recv() {
                 if websocket.send(Message::Text(text.into())).is_err() {
                     writer_outbound.close();
@@ -2505,6 +2646,18 @@ fn terminal_colors_json(colors: TerminalColors) -> Value {
     })
 }
 
+fn kitty_image_aliases_json(aliases: &[ghostty_vt::KittyImageAlias]) -> Vec<Value> {
+    aliases
+        .iter()
+        .map(|alias| {
+            json!({
+                "image_id": alias.image_id,
+                "image_number": alias.image_number,
+            })
+        })
+        .collect()
+}
+
 fn rgb_hex(color: Rgb) -> String {
     format!("#{:02x}{:02x}{:02x}", color.r, color.g, color.b)
 }
@@ -2564,7 +2717,76 @@ fn render_cursor_json(frame: &SurfaceRenderFrame) -> Value {
     })
 }
 
-fn render_state_json(surface: SurfaceId, frame: &SurfaceRenderFrame) -> Value {
+fn render_graphics_json(
+    render_service: &RenderService,
+    graphics: &ghostty_vt::KittyGraphicsSnapshot,
+    image_ids: Option<&HashSet<u32>>,
+    removed_image_ids: &[u32],
+) -> Value {
+    let images = graphics
+        .images
+        .iter()
+        .filter(|image| image_ids.is_none_or(|ids| ids.contains(&image.id)))
+        .map(|image| {
+            let data = render_service.encode_graphic(&image.data);
+            json!({
+                "id": image.id,
+                "generation": image.generation,
+                "width": image.width,
+                "height": image.height,
+                "format": match image.format {
+                    ghostty_vt::KittyImageFormat::Rgb => "rgb",
+                    ghostty_vt::KittyImageFormat::Rgba => "rgba",
+                },
+                "data": data.as_ref(),
+            })
+        })
+        .collect::<Vec<_>>();
+    let placements = graphics
+        .placements
+        .iter()
+        .map(|placement| {
+            json!({
+                "image_id": placement.image_id,
+                "placement_id": placement.placement_id,
+                "ordinal": placement.key.ordinal,
+                "x_offset": placement.x_offset,
+                "y_offset": placement.y_offset,
+                "source_x": placement.source_x,
+                "source_y": placement.source_y,
+                "source_width": placement.source_width,
+                "source_height": placement.source_height,
+                "columns": placement.columns,
+                "rows": placement.rows,
+                "grid_cols": placement.grid_cols,
+                "grid_rows": placement.grid_rows,
+                "pixel_width": placement.pixel_width,
+                "pixel_height": placement.pixel_height,
+                "viewport_col": placement.viewport_col,
+                "viewport_row": placement.viewport_row,
+                "viewport_visible": placement.viewport_visible,
+                "z": placement.z,
+            })
+        })
+        .collect::<Vec<_>>();
+    let mut value = json!({
+        "generation": graphics.generation,
+        "placements": placements,
+    });
+    if image_ids.is_none() || !images.is_empty() {
+        value["images"] = json!(images);
+    }
+    if !removed_image_ids.is_empty() {
+        value["removed_image_ids"] = json!(removed_image_ids);
+    }
+    value
+}
+
+fn render_state_json(
+    render_service: &RenderService,
+    surface: SurfaceId,
+    frame: &SurfaceRenderFrame,
+) -> Value {
     let (cols, rows) = frame.frame.size;
     json!({
         "event": "render-state",
@@ -2575,21 +2797,41 @@ fn render_state_json(surface: SurfaceId, frame: &SurfaceRenderFrame) -> Value {
         "default_bg": rgb_hex(frame.frame.default_colors.0),
         "scrollback_rows": frame.scrollback_rows,
         "rows": render_rows_json(frame, 0..rows),
+        "graphics": render_graphics_json(
+            render_service,
+            &frame.frame.kitty_graphics,
+            None,
+            &[],
+        ),
     })
 }
 
 struct RenderClientState {
+    render_service: Arc<RenderService>,
     size: (u16, u16),
     default_colors: (Rgb, Rgb),
     scrollback_rows: u32,
+    graphics_snapshot: Arc<ghostty_vt::KittyGraphicsSnapshot>,
+    graphics_image_generations: HashMap<u32, u64>,
+    graphics_placements: Vec<ghostty_vt::KittyPlacement>,
 }
 
 impl RenderClientState {
-    fn new(frame: &SurfaceRenderFrame) -> Self {
+    fn new(render_service: Arc<RenderService>, frame: &SurfaceRenderFrame) -> Self {
         Self {
+            render_service,
             size: frame.frame.size,
             default_colors: frame.frame.default_colors,
             scrollback_rows: frame.scrollback_rows,
+            graphics_snapshot: frame.frame.kitty_graphics.clone(),
+            graphics_image_generations: frame
+                .frame
+                .kitty_graphics
+                .images
+                .iter()
+                .map(|image| (image.id, image.generation))
+                .collect(),
+            graphics_placements: frame.frame.kitty_graphics.placements.clone(),
         }
     }
 
@@ -2625,6 +2867,44 @@ impl RenderClientState {
         }
         if scrollback_changed {
             value["scrollback_rows"] = json!(frame.scrollback_rows);
+        }
+        if !Arc::ptr_eq(&self.graphics_snapshot, &frame.frame.kitty_graphics) {
+            let graphics = &frame.frame.kitty_graphics;
+            let image_generations = graphics
+                .images
+                .iter()
+                .map(|image| (image.id, image.generation))
+                .collect::<HashMap<_, _>>();
+            let upsert_image_ids = image_generations
+                .iter()
+                .filter_map(|(&id, &generation)| {
+                    (self.graphics_image_generations.get(&id) != Some(&generation)).then_some(id)
+                })
+                .collect::<HashSet<_>>();
+            let mut removed_image_ids = self
+                .graphics_image_generations
+                .keys()
+                .filter(|id| !image_generations.contains_key(id))
+                .copied()
+                .collect::<Vec<_>>();
+            removed_image_ids.sort_unstable();
+            let images_changed = !upsert_image_ids.is_empty() || !removed_image_ids.is_empty();
+            let placements_changed = self.graphics_placements != graphics.placements;
+            if images_changed || placements_changed {
+                value["graphics"] = render_graphics_json(
+                    &self.render_service,
+                    graphics,
+                    Some(&upsert_image_ids),
+                    &removed_image_ids,
+                );
+            }
+            if images_changed {
+                self.graphics_image_generations = image_generations;
+            }
+            if placements_changed {
+                self.graphics_placements = graphics.placements.clone();
+            }
+            self.graphics_snapshot = frame.frame.kitty_graphics.clone();
         }
         self.size = frame.frame.size;
         self.default_colors = frame.frame.default_colors;
@@ -3361,7 +3641,8 @@ fn handle_command(
             Ok(json!({
                 "cols": cols,
                 "rows": rows,
-                "data": base64::engine::general_purpose::STANDARD.encode(replay),
+                "data": base64::engine::general_purpose::STANDARD.encode(replay.bytes),
+                "kitty_image_aliases": kitty_image_aliases_json(&replay.kitty_image_aliases),
             }))
         }
         Command::MintTerminalRenderer { surface, ttl_ms } => {
@@ -3374,6 +3655,7 @@ fn handle_command(
                 "incarnation": grant.incarnation,
                 "token": grant.token,
                 "rights": grant.rights.bits(),
+                "protocol_version": grant.protocol_version,
                 "ttl_ms": ttl_ms,
             }))
         }
@@ -4101,9 +4383,10 @@ fn handle_command(
                         return Err(error.into());
                     }
                 };
-                if let Err(error) = writer
-                    .send_initial(&render_state_json(surface_id, &attach.initial), &outbound_stream)
-                {
+                if let Err(error) = writer.send_initial(
+                    &render_state_json(&writer.render_service, surface_id, &attach.initial),
+                    &outbound_stream,
+                ) {
                     handle_attach_send_error(&lifecycle, &error);
                     rollback_failed_attach(
                         mux,
@@ -4129,7 +4412,8 @@ fn handle_command(
                         if worker_committed.recv().is_err() {
                             return;
                         }
-                        let mut state = RenderClientState::new(&attach.initial);
+                        let mut state =
+                            RenderClientState::new(writer.render_service.clone(), &attach.initial);
                         while writer.is_open()
                             && outbound_stream.is_open()
                             && !lifecycle.is_canceled()
@@ -4368,6 +4652,7 @@ fn handle_command(
                     return Err(error.into());
                 }
             };
+            let initial_aliases = kitty_image_aliases_json(&attach.kitty_image_aliases);
             if let Err(error) = writer.send_initial(
                 &json!({
                     "event": "vt-state",
@@ -4375,6 +4660,7 @@ fn handle_command(
                     "cols": attach.cols,
                     "rows": attach.rows,
                     "data": base64::engine::general_purpose::STANDARD.encode(attach.replay),
+                    "kitty_image_aliases": initial_aliases,
                     "colors": terminal_colors_json(attach.colors),
                 }),
                 &outbound_stream,
@@ -4436,21 +4722,40 @@ fn handle_command(
                                 "data": base64::engine::general_purpose::STANDARD.encode(output),
                                 "colors": terminal_colors_json(*colors),
                             }),
-                            AttachFrame::Resized { cols, rows, replay } => json!({
-                                "event": "resized",
-                                "surface": surface_id,
-                                "cols": cols,
-                                "rows": rows,
-                                "replay": base64::engine::general_purpose::STANDARD.encode(replay),
-                            }),
-                            AttachFrame::ResizedWithColors { cols, rows, replay, colors } => json!({
-                                "event": "resized",
-                                "surface": surface_id,
-                                "cols": cols,
-                                "rows": rows,
-                                "replay": base64::engine::general_purpose::STANDARD.encode(replay),
-                                "colors": terminal_colors_json(*colors),
-                            }),
+                            AttachFrame::Resized {
+                                cols,
+                                rows,
+                                replay,
+                                kitty_image_aliases,
+                            } => {
+                                json!({
+                                    "event": "resized",
+                                    "surface": surface_id,
+                                    "cols": cols,
+                                    "rows": rows,
+                                    "replay": base64::engine::general_purpose::STANDARD.encode(replay),
+                                    "kitty_image_aliases":
+                                        kitty_image_aliases_json(&kitty_image_aliases),
+                                })
+                            }
+                            AttachFrame::ResizedWithColors {
+                                cols,
+                                rows,
+                                replay,
+                                kitty_image_aliases,
+                                colors,
+                            } => {
+                                json!({
+                                    "event": "resized",
+                                    "surface": surface_id,
+                                    "cols": cols,
+                                    "rows": rows,
+                                    "replay": base64::engine::general_purpose::STANDARD.encode(replay),
+                                    "kitty_image_aliases":
+                                        kitty_image_aliases_json(&kitty_image_aliases),
+                                    "colors": terminal_colors_json(*colors),
+                                })
+                            }
                             AttachFrame::ColorsChanged(colors) => {
                                 let mut value = terminal_colors_json(*colors);
                                 value["event"] = json!("colors-changed");
@@ -4636,6 +4941,7 @@ pub fn cleanup(path: &Path) {
 mod tests {
     use super::*;
     use crate::{ProviderWorkspaceAuthority, SurfaceOptions};
+    use ghostty_vt::{Callbacks, RenderState, Terminal};
     use std::sync::mpsc::TryRecvError;
     use std::time::Duration;
 
@@ -4694,6 +5000,268 @@ mod tests {
             outbound: Arc::new(BoundedOutbound::default()),
             control: None,
         })
+    }
+
+    fn render_protocol_frame(
+        terminal: &mut Terminal,
+        render_state: &mut RenderState,
+    ) -> SurfaceRenderFrame {
+        render_state.update(terminal).unwrap();
+        SurfaceRenderFrame {
+            frame: render_state.build_frame().unwrap(),
+            scrollback_rows: 0,
+            palette_colors: [Rgb::default(); 256],
+            palette_overridden: [false; 256],
+        }
+    }
+
+    fn render_protocol_client(
+        terminal: &mut Terminal,
+        render_state: &mut RenderState,
+    ) -> RenderClientState {
+        RenderClientState::new(
+            Arc::new(RenderService::new()),
+            &render_protocol_frame(terminal, render_state),
+        )
+    }
+
+    const RED_IMAGE_41: &[u8] = b"\x1b_Ga=T,t=d,f=24,i=41,p=7,s=1,v=1,c=1,r=1,q=2;/wAA\x1b\\";
+    const GREEN_IMAGE_42: &[u8] = b"\x1b_Ga=T,t=d,f=24,i=42,p=8,s=1,v=1,c=1,r=1,q=2;AP8A\x1b\\";
+    const LARGE_RENDER_IMAGE_WIDTH: usize = 1_024;
+    const LARGE_RENDER_IMAGE_HEIGHT: usize = 768;
+    const LARGE_RENDER_IMAGE_RAW_BYTES: usize =
+        LARGE_RENDER_IMAGE_WIDTH * LARGE_RENDER_IMAGE_HEIGHT * 4;
+    const LARGE_RENDER_IMAGE_BASE64_CHARS: usize = LARGE_RENDER_IMAGE_RAW_BYTES.div_ceil(3) * 4;
+
+    fn large_rgba_kitty_transmission() -> Vec<u8> {
+        let data = base64::engine::general_purpose::STANDARD
+            .encode(vec![0x7f; LARGE_RENDER_IMAGE_RAW_BYTES]);
+        assert_eq!(data.len(), LARGE_RENDER_IMAGE_BASE64_CHARS);
+        format!(
+            "\x1b_Ga=T,t=d,f=32,i=51,p=1,s={LARGE_RENDER_IMAGE_WIDTH},v={LARGE_RENDER_IMAGE_HEIGHT},c=80,r=24,q=2;{data}\x1b\\"
+        )
+        .into_bytes()
+    }
+
+    #[test]
+    fn large_rgba_render_state_serializes_and_queues_within_websocket_budget() {
+        assert_eq!(LARGE_RENDER_IMAGE_RAW_BYTES, 3_145_728);
+        assert_eq!(LARGE_RENDER_IMAGE_BASE64_CHARS, 4_194_304);
+
+        let mut terminal = Terminal::new(80, 24, 0, Callbacks::default()).unwrap();
+        terminal.vt_write(&large_rgba_kitty_transmission());
+        let mut render_state = RenderState::new().unwrap();
+        let frame = render_protocol_frame(&mut terminal, &mut render_state);
+        let value = render_state_json(&RenderService::new(), 7, &frame);
+        let serialized = serde_json::to_string(&value).unwrap();
+
+        assert_eq!(
+            value["graphics"]["images"][0]["data"].as_str().unwrap().len(),
+            LARGE_RENDER_IMAGE_BASE64_CHARS
+        );
+        assert!(
+            serialized.len() > 4 * 1024 * 1024,
+            "JSON overhead must put the payload beyond the old 4 MiB boundary"
+        );
+        assert!(
+            serialized.len() <= OUTBOUND_BYTE_CAPACITY,
+            "{}-byte render state exceeds the configured {}-byte outbound boundary",
+            serialized.len(),
+            OUTBOUND_BYTE_CAPACITY
+        );
+
+        let outbound = Arc::new(BoundedOutbound::default());
+        let writer = MessageWriter::new(QueuedSink { outbound: outbound.clone(), control: None });
+        let stream = writer.start_stream(&attach_overflow_json(7)).unwrap();
+        writer.send_initial(&value, &stream).unwrap();
+        assert_eq!(outbound.try_pop().unwrap(), serialized);
+        assert!(writer.is_open());
+        assert!(stream.is_open());
+        eprintln!("1024x768 RGBA render-state bytes: {}", serialized.len());
+    }
+
+    #[test]
+    fn render_image_base64_cache_shares_encodes_and_evicts_within_its_byte_cap() {
+        let first_pixels: Arc<[u8]> = Arc::from([1_u8, 2, 3, 4, 5, 6]);
+        let second_pixels: Arc<[u8]> = Arc::from([7_u8, 8, 9, 10, 11, 12]);
+        let encoded_len = base64::engine::general_purpose::STANDARD.encode(&*first_pixels).len();
+        let mut cache = RenderGraphicBase64Cache::new(encoded_len, 2);
+
+        let first = cache.encode(&first_pixels);
+        let shared = cache.encode(&first_pixels);
+        assert!(Arc::ptr_eq(&first, &shared), "same immutable pixels were encoded twice");
+        assert_eq!(cache.entries.len(), 1);
+        assert_eq!(cache.retained_bytes, encoded_len);
+
+        let second = cache.encode(&second_pixels);
+        assert_eq!(cache.entries.len(), 1);
+        assert_eq!(cache.retained_bytes, encoded_len);
+        assert!(!Arc::ptr_eq(&first, &second));
+        assert!(
+            cache.entries.values().all(|entry| {
+                entry.source.upgrade().is_some_and(|source| Arc::ptr_eq(&source, &second_pixels))
+            }),
+            "byte-cap eviction retained the older image"
+        );
+    }
+
+    #[test]
+    fn render_service_shares_cache_across_connections_and_releases_it_with_its_owner() {
+        let service = Arc::new(RenderService::new());
+        let weak = Arc::downgrade(&service);
+        let first_writer = MessageWriter::new_with_render_service(
+            QueuedSink { outbound: Arc::new(BoundedOutbound::default()), control: None },
+            service.clone(),
+        );
+        let second_writer = MessageWriter::new_with_render_service(
+            QueuedSink { outbound: Arc::new(BoundedOutbound::default()), control: None },
+            service.clone(),
+        );
+        let pixels: Arc<[u8]> = Arc::from([1_u8, 2, 3, 4, 5, 6]);
+
+        let first = first_writer.render_service.encode_graphic(&pixels);
+        let second = second_writer.render_service.encode_graphic(&pixels);
+        assert!(Arc::ptr_eq(&first, &second));
+
+        drop(service);
+        assert!(weak.upgrade().is_some(), "connection writers must retain their server service");
+        drop(first_writer);
+        drop(second_writer);
+        assert!(weak.upgrade().is_none(), "the cache outlived its server and connections");
+    }
+
+    #[test]
+    fn render_budget_covers_max_image_and_placement_metadata() {
+        let placement = ghostty_vt::KittyPlacement {
+            key: ghostty_vt::KittyPlacementKey {
+                image_id: u32::MAX,
+                placement_id: u32::MAX,
+                ordinal: u32::MAX,
+            },
+            image_id: u32::MAX,
+            placement_id: u32::MAX,
+            is_internal: false,
+            x_offset: u32::MAX,
+            y_offset: u32::MAX,
+            source_x: u32::MAX,
+            source_y: u32::MAX,
+            source_width: u32::MAX,
+            source_height: u32::MAX,
+            columns: u32::MAX,
+            rows: u32::MAX,
+            grid_cols: u32::MAX,
+            grid_rows: u32::MAX,
+            pixel_width: u32::MAX,
+            pixel_height: u32::MAX,
+            viewport_col: i32::MIN,
+            viewport_row: i32::MIN,
+            viewport_visible: false,
+            z: i32::MIN,
+        };
+        let graphics = ghostty_vt::KittyGraphicsSnapshot {
+            generation: u64::MAX,
+            images: Vec::new(),
+            placements: vec![placement],
+        };
+        let serialized = render_graphics_json(&RenderService::new(), &graphics, None, &[]);
+        let placement_bytes = serde_json::to_string(&serialized["placements"][0]).unwrap().len();
+        let placement_array_bytes = 2
+            + placement_bytes * RENDER_GRAPHIC_MAX_PLACEMENTS
+            + RENDER_GRAPHIC_MAX_PLACEMENTS.saturating_sub(1);
+        let image_base64_bytes = RENDER_GRAPHIC_MAX_DECODED_BYTES.div_ceil(3) * 4;
+        let required_without_rows = image_base64_bytes + placement_array_bytes;
+
+        assert_eq!(placement_bytes, 442);
+        assert_eq!(placement_array_bytes, 7_258_113);
+        assert_eq!(image_base64_bytes, 13_333_336);
+        assert_eq!(required_without_rows, 20_591_449);
+        assert_eq!(placement_bytes, RENDER_GRAPHIC_MAX_PLACEMENT_JSON_BYTES);
+        assert_eq!(placement_array_bytes, RENDER_GRAPHIC_MAX_PLACEMENT_ARRAY_BYTES);
+        assert_eq!(image_base64_bytes, RENDER_GRAPHIC_MAX_ENCODED_BYTES);
+        assert_eq!(OUTBOUND_BYTE_CAPACITY - required_without_rows, 12_962_983);
+        assert!(
+            required_without_rows < OUTBOUND_BYTE_CAPACITY,
+            "{required_without_rows} image and placement bytes exceed the configured \
+             {OUTBOUND_BYTE_CAPACITY}-byte outbound boundary before rows and wrapper metadata"
+        );
+    }
+
+    #[test]
+    fn render_delta_omits_graphics_for_text_only_damage() {
+        let mut terminal = Terminal::new(10, 3, 0, Callbacks::default()).unwrap();
+        terminal.vt_write(RED_IMAGE_41);
+        let mut render_state = RenderState::new().unwrap();
+        let mut client = render_protocol_client(&mut terminal, &mut render_state);
+
+        terminal.vt_write(b"text");
+        let frame = render_protocol_frame(&mut terminal, &mut render_state);
+        let delta = client.delta_json(1, &frame);
+
+        assert!(delta.get("graphics").is_none(), "{delta:#}");
+    }
+
+    #[test]
+    fn render_delta_sends_placement_geometry_without_unchanged_pixels() {
+        let mut terminal = Terminal::new(10, 3, 0, Callbacks::default()).unwrap();
+        terminal.vt_write(RED_IMAGE_41);
+        let mut render_state = RenderState::new().unwrap();
+        let mut client = render_protocol_client(&mut terminal, &mut render_state);
+
+        terminal.vt_write(b"\x1b[3G\x1b_Ga=p,i=41,p=9,c=1,r=1,q=2;\x1b\\");
+        let frame = render_protocol_frame(&mut terminal, &mut render_state);
+        let delta = client.delta_json(1, &frame);
+        let graphics = &delta["graphics"];
+
+        assert!(graphics.get("images").is_none(), "{delta:#}");
+        assert!(graphics.get("removed_image_ids").is_none(), "{delta:#}");
+        assert_eq!(graphics["placements"].as_array().unwrap().len(), 2);
+        assert!(
+            graphics["placements"].as_array().unwrap().iter().any(|placement| {
+                placement["placement_id"] == 9 && placement["viewport_col"] == 2
+            })
+        );
+    }
+
+    #[test]
+    fn render_delta_upserts_only_images_with_changed_generations() {
+        let mut terminal = Terminal::new(10, 3, 0, Callbacks::default()).unwrap();
+        terminal.vt_write(RED_IMAGE_41);
+        terminal.vt_write(GREEN_IMAGE_42);
+        let mut render_state = RenderState::new().unwrap();
+        let mut client = render_protocol_client(&mut terminal, &mut render_state);
+
+        terminal.vt_write(b"\x1b_Ga=T,t=d,f=24,i=41,p=7,s=1,v=1,c=1,r=1,q=2;AAD/\x1b\\");
+        let frame = render_protocol_frame(&mut terminal, &mut render_state);
+        let delta = client.delta_json(1, &frame);
+        let images = delta["graphics"]["images"].as_array().unwrap();
+
+        assert_eq!(images.len(), 1, "{delta:#}");
+        assert_eq!(images[0]["id"], 41);
+        assert_eq!(images[0]["data"], "AAD/");
+    }
+
+    #[test]
+    fn render_delta_reports_deleted_image_ids_without_resending_survivors() {
+        let mut terminal = Terminal::new(10, 3, 0, Callbacks::default()).unwrap();
+        terminal.vt_write(RED_IMAGE_41);
+        terminal.vt_write(GREEN_IMAGE_42);
+        let mut render_state = RenderState::new().unwrap();
+        let mut client = render_protocol_client(&mut terminal, &mut render_state);
+
+        terminal.vt_write(b"\x1b_Ga=d,d=I,i=41,q=2;\x1b\\");
+        let frame = render_protocol_frame(&mut terminal, &mut render_state);
+        let delta = client.delta_json(1, &frame);
+        let graphics = &delta["graphics"];
+
+        assert_eq!(graphics["removed_image_ids"], json!([41]));
+        assert!(graphics.get("images").is_none(), "{delta:#}");
+        assert!(
+            graphics["placements"]
+                .as_array()
+                .unwrap()
+                .iter()
+                .all(|placement| placement["image_id"] == 42)
+        );
     }
 
     #[test]
@@ -4837,7 +5405,13 @@ mod tests {
         let (server, peer) = listener.accept().unwrap();
         let (done, finished) = std::sync::mpsc::channel();
         let handler = std::thread::spawn(move || {
-            handle_websocket_connection(test_mux(), server, peer, None);
+            handle_websocket_connection(
+                test_mux(),
+                server,
+                peer,
+                None,
+                Arc::new(RenderService::new()),
+            );
             done.send(()).unwrap();
         });
 
@@ -4855,7 +5429,13 @@ mod tests {
         let (server, peer) = listener.accept().unwrap();
         let (done, finished) = std::sync::mpsc::channel();
         let handler = std::thread::spawn(move || {
-            handle_websocket_connection(test_mux(), server, peer, Some("secret"));
+            handle_websocket_connection(
+                test_mux(),
+                server,
+                peer,
+                Some("secret"),
+                Arc::new(RenderService::new()),
+            );
             done.send(()).unwrap();
         });
         let (client, _) = tungstenite::client("ws://localhost/", client_stream).unwrap();

@@ -22,6 +22,12 @@ export interface Size {
   rows: number;
 }
 
+/** One Kitty image-number alias required to restore a byte-stream VT replay. */
+export interface KittyImageAlias {
+  image_id: number;
+  image_number: number;
+}
+
 /** The canonical empty command result. */
 export type EmptyResult = Record<string, never>;
 

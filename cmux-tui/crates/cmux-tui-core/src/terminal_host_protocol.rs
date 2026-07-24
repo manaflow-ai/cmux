@@ -11,14 +11,17 @@ use std::io::{self, Read, Write};
 
 pub const MAGIC: [u8; 4] = *b"CMTH";
 pub const HEADER_LEN: usize = 32;
-pub const PROTOCOL_VERSION: u16 = 1;
+pub const PROTOCOL_VERSION: u16 = 2;
 pub const MAX_FRAME_PAYLOAD: usize = 16 * 1024 * 1024;
+pub const MAX_KITTY_IMAGE_ALIASES: usize = 4_096;
+pub const KITTY_IMAGE_ALIAS_COUNT_LEN: usize = size_of::<u16>();
+pub const KITTY_IMAGE_ALIAS_ENCODED_LEN: usize = 2 * size_of::<u32>();
 /// The live Output or Resized payload is not independently renderable. Its
 /// immediately following sequenced frame must be Colors, and consumers must
 /// apply both before publishing terminal state.
 pub const FLAG_COLORS_FOLLOW: u32 = 1 << 0;
 /// ClientHello opt-in and HostHello acknowledgement for targeted ViewerSize
-/// control responses. This handshake-only flag lets v1 peers negotiate the
+/// control responses. This handshake-only flag lets compatible peers negotiate the
 /// optimization without exposing an unknown ResizeAck to legacy renderers.
 pub const FLAG_VIEWER_SIZE_ACKS: u32 = 1 << 1;
 /// ResizeAck payload flag: this request changed the canonical grid and its
@@ -48,6 +51,9 @@ pub enum MessageKind {
     /// Targeted response to an acknowledged `ViewerSize`; payload is
     /// canonical cols:u16 + rows:u16 + result_flags:u32.
     ResizeAck = 16,
+    /// Targeted response to `SetCellPixelSize`; payload is the committed
+    /// cell width:u16 + height:u16.
+    CellPixelSizeAck = 17,
     Input = 100,
     Paste = 101,
     ViewerSize = 102,
@@ -58,6 +64,9 @@ pub enum MessageKind {
     /// Admin request: complete encoded Ghostty frontend defaults. New hosts
     /// advertise support in their durable discovery record.
     SetDefaults = 106,
+    /// Protocol-v2 admin request: cell width:u16 + height:u16. The host
+    /// commits both its PTY and authoritative Ghostty parser before replying.
+    SetCellPixelSize = 107,
 }
 
 impl TryFrom<u16> for MessageKind {
@@ -81,6 +90,7 @@ impl TryFrom<u16> for MessageKind {
             14 => Ok(Self::Launch),
             15 => Ok(Self::Capability),
             16 => Ok(Self::ResizeAck),
+            17 => Ok(Self::CellPixelSizeAck),
             100 => Ok(Self::Input),
             101 => Ok(Self::Paste),
             102 => Ok(Self::ViewerSize),
@@ -88,6 +98,7 @@ impl TryFrom<u16> for MessageKind {
             104 => Ok(Self::Terminate),
             105 => Ok(Self::MintCapability),
             106 => Ok(Self::SetDefaults),
+            107 => Ok(Self::SetCellPixelSize),
             other => Err(ProtocolError::UnknownMessageKind(other)),
         }
     }
@@ -417,7 +428,7 @@ mod tests {
             encoded,
             vec![
                 b'C', b'M', b'T', b'H', // magic
-                0x01, 0x00, // version
+                0x02, 0x00, // version
                 0x06, 0x00, // output
                 0x44, 0x33, 0x22, 0x11, // flags
                 0x03, 0x00, 0x00, 0x00, // payload length

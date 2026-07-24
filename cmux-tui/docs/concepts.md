@@ -46,6 +46,6 @@ Closing a pane closes all tabs in that pane. Closing a screen closes every pane 
 
 ## PTY and Browser Surfaces
 
-A PTY surface parses child-process output with libghostty-vt. Frontends render snapshots of that terminal state. Attach clients receive a VT replay first, then a base64 stream of subsequent PTY bytes, plus ordered resize frames when the surface geometry changes.
+A PTY surface parses child-process output with libghostty-vt. Frontends render snapshots of that terminal state, including inline Kitty graphics with image pixels, placement geometry, cropping, transparency, and z-order. Attach clients receive a VT replay first, then a base64 stream of subsequent PTY bytes, plus ordered resize frames when the surface geometry changes. Kitty image storage, aliases, and placement anchors survive attach, remote mirroring, scrolling, and resize within the configured replay and transport byte limits; graphics beyond the replay budget may be omitted.
 
 A browser surface is a local Chrome/Chromium target controlled through the Chrome DevTools Protocol. The local TUI draws browser frames with kitty graphics and forwards keyboard, mouse, and wheel input over CDP. Protocol-v7 attach clients receive an initial `browser-state` event with the latest optional frame, followed by updated `browser-state` and base64 PNG `frame` events.

@@ -13,9 +13,10 @@ When we change the fork, update this document and the parent submodule SHA.
 ## Current fork changes
 
 The submodule pinned by this branch is
-`c55514dd52d806e9aa661ee20381aa19c91c1c09`, the current
+`b7feeea5c0ee041f8cb79aace2129efad31df19d`, the current
 `manaflow-ai/ghostty` `main`. The cumulative integration landed through
-https://github.com/manaflow-ai/ghostty/pull/128; the earlier stacked PRs
+https://github.com/manaflow-ai/ghostty/pull/137; the earlier stacked PRs
+https://github.com/manaflow-ai/ghostty/pull/128,
 https://github.com/manaflow-ai/ghostty/pull/127,
 https://github.com/manaflow-ai/ghostty/pull/123, and
 https://github.com/manaflow-ai/ghostty/pull/122 are now merged or superseded.
@@ -24,11 +25,39 @@ https://github.com/manaflow-ai/ghostty/pull/132 before that cumulative merge.
 The resulting main line supplies the external-frontend renderer contract used
 by cmux Browser, exact cursor state for process-separated terminal mirrors,
 mutable-default color reset semantics, nonblocking embedded lifecycle updates,
-and the product-main renderer/link fixes described below.
+and the product-main renderer/link fixes described below. It also exposes
+bounded Kitty graphics state for cmux-tui.
 
-Its universal ReleaseFast GhosttyKit archive is published at
+The last published universal ReleaseFast GhosttyKit archive documented for
+this fork line remains
 https://github.com/manaflow-ai/ghostty/releases/tag/xcframework-c55514dd52d806e9aa661ee20381aa19c91c1c09-crashsubdir-cmux-crash-v1
 and its SHA-256 is pinned in `scripts/ghosttykit-checksums.txt`.
+
+### Bounded Kitty graphics state for external frontends
+
+- Commit: `b7feeea5c` (lib-vt: expose bounded Kitty graphics state)
+- PR: https://github.com/manaflow-ai/ghostty/pull/137
+- Files:
+  - `include/ghostty/vt/kitty_graphics.h`
+  - `include/ghostty/vt/terminal.h`
+  - `src/lib_vt.zig`
+  - `src/terminal/Terminal.zig`
+  - `src/terminal/c/kitty_graphics.zig`
+  - `src/terminal/kitty/graphics_image.zig`
+  - `src/terminal/kitty/graphics_storage.zig`
+- Summary:
+  - Exposes renderer-owned dirty state, image lookup by ID or number, image
+    aliases, image iteration, and stable placement identity through lib-vt.
+  - Adds bounded image and placement counts, deterministic unused-first
+    eviction, and allocation-free apply phases after fallible plans complete.
+  - Bounds direct, file, zlib, and PNG loading before over-limit allocation.
+    Chunked buffers grow geometrically within the cap.
+  - Preserves newest-assignment image-number semantics and removes every old
+    placement when a specific image ID is retransmitted.
+  - Conflict note: limit changes must stay transactional, image replacement
+    must clear placements, iterators must not outlive storage mutation, and
+    encoded or decoded image data must never allocate beyond its configured
+    cap.
 
 ### Nonblocking renderer lifecycle state
 
@@ -135,11 +164,12 @@ external-frontend line advanced to `d6f611a30`. Integration commit
 `7c3ddd6f3cd4935f1b6bd10530b1e8e8ec4c9ef9` reconciled both histories, and
 merge commit `c55514dd52d806e9aa661ee20381aa19c91c1c09` landed that cumulative
 result on `manaflow-ai/ghostty` `main` through
-https://github.com/manaflow-ai/ghostty/pull/128. The current submodule pin
-therefore includes the indented hard-newline link continuations, tokened
-presentation lifetime fixes, leased external frames, recovery snapshots,
-cursor continuity state, mutable-default color resets, and nonblocking embedded
-lifecycle publication together.
+https://github.com/manaflow-ai/ghostty/pull/128. The current `b7feeea5c` pin
+descends from that integrated line and therefore includes the indented
+hard-newline link continuations, tokened presentation lifetime fixes, leased
+external frames, recovery snapshots, cursor continuity state, mutable-default
+color resets, nonblocking embedded lifecycle publication, and bounded Kitty
+graphics state together.
 
 The older `b211341be` universal ReleaseFast archive remains published at
 https://github.com/manaflow-ai/ghostty/releases/tag/xcframework-b211341be1ba902e772f57fc67c3e65d35205676-crashsubdir-cmux-crash-v1

@@ -1,5 +1,11 @@
 import { describe, expect, it } from "vitest";
-import type { RenderCursor, RenderDeltaEvent, RenderRow, RenderStateEvent } from "cmux/browser";
+import type {
+  RenderCursor,
+  RenderDeltaEvent,
+  RenderGraphics,
+  RenderRow,
+  RenderStateEvent,
+} from "cmux/browser";
 import { applyDelta, applySnapshot } from "../src/lib/renderModel";
 
 const cursor: RenderCursor = {
@@ -15,7 +21,50 @@ function row(index: number, text: string): RenderRow {
   return { row: index, runs: [{ text, fg: null, bg: null, attrs: 0 }] };
 }
 
-function snapshot(rows: RenderRow[] = [row(0, "one"), row(1, "two")]): RenderStateEvent {
+const graphics: RenderGraphics = {
+  generation: 4,
+  images: [{
+    id: 9,
+    generation: 2,
+    width: 1,
+    height: 1,
+    format: "rgba",
+    data: "/wAA/w==",
+  }, {
+    id: 10,
+    generation: 1,
+    width: 1,
+    height: 1,
+    format: "rgb",
+    data: "AP8A",
+  }],
+  placements: [{
+    image_id: 9,
+    placement_id: 3,
+    ordinal: 0,
+    x_offset: 0,
+    y_offset: 0,
+    source_x: 0,
+    source_y: 0,
+    source_width: 1,
+    source_height: 1,
+    columns: 1,
+    rows: 1,
+    grid_cols: 1,
+    grid_rows: 1,
+    pixel_width: 8,
+    pixel_height: 16,
+    viewport_col: 1,
+    viewport_row: 0,
+    viewport_visible: true,
+    z: 0,
+  }],
+};
+
+function snapshot(
+  rows: RenderRow[] = [row(0, "one"), row(1, "two")],
+  renderGraphics: RenderGraphics | undefined = graphics,
+): RenderStateEvent {
   return {
     event: "render-state",
     surface: 7,
@@ -25,6 +74,7 @@ function snapshot(rows: RenderRow[] = [row(0, "one"), row(1, "two")]): RenderSta
     default_bg: "#111111",
     scrollback_rows: 12,
     rows,
+    graphics: renderGraphics,
   };
 }
 
@@ -89,5 +139,58 @@ describe("render model", () => {
     expect(updated.rows).toBe(initial.rows);
     expect(updated.cursor).toMatchObject({ x: 2, style: "bar", visible: false });
     expect(updated.defaultBg).toBe("#222222");
+  });
+
+  it("applies image pixels and authoritative placements from snapshots and deltas", () => {
+    const initial = applySnapshot(snapshot());
+    const moved = applyDelta(initial, delta({
+      graphics: {
+        generation: 4,
+        placements: [{ ...graphics.placements[0], viewport_col: 2 }],
+      },
+    }));
+    const replaced = applyDelta(moved, delta({
+      graphics: {
+        generation: 5,
+        images: [{
+          ...graphics.images![0],
+          generation: 3,
+          data: "AAD//w==",
+        }],
+        placements: [{ ...graphics.placements[0], viewport_col: 3 }],
+      },
+    }));
+
+    expect(initial.graphics.images[0]?.data).toBe("/wAA/w==");
+    expect(moved.graphics.images).toBe(initial.graphics.images);
+    expect(moved.graphics.placements[0]?.viewport_col).toBe(2);
+    expect(replaced.graphics.images[0]).toMatchObject({ generation: 3, data: "AAD//w==" });
+    expect(replaced.graphics.images[1]).toBe(initial.graphics.images[1]);
+    expect(replaced.graphics.placements[0]?.viewport_col).toBe(3);
+  });
+
+  it("removes images and placements only when a graphics update says they are gone", () => {
+    const initial = applySnapshot(snapshot());
+    const textOnly = applyDelta(initial, delta({ rows: [row(0, "text")] }));
+    const removed = applyDelta(textOnly, delta({
+      graphics: {
+        generation: 5,
+        removed_image_ids: [9, 10],
+        placements: [],
+      },
+    }));
+
+    expect(textOnly.graphics).toBe(initial.graphics);
+    expect(textOnly.rows[0]?.runs[0]?.text).toBe("text");
+    expect(removed.graphics.images).toEqual([]);
+    expect(removed.graphics.placements).toEqual([]);
+  });
+
+  it("starts with empty graphics when attached to an older additive protocol server", () => {
+    expect(applySnapshot({ ...snapshot(), graphics: undefined }).graphics).toEqual({
+      generation: 0,
+      images: [],
+      placements: [],
+    });
   });
 });

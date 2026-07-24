@@ -31,8 +31,8 @@ use crossterm::terminal::{
     EnterAlternateScreen, LeaveAlternateScreen, disable_raw_mode, enable_raw_mode,
 };
 use ghostty_vt::{
-    CursorShape, KeyEncoder, Mods, MouseAction, MouseButton as GhosttyMouseButton, MouseInput,
-    RenderState, Rgb, Screen,
+    CursorShape, KeyEncoder, KittyGraphicsSnapshot, Mods, MouseAction,
+    MouseButton as GhosttyMouseButton, MouseInput, RenderState, Rgb, Screen,
 };
 use ratatui::Terminal as RatatuiTerminal;
 use ratatui::backend::CrosstermBackend;
@@ -59,8 +59,8 @@ use crate::session::{
     is_remote_transport_failure,
 };
 use crate::sidebar_files::{FileBrowser, FileCommand, file_url, shell_single_quote};
-use crate::ui::graphics::GraphicPlacement;
-use crate::ui::graphics_writer::GraphicsWriter;
+use crate::ui::graphics::{GraphicPlacement, kitty_graphic_image, kitty_graphic_placement};
+use crate::ui::graphics_writer::{GraphicsWriter, GraphicsWriterShutdown};
 use crate::ui::input::{InputEvent, TextInput};
 use crate::ui::thumb_geometry;
 
@@ -1789,15 +1789,21 @@ impl OrderedSession {
 
     pub fn set_cell_pixel_size(&self, width: u16, height: u16) {
         let ownership = self.surface_resize_ownership.clone();
-        self.enqueue("set cell pixel size", move |session| {
-            session.set_cell_pixel_size(
-                width,
-                height,
-                Arc::new(move |surface, desired, accepted| {
-                    record_surface_resize_dispatch_result(&ownership, surface, desired, accepted);
-                }),
-            )
-        });
+        self.enqueue_coalescing_session_mutation(
+            "set cell pixel size",
+            ("cell pixel size", 0),
+            move |session| {
+                session.set_cell_pixel_size(
+                    width,
+                    height,
+                    Arc::new(move |surface, desired, accepted| {
+                        record_surface_resize_dispatch_result(
+                            &ownership, surface, desired, accepted,
+                        );
+                    }),
+                )
+            },
+        );
     }
 
     pub fn new_workspace(&self, size: Option<(u16, u16)>) -> anyhow::Result<()> {
@@ -2921,12 +2927,17 @@ pub struct App {
     applied_outer_cursor: Option<OuterCursorSpec>,
     pub graphics_writer: Option<GraphicsWriter>,
     pub graphics_supported: bool,
+    graphics_host_scene_reset_pending: bool,
     stdout_lock: Arc<Mutex<()>>,
     pub pane_areas: Vec<PaneArea>,
     pane_focus_history: PaneFocusHistory,
     /// Terminal cells actually represented by the last rendered snapshot.
     /// Foreign-viewer padding outside these bounds is display-only.
     pub(crate) rendered_terminal_bounds: HashMap<SurfaceId, Rect>,
+    /// Kitty graphics captured from the exact immutable terminal frame drawn
+    /// for each visible surface. Graphics emission must not render again,
+    /// because doing so would consume remote damage independently of text.
+    pub(crate) rendered_kitty_graphics: HashMap<SurfaceId, Arc<KittyGraphicsSnapshot>>,
     /// Surfaces whose active tabs were visible in the previous layout pass.
     /// Attach streams may outlive this set, but only members hold size leases.
     visible_size_surfaces: HashSet<SurfaceId>,
@@ -3810,6 +3821,49 @@ pub fn run_with_machine_updates(
     machine_ui: Option<MachineUiState>,
     machine_controller: Option<Box<dyn MachineController>>,
 ) -> anyhow::Result<RunOutcome> {
+    type PanicHook = dyn for<'a> Fn(&std::panic::PanicHookInfo<'a>) + Send + Sync + 'static;
+    let previous_panic_hook: Arc<PanicHook> = Arc::from(std::panic::take_hook());
+    let previous_panic_hook_for_threads = previous_panic_hook.clone();
+    let run_thread = std::thread::current().id();
+    let panic_diagnostic = Arc::new(Mutex::new(None));
+    let panic_diagnostic_hook = panic_diagnostic.clone();
+    std::panic::set_hook(Box::new(move |info| {
+        if std::thread::current().id() == run_thread {
+            *panic_diagnostic_hook.lock().unwrap() = Some(format_panic_diagnostic(info));
+        } else {
+            previous_panic_hook_for_threads(info);
+        }
+    }));
+    let result = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
+        run_with_machine_updates_inner(
+            session,
+            session_label,
+            default_colors,
+            machine_ui,
+            machine_controller,
+        )
+    }));
+    let _ = std::panic::take_hook();
+    std::panic::set_hook(Box::new(move |info| previous_panic_hook(info)));
+
+    let result = report_after_unwind(result, || {
+        if let Some(diagnostic) = panic_diagnostic.lock().unwrap().take() {
+            eprint!("{diagnostic}");
+        }
+    });
+    match result {
+        Ok(result) => result,
+        Err(payload) => std::panic::resume_unwind(payload),
+    }
+}
+
+fn run_with_machine_updates_inner(
+    session: Session,
+    session_label: String,
+    default_colors: cmux_tui_core::DefaultColors,
+    machine_ui: Option<MachineUiState>,
+    machine_controller: Option<Box<dyn MachineController>>,
+) -> anyhow::Result<RunOutcome> {
     let mut config = crate::config::load();
     let chrome = ChromeTheme::for_defaults(config.chrome, default_colors);
     config.apply_chrome_defaults(chrome);
@@ -3875,6 +3929,9 @@ pub fn run_with_machine_updates(
         let _ = restore_terminal(Some(&stdout_lock));
         return Err(e);
     }
+    // This guard runs during unwinding after inner stdout guards and the App
+    // have dropped, so graphics are quiescent before terminal restoration.
+    let mut terminal_restore = TerminalRestoreGuard::new(stdout_lock.clone());
 
     let cell_pixels = crate::ui::graphics::detect_cell_pixels(None, true);
     if session_available {
@@ -3882,8 +3939,7 @@ pub fn run_with_machine_updates(
     }
     let graphics_supported = crate::ui::graphics::probe_kitty_graphics();
 
-    // Crossterm input → app channel. Start this after startup terminal
-    // probes so DA / window-size responses are not consumed as key input.
+    // Crossterm input → app channel.
     let input_tx = tx.clone();
     std::thread::Builder::new().name("input".into()).spawn({
         move || {
@@ -3894,24 +3950,13 @@ pub fn run_with_machine_updates(
             }
         }
     })?;
-    // Restore the host terminal even if we panic mid-frame.
-    let default_hook = std::panic::take_hook();
-    let restore_lock = stdout_lock.clone();
-    std::panic::set_hook(Box::new(move |info| {
-        let _ = restore_terminal(Some(&restore_lock));
-        default_hook(info);
-    }));
 
     let backend = CrosstermBackend::new(std::io::stdout());
-    let mut terminal = match RatatuiTerminal::new(backend) {
-        Ok(terminal) => terminal,
-        Err(e) => {
-            let _ = restore_terminal(Some(&stdout_lock));
-            return Err(e.into());
-        }
-    };
+    let mut terminal = RatatuiTerminal::new(backend)?;
     let graphics_writer =
         if graphics_supported { Some(GraphicsWriter::spawn(stdout_lock.clone())?) } else { None };
+    terminal_restore
+        .set_graphics_shutdown(graphics_writer.as_ref().map(GraphicsWriter::shutdown_control));
 
     let sidebar_view = config.sidebar.view;
     let fallback_cwd = std::env::current_dir().unwrap_or_else(|_| PathBuf::from("."));
@@ -3940,10 +3985,12 @@ pub fn run_with_machine_updates(
         applied_outer_cursor: None,
         graphics_writer,
         graphics_supported,
-        stdout_lock: stdout_lock.clone(),
+        graphics_host_scene_reset_pending: false,
+        stdout_lock,
         pane_areas: Vec::new(),
         pane_focus_history: PaneFocusHistory::default(),
         rendered_terminal_bounds: HashMap::new(),
+        rendered_kitty_graphics: HashMap::new(),
         visible_size_surfaces: HashSet::new(),
         pending_size_releases: HashSet::new(),
         prefix_armed: false,
@@ -4022,8 +4069,7 @@ pub fn run_with_machine_updates(
         if let Some(writer) = app.graphics_writer.as_mut() {
             writer.shutdown(Duration::from_millis(200));
         }
-        let _ = std::panic::take_hook();
-        let _ = restore_terminal(Some(&stdout_lock));
+        let _ = terminal_restore.restore();
         return Err(error);
     }
 
@@ -4035,8 +4081,7 @@ pub fn run_with_machine_updates(
     if let Some(writer) = app.graphics_writer.as_mut() {
         writer.shutdown(Duration::from_millis(200));
     }
-    let _ = std::panic::take_hook();
-    restore_terminal(Some(&stdout_lock))?;
+    terminal_restore.restore()?;
     result?;
     let outcome = app
         .machine_ui
@@ -4046,9 +4091,77 @@ pub fn run_with_machine_updates(
     Ok(outcome)
 }
 
+fn format_panic_diagnostic(info: &std::panic::PanicHookInfo<'_>) -> String {
+    let payload = info
+        .payload()
+        .downcast_ref::<&str>()
+        .copied()
+        .or_else(|| info.payload().downcast_ref::<String>().map(String::as_str))
+        .unwrap_or("Box<dyn Any>");
+    let thread = std::thread::current();
+    let thread_name = thread.name().unwrap_or("<unnamed>");
+    let location = info
+        .location()
+        .map(|location| location.to_string())
+        .unwrap_or_else(|| "<unknown>".to_string());
+    let mut diagnostic = format!("thread '{thread_name}' panicked at {location}:\n{payload}\n");
+    let backtrace = std::backtrace::Backtrace::capture();
+    if backtrace.status() == std::backtrace::BacktraceStatus::Captured {
+        diagnostic.push_str(&format!("{backtrace}\n"));
+    }
+    diagnostic
+}
+
+fn report_after_unwind<T>(
+    result: std::thread::Result<T>,
+    report: impl FnOnce(),
+) -> std::thread::Result<T> {
+    if result.is_err() {
+        report();
+    }
+    result
+}
+
+struct TerminalRestoreGuard {
+    stdout_lock: Arc<Mutex<()>>,
+    graphics_shutdown: Option<GraphicsWriterShutdown>,
+    armed: bool,
+}
+
+impl TerminalRestoreGuard {
+    fn new(stdout_lock: Arc<Mutex<()>>) -> Self {
+        Self { stdout_lock, graphics_shutdown: None, armed: true }
+    }
+
+    fn set_graphics_shutdown(&mut self, graphics_shutdown: Option<GraphicsWriterShutdown>) {
+        self.graphics_shutdown = graphics_shutdown;
+    }
+
+    fn restore(&mut self) -> anyhow::Result<()> {
+        if !self.armed {
+            return Ok(());
+        }
+        if let Some(graphics_shutdown) = &self.graphics_shutdown {
+            graphics_shutdown.cancel_and_wait();
+        }
+        let result = restore_terminal(Some(&self.stdout_lock));
+        self.armed = false;
+        result
+    }
+}
+
+impl Drop for TerminalRestoreGuard {
+    fn drop(&mut self) {
+        let _ = self.restore();
+    }
+}
+
 fn restore_terminal(stdout_lock: Option<&Arc<Mutex<()>>>) -> anyhow::Result<()> {
     let _guard = stdout_lock.map(|lock| lock.lock().unwrap());
     let mut stdout = std::io::stdout();
+    // A canceled or failed graphics write may have ended inside a Kitty APC.
+    // CAN returns the outer parser to ground before any restoration sequence.
+    let _ = stdout.write_all(&[0x18]);
     // Reset the mouse pointer shape in case we left it as a hand.
     let _ = write!(stdout, "\x1b]22;default\x07");
     // Cursor color and DECSCUSR shape are outer-terminal global state. Always
@@ -4696,6 +4809,7 @@ impl App {
         self.pane_focus_history = PaneFocusHistory::default();
         self.pane_focus_history.sync_membership(&self.tree);
         self.rendered_terminal_bounds.clear();
+        self.rendered_kitty_graphics.clear();
         self.visible_size_surfaces.clear();
         self.pending_size_releases.clear();
         self.prefix_armed = false;
@@ -5032,6 +5146,7 @@ impl App {
             self.drag = None;
         }
         self.render_states.remove(&surface);
+        self.rendered_kitty_graphics.remove(&surface);
         self.rendered_terminal_sizes.remove(&surface);
         self.visible_size_surfaces.remove(&surface);
         self.pending_size_releases.remove(&surface);
@@ -5158,6 +5273,12 @@ impl App {
         let lock = self.stdout_lock.clone();
         let _guard = lock.lock().unwrap();
         terminal.draw(|f| crate::ui::draw(self, f))?;
+        if self.graphics_host_scene_reset_pending {
+            if let Some(writer) = &self.graphics_writer {
+                writer.invalidate_host_scene();
+            }
+            self.graphics_host_scene_reset_pending = false;
+        }
         if let Some(sequence) =
             outer_cursor_escape_if_changed(self.applied_outer_cursor, self.desired_outer_cursor)
         {
@@ -5199,8 +5320,10 @@ impl App {
     }
 
     fn mark_graphics_clean(&self, placements: &[GraphicPlacement]) {
-        for placement in placements {
-            if let Some(surface) = self.session.surface(placement.surface) {
+        let surfaces =
+            placements.iter().map(|placement| placement.key.image.surface).collect::<HashSet<_>>();
+        for surface_id in surfaces {
+            if let Some(surface) = self.session.surface(surface_id) {
                 surface.take_dirty();
             }
         }
@@ -5222,41 +5345,78 @@ impl App {
         let mut placements = Vec::new();
         for area in &self.pane_areas {
             let Some(surface) = self.session.surface(area.surface) else { continue };
-            if surface.kind() != SurfaceKind::Browser {
-                continue;
-            }
             if area.content.width == 0 || area.content.height == 0 {
                 continue;
             }
-            if self.browser_graphic_occluded(area.content) {
-                continue;
+            match surface.kind() {
+                SurfaceKind::Browser => {
+                    if self.graphic_occluded(area.content) {
+                        continue;
+                    }
+                    let Some(frame) = surface.browser_frame() else { continue };
+                    placements.push(GraphicPlacement::browser(
+                        self.session_generation,
+                        area.surface,
+                        area.content,
+                        frame.seq,
+                        frame.css_width,
+                        frame.css_height,
+                        frame.data_b64,
+                    ));
+                }
+                SurfaceKind::Pty => {
+                    let Some(snapshot) = self.rendered_kitty_graphics.get(&area.surface) else {
+                        continue;
+                    };
+                    let pane = self
+                        .rendered_terminal_bounds
+                        .get(&area.surface)
+                        .copied()
+                        .unwrap_or(area.content);
+                    let images = snapshot
+                        .images
+                        .iter()
+                        .map(|image| {
+                            (
+                                image.id,
+                                kitty_graphic_image(self.session_generation, area.surface, image),
+                            )
+                        })
+                        .collect::<HashMap<_, _>>();
+                    placements.extend(snapshot.placements.iter().filter_map(|placement| {
+                        let image = images.get(&placement.image_id)?.clone();
+                        let placement =
+                            kitty_graphic_placement(pane, self.cell_pixels, image, placement)?;
+                        (!self.graphic_occluded(placement.rect)).then_some(placement)
+                    }));
+                }
             }
-            let Some(frame) = surface.browser_frame() else { continue };
-            placements.push(GraphicPlacement {
-                surface: area.surface,
-                rect: area.content,
-                seq: frame.seq,
-                data_b64: frame.data_b64,
-            });
         }
         placements
     }
 
-    fn browser_graphic_occluded(&self, rect: Rect) -> bool {
+    fn graphic_occluded(&self, rect: Rect) -> bool {
         self.menu.as_ref().is_some_and(|menu| menu.intersects(rect))
             || self.prompt.as_ref().is_some_and(|prompt| rects_intersect(rect, prompt.rect))
+            || self.pairing_dialog.as_ref().is_some_and(|dialog| rects_intersect(rect, dialog.rect))
+            || crate::ui::toast_rect(self).is_some_and(|toast| rects_intersect(rect, toast))
     }
 
     fn refresh_cell_pixels(&mut self, query_fallback: bool) {
         let next = crate::ui::graphics::detect_cell_pixels(Some(self.cell_pixels), query_fallback);
-        if self.cell_pixels != next {
+        let changed = self.cell_pixels != next;
+        if changed {
             if !self.prepare_pty_input_before_mutation() {
                 return;
             }
             self.cell_pixels = next;
             self.browser_input.clear_resize_failures();
-            self.session.set_cell_pixel_size(next.0, next.1);
         }
+        // Repeat unchanged measurements too. The mux publishes a new global
+        // default only after every surface converges, so this reconciles a
+        // transient failure or an acknowledgement that timed out after the
+        // authoritative host committed.
+        self.session.set_cell_pixel_size(next.0, next.1);
     }
 
     fn reload_config(&mut self) {
@@ -6062,6 +6222,9 @@ impl App {
                 Ok(RenderAction::None)
             }
             AppEvent::Input(Event::Resize(_, _)) => {
+                if self.graphics_supported {
+                    self.graphics_host_scene_reset_pending = true;
+                }
                 self.refresh_cell_pixels(false);
                 self.render_states.clear();
                 // Keep the dimensions of the frame that remains visible until
@@ -10628,7 +10791,8 @@ mod tests {
         forward_mux_event, forward_mux_events, outer_cursor_escape, outer_cursor_escape_if_changed,
         pane_context_menu_groups, pane_parts_for_rect, prepare_ordered_session,
         preserve_client_view, rail_drag_width, record_surface_resize_dispatch_result,
-        sidebar_layout_for, sidebar_plugin_status_settles_passive_claim, start_ordered_session,
+        report_after_unwind, sidebar_layout_for, sidebar_plugin_status_settles_passive_claim,
+        start_ordered_session,
     };
     use std::collections::{BTreeMap, HashMap, HashSet, VecDeque};
     use std::path::PathBuf;
@@ -13198,6 +13362,45 @@ mod tests {
         .unwrap();
 
         assert!(!app.session.client_refresh_queued.load(Ordering::Acquire));
+    }
+
+    #[test]
+    fn panic_report_is_emitted_after_terminal_restore() {
+        let events = Mutex::new(Vec::new());
+        let result: std::thread::Result<()> = {
+            events.lock().unwrap().push("restore");
+            Err(Box::new(()))
+        };
+        let result = report_after_unwind(result, || events.lock().unwrap().push("panic"));
+
+        assert!(result.is_err());
+        assert_eq!(*events.lock().unwrap(), vec!["restore", "panic"]);
+    }
+
+    #[test]
+    fn host_terminal_resize_marks_graphics_scene_for_retransmission() {
+        let mux = Mux::new("resize-graphics-invalidation-test", SurfaceOptions::default());
+        let mut app = test_app(Session::Local(mux));
+        app.graphics_supported = true;
+        assert!(!app.graphics_host_scene_reset_pending);
+
+        assert_eq!(
+            app.handle(AppEvent::Input(Event::Resize(120, 40))).unwrap(),
+            RenderAction::Draw
+        );
+
+        assert!(app.graphics_host_scene_reset_pending);
+    }
+
+    #[test]
+    fn host_resize_without_ioctl_pixels_preserves_last_queried_cell_measurement() {
+        let mux = Mux::new("resize-cell-pixel-preservation-test", SurfaceOptions::default());
+        let mut app = test_app(Session::Local(mux));
+        app.cell_pixels = (11, 19);
+
+        app.handle(AppEvent::Input(Event::Resize(120, 40))).unwrap();
+
+        assert_eq!(app.cell_pixels, (11, 19));
     }
 
     #[test]
@@ -16893,10 +17096,12 @@ mod tests {
             applied_outer_cursor: None,
             graphics_writer: None,
             graphics_supported: false,
+            graphics_host_scene_reset_pending: false,
             stdout_lock: Arc::new(Mutex::new(())),
             pane_areas: Vec::new(),
             pane_focus_history: PaneFocusHistory::default(),
             rendered_terminal_bounds: HashMap::new(),
+            rendered_kitty_graphics: HashMap::new(),
             visible_size_surfaces: HashSet::new(),
             pending_size_releases: HashSet::new(),
             prefix_armed: false,

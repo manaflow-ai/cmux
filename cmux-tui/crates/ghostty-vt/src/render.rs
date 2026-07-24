@@ -1,8 +1,11 @@
+use std::collections::HashMap;
 use std::ffi::c_void;
 use std::ptr;
+use std::sync::Arc;
 
 use ghostty_vt_sys as sys;
 
+use crate::kitty::{self, KittyGraphicsSnapshot};
 use crate::terminal::{Rgb, Terminal};
 use crate::{Result, check};
 
@@ -146,6 +149,7 @@ pub struct RenderFrame {
     pub cursor_color: Option<Rgb>,
     pub default_colors: (Rgb, Rgb),
     pub dirty_rows: Vec<u16>,
+    pub kitty_graphics: Arc<KittyGraphicsSnapshot>,
     rows: Vec<Vec<Cell>>,
 }
 
@@ -184,6 +188,9 @@ pub struct RenderState {
     grapheme_buf: Vec<u32>,
     palette: [Rgb; 256],
     default_palette: [Rgb; 256],
+    kitty_graphics: Arc<KittyGraphicsSnapshot>,
+    kitty_pixel_cache: HashMap<u64, Arc<[u8]>>,
+    kitty_terminal_instance_id: Option<u64>,
     next_frame_seq: u64,
 }
 
@@ -218,6 +225,9 @@ impl RenderState {
             grapheme_buf: Vec::new(),
             palette: [Rgb::default(); 256],
             default_palette: [Rgb::default(); 256],
+            kitty_graphics: Arc::new(KittyGraphicsSnapshot::default()),
+            kitty_pixel_cache: HashMap::new(),
+            kitty_terminal_instance_id: None,
             next_frame_seq: 0,
         })
     }
@@ -228,6 +238,15 @@ impl RenderState {
         self.palette = terminal_palette(terminal.raw(), sys::GHOSTTY_TERMINAL_DATA_COLOR_PALETTE)?;
         self.default_palette =
             terminal_palette(terminal.raw(), sys::GHOSTTY_TERMINAL_DATA_COLOR_PALETTE_DEFAULT)?;
+        let terminal_instance_id = terminal.instance_id();
+        if let Some(graphics) = kitty::snapshot_for_render(
+            terminal,
+            &mut self.kitty_pixel_cache,
+            self.kitty_terminal_instance_id != Some(terminal_instance_id),
+        )? {
+            self.kitty_graphics = Arc::new(graphics);
+        }
+        self.kitty_terminal_instance_id = Some(terminal_instance_id);
         Ok(())
     }
 
@@ -370,6 +389,7 @@ impl RenderState {
             cursor_color,
             default_colors,
             dirty_rows,
+            kitty_graphics: self.kitty_graphics.clone(),
             rows,
         })
     }

@@ -1,8 +1,22 @@
 import assert from "node:assert/strict";
 import test from "node:test";
-import { CmuxClient, CmuxStream } from "../src/client.js";
+import {
+  CmuxClient,
+  CmuxStream,
+  DEFAULT_MAX_ATTACH_ENCODED_CHARS,
+} from "../src/client.js";
 import { CmuxCommandError, CmuxProtocolError } from "../src/errors.js";
-import type { DecodedResizedEvent, TreeDeltaEvent } from "../src/protocol/index.js";
+import type {
+  DecodedResizedEvent,
+  RenderStateEvent,
+  TreeDeltaEvent,
+} from "../src/protocol/index.js";
+import {
+  RENDER_ATTACH_MAX_ENCODED_CHARS,
+  RENDER_GRAPHIC_MAX_DECODED_BYTES,
+  RENDER_GRAPHIC_MAX_ENCODED_CHARS,
+  RENDER_GRAPHIC_MAX_PLACEMENTS,
+} from "../src/protocol/render.js";
 import type { Transport, Unsubscribe } from "../src/transport.js";
 
 class ScriptedTransport implements Transport {
@@ -40,6 +54,21 @@ test("async iteration reports buffered-event overflow before the first pull", as
 
   const iterator = stream[Symbol.asyncIterator]();
   await assert.rejects(() => iterator.next(), /stream event buffer overflow/);
+});
+
+test("stream rejects an oversized event while a reader is already waiting", async () => {
+  const stream = new CmuxStream<{ event: string; bytes: number }>(
+    100,
+    () => undefined,
+    256,
+    4,
+    (event) => event.bytes,
+  );
+  const waiting = stream.next();
+
+  stream.push({ event: "oversized", bytes: 5 });
+
+  await assert.rejects(() => waiting, /stream event data exceeds 4 bytes/);
 });
 
 test("attachSurface rejects oversized encoded data before decoding", async () => {
@@ -271,6 +300,7 @@ test("attachSurface decodes VT colors, output, and resized payloads", async () =
       cols: 80,
       rows: 24,
       data: "G1s/bA==",
+      kitty_image_aliases: [{ image_id: 7, image_number: 70 }],
       colors: {
         fg: "#d8d9da",
         bg: "#131415",
@@ -290,6 +320,7 @@ test("attachSurface decodes VT colors, output, and resized payloads", async () =
       cols: 100,
       rows: 30,
       data: "AQID",
+      kitty_image_aliases: [{ image_id: 8, image_number: 80 }],
       colors: {
         fg: null,
         bg: null,
@@ -313,6 +344,7 @@ test("attachSurface decodes VT colors, output, and resized payloads", async () =
   assert.equal(initial.event, "vt-state");
   if (initial.event === "vt-state") {
     assert.deepEqual(initial.data, Uint8Array.from([27, 91, 63, 108]));
+    assert.deepEqual(initial.kitty_image_aliases, [{ image_id: 7, image_number: 70 }]);
     assert.deepEqual(initial.colors, {
       fg: "#d8d9da",
       bg: "#131415",
@@ -334,6 +366,7 @@ test("attachSurface decodes VT colors, output, and resized payloads", async () =
     const decoded = resized as DecodedResizedEvent;
     assert.deepEqual(decoded.data, Uint8Array.from([1, 2, 3]));
     assert.deepEqual(decoded.replay, decoded.data);
+    assert.deepEqual(decoded.kitty_image_aliases, [{ image_id: 8, image_number: 80 }]);
     assert.deepEqual(decoded.colors?.palette, { "5": "#112233" });
   }
   stream.close();
@@ -444,7 +477,40 @@ test("attachSurface routes colors-changed events without a surface field", async
   await client.close();
 });
 
-test("attachSurface render mode yields render-state and render-delta from cached protocol v7", async () => {
+const renderGraphics = {
+  generation: 4,
+  images: [{
+    id: 9,
+    generation: 2,
+    width: 1,
+    height: 1,
+    format: "rgba",
+    data: "/wAA/w==",
+  }],
+  placements: [{
+    image_id: 9,
+    placement_id: 3,
+    ordinal: 0,
+    x_offset: 0,
+    y_offset: 0,
+    source_x: 0,
+    source_y: 0,
+    source_width: 1,
+    source_height: 1,
+    columns: 1,
+    rows: 1,
+    grid_cols: 1,
+    grid_rows: 1,
+    pixel_width: 8,
+    pixel_height: 16,
+    viewport_col: 0,
+    viewport_row: 0,
+    viewport_visible: true,
+    z: 0,
+  }],
+};
+
+test("attachSurface render mode yields Kitty pixels and placements with render events", async () => {
   let identifyRequests = 0;
   const main = new ScriptedTransport((request, transport) => {
     assert.equal(request.cmd, "identify");
@@ -490,6 +556,7 @@ test("attachSurface render mode yields render-state and render-delta from cached
           width_hint: 3,
         }],
       }],
+      graphics: renderGraphics,
     });
     transport.emit({ id: request.id, ok: true, data: {} });
     transport.emit({
@@ -499,6 +566,11 @@ test("attachSurface render mode yields render-state and render-delta from cached
       full: false,
       scrollback_rows: 43,
       rows: [{ row: 0, runs: [{ text: "ok ", fg: "#00ff00", bg: null, attrs: 0 }] }],
+      graphics: {
+        generation: 4,
+        removed_image_ids: [99],
+        placements: [{ ...renderGraphics.placements[0], viewport_col: 1 }],
+      },
     });
   });
   const client = new CmuxClient({
@@ -530,6 +602,7 @@ test("attachSurface render mode yields render-state and render-delta from cached
         width_hint: 3,
       }],
     }],
+    graphics: renderGraphics,
   });
   assert.deepEqual(await stream.next(), {
     event: "render-delta",
@@ -538,8 +611,248 @@ test("attachSurface render mode yields render-state and render-delta from cached
     full: false,
     scrollback_rows: 43,
     rows: [{ row: 0, runs: [{ text: "ok ", fg: "#00ff00", bg: null, attrs: 0 }] }],
+    graphics: {
+      generation: 4,
+      removed_image_ids: [99],
+      placements: [{ ...renderGraphics.placements[0], viewport_col: 1 }],
+    },
   });
   stream.close();
+  await client.close();
+});
+
+test("attachSurface render mode rejects oversized Kitty image data before buffering it", async () => {
+  const main = new ScriptedTransport((request, transport) => {
+    transport.emit({
+      id: request.id,
+      ok: true,
+      data: { app: "cmux-tui", version: "0.1.2", protocol: 7, session: "main", pid: 1 },
+    });
+  });
+  const attach = new ScriptedTransport((request, transport) => {
+    transport.emit({
+      event: "render-state",
+      surface: 7,
+      size: { cols: 1, rows: 1 },
+      cursor: { x: 0, y: 0, style: "block", blink: false, visible: false, color: null },
+      default_fg: "#ffffff",
+      default_bg: "#000000",
+      scrollback_rows: 0,
+      rows: [],
+      graphics: {
+        ...renderGraphics,
+        images: [{ ...renderGraphics.images[0], data: "AAAAA" }],
+      },
+    });
+    transport.emit({ id: request.id, ok: true, data: {} });
+  });
+  const client = new CmuxClient({
+    transport: main,
+    streamTransportFactory: () => attach,
+    timeoutMs: 100,
+    maxAttachEncodedChars: 4,
+  } as CmuxClientOptionsWithSecurityLimits);
+
+  await assert.rejects(
+    () => client.attachSurface(7, { mode: "render" }),
+    /render-state graphics image data exceeds 4 encoded characters/,
+  );
+  await client.close();
+});
+
+test("attachSurface render mode requires a bounded Kitty placement array", async () => {
+  const missingPlacements = {
+    generation: renderGraphics.generation,
+    images: renderGraphics.images,
+  };
+  for (const [graphics, expected] of [
+    [missingPlacements, /render-state graphics placements is not an array/],
+    [{ ...renderGraphics, placements: {} }, /render-state graphics placements is not an array/],
+    [
+      {
+        ...renderGraphics,
+        placements: new Array(RENDER_GRAPHIC_MAX_PLACEMENTS + 1).fill(null),
+      },
+      new RegExp(`render-state graphics exceeds ${RENDER_GRAPHIC_MAX_PLACEMENTS} placements`),
+    ],
+  ]) {
+    const main = new ScriptedTransport((request, transport) => {
+      transport.emit({
+        id: request.id,
+        ok: true,
+        data: { app: "cmux-tui", version: "0.1.2", protocol: 7, session: "main", pid: 1 },
+      });
+    });
+    const attach = new ScriptedTransport((request, transport) => {
+      transport.emit({
+        event: "render-state",
+        surface: 7,
+        size: { cols: 1, rows: 1 },
+        cursor: { x: 0, y: 0, style: "block", blink: false, visible: false, color: null },
+        default_fg: "#ffffff",
+        default_bg: "#000000",
+        scrollback_rows: 0,
+        rows: [],
+        graphics,
+      });
+      transport.emit({ id: request.id, ok: true, data: {} });
+    });
+    const client = new CmuxClient({
+      transport: main,
+      streamTransportFactory: () => attach,
+      timeoutMs: 100,
+    });
+
+    await assert.rejects(
+      () => client.attachSurface(7, { mode: "render" }),
+      expected as RegExp,
+    );
+    await client.close();
+  }
+});
+
+test("render attach counts non-image JSON bytes against the retained buffer cap", async () => {
+  const main = new ScriptedTransport((request, transport) => {
+    transport.emit({
+      id: request.id,
+      ok: true,
+      data: { app: "cmux-tui", version: "0.1.2", protocol: 7, session: "main", pid: 1 },
+    });
+  });
+  const renderDelta = {
+    event: "render-delta",
+    surface: 7,
+    full: false,
+    rows: [{ row: 0, runs: [{ text: "界", fg: null, bg: null, attrs: 0 }] }],
+    graphics: {
+      generation: 5,
+      removed_image_ids: [9],
+      placements: [renderGraphics.placements[0]],
+    },
+  };
+  const encodedChars = JSON.stringify(renderDelta).length;
+  assert.ok(new TextEncoder().encode(JSON.stringify(renderDelta)).byteLength > encodedChars);
+  const attach = new ScriptedTransport((request, transport) => {
+    transport.emit(renderDelta);
+    transport.emit({ id: request.id, ok: true, data: {} });
+  });
+  const client = new CmuxClient({
+    transport: main,
+    streamTransportFactory: () => attach,
+    timeoutMs: 100,
+    maxAttachEncodedChars: encodedChars,
+  } as CmuxClientOptionsWithSecurityLimits);
+
+  await assert.rejects(
+    () => client.attachSurface(7, { mode: "render" }),
+    new RegExp(`stream event data exceeds ${encodedChars} bytes`),
+  );
+  await client.close();
+});
+
+test("render attach accepts the full decoded-image budget below its encoded limit", async () => {
+  assert.equal(RENDER_GRAPHIC_MAX_DECODED_BYTES, 10_000_000);
+  assert.equal(RENDER_GRAPHIC_MAX_ENCODED_CHARS, 13_333_336);
+  assert.equal(RENDER_GRAPHIC_MAX_PLACEMENTS, 16_384);
+  assert.equal(RENDER_ATTACH_MAX_ENCODED_CHARS, 33_554_432);
+  assert.equal(DEFAULT_MAX_ATTACH_ENCODED_CHARS, RENDER_ATTACH_MAX_ENCODED_CHARS);
+  assert.ok(RENDER_GRAPHIC_MAX_ENCODED_CHARS < RENDER_ATTACH_MAX_ENCODED_CHARS);
+
+  const main = new ScriptedTransport((request, transport) => {
+    transport.emit({
+      id: request.id,
+      ok: true,
+      data: { app: "cmux-tui", version: "0.1.2", protocol: 7, session: "main", pid: 1 },
+    });
+  });
+  const encoded = `${"A".repeat(RENDER_GRAPHIC_MAX_ENCODED_CHARS - 2)}==`;
+  const attach = new ScriptedTransport((request, transport) => {
+    transport.emit({
+      event: "render-state",
+      surface: 7,
+      size: { cols: 1, rows: 1 },
+      cursor: { x: 0, y: 0, style: "block", blink: false, visible: false, color: null },
+      default_fg: "#ffffff",
+      default_bg: "#000000",
+      scrollback_rows: 0,
+      rows: [],
+      graphics: {
+        generation: 1,
+        images: [{
+          id: 1,
+          generation: 1,
+          width: RENDER_GRAPHIC_MAX_DECODED_BYTES / 4,
+          height: 1,
+          format: "rgba",
+          data: encoded,
+        }],
+        placements: [],
+      },
+    });
+    transport.emit({ id: request.id, ok: true, data: {} });
+  });
+  const client = new CmuxClient({
+    transport: main,
+    streamTransportFactory: () => attach,
+    timeoutMs: 1_000,
+  });
+
+  await client.identify();
+  const stream = await client.attachSurface(7, { mode: "render" });
+  const event = await stream.next() as RenderStateEvent;
+  assert.equal(
+    event.graphics?.images?.[0]?.data.length,
+    RENDER_GRAPHIC_MAX_ENCODED_CHARS,
+  );
+  stream.close();
+  await client.close();
+});
+
+test("render attach rejects an image above its protocol limit under the larger attach cap", async () => {
+  const main = new ScriptedTransport((request, transport) => {
+    transport.emit({
+      id: request.id,
+      ok: true,
+      data: { app: "cmux-tui", version: "0.1.2", protocol: 7, session: "main", pid: 1 },
+    });
+  });
+  const attach = new ScriptedTransport((request, transport) => {
+    transport.emit({
+      event: "render-state",
+      surface: 7,
+      size: { cols: 1, rows: 1 },
+      cursor: { x: 0, y: 0, style: "block", blink: false, visible: false, color: null },
+      default_fg: "#ffffff",
+      default_bg: "#000000",
+      scrollback_rows: 0,
+      rows: [],
+      graphics: {
+        generation: 1,
+        images: [{
+          id: 1,
+          generation: 1,
+          width: 1,
+          height: 1,
+          format: "rgba",
+          data: "A".repeat(RENDER_GRAPHIC_MAX_ENCODED_CHARS + 1),
+        }],
+        placements: [],
+      },
+    });
+    transport.emit({ id: request.id, ok: true, data: {} });
+  });
+  const client = new CmuxClient({
+    transport: main,
+    streamTransportFactory: () => attach,
+    timeoutMs: 1_000,
+  });
+
+  await assert.rejects(
+    () => client.attachSurface(7, { mode: "render" }),
+    new RegExp(
+      `render-state graphics image data exceeds ${RENDER_GRAPHIC_MAX_ENCODED_CHARS} encoded characters`,
+    ),
+  );
   await client.close();
 });
 

@@ -3,6 +3,7 @@ import type { CmuxClient, Id, RenderRow } from "cmux/browser";
 import { useRenderTerminal } from "../hooks/useRenderTerminal";
 import { t } from "../i18n";
 import { runPresentation } from "../lib/renderStyles";
+import { RenderGraphics } from "./RenderGraphics";
 import { TerminalFrame } from "./TerminalFrame";
 
 interface RenderTerminalProps {
@@ -19,19 +20,41 @@ interface RenderRowViewProps {
   index: number;
   defaultFg: string;
   defaultBg: string;
+  mode?: "plain" | "background" | "foreground";
 }
 
-const RenderRowView = memo(function RenderRowView({ row, index, defaultFg, defaultBg }: RenderRowViewProps) {
+const RenderRowView = memo(function RenderRowView({
+  row,
+  index,
+  defaultFg,
+  defaultBg,
+  mode = "plain",
+}: RenderRowViewProps) {
+  const backgroundOnly = mode === "background";
   return (
     <div
-      className="render-row"
+      aria-hidden={backgroundOnly || undefined}
+      className={backgroundOnly ? "render-row-background" : "render-row"}
       style={{ top: `calc(var(--render-cell-height) * ${index})` }}
-      data-row={row.row}
+      {...(backgroundOnly ? {} : { "data-row": row.row })}
     >
       {row.runs.map((run, runIndex) => {
         const presentation = runPresentation(run, defaultFg, defaultBg);
+        const style = backgroundOnly
+          ? {
+            color: "transparent",
+            backgroundColor: presentation.style.backgroundColor,
+            ...(presentation.style.width === undefined ? {} : { width: presentation.style.width }),
+          }
+          : mode === "foreground"
+            ? { ...presentation.style, backgroundColor: "transparent" }
+            : presentation.style;
         return (
-          <span className={presentation.className} style={presentation.style} key={runIndex}>
+          <span
+            className={backgroundOnly ? "render-run" : presentation.className}
+            style={style}
+            key={runIndex}
+          >
             {run.text}
           </span>
         );
@@ -72,6 +95,12 @@ export function RenderTerminal({
     top: `calc(var(--render-cell-height) * ${cursor.y})`,
     color: cursor.color ?? "var(--terminal-cursor)",
   } satisfies CSSProperties;
+  const layeredGraphics = !history.active
+    && model?.graphics !== undefined
+    && model.graphics.images.length > 0
+    && model.graphics.placements.length > 0
+    ? model.graphics
+    : undefined;
 
   return (
     <TerminalFrame
@@ -90,7 +119,7 @@ export function RenderTerminal({
           data-render-scroll
         >
           <div className="render-grid" style={gridStyle} role="log">
-            {rows.map((row, index) => (
+            {layeredGraphics === undefined ? rows.map((row, index) => (
               <RenderRowView
                 row={row}
                 index={index}
@@ -98,7 +127,32 @@ export function RenderTerminal({
                 defaultBg={defaultBg}
                 key={`${history.active ? "history" : "live"}-${row.row}`}
               />
-            ))}
+            )) : (
+              <>
+                {rows.map((row, index) => (
+                  <RenderRowView
+                    mode="background"
+                    row={row}
+                    index={index}
+                    defaultFg={defaultFg}
+                    defaultBg={defaultBg}
+                    key={`background-live-${row.row}`}
+                  />
+                ))}
+                <RenderGraphics graphics={layeredGraphics}>
+                  {rows.map((row, index) => (
+                    <RenderRowView
+                      mode="foreground"
+                      row={row}
+                      index={index}
+                      defaultFg={defaultFg}
+                      defaultBg={defaultBg}
+                      key={`live-${row.row}`}
+                    />
+                  ))}
+                </RenderGraphics>
+              </>
+            )}
             {!history.active && cursor?.visible && cursorStyle !== undefined && (
               <span
                 aria-hidden="true"

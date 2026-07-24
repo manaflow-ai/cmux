@@ -5,6 +5,7 @@
 //! rendered from this crate matches what a real Ghostty surface would show.
 
 mod key;
+mod kitty;
 mod mouse;
 mod render;
 mod terminal;
@@ -13,6 +14,10 @@ mod terminal;
 pub use ghostty_vt_sys as sys;
 
 pub use key::{KeyAction, KeyEncoder, KeyInput, Mods, key_input_from_chord};
+pub use kitty::{
+    KITTY_INFLIGHT_REPLAY_MAX_BYTES, KittyGraphicsSnapshot, KittyImage, KittyImageAlias,
+    KittyImageFormat, KittyPlacement, KittyPlacementKey,
+};
 pub use mouse::{MouseAction, MouseButton, MouseEncoder, MouseEncoders, MouseInput};
 pub use render::{
     ATTR_BLINK, ATTR_BOLD, ATTR_FAINT, ATTR_INVERSE, ATTR_INVISIBLE, ATTR_ITALIC,
@@ -21,7 +26,7 @@ pub use render::{
 };
 pub use terminal::{
     Callbacks, NotifyFn, PtyWriteFn, Rgb, Screen, Scrollbar, Terminal, TerminalColorOverrides,
-    parse_color, parse_palette_entry,
+    VtReplay, parse_color, parse_palette_entry,
 };
 
 pub(crate) fn check(result: ghostty_vt_sys::GhosttyResult) -> std::result::Result<(), Error> {

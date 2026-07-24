@@ -439,11 +439,11 @@ fn explicit_terminate_escalates_past_a_sighup_ignoring_child() {
     host.terminate().unwrap();
     host.disconnect();
     wait_for_no_host_records(&harness.host_root());
+    wait_for_process_and_group_absent(shell_pid);
     assert_eq!(
         terminal_host_record_liveness(&record_path, &record).unwrap(),
         TerminalHostLiveness::Dead,
     );
-    wait_for_process_and_group_absent(shell_pid);
 }
 
 #[test]
@@ -498,12 +498,12 @@ fn explicit_terminate_reaps_descendants_in_the_pty_group() {
     host.terminate().unwrap();
     host.disconnect();
     wait_for_no_host_records(&harness.host_root());
+    wait_for_process_and_group_absent(direct_pid);
+    wait_for_process_and_group_absent(descendant_pid);
     assert_eq!(
         terminal_host_record_liveness(&record_path, &record).unwrap(),
         TerminalHostLiveness::Dead,
     );
-    wait_for_process_and_group_absent(direct_pid);
-    wait_for_process_and_group_absent(descendant_pid);
 }
 
 #[test]
@@ -1627,7 +1627,9 @@ fn failed_terminate_and_rejected_resize_leave_live_record_discoverable() {
     assert_eq!(resized.flags, FLAG_COLORS_FOLLOW);
     assert_eq!(&resized.payload[..4], &[120, 0, 40, 0]);
     let replay_len = u32::from_le_bytes(resized.payload[4..8].try_into().unwrap()) as usize;
-    assert_eq!(resized.payload.len(), 8 + replay_len);
+    let alias_count_offset = 8 + replay_len;
+    assert_eq!(resized.payload.len(), alias_count_offset + 2);
+    assert_eq!(&resized.payload[alias_count_offset..], &0u16.to_le_bytes());
     let colors = read_frame(&mut renderer.stream, MAX_FRAME_PAYLOAD).unwrap().unwrap();
     assert_eq!(colors.sequence, renderer.next_sequence);
     renderer.next_sequence = renderer.next_sequence.wrapping_add(1);
@@ -1678,10 +1680,17 @@ fn direct_renderer_becomes_sole_viewer_after_control_client_disconnect() {
         }),
     );
     let surface = created["surface"].as_u64().unwrap();
+    let metrics = request(
+        &harness.socket,
+        serde_json::json!({
+            "id":2,"cmd":"set-cell-pixels","width_px":9,"height_px":18,
+        }),
+    );
+    assert_eq!(metrics["failures"], serde_json::json!([]));
     let grant = request(
         &harness.socket,
         serde_json::json!({
-            "id":2,"cmd":"mint-terminal-renderer","surface":surface,"ttl_ms":10_000,
+            "id":3,"cmd":"mint-terminal-renderer","surface":surface,"ttl_ms":10_000,
         }),
     );
     let mut renderer = connect_host_detailed(
@@ -1803,6 +1812,17 @@ fn negotiated_viewer_size_ack_skips_unchanged_replay_and_follows_changed_pair() 
     assert_eq!(renderer.hello_flags, FLAG_VIEWER_SIZE_ACKS);
     renderer.stream.set_read_timeout(Some(Duration::from_secs(5))).unwrap();
 
+    let mut cell_pixels = Frame::new(MessageKind::SetCellPixelSize, Vec::new());
+    cell_pixels.request_id = 41;
+    cell_pixels.payload.extend_from_slice(&11u16.to_le_bytes());
+    cell_pixels.payload.extend_from_slice(&22u16.to_le_bytes());
+    write_frame(&mut renderer.stream, &cell_pixels).unwrap();
+    let ack = read_frame(&mut renderer.stream, MAX_FRAME_PAYLOAD).unwrap().unwrap();
+    assert_eq!(ack.kind, MessageKind::CellPixelSizeAck);
+    assert_eq!(ack.request_id, 41);
+    assert_eq!(ack.sequence, 0);
+    assert_eq!(ack.payload, vec![11, 0, 22, 0]);
+
     let mut unchanged = Frame::new(MessageKind::ViewerSize, Vec::new());
     unchanged.request_id = 42;
     unchanged.payload.extend_from_slice(&80u16.to_le_bytes());
@@ -1828,7 +1848,9 @@ fn negotiated_viewer_size_ack_skips_unchanged_replay_and_follows_changed_pair() 
     renderer.next_sequence = renderer.next_sequence.wrapping_add(1);
     assert_eq!(&resized.payload[..4], &[70, 0, 20, 0]);
     let replay_len = u32::from_le_bytes(resized.payload[4..8].try_into().unwrap()) as usize;
-    assert_eq!(resized.payload.len(), 8 + replay_len);
+    let alias_count_offset = 8 + replay_len;
+    assert_eq!(resized.payload.len(), alias_count_offset + 2);
+    assert_eq!(&resized.payload[alias_count_offset..], &0u16.to_le_bytes());
     let colors = read_frame(&mut renderer.stream, MAX_FRAME_PAYLOAD).unwrap().unwrap();
     assert_eq!(colors.kind, MessageKind::Colors);
     assert_eq!(colors.flags, 0);
@@ -1846,7 +1868,7 @@ fn negotiated_viewer_size_ack_skips_unchanged_replay_and_follows_changed_pair() 
     changed_ack.extend_from_slice(&RESIZE_ACK_CANONICAL_CHANGED.to_le_bytes());
     assert_eq!(ack.payload, changed_ack);
 
-    request(&harness.socket, serde_json::json!({"id":3,"cmd":"close-surface","surface":surface}));
+    request(&harness.socket, serde_json::json!({"id":4,"cmd":"close-surface","surface":surface}));
     wait_for_no_host_records(&harness.host_root());
 }
 

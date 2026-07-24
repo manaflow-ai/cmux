@@ -10,6 +10,7 @@
 #include <cstdio>
 #include <string>
 #include <string_view>
+#include <type_traits>
 #include <utility>
 #include <vector>
 
@@ -17,6 +18,10 @@ namespace {
 
 int checks = 0;
 int failures = 0;
+
+constexpr uint16_t kRustTerminalHostProtocolVersion = 2;
+constexpr size_t kRustTerminalHostMaxReplay = 15'692'630;
+constexpr size_t kRustTerminalHostMaxKittyImageAliases = 4'096;
 
 void Check(bool condition, const char* message) {
   ++checks;
@@ -38,6 +43,187 @@ std::array<uint8_t, N> Filled(uint8_t value) {
   return result;
 }
 
+template <typename Payload, typename = void>
+struct HasKittyImageAliases : std::false_type {};
+
+template <typename Payload>
+struct HasKittyImageAliases<
+    Payload,
+    std::void_t<
+        decltype(std::declval<Payload&>().kitty_image_aliases)>>
+    : std::true_type {};
+
+template <typename Payload>
+using PayloadEncoder = cmux::TerminalHostProtocolError (*)(
+    const Payload&,
+    std::vector<uint8_t>*);
+
+template <typename Payload>
+using PayloadDecoder = cmux::TerminalHostProtocolError (*)(
+    std::string_view,
+    Payload*);
+
+template <typename Payload>
+bool KittyAliasesRoundTrip(PayloadEncoder<Payload> encode,
+                           PayloadDecoder<Payload> decode) {
+  if constexpr (!HasKittyImageAliases<Payload>::value) {
+    return false;
+  } else {
+    using AliasVector =
+        std::decay_t<decltype(std::declval<Payload&>().kitty_image_aliases)>;
+    using Alias = typename AliasVector::value_type;
+    Payload value;
+    value.kitty_image_aliases = {Alias{41, 77}, Alias{42, 77}};
+    std::vector<uint8_t> payload;
+    Payload decoded;
+    if (encode(value, &payload) != cmux::TerminalHostProtocolError::kNone ||
+        decode(Bytes(payload), &decoded) !=
+            cmux::TerminalHostProtocolError::kNone ||
+        !(decoded == value)) {
+      return false;
+    }
+    constexpr std::array<uint8_t, 18> kAliasSuffix = {
+        2, 0, 41, 0, 0, 0, 77, 0, 0, 0, 42, 0, 0, 0, 77, 0, 0, 0,
+    };
+    return payload.size() >= kAliasSuffix.size() &&
+           std::equal(kAliasSuffix.begin(), kAliasSuffix.end(),
+                      payload.end() - kAliasSuffix.size());
+  }
+}
+
+enum class InvalidKittyAlias {
+  kZeroId,
+  kZeroNumber,
+  kDuplicateId,
+};
+
+template <typename Payload>
+bool KittyAliasEncoderRejects(PayloadEncoder<Payload> encode,
+                              InvalidKittyAlias invalid) {
+  if constexpr (!HasKittyImageAliases<Payload>::value) {
+    return false;
+  } else {
+    using AliasVector =
+        std::decay_t<decltype(std::declval<Payload&>().kitty_image_aliases)>;
+    using Alias = typename AliasVector::value_type;
+    Payload value;
+    switch (invalid) {
+      case InvalidKittyAlias::kZeroId:
+        value.kitty_image_aliases = {Alias{0, 77}};
+        break;
+      case InvalidKittyAlias::kZeroNumber:
+        value.kitty_image_aliases = {Alias{41, 0}};
+        break;
+      case InvalidKittyAlias::kDuplicateId:
+        value.kitty_image_aliases = {Alias{41, 77}, Alias{41, 78}};
+        break;
+    }
+    std::vector<uint8_t> untouched = {0xa5};
+    return encode(value, &untouched) ==
+               cmux::TerminalHostProtocolError::kMalformedPayload &&
+           untouched == std::vector<uint8_t>({0xa5});
+  }
+}
+
+template <typename Payload>
+bool KittyAliasDecoderRejects(PayloadEncoder<Payload> encode,
+                              PayloadDecoder<Payload> decode,
+                              InvalidKittyAlias invalid) {
+  if constexpr (!HasKittyImageAliases<Payload>::value) {
+    return false;
+  } else {
+    using AliasVector =
+        std::decay_t<decltype(std::declval<Payload&>().kitty_image_aliases)>;
+    using Alias = typename AliasVector::value_type;
+    Payload value;
+    value.kitty_image_aliases = {Alias{41, 77}, Alias{42, 78}};
+    std::vector<uint8_t> payload;
+    if (encode(value, &payload) != cmux::TerminalHostProtocolError::kNone ||
+        payload.size() < 18) {
+      return false;
+    }
+    const size_t aliases = payload.size() - 18;
+    switch (invalid) {
+      case InvalidKittyAlias::kZeroId:
+        std::fill(payload.begin() + aliases + 2,
+                  payload.begin() + aliases + 6, 0);
+        break;
+      case InvalidKittyAlias::kZeroNumber:
+        std::fill(payload.begin() + aliases + 6,
+                  payload.begin() + aliases + 10, 0);
+        break;
+      case InvalidKittyAlias::kDuplicateId:
+        std::copy(payload.begin() + aliases + 2,
+                  payload.begin() + aliases + 6,
+                  payload.begin() + aliases + 10);
+        break;
+    }
+    Payload decoded;
+    return decode(Bytes(payload), &decoded) ==
+           cmux::TerminalHostProtocolError::kMalformedPayload;
+  }
+}
+
+template <typename Payload>
+bool KittyAliasDecoderRejectsBadFraming(PayloadEncoder<Payload> encode,
+                                        PayloadDecoder<Payload> decode) {
+  if constexpr (!HasKittyImageAliases<Payload>::value) {
+    return false;
+  } else {
+    using AliasVector =
+        std::decay_t<decltype(std::declval<Payload&>().kitty_image_aliases)>;
+    using Alias = typename AliasVector::value_type;
+    Payload value;
+    value.kitty_image_aliases = {Alias{41, 77}};
+    std::vector<uint8_t> payload;
+    if (encode(value, &payload) != cmux::TerminalHostProtocolError::kNone) {
+      return false;
+    }
+    Payload decoded;
+    std::vector<uint8_t> truncated = payload;
+    truncated.pop_back();
+    std::vector<uint8_t> trailing = payload;
+    trailing.push_back(0);
+    return decode(Bytes(truncated), &decoded) ==
+               cmux::TerminalHostProtocolError::kMalformedPayload &&
+           decode(Bytes(trailing), &decoded) ==
+               cmux::TerminalHostProtocolError::kMalformedPayload;
+  }
+}
+
+template <typename Payload>
+bool KittyAliasCountIsBounded(PayloadEncoder<Payload> encode) {
+  if constexpr (!HasKittyImageAliases<Payload>::value) {
+    return false;
+  } else {
+    using AliasVector =
+        std::decay_t<decltype(std::declval<Payload&>().kitty_image_aliases)>;
+    using Alias = typename AliasVector::value_type;
+    Payload value;
+    value.kitty_image_aliases.reserve(
+        kRustTerminalHostMaxKittyImageAliases + 1);
+    for (size_t index = 0;
+         index < kRustTerminalHostMaxKittyImageAliases; ++index) {
+      value.kitty_image_aliases.push_back(
+          Alias{static_cast<uint32_t>(index + 1),
+                static_cast<uint32_t>(index + 10'001)});
+    }
+    std::vector<uint8_t> payload;
+    if (encode(value, &payload) != cmux::TerminalHostProtocolError::kNone) {
+      return false;
+    }
+    value.kitty_image_aliases.push_back(
+        Alias{static_cast<uint32_t>(
+                  kRustTerminalHostMaxKittyImageAliases + 1),
+              static_cast<uint32_t>(
+                  kRustTerminalHostMaxKittyImageAliases + 10'001)});
+    payload = {0xa5};
+    return encode(value, &payload) ==
+               cmux::TerminalHostProtocolError::kPayloadTooLarge &&
+           payload == std::vector<uint8_t>({0xa5});
+  }
+}
+
 cmux::TerminalHostFrame SampleFrame() {
   cmux::TerminalHostFrame frame;
   frame.kind = cmux::TerminalHostMessageKind::kOutput;
@@ -50,6 +236,9 @@ cmux::TerminalHostFrame SampleFrame() {
 
 void TestFrameGoldenAndKinds() {
   using Error = cmux::TerminalHostProtocolError;
+  Check(cmux::kTerminalHostProtocolVersion ==
+            kRustTerminalHostProtocolVersion,
+        "terminal-host default protocol version matches Rust v2");
   Check(cmux::kTerminalHostFlagColorsFollow == 1u,
         "COLORS_FOLLOW is exactly header flag bit zero");
   Check(cmux::kTerminalHostFlagViewerSizeAcks == 2u,
@@ -58,7 +247,7 @@ void TestFrameGoldenAndKinds() {
   Check(cmux::EncodeTerminalHostFrame(SampleFrame(), &encoded) == Error::kNone,
         "sample frame encodes");
   Check(encoded == std::vector<uint8_t>({
-                       'C',  'M',  'T',  'H',  0x01, 0x00, 0x06, 0x00, 0x44,
+                       'C',  'M',  'T',  'H',  0x02, 0x00, 0x06, 0x00, 0x44,
                        0x33, 0x22, 0x11, 0x03, 0x00, 0x00, 0x00, 0x08, 0x07,
                        0x06, 0x05, 0x04, 0x03, 0x02, 0x01, 0x18, 0x17, 0x16,
                        0x15, 0x14, 0x13, 0x12, 0x11, 0xaa, 0xbb, 0xcc,
@@ -77,7 +266,7 @@ void TestFrameGoldenAndKinds() {
   Check(cmux::DecodeTerminalHostFrameHeader(
             Bytes(encoded).substr(0, cmux::kTerminalHostHeaderLength), 3,
             &header) == Error::kNone &&
-            header.version == 1 &&
+            header.version == 2 &&
             header.kind == cmux::TerminalHostMessageKind::kOutput &&
             header.flags == 0x11223344 && header.payload_length == 3 &&
             header.request_id == 0x0102030405060708ULL &&
@@ -354,11 +543,11 @@ void TestMalformedFrames() {
   Check(DecodeError(bad) == Error::kInvalidVersion,
         "zero header version is rejected");
   bad = encoded;
-  bad[4] = 2;
+  bad[4] = 3;
   cmux::TerminalHostFrameDecoder future_version;
   std::vector<cmux::TerminalHostFrame> frames;
   Check(future_version.Push(Bytes(bad), &frames) == Error::kNone &&
-            frames.size() == 1 && frames[0].version == 2,
+            frames.size() == 1 && frames[0].version == 3,
         "nonzero frame versions remain parseable before hello negotiation");
   bad = encoded;
   bad[6] = 0xe7;
@@ -557,12 +746,19 @@ void TestSnapshotPayload() {
             Error::kMalformedPayload,
         "snapshot rejects truncated replay");
 
-  std::vector<uint8_t> oversized_blob = {
-      80, 0, 24, 0, 0, 0, 0, 0, 1, 0x00, 0x80, 0x00,
-  };
+  std::vector<uint8_t> oversized_blob(12);
+  oversized_blob[0] = 80;
+  oversized_blob[2] = 24;
+  const uint32_t oversized_replay =
+      static_cast<uint32_t>(cmux::kTerminalHostMaxSnapshotReplay + 1);
+  for (size_t index = 0; index < sizeof(oversized_replay); ++index) {
+    oversized_blob[8 + index] =
+        static_cast<uint8_t>(oversized_replay >> (index * 8));
+  }
   Check(cmux::DecodeTerminalHostSnapshot(Bytes(oversized_blob), &decoded) ==
             Error::kMalformedPayload,
-        "snapshot rejects replay length above 8 MiB before allocation");
+        "snapshot rejects replay length above the exact Rust bound before "
+        "allocation");
 
   cmux::TerminalHostSnapshot invalid_utf8;
   invalid_utf8.command = {std::string("\xc0\x80", 2)};
@@ -578,6 +774,90 @@ void TestSnapshotPayload() {
   Check(cmux::EncodeTerminalHostSnapshot(too_many_args, &untouched) ==
             Error::kPayloadTooLarge,
         "snapshot encoder bounds argv count");
+}
+
+void TestProtocolV2KittyAliasesAndBounds() {
+  using Error = cmux::TerminalHostProtocolError;
+  Check(cmux::kTerminalHostMaxSnapshotReplay ==
+            kRustTerminalHostMaxReplay,
+        "snapshot and resized replay limit matches Rust exactly");
+  Check(cmux::kTerminalHostMaxFramePayload == 16 * 1024 * 1024,
+        "terminal-host frame payload limit remains exactly 16 MiB");
+
+  Check(KittyAliasesRoundTrip<cmux::TerminalHostSnapshot>(
+            cmux::EncodeTerminalHostSnapshot,
+            cmux::DecodeTerminalHostSnapshot),
+        "snapshot Kitty aliases round trip after existing metadata");
+  Check(KittyAliasesRoundTrip<cmux::TerminalHostResize>(
+            cmux::EncodeTerminalHostResize, cmux::DecodeTerminalHostResize),
+        "resized Kitty aliases round trip after replay");
+
+  for (InvalidKittyAlias invalid :
+       {InvalidKittyAlias::kZeroId, InvalidKittyAlias::kZeroNumber,
+        InvalidKittyAlias::kDuplicateId}) {
+    Check(KittyAliasEncoderRejects<cmux::TerminalHostSnapshot>(
+              cmux::EncodeTerminalHostSnapshot, invalid),
+          "snapshot encoder rejects invalid Kitty alias identity");
+    Check(KittyAliasDecoderRejects<cmux::TerminalHostSnapshot>(
+              cmux::EncodeTerminalHostSnapshot,
+              cmux::DecodeTerminalHostSnapshot, invalid),
+          "snapshot decoder rejects invalid Kitty alias identity");
+    Check(KittyAliasEncoderRejects<cmux::TerminalHostResize>(
+              cmux::EncodeTerminalHostResize, invalid),
+          "resized encoder rejects invalid Kitty alias identity");
+    Check(KittyAliasDecoderRejects<cmux::TerminalHostResize>(
+              cmux::EncodeTerminalHostResize,
+              cmux::DecodeTerminalHostResize, invalid),
+          "resized decoder rejects invalid Kitty alias identity");
+  }
+  Check(KittyAliasDecoderRejectsBadFraming<cmux::TerminalHostSnapshot>(
+            cmux::EncodeTerminalHostSnapshot,
+            cmux::DecodeTerminalHostSnapshot),
+        "snapshot rejects truncated and trailing alias bytes");
+  Check(KittyAliasDecoderRejectsBadFraming<cmux::TerminalHostResize>(
+            cmux::EncodeTerminalHostResize, cmux::DecodeTerminalHostResize),
+        "resized rejects truncated and trailing alias bytes");
+  Check(KittyAliasCountIsBounded<cmux::TerminalHostSnapshot>(
+            cmux::EncodeTerminalHostSnapshot),
+        "snapshot admits 4096 aliases and rejects 4097");
+  Check(KittyAliasCountIsBounded<cmux::TerminalHostResize>(
+            cmux::EncodeTerminalHostResize),
+        "resized admits 4096 aliases and rejects 4097");
+
+  cmux::TerminalHostResize resize;
+  resize.replay.resize(kRustTerminalHostMaxReplay);
+  std::vector<uint8_t> payload;
+  Check(cmux::EncodeTerminalHostResize(resize, &payload) == Error::kNone &&
+            payload.size() == 8 + kRustTerminalHostMaxReplay + 2,
+        "resized admits the exact Rust replay ceiling plus empty alias table");
+  resize.replay.push_back(0);
+  payload = {0xa5};
+  Check(cmux::EncodeTerminalHostResize(resize, &payload) ==
+                Error::kPayloadTooLarge &&
+            payload == std::vector<uint8_t>({0xa5}),
+        "resized rejects one byte beyond the exact Rust replay ceiling");
+
+  resize.replay.pop_back();
+  cmux::TerminalHostSnapshot snapshot;
+  snapshot.replay = std::move(resize.replay);
+  Check(cmux::EncodeTerminalHostSnapshot(snapshot, &payload) == Error::kNone,
+        "snapshot admits the exact Rust replay ceiling");
+  snapshot.replay.push_back(0);
+  payload = {0xa5};
+  Check(cmux::EncodeTerminalHostSnapshot(snapshot, &payload) ==
+                Error::kPayloadTooLarge &&
+            payload == std::vector<uint8_t>({0xa5}),
+        "snapshot rejects one byte beyond the exact Rust replay ceiling");
+
+  cmux::TerminalHostSnapshot oversized_frame;
+  oversized_frame.replay.resize(8 * 1024 * 1024);
+  oversized_frame.command.assign(
+      32, std::string(cmux::kTerminalHostMaxString, 'x'));
+  payload = {0xa5};
+  Check(cmux::EncodeTerminalHostSnapshot(oversized_frame, &payload) ==
+                Error::kPayloadTooLarge &&
+            payload == std::vector<uint8_t>({0xa5}),
+        "snapshot total payload cannot exceed the exact frame cap");
 }
 
 void TestCapabilityPayloads() {
@@ -652,8 +932,9 @@ void TestResizeAndViewerSizePayloads() {
   Check(cmux::EncodeTerminalHostResize(resize, &payload) == Error::kNone,
         "resized payload encodes");
   Check(payload == std::vector<uint8_t>(
-                       {0x23, 0x01, 0x67, 0x45, 3, 0, 0, 0, 0xaa, 0xbb, 0xcc}),
-        "resized payload matches Rust u16/u16/u32/blob layout");
+                       {0x23, 0x01, 0x67, 0x45, 3, 0, 0, 0, 0xaa, 0xbb,
+                        0xcc, 0, 0}),
+        "resized payload matches Rust u16/u16/u32/blob/alias layout");
   cmux::TerminalHostResize decoded;
   Check(cmux::DecodeTerminalHostResize(Bytes(payload), &decoded) ==
                 Error::kNone &&
@@ -846,6 +1127,7 @@ int main() {
   TestHelloPayloads();
   TestCapabilityPayloads();
   TestSnapshotPayload();
+  TestProtocolV2KittyAliasesAndBounds();
   TestResizeAndViewerSizePayloads();
   TestColorMetadataSetThenReset();
   TestAuthoritativeCursorMetadataFollowsReplay();

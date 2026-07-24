@@ -660,6 +660,77 @@ fn control_socket_attach_vt_state_includes_effective_colors() {
 }
 
 #[test]
+fn control_socket_attach_serializes_kitty_aliases_on_initial_and_resize_replay() {
+    let mux = Mux::new(unique_session("test-attach-kitty-aliases"), shell_opts("cat"));
+    let surface = mux.new_workspace(None, Some((20, 4))).unwrap();
+    surface
+        .try_with_terminal(|terminal| {
+            terminal.vt_write(b"\x1b_Ga=t,t=d,f=24,I=77,s=1,v=1,q=2;/wAA\x1b\\");
+        })
+        .unwrap();
+    let image_id = surface
+        .try_with_terminal(|terminal| terminal.kitty_graphics_snapshot().unwrap().images[0].id)
+        .unwrap();
+    let expected_aliases = serde_json::json!([{"image_id": image_id, "image_number": 77}]);
+
+    let sock_path = cmux_tui_core::server::serve(mux.clone(), None).unwrap();
+    let stream = connect(&sock_path);
+    stream.set_read_timeout(Some(Duration::from_millis(100))).unwrap();
+    let mut writer = stream.try_clone_box().unwrap();
+    let mut reader = BufReader::new(stream);
+
+    writeln!(writer, r#"{{"id":1,"cmd":"attach-surface","surface":{}}}"#, surface.id).unwrap();
+    let initial =
+        wait_for(|| read_json_line(&mut reader), Duration::from_secs(5)).expect("initial vt-state");
+    assert_eq!(initial["event"], "vt-state");
+    assert_eq!(initial["kitty_image_aliases"], expected_aliases);
+    let response =
+        wait_for(|| read_json_line(&mut reader), Duration::from_secs(5)).expect("attach response");
+    assert_eq!(response["ok"], true, "attach failed: {response}");
+
+    let restore_and_place = |event: &serde_json::Value, data_field: &str, cols: u16, rows: u16| {
+        let bytes = base64::engine::general_purpose::STANDARD
+            .decode(event[data_field].as_str().unwrap())
+            .unwrap();
+        let aliases = event["kitty_image_aliases"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .map(|alias| ghostty_vt::KittyImageAlias {
+                image_id: alias["image_id"].as_u64().unwrap() as u32,
+                image_number: alias["image_number"].as_u64().unwrap() as u32,
+            })
+            .collect::<Vec<_>>();
+        let mut mirror =
+            ghostty_vt::Terminal::new(cols, rows, 100, ghostty_vt::Callbacks::default()).unwrap();
+        mirror.vt_write(&bytes);
+        mirror.restore_kitty_image_aliases(&aliases).unwrap();
+        mirror.vt_write(b"\x1b_Ga=p,I=77,p=3,c=1,r=1,q=2;\x1b\\");
+        assert_eq!(mirror.kitty_graphics_snapshot().unwrap().placements[0].image_id, image_id);
+    };
+    restore_and_place(&initial, "data", 20, 4);
+
+    mux.resize_surface(surface.id, 21, 4).unwrap();
+    let resized = wait_for(
+        || {
+            while let Some(value) = read_json_line(&mut reader) {
+                if value["event"] == "resized" {
+                    return Some(value);
+                }
+            }
+            None
+        },
+        Duration::from_secs(5),
+    )
+    .expect("resize replay");
+    assert_eq!(resized["kitty_image_aliases"], expected_aliases);
+    restore_and_place(&resized, "replay", 21, 4);
+
+    let _ = mux.close_surface(surface.id);
+    cmux_tui_core::server::cleanup(&sock_path);
+}
+
+#[test]
 fn control_socket_attach_vt_state_reports_builtin_cursor_without_config() {
     let mux = Mux::new(unique_session("test-attach-cursor-null"), shell_opts("cat"));
     let surface = mux.new_workspace(None, Some((80, 24))).unwrap();
@@ -989,7 +1060,7 @@ fn attach_stream_replays_then_streams_without_duplication() {
                     break;
                 }
             }
-            Ok(AttachFrame::Resized { cols, rows, replay })
+            Ok(AttachFrame::Resized { cols, rows, replay, .. })
             | Ok(AttachFrame::ResizedWithColors { cols, rows, replay, .. }) => {
                 assert!(!replay.is_empty());
                 mirror =
@@ -1005,6 +1076,138 @@ fn attach_stream_replays_then_streams_without_duplication() {
     assert_eq!(text.matches("before-attach").count(), 1, "duplicated replay: {text}");
 
     mux.close_surface(surface.id).unwrap();
+}
+
+#[test]
+fn default_byte_attach_replays_preexisting_kitty_image() {
+    let mux = Mux::new(unique_session("test-attach-kitty"), shell_opts("cat"));
+    mux.set_cell_pixel_size(9, 18);
+    let surface = mux.new_workspace(None, Some((20, 4))).unwrap();
+    surface
+        .try_with_terminal(|terminal| {
+            terminal.vt_write(b"\x1b_Ga=T,t=d,f=32,i=73,p=2,s=1,v=1,c=2,r=2,q=2;/wAAfw==\x1b\\");
+        })
+        .unwrap();
+
+    // Current remote clients omit `mode`, which selects the byte attach path.
+    let attach = surface.attach_stream().unwrap();
+    let mut mirror =
+        ghostty_vt::Terminal::new(attach.cols, attach.rows, 1000, ghostty_vt::Callbacks::default())
+            .unwrap();
+    mirror.resize(attach.cols, attach.rows, 9, 18).unwrap();
+    mirror.vt_write(&attach.replay);
+
+    let graphics = mirror.kitty_graphics_snapshot().unwrap();
+    assert_eq!(&*graphics.image(73).expect("pre-attach image").data, &[255, 0, 0, 127]);
+    assert_eq!((graphics.placements[0].pixel_width, graphics.placements[0].pixel_height), (18, 36));
+    let _ = mux.close_surface(surface.id);
+}
+
+#[test]
+fn byte_attach_between_transmit_and_place_keeps_the_unplaced_image() {
+    let mux = Mux::new(unique_session("test-attach-unplaced-kitty"), shell_opts("cat"));
+    let surface = mux.new_workspace(None, Some((20, 4))).unwrap();
+    surface
+        .try_with_terminal(|terminal| {
+            terminal.vt_write(b"\x1b_Ga=t,t=d,f=24,i=76,s=1,v=1,q=2;/wAA\x1b\\");
+        })
+        .unwrap();
+
+    let attach = surface.attach_stream().unwrap();
+    let mut mirror =
+        ghostty_vt::Terminal::new(attach.cols, attach.rows, 1000, ghostty_vt::Callbacks::default())
+            .unwrap();
+    mirror.vt_write(&attach.replay);
+    let before_place = mirror.kitty_graphics_snapshot().unwrap();
+    assert!(before_place.image(76).is_some());
+    assert!(before_place.placements.is_empty());
+
+    mirror.vt_write(b"\x1b_Ga=p,i=76,p=5,c=1,r=1,q=2;\x1b\\");
+    assert_eq!(mirror.kitty_graphics_snapshot().unwrap().placements.len(), 1);
+    let _ = mux.close_surface(surface.id);
+}
+
+#[test]
+fn attach_resize_replay_preserves_an_inflight_kitty_transmission() {
+    let mux = Mux::new(unique_session("test-attach-inflight-kitty"), shell_opts("cat"));
+    let surface = mux.new_workspace(None, Some((20, 4))).unwrap();
+    surface
+        .try_with_terminal(|terminal| {
+            terminal.vt_write(b"\x1b_Ga=t,t=d,f=24,i=79,s=1,v=2,m=1,q=2;////\x1b\\");
+        })
+        .unwrap();
+
+    let attach = surface.attach_stream().unwrap();
+    let mut initial =
+        ghostty_vt::Terminal::new(attach.cols, attach.rows, 1000, ghostty_vt::Callbacks::default())
+            .unwrap();
+    initial.vt_write(&attach.replay);
+    initial.restore_kitty_image_aliases(&attach.kitty_image_aliases).unwrap();
+
+    mux.resize_surface(surface.id, 21, 4).unwrap();
+    let (cols, rows, replay, aliases) = match attach.stream.recv_timeout(Duration::from_secs(2)) {
+        Ok(AttachFrame::Resized { cols, rows, replay, kitty_image_aliases })
+        | Ok(AttachFrame::ResizedWithColors { cols, rows, replay, kitty_image_aliases, .. }) => {
+            (cols, rows, replay, kitty_image_aliases)
+        }
+        other => panic!("missing ordered resize replay: {other:?}"),
+    };
+    let mut resized =
+        ghostty_vt::Terminal::new(cols, rows, 1000, ghostty_vt::Callbacks::default()).unwrap();
+    resized.vt_write(&replay);
+    resized.restore_kitty_image_aliases(&aliases).unwrap();
+
+    let final_chunk = b"\x1b_Gm=0,q=2;////\x1b\\";
+    surface.try_with_terminal(|terminal| terminal.vt_write(final_chunk)).unwrap();
+    initial.vt_write(final_chunk);
+    resized.vt_write(final_chunk);
+    assert_eq!(
+        &*surface
+            .try_with_terminal(|terminal| {
+                terminal.kitty_graphics_snapshot().unwrap().image(79).unwrap().data.clone()
+            })
+            .unwrap(),
+        &[255; 6]
+    );
+    assert_eq!(&*initial.kitty_graphics_snapshot().unwrap().image(79).unwrap().data, &[255; 6]);
+    assert_eq!(&*resized.kitty_graphics_snapshot().unwrap().image(79).unwrap().data, &[255; 6]);
+    let _ = mux.close_surface(surface.id);
+}
+
+#[test]
+fn render_attach_snapshot_contains_preexisting_kitty_image() {
+    let mux = Mux::new(unique_session("test-render-attach-kitty"), shell_opts("cat"));
+    let surface = mux.new_workspace(None, Some((20, 4))).unwrap();
+    surface
+        .try_with_terminal(|terminal| {
+            terminal.vt_write(b"\x1b_Ga=T,t=d,f=24,i=74,p=0,s=1,v=1,c=1,r=1,q=2;/wAA\x1b\\");
+        })
+        .unwrap();
+
+    let attach = surface.attach_render_stream().unwrap();
+    let graphics = &attach.initial.frame.kitty_graphics;
+    assert_eq!(&*graphics.image(74).expect("render-attach image").data, &[255, 0, 0]);
+    assert_eq!(graphics.placements.len(), 1);
+    let _ = mux.close_surface(surface.id);
+}
+
+#[test]
+fn render_attach_initial_snapshot_includes_unplaced_image_for_later_placement() {
+    let mux = Mux::new(unique_session("test-render-attach-unplaced-kitty"), shell_opts("cat"));
+    let surface = mux.new_workspace(None, Some((20, 4))).unwrap();
+    surface
+        .try_with_terminal(|terminal| {
+            terminal.vt_write(b"\x1b_Ga=t,t=d,f=24,i=77,s=1,v=1,q=2;/wAA\x1b\\");
+        })
+        .unwrap();
+
+    let attach = surface.attach_render_stream().unwrap();
+    assert_eq!(
+        &*attach.initial.frame.kitty_graphics.image(77).expect("unplaced image").data,
+        &[255, 0, 0]
+    );
+    assert!(attach.initial.frame.kitty_graphics.placements.is_empty());
+    let _ = mux.close_surface(surface.id);
 }
 
 #[test]
@@ -1049,7 +1252,7 @@ fn attach_stream_orders_resize_between_output_frames() {
     mux.resize_surface(surface.id, 100, 40).unwrap();
     let resized = wait_for(
         || match attach.stream.recv_timeout(Duration::from_millis(200)) {
-            Ok(AttachFrame::ResizedWithColors { cols, rows, replay, colors }) => {
+            Ok(AttachFrame::ResizedWithColors { cols, rows, replay, colors, .. }) => {
                 assert!(!replay.is_empty());
                 assert_eq!(colors.palette[4], Some(Rgb { r: 0x11, g: 0x22, b: 0x33 }));
                 Some((cols, rows))

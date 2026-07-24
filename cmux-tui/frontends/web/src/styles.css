@@ -151,10 +151,16 @@ button { color: inherit; touch-action: manipulation; }
 .render-scroll { position: absolute; inset: 0; overscroll-behavior: contain; scrollbar-color: var(--status-dim) transparent; }
 .render-scroll.live { overflow: hidden; }
 .render-scroll.history { overflow: auto; }
-.render-grid { position: relative; min-width: 0; color: var(--terminal-foreground); user-select: text; -webkit-user-select: text; }
+.render-grid { position: relative; min-width: 0; overflow: hidden; isolation: isolate; color: var(--terminal-foreground); user-select: text; -webkit-user-select: text; }
 .app-shell.terminal-selection-active .render-grid { user-select: none; -webkit-user-select: none; }
 .app-shell.terminal-selection-active .terminal-selection-owner .render-grid { user-select: text; -webkit-user-select: text; }
-.render-row { position: absolute; left: 0; width: 100%; height: var(--render-cell-height); overflow: hidden; white-space: pre; user-select: text; -webkit-user-select: text; }
+.render-graphics-layer { position: absolute; inset: 0; overflow: hidden; pointer-events: none; }
+.render-graphics-below { z-index: 1; }
+.render-graphics-above { z-index: 3; }
+.render-graphic-placement { position: absolute; display: block; max-width: none; pointer-events: none; }
+.render-row, .render-row-background { position: absolute; left: 0; width: 100%; height: var(--render-cell-height); overflow: hidden; white-space: pre; }
+.render-row-background { z-index: 0; pointer-events: none; user-select: none; -webkit-user-select: none; }
+.render-row { z-index: 2; user-select: text; -webkit-user-select: text; }
 .render-row::selection, .render-row *::selection { background: var(--selection-bg); }
 .render-run { display: inline-block; height: var(--render-cell-height); overflow: hidden; white-space: pre; vertical-align: top; }
 .render-run-bold { font-weight: 700; }
@@ -168,7 +174,7 @@ button { color: inherit; touch-action: manipulation; }
 .render-underline-dotted { text-decoration-style: dotted; }
 .render-underline-dashed { text-decoration-style: dashed; }
 .render-run-blink { animation: render-text-blink 1s steps(1, end) infinite; }
-.render-cursor { position: absolute; z-index: 3; display: block; width: var(--render-cell-width); height: var(--render-cell-height); background: currentColor; opacity: .72; pointer-events: none; }
+.render-cursor { position: absolute; z-index: 4; display: block; width: var(--render-cell-width); height: var(--render-cell-height); background: currentcolor; opacity: .72; pointer-events: none; }
 .render-cursor-underline { height: 2px; margin-top: calc(var(--render-cell-height) - 2px); opacity: 1; }
 .render-cursor-bar { width: 2px; opacity: 1; }
 .render-cursor.unfocused { opacity: .5; animation: none; }

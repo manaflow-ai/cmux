@@ -329,8 +329,8 @@ fn vt_replay_restores_cursor_position_after_tabstops() {
     let expected = source.cursor_position().unwrap();
     assert_eq!(expected, (16, 0));
 
-    let full = source.vt_replay().unwrap();
-    let bounded = source.vt_replay_bounded(8 * 1024 * 1024).unwrap();
+    let full = source.vt_replay_bytes().unwrap();
+    let bounded = source.vt_replay_bounded_bytes(8 * 1024 * 1024).unwrap();
     for replay in [&full, &bounded] {
         let mut mirror = Terminal::new(104, 39, 0, Callbacks::default()).unwrap();
         mirror.vt_write(replay);
@@ -644,14 +644,21 @@ fn terminal_tracks_same_valued_osc_palette_overrides_and_resets() {
 #[test]
 fn vt_write_returns_the_exact_normalized_stream_across_split_utf8_and_c1_controls() {
     let mut term = Terminal::new(80, 2, 0, Callbacks::default()).unwrap();
-    let chunks: &[&[u8]] =
-        &[b"\xc2", b"\x9dUTF8-continued ", b"\x9d4;9;#090909", b"\x9c", b"VISIBLE"];
+    let chunks: &[&[u8]] = &[
+        b"\xc2",
+        b"\x9fUTF8-continued ",
+        b"\x9fignored",
+        b"\x9c",
+        b"\x9d4;9;#090909",
+        b"\x9c",
+        b"VISIBLE",
+    ];
     let mut emitted = Vec::new();
     for chunk in chunks {
         emitted.extend_from_slice(term.vt_write_with_normalized(chunk).as_ref());
     }
 
-    assert_eq!(emitted, b"\xc2\x9dUTF8-continued \x1b]4;9;#090909\x1b\\VISIBLE");
+    assert_eq!(emitted, b"\xc2\x9fUTF8-continued \x1b_ignored\x1b\\\x1b]4;9;#090909\x1b\\VISIBLE");
     assert!(term.palette_overridden(9));
     assert!(term.viewport_text().unwrap().contains("VISIBLE"));
 }
