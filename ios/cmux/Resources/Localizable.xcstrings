@@ -11969,6 +11969,23 @@
         }
       }
     },
+    "mobile.workspaces.macPicker.titleWithBuildFormat": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%1$@ · %2$@"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%1$@ · %2$@"
+          }
+        }
+      }
+    },
     "mobile.workspaces.macPicker.label": {
       "extractionState": "manual",
       "localizations": {
@@ -14978,6 +14995,23 @@
         }
       }
     },
+    "mobile.iroh.diagnostics.failure.sendQueueOverflow": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Send Queue Overflow"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "送信キューオーバーフロー"
+          }
+        }
+      }
+    },
     "mobile.iroh.diagnostics.failure.superseded": {
       "extractionState": "manual",
       "localizations": {
@@ -15552,6 +15586,40 @@
           "stringUnit": {
             "state": "translated",
             "value": "リレーポリシーを更新"
+          }
+        }
+      }
+    },
+    "mobile.iroh.relayOnly": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Relay Only"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "リレーのみ"
+          }
+        }
+      }
+    },
+    "mobile.iroh.relayOnly.footer": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Keeps this device's Iroh connections on cmux relays instead of direct or local-network paths. Applies on the next reconnect."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "このデバイスの Iroh 接続を、直接経路やローカルネットワーク経路ではなく cmux リレー経由に固定します。次回の再接続時に適用されます。"
           }
         }
       }
