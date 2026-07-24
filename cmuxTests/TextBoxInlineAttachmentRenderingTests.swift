@@ -89,7 +89,7 @@ import Testing
         )
     }
 
-    @Test func undoRequeuesAThumbnailRequestCancelledByDeletion() async throws {
+    @Test func directUndoRequeuesAThumbnailRequestCancelledByDeletion() async throws {
         let fixture = try AttachmentFixture()
         defer { fixture.cleanup() }
         let textView = fixture.makeTextView(
@@ -103,10 +103,6 @@ import Testing
 
         textView.deleteAttachment(at: location)
         undoManager.undo()
-        textView.refreshInlineAttachmentCells(
-            font: try #require(textView.font),
-            foregroundColor: try #require(textView.textColor)
-        )
 
         let restoredAttachment = try #require(fixture.inlineAttachments(in: textView).first)
         let placeholder = try fixture.renderedImage(for: restoredAttachment)
