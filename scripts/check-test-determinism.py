@@ -17,7 +17,8 @@ This checker is deliberately conservative: it flags ONLY unambiguous,
 high-confidence flaky primitives so its false-positive rate stays near zero.
 A noisy gate gets hated and reverted. When in doubt, it stays silent.
 
-Detectors (all line/regex heuristics, never an AST):
+Detectors use conservative line/regex heuristics, with Python AST resolution
+for direct standard-library sleep calls:
 
 - assert-on-duration: an assertion comparing a wall-clock duration expression
   (elapsed_ms, perf_counter, DispatchTime.now, CACurrentMediaTime,
@@ -44,6 +45,7 @@ Usage:
 from __future__ import annotations
 
 import argparse
+import ast
 import json
 import pathlib
 import re
@@ -201,34 +203,6 @@ _SWIFT_SLEEP_CALL = re.compile(
     """
 )
 _PYTHON_SLEEP_MODULES = frozenset(("time", "asyncio", "trio", "anyio", "gevent"))
-_PYTHON_QUALIFIED_SLEEP = re.compile(
-    r"(?<![.\w])(?P<name>[A-Za-z_]\w*)\.sleep\s*\("
-)
-_PYTHON_BARE_CALL = re.compile(r"(?<![.\w])(?P<name>[A-Za-z_]\w*)\s*\(")
-_PYTHON_IMPORT = re.compile(r"^\s*import\s+(?P<imports>[^;]+)")
-_PYTHON_FROM_IMPORT = re.compile(
-    r"^\s*from\s+(?P<module>[A-Za-z_][\w.]*)\s+"
-    r"import\s+(?P<imports>[^;]+)"
-)
-_PYTHON_FUNCTION_START = re.compile(
-    r"^\s*(?:async\s+)?def\s+(?P<name>[A-Za-z_]\w*)\s*"
-    r"\((?P<parameters>.*)$"
-)
-_PYTHON_PARAMETER = re.compile(
-    r"(?:^|,)\s*\*{0,2}(?P<name>[A-Za-z_]\w*)"
-)
-_PYTHON_LAMBDA_PARAMETERS = re.compile(
-    r"\blambda\s+(?P<parameters>[^:\n]*):"
-)
-_PYTHON_CLASS = re.compile(r"^\s*class\s+(?P<name>[A-Za-z_]\w*)\b")
-_PYTHON_DEL = re.compile(r"^\s*del\s+(?P<names>.+)$")
-_PYTHON_FOR_TARGET = re.compile(
-    r"^\s*(?:async\s+)?for\s+(?P<targets>.+?)\s+in\b"
-)
-_PYTHON_AS_TARGET = re.compile(r"\bas\s+(?P<name>[A-Za-z_]\w*)\b")
-_PYTHON_WALRUS_TARGET = re.compile(
-    r"\b(?P<name>[A-Za-z_]\w*)\s*:="
-)
 _JS_SLEEP_CALL = re.compile(
     r"""(?x)
     (?<![.\w])Bun\.sleep\s*\(
@@ -498,430 +472,447 @@ def _sleep_call_pattern(path_suffix: str) -> Optional[re.Pattern[str]]:
     return None
 
 
-def _python_import_bindings(
-    line: str,
-) -> tuple[set[str], set[str], set[str], bool]:
-    """Return bindings, trusted aliases, and whether an import is wildcard."""
-    bindings: set[str] = set()
-    module_aliases: set[str] = set()
-    function_aliases: set[str] = set()
-    wildcard_import = False
-    line = line.replace("\\\n", " ")
+_PYTHON_MODULE_BINDING = "module"
+_PYTHON_FUNCTION_BINDING = "function"
+_PYTHON_SHADOWED_BINDING = "shadowed"
 
-    module_import = _PYTHON_IMPORT.search(line)
-    if module_import:
-        for item in module_import.group("imports").split(","):
-            parts = item.strip().split()
-            if not parts:
-                continue
-            module = parts[0]
-            alias = (
-                parts[2]
-                if len(parts) == 3 and parts[1] == "as"
-                else module.split(".", maxsplit=1)[0]
+
+@dataclass
+class _PythonScope:
+    """One Python lexical namespace used by the sleep-call resolver."""
+
+    kind: str
+    parent: Optional["_PythonScope"]
+    bindings: dict[str, str]
+
+
+class _PythonSleepVisitor(ast.NodeVisitor):
+    """Find exact trusted ``sleep`` calls without guessing receiver types."""
+
+    def __init__(self) -> None:
+        self.module_scope = _PythonScope(
+            kind="module",
+            parent=None,
+            bindings={
+                name: _PYTHON_MODULE_BINDING
+                for name in _PYTHON_SLEEP_MODULES
+            },
+        )
+        self.scope = self.module_scope
+        self.sleep_lines: set[int] = set()
+
+    def _resolve(self, name: str) -> Optional[str]:
+        scope: Optional[_PythonScope] = self.scope
+        while scope is not None:
+            binding = scope.bindings.get(name)
+            if binding is not None:
+                return binding
+            scope = scope.parent
+        return None
+
+    def _bind(self, name: str, binding: str = _PYTHON_SHADOWED_BINDING) -> None:
+        self.scope.bindings[name] = binding
+
+    def _bind_target(self, target: ast.expr) -> None:
+        if isinstance(target, ast.Name):
+            self._bind(target.id)
+        elif isinstance(target, (ast.List, ast.Tuple)):
+            for element in target.elts:
+                self._bind_target(element)
+        elif isinstance(target, ast.Starred):
+            self._bind_target(target.value)
+
+    def _visit_target_expressions(self, target: ast.expr) -> None:
+        if isinstance(target, ast.Attribute):
+            self.visit(target.value)
+        elif isinstance(target, ast.Subscript):
+            self.visit(target.value)
+            self.visit(target.slice)
+        elif isinstance(target, (ast.List, ast.Tuple)):
+            for element in target.elts:
+                self._visit_target_expressions(element)
+        elif isinstance(target, ast.Starred):
+            self._visit_target_expressions(target.value)
+
+    def _lexical_parent(self) -> _PythonScope:
+        scope = self.scope
+        while scope.kind == "class" and scope.parent is not None:
+            scope = scope.parent
+        return scope
+
+    def _scope_state(self) -> dict[str, str]:
+        return self.scope.bindings.copy()
+
+    def _restore_scope_state(self, state: dict[str, str]) -> None:
+        self.scope.bindings = state.copy()
+
+    def _merge_scope_states(self, states: list[dict[str, str]]) -> None:
+        def merge(mappings: list[dict[str, str]]) -> dict[str, str]:
+            result: dict[str, str] = {}
+            keys = set().union(*(mapping.keys() for mapping in mappings))
+            for key in keys:
+                values = {mapping.get(key) for mapping in mappings}
+                result[key] = (
+                    values.pop()
+                    if len(values) == 1 and None not in values
+                    else _PYTHON_SHADOWED_BINDING
+                )
+            return result
+
+        self.scope.bindings = merge(states)
+
+    def _visit_branch_blocks(
+        self,
+        blocks: list[list[ast.stmt]],
+    ) -> None:
+        base = self._scope_state()
+        states: list[dict[str, str]] = []
+        for block in blocks:
+            self._restore_scope_state(base)
+            for statement in block:
+                self.visit(statement)
+            states.append(self._scope_state())
+        self._merge_scope_states(states)
+
+    def _argument_nodes(self, arguments: ast.arguments) -> list[ast.arg]:
+        result = list(arguments.posonlyargs) + list(arguments.args)
+        if arguments.vararg is not None:
+            result.append(arguments.vararg)
+        result.extend(arguments.kwonlyargs)
+        if arguments.kwarg is not None:
+            result.append(arguments.kwarg)
+        return result
+
+    def _visit_argument_expressions(self, arguments: ast.arguments) -> None:
+        for argument in self._argument_nodes(arguments):
+            if argument.annotation is not None:
+                self.visit(argument.annotation)
+        for default in arguments.defaults:
+            self.visit(default)
+        for default in arguments.kw_defaults:
+            if default is not None:
+                self.visit(default)
+
+    def _visit_function(
+        self,
+        node: ast.FunctionDef | ast.AsyncFunctionDef,
+    ) -> None:
+        for decorator in node.decorator_list:
+            self.visit(decorator)
+        self._visit_argument_expressions(node.args)
+        if node.returns is not None:
+            self.visit(node.returns)
+        for type_parameter in getattr(node, "type_params", ()):
+            self.visit(type_parameter)
+
+        # The function name is available when its body eventually executes.
+        self._bind(node.name)
+        parent = self._lexical_parent()
+        previous_scope = self.scope
+        self.scope = _PythonScope("function", parent, {})
+        for argument in self._argument_nodes(node.args):
+            self._bind(argument.arg)
+        for statement in node.body:
+            self.visit(statement)
+        self.scope = previous_scope
+
+    def visit_FunctionDef(self, node: ast.FunctionDef) -> None:
+        self._visit_function(node)
+
+    def visit_AsyncFunctionDef(self, node: ast.AsyncFunctionDef) -> None:
+        self._visit_function(node)
+
+    def visit_Lambda(self, node: ast.Lambda) -> None:
+        self._visit_argument_expressions(node.args)
+        parent = self._lexical_parent()
+        previous_scope = self.scope
+        self.scope = _PythonScope("function", parent, {})
+        for argument in self._argument_nodes(node.args):
+            self._bind(argument.arg)
+        self.visit(node.body)
+        self.scope = previous_scope
+
+    def visit_ClassDef(self, node: ast.ClassDef) -> None:
+        for decorator in node.decorator_list:
+            self.visit(decorator)
+        for base in node.bases:
+            self.visit(base)
+        for keyword in node.keywords:
+            self.visit(keyword.value)
+        for type_parameter in getattr(node, "type_params", ()):
+            self.visit(type_parameter)
+
+        # Methods execute after the class object has replaced this outer name.
+        self._bind(node.name)
+        parent = self._lexical_parent()
+        previous_scope = self.scope
+        self.scope = _PythonScope("class", parent, {})
+        for statement in node.body:
+            self.visit(statement)
+        self.scope = previous_scope
+
+    def visit_Import(self, node: ast.Import) -> None:
+        for alias in node.names:
+            name = alias.asname or alias.name.split(".", maxsplit=1)[0]
+            binding = (
+                _PYTHON_MODULE_BINDING
+                if alias.name in _PYTHON_SLEEP_MODULES
+                else _PYTHON_SHADOWED_BINDING
             )
-            bindings.add(alias)
-            if module in _PYTHON_SLEEP_MODULES:
-                module_aliases.add(alias)
-        return bindings, module_aliases, function_aliases, wildcard_import
+            self._bind(name, binding)
 
-    from_import = _PYTHON_FROM_IMPORT.search(line)
-    if not from_import:
-        return bindings, module_aliases, function_aliases, wildcard_import
-    module = from_import.group("module")
-    imported_items = from_import.group("imports").strip().strip("()")
-    for item in imported_items.split(","):
-        parts = item.strip().split()
-        if not parts:
-            continue
-        imported = parts[0]
-        if imported == "*":
-            wildcard_import = True
-            continue
-        alias = (
-            parts[2]
-            if len(parts) == 3 and parts[1] == "as"
-            else imported
+    def visit_ImportFrom(self, node: ast.ImportFrom) -> None:
+        if any(alias.name == "*" for alias in node.names):
+            visible_names: set[str] = set()
+            scope: Optional[_PythonScope] = self.scope
+            while scope is not None:
+                visible_names.update(scope.bindings)
+                scope = scope.parent
+            for name in visible_names:
+                if self._resolve(name) in (
+                    _PYTHON_MODULE_BINDING,
+                    _PYTHON_FUNCTION_BINDING,
+                ):
+                    self._bind(name)
+            return
+
+        for alias in node.names:
+            name = alias.asname or alias.name
+            binding = (
+                _PYTHON_FUNCTION_BINDING
+                if (
+                    node.level == 0
+                    and node.module in _PYTHON_SLEEP_MODULES
+                    and alias.name == "sleep"
+                )
+                else _PYTHON_SHADOWED_BINDING
+            )
+            self._bind(name, binding)
+
+    def visit_Assign(self, node: ast.Assign) -> None:
+        self.visit(node.value)
+        for target in node.targets:
+            self._visit_target_expressions(target)
+            self._bind_target(target)
+
+    def visit_AnnAssign(self, node: ast.AnnAssign) -> None:
+        self.visit(node.annotation)
+        if node.value is not None:
+            self.visit(node.value)
+        self._visit_target_expressions(node.target)
+        self._bind_target(node.target)
+
+    def visit_AugAssign(self, node: ast.AugAssign) -> None:
+        self._visit_target_expressions(node.target)
+        self.visit(node.value)
+        self._bind_target(node.target)
+
+    def visit_NamedExpr(self, node: ast.NamedExpr) -> None:
+        self.visit(node.value)
+        self._bind_target(node.target)
+
+    def visit_Delete(self, node: ast.Delete) -> None:
+        for target in node.targets:
+            self._visit_target_expressions(target)
+            self._bind_target(target)
+
+    def visit_If(self, node: ast.If) -> None:
+        self.visit(node.test)
+        self._visit_branch_blocks([node.body, node.orelse])
+
+    def _visit_loop(
+        self,
+        body: list[ast.stmt],
+        orelse: list[ast.stmt],
+        target: Optional[ast.expr] = None,
+    ) -> None:
+        base = self._scope_state()
+        states: list[dict[str, str]] = []
+
+        self._restore_scope_state(base)
+        for statement in orelse:
+            self.visit(statement)
+        states.append(self._scope_state())
+
+        self._restore_scope_state(base)
+        if target is not None:
+            self._visit_target_expressions(target)
+            self._bind_target(target)
+        for statement in body:
+            self.visit(statement)
+        for statement in orelse:
+            self.visit(statement)
+        states.append(self._scope_state())
+
+        self._merge_scope_states(states)
+
+    def visit_For(self, node: ast.For) -> None:
+        self.visit(node.iter)
+        self._visit_loop(node.body, node.orelse, node.target)
+
+    def visit_AsyncFor(self, node: ast.AsyncFor) -> None:
+        self.visit_For(node)
+
+    def visit_While(self, node: ast.While) -> None:
+        self.visit(node.test)
+        self._visit_loop(node.body, node.orelse)
+
+    def visit_With(self, node: ast.With) -> None:
+        for item in node.items:
+            self.visit(item.context_expr)
+            if item.optional_vars is not None:
+                self._visit_target_expressions(item.optional_vars)
+                self._bind_target(item.optional_vars)
+        for statement in node.body:
+            self.visit(statement)
+
+    def visit_AsyncWith(self, node: ast.AsyncWith) -> None:
+        self.visit_With(node)
+
+    def visit_ExceptHandler(self, node: ast.ExceptHandler) -> None:
+        if node.type is not None:
+            self.visit(node.type)
+        if node.name is not None:
+            self._bind(node.name)
+        for statement in node.body:
+            self.visit(statement)
+
+    def _visit_try(
+        self,
+        body: list[ast.stmt],
+        handlers: list[ast.ExceptHandler],
+        orelse: list[ast.stmt],
+        finalbody: list[ast.stmt],
+    ) -> None:
+        base = self._scope_state()
+        states = [base]
+
+        self._restore_scope_state(base)
+        for statement in body:
+            self.visit(statement)
+        for statement in orelse:
+            self.visit(statement)
+        states.append(self._scope_state())
+
+        for handler in handlers:
+            self._restore_scope_state(base)
+            self.visit(handler)
+            states.append(self._scope_state())
+
+        self._merge_scope_states(states)
+        for statement in finalbody:
+            self.visit(statement)
+
+    def visit_Try(self, node: ast.Try) -> None:
+        self._visit_try(
+            node.body,
+            node.handlers,
+            node.orelse,
+            node.finalbody,
         )
-        bindings.add(alias)
-        if module in _PYTHON_SLEEP_MODULES and imported == "sleep":
-            function_aliases.add(alias)
-    return bindings, module_aliases, function_aliases, wildcard_import
 
-
-def _python_assignment_target_names(
-    line: str,
-    candidates: set[str],
-) -> set[str]:
-    """Return bare names bound by top-level assignment targets on one line."""
-
-    def target_names(fragment: str) -> set[str]:
-        target = fragment.strip()
-        while (
-            len(target) >= 2
-            and (target[0], target[-1]) in (("(", ")"), ("[", "]"))
-        ):
-            target = target[1:-1].strip()
-
-        depth = 0
-        part_start = 0
-        parts: list[str] = []
-        annotation = -1
-        for index, char in enumerate(target):
-            if char in "([{":
-                depth += 1
-            elif char in ")]}":
-                depth = max(0, depth - 1)
-            elif char == "," and depth == 0:
-                parts.append(target[part_start:index])
-                part_start = index + 1
-            elif char == ":" and depth == 0 and annotation < 0:
-                annotation = index
-        if parts:
-            parts.append(target[part_start:])
-            return set().union(*(target_names(part) for part in parts))
-        if annotation >= 0:
-            target = target[:annotation].rstrip()
-        target = target.lstrip("*").rstrip("+-*/%@&|^<> ")
-        return {target} if target in candidates else set()
-
-    bindings: set[str] = set()
-    depth = 0
-    target_start = 0
-    for index, char in enumerate(line):
-        if char in "([{":
-            depth += 1
-            continue
-        if char in ")]}":
-            depth = max(0, depth - 1)
-            continue
-        if char == ";" and depth == 0:
-            target_start = index + 1
-            continue
-        if char != "=" or depth != 0:
-            continue
-        previous = line[index - 1] if index else ""
-        following = line[index + 1] if index + 1 < len(line) else ""
-        if previous in "<>!=" or following == "=":
-            continue
-        bindings.update(target_names(line[target_start:index]))
-        target_start = index + 1
-    return bindings
-
-
-def _python_shadowed_names(line: str, candidates: set[str]) -> set[str]:
-    """Return conservatively rebound Python sleep module/function names."""
-    shadowed = {
-        match.group("name")
-        for match in _PYTHON_WALRUS_TARGET.finditer(line)
-        if match.group("name") in candidates
-    }
-    shadowed.update(_python_assignment_target_names(line, candidates))
-
-    for_target = _PYTHON_FOR_TARGET.search(line)
-    if for_target:
-        target_names = set(
-            re.findall(r"\b[A-Za-z_]\w*\b", for_target.group("targets"))
-        )
-        shadowed.update(target_names & candidates)
-
-    if not line.lstrip().startswith(("import ", "from ")):
-        shadowed.update(
-            match.group("name")
-            for match in _PYTHON_AS_TARGET.finditer(line)
-            if match.group("name") in candidates
+    def visit_TryStar(self, node: ast.TryStar) -> None:
+        self._visit_try(
+            node.body,
+            node.handlers,
+            node.orelse,
+            node.finalbody,
         )
 
-    deletion = _PYTHON_DEL.search(line)
-    if deletion:
-        deleted = set(re.findall(r"\b[A-Za-z_]\w*\b", deletion.group("names")))
-        shadowed.update(deleted & candidates)
-    return shadowed
-
-
-def _python_lambda_parameter_names(
-    match: re.Match[str],
-    candidates: set[str],
-) -> set[str]:
-    """Return tracked names bound by one lambda parameter list."""
-    return {
-        parameter.group("name")
-        for parameter in _PYTHON_PARAMETER.finditer(
-            match.group("parameters")
-        )
-        if parameter.group("name") in candidates
-    }
-
-
-def _python_bracket_depth(line: str, initial: int = 0) -> int:
-    """Return Python delimiter depth after one already-masked physical line."""
-    depth = initial
-    for char in line:
-        if char in "([{":
-            depth += 1
-        elif char in ")]}":
-            depth = max(0, depth - 1)
-    return depth
-
-
-def _python_lambda_expression_end(
-    line: str,
-    start: int,
-    line_start_depth: int,
-    lambda_depth: int,
-) -> Optional[int]:
-    """Return the same-line end of a lambda expression, if visible."""
-    depth = _python_bracket_depth(line[:start], line_start_depth)
-    for index in range(start, len(line)):
-        char = line[index]
-        if char in "([{":
-            depth += 1
-        elif char in ")]}":
-            if depth == lambda_depth:
-                return index
-            depth = max(0, depth - 1)
-        elif char == "," and depth == lambda_depth:
-            return index
-    if lambda_depth == 0 and depth == 0 and not line.rstrip().endswith("\\"):
-        return len(line)
-    return None
-
-
-def _python_real_sleep_lines(masked_lines: list[str]) -> set[int]:
-    """Locate direct Python sleep APIs while aliases remain unshadowed."""
-    active_modules = set(_PYTHON_SLEEP_MODULES)
-    active_functions: set[str] = set()
-    sleep_lines: set[int] = set()
-    pending_parameters: Optional[str] = None
-    pending_parameter_depth = 0
-    pending_import: Optional[str] = None
-    pending_import_depth = 0
-    scope_stack: list[tuple[int, set[str], set[str], bool, str]] = []
-    lambda_scopes: list[tuple[int, set[str]]] = []
-    bracket_depth = 0
-
-    for idx, line in enumerate(masked_lines):
-        line_start_depth = bracket_depth
-        bracket_depth = _python_bracket_depth(line, line_start_depth)
-
-        line_indent = len(line) - len(line.lstrip())
-        if line.strip() and pending_parameters is None:
-            while scope_stack:
-                (
-                    header_indent,
-                    restore_modules,
-                    restore_functions,
-                    body_started,
-                    scope_kind,
-                ) = scope_stack[-1]
-                if not body_started and line_indent > header_indent:
-                    scope_stack[-1] = (
-                        header_indent,
-                        restore_modules,
-                        restore_functions,
-                        True,
-                        scope_kind,
-                    )
-                    break
-                if body_started and line_indent > header_indent:
-                    break
-                active_modules = restore_modules
-                active_functions = restore_functions
-                scope_stack.pop()
-
-        candidates = active_modules | active_functions
-        import_statement: Optional[str] = None
-        in_import_header = False
-        if pending_import is not None:
-            in_import_header = True
-            pending_import += "\n" + line
-            pending_import_depth += line.count("(") - line.count(")")
-            if (
-                pending_import_depth <= 0
-                and not line.rstrip().endswith("\\")
+    def _bind_match_pattern(self, pattern: ast.pattern) -> None:
+        for child in ast.walk(pattern):
+            if isinstance(child, ast.MatchAs) and child.name is not None:
+                self._bind(child.name)
+            elif isinstance(child, ast.MatchStar) and child.name is not None:
+                self._bind(child.name)
+            elif (
+                isinstance(child, ast.MatchMapping)
+                and child.rest is not None
             ):
-                import_statement = pending_import
-                pending_import = None
-        elif line.lstrip().startswith(("import ", "from ")):
-            in_import_header = True
-            import_depth = line.count("(") - line.count(")")
-            if import_depth > 0 or line.rstrip().endswith("\\"):
-                pending_import = line
-                pending_import_depth = import_depth
-            else:
-                import_statement = line
+                self._bind(child.rest)
 
-        trailing_import_statement = (
-            import_statement is not None and ";" in line
-        )
-        if trailing_import_statement:
-            separator = line.index(";") + 1
-            scan_line = " " * separator + line[separator:]
-        else:
-            scan_line = line
-        shadowed = (
-            set()
-            if in_import_header and not trailing_import_statement
-            else _python_shadowed_names(scan_line, candidates)
-        )
-        if import_statement is None:
-            import_bindings: set[str] = set()
-            module_aliases: set[str] = set()
-            function_aliases: set[str] = set()
-            wildcard_import = False
-        else:
-            (
-                import_bindings,
-                module_aliases,
-                function_aliases,
-                wildcard_import,
-            ) = _python_import_bindings(import_statement)
-        shadowed.update(import_bindings & candidates)
-        if wildcard_import:
-            shadowed.update(candidates)
+    def visit_Match(self, node: ast.Match) -> None:
+        self.visit(node.subject)
+        base = self._scope_state()
+        states = [base]
+        for case in node.cases:
+            self._restore_scope_state(base)
+            self._bind_match_pattern(case.pattern)
+            if case.guard is not None:
+                self.visit(case.guard)
+            for statement in case.body:
+                self.visit(statement)
+            states.append(self._scope_state())
+        self._merge_scope_states(states)
 
-        function = _PYTHON_FUNCTION_START.search(scan_line)
-        class_definition = _PYTHON_CLASS.search(scan_line)
-        in_function_header = function is not None or pending_parameters is not None
-        if function or class_definition:
-            lexical_modules = active_modules.copy()
-            lexical_functions = active_functions.copy()
-            defined_name = (
-                function.group("name")
-                if function is not None
-                else class_definition.group("name")
-            )
-            active_modules.discard(defined_name)
-            active_functions.discard(defined_name)
-            restore_modules = active_modules.copy()
-            restore_functions = active_functions.copy()
-            if scope_stack and scope_stack[-1][4] == "class":
-                child_modules = scope_stack[-1][1].copy()
-                child_functions = scope_stack[-1][2].copy()
-            elif class_definition is not None:
-                child_modules = lexical_modules
-                child_functions = lexical_functions
-            else:
-                child_modules = restore_modules.copy()
-                child_functions = restore_functions.copy()
-            scope_stack.append(
-                (
-                    line_indent,
-                    restore_modules,
-                    restore_functions,
-                    False,
-                    "function" if function is not None else "class",
-                )
-            )
-            active_modules = child_modules
-            active_functions = child_functions
-        if function:
-            pending_parameters = function.group("parameters")
-            pending_parameter_depth = (
-                1
-                + pending_parameters.count("(")
-                - pending_parameters.count(")")
-            )
-        elif pending_parameters is not None:
-            pending_parameters += "\n" + line
-            pending_parameter_depth += line.count("(") - line.count(")")
+    def _visit_comprehension(
+        self,
+        generators: list[ast.comprehension],
+        values: list[ast.expr],
+    ) -> None:
+        if not generators:
+            for value in values:
+                self.visit(value)
+            return
 
-        if pending_parameters is not None and pending_parameter_depth <= 0:
-            shadowed.update(
-                match.group("name")
-                for match in _PYTHON_PARAMETER.finditer(pending_parameters)
-                if match.group("name") in candidates
-            )
-            pending_parameters = None
+        # The outermost iterator runs in the parent scope. Comprehension
+        # targets and the remaining expressions live in an isolated scope.
+        self.visit(generators[0].iter)
+        previous_scope = self.scope
+        self.scope = _PythonScope("function", self._lexical_parent(), {})
+        first = generators[0]
+        self._visit_target_expressions(first.target)
+        self._bind_target(first.target)
+        for condition in first.ifs:
+            self.visit(condition)
+        for generator in generators[1:]:
+            self.visit(generator.iter)
+            self._visit_target_expressions(generator.target)
+            self._bind_target(generator.target)
+            for condition in generator.ifs:
+                self.visit(condition)
+        for value in values:
+            self.visit(value)
+        self.scope = previous_scope
 
-        active_modules.difference_update(shadowed)
-        active_functions.difference_update(shadowed)
+    def visit_ListComp(self, node: ast.ListComp) -> None:
+        self._visit_comprehension(node.generators, [node.elt])
 
-        # Imports establish aliases in the current lexical scope. Scope
-        # snapshots restore the parent bindings when a function/class suite
-        # ends, so local aliases cannot leak into later tests.
-        if import_statement is not None:
-            active_modules.update(module_aliases)
-            active_functions.update(function_aliases)
+    def visit_SetComp(self, node: ast.SetComp) -> None:
+        self._visit_comprehension(node.generators, [node.elt])
 
-        lambda_ranges: list[tuple[set[str], int, int]] = []
-        surviving_lambda_scopes: list[tuple[int, set[str]]] = []
-        for lambda_depth, names in lambda_scopes:
-            expression_end = _python_lambda_expression_end(
-                scan_line,
-                0,
-                line_start_depth,
-                lambda_depth,
-            )
-            lambda_ranges.append(
-                (
-                    names,
-                    0,
-                    len(scan_line) if expression_end is None else expression_end,
-                )
-            )
-            if expression_end is None:
-                surviving_lambda_scopes.append((lambda_depth, names))
-        lambda_scopes = surviving_lambda_scopes
+    def visit_GeneratorExp(self, node: ast.GeneratorExp) -> None:
+        self._visit_comprehension(node.generators, [node.elt])
 
+    def visit_DictComp(self, node: ast.DictComp) -> None:
+        self._visit_comprehension(node.generators, [node.key, node.value])
+
+    def visit_Call(self, node: ast.Call) -> None:
+        function = node.func
         if (
-            in_function_header
-            or (in_import_header and not trailing_import_statement)
-            or class_definition
+            isinstance(function, ast.Attribute)
+            and function.attr == "sleep"
+            and isinstance(function.value, ast.Name)
+            and self._resolve(function.value.id) == _PYTHON_MODULE_BINDING
         ):
-            continue
+            self.sleep_lines.add(node.lineno - 1)
+        elif (
+            isinstance(function, ast.Name)
+            and self._resolve(function.id) == _PYTHON_FUNCTION_BINDING
+        ):
+            self.sleep_lines.add(node.lineno - 1)
+        self.generic_visit(node)
 
-        current_candidates = active_modules | active_functions
-        for lambda_parameters in _PYTHON_LAMBDA_PARAMETERS.finditer(scan_line):
-            names = _python_lambda_parameter_names(
-                lambda_parameters,
-                current_candidates,
-            )
-            if names:
-                lambda_depth = _python_bracket_depth(
-                    scan_line[:lambda_parameters.start()],
-                    line_start_depth,
-                )
-                expression_end = _python_lambda_expression_end(
-                    scan_line,
-                    lambda_parameters.end(),
-                    line_start_depth,
-                    lambda_depth,
-                )
-                lambda_ranges.append(
-                    (
-                        names,
-                        lambda_parameters.end(),
-                        (
-                            len(scan_line)
-                            if expression_end is None
-                            else expression_end
-                        ),
-                    )
-                )
-                if expression_end is None:
-                    lambda_scopes.append((lambda_depth, names))
 
-        def lambda_shadows(name: str, position: int) -> bool:
-            return any(
-                start <= position < end and name in names
-                for names, start, end in lambda_ranges
-            )
-
-        qualified_sleep = any(
-            match.group("name") in active_modules
-            and not lambda_shadows(match.group("name"), match.start())
-            for match in _PYTHON_QUALIFIED_SLEEP.finditer(scan_line)
-        )
-        bare_sleep = any(
-            match.group("name") in active_functions
-            and not lambda_shadows(match.group("name"), match.start())
-            for match in _PYTHON_BARE_CALL.finditer(scan_line)
-        )
-        if qualified_sleep or bare_sleep:
-            sleep_lines.add(idx)
-
-    return sleep_lines
+def _python_real_sleep_lines(text: str) -> set[int]:
+    """Locate direct trusted Python sleep APIs with lexical AST resolution."""
+    try:
+        tree = ast.parse(text)
+    except SyntaxError:
+        return set()
+    visitor = _PythonSleepVisitor()
+    visitor.visit(tree)
+    return visitor.sleep_lines
 
 
 def _unescaped_token_index(line: str, token: str, start: int) -> int:
@@ -1192,7 +1183,7 @@ def scan_text(rel_posix: str, text: str) -> list[Finding]:
         _mask_noncode(raw_lines, suffix) if has_sleep_candidate else code_lines
     )
     python_sleep_lines = (
-        _python_real_sleep_lines(masked_lines)
+        _python_real_sleep_lines(text)
         if suffix == ".py" and has_sleep_candidate
         else None
     )
