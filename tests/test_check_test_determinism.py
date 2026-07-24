@@ -256,6 +256,18 @@ class DeterminismCheckerCLITests(unittest.TestCase):
                 "sleep 1\n"
                 'assert "$actual" "$expected"\n'
             ),
+            "template-regex-brace.ts": (
+                'const value = `${/}/.test(input) ? Bun.sleep(1) : ""}`\n'
+                "expect(done).toBe(true)\n"
+            ),
+            "shell-substitution-assignment.sh": (
+                "DELAY=$(compute_delay) sleep 1\n"
+                'assert "$actual" "$expected"\n'
+            ),
+            "shell-quoted-substitution-assignment.sh": (
+                'DELAY="$(compute_delay)" sleep 1\n'
+                'assert "$actual" "$expected"\n'
+            ),
         }
 
         result = self.run_checker(fixtures)
@@ -359,6 +371,22 @@ class DeterminismCheckerCLITests(unittest.TestCase):
                     "        assert done\n"
                     "    time = fake_time\n"
                     "    inner()\n"
+                ),
+                "class-global-shadow.py": (
+                    "class Fixture:\n"
+                    "    global time\n"
+                    "    time = fake_time\n"
+                    "time.sleep(0.1)\n"
+                    "assert done\n"
+                ),
+                "class-nonlocal-shadow.py": (
+                    "def outer():\n"
+                    "    import time\n"
+                    "    class Fixture:\n"
+                    "        nonlocal time\n"
+                    "        time = fake_time\n"
+                    "    time.sleep(0.1)\n"
+                    "    assert done\n"
                 ),
                 "cross-language.swift": (
                     "Bun.sleep(1)\n"
@@ -1159,6 +1187,11 @@ class DeterminismCheckerCLITests(unittest.TestCase):
                     "expect(nested).toBeTruthy()\n"
                     "const escaped = `\\${Bun.sleep(1)}`\n"
                     "expect(escaped).toBeTruthy()\n"
+                ),
+                "continued-string.ts": (
+                    'const source = "prefix\\\n'
+                    'setTimeout(resolve, 1)"\n'
+                    "expect(source).toBeTruthy()\n"
                 ),
                 "strings.sh": (
                     "actual=\"$(printf 'sleep 1')\"\n"
