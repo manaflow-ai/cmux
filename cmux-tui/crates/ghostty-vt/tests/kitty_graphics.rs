@@ -347,6 +347,47 @@ fn storage_limit_bounds_retained_pixel_data() {
 }
 
 #[test]
+fn object_count_limits_bound_images_and_placements_across_reset() {
+    let mut terminal = terminal();
+    assert_eq!(terminal.kitty_image_count_limit().unwrap(), 4_096);
+    assert_eq!(terminal.kitty_placement_count_limit().unwrap(), 16_384);
+
+    terminal.set_kitty_image_count_limit(2).unwrap();
+    terminal.set_kitty_placement_count_limit(2).unwrap();
+    for image_id in 31..=33 {
+        terminal.vt_write(&kitty(&format!("a=t,t=d,f=24,i={image_id},s=1,v=1,q=2"), "/wAA"));
+    }
+    assert_eq!(
+        terminal
+            .kitty_graphics_snapshot()
+            .unwrap()
+            .images
+            .iter()
+            .map(|image| image.id)
+            .collect::<Vec<_>>(),
+        vec![32, 33]
+    );
+
+    for placement_id in 1..=3 {
+        terminal.vt_write(&kitty(&format!("a=p,i=33,p={placement_id},c=1,r=1,q=2"), ""));
+    }
+    assert_eq!(
+        terminal
+            .kitty_graphics_snapshot()
+            .unwrap()
+            .placements
+            .iter()
+            .map(|placement| placement.placement_id)
+            .collect::<Vec<_>>(),
+        vec![2, 3]
+    );
+
+    terminal.vt_write(b"\x1bc");
+    assert_eq!(terminal.kitty_image_count_limit().unwrap(), 2);
+    assert_eq!(terminal.kitty_placement_count_limit().unwrap(), 2);
+}
+
+#[test]
 fn terminal_enables_direct_payloads_without_external_image_media() {
     let terminal = terminal();
     assert_eq!(terminal.kitty_external_image_media_enabled().unwrap(), (false, false, false));
