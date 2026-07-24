@@ -84,6 +84,10 @@ actor ShareSocket {
     private var connectionNeedsHandshake = false
     private var nextConnectionGeneration: UInt64 = 1
     private var activeConnectionGeneration: UInt64?
+#if DEBUG
+    private var beforeCriticalBackpressureLifecycleStateForTesting:
+        (@Sendable () async -> Void)?
+#endif
 
     init(
         endpoint: Endpoint,
@@ -321,13 +325,25 @@ actor ShareSocket {
         guard !isStopped else {
             return false
         }
-        switch await lifecycle.state {
+        let taskToCancel = webSocketTask
+#if DEBUG
+        if let hook = beforeCriticalBackpressureLifecycleStateForTesting {
+            beforeCriticalBackpressureLifecycleStateForTesting = nil
+            await hook()
+        }
+#endif
+        let lifecycleState = await lifecycle.state
+        guard !isStopped else {
+            return false
+        }
+        switch lifecycleState {
         case .connecting, .connected, .reconnecting:
             break
         case .idle, .stopped:
             return false
         }
-        guard let webSocketTask else {
+        guard let taskToCancel,
+              webSocketTask === taskToCancel else {
             shareSocketLogger.info(
                 "Critical outbound backpressure joined an existing reconnect"
             )
@@ -337,9 +353,27 @@ actor ShareSocket {
             "Reconnecting after critical outbound share backpressure"
         )
         sendTask?.cancel()
-        webSocketTask.cancel(with: .goingAway, reason: nil)
+        taskToCancel.cancel(with: .goingAway, reason: nil)
         return true
     }
+
+#if DEBUG
+    func installWebSocketTaskForTesting(
+        _ task: URLSessionWebSocketTask
+    ) {
+        webSocketTask = task
+    }
+
+    func currentWebSocketTaskIDForTesting() -> ObjectIdentifier? {
+        webSocketTask.map(ObjectIdentifier.init)
+    }
+
+    func setBeforeCriticalBackpressureLifecycleStateForTesting(
+        _ hook: @escaping @Sendable () async -> Void
+    ) {
+        beforeCriticalBackpressureLifecycleStateForTesting = hook
+    }
+#endif
 
     /// Blocks ordinary outbound work behind the marker paired with an
     /// accepted server payload. A second payload displaces and drops the
