@@ -1,3 +1,4 @@
+use std::collections::{BTreeMap, BTreeSet, HashMap};
 use std::ffi::c_void;
 use std::ptr;
 use std::sync::atomic::{AtomicU64, Ordering};
@@ -6,10 +7,11 @@ use base64::Engine as _;
 use ghostty_vt_sys as sys;
 
 use crate::kitty::{
-    self, KittyGraphicsSnapshot, KittyImageAlias, KittyInFlightTracker, MAX_KITTY_IMAGE_BYTES,
+    self, KittyGraphicsSnapshot, KittyImage, KittyImageAlias, KittyInFlightTracker, KittyPlacement,
+    KittyPlacementAnchor, KittyReplaySnapshot, MAX_KITTY_IMAGE_BYTES,
 };
 use crate::render::{Cell, CursorShape, read_grid_ref_cell, terminal_palette};
-use crate::{Result, check};
+use crate::{Error, Result, check};
 
 static NEXT_TERMINAL_ID: AtomicU64 = AtomicU64::new(1);
 const VT_REPLAY_ESTIMATED_BYTES_PER_CELL: u64 = 32;
@@ -17,10 +19,6 @@ const DEFAULT_KITTY_IMAGE_STORAGE_LIMIT: u64 = MAX_KITTY_IMAGE_BYTES as u64;
 const DEFAULT_KITTY_IMAGE_COUNT_LIMIT: u64 = 4_096;
 const DEFAULT_KITTY_PLACEMENT_COUNT_LIMIT: u64 = 16_384;
 const KITTY_REPLAY_CHUNK: usize = 4096;
-
-#[cfg(test)]
-static KITTY_REPLAY_GROUP_PLACEMENT_VISITS: std::sync::atomic::AtomicUsize =
-    std::sync::atomic::AtomicUsize::new(0);
 
 /// Terminal state replay plus Kitty aliases that cannot share one APC command.
 #[derive(Debug, Clone, Default, PartialEq, Eq)]
@@ -1087,7 +1085,7 @@ impl Terminal {
             )
         })?;
         if graphics.is_null() {
-            return Err(crate::Error::NoValue);
+            return Err(Error::NoValue);
         }
 
         for alias in aliases {
@@ -1322,7 +1320,7 @@ impl Terminal {
             false,
             true,
         )
-        .ok_or(crate::Error::InvalidValue)
+        .ok_or(Error::InvalidValue)
     }
 
     /// Plain text of a selection range given in absolute screen
@@ -1409,7 +1407,7 @@ impl Terminal {
     /// state, charsets, and tabstops. This is the attach primitive: a new
     /// frontend replays this, then follows the live pty stream.
     pub fn vt_replay(&mut self) -> Result<VtReplay> {
-        self.vt_replay_with_selection_state(None)
+        self.vt_replay_bounded(usize::MAX)
     }
 
     /// Byte-only compatibility replay. This discards Kitty number aliases.
@@ -1427,17 +1425,45 @@ impl Terminal {
     /// back to a terminal reset so callers can still attach and receive live
     /// output instead of entering a permanent overflow loop.
     pub fn vt_replay_bounded(&mut self, max_bytes: usize) -> Result<VtReplay> {
-        let graphics_budget = max_bytes.saturating_div(2);
-        let inflight = self.kitty_inflight.replay_prefix(graphics_budget);
-        let graphics = kitty_replay_bounded(
-            &self.kitty_graphics_snapshot()?,
-            graphics_budget.saturating_sub(inflight.len()),
-            self.cell_pixel_size(),
-        );
-        let text_budget =
-            max_bytes.saturating_sub(graphics.bytes.len().saturating_add(inflight.len()));
-        let mut bytes = self.vt_replay_text_bounded(text_budget)?;
-        bytes.extend_from_slice(&graphics.bytes);
+        let inflight = self.kitty_inflight.replay_prefix_checked(max_bytes)?;
+        let remaining = max_bytes.checked_sub(inflight.len()).ok_or(Error::OutOfSpace)?;
+        let snapshot = kitty::snapshot_for_replay(self, &mut HashMap::new(), true)?;
+        let catalog =
+            KittyReplayCatalog::new(&snapshot, self.cell_pixel_size(), self.rows().max(1));
+
+        let active_start = self.scrollbar().and_then(|scrollbar| {
+            let viewport_start = scrollbar.total.saturating_sub(scrollbar.len);
+            let visible_start = catalog.visible_anchor_start().unwrap_or(viewport_start);
+            Some(viewport_start.min(visible_start))
+        });
+        let active_text =
+            self.vt_replay_text_layout_bounded(remaining, catalog.placement_rows(), active_start)?;
+        let visible_budget = remaining.saturating_sub(active_text.bytes.len());
+        let visible_cost =
+            active_text.range.map(|range| catalog.visible_cost(range, visible_budget)).unwrap_or(0);
+
+        let text_budget = remaining.saturating_sub(visible_cost);
+        let text = self.vt_replay_text_layout_bounded(
+            text_budget,
+            catalog.placement_rows(),
+            active_start,
+        )?;
+        let graphics_budget = remaining.saturating_sub(text.bytes.len());
+        let graphics = catalog.plan(text.range, graphics_budget, false);
+        let interleaved = text.interleave(&graphics.placements).ok_or(Error::OutOfSpace)?;
+
+        let total = graphics
+            .image_bytes
+            .len()
+            .checked_add(interleaved.len())
+            .and_then(|total| total.checked_add(inflight.len()))
+            .ok_or(Error::OutOfSpace)?;
+        if total > max_bytes || graphics.total_len > graphics_budget {
+            return Err(Error::OutOfSpace);
+        }
+        let mut bytes = Vec::with_capacity(total);
+        bytes.extend_from_slice(&graphics.image_bytes);
+        bytes.extend_from_slice(&interleaved);
         bytes.extend_from_slice(&inflight);
         Ok(VtReplay { bytes, kitty_image_aliases: graphics.aliases })
     }
@@ -1447,24 +1473,49 @@ impl Terminal {
         Ok(self.vt_replay_bounded(max_bytes)?.bytes)
     }
 
-    fn vt_replay_text_bounded(&mut self, max_bytes: usize) -> Result<Vec<u8>> {
+    fn vt_replay_text_layout_bounded(
+        &mut self,
+        max_bytes: usize,
+        placement_rows: &BTreeSet<u64>,
+        minimum_start: Option<u64>,
+    ) -> Result<ReplayText> {
         let Some(scrollbar) = self.scrollbar() else {
-            return Ok(minimal_vt_replay(max_bytes));
+            return Ok(ReplayText::minimal(max_bytes));
         };
         if scrollbar.total == 0 {
-            return Ok(minimal_vt_replay(max_bytes));
+            return Ok(ReplayText::minimal(max_bytes));
         }
 
         let screen_rows = scrollbar.len.min(scrollbar.total).max(1);
+        let minimum_start = minimum_start
+            .unwrap_or_else(|| scrollbar.total.saturating_sub(screen_rows))
+            .min(scrollbar.total - 1);
+        let minimum_rows = scrollbar.total.saturating_sub(minimum_start).max(screen_rows);
         let mut tail_rows =
-            vt_replay_row_window(scrollbar.total, screen_rows, self.cols(), max_bytes);
+            vt_replay_row_window(scrollbar.total, screen_rows, self.cols(), max_bytes)
+                .max(minimum_rows)
+                .min(scrollbar.total);
         let mut best = None;
-        let mut upper_failed = false;
+        let mut failed_start = None;
 
         loop {
-            if let Some(replay) = self.vt_replay_screen_tail_bounded(tail_rows, max_bytes)? {
-                if upper_failed || tail_rows == scrollbar.total {
+            let range = ReplayRowRange {
+                start: scrollbar.total.saturating_sub(tail_rows),
+                end: scrollbar.total - 1,
+            };
+            if let Some(replay) =
+                self.vt_replay_text_range_bounded(range, placement_rows, max_bytes)?
+            {
+                if tail_rows == scrollbar.total {
                     return Ok(replay);
+                }
+                if let Some(failed_start) = failed_start {
+                    return self.vt_replay_text_at_oldest_fitting_anchor(
+                        replay,
+                        failed_start,
+                        placement_rows,
+                        max_bytes,
+                    );
                 }
                 best = Some(replay);
                 let next = tail_rows.saturating_mul(2).min(scrollbar.total);
@@ -1474,86 +1525,162 @@ impl Terminal {
                 tail_rows = next;
                 continue;
             }
-            upper_failed = true;
+            failed_start = Some(range.start);
             if let Some(replay) = best {
-                return Ok(replay);
+                return self.vt_replay_text_at_oldest_fitting_anchor(
+                    replay,
+                    range.start,
+                    placement_rows,
+                    max_bytes,
+                );
             }
-            if tail_rows <= 1 {
+            if tail_rows <= minimum_rows {
                 break;
             }
-            tail_rows = if tail_rows > screen_rows {
-                screen_rows.max(tail_rows / 2)
-            } else {
-                tail_rows / 2
-            };
+            let next = minimum_rows.max(tail_rows / 2);
+            if next == tail_rows {
+                break;
+            }
+            tail_rows = next;
         }
 
-        Ok(minimal_vt_replay(max_bytes))
+        Ok(ReplayText::minimal(max_bytes))
     }
 
-    fn vt_replay_screen_tail_bounded(
+    fn vt_replay_text_at_oldest_fitting_anchor(
         &mut self,
-        rows: u64,
+        mut best: ReplayText,
+        failed_start: u64,
+        placement_rows: &BTreeSet<u64>,
         max_bytes: usize,
-    ) -> Result<Option<Vec<u8>>> {
-        let scrollbar = self.scrollbar().ok_or(crate::Error::InvalidValue)?;
-        let cols = self.cols();
-        if cols == 0 || scrollbar.total == 0 || rows == 0 {
-            return Err(crate::Error::InvalidValue);
-        }
-        let selection = sys::GhosttySelection {
-            size: size_of::<sys::GhosttySelection>(),
-            start: self
-                .grid_ref(sys::GHOSTTY_POINT_TAG_SCREEN, 0, scrollbar.total.saturating_sub(rows))
-                .ok_or(crate::Error::InvalidValue)?,
-            end: self
-                .grid_ref(
-                    sys::GHOSTTY_POINT_TAG_SCREEN,
-                    cols.saturating_sub(1),
-                    scrollbar.total - 1,
-                )
-                .ok_or(crate::Error::InvalidValue)?,
-            rectangle: false,
+    ) -> Result<ReplayText> {
+        let Some(best_range) = best.range else {
+            return Ok(best);
         };
-        self.vt_replay_with_selection_bounded(Some(&selection), max_bytes)
+        let candidates =
+            placement_rows.range(failed_start..best_range.start).copied().collect::<Vec<_>>();
+        let mut low = 0;
+        let mut high = candidates.len();
+        while low < high {
+            let middle = low + (high - low) / 2;
+            let range = ReplayRowRange { start: candidates[middle], end: best_range.end };
+            if let Some(replay) =
+                self.vt_replay_text_range_bounded(range, placement_rows, max_bytes)?
+            {
+                best = replay;
+                high = middle;
+            } else {
+                low = middle + 1;
+            }
+        }
+        Ok(best)
     }
 
-    fn vt_replay_with_selection_state(
+    fn vt_replay_text_range_bounded(
         &mut self,
-        selection: Option<&sys::GhosttySelection>,
-    ) -> Result<VtReplay> {
+        range: ReplayRowRange,
+        placement_rows: &BTreeSet<u64>,
+        max_bytes: usize,
+    ) -> Result<Option<ReplayText>> {
+        let cols = self.cols();
+        if cols == 0 || range.start > range.end {
+            return Err(Error::InvalidValue);
+        }
         let suffix = self.cursor_position_escape();
-        let mut bytes = self.format(Self::vt_replay_options(selection))?;
+        let suffix_len = suffix.as_ref().map_or(0, Vec::len);
+        let Some(format_max_bytes) = max_bytes.checked_sub(suffix_len) else {
+            return Ok(None);
+        };
+        let mut segment_ends =
+            placement_rows.range(range.start..=range.end).copied().collect::<BTreeSet<_>>();
+        segment_ends.insert(range.end);
+
+        let mut bytes = Vec::new();
+        let mut insertion_offsets = BTreeMap::new();
+        let mut segment_start = range.start;
+        for segment_end in segment_ends {
+            if segment_end < segment_start {
+                continue;
+            }
+            let selection = self.screen_selection(segment_start, segment_end)?;
+            let first = segment_start == range.start;
+            let last = segment_end == range.end;
+            let remaining = format_max_bytes.saturating_sub(bytes.len());
+            let Some(chunk) = self.format_bounded(
+                Self::vt_replay_segment_options(&selection, first, last),
+                remaining,
+            )?
+            else {
+                return Ok(None);
+            };
+            bytes.extend_from_slice(&chunk);
+            if placement_rows.contains(&segment_end) {
+                insertion_offsets.insert(segment_end, bytes.len());
+            }
+            if !last {
+                if bytes.len().saturating_add(2) > format_max_bytes {
+                    return Ok(None);
+                }
+                bytes.extend_from_slice(b"\r\n");
+                segment_start = segment_end.saturating_add(1);
+            }
+        }
+        let expected_breaks =
+            usize::try_from(range.end.saturating_sub(range.start)).unwrap_or(usize::MAX);
+        let emitted_breaks = bytes.windows(2).filter(|bytes| *bytes == b"\r\n").count();
+        for _ in emitted_breaks..expected_breaks {
+            if bytes.len().saturating_add(2) > format_max_bytes {
+                return Ok(None);
+            }
+            bytes.extend_from_slice(b"\r\n");
+        }
         if let Some(suffix) = suffix {
             bytes.extend_from_slice(&suffix);
         }
-        let graphics = kitty_replay(&self.kitty_graphics_snapshot()?, self.cell_pixel_size());
-        bytes.extend_from_slice(&graphics.bytes);
-        bytes.extend_from_slice(&self.kitty_inflight.replay_prefix(usize::MAX));
-        Ok(VtReplay { bytes, kitty_image_aliases: graphics.aliases })
+        Ok(Some(ReplayText { bytes, range: Some(range), insertion_offsets }))
     }
 
-    fn vt_replay_with_selection_bounded(
-        &mut self,
-        selection: Option<&sys::GhosttySelection>,
-        max_bytes: usize,
-    ) -> Result<Option<Vec<u8>>> {
-        let suffix = self.cursor_position_escape().unwrap_or_default();
-        let Some(format_max_bytes) = max_bytes.checked_sub(suffix.len()) else {
-            return Ok(None);
-        };
-        let Some(mut replay) =
-            self.format_bounded(Self::vt_replay_options(selection), format_max_bytes)?
-        else {
-            return Ok(None);
-        };
-        replay.extend_from_slice(&suffix);
-        Ok(Some(replay))
+    fn screen_selection(&self, start_row: u64, end_row: u64) -> Result<sys::GhosttySelection> {
+        let cols = self.cols();
+        if cols == 0 || start_row > end_row {
+            return Err(Error::InvalidValue);
+        }
+        Ok(sys::GhosttySelection {
+            size: size_of::<sys::GhosttySelection>(),
+            start: self
+                .grid_ref(sys::GHOSTTY_POINT_TAG_SCREEN, 0, start_row)
+                .ok_or(Error::InvalidValue)?,
+            end: self
+                .grid_ref(sys::GHOSTTY_POINT_TAG_SCREEN, cols.saturating_sub(1), end_row)
+                .ok_or(Error::InvalidValue)?,
+            rectangle: false,
+        })
     }
 
     fn cursor_position_escape(&self) -> Option<Vec<u8>> {
         let (x, y) = self.cursor_position()?;
         Some(format!("\x1b[{};{}H", u32::from(y) + 1, u32::from(x) + 1).into_bytes())
+    }
+
+    fn vt_replay_segment_options(
+        selection: &sys::GhosttySelection,
+        first: bool,
+        last: bool,
+    ) -> sys::GhosttyFormatterTerminalOptions {
+        let mut options = Self::vt_replay_options(Some(selection));
+        options.extra.palette = first;
+        options.extra.modes = first;
+        options.extra.scrolling_region = last;
+        options.extra.tabstops = last;
+        options.extra.pwd = last;
+        options.extra.keyboard = last;
+        options.extra.screen.cursor = last;
+        options.extra.screen.style = last;
+        options.extra.screen.hyperlink = last;
+        options.extra.screen.protection = last;
+        options.extra.screen.kitty_keyboard = last;
+        options.extra.screen.charsets = last;
+        options
     }
 
     fn vt_replay_options(
@@ -1703,79 +1830,292 @@ fn minimal_vt_replay(max_bytes: usize) -> Vec<u8> {
     if max_bytes >= RESET.len() { RESET.to_vec() } else { Vec::new() }
 }
 
-struct KittyReplay {
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+struct ReplayRowRange {
+    start: u64,
+    end: u64,
+}
+
+struct ReplayText {
     bytes: Vec<u8>,
-    aliases: Vec<KittyImageAlias>,
+    range: Option<ReplayRowRange>,
+    insertion_offsets: BTreeMap<u64, usize>,
 }
 
-fn kitty_replay(snapshot: &KittyGraphicsSnapshot, cell_pixels: (u32, u32)) -> KittyReplay {
-    kitty_replay_bounded(snapshot, usize::MAX, cell_pixels)
-}
-
-fn kitty_replay_bounded(
-    snapshot: &KittyGraphicsSnapshot,
-    max_bytes: usize,
-    cell_pixels: (u32, u32),
-) -> KittyReplay {
-    let mut bytes = Vec::new();
-    let mut aliases = Vec::new();
-    let mut images = snapshot.images.iter().collect::<Vec<_>>();
-    images.sort_by_key(|image| (image.generation, image.id));
-    for image in images {
-        let placements = snapshot
-            .placements
-            .iter()
-            .filter(|placement| {
-                #[cfg(test)]
-                KITTY_REPLAY_GROUP_PLACEMENT_VISITS.fetch_add(1, Ordering::Relaxed);
-                placement.image_id == image.id && placement.viewport_visible
-            })
-            .collect::<Vec<_>>();
-        let mut bundle = Vec::new();
-        let payload = base64::engine::general_purpose::STANDARD.encode(&image.data);
-        for (index, chunk) in payload.as_bytes().chunks(KITTY_REPLAY_CHUNK).enumerate() {
-            let more = usize::from((index + 1) * KITTY_REPLAY_CHUNK < payload.len());
-            if index == 0 {
-                bundle.extend_from_slice(
-                    format!(
-                        "\x1b_Ga=t,t=d,f={},i={},s={},v={},q=2,m={more};",
-                        image.format.kitty_protocol_value(),
-                        image.id,
-                        image.width,
-                        image.height
-                    )
-                    .as_bytes(),
-                );
-            } else {
-                bundle.extend_from_slice(format!("\x1b_Gq=2,m={more};").as_bytes());
-            }
-            bundle.extend_from_slice(chunk);
-            bundle.extend_from_slice(b"\x1b\\");
-        }
-        for placement in placements {
-            if let Some(command) = kitty_replay_placement(placement, cell_pixels) {
-                bundle.extend_from_slice(&command);
-            }
-        }
-        if bytes.len().saturating_add(bundle.len()) > max_bytes {
-            continue;
-        }
-        bytes.extend_from_slice(&bundle);
-        if image.number != 0 {
-            aliases.push((
-                image.generation,
-                KittyImageAlias { image_id: image.id, image_number: image.number },
-            ));
+impl ReplayText {
+    fn minimal(max_bytes: usize) -> Self {
+        Self {
+            bytes: minimal_vt_replay(max_bytes),
+            range: None,
+            insertion_offsets: BTreeMap::new(),
         }
     }
-    aliases.sort_by_key(|(generation, alias)| (*generation, alias.image_id));
-    KittyReplay { bytes, aliases: aliases.into_iter().map(|(_, alias)| alias).collect() }
+
+    fn interleave(self, placements: &BTreeMap<u64, Vec<Vec<u8>>>) -> Option<Vec<u8>> {
+        let placement_bytes = placements
+            .values()
+            .flatten()
+            .try_fold(0usize, |total, command| total.checked_add(command.len()))?;
+        let mut bytes = Vec::with_capacity(self.bytes.len().checked_add(placement_bytes)?);
+        let mut copied = 0;
+        for (row, offset) in self.insertion_offsets {
+            if offset < copied || offset > self.bytes.len() {
+                return None;
+            }
+            bytes.extend_from_slice(&self.bytes[copied..offset]);
+            if let Some(commands) = placements.get(&row) {
+                for command in commands {
+                    bytes.extend_from_slice(command);
+                }
+            }
+            copied = offset;
+        }
+        bytes.extend_from_slice(&self.bytes[copied..]);
+        Some(bytes)
+    }
 }
 
-fn kitty_replay_placement(
-    placement: &kitty::KittyPlacement,
+struct KittyReplayPlacement<'a> {
+    placement: &'a KittyPlacement,
+    anchor: KittyPlacementAnchor,
+}
+
+struct KittyReplayImage<'a> {
+    image: &'a KittyImage,
+    transmission: Vec<u8>,
+    placements: Vec<KittyReplayPlacement<'a>>,
+}
+
+struct KittyReplayCatalog<'a> {
+    images: Vec<KittyReplayImage<'a>>,
+    placement_rows: BTreeSet<u64>,
     cell_pixels: (u32, u32),
+    terminal_rows: u16,
+    #[cfg(test)]
+    placement_grouping_visits: usize,
+}
+
+struct KittyReplayCandidate {
+    image_index: usize,
+    visible: bool,
+    cost: usize,
+    placements: Vec<(u64, Vec<u8>)>,
+}
+
+struct KittyReplayPlan {
+    image_bytes: Vec<u8>,
+    placements: BTreeMap<u64, Vec<Vec<u8>>>,
+    aliases: Vec<KittyImageAlias>,
+    total_len: usize,
+}
+
+impl<'a> KittyReplayCatalog<'a> {
+    fn new(snapshot: &'a KittyReplaySnapshot, cell_pixels: (u32, u32), terminal_rows: u16) -> Self {
+        let mut placements_by_image = HashMap::<u32, Vec<KittyReplayPlacement<'a>>>::new();
+        let mut placement_rows = BTreeSet::new();
+        #[cfg(test)]
+        let mut placement_grouping_visits = 0;
+        for placement in &snapshot.graphics.placements {
+            #[cfg(test)]
+            {
+                placement_grouping_visits += 1;
+            }
+            let Some(anchor) = snapshot.anchors.get(&placement.key).copied() else {
+                continue;
+            };
+            placement_rows.insert(u64::from(anchor.row));
+            placements_by_image
+                .entry(placement.image_id)
+                .or_default()
+                .push(KittyReplayPlacement { placement, anchor });
+        }
+
+        let mut images = snapshot.graphics.images.iter().collect::<Vec<_>>();
+        images.sort_by_key(|image| (image.generation, image.id));
+        let images = images
+            .into_iter()
+            .map(|image| KittyReplayImage {
+                image,
+                transmission: kitty_replay_image(image),
+                placements: placements_by_image.remove(&image.id).unwrap_or_default(),
+            })
+            .collect();
+        Self {
+            images,
+            placement_rows,
+            cell_pixels,
+            terminal_rows,
+            #[cfg(test)]
+            placement_grouping_visits,
+        }
+    }
+
+    fn visible_anchor_start(&self) -> Option<u64> {
+        self.images
+            .iter()
+            .flat_map(|image| &image.placements)
+            .filter(|placement| placement.placement.viewport_visible)
+            .map(|placement| u64::from(placement.anchor.row))
+            .min()
+    }
+
+    fn placement_rows(&self) -> &BTreeSet<u64> {
+        &self.placement_rows
+    }
+
+    fn visible_cost(&self, range: ReplayRowRange, max_bytes: usize) -> usize {
+        self.plan(Some(range), max_bytes, true).total_len
+    }
+
+    fn plan(
+        &self,
+        range: Option<ReplayRowRange>,
+        max_bytes: usize,
+        visible_only: bool,
+    ) -> KittyReplayPlan {
+        let mut candidates = Vec::with_capacity(self.images.len());
+        for (image_index, image) in self.images.iter().enumerate() {
+            let mut visible = false;
+            let mut placements = Vec::new();
+            if let Some(range) = range {
+                for replay_placement in &image.placements {
+                    let row = u64::from(replay_placement.anchor.row);
+                    if row < range.start || row > range.end {
+                        continue;
+                    }
+                    let Some(command) = kitty_replay_placement_at(
+                        replay_placement.placement,
+                        replay_placement.anchor,
+                        range.start,
+                        self.terminal_rows,
+                        self.cell_pixels,
+                    ) else {
+                        continue;
+                    };
+                    visible |= replay_placement.placement.viewport_visible;
+                    placements.push((row, command));
+                }
+            }
+            let Some(cost) =
+                placements.iter().try_fold(image.transmission.len(), |total, (_, command)| {
+                    total.checked_add(command.len())
+                })
+            else {
+                continue;
+            };
+            candidates.push(KittyReplayCandidate { image_index, visible, cost, placements });
+        }
+
+        let mut admitted = vec![false; candidates.len()];
+        let mut total_len = 0usize;
+        for require_visible in [true, false] {
+            if visible_only && !require_visible {
+                break;
+            }
+            for (index, candidate) in candidates.iter().enumerate() {
+                if candidate.visible != require_visible {
+                    continue;
+                }
+                let Some(next) = total_len.checked_add(candidate.cost) else {
+                    continue;
+                };
+                if next > max_bytes {
+                    continue;
+                }
+                admitted[index] = true;
+                total_len = next;
+            }
+        }
+
+        let mut image_bytes = Vec::new();
+        let mut placements = BTreeMap::<u64, Vec<Vec<u8>>>::new();
+        let mut aliases = Vec::new();
+        for (candidate, admitted) in candidates.into_iter().zip(admitted) {
+            if !admitted {
+                continue;
+            }
+            let image = &self.images[candidate.image_index];
+            image_bytes.extend_from_slice(&image.transmission);
+            for (row, command) in candidate.placements {
+                placements.entry(row).or_default().push(command);
+            }
+            if image.image.number != 0 {
+                aliases.push(KittyImageAlias {
+                    image_id: image.image.id,
+                    image_number: image.image.number,
+                });
+            }
+        }
+        KittyReplayPlan { image_bytes, placements, aliases, total_len }
+    }
+}
+
+fn kitty_replay_image(image: &KittyImage) -> Vec<u8> {
+    let mut bytes = Vec::new();
+    let payload = base64::engine::general_purpose::STANDARD.encode(&image.data);
+    for (index, chunk) in payload.as_bytes().chunks(KITTY_REPLAY_CHUNK).enumerate() {
+        let more = usize::from((index + 1) * KITTY_REPLAY_CHUNK < payload.len());
+        if index == 0 {
+            bytes.extend_from_slice(
+                format!(
+                    "\x1b_Ga=t,t=d,f={},i={},s={},v={},q=2,m={more};",
+                    image.format.kitty_protocol_value(),
+                    image.id,
+                    image.width,
+                    image.height
+                )
+                .as_bytes(),
+            );
+        } else {
+            bytes.extend_from_slice(format!("\x1b_Gq=2,m={more};").as_bytes());
+        }
+        bytes.extend_from_slice(chunk);
+        bytes.extend_from_slice(b"\x1b\\");
+    }
+    bytes
+}
+
+fn kitty_replay_placement_at(
+    placement: &KittyPlacement,
+    anchor: KittyPlacementAnchor,
+    replay_start_row: u64,
+    terminal_rows: u16,
+    _cell_pixels: (u32, u32),
 ) -> Option<Vec<u8>> {
+    if placement.pixel_width == 0
+        || placement.pixel_height == 0
+        || placement.source_width == 0
+        || placement.source_height == 0
+    {
+        return None;
+    }
+    let relative_row = u64::from(anchor.row).checked_sub(replay_start_row)?;
+    let row = relative_row.min(u64::from(terminal_rows.saturating_sub(1))).saturating_add(1);
+    let col = u32::from(anchor.col).saturating_add(1);
+    let placement_id = if placement.is_internal { 0 } else { placement.placement_id };
+    let mut command = format!(
+        "\x1b7\x1b[{row};{col}H\x1b_Ga=p,i={},p={},x={},y={},w={},h={},X={},Y={}",
+        placement.image_id,
+        placement_id,
+        placement.source_x,
+        placement.source_y,
+        placement.source_width,
+        placement.source_height,
+        placement.x_offset,
+        placement.y_offset,
+    );
+    if placement.columns > 0 {
+        command.push_str(&format!(",c={}", placement.columns));
+    }
+    if placement.rows > 0 {
+        command.push_str(&format!(",r={}", placement.rows));
+    }
+    command.push_str(&format!(",z={},C=1,q=2;\x1b\\\x1b8", placement.z));
+    Some(command.into_bytes())
+}
+
+#[cfg(test)]
+fn kitty_replay_placement(placement: &KittyPlacement, cell_pixels: (u32, u32)) -> Option<Vec<u8>> {
     if placement.pixel_width == 0
         || placement.pixel_height == 0
         || placement.source_width == 0
@@ -1892,6 +2232,7 @@ fn kitty_replay_placement(
     Some(command.into_bytes())
 }
 
+#[cfg(test)]
 fn replay_proportional_boundary(
     source_pixels: u32,
     output_pixels: u32,
@@ -1907,6 +2248,7 @@ fn replay_proportional_boundary(
     .min(source_pixels)
 }
 
+#[cfg(test)]
 fn replay_rounded_ratio(value: u32, numerator: u32, denominator: u32) -> Option<u32> {
     if denominator == 0 {
         return None;
@@ -1918,6 +2260,7 @@ fn replay_rounded_ratio(value: u32, numerator: u32, denominator: u32) -> Option<
     .ok()
 }
 
+#[cfg(test)]
 fn replay_fit_inferred_source_dimension(
     explicit_pixels: u32,
     fixed_source: u32,
@@ -1965,12 +2308,13 @@ impl Drop for Terminal {
 #[cfg(test)]
 mod tests {
     use crate::kitty::{
-        KittyGraphicsSnapshot, KittyImage, KittyImageFormat, KittyPlacement, KittyPlacementKey,
+        KittyGraphicsSnapshot, KittyImage, KittyImageFormat, KittyPlacement, KittyPlacementAnchor,
+        KittyPlacementKey, KittyReplaySnapshot,
     };
 
     use super::{
-        Callbacks, KITTY_REPLAY_GROUP_PLACEMENT_VISITS, MouseModeScan, Ordering, PaletteOsc,
-        Terminal, kitty_replay_bounded, kitty_replay_placement, vt_replay_row_window,
+        Callbacks, KittyReplayCatalog, MouseModeScan, PaletteOsc, Terminal, kitty_replay_placement,
+        vt_replay_row_window,
     };
 
     fn replay_placement_fixture(
@@ -2076,6 +2420,44 @@ mod tests {
     }
 
     #[test]
+    fn bounded_text_replay_snaps_to_the_oldest_fitting_placement_anchor() {
+        let mut source = Terminal::new(12, 4, 100, Callbacks::default()).unwrap();
+        for row in 0..40 {
+            source.vt_write(format!("row-{row:02}\r\n").as_bytes());
+        }
+        source.vt_write(b"tail");
+        let scrollbar = source.scrollbar().unwrap();
+        let anchor_row = scrollbar.total - 12;
+        let placement_rows = [anchor_row].into_iter().collect();
+        let anchor_range = super::ReplayRowRange { start: anchor_row, end: scrollbar.total - 1 };
+        let anchor_bytes = source
+            .vt_replay_text_range_bounded(anchor_range, &placement_rows, usize::MAX)
+            .unwrap()
+            .unwrap()
+            .bytes
+            .len();
+        let older_range =
+            super::ReplayRowRange { start: scrollbar.total - 16, end: scrollbar.total - 1 };
+        assert!(
+            source
+                .vt_replay_text_range_bounded(older_range, &placement_rows, anchor_bytes)
+                .unwrap()
+                .is_none(),
+            "fixture must put the anchor between a fitting and oversized geometric window"
+        );
+
+        let replay = source
+            .vt_replay_text_layout_bounded(
+                anchor_bytes,
+                &placement_rows,
+                Some(scrollbar.total - scrollbar.len),
+            )
+            .unwrap();
+
+        assert_eq!(replay.range.unwrap().start, anchor_row);
+    }
+
+    #[test]
     fn kitty_replay_groups_each_placement_once() {
         let image_count = 64_u32;
         let images = (1..=image_count)
@@ -2098,15 +2480,21 @@ mod tests {
                 placement
             })
             .collect::<Vec<_>>();
-        let snapshot = KittyGraphicsSnapshot { generation: 1, images, placements };
+        let anchors = placements
+            .iter()
+            .enumerate()
+            .map(|(row, placement)| {
+                (placement.key, KittyPlacementAnchor { col: 0, row: u32::try_from(row).unwrap() })
+            })
+            .collect();
+        let snapshot = KittyReplaySnapshot {
+            graphics: KittyGraphicsSnapshot { generation: 1, images, placements },
+            anchors,
+        };
 
-        KITTY_REPLAY_GROUP_PLACEMENT_VISITS.store(0, Ordering::Relaxed);
-        let _ = kitty_replay_bounded(&snapshot, usize::MAX, (1, 1));
+        let catalog = KittyReplayCatalog::new(&snapshot, (1, 1), 24);
 
-        assert_eq!(
-            KITTY_REPLAY_GROUP_PLACEMENT_VISITS.load(Ordering::Relaxed),
-            snapshot.placements.len()
-        );
+        assert_eq!(catalog.placement_grouping_visits, snapshot.graphics.placements.len());
     }
 
     #[test]

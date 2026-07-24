@@ -1,4 +1,4 @@
-use std::collections::{BTreeMap, HashMap};
+use std::collections::{BTreeMap, HashMap, HashSet};
 use std::ffi::c_void;
 use std::io::Cursor;
 use std::mem::size_of;
@@ -94,9 +94,14 @@ impl KittyInFlightTracker {
         }
     }
 
+    #[cfg(test)]
     pub(crate) fn replay_prefix(&self, max_bytes: usize) -> Vec<u8> {
+        self.replay_prefix_checked(max_bytes).unwrap_or_default()
+    }
+
+    pub(crate) fn replay_prefix_checked(&self, max_bytes: usize) -> Result<Vec<u8>> {
         if self.overflowed {
-            return Vec::new();
+            return Err(Error::OutOfSpace);
         }
         let partial = match &self.scan {
             KittyStreamScan::Escape => &b"\x1b"[..],
@@ -107,15 +112,15 @@ impl KittyInFlightTracker {
         };
         let prefix = self.loading.then_some(self.prefix.as_slice()).unwrap_or_default();
         let Some(total) = prefix.len().checked_add(partial.len()) else {
-            return Vec::new();
+            return Err(Error::OutOfSpace);
         };
         if total > max_bytes {
-            return Vec::new();
+            return Err(Error::OutOfSpace);
         }
         let mut replay = Vec::with_capacity(total);
         replay.extend_from_slice(prefix);
         replay.extend_from_slice(partial);
-        replay
+        Ok(replay)
     }
 
     fn finish_command(&mut self, command: KittyCommand) {
@@ -319,6 +324,17 @@ pub struct KittyGraphicsSnapshot {
     pub placements: Vec<KittyPlacement>,
 }
 
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub(crate) struct KittyPlacementAnchor {
+    pub col: u16,
+    pub row: u32,
+}
+
+pub(crate) struct KittyReplaySnapshot {
+    pub graphics: KittyGraphicsSnapshot,
+    pub anchors: BTreeMap<KittyPlacementKey, KittyPlacementAnchor>,
+}
+
 impl KittyGraphicsSnapshot {
     pub fn image(&self, id: u32) -> Option<&KittyImage> {
         self.images.iter().find(|image| image.id == id)
@@ -393,6 +409,23 @@ pub(crate) fn snapshot(
     pixel_cache: &mut HashMap<u64, Arc<[u8]>>,
     include_unplaced: bool,
 ) -> Result<KittyGraphicsSnapshot> {
+    Ok(snapshot_impl(terminal, pixel_cache, include_unplaced, false)?.graphics)
+}
+
+pub(crate) fn snapshot_for_replay(
+    terminal: &Terminal,
+    pixel_cache: &mut HashMap<u64, Arc<[u8]>>,
+    include_unplaced: bool,
+) -> Result<KittyReplaySnapshot> {
+    snapshot_impl(terminal, pixel_cache, include_unplaced, true)
+}
+
+fn snapshot_impl(
+    terminal: &Terminal,
+    pixel_cache: &mut HashMap<u64, Arc<[u8]>>,
+    include_unplaced: bool,
+    capture_anchors: bool,
+) -> Result<KittyReplaySnapshot> {
     let mut graphics: sys::GhosttyKittyGraphics = ptr::null_mut();
     match check(unsafe {
         sys::ghostty_terminal_get(
@@ -402,11 +435,19 @@ pub(crate) fn snapshot(
         )
     }) {
         Ok(()) => {}
-        Err(Error::NoValue) => return Ok(KittyGraphicsSnapshot::default()),
+        Err(Error::NoValue) => {
+            return Ok(KittyReplaySnapshot {
+                graphics: KittyGraphicsSnapshot::default(),
+                anchors: BTreeMap::new(),
+            });
+        }
         Err(error) => return Err(error),
     }
     if graphics.is_null() {
-        return Ok(KittyGraphicsSnapshot::default());
+        return Ok(KittyReplaySnapshot {
+            graphics: KittyGraphicsSnapshot::default(),
+            anchors: BTreeMap::new(),
+        });
     }
 
     let mut generation = 0_u64;
@@ -418,7 +459,10 @@ pub(crate) fn snapshot(
         )
     })?;
     if generation == 0 {
-        return Ok(KittyGraphicsSnapshot::default());
+        return Ok(KittyReplaySnapshot {
+            graphics: KittyGraphicsSnapshot::default(),
+            anchors: BTreeMap::new(),
+        });
     }
 
     let mut images = BTreeMap::<u32, KittyImage>::new();
@@ -491,58 +535,98 @@ pub(crate) fn snapshot(
             )
         })?;
 
-        placements.push(KittyPlacement {
-            key: KittyPlacementKey { image_id, placement_id, ordinal: 0 },
-            image_id,
-            placement_id,
-            is_internal: placement_value(
-                iterator.0,
-                sys::GHOSTTY_KITTY_GRAPHICS_PLACEMENT_DATA_IS_INTERNAL,
-            )?,
-            x_offset: placement_value(
-                iterator.0,
-                sys::GHOSTTY_KITTY_GRAPHICS_PLACEMENT_DATA_X_OFFSET,
-            )?,
-            y_offset: placement_value(
-                iterator.0,
-                sys::GHOSTTY_KITTY_GRAPHICS_PLACEMENT_DATA_Y_OFFSET,
-            )?,
-            source_x: info.source_x,
-            source_y: info.source_y,
-            source_width: info.source_width,
-            source_height: info.source_height,
-            columns: placement_value(
-                iterator.0,
-                sys::GHOSTTY_KITTY_GRAPHICS_PLACEMENT_DATA_COLUMNS,
-            )?,
-            rows: placement_value(iterator.0, sys::GHOSTTY_KITTY_GRAPHICS_PLACEMENT_DATA_ROWS)?,
-            grid_cols: info.grid_cols,
-            grid_rows: info.grid_rows,
-            pixel_width: info.pixel_width,
-            pixel_height: info.pixel_height,
-            viewport_col: info.viewport_col,
-            viewport_row: info.viewport_row,
-            viewport_visible: info.viewport_visible,
-            z: placement_value(iterator.0, sys::GHOSTTY_KITTY_GRAPHICS_PLACEMENT_DATA_Z)?,
-        });
+        let anchor = if capture_anchors {
+            let mut rect = sys::GhosttySelection {
+                size: size_of::<sys::GhosttySelection>(),
+                ..Default::default()
+            };
+            check(unsafe {
+                sys::ghostty_kitty_graphics_placement_rect(
+                    iterator.0,
+                    raw_image,
+                    terminal.raw(),
+                    &mut rect,
+                )
+            })?;
+            let mut anchor = sys::GhosttyPointCoordinate::default();
+            check(unsafe {
+                sys::ghostty_terminal_point_from_grid_ref(
+                    terminal.raw(),
+                    &rect.start,
+                    sys::GHOSTTY_POINT_TAG_SCREEN,
+                    &mut anchor,
+                )
+            })?;
+            Some(KittyPlacementAnchor { col: anchor.x, row: anchor.y })
+        } else {
+            None
+        };
+
+        placements.push((
+            KittyPlacement {
+                key: KittyPlacementKey { image_id, placement_id, ordinal: 0 },
+                image_id,
+                placement_id,
+                is_internal: placement_value(
+                    iterator.0,
+                    sys::GHOSTTY_KITTY_GRAPHICS_PLACEMENT_DATA_IS_INTERNAL,
+                )?,
+                x_offset: placement_value(
+                    iterator.0,
+                    sys::GHOSTTY_KITTY_GRAPHICS_PLACEMENT_DATA_X_OFFSET,
+                )?,
+                y_offset: placement_value(
+                    iterator.0,
+                    sys::GHOSTTY_KITTY_GRAPHICS_PLACEMENT_DATA_Y_OFFSET,
+                )?,
+                source_x: info.source_x,
+                source_y: info.source_y,
+                source_width: info.source_width,
+                source_height: info.source_height,
+                columns: placement_value(
+                    iterator.0,
+                    sys::GHOSTTY_KITTY_GRAPHICS_PLACEMENT_DATA_COLUMNS,
+                )?,
+                rows: placement_value(iterator.0, sys::GHOSTTY_KITTY_GRAPHICS_PLACEMENT_DATA_ROWS)?,
+                grid_cols: info.grid_cols,
+                grid_rows: info.grid_rows,
+                pixel_width: info.pixel_width,
+                pixel_height: info.pixel_height,
+                viewport_col: info.viewport_col,
+                viewport_row: info.viewport_row,
+                viewport_visible: info.viewport_visible,
+                z: placement_value(iterator.0, sys::GHOSTTY_KITTY_GRAPHICS_PLACEMENT_DATA_Z)?,
+            },
+            anchor,
+        ));
     }
 
-    placements.sort_by_key(|placement| PlacementSortKey::from(&*placement));
+    placements.sort_by_key(|(placement, _)| PlacementSortKey::from(placement));
     let mut ordinals = BTreeMap::<(u32, u32), u32>::new();
-    for placement in &mut placements {
+    let mut anchors = BTreeMap::new();
+    for (placement, anchor) in &mut placements {
         let ordinal = ordinals.entry((placement.image_id, placement.placement_id)).or_default();
         placement.key.ordinal = *ordinal;
         *ordinal = ordinal.saturating_add(1);
+        if let Some(anchor) = anchor {
+            anchors.insert(placement.key, *anchor);
+        }
     }
+    let current_generations = images.values().map(|image| image.generation).collect::<HashSet<_>>();
     pixel_cache.retain(|image_generation, _| {
-        images.values().any(|image| {
-            #[cfg(test)]
-            record_pixel_cache_generation_lookup();
-            image.generation == *image_generation
-        })
+        #[cfg(test)]
+        record_pixel_cache_generation_lookup();
+        current_generations.contains(image_generation)
     });
 
-    Ok(KittyGraphicsSnapshot { generation, images: images.into_values().collect(), placements })
+    Ok(KittyReplaySnapshot {
+        graphics: KittyGraphicsSnapshot {
+            generation,
+            images: images.into_values().collect(),
+            placements: placements.into_iter().map(|(placement, _)| placement).collect(),
+        },
+        anchors,
+    })
 }
 
 fn placement_value<T: Default>(
