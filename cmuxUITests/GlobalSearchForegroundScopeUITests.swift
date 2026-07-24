@@ -152,13 +152,28 @@ final class GlobalSearchForegroundScopeUITests: XCTestCase {
         try Self.shortcutProbeSource.write(to: sourceURL, atomically: true, encoding: .utf8)
         shortcutProbeRootURL = rootURL
 
+        let developerDirectory = ProcessInfo.processInfo.environment["DEVELOPER_DIR"]
+            ?? "/Applications/Xcode.app/Contents/Developer"
+        let swiftCompilerURL = URL(fileURLWithPath: developerDirectory)
+            .appendingPathComponent("Toolchains/XcodeDefault.xctoolchain/usr/bin/swiftc")
+        let sdkURL = URL(fileURLWithPath: developerDirectory)
+            .appendingPathComponent("Platforms/MacOSX.platform/Developer/SDKs/MacOSX.sdk")
+        guard FileManager.default.isExecutableFile(atPath: swiftCompilerURL.path) else {
+            throw NSError(
+                domain: "GlobalSearchForegroundScopeUITests",
+                code: 2,
+                userInfo: [NSLocalizedDescriptionKey: "Could not locate Swift compiler at \(swiftCompilerURL.path)"]
+            )
+        }
+
         let compiler = Process()
-        compiler.executableURL = URL(fileURLWithPath: "/usr/bin/xcrun")
+        compiler.executableURL = swiftCompilerURL
         compiler.arguments = [
-            "swiftc",
             sourceURL.path,
             "-o", executableURL.path,
             "-framework", "AppKit",
+            "-sdk", sdkURL.path,
+            "-module-cache-path", rootURL.appendingPathComponent("ModuleCache").path,
         ]
         let diagnostics = Pipe()
         compiler.standardError = diagnostics
