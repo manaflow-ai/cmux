@@ -230,8 +230,8 @@ extension CMUXCLI {
         // This shared clock is ordering authority across hook processes. Never
         // follow or write through a directory that is not private to this uid.
         [
-            #"{ umask 077; export LC_ALL=C; clock_root="${TMPDIR:-/tmp}"; clock_dir="${clock_root%/}/cmux-agent-hook-clock-v2"; fallback_capture_time() { date_bin="${CMUX_AGENT_HOOK_DATE_BIN:-/bin/date}"; epoch=`"$date_bin" +%s 2>/dev/null || printf 946684800`; printf "%s.%06d" "$epoch" 0; exit 0; }; current_uid=`/usr/bin/id -u 2>/dev/null || true`;"#,
-            #"if ! [ "$current_uid" -ge 0 ] 2>/dev/null; then fallback_capture_time; fi; if /bin/mkdir "$clock_dir" 2>/dev/null; then :; elif [ -L "$clock_dir" ] || ! [ -d "$clock_dir" ]; then fallback_capture_time; fi;"#,
+            #"{ umask 077; export LC_ALL=C; fallback_capture_time() { exit 0; }; current_uid=`/usr/bin/id -u 2>/dev/null || true`;"#,
+            #"if ! [ "$current_uid" -ge 0 ] 2>/dev/null; then fallback_capture_time; fi; if [ -n "${TMPDIR:-}" ]; then clock_dir="${TMPDIR%/}/cmux-agent-hook-clock-v2"; else clock_dir="/tmp/cmux-agent-hook-clock-v2-$current_uid"; fi; if /bin/mkdir "$clock_dir" 2>/dev/null; then :; elif [ -L "$clock_dir" ] || ! [ -d "$clock_dir" ]; then fallback_capture_time; fi;"#,
             #"clock_uid=`/usr/bin/stat -f %u "$clock_dir" 2>/dev/null || true`; if [ "$clock_uid" != "$current_uid" ]; then fallback_capture_time; fi; if ! /bin/chmod 700 "$clock_dir" 2>/dev/null; then fallback_capture_time; fi; clock_uid=`/usr/bin/stat -f %u "$clock_dir" 2>/dev/null || true`; clock_mode=`/usr/bin/stat -f %Lp "$clock_dir" 2>/dev/null || true`; if [ -L "$clock_dir" ] || ! [ -d "$clock_dir" ] || [ "$clock_uid" != "$current_uid" ] || [ "$clock_mode" != 700 ]; then fallback_capture_time; fi;"#,
             #"lock="$clock_dir/lock"; state="$clock_dir/state"; ( exec 9>>"$lock" || exit 1; /usr/bin/lockf -s -t 1 9 || exit 1;"#,
             #"capture_file=`/usr/bin/mktemp "$clock_dir/capture.XXXXXX" 2>/dev/null || true`; captured_at=;"#,

@@ -42,8 +42,12 @@ extension CMUXCLI {
     }
 
     private func parseAgentHookEventTime(rawObject: [String: Any]?) -> TimeInterval? {
-        if let captured = parseAgentHookTimeValue(ProcessInfo.processInfo.environment["CMUX_AGENT_HOOK_CAPTURED_AT"]) {
-            return captured
+        if let rawCaptured = ProcessInfo.processInfo.environment["CMUX_AGENT_HOOK_CAPTURED_AT"] {
+            // Hook wrappers set this key even when their shared clock cannot
+            // establish trustworthy order. An empty/invalid value deliberately
+            // suppresses ordered metadata instead of falling through to a
+            // potentially lower-resolution payload timestamp.
+            return parseAgentHookTimeValue(rawCaptured)
         }
         let keys = [
             "cmux_event_time", "cmuxEventTime",

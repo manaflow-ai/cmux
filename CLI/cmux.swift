@@ -26925,17 +26925,6 @@ struct CMUXCLI {
         let turnId = optionValue(commandArgs, name: "--turn")
         var transcriptPath = optionValue(commandArgs, name: "--transcript")
         let leasePath = optionValue(commandArgs, name: "--lease")
-        let agentEventTime: TimeInterval? = {
-            guard let rawValue = optionValue(commandArgs, name: "--agent-event-time"),
-                  let value = TimeInterval(rawValue),
-                  value.isFinite,
-                  value >= 946_684_800,
-                  value <= 4_102_444_800 else {
-                return nil
-            }
-            return value
-        }()
-
         guard !workspaceId.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty,
               !sessionId.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty else {
             return
@@ -26972,7 +26961,7 @@ struct CMUXCLI {
                         userInput,
                         workspaceId: workspaceId,
                         surfaceId: surfaceId,
-                        agentEventTime: agentEventTime,
+                        agentEventTime: sampleAgentHookEventTime(),
                         client: client
                     )
                 }
@@ -26987,7 +26976,7 @@ struct CMUXCLI {
                         failure,
                         workspaceId: workspaceId,
                         surfaceId: surfaceId,
-                        agentEventTime: agentEventTime,
+                        agentEventTime: sampleAgentHookEventTime(),
                         client: client
                     )
                     return
@@ -27011,6 +27000,34 @@ struct CMUXCLI {
             guard remaining > 0 else { return }
             waitForCodexTranscriptChange(path: transcriptPath, leasePath: leasePath, timeout: min(30, remaining))
         }
+    }
+
+    private func sampleAgentHookEventTime() -> TimeInterval? {
+        let process = Process()
+        let output = Pipe()
+        process.executableURL = URL(fileURLWithPath: "/bin/sh")
+        process.arguments = ["-c", Self.agentHookCaptureTimeShell()]
+        process.environment = ProcessInfo.processInfo.environment
+        process.standardInput = FileHandle.nullDevice
+        process.standardOutput = output
+        process.standardError = FileHandle.nullDevice
+        do {
+            try cliRunProcess(process)
+        } catch {
+            return nil
+        }
+        let rawValue = String(
+            data: output.fileHandleForReading.readDataToEndOfFile(),
+            encoding: .utf8
+        )?.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard let rawValue,
+              let value = TimeInterval(rawValue),
+              value.isFinite,
+              value >= 946_684_800,
+              value <= 4_102_444_800 else {
+            return nil
+        }
+        return value
     }
 
     private func publishCodexMonitorUserInput(
