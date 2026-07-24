@@ -101,6 +101,10 @@ extension ShortcutAction {
         case .resetWorkspaceTerminalFontSize:
             return ShortcutStroke(key: "0", command: true, control: true)
         case .equalizeSplits: return ShortcutStroke(key: "=", command: true, shift: true, control: true)
+        case .growPaneLeft, .growPaneRight, .growPaneUp, .growPaneDown:
+            // Configurable but initially unbound to avoid conflicting with
+            // terminal bindings and pane-navigation shortcuts.
+            return nil
         case .splitBrowserRight: return ShortcutStroke(key: "d", command: true, option: true)
         case .splitBrowserDown: return ShortcutStroke(key: "d", command: true, shift: true, option: true)
         case .toggleCanvasLayout: return ShortcutStroke(key: "c", command: true, control: true)

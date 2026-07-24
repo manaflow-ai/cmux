@@ -1,4 +1,5 @@
 import AppKit
+import Bonsplit
 import CmuxCanvasUI
 import Testing
 
@@ -32,6 +33,17 @@ private final class CanvasViewportSpy: CanvasViewportControlling {
 @MainActor
 @Suite(.serialized)
 struct AppDelegateSurfaceShortcutRoutingTests {
+    @Test func paneGrowShortcutsAreUnboundByDefault() {
+        for action in [
+            KeyboardShortcutSettings.Action.growPaneLeft,
+            .growPaneRight,
+            .growPaneUp,
+            .growPaneDown,
+        ] {
+            #expect(action.defaultShortcut == .unbound)
+        }
+    }
+
     @Test func rightSidebarModeShortcutsDoNotFallThroughWhenResponderTemporarilyClears() throws {
         try withIsolatedShortcutSettings {
             let appDelegate = try #require(AppDelegate.shared)
@@ -396,6 +408,108 @@ struct AppDelegateSurfaceShortcutRoutingTests {
             #expect(firstFrame.height == secondFrame.height)
             #expect(workspace.bonsplitController.allPaneIds.count == originalBonsplitPaneCount)
         }
+    }
+
+    @Test func configuredGrowPaneShortcutsUseOppositeEdgeAtEveryOuterBoundary() throws {
+        try assertPaneResizeShortcut(
+            action: .growPaneLeft,
+            key: "x",
+            keyCode: 123,
+            orientation: .horizontal,
+            focusSecondPane: false,
+            expectedDividerToIncrease: true
+        )
+        try assertPaneResizeShortcut(
+            action: .growPaneRight,
+            key: "→",
+            keyCode: 124,
+            orientation: .horizontal,
+            focusSecondPane: true,
+            expectedDividerToIncrease: false
+        )
+        try assertPaneResizeShortcut(
+            action: .growPaneUp,
+            key: "↑",
+            keyCode: 126,
+            orientation: .vertical,
+            focusSecondPane: false,
+            expectedDividerToIncrease: true
+        )
+        try assertPaneResizeShortcut(
+            action: .growPaneDown,
+            key: "↓",
+            keyCode: 125,
+            orientation: .vertical,
+            focusSecondPane: true,
+            expectedDividerToIncrease: false
+        )
+    }
+
+    private func assertPaneResizeShortcut(
+        action: KeyboardShortcutSettings.Action,
+        key: String,
+        keyCode: UInt16,
+        orientation: SplitOrientation,
+        focusSecondPane: Bool,
+        expectedDividerToIncrease: Bool
+    ) throws {
+        try withTemporaryShortcut(action: action) {
+            let appDelegate = try #require(AppDelegate.shared)
+            let windowId = appDelegate.createMainWindow()
+            defer { closeWindow(withId: windowId) }
+
+            let window = try #require(mainWindow(for: windowId))
+            let manager = try #require(appDelegate.tabManagerFor(windowId: windowId))
+            let workspace = try #require(manager.selectedWorkspace)
+            let firstPanelId = try #require(workspace.focusedPanelId)
+            let secondPanel = try #require(workspace.newTerminalSplit(from: firstPanelId, orientation: orientation))
+            guard case .split(let originalSplit) = workspace.bonsplitController.treeSnapshot(),
+                  let splitId = UUID(uuidString: originalSplit.id) else {
+                Issue.record("Expected a split")
+                return
+            }
+            #expect(workspace.bonsplitController.setDividerPosition(0.5, forSplit: splitId))
+            let focusedPanelId = focusSecondPane ? secondPanel.id : firstPanelId
+            workspace.focusPanel(focusedPanelId)
+            window.makeKeyAndOrderFront(nil)
+
+            let event = try #require(makeKeyDownEvent(
+                key: key,
+                modifiers: [.command, .shift, .control],
+                keyCode: keyCode,
+                windowNumber: window.windowNumber
+            ))
+
+#if DEBUG
+            #expect(appDelegate.debugHandleCustomShortcut(event: event))
+#else
+            Issue.record("debugHandleCustomShortcut is only available in DEBUG")
+#endif
+
+            guard case .split(let resizedSplit) = workspace.bonsplitController.treeSnapshot() else {
+                Issue.record("Expected the split to remain present")
+                return
+            }
+            if expectedDividerToIncrease {
+                #expect(resizedSplit.dividerPosition > 0.5)
+            } else {
+                #expect(resizedSplit.dividerPosition < 0.5)
+            }
+            #expect(workspace.focusedPanelId == focusedPanelId)
+        }
+    }
+
+    @Test func selectedPaneResizeRejectsCanvasAndRemoteManagedLayouts() throws {
+        let manager = TabManager()
+        let workspace = try #require(manager.selectedWorkspace)
+
+        workspace.setLayoutMode(.canvas)
+        #expect(manager.resizeSelectedPane(direction: .left, amountInPixels: 20) == .unsupportedLayout)
+
+        workspace.setLayoutMode(.splits)
+        workspace.isRemoteTmuxMirror = true
+        defer { workspace.isRemoteTmuxMirror = false }
+        #expect(manager.resizeSelectedPane(direction: .right, amountInPixels: 20) == .unsupportedLayout)
     }
 
     private func makeKeyDownEvent(

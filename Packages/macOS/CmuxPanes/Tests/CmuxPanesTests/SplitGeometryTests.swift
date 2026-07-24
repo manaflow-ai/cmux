@@ -147,7 +147,67 @@ struct SplitGeometryTests {
         #expect(adjustment.map { abs($0.position - 0.4) < 0.0001 } == true)
     }
 
-    @Test func resizeRequiresMatchingChildSide() {
+    @Test func resizeFallsBackToOppositeEdgeAtOuterBoundaryInEveryDirection() {
+        let horizontalId = UUID()
+        let horizontal = split(
+            horizontalId,
+            orientation: "horizontal",
+            first: pane("left", width: 300),
+            second: pane("right", x: 300, width: 300)
+        )
+        let verticalId = UUID()
+        let vertical = split(
+            verticalId,
+            orientation: "vertical",
+            first: pane("top", width: 600, height: 300),
+            second: pane("bottom", y: 300, width: 600, height: 300)
+        )
+
+        let cases: [(ExternalTreeNode, UUID, String, ResizeDirection, CGFloat)] = [
+            (horizontal, horizontalId, "left", .left, 0.6),
+            (horizontal, horizontalId, "right", .right, 0.4),
+            (vertical, verticalId, "top", .up, 0.6),
+            (vertical, verticalId, "bottom", .down, 0.4),
+        ]
+
+        for (tree, splitId, paneId, direction, expectedPosition) in cases {
+            let adjustment = tree.resizeDividerAdjustment(
+                targetPaneId: paneId,
+                direction: direction,
+                amountPixels: 60
+            )
+            #expect(adjustment?.splitId == splitId)
+            #expect(adjustment.map { abs($0.position - expectedPosition) < 0.0001 } == true)
+        }
+    }
+
+    @Test func resizePrefersRequestedEdgeBeforeNearerOppositeEdge() {
+        let innerId = UUID()
+        let rootId = UUID()
+        let inner = split(
+            innerId,
+            orientation: "horizontal",
+            first: pane("a", width: 150),
+            second: pane("b", x: 150, width: 150)
+        )
+        let tree = split(
+            rootId,
+            orientation: "horizontal",
+            first: inner,
+            second: pane("c", x: 300, width: 300)
+        )
+
+        let adjustment = tree.resizeDividerAdjustment(
+            targetPaneId: "b",
+            direction: .right,
+            amountPixels: 60
+        )
+
+        #expect(adjustment?.splitId == rootId)
+        #expect(adjustment.map { $0.position > 0.5 } == true)
+    }
+
+    @Test func resizeRequiresMatchingOrientationAndKnownPane() {
         let splitId = UUID()
         let tree = split(
             splitId,
@@ -156,11 +216,7 @@ struct SplitGeometryTests {
             second: pane("b", x: 300, width: 300)
         )
 
-        // .right requires the target in the first child; "b" is the second.
-        #expect(tree.resizeDividerAdjustment(targetPaneId: "b", direction: .right, amountPixels: 10) == nil)
-        // Vertical resize has no vertical split to control.
         #expect(tree.resizeDividerAdjustment(targetPaneId: "b", direction: .up, amountPixels: 10) == nil)
-        // Unknown pane plans nothing.
         #expect(tree.resizeDividerAdjustment(targetPaneId: "zz", direction: .left, amountPixels: 10) == nil)
     }
 
@@ -200,6 +256,32 @@ struct SplitGeometryTests {
         // A huge downward move from 0.85 clamps to 0.9.
         let adjustment = tree.resizeDividerAdjustment(targetPaneId: "a", direction: .down, amountPixels: 400)
         #expect(adjustment?.position == 0.9)
+        #expect(adjustment?.requestedFocusedBranchShare.map { $0 > 1 } == true)
+        #expect(adjustment?.focusedBranchShare == 0.9)
+        #expect(adjustment?.initialFocusedBranchShare == 0.85)
+        #expect(adjustment?.focusedBranchIsFirst == true)
+        #expect(tree.dividerPosition(forSplitId: splitId) == 0.85)
+    }
+
+    @Test func resizePlanAtExistingLimitRecordsNoShareChange() {
+        let splitId = UUID()
+        let tree = split(
+            splitId,
+            orientation: "horizontal",
+            dividerPosition: 0.9,
+            first: pane("a", width: 540),
+            second: pane("b", x: 540, width: 60)
+        )
+
+        let adjustment = tree.resizeDividerAdjustment(
+            targetPaneId: "a",
+            direction: .right,
+            amountPixels: 20
+        )
+
+        #expect(adjustment?.initialFocusedBranchShare == 0.9)
+        #expect(adjustment?.focusedBranchShare == 0.9)
+        #expect(adjustment?.requestedFocusedBranchShare.map { $0 > 0.9 } == true)
     }
 
     // MARK: Direction values
