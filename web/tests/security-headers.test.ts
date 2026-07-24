@@ -1,6 +1,41 @@
 import { describe, expect, test } from "bun:test";
 import { poweredByHeader, securityHeaderRules } from "../security-headers";
 
+function responseHeadersFor(paths: string[]): Record<string, Record<string, string>> {
+  const moduleURL = new URL("../security-headers.ts", import.meta.url).href;
+  const script = `
+    import { AsyncLocalStorage } from "node:async_hooks";
+    import { securityHeaderRules } from ${JSON.stringify(moduleURL)};
+    globalThis.AsyncLocalStorage = AsyncLocalStorage;
+    const { unstable_getResponseFromNextConfig } =
+      await import("next/experimental/testing/server");
+    const paths = ${JSON.stringify(paths)};
+    const nextConfig = { async headers() { return securityHeaderRules; } };
+    const result = {};
+    for (const path of paths) {
+      const response = await unstable_getResponseFromNextConfig({
+        url: "https://cmux.com" + path,
+        nextConfig,
+      });
+      result[path] = Object.fromEntries(response.headers.entries());
+    }
+    console.log(JSON.stringify(result));
+  `;
+  const child = Bun.spawnSync({
+    cmd: [process.execPath, "-e", script],
+    cwd: import.meta.dir,
+    stdout: "pipe",
+    stderr: "pipe",
+  });
+  if (child.exitCode !== 0) {
+    throw new Error(new TextDecoder().decode(child.stderr));
+  }
+  return JSON.parse(new TextDecoder().decode(child.stdout)) as Record<
+    string,
+    Record<string, string>
+  >;
+}
+
 describe("production security headers", () => {
   test("does not expose framework implementation details", () => {
     expect(poweredByHeader).toBe(false);
@@ -39,5 +74,24 @@ describe("production security headers", () => {
       },
     ]);
     expect(dashboardRoute).toBeUndefined();
+  });
+
+  test("sends no-referrer before any localized or unlocalized share-page assets", () => {
+    const paths = [
+      "/share/ABCDEFGH",
+      "/en/share/ABCDEFGH",
+      "/ja/share/ABCDEFGH",
+      "/docs",
+    ];
+    const headers = responseHeadersFor(paths);
+
+    for (const path of paths.slice(0, 3)) {
+      expect(headers[path]?.["referrer-policy"]).toBe("no-referrer");
+      expect(headers[path]?.["x-robots-tag"]).toBe("noindex, nofollow");
+      expect(headers[path]?.["cache-control"]).toBe("private, no-store");
+    }
+    expect(headers["/docs"]?.["referrer-policy"]).toBe(
+      "strict-origin-when-cross-origin",
+    );
   });
 });

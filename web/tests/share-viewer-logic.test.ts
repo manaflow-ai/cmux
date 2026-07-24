@@ -14,8 +14,16 @@ mock.module("next-intl", () => ({
   useTranslations: () => (key: string) => key,
 }));
 
-const { LayoutView, paneKeyOf, paneRefFromKey } = await import(
+const {
+  createAnimationFrameScheduler,
+  LayoutView,
+  paneKeyOf,
+  paneRefFromKey,
+} = await import(
   "../app/[locale]/share/[code]/share-panes"
+);
+const { submitChatDraft } = await import(
+  "../app/[locale]/share/[code]/share-chat"
 );
 const {
   hasEditableShortcutFocus,
@@ -124,6 +132,48 @@ describe("TerminalGridModel", () => {
       }),
     ).toBe(false);
     expect(model.generation).toBe(0);
+  });
+
+  test("coalesces repeated grid notifications into one animation-frame paint", () => {
+    let nextID = 1;
+    const callbacks = new Map<number, () => void>();
+    const cancelled: number[] = [];
+    let paints = 0;
+    const scheduler = createAnimationFrameScheduler(
+      (callback) => {
+        const id = nextID;
+        nextID += 1;
+        callbacks.set(id, callback);
+        return id;
+      },
+      (id) => {
+        callbacks.delete(id);
+        cancelled.push(id);
+      },
+      () => {
+        paints += 1;
+      },
+    );
+
+    scheduler.schedule();
+    scheduler.schedule();
+    scheduler.schedule();
+    expect(callbacks.size).toBe(1);
+    callbacks.get(1)?.();
+    expect(paints).toBe(1);
+
+    scheduler.schedule();
+    scheduler.cancel();
+    expect(cancelled).toEqual([2]);
+    expect(paints).toBe(1);
+  });
+});
+
+describe("chat draft admission", () => {
+  test("clears only after the socket accepts the message", () => {
+    expect(submitChatDraft("keep me", () => false)).toBe("keep me");
+    expect(submitChatDraft("send me", () => true)).toBe("");
+    expect(submitChatDraft("   ", () => true)).toBe("   ");
   });
 });
 

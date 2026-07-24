@@ -21,6 +21,7 @@ const originalFetch = globalThis.fetch;
 const originalWebSocket = globalThis.WebSocket;
 const originalSetTimeout = globalThis.setTimeout;
 const originalClearTimeout = globalThis.clearTimeout;
+const originalDateNow = Date.now;
 
 type ScheduledTimer = {
   readonly callback: (...args: unknown[]) => void;
@@ -126,6 +127,7 @@ afterEach(() => {
   globalThis.WebSocket = originalWebSocket;
   globalThis.setTimeout = originalSetTimeout;
   globalThis.clearTimeout = originalClearTimeout;
+  Date.now = originalDateNow;
 });
 
 function trackedClient(): ShareClient {
@@ -567,6 +569,119 @@ describe("ShareClient token refresh failures", () => {
 });
 
 describe("ShareClient terminal-only session behavior", () => {
+  test("reconnecting rejects chat and terminal input without pretending delivery", async () => {
+    const { client, socket } = await connectedClient();
+    socket.receive(snapshot());
+    socket.receive({ t: "ack-request", nonce: "active-before-reconnect" });
+    const sentBeforeClose = socket.sent.length;
+
+    socket.serverClose(1006);
+
+    expect(client.session.get().reconnecting).toBe(true);
+    expect(client.sendChat("retain this draft")).toBe(false);
+    expect(
+      client.sendInput("workspace:1", "surface:terminal", "do not drop silently"),
+    ).toBe(false);
+    expect(socket.sent).toHaveLength(sentBeforeClose);
+  });
+
+  test("cursor geometry is resolved only once for the latest throttled sample", async () => {
+    const { client, socket } = await connectedClient();
+    socket.receive(snapshot());
+    socket.receive({ t: "ack-request", nonce: "cursor-sample-snapshot" });
+    let firstResolutions = 0;
+    let latestResolutions = 0;
+
+    client.sendCursorSample(() => {
+      firstResolutions += 1;
+      return {
+        ws: "workspace:1",
+        pane: "surface:terminal",
+        x: 0.1,
+        y: 0.2,
+      };
+    });
+    client.sendCursorSample(() => {
+      latestResolutions += 1;
+      return {
+        ws: "workspace:1",
+        pane: "surface:terminal",
+        x: 0.8,
+        y: 0.9,
+      };
+    });
+
+    expect(firstResolutions).toBe(0);
+    expect(latestResolutions).toBe(0);
+    await runOnlyTimer();
+    expect(firstResolutions).toBe(0);
+    expect(latestResolutions).toBe(1);
+    expect(socket.messages().at(-1)).toEqual({
+      t: "cursor",
+      pos: {
+        ws: "workspace:1",
+        pane: "surface:terminal",
+        x: 0.8,
+        y: 0.9,
+      },
+    });
+  });
+
+  test("a newer bubble keeps the earliest outstanding expiry deadline", async () => {
+    let now = 1_000;
+    Date.now = () => now;
+    const { client, socket } = await connectedClient();
+    socket.receive(snapshot());
+    socket.receive({ t: "ack-request", nonce: "bubble-snapshot" });
+
+    socket.receive({
+      t: "chat",
+      msg: {
+        id: "bubble-one",
+        user: "guest",
+        text: "first",
+        ts: 1,
+        bubble: {
+          ws: "workspace:1",
+          pane: "surface:terminal",
+          x: 0.2,
+          y: 0.3,
+        },
+      },
+    });
+    socket.receive({ t: "ack-request", nonce: "bubble-one" });
+
+    now = 2_000;
+    socket.receive({
+      t: "chat",
+      msg: {
+        id: "bubble-two",
+        user: "host",
+        text: "second",
+        ts: 2,
+        bubble: {
+          ws: "workspace:1",
+          pane: "surface:terminal",
+          x: 0.7,
+          y: 0.8,
+        },
+      },
+    });
+    socket.receive({ t: "ack-request", nonce: "bubble-two" });
+
+    expect([...scheduledTimers.values()].map((timer) => timer.delay)).toEqual([
+      4_050,
+    ]);
+
+    now = 6_050;
+    await runOnlyTimer();
+    expect(client.cursors.get().get("guest")?.bubble).toBeUndefined();
+    expect(client.cursors.get().get("host")?.bubble?.text).toBe("second");
+    expect([...scheduledTimers.values()].map((timer) => timer.delay)).toEqual([
+      1_000,
+    ]);
+  });
+
   test("uses only the server-selected workspace and subscribes only terminal leaves", async () => {
     const { client, socket } = await connectedClient();
     const sentBeforeSnapshot = socket.sent.length;

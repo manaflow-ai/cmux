@@ -1,4 +1,5 @@
 import AppKit
+import CmuxCommandPalette
 import CmuxWorkspaceShare
 import Foundation
 import Testing
@@ -175,6 +176,71 @@ struct WorkspaceShareHostPresentationTests {
         ))
         #expect(panel.isVisible)
     }
+
+    @Test("Active sharing keeps both panel and stop actions reachable")
+    func activeSharingCanReopenItsPanel() {
+        var context = CommandPaletteContextSnapshot()
+        context.setBool(CommandPaletteContextKeys.shareSessionActive, true)
+
+        let visibleCommandIDs = ContentView.commandPaletteShareCommandContributions(
+            isFeatureEnabled: true
+        )
+        .filter { $0.when(context) }
+        .map(\.commandId)
+
+        #expect(
+            Set(visibleCommandIDs)
+                == ["palette.showShareSession", "palette.stopSharing"]
+        )
+    }
+
+    @Test("A stale create completion cannot clear a newer start attempt")
+    func staleCreateCompletionCannotOwnNewerAttempt() async throws {
+        let api = DelayedShareSessionAPI()
+        let controller = ShareSessionController(testingAPI: api)
+        let manager = TabManager()
+        let workspace = try #require(manager.selectedWorkspace)
+
+        controller.startSharing(
+            tabManager: manager,
+            focusedWorkspace: workspace
+        )
+        try await api.waitForCreateCount(1)
+        controller.stopSharing()
+
+        controller.startSharing(
+            tabManager: manager,
+            focusedWorkspace: workspace
+        )
+        try await api.waitForCreateCount(2)
+
+        await api.failCreate(
+            at: 0,
+            error: ShareSessionAPIError.httpStatus(500, retryAfter: nil)
+        )
+        await Task.yield()
+        #expect(controller.status == .starting)
+
+        await api.failCreate(
+            at: 1,
+            error: ShareSessionAPIError.httpStatus(500, retryAfter: nil)
+        )
+        for _ in 0..<20 where controller.status != .idle {
+            await Task.yield()
+        }
+        #expect(controller.status == .idle)
+    }
+
+    @Test("A rejected host chat send retains its draft")
+    func rejectedChatRetainsDraft() {
+        var draft = "keep this message"
+
+        ShareChatView.submitDraft(&draft) { _ in false }
+        #expect(draft == "keep this message")
+
+        ShareChatView.submitDraft(&draft) { _ in true }
+        #expect(draft.isEmpty)
+    }
 }
 
 @Suite("Workspace share socket request")
@@ -232,4 +298,61 @@ struct WorkspaceShareSocketRequestTests {
             )
         ) == nil)
     }
+
+    @Test("A full socket event buffer reports backpressure instead of hiding a drop")
+    func fullEventBufferReportsBackpressure() async {
+        let socket = ShareSocket(
+            endpoint: ShareSocket.Endpoint(
+                wsUrl: "wss://relay.example/connect",
+                token: "valid-token"
+            ),
+            refresh: {
+                ShareSocket.Endpoint(
+                    wsUrl: "wss://relay.example/connect",
+                    token: "valid-token"
+                )
+            },
+            maximumBufferedEvents: 1
+        )
+
+        #expect(socket.enqueueEventForTesting(.connectionStateChanged(true)))
+        #expect(!socket.enqueueEventForTesting(.connectionStateChanged(false)))
+        await socket.stop()
+    }
+}
+
+private actor DelayedShareSessionAPI: ShareSessionAPIProviding {
+    private var createContinuations:
+        [CheckedContinuation<ShareSessionCreateResult, any Error>] = []
+
+    func createSession() async throws -> ShareSessionCreateResult {
+        try await withCheckedThrowingContinuation { continuation in
+            createContinuations.append(continuation)
+        }
+    }
+
+    func hostToken(code: String) async throws -> ShareTokenResult {
+        throw ShareSessionAPIError.malformedResponse(
+            "hostToken is not expected in this test"
+        )
+    }
+
+    func waitForCreateCount(_ expected: Int) async throws {
+        for _ in 0..<200 {
+            if createContinuations.count >= expected {
+                return
+            }
+            try await Task.sleep(for: .milliseconds(1))
+        }
+        throw DelayedShareSessionAPITestError.timedOut
+    }
+
+    func failCreate(at index: Int, error: any Error) {
+        guard createContinuations.indices.contains(index) else { return }
+        createContinuations[index].resume(throwing: error)
+    }
+}
+
+private enum DelayedShareSessionAPITestError: Error {
+    case timedOut
 }
