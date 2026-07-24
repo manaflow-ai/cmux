@@ -10,6 +10,8 @@ enum WorkspaceActionToastAction {
     case createWorkspaceGroup
     case moveWorkspace
     case renameWorkspace
+    case updateWorkspaceDescription
+    case updateWorkspaceColor
     case pinWorkspace
     case unpinWorkspace
     case markWorkspaceRead
@@ -87,6 +89,16 @@ extension WorkspaceShellView {
             return L10n.string("mobile.workspaceAction.failure.action.moveWorkspace", defaultValue: "move workspace")
         case .renameWorkspace:
             return L10n.string("mobile.workspaceAction.failure.action.renameWorkspace", defaultValue: "rename workspace")
+        case .updateWorkspaceDescription:
+            return L10n.string(
+                "mobile.workspaceAction.failure.action.updateWorkspaceDescription",
+                defaultValue: "update workspace description"
+            )
+        case .updateWorkspaceColor:
+            return L10n.string(
+                "mobile.workspaceAction.failure.action.updateWorkspaceColor",
+                defaultValue: "update workspace color"
+            )
         case .pinWorkspace:
             return L10n.string("mobile.workspaceAction.failure.action.pinWorkspace", defaultValue: "pin workspace")
         case .unpinWorkspace:
