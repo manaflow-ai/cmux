@@ -30395,6 +30395,12 @@ export default CMUXSessionRestore;
 #endif
                 return nil
             }
+            // Strict Pi resolution has already validated or app-authoritatively
+            // rehomed the target. Reusing it avoids a redundant workspace-wide
+            // surface snapshot and preserves the selected workspace boundary.
+            if let strictPiTarget {
+                return strictPiTarget
+            }
             func resolveTarget(
                 workspaceId: String,
                 preferredSurfaceId: String?,

@@ -143,15 +143,16 @@ extension CMUXCLI {
         commandArgs: [String],
         client: SocketClient
     ) throws -> (workspaceId: String?, surfaceId: String)? {
-        let rawSurface = optionValue(commandArgs, name: "--surface")
-            ?? ProcessInfo.processInfo.environment["CMUX_SURFACE_ID"]
-        guard let rawSurface else { return nil }
+        let arguments = piHookTargetArguments(commandArgs)
+        guard let rawSurface = arguments.surface else {
+            return try resolveStrictPiHookTarget(commandArgs: commandArgs, client: client).map {
+                ($0.workspaceId, $0.surfaceId)
+            }
+        }
         let surface = rawSurface.trimmingCharacters(in: .whitespacesAndNewlines)
         guard !surface.isEmpty else { return nil }
 
-        let rawWorkspace = optionValue(commandArgs, name: "--workspace")
-            ?? ProcessInfo.processInfo.environment["CMUX_WORKSPACE_ID"]
-        let workspace = normalizedHandleValue(rawWorkspace)
+        let workspace = normalizedHandleValue(arguments.workspace)
         if isUUID(surface), workspace == nil || workspace.map(isUUID) == true {
             return (workspace, surface)
         }
@@ -161,26 +162,29 @@ extension CMUXCLI {
         }
     }
 
-    /// Resolves and validates a Pi extension's explicit or inherited surface without pane fallback.
+    /// Resolves a Pi extension target without crossing an explicitly selected workspace boundary.
     func resolveStrictPiHookTarget(
         commandArgs: [String],
         client: SocketClient
     ) throws -> (workspaceId: String, surfaceId: String)? {
-        let rawSurface = optionValue(commandArgs, name: "--surface")
-            ?? ProcessInfo.processInfo.environment["CMUX_SURFACE_ID"]
-        guard let rawSurface, !rawSurface.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty else {
+        let arguments = piHookTargetArguments(commandArgs)
+        if arguments.surface == nil, arguments.explicitWorkspace == nil {
             return nil
         }
-        let surface = rawSurface.trimmingCharacters(in: .whitespacesAndNewlines)
-        guard isUUID(surface)
-            || Int(surface) != nil
-            || piHookHandleRef(surface, kind: "surface")
-        else {
-            throw piHookSurfaceNotFoundError(rawSurface)
+        let surface = arguments.surface?.trimmingCharacters(in: .whitespacesAndNewlines)
+        if let surface {
+            guard !surface.isEmpty,
+                  isUUID(surface)
+                    || Int(surface) != nil
+                    || piHookHandleRef(surface, kind: "surface")
+            else {
+                throw piHookSurfaceNotFoundError(arguments.surface ?? "")
+            }
         }
-        let rawWorkspace = optionValue(commandArgs, name: "--workspace")
-            ?? ProcessInfo.processInfo.environment["CMUX_WORKSPACE_ID"]
-        let trimmedWorkspace = normalizedHandleValue(rawWorkspace)
+        let trimmedWorkspace = normalizedHandleValue(arguments.workspace)
+        if arguments.explicitWorkspace != nil, trimmedWorkspace == nil {
+            throw piHookSurfaceNotFoundError(arguments.explicitWorkspace ?? "")
+        }
         if let workspace = trimmedWorkspace {
             guard isUUID(workspace)
                 || Int(workspace) != nil
@@ -210,6 +214,30 @@ extension CMUXCLI {
                 resolvedWorkspaceId = nil
             }
         }
+        guard let surface else {
+            guard let resolvedWorkspaceId else {
+                throw piHookSurfaceNotFoundError(arguments.explicitWorkspace ?? "")
+            }
+            do {
+                let listed = try client.sendV2(
+                    method: "surface.list",
+                    params: ["workspace_id": resolvedWorkspaceId]
+                )
+                let surfaces = listed["surfaces"] as? [[String: Any]] ?? []
+                guard let surfaceId = surfaces.first(where: {
+                    ($0["focused"] as? Bool) == true
+                })?["id"] as? String else {
+                    throw piHookSurfaceNotFoundError(arguments.explicitWorkspace ?? "")
+                }
+                return (resolvedWorkspaceId, surfaceId)
+            } catch let error as CLIError {
+                throw CLIError(
+                    message: error.message,
+                    exitCode: Self.piHookSurfaceUnavailableExitCode,
+                    v2Code: error.v2Code ?? "not_found"
+                )
+            }
+        }
         if isUUID(surface) {
             var params: [String: Any] = ["surface_id": surface]
             if let resolvedWorkspaceId, isUUID(resolvedWorkspaceId) {
@@ -230,14 +258,14 @@ extension CMUXCLI {
                     // app resolves it, so the app's returned UUID is authoritative.
                     return (workspaceUUID.uuidString, returnedSurfaceUUID.uuidString)
                 }
-                throw piHookSurfaceNotFoundError(rawSurface)
+                throw piHookSurfaceNotFoundError(surface)
             } catch let error as CLIError where error.v2Code == "method_not_found"
                     || error.v2Code == "unrecognized_method" {
                 // Older apps lack the surface-scoped resolver. Preserve the
                 // legacy workspace-local lookup without making supported
                 // apps snapshot every surface for each Pi tool event.
             } catch let error as CLIError where error.v2Code == "not_found" {
-                throw piHookSurfaceNotFoundError(rawSurface)
+                throw piHookSurfaceNotFoundError(surface)
             }
         }
 
@@ -255,7 +283,20 @@ extension CMUXCLI {
                 return (workspaceId, surfaceId)
             }
         }
-        throw piHookSurfaceNotFoundError(rawSurface)
+        throw piHookSurfaceNotFoundError(surface)
+    }
+
+    private func piHookTargetArguments(
+        _ commandArgs: [String]
+    ) -> (explicitWorkspace: String?, workspace: String?, surface: String?) {
+        let explicitWorkspace = optionValue(commandArgs, name: "--workspace")
+        let explicitSurface = optionValue(commandArgs, name: "--surface")
+        let environment = ProcessInfo.processInfo.environment
+        return (
+            explicitWorkspace,
+            explicitWorkspace ?? environment["CMUX_WORKSPACE_ID"],
+            explicitSurface ?? (explicitWorkspace == nil ? environment["CMUX_SURFACE_ID"] : nil)
+        )
     }
 
     private func piHookHandleRef(_ raw: String, kind: String) -> Bool {
