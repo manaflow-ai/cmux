@@ -1,5 +1,5 @@
 enum SimulatorCameraCleanupWaitOutcome: Sendable {
-    case completed
+    case completed(SimulatorCameraCleanupResult)
     case timedOut
     case cancelled
 }

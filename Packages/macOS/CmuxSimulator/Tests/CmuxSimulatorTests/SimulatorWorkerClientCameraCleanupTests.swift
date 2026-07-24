@@ -45,7 +45,7 @@ extension SimulatorWorkerClientTests {
     func cameraCleanupReturnsTypedFailure() async throws {
         let coordinator = SimulatorCameraCleanupCoordinator()
         let control = FailingCameraCleanupControl()
-        let deviceIdentifier = "DEVICE"
+        let deviceIdentifier = "DEVICE-\(UUID().uuidString)"
         let bundleIdentifier = "com.example.camera"
         let owner = try await coordinator.claim(
             deviceIdentifier: deviceIdentifier,
@@ -77,7 +77,10 @@ extension SimulatorWorkerClientTests {
             deviceIdentifier: deviceIdentifier,
             bundleIdentifier: bundleIdentifier
         )
-        let cleanup = await coordinator.enqueue {
+        let cleanup = await coordinator.enqueue(
+            deviceIdentifier: deviceIdentifier,
+            bundleIdentifiers: [bundleIdentifier]
+        ) {
             await cleanSimulatorCameraInjections(
                 deviceIdentifier: deviceIdentifier,
                 bundleIdentifiers: [bundleIdentifier],
@@ -102,7 +105,7 @@ extension SimulatorWorkerClientTests {
         let actionCountBeforeRelease = await control.actions.count
         #expect(actionCountBeforeRelease == 1, "Observed \(actionCountBeforeRelease) cleanup actions")
         await control.release()
-        await cleanup.value
+        #expect(await cleanup.value == .completed)
         _ = try await newClaim.value
 
         #expect(cameraCleanupActionsMatch(await control.actions,
@@ -111,15 +114,19 @@ extension SimulatorWorkerClientTests {
         ))
     }
 
-    @Test("A replacement client cannot pass an older client's camera cleanup")
-    func replacementClientWaitsForSharedCameraCleanup() async throws {
+    @Test("An unattached replacement client ignores cleanup for another target")
+    func replacementClientIgnoresUnrelatedCameraCleanup() async throws {
         let cleanupCoordinator = SimulatorCameraCleanupCoordinator()
         let gate = BlockingCameraCleanupControl()
-        _ = await cleanupCoordinator.enqueue {
+        let cleanup = await cleanupCoordinator.enqueue(
+            deviceIdentifier: "blocked-cleanup",
+            bundleIdentifiers: ["com.example.camera"]
+        ) {
             _ = try? await gate.perform(.terminateApplication(
                 deviceID: "blocked-cleanup",
                 bundleIdentifier: "com.example.camera"
             ))
+            return .completed
         }
         for _ in 0..<1_000 {
             if await gate.isBlocked { break }
@@ -136,14 +143,10 @@ extension SimulatorWorkerClientTests {
             cameraCleanupCoordinator: cleanupCoordinator
         )
 
-        #expect(!(await client.waitForCameraCleanup()))
+        #expect(await client.waitForCameraCleanup())
 
         await gate.release()
-        for _ in 0..<1_000 {
-            if await cleanupCoordinator.currentTask() == nil { break }
-            await Task.yield()
-        }
-        #expect(await client.waitForCameraCleanup())
+        #expect(await cleanup.value == .completed)
         await client.stop()
     }
 

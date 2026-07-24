@@ -115,6 +115,9 @@ private actor PendingCameraCleanupGate {
 private extension SimulatorWorkerClient {
     func installPendingCameraCleanup(waitingOn gate: PendingCameraCleanupGate) {
         cameraCleanupRevision &+= 1
-        cameraCleanupTask = Task { await gate.wait() }
+        cameraCleanupTask = Task {
+            await gate.wait()
+            return .completed
+        }
     }
 }

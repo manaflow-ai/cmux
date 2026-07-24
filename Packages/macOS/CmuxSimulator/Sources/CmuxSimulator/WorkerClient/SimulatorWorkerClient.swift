@@ -59,7 +59,9 @@ public actor SimulatorWorkerClient: SimulatorPaneClient {
     var cameraCleanupBundleIdentifiers: Set<String> = []
     var cameraCleanupOwners: [String: UUID] = [:]
     var lastCameraMirrorMode: SimulatorCameraMirrorMode?
-    var cameraCleanupTask: Task<Void, Never>?
+    var cameraCleanupTask: Task<SimulatorCameraCleanupResult, Never>?
+    var pendingCameraCleanupSnapshot: SimulatorCameraCleanupSnapshot?
+    var cameraCleanupFailure: SimulatorFailure?
     var cameraCleanupRevision: UInt64 = 0
     var cameraCleanupPermit = SimulatorCameraCleanupPermit()
     var activePointer: SimulatorPointerEvent?
@@ -168,7 +170,10 @@ public actor SimulatorWorkerClient: SimulatorPaneClient {
                 let cleanupCoordinator = cameraCleanupCoordinator
                 let cleanupOwners = cameraCleanupOwners
                 Task {
-                    _ = await cleanupCoordinator.enqueue {
+                    _ = await cleanupCoordinator.enqueue(
+                        deviceIdentifier: deviceIdentifier,
+                        bundleIdentifiers: bundleIdentifiers
+                    ) {
                         await cleanSimulatorCameraInjections(
                             deviceIdentifier: deviceIdentifier,
                             bundleIdentifiers: bundleIdentifiers,
@@ -201,6 +206,7 @@ public actor SimulatorWorkerClient: SimulatorPaneClient {
         try requireOpen()
         guard await waitForCameraCleanup() else {
             try Task.checkCancellation()
+            if let cameraCleanupFailure { throw cameraCleanupFailure }
             throw SimulatorFailure(
                 code: "simulator_camera_cleanup_pending",
                 message: String(
@@ -347,6 +353,7 @@ public actor SimulatorWorkerClient: SimulatorPaneClient {
         try requireOpen()
         guard await waitForCameraCleanup() else {
             try Task.checkCancellation()
+            if let cameraCleanupFailure { throw cameraCleanupFailure }
             throw SimulatorFailure(
                 code: "simulator_camera_cleanup_pending",
                 message: String(

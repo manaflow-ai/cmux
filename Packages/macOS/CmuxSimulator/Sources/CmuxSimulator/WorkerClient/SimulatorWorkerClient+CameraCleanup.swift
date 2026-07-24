@@ -26,7 +26,8 @@ extension SimulatorWorkerClient {
         else { return }
         let owner = try await cameraCleanupCoordinator.claim(
             deviceIdentifier: deviceIdentifier,
-            bundleIdentifier: bundleIdentifier
+            bundleIdentifier: bundleIdentifier,
+            sleeper: sleeper
         )
         cameraCleanupBundleIdentifiers.insert(bundleIdentifier)
         cameraCleanupOwners[bundleIdentifier] = owner
@@ -73,13 +74,23 @@ extension SimulatorWorkerClient {
     func enqueueCameraCleanup(_ snapshot: SimulatorCameraCleanupSnapshot) async {
         guard let deviceIdentifier = snapshot.deviceIdentifier,
               !snapshot.bundleIdentifiers.isEmpty else { return }
+        let snapshot = mergedCameraCleanupSnapshot(
+            pendingCameraCleanupSnapshot,
+            with: snapshot
+        )
+        pendingCameraCleanupSnapshot = snapshot
         cameraCleanupRevision &+= 1
         let simulatorControl = self.simulatorControl
         let permit = cameraCleanupPermit
         let cleanupCoordinator = cameraCleanupCoordinator
-        cameraCleanupTask = await cameraCleanupCoordinator.enqueue {
-            guard !Task.isCancelled, await permit.allowsMutation() else { return }
-            await cleanSimulatorCameraInjections(
+        cameraCleanupTask = await cameraCleanupCoordinator.enqueue(
+            deviceIdentifier: deviceIdentifier,
+            bundleIdentifiers: snapshot.bundleIdentifiers
+        ) {
+            guard !Task.isCancelled, await permit.allowsMutation() else {
+                return .failed(simulatorCameraCleanupCancellationFailure())
+            }
+            return await cleanSimulatorCameraInjections(
                 deviceIdentifier: deviceIdentifier,
                 bundleIdentifiers: snapshot.bundleIdentifiers,
                 simulatorControl: simulatorControl,
@@ -93,11 +104,14 @@ extension SimulatorWorkerClient {
     @discardableResult
     func waitForCameraCleanup() async -> Bool {
         while true {
-            let task: Task<Void, Never>?
+            let task: Task<SimulatorCameraCleanupResult, Never>?
             if let localTask = cameraCleanupTask {
                 task = localTask
+            } else if let pendingCameraCleanupSnapshot {
+                await enqueueCameraCleanup(pendingCameraCleanupSnapshot)
+                continue
             } else {
-                task = await cameraCleanupCoordinator.currentTask()
+                task = nil
             }
             guard let task else { return true }
             let revision = cameraCleanupRevision
@@ -107,11 +121,22 @@ extension SimulatorWorkerClient {
                 sleeper: sleeper
             )
             switch outcome {
-            case .completed:
+            case .completed(.completed):
                 if revision == cameraCleanupRevision {
                     cameraCleanupTask = nil
+                    pendingCameraCleanupSnapshot = nil
+                    cameraCleanupFailure = nil
                     return true
                 }
+            case let .completed(.failed(failure)):
+                if revision == cameraCleanupRevision {
+                    cameraCleanupTask = nil
+                    cameraCleanupFailure = failure
+                    if let pendingCameraCleanupSnapshot {
+                        await enqueueCameraCleanup(pendingCameraCleanupSnapshot)
+                    }
+                }
+                return false
             case .timedOut, .cancelled:
                 // Bound the caller's wait without discarding the cleanup. The
                 // next activation must fail and retry after the obligation finishes.
@@ -129,16 +154,19 @@ func cleanSimulatorCameraInjections(
     ownershipTokens: [String: UUID],
     cleanupCoordinator: SimulatorCameraCleanupCoordinator,
     permit: SimulatorCameraCleanupPermit? = nil
-) async {
+) async -> SimulatorCameraCleanupResult {
+    var result = SimulatorCameraCleanupResult.completed
     for bundleIdentifier in bundleIdentifiers {
         guard let ownershipToken = ownershipTokens[bundleIdentifier] else { continue }
-        guard !Task.isCancelled,
-              await permit?.allowsMutation() != false,
-              await cleanupCoordinator.isCurrent(
-                ownershipToken,
-                deviceIdentifier: deviceIdentifier,
-                bundleIdentifier: bundleIdentifier
-              ) else { continue }
+        let mutationIsAllowed = await permit?.allowsMutation() ?? true
+        if Task.isCancelled || !mutationIsAllowed {
+            return .failed(simulatorCameraCleanupCancellationFailure())
+        }
+        guard await cleanupCoordinator.isCurrent(
+            ownershipToken,
+            deviceIdentifier: deviceIdentifier,
+            bundleIdentifier: bundleIdentifier
+        ) else { continue }
         do {
             _ = try await simulatorControl.perform(.cleanupCameraApplication(
                 deviceID: deviceIdentifier,
@@ -146,9 +174,53 @@ func cleanSimulatorCameraInjections(
                 ownershipToken: ownershipToken
             ))
         } catch is CancellationError {
-            return
-        } catch {}
+            return .failed(simulatorCameraCleanupCancellationFailure())
+        } catch let failure as SimulatorFailure {
+            result = .failed(failure)
+        } catch let error as SimulatorControlError {
+            result = .failed(SimulatorFailure(
+                code: error.code,
+                message: error.message,
+                isRecoverable: true
+            ))
+        } catch {
+            result = .failed(SimulatorFailure(
+                code: "simulator_camera_cleanup_failed",
+                message: error.localizedDescription,
+                isRecoverable: true
+            ))
+        }
     }
+    return result
+}
+
+func simulatorCameraCleanupCancellationFailure() -> SimulatorFailure {
+    SimulatorFailure(
+        code: "simulator_camera_cleanup_cancelled",
+        message: String(
+            localized: "simulator.failure.cameraCleanupPending",
+            defaultValue: "Camera cleanup is still running. Retry after it finishes."
+        ),
+        isRecoverable: true
+    )
+}
+
+func mergedCameraCleanupSnapshot(
+    _ existing: SimulatorCameraCleanupSnapshot?,
+    with incoming: SimulatorCameraCleanupSnapshot
+) -> SimulatorCameraCleanupSnapshot {
+    guard existing?.deviceIdentifier == incoming.deviceIdentifier,
+          let existing else { return incoming }
+    let bundleIdentifiers = Array(Set(
+        existing.bundleIdentifiers + incoming.bundleIdentifiers
+    )).sorted()
+    return SimulatorCameraCleanupSnapshot(
+        deviceIdentifier: incoming.deviceIdentifier,
+        bundleIdentifiers: bundleIdentifiers,
+        ownershipTokens: existing.ownershipTokens.merging(
+            incoming.ownershipTokens
+        ) { _, incoming in incoming }
+    )
 }
 
 func simulatorAttachedDeviceIdentifier(

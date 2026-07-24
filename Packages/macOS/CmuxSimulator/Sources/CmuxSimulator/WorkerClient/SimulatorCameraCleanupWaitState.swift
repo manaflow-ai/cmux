@@ -5,7 +5,7 @@ actor SimulatorCameraCleanupWaitState {
     private var deadlineWatcher: Task<Void, Never>?
 
     func wait(
-        for cleanup: Task<Void, Never>,
+        for cleanup: Task<SimulatorCameraCleanupResult, Never>,
         timeout: Duration,
         sleeper: any SimulatorWorkerSleeping
     ) async -> SimulatorCameraCleanupWaitOutcome {
@@ -17,8 +17,8 @@ actor SimulatorCameraCleanupWaitState {
                 }
                 self.continuation = continuation
                 completionWatcher = Task {
-                    await cleanup.value
-                    self.finish(.completed)
+                    let result = await cleanup.value
+                    self.finish(.completed(result))
                 }
                 deadlineWatcher = Task {
                     do {

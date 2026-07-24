@@ -1,16 +1,20 @@
 import Foundation
 
-/// Serializes camera cleanup across worker-client replacement. A replacement
-/// client observes the same tail task and cannot configure injection until an
-/// older client's cleanup has stopped mutating Simulator application state.
+enum SimulatorCameraCleanupResult: Equatable, Sendable {
+    case completed
+    case failed(SimulatorFailure)
+}
+
+/// Serializes camera cleanup per Simulator application across worker-client
+/// replacement without blocking unrelated devices or bundle identifiers.
 actor SimulatorCameraCleanupCoordinator {
     private struct Target: Hashable {
         let deviceIdentifier: String
         let bundleIdentifier: String
     }
 
-    private var tail: Task<Void, Never>?
-    private var revision: UInt64 = 0
+    private var tailByTarget: [Target: Task<SimulatorCameraCleanupResult, Never>] = [:]
+    private var revisionByTarget: [Target: UInt64] = [:]
     private var ownerByTarget: [Target: UUID] = [:]
     private let ownershipStore: SimulatorCrossProcessOwnershipStore
 
@@ -21,20 +25,50 @@ actor SimulatorCameraCleanupCoordinator {
         self.ownershipStore = ownershipStore
     }
 
-    func claim(deviceIdentifier: String, bundleIdentifier: String) async throws -> UUID {
-        while let pendingCleanup = tail {
-            let observedRevision = revision
-            await pendingCleanup.value
-            if revision == observedRevision { break }
+    func claim(
+        deviceIdentifier: String,
+        bundleIdentifier: String,
+        timeout: Duration = .seconds(3),
+        sleeper: any SimulatorWorkerSleeping = ContinuousSimulatorWorkerSleeper()
+    ) async throws -> UUID {
+        let target = Target(
+            deviceIdentifier: deviceIdentifier,
+            bundleIdentifier: bundleIdentifier
+        )
+        if tailByTarget[target] != nil {
+            let pendingCleanup = Task<SimulatorCameraCleanupResult, Never> {
+                await self.waitForCurrentCleanup(of: target)
+            }
+            defer { pendingCleanup.cancel() }
+            let outcome = await SimulatorCameraCleanupWaitState().wait(
+                for: pendingCleanup,
+                timeout: timeout,
+                sleeper: sleeper
+            )
+            switch outcome {
+            case .completed(.completed):
+                break
+            case let .completed(.failed(failure)):
+                throw failure
+            case .timedOut:
+                throw SimulatorFailure(
+                    code: "simulator_camera_cleanup_pending",
+                    message: String(
+                        localized: "simulator.failure.cameraCleanupPending",
+                        defaultValue: "Camera cleanup is still running. Retry after it finishes."
+                    ),
+                    isRecoverable: true
+                )
+            case .cancelled:
+                throw CancellationError()
+            }
         }
+        try Task.checkCancellation()
         let owner = try ownershipStore.claim(
             namespace: "camera",
             components: [deviceIdentifier, bundleIdentifier]
         )
-        ownerByTarget[Target(
-            deviceIdentifier: deviceIdentifier,
-            bundleIdentifier: bundleIdentifier
-        )] = owner
+        ownerByTarget[target] = owner
         return owner
     }
 
@@ -54,30 +88,65 @@ actor SimulatorCameraCleanupCoordinator {
     }
 
     func enqueue(
-        _ operation: @escaping @Sendable () async -> Void
-    ) -> Task<Void, Never> {
-        let previous = tail
-        let task = Task {
-            await previous?.value
-            guard !Task.isCancelled else { return }
-            await operation()
+        deviceIdentifier: String,
+        bundleIdentifiers: [String],
+        _ operation: @escaping @Sendable () async -> SimulatorCameraCleanupResult
+    ) -> Task<SimulatorCameraCleanupResult, Never> {
+        let targets = Set(bundleIdentifiers.filter { !$0.isEmpty }.map {
+            Target(deviceIdentifier: deviceIdentifier, bundleIdentifier: $0)
+        })
+        let previous = targets.compactMap { tailByTarget[$0] }
+        let task = Task<SimulatorCameraCleanupResult, Never> {
+            for pendingCleanup in previous {
+                _ = await pendingCleanup.value
+            }
+            guard !Task.isCancelled else {
+                return .failed(simulatorCameraCleanupCancellationFailure())
+            }
+            return await operation()
         }
-        revision &+= 1
-        let taskRevision = revision
-        tail = task
+        var revisions: [Target: UInt64] = [:]
+        for target in targets {
+            let revision = (revisionByTarget[target] ?? 0) &+ 1
+            revisionByTarget[target] = revision
+            tailByTarget[target] = task
+            revisions[target] = revision
+        }
         Task { [weak self] in
-            await task.value
-            await self?.clearTail(revision: taskRevision)
+            let result = await task.value
+            await self?.finish(revisions: revisions, result: result)
         }
         return task
     }
 
-    func currentTask() -> Task<Void, Never>? {
-        tail
+    private func finish(
+        revisions: [Target: UInt64],
+        result: SimulatorCameraCleanupResult
+    ) {
+        guard result == .completed else { return }
+        for (target, revision) in revisions
+        where revisionByTarget[target] == revision {
+            tailByTarget.removeValue(forKey: target)
+            revisionByTarget.removeValue(forKey: target)
+        }
     }
 
-    private func clearTail(revision: UInt64) {
-        guard self.revision == revision else { return }
-        tail = nil
+    private func waitForCurrentCleanup(
+        of target: Target
+    ) async -> SimulatorCameraCleanupResult {
+        while !Task.isCancelled,
+              let pendingCleanup = tailByTarget[target] {
+            let observedRevision = revisionByTarget[target]
+            let result = await pendingCleanup.value
+            guard revisionByTarget[target] == observedRevision else { continue }
+            if case .failed = result {
+                tailByTarget.removeValue(forKey: target)
+                revisionByTarget.removeValue(forKey: target)
+            }
+            return result
+        }
+        return Task.isCancelled
+            ? .failed(simulatorCameraCleanupCancellationFailure())
+            : .completed
     }
 }

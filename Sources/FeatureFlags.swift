@@ -60,6 +60,7 @@ final class CmuxFeatureFlags {
     private static let releaseControlDistinctIDKey = "cmux.flags.releaseControlDistinctID"
     private static let releaseControlDistinctIDPrefix =
         releaseControlProductWideDistinctID + "-"
+    private static let maximumPostHogControlPlaneResponseBytes = 1_048_576
 
     // Order is load-bearing for the typed accessors below. A keyed lookup would
     // repeat flag-key literals and violate the feature-flag lint's single
@@ -428,12 +429,31 @@ final class CmuxFeatureFlags {
         configuration.timeoutIntervalForResource = 15
         let session = URLSession(configuration: configuration)
         defer { session.invalidateAndCancel() }
-        guard let (data, response) = try? await session.data(for: request),
-              data.count <= 1_048_576,
+        guard let (bytes, response) = try? await session.bytes(for: request),
               let http = response as? HTTPURLResponse,
-              (200..<300).contains(http.statusCode)
+              (200..<300).contains(http.statusCode),
+              response.expectedContentLength < 0
+                || response.expectedContentLength <= maximumPostHogControlPlaneResponseBytes,
+              let data = try? await boundedPostHogControlPlaneData(
+                  from: bytes,
+                  maximumByteCount: maximumPostHogControlPlaneResponseBytes
+              )
         else { return nil }
         return postHogControlPlaneFlagValues(from: data)
+    }
+
+    nonisolated static func boundedPostHogControlPlaneData<Bytes: AsyncSequence>(
+        from bytes: Bytes,
+        maximumByteCount: Int
+    ) async throws -> Data? where Bytes.Element == UInt8 {
+        guard maximumByteCount >= 0 else { return nil }
+        var data = Data()
+        data.reserveCapacity(min(maximumByteCount, 16 * 1_024))
+        for try await byte in bytes {
+            guard data.count < maximumByteCount else { return nil }
+            data.append(byte)
+        }
+        return data
     }
 
     nonisolated static func postHogControlPlaneFlagValues(

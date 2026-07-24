@@ -23,14 +23,20 @@ extension SimulatorWorkerClient {
             throw SimulatorControlError(
                 code: "worker_request_capacity_exceeded",
                 arguments: [],
-                message: "The Simulator worker has too many pending requests."
+                message: String(
+                    localized: "simulator.failure.workerRequestCapacityExceeded",
+                    defaultValue: "The Simulator worker has too many pending requests."
+                )
             )
         }
         guard requestSubscribers[requestIdentifier] == nil else {
             throw SimulatorControlError(
                 code: "duplicate_worker_request",
                 arguments: [],
-                message: "A Simulator worker request reused an active identifier."
+                message: String(
+                    localized: "simulator.failure.workerRequestIdentifierDuplicate",
+                    defaultValue: "A Simulator worker request reused an active identifier."
+                )
             )
         }
         let source = SimulatorWorkerEventStreamSource(

@@ -124,7 +124,7 @@ extension SimulatorControlService {
                 namespace: "camera",
                 components: components
             ) else { return }
-            _ = try? await output(arguments: [
+            _ = try await output(arguments: [
                 "simctl", "launch", "--terminate-running-process", deviceID, bundleIdentifier,
             ])
         }
