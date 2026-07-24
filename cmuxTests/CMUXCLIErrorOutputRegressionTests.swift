@@ -13,6 +13,13 @@ import Testing
     struct ProcessRunResult {
         let status: Int32
         let stdout: String
+        /// Captured on its own pipe, not merged into `stdout`.
+        ///
+        /// Roughly thirty tests here parse stdout as JSON or compare it to an exact
+        /// reply. While both streams shared one pipe, a single unrelated diagnostic line
+        /// from the runtime landed in the middle of that payload and failed the content
+        /// check instead of naming itself.
+        let stderr: String
         let timedOut: Bool
         /// Defaulted so existing call sites are unaffected. A process killed by a signal reports
         /// `.uncaughtSignal`, and its `terminationStatus` is the signal number — indistinguishable
@@ -21,9 +28,14 @@ import Testing
 
         var diedFromSignal: Bool { terminationReason == .uncaughtSignal }
 
+        /// Both streams together, for a check that cares whether the CLI said something
+        /// at all rather than which stream carried it.
+        var combinedOutput: String { stdout + stderr }
+
         var diagnostics: String {
             "status=\(status) reason=\(diedFromSignal ? "uncaughtSignal" : "exit") "
-                + "timedOut=\(timedOut) stdout=\(stdout.isEmpty ? "<empty>" : stdout)"
+                + "timedOut=\(timedOut) stdout=\(stdout.isEmpty ? "<empty>" : stdout) "
+                + "stderr=\(stderr.isEmpty ? "<empty>" : stderr)"
         }
     }
 
@@ -47,6 +59,10 @@ import Testing
                 + "CFFIXED_USER_HOME=\(shellSingleQuote(home.path)) "
                 + "HOME=\(shellSingleQuote(home.path)) "
                 + "exec \(shellSingleQuote(cliPath)) definitely-not-a-command 2>&-",
+            // The assignments above are what the CLI sees; this is the shell's own
+            // environment, kept bare so no `CMUX_*` the test host was launched with
+            // leaks through to the child.
+            environment: ["PATH": "/usr/bin:/bin"],
             timeout: 5
         )
 
@@ -65,25 +81,37 @@ import Testing
 
     @Test func testAgentTeamsHelpDoesNotLaunchExternalAgentCLI() throws {
         let cliPath = try bundledCLIPath()
+        let home = try makeTemporaryHome()
+        defer { try? FileManager.default.removeItem(at: home) }
         var environment = ProcessInfo.processInfo.environment
         for key in Array(environment.keys) where key.hasPrefix("CMUX_") {
             environment.removeValue(forKey: key)
         }
         environment["CMUX_CLI_SENTRY_DISABLED"] = "1"
         environment["PATH"] = "/usr/bin:/bin"
+        environment["HOME"] = home.path
+        environment["CFFIXED_USER_HOME"] = home.path
+        // The CLI resolves its socket before it dispatches the command, so even a
+        // `--help` run walks the candidate list — which means reading the machine-wide
+        // marker file and connecting to any `cmux-debug-*.sock` it finds in /tmp. A
+        // per-run path nothing listens on is not one of the implicit defaults, so the
+        // CLI takes it as given and never goes looking.
+        environment["CMUX_SOCKET_PATH"] = "/tmp/cmux-agent-teams-help-\(UUID().uuidString.prefix(8)).sock"
 
         for command in ["claude-teams", "codex-teams"] {
             let result = runProcess(
                 executablePath: cliPath,
                 arguments: [command, "--help"],
-                environment: environment,
-                timeout: 5
+                environment: environment
             )
 
-            XCTAssertFalse(result.timedOut, result.stdout)
-            XCTAssertEqual(result.status, 0, result.stdout)
-            XCTAssertTrue(result.stdout.contains("Usage: cmux \(command)"), result.stdout)
-            XCTAssertFalse(result.stdout.contains("Failed to launch"), result.stdout)
+            XCTAssertFalse(result.timedOut, result.diagnostics)
+            XCTAssertEqual(result.status, 0, result.diagnostics)
+            XCTAssertTrue(result.stdout.contains("Usage: cmux \(command)"), result.diagnostics)
+            // The CLI reports a failed exec by throwing, and the top-level handler prints
+            // that on stderr, so this has to read both streams. On one shared pipe it
+            // used to cover either by accident.
+            XCTAssertFalse(result.combinedOutput.contains("Failed to launch"), result.diagnostics)
         }
     }
 
@@ -113,28 +141,30 @@ import Testing
             environment.removeValue(forKey: key)
         }
         environment["CMUX_CLI_SENTRY_DISABLED"] = "1"
-        // Redirect the CLI's stable-socket resolution to the temp home so this
-        // test is hermetic (CFFIXED_USER_HOME overrides homeDirectoryForCurrentUser).
+        // No CMUX_SOCKET_PATH on purpose: where the CLI lands with no override is the
+        // whole subject. That stays inside the test because the tag slug is unique per
+        // run, so the tagged default socket and the marker file the CLI consults are both
+        // named after this run. CFFIXED_USER_HOME moves the stable socket into the temp
+        // home (it overrides homeDirectoryForCurrentUser).
         environment["CFFIXED_USER_HOME"] = home.path
 
         let result = runProcess(
             executablePath: fakeCLIPath,
             arguments: ["ping"],
-            environment: environment,
-            timeout: 5
+            environment: environment
         )
 
-        XCTAssertFalse(result.timedOut, result.stdout)
-        XCTAssertEqual(result.status, 0, result.stdout)
+        XCTAssertFalse(result.timedOut, result.diagnostics)
+        XCTAssertEqual(result.status, 0, result.diagnostics)
         XCTAssertEqual(
             result.stdout.trimmingCharacters(in: .whitespacesAndNewlines),
             "OK TAGGED",
-            result.stdout
+            result.diagnostics
         )
         // The point of this test: the tagged socket was chosen and the stable one was not. These
         // hold whatever framing the reply uses, so a future reply change cannot make it vacuous.
-        XCTAssertEqual(taggedResponder.receivedRequests, ["ping"], result.stdout)
-        XCTAssertEqual(stableResponder.receivedRequests, [], result.stdout)
+        XCTAssertEqual(taggedResponder.receivedRequests, ["ping"], result.diagnostics)
+        XCTAssertEqual(stableResponder.receivedRequests, [], result.diagnostics)
     }
 
     @Test func testBundledCLIInTaggedDebugAppTreatsCaseVariantStableEnvSocketAsImplicitDefault() throws {
@@ -165,26 +195,26 @@ import Testing
         }
         environment["CMUX_CLI_SENTRY_DISABLED"] = "1"
         environment["CMUXTERM_CLI_RESPONSE_TIMEOUT_SEC"] = "5"
+        // The env socket here is deliberately one of the stable implicit defaults, since
+        // looking past it is what a tagged build has to do, so it cannot be pinned to a
+        // per-run path. The temp home keeps that default inside the test.
         environment["CMUX_SOCKET_PATH"] = caseVariantStablePath
-        // Resolve the stable path under the temp home so the case-variant env
-        // socket is recognized as the implicit default hermetically.
         environment["CFFIXED_USER_HOME"] = home.path
 
         let result = runProcess(
             executablePath: fakeCLIPath,
             arguments: ["ping"],
-            environment: environment,
-            timeout: 5
+            environment: environment
         )
 
-        XCTAssertFalse(result.timedOut, result.stdout)
-        XCTAssertEqual(result.status, 0, result.stdout)
+        XCTAssertFalse(result.timedOut, result.diagnostics)
+        XCTAssertEqual(result.status, 0, result.diagnostics)
         XCTAssertEqual(
             result.stdout.trimmingCharacters(in: .whitespacesAndNewlines),
             "PONG",
-            result.stdout
+            result.diagnostics
         )
-        XCTAssertEqual(stableResponder.receivedRequests, [])
+        XCTAssertEqual(stableResponder.receivedRequests, [], result.diagnostics)
     }
 
     @Test func testBundledCLIInTaggedDebugAppDoesNotFallBackToStableEnvSocketWhenTaggedSocketIsMissing() throws {
@@ -216,21 +246,24 @@ import Testing
         }
         environment["CMUX_CLI_SENTRY_DISABLED"] = "1"
         environment["CMUXTERM_CLI_RESPONSE_TIMEOUT_SEC"] = "0.1"
+        // Another deliberate stable-default env socket: pinning it to a per-run path would
+        // remove the fallback decision this test is about.
         environment["CMUX_SOCKET_PATH"] = stableSocketURL.path
         environment["CFFIXED_USER_HOME"] = fixedHomeURL.path
 
         let result = runProcess(
             executablePath: fakeCLIPath,
             arguments: ["ping"],
-            environment: environment,
-            timeout: 5
+            environment: environment
         )
 
-        XCTAssertFalse(result.timedOut, result.stdout)
-        XCTAssertNotEqual(result.status, 0, result.stdout)
-        XCTAssertTrue(result.stdout.contains(taggedSocketPath), result.stdout)
-        XCTAssertFalse(result.stdout.contains("OK STABLE"), result.stdout)
-        XCTAssertEqual(stableResponder.receivedRequests, [])
+        XCTAssertFalse(result.timedOut, result.diagnostics)
+        XCTAssertNotEqual(result.status, 0, result.diagnostics)
+        // The connect failure is thrown, and the top-level handler prints a thrown error
+        // on stderr, so that is where the socket it gave up on is named.
+        XCTAssertTrue(result.stderr.contains(taggedSocketPath), result.diagnostics)
+        XCTAssertFalse(result.combinedOutput.contains("OK STABLE"), result.diagnostics)
+        XCTAssertEqual(stableResponder.receivedRequests, [], result.diagnostics)
     }
 
     @Test func testBundledCLIInTaggedDebugAppTreatsUserScopedStableEnvSocketAsImplicitDefault() throws {
@@ -253,10 +286,6 @@ import Testing
                 .path,
         ]
 
-        if FileManager.default.fileExists(atPath: stableSocketPath) {
-            return
-        }
-
         for alias in aliases {
             try autoreleasepool {
                 let tagSlug = "cli-user-\(UUID().uuidString.lowercased())"
@@ -276,24 +305,25 @@ import Testing
                 }
                 environment["CMUX_CLI_SENTRY_DISABLED"] = "1"
                 environment["CMUXTERM_CLI_RESPONSE_TIMEOUT_SEC"] = "5"
+                // Each alias is a user-scoped stable default that a tagged build has to
+                // look past, so the env socket stays as spelled rather than pinned.
                 environment["CMUX_SOCKET_PATH"] = alias
                 environment["CFFIXED_USER_HOME"] = fixedHomeURL.path
 
                 let result = runProcess(
                     executablePath: fakeCLIPath,
                     arguments: ["ping"],
-                    environment: environment,
-                    timeout: 5
+                    environment: environment
                 )
 
-                XCTAssertFalse(result.timedOut, result.stdout)
-                XCTAssertEqual(result.status, 0, result.stdout)
+                XCTAssertFalse(result.timedOut, result.diagnostics)
+                XCTAssertEqual(result.status, 0, result.diagnostics)
                 XCTAssertEqual(
                     result.stdout.trimmingCharacters(in: .whitespacesAndNewlines),
                     "PONG",
-                    result.stdout
+                    result.diagnostics
                 )
-                XCTAssertEqual(stableResponder.receivedRequests, [], alias)
+                XCTAssertEqual(stableResponder.receivedRequests, [], "\(alias)\n\(result.diagnostics)")
             }
         }
     }
@@ -314,9 +344,7 @@ import Testing
         let userScopedStableSocketPath = socketDirectoryURL
             .appendingPathComponent("cmux-\(getuid()).sock", isDirectory: false)
             .path
-        if FileManager.default.fileExists(atPath: userScopedStableSocketPath) {
-            return
-        }
+        try writeStableSocketMarker(home: fixedHomeURL)
 
         let fakeStableCLIPath = try fakeTaggedBundledCLIPath(
             sourceCLIPath: cliPath,
@@ -335,32 +363,33 @@ import Testing
         }
         environment["CMUX_CLI_SENTRY_DISABLED"] = "1"
         environment["CMUXTERM_CLI_RESPONSE_TIMEOUT_SEC"] = "5"
+        // A stable implicit default on purpose: keeping this one rather than resolving on
+        // to another candidate is the behavior under test, so it is not pinned.
         environment["CMUX_SOCKET_PATH"] = userScopedStableSocketPath
         environment["CFFIXED_USER_HOME"] = fixedHomeURL.path
 
         let result = runProcess(
             executablePath: fakeStableCLIPath,
             arguments: ["ping"],
-            environment: environment,
-            timeout: 5
+            environment: environment
         )
 
-        XCTAssertFalse(result.timedOut, result.stdout)
-        XCTAssertEqual(result.status, 0, result.stdout)
+        XCTAssertFalse(result.timedOut, result.diagnostics)
+        XCTAssertEqual(result.status, 0, result.diagnostics)
         XCTAssertEqual(
             result.stdout.trimmingCharacters(in: .whitespacesAndNewlines),
             "OK USER",
-            result.stdout
+            result.diagnostics
         )
-        XCTAssertEqual(defaultResponder.receivedRequests, [])
+        XCTAssertEqual(defaultResponder.receivedRequests, [], result.diagnostics)
         XCTAssertEqual(
             userScopedResponder.receivedRequests.count,
             1,
-            userScopedResponder.receivedRequests.joined(separator: "\n")
+            "\(userScopedResponder.receivedRequests.joined(separator: "\n"))\n\(result.diagnostics)"
         )
         XCTAssertTrue(
             userScopedResponder.receivedRequests.contains { $0.contains("ping") },
-            userScopedResponder.receivedRequests.joined(separator: "\n")
+            "\(userScopedResponder.receivedRequests.joined(separator: "\n"))\n\(result.diagnostics)"
         )
     }
 
@@ -380,9 +409,7 @@ import Testing
         let userScopedStableSocketPath = socketDirectoryURL
             .appendingPathComponent("cmux-\(getuid()).sock", isDirectory: false)
             .path
-        if FileManager.default.fileExists(atPath: userScopedStableSocketPath) {
-            return
-        }
+        try writeStableSocketMarker(home: fixedHomeURL)
 
         let fakeStableCLIPath = try fakeTaggedBundledCLIPath(
             sourceCLIPath: cliPath,
@@ -399,35 +426,45 @@ import Testing
         }
         environment["CMUX_CLI_SENTRY_DISABLED"] = "1"
         environment["CMUXTERM_CLI_RESPONSE_TIMEOUT_SEC"] = "5"
+        // Nothing listens on this stable default, and finding the next candidate is the
+        // behavior under test, so the env socket stays as spelled.
         environment["CMUX_SOCKET_PATH"] = userScopedStableSocketPath
         environment["CFFIXED_USER_HOME"] = fixedHomeURL.path
 
         let result = runProcess(
             executablePath: fakeStableCLIPath,
             arguments: ["ping"],
-            environment: environment,
-            timeout: 5
+            environment: environment
         )
 
-        XCTAssertFalse(result.timedOut, result.stdout)
-        XCTAssertEqual(result.status, 0, result.stdout)
+        XCTAssertFalse(result.timedOut, result.diagnostics)
+        XCTAssertEqual(result.status, 0, result.diagnostics)
         XCTAssertEqual(
             result.stdout.trimmingCharacters(in: .whitespacesAndNewlines),
             "OK DEFAULT",
-            result.stdout
+            result.diagnostics
         )
         XCTAssertEqual(
             defaultResponder.receivedRequests.count,
             1,
-            defaultResponder.receivedRequests.joined(separator: "\n")
+            "\(defaultResponder.receivedRequests.joined(separator: "\n"))\n\(result.diagnostics)"
         )
         XCTAssertTrue(
             defaultResponder.receivedRequests.contains { $0.contains("ping") },
-            defaultResponder.receivedRequests.joined(separator: "\n")
+            "\(defaultResponder.receivedRequests.joined(separator: "\n"))\n\(result.diagnostics)"
         )
     }
 
-    @Test func testBundledStableCLIFallsBackFromSymlinkedLegacyStableEnvSocket() throws {
+    /// A symlink standing where a stable socket belongs is not a socket, and the CLI has
+    /// to resolve past it.
+    ///
+    /// The env socket is the user-scoped stable default inside this test's temp home. It
+    /// used to be `/tmp/cmux.sock`, the release app's own socket path, which the responder
+    /// unlinks before it binds — that takes the control socket away from a release app the
+    /// developer is running. The early return that was supposed to prevent it both raced
+    /// the app and, because it used `lstat` where the sibling test followed symlinks,
+    /// disagreed with itself about what counts as present.
+    @Test func testBundledStableCLIFallsBackFromSymlinkedStableEnvSocket() throws {
         let cliPath = try bundledCLIPath()
         let fixedHomeURL = URL(fileURLWithPath: "/tmp/cmxh-\(UUID().uuidString)", isDirectory: true)
         defer { try? FileManager.default.removeItem(at: fixedHomeURL) }
@@ -440,11 +477,11 @@ import Testing
         let defaultStableSocketPath = socketDirectoryURL
             .appendingPathComponent("cmux.sock", isDirectory: false)
             .path
-        let legacyStableSocketPath = "/tmp/cmux.sock"
+        let symlinkedStableSocketPath = socketDirectoryURL
+            .appendingPathComponent("cmux-\(getuid()).sock", isDirectory: false)
+            .path
         let symlinkTargetSocketPath = "/tmp/cmux-symlink-target-\(UUID().uuidString).sock"
-        if lstatPathExists(legacyStableSocketPath) {
-            return
-        }
+        try writeStableSocketMarker(home: fixedHomeURL)
 
         let fakeStableCLIPath = try fakeTaggedBundledCLIPath(
             sourceCLIPath: cliPath,
@@ -456,8 +493,7 @@ import Testing
         defer { defaultResponder.stop() }
         let targetResponder = try UnixSocketResponder(path: symlinkTargetSocketPath, response: "OK TARGET")
         defer { targetResponder.stop() }
-        XCTAssertEqual(symlink(symlinkTargetSocketPath, legacyStableSocketPath), 0)
-        defer { unlink(legacyStableSocketPath) }
+        XCTAssertEqual(symlink(symlinkTargetSocketPath, symlinkedStableSocketPath), 0)
 
         var environment = ProcessInfo.processInfo.environment
         for key in Array(environment.keys) where key.hasPrefix("CMUX_") {
@@ -465,97 +501,86 @@ import Testing
         }
         environment["CMUX_CLI_SENTRY_DISABLED"] = "1"
         environment["CMUXTERM_CLI_RESPONSE_TIMEOUT_SEC"] = "5"
-        environment["CMUX_SOCKET_PATH"] = legacyStableSocketPath
+        // The symlinked stable default is the input to the fallback under test, so it is
+        // not pinned to a per-run path.
+        environment["CMUX_SOCKET_PATH"] = symlinkedStableSocketPath
         environment["CFFIXED_USER_HOME"] = fixedHomeURL.path
 
         let result = runProcess(
             executablePath: fakeStableCLIPath,
             arguments: ["ping"],
-            environment: environment,
-            timeout: 5
+            environment: environment
         )
 
-        XCTAssertFalse(result.timedOut, result.stdout)
-        XCTAssertEqual(result.status, 0, result.stdout)
+        XCTAssertFalse(result.timedOut, result.diagnostics)
+        XCTAssertEqual(result.status, 0, result.diagnostics)
         XCTAssertEqual(
             result.stdout.trimmingCharacters(in: .whitespacesAndNewlines),
             "OK DEFAULT",
-            result.stdout
+            result.diagnostics
         )
         XCTAssertEqual(
             defaultResponder.receivedRequests.count,
             1,
-            defaultResponder.receivedRequests.joined(separator: "\n")
+            "\(defaultResponder.receivedRequests.joined(separator: "\n"))\n\(result.diagnostics)"
         )
         XCTAssertTrue(
             defaultResponder.receivedRequests.contains { $0.contains("ping") },
-            defaultResponder.receivedRequests.joined(separator: "\n")
+            "\(defaultResponder.receivedRequests.joined(separator: "\n"))\n\(result.diagnostics)"
         )
-        XCTAssertEqual(targetResponder.receivedRequests, [])
+        XCTAssertEqual(targetResponder.receivedRequests, [], result.diagnostics)
     }
 
-    @Test func testBundledStableCLIPreservesLiveLegacyStableEnvSocket() throws {
+    /// `/tmp/cmux.sock`, the release app's socket path, counts as a stable implicit
+    /// default: a tagged build handed it in the environment still talks to its own socket.
+    ///
+    /// Nothing here creates, binds, or removes that path — a release app may be using it
+    /// right now, and the responder unlinks whatever it finds before it binds. Only the
+    /// classification needs testing, and that is readable from which responder saw the
+    /// ping, with or without a release app running. The other half of the old test, that a
+    /// live stable env socket is kept rather than resolved away, is covered under a temp
+    /// home by ``testBundledStableCLIPreservesLiveUserScopedStableEnvSocket``.
+    @Test func testBundledCLIInTaggedDebugAppTreatsLegacyStableEnvSocketAsImplicitDefault() throws {
         let cliPath = try bundledCLIPath()
-        let fixedHomeURL = URL(fileURLWithPath: "/tmp/cmxh-\(UUID().uuidString)", isDirectory: true)
-        defer { try? FileManager.default.removeItem(at: fixedHomeURL) }
-        let socketDirectoryURL = fixedHomeURL
-            .appendingPathComponent(".local/state/cmux", isDirectory: true)
-        try FileManager.default.createDirectory(
-            at: socketDirectoryURL,
-            withIntermediateDirectories: true
-        )
-        let defaultStableSocketPath = socketDirectoryURL
-            .appendingPathComponent("cmux.sock", isDirectory: false)
-            .path
-        let legacyStableSocketPath = "/tmp/cmux.sock"
-        if FileManager.default.fileExists(atPath: legacyStableSocketPath) {
-            return
-        }
+        let tagSlug = "cli-legacy-\(UUID().uuidString.lowercased())"
+        let taggedSocketPath = "/tmp/cmux-debug-\(tagSlug).sock"
+        let home = try makeTemporaryHome()
+        defer { try? FileManager.default.removeItem(at: home) }
+        let stableSocketURL = try stableSocketURL(home: home)
 
-        let fakeStableCLIPath = try fakeTaggedBundledCLIPath(
+        let stableResponder = try UnixSocketResponder(path: stableSocketURL.path, response: "OK STABLE")
+        defer { stableResponder.stop() }
+        let taggedResponder = try UnixSocketResponder(path: taggedSocketPath, response: "PONG")
+        defer { taggedResponder.stop() }
+
+        let fakeCLIPath = try fakeTaggedBundledCLIPath(
             sourceCLIPath: cliPath,
-            tagSlug: "stable-\(UUID().uuidString.lowercased())",
-            bundleIdentifier: "com.cmuxterm.app",
-            bundleName: "cmux"
+            tagSlug: tagSlug
         )
-        let defaultResponder = try UnixSocketResponder(path: defaultStableSocketPath, response: "OK DEFAULT")
-        defer { defaultResponder.stop() }
-        let legacyResponder = try UnixSocketResponder(path: legacyStableSocketPath, response: "OK LEGACY")
-        defer { legacyResponder.stop() }
-
         var environment = ProcessInfo.processInfo.environment
         for key in Array(environment.keys) where key.hasPrefix("CMUX_") {
             environment.removeValue(forKey: key)
         }
         environment["CMUX_CLI_SENTRY_DISABLED"] = "1"
         environment["CMUXTERM_CLI_RESPONSE_TIMEOUT_SEC"] = "5"
-        environment["CMUX_SOCKET_PATH"] = legacyStableSocketPath
-        environment["CFFIXED_USER_HOME"] = fixedHomeURL.path
+        environment["CMUX_SOCKET_PATH"] = SocketControlSettings.legacyStableDefaultSocketPath
+        environment["CFFIXED_USER_HOME"] = home.path
 
         let result = runProcess(
-            executablePath: fakeStableCLIPath,
+            executablePath: fakeCLIPath,
             arguments: ["ping"],
-            environment: environment,
-            timeout: 5
+            environment: environment
         )
 
-        XCTAssertFalse(result.timedOut, result.stdout)
-        XCTAssertEqual(result.status, 0, result.stdout)
+        XCTAssertFalse(result.timedOut, result.diagnostics)
+        XCTAssertEqual(result.status, 0, result.diagnostics)
         XCTAssertEqual(
             result.stdout.trimmingCharacters(in: .whitespacesAndNewlines),
-            "OK LEGACY",
-            result.stdout
+            "PONG",
+            result.diagnostics
         )
-        XCTAssertEqual(defaultResponder.receivedRequests, [])
-        XCTAssertEqual(
-            legacyResponder.receivedRequests.count,
-            1,
-            legacyResponder.receivedRequests.joined(separator: "\n")
-        )
-        XCTAssertTrue(
-            legacyResponder.receivedRequests.contains { $0.contains("ping") },
-            legacyResponder.receivedRequests.joined(separator: "\n")
-        )
+        XCTAssertEqual(taggedResponder.receivedRequests, ["ping"], result.diagnostics)
+        XCTAssertEqual(stableResponder.receivedRequests, [], result.diagnostics)
     }
 
     @Test func testBundledCLISkipsIdentifierlessNestedAppWhenResolvingTaggedSocket() throws {
@@ -585,27 +610,27 @@ import Testing
             environment.removeValue(forKey: key)
         }
         environment["CMUX_CLI_SENTRY_DISABLED"] = "1"
-        // Redirect the CLI's stable-socket resolution to the temp home (hermetic).
+        // No CMUX_SOCKET_PATH again: resolution from the bundle layout is the subject. The
+        // temp home and the unique tag slug keep that resolution inside the test.
         environment["CFFIXED_USER_HOME"] = home.path
 
         let result = runProcess(
             executablePath: fakeCLIPath,
             arguments: ["ping"],
-            environment: environment,
-            timeout: 5
+            environment: environment
         )
 
-        XCTAssertFalse(result.timedOut, result.stdout)
-        XCTAssertEqual(result.status, 0, result.stdout)
+        XCTAssertFalse(result.timedOut, result.diagnostics)
+        XCTAssertEqual(result.status, 0, result.diagnostics)
         XCTAssertEqual(
             result.stdout.trimmingCharacters(in: .whitespacesAndNewlines),
             "OK TAGGED",
-            result.stdout
+            result.diagnostics
         )
         // The point of this test: the tagged socket was chosen and the stable one was not. These
         // hold whatever framing the reply uses, so a future reply change cannot make it vacuous.
-        XCTAssertEqual(taggedResponder.receivedRequests, ["ping"], result.stdout)
-        XCTAssertEqual(stableResponder.receivedRequests, [], result.stdout)
+        XCTAssertEqual(taggedResponder.receivedRequests, ["ping"], result.diagnostics)
+        XCTAssertEqual(stableResponder.receivedRequests, [], result.diagnostics)
     }
 
     @Test func testThemesSetReloadsRunningAppAfterEveryThemeWrite() throws {
@@ -626,7 +651,14 @@ import Testing
         let socketPath = "/tmp/cmux-theme-\(UUID().uuidString.prefix(8)).sock"
         let responder = try UnixSocketResponder(path: socketPath, response: "OK")
         defer { responder.stop() }
-        let bundleIdentifier = "com.cmuxterm.app.debug.issue-4355-test"
+        // The reload notification travels over DistributedNotificationCenter, which is
+        // machine-wide, and the observer below filters only on the bundle identifier. With
+        // a fixed identifier a second run of this test on the same machine fulfills this
+        // run's expectation and appends to its list, so the identifier carries a per-run
+        // suffix. The CLI takes the identifier from CMUX_BUNDLE_ID here because this
+        // socket file name has no channel prefix to derive one from.
+        let bundleIdentifier = "com.cmuxterm.app.debug.issue-4355-test."
+            + UUID().uuidString.lowercased().replacingOccurrences(of: "-", with: "")
         let reloadExpectation = expectation(description: "cmux themes set posts final reload notifications")
         reloadExpectation.expectedFulfillmentCount = 3
         let notificationQueue = OperationQueue()
@@ -672,12 +704,11 @@ import Testing
             let result = runProcess(
                 executablePath: cliPath,
                 arguments: ["themes", "set", themeName],
-                environment: environment,
-                timeout: 5
+                environment: environment
             )
 
-            XCTAssertFalse(result.timedOut, result.stdout)
-            XCTAssertEqual(result.status, 0, result.stdout)
+            XCTAssertFalse(result.timedOut, result.diagnostics)
+            XCTAssertEqual(result.status, 0, result.diagnostics)
             observedThemeValues.append(try managedThemeValue(in: configURL))
         }
         wait(for: [reloadExpectation], timeout: 5)
@@ -758,12 +789,11 @@ import Testing
         let result = runProcess(
             executablePath: cliPath,
             arguments: ["--json", "themes", "set", "Theme A"],
-            environment: environment,
-            timeout: 5
+            environment: environment
         )
 
-        XCTAssertFalse(result.timedOut, result.stdout)
-        XCTAssertEqual(result.status, 0, result.stdout)
+        XCTAssertFalse(result.timedOut, result.diagnostics)
+        XCTAssertEqual(result.status, 0, result.diagnostics)
         wait(for: [reloadExpectation], timeout: 5)
 
         notificationLock.lock()
@@ -772,8 +802,11 @@ import Testing
         XCTAssertEqual(reloads.map { $0.bundleIdentifier }, [targetBundleIdentifier])
         XCTAssertEqual(reloads.map { $0.phase }, ["final"])
         XCTAssertEqual(reloads.map { $0.socketPath }, [socketPath])
-        XCTAssertFalse(result.stdout.contains(staleBundleIdentifier), result.stdout)
-        XCTAssertTrue(result.stdout.contains(targetBundleIdentifier), result.stdout)
+        // The stale identifier must not show up anywhere the CLI writes, which is why this
+        // one reads both streams: the JSON payload is on stdout, and a leak through an
+        // error message would land on stderr.
+        XCTAssertFalse(result.combinedOutput.contains(staleBundleIdentifier), result.diagnostics)
+        XCTAssertTrue(result.stdout.contains(targetBundleIdentifier), result.diagnostics)
     }
 
     @Test func testThemesSetNightlyOverridePathIsReadableByNightlyAppConfigResolution() throws {
@@ -789,7 +822,16 @@ import Testing
         try fileManager.createDirectory(at: themesURL, withIntermediateDirectories: true)
         try writeTheme(named: "Theme A", background: "#101010", to: themesURL)
 
-        let bundleIdentifier = "com.cmuxterm.app.nightly"
+        // The reload target comes from the socket file name before CMUX_BUNDLE_ID is even
+        // consulted: `cmux-nightly-<slug>.sock` becomes `com.cmuxterm.app.nightly.<slug>`.
+        // So scoping the identifier means scoping the socket name it is read from, and both
+        // take the same hex-only suffix — a raw UUID's dashes would turn into dots in the
+        // identifier. Scoping matters because the reload goes out machine-wide: on the
+        // plain nightly socket name this test told a real nightly build to re-read its
+        // config, and two runs at once shared one identifier.
+        let uniqueSuffix = UUID().uuidString.lowercased().replacingOccurrences(of: "-", with: "")
+        let socketPath = "/tmp/cmux-nightly-\(uniqueSuffix).sock"
+        let bundleIdentifier = "com.cmuxterm.app.nightly.\(uniqueSuffix)"
         var environment = ProcessInfo.processInfo.environment
         for key in Array(environment.keys) where key.hasPrefix("CMUX_") {
             environment.removeValue(forKey: key)
@@ -797,25 +839,26 @@ import Testing
         environment["CFFIXED_USER_HOME"] = root.path
         environment["HOME"] = root.path
         environment["GHOSTTY_RESOURCES_DIR"] = resourcesURL.path
-        environment["CMUX_SOCKET_PATH"] = "/tmp/cmux-nightly.sock"
+        environment["CMUX_SOCKET_PATH"] = socketPath
         environment["CMUX_BUNDLE_ID"] = bundleIdentifier
         environment["CMUX_CLI_SENTRY_DISABLED"] = "1"
 
         let result = runProcess(
             executablePath: cliPath,
             arguments: ["--json", "themes", "set", "Theme A"],
-            environment: environment,
-            timeout: 5
+            environment: environment
         )
 
-        XCTAssertFalse(result.timedOut, result.stdout)
-        XCTAssertEqual(result.status, 0, result.stdout)
+        XCTAssertFalse(result.timedOut, result.diagnostics)
+        XCTAssertEqual(result.status, 0, result.diagnostics)
 
+        // Parsed from stdout alone. This is the check that used to break when a stray
+        // diagnostic line from the runtime shared the pipe with the payload.
         let payload = try XCTUnwrap(
             JSONSerialization.jsonObject(with: Data(result.stdout.utf8)) as? [String: Any],
-            result.stdout
+            result.diagnostics
         )
-        let configPath = try XCTUnwrap(payload["config_path"] as? String, result.stdout)
+        let configPath = try XCTUnwrap(payload["config_path"] as? String, result.diagnostics)
         XCTAssertEqual(payload["reload_target_bundle_id"] as? String, bundleIdentifier)
 
         let appSupportDirectory = root
@@ -914,17 +957,20 @@ import Testing
             shellSingleQuote(fakeCLIPath),
             "themes",
         ].joined(separator: " ")
-        let result = runShell(command, timeout: 5)
+        // `env -i` builds the CLI's environment from scratch, so the shell needs only a
+        // PATH of its own to find `env` — and nothing the test host was launched with
+        // reaches the CLI.
+        let result = runShell(command, environment: ["PATH": "/usr/bin:/bin"])
 
-        XCTAssertFalse(result.timedOut, result.stdout)
-        XCTAssertEqual(result.status, 0, result.stdout)
+        XCTAssertFalse(result.timedOut, result.diagnostics)
+        XCTAssertEqual(result.status, 0, result.diagnostics)
         wait(for: [reloadExpectation], timeout: 5)
         notificationLock.lock()
         let reloads = observedReloads
         notificationLock.unlock()
         XCTAssertEqual(reloads.map { $0.bundleIdentifier }, [bundleIdentifier])
         XCTAssertEqual(reloads.map { $0.phase }, ["final"])
-        XCTAssertEqual(responder.receivedRequests, [])
+        XCTAssertEqual(responder.receivedRequests, [], result.diagnostics)
     }
 
     @Test func testBareInteractiveThemesTreatsSigintAsSilentCancel() throws {
@@ -980,12 +1026,18 @@ import Testing
             shellSingleQuote(fakeCLIPath),
             "themes",
         ].joined(separator: " ")
-        let result = runShell(command, timeout: 5)
+        let result = runShell(command, environment: ["PATH": "/usr/bin:/bin"])
 
-        XCTAssertFalse(result.timedOut, result.stdout)
-        XCTAssertEqual(result.status, 0, result.stdout)
-        XCTAssertFalse(result.stdout.contains("Interactive theme picker exited"), result.stdout)
-        XCTAssertEqual(responder.receivedRequests, [])
+        XCTAssertFalse(result.timedOut, result.diagnostics)
+        XCTAssertEqual(result.status, 0, result.diagnostics)
+        // `script` hands the CLI a pty for both streams, so a cancel notice arrives on
+        // stdout today. Reading both keeps this from going quiet if that changes — the
+        // notice is a thrown error, and thrown errors print on stderr.
+        XCTAssertFalse(
+            result.combinedOutput.contains("Interactive theme picker exited"),
+            result.diagnostics
+        )
+        XCTAssertEqual(responder.receivedRequests, [], result.diagnostics)
     }
 
     @Test func testBrowserDownloadWaitUsesRequestedTimeoutForSocketResponse() throws {
@@ -1014,12 +1066,19 @@ import Testing
                 "1000",
             ],
             environment: environment,
+            // A deliberate cap, not a hang guard: the responder answers after 0.4s and the
+            // request asks for 1000ms, so this run has to finish well inside 3s. Raising it
+            // to the suite default would let a CLI that ignored --timeout-ms still pass.
             timeout: 3
         )
 
-        XCTAssertFalse(result.timedOut, result.stdout)
-        XCTAssertEqual(result.status, 0, result.stdout)
-        XCTAssertEqual(result.stdout.trimmingCharacters(in: .whitespacesAndNewlines), "OK")
+        XCTAssertFalse(result.timedOut, result.diagnostics)
+        XCTAssertEqual(result.status, 0, result.diagnostics)
+        XCTAssertEqual(
+            result.stdout.trimmingCharacters(in: .whitespacesAndNewlines),
+            "OK",
+            result.diagnostics
+        )
     }
 
     @Test func testBrowserDownloadWaitDefaultTimeoutMatchesServerDefaultWindow() throws {
@@ -1046,12 +1105,21 @@ import Testing
                 "wait",
             ],
             environment: environment,
+            // A deliberate cap, and the only upper bound that gives this test meaning: the
+            // responder answers after 10.5s, so waiting the server's default window has to
+            // land between there and 16s. Under the suite default a CLI that waited a full
+            // minute would still pass, and "matches the server default window" would stop
+            // being a claim about anything.
             timeout: 16
         )
 
-        XCTAssertFalse(result.timedOut, result.stdout)
-        XCTAssertEqual(result.status, 0, result.stdout)
-        XCTAssertEqual(result.stdout.trimmingCharacters(in: .whitespacesAndNewlines), "OK")
+        XCTAssertFalse(result.timedOut, result.diagnostics)
+        XCTAssertEqual(result.status, 0, result.diagnostics)
+        XCTAssertEqual(
+            result.stdout.trimmingCharacters(in: .whitespacesAndNewlines),
+            "OK",
+            result.diagnostics
+        )
     }
 
     @Test func testDotPathOpenBypassesProtectedSocketForExternalCLI() throws {
@@ -1099,14 +1167,17 @@ import Testing
             executablePath: cliPath,
             arguments: ["."],
             environment: environment,
-            currentDirectoryURL: workingDirectory,
-            timeout: 5
+            currentDirectoryURL: workingDirectory
         )
 
-        XCTAssertFalse(result.timedOut, result.stdout)
-        XCTAssertEqual(result.status, 0, result.stdout)
-        XCTAssertEqual(result.stdout.trimmingCharacters(in: .whitespacesAndNewlines), "OK")
-        XCTAssertEqual(responder.receivedRequests, [])
+        XCTAssertFalse(result.timedOut, result.diagnostics)
+        XCTAssertEqual(result.status, 0, result.diagnostics)
+        XCTAssertEqual(
+            result.stdout.trimmingCharacters(in: .whitespacesAndNewlines),
+            "OK",
+            result.diagnostics
+        )
+        XCTAssertEqual(responder.receivedRequests, [], result.diagnostics)
 
         let openArguments = try readFakeOpenArguments(from: openLogURL)
         XCTAssertEqual(openArguments.first, "-a")
@@ -1167,14 +1238,17 @@ import Testing
             executablePath: cliPath,
             arguments: ["project"],
             environment: environment,
-            currentDirectoryURL: root,
-            timeout: 5
+            currentDirectoryURL: root
         )
 
-        XCTAssertFalse(result.timedOut, result.stdout)
-        XCTAssertEqual(result.status, 0, result.stdout)
-        XCTAssertEqual(result.stdout.trimmingCharacters(in: .whitespacesAndNewlines), "OK")
-        XCTAssertEqual(responder.receivedRequests, [])
+        XCTAssertFalse(result.timedOut, result.diagnostics)
+        XCTAssertEqual(result.status, 0, result.diagnostics)
+        XCTAssertEqual(
+            result.stdout.trimmingCharacters(in: .whitespacesAndNewlines),
+            "OK",
+            result.diagnostics
+        )
+        XCTAssertEqual(responder.receivedRequests, [], result.diagnostics)
 
         let openArguments = try readFakeOpenArguments(from: openLogURL)
         XCTAssertEqual(openArguments.last, workingDirectory.standardizedFileURL.path)
@@ -1212,15 +1286,18 @@ import Testing
             executablePath: cliPath,
             arguments: ["ping"],
             environment: environment,
-            currentDirectoryURL: root,
-            timeout: 5
+            currentDirectoryURL: root
         )
 
-        XCTAssertFalse(result.timedOut, result.stdout)
-        XCTAssertEqual(result.status, 0, result.stdout)
-        XCTAssertEqual(result.stdout.trimmingCharacters(in: .whitespacesAndNewlines), "PONG")
-        XCTAssertEqual(responder.receivedRequests, ["ping"])
-        XCTAssertFalse(FileManager.default.fileExists(atPath: openLogURL.path))
+        XCTAssertFalse(result.timedOut, result.diagnostics)
+        XCTAssertEqual(result.status, 0, result.diagnostics)
+        XCTAssertEqual(
+            result.stdout.trimmingCharacters(in: .whitespacesAndNewlines),
+            "PONG",
+            result.diagnostics
+        )
+        XCTAssertEqual(responder.receivedRequests, ["ping"], result.diagnostics)
+        XCTAssertFalse(FileManager.default.fileExists(atPath: openLogURL.path), result.diagnostics)
     }
 
     @Test func testCaseVariantBareRelativeDirectoryPathOpenBypassesProtectedSocket() throws {
@@ -1256,14 +1333,17 @@ import Testing
             executablePath: cliPath,
             arguments: ["Docs"],
             environment: environment,
-            currentDirectoryURL: root,
-            timeout: 5
+            currentDirectoryURL: root
         )
 
-        XCTAssertFalse(result.timedOut, result.stdout)
-        XCTAssertEqual(result.status, 0, result.stdout)
-        XCTAssertEqual(result.stdout.trimmingCharacters(in: .whitespacesAndNewlines), "OK")
-        XCTAssertEqual(responder.receivedRequests, [])
+        XCTAssertFalse(result.timedOut, result.diagnostics)
+        XCTAssertEqual(result.status, 0, result.diagnostics)
+        XCTAssertEqual(
+            result.stdout.trimmingCharacters(in: .whitespacesAndNewlines),
+            "OK",
+            result.diagnostics
+        )
+        XCTAssertEqual(responder.receivedRequests, [], result.diagnostics)
 
         let openArguments = try readFakeOpenArguments(from: openLogURL)
         XCTAssertEqual(openArguments.last, workingDirectory.standardizedFileURL.path)
@@ -1301,13 +1381,16 @@ import Testing
             executablePath: cliPath,
             arguments: ["--socket", socketPath, "."],
             environment: environment,
-            currentDirectoryURL: workingDirectory,
-            timeout: 5
+            currentDirectoryURL: workingDirectory
         )
 
-        XCTAssertFalse(result.timedOut, result.stdout)
-        XCTAssertEqual(result.status, 0, result.stdout)
-        XCTAssertEqual(result.stdout.trimmingCharacters(in: .whitespacesAndNewlines), "OK workspace:explicit")
+        XCTAssertFalse(result.timedOut, result.diagnostics)
+        XCTAssertEqual(result.status, 0, result.diagnostics)
+        XCTAssertEqual(
+            result.stdout.trimmingCharacters(in: .whitespacesAndNewlines),
+            "OK workspace:explicit",
+            result.diagnostics
+        )
 
         let request = try XCTUnwrap(responder.receivedRequests.first)
         let requestData = try XCTUnwrap(request.data(using: .utf8))
@@ -1346,6 +1429,25 @@ import Testing
         let directory = CmuxStateDirectory.url(homeDirectory: home)
         try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
         return directory.appendingPathComponent("cmux.sock", isDirectory: false)
+    }
+
+    /// Points the stable last-socket-path marker inside `home` at a path of the test's own.
+    ///
+    /// `CFFIXED_USER_HOME` moves the socket directory but not socket discovery: the CLI
+    /// reads the first marker file it can open, and the second candidate is the
+    /// machine-wide `/tmp/cmux-last-socket-path`, which on a developer's machine names the
+    /// socket of the cmux they are running. Writing the per-home marker keeps the candidate
+    /// list inside the test even when the test's own default socket is missing. The path
+    /// written is deliberately one that does not exist, so it can never be connected to.
+    private func writeStableSocketMarker(home: URL) throws {
+        let directory = CmuxStateDirectory.url(homeDirectory: home)
+        try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
+        let markerURL = directory.appendingPathComponent(
+            SocketPathMarkerFiles.stableMarkerFileName,
+            isDirectory: false
+        )
+        try "/tmp/cmux-marker-\(UUID().uuidString.prefix(8)).sock\n"
+            .write(to: markerURL, atomically: true, encoding: .utf8)
     }
 
     private func writeTheme(named name: String, background: String, to directory: URL) throws {
@@ -1437,47 +1539,22 @@ import Testing
         "'\(value.replacingOccurrences(of: "'", with: "'\"'\"'"))'"
     }
 
-    private func lstatPathExists(_ path: String) -> Bool {
-        var st = stat()
-        return lstat(path, &st) == 0
-    }
-
-    private func runShell(_ command: String, timeout: TimeInterval) -> ProcessRunResult {
+    /// Runs a shell command with its environment spelled out.
+    ///
+    /// The environment is a required parameter. A child that inherits the test host's
+    /// environment also inherits whatever `CMUX_*` variables the host was launched with,
+    /// and that is one of the ways a spawned CLI ends up talking to the cmux the
+    /// developer is actually running.
+    private func runShell(
+        _ command: String,
+        environment: [String: String],
+        timeout: TimeInterval? = nil
+    ) -> ProcessRunResult {
         let process = Process()
-        let stdoutPipe = Pipe()
         process.executableURL = URL(fileURLWithPath: "/bin/sh")
         process.arguments = ["-c", command]
-        process.standardInput = FileHandle.nullDevice
-        process.standardOutput = stdoutPipe
-
-        do {
-            try process.run()
-        } catch {
-            return ProcessRunResult(status: -1, stdout: String(describing: error), timedOut: false)
-        }
-
-        let exitSignal = DispatchSemaphore(value: 0)
-        DispatchQueue.global(qos: .userInitiated).async {
-            process.waitUntilExit()
-            exitSignal.signal()
-        }
-
-        let timedOut = exitSignal.wait(timeout: .now() + timeout) == .timedOut
-        if timedOut {
-            process.terminate()
-            if exitSignal.wait(timeout: .now() + 1) == .timedOut,
-               process.isRunning {
-                kill(process.processIdentifier, SIGKILL)
-                _ = exitSignal.wait(timeout: .now() + 1)
-            }
-        }
-
-        return ProcessRunResult(
-            status: process.terminationStatus,
-            stdout: String(data: stdoutPipe.fileHandleForReading.readDataToEndOfFile(), encoding: .utf8) ?? "",
-            timedOut: timedOut,
-            terminationReason: process.terminationReason
-        )
+        process.environment = environment
+        return runToCompletion(process, timeout: timeout)
     }
 
     func runProcess(
@@ -1485,23 +1562,48 @@ import Testing
         arguments: [String],
         environment: [String: String],
         currentDirectoryURL: URL? = nil,
-        timeout: TimeInterval
+        timeout: TimeInterval? = nil
     ) -> ProcessRunResult {
         let process = Process()
-        let outputPipe = Pipe()
         process.executableURL = URL(fileURLWithPath: executablePath)
         process.arguments = arguments
         process.environment = environment
         process.currentDirectoryURL = currentDirectoryURL
+        return runToCompletion(process, timeout: timeout)
+    }
+
+    /// Runs `process` to completion, capturing stdout and stderr on separate pipes.
+    ///
+    /// Both readers start before the wait. Calling `readDataToEndOfFile()` only after
+    /// `waitUntilExit()` returns deadlocks as soon as the child fills a pipe buffer, and
+    /// that deadlock is indistinguishable from a hang inside the CLI.
+    ///
+    /// - Parameter timeout: This run's deadline. A test that asserts how long the CLI
+    ///   waits passes its own; everything else takes ``CMUXCLITestHangGuard/seconds``.
+    private func runToCompletion(
+        _ process: Process,
+        timeout: TimeInterval? = nil
+    ) -> ProcessRunResult {
+        let budget = timeout ?? CMUXCLITestHangGuard.seconds
+        let stdoutPipe = Pipe()
+        let stderrPipe = Pipe()
         process.standardInput = FileHandle.nullDevice
-        process.standardOutput = outputPipe
-        process.standardError = outputPipe
+        process.standardOutput = stdoutPipe
+        process.standardError = stderrPipe
 
         do {
             try process.run()
         } catch {
-            return ProcessRunResult(status: -1, stdout: String(describing: error), timedOut: false)
+            // Five sibling suites share this runner and print only `stdout` when they
+            // fail, so a launch failure has to reach stdout as well or those tests
+            // report an empty message.
+            let message = "test runner could not spawn "
+                + "\(process.executableURL?.path ?? "<none>"): \(error)"
+            return ProcessRunResult(status: -1, stdout: message, stderr: message, timedOut: false)
         }
+
+        let stdoutDrain = PipeDrain(stdoutPipe.fileHandleForReading)
+        let stderrDrain = PipeDrain(stderrPipe.fileHandleForReading)
 
         let exitSignal = DispatchSemaphore(value: 0)
         DispatchQueue.global(qos: .userInitiated).async {
@@ -1509,7 +1611,7 @@ import Testing
             exitSignal.signal()
         }
 
-        let timedOut = exitSignal.wait(timeout: .now() + timeout) == .timedOut
+        let timedOut = exitSignal.wait(timeout: .now() + budget) == .timedOut
         if timedOut {
             process.terminate()
             if exitSignal.wait(timeout: .now() + 1) == .timedOut,
@@ -1519,12 +1621,47 @@ import Testing
             }
         }
 
+        // The child is gone by now, so its ends of both pipes are closed and each reader
+        // sees EOF. The ceiling covers a grandchild that inherited a write end and
+        // outlived its parent: report what was read rather than block the suite on it.
+        let stdoutText = stdoutDrain.text(waitingUpTo: 5)
+        let stderrText = stderrDrain.text(waitingUpTo: 5)
+
         return ProcessRunResult(
             status: process.terminationStatus,
-            stdout: String(data: outputPipe.fileHandleForReading.readDataToEndOfFile(), encoding: .utf8) ?? "",
+            stdout: stdoutText,
+            stderr: stderrText,
             timedOut: timedOut,
             terminationReason: process.terminationReason
         )
+    }
+
+    /// Reads one pipe on a background queue so a child writing more than a pipe buffer
+    /// never blocks while the test is waiting for it to exit.
+    private final class PipeDrain: @unchecked Sendable {
+        private let lock = NSLock()
+        private var data = Data()
+        private let finished = DispatchSemaphore(value: 0)
+
+        init(_ handle: FileHandle) {
+            DispatchQueue.global(qos: .userInitiated).async { [self] in
+                store(handle.readDataToEndOfFile())
+            }
+        }
+
+        private func store(_ read: Data) {
+            lock.lock()
+            data = read
+            lock.unlock()
+            finished.signal()
+        }
+
+        func text(waitingUpTo timeout: TimeInterval) -> String {
+            _ = finished.wait(timeout: .now() + timeout)
+            lock.lock()
+            defer { lock.unlock() }
+            return String(data: data, encoding: .utf8) ?? ""
+        }
     }
 
     private func fakeOpenScript() -> String {
