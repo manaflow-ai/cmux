@@ -475,6 +475,225 @@ final class AppDelegateEqualizeSplitsShortcutTests: XCTestCase {
         }
     }
 
+    func testWorkspaceTerminalFontSizeDrainSeedsLateTerminalsExactlyOnce() {
+        withTemporaryShortcut(action: .decreaseWorkspaceTerminalFontSize) {
+            guard let appDelegate = AppDelegate.shared else {
+                XCTFail("Expected AppDelegate.shared")
+                return
+            }
+
+            let windowId = appDelegate.createMainWindow()
+            defer { closeWindow(withId: windowId) }
+
+            guard let window = window(withId: windowId),
+                  let repeatedEvent = makeKeyDownEvent(
+                    key: "-",
+                    modifiers: [.command, .control],
+                    keyCode: 27,
+                    windowNumber: window.windowNumber,
+                    isARepeat: true
+                  ) else {
+                XCTFail("Expected repeated Cmd+Ctrl+- event")
+                return
+            }
+
+            let windowDock = appDelegate.windowDock(forWindowId: windowId)
+            func dormantPanel(id: UUID, basePoints: Float32 = 20) -> TerminalPanel {
+                let panel = TerminalPanel(
+                    id: id,
+                    workspaceId: windowDock.workspaceId,
+                    runtimeSpawnPolicy: .pacedSessionRestore
+                )
+                panel.surface.recordCurrentFontSizeLineage(
+                    TerminalFontSizeLineage(
+                        basePoints: basePoints,
+                        isExplicitOverride: true
+                    )
+                )
+                windowDock.panels[panel.id] = panel
+                return panel
+            }
+
+            let adjustedSource = dormantPanel(
+                id: UUID(uuidString: "00000000-0000-4000-8000-000000000001")!
+            )
+            for suffix in 2...10 {
+                _ = dormantPanel(
+                    id: UUID(
+                        uuidString: String(
+                            format: "00000000-0000-4000-8000-%012d",
+                            suffix
+                        )
+                    )!
+                )
+            }
+            let staleSource = dormantPanel(
+                id: UUID(uuidString: "FFFFFFFF-FFFF-4FFF-BFFF-FFFFFFFFFFFF")!,
+                basePoints: 19
+            )
+
+#if DEBUG
+            appDelegate.debugFlushPendingWorkspaceTerminalFontSizeChanges()
+            XCTAssertTrue(appDelegate.debugHandleCustomShortcut(event: repeatedEvent))
+            appDelegate.debugFlushPendingWorkspaceTerminalFontSizeChanges()
+#else
+            XCTFail("Workspace font-size drain hooks are only available in DEBUG")
+            return
+#endif
+
+            XCTAssertEqual(
+                adjustedSource.surface.fontSizeLineageSnapshot()?.basePoints,
+                19
+            )
+            XCTAssertEqual(
+                staleSource.surface.fontSizeLineageSnapshot()?.basePoints,
+                19
+            )
+
+            guard let dockPane = windowDock.bonsplitController.allPaneIds.first,
+                  let adjustedLatePanelId = windowDock.newSurface(
+                    kind: .terminal,
+                    inPane: dockPane,
+                    sourcePanelId: adjustedSource.id,
+                    focus: false
+                  ),
+                  let adjustedLatePanel =
+                    windowDock.panels[adjustedLatePanelId] as? TerminalPanel,
+                  let staleLatePanelId = windowDock.newSurface(
+                    kind: .terminal,
+                    inPane: dockPane,
+                    sourcePanelId: staleSource.id,
+                    focus: false
+                  ),
+                  let staleLatePanel =
+                    windowDock.panels[staleLatePanelId] as? TerminalPanel else {
+                XCTFail("Expected late Dock terminals from adjusted and stale sources")
+                return
+            }
+
+            XCTAssertEqual(
+                adjustedLatePanel.surface.fontSizeLineageSnapshot()?.basePoints,
+                19
+            )
+            XCTAssertEqual(
+                staleLatePanel.surface.fontSizeLineageSnapshot()?.basePoints,
+                18,
+                "A late terminal must inherit the pending result for its exact stale source"
+            )
+
+#if DEBUG
+            appDelegate.debugDrainAllPendingWorkspaceTerminalFontSizeChanges()
+#endif
+
+            XCTAssertEqual(
+                adjustedLatePanel.surface.fontSizeLineageSnapshot()?.basePoints,
+                19,
+                "A late terminal inheriting the final lineage must not receive the request twice"
+            )
+            XCTAssertEqual(
+                staleLatePanel.surface.fontSizeLineageSnapshot()?.basePoints,
+                18,
+                "A late terminal inheriting a stale source must still receive the request once"
+            )
+        }
+    }
+
+    func testWorkspaceTerminalFontSizeDrainSeedsLazyWindowDockOnce() {
+        withTemporaryShortcut(action: .decreaseWorkspaceTerminalFontSize) {
+            guard let appDelegate = AppDelegate.shared else {
+                XCTFail("Expected AppDelegate.shared")
+                return
+            }
+
+            let windowId = appDelegate.createMainWindow()
+            defer { closeWindow(withId: windowId) }
+
+            guard let window = window(withId: windowId),
+                  let manager = appDelegate.tabManagerFor(windowId: windowId),
+                  let workspace = manager.selectedWorkspace,
+                  let repeatedEvent = makeKeyDownEvent(
+                    key: "-",
+                    modifiers: [.command, .control],
+                    keyCode: 27,
+                    windowNumber: window.windowNumber,
+                    isARepeat: true
+                  ) else {
+                XCTFail("Expected workspace and repeated Cmd+Ctrl+- event")
+                return
+            }
+
+            let inheritanceSource = TerminalPanel(
+                id: UUID(uuidString: "00000000-0000-4000-8000-000000000101")!,
+                workspaceId: workspace.id,
+                runtimeSpawnPolicy: .pacedSessionRestore
+            )
+            inheritanceSource.surface.recordCurrentFontSizeLineage(
+                TerminalFontSizeLineage(
+                    basePoints: 20,
+                    isExplicitOverride: true
+                )
+            )
+            workspace.panels[inheritanceSource.id] = inheritanceSource
+            workspace.rememberTerminalConfigInheritanceSource(
+                inheritanceSource
+            )
+            for suffix in 102...112 {
+                let panel = TerminalPanel(
+                    id: UUID(
+                        uuidString: String(
+                            format: "00000000-0000-4000-8000-%012d",
+                            suffix
+                        )
+                    )!,
+                    workspaceId: workspace.id,
+                    runtimeSpawnPolicy: .pacedSessionRestore
+                )
+                panel.surface.recordCurrentFontSizeLineage(
+                    TerminalFontSizeLineage(
+                        basePoints: 20,
+                        isExplicitOverride: true
+                    )
+                )
+                workspace.panels[panel.id] = panel
+            }
+
+#if DEBUG
+            appDelegate.debugFlushPendingWorkspaceTerminalFontSizeChanges()
+            XCTAssertTrue(appDelegate.debugHandleCustomShortcut(event: repeatedEvent))
+            appDelegate.debugFlushPendingWorkspaceTerminalFontSizeChanges()
+#else
+            XCTFail("Workspace font-size drain hooks are only available in DEBUG")
+            return
+#endif
+
+            let windowDock = appDelegate.windowDock(forWindowId: windowId)
+            guard let dockPane = windowDock.bonsplitController.allPaneIds.first,
+                  let latePanelId = windowDock.newSurface(
+                    kind: .terminal,
+                    inPane: dockPane,
+                    focus: false
+                  ),
+                  let latePanel =
+                    windowDock.panels[latePanelId] as? TerminalPanel else {
+                XCTFail("Expected a terminal in the lazily-created window Dock")
+                return
+            }
+            XCTAssertEqual(
+                latePanel.surface.fontSizeLineageSnapshot()?.basePoints,
+                19,
+                "The already-predicted lazy Dock fallback must not be decremented twice"
+            )
+
+#if DEBUG
+            appDelegate.debugDrainAllPendingWorkspaceTerminalFontSizeChanges()
+#endif
+            XCTAssertEqual(
+                latePanel.surface.fontSizeLineageSnapshot()?.basePoints,
+                19
+            )
+        }
+    }
+
     func testWorkspaceTerminalFontSizeSharedDockPreservesCrossWorkspaceEventOrder() {
         withTemporaryShortcut(action: .increaseWorkspaceTerminalFontSize) {
             withTemporaryShortcut(action: .decreaseWorkspaceTerminalFontSize) {
