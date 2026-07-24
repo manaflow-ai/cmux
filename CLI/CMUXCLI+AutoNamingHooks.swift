@@ -1,4 +1,3 @@
-import Darwin
 import Foundation
 
 extension CMUXCLI {
@@ -119,10 +118,14 @@ extension CMUXCLI {
         telemetry: CLISocketSentryTelemetry
     ) {
         let selfPath: String = {
-            if let first = ProcessInfo.processInfo.arguments.first,
-               first.hasPrefix("/"),
-               FileManager.default.isExecutableFile(atPath: first) {
-                return first
+            if let first = ProcessInfo.processInfo.arguments.first {
+                let resolved = URL(
+                    fileURLWithPath: first,
+                    relativeTo: URL(fileURLWithPath: FileManager.default.currentDirectoryPath, isDirectory: true)
+                ).standardizedFileURL.path
+                if FileManager.default.isExecutableFile(atPath: resolved) {
+                    return resolved
+                }
             }
             if let bundled = normalizedHookValue(env["CMUX_BUNDLED_CLI_PATH"]),
                FileManager.default.isExecutableFile(atPath: bundled) {
@@ -130,19 +133,17 @@ extension CMUXCLI {
             }
             return "cmux"
         }()
-        let process = Process()
-        process.executableURL = URL(fileURLWithPath: "/bin/sh")
-        process.arguments = [
-            "-c",
-            "\"$0\" hooks \"$1\" auto-name --session \"$2\" --workspace \"$3\" --surface \"$4\" --transcript \"$5\" --cwd \"$6\" </dev/null >/dev/null 2>&1 &",
-            selfPath,
-            def.name,
-            sessionId,
-            workspaceId,
-            surfaceId,
-            transcriptPath ?? "",
-            cwd ?? ""
+        let hookArguments = [
+            "hooks", def.name, "auto-name",
+            "--session", sessionId,
+            "--workspace", workspaceId,
+            "--surface", surfaceId,
+            "--transcript", transcriptPath ?? "",
+            "--cwd", cwd ?? ""
         ]
+        let process = Process()
+        process.executableURL = URL(fileURLWithPath: selfPath.hasPrefix("/") ? selfPath : "/usr/bin/env")
+        process.arguments = selfPath.hasPrefix("/") ? hookArguments : [selfPath] + hookArguments
         var spawnEnv = env
         spawnEnv["CMUX_CLAUDE_HOOK_STATE_PATH"] = agentHookStatePath(sessionStoreSuffix: def.sessionStoreSuffix, env: env)
         process.environment = spawnEnv
@@ -150,17 +151,10 @@ extension CMUXCLI {
         process.standardOutput = FileHandle.nullDevice
         process.standardError = FileHandle.nullDevice
         do {
+            // Launch the bounded worker directly; the short-lived hook process must not own its lifetime.
             try process.run()
         } catch {
             telemetry.breadcrumb("\(def.name)-hook.auto-name.spawn-failed")
-            return
-        }
-        if ((try? waitForProcessExit(process, timeout: 2)) ?? false) == false {
-            process.terminate()
-            if ((try? waitForProcessExit(process, timeout: 1)) ?? false) == false {
-                kill(process.processIdentifier, SIGKILL)
-                _ = try? waitForProcessExit(process, timeout: 1)
-            }
         }
     }
 

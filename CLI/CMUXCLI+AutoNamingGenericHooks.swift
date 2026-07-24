@@ -45,8 +45,8 @@ extension CMUXCLI {
         return engine.extractHookMessages(fromPayloadObjects: [object])
     }
 
-    /// Starts a detached naming pass when the live workspace still permits generated titles.
-    func spawnDetachedAgentAutoNameIfEnabled(
+    /// Starts a detached naming pass; the worker checks live settings and title ownership.
+    func spawnDetachedAgentAutoNameIfSupported(
         def: AgentHookDef,
         sessionId: String,
         workspaceId: String,
@@ -54,18 +54,9 @@ extension CMUXCLI {
         transcriptPath: String?,
         cwd: String?,
         env: [String: String],
-        client: SocketClient,
         telemetry: CLISocketSentryTelemetry
     ) {
-        guard autoNamingSource(for: def) != nil, !sessionId.isEmpty,
-              let probe = try? client.sendV2(
-                  method: "workspace.set_auto_title",
-                  params: ["probe": true, "workspace_id": workspaceId]
-              ),
-              probe["enabled"] as? Bool == true,
-              probe["workspace_user_owned"] as? Bool != true else {
-            return
-        }
+        guard autoNamingSource(for: def) != nil, !sessionId.isEmpty else { return }
         spawnDetachedAgentAutoName(
             def: def,
             sessionId: sessionId,
