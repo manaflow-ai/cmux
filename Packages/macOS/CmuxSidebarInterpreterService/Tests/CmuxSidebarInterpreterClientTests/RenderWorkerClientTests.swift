@@ -97,7 +97,12 @@ import Testing
         )
         let collector = RenderEventCollector(stream: await client.subscribe())
 
-        await client.updateScene(filePath: "/tmp/sidebar.swift", state: [:], topInset: 0, bottomInset: 0)
+        await client.updateScene(
+            filePath: "/tmp/sidebar.swift",
+            state: ["payload": .string(String(repeating: "x", count: 4 * 1024 * 1024))],
+            topInset: 0,
+            bottomInset: 0
+        )
         let events = await collector.waitForEvents(count: 1)
         await client.shutdown()
 

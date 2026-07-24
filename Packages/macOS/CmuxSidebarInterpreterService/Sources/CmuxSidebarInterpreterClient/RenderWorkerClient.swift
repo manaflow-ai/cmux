@@ -168,7 +168,7 @@ public actor RenderWorkerClient {
     private func enqueue(_ outbound: RenderWorkerOutboundWrite) {
         let writer: RenderWorkerWritePump
         do {
-            writer = try ensureRunning()
+            writer = try ensureRunning(recovering: outbound)
         } catch {
             return
         }
@@ -218,14 +218,18 @@ public actor RenderWorkerClient {
 
     // MARK: - Worker lifecycle
 
-    private func ensureRunning() throws -> RenderWorkerWritePump {
+    private func ensureRunning(
+        recovering outbound: RenderWorkerOutboundWrite
+    ) throws -> RenderWorkerWritePump {
         if let child, child.process.isRunning {
             return child.writer
         }
-        return try launch()
+        return try launch(recovering: outbound)
     }
 
-    private func launch() throws -> RenderWorkerWritePump {
+    private func launch(
+        recovering outbound: RenderWorkerOutboundWrite
+    ) throws -> RenderWorkerWritePump {
         generation &+= 1
         let gen = generation
         pendingAckSeq = nil
@@ -255,6 +259,20 @@ public actor RenderWorkerClient {
         }
 
         try process.run()
+        // The host owns stdin's write end and stdout's read end. Keeping the
+        // other parent copies open would hide worker EOF/EPIPE from the
+        // channel, so close them once the child has inherited its endpoints.
+        do {
+            try stdin.fileHandleForReading.close()
+            try stdout.fileHandleForWriting.close()
+        } catch {
+            try? stdin.fileHandleForReading.close()
+            try? stdout.fileHandleForWriting.close()
+            if process.isRunning {
+                process.terminate()
+            }
+            throw error
+        }
         child = RenderChild(
             process: process,
             channel: channel,
@@ -299,7 +317,7 @@ public actor RenderWorkerClient {
                     ackSequence: nil
                 ),
                 generation: gen,
-                recoversFromFailure: false
+                failureOutbound: outbound
             )
         }
         if let lastScene, let data = try? JSONEncoder().encode(RenderWorkerInbound.scene(lastScene)) {
@@ -311,7 +329,7 @@ public actor RenderWorkerClient {
                     ackSequence: lastScene.seq
                 ),
                 generation: gen,
-                recoversFromFailure: false
+                failureOutbound: outbound
             )
         }
 
@@ -322,15 +340,13 @@ public actor RenderWorkerClient {
         _ writer: RenderWorkerWritePump,
         outbound: RenderWorkerOutboundWrite,
         generation gen: Int,
-        recoversFromFailure: Bool = true
+        failureOutbound: RenderWorkerOutboundWrite? = nil
     ) {
+        let failureOutbound = failureOutbound ?? outbound
         writer.enqueue(outbound) { [weak self] in
-            // Cached state reconstructs a newly launched worker. It must not
-            // consume the initiating outbound write's retry: if this replay
-            // finds a dead pipe, the queued initiating write owns recovery.
-            guard recoversFromFailure, let self else { return }
+            guard let self else { return }
             Task {
-                await self.writeFailed(outbound, generation: gen)
+                await self.writeFailed(failureOutbound, generation: gen)
             }
         }
         if let ackSequence = outbound.ackSequence {
