@@ -2323,8 +2323,6 @@ mod tests {
         let events = session.subscribe();
 
         for event in [
-            json!({"event": "tree-changed"}),
-            json!({"event": "layout-changed", "screen": 2}),
             json!({"event": "title-changed", "surface": 8, "title": "changed"}),
             json!({"event": "surface-exited", "surface": 8}),
             json!({"event": "client-list-invalidated"}),
@@ -2337,6 +2335,19 @@ mod tests {
         assert!(!session.tree_is_stale());
         assert!(events.try_iter().next().is_none());
         assert_eq!(session.tree.lock().unwrap().view.surface(8).unwrap().title, "unrelated");
+
+        session.handle_line(json!({"event": "tree-changed"}));
+        assert!(session.tree_is_stale());
+        assert!(matches!(events.recv_timeout(Duration::from_secs(1)), Ok(MuxEvent::TreeChanged)));
+        session.tree_stale.store(false, Ordering::Release);
+
+        session.handle_line(json!({"event": "layout-changed", "screen": 2}));
+        assert!(session.tree_is_stale());
+        assert!(matches!(
+            events.recv_timeout(Duration::from_secs(1)),
+            Ok(MuxEvent::LayoutChanged(2))
+        ));
+        session.tree_stale.store(false, Ordering::Release);
 
         session.handle_line(json!({
             "event": "title-changed",

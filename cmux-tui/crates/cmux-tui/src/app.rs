@@ -4138,10 +4138,9 @@ pub fn run_with_machine_updates(
     let default_hook = std::panic::take_hook();
     let restore_lock = stdout_lock.clone();
     std::panic::set_hook(Box::new(move |info| {
-        // A render panic can occur while this thread owns stdout_lock. Panic
-        // cleanup must never try to acquire that same non-reentrant mutex.
-        let _guard = restore_lock.try_lock().ok();
-        let _ = restore_terminal_unlocked();
+        with_panic_stdout_lock(&restore_lock, || {
+            let _ = restore_terminal_unlocked();
+        });
         default_hook(info);
     }));
 
@@ -4292,6 +4291,13 @@ pub fn run_with_machine_updates(
 fn restore_terminal(stdout_lock: Option<&Arc<Mutex<()>>>) -> anyhow::Result<()> {
     let _guard = stdout_lock.map(|lock| lock.lock().unwrap());
     restore_terminal_unlocked()
+}
+
+fn with_panic_stdout_lock(stdout_lock: &Arc<Mutex<()>>, restore: impl FnOnce()) {
+    // A render panic can occur while this thread owns stdout_lock. Panic
+    // cleanup must never try to acquire that same non-reentrant mutex.
+    let _guard = stdout_lock.try_lock().ok();
+    restore();
 }
 
 fn restore_terminal_unlocked() -> anyhow::Result<()> {
@@ -11216,7 +11222,7 @@ mod tests {
         outer_cursor_escape_if_changed, pane_context_menu_groups, pane_parts_for_rect,
         prepare_ordered_session, preserve_client_view, rail_drag_width,
         record_surface_resize_dispatch_result, sidebar_layout_for,
-        sidebar_plugin_status_settles_passive_claim, start_ordered_session,
+        sidebar_plugin_status_settles_passive_claim, start_ordered_session, with_panic_stdout_lock,
     };
     use std::collections::{BTreeMap, HashMap, HashSet, VecDeque};
     use std::path::PathBuf;
@@ -11272,6 +11278,32 @@ mod tests {
         let layout = sidebar_layout_for(&config, true, false, false, (0, 24), None, None);
         assert!(layout.workspace.is_none());
         assert_eq!(layout.content.width, 0);
+    }
+
+    #[test]
+    fn panic_restore_waits_for_a_concurrent_stdout_owner() {
+        let lock = Arc::new(Mutex::new(()));
+        let (held_tx, held_rx) = std::sync::mpsc::sync_channel(1);
+        let (release_tx, release_rx) = std::sync::mpsc::sync_channel(1);
+        let owner_lock = lock.clone();
+        let owner = std::thread::spawn(move || {
+            let _guard = owner_lock.lock().unwrap();
+            held_tx.send(()).unwrap();
+            release_rx.recv().unwrap();
+        });
+        held_rx.recv_timeout(Duration::from_secs(1)).unwrap();
+
+        let (restored_tx, restored_rx) = std::sync::mpsc::sync_channel(1);
+        let restore_lock = lock.clone();
+        let restorer = std::thread::spawn(move || {
+            with_panic_stdout_lock(&restore_lock, || restored_tx.send(()).unwrap());
+        });
+        let restored_while_owned = restored_rx.recv_timeout(Duration::from_millis(50)).is_ok();
+        release_tx.send(()).unwrap();
+        owner.join().unwrap();
+        restorer.join().unwrap();
+
+        assert!(!restored_while_owned, "panic cleanup bypassed another stdout owner");
     }
 
     #[test]
@@ -11477,6 +11509,32 @@ mod tests {
         for surface in surfaces {
             mux.close_surface(surface).unwrap();
         }
+    }
+
+    #[test]
+    fn pane_context_maximize_focuses_the_explicit_inactive_pane() {
+        let (mux, first) = test_mux("context-maximize-focus-test", None);
+        let first_pane = mux.with_state(|state| state.pane_of(first.id).unwrap());
+        let second = mux.split(first_pane, SplitDir::Right, Some((40, 24))).unwrap();
+        let second_pane = mux.with_state(|state| state.pane_of(second.id).unwrap());
+        assert_eq!(mux.with_state(|state| state.active_pane()), Some(second_pane));
+        let (mut app, events) = test_app_with_events(Session::Local(mux.clone()));
+        app.replace_tree(app.session.tree());
+        app.session.remote = true;
+
+        app.activate_menu(MenuAction::TogglePaneZoom { pane: first_pane, zoomed: false }).unwrap();
+        while app.session.has_pending_mutations() {
+            let event = events.recv_timeout(Duration::from_secs(5)).unwrap();
+            app.handle(event).unwrap();
+        }
+        let active_pane = app.tree.active_screen().unwrap().active_pane;
+        let zoomed_pane = app.session.tree().active_screen().unwrap().zoomed_pane;
+        let surfaces = mux.with_state(|state| state.surfaces.keys().copied().collect::<Vec<_>>());
+        for surface in surfaces {
+            mux.close_surface(surface).unwrap();
+        }
+        assert_eq!(zoomed_pane, Some(first_pane));
+        assert_eq!(active_pane, first_pane);
     }
 
     #[test]

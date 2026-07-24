@@ -553,7 +553,7 @@ mod tests {
     }
 
     #[test]
-    fn numeric_surface_reference_fails_closed_when_it_is_also_another_short_id() {
+    fn padded_numeric_surface_reference_resolves_stably_as_short_id() {
         let mut tree = parse_tree(&json!({
             "workspaces": [{
                 "id": 1,
@@ -576,8 +576,11 @@ mod tests {
         }));
         tree.workspaces[0].screens[0].panes[0].tabs[1].short_id = "000010".to_string();
 
-        assert_eq!(tree.resolve_surface("000010"), Err(AmbiguousSurfaceReference));
+        assert_eq!(tree.resolve_surface("000010"), Ok(Some(36)));
         assert_eq!(tree.resolve_surface("10"), Ok(Some(10)));
+
+        tree.workspaces[0].screens[0].panes[0].tabs.remove(0);
+        assert_eq!(tree.resolve_surface("000010"), Ok(Some(36)));
     }
 
     #[test]
