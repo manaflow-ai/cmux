@@ -600,6 +600,52 @@ fn replay_preserves_scrollback_placements_before_and_after_resize() {
 }
 
 #[test]
+fn replay_preserves_graphics_across_blank_only_scrollback_rows() {
+    let mut source = Terminal::new(12, 4, 100, Callbacks::default()).unwrap();
+    source.resize(12, 4, 10, 20).unwrap();
+    source.vt_write(&kitty("a=t,t=d,f=24,i=98,s=1,v=1,q=2", "/wAA"));
+    for _ in 0..6 {
+        source.vt_write(b"\r\n");
+    }
+    source.vt_write(&kitty("a=p,i=98,p=1,c=1,r=2,q=2", ""));
+    source.vt_write(b"\r\n\r\ntail");
+
+    let expected = source.kitty_graphics_snapshot().unwrap();
+    assert_eq!(expected.placements.len(), 1);
+    let replay = source.vt_replay().unwrap();
+    let mut mirror = Terminal::new(12, 4, 100, Callbacks::default()).unwrap();
+    mirror.resize(12, 4, 10, 20).unwrap();
+    mirror.vt_write(&replay.bytes);
+    mirror.restore_kitty_image_aliases(&replay.kitty_image_aliases).unwrap();
+
+    let actual = mirror.kitty_graphics_snapshot().unwrap();
+    assert_eq!(
+        actual
+            .placements
+            .iter()
+            .map(|placement| (
+                placement.image_id,
+                placement.viewport_row,
+                placement.viewport_visible,
+            ))
+            .collect::<Vec<_>>(),
+        expected
+            .placements
+            .iter()
+            .map(|placement| (
+                placement.image_id,
+                placement.viewport_row,
+                placement.viewport_visible,
+            ))
+            .collect::<Vec<_>>()
+    );
+
+    source.scroll_delta(-4);
+    mirror.scroll_delta(-4);
+    assert_eq!(visible_placement_signature(&mut mirror), visible_placement_signature(&mut source));
+}
+
+#[test]
 fn bounded_replay_reports_an_inflight_prefix_that_cannot_fit() {
     let mut source = terminal();
     source.vt_write(&kitty("a=t,t=d,f=24,i=98,s=1,v=2,m=1,q=2", "////"));

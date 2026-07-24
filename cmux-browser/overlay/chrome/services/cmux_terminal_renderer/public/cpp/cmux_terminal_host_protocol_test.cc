@@ -73,7 +73,7 @@ bool KittyAliasesRoundTrip(PayloadEncoder<Payload> encode,
         std::decay_t<decltype(std::declval<Payload&>().kitty_image_aliases)>;
     using Alias = typename AliasVector::value_type;
     Payload value;
-    value.kitty_image_aliases = {Alias{41, 77}, Alias{42, 78}};
+    value.kitty_image_aliases = {Alias{41, 77}, Alias{42, 77}};
     std::vector<uint8_t> payload;
     Payload decoded;
     if (encode(value, &payload) != cmux::TerminalHostProtocolError::kNone ||
@@ -83,7 +83,7 @@ bool KittyAliasesRoundTrip(PayloadEncoder<Payload> encode,
       return false;
     }
     constexpr std::array<uint8_t, 18> kAliasSuffix = {
-        2, 0, 41, 0, 0, 0, 77, 0, 0, 0, 42, 0, 0, 0, 78, 0, 0, 0,
+        2, 0, 41, 0, 0, 0, 77, 0, 0, 0, 42, 0, 0, 0, 77, 0, 0, 0,
     };
     return payload.size() >= kAliasSuffix.size() &&
            std::equal(kAliasSuffix.begin(), kAliasSuffix.end(),
@@ -95,7 +95,6 @@ enum class InvalidKittyAlias {
   kZeroId,
   kZeroNumber,
   kDuplicateId,
-  kDuplicateNumber,
 };
 
 template <typename Payload>
@@ -117,9 +116,6 @@ bool KittyAliasEncoderRejects(PayloadEncoder<Payload> encode,
         break;
       case InvalidKittyAlias::kDuplicateId:
         value.kitty_image_aliases = {Alias{41, 77}, Alias{41, 78}};
-        break;
-      case InvalidKittyAlias::kDuplicateNumber:
-        value.kitty_image_aliases = {Alias{41, 77}, Alias{42, 77}};
         break;
     }
     std::vector<uint8_t> untouched = {0xa5};
@@ -160,11 +156,6 @@ bool KittyAliasDecoderRejects(PayloadEncoder<Payload> encode,
         std::copy(payload.begin() + aliases + 2,
                   payload.begin() + aliases + 6,
                   payload.begin() + aliases + 10);
-        break;
-      case InvalidKittyAlias::kDuplicateNumber:
-        std::copy(payload.begin() + aliases + 6,
-                  payload.begin() + aliases + 10,
-                  payload.begin() + aliases + 14);
         break;
     }
     Payload decoded;
@@ -803,8 +794,7 @@ void TestProtocolV2KittyAliasesAndBounds() {
 
   for (InvalidKittyAlias invalid :
        {InvalidKittyAlias::kZeroId, InvalidKittyAlias::kZeroNumber,
-        InvalidKittyAlias::kDuplicateId,
-        InvalidKittyAlias::kDuplicateNumber}) {
+        InvalidKittyAlias::kDuplicateId}) {
     Check(KittyAliasEncoderRejects<cmux::TerminalHostSnapshot>(
               cmux::EncodeTerminalHostSnapshot, invalid),
           "snapshot encoder rejects invalid Kitty alias identity");

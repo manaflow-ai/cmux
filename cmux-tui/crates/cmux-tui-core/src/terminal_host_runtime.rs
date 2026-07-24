@@ -2985,7 +2985,10 @@ mod unix {
                 cols: 80,
                 rows: 24,
                 replay: b"theme-portable replay".to_vec(),
-                kitty_image_aliases: vec![KittyImageAlias { image_id: 41, image_number: 77 }],
+                kitty_image_aliases: vec![
+                    KittyImageAlias { image_id: 41, image_number: 77 },
+                    KittyImageAlias { image_id: 42, image_number: 77 },
+                ],
                 sequence_boundary: 0,
                 colors: TerminalColorOverrides::default(),
                 pid: Some(42),
@@ -3005,7 +3008,7 @@ mod unix {
         }
 
         #[test]
-        fn resize_alias_section_rejects_malformed_or_unbounded_data() {
+        fn resize_alias_section_preserves_number_history_and_rejects_malformed_data() {
             let alias = KittyImageAlias { image_id: 41, image_number: 77 };
             let valid = encode_resize(80, 24, b"replay", &[alias]).unwrap();
             assert_eq!(
@@ -3022,7 +3025,11 @@ mod unix {
                 KittyImageAlias { image_id: 41, image_number: 77 },
                 KittyImageAlias { image_id: 42, image_number: 77 },
             ];
-            assert!(encode_resize(80, 24, b"replay", &duplicate_aliases).is_err());
+            let duplicate_numbers = encode_resize(80, 24, b"replay", &duplicate_aliases).unwrap();
+            assert_eq!(
+                decode_host_resize_payload(&duplicate_numbers).unwrap(),
+                (80, 24, b"replay".to_vec(), duplicate_aliases.to_vec())
+            );
 
             let mut truncated = valid.clone();
             truncated.pop();
