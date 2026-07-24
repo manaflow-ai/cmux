@@ -588,7 +588,7 @@ test("attachSurface render mode rejects oversized Kitty image data before buffer
 test("render attach accepts the full decoded-image budget below its encoded limit", async () => {
   assert.equal(RENDER_GRAPHIC_MAX_DECODED_BYTES, 10_000_000);
   assert.equal(RENDER_GRAPHIC_MAX_ENCODED_CHARS, 13_333_336);
-  assert.equal(RENDER_ATTACH_MAX_ENCODED_CHARS, 16_777_216);
+  assert.equal(RENDER_ATTACH_MAX_ENCODED_CHARS, 33_554_432);
   assert.equal(DEFAULT_MAX_ATTACH_ENCODED_CHARS, RENDER_ATTACH_MAX_ENCODED_CHARS);
   assert.ok(RENDER_GRAPHIC_MAX_ENCODED_CHARS < RENDER_ATTACH_MAX_ENCODED_CHARS);
 

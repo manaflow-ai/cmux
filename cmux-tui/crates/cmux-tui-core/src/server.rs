@@ -4251,6 +4251,8 @@ mod tests {
     const LARGE_RENDER_IMAGE_RAW_BYTES: usize =
         LARGE_RENDER_IMAGE_WIDTH * LARGE_RENDER_IMAGE_HEIGHT * 4;
     const LARGE_RENDER_IMAGE_BASE64_CHARS: usize = LARGE_RENDER_IMAGE_RAW_BYTES.div_ceil(3) * 4;
+    const RENDER_GRAPHIC_DECODED_BYTE_BUDGET: usize = 10_000_000;
+    const RENDER_GRAPHIC_PLACEMENT_COUNT_BUDGET: usize = 16_384;
 
     fn large_rgba_kitty_transmission() -> Vec<u8> {
         let data = base64::engine::general_purpose::STANDARD
@@ -4283,10 +4285,10 @@ mod tests {
             "JSON overhead must put the payload beyond the old 4 MiB boundary"
         );
         assert!(
-            serialized.len() <= WEBSOCKET_MESSAGE_MAX_BYTES,
-            "{}-byte render state exceeds the configured {}-byte WebSocket boundary",
+            serialized.len() <= OUTBOUND_BYTE_CAPACITY,
+            "{}-byte render state exceeds the configured {}-byte outbound boundary",
             serialized.len(),
-            WEBSOCKET_MESSAGE_MAX_BYTES
+            OUTBOUND_BYTE_CAPACITY
         );
 
         let outbound = Arc::new(BoundedOutbound::default());
@@ -4297,6 +4299,58 @@ mod tests {
         assert!(writer.is_open());
         assert!(stream.is_open());
         eprintln!("1024x768 RGBA render-state bytes: {}", serialized.len());
+    }
+
+    #[test]
+    fn render_budget_covers_max_image_and_placement_metadata() {
+        let placement = ghostty_vt::KittyPlacement {
+            key: ghostty_vt::KittyPlacementKey {
+                image_id: u32::MAX,
+                placement_id: u32::MAX,
+                ordinal: u32::MAX,
+            },
+            image_id: u32::MAX,
+            placement_id: u32::MAX,
+            is_internal: false,
+            x_offset: u32::MAX,
+            y_offset: u32::MAX,
+            source_x: u32::MAX,
+            source_y: u32::MAX,
+            source_width: u32::MAX,
+            source_height: u32::MAX,
+            columns: u32::MAX,
+            rows: u32::MAX,
+            grid_cols: u32::MAX,
+            grid_rows: u32::MAX,
+            pixel_width: u32::MAX,
+            pixel_height: u32::MAX,
+            viewport_col: i32::MIN,
+            viewport_row: i32::MIN,
+            viewport_visible: false,
+            z: i32::MIN,
+        };
+        let graphics = ghostty_vt::KittyGraphicsSnapshot {
+            generation: u64::MAX,
+            images: Vec::new(),
+            placements: vec![placement],
+        };
+        let serialized = render_graphics_json(&graphics, None, &[]);
+        let placement_bytes = serde_json::to_string(&serialized["placements"][0]).unwrap().len();
+        let placement_array_bytes = 2
+            + placement_bytes * RENDER_GRAPHIC_PLACEMENT_COUNT_BUDGET
+            + RENDER_GRAPHIC_PLACEMENT_COUNT_BUDGET.saturating_sub(1);
+        let image_base64_bytes = RENDER_GRAPHIC_DECODED_BYTE_BUDGET.div_ceil(3) * 4;
+        let required_without_rows = image_base64_bytes + placement_array_bytes;
+
+        assert_eq!(placement_bytes, 442);
+        assert_eq!(placement_array_bytes, 7_258_113);
+        assert_eq!(image_base64_bytes, 13_333_336);
+        assert_eq!(required_without_rows, 20_591_449);
+        assert!(
+            required_without_rows < OUTBOUND_BYTE_CAPACITY,
+            "{required_without_rows} image and placement bytes exceed the configured \
+             {OUTBOUND_BYTE_CAPACITY}-byte outbound boundary before rows and wrapper metadata"
+        );
     }
 
     #[test]

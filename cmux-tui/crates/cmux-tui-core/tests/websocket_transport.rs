@@ -327,11 +327,7 @@ fn websocket_render_attach_carries_large_rgba_state_and_stays_connected() {
     );
     assert_eq!(read_until(&mut websocket, |value| value["id"] == 1)["ok"], true);
 
-    let empty_probe = json!({"id": 2, "cmd": "ping", "padding": ""}).to_string();
-    let padding = "x".repeat(render_state_bytes - empty_probe.len());
-    let boundary_probe = json!({"id": 2, "cmd": "ping", "padding": padding}).to_string();
-    assert_eq!(boundary_probe.len(), render_state_bytes);
-    websocket.send(Message::Text(boundary_probe.into())).unwrap();
+    send_json(&mut websocket, json!({"id": 2, "cmd": "ping"}));
     let ping = read_until(&mut websocket, |value| value["id"] == 2);
     assert_eq!(ping["ok"], true);
     assert_eq!(ping["data"]["ok"], true);

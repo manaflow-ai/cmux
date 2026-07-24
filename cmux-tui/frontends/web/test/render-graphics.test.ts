@@ -79,7 +79,7 @@ describe("render graphics", () => {
   it("shares the transport budget and continues decoding after an oversized image", () => {
     expect(RENDER_GRAPHIC_MAX_DECODED_BYTES).toBe(10_000_000);
     expect(RENDER_GRAPHIC_MAX_ENCODED_CHARS).toBe(13_333_336);
-    expect(RENDER_ATTACH_MAX_ENCODED_CHARS).toBe(16_777_216);
+    expect(RENDER_ATTACH_MAX_ENCODED_CHARS).toBe(33_554_432);
     expect(RENDER_GRAPHIC_MAX_ENCODED_CHARS).toBeLessThan(RENDER_ATTACH_MAX_ENCODED_CHARS);
 
     const oversized: RenderGraphicImage = {
