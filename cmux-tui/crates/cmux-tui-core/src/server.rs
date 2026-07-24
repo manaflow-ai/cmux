@@ -10498,6 +10498,20 @@ mod tests {
         let mut payload = vec![0_u8; payload_length];
         stream.read_exact(&mut payload).unwrap();
         assert!(!payload.is_empty());
+
+        let mut accessibility = [0_u8; 88];
+        stream.read_exact(&mut accessibility).unwrap();
+        assert_eq!(&accessibility[..8], b"CMXSCN01");
+        assert_eq!(&accessibility[8..12], &[1, 3, 0, 0]);
+        let accessibility_length =
+            u32::from_be_bytes(accessibility[12..16].try_into().unwrap()) as usize;
+        assert_eq!(&accessibility[16..80], &fixed[16..80]);
+        assert_eq!(u32::from_be_bytes(accessibility[80..84].try_into().unwrap()), 80);
+        assert_eq!(u32::from_be_bytes(accessibility[84..88].try_into().unwrap()), 24);
+
+        let mut accessibility_text = vec![0_u8; accessibility_length];
+        stream.read_exact(&mut accessibility_text).unwrap();
+        assert!(String::from_utf8(accessibility_text).unwrap().contains("semantic scene"));
     }
 
     #[test]

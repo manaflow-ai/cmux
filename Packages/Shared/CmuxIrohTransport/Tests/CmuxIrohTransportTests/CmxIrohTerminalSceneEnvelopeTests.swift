@@ -24,8 +24,20 @@ struct CmxIrohTerminalSceneEnvelopeTests {
         let envelopes: [CmxIrohTerminalSceneEnvelope] = [
             .configuration(configuration),
             .scene(try scene(kind: .full, contentSequence: 21, presentationSequence: 1)),
+            .accessibility(try accessibility(
+                contentSequence: 21,
+                presentationSequence: 1
+            )),
             .scene(try scene(kind: .delta, contentSequence: 22, presentationSequence: 2)),
+            .accessibility(try accessibility(
+                contentSequence: 22,
+                presentationSequence: 2
+            )),
             .scene(try scene(kind: .unchanged, contentSequence: 22, presentationSequence: 3)),
+            .accessibility(try accessibility(
+                contentSequence: 22,
+                presentationSequence: 3
+            )),
         ]
         let encoded = envelopes.map(codec.encode)
         let joined = encoded.reduce(into: Data(), +=)
@@ -46,7 +58,15 @@ struct CmxIrohTerminalSceneEnvelopeTests {
         let envelopes: [CmxIrohTerminalSceneEnvelope] = [
             .configuration(try configuration()),
             .scene(try scene(kind: .full, contentSequence: 21, presentationSequence: 1)),
+            .accessibility(try accessibility(
+                contentSequence: 21,
+                presentationSequence: 1
+            )),
             .scene(try scene(kind: .delta, contentSequence: 22, presentationSequence: 2)),
+            .accessibility(try accessibility(
+                contentSequence: 22,
+                presentationSequence: 2
+            )),
         ]
         let bytes = envelopes.map(codec.encode).reduce(into: Data(), +=)
 
@@ -105,12 +125,49 @@ struct CmxIrohTerminalSceneEnvelopeTests {
         try validator.accept(
             .scene(try scene(kind: .full, contentSequence: 21, presentationSequence: 1))
         )
+        #expect(!validator.isReady)
+        try validator.accept(.accessibility(try accessibility(
+            contentSequence: 21,
+            presentationSequence: 1
+        )))
+        #expect(validator.isReady)
         try validator.accept(
             .scene(try scene(kind: .unchanged, contentSequence: 21, presentationSequence: 2))
         )
+        #expect(throws: CmxIrohTerminalSceneStreamValidator.ValidationError.missingAccessibility) {
+            try validator.accept(
+                .scene(try scene(kind: .delta, contentSequence: 24, presentationSequence: 3))
+            )
+        }
+        try validator.accept(.accessibility(try accessibility(
+            contentSequence: 21,
+            presentationSequence: 2
+        )))
         try validator.accept(
             .scene(try scene(kind: .delta, contentSequence: 24, presentationSequence: 3))
         )
+        #expect(
+            throws: CmxIrohTerminalSceneStreamValidator.ValidationError
+                .accessibilitySceneMismatch
+        ) {
+            try validator.accept(.accessibility(try accessibility(
+                contentSequence: 23,
+                presentationSequence: 3
+            )))
+        }
+        try validator.accept(.accessibility(try accessibility(
+            contentSequence: 24,
+            presentationSequence: 3
+        )))
+        #expect(
+            throws: CmxIrohTerminalSceneStreamValidator.ValidationError
+                .accessibilitySceneMismatch
+        ) {
+            try validator.accept(.accessibility(try accessibility(
+                contentSequence: 24,
+                presentationSequence: 3
+            )))
+        }
 
         #expect(
             throws: CmxIrohTerminalSceneStreamValidator.ValidationError
@@ -187,6 +244,23 @@ struct CmxIrohTerminalSceneEnvelopeTests {
             presentationSequence: presentationSequence,
             kind: kind,
             payload: Data([0xca, 0xfe, UInt8(truncatingIfNeeded: presentationSequence)])
+        )
+    }
+
+    private func accessibility(
+        contentSequence: UInt64,
+        presentationSequence: UInt64
+    ) throws -> CmxIrohTerminalSceneAccessibility {
+        try CmxIrohTerminalSceneAccessibility(
+            terminalID: terminalID,
+            terminalEpoch: 9,
+            contentSequence: contentSequence,
+            presentationID: presentationID,
+            presentationGeneration: 7,
+            presentationSequence: presentationSequence,
+            columns: 100,
+            rows: 32,
+            text: "prompt λ"
         )
     }
 

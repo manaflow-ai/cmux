@@ -62,10 +62,11 @@ pub use renderer_supervisor::{
     RendererWorkerState, RendererWorkerStatus,
 };
 pub use semantic_scene::{
-    SEMANTIC_SCENE_EVENT_CAPACITY, SEMANTIC_SCENE_MAX_EVENT_CAPACITY, SemanticSceneAttachError,
-    SemanticSceneAttachment, SemanticSceneAttachmentOptions, SemanticSceneCaptureOptions,
-    SemanticSceneControl, SemanticSceneEvent, SemanticSceneFailure, SemanticSceneFrame,
-    SemanticScenePresentationIdentity, SemanticSceneReceiver, SemanticSceneTerminalIdentity,
+    SEMANTIC_SCENE_EVENT_CAPACITY, SEMANTIC_SCENE_MAX_EVENT_CAPACITY, SemanticSceneAccessibility,
+    SemanticSceneAttachError, SemanticSceneAttachment, SemanticSceneAttachmentOptions,
+    SemanticSceneCaptureOptions, SemanticSceneControl, SemanticSceneEvent, SemanticSceneFailure,
+    SemanticSceneFrame, SemanticScenePresentationIdentity, SemanticSceneReceiver,
+    SemanticSceneTerminalIdentity,
 };
 pub use short_id::assign_short_ids;
 pub use state_store::{STATE_STORE_VERSION, StateRecovery, StateStore, StateStoreError};

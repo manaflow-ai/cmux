@@ -5953,6 +5953,7 @@ final class TerminalWindowPortalLifecycleTests: XCTestCase {
         // exactly what raced later tests, so assert it is empty too.
         let pendingTeardowns = await GhosttyApp
             .terminalSurfaceRuntimeDependencies
+            .embeddedRuntime
             .runtimeTeardown
             .debugPendingTeardownCount
         XCTAssertEqual(

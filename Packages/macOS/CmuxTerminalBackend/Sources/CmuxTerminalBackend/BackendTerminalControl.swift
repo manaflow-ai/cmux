@@ -27,6 +27,8 @@ public enum BackendRegisteredClientKind: String, Decodable, Equatable, Sendable 
     case automation
     /// A compatibility byte-stream connection that may submit delegated terminal input only.
     case mobileCompatibility = "mobile-compatibility"
+    /// A semantic-scene connection that may submit delegated terminal input only.
+    case mobileScene = "mobile-scene"
     case rendererWorker = "renderer-worker"
     case web
 }

@@ -20,7 +20,7 @@ final class RemoteTmuxSessionMirror: RemoteTmuxControlPaneMutationOwner {
     let connection: RemoteTmuxControlConnection
     let backendProducerID: UUID?
     let backendTmuxSessionID: UInt64?
-    let onControlPaneRemoved: (PaneID, UUID?) -> Void
+    let onControlPaneRemoved: (Bonsplit.PaneID, UUID?) -> Void
     let onControlSurfaceRemoved: (UUID) -> Void
 
     /// Updates the tracked session name after a `rename-session`.
@@ -126,7 +126,7 @@ final class RemoteTmuxSessionMirror: RemoteTmuxControlPaneMutationOwner {
     var windowIdByPanel: [UUID: Int] = [:]
     var panelIdByPane: [Int: UUID] = [:]
     var windowIdByPane: [Int: Int] = [:]
-    var controlPaneIdByPane: [Int: PaneID] = [:]
+    var controlPaneIdByPane: [Int: Bonsplit.PaneID] = [:]
     var controlSurfaceIdByPane: [Int: UUID] = [:]
     /// Last-known working directory per tmux pane, so switching the active pane of
     /// a multi-pane window can re-project that pane's directory onto the tab.
@@ -150,7 +150,7 @@ final class RemoteTmuxSessionMirror: RemoteTmuxControlPaneMutationOwner {
         backendProducerID: UUID? = nil,
         backendTmuxSessionID: UInt64? = nil,
         restoredSurfaces: [TerminalBackendRemoteTmuxProducerProjection.Surface] = [],
-        onControlPaneRemoved: @escaping (PaneID, UUID?) -> Void = { _, _ in },
+        onControlPaneRemoved: @escaping (Bonsplit.PaneID, UUID?) -> Void = { _, _ in },
         onControlSurfaceRemoved: @escaping (UUID) -> Void = { _ in }
     ) {
         self.host = host

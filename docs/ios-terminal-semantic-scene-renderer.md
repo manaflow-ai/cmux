@@ -54,8 +54,8 @@ semantic channel. It is unsuitable as the primary terminal renderer.
 ## Selected architecture
 
 The canonical backend emits Ghostty semantic scenes. iOS applies them to
-Ghostty's terminal-independent Metal scene renderer and presents its retained
-IOSurface directly.
+Ghostty's terminal-independent Metal scene renderer, then blits each completed
+IOSurface into the view's Metal drawable.
 
 ```text
 PTY
@@ -102,15 +102,14 @@ One iOS scene-render actor owns:
 - The `ghostty_scene_renderer_t` handle.
 - Serialized apply, configure, render, frame lease, and release operations.
 - The active renderer epoch and matching identity fence.
+- The IOSurface-to-drawable Metal copy and completion fence.
 - Animation renders only while Ghostty reports visible animation work.
 
 One main-actor terminal view owns:
 
 - Current pixel size and content scale.
-- Exactly one installed IOSurface and its presentation transaction.
+- Exactly one Metal presentation layer.
 - Focus, keyboard, touch, selection, accessibility, and viewport requests.
-- Release of the previous retained IOSurface after the replacement transaction
-  commits.
 
 No process-wide scene registry, parser, replay baseline dictionary, display
 generation map, or recovery timer may become a second owner.
@@ -125,7 +124,10 @@ The Mac sends:
 
 1. One bounded configuration envelope.
 2. One full semantic-scene frame.
-3. Contiguous delta frames for that exact terminal and presentation lifetime.
+3. One canonical accessibility and geometry sidecar captured atomically with
+   that scene.
+4. Contiguous scene and sidecar pairs for that exact terminal and presentation
+   lifetime.
 
 Every scene envelope carries:
 
@@ -140,23 +142,28 @@ The outer decoder limits configuration bytes, scene bytes, buffered bytes, and
 envelope count before allocation. Ghostty validates the inner scene format and
 its resource limits again.
 
+The sidecar carries the exact scene identity, columns, rows, and bounded
+canonical viewport text. It is retained by the immutable scene frame, so rapid
+output cannot evict or substitute metadata before transport writes it.
+
 The lane is intentionally full-first. iOS does not resume from a delta cursor
 after a disconnect because a renderer cache is presentation-local and cheap to
 recreate. A scene or identity rejection closes the lane, destroys the renderer,
 advances the presentation generation, and reopens for a fresh full scene.
 
-Input travels on the same bidirectional lane. Text, keys, mouse events,
-selection, search, viewport, focus, and IME are typed operations. The backend
-validates stateful encodings against its canonical terminal. Raw text framing
-remains only for the old compatibility lane.
+Exact terminal input bytes travel on the same bidirectional lane and are
+forwarded through the canonical backend input authority. Structured key, mouse,
+selection, search, viewport, focus, link, and IME operations remain a separate
+follow-up stage. The compatibility lane keeps its legacy UTF-8 input framing.
 
 ## Geometry and presentation
 
 iOS sends physical width, physical height, and content scale when a presentation
 opens or its drawable geometry changes. The Ghostty scene renderer calculates
 columns, rows, padding, and cell metrics from the same resolved configuration
-used by Mac rendering. The backend resizes the PTY only from an active
-presentation geometry lease.
+used by Mac rendering. iOS reports those renderer-derived columns and rows to
+the backend. It does not reveal the first scene until the paired canonical
+sidecar confirms the backend has produced that exact grid.
 
 Geometry changes advance the presentation generation. Work from the prior
 generation can finish, but identity checks discard it before it reaches the
@@ -164,10 +171,10 @@ layer. The first frame for a new generation must be full and sized for the new
 pixel geometry. The existing frame stays visible until that replacement is
 ready, preventing blank or mixed-size intermediate states.
 
-Core Animation receives retained IOSurfaces. The scene-render actor releases the
-Ghostty frame lease after retaining the IOSurface. The view releases the
-previous retained IOSurface only after the replacement transaction commits.
-This prevents Ghostty from mutating storage still visible on screen.
+The scene-render actor retains Ghostty's IOSurface for one serialized Metal
+copy. It waits for the command buffer to complete before releasing the
+IOSurface and drawable leases. Core Animation presents only the copied drawable,
+so Ghostty cannot mutate storage still visible on screen.
 
 ## Failure behavior
 
@@ -179,7 +186,7 @@ This prevents Ghostty from mutating storage still visible on screen.
 | Decoder or Ghostty resource limit | Close only the affected presentation and report a bounded error. |
 | Lane backpressure | Drop the attachment, never an interior scene; the next lane starts with a full scene. |
 | Renderer or GPU failure | Keep the last committed frame, destroy the renderer, and bootstrap a new generation. |
-| App backgrounding | Stop animation work and preserve the last committed frame; reconnect if iOS invalidates transport or GPU state. |
+| App backgrounding | Close the scene lane and renderer without counting a GPU recovery attempt; create a fresh generation on foreground. |
 | Terminal runtime epoch change | Reject all prior frames and start a new presentation generation. |
 
 ## Implementation stages

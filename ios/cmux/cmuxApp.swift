@@ -74,6 +74,12 @@ struct cmuxApp: App {
                     surfaceID: surfaceUUID,
                     cursor: cursor
                 )
+            },
+            terminalSceneProvider: { request, scene in
+                try await iroh.openTerminalSceneLane(
+                    for: request,
+                    scene: scene
+                )
             }
         )
 

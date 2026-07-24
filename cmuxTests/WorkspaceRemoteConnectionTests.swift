@@ -1414,7 +1414,10 @@ final class WorkspaceRemoteConnectionTests: XCTestCase {
     @MainActor
     func testRemoteTerminalSessionEndRequestsControlMasterCleanupAndLeavesWorkspaceDisconnected() throws {
         let cleanup = NativeSSHCleanupRecorder()
-        let workspace = Workspace(nativeSSHConnectionBroker: cleanup.broker)
+        let workspace = Workspace(
+            terminalClientComposition: .embedded(),
+            nativeSSHConnectionBroker: cleanup.broker
+        )
         let config = WorkspaceRemoteConfiguration(
             destination: "cmux-macmini",
             port: 2222,
@@ -1464,7 +1467,10 @@ final class WorkspaceRemoteConnectionTests: XCTestCase {
     @MainActor
     func testRemoteTerminalSessionEndWithoutCallbackRelayPortStillCleansControlMaster() throws {
         let cleanup = NativeSSHCleanupRecorder()
-        let workspace = Workspace(nativeSSHConnectionBroker: cleanup.broker)
+        let workspace = Workspace(
+            terminalClientComposition: .embedded(),
+            nativeSSHConnectionBroker: cleanup.broker
+        )
         let config = WorkspaceRemoteConfiguration(
             destination: "cmux-macmini",
             port: 2222,
@@ -1509,7 +1515,10 @@ final class WorkspaceRemoteConnectionTests: XCTestCase {
     @MainActor
     func testRemoteTerminalSessionEndPreservesPersistentPTYWorkspace() throws {
         let cleanup = NativeSSHCleanupRecorder()
-        let workspace = Workspace(nativeSSHConnectionBroker: cleanup.broker)
+        let workspace = Workspace(
+            terminalClientComposition: .embedded(),
+            nativeSSHConnectionBroker: cleanup.broker
+        )
         let config = WorkspaceRemoteConfiguration(
             destination: "cmux-macmini",
             port: 2222,
@@ -1561,7 +1570,10 @@ final class WorkspaceRemoteConnectionTests: XCTestCase {
     @MainActor
     func testTeardownRemoteConnectionRequestsControlMasterCleanupWhileStillConnecting() {
         let cleanup = NativeSSHCleanupRecorder()
-        let workspace = Workspace(nativeSSHConnectionBroker: cleanup.broker)
+        let workspace = Workspace(
+            terminalClientComposition: .embedded(),
+            nativeSSHConnectionBroker: cleanup.broker
+        )
         let config = WorkspaceRemoteConfiguration(
             destination: "cmux-macmini",
             port: nil,
@@ -1608,7 +1620,10 @@ final class WorkspaceRemoteConnectionTests: XCTestCase {
     @MainActor
     func testTeardownRemoteConnectionDoesNotCleanUpWithoutCmuxOwnedControlPath() {
         let cleanup = NativeSSHCleanupRecorder()
-        let workspace = Workspace(nativeSSHConnectionBroker: cleanup.broker)
+        let workspace = Workspace(
+            terminalClientComposition: .embedded(),
+            nativeSSHConnectionBroker: cleanup.broker
+        )
         let config = WorkspaceRemoteConfiguration(
             destination: "cmux-macmini",
             port: nil,
@@ -1643,7 +1658,10 @@ final class WorkspaceRemoteConnectionTests: XCTestCase {
     @MainActor
     func testClosingRemoteWorkspaceRequestsControlMasterCleanup() throws {
         let cleanup = NativeSSHCleanupRecorder()
-        let manager = TabManager(nativeSSHConnectionBroker: cleanup.broker)
+        let manager = TabManager(
+            terminalClientComposition: .embedded(),
+            nativeSSHConnectionBroker: cleanup.broker
+        )
         let remainingWorkspace = try XCTUnwrap(manager.selectedWorkspace)
         let remoteWorkspace = manager.addLocalWorkspace()
         let config = WorkspaceRemoteConfiguration(
@@ -1694,7 +1712,10 @@ final class WorkspaceRemoteConnectionTests: XCTestCase {
     @MainActor
     func testDetachLastRemoteSurfacePreservesRemoteSessionWithoutCleanup() throws {
         let cleanup = NativeSSHCleanupRecorder()
-        let workspace = Workspace(nativeSSHConnectionBroker: cleanup.broker)
+        let workspace = Workspace(
+            terminalClientComposition: .embedded(),
+            nativeSSHConnectionBroker: cleanup.broker
+        )
         let config = WorkspaceRemoteConfiguration(
             destination: "cmux-macmini",
             port: nil,
@@ -1739,7 +1760,10 @@ final class WorkspaceRemoteConnectionTests: XCTestCase {
     @MainActor
     func testClosingSourceWorkspaceAfterDetachingRemoteSurfaceSkipsControlMasterCleanup() throws {
         let cleanup = NativeSSHCleanupRecorder()
-        let manager = TabManager(nativeSSHConnectionBroker: cleanup.broker)
+        let manager = TabManager(
+            terminalClientComposition: .embedded(),
+            nativeSSHConnectionBroker: cleanup.broker
+        )
         let sourceWorkspace = try XCTUnwrap(manager.selectedWorkspace)
         let destinationWorkspace = manager.addLocalWorkspace()
         let config = WorkspaceRemoteConfiguration(
@@ -1790,7 +1814,10 @@ final class WorkspaceRemoteConnectionTests: XCTestCase {
     @MainActor
     func testClosingMixedSourceWorkspaceAfterDetachingLastRemoteSurfaceSkipsControlMasterCleanup() throws {
         let cleanup = NativeSSHCleanupRecorder()
-        let manager = TabManager(nativeSSHConnectionBroker: cleanup.broker)
+        let manager = TabManager(
+            terminalClientComposition: .embedded(),
+            nativeSSHConnectionBroker: cleanup.broker
+        )
         let sourceWorkspace = try XCTUnwrap(manager.selectedWorkspace)
         let destinationWorkspace = manager.addLocalWorkspace()
         let sourcePaneID = try XCTUnwrap(sourceWorkspace.bonsplitController.allPaneIds.first)
@@ -1843,7 +1870,10 @@ final class WorkspaceRemoteConnectionTests: XCTestCase {
     @MainActor
     func testTransferredRemoteSurfaceCleansUpControlMasterWhenSessionEndsInLocalWorkspace() throws {
         let cleanup = NativeSSHCleanupRecorder()
-        let manager = TabManager(nativeSSHConnectionBroker: cleanup.broker)
+        let manager = TabManager(
+            terminalClientComposition: .embedded(),
+            nativeSSHConnectionBroker: cleanup.broker
+        )
         let sourceWorkspace = try XCTUnwrap(manager.selectedWorkspace)
         let destinationWorkspace = manager.addLocalWorkspace()
         let config = WorkspaceRemoteConfiguration(
@@ -1893,7 +1923,10 @@ final class WorkspaceRemoteConnectionTests: XCTestCase {
     @MainActor
     func testRemoteTerminalSessionEndDisconnectsWorkspaceWhenBrowserPanelsRemain() throws {
         let cleanup = NativeSSHCleanupRecorder()
-        let workspace = Workspace(nativeSSHConnectionBroker: cleanup.broker)
+        let workspace = Workspace(
+            terminalClientComposition: .embedded(),
+            nativeSSHConnectionBroker: cleanup.broker
+        )
         let paneID = try XCTUnwrap(workspace.bonsplitController.allPaneIds.first)
         let initialTerminalID = try XCTUnwrap(workspace.focusedTerminalPanel?.id)
         let config = WorkspaceRemoteConfiguration(
@@ -1932,7 +1965,10 @@ final class WorkspaceRemoteConnectionTests: XCTestCase {
     @MainActor
     func testClosingInitialRemoteTerminalPaneKeepsSiblingRemotePaneAlive() throws {
         let cleanup = NativeSSHCleanupRecorder()
-        let workspace = Workspace(nativeSSHConnectionBroker: cleanup.broker)
+        let workspace = Workspace(
+            terminalClientComposition: .embedded(),
+            nativeSSHConnectionBroker: cleanup.broker
+        )
         let initialTerminalID = try XCTUnwrap(workspace.focusedTerminalPanel?.id)
         let configuration = WorkspaceRemoteConfiguration(
             destination: "cmux-macmini",

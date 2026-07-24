@@ -302,21 +302,65 @@ struct cmuxApp: App {
                     await terminalBackendServiceModel.reportCompatibility(compatibility)
                 }
             )
+            let terminalRenderConfigSource = TerminalBackendRenderConfigSource {
+                GhosttyApp.shared.serializedTerminalRendererConfig()
+            }
+            let terminalPresentationRegistry =
+                TerminalBackendPresentationRegistry()
             let mobileTerminalDataPlane = PersistentMobileTerminalDataPlane(
                 readinessProvider: {
                     try await terminalBackendServiceBootstrap.ensureRegistered()
                 },
                 socketPath: terminalBackendRuntimePaths.socketURL.path,
                 processInstanceUUID: Self.terminalBackendProcessInstanceUUID,
-                inputAuthority: backendClient
+                inputAuthority: backendClient,
+                rendererConfigurationProvider: { surfaceID in
+                    guard let snapshot =
+                            terminalPresentationRegistry.resolvedRenderConfig(
+                                surfaceID: surfaceID
+                            ) else {
+                        return nil
+                    }
+                    return MobileTerminalRendererConfiguration(
+                        revision: snapshot.revision,
+                        data: snapshot.data
+                    )
+                },
+                rendererConfigurationUpdatesProvider: { surfaceID in
+                    let updates =
+                        terminalPresentationRegistry.resolvedRenderConfigUpdates(
+                            surfaceID: surfaceID
+                        )
+                    let pair = AsyncStream<
+                        MobileTerminalRendererConfiguration?
+                    >.makeStream(bufferingPolicy: .bufferingNewest(1))
+                    let task = Task { @MainActor in
+                        for await event in updates {
+                            guard !Task.isCancelled else { break }
+                            switch event {
+                            case .available(let snapshot):
+                                pair.continuation.yield(
+                                    MobileTerminalRendererConfiguration(
+                                        revision: snapshot.revision,
+                                        data: snapshot.data
+                                    )
+                                )
+                            case .unavailable:
+                                pair.continuation.yield(nil)
+                            }
+                        }
+                        pair.continuation.finish()
+                    }
+                    pair.continuation.onTermination = { _ in task.cancel() }
+                    return pair.stream
+                }
             )
             terminalClientComposition = .persistent(
                 backendClient: backendClient,
                 presentationDependencies: GhosttyApp.terminalSurfacePresentationDependencies,
                 launchDependencies: GhosttyApp.terminalSurfaceLaunchDependencies,
-                renderConfigSerializer: {
-                    GhosttyApp.shared.serializedTerminalRendererConfig()
-                },
+                renderConfigSource: terminalRenderConfigSource,
+                presentationRegistry: terminalPresentationRegistry,
                 mobileTerminalDataPlane: mobileTerminalDataPlane,
                 topologyFailureReporter: { message in
                     terminalBackendServiceModel.reportTopologyFailure(message)

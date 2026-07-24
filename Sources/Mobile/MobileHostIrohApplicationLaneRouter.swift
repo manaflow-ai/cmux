@@ -52,6 +52,7 @@ actor MobileHostIrohApplicationLaneRouter {
         static let quotaExceeded: UInt64 = 3
         static let cursorGap: UInt64 = 4
         static let invalidInput: UInt64 = 5
+        static let invalidScene: UInt64 = 6
     }
 
     private static let maximumInputFrameByteCount = 16 * 1_024
@@ -135,6 +136,12 @@ actor MobileHostIrohApplicationLaneRouter {
                     stream: stream,
                     terminalDataPlane: terminalDataPlane
                 )
+            case let .terminalScene(request):
+                await Self.handleTerminalSceneLane(
+                    request: request,
+                    stream: stream,
+                    terminalDataPlane: terminalDataPlane
+                )
             case let .artifact(resourceID, offset):
                 let didTakeOwnership = await artifactHandler.handleArtifactLane(
                     resourceID: resourceID,
@@ -191,8 +198,50 @@ actor MobileHostIrohApplicationLaneRouter {
             }
             group.addTask {
                 await receiveTerminalInput(
-                    lane: lane,
-                    stream: stream
+                    stream: stream,
+                    sendInput: { try await lane.sendInput($0) }
+                )
+            }
+            if await group.next() == true {
+                group.cancelAll()
+            } else {
+                _ = await group.next()
+            }
+            group.cancelAll()
+        }
+        await lane.close()
+        await stream.receiveStream.stop(errorCode: 0)
+    }
+
+    private nonisolated static func handleTerminalSceneLane(
+        request: CmxIrohTerminalSceneLaneRequest,
+        stream: CmxIrohBidirectionalStream,
+        terminalDataPlane: any MobileTerminalDataPlane
+    ) async {
+        guard let surfaceID = terminalSurfaceID(request.resourceID) else {
+            await reject(stream, errorCode: ErrorCode.unsupportedResource)
+            return
+        }
+        let lane: any MobileTerminalSceneDataPlaneLane
+        do {
+            lane = try await terminalDataPlane.openSceneLane(
+                surfaceID: surfaceID,
+                request: request
+            )
+        } catch {
+            await reject(stream, errorCode: ErrorCode.unsupportedResource)
+            return
+        }
+
+        await withTaskGroup(of: Bool.self) { group in
+            group.addTask {
+                await sendTerminalSceneOutput(lane: lane, stream: stream)
+                return true
+            }
+            group.addTask {
+                await receiveTerminalByteInput(
+                    stream: stream,
+                    sendInput: { try await lane.sendInput($0) }
                 )
             }
             if await group.next() == true {
@@ -210,8 +259,8 @@ actor MobileHostIrohApplicationLaneRouter {
     /// finish returns false because the client may intentionally retain an
     /// output-only terminal stream.
     private nonisolated static func receiveTerminalInput(
-        lane: any MobileTerminalDataPlaneLane,
-        stream: CmxIrohBidirectionalStream
+        stream: CmxIrohBidirectionalStream,
+        sendInput: @escaping @Sendable (String) async throws -> Void
     ) async -> Bool {
         var buffer = Data()
         do {
@@ -227,7 +276,7 @@ actor MobileHostIrohApplicationLaneRouter {
                 }
                 for input in try decodeTerminalInputFrames(from: &buffer) {
                     do {
-                        try await lane.sendInput(input)
+                        try await sendInput(input)
                     } catch {
                         await reject(stream, errorCode: ErrorCode.invalidInput)
                         return true
@@ -244,6 +293,64 @@ actor MobileHostIrohApplicationLaneRouter {
         } catch {
             await reject(stream, errorCode: ErrorCode.invalidInput)
             return true
+        }
+    }
+
+    /// Receives exact terminal bytes for the semantic scene lane.
+    private nonisolated static func receiveTerminalByteInput(
+        stream: CmxIrohBidirectionalStream,
+        sendInput: @escaping @Sendable (Data) async throws -> Void
+    ) async -> Bool {
+        var buffer = Data()
+        do {
+            while !Task.isCancelled,
+                  let data = try await stream.receiveStream.receive(
+                      maximumByteCount: max(1, maximumInputBufferByteCount - buffer.count)
+                  ) {
+                guard !data.isEmpty else { continue }
+                buffer.append(data)
+                guard buffer.count <= maximumInputBufferByteCount else {
+                    await reject(stream, errorCode: ErrorCode.invalidInput)
+                    return true
+                }
+                for input in try decodeTerminalInputDataFrames(from: &buffer) {
+                    do {
+                        try await sendInput(input)
+                    } catch {
+                        await reject(stream, errorCode: ErrorCode.invalidInput)
+                        return true
+                    }
+                }
+            }
+            if !buffer.isEmpty {
+                await reject(stream, errorCode: ErrorCode.invalidInput)
+                return true
+            }
+            return false
+        } catch is CancellationError {
+            return true
+        } catch {
+            await reject(stream, errorCode: ErrorCode.invalidInput)
+            return true
+        }
+    }
+
+    private nonisolated static func sendTerminalSceneOutput(
+        lane: any MobileTerminalSceneDataPlaneLane,
+        stream: CmxIrohBidirectionalStream
+    ) async {
+        do {
+            let envelopes = try await lane.envelopes()
+            let codec = CmxIrohTerminalSceneEnvelopeCodec()
+            for try await envelope in envelopes {
+                try Task.checkCancellation()
+                try await stream.sendStream.send(codec.encode(envelope))
+            }
+            try await stream.sendStream.finish()
+        } catch is CancellationError {
+            await stream.sendStream.reset(errorCode: 0)
+        } catch {
+            await stream.sendStream.reset(errorCode: ErrorCode.invalidScene)
         }
     }
 
@@ -337,7 +444,18 @@ actor MobileHostIrohApplicationLaneRouter {
     nonisolated static func decodeTerminalInputFrames(
         from buffer: inout Data
     ) throws -> [String] {
-        var frames: [String] = []
+        try decodeTerminalInputDataFrames(from: &buffer).map { payload in
+            guard let input = String(data: payload, encoding: .utf8) else {
+                throw InputFrameError.invalidUTF8
+            }
+            return input
+        }
+    }
+
+    nonisolated static func decodeTerminalInputDataFrames(
+        from buffer: inout Data
+    ) throws -> [Data] {
+        var frames: [Data] = []
         while buffer.count >= 4 {
             let frameLength = buffer.prefix(4).reduce(UInt32(0)) {
                 ($0 << 8) | UInt32($1)
@@ -349,11 +467,8 @@ actor MobileHostIrohApplicationLaneRouter {
             let totalLength = 4 + Int(frameLength)
             guard buffer.count >= totalLength else { break }
             let payload = Data(buffer.dropFirst(4).prefix(Int(frameLength)))
-            guard let input = String(data: payload, encoding: .utf8) else {
-                throw InputFrameError.invalidUTF8
-            }
             buffer.removeFirst(totalLength)
-            frames.append(input)
+            frames.append(payload)
         }
         return frames
     }

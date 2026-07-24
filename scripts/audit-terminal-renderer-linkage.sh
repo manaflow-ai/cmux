@@ -75,6 +75,31 @@ contains_exact_symbol() {
   grep -Fqx -- "$symbol" "$symbols"
 }
 
+list_archive_members() {
+  local archive="$1"
+  local output="$2"
+  local slug="$3"
+  local description
+  description="$(file -b "$archive")"
+  if [[ "$description" == *"universal binary"* ]]; then
+    command -v lipo >/dev/null 2>&1 || {
+      echo "error: required audit command is missing: lipo" >&2
+      exit 1
+    }
+    local architectures
+    architectures="$(lipo -archs "$archive")"
+    : > "$output"
+    for architecture in $architectures; do
+      local slice="$TEMP_DIR/archive-$slug-$architecture.a"
+      lipo "$archive" -thin "$architecture" -output "$slice"
+      ar -t "$slice" >> "$output"
+    done
+    sort -u -o "$output" "$output"
+  else
+    ar -t "$archive" > "$output"
+  fi
+}
+
 banned_process_regex='(^|[[:space:]])(_openpty|_forkpty|_fork|_vfork|_posix_spawn|_posix_spawnp|_execv|_execve|_execvp|_execvpe|_execl|_execle|_execlp|_waitpid)([[:space:]]|$)'
 banned_ghostty_regex='ghostty_(app_|surface_|process_census)'
 banned_terminal_regex='terminal\.(Parser|Stream)|termio|(^|[._])pty([._]|$)'
@@ -208,7 +233,7 @@ while IFS= read -r archive; do
   nm -gUj "$archive" > "$archive_defined"
   nm -u -A "$archive" > "$archive_undefined"
   nm -a "$archive" > "$archive_all"
-  ar -t "$archive" > "$archive_members"
+  list_archive_members "$archive" "$archive_members" "$archive_slug"
   strings -a "$archive" > "$archive_strings"
   grep -E '^_ghostty_' "$archive_defined" | sort -u > "$archive_ghostty"
 

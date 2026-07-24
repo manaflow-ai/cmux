@@ -1888,7 +1888,7 @@ class TabManager: ObservableObject {
         let updatedIndexes = Dictionary(
             uniqueKeysWithValues: updated.enumerated().map { ($0.element.id, $0.offset) }
         )
-        let movedIDs = updated.compactMap { workspace in
+        let movedIDs: [UUID] = updated.compactMap { workspace -> UUID? in
             guard let oldIndex = previousIDs.firstIndex(of: workspace.id),
                   updatedIndexes[workspace.id] != oldIndex else {
                 return nil
@@ -2210,7 +2210,7 @@ class TabManager: ObservableObject {
             mutationCoordinator.reportFailure(for: .createWorkspace)
             return nil
         }
-        workspaceGrouping.createWorkspaceGroup(
+        return workspaceGrouping.createWorkspaceGroup(
             name: name,
             childWorkspaceIds: childWorkspaceIds,
             anchorWorkingDirectory: anchorWorkingDirectory,

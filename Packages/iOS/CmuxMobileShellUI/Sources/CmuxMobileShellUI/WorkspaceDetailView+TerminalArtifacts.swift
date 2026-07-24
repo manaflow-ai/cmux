@@ -88,7 +88,7 @@ extension WorkspaceDetailView {
     // the live surface in place (config rebuild + view recolor driven by
     // `configThemeGeneration`), so remounting would only throw away scrollback
     // for no visual benefit.
-    .id(terminalID)
+    .id("\(terminalID):\(store.usesTerminalSemanticScenes ? "scene" : "compat")")
     .onAppear {
         store.consumeTerminalAutoFocusSuppression(for: terminalID)
     }

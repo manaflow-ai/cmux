@@ -9,6 +9,7 @@ public struct CmxIrohTerminalSceneEnvelopeCodec: Sendable {
         case unsupportedVersion(UInt8)
         case invalidEnvelopeKind(UInt8)
         case invalidSceneKind(UInt8)
+        case invalidUTF8
         case invalidReservedBits
         case payloadTooLarge(actual: Int, maximum: Int)
     }
@@ -27,6 +28,7 @@ public struct CmxIrohTerminalSceneEnvelopeCodec: Sendable {
     private enum EnvelopeKind: UInt8 {
         case configuration = 1
         case scene = 2
+        case accessibility = 3
     }
 
     private static let magic = Data("CMXSCN01".utf8)
@@ -65,6 +67,20 @@ public struct CmxIrohTerminalSceneEnvelopeCodec: Sendable {
             frame.append(value.kind.rawValue)
             frame.append(contentsOf: repeatElement(UInt8.zero, count: 7))
             frame.append(value.payload)
+        case let .accessibility(value):
+            let payload = Data(value.text.utf8)
+            frame.append(EnvelopeKind.accessibility.rawValue)
+            Self.append(UInt16.zero, to: &frame)
+            Self.append(UInt32(payload.count), to: &frame)
+            Self.append(value.terminalID, to: &frame)
+            Self.append(value.terminalEpoch, to: &frame)
+            Self.append(value.contentSequence, to: &frame)
+            Self.append(value.presentationID, to: &frame)
+            Self.append(value.presentationGeneration, to: &frame)
+            Self.append(value.presentationSequence, to: &frame)
+            Self.append(value.columns, to: &frame)
+            Self.append(value.rows, to: &frame)
+            frame.append(payload)
         }
         return frame
     }
@@ -95,6 +111,8 @@ public struct CmxIrohTerminalSceneEnvelopeCodec: Sendable {
             CmxIrohTerminalSceneConfiguration.maximumRendererConfigByteCount
         case .scene:
             CmxIrohTerminalSceneFrame.maximumPayloadByteCount
+        case .accessibility:
+            CmxIrohTerminalSceneAccessibility.maximumTextByteCount
         }
         guard payloadByteCount <= maximumPayloadByteCount else {
             throw DecodeError.payloadTooLarge(
@@ -146,6 +164,30 @@ public struct CmxIrohTerminalSceneEnvelopeCodec: Sendable {
                 presentationSequence: presentationSequence,
                 kind: sceneKind,
                 payload: reader.readData(count: payloadByteCount)
+            ))
+        case .accessibility:
+            let terminalID = try reader.readUUID()
+            let terminalEpoch = try reader.readUInt64()
+            let contentSequence = try reader.readUInt64()
+            let presentationID = try reader.readUUID()
+            let presentationGeneration = try reader.readUInt64()
+            let presentationSequence = try reader.readUInt64()
+            let columns = try reader.readUInt32()
+            let rows = try reader.readUInt32()
+            let payload = try reader.readData(count: payloadByteCount)
+            guard let text = String(data: payload, encoding: .utf8) else {
+                throw DecodeError.invalidUTF8
+            }
+            envelope = .accessibility(try CmxIrohTerminalSceneAccessibility(
+                terminalID: terminalID,
+                terminalEpoch: terminalEpoch,
+                contentSequence: contentSequence,
+                presentationID: presentationID,
+                presentationGeneration: presentationGeneration,
+                presentationSequence: presentationSequence,
+                columns: columns,
+                rows: rows,
+                text: text
             ))
         }
         return CmxIrohDecodedTerminalSceneEnvelope(

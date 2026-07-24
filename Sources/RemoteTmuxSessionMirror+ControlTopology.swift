@@ -3,7 +3,7 @@ import Foundation
 
 @MainActor
 extension RemoteTmuxSessionMirror {
-    func controlPaneID(forPane tmuxPaneID: Int) -> PaneID? {
+    func controlPaneID(forPane tmuxPaneID: Int) -> Bonsplit.PaneID? {
         controlPaneIdByPane[tmuxPaneID]
     }
 
@@ -14,7 +14,7 @@ extension RemoteTmuxSessionMirror {
             controlPaneIdByPane[tmuxPaneID] = nil
         }
         for tmuxPaneID in livePaneIDs where controlPaneIdByPane[tmuxPaneID] == nil {
-            controlPaneIdByPane[tmuxPaneID] = PaneID()
+            controlPaneIdByPane[tmuxPaneID] = Bonsplit.PaneID()
         }
     }
 

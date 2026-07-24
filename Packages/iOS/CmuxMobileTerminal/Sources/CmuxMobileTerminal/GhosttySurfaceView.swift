@@ -5,6 +5,7 @@ import CmuxMobileDiagnostics
 import CmuxMobileSupport
 import CmuxMobileTerminalKit
 import GhosttyKit
+import Metal
 import OSLog
 import Synchronization
 import UIKit
@@ -12,6 +13,11 @@ import UIKit
 private let log = Logger(subsystem: "ai.manaflow.cmux.ios", category: "ghostty.surface")
 
 public final class GhosttySurfaceView: UIView, TerminalSurfaceHosting {
+    public enum RenderingMode: Equatable, Sendable {
+        case vtMirror
+        case semanticScene
+    }
+
     /// The surface whose hidden text input is currently first responder, if any.
     ///
     /// Tracked statically so chrome (SwiftUI overlays presented over the
@@ -19,6 +25,30 @@ public final class GhosttySurfaceView: UIView, TerminalSurfaceHosting {
     /// without holding a reference to the specific surface.
     private static weak var activeInputSurface: GhosttySurfaceView?
     private weak var runtime: GhosttyRuntime?
+    private let renderingMode: RenderingMode
+    public var usesSemanticSceneRenderer: Bool {
+        renderingMode == .semanticScene
+    }
+    /// The only presentation target in semantic-scene mode.
+    public let semanticScenePresentationLayer = CAMetalLayer()
+    /// Called after drawable geometry has remained stable for several display frames.
+    public var semanticSceneGeometryDidChange: (@MainActor (GhosttySemanticSceneGeometry) -> Void)?
+    /// Called on the display cadence only while the current scene requests animation.
+    public var semanticSceneAnimationFrameRequested: (@MainActor () -> Void)?
+    /// Called when a presentation-local renderer option requires a fresh generation.
+    public var semanticSceneConfigurationDidChange: (@MainActor () -> Void)?
+    /// Closes GPU-backed scene work while this view cannot acquire a drawable.
+    public var semanticSceneVisibilityDidChange: (@MainActor (Bool) -> Void)?
+    /// Explicit local or Mac-pushed font override layered over the shared Mac config.
+    public private(set) var semanticSceneFontSizeOverride: Float32?
+    private var pendingSemanticSceneGeometry: GhosttySemanticSceneGeometry?
+    private var semanticSceneGeometrySettleFrames = 0
+    private var lastReportedSemanticSceneGeometry: GhosttySemanticSceneGeometry?
+    private var semanticSceneAnimationEnabled = false
+    var semanticSceneAccessibility: MobileTerminalSceneAccessibility?
+    /// Exact cell-bearing rectangle inside Ghostty's padded scene drawable.
+    private var semanticSceneContentRect: CGRect?
+    private static let semanticSceneGeometrySettleThreshold = 3
     /// Renderer-effective colors used by this surface and its UIKit chrome.
     public var terminalTheme: TerminalTheme = .monokai {
         didSet { if terminalTheme != oldValue { inputProxy.terminalTheme = terminalTheme; refreshThemeColors() } }
@@ -218,26 +248,26 @@ public final class GhosttySurfaceView: UIView, TerminalSurfaceHosting {
         view.delegate = self
         return view
     }()
-    #if DEBUG
-    private var lastInputTimestamp: CFTimeInterval = 0
-    private var latencySamples: [Double] = []
-    var onOutputProcessedForTesting: (() -> Void)?
-    /// DEBUG/UI-test accessibility carrier for the rendered terminal text.
+
+    /// Accessibility carrier for the renderer's canonical viewport text.
     ///
-    /// The surface itself must NOT be an accessibility leaf: a leaf hides its
-    /// subviews from the accessibility tree, which made the docked accessory
-    /// toolbar's zoom buttons (`terminal.inputAccessory.zoomOut/In`)
-    /// unreachable to XCUITest. Instead this non-interactive, full-bounds child
-    /// carries the `MobileTerminalSurface` identifier and the rendered-text
-    /// label, leaving the toolbar (a sibling subview) individually accessible.
-    private lazy var debugAccessibilityProxy: UIView = {
+    /// The surface remains a container so the terminal toolbar stays exposed
+    /// as sibling accessibility elements. This non-interactive child carries
+    /// the visible text for VoiceOver and the stable UI-test identifier.
+    private lazy var terminalAccessibilityProxy: UIView = {
         let proxy = UIView()
         proxy.backgroundColor = .clear
         proxy.isUserInteractionEnabled = false
         proxy.isAccessibilityElement = true
         proxy.accessibilityIdentifier = "MobileTerminalSurface"
+        proxy.accessibilityTraits = [.updatesFrequently]
         return proxy
     }()
+
+    #if DEBUG
+    private var lastInputTimestamp: CFTimeInterval = 0
+    private var latencySamples: [Double] = []
+    var onOutputProcessedForTesting: (() -> Void)?
 
     /// DEBUG/UI-test accessibility carrier for the surface's live bottom-dock state.
     ///
@@ -248,7 +278,7 @@ public final class GhosttySurfaceView: UIView, TerminalSurfaceHosting {
     /// composer state precisely across repeated open/close cycles — the discriminating
     /// seam for the "composer jank" repro. Non-interactive, off-screen (1×1 at the
     /// origin) so it never intercepts taps or perturbs layout; it carries no rendered
-    /// text (that stays on ``debugAccessibilityProxy``).
+    /// text (that stays on ``terminalAccessibilityProxy``).
     ///
     /// The value is computed live on every accessibility READ (not cached on a
     /// transition), because `fieldFocused`/`proxyFirstResponder` flip a runloop after
@@ -612,8 +642,10 @@ public final class GhosttySurfaceView: UIView, TerminalSurfaceHosting {
     ///     `terminalTheme` for callers that do not mirror a remote surface.
     public init(runtime: GhosttyRuntime, delegate: GhosttySurfaceViewDelegate,
                 fontSize: Float32 = 10, terminalTheme: TerminalTheme = .monokai,
-                terminalConfigTheme: TerminalTheme? = nil) {
+                terminalConfigTheme: TerminalTheme? = nil,
+                renderingMode: RenderingMode = .vtMirror) {
         self.runtime = runtime
+        self.renderingMode = renderingMode
         self.delegate = delegate
         self.fontSize = fontSize
         self.liveFontSize = fontSize
@@ -630,23 +662,43 @@ public final class GhosttySurfaceView: UIView, TerminalSurfaceHosting {
         backgroundColor = terminalTheme.terminalBackgroundUIColor
         isOpaque = true
         clipsToBounds = true
-        #if DEBUG
         // The surface is a container, not a leaf, so the docked toolbar's
-        // buttons stay accessible. `debugAccessibilityProxy` carries the
+        // buttons stay accessible. `terminalAccessibilityProxy` carries the
         // `MobileTerminalSurface` identifier + rendered-text label instead.
         isAccessibilityElement = false
-        #endif
         addSubview(snapshotFallbackView)
+        if renderingMode == .semanticScene {
+            semanticScenePresentationLayer.device = MTLCreateSystemDefaultDevice()
+            semanticScenePresentationLayer.pixelFormat = .bgra8Unorm
+            semanticScenePresentationLayer.framebufferOnly = false
+            semanticScenePresentationLayer.isOpaque = true
+            semanticScenePresentationLayer.backgroundColor =
+                terminalTheme.terminalBackgroundUIColor.cgColor
+            semanticScenePresentationLayer.actions = [
+                "bounds": NSNull(),
+                "contentsScale": NSNull(),
+                "drawableSize": NSNull(),
+                "frame": NSNull(),
+                "position": NSNull(),
+            ]
+            semanticScenePresentationLayer.zPosition = -100
+            layer.addSublayer(semanticScenePresentationLayer)
+        }
         addSubview(scrollMechanicsView)
         addSubview(inputProxy)
+        addSubview(terminalAccessibilityProxy)
         #if DEBUG
-        addSubview(debugAccessibilityProxy)
         addSubview(composerDockProbe)
         #endif
         installPersistentToolbar()
         installComposerContainer()
         installArtifactChipContainer()
-        initializeSurface()
+        if renderingMode == .vtMirror {
+            initializeSurface()
+        } else {
+            snapshotFallbackView.isHidden = true
+            startDisplayLink()
+        }
 
         let tap = UITapGestureRecognizer(target: self, action: #selector(handleTap(_:)))
         tap.delegate = self
@@ -706,6 +758,13 @@ public final class GhosttySurfaceView: UIView, TerminalSurfaceHosting {
     }
 
     @objc private func handleAppWillEnterForeground() {
+        if renderingMode == .semanticScene {
+            guard window != nil else { return }
+            lastReportedSize = nil
+            lastReportedSemanticSceneGeometry = nil
+            updateSemanticSceneGeometry(using: viewportSnapshot())
+            return
+        }
         guard surface != nil, window != nil else { return }
         // The Mac drops this device's sticky viewport pin a few seconds after the
         // connection backgrounds, so on reconnect it reverts to its own (often
@@ -728,6 +787,18 @@ public final class GhosttySurfaceView: UIView, TerminalSurfaceHosting {
         skipPendingVisibleSnapshot()
         skipPendingCopyableTextRead()
         stopDisplayLink()
+        if renderingMode == .semanticScene {
+            // The Mac may drop this connection's viewport pin while iOS is
+            // backgrounded. The fresh renderer generation must report its
+            // natural grid even when its metrics equal the prior generation.
+            lastReportedSize = nil
+            pendingSemanticSceneGeometry = nil
+            lastReportedSemanticSceneGeometry = nil
+            semanticSceneGeometrySettleFrames = 0
+            semanticSceneVisibilityDidChange?(false)
+            setFocus(false)
+            return
+        }
         guard let surface else { return }
         ghostty_surface_set_occlusion(surface, false)  // false = occluded; drawFrame skips
         setFocus(false)
@@ -745,6 +816,14 @@ public final class GhosttySurfaceView: UIView, TerminalSurfaceHosting {
         renderInFlight = false
         renderInFlightSince = nil
         needsAnotherRender = false
+        if renderingMode == .semanticScene {
+            guard window != nil else { return }
+            updateSemanticSceneGeometry(using: viewportSnapshot())
+            semanticSceneVisibilityDidChange?(true)
+            setFocus(true)
+            startDisplayLink()
+            return
+        }
         guard let surface, window != nil else { return }
         ghostty_surface_set_occlusion(surface, true)  // true = visible
         setFocus(true)
@@ -823,7 +902,15 @@ public final class GhosttySurfaceView: UIView, TerminalSurfaceHosting {
     /// representable. Scopes registry lookups — e.g. the "View as Text"
     /// capture — to the terminal the caller actually asked about, instead of
     /// whichever registered surface happens to sort first.
-    public var hostSurfaceID: String?
+    public var hostSurfaceID: String? {
+        didSet {
+            if hostSurfaceID == nil {
+                Self.unregisterHostSurfaceView(self)
+            } else {
+                Self.registerHostSurfaceView(self)
+            }
+        }
+    }
 
     @objc private func handleKeyboardWillChangeFrame(_ notification: Notification) {
         guard let transition = MobileKeyboardTransition(notification: notification) else { return }
@@ -1549,6 +1636,18 @@ public final class GhosttySurfaceView: UIView, TerminalSurfaceHosting {
         pendingScrollCell = scrollCell(at: touchPoint)
     }
 
+    #if DEBUG
+    /// Test boundary for the display-frame coalescer. A detached UIScrollView does
+    /// not reliably synthesize drag callbacks in XCTest, so tests inject the same
+    /// delta that `scrollViewDidScroll` produces after UIKit has measured a drag.
+    func debugEnqueueScrollMechanicsDelta(
+        _ deltaY: CGFloat,
+        touchPoint: CGPoint
+    ) {
+        enqueueScrollMechanicsDelta(deltaY, touchPoint: touchPoint)
+    }
+    #endif
+
     /// Coalesced native scroll forwarded to the Mac once per display-link frame.
     private var pendingScrollLines: Double = 0
     private var pendingScrollCell: (col: Int, row: Int) = (0, 0)
@@ -1556,11 +1655,23 @@ public final class GhosttySurfaceView: UIView, TerminalSurfaceHosting {
     /// Map a touch point to a grid cell (shared effective grid with the Mac), so
     /// alt-screen mouse-wheel reports at the cell under the finger.
     private func scrollCell(at point: CGPoint) -> (col: Int, row: Int) {
+        let renderRect = semanticSceneContentRect ?? lastRenderRect
+        let grid = currentGridSize
         let scale = max(preferredScreenScale, 1)
-        let cellW = max(cellPixelSize.width / scale, 1)
-        let cellH = max(cellPixelSize.height / scale, 1)
-        let col = max(0, Int((point.x - lastRenderRect.minX) / cellW))
-        let row = max(0, Int((point.y - lastRenderRect.minY) / cellH))
+        let cellW = renderingMode == .semanticScene && grid.columns > 0
+            ? max(renderRect.width / CGFloat(grid.columns), 1 / scale)
+            : max(cellPixelSize.width / scale, 1)
+        let cellH = renderingMode == .semanticScene && grid.rows > 0
+            ? max(renderRect.height / CGFloat(grid.rows), 1 / scale)
+            : max(cellPixelSize.height / scale, 1)
+        let col = min(
+            max(0, Int((point.x - renderRect.minX) / cellW)),
+            max(0, grid.columns - 1)
+        )
+        let row = min(
+            max(0, Int((point.y - renderRect.minY) / cellH)),
+            max(0, grid.rows - 1)
+        )
         return (col, row)
     }
 
@@ -1659,8 +1770,6 @@ public final class GhosttySurfaceView: UIView, TerminalSurfaceHosting {
             MobileDebugLog.anchormux("zoom.clamp dir=\(direction) base=\(base) target=\(target) range=[\(MobileTerminalFontPreference.minimumSize),\(MobileTerminalFontPreference.maximumSize)]")
             return false
         }
-        guard surface != nil else { return false }
-
         pendingFontSize = target
         // A pinch/accessory step is an explicit choice: it rebases the user
         // font so the stretch-to-fill auto-fit re-derives from the new size
@@ -1690,10 +1799,19 @@ public final class GhosttySurfaceView: UIView, TerminalSurfaceHosting {
     /// applied this frame.
     @discardableResult
     private func applyPendingFontSizeIfNeeded() -> Bool {
-        guard let target = pendingFontSize, let surface else { return false }
+        guard let target = pendingFontSize else { return false }
         pendingFontSize = nil
         guard target != liveFontSize else { return false }
         liveFontSize = target
+        if renderingMode == .semanticScene {
+            semanticSceneFontSizeOverride = target
+            // A renderer generation owns immutable font metrics. Coalesce a
+            // burst of pinch or toolbar steps, then replace the generation
+            // once with the final absolute size.
+            zoomSettleFrames = Self.zoomSettleFrameThreshold
+            return true
+        }
+        guard let surface else { return false }
         MobileDebugLog.anchormux("zoom.apply \(target) eff=\(effectiveGrid.map { "\($0.cols)x\($0.rows)" } ?? "nil")")
         // Absolute set: the prior `±1` binding action drove libghostty's own
         // font counter independently of our clamp, so a fast burst could push
@@ -1742,7 +1860,7 @@ public final class GhosttySurfaceView: UIView, TerminalSurfaceHosting {
     /// driving the same coalesced apply path as a pinch step. Does NOT move
     /// the user baseline — the stretch-to-fill auto-fit funnels through here.
     func applyAbsoluteFontSize(_ target: Float32) {
-        guard surface != nil else { return }
+        guard surface != nil || renderingMode == .semanticScene else { return }
         let clamped = min(
             max(target, MobileTerminalFontPreference.minimumSize),
             MobileTerminalFontPreference.maximumSize
@@ -1864,8 +1982,8 @@ public final class GhosttySurfaceView: UIView, TerminalSurfaceHosting {
         let snapshot = viewportSnapshot()
         layoutRenderedTerminalForCurrentViewport(using: snapshot)
         layoutScrollMechanicsView()
+        terminalAccessibilityProxy.frame = bounds
         #if DEBUG
-        debugAccessibilityProxy.frame = bounds
         // The dock probe stays a 1×1 off-screen carrier; its accessibility value is
         // computed live on every read (see ``composerDockProbeValue``), so it never
         // needs a frame-driven refresh.
@@ -1876,7 +1994,11 @@ public final class GhosttySurfaceView: UIView, TerminalSurfaceHosting {
         layoutBottomDock(using: snapshot)
         layoutZoomOverlay()
         MobileDebugLog.anchormux("surface.layout bounds=\(Int(bounds.width))x\(Int(bounds.height)) window=\(window != nil)")
-        setNeedsGeometrySync()
+        if renderingMode == .semanticScene {
+            updateSemanticSceneGeometry(using: snapshot)
+        } else {
+            setNeedsGeometrySync()
+        }
         syncSurfaceVisibility()
     }
 
@@ -1893,7 +2015,132 @@ public final class GhosttySurfaceView: UIView, TerminalSurfaceHosting {
         let snapshot = viewportSnapshot()
         layoutRenderedTerminalForCurrentViewport(using: snapshot)
         layoutBottomDock(using: snapshot)
-        setNeedsGeometrySync()
+        if renderingMode == .semanticScene {
+            updateSemanticSceneGeometry(using: snapshot)
+        } else {
+            setNeedsGeometrySync()
+        }
+    }
+
+    private func updateSemanticSceneGeometry(
+        using snapshot: TerminalViewportSnapshot
+    ) {
+        guard renderingMode == .semanticScene else { return }
+        let renderRect = snapshot.layoutViewportRect
+        guard renderRect.width > 0, renderRect.height > 0 else { return }
+        lastRenderRect = renderRect
+        lastRenderLayoutViewportHeight = renderRect.height
+        lastRenderHasSourceLayoutViewport = true
+
+        let scale = preferredScreenScale
+        let pixelWidth = max(1, Int((renderRect.width * scale).rounded(.down)))
+        let pixelHeight = max(1, Int((renderRect.height * scale).rounded(.down)))
+        guard pixelWidth <= Int(UInt32.max), pixelHeight <= Int(UInt32.max) else { return }
+        let geometry = GhosttySemanticSceneGeometry(
+            width: UInt32(pixelWidth),
+            height: UInt32(pixelHeight),
+            contentScale: Double(scale)
+        )
+
+        CATransaction.begin()
+        CATransaction.setDisableActions(true)
+        semanticScenePresentationLayer.frame = renderRect
+        semanticScenePresentationLayer.bounds = CGRect(
+            origin: .zero,
+            size: renderRect.size
+        )
+        semanticScenePresentationLayer.contentsScale = scale
+        semanticScenePresentationLayer.drawableSize = CGSize(
+            width: pixelWidth,
+            height: pixelHeight
+        )
+        CATransaction.commit()
+
+        if geometry != pendingSemanticSceneGeometry,
+           geometry != lastReportedSemanticSceneGeometry {
+            semanticSceneContentRect = nil
+            pendingSemanticSceneGeometry = geometry
+            semanticSceneGeometrySettleFrames = 0
+        }
+        if displayLink == nil, window != nil {
+            startDisplayLink()
+        }
+    }
+
+    /// Installs renderer-owned cell metrics and reports the resulting PTY grid once.
+    public func applySemanticSceneMetrics(
+        _ metrics: GhosttySemanticSceneMetrics
+    ) {
+        guard renderingMode == .semanticScene,
+              metrics.columns > 0,
+              metrics.rows > 0,
+              metrics.pixelWidth > 0,
+              metrics.pixelHeight > 0,
+              metrics.cellWidth > 0,
+              metrics.cellHeight > 0,
+              metrics.paddingLeft >= 0,
+              metrics.paddingRight >= 0,
+              metrics.paddingTop >= 0,
+              metrics.paddingBottom >= 0,
+              metrics.paddingLeft + metrics.paddingRight < metrics.pixelWidth,
+              metrics.paddingTop + metrics.paddingBottom < metrics.pixelHeight else {
+            return
+        }
+        cellPixelSize = CGSize(
+            width: metrics.cellWidth,
+            height: metrics.cellHeight
+        )
+        let drawableRect = semanticScenePresentationLayer.frame
+        let pointsPerPixelX = drawableRect.width / CGFloat(metrics.pixelWidth)
+        let pointsPerPixelY = drawableRect.height / CGFloat(metrics.pixelHeight)
+        semanticSceneContentRect = CGRect(
+            x: drawableRect.minX
+                + CGFloat(metrics.paddingLeft) * pointsPerPixelX,
+            y: drawableRect.minY
+                + CGFloat(metrics.paddingTop) * pointsPerPixelY,
+            width: CGFloat(
+                metrics.pixelWidth
+                    - metrics.paddingLeft
+                    - metrics.paddingRight
+            ) * pointsPerPixelX,
+            height: CGFloat(
+                metrics.pixelHeight
+                    - metrics.paddingTop
+                    - metrics.paddingBottom
+            ) * pointsPerPixelY
+        )
+        let size = TerminalGridSize(
+            columns: metrics.columns,
+            rows: metrics.rows,
+            pixelWidth: metrics.pixelWidth,
+            pixelHeight: metrics.pixelHeight
+        )
+        guard size != lastReportedSize else { return }
+        lastReportedSize = size
+        viewportReportID &+= 1
+        delegate?.ghosttySurfaceView(self, didResize: size, reportID: viewportReportID)
+    }
+
+    /// Installs canonical text that is fenced to the frame currently on screen.
+    public func applySemanticSceneAccessibility(
+        _ accessibility: MobileTerminalSceneAccessibility
+    ) {
+        guard renderingMode == .semanticScene,
+              accessibility.columns > 0,
+              accessibility.rows > 0,
+              accessibility.columns == currentGridSize.columns,
+              accessibility.rows == currentGridSize.rows else { return }
+        semanticSceneAccessibility = accessibility
+        terminalAccessibilityProxy.accessibilityLabel = accessibility.text
+        scheduleVisibleArtifactCountUpdate()
+    }
+
+    public func setSemanticSceneAnimationEnabled(_ enabled: Bool) {
+        guard renderingMode == .semanticScene else { return }
+        semanticSceneAnimationEnabled = enabled
+        if enabled, displayLink == nil, window != nil {
+            startDisplayLink()
+        }
     }
 
     public override func didMoveToWindow() {
@@ -1902,9 +2149,7 @@ public final class GhosttySurfaceView: UIView, TerminalSurfaceHosting {
         syncSurfaceVisibility()
         if window != nil {
             isDismantled = false
-            #if DEBUG
-            debugAccessibilityProxy.isAccessibilityElement = true
-            #endif
+            terminalAccessibilityProxy.isAccessibilityElement = true
             setNeedsGeometrySync()
             setFocus(true)
             if autoFocusOnWindowAttach {
@@ -1912,7 +2157,14 @@ public final class GhosttySurfaceView: UIView, TerminalSurfaceHosting {
             }
             resetVisibleArtifactCountTracking()
             startDisplayLink()
+            if renderingMode == .semanticScene,
+               UIApplication.shared.applicationState == .active {
+                semanticSceneVisibilityDidChange?(true)
+            }
         } else {
+            if renderingMode == .semanticScene {
+                semanticSceneVisibilityDidChange?(false)
+            }
             prepareForReuseAfterDetach()
         }
     }
@@ -2086,6 +2338,11 @@ public final class GhosttySurfaceView: UIView, TerminalSurfaceHosting {
         // TUI that hides the cursor. nil = this delta carried no DECTCEM, so the
         // previous visibility stands.
         let cursorVisibilityDelta = Self.lastCursorVisibility(in: forwarded)
+        #if DEBUG
+        let shouldRefreshAccessibilityText = true
+        #else
+        let shouldRefreshAccessibilityText = UIAccessibility.isVoiceOverRunning
+        #endif
 
         // `ghostty_surface_process_output` BLOCKS on libghostty's internal
         // renderer/IO synchronization (a futex). Device crash logs show it
@@ -2105,10 +2362,9 @@ public final class GhosttySurfaceView: UIView, TerminalSurfaceHosting {
                 let pointer = baseAddress.assumingMemoryBound(to: CChar.self)
                 ghostty_surface_process_output(surface, pointer, UInt(buffer.count))
             }
-            #if DEBUG
             // `ghostty_surface_read_text` takes the same internal surface lock as
-            // `process_output`. Reading it on the MAIN thread per-output (to feed
-            // the XCUITest accessibility label) contended that lock against the
+            // `process_output`. Reading it on the main thread per-output contended
+            // that lock against the
             // off-main renderer/IO during a fast render storm and wedged the main
             // thread on libghostty's futex until the scene-update watchdog
             // (0x8BADF00D) froze the app. Read it HERE on the serial output queue
@@ -2117,11 +2373,11 @@ public final class GhosttySurfaceView: UIView, TerminalSurfaceHosting {
             // main. Off-main reads can never trip the main-thread watchdog.
             var accessibilityText: String?
             let a11yNow = CACurrentMediaTime()
-            if a11yNow - workQueue.lastAccessibilityTextTime > 0.5 {
+            if shouldRefreshAccessibilityText,
+               a11yNow - workQueue.lastAccessibilityTextTime > 0.5 {
                 workQueue.lastAccessibilityTextTime = a11yNow
-                accessibilityText = Self.accessibilitySurfaceText(surface)
+                accessibilityText = Self.viewportAccessibilitySurfaceText(surface)
             }
-            #endif
             DispatchQueue.main.async {
                 guard let self, !self.isDismantled else {
                     completion?(true)
@@ -2153,10 +2409,10 @@ public final class GhosttySurfaceView: UIView, TerminalSurfaceHosting {
                         self.logLayerTree(reason: "processOutput")
                     }
                 }
-                #if DEBUG
                 if let accessibilityText, !accessibilityText.isEmpty {
-                    self.debugAccessibilityProxy.accessibilityLabel = accessibilityText
+                    self.terminalAccessibilityProxy.accessibilityLabel = accessibilityText
                 }
+                #if DEBUG
                 self.onOutputProcessedForTesting?()
                 #endif
                 completion?(true)
@@ -2253,6 +2509,7 @@ public final class GhosttySurfaceView: UIView, TerminalSurfaceHosting {
     /// Stops user-visible and accessibility output from a surface SwiftUI has removed.
     public func prepareForDismantle() {
         isDismantled = true
+        Self.unregisterHostSurfaceView(self)
         prepareForReuseAfterDetach()
     }
 
@@ -2267,6 +2524,11 @@ public final class GhosttySurfaceView: UIView, TerminalSurfaceHosting {
         visibleArtifactSnapshotGeneration &+= 1
         lastVisibleArtifactSnapshotText = nil
         lastReportedVisibleArtifactCount = 0
+        semanticSceneAccessibility = nil
+        semanticSceneContentRect = nil
+        pendingSemanticSceneGeometry = nil
+        lastReportedSemanticSceneGeometry = nil
+        semanticSceneGeometrySettleFrames = 0
         delegate?.ghosttySurfaceViewDidResetArtifactCount(self)
         artifactChipHost.setContent(nil)
         updateArtifactChipVisibility(animated: false)
@@ -2281,10 +2543,8 @@ public final class GhosttySurfaceView: UIView, TerminalSurfaceHosting {
         stopKeyboardHeightAnimation()
         stopDisplayLink()
         setFocus(false)
-        #if DEBUG
-        debugAccessibilityProxy.accessibilityLabel = nil
-        debugAccessibilityProxy.isAccessibilityElement = false
-        #endif
+        terminalAccessibilityProxy.accessibilityLabel = nil
+        terminalAccessibilityProxy.isAccessibilityElement = false
     }
 
     func simulateTextInputForTesting(_ text: String) {
@@ -2361,6 +2621,15 @@ public final class GhosttySurfaceView: UIView, TerminalSurfaceHosting {
     /// (alongside `process_output`) instead of the main thread. See the call
     /// site in `processOutput` for why a main-thread read deadlocks the watchdog.
     nonisolated static func accessibilitySurfaceText(_ surface: ghostty_surface_t) -> String? {
+        viewportAccessibilitySurfaceText(surface)
+    }
+
+    #endif
+
+    /// Best available visible terminal text for VoiceOver and UI diagnostics.
+    nonisolated static func viewportAccessibilitySurfaceText(
+        _ surface: ghostty_surface_t
+    ) -> String? {
         let candidates = [
             surfaceText(surface, pointTag: GHOSTTY_POINT_SURFACE),
             surfaceText(surface, pointTag: GHOSTTY_POINT_SCREEN),
@@ -2369,8 +2638,6 @@ public final class GhosttySurfaceView: UIView, TerminalSurfaceHosting {
         ].compactMap { $0 }
         return candidates.max { $0.utf8.count < $1.utf8.count }
     }
-
-    #endif
 
     /// Read the surface text for `pointTag` from the raw handle. Pure libghostty
     /// C calls, safe to run off the main actor on the serial output queue.
@@ -2577,6 +2844,10 @@ public final class GhosttySurfaceView: UIView, TerminalSurfaceHosting {
 
     @objc func handleDisplayLinkFire() {
         let now = CACurrentMediaTime()
+        if renderingMode == .semanticScene {
+            handleSemanticSceneDisplayLink(now: now)
+            return
+        }
         if checkSurfaceOperationDeadlines(now: now) {
             return
         }
@@ -2682,23 +2953,7 @@ public final class GhosttySurfaceView: UIView, TerminalSurfaceHosting {
         // vim, etc.) redraws at constantly-changing sizes and garbles into the
         // "bad intermediate state". Zoom is a LOCAL font change; the shared
         // grid should renegotiate exactly once, after the user settles.
-        if let pending = pendingViewportReport {
-            if zoomSettleFrames != nil {
-                viewportReportSettleFrames = 0
-            } else {
-                viewportReportSettleFrames += 1
-                if viewportReportSettleFrames >= Self.viewportReportSettleThreshold {
-                    pendingViewportReport = nil
-                    viewportReportSettleFrames = 0
-                    viewportReportID &+= 1
-                    MobileDebugLog.anchormux("zoom.report grid=\(pending.columns)x\(pending.rows) id=\(viewportReportID)")
-                    delegate?.ghosttySurfaceView(self, didResize: pending, reportID: viewportReportID)
-                }
-            }
-        }
-
-        // Flush coalesced scroll to the Mac at most once per frame.
-        flushPendingScrollIfNeeded()
+        flushSharedRemoteInteractionFrame()
 
         // Visible artifact detection shares the viewport report's quiet-frame
         // cadence. Output/scroll/geometry only re-arm this counter; one visible
@@ -2724,6 +2979,77 @@ public final class GhosttySurfaceView: UIView, TerminalSurfaceHosting {
            now - zoomOverlayLastInteraction > Self.zoomOverlayVisibleDuration {
             fadeOutZoomOverlay()
         }
+    }
+
+    private func handleSemanticSceneDisplayLink(now: CFTimeInterval) {
+        advanceKeyboardHeightAnimation()
+        let appliedZoom = applyPendingFontSizeIfNeeded()
+        if !appliedZoom, var frames = zoomSettleFrames {
+            frames -= 1
+            if frames <= 0 {
+                zoomSettleFrames = nil
+                semanticSceneConfigurationDidChange?()
+            } else {
+                zoomSettleFrames = frames
+            }
+        }
+        if let geometry = pendingSemanticSceneGeometry {
+            semanticSceneGeometrySettleFrames += 1
+            if semanticSceneGeometrySettleFrames
+                >= Self.semanticSceneGeometrySettleThreshold {
+                pendingSemanticSceneGeometry = nil
+                semanticSceneGeometrySettleFrames = 0
+                lastReportedSemanticSceneGeometry = geometry
+                semanticSceneGeometryDidChange?(geometry)
+            }
+        }
+        if semanticSceneAnimationEnabled {
+            semanticSceneAnimationFrameRequested?()
+        }
+        flushSharedRemoteInteractionFrame()
+        if var settleFrames = visibleArtifactCountSettleFrames {
+            settleFrames += 1
+            if settleFrames >= Self.viewportReportSettleThreshold {
+                visibleArtifactCountSettleFrames = nil
+                refreshVisibleArtifactCount()
+            } else {
+                visibleArtifactCountSettleFrames = settleFrames
+            }
+        }
+        if zoomOverlayShown,
+           now - zoomOverlayLastInteraction > Self.zoomOverlayVisibleDuration {
+            fadeOutZoomOverlay()
+        }
+    }
+
+    /// Advances interaction work shared by the compatibility and semantic renderers.
+    ///
+    /// The renderer mode only changes pixels. Viewport retry and scroll ownership
+    /// remain in the host view and must run on every display-link frame.
+    private func flushSharedRemoteInteractionFrame() {
+        if let pending = pendingViewportReport {
+            if zoomSettleFrames != nil {
+                viewportReportSettleFrames = 0
+            } else {
+                viewportReportSettleFrames += 1
+                if viewportReportSettleFrames
+                    >= Self.viewportReportSettleThreshold {
+                    pendingViewportReport = nil
+                    viewportReportSettleFrames = 0
+                    viewportReportID &+= 1
+                    MobileDebugLog.anchormux(
+                        "zoom.report grid=\(pending.columns)x\(pending.rows) "
+                            + "id=\(viewportReportID)"
+                    )
+                    delegate?.ghosttySurfaceView(
+                        self,
+                        didResize: pending,
+                        reportID: viewportReportID
+                    )
+                }
+            }
+        }
+        flushPendingScrollIfNeeded()
     }
 
     /// Drive a full render cycle via `ghostty_surface_render_now`, dispatched
@@ -2791,6 +3117,13 @@ public final class GhosttySurfaceView: UIView, TerminalSurfaceHosting {
     /// must call this instead of `syncSurfaceGeometry` directly so rapid
     /// events coalesce into one apply per frame.
     private func setNeedsGeometrySync(reassertNaturalSize: Bool = true) {
+        if renderingMode == .semanticScene {
+            let snapshot = viewportSnapshot()
+            layoutRenderedTerminalForCurrentViewport(using: snapshot)
+            layoutBottomDock(using: snapshot)
+            updateSemanticSceneGeometry(using: snapshot)
+            return
+        }
         needsGeometrySync = true
         if reassertNaturalSize { pendingGeometryReassert = true }
         needsDraw = true

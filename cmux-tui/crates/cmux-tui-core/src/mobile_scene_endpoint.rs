@@ -24,6 +24,7 @@ const AUTH_MAGIC: &[u8; 8] = b"CMXSCNA1";
 const SCENE_MAGIC: &[u8; 8] = b"CMXSCN01";
 const SCENE_VERSION: u8 = 1;
 const SCENE_ENVELOPE_KIND: u8 = 2;
+const ACCESSIBILITY_ENVELOPE_KIND: u8 = 3;
 const TOKEN_LENGTH: usize = 32;
 
 /// Path and bearer proof for one endpoint that accepts exactly one same-user client.
@@ -61,6 +62,7 @@ pub(crate) fn open_mobile_scene_endpoint(
         SemanticScenePresentationIdentity { presentation_id, generation: presentation_generation },
     );
     options.capture = capture;
+    options.include_accessibility = true;
     let attachment = surface.attach_semantic_scene(options)?;
 
     let (listener, path) = bind_private_listener()?;
@@ -119,9 +121,13 @@ fn serve(
     let read_stream = stream.try_clone()?;
     let mut writer = BufWriter::new(stream);
     write_scene(&mut writer, &attachment.initial)?;
+    write_accessibility(&mut writer, &attachment.initial)?;
     loop {
         match attachment.events.recv_timeout(DISCONNECT_POLL) {
-            Ok(SemanticSceneEvent::Scene(frame)) => write_scene(&mut writer, &frame)?,
+            Ok(SemanticSceneEvent::Scene(frame)) => {
+                write_scene(&mut writer, &frame)?;
+                write_accessibility(&mut writer, &frame)?;
+            }
             Ok(SemanticSceneEvent::Failed(error)) => {
                 anyhow::bail!("semantic scene capture failed: {error}");
             }
@@ -159,6 +165,36 @@ fn write_scene(
     writer.write_all(&[0_u8; 7])?;
     writer.write_all(frame.as_bytes())?;
     writer.flush()
+}
+
+fn write_accessibility(
+    writer: &mut BufWriter<UnixStream>,
+    frame: &SemanticSceneFrame,
+) -> anyhow::Result<()> {
+    let snapshot = frame
+        .accessibility
+        .as_ref()
+        .ok_or_else(|| anyhow::anyhow!("semantic scene is missing its accessibility sidecar"))?;
+    let text = snapshot.text.as_bytes();
+    if text.len() > crate::TERMINAL_ACCESSIBILITY_MAX_TEXT_BYTES {
+        anyhow::bail!("semantic scene accessibility text exceeds wire bound");
+    }
+    let payload_length = u32::try_from(text.len())?;
+    writer.write_all(SCENE_MAGIC)?;
+    writer.write_all(&[SCENE_VERSION, ACCESSIBILITY_ENVELOPE_KIND])?;
+    writer.write_all(&0_u16.to_be_bytes())?;
+    writer.write_all(&payload_length.to_be_bytes())?;
+    writer.write_all(frame.terminal.terminal_id.as_uuid().as_bytes())?;
+    writer.write_all(&frame.terminal.runtime_epoch.to_be_bytes())?;
+    writer.write_all(&frame.content_sequence.to_be_bytes())?;
+    writer.write_all(frame.presentation.presentation_id.as_uuid().as_bytes())?;
+    writer.write_all(&frame.presentation.generation.to_be_bytes())?;
+    writer.write_all(&frame.presentation_sequence.to_be_bytes())?;
+    writer.write_all(&u32::from(snapshot.columns).to_be_bytes())?;
+    writer.write_all(&u32::from(snapshot.rows).to_be_bytes())?;
+    writer.write_all(text)?;
+    writer.flush()?;
+    Ok(())
 }
 
 fn wait_readable(descriptor: i32, timeout: Duration) -> std::io::Result<()> {

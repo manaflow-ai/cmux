@@ -4206,7 +4206,8 @@ final class Workspace: Identifiable, ObservableObject {
             if source == .auto, trimmed.isEmpty {
                 return false
             }
-            return mutationCoordinator.requestRenameSurface(panelId, name: trimmed)
+            mutationCoordinator.requestRenameSurface(panelId, name: trimmed)
+            return true
         }
         let trimmed = title?.trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
         let previous = panelCustomTitles[panelId]
@@ -9853,11 +9854,12 @@ final class Workspace: Identifiable, ObservableObject {
                 inPane: paneId,
                 presentedIndex: index
             )
-            return mutationCoordinator.requestMoveTab(
+            mutationCoordinator.requestMoveTab(
                 canonicalSurfaceID,
                 to: paneId.id,
                 index: targetIndex
             )
+            return true
         }
         guard let tabId = surfaceIdFromPanelId(panelId) else { return false }
         guard bonsplitController.allPaneIds.contains(paneId) else { return false }

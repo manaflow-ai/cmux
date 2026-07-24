@@ -90,7 +90,10 @@ struct GhosttySurfaceRepresentable: UIViewRepresentable {
             delegate: context.coordinator,
             fontSize: fontSize,
             terminalTheme: terminalTheme,
-            terminalConfigTheme: terminalConfigTheme
+            terminalConfigTheme: terminalConfigTheme,
+            renderingMode: store.usesTerminalSemanticScenes
+                ? .semanticScene
+                : .vtMirror
         )
         view.autoFocusOnWindowAttach = autoFocusOnWindowAttach
         view.artifactFilesEnabled = artifactFilesEnabled
@@ -160,6 +163,7 @@ struct GhosttySurfaceRepresentable: UIViewRepresentable {
         coordinator.detach()
     }
 
+    @MainActor
     final class Coordinator: NSObject, GhosttySurfaceViewDelegate {
         let workspaceID: String
         let surfaceID: String
@@ -174,7 +178,18 @@ struct GhosttySurfaceRepresentable: UIViewRepresentable {
         var onVisibleArtifactCountChanged: @MainActor (_ count: Int) -> Void
         var onArtifactGalleryRefreshSignal: @MainActor (TerminalArtifactGalleryRefreshSignal) -> Void
         private var outputTask: Task<Void, Never>?
-        private var liveFontTask: Task<Void, Never>?
+        var liveFontTask: Task<Void, Never>?
+        var semanticSceneRenderer: GhosttySemanticSceneRenderer?
+        var semanticSceneToken: UUID?
+        var semanticSceneRestartTask: Task<Void, Never>?
+        var semanticSceneTeardownTask: Task<Void, Never>?
+        var semanticSceneGeometry: GhosttySemanticSceneGeometry?
+        var semanticSceneGeneration: UInt64 = 0
+        let semanticScenePresentationID = UUID()
+        var semanticSceneAnimationInFlight = false
+        var semanticSceneRecoveryAttempts = 0
+        var semanticScenePresentationActive = false
+        var semanticSceneConfigGeneration: UInt64 = 0
         let themeApplicationScheduler = TerminalThemeApplicationScheduler()
         var artifactCountTask: Task<Void, Never>?
         var artifactCountTaskRequest: TerminalArtifactChipCountState.Request?
@@ -274,6 +289,10 @@ struct GhosttySurfaceRepresentable: UIViewRepresentable {
                     }
                 }
             )
+            if surfaceView.usesSemanticSceneRenderer {
+                attachSemanticScene(surfaceView: surfaceView)
+                return
+            }
             // Drive every output chunk into the libghostty surface. Ending this
             // task terminates the stream, which unregisters the surface and
             // clears its viewport pin on the Mac (see `terminalOutputStream`).
@@ -356,6 +375,7 @@ struct GhosttySurfaceRepresentable: UIViewRepresentable {
         }
 
         func detach() {
+            detachSemanticScene()
             outputTask?.cancel()
             outputTask = nil
             liveFontTask?.cancel()

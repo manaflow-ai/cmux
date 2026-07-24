@@ -33,8 +33,8 @@ use crate::accessibility::{
 use crate::platform;
 use crate::remote_tmux_producer::ExternalTerminalProvenance;
 use crate::semantic_scene::{
-    SemanticSceneAttachError, SemanticSceneAttachment, SemanticSceneAttachmentOptions,
-    SemanticSceneHub, SemanticSceneTerminalIdentity,
+    SemanticSceneAccessibility, SemanticSceneAttachError, SemanticSceneAttachment,
+    SemanticSceneAttachmentOptions, SemanticSceneHub, SemanticSceneTerminalIdentity,
 };
 use crate::{Mux, MuxEvent, SurfaceId};
 
@@ -2944,12 +2944,27 @@ impl Surface {
         };
         let mut term = pty.term.lock().unwrap();
         let content_sequence = pty.render_generation.load(Ordering::Acquire);
+        let accessibility = options
+            .include_accessibility
+            .then(|| {
+                pty.build_semantic_scene_accessibility_locked(
+                    &mut term,
+                    content_sequence,
+                    options.presentation,
+                    options.capture.focused,
+                )
+            })
+            .transpose()
+            .map_err(|_| {
+                SemanticSceneAttachError::Capture(crate::SemanticSceneFailure::Internal)
+            })?;
         let attachment = pty.semantic_scenes.lock().unwrap().attach_locked(
             &mut term,
             pty.semantic_identity,
             content_sequence,
             options,
             pty.frame_requests.clone(),
+            accessibility,
         )?;
         pty.semantic_attachment_count.fetch_add(1, Ordering::AcqRel);
         Ok(attachment)
@@ -3315,6 +3330,34 @@ impl PtySurface {
         }
     }
 
+    fn build_semantic_scene_accessibility_locked(
+        &self,
+        term: &mut Terminal,
+        content_sequence: u64,
+        presentation: crate::SemanticScenePresentationIdentity,
+        focused: bool,
+    ) -> anyhow::Result<Arc<SemanticSceneAccessibility>> {
+        let focus_revision = self.accessibility_focus_revision.load(Ordering::Acquire);
+        let snapshot = build_terminal_accessibility_snapshot(
+            term,
+            TerminalAccessibilityIdentity {
+                surface_uuid: self.meta.uuid,
+                presentation_id: presentation.presentation_id,
+                presentation_generation: presentation.generation,
+                content_sequence,
+                terminal_revision: content_sequence.saturating_add(focus_revision),
+                content_revision: self.accessibility_content_revision.load(Ordering::Acquire),
+                viewport_revision: self.accessibility_viewport_revision.load(Ordering::Acquire),
+                focused,
+            },
+        )?;
+        Ok(Arc::new(SemanticSceneAccessibility {
+            columns: snapshot.columns,
+            rows: snapshot.rows,
+            text: Arc::from(snapshot.text),
+        }))
+    }
+
     fn terminal_visual_changed_locked(&self, term: &mut Terminal) -> ghostty_vt::Result<()> {
         let generation = self.render_generation.fetch_add(1, Ordering::AcqRel) + 1;
         let _ = self.build_frame_locked(term, generation, true)?;
@@ -3462,7 +3505,19 @@ impl PtySurface {
             false
         } else {
             let mut scenes = self.semantic_scenes.lock().unwrap();
-            let worked = scenes.capture_locked(term, self.semantic_identity, generation);
+            let accessibility = scenes.accessibility_capture_context_locked().and_then(
+                |(presentation, focused)| {
+                    self.build_semantic_scene_accessibility_locked(
+                        term,
+                        generation,
+                        presentation,
+                        focused,
+                    )
+                    .ok()
+                },
+            );
+            let worked =
+                scenes.capture_locked(term, self.semantic_identity, generation, accessibility);
             self.semantic_attachment_count.store(scenes.attachment_count(), Ordering::Release);
             worked
         };
@@ -4381,6 +4436,29 @@ mod tests {
     }
 
     #[test]
+    fn semantic_scene_carries_immutable_accessibility_from_the_same_capture() {
+        let mux = Mux::new_for_test("semantic-accessibility-pair", SurfaceOptions::default());
+        let surface =
+            Surface::spawn_for_test(1, SurfaceOptions::default(), Arc::downgrade(&mux)).unwrap();
+        let mut options = semantic_options(&surface, 2);
+        options.include_accessibility = true;
+        let attachment = surface.attach_semantic_scene(options).unwrap();
+
+        let (_, _) = apply_terminal_output(&surface, b"displayed");
+        let displayed = expect_semantic_scene(attachment.events.try_recv().unwrap());
+        let accessibility = displayed.accessibility.clone().unwrap();
+
+        for index in 0..16 {
+            let _ = apply_terminal_output(&surface, format!("future-{index}").as_bytes());
+        }
+
+        assert_eq!(accessibility.columns, 80);
+        assert_eq!(accessibility.rows, 24);
+        assert!(accessibility.text.contains("displayed"));
+        assert!(!accessibility.text.contains("future"));
+    }
+
+    #[test]
     fn attach_tap_overflow_cancels_the_shared_lifecycle_once() {
         let lifecycle = AttachLifecycle::default();
         let (sender, _receiver) = sync_channel(1);
@@ -4734,6 +4812,7 @@ mod tests {
             &mut term,
             wrong_identity,
             queued_generation,
+            None,
         ));
         drop(term);
 

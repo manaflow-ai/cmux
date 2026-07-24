@@ -5,4 +5,7 @@ public enum CmxIrohTerminalSceneEnvelope: Equatable, Sendable {
 
     /// A full, delta, or presentation-only Ghostty scene.
     case scene(CmxIrohTerminalSceneFrame)
+
+    /// Canonical viewport text for the immediately preceding exact scene.
+    case accessibility(CmxIrohTerminalSceneAccessibility)
 }

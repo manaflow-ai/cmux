@@ -308,6 +308,16 @@ extension MobileHostAuthorizationTests {
         #expect(buffer.isEmpty)
     }
 
+    @Test func testSemanticSceneInputFramingPreservesArbitraryBytes() throws {
+        var buffer = Data([0, 0, 0, 4, 0, 0x1b, 0xff, 0x0d])
+        #expect(
+            try MobileHostIrohApplicationLaneRouter.decodeTerminalInputDataFrames(
+                from: &buffer
+            ) == [Data([0, 0x1b, 0xff, 0x0d])]
+        )
+        #expect(buffer.isEmpty)
+    }
+
     @Test func persistentReplayHandoffsAreBoundedAndExpire() async throws {
         let factory = RecordingMobileCompatibilitySessionFactory(
             sequences: [10, 20, 30]
@@ -323,6 +333,7 @@ extension MobileHostAuthorizationTests {
                 try await sleeper.sleep(duration)
             }
         )
+        #expect(plane.profile == .backendCompatibility)
 
         _ = try await plane.replay(surfaceID: UUID())
         _ = try await plane.replay(surfaceID: UUID())
@@ -923,7 +934,8 @@ private actor ManualMobileCompatibilitySleep {
     func sleep(_: Duration) async throws {
         let id = UUID()
         try await withTaskCancellationHandler {
-            try await withCheckedThrowingContinuation { continuation in
+            try await withCheckedThrowingContinuation {
+                (continuation: CheckedContinuation<Void, any Error>) in
                 if Task.isCancelled {
                     continuation.resume(throwing: CancellationError())
                 } else {
