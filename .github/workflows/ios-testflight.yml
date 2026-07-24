@@ -511,7 +511,7 @@ jobs:
               echo "- marketing version: checked-in beta marketing version"
             fi
             echo "- build number (CFBundleVersion): \`${BUILD_NUMBER}\`"
-            echo "- audience: internal TestFlight group (cmux INTERNAL) on the dev.cmux.app.internal app; no beta review needed"
+            echo "- audience: internal TestFlight group (${IOS_BETA_DISPLAY_NAME}) on the ${UPLOAD_BUNDLE_ID} app; no beta review needed"
           } >> "$GITHUB_STEP_SUMMARY"
 
       - name: Persist uploaded build metadata
