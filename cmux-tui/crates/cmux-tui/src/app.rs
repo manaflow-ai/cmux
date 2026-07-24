@@ -45,10 +45,10 @@ use crate::keys;
 use crate::localization;
 use crate::machine::{
     MachineActionResult, MachineController, MachineKey, MachineRailSelection, MachineRailTarget,
-    MachineRequest, MachineSession, MachineUiState, MachineUpdateStream, ManagedMachineDescriptor,
-    ManagedMachineStatus, ManagedWorkspaceDescriptor, ManagedWorkspaceSessionMutation,
-    ManagedWorkspaceStatus, ProviderActionInputError, WorkspaceCreationMode,
-    WorkspaceCreationPolicy, validate_machine_session,
+    MachineRequest, MachineSession, MachineSnapshot, MachineUiState, MachineUpdateStream,
+    ManagedMachineDescriptor, ManagedMachineStatus, ManagedWorkspaceDescriptor,
+    ManagedWorkspaceSessionMutation, ManagedWorkspaceStatus, ProviderActionInputError,
+    ProviderPresentation, WorkspaceCreationMode, WorkspaceCreationPolicy, validate_machine_session,
 };
 use crate::pty_input::{
     PtyInputBytes, PtyInputDispatcher, PtyInputEnqueueResult, PtyInputEvent, PtyInputKind,
@@ -2876,7 +2876,7 @@ pub struct TabDragView {
 /// Mouse drag in progress.
 enum Drag {
     /// Left press on a machine entry; switching occurs on release.
-    MachineArm { machine: MachineKey, at: (u16, u16) },
+    MachineArm { target: MachinePointerTarget, at: (u16, u16) },
     /// Left press on a tab chip; becomes `Tab` after moving cells.
     TabArm { surface: SurfaceId, at: (u16, u16) },
     /// Tab drag with the current drop target.
@@ -2975,8 +2975,23 @@ struct RenderedMenuLevel {
 }
 
 #[derive(Clone, Debug, PartialEq, Eq)]
+struct MachinePointerContext {
+    snapshot: MachineSnapshot,
+    provider: Option<ProviderPresentation>,
+    workspace_creation: Option<WorkspaceCreationPolicy>,
+}
+
+#[derive(Clone, Debug, PartialEq, Eq)]
+struct MachinePointerTarget {
+    context: Arc<MachinePointerContext>,
+    machine: MachineKey,
+    managed: Option<ManagedMachineDescriptor>,
+}
+
+#[derive(Clone, Debug, PartialEq, Eq)]
 enum PointerHitIdentity {
-    MachineContext(Option<MachineKey>),
+    MachineContext(Arc<MachinePointerContext>),
+    Machine(MachinePointerTarget),
     RecoverableWorkspace(String),
     SidebarFile(PathBuf),
     SidebarFilter(PathBuf),
@@ -3233,6 +3248,7 @@ struct DeferredInput {
     destination: Option<SurfaceId>,
     destination_intent: Option<u64>,
     sidebar_focus_intent: bool,
+    pairing_request: Option<u64>,
     pointer: Option<DeferredPointerInput>,
     sequence: u64,
 }
@@ -3242,6 +3258,7 @@ struct DeferredInputAdmission {
     destination: Option<SurfaceId>,
     destination_intent: Option<u64>,
     sidebar_focus_intent: bool,
+    pairing_request: Option<u64>,
 }
 
 #[derive(Clone, Debug)]
@@ -3253,6 +3270,7 @@ struct ReplayedInputContext {
 #[derive(Clone, Copy)]
 struct PendingPointerMotion {
     event: MouseEvent,
+    destination: Option<SurfaceId>,
     focus_generation: u64,
     sequence: u64,
 }
@@ -5215,15 +5233,45 @@ impl App {
         self.pointer_route_phase = self.pointer_route_phase.with_action(action);
     }
 
-    fn pointer_hit_identity(&self, hit: Hit) -> Option<PointerHitIdentity> {
+    fn machine_pointer_context(&self) -> Option<Arc<MachinePointerContext>> {
+        let ui = self.machine_ui.as_ref()?;
+        Some(Arc::new(MachinePointerContext {
+            snapshot: ui.snapshot.clone(),
+            provider: ui.provider.clone(),
+            workspace_creation: ui.workspace_creation_policy(),
+        }))
+    }
+
+    fn machine_pointer_target(&self, machine: MachineKey) -> Option<MachinePointerTarget> {
+        let context = self.machine_pointer_context()?;
+        let managed = self.machine_ui.as_ref().and_then(|ui| ui.managed_machine(machine)).cloned();
+        Some(MachinePointerTarget { context, machine, managed })
+    }
+
+    fn pointer_hit_identity(
+        &self,
+        hit: Hit,
+        machine_context: Option<&Arc<MachinePointerContext>>,
+    ) -> Option<PointerHitIdentity> {
         match hit {
             Hit::NewVm
             | Hit::ConnectMachine
             | Hit::ProviderScope
             | Hit::ProviderActions
-            | Hit::CreateWorkspace { .. } => Some(PointerHitIdentity::MachineContext(
-                self.machine_ui.as_ref().and_then(|ui| ui.snapshot.active),
-            )),
+            | Hit::CreateWorkspace { .. } => {
+                machine_context.cloned().map(PointerHitIdentity::MachineContext)
+            }
+            Hit::Machine { key, .. } => machine_context.cloned().map(|context| {
+                PointerHitIdentity::Machine(MachinePointerTarget {
+                    context,
+                    machine: key,
+                    managed: self
+                        .machine_ui
+                        .as_ref()
+                        .and_then(|ui| ui.managed_machine(key))
+                        .cloned(),
+                })
+            }),
             Hit::RecoverableWorkspace { index } => self
                 .machine_ui
                 .as_ref()
@@ -5245,8 +5293,7 @@ impl App {
                 .pane(pane)
                 .and_then(|pane| pane.tabs.get(index))
                 .map(|tab| PointerHitIdentity::Tab(tab.surface)),
-            Hit::Machine { .. }
-            | Hit::Workspace { .. }
+            Hit::Workspace { .. }
             | Hit::ScreenEntry { .. }
             | Hit::NewTab { .. }
             | Hit::Clients { .. }
@@ -5282,6 +5329,7 @@ impl App {
             .then(|| (self.sidebar_plugin_rect(), self.sidebar_plugin_surface));
         let machine_rail = self.sidebar_layout.machine;
         let workspace_rail = self.sidebar_layout.workspace;
+        let machine_context = self.machine_pointer_context();
         let panes = self
             .pane_areas
             .iter()
@@ -5311,7 +5359,9 @@ impl App {
                 .map(|(rect, hit)| RenderedHitRoute {
                     rect: *rect,
                     hit: *hit,
-                    identity: self.pointer_hit_identity(*hit).map(Arc::new),
+                    identity: self
+                        .pointer_hit_identity(*hit, machine_context.as_ref())
+                        .map(Arc::new),
                 })
                 .collect(),
             panes,
@@ -5438,6 +5488,7 @@ impl App {
                     destination: input.destination,
                     destination_intent: input.destination_intent,
                     sidebar_focus_intent: input.sidebar_focus_intent,
+                    pairing_request: input.pairing_request,
                 }),
             };
             let input_action =
@@ -6273,13 +6324,18 @@ impl App {
             AppEvent::SessionScoped { .. } => return Ok(RenderAction::None),
             event => event,
         };
-        if matches!(&event, AppEvent::Input(Event::Key(_) | Event::Paste(_)))
-            && !self.pairing_identity_matches_rendered_frame()
-        {
-            // Pairing approval is a trusted action. Input captured before the
-            // current pairing identity was visible must never approve it or
-            // reach UI that is still covered by a resolved dialog.
-            return Ok(RenderAction::None);
+        if matches!(&event, AppEvent::Input(Event::Key(_) | Event::Paste(_))) {
+            let current_pairing = self.pairing_dialog.as_ref().map(|dialog| dialog.challenge.id);
+            let replayed_pairing_changed = replay_context
+                .as_ref()
+                .and_then(|context| context.admission.as_ref())
+                .is_some_and(|admission| admission.pairing_request != current_pairing);
+            if replayed_pairing_changed || !self.pairing_identity_matches_rendered_frame() {
+                // Pairing approval is a trusted action. Input captured before
+                // the current pairing identity was visible must never approve
+                // it or reach UI covered by a replacement dialog.
+                return Ok(RenderAction::None);
+            }
         }
         if let AppEvent::Input(Event::Paste(text)) = &event
             && deferred_paste_bytes(text) > MAX_DEFERRED_INPUT_BYTES
@@ -6335,6 +6391,10 @@ impl App {
                     input,
                     input_sequence,
                     replay_context.as_ref().and_then(|context| context.pointer.clone()),
+                    replay_context
+                        .as_ref()
+                        .and_then(|context| context.admission.as_ref())
+                        .and_then(|admission| admission.pairing_request),
                 ));
             }
             event => event,
@@ -6421,6 +6481,10 @@ impl App {
                     input,
                     input_sequence,
                     replay_context.as_ref().and_then(|context| context.pointer.clone()),
+                    replay_context
+                        .as_ref()
+                        .and_then(|context| context.admission.as_ref())
+                        .and_then(|admission| admission.pairing_request),
                 ));
             }
             AppEvent::Input(input @ (Event::Key(_) | Event::Mouse(_) | Event::Paste(_)))
@@ -6442,6 +6506,10 @@ impl App {
                     input,
                     input_sequence,
                     replay_context.as_ref().and_then(|context| context.pointer.clone()),
+                    replay_context
+                        .as_ref()
+                        .and_then(|context| context.admission.as_ref())
+                        .and_then(|admission| admission.pairing_request),
                 ));
             }
             event => event,
@@ -6711,6 +6779,12 @@ impl App {
                         error,
                         reconnect_required,
                     } => {
+                        if self
+                            .pending_pointer_motion
+                            .is_some_and(|pointer| pointer.destination == Some(surface))
+                        {
+                            self.pending_pointer_motion = None;
+                        }
                         if reconnect_required {
                             self.deferred_input.retain(|input| input.destination != Some(surface));
                             self.status_message = Some(format!(
@@ -6935,7 +7009,7 @@ impl App {
 
     #[cfg(test)]
     fn defer_input(&mut self, input: Event) -> RenderAction {
-        self.defer_input_with_sequence(input, None, None)
+        self.defer_input_with_sequence(input, None, None, None)
     }
 
     fn defer_input_with_sequence(
@@ -6943,6 +7017,7 @@ impl App {
         input: Event,
         replay_sequence: Option<u64>,
         replay_pointer: Option<DeferredPointerInput>,
+        replay_pairing_request: Option<u64>,
     ) -> RenderAction {
         let destination = self.input_destination(&input);
         let sidebar_focus_intent =
@@ -6950,6 +7025,11 @@ impl App {
         let destination_started = self.session.destination_mutation_started();
         let destination_intent = (destination_started > self.applied_destination_generation)
             .then_some(destination_started);
+        let pairing_request = if replay_sequence.is_some() {
+            replay_pairing_request
+        } else {
+            self.pairing_dialog.as_ref().map(|dialog| dialog.challenge.id)
+        };
         let pointer = if replay_sequence.is_some() {
             replay_pointer
         } else if let Event::Mouse(mouse) = &input {
@@ -6972,6 +7052,7 @@ impl App {
                         destination: previous_destination,
                         destination_intent: previous_intent,
                         sidebar_focus_intent: previous_sidebar_intent,
+                        pairing_request: previous_pairing_request,
                         pointer: previous_pointer,
                         ..
                     }),
@@ -6979,6 +7060,7 @@ impl App {
                     *previous_destination == destination
                         && *previous_intent == destination_intent
                         && *previous_sidebar_intent == sidebar_focus_intent
+                        && *previous_pairing_request == pairing_request
                         && previous_pointer.as_ref().map(|pointer| pointer.focus_generation)
                             == pointer.as_ref().map(|pointer| pointer.focus_generation)
                 }
@@ -6989,6 +7071,7 @@ impl App {
                         destination: previous_destination,
                         destination_intent: previous_intent,
                         sidebar_focus_intent: previous_sidebar_intent,
+                        pairing_request: previous_pairing_request,
                         pointer: previous_pointer,
                         ..
                     }),
@@ -6997,6 +7080,7 @@ impl App {
                         && *previous_destination == destination
                         && *previous_intent == destination_intent
                         && *previous_sidebar_intent == sidebar_focus_intent
+                        && *previous_pairing_request == pairing_request
                         && previous_pointer.as_ref().map(|pointer| pointer.focus_generation)
                             == pointer.as_ref().map(|pointer| pointer.focus_generation)
                 }
@@ -7008,6 +7092,7 @@ impl App {
                 destination,
                 destination_intent,
                 sidebar_focus_intent,
+                pairing_request,
                 pointer,
                 sequence,
             };
@@ -7038,6 +7123,7 @@ impl App {
             destination,
             destination_intent,
             sidebar_focus_intent,
+            pairing_request,
             pointer,
             sequence,
         };
@@ -7073,9 +7159,10 @@ impl App {
     ) {
         let sequence = replay_sequence.unwrap_or_else(|| self.next_deferred_input_sequence());
         let focus_generation = replay_focus_generation.unwrap_or(self.pointer_focus_generation);
+        let destination = self.input_destination(&Event::Mouse(event));
         if self.pending_pointer_motion.is_none_or(|pending| pending.sequence <= sequence) {
             self.pending_pointer_motion =
-                Some(PendingPointerMotion { event, focus_generation, sequence });
+                Some(PendingPointerMotion { event, destination, focus_generation, sequence });
         }
     }
 
@@ -10654,7 +10741,9 @@ impl App {
                         machine.selection = index;
                         machine.rail_selection = MachineRailSelection::Machine;
                     }
-                    self.drag = Some(Drag::MachineArm { machine: key, at: (x, y) });
+                    self.drag = self
+                        .machine_pointer_target(key)
+                        .map(|target| Drag::MachineArm { target, at: (x, y) });
                 }
                 Hit::NewVm => {
                     self.focus = FocusTarget::MachineRail;
@@ -10925,18 +11014,24 @@ impl App {
     }
 
     fn handle_left_up(&mut self, x: u16, y: u16) -> anyhow::Result<RenderAction> {
-        if let Some(Drag::MachineArm { machine, at }) = self.drag {
-            self.drag = None;
-            if (x, y) == at {
-                if self.managed_machine(machine).is_some_and(|managed| {
+        if matches!(self.drag, Some(Drag::MachineArm { .. })) {
+            let Some(Drag::MachineArm { target, at }) = self.drag.take() else {
+                unreachable!("machine arm matched before take");
+            };
+            if (x, y) == at
+                && self.machine_pointer_target(target.machine).as_ref() == Some(&target)
+                && let Some(ui) = self.machine_ui.as_mut()
+            {
+                if let Some(managed) = target.managed.as_ref().filter(|managed| {
                     managed.status == ManagedMachineStatus::Recoverable
                         && managed.capabilities.restore
                 }) {
-                    self.request_restore_managed_machine(machine);
-                } else if let Some(ui) = self.machine_ui.as_mut()
-                    && Some(machine) != ui.snapshot.active
-                {
-                    ui.request = Some(MachineRequest::Switch(machine));
+                    ui.request = Some(MachineRequest::RestoreManagedMachine {
+                        machine: target.machine,
+                        expected_version: managed.version,
+                    });
+                } else if target.context.snapshot.active != Some(target.machine) {
+                    ui.request = Some(MachineRequest::Switch(target.machine));
                 }
             }
             return Ok(RenderAction::Draw);
@@ -14851,6 +14946,7 @@ mod tests {
             destination: Some(77),
             destination_intent: None,
             sidebar_focus_intent: false,
+            pairing_request: None,
             pointer: None,
             sequence: 1,
         });
@@ -14909,16 +15005,24 @@ mod tests {
 
     #[test]
     fn terminally_failed_retained_motion_does_not_block_a_later_key() {
-        let mux = Mux::new("failed-retained-motion-order-test", SurfaceOptions::default());
-        let (mut app, events) = test_app_with_events(Session::Local(mux));
-        let surface = 77;
-        app.replace_tree(notify_tree(surface, false));
-        app.pane_areas.push(browser_completion_area(surface));
+        let (mux, healthy) = test_mux("failed-retained-motion-order-test", None);
+        let (mut app, events) = test_app_with_events(Session::Local(mux.clone()));
+        let failed_surface = 77;
+        app.replace_tree(notify_tree(healthy.id, false));
+        app.pane_areas = vec![browser_completion_area(healthy.id), {
+            let mut area = browser_completion_area(failed_surface);
+            area.pane = 3;
+            area.rect.x = 40;
+            area.bar.as_mut().unwrap().x = 40;
+            area.omnibar.as_mut().unwrap().x = 40;
+            area.content.x = 40;
+            area
+        }];
         app.prompt = Some(Prompt::new("Rename", String::new(), PromptTarget::Surface(88)));
 
         app.handle(AppEvent::Input(Event::Mouse(MouseEvent {
             kind: MouseEventKind::Moved,
-            column: 14,
+            column: 49,
             row: 6,
             modifiers: KeyModifiers::NONE,
         })))
@@ -14950,6 +15054,7 @@ mod tests {
         assert!(app.pending_pointer_motion.is_none());
         assert!(app.deferred_input.is_empty());
         assert_eq!(app.prompt.as_ref().unwrap().input.as_str(), "x");
+        mux.close_surface(healthy.id).unwrap();
     }
 
     #[test]
@@ -15088,6 +15193,7 @@ mod tests {
             destination: Some(deferred_surface),
             destination_intent: None,
             sidebar_focus_intent: false,
+            pairing_request: None,
             pointer: None,
             sequence: 1,
         });
@@ -15098,6 +15204,7 @@ mod tests {
                 row: 3,
                 modifiers: KeyModifiers::NONE,
             },
+            destination: Some(pointer_surface),
             focus_generation: 0,
             sequence: 2,
         });
@@ -15219,6 +15326,7 @@ mod tests {
             destination: None,
             destination_intent: None,
             sidebar_focus_intent: false,
+            pairing_request: None,
             pointer: None,
             sequence: 1,
         });
@@ -15521,6 +15629,7 @@ mod tests {
             destination: Some(surface),
             destination_intent: None,
             sidebar_focus_intent: false,
+            pairing_request: None,
             pointer: None,
             sequence: 1,
         });
@@ -15693,6 +15802,7 @@ mod tests {
             destination: None,
             destination_intent: None,
             sidebar_focus_intent: false,
+            pairing_request: None,
             pointer: None,
             sequence: 1,
         });
@@ -15725,6 +15835,7 @@ mod tests {
             destination: None,
             destination_intent: None,
             sidebar_focus_intent: false,
+            pairing_request: None,
             pointer: None,
             sequence: 1,
         });
@@ -17119,6 +17230,7 @@ mod tests {
             destination: None,
             destination_intent: None,
             sidebar_focus_intent: false,
+            pairing_request: None,
             pointer: None,
             sequence: 1,
         });
@@ -17130,6 +17242,7 @@ mod tests {
         };
         app.pending_pointer_motion = Some(super::PendingPointerMotion {
             event: newer_motion,
+            destination: None,
             focus_generation: 0,
             sequence: 2,
         });
@@ -17153,13 +17266,18 @@ mod tests {
             row: 6,
             modifiers: KeyModifiers::NONE,
         };
-        app.pending_pointer_motion =
-            Some(super::PendingPointerMotion { event: motion, focus_generation: 0, sequence: 1 });
+        app.pending_pointer_motion = Some(super::PendingPointerMotion {
+            event: motion,
+            destination: None,
+            focus_generation: 0,
+            sequence: 1,
+        });
         app.deferred_input.push_back(DeferredInput {
             event: Event::Key(KeyEvent::new(KeyCode::Char('x'), KeyModifiers::NONE)),
             destination: None,
             destination_intent: None,
             sidebar_focus_intent: false,
+            pairing_request: None,
             pointer: None,
             sequence: 2,
         });
@@ -17209,6 +17327,7 @@ mod tests {
                 row: 6,
                 modifiers: KeyModifiers::NONE,
             },
+            destination: Some(missing_surface),
             focus_generation: 0,
             sequence: 1,
         });
@@ -17217,6 +17336,7 @@ mod tests {
             destination: None,
             destination_intent: None,
             sidebar_focus_intent: false,
+            pairing_request: None,
             pointer: None,
             sequence: 2,
         });
@@ -17246,6 +17366,7 @@ mod tests {
             destination: Some(missing_surface),
             destination_intent: None,
             sidebar_focus_intent: false,
+            pairing_request: None,
             pointer: None,
             sequence: 2,
         });
@@ -17281,6 +17402,7 @@ mod tests {
             destination: None,
             destination_intent: None,
             sidebar_focus_intent: false,
+            pairing_request: None,
             pointer: None,
             sequence: 2,
         });
@@ -17360,6 +17482,7 @@ mod tests {
             destination: None,
             destination_intent: None,
             sidebar_focus_intent: false,
+            pairing_request: None,
             pointer: None,
             sequence: 1,
         });
@@ -17503,6 +17626,7 @@ mod tests {
             destination: None,
             destination_intent: None,
             sidebar_focus_intent: false,
+            pairing_request: None,
             pointer: None,
             sequence: 1,
         });
