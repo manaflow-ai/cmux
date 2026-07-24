@@ -100,12 +100,14 @@ final class ApplicationCaptureView: NSView {
             onStateChanged(.permissionRequired)
             return
         }
+        guard !Task.isCancelled else { return }
 
         do {
             let content = try await SCShareableContent.excludingDesktopWindows(
                 false,
                 onScreenWindowsOnly: false
             )
+            guard !Task.isCancelled else { return }
             guard let sourceWindow = content.windows.first(where: {
                 $0.windowID == sourceWindowID
             }) else {
@@ -139,10 +141,19 @@ final class ApplicationCaptureView: NSView {
             )
             stream = newStream
             try await newStream.startCapture()
+            guard !Task.isCancelled else {
+                if stream === newStream {
+                    stream = nil
+                }
+                try? await newStream.stopCapture()
+                return
+            }
             onStateChanged(.streaming)
         } catch {
             stream = nil
-            onStateChanged(.failed(error.localizedDescription))
+            if !Task.isCancelled {
+                onStateChanged(.failed(error.localizedDescription))
+            }
         }
     }
 
