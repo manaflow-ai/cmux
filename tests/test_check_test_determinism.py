@@ -117,6 +117,14 @@ class DeterminismCheckerCLITests(unittest.TestCase):
                 "actual=`sleep 1`\n"
                 'assert "$actual" "$expected"\n'
             ),
+            "shell-if-then.sh": (
+                "if ready; then sleep 1; fi\n"
+                'assert "$actual" "$expected"\n'
+            ),
+            "shell-case.sh": (
+                'case "$state" in ready) sleep 1 ;; esac\n'
+                'assert "$actual" "$expected"\n'
+            ),
             "shell-quoted-backtick.sh": (
                 'actual="before `sleep 1` after"\n'
                 'assert "$actual" "$expected"\n'
@@ -503,6 +511,11 @@ class DeterminismCheckerCLITests(unittest.TestCase):
                     "    return value\n"
                     "assert finished\n"
                 ),
+                "default-before-annotation.py": (
+                    "def helper(value=time.sleep(0.01), "
+                    "marker: (time := fake)=None): pass\n"
+                    "assert finished\n"
+                ),
             }
         )
 
@@ -511,9 +524,14 @@ class DeterminismCheckerCLITests(unittest.TestCase):
             1,
             positive.stdout + positive.stderr,
         )
-        for relative_path in ("f-string.py", "default-argument.py"):
+        expected_lines = {
+            "f-string.py": 1,
+            "default-argument.py": 1,
+            "default-before-annotation.py": 1,
+        }
+        for relative_path, line in expected_lines.items():
             self.assertIn(
-                f"fixtures/{relative_path}:1: sleep-then-assert:",
+                f"fixtures/{relative_path}:{line}: sleep-then-assert:",
                 positive.stdout,
             )
 
@@ -549,6 +567,16 @@ class DeterminismCheckerCLITests(unittest.TestCase):
                     "#expect(command.isEmpty == false)\n"
                     "// Thread.sleep(forTimeInterval: 1)\n"
                     "#expect(finished)\n"
+                ),
+                "assertion-fixture.swift": (
+                    "try await Task.sleep(nanoseconds: 1)\n"
+                    'let source = "#expect(finished)"\n'
+                    "let finished = true\n"
+                ),
+                "assertion-block-comment.swift": (
+                    "try await Task.sleep(nanoseconds: 1)\n"
+                    "/* #expect(finished) */\n"
+                    "let finished = true\n"
                 ),
                 "strings.py": (
                     'command = "time.sleep(1)"\n'
