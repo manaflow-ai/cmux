@@ -10,6 +10,47 @@ struct TaskComposerModelPickerLabView: View {
         @Bindable var displaySettings = displaySettings
         return List {
             Section {
+                ForEach(TaskComposerLayoutStyle.allCases) { style in
+                    Button {
+                        displaySettings.taskComposerLayoutStyle = style
+                    } label: {
+                        HStack(spacing: 12) {
+                            VStack(alignment: .leading, spacing: 4) {
+                                Text(verbatim: style.title)
+                                    .font(.body.weight(.semibold))
+                                    .foregroundStyle(Color.primary)
+                                Text(verbatim: style.detail)
+                                    .font(.caption)
+                                    .foregroundStyle(Color.secondary)
+                            }
+
+                            Spacer(minLength: 8)
+
+                            if displaySettings.taskComposerLayoutStyle == style {
+                                Image(systemName: "checkmark")
+                                    .font(.body.weight(.semibold))
+                                    .foregroundStyle(Color.accentColor)
+                                    .accessibilityHidden(true)
+                            }
+                        }
+                        .contentShape(Rectangle())
+                    }
+                    .buttonStyle(.plain)
+                    .accessibilityLabel(Text(verbatim: style.title))
+                    .accessibilityHint(Text(verbatim: style.detail))
+                    .accessibilityAddTraits(
+                        displaySettings.taskComposerLayoutStyle == style ? .isSelected : []
+                    )
+                    .accessibilityIdentifier("MobileTaskComposerLayout-\(style.rawValue)")
+                }
+            } header: {
+                Text(L10n.string(
+                    "mobile.settings.modelPickerLab.layout",
+                    defaultValue: "Layout"
+                ))
+            }
+
+            Section {
                 ForEach(TaskComposerModelPickerVariant.allCases) { variant in
                     Button {
                         displaySettings.taskComposerModelPickerVariant = variant
@@ -46,7 +87,7 @@ struct TaskComposerModelPickerLabView: View {
             } footer: {
                 Text(L10n.string(
                     "mobile.settings.modelPickerLab.footer",
-                    defaultValue: "Choose a variant, then reopen New Task."
+                    defaultValue: "Choose a layout and model variant, then reopen New Task."
                 ))
             }
         }

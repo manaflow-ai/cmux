@@ -23,51 +23,18 @@ struct TaskComposerPrimaryAction: View {
 
     var body: some View {
         VStack(spacing: 10) {
-            if let failureText {
-                TaskComposerFailureBanner(title: failureTitle, message: failureText)
+            if failureText != nil || completedOperationRecovery != nil {
+                TaskComposerFailureRecoveryContent(
+                    isSubmitting: isSubmitting,
+                    failureTitle: failureTitle,
+                    failureText: failureText,
+                    completedOperationRecovery: completedOperationRecovery,
+                    refreshCompletedOperation: refreshCompletedOperation,
+                    requestStartAgain: requestStartAgain
+                )
             }
-            if let completedOperationRecovery {
-                HStack(spacing: 10) {
-                    Button(action: refreshCompletedOperation) {
-                        Group {
-                            if isSubmitting {
-                                ProgressView()
-                            } else {
-                                Text(
-                                    completedOperationRecovery.allowsStartAgain
-                                        ? L10n.string(
-                                            "mobile.taskComposer.recovery.refreshAgain",
-                                            defaultValue: "Refresh Again"
-                                        )
-                                        : L10n.string(
-                                            "mobile.taskComposer.recovery.refresh",
-                                            defaultValue: "Refresh Workspaces"
-                                        )
-                                )
-                            }
-                        }
-                        .frame(maxWidth: .infinity)
-                    }
-                    .mobileGlassProminentButton()
-                    .disabled(isSubmitting)
-                    .accessibilityHint(TaskComposerSheet.recoveryRefreshAccessibilityHint)
-                    .accessibilityIdentifier("MobileTaskComposerRefreshButton")
 
-                    if completedOperationRecovery.allowsStartAgain {
-                        Button(
-                            L10n.string(
-                                "mobile.taskComposer.recovery.startAgain",
-                                defaultValue: "Start Again"
-                            ),
-                            action: requestStartAgain
-                        )
-                        .mobileGlassButton()
-                        .disabled(isSubmitting)
-                        .accessibilityHint(TaskComposerSheet.recoveryStartAgainAccessibilityHint)
-                        .accessibilityIdentifier("MobileTaskComposerStartAgainButton")
-                    }
-                }
-            } else {
+            if completedOperationRecovery == nil {
                 Button(action: action) {
                     HStack(spacing: 10) {
                         if isSubmitting {

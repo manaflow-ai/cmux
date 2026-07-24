@@ -187,84 +187,12 @@ struct TaskComposerSheet: View {
 
     var body: some View {
         NavigationStack {
-            ZStack {
-                Color(uiColor: .systemGroupedBackground)
-                    .ignoresSafeArea()
-
-                ScrollView {
-                    VStack(spacing: 12) {
-                        TaskComposerPromptCard(
-                            prompt: promptBinding,
-                            placeholder: promptPlaceholder,
-                            isDisabled: submissionPhase.disablesRequestEditing,
-                            endEditing: resolveCompletedOperationRecoveryAfterEditing,
-                            templates: templates,
-                            selectedTemplateID: selectedTemplateID,
-                            modelPickerVariant: displaySettings.taskComposerModelPickerVariant,
-                            models: availableModels,
-                            selectedModelID: selectedModelID,
-                            selectTemplate: selectTemplateFromPicker,
-                            selectModel: selectModel,
-                            editTemplates: presentTemplateEditor
-                        )
-
-                        TaskComposerContextSection(
-                            workspaceName: workspaceNameBinding,
-                            machines: machines,
-                            selectedMacDeviceID: selectedMacDeviceID,
-                            directory: directory,
-                            modelPickerVariant: displaySettings.taskComposerModelPickerVariant,
-                            models: availableModels,
-                            selectedModelID: selectedModelID,
-                            isDisabled: submissionPhase.disablesRequestEditing,
-                            endWorkspaceNameEditing: resolveCompletedOperationRecoveryAfterEditing,
-                            selectMachine: selectMachine,
-                            selectDirectory: { isDirectoryPickerPresented = true },
-                            selectModel: selectModel
-                        )
-                        .dynamicTypeSize(...DynamicTypeSize.xxxLarge)
-                    }
-                    .frame(maxWidth: 680)
-                    .frame(maxWidth: .infinity)
-                    .padding(.horizontal, 20)
-                    .padding(.top, 14)
-                    .padding(.bottom, 20)
-                }
-                .scrollDismissesKeyboard(.interactively)
-            }
-            .safeAreaInset(edge: .bottom, spacing: 0) {
-                TaskComposerPrimaryAction(
-                    isSubmitting: submissionPhase.showsProgress,
-                    isEnabled: selectedMachine != nil && canLaunchSelectedTemplate,
-                    templateIcon: selectedTemplate?.icon,
-                    actionTitle: primaryActionTitle,
-                    progressTitle: primaryActionProgressTitle,
-                    caption: primaryActionCaption,
-                    failureTitle: failureTitleStyle.title,
-                    failureText: failureText,
-                    completedOperationRecovery: blockingCompletedOperationRecovery,
-                    action: startSubmission,
-                    refreshCompletedOperation: startCompletedOperationReconciliation,
-                    requestStartAgain: { isStartAgainConfirmationPresented = true }
-                )
-            }
-            .navigationTitle(L10n.string("mobile.taskComposer.title", defaultValue: "New Task"))
-            .mobileInlineNavigationTitle()
-            .toolbar {
-                ToolbarItem(placement: .cancellationAction) {
-                    Button {
-                        submitTask?.cancel()
-                        shouldPersistDraftOnDisappear = false
-                        store.clearTaskComposerDraft(ifSessionGeneration: sessionGeneration)
-                        dismiss()
-                    } label: {
-                        Image(systemName: "xmark")
-                    }
-                    // Cancellation remains safe while routing and capability
-                    // checks run. Lock only once the create boundary commits.
-                    .disabled(submissionPhase.locksDismissal)
-                    .accessibilityLabel(L10n.string("mobile.common.cancel", defaultValue: "Cancel"))
-                    .accessibilityIdentifier("MobileTaskComposerCancelButton")
+            Group {
+                switch displaySettings.taskComposerLayoutStyle.renderedStyle {
+                case .classic:
+                    classicLayout
+                case .composer:
+                    minimalLayout
                 }
             }
             .sheet(isPresented: $isEditorPresented) {
@@ -329,6 +257,152 @@ struct TaskComposerSheet: View {
         .background(TaskComposerInitialFocusCoordinator(
             isEnabled: !submissionPhase.disablesRequestEditing
         ))
+    }
+
+    private var classicLayout: some View {
+        ZStack {
+            Color(uiColor: .systemGroupedBackground)
+                .ignoresSafeArea()
+
+            ScrollView {
+                VStack(spacing: 12) {
+                    TaskComposerPromptCard(
+                        prompt: promptBinding,
+                        placeholder: promptPlaceholder,
+                        isDisabled: submissionPhase.disablesRequestEditing,
+                        endEditing: resolveCompletedOperationRecoveryAfterEditing,
+                        templates: templates,
+                        selectedTemplateID: selectedTemplateID,
+                        modelPickerVariant: displaySettings.taskComposerModelPickerVariant,
+                        models: availableModels,
+                        selectedModelID: selectedModelID,
+                        selectTemplate: selectTemplateFromPicker,
+                        selectModel: selectModel,
+                        editTemplates: presentTemplateEditor
+                    )
+
+                    TaskComposerContextSection(
+                        workspaceName: workspaceNameBinding,
+                        machines: machines,
+                        selectedMacDeviceID: selectedMacDeviceID,
+                        directory: directory,
+                        modelPickerVariant: displaySettings.taskComposerModelPickerVariant,
+                        models: availableModels,
+                        selectedModelID: selectedModelID,
+                        isDisabled: submissionPhase.disablesRequestEditing,
+                        endWorkspaceNameEditing: resolveCompletedOperationRecoveryAfterEditing,
+                        selectMachine: selectMachine,
+                        selectDirectory: { isDirectoryPickerPresented = true },
+                        selectModel: selectModel
+                    )
+                    .dynamicTypeSize(...DynamicTypeSize.xxxLarge)
+                }
+                .frame(maxWidth: 680)
+                .frame(maxWidth: .infinity)
+                .padding(.horizontal, 20)
+                .padding(.top, 14)
+                .padding(.bottom, 20)
+            }
+            .scrollDismissesKeyboard(.interactively)
+        }
+        .safeAreaInset(edge: .bottom, spacing: 0) {
+            TaskComposerPrimaryAction(
+                isSubmitting: submissionPhase.showsProgress,
+                isEnabled: selectedMachine != nil && canLaunchSelectedTemplate,
+                templateIcon: selectedTemplate?.icon,
+                actionTitle: primaryActionTitle,
+                progressTitle: primaryActionProgressTitle,
+                caption: primaryActionCaption,
+                failureTitle: failureTitleStyle.title,
+                failureText: failureText,
+                completedOperationRecovery: blockingCompletedOperationRecovery,
+                action: startSubmission,
+                refreshCompletedOperation: startCompletedOperationReconciliation,
+                requestStartAgain: { isStartAgainConfirmationPresented = true }
+            )
+        }
+        .navigationTitle(L10n.string("mobile.taskComposer.title", defaultValue: "New Task"))
+        .mobileInlineNavigationTitle()
+        .toolbar {
+            ToolbarItem(placement: .cancellationAction) {
+                Button(action: cancelComposer) {
+                    Image(systemName: "xmark")
+                }
+                // Cancellation remains safe while routing and capability
+                // checks run. Lock only once the create boundary commits.
+                .disabled(submissionPhase.locksDismissal)
+                .accessibilityLabel(L10n.string("mobile.common.cancel", defaultValue: "Cancel"))
+                .accessibilityIdentifier("MobileTaskComposerCancelButton")
+            }
+        }
+    }
+
+    private var minimalLayout: some View {
+        TaskComposerMinimalLayout(
+            prompt: promptBinding,
+            genericPromptPlaceholder: promptPlaceholder,
+            directory: directory,
+            isDisabled: submissionPhase.disablesRequestEditing,
+            locksDismissal: submissionPhase.locksDismissal,
+            templates: templates,
+            selectedTemplateID: selectedTemplateID,
+            modelPickerVariant: displaySettings.taskComposerModelPickerVariant,
+            models: availableModels,
+            selectedModelID: selectedModelID,
+            isSubmitting: submissionPhase.showsProgress,
+            isSubmitEnabled: selectedMachine != nil
+                && canLaunchSelectedTemplate
+                && submissionPhase.allowsSubmission,
+            failureTitle: failureTitleStyle.title,
+            failureText: failureText,
+            completedOperationRecovery: blockingCompletedOperationRecovery,
+            optionsSheet: minimalOptionsSheet,
+            endEditing: resolveCompletedOperationRecoveryAfterEditing,
+            selectTemplate: selectTemplateFromPicker,
+            selectModel: selectModel,
+            editTemplates: presentTemplateEditor,
+            cancel: cancelComposer,
+            submit: startSubmission,
+            refreshCompletedOperation: startCompletedOperationReconciliation,
+            requestStartAgain: { isStartAgainConfirmationPresented = true }
+        )
+    }
+
+    private var minimalOptionsSheet: TaskComposerOptionsSheet {
+        TaskComposerOptionsSheet(
+            workspaceName: workspaceNameBinding,
+            machines: machines,
+            selectedMacDeviceID: selectedMacDeviceID,
+            directory: directory,
+            modelPickerVariant: displaySettings.taskComposerModelPickerVariant,
+            models: availableModels,
+            selectedModelID: selectedModelID,
+            isDisabled: submissionPhase.disablesRequestEditing,
+            directoryCandidates: directoryCandidates,
+            endWorkspaceNameEditing: resolveCompletedOperationRecoveryAfterEditing,
+            selectMachine: selectMachine,
+            selectDirectory: selectDirectory,
+            selectModel: selectModel,
+            searchMac: { query in
+                if let searchTaskDirectories {
+                    return await searchTaskDirectories(selectedMacDeviceID, query)
+                }
+                return await store.searchTaskDirectories(
+                    macDeviceID: selectedMacDeviceID,
+                    query: query
+                )
+            },
+            listMac: { path, offset in
+                if let listTaskDirectories {
+                    return await listTaskDirectories(selectedMacDeviceID, path, offset)
+                }
+                return await store.listTaskDirectories(
+                    macDeviceID: selectedMacDeviceID,
+                    path: path,
+                    offset: offset
+                )
+            }
+        )
     }
 
     var selectedTemplate: MobileTaskTemplate? {
@@ -482,6 +556,13 @@ struct TaskComposerSheet: View {
     private func presentTemplateEditor() {
         persistDraft()
         isEditorPresented = true
+    }
+
+    private func cancelComposer() {
+        submitTask?.cancel()
+        shouldPersistDraftOnDisappear = false
+        store.clearTaskComposerDraft(ifSessionGeneration: sessionGeneration)
+        dismiss()
     }
 
     private func selectMachine(_ macDeviceID: String) {

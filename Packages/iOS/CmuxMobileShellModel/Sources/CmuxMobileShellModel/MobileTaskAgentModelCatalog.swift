@@ -67,6 +67,7 @@ public enum MobileTaskAgentModelCatalog {
             ]
         case .codex:
             [
+                MobileTaskAgentModel(id: "gpt-5.6-luna", displayName: "GPT-5.6 Luna"),
                 MobileTaskAgentModel(id: "gpt-5.6-sol", displayName: "GPT-5.6 Sol"),
                 MobileTaskAgentModel(id: "gpt-5.5", displayName: "GPT-5.5"),
             ]

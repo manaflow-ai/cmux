@@ -31,6 +31,7 @@ public final class MobileDisplaySettings {
     private static let profilePictureLeftShiftKey = "cmux.mobile.debug.profilePictureLeftShift"
     private static let profilePictureSizeKey = "cmux.mobile.debug.profilePictureSize"
     #if DEBUG
+    private static let taskComposerLayoutStyleKey = "cmux.mobile.debug.taskComposerLayoutStyle.v1"
     private static let taskComposerModelPickerVariantKey = "cmux.mobile.debug.taskComposerModelPickerVariant.v1"
     private static let taskComposerShellIconVariantKey = "cmux.mobile.debug.taskComposerShellIconVariant.v1"
     #endif
@@ -140,6 +141,16 @@ public final class MobileDisplaySettings {
     }
 
     #if DEBUG
+    /// Persisted selection for the debug-only New Task layout lab.
+    var taskComposerLayoutStyle: TaskComposerLayoutStyle {
+        didSet {
+            defaults.set(
+                taskComposerLayoutStyle.rawValue,
+                forKey: Self.taskComposerLayoutStyleKey
+            )
+        }
+    }
+
     /// Persisted selection for the debug-only New Task model-picker lab.
     var taskComposerModelPickerVariant: TaskComposerModelPickerVariant {
         didSet {
@@ -160,6 +171,8 @@ public final class MobileDisplaySettings {
         }
     }
     #else
+    /// Production builds expose only the shipping classic New Task layout.
+    var taskComposerLayoutStyle: TaskComposerLayoutStyle { .classic }
     /// Production builds hide model selection in the New Task composer.
     var taskComposerModelPickerVariant: TaskComposerModelPickerVariant { .off }
     /// Production builds expose only the shipping Shell icon treatment.
@@ -200,6 +213,9 @@ public final class MobileDisplaySettings {
             to: Self.profilePictureSizeRange
         )
         #if DEBUG
+        self.taskComposerLayoutStyle = defaults.string(
+            forKey: Self.taskComposerLayoutStyleKey
+        ).flatMap(TaskComposerLayoutStyle.init(rawValue:)) ?? .composer
         self.taskComposerModelPickerVariant = defaults.string(
             forKey: Self.taskComposerModelPickerVariantKey
         ).flatMap(TaskComposerModelPickerVariant.init(rawValue:)) ?? .combined

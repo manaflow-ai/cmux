@@ -6093,13 +6093,98 @@
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "Choose a variant, then reopen New Task."
+            "value": "Choose a layout and model variant, then reopen New Task."
           }
         },
         "ja": {
           "stringUnit": {
             "state": "translated",
-            "value": "バリエーションを選び、もう一度「新規タスク」を開いてください。"
+            "value": "レイアウトとモデルのバリエーションを選び、「新規タスク」を開き直してください。"
+          }
+        }
+      }
+    },
+    "mobile.settings.modelPickerLab.layout": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Layout"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "レイアウト"
+          }
+        }
+      }
+    },
+    "mobile.settings.modelPickerLab.layout.classic.detail": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Card sheet with Start button."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "開始ボタン付きのカード形式シートです。"
+          }
+        }
+      }
+    },
+    "mobile.settings.modelPickerLab.layout.classic.title": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Classic"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "クラシック"
+          }
+        }
+      }
+    },
+    "mobile.settings.modelPickerLab.layout.composer.detail": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Full-screen prompt with a bottom control bar."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "下部にコントロールバーを備えた全画面プロンプトです。"
+          }
+        }
+      }
+    },
+    "mobile.settings.modelPickerLab.layout.composer.title": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Composer"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "コンポーザー"
           }
         }
       }
@@ -9215,6 +9300,23 @@
         }
       }
     },
+    "mobile.taskComposer.composer.promptPlaceholderFormat": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Describe a coding task in %@"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%@で行うコーディングタスクを入力"
+          }
+        }
+      }
+    },
     "mobile.taskComposer.create": {
       "extractionState": "manual",
       "localizations": {
@@ -10507,6 +10609,23 @@
         }
       }
     },
+    "mobile.taskComposer.options.title": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Task Options"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "タスクオプション"
+          }
+        }
+      }
+    },
     "mobile.taskComposer.preparingWorkspace": {
       "extractionState": "manual",
       "localizations": {
@@ -11205,6 +11324,23 @@
       }
     },
     "mobile.taskComposer.startTask": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Start Task"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "タスクを開始"
+          }
+        }
+      }
+    },
+    "mobile.taskComposer.submit": {
       "extractionState": "manual",
       "localizations": {
         "en": {
