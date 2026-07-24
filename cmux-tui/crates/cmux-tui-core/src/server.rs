@@ -4266,10 +4266,8 @@ mod tests {
         RenderClientState::new(&render_protocol_frame(terminal, render_state))
     }
 
-    const RED_IMAGE_41: &[u8] =
-        b"\x1b_Ga=T,t=d,f=24,i=41,p=7,s=1,v=1,c=1,r=1,q=2;/wAA\x1b\\";
-    const GREEN_IMAGE_42: &[u8] =
-        b"\x1b_Ga=T,t=d,f=24,i=42,p=8,s=1,v=1,c=1,r=1,q=2;AP8A\x1b\\";
+    const RED_IMAGE_41: &[u8] = b"\x1b_Ga=T,t=d,f=24,i=41,p=7,s=1,v=1,c=1,r=1,q=2;/wAA\x1b\\";
+    const GREEN_IMAGE_42: &[u8] = b"\x1b_Ga=T,t=d,f=24,i=42,p=8,s=1,v=1,c=1,r=1,q=2;AP8A\x1b\\";
     const LARGE_RENDER_IMAGE_WIDTH: usize = 1_024;
     const LARGE_RENDER_IMAGE_HEIGHT: usize = 768;
     const LARGE_RENDER_IMAGE_RAW_BYTES: usize =
@@ -4408,9 +4406,11 @@ mod tests {
         assert!(graphics.get("images").is_none(), "{delta:#}");
         assert!(graphics.get("removed_image_ids").is_none(), "{delta:#}");
         assert_eq!(graphics["placements"].as_array().unwrap().len(), 2);
-        assert!(graphics["placements"].as_array().unwrap().iter().any(|placement| {
-            placement["placement_id"] == 9 && placement["viewport_col"] == 2
-        }));
+        assert!(
+            graphics["placements"].as_array().unwrap().iter().any(|placement| {
+                placement["placement_id"] == 9 && placement["viewport_col"] == 2
+            })
+        );
     }
 
     #[test]
@@ -4421,9 +4421,7 @@ mod tests {
         let mut render_state = RenderState::new().unwrap();
         let mut client = render_protocol_client(&mut terminal, &mut render_state);
 
-        terminal.vt_write(
-            b"\x1b_Ga=T,t=d,f=24,i=41,p=7,s=1,v=1,c=1,r=1,q=2;AAD/\x1b\\",
-        );
+        terminal.vt_write(b"\x1b_Ga=T,t=d,f=24,i=41,p=7,s=1,v=1,c=1,r=1,q=2;AAD/\x1b\\");
         let frame = render_protocol_frame(&mut terminal, &mut render_state);
         let delta = client.delta_json(1, &frame);
         let images = delta["graphics"]["images"].as_array().unwrap();
@@ -4448,11 +4446,13 @@ mod tests {
 
         assert_eq!(graphics["removed_image_ids"], json!([41]));
         assert!(graphics.get("images").is_none(), "{delta:#}");
-        assert!(graphics["placements"]
-            .as_array()
-            .unwrap()
-            .iter()
-            .all(|placement| placement["image_id"] == 42));
+        assert!(
+            graphics["placements"]
+                .as_array()
+                .unwrap()
+                .iter()
+                .all(|placement| placement["image_id"] == 42)
+        );
     }
 
     #[test]

@@ -10607,8 +10607,7 @@ mod tests {
         clamp_split_ratio_for_tab_bars, client_menu_item, forward_mux_event, forward_mux_events,
         pane_context_menu_groups, pane_parts_for_rect, prepare_ordered_session,
         preserve_client_view, rail_drag_width, record_surface_resize_dispatch_result,
-        report_after_unwind,
-        sidebar_plugin_status_settles_passive_claim, start_ordered_session,
+        report_after_unwind, sidebar_plugin_status_settles_passive_claim, start_ordered_session,
     };
     use std::collections::{BTreeMap, HashMap, HashSet, VecDeque};
     use std::path::PathBuf;
