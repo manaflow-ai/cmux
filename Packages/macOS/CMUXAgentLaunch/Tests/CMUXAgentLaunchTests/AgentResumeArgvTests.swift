@@ -361,6 +361,86 @@ struct AgentResumeArgvTests {
         )
     }
 
+    @Test("Codex wrapper routing skips env options and their operands")
+    func codexWrapperRoutingSkipsEnvOptions() {
+        let quote: (String) -> String = { "'" + $0 + "'" }
+        let wrapper = AgentResumeArgv.codexWrapperShellExecutableToken
+
+        #expect(
+            AgentResumeArgv.renderingCodexWrapperExecutable(
+                parts: ["env", "-u", "CODEX_HOME", "codex", "resume", "SID"],
+                quote: quote
+            ) == [
+                "'/usr/bin/env'",
+                "'-u'",
+                "'CODEX_HOME'",
+                wrapper,
+                "'resume'",
+                "'SID'",
+            ]
+        )
+        #expect(
+            AgentResumeArgv.renderingCodexWrapperExecutable(
+                parts: [
+                    "/usr/bin/env",
+                    "-i",
+                    "--",
+                    "PROFILE=dogfood",
+                    "codex",
+                    "resume",
+                    "SID",
+                ],
+                quote: quote
+            ) == [
+                "'/usr/bin/env'",
+                "'-i'",
+                "'--'",
+                "'PROFILE=dogfood'",
+                wrapper,
+                "'resume'",
+                "'SID'",
+            ]
+        )
+        #expect(
+            AgentResumeArgv.renderingCodexWrapperExecutable(
+                parts: [
+                    "env",
+                    "-iv",
+                    "-C",
+                    "/tmp",
+                    "-P/opt/company/bin",
+                    "-uCODEX_HOME",
+                    "codex",
+                    "resume",
+                    "SID",
+                ],
+                quote: quote
+            ).contains(wrapper)
+        )
+        #expect(
+            !AgentResumeArgv.renderingCodexWrapperExecutable(
+                parts: [
+                    "env",
+                    "PROFILE=dogfood",
+                    "-u",
+                    "CODEX_HOME",
+                    "codex",
+                    "resume",
+                    "SID",
+                ],
+                quote: quote
+            ).contains(wrapper),
+            "env stops parsing options after its first environment assignment."
+        )
+        #expect(
+            !AgentResumeArgv.renderingCodexWrapperExecutable(
+                parts: ["env", "-S", "codex resume SID", "codex", "resume", "SID"],
+                quote: quote
+            ).contains(wrapper),
+            "A split-string can contain env's real utility, so a later token is ambiguous."
+        )
+    }
+
     @Test("Absolute Codex wrapper fallback executes the captured binary")
     func absoluteCodexWrapperFallbackExecutesCapturedBinary() throws {
         let root = FileManager.default.temporaryDirectory
