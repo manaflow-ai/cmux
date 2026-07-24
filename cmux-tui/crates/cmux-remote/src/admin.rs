@@ -240,7 +240,8 @@ async fn call_admin_over_stream(
     }
     encoded.push(b'\n');
     stream.write_all(&encoded).await?;
-    stream.shutdown().await?;
+    // The newline completes the request. A write-half close can race the
+    // daemon's one-response close and return ENOTCONN on macOS.
     let mut reader = BufReader::new(stream);
     let mut response = Vec::new();
     let size = reader.read_until(b'\n', &mut response).await?;
@@ -505,9 +506,8 @@ mod tests {
         let server = serve_admin(daemon, &socket, Vec::new()).await.unwrap();
 
         for iteration in 0..1_000 {
-            let response = call_admin(&socket, &AdminRequest::Connections)
-                .await
-                .unwrap_or_else(|error| {
+            let response =
+                call_admin(&socket, &AdminRequest::Connections).await.unwrap_or_else(|error| {
                     panic!("admin request {iteration} failed spuriously: {error}")
                 });
             assert!(response.ok);
